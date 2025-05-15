@@ -560,6 +560,10 @@ async function downloadAllResults(allResultsData) {
     }
 
     addProgressLog('开始打包下载结果...');
+    if (typeof JSZip === 'undefined') {
+        showNotification('JSZip 加载失败，无法打包下载', 'error');
+        return;
+    }
     const zip = new JSZip();
     let filesAdded = 0;
 
