@@ -12,6 +12,14 @@
     <script src="https://cdn.jsdelivr.net/npm/js-base64@3.7.5/base64.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script>
+      // failback: 如果 CDN 加载失败，自动加载本地 jszip
+      if (typeof JSZip === 'undefined') {
+        var script = document.createElement('script');
+        script.src = 'js/lib/jszip.min.js';
+        document.head.appendChild(script);
+      }
+    </script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700&display=swap');
         body {
