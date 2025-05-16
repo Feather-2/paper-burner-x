@@ -46,6 +46,30 @@
       margin-top: -2px;
     }
 
+    /* 表格样式 */
+    .markdown-body table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 16px 0;
+      font-size: 0.95em;
+    }
+    .markdown-body table th,
+    .markdown-body table td {
+      border: 1px solid #ddd;
+      padding: 8px 12px;
+      text-align: left;
+    }
+    .markdown-body table th {
+      background-color: #f2f2f2;
+      font-weight: 600;
+    }
+    .markdown-body table tr:nth-child(even) {
+      background-color: #f8f8f8;
+    }
+    .markdown-body table tr:hover {
+      background-color: #f1f5f9;
+    }
+
     /* 其他样式保持不变 */
     .compare-flex { display: flex; gap: 2em; }
     .compare-flex > div { flex: 1; min-width: 0; }
@@ -82,11 +106,11 @@
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
   <script src="js/mindmap.js"></script>
-  <script src="js/chatbot-utils.js"></script>
-  <script src="js/chatbot-preset.js"></script>
-  <script src="js/chatbot-core.js"></script>
-  <script src="js/chatbot-ui.js"></script>
-  <script src="js/chatbot.js"></script>
+  <script src="js/chatbot/chatbot-utils.js"></script>
+  <script src="js/chatbot/chatbot-preset.js"></script>
+  <script src="js/chatbot/chatbot-core.js"></script>
+  <script src="js/chatbot/chatbot-ui.js"></script>
+  <script src="js/chatbot/chatbot.js"></script>
   <script>
     // 预处理Markdown，避免非公式 $ 被误判，并处理图片、上标、下标等
     function safeMarkdown(md, images) {
