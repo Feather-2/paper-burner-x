@@ -171,6 +171,16 @@ async function processSinglePdf(fileToProcess, mistralKey, translationKey, trans
             addProgressLog(`${logPrefix} 不需要翻译`);
         }
 
+        await saveResultToDB({
+            id: `${fileToProcess.name}_${fileToProcess.size}`,
+            name: fileToProcess.name,
+            size: fileToProcess.size,
+            time: new Date().toISOString(),
+            ocr: currentMarkdownContent,
+            translation: currentTranslationContent,
+            images: currentImagesData
+        });
+
         return {
             file: fileToProcess,
             markdown: currentMarkdownContent,
