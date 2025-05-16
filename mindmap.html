@@ -22,7 +22,7 @@
     .topbar {
       width: 100%;
       background: #fff;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      border-bottom: 2px dashed #e2e8f0;
       position: fixed;
       top: 0;
       left: 0;
@@ -57,14 +57,13 @@
       min-width: 120px;
       background: #fff;
       border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+      border: 2px dashed #e2e8f0;
       padding: 0.5rem 0;
       position: absolute;
       right: 0;
       top: 2.75rem;
       z-index: 200;
       display: none;
-      border: 1px solid rgba(0,0,0,0.05);
       transform: translateY(-5px);
       opacity: 0;
       transition: transform 0.2s, opacity 0.2s;
@@ -103,7 +102,7 @@
       min-width: 220px;
       background: transparent !important;
       border-radius: 0;
-      box-shadow: none;
+      border: none;
       margin: 0;
       transition: none;
       overflow: visible;
@@ -115,7 +114,7 @@
       padding: 0.5rem 1rem;
       background: transparent;
       color: #555;
-      border: none;
+      border: 1px dashed #e2e8f0;
       border-radius: 4px;
       font-size: 0.875rem;
       font-weight: 500;
@@ -136,7 +135,7 @@
       display: flex;
       background: white;
       border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+      border: 2px dashed #e2e8f0;
       padding: 0.25rem;
       z-index: 1000;
       transition: all 0.2s;
@@ -148,7 +147,6 @@
         bottom: 16px;
         top: auto;
         transform: translateX(-50%);
-        box-shadow: 0 2px 12px rgba(0,0,0,0.08);
         padding: 0.35rem 0.5rem;
       }
       .zoom-btn {
@@ -161,7 +159,7 @@
     }
     .zoom-btn {
       background: none;
-      border: none;
+      border: 1px dashed #e2e8f0;
       width: 36px;
       height: 36px;
       display: flex;
@@ -191,21 +189,20 @@
     /* 通用节点样式 */
     #jsmind_container jmnode {
       border-radius: 8px !important;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.08) !important;
+      border: 2px dashed rgba(226, 232, 240, 0.8) !important;
       padding: 8px 14px !important;
       transition: all 0.2s ease !important;
-      border: none !important;
       background-color: white !important;
       color: #333 !important;
     }
 
     #jsmind_container jmnode:hover {
       transform: translateY(-2px) !important;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.12) !important;
+      border-color: rgba(226, 232, 240, 1) !important;
     }
 
     #jsmind_container jmnode.selected {
-      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5), 0 4px 10px rgba(0,0,0,0.1) !important;
+      border: 2px dashed rgba(59, 130, 246, 0.5) !important;
     }
 
     /* 根节点 */
@@ -213,6 +210,7 @@
       background-color: #4f46e5 !important;
       color: white !important;
       font-weight: 600 !important;
+      border: 2px solid #4f46e5 !important;
     }
 
     /* 不同层级节点颜色 - 直接使用class属性 */
@@ -221,36 +219,43 @@
     #jsmind_container jmnode[nodeid^="n1"] {
       background-color: #ec4899 !important;
       color: white !important;
+      border: 2px solid #ec4899 !important;
     }
 
     #jsmind_container jmnode[nodeid^="n2"] {
       background-color: #0ea5e9 !important;
       color: white !important;
+      border: 2px solid #0ea5e9 !important;
     }
 
     #jsmind_container jmnode[nodeid^="n3"] {
       background-color: #10b981 !important;
       color: white !important;
+      border: 2px solid #10b981 !important;
     }
 
     #jsmind_container jmnode[nodeid^="n4"] {
       background-color: #f59e0b !important;
       color: white !important;
+      border: 2px solid #f59e0b !important;
     }
 
     #jsmind_container jmnode[nodeid^="n5"] {
       background-color: #8b5cf6 !important;
       color: white !important;
+      border: 2px solid #8b5cf6 !important;
     }
 
     #jsmind_container jmnode[nodeid^="n6"] {
       background-color: #06b6d4 !important;
       color: white !important;
+      border: 2px solid #06b6d4 !important;
     }
 
     #jsmind_container jmnode[nodeid^="n7"] {
       background-color: #ef4444 !important;
       color: white !important;
+      border: 2px solid #ef4444 !important;
     }
 
     /* 连线样式 */
@@ -259,7 +264,7 @@
       height: 16px !important;
       border-radius: 50% !important;
       background-color: #f0f0f0 !important;
-      border: 1px solid #ddd !important;
+      border: 1px dashed #ddd !important;
       transition: all 0.2s !important;
     }
 
@@ -272,6 +277,7 @@
     #jsmind_container jmconnector {
       border-width: 2px !important;
       border-radius: 10px !important;
+      border-style: dashed !important;
     }
 
     /* 连线颜色与节点匹配 */
@@ -484,16 +490,19 @@
     // 通知提示
     function showToast(message, type = 'info') {
       const toast = document.createElement('div');
-      toast.className = `fixed z-50 top-4 right-4 px-4 py-3 rounded-lg shadow-lg text-white text-sm transform transition-all duration-300 flex items-center`;
+      toast.className = `fixed z-50 top-4 right-4 px-4 py-3 rounded-lg border-2 border-dashed text-white text-sm transform transition-all duration-300 flex items-center`;
 
       let bgColor = 'bg-blue-500';
+      let borderColor = 'border-blue-300';
       if (type === 'success') {
         bgColor = 'bg-green-500';
+        borderColor = 'border-green-300';
       } else if (type === 'error') {
         bgColor = 'bg-red-500';
+        borderColor = 'border-red-300';
       }
 
-      toast.className += ' ' + bgColor;
+      toast.className += ' ' + bgColor + ' ' + borderColor;
       toast.textContent = message;
       document.body.appendChild(toast);
 

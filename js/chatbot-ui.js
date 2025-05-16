@@ -49,7 +49,7 @@ function updateChatbotUI() {
       if (m.role === 'user') {
         return `
           <div style="display:flex;justify-content:flex-end;margin-bottom:16px;padding-left:20%;">
-            <div style="background:linear-gradient(135deg, #3b82f6, #2563eb);color:white;padding:12px 16px;border-radius:18px 4px 18px 18px;font-size:15px;line-height:1.5;box-shadow:0 2px 8px rgba(37,99,235,0.2);">
+            <div style="background:linear-gradient(135deg, #3b82f6, #2563eb);color:white;padding:12px 16px;border-radius:18px 4px 18px 18px;font-size:15px;line-height:1.5;border:2px solid #3b82f6;">
               ${window.ChatbotUtils.escapeHtml(m.content)}
             </div>
           </div>
@@ -113,7 +113,7 @@ function updateChatbotUI() {
                   </svg>
                 </button>
                 <button class="export-png-btn" onclick="window.ChatbotUtils.exportMessageAsPng(${index})"
-                        style="background:rgba(0,0,0,0.05);border:none;width:24px;height:24px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;"
+                        style="background:rgba(0,0,0,0.05);border:1px dashed #e2e8f0;width:24px;height:24px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;"
                         title="导出为PNG">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -130,7 +130,7 @@ function updateChatbotUI() {
     if (window.ChatbotCore.isChatbotLoading) {
       chatBody.innerHTML += `
         <div style="display:flex;justify-content:flex-start;margin-bottom:16px;padding-right:80%;">
-          <div style="background:linear-gradient(to bottom, #f9fafb, #f3f4f6);color:#6b7280;padding:10px 16px;border-radius:4px 18px 18px 18px;font-size:15px;line-height:1.5;box-shadow:0 2px 8px rgba(0,0,0,0.08);border:1px solid rgba(0,0,0,0.03);">
+          <div style="background:linear-gradient(to bottom, #f9fafb, #f3f4f6);color:#6b7280;padding:10px 16px;border-radius:4px 18px 18px 18px;font-size:15px;line-height:1.5;border:2px dashed #e2e8f0;">
             <div class="typing-indicator" style="display:flex;align-items:center;gap:3px;">
               <span style="width:6px;height:6px;border-radius:50%;background:#9ca3af;animation:typingAnimation 1.4s infinite;animation-delay:0s;"></span>
               <span style="width:6px;height:6px;border-radius:50%;background:#9ca3af;animation:typingAnimation 1.4s infinite;animation-delay:0.2s;"></span>
@@ -232,7 +232,7 @@ function initChatbotUI() {
             </svg>
           </button>
         </div>
-        <div style="padding:20px 24px 16px 24px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(0,0,0,0.04);">
+        <div style="padding:20px 24px 16px 24px;display:flex;align-items:center;gap:8px;border-bottom:1px dashed rgba(0,0,0,0.1);">
           <div style="width:36px;height:36px;border-radius:18px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);display:flex;align-items:center;justify-content:center;">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 12c0-9-9-4-9-4v2c0 2-2 3-4 3H5a1 1 0 0 0-1 1v3a1 1 0 0 0 1 1h3c2 0 3 1 3 3" />
@@ -253,29 +253,29 @@ function initChatbotUI() {
               '请用通俗语言解释全文',
               '为本文内容生成思维导图'
             ]).map(q => `
-              <button style="background:linear-gradient(to bottom, rgba(240,249,255,0.95), rgba(224,242,254,0.95));color:#0369a1;border-radius:32px;border:1px solid rgba(125,211,252,0.4);padding:7px 14px;font-size:13px;font-weight:500;cursor:pointer;transition:all 0.2s;box-shadow:0 1px 3px rgba(14,165,233,0.1), 0 1px 2px rgba(0,0,0,0.05);"
-                onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 6px rgba(14,165,233,0.1), 0 2px 4px rgba(0,0,0,0.05)';"
-                onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 1px 3px rgba(14,165,233,0.1), 0 1px 2px rgba(0,0,0,0.05)';"
+              <button style="background:linear-gradient(to bottom, rgba(240,249,255,0.95), rgba(224,242,254,0.95));color:#0369a1;border-radius:32px;border:2px dashed rgba(125,211,252,0.4);padding:7px 14px;font-size:13px;font-weight:500;cursor:pointer;transition:all 0.2s;"
+                onmouseover="this.style.transform='translateY(-2px)';"
+                onmouseout="this.style.transform='translateY(0)';"
                 onclick="window.handlePresetQuestion(decodeURIComponent('${encodeURIComponent(q)}'))"
               >${q}</button>
             `).join('')}
           </div>
           <div id="chatbot-body" style="flex:1;overflow-y:auto;padding-right:6px;margin-right:-6px;padding-bottom:10px;scrollbar-width:thin;scrollbar-color:#ddd transparent;scroll-behavior:smooth;"></div>
         </div>
-        <div style="padding:16px 20px;border-top:1px solid rgba(0,0,0,0.04);background:rgba(249,250,251,0.7);">
+        <div style="padding:16px 20px;border-top:1px dashed rgba(0,0,0,0.1);background:rgba(249,250,251,0.7);">
           <div style="display:flex;align-items:center;gap:12px;">
             <div style="position:relative;flex:1;">
               <input id="chatbot-input" type="text" placeholder="请输入问题..."
-                style="width:100%;height:44px;border-radius:22px;border:1px solid rgba(0,0,0,0.1);background:white;padding:0 16px;font-size:15px;transition:all 0.2s;box-shadow:0 1px 2px rgba(0,0,0,0.04);outline:none;box-sizing:border-box;"
+                style="width:100%;height:44px;border-radius:22px;border:2px dashed #e2e8f0;background:white;padding:0 16px;font-size:15px;transition:all 0.2s;outline:none;box-sizing:border-box;"
                 onkeydown="if(event.key==='Enter'){window.handleChatbotSend();}"
                 onfocus="this.style.borderColor='#3b82f6';this.style.boxShadow='0 0 0 3px rgba(59,130,246,0.25)'"
-                onblur="this.style.borderColor='rgba(0,0,0,0.1)';this.style.boxShadow='0 1px 2px rgba(0,0,0,0.04)'"
+                onblur="this.style.borderColor='#e2e8f0';this.style.boxShadow='none'"
               />
             </div>
             <button id="chatbot-send-btn"
-              style="background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;border:none;height:44px;min-width:44px;border-radius:22px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;box-shadow:0 2px 5px rgba(37,99,235,0.2);flex-shrink:0;"
-              onmouseover="this.style.transform='translateY(-1px)';this.style.boxShadow='0 4px 8px rgba(37,99,235,0.25)';"
-              onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 2px 5px rgba(37,99,235,0.2)';"
+              style="background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;border:2px solid #2563eb;height:44px;min-width:44px;border-radius:22px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;flex-shrink:0;"
+              onmouseover="this.style.transform='translateY(-1px)';"
+              onmouseout="this.style.transform='translateY(0)';"
               onclick="window.handleChatbotSend()"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -378,7 +378,7 @@ function renderMindmapShadow(md) {
       'rgba(59,130,246,0.22)',
       'rgba(59,130,246,0.15)'
     ];
-    let html = `<div class=\"mindmap-shadow-node level${level}\" style=\"position:relative;margin-left:${level*28}px;padding:3px 8px 3px 12px;background:${colors[level]||colors[2]};border-radius:8px;min-width:60px;max-width:260px;margin-bottom:2px;opacity:0.7;\">`;
+    let html = `<div class=\"mindmap-shadow-node level${level}\" style=\"position:relative;margin-left:${level*28}px;padding:3px 8px 3px 12px;background:${colors[level]||colors[2]};border-radius:8px;min-width:60px;max-width:260px;margin-bottom:2px;opacity:0.7;border:1px dashed rgba(59,130,246,0.2);\">`;
     // 圆点
     html += `<span style=\"position:absolute;left:-10px;top:50%;transform:translateY(-50%);width:7px;height:7px;border-radius:4px;background:${dotColors[level]||dotColors[2]};box-shadow:0 0 0 1px #e0e7ef;\"></span>`;
     // 线条（如果不是根节点且不是最后一个兄弟）

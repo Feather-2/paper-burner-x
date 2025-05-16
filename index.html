@@ -144,7 +144,7 @@
                                     <span>自定义模型设置</span>
                                     <iconify-icon id="customModelSettingsToggleIcon" icon="carbon:chevron-down" class="ml-1" width="16"></iconify-icon>
                                 </button>
-                                <div id="customModelSettings" class="hidden mt-2 gradient-card border border-gray-200 rounded-lg p-4">
+                                <div id="customModelSettings" class="hidden mt-2 border-2 border-dashed border-gray-300 rounded-lg p-4">
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div>
                                             <label for="customApiEndpoint" class="block text-sm font-medium text-gray-700 mb-1">API Endpoint URL <span class="text-red-500">*</span></label>
@@ -190,7 +190,7 @@
                     </button>
 
                     <div id="advancedSettings" class="hidden mt-2">
-                        <div class="bg-white rounded-lg shadow-md border border-gray-200 p-6">
+                        <div class="border-2 border-dashed border-gray-300 rounded-lg p-6">
                             <h3 class="text-lg font-semibold text-gray-800 mb-4 border-b pb-2 flex items-center"><iconify-icon icon="carbon:settings-check" class="mr-2 text-gray-600"></iconify-icon>性能与流程设置</h3>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                                 <div>
@@ -254,7 +254,7 @@
                             浏览文件
                         </button>
                     </div>
-                    <div id="fileListContainer" class="max-h-60 overflow-y-auto border border-gray-200 rounded-lg p-3 bg-gray-50 hidden">
+                    <div id="fileListContainer" class="max-h-60 overflow-y-auto border-2 border-dashed border-gray-300 rounded-lg p-3 bg-gray-50 hidden">
                         <div class="flex justify-between items-center mb-2">
                             <span class="text-sm font-medium text-gray-700">已选文件:</span>
                             <button id="clearFilesBtn" class="text-sm text-red-500 hover:text-red-700">清空列表</button>
@@ -360,12 +360,12 @@
           <button id="closeHistoryPanel" class="text-gray-400 hover:text-red-500"><iconify-icon icon="carbon:close" width="20"></iconify-icon></button>
         </div>
         <div id="historyList"></div>
-        <button id="clearHistoryBtn" class="mt-4 w-full bg-red-100 text-red-600 rounded py-2 hover:bg-red-200">清空历史</button>
+        <button id="clearHistoryBtn" class="mt-4 w-full bg-red-100 text-red-600 border-2 border-dashed border-red-200 rounded py-2 hover:bg-red-200">清空历史</button>
       </div>
     </div>
     <!-- 详情弹窗 -->
     <div id="historyDetailModal" class="fixed inset-0 z-[99999] bg-black bg-opacity-30 flex items-center justify-center hidden">
-      <div class="bg-white rounded-xl shadow-2xl border border-gray-200 p-6 w-[90vw] max-w-2xl max-h-[90vh] overflow-y-auto relative">
+      <div class="bg-white rounded-xl border-2 border-dashed border-gray-300 p-6 w-[90vw] max-w-2xl max-h-[90vh] overflow-y-auto relative">
         <button id="closeHistoryDetail" class="absolute top-2 right-2 text-gray-400 hover:text-red-500"><iconify-icon icon="carbon:close" width="20"></iconify-icon></button>
         <div id="historyDetailContent"></div>
       </div>

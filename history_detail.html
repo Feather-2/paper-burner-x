@@ -9,10 +9,44 @@
   <style>
     /* 页面基础样式 */
     body { font-family: sans-serif; background: #f7f7fa; margin: 0; }
-    .container { max-width: 1200px; margin: 40px auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 16px #0001; padding: 32px; }
-    .tab-btn { padding: 8px 24px; border: none; background: #f0f0f0; margin-right: 8px; border-radius: 6px 6px 0 0; cursor: pointer; font-size: 1rem; }
-    .tab-btn.active { background: #2563eb; color: #fff; }
-    .tab-content { background: #fafbfc; border-radius: 0 0 8px 8px; padding: 24px; min-height: 300px; }
+    .container { max-width: 1200px; margin: 40px auto; background: #fff; border-radius: 12px; border: 2px dashed #e2e8f0; padding: 32px; }
+
+    /* 标签栏样式改进 */
+    .tabs-container { border-bottom: 2px solid #e2e8f0; margin-bottom: 16px; display: flex; }
+    .tab-btn {
+      padding: 8px 24px;
+      background: transparent;
+      margin-right: 4px;
+      border-radius: 6px 6px 0 0;
+      cursor: pointer;
+      font-size: 1rem;
+      border: 2px solid transparent;
+      border-bottom: none;
+      position: relative;
+      bottom: -2px;
+      transition: all 0.2s ease;
+    }
+    .tab-btn:hover:not(.active) {
+      background: #f1f5f9;
+    }
+    .tab-btn.active {
+      background: #fff;
+      color: #2563eb;
+      border-color: #e2e8f0;
+      border-bottom: 2px solid #fff;
+      font-weight: 500;
+    }
+
+    .tab-content {
+      background: #fff;
+      border-radius: 8px;
+      padding: 24px;
+      min-height: 300px;
+      border: 2px dashed #e2e8f0;
+      margin-top: -2px;
+    }
+
+    /* 其他样式保持不变 */
     .compare-flex { display: flex; gap: 2em; }
     .compare-flex > div { flex: 1; min-width: 0; }
     .markdown-body { font-size: 1rem; line-height: 1.7; }
@@ -21,10 +55,10 @@
       height: auto;
       margin: 8px 0;
       border-radius: 6px;
-      box-shadow: 0 1px 6px #0002;
+      border: 1px dashed #e2e8f0;
       display: block;
     }
-    pre { background: #f3f3f3; padding: 8px; border-radius: 4px; overflow-x: auto; }
+    pre { background: #f3f3f3; padding: 8px; border-radius: 4px; overflow-x: auto; border: 1px dashed #e2e8f0; }
     h2, h3 { margin-top: 0; }
     .meta { color: #888; font-size: 0.95em; margin-bottom: 1em; }
   </style>
@@ -33,7 +67,7 @@
   <div class="container">
     <h2 id="fileName">历史详情</h2>
     <div class="meta" id="fileMeta"></div>
-    <div>
+    <div class="tabs-container">
       <button class="tab-btn" id="tab-ocr">仅OCR</button>
       <button class="tab-btn" id="tab-translation">仅翻译</button>
       <button class="tab-btn" id="tab-compare">对比</button>
@@ -186,41 +220,21 @@
       let html = '';
       if(tab === 'ocr') {
         document.getElementById('tab-ocr').classList.add('active');
-        html = '<h3>OCR内容</h3><div class="markdown-body">' + renderWithKatexFailback(safeMarkdown(data.ocr || '', data.images)) + '</div>';
+        html = '<h3>OCR内容</h3><div class="markdown-body" style="background:#fff;padding:16px;border-radius:8px;border:1px solid #e2e8f0;">' + renderWithKatexFailback(safeMarkdown(data.ocr || '', data.images)) + '</div>';
       } else if(tab === 'translation') {
         document.getElementById('tab-translation').classList.add('active');
         html = '<h3>翻译内容</h3>' +
-          '<div id="translation-content" class="markdown-body" style="background:#fff;">' + renderWithKatexFailback(safeMarkdown(data.translation || '', data.images)) + '</div>' +
-          '<button id="export-pdf-btn" style="margin-top:20px;padding:8px 20px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:1rem;">导出PDF</button>';
+          '<div id="translation-content" class="markdown-body" style="background:#fff;padding:16px;border-radius:8px;border:1px solid #e2e8f0;">' + renderWithKatexFailback(safeMarkdown(data.translation || '', data.images)) + '</div>';
       } else {
         document.getElementById('tab-compare').classList.add('active');
         html = `
           <div class="compare-flex">
-            <div><h3>OCR内容</h3><div class="markdown-body">${renderWithKatexFailback(safeMarkdown(data.ocr || '', data.images))}</div></div>
-            <div><h3>翻译内容</h3><div class="markdown-body">${renderWithKatexFailback(safeMarkdown(data.translation || '', data.images))}</div></div>
+            <div><h3>OCR内容</h3><div class="markdown-body" style="background:#fff;padding:16px;border-radius:8px;border:1px solid #e2e8f0;">${renderWithKatexFailback(safeMarkdown(data.ocr || '', data.images))}</div></div>
+            <div><h3>翻译内容</h3><div class="markdown-body" style="background:#fff;padding:16px;border-radius:8px;border:1px solid #e2e8f0;">${renderWithKatexFailback(safeMarkdown(data.translation || '', data.images))}</div></div>
           </div>
         `;
       }
       document.getElementById('tabContent').innerHTML = html;
-      // 翻译tab下绑定导出PDF按钮
-      if(tab === 'translation') {
-        const btn = document.getElementById('export-pdf-btn');
-        if(btn) {
-          btn.onclick = function() {
-            const content = document.getElementById('translation-content');
-            if(!content) return;
-            const opt = {
-              margin:       0.5,
-              filename:     (data && data.name ? data.name : '翻译内容') + '.pdf',
-              image:        { type: 'jpeg', quality: 0.98 },
-              html2canvas:  { scale: 2, backgroundColor: '#fff' },
-              jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' },
-              pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
-            };
-            html2pdf().set(opt).from(content).save();
-          }
-        }
-      }
     }
     // 绑定tab按钮点击事件
     document.getElementById('tab-ocr').onclick = function() { showTab('ocr'); };
