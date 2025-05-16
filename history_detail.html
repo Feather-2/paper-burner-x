@@ -5,6 +5,7 @@
   <title>历史详情</title>
   <!-- KaTeX 公式渲染样式 -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <link type="text/css" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsmind/style/jsmind.css" />
   <style>
     /* 页面基础样式 */
     body { font-family: sans-serif; background: #f7f7fa; margin: 0; }
@@ -46,6 +47,12 @@
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
+  <script src="js/mindmap.js"></script>
+  <script src="js/chatbot-utils.js"></script>
+  <script src="js/chatbot-preset.js"></script>
+  <script src="js/chatbot-core.js"></script>
+  <script src="js/chatbot-ui.js"></script>
+  <script src="js/chatbot.js"></script>
   <script>
     // 预处理Markdown，避免非公式 $ 被误判，并处理图片、上标、下标等
     function safeMarkdown(md, images) {
@@ -152,6 +159,7 @@
       const id = getQueryParam('id');
       if (!id) return;
       data = await getResultFromDB(id);
+      window.data = data;
       if (!data) {
         document.getElementById('fileName').textContent = '未找到数据';
         document.getElementById('fileMeta').textContent = '';

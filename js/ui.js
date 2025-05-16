@@ -87,8 +87,17 @@ function updateFileListUI(pdfFiles, isProcessing, onRemoveFile) {
                 onRemoveFile(indexToRemove); // 调用回调函数处理删除逻辑
             });
         });
+        // ========== 新增：文件列表刷新时刷新 window.data ==========
+        if (pdfFiles.length === 1) {
+            window.data = { name: pdfFiles[0].name, ocr: '', translation: '', images: [], summaries: {} };
+        } else if (pdfFiles.length === 0) {
+            window.data = {};
+        } else {
+            window.data = { summaries: {} };
+        }
     } else {
         fileListContainer.classList.add('hidden');
+        window.data = {};
     }
 }
 

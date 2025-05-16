@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>思维导图 - Paper Burner</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/iconify-icon@2.0.0/dist/iconify-icon.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link type="text/css" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsmind/style/jsmind.css" />
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/jsmind/es6/jsmind.js"></script>
+  <style>
+    body {
+      font-family: 'Nunito', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      background: #f8f9fa;
+      overflow: hidden;
+      color: #333;
+    }
+    .topbar {
+      width: 100%;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 20;
+      height: 56px;
+    }
+    .topbar-btns {
+      display: flex;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+      gap: 0.5rem;
+    }
+    .topbar-btns::-webkit-scrollbar {
+      display: none;
+    }
+    @media (max-width: 640px) {
+      .btn {
+        padding: 0.4rem 0.7rem;
+        font-size: 0.78rem;
+      }
+      .topbar-btns {
+        gap: 0.25rem;
+      }
+      .btn[data-mobile-hide] {
+        display: none !important;
+      }
+    }
+    .more-menu {
+      min-width: 120px;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+      padding: 0.5rem 0;
+      position: absolute;
+      right: 0;
+      top: 2.75rem;
+      z-index: 200;
+      display: none;
+      border: 1px solid rgba(0,0,0,0.05);
+      transform: translateY(-5px);
+      opacity: 0;
+      transition: transform 0.2s, opacity 0.2s;
+    }
+    .more-menu.show {
+      display: block;
+      transform: translateY(0);
+      opacity: 1;
+    }
+    #mindmap-full-container {
+      width: 100%;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      overflow: auto;
+      position: relative;
+      padding-top: 56px;
+    }
+    #mindmap-canvas-area {
+      flex: 1;
+      width: 100%;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      margin: 0;
+      overflow: visible;
+    }
+    #jsmind_container {
+      width: 100%;
+      height: 100%;
+      min-height: 400px;
+      min-width: 220px;
+      background: transparent !important;
+      border-radius: 0;
+      box-shadow: none;
+      margin: 0;
+      transition: none;
+      overflow: visible;
+    }
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.5rem 1rem;
+      background: transparent;
+      color: #555;
+      border: none;
+      border-radius: 4px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn:hover {
+      background: #f3f3f3;
+      color: #222;
+    }
+    .btn iconify-icon {
+      font-size: 18px;
+    }
+    .zoom-controls {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      display: flex;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+      padding: 0.25rem;
+      z-index: 1000;
+      transition: all 0.2s;
+    }
+    @media (max-width: 640px) {
+      .zoom-controls {
+        left: 50%;
+        right: auto;
+        bottom: 16px;
+        top: auto;
+        transform: translateX(-50%);
+        box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+        padding: 0.35rem 0.5rem;
+      }
+      .zoom-btn {
+        width: 40px;
+        height: 40px;
+      }
+      .zoom-value {
+        min-width: 60px;
+      }
+    }
+    .zoom-btn {
+      background: none;
+      border: none;
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      cursor: pointer;
+      color: #555;
+      transition: all 0.2s;
+    }
+    .zoom-btn:hover {
+      background: #f3f3f3;
+      color: #222;
+    }
+    .zoom-value {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 0.75rem;
+      font-size: 0.875rem;
+      color: #555;
+      font-weight: 500;
+      min-width: 60px;
+    }
+
+    /* 思维导图节点和连线样式优化 - 使用更直接的选择器 */
+    /* 通用节点样式 */
+    #jsmind_container jmnode {
+      border-radius: 8px !important;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08) !important;
+      padding: 8px 14px !important;
+      transition: all 0.2s ease !important;
+      border: none !important;
+      background-color: white !important;
+      color: #333 !important;
+    }
+
+    #jsmind_container jmnode:hover {
+      transform: translateY(-2px) !important;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.12) !important;
+    }
+
+    #jsmind_container jmnode.selected {
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5), 0 4px 10px rgba(0,0,0,0.1) !important;
+    }
+
+    /* 根节点 */
+    #jsmind_container jmnode.root {
+      background-color: #4f46e5 !important;
+      color: white !important;
+      font-weight: 600 !important;
+    }
+
+    /* 不同层级节点颜色 - 直接使用class属性 */
+    /* 一级节点颜色 - 这些会被应用到直接子节点 */
+    #jsmind_container .root > jmexpander + jmnode,
+    #jsmind_container jmnode[nodeid^="n1"] {
+      background-color: #ec4899 !important;
+      color: white !important;
+    }
+
+    #jsmind_container jmnode[nodeid^="n2"] {
+      background-color: #0ea5e9 !important;
+      color: white !important;
+    }
+
+    #jsmind_container jmnode[nodeid^="n3"] {
+      background-color: #10b981 !important;
+      color: white !important;
+    }
+
+    #jsmind_container jmnode[nodeid^="n4"] {
+      background-color: #f59e0b !important;
+      color: white !important;
+    }
+
+    #jsmind_container jmnode[nodeid^="n5"] {
+      background-color: #8b5cf6 !important;
+      color: white !important;
+    }
+
+    #jsmind_container jmnode[nodeid^="n6"] {
+      background-color: #06b6d4 !important;
+      color: white !important;
+    }
+
+    #jsmind_container jmnode[nodeid^="n7"] {
+      background-color: #ef4444 !important;
+      color: white !important;
+    }
+
+    /* 连线样式 */
+    #jsmind_container jmexpander {
+      width: 16px !important;
+      height: 16px !important;
+      border-radius: 50% !important;
+      background-color: #f0f0f0 !important;
+      border: 1px solid #ddd !important;
+      transition: all 0.2s !important;
+    }
+
+    #jsmind_container jmexpander:hover {
+      background-color: #e0e0e0 !important;
+      transform: scale(1.1) !important;
+    }
+
+    /* 连线样式强制覆盖 */
+    #jsmind_container jmconnector {
+      border-width: 2px !important;
+      border-radius: 10px !important;
+    }
+
+    /* 连线颜色与节点匹配 */
+    #jsmind_container jmnode[nodeid^="n1"] ~ jmconnector,
+    #jsmind_container .root > jmexpander + jmnode ~ jmconnector {
+      border-color: #ec4899 !important;
+    }
+
+    #jsmind_container jmnode[nodeid^="n2"] ~ jmconnector {
+      border-color: #0ea5e9 !important;
+    }
+
+    #jsmind_container jmnode[nodeid^="n3"] ~ jmconnector {
+      border-color: #10b981 !important;
+    }
+
+    #jsmind_container jmnode[nodeid^="n4"] ~ jmconnector {
+      border-color: #f59e0b !important;
+    }
+
+    #jsmind_container jmnode[nodeid^="n5"] ~ jmconnector {
+      border-color: #8b5cf6 !important;
+    }
+
+    #jsmind_container jmnode[nodeid^="n6"] ~ jmconnector {
+      border-color: #06b6d4 !important;
+    }
+
+    #jsmind_container jmnode[nodeid^="n7"] ~ jmconnector {
+      border-color: #ef4444 !important;
+    }
+  </style>
+</head>
+<body>
+  <!-- 顶部导航栏 -->
+  <div class="topbar px-4 py-2 flex items-center justify-between">
+    <div class="flex items-center">
+      <span class="text-gray-800 font-medium">思维导图</span>
+    </div>
+    <div class="topbar-btns flex items-center space-x-2 relative">
+      <button id="centerNodeBtn" class="btn" title="居中当前节点">
+        <iconify-icon icon="carbon:center-to-fit"></iconify-icon>
+      </button>
+      <button id="expandAllBtn" class="btn" title="展开全部节点" data-mobile-hide>
+        <iconify-icon icon="carbon:expand-all"></iconify-icon>
+      </button>
+      <button id="collapseAllBtn" class="btn" title="收起全部节点" data-mobile-hide>
+        <iconify-icon icon="carbon:collapse-all"></iconify-icon>
+      </button>
+      <button id="fullscreenBtn" class="btn" title="全屏/退出全屏" data-mobile-hide>
+        <iconify-icon icon="carbon:screen-full"></iconify-icon>
+      </button>
+      <div class="relative sm:hidden">
+        <button id="moreBtn" class="btn" title="更多操作">
+          <iconify-icon icon="carbon:overflow-menu-horizontal"></iconify-icon>
+        </button>
+        <div id="moreMenu" class="more-menu">
+          <button id="expandAllBtn_m" class="btn w-full text-left"><iconify-icon icon="carbon:expand-all"></iconify-icon> 全部展开</button>
+          <button id="collapseAllBtn_m" class="btn w-full text-left"><iconify-icon icon="carbon:collapse-all"></iconify-icon> 全部收起</button>
+          <button id="fullscreenBtn_m" class="btn w-full text-left"><iconify-icon icon="carbon:screen-full"></iconify-icon> 全屏</button>
+        </div>
+      </div>
+      <button id="copyNodeBtn" class="btn" title="复制当前节点内容">
+        <iconify-icon icon="carbon:copy"></iconify-icon>
+      </button>
+      <button id="exportBtn" class="btn" title="打印思维导图">
+        <iconify-icon icon="carbon:export"></iconify-icon>
+      </button>
+      <button onclick="window.close()" class="btn" title="关闭窗口">
+        <iconify-icon icon="carbon:close"></iconify-icon>
+      </button>
+    </div>
+  </div>
+
+  <!-- 思维导图内容区 -->
+  <div id="mindmap-full-container">
+    <div id="mindmap-canvas-area" class="flex-1 w-full flex items-center justify-center min-h-[400px]">
+      <div id="jsmind_container"></div>
+    </div>
+
+    <!-- 缩放控制 -->
+    <div class="zoom-controls">
+      <button id="zoomOut" class="zoom-btn" title="缩小 (Ctrl/Cmd + -)">
+        <iconify-icon icon="carbon:subtract"></iconify-icon>
+      </button>
+      <div id="zoomValue" class="zoom-value">80%</div>
+      <button id="zoomIn" class="zoom-btn" title="放大 (Ctrl/Cmd + +)">
+        <iconify-icon icon="carbon:add"></iconify-icon>
+      </button>
+      <button id="zoomReset" class="zoom-btn" title="重置视图 (Ctrl/Cmd + 0)">
+        <iconify-icon icon="carbon:reset"></iconify-icon>
+      </button>
+    </div>
+  </div>
+
+  <script>
+    // 获取docId
+    function getQueryParam(name) {
+      const url = window.location.search;
+      const params = new URLSearchParams(url);
+      return params.get(name);
+    }
+
+    // markdown转jsmind数据
+    function markdownToJsMind(md) {
+      if (!md || !md.trim()) {
+        return {
+          meta: { name: 'empty', author: '', version: '1.0' },
+          format: 'node_array',
+          data: [ { id: 'root', isroot: true, topic: '暂无内容' } ]
+        };
+      }
+      const lines = md.split('\n').filter(line => line.trim());
+      let root = null;
+      let stack = [];
+      let nodes = [];
+      let idCount = 1;
+      lines.forEach(line => {
+        const match = line.match(/^(#+)\s*(.+)$/);
+        if (!match) return;
+        const level = match[1].length;
+        const topic = match[2].trim();
+        const node = {
+          id: 'n' + (idCount++),
+          topic: topic,
+          children: [],
+          level: level
+        };
+        if (level === 1) {
+          node.id = 'root';
+          node.isroot = true;
+          root = node;
+          nodes.push(node);
+          stack = [node];
+        } else {
+          while (stack.length && stack[stack.length - 1].level >= level) {
+            stack.pop();
+          }
+          if (stack.length) {
+            node.parentid = stack[stack.length - 1].id;
+            nodes.push(node);
+            stack.push(node);
+          }
+        }
+      });
+      if (!root) {
+        return {
+          meta: { name: 'empty', author: '', version: '1.0' },
+          format: 'node_array',
+          data: [ { id: 'root', isroot: true, topic: '暂无内容' } ]
+        };
+      }
+      // 转换为jsmind node_array格式
+      const nodeArray = nodes.map(n => {
+        const {children, level, ...rest} = n;
+        return rest;
+      });
+      return {
+        meta: { name: 'mindmap', author: '', version: '1.0' },
+        format: 'node_array',
+        data: nodeArray
+      };
+    }
+
+    // 获取思维导图数据
+    const docId = getQueryParam('docId');
+    let mindmapData = '';
+    let filename = 'mindmap';
+
+    if (docId) {
+      mindmapData = window.localStorage.getItem('mindmapData_' + docId) || '';
+      const docTitle = window.localStorage.getItem('docTitle_' + docId);
+      if (docTitle) {
+        filename = docTitle.replace(/[\\\/:\*\?"<>\|]/g, '_');
+      }
+    }
+
+    // 初始化jsMind
+    const mind = markdownToJsMind(mindmapData);
+    var options = {
+      container: 'jsmind_container',
+      editable: true,
+      theme: 'primary'
+    };
+    var jm = new jsMind(options);
+    jm.show(mind);
+
+    // 当前缩放比例
+    let currentZoom = 80; // 默认80%
+    const zoomValue = document.getElementById('zoomValue');
+
+    function updateZoom() {
+      const scale = currentZoom / 100;
+      if (jm.view && typeof jm.view.set_zoom === 'function') {
+        jm.view.set_zoom(scale);
+      } else {
+        showToast('当前jsMind版本不支持缩放', 'error');
+      }
+      zoomValue.textContent = currentZoom + '%';
+      // 缩放后自动居中根节点
+      const root = jm.get_root && jm.get_root();
+      if (root && typeof jm.scroll_node_to_center === 'function') {
+        jm.scroll_node_to_center(root);
+      }
+    }
+
+    // 初始化时设置默认缩放
+    updateZoom();
+
+    // 通知提示
+    function showToast(message, type = 'info') {
+      const toast = document.createElement('div');
+      toast.className = `fixed z-50 top-4 right-4 px-4 py-3 rounded-lg shadow-lg text-white text-sm transform transition-all duration-300 flex items-center`;
+
+      let bgColor = 'bg-blue-500';
+      if (type === 'success') {
+        bgColor = 'bg-green-500';
+      } else if (type === 'error') {
+        bgColor = 'bg-red-500';
+      }
+
+      toast.className += ' ' + bgColor;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(-20px)';
+        setTimeout(() => {
+          document.body.removeChild(toast);
+        }, 300);
+      }, 3000);
+    }
+
+    // 导出功能
+    const exportBtn = document.getElementById('exportBtn');
+    exportBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      const oldZoom = currentZoom;
+      if (currentZoom !== 80) {
+        currentZoom = 80;
+        updateZoom();
+      }
+      setTimeout(() => {
+        window.print();
+        setTimeout(() => {
+          if (currentZoom !== oldZoom) {
+            currentZoom = oldZoom;
+            updateZoom();
+          }
+        }, 500);
+      }, 100);
+    });
+
+    // 缩放控制
+    document.getElementById('zoomIn').onclick = function() {
+      currentZoom += 10;
+      if (currentZoom > 200) currentZoom = 200;
+      updateZoom();
+    };
+
+    document.getElementById('zoomOut').onclick = function() {
+      currentZoom -= 10;
+      if (currentZoom < 30) currentZoom = 30;
+      updateZoom();
+    };
+
+    document.getElementById('zoomReset').onclick = function() {
+      currentZoom = 100;
+      if (jm.view && typeof jm.view.set_zoom === 'function') {
+        jm.view.set_zoom(1);
+      }
+      zoomValue.textContent = '100%';
+      const root = jm.get_root && jm.get_root();
+      if (root && typeof jm.scroll_node_to_center === 'function') {
+        jm.scroll_node_to_center(root);
+      }
+    };
+
+    // 键盘快捷键支持
+    document.addEventListener('keydown', function(e) {
+      // Ctrl/Cmd + +/-
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === '=' || e.key === '+') {
+          e.preventDefault();
+          document.getElementById('zoomIn').click();
+        } else if (e.key === '-') {
+          e.preventDefault();
+          document.getElementById('zoomOut').click();
+        } else if (e.key === '0') {
+          e.preventDefault();
+          document.getElementById('zoomReset').click();
+        }
+      }
+    });
+
+    // 功能实现
+    // 展开全部
+    document.getElementById('expandAllBtn').onclick = function() {
+      if (typeof jm.expand_all === 'function') jm.expand_all();
+    };
+    // 收起全部
+    document.getElementById('collapseAllBtn').onclick = function() {
+      if (typeof jm.collapse_node === 'function') {
+        const root = jm.get_root && jm.get_root();
+        if (root) {
+          root.children && root.children.forEach(child => jm.collapse_node(child));
+        }
+      }
+    };
+    // 居中当前节点
+    document.getElementById('centerNodeBtn').onclick = function() {
+      let node = jm.get_selected_node && jm.get_selected_node();
+      if (!node) node = jm.get_root && jm.get_root();
+      if (node && typeof jm.scroll_node_to_center === 'function') {
+        jm.scroll_node_to_center(node);
+      }
+    };
+    // 全屏切换
+    document.getElementById('fullscreenBtn').onclick = function() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen();
+      } else {
+        document.exitFullscreen();
+      }
+    };
+    // 复制当前节点内容
+    document.getElementById('copyNodeBtn').onclick = function() {
+      let node = jm.get_selected_node && jm.get_selected_node();
+      if (!node) node = jm.get_root && jm.get_root();
+      if (node) {
+        navigator.clipboard.writeText(node.topic).then(() => {
+          showToast('已复制', 'success');
+        }, () => {
+          showToast('复制失败', 'error');
+        });
+      }
+    };
+    // 快捷键
+    document.addEventListener('keydown', function(e) {
+      if (e.key === ' ' && !e.target.matches('input,textarea')) {
+        e.preventDefault();
+        document.getElementById('centerNodeBtn').click();
+      } else if (e.key === 'F11') {
+        e.preventDefault();
+        document.getElementById('fullscreenBtn').click();
+      } else if ((e.key === 'c' || e.key === 'C') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.matches('input,textarea')) {
+        e.preventDefault();
+        document.getElementById('copyNodeBtn').click();
+      }
+    });
+
+    // 更多菜单交互
+    const moreBtn = document.getElementById('moreBtn');
+    const moreMenu = document.getElementById('moreMenu');
+    if (moreBtn && moreMenu) {
+      moreBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        moreMenu.classList.toggle('show');
+      });
+      document.addEventListener('click', function(e) {
+        if (!moreMenu.contains(e.target) && e.target !== moreBtn) {
+          moreMenu.classList.remove('show');
+        }
+      });
+      // 移动端更多菜单功能
+      document.getElementById('expandAllBtn_m').onclick = function() {
+        if (typeof jm.expand_all === 'function') jm.expand_all();
+        moreMenu.classList.remove('show');
+      };
+      document.getElementById('collapseAllBtn_m').onclick = function() {
+        if (typeof jm.collapse_node === 'function') {
+          const root = jm.get_root && jm.get_root();
+          if (root) {
+            root.children && root.children.forEach(child => jm.collapse_node(child));
+          }
+        }
+        moreMenu.classList.remove('show');
+      };
+      document.getElementById('fullscreenBtn_m').onclick = function() {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen();
+        } else {
+          document.exitFullscreen();
+        }
+        moreMenu.classList.remove('show');
+      };
+    }
+
+    // 在页面加载完成后，确保应用自定义样式
+    window.addEventListener('load', function() {
+      // 给jsmind容器添加自定义样式类，便于CSS选择器精确指向
+      const container = document.getElementById('jsmind_container');
+      if (container) {
+        container.classList.add('custom-jsmind');
+
+        // 强制刷新节点样式
+        setTimeout(function() {
+          // 尝试居中根节点，同时刷新样式
+          const root = jm.get_root && jm.get_root();
+          if (root && typeof jm.scroll_node_to_center === 'function') {
+            jm.scroll_node_to_center(root);
+          }
+        }, 100);
+      }
+    });
+  </script>
+</body>
+</html>

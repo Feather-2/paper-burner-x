@@ -297,13 +297,22 @@ function handleClearFiles() {
     if (isProcessing) return;
     pdfFiles = [];
     allResults = []; // 清空结果
+    // ========== 新增：清空文件时刷新 window.data ==========
+    window.data = {};
     updateFileListUI(pdfFiles, isProcessing, handleRemoveFile);
     updateProcessButtonState(pdfFiles, isProcessing);
 }
 
 function handleRemoveFile(indexToRemove) {
     pdfFiles.splice(indexToRemove, 1);
-    // 如果需要，也可以从 allResults 中移除对应的占位符
+    // ========== 新增：移除文件时刷新 window.data ==========
+    if (pdfFiles.length === 1) {
+        window.data = { name: pdfFiles[0].name, ocr: '', translation: '', images: [], summaries: {} };
+    } else if (pdfFiles.length === 0) {
+        window.data = {};
+    } else {
+        window.data = { summaries: {} };
+    }
     updateFileListUI(pdfFiles, isProcessing, handleRemoveFile);
     updateProcessButtonState(pdfFiles, isProcessing);
 }
@@ -325,6 +334,14 @@ function addFilesToList(selectedFiles) {
         }
     }
     if (filesAdded) {
+        // ========== 新增：切换文件时刷新 window.data ==========
+        if (pdfFiles.length === 1) {
+            // 只选中一个文件时，初始化 window.data
+            window.data = { name: pdfFiles[0].name, ocr: '', translation: '', images: [], summaries: {} };
+        } else if (pdfFiles.length > 1) {
+            // 多文件时，window.data 可按需处理（此处只清空）
+            window.data = { summaries: {} };
+        }
         updateFileListUI(pdfFiles, isProcessing, handleRemoveFile);
         updateProcessButtonState(pdfFiles, isProcessing);
     }
