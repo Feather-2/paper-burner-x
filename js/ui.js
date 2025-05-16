@@ -154,6 +154,26 @@ function updateTranslationUIVisibility(isProcessing) {
     if (translationModelValue === 'custom') {
         customModelSettingsContainer.classList.remove('hidden');
         customModelSettings.classList.remove('hidden');
+
+        // 处理模型选择器和输入框的显示/隐藏逻辑
+        const modelSelector = document.getElementById('customModelId');
+        const modelInput = document.getElementById('customModelIdInput');
+
+        if (modelSelector && modelInput) {
+            // 如果有可用模型，显示选择器
+            const hasAvailableModels = modelSelector.options.length > 1;
+            if (hasAvailableModels) {
+                if (modelSelector.value === 'manual-input') {
+                    modelInput.style.display = 'block';
+                } else {
+                    modelInput.style.display = 'none';
+                }
+            } else {
+                // 没有可用模型，显示输入框
+                modelSelector.style.display = 'none';
+                modelInput.style.display = 'block';
+            }
+        }
     } else {
         customModelSettingsContainer.classList.add('hidden');
         customModelSettings.classList.add('hidden');

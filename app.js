@@ -64,6 +64,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 5. 绑定所有事件
     setupEventListeners();
+
+    // 初始化自定义模型检测UI
+    if (typeof initModelDetectorUI === 'function') {
+        initModelDetectorUI();
+    }
 });
 
 // =====================
@@ -383,6 +388,17 @@ function saveCurrentSettings() {
     };
     // 调用 storage.js 中的保存函数
     saveSettings(settingsData);
+
+    // 如果是自定义模型，使用模型检测相关函数获取完整信息
+    if (settingsData.selectedTranslationModel === 'custom' && typeof window.modelDetector !== 'undefined') {
+        const modelConfig = window.modelDetector.updateCustomApiConfig();
+        settingsData.customModelSettings.apiEndpoint = modelConfig.endpoint;
+        settingsData.customModelSettings.modelId = modelConfig.modelId;
+    } else {
+        // 原有的逻辑
+        settingsData.customModelSettings.apiEndpoint = customApiEndpoint?.value || '';
+        settingsData.customModelSettings.modelId = customModelIdInput?.value || '';
+    }
 }
 
 // =====================

@@ -218,6 +218,51 @@ async function callTranslationApi(effectiveConfig, requestBody) {
     return translatedContent.trim();
 }
 
+// 辅助函数：构建自定义 API 配置 (添加 bodyBuilder 参数)
+function buildCustomApiConfig(key, customApiEndpoint, customModelId, customRequestFormat, temperature, max_tokens) {
+    // 如果是通过模型检测模块设置的端点，直接使用
+    let apiEndpoint = customApiEndpoint;
+
+    // 检查是否有模型检测模块，如果有则使用其提供的完整端点
+    if (typeof window.modelDetector !== 'undefined') {
+        const fullEndpoint = window.modelDetector.getFullApiEndpoint();
+        if (fullEndpoint) {
+            apiEndpoint = fullEndpoint;
+        }
+    } else {
+        // 兼容性处理：检查是否是baseUrl而不是完整端点
+        if (apiEndpoint && !apiEndpoint.includes('/v1/') && !apiEndpoint.endsWith('/v1')) {
+            // 移除末尾的斜杠（如果有）
+            const cleanBaseUrl = apiEndpoint.endsWith('/') ? apiEndpoint.slice(0, -1) : apiEndpoint;
+            apiEndpoint = `${cleanBaseUrl}/v1/chat/completions`;
+        }
+    }
+
+    const config = {
+        endpoint: apiEndpoint,
+        modelName: customModelId, // 直接用ID做显示
+        headers: { 'Content-Type': 'application/json' },
+        bodyBuilder: null,
+        responseExtractor: null
+    };
+
+    // 设置认证和 bodyBuilder/responseExtractor
+    switch (customRequestFormat) {
+        case 'openai':
+            config.headers['Authorization'] = `Bearer ${key}`;
+            config.bodyBuilder = (sys_prompt, user_prompt) => ({
+                model: customModelId,
+                messages: [{ role: "system", content: sys_prompt }, { role: "user", content: user_prompt }],
+                temperature: temperature ?? 0.5,
+                max_tokens: max_tokens ?? 8000
+            });
+            config.responseExtractor = (data) => data?.choices?.[0]?.message?.content;
+            break;
+        // ... existing code for other formats ...
+    }
+    return config;
+}
+
 // --- 导出 API 相关函数 ---
 // (如果使用模块化)
 // export { apiKeyManager, uploadToMistral, getMistralSignedUrl, callMistralOcr, deleteMistralFile, callTranslationApi, getApiError };

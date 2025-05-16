@@ -139,6 +139,13 @@ function loadSettings() {
                 settings.customModelSettings = { ...settings.customModelSettings, ...loaded.customModelSettings };
             }
             console.log("Settings loaded:", settings);
+
+            // 如果启用了自定义模型检测器，尝试加载可用模型
+            if (typeof initModelDetectorUI === 'function') {
+                setTimeout(() => {
+                    loadAvailableModels();
+                }, 0);
+            }
         } else {
              console.log("No settings found in localStorage, using defaults.");
         }
@@ -147,6 +154,33 @@ function loadSettings() {
         // settings 保持为默认值
     }
     return settings; // 返回加载或默认的设置对象
+}
+
+/**
+ * 加载可用模型列表
+ */
+function loadAvailableModels() {
+    try {
+        // 这里我们只是触发检查和UI更新，不实际加载模型
+        // 实际加载和UI更新由modelDetector模块负责
+        if (typeof window.modelDetector !== 'undefined') {
+            const customModelId = document.getElementById('customModelId');
+            const customModelIdInput = document.getElementById('customModelIdInput');
+
+            // 尝试加载保存的模型列表，如果有
+            const savedModels = localStorage.getItem('availableCustomModels');
+            if (savedModels) {
+                const lastSelectedModel = localStorage.getItem('lastSelectedCustomModel');
+
+                // 如果有lastSelectedModel，设置输入框的值
+                if (lastSelectedModel && customModelIdInput) {
+                    customModelIdInput.value = lastSelectedModel;
+                }
+            }
+        }
+    } catch (e) {
+        console.error('加载可用模型列表失败:', e);
+    }
 }
 
 // --- IndexedDB 历史记录存储 ---

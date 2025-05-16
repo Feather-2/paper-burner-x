@@ -4,9 +4,36 @@
 // buildCustomApiConfig: 兼容自定义模型调用
 // =====================
 function buildCustomApiConfig(key, customApiEndpoint, customModelId, customRequestFormat, temperature, max_tokens) {
+  // 如果是通过模型检测模块设置的端点，直接使用
+  let apiEndpoint = customApiEndpoint;
+
+  // 检查是否有模型检测模块，如果有则使用其提供的完整端点
+  if (typeof window.modelDetector !== 'undefined') {
+    const fullEndpoint = window.modelDetector.getFullApiEndpoint();
+    if (fullEndpoint) {
+      apiEndpoint = fullEndpoint;
+    }
+  } else {
+    // 兼容性处理：检查是否是baseUrl而不是完整端点
+    if (apiEndpoint && !apiEndpoint.includes('/v1/') && !apiEndpoint.endsWith('/v1')) {
+      // 移除末尾的斜杠（如果有）
+      const cleanBaseUrl = apiEndpoint.endsWith('/') ? apiEndpoint.slice(0, -1) : apiEndpoint;
+      apiEndpoint = `${cleanBaseUrl}/v1/chat/completions`;
+    }
+  }
+
+  // 获取当前选择的模型ID（如果有模型检测模块）
+  let modelId = customModelId;
+  if (typeof window.modelDetector !== 'undefined') {
+    const currentModelId = window.modelDetector.getCurrentModelId();
+    if (currentModelId) {
+      modelId = currentModelId;
+    }
+  }
+
   const config = {
-    endpoint: customApiEndpoint,
-    modelName: customModelId, // 直接用ID做显示
+    endpoint: apiEndpoint,
+    modelName: modelId, // 使用最新获取的modelId
     headers: { 'Content-Type': 'application/json' },
     bodyBuilder: null,
     responseExtractor: null,
@@ -17,13 +44,13 @@ function buildCustomApiConfig(key, customApiEndpoint, customModelId, customReque
     case 'openai':
       config.headers['Authorization'] = `Bearer ${key}`;
       config.bodyBuilder = (sys_prompt, user_prompt) => ({
-        model: customModelId,
+        model: modelId,
         messages: [{ role: "system", content: sys_prompt }, { role: "user", content: user_prompt }],
         temperature: temperature ?? 0.5,
         max_tokens: max_tokens ?? 8000
       });
       config.streamBodyBuilder = (sys, msgs, user) => ({
-        model: customModelId,
+        model: modelId,
         messages: [
           { role: 'system', content: sys },
           ...msgs,
@@ -40,7 +67,7 @@ function buildCustomApiConfig(key, customApiEndpoint, customModelId, customReque
       config.headers['x-api-key'] = key;
       config.headers['anthropic-version'] = '2023-06-01';
       config.bodyBuilder = (sys_prompt, user_prompt) => ({
-        model: customModelId,
+        model: modelId,
         system: sys_prompt,
         messages: [{ role: "user", content: user_prompt }],
         temperature: temperature ?? 0.5,
@@ -48,7 +75,7 @@ function buildCustomApiConfig(key, customApiEndpoint, customModelId, customReque
       });
       config.streamBodyBuilder = (sys, msgs, user) => {
         return {
-          model: customModelId,
+          model: modelId,
           system: sys,
           messages: msgs.length ?
             [...msgs, { role: 'user', content: user }] :

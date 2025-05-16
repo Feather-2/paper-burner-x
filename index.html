@@ -147,12 +147,18 @@
                                 <div id="customModelSettings" class="hidden mt-2 border-2 border-dashed border-gray-300 rounded-lg p-4">
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div>
-                                            <label for="customApiEndpoint" class="block text-sm font-medium text-gray-700 mb-1">API Endpoint URL <span class="text-red-500">*</span></label>
-                                            <input type="url" id="customApiEndpoint" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" placeholder="例如: https://api.openai.com/v1/chat/completions">
+                                            <label for="customApiEndpoint" class="block text-sm font-medium text-gray-700 mb-1">Base URL <span class="text-red-500">*</span></label>
+                                            <input type="url" id="customApiEndpoint" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" placeholder="例如: https://api.openai.com">
+                                            <p class="text-xs text-gray-500 mt-1">当前完整 API 端点: <span id="fullApiEndpointDisplay" class="font-mono">-</span></p>
                                         </div>
                                         <div>
                                             <label for="customModelId" class="block text-sm font-medium text-gray-700 mb-1">模型 ID <span class="text-red-500">*</span></label>
-                                            <input type="text" id="customModelId" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" placeholder="如: gpt-4-turbo 或 claude-3-opus-20240229">
+                                            <div class="relative">
+                                                <select id="customModelId" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" style="display:none;">
+                                                    <option value="">请输入或选择模型</option>
+                                                </select>
+                                                <input type="text" id="customModelIdInput" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" placeholder="例如: gpt-4-turbo 或 grok-3-fast-beta">
+                                            </div>
                                         </div>
                                         <div>
                                             <label for="customRequestFormat" class="block text-sm font-medium text-gray-700 mb-1">请求格式</label>
@@ -171,6 +177,12 @@
                                             <label for="customMaxTokens" class="block text-sm font-medium text-gray-700 mb-1">最大 tokens (max_tokens)</label>
                                             <input type="number" id="customMaxTokens" min="1" max="32768" step="1" value="8000" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" placeholder="8000">
                                             <p class="text-xs text-gray-500 mt-1">单次生成最大token数，默认8000</p>
+                                        </div>
+                                        <div class="flex justify-end mt-4">
+                                            <button id="detectModelsBtn" type="button" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                                                <iconify-icon icon="carbon:model-alt" class="mr-2" width="16"></iconify-icon>
+                                                检测可用模型
+                                            </button>
                                         </div>
                                     </div>
                                 </div>
@@ -343,6 +355,7 @@
     <script src="js/storage.js"></script>
     <script src="js/ui.js"></script>
     <script src="js/processing.js"></script>
+    <script src="js/model-detector.js"></script>
     <script src="app.js"></script>
     <script src="js/history.js"></script>
 
