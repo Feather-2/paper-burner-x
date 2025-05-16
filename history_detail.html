@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>历史详情</title>
+  <!-- KaTeX 公式渲染样式 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <style>
+    /* 页面基础样式 */
+    body { font-family: sans-serif; background: #f7f7fa; margin: 0; }
+    .container { max-width: 1200px; margin: 40px auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 16px #0001; padding: 32px; }
+    .tab-btn { padding: 8px 24px; border: none; background: #f0f0f0; margin-right: 8px; border-radius: 6px 6px 0 0; cursor: pointer; font-size: 1rem; }
+    .tab-btn.active { background: #2563eb; color: #fff; }
+    .tab-content { background: #fafbfc; border-radius: 0 0 8px 8px; padding: 24px; min-height: 300px; }
+    .compare-flex { display: flex; gap: 2em; }
+    .compare-flex > div { flex: 1; min-width: 0; }
+    .markdown-body { font-size: 1rem; line-height: 1.7; }
+    .markdown-body img {
+      max-width: 100%;
+      height: auto;
+      margin: 8px 0;
+      border-radius: 6px;
+      box-shadow: 0 1px 6px #0002;
+      display: block;
+    }
+    pre { background: #f3f3f3; padding: 8px; border-radius: 4px; overflow-x: auto; }
+    h2, h3 { margin-top: 0; }
+    .meta { color: #888; font-size: 0.95em; margin-bottom: 1em; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2 id="fileName">历史详情</h2>
+    <div class="meta" id="fileMeta"></div>
+    <div>
+      <button class="tab-btn" id="tab-ocr">仅OCR</button>
+      <button class="tab-btn" id="tab-translation">仅翻译</button>
+      <button class="tab-btn" id="tab-compare">对比</button>
+    </div>
+    <div class="tab-content" id="tabContent"></div>
+  </div>
+  <!-- 依赖的JS库 -->
+  <script src="js/storage.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
+  <script>
+    // 预处理Markdown，避免非公式 $ 被误判，并处理图片、上标、下标等
+    function safeMarkdown(md, images) {
+      if (!md) return '';
+      // 构建图片名与base64的映射表，支持多种key
+      let imgMap = {};
+      if (Array.isArray(images)) {
+        images.forEach((img, idx) => {
+          let keys = [];
+          if (img.name) keys.push(img.name);
+          if (img.id) keys.push(img.id);
+          keys.push(`img-${idx}.jpeg.png`);
+          keys.push(`img-${idx+1}.jpeg.png`);
+          // 兼容 images/ 前缀
+          keys = keys.concat(keys.map(k => 'images/' + k));
+          let src = img.data.startsWith('data:') ? img.data : 'data:image/png;base64,' + img.data;
+          keys.forEach(k => imgMap[k] = src);
+        });
+      }
+      // 替换Markdown中的本地图片引用为base64
+      md = md.replace(/!\[.*?\]\((?:images\/)?(img-\d+\.jpeg\.png)\)/gi, function(_, fname) {
+        if (imgMap[fname]) {
+          return `![](${imgMap[fname]})`;
+        } else {
+          return '';
+        }
+      });
+      // 处理上标、下标等自定义语法
+      md = md.replace(/\$\{\s*([^}]*)\s*\}\^\{([^}]*)\}\$/g, function(_, base, sup) {
+        base = base.trim();
+        sup = sup.trim();
+        if (base) {
+          return `<span>${base}<sup>${sup}</sup></span>`;
+        } else {
+          return `<sup>${sup}</sup>`;
+        }
+      });
+      md = md.replace(/\$\{\s*([^}]*)\s*\}_\{([^}]*)\}\$/g, function(_, base, sub) {
+        base = base.trim();
+        sub = sub.trim();
+        if (base) {
+          return `<span>${base}<sub>${sub}</sub></span>`;
+        } else {
+          return `<sub>${sub}</sub>`;
+        }
+      });
+      md = md.replace(/\$\{\s*\}\^\{([^}]*)\}\$/g, function(_, sup) {
+        return `<sup>${sup.trim()}</sup>`;
+      });
+      md = md.replace(/\$\{\s*\}_\{([^}]*)\}\$/g, function(_, sub) {
+        return `<sub>${sub.trim()}</sub>`;
+      });
+      md = md.replace(/\$\{\s*([^}]*)\s*\}\$/g, function(_, sup) {
+        return `<sup>${sup.trim()}</sup>`;
+      });
+      // 其余 $...$、$$...$$ 保留，交给 KaTeX 处理
+      return md;
+    }
+
+    // 使用KaTeX渲染公式，失败时降级为code
+    function renderWithKatexFailback(md) {
+      // 1. 先把短的 $$...$$ 转为 $...$
+      md = md.replace(/\$\$([^\n]+?)\$\$/g, function(_, content) {
+        if (content.trim().length <= 10) {
+          // 短内容（≤10字符），无论有没有等号，都转为行内公式
+          return `$${content}$`;
+        } else {
+          // 块级公式
+          try {
+            return katex.renderToString(content, { displayMode: true, throwOnError: true });
+          } catch (e) {
+            return `<code>$$${content}$$</code>`;
+          }
+        }
+      });
+      // 2. 行内公式
+      md = md.replace(/\$([^$\n]+?)\$/g, function(_, content) {
+        try {
+          return katex.renderToString(content, { displayMode: false, throwOnError: true });
+        } catch (e) {
+          return `<code>$${content}$</code>`;
+        }
+      });
+      // 3. 剩下的块级公式（多行的）
+      md = md.replace(/\$\$([\s\S]+?)\$\$/g, function(_, content) {
+        try {
+          return katex.renderToString(content, { displayMode: true, throwOnError: true });
+        } catch (e) {
+          return `<code>$$${content}$$</code>`;
+        }
+      });
+      // 4. 其它 markdown
+      return marked.parse(md);
+    }
+
+    // 获取URL参数
+    function getQueryParam(name) {
+      const url = new URL(window.location.href);
+      return url.searchParams.get(name);
+    }
+    let data = null;
+    // 渲染历史详情主流程
+    async function renderDetail() {
+      const id = getQueryParam('id');
+      if (!id) return;
+      data = await getResultFromDB(id);
+      if (!data) {
+        document.getElementById('fileName').textContent = '未找到数据';
+        document.getElementById('fileMeta').textContent = '';
+        document.getElementById('tabContent').innerHTML = '';
+        return;
+      }
+      document.getElementById('fileName').textContent = data.name;
+      document.getElementById('fileMeta').innerHTML = `时间: ${new Date(data.time).toLocaleString()} &nbsp; | &nbsp; 图片数: ${data.images ? data.images.length : 0}`;
+      showTab('ocr');
+    }
+    // 渲染图片（未直接用到）
+    function renderImages(images) {
+      if (!images || images.length === 0) return '';
+      return images.map(img => {
+        let src = img.data.startsWith('data:') ? img.data : 'data:image/png;base64,' + img.data;
+        return `<img src="${src}" style="max-width:100%;margin:8px 0;border-radius:6px;box-shadow:0 1px 6px #0002;">`;
+      }).join('');
+    }
+    // 切换tab并渲染内容
+    function showTab(tab) {
+      document.getElementById('tab-ocr').classList.remove('active');
+      document.getElementById('tab-translation').classList.remove('active');
+      document.getElementById('tab-compare').classList.remove('active');
+      let html = '';
+      if(tab === 'ocr') {
+        document.getElementById('tab-ocr').classList.add('active');
+        html = '<h3>OCR内容</h3><div class="markdown-body">' + renderWithKatexFailback(safeMarkdown(data.ocr || '', data.images)) + '</div>';
+      } else if(tab === 'translation') {
+        document.getElementById('tab-translation').classList.add('active');
+        html = '<h3>翻译内容</h3>' +
+          '<div id="translation-content" class="markdown-body" style="background:#fff;">' + renderWithKatexFailback(safeMarkdown(data.translation || '', data.images)) + '</div>' +
+          '<button id="export-pdf-btn" style="margin-top:20px;padding:8px 20px;background:#2563eb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:1rem;">导出PDF</button>';
+      } else {
+        document.getElementById('tab-compare').classList.add('active');
+        html = `
+          <div class="compare-flex">
+            <div><h3>OCR内容</h3><div class="markdown-body">${renderWithKatexFailback(safeMarkdown(data.ocr || '', data.images))}</div></div>
+            <div><h3>翻译内容</h3><div class="markdown-body">${renderWithKatexFailback(safeMarkdown(data.translation || '', data.images))}</div></div>
+          </div>
+        `;
+      }
+      document.getElementById('tabContent').innerHTML = html;
+      // 翻译tab下绑定导出PDF按钮
+      if(tab === 'translation') {
+        const btn = document.getElementById('export-pdf-btn');
+        if(btn) {
+          btn.onclick = function() {
+            const content = document.getElementById('translation-content');
+            if(!content) return;
+            const opt = {
+              margin:       0.5,
+              filename:     (data && data.name ? data.name : '翻译内容') + '.pdf',
+              image:        { type: 'jpeg', quality: 0.98 },
+              html2canvas:  { scale: 2, backgroundColor: '#fff' },
+              jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' },
+              pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+            };
+            html2pdf().set(opt).from(content).save();
+          }
+        }
+      }
+    }
+    // 绑定tab按钮点击事件
+    document.getElementById('tab-ocr').onclick = function() { showTab('ocr'); };
+    document.getElementById('tab-translation').onclick = function() { showTab('translation'); };
+    document.getElementById('tab-compare').onclick = function() { showTab('compare'); };
+    // 页面加载后渲染详情
+    renderDetail();
+  </script>
+</body>
+</html>

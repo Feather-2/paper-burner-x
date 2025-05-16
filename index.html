@@ -344,5 +344,31 @@
     <script src="js/ui.js"></script>
     <script src="js/processing.js"></script>
     <script src="app.js"></script>
+    <script src="js/history.js"></script>
+
+    <!-- 历史记录浮窗按钮 -->
+    <div id="history-fab" style="position:fixed;bottom:32px;right:32px;z-index:9999;">
+      <button id="showHistoryBtn" class="bg-blue-600 text-white rounded-full shadow-lg p-4 hover:bg-blue-700 transition-all">
+        <iconify-icon icon="carbon:time" width="28"></iconify-icon>
+      </button>
+    </div>
+    <!-- 历史记录面板 -->
+    <div id="historyPanel" class="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center hidden">
+      <div class="bg-white rounded-xl shadow-2xl p-6 w-[90vw] max-w-5xl max-h-[90vh] overflow-y-auto relative">
+        <div class="flex justify-between items-center mb-2">
+          <span class="font-bold text-lg">历史记录</span>
+          <button id="closeHistoryPanel" class="text-gray-400 hover:text-red-500"><iconify-icon icon="carbon:close" width="20"></iconify-icon></button>
+        </div>
+        <div id="historyList"></div>
+        <button id="clearHistoryBtn" class="mt-4 w-full bg-red-100 text-red-600 rounded py-2 hover:bg-red-200">清空历史</button>
+      </div>
+    </div>
+    <!-- 详情弹窗 -->
+    <div id="historyDetailModal" class="fixed inset-0 z-[99999] bg-black bg-opacity-30 flex items-center justify-center hidden">
+      <div class="bg-white rounded-xl shadow-2xl border border-gray-200 p-6 w-[90vw] max-w-2xl max-h-[90vh] overflow-y-auto relative">
+        <button id="closeHistoryDetail" class="absolute top-2 right-2 text-gray-400 hover:text-red-500"><iconify-icon icon="carbon:close" width="20"></iconify-icon></button>
+        <div id="historyDetailContent"></div>
+      </div>
+    </div>
 </body>
 </html>
