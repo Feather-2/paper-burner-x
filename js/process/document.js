@@ -420,30 +420,51 @@ ${task.content}
         }
     }
 
-    // 收集所有文本块的翻译结果
+    // 构建翻译后表格占位符映射
+    let translatedTablePlaceholders = {};
+    if (hasProtectedTables) {
+        for (let i = 0; i < Object.keys(tablePlaceholders).length; i++) {
+            const tableResult = translationResults.get('table-' + i);
+            if (tableResult && tableResult.placeholder) {
+                translatedTablePlaceholders[tableResult.placeholder] = tableResult.translatedContent;
+            }
+        }
+    }
+
+    // 收集所有文本块的翻译结果（原文和译文都做表格还原）
+    const restoredOcrChunks = [];
     const translatedTextChunks = [];
     for (let i = 0; i < originalTextChunks.length; i++) {
-        const result = translationResults.get('text-' + i);
-        translatedTextChunks.push(result || originalTextChunks[i]); // 如果没有结果，使用原始内容
+        let ocrChunk = originalTextChunks[i];
+        let translatedChunk = translationResults.get('text-' + i);
+        // 原文分块还原原文表格
+        if (hasProtectedTables && typeof restoreMarkdownTables === 'function') {
+            ocrChunk = await restoreMarkdownTables(ocrChunk, tablePlaceholders);
+        }
+        // 译文分块还原翻译后表格
+        if (hasProtectedTables && typeof restoreMarkdownTables === 'function') {
+            translatedChunk = await restoreMarkdownTables(translatedChunk, translatedTablePlaceholders);
+        }
+        restoredOcrChunks.push(ocrChunk);
+        translatedTextChunks.push(translatedChunk || originalTextChunks[i]);
     }
 
     // 合并已翻译的块
     let combinedTranslation = translatedTextChunks.join('\n\n');
 
-    // 如果有表格，替换所有表格占位符
+    // 如果有表格，替换所有表格占位符（保险起见，整体再替换一遍）
     if (hasProtectedTables) {
         if (typeof addProgressLog === "function") {
             addProgressLog(`${logContext} 正在替换表格占位符...`);
         }
 
-        for (let i = 0; i < Object.keys(tablePlaceholders).length; i++) {
-            const tableResult = translationResults.get('table-' + i);
-            if (tableResult && tableResult.placeholder) {
-                combinedTranslation = combinedTranslation.replace(
-                    tableResult.placeholder,
-                    tableResult.translatedContent
-                );
-            }
+        for (let i = 0; i < Object.keys(translatedTablePlaceholders).length; i++) {
+            const placeholder = Object.keys(translatedTablePlaceholders)[i];
+            const translatedContent = translatedTablePlaceholders[placeholder];
+            combinedTranslation = combinedTranslation.replace(
+                placeholder,
+                translatedContent
+            );
         }
 
         if (typeof addProgressLog === "function") {
@@ -453,8 +474,8 @@ ${task.content}
 
     return {
         translatedText: combinedTranslation,
-        originalChunks: originalTextChunks, // These are the 'parts' before table restoration
-        translatedTextChunks: translatedTextChunks // These are the translated 'parts' before table restoration
+        originalChunks: restoredOcrChunks, // 现在是还原了表格的原文分块
+        translatedTextChunks: translatedTextChunks // 现在是还原了表格的译文分块
     };
 }
 
