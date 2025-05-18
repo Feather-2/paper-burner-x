@@ -6,6 +6,7 @@
   <!-- KaTeX 公式渲染样式 -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
   <link type="text/css" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsmind/style/jsmind.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
   <style>
     /* 页面基础样式 */
     body { font-family: sans-serif; background: #f7f7fa; margin: 0; }
@@ -70,9 +71,43 @@
       background-color: #f1f5f9;
     }
 
+    /* 分块对比样式 */
+    .chunk-compare-title-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1em; /* 调整标题和内容之间的间距 */
+    }
+    .chunk-compare-title-bar h3 {
+      margin: 0; /* 移除h3的默认外边距 */
+    }
+    #swap-chunks-btn {
+      background: transparent;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      padding: 5px 10px;
+      cursor: pointer;
+      font-size: 1.1em; /* 图标大小 */
+      line-height: 1;
+      color: #333;
+    }
+    #swap-chunks-btn:hover {
+      background-color: #f0f0f0;
+      border-color: #bbb;
+    }
+
+    .chunk-compare-container { display: flex; flex-direction: column; gap: 1em; }
+    .chunk-pair { display: flex; gap: 1em; border-bottom: 1px solid #eee; padding-bottom: 1em; }
+    .chunk-pair:last-child { border-bottom: none; }
+    .chunk-pair > div { flex: 1; min-width: 0; background: #fdfdfd; padding:12px; border-radius:6px; border:1px solid #eef; }
+    .chunk-pair h4 { margin-top: 0; font-size: 0.9em; color: #555; border-bottom: 1px dashed #ddd; padding-bottom: 0.5em; margin-bottom: 0.5em;}
+    .chunk-compare-container .markdown-body {
+      overflow-x: auto; /* 为分块内容区域添加横向滚动条 */
+    }
+
     /* 其他样式保持不变 */
-    .compare-flex { display: flex; gap: 2em; }
-    .compare-flex > div { flex: 1; min-width: 0; }
+    /* .compare-flex { display: flex; gap: 2em; } */ /* 普通对比已隐藏，此样式可以移除或保留 */
+    /* .compare-flex > div { flex: 1; min-width: 0; } */ /* 普通对比已隐藏 */
     .markdown-body { font-size: 1rem; line-height: 1.7; }
     .markdown-body img {
       max-width: 100%;
@@ -83,18 +118,43 @@
       display: block;
     }
     pre { background: #f3f3f3; padding: 8px; border-radius: 4px; overflow-x: auto; border: 1px dashed #e2e8f0; }
-    h2, h3 { margin-top: 0; }
+    h2 { margin-top: 0; } /* 移除h3，只保留h2的顶部外边距移除 */
     .meta { color: #888; font-size: 0.95em; margin-bottom: 1em; }
   </style>
 </head>
 <body>
+  <!-- 浮动TOC按钮及悬浮目录 -->
+  <div id="toc-float-btn" style="position:fixed;left:24px;top:24px;z-index:10000;width:48px;height:48px;background:#2563eb;border-radius:50%;box-shadow:0 3px 10px rgba(59, 130, 246, 0.25);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background 0.2s;"><i class="fa fa-list" style="color:#fff;font-size:22px;"></i></div>
+  <div id="toc-popup" style="display:none;position:fixed;left:24px;top:80px;z-index:9999;width:300px;max-width:85vw;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 5px 15px rgba(0,0,0,0.1);transition:opacity 0.2s, transform 0.2s; transform: translateY(-10px); opacity: 0;">
+    <div id="toc-popup-header" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #e2e8f0;">
+      <span style="font-weight:600;font-size:1.05em;color:#1e293b;"><i class="fa fa-list" style="margin-right:8px;color:#3b82f6;"></i>目录 / TOC</span>
+      <button id="toc-popup-close-btn" style="background:transparent;border:none;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:14px;color:#475569;transition:background 0.15s, color 0.15s;">关闭</button>
+    </div>
+    <ul id="toc-list" style="list-style:none;padding:10px 0;margin:0;font-size:0.95em;max-height:60vh;overflow-y:auto;"></ul>
+  </div>
+  <style id="toc-modern-style">
+    #toc-popup::-webkit-scrollbar {width:5px;}
+    #toc-popup::-webkit-scrollbar-track {background:#f8fafc;}
+    #toc-popup::-webkit-scrollbar-thumb {background:#cbd5e1;border-radius:3px;}
+    #toc-popup::-webkit-scrollbar-thumb:hover {background:#94a3b8;}
+    #toc-list li {margin-bottom:0;line-height:1.5;}
+    #toc-list li a {display:block;padding:7px 20px;color:#334155;text-decoration:none;font-weight:500;transition:background 0.15s, color 0.15s, border-left-color 0.15s;border-left:3px dashed #e2e8f0;}
+    #toc-list li a:hover {background:#eef2ff;color:#3b82f6;border-left-color:#3b82f6;}
+    #toc-list li.toc-h2 a {padding-left:20px;font-size:1em;}
+    #toc-list li.toc-h3 a {padding-left:36px;font-size:0.92em;color:#475569;}
+    #toc-list li.toc-h3 a:hover {color:#3b82f6;}
+    #toc-list span.toc-en-translation {font-size:0.9em;color:#64748b;margin-left:5px;font-weight:400;}
+    #toc-float-btn:hover {background:#1d4ed8;}
+    #toc-popup-close-btn:hover {background:#eef2ff;color:#3b82f6;}
+  </style>
   <div class="container">
     <h2 id="fileName">历史详情</h2>
     <div class="meta" id="fileMeta"></div>
     <div class="tabs-container">
       <button class="tab-btn" id="tab-ocr">仅OCR</button>
       <button class="tab-btn" id="tab-translation">仅翻译</button>
-      <button class="tab-btn" id="tab-compare">对比</button>
+      <!-- <button class="tab-btn" id="tab-compare">对比</button> -->
+      <button class="tab-btn" id="tab-chunk-compare">分块对比</button>
     </div>
     <div class="tab-content" id="tabContent"></div>
   </div>
@@ -112,6 +172,8 @@
   <script src="js/chatbot/chatbot-ui.js"></script>
   <script src="js/chatbot/chatbot.js"></script>
   <script>
+    let isOriginalFirstInChunkCompare = true; // 状态变量：原文是否在左侧
+
     // 预处理Markdown，避免非公式 $ 被误判，并处理图片、上标、下标等
     function safeMarkdown(md, images) {
       if (!md) return '';
@@ -135,7 +197,9 @@
         if (imgMap[fname]) {
           return `![](${imgMap[fname]})`;
         } else {
-          return '';
+          // 如果图片在映射中找不到，保留原始路径或显示alt文本
+          // console.warn("Image not found in map:", fname);
+          return `<span>[图片: ${fname}]</span>`; // 或者返回 match
         }
       });
       // 处理上标、下标等自定义语法
@@ -217,7 +281,7 @@
       const id = getQueryParam('id');
       if (!id) return;
       data = await getResultFromDB(id);
-      window.data = data;
+      window.data = data; // for debugging
       if (!data) {
         document.getElementById('fileName').textContent = '未找到数据';
         document.getElementById('fileMeta').textContent = '';
@@ -226,21 +290,22 @@
       }
       document.getElementById('fileName').textContent = data.name;
       document.getElementById('fileMeta').innerHTML = `时间: ${new Date(data.time).toLocaleString()} &nbsp; | &nbsp; 图片数: ${data.images ? data.images.length : 0}`;
-      showTab('ocr');
+
+      // 默认显示OCR标签页，或者如果有分块数据则显示分块对比
+      if (data.ocrChunks && data.ocrChunks.length > 0 && data.translatedChunks && data.translatedChunks.length > 0 && data.ocrChunks.length === data.translatedChunks.length) {
+        showTab('chunk-compare');
+      } else {
+        showTab('ocr');
+      }
     }
-    // 渲染图片（未直接用到）
-    function renderImages(images) {
-      if (!images || images.length === 0) return '';
-      return images.map(img => {
-        let src = img.data.startsWith('data:') ? img.data : 'data:image/png;base64,' + img.data;
-        return `<img src="${src}" style="max-width:100%;margin:8px 0;border-radius:6px;box-shadow:0 1px 6px #0002;">`;
-      }).join('');
-    }
+
     // 切换tab并渲染内容
     function showTab(tab) {
       document.getElementById('tab-ocr').classList.remove('active');
       document.getElementById('tab-translation').classList.remove('active');
-      document.getElementById('tab-compare').classList.remove('active');
+      // document.getElementById('tab-compare').classList.remove('active'); // 对应按钮已注释，此行也可注释
+      document.getElementById('tab-chunk-compare').classList.remove('active');
+
       let html = '';
       if(tab === 'ocr') {
         document.getElementById('tab-ocr').classList.add('active');
@@ -249,23 +314,541 @@
         document.getElementById('tab-translation').classList.add('active');
         html = '<h3>翻译内容</h3>' +
           '<div id="translation-content" class="markdown-body" style="background:#fff;padding:16px;border-radius:8px;border:1px solid #e2e8f0;">' + renderWithKatexFailback(safeMarkdown(data.translation || '', data.images)) + '</div>';
-      } else {
-        document.getElementById('tab-compare').classList.add('active');
-        html = `
-          <div class="compare-flex">
-            <div><h3>OCR内容</h3><div class="markdown-body" style="background:#fff;padding:16px;border-radius:8px;border:1px solid #e2e8f0;">${renderWithKatexFailback(safeMarkdown(data.ocr || '', data.images))}</div></div>
-            <div><h3>翻译内容</h3><div class="markdown-body" style="background:#fff;padding:16px;border-radius:8px;border:1px solid #e2e8f0;">${renderWithKatexFailback(safeMarkdown(data.translation || '', data.images))}</div></div>
-          </div>
-        `;
+      // } else if (tab === 'compare') { // 渲染逻辑注释掉
+      //   // ... (普通对比的渲染逻辑已注释)
+      } else if (tab === 'chunk-compare') {
+        document.getElementById('tab-chunk-compare').classList.add('active');
+        if (data.ocrChunks && data.ocrChunks.length > 0 && data.translatedChunks && data.translatedChunks.length === data.ocrChunks.length) {
+            html = `
+              <div class="chunk-compare-title-bar">
+                <h3>分块对比</h3>
+                <button id="swap-chunks-btn" title="切换原文/译文位置">⇆</button>
+              </div>
+              <div class="chunk-compare-container">
+            `;
+            // 优化分块：标题分块+内容合并
+            function parseMarkdownBlocks(md) {
+              const lines = (md || '').split(/\r?\n/);
+              const blocks = [];
+              let buffer = [];
+              let inCode = false;
+              let isFirstBlock = true;
+              function flush() {
+                if (buffer.length) {
+                  blocks.push({ content: buffer.join('\n') });
+                  buffer = [];
+                }
+              }
+              for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                if (/^\s*```/.test(line)) { // 代码块
+                  inCode = !inCode;
+                  buffer.push(line);
+                  continue;
+                }
+                if (inCode) {
+                  buffer.push(line);
+                  continue;
+                }
+                if (/^\s*#/.test(line)) { // 标题作为新分块的起点
+                  if (!isFirstBlock) flush();
+                  isFirstBlock = false;
+                  buffer.push(line);
+                  continue;
+                }
+                // 普通内容、列表、空行等都合并到当前块
+                buffer.push(line);
+              }
+              flush();
+              return blocks;
+            }
+            function alignBlocks(blocks1, blocks2) {
+              // 简单按类型和顺序对齐
+              const maxLen = Math.max(blocks1.length, blocks2.length);
+              const aligned = [];
+              for (let i = 0; i < maxLen; i++) {
+                aligned.push([
+                  blocks1[i] ? blocks1[i].content : '',
+                  blocks2[i] ? blocks2[i].content : ''
+                ]);
+              }
+              return aligned;
+            }
+            function renderLevelAlignedFlex(ocrChunk, translatedChunk, images, blockIndex, totalBlocks) {
+              const ocrBlocks = parseMarkdownBlocks(ocrChunk);
+              const transBlocks = parseMarkdownBlocks(translatedChunk);
+              const aligned = alignBlocks(ocrBlocks, transBlocks);
+              let showMode = window[`showMode_block_${blockIndex}`] || 'both';
+              // 整块复制按钮
+              let html = `
+                <div class="block-toolbar" style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;">
+                  <div class="block-toolbar-left" style="display:flex;gap:8px;align-items:center;">
+                    <span class="block-mode-btn" data-mode="both" data-block="${blockIndex}">对比</span>
+                    <span class="block-mode-btn" data-mode="ocr" data-block="${blockIndex}">原文</span>
+                    <span class="block-mode-btn" data-mode="trans" data-block="${blockIndex}">译文</span>
+                    <button class="block-copy-btn" data-block="${blockIndex}" title="复制本块内容">复制本块</button>
+                  </div>
+                  <div class="block-toolbar-right" style="display:flex;gap:4px;">
+                    ${blockIndex > 0 ? `<button class="block-nav-btn" data-dir="prev" data-block="${blockIndex}" title="上一段">↑</button>` : ''}
+                    ${blockIndex < totalBlocks-1 ? `<button class="block-nav-btn" data-dir="next" data-block="${blockIndex}" title="下一段">↓</button>` : ''}
+                  </div>
+                </div>
+              `;
+              for (let i = 0; i < aligned.length; i++) {
+                html += `
+                  <div class="align-flex block-flex block-flex-${blockIndex}" data-block="${blockIndex}" data-align-index="${i}">
+                    <div class="align-block align-block-ocr" style="display:${showMode==='trans'?'none':'block'}">
+                      <div class="align-title" style="display:flex;align-items:center;justify-content:space-between;">
+                        <span>原文</span>
+                        <button class="block-struct-copy-btn" data-block="${blockIndex}" data-type="ocr" data-idx="${i}" title="复制原文结构">复制</button>
+                      </div>
+                      <div class="align-content markdown-body">${renderWithKatexFailback(safeMarkdown(aligned[i][0], images))}</div>
+                    </div>
+                    <div class="align-block align-block-trans" style="display:${showMode==='ocr'?'none':'block'}">
+                      <div class="align-title" style="display:flex;align-items:center;justify-content:space-between;">
+                        <span>译文</span>
+                        <button class="block-struct-copy-btn" data-block="${blockIndex}" data-type="trans" data-idx="${i}" title="复制译文结构">复制</button>
+                      </div>
+                      <div class="align-content markdown-body">${renderWithKatexFailback(safeMarkdown(aligned[i][1], images))}</div>
+                    </div>
+                  </div>
+                `;
+              }
+              // 记录原始内容，供复制用
+              window[`blockRawContent_${blockIndex}`] = aligned;
+              return html;
+            }
+            // 添加美观的flex卡片样式
+            if (!document.getElementById('align-flex-style')) {
+              const style = document.createElement('style');
+              style.id = 'align-flex-style';
+              style.innerHTML = `
+                .align-flex {
+                  display: flex;
+                  gap: 1em;
+                  margin-bottom: 1em;
+                }
+                .align-block {
+                  flex: 1;
+                  background: #f9fafb;
+                  border-radius: 8px;
+                  border: 1px solid #e2e8f0;
+                  padding: 12px;
+                  min-width: 0;
+                  overflow-x: auto;
+                  box-sizing: border-box;
+                  box-shadow: 0 1px 4px 0 rgba(0,0,0,0.03);
+                }
+                .align-title {
+                  font-size: 0.98em;
+                  color: #64748b;
+                  margin-bottom: 6px;
+                  font-weight: 500;
+                  border-bottom: 1px dashed #e2e8f0;
+                  padding-bottom: 2px;
+                }
+                .align-content {
+                  word-break: break-all;
+                  white-space: pre-wrap;
+                  overflow-x: auto;
+                }
+                .align-content table, .align-content pre {
+                  max-width: 100%;
+                  overflow-x: auto;
+                  display: block;
+                  word-break: break-all;
+                  white-space: pre-wrap;
+                }
+              `;
+              document.head.appendChild(style);
+            }
+            // 添加工具栏样式
+            if (!document.getElementById('block-toolbar-style')) {
+              const style = document.createElement('style');
+              style.id = 'block-toolbar-style';
+              style.innerHTML = `
+                .block-toolbar-left .block-mode-btn {
+                  font-size: 12px;
+                  color: #64748b;
+                  cursor: pointer;
+                  padding: 2px 8px;
+                  border-radius: 4px;
+                  transition: background 0.15s, color 0.15s;
+                  user-select: none;
+                }
+                .block-toolbar-left .block-mode-btn.active {
+                  background: #e0e7ff;
+                  color: #2563eb;
+                  font-weight: bold;
+                }
+                .block-toolbar-left .block-mode-btn:hover:not(.active) {
+                  background: #f1f5f9;
+                  color: #1e293b;
+                }
+                .block-toolbar-left .block-copy-btn {
+                  font-size: 12px;
+                  color: #64748b;
+                  background: #f1f5f9;
+                  border: 1px solid #e2e8f0;
+                  border-radius: 4px;
+                  padding: 2px 8px;
+                  margin-left: 8px;
+                  cursor: pointer;
+                  transition: background 0.15s, color 0.15s;
+                }
+                .block-toolbar-left .block-copy-btn:hover {
+                  background: #e0e7ff;
+                  color: #2563eb;
+                }
+                .block-struct-copy-btn {
+                  font-size: 11px;
+                  color: #64748b;
+                  background: #f1f5f9;
+                  border: 1px solid #e2e8f0;
+                  border-radius: 4px;
+                  padding: 1px 6px;
+                  margin-left: 8px;
+                  cursor: pointer;
+                  transition: background 0.15s, color 0.15s;
+                }
+                .block-struct-copy-btn:hover {
+                  background: #e0e7ff;
+                  color: #2563eb;
+                }
+              `;
+              document.head.appendChild(style);
+            }
+            // 渲染每个分块，增加唯一id
+            for (let i = 0; i < data.ocrChunks.length; i++) {
+                const ocrChunk = data.ocrChunks[i] || '';
+                const translatedChunk = data.translatedChunks[i] || '';
+                const ocrDiv = `<div id="block-${i}" class="block-outer"><h4>原文块 ${i+1}</h4>${renderLevelAlignedFlex(ocrChunk, translatedChunk, data.images, i, data.ocrChunks.length)}</div>`;
+                const translatedDiv = `<div id="block-${i}" class="block-outer"><h4>译文块 ${i+1}</h4>${renderLevelAlignedFlex(translatedChunk, ocrChunk, data.images, i, data.ocrChunks.length)}</div>`;
+                if (isOriginalFirstInChunkCompare) {
+                    html += `<div class="chunk-pair">${ocrDiv}</div>`;
+                } else {
+                    html += `<div class="chunk-pair">${translatedDiv}</div>`;
+                }
+            }
+            html += '</div>';
+            // 绑定每个分块的切换按钮和导航按钮事件
+            setTimeout(() => {
+              // 切换显示
+              const modeBtns = document.querySelectorAll('.block-mode-btn');
+              modeBtns.forEach(btn => {
+                btn.onclick = function() {
+                  const mode = btn.getAttribute('data-mode');
+                  const block = btn.getAttribute('data-block');
+                  window[`showMode_block_${block}`] = mode;
+                  document.querySelectorAll(`.block-flex-${block}`).forEach(flex => {
+                    flex.querySelector('.align-block-ocr').style.display = (mode==='trans') ? 'none' : 'block';
+                    flex.querySelector('.align-block-trans').style.display = (mode==='ocr') ? 'none' : 'block';
+                  });
+                  document.querySelectorAll(`.block-mode-btn[data-block='${block}']`).forEach(b => {
+                    b.classList.remove('active');
+                    if(b.getAttribute('data-mode')===mode) b.classList.add('active');
+                  });
+                };
+              });
+              // 默认高亮
+              modeBtns.forEach(btn => {
+                const mode = btn.getAttribute('data-mode');
+                const block = btn.getAttribute('data-block');
+                if((window[`showMode_block_${block}`]||'both')===mode) btn.classList.add('active');
+              });
+              // 导航按钮
+              const navBtns = document.querySelectorAll('.block-nav-btn');
+              navBtns.forEach(btn => {
+                btn.onclick = function() {
+                  const dir = btn.getAttribute('data-dir');
+                  const block = parseInt(btn.getAttribute('data-block'));
+                  let target = null;
+                  if(dir==='prev' && block>0) target = document.getElementById(`block-${block-1}`);
+                  if(dir==='next' && document.getElementById(`block-${block+1}`)) target = document.getElementById(`block-${block+1}`);
+                  if(target) {
+                    document.querySelectorAll('.block-outer').forEach(el=>el.classList.remove('block-highlight'));
+                    target.scrollIntoView({behavior:'smooth',block:'center'});
+                    target.classList.add('block-highlight');
+                    setTimeout(()=>target.classList.remove('block-highlight'), 1200);
+                  }
+                };
+              });
+              // 结构块复制
+              const structCopyBtns = document.querySelectorAll('.block-struct-copy-btn');
+              structCopyBtns.forEach(btn => {
+                btn.onclick = function() {
+                  const block = btn.getAttribute('data-block');
+                  const idx = btn.getAttribute('data-idx');
+                  const type = btn.getAttribute('data-type');
+                  const aligned = window[`blockRawContent_${block}`];
+                  let text = '';
+                  if (type === 'ocr') text = aligned[idx][0] || '';
+                  else text = aligned[idx][1] || '';
+                  navigator.clipboard.writeText(text).then(()=>{
+                    btn.textContent = '已复制';
+                    setTimeout(()=>{btn.textContent='复制';}, 1000);
+                  });
+                };
+              });
+              // 整块复制
+              const blockCopyBtns = document.querySelectorAll('.block-copy-btn');
+              blockCopyBtns.forEach(btn => {
+                btn.onclick = function() {
+                  const block = btn.getAttribute('data-block');
+                  const mode = window[`showMode_block_${block}`] || 'both';
+                  const aligned = window[`blockRawContent_${block}`];
+                  let text = '';
+                  if (mode === 'both') {
+                    for (let i = 0; i < aligned.length; i++) {
+                      text += '【原文】\n' + (aligned[i][0]||'') + '\n\n【译文】\n' + (aligned[i][1]||'') + '\n\n';
+                    }
+                  } else if (mode === 'ocr') {
+                    for (let i = 0; i < aligned.length; i++) {
+                      text += (aligned[i][0]||'') + '\n\n'; // 原文
+                    }
+                  } else if (mode === 'trans') {
+                    for (let i = 0; i < aligned.length; i++) {
+                      text += (aligned[i][1]||'') + '\n\n'; // 译文
+                    }
+                  }
+                  navigator.clipboard.writeText(text.trim()).then(()=>{
+                    btn.textContent = '已复制';
+                    setTimeout(()=>{btn.textContent='复制本块';}, 1000);
+                  });
+                };
+              });
+            }, 0);
+            // 高亮样式
+            if (!document.getElementById('block-highlight-style')) {
+              const style = document.createElement('style');
+              style.id = 'block-highlight-style';
+              style.innerHTML = `
+                .block-outer.block-highlight {
+                  box-shadow: 0 0 0 3px #2563eb44;
+                  transition: box-shadow 0.3s;
+                }
+                .block-toolbar .block-toggle-btn.active {
+                  background: #e0e7ff;
+                  color: #2563eb;
+                  border-radius: 5px;
+                }
+                .block-toolbar .block-toggle-btn, .block-toolbar .block-nav-btn {
+                  background: transparent;
+                  border: none;
+                  cursor: pointer;
+                  font-size: 1.1em;
+                  padding: 4px 7px;
+                  transition: background 0.15s;
+                }
+                .block-toolbar .block-toggle-btn:hover, .block-toolbar .block-nav-btn:hover {
+                  background: #f1f5f9;
+                }
+              `;
+              document.head.appendChild(style);
+            }
+        } else {
+            html = '<h3>分块对比</h3><p>此记录没有有效的分块对比数据。</p>';
+            if (!data.ocrChunks || !data.translatedChunks) {
+                 html += '<p>原因：缺少分块数据 (ocrChunks or translatedChunks missing)。</p>';
+            } else if (data.ocrChunks.length !== data.translatedChunks.length) {
+                 html += `<p>原因：原文块数量 (${data.ocrChunks.length}) 与译文块数量 (${data.translatedChunks.length}) 不匹配。</p>`;
+            } else {
+                 html += '<p>原因：分块数据为空。</p>';
+            }
+        }
       }
       document.getElementById('tabContent').innerHTML = html;
+      if (typeof window.refreshTocList === 'function') {
+        window.refreshTocList(); // 更新TOC
+      }
+
+      // 如果是分块对比视图，并且按钮存在，则绑定事件
+      if (tab === 'chunk-compare') {
+        const swapBtn = document.getElementById('swap-chunks-btn');
+        if (swapBtn) {
+            swapBtn.onclick = function() {
+                isOriginalFirstInChunkCompare = !isOriginalFirstInChunkCompare;
+                showTab('chunk-compare'); // 重新渲染分块对比视图
+            };
+        }
+      }
     }
     // 绑定tab按钮点击事件
     document.getElementById('tab-ocr').onclick = function() { showTab('ocr'); };
     document.getElementById('tab-translation').onclick = function() { showTab('translation'); };
-    document.getElementById('tab-compare').onclick = function() { showTab('compare'); };
+    // document.getElementById('tab-compare').onclick = function() { showTab('compare'); }; // 点击事件注释掉
+    document.getElementById('tab-chunk-compare').onclick = function() { showTab('chunk-compare'); };
+
     // 页面加载后渲染详情
     renderDetail();
+
+    // TOC目录功能（悬浮窗版）
+    (function(){
+      const tocBtn = document.getElementById('toc-float-btn');
+      const tocPopup = document.getElementById('toc-popup');
+      const tocList = document.getElementById('toc-list');
+      const tocCloseBtn = document.getElementById('toc-popup-close-btn');
+      // 中英文映射表
+      const tocMap = {
+        '历史详情': 'History Detail',
+        'OCR内容': 'OCR Content',
+        '仅OCR': 'OCR Only',
+        '翻译内容': 'Translation',
+        '仅翻译': 'Translation Only',
+        '分块对比': 'Chunk Compare',
+      };
+      let tocNodes = []; // 存储目录对应的标题DOM元素
+
+      // 显示临时加载效果
+      function showTemporaryLoadingEffect(sectionName) {
+        let effectDiv = document.getElementById('toc-loading-effect');
+        const mainContainer = document.querySelector('.container');
+
+        if (!effectDiv) {
+          effectDiv = document.createElement('div');
+          effectDiv.id = 'toc-loading-effect';
+          effectDiv.style.position = 'fixed';
+          effectDiv.style.top = '50%';
+          effectDiv.style.left = '50%';
+          effectDiv.style.transform = 'translate(-50%, -50%)';
+          effectDiv.style.background = 'rgba(0, 0, 0, 0.75)';
+          effectDiv.style.color = 'white';
+          effectDiv.style.padding = '15px 25px';
+          effectDiv.style.borderRadius = '8px';
+          effectDiv.style.zIndex = '10001'; // 比TOC弹窗(9999)和按钮(10000)更高
+          effectDiv.style.fontSize = '1.1em';
+          effectDiv.style.textAlign = 'center';
+          effectDiv.style.opacity = '0';
+          effectDiv.style.transition = 'opacity 0.3s ease-in-out';
+          document.body.appendChild(effectDiv);
+        }
+
+        if (mainContainer) {
+          mainContainer.style.transition = 'filter 0.3s ease-in-out'; // 添加filter过渡效果
+          mainContainer.style.filter = 'blur(4px)';
+        }
+
+        effectDiv.textContent = `正在前往: ${sectionName.substring(0,30)}${sectionName.length > 30 ? '...' : ''}`;
+        // 确保在下一帧应用opacity以触发过渡
+        requestAnimationFrame(() => {
+          effectDiv.style.opacity = '1';
+        });
+
+        setTimeout(() => {
+          effectDiv.style.opacity = '0';
+          if (mainContainer) {
+            mainContainer.style.filter = 'none';
+          }
+          // 可选: 过渡结束后从DOM中移除，如果效果不频繁触发，可以保留以复用
+          // setTimeout(() => { if (effectDiv && effectDiv.parentNode) effectDiv.parentNode.removeChild(effectDiv); }, 300);
+        }, 1500); // 效果持续时间
+      }
+
+      // 打开/关闭悬浮窗
+      tocBtn.onclick = function() {
+        const isOpen = tocPopup.style.display === 'block';
+        if (isOpen) {
+          tocPopup.style.opacity = '0';
+          tocPopup.style.transform = 'translateY(-10px)';
+          setTimeout(() => { tocPopup.style.display = 'none'; }, 200);
+        } else {
+          renderTocList(); // 每次打开时重新渲染，确保内容最新
+          tocPopup.style.display = 'block';
+          setTimeout(() => {
+            tocPopup.style.opacity = '1';
+            tocPopup.style.transform = 'translateY(0)';
+          }, 10); // Short delay for display:block to take effect before transition
+        }
+      };
+      // 关闭悬浮窗按钮
+      tocCloseBtn.onclick = function() {
+        tocPopup.style.opacity = '0';
+        tocPopup.style.transform = 'translateY(-10px)';
+        setTimeout(() => { tocPopup.style.display = 'none'; }, 200);
+      };
+      // 生成目录
+      function renderTocList() {
+        tocList.innerHTML = '';
+        tocNodes = []; // 每次渲染时清空并重新填充
+        const container = document.querySelector('.container');
+        if(!container) return;
+        const headingElements = Array.from(container.querySelectorAll('h2:not(#fileName), h3')); // 排除fileName的h2
+
+        headingElements.forEach((nodeEl, idx) => {
+          if(!nodeEl.id) nodeEl.id = 'toc-anchor-' + idx;
+          tocNodes.push(nodeEl); // 存储DOM节点
+
+          let zh = nodeEl.textContent.trim();
+          let en = tocMap[zh]; // 获取英文翻译
+          const li = document.createElement('li');
+          li.className = nodeEl.tagName==='H2' ? 'toc-h2' : 'toc-h3';
+          let linkHTML = `${zh}`;
+          if(en && en !== zh) { // 只有当英文翻译存在且与中文不同时才显示
+            linkHTML += ` <span class="toc-en-translation">/ ${en}</span>`;
+          }
+          li.innerHTML = `<a href="#${nodeEl.id}">${linkHTML}</a>`;
+          li.querySelector('a').onclick = function(e){
+            e.preventDefault();
+            const targetElement = document.getElementById(nodeEl.id);
+            if (targetElement) {
+              const clickedNodeIndex = tocNodes.findIndex(n => n.id === nodeEl.id);
+              let currentTopNodeIndex = 0; // 默认为第一个
+
+              if (tocNodes.length > 0) {
+                let minPositiveTop = Infinity;
+                let foundPositive = false;
+                for (let i = 0; i < tocNodes.length; i++) {
+                  const rect = tocNodes[i].getBoundingClientRect();
+                  if (rect.top >= 0 && rect.top < minPositiveTop) {
+                    minPositiveTop = rect.top;
+                    currentTopNodeIndex = i;
+                    foundPositive = true;
+                  }
+                }
+                // 如果没有在视口内或下方的，则取最接近视口顶部的上方元素
+                if (!foundPositive) {
+                  let maxNegativeTop = -Infinity;
+                  let foundNegative = false;
+                  for (let i = 0; i < tocNodes.length; i++) {
+                    const rect = tocNodes[i].getBoundingClientRect();
+                    if (rect.top < 0 && rect.top > maxNegativeTop) {
+                      maxNegativeTop = rect.top;
+                      currentTopNodeIndex = i;
+                      foundNegative = true;
+                    }
+                  }
+                  if (!foundNegative && tocNodes.length > 0) { // 如果都找不到（例如所有元素都在视口下方很远）
+                     currentTopNodeIndex = 0; // 或者根据情况选择最后一个
+                  }
+                }
+              }
+
+              const indexDifference = Math.abs(clickedNodeIndex - currentTopNodeIndex);
+
+              if (indexDifference >= 6) {
+                showTemporaryLoadingEffect(nodeEl.textContent.trim() || "目标章节");
+              }
+
+              targetElement.scrollIntoView({behavior:'smooth',block:'start'});
+            }
+          };
+          tocList.appendChild(li);
+        });
+      }
+      // 点击页面其他地方关闭目录 (可选，如果需要请取消注释)
+      /*
+      document.addEventListener('click', function(event) {
+        if (tocPopup.style.display === 'block' &&
+            !tocPopup.contains(event.target) &&
+            !tocBtn.contains(event.target)) {
+          tocPopup.style.opacity = '0';
+          tocPopup.style.transform = 'translateY(-10px)';
+          setTimeout(() => { tocPopup.style.display = 'none'; }, 200);
+        }
+      });
+      */
+      window.refreshTocList = renderTocList; // 暴露renderTocList函数
+    })();
   </script>
 </body>
 </html>

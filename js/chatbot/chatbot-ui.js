@@ -31,6 +31,108 @@ function updateChatbotUI() {
     fab.style.display = 'block';
   }
   const chatBody = document.getElementById('chatbot-body');
+  const chatbotPreset = document.getElementById('chatbot-preset');
+  let modelSelectorDiv = document.getElementById('chatbot-model-selector');
+  // 先移除旧的
+  if (modelSelectorDiv) modelSelectorDiv.remove();
+  // 判断当前是否为自定义模型
+  let isCustomModel = false;
+  try {
+    const config = window.ChatbotCore.getChatbotConfig();
+    isCustomModel = config.model === 'custom';
+  } catch (e) {}
+  // ========== 新增：齿轮按钮和模型选择模式 ===========
+  if (!window.isModelSelectorOpen) window.isModelSelectorOpen = false;
+  // 齿轮按钮
+  let gearBtn = document.getElementById('chatbot-model-gear-btn');
+  if (gearBtn) gearBtn.remove();
+  if (isCustomModel && chatbotPreset) {
+    gearBtn = document.createElement('button');
+    gearBtn.id = 'chatbot-model-gear-btn';
+    gearBtn.title = '选择模型';
+    gearBtn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.5"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 5 15.4a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 8a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 8 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09A1.65 1.65 0 0 0 16 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 8c.14.31.22.65.22 1v.09A1.65 1.65 0 0 0 21 12c0 .35-.08.69-.22 1z"/></svg>`;
+    gearBtn.style.background = 'none';
+    gearBtn.style.border = 'none';
+    gearBtn.style.position = 'absolute';
+    gearBtn.style.top = '24px';
+    gearBtn.style.right = '20px';
+    gearBtn.style.cursor = 'pointer';
+    gearBtn.style.padding = '4px';
+    gearBtn.style.borderRadius = '50%';
+    gearBtn.style.transition = 'background 0.2s';
+    gearBtn.onmouseover = function(){this.style.background='#e0e7ef';};
+    gearBtn.onmouseout = function(){this.style.background='none';};
+    gearBtn.onclick = function(){window.isModelSelectorOpen = true; updateChatbotUI();};
+    chatbotPreset.parentNode.style.position = 'relative';
+    chatbotPreset.parentNode.appendChild(gearBtn);
+  }
+  // 只显示模型选择界面
+  if (isCustomModel && window.isModelSelectorOpen) {
+    // 读取模型列表
+    let models = [];
+    try {
+      const saved = localStorage.getItem('availableCustomModels');
+      if (saved) models = JSON.parse(saved);
+    } catch (e) {}
+    if (!Array.isArray(models) || models.length === 0) models = [];
+    let lastSelected = localStorage.getItem('lastSelectedCustomModel') || '';
+    // 构建下拉框
+    modelSelectorDiv = document.createElement('div');
+    modelSelectorDiv.id = 'chatbot-model-selector';
+    modelSelectorDiv.style.margin = '40px auto 0 auto';
+    modelSelectorDiv.style.maxWidth = '340px';
+    modelSelectorDiv.style.background = 'linear-gradient(135deg,#f0f9ff 80%,#e0f2fe 100%)';
+    modelSelectorDiv.style.border = '2px dashed #93c5fd';
+    modelSelectorDiv.style.borderRadius = '16px';
+    modelSelectorDiv.style.padding = '32px 24px 24px 24px';
+    modelSelectorDiv.style.boxShadow = '0 4px 24px #2563eb11';
+    modelSelectorDiv.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;justify-content:center;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.5"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 5 15.4a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 8a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 8 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09A1.65 1.65 0 0 0 16 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 8c.14.31.22.65.22 1v.09A1.65 1.65 0 0 0 21 12c0 .35-.08.69-.22 1z"/></svg>
+        <span style="font-size:17px;font-weight:700;color:#2563eb;">选择自定义模型</span>
+      </div>
+      <select id="chatbot-model-select" style="width:100%;margin:18px 0 0 0;padding:12px 16px;border-radius:10px;border:2px solid #93c5fd;background:white;color:#1e3a8a;font-size:15px;font-weight:600;outline:none;transition:all 0.2s;">
+        ${models.length === 0 ? '<option value="">（无可用模型）</option>' : models.map(m => {
+          if (typeof m === 'string') {
+            return `<option value="${m}" ${m===lastSelected?'selected':''}>${m}</option>`;
+          } else if (typeof m === 'object' && m) {
+            return `<option value="${m.id}" ${m.id===lastSelected?'selected':''}>${m.name || m.id}</option>`;
+          } else {
+            return '';
+          }
+        }).join('')}
+      </select>
+      <button id="chatbot-model-back-btn" style="margin-top:28px;width:100%;padding:10px 0;font-size:15px;font-weight:600;background:linear-gradient(90deg,#3b82f6,#2563eb);color:white;border:none;border-radius:8px;box-shadow:0 2px 8px #2563eb22;cursor:pointer;transition:all 0.2s;">返回</button>
+    `;
+    // 隐藏预设问题和聊天内容
+    chatbotPreset.style.display = 'none';
+    if (chatBody) chatBody.style.display = 'none';
+    // 插入模型选择div
+    modal.querySelector('.chatbot-window').insertBefore(modelSelectorDiv, modal.querySelector('.chatbot-window').children[2]);
+    // 监听选择
+    const select = document.getElementById('chatbot-model-select');
+    if (select) {
+      select.onchange = function() {
+        localStorage.setItem('lastSelectedCustomModel', this.value);
+      };
+    }
+    // 返回按钮
+    const backBtn = document.getElementById('chatbot-model-back-btn');
+    if (backBtn) {
+      backBtn.onclick = function() {
+        window.isModelSelectorOpen = false;
+        if (modelSelectorDiv) modelSelectorDiv.remove();
+        if (chatbotPreset) chatbotPreset.style.display = '';
+        if (chatBody) chatBody.style.display = '';
+        updateChatbotUI();
+      };
+    }
+    return;
+  } else {
+    // 退出模型选择模式时，确保内容显示
+    if (chatbotPreset) chatbotPreset.style.display = '';
+    if (chatBody) chatBody.style.display = '';
+  }
   if (chatBody) {
     chatBody.innerHTML = window.ChatbotCore.chatHistory.map((m, index) => {
       if (m.role === 'segment-summary') {
@@ -195,16 +297,10 @@ function initChatbotUI() {
     fab.style.right = '32px';
     fab.style.zIndex = '99999';
     fab.innerHTML = `
-      <button style="width:62px;height:62px;border:none;outline:none;background:linear-gradient(135deg,#3b82f6,#1d4ed8);border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(29,78,216,0.4),0 2px 4px rgba(0,0,0,0.1);cursor:pointer;transform:scale(1);transition:transform 0.2s,box-shadow 0.2s;color:white;"
-        onmouseover="this.style.transform='scale(1.05)';this.style.boxShadow='0 6px 24px rgba(29,78,216,0.5),0 2px 8px rgba(0,0,0,0.15)';"
-        onmouseout="this.style.transform='scale(1)';this.style.boxShadow='0 4px 16px rgba(29,78,216,0.4),0 2px 4px rgba(0,0,0,0.1)';">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-          <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" fill="#ffffff" opacity="0.2" />
-          <path d="M8.5 10.5C9.32843 10.5 10 9.82843 10 9C10 8.17157 9.32843 7.5 8.5 7.5C7.67157 7.5 7 8.17157 7 9C7 9.82843 7.67157 10.5 8.5 10.5Z" fill="#ffffff" />
-          <path d="M15.5 10.5C16.3284 10.5 17 9.82843 17 9C17 8.17157 16.3284 7.5 15.5 7.5C14.6716 7.5 14 8.17157 14 9C14 9.82843 14.6716 10.5 15.5 10.5Z" fill="#ffffff" />
-          <path d="M12 18C15.5 18 18 15.5 18 13H6C6 15.5 8.5 18 12 18Z" fill="#ffffff" />
-          <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke="#ffffff" stroke-width="1.2" />
-        </svg>
+      <button style="width:62px;height:62px;border:none;outline:none;background:linear-gradient(135deg,#3b82f6,#1d4ed8);border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;transform:scale(1);transition:transform 0.2s;color:white;"
+        onmouseover="this.style.transform='scale(1.05)';"
+        onmouseout="this.style.transform='scale(1)';">
+        <i class="fa-solid fa-robot" style="font-size: 24px;"></i>
       </button>
     `;
     document.body.appendChild(fab);
@@ -220,7 +316,7 @@ function initChatbotUI() {
     modal.style.position = 'fixed';
     modal.style.inset = '0';
     modal.style.zIndex = '100000';
-    modal.style.background = 'rgba(0,0,0,0.25)';
+    modal.style.background = 'transparent';
     modal.style.display = 'none';
     modal.innerHTML = `
       <div class="chatbot-window" style="background:var(--chat-bg,#ffffff);max-width:720px;width:92vw;min-height:520px;max-height:85vh;border-radius:24px;box-shadow:0 10px 40px rgba(0,0,0,0.18),0 0 0 1px rgba(0,0,0,0.05);position:absolute;right:44px;bottom:44px;display:flex;flex-direction:column;overflow:hidden;">
@@ -234,16 +330,12 @@ function initChatbotUI() {
         </div>
         <div style="padding:20px 24px 16px 24px;display:flex;align-items:center;gap:8px;border-bottom:1px dashed rgba(0,0,0,0.1);">
           <div style="width:36px;height:36px;border-radius:18px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);display:flex;align-items:center;justify-content:center;">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 12c0-9-9-4-9-4v2c0 2-2 3-4 3H5a1 1 0 0 0-1 1v3a1 1 0 0 0 1 1h3c2 0 3 1 3 3" />
-              <path d="M17 9v8" />
-              <path d="M14 13h7" />
-            </svg>
+            <i class="fa-solid fa-robot" style="font-size: 16px; color: white;"></i>
           </div>
           <span style="font-weight:600;font-size:1.15em;color:#111;">AI 智能助手</span>
         </div>
         <div style="padding:16px 20px 0 20px;flex:1;display:flex;flex-direction:column;max-height:calc(85vh - 146px);overflow:hidden;">
-          <div id="chatbot-preset" style="margin-bottom:16px;display:flex;flex-wrap:wrap;gap:8px;">
+          <div id="chatbot-preset" style="margin-bottom:20px;display:flex;flex-wrap:wrap;gap:8px 10px;">
             ${(window.ChatbotPreset && window.ChatbotPreset.PRESET_QUESTIONS ? window.ChatbotPreset.PRESET_QUESTIONS : [
               '请总结本文',
               '有哪些关键公式？',
@@ -253,7 +345,7 @@ function initChatbotUI() {
               '请用通俗语言解释全文',
               '为本文内容生成思维导图'
             ]).map(q => `
-              <button style="background:linear-gradient(to bottom, rgba(240,249,255,0.95), rgba(224,242,254,0.95));color:#0369a1;border-radius:32px;border:2px dashed rgba(125,211,252,0.4);padding:7px 14px;font-size:13px;font-weight:500;cursor:pointer;transition:all 0.2s;"
+              <button style="background:linear-gradient(to bottom, rgba(240,249,255,0.95), rgba(224,242,254,0.95));color:#0369a1;border-radius:32px;border:2px dashed rgba(125,211,252,0.4);padding:8px 16px;font-size:13px;font-weight:500;cursor:pointer;transition:all 0.2s;margin:4px 0;"
                 onmouseover="this.style.transform='translateY(-2px)';"
                 onmouseout="this.style.transform='translateY(0)';"
                 onclick="window.handlePresetQuestion(decodeURIComponent('${encodeURIComponent(q)}'))"

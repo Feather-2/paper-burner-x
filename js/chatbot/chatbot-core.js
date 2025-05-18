@@ -240,10 +240,15 @@ async function sendChatbotMessage(userInput, updateChatbotUI) {
   let useStreamApi = true; // 默认使用流式API
 
   if (config.model === 'custom') {
+    // 优先读取弹窗选择的模型ID
+    let selectedModelId = '';
+    try {
+      selectedModelId = localStorage.getItem('lastSelectedCustomModel') || '';
+    } catch (e) {}
     apiConfig = buildCustomApiConfig(
       apiKey,
       config.cms.apiEndpoint,
-      config.cms.modelId,
+      selectedModelId || config.cms.modelId,
       config.cms.requestFormat,
       config.cms.temperature,
       config.cms.max_tokens

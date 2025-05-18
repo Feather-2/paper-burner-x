@@ -327,7 +327,8 @@ function addFilesToList(selectedFiles) {
     let filesAdded = false;
     for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i];
-        if (file.type === 'application/pdf') {
+        const fileType = file.name.split('.').pop().toLowerCase();
+        if (fileType === 'pdf' || fileType === 'md' || fileType === 'txt') {
             if (!pdfFiles.some(existingFile => existingFile.name === file.name && existingFile.size === file.size)) {
                 pdfFiles.push(file);
                 filesAdded = true;
@@ -335,7 +336,7 @@ function addFilesToList(selectedFiles) {
                 showNotification(`文件 "${file.name}" 已在列表中`, 'info');
             }
         } else {
-            showNotification(`文件 "${file.name}" 不是PDF，已忽略`, 'warning');
+            showNotification(`文件 "${file.name}" 不是支持的文件类型 (PDF, MD, TXT)，已忽略`, 'warning');
         }
     }
     if (filesAdded) {
@@ -408,11 +409,14 @@ async function handleProcessClick() {
     if (isProcessing) return;
 
     // 1. 解析和验证 API Keys
-    if (!apiKeyManager.parseKeys('mistral')) {
-        showNotification('请输入至少一个有效的 Mistral API Key', 'error');
+    const translationModel = document.getElementById('translationModel').value;
+    const requiresMistralKey = pdfFiles.some(file => file.name.toLowerCase().endsWith('.pdf'));
+
+    if (requiresMistralKey && !apiKeyManager.parseKeys('mistral')) {
+        showNotification('检测到 PDF 文件，请输入至少一个有效的 Mistral API Key', 'error');
         return;
     }
-    const translationModel = document.getElementById('translationModel').value;
+
     if (translationModel !== 'none' && !apiKeyManager.parseKeys('translation')) {
         showNotification(`选择了翻译模型，请输入至少一个有效的翻译 API Key`, 'error');
         return;
@@ -609,36 +613,35 @@ function handleDownloadClick() {
 function getBuiltInPrompts(languageName) {
     const langLower = languageName.toLowerCase();
     let sys_prompt = '';
-    let user_prompt_template = ''; // Use template literal placeholders
+    let user_prompt_template = '';
     const sourceLang = 'English'; // Assume source is always English
 
     switch (langLower) {
         case 'chinese':
             sys_prompt = "你是一个专业的文档翻译助手，擅长将文本精确翻译为简体中文，同时保留原始的 Markdown 格式。";
-            user_prompt_template = `请将以下内容翻译为 **简体中文**。\n要求:\n\n1. 保持所有 Markdown 语法元素不变（如 # 标题、 *斜体*、 **粗体**、 [链接]()、 ![图片]() 等）。\n2. 学术/专业术语应准确翻译。\n3. 保持原文的段落结构和格式。\n4. 仅输出翻译后的内容，不要包含任何额外的解释或注释。\n5. 对于行间公式，使用 $$...$$ 标记。\n\n文档内容:\n\n\${content}`;
+            user_prompt_template = `请将以下内容翻译为 **简体中文**。\n要求:\n\n1. 保持所有 Markdown 语法元素不变（如 # 标题、 *斜体*、 **粗体**、 [链接]()、 ![图片]() 等）。\n2. 学术/专业术语应准确翻译。\n3. 保持原文的段落结构和格式。\n4. 仅输出翻译后的内容，不要包含任何额外的解释或注释。\n5. 对于行间公式，使用 $$...$$ 标记。\n\n请主动区分该内容是行间公式还是行内公式，使用准确的公式标记。输出$$,$$$$的公式时候：前后需要带空格或换行，公式内部不需要带空格。\n\n文档内容:\n\n\${content}`;
             break;
         case 'japanese':
             sys_prompt = "あなたはプロの文書翻訳アシスタントで、テキストを正確に日本語に翻訳し、元の Markdown 形式を維持することに長けています。";
-            user_prompt_template = `以下の内容を **日本語** に翻訳してください。\n要件:\n\n1. すべての Markdown 構文要素（例: # 見出し、 *イタリック*、 **太字**、 [リンク]()、 ![画像]() など）は変更しないでください。\n2. 学術/専門用語は正確に翻訳してください。\n3. 元の段落構造と書式を維持してください。\n4. 翻訳された内容のみを出力し、余分な説明や注釈は含めないでください。\n5. 表示数式には $$...$$ を使用してください。\n\nドキュメント内容:\n\n\${content}`;
+            user_prompt_template = `以下の内容を **日本語** に翻訳してください。\n要件:\n\n1. すべての Markdown 構文要素（例: # 見出し、 *イタリック*、 **太字**、 [リンク]()、 ![画像]() など）は変更しないでください。\n2. 学術/専門用語は正確に翻訳してください。\n3. 元の段落構造と書式を維持してください。\n4. 翻訳された内容のみを出力し、余分な説明や注釈は含めないでください。\n5. 表示数式には $$...$$ を使用してください。\n\n数式がディスプレイ数式（行間）かインライン数式かを必ず区別し、正しい数式記号を使用してください。$$や$$$$の数式を出力する際は、前後にスペースまたは改行を入れ、数式内部にはスペースを入れないでください。\n\nドキュメント内容:\n\n\${content}`;
             break;
         case 'korean':
             sys_prompt = "당신은 전문 문서 번역 도우미로, 텍스트를 정확하게 한국어로 번역하고 원본 마크다운 형식을 유지하는 데 능숙합니다.";
-            user_prompt_template = `다음 내용을 **한국어** 로 번역해 주세요。\n요구 사항:\n\n1. 모든 마크다운 구문 요소(예: # 제목, *기울임꼴*, **굵게**, [링크](), ![이미지]() 등)를 변경하지 마십시오.\n2. 학술/전문 용어는 정확하게 번역하십시오.\n3. 원본 단락 구조와 서식을 유지하십시오.\n4. 번역된 내용만 출력하고 추가 설명이나 주석을 포함하지 마십시오.\n5. 수식 표시는 $$...$$ 를 사용하십시오。\n\n문서 내용:\n\n\${content}`;
+            user_prompt_template = `다음 내용을 **한국어** 로 번역해 주세요。\n요구 사항:\n\n1. 모든 마크다운 구문 요소(예: # 제목, *기울임꼴*, **굵게**, [링크](), ![이미지]() 등)를 변경하지 마십시오.\n2. 학술/전문 용어는 정확하게 번역하십시오.\n3. 원본 단락 구조와 서식을 유지하십시오.\n4. 번역된 내용만 출력하고 추가 설명이나 주석을 포함하지 마십시오.\n5. 수식 표시는 $$...$$ 를 사용하십시오。\n\n수식이 디스플레이 수식(행간)인지 인라인 수식인지 반드시 구분하고, 정확한 수식 표기법을 사용하세요. $$, $$$$ 수식을 출력할 때는 앞뒤에 공백 또는 줄바꿈을 넣고, 수식 내부에는 공백을 넣지 마세요.\n\n문서 내용:\n\n\${content}`;
             break;
         case 'french':
             sys_prompt = "Vous êtes un assistant de traduction de documents professionnel, compétent pour traduire avec précision le texte en français tout en préservant le format Markdown d'origine.";
-            user_prompt_template = `Veuillez traduire le contenu suivant en **Français**。\nExigences:\n\n1. Conserver tous les éléments de syntaxe Markdown inchangés (par exemple, # titres, *italique*, **gras**, [liens](), ![images]()).\n2. Traduire avec précision les termes académiques/professionnels.\n3. Maintenir la structure et le formatage des paragraphes d'origine.\n4. Produire uniquement le contenu traduit, sans explications ni annotations supplémentaires.\n5. Pour les formules mathématiques, utiliser \$\$...\$\$.\n\nContenu du document:\n\n\${content}`;
+            user_prompt_template = `Veuillez traduire le contenu suivant en **Français**。\nExigences:\n\n1. Conserver tous les éléments de syntaxe Markdown inchangés (par exemple, # titres, *italique*, **gras**, [liens](), ![images]()).\n2. Traduire avec précision les termes académiques/professionnels.\n3. Maintenir la structure et le formatage des paragraphes d'origine.\n4. Produire uniquement le contenu traduit, sans explications ni annotations supplémentaires.\n5. Pour les formules mathématiques, utiliser \\$\$...\$\$.\n\nVeuillez distinguer explicitement entre les formules en ligne et les formules en display, et utilisez la notation appropriée. Lors de la sortie des formules $$ ou $$$$, ajoutez un espace ou un saut de ligne avant et après, sans espace à l'intérieur de la formule.\n\nContenu du document:\n\n\${content}`;
             break;
         case 'english':
             sys_prompt = "You are a professional document translation assistant, skilled at accurately translating text into English while preserving the original document format.";
-            user_prompt_template = `Please translate the following content into **English**.\n Requirements:\n\n 1. Keep all Markdown syntax elements unchanged (e.g., #headings, *italics*, **bold**, [links](), ![images]()).\n 2. Translate academic/professional terms accurately. Maintain a formal, academic tone.\n 3. Maintain the original paragraph structure and formatting.\n 4. Output only the translated content.\n 5. For display math formulas, use:\n \$\$\n ...\n \$\$\n\n Document Content:\n\n \${content}`;
+            user_prompt_template = `Please translate the following content into **English**.\n Requirements:\n\n 1. Keep all Markdown syntax elements unchanged (e.g., #headings, *italics*, **bold**, [links](), ![images]()).\n 2. Translate academic/professional terms accurately. Maintain a formal, academic tone.\n 3. Maintain the original paragraph structure and formatting.\n 4. Output only the translated content.\n 5. For display math formulas, use:\n \\$\$\n ...\n \\$\$\n\nPlease explicitly distinguish between display (block) and inline formulas, and use the correct formula markers. When outputting formulas with $$ or $$$$, add a space or line break before and after, and do not add spaces inside the formula.\n\n Document Content:\n\n \${content}`;
             break;
         default: // Fallback for custom languages or other cases
             const targetLangDisplayName = languageName; // Use the passed name directly
             sys_prompt = `You are a professional document translation assistant, skilled at accurately translating content into ${targetLangDisplayName} while preserving the original document format.`;
-            // Revert to standard template literal with correct escaping
-            user_prompt_template = `Please translate the following content into **${targetLangDisplayName}**. \nRequirements:\n\n1. Keep all Markdown syntax elements unchanged (e.g., #headings, *italics*, **bold**, [links](), ![images]()).\n2. Translate academic/professional terms accurately. If necessary, keep the original term in parentheses if unsure about the translation in ${targetLangDisplayName}.\n3. Maintain the original paragraph structure and formatting.\n4. Translate only the content; do not add extra explanations.\n5. For display math formulas, use:\n\$\$\n...\n\$\$\n\nDocument Content:\n\n\${content}`;
-            break; // Ensure break statement is here
+            user_prompt_template = `Please translate the following content into **${targetLangDisplayName}**. \nRequirements:\n\n1. Keep all Markdown syntax elements unchanged (e.g., #headings, *italics*, **bold**, [links](), ![images]()).\n2. Translate academic/professional terms accurately. If necessary, keep the original term in parentheses if unsure about the translation in ${targetLangDisplayName}.\n3. Maintain the original paragraph structure and formatting.\n4. Translate only the content; do not add extra explanations.\n5. For display math formulas, use:\n\$\$\n...\n\$\$\n\nPlease explicitly distinguish between display (block) and inline formulas, and use the correct formula markers. When outputting formulas with $$ or $$$$, add a space or line break before and after, and do not add spaces inside the formula.\n\nDocument Content:\n\n\${content}`;
+            break;
     } // End of switch
     return { systemPrompt: sys_prompt, userPromptTemplate: user_prompt_template };
 } // End of getBuiltInPrompts function

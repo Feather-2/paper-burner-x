@@ -159,7 +159,7 @@ function splitByParagraphs(text, tokenLimit, logContext, chunkIndex) {
  * @param {string} defaultSystemPrompt - 默认系统提示词
  * @param {string} defaultUserPromptTemplate - 默认用户提示词模板
  * @param {boolean} useCustomPrompts - 是否使用自定义提示词
- * @returns {Promise<string>} 翻译后的文本
+ * @returns {Promise<Object>} 包含翻译后文本和分块信息的对象 { translatedText: string, originalChunks: Array<string>, translatedTextChunks: Array<string> }
  */
 async function translateLongDocument(markdownText, targetLang, model, apiKey, tokenLimit, acquireSlot, releaseSlot, logContext = "", defaultSystemPrompt = "", defaultUserPromptTemplate = "", useCustomPrompts = false) {
     // 先进行表格保护处理
@@ -188,10 +188,10 @@ async function translateLongDocument(markdownText, targetLang, model, apiKey, to
     }
 
     // 继续原有的分块处理逻辑 - 使用处理后的文本
-    const parts = splitMarkdownIntoChunks(processedText, tokenLimit, logContext);
-    console.log(`${logContext} 文档分割为 ${parts.length} 部分进行翻译 (Limit: ${tokenLimit})`);
+    const originalTextChunks = splitMarkdownIntoChunks(processedText, tokenLimit, logContext);
+    console.log(`${logContext} 文档分割为 ${originalTextChunks.length} 部分进行翻译 (Limit: ${tokenLimit})`);
     if (typeof addProgressLog === "function") {
-        addProgressLog(`${logContext} 文档被分割为 ${parts.length} 部分进行翻译`);
+        addProgressLog(`${logContext} 文档被分割为 ${originalTextChunks.length} 部分进行翻译`);
     }
 
     // 准备API配置用于文本和表格翻译
@@ -233,12 +233,12 @@ async function translateLongDocument(markdownText, targetLang, model, apiKey, to
     const allTranslationTasks = [];
 
     // 添加所有文本块翻译任务
-    parts.forEach((part, i) => {
+    originalTextChunks.forEach((part, i) => {
         allTranslationTasks.push({
             type: 'text',
             index: i,
             content: part,
-            context: `${logContext} (Part ${i+1}/${parts.length})`
+            context: `${logContext} (Part ${i+1}/${originalTextChunks.length})`
         });
     });
 
@@ -258,7 +258,7 @@ async function translateLongDocument(markdownText, targetLang, model, apiKey, to
     }
 
     if (typeof addProgressLog === "function") {
-        addProgressLog(`${logContext} 总计待翻译任务: ${allTranslationTasks.length} (文本块: ${parts.length}, 表格: ${hasProtectedTables ? Object.keys(tablePlaceholders).length : 0})`);
+        addProgressLog(`${logContext} 总计待翻译任务: ${allTranslationTasks.length} (文本块: ${originalTextChunks.length}, 表格: ${hasProtectedTables ? Object.keys(tablePlaceholders).length : 0})`);
     }
 
     let hasErrors = false;
@@ -288,7 +288,7 @@ async function translateLongDocument(markdownText, targetLang, model, apiKey, to
                     result = await translateMarkdown(
                         task.content, targetLang, model, apiKey, taskLogContext,
                         updatedSystemPrompt, defaultUserPromptTemplate, useCustomPrompts,
-                        false // 不处理表格占位符，因为我们在这里就是处理它们
+                        false // 在 translateLongDocument 内部，文本块翻译不应再次触发 protectMarkdownTables
                     );
                     translationResults.set('text-' + task.index, result);
                 } else if (task.type === 'table') {
@@ -421,14 +421,14 @@ ${task.content}
     }
 
     // 收集所有文本块的翻译结果
-    const translatedChunks = [];
-    for (let i = 0; i < parts.length; i++) {
+    const translatedTextChunks = [];
+    for (let i = 0; i < originalTextChunks.length; i++) {
         const result = translationResults.get('text-' + i);
-        translatedChunks.push(result || parts[i]); // 如果没有结果，使用原始内容
+        translatedTextChunks.push(result || originalTextChunks[i]); // 如果没有结果，使用原始内容
     }
 
     // 合并已翻译的块
-    let combinedTranslation = translatedChunks.join('\n\n');
+    let combinedTranslation = translatedTextChunks.join('\n\n');
 
     // 如果有表格，替换所有表格占位符
     if (hasProtectedTables) {
@@ -451,7 +451,11 @@ ${task.content}
         }
     }
 
-    return combinedTranslation;
+    return {
+        translatedText: combinedTranslation,
+        originalChunks: originalTextChunks, // These are the 'parts' before table restoration
+        translatedTextChunks: translatedTextChunks // These are the translated 'parts' before table restoration
+    };
 }
 
 // 将函数添加到processModule对象
