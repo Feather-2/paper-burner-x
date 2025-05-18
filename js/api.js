@@ -12,8 +12,8 @@
 // ---------------------
 // 负责管理 Mistral 和翻译 API 的密钥轮询与设置
 let apiKeyManager = {
-    mistral: { keys: [], index: 0, blacklist: [] }, // 增加 blacklist
-    translation: { keys: [], index: 0, blacklist: [] },
+    mistral: { keys: [], index: 0, blacklist: [], bannedMap: {} }, // 增加 bannedMap
+    translation: { keys: [], index: 0, blacklist: [], bannedMap: {} },
 
     // 解析 textarea 中的密钥（建议重构到 UI 层）
     parseKeys: function(keyType) {
@@ -23,6 +23,7 @@ let apiKeyManager = {
             this[keyType].keys = [];
             this[keyType].index = 0;
             this[keyType].blacklist = [];
+            this[keyType].bannedMap = {};
             return false;
         }
         this[keyType].keys = textarea.value
@@ -31,17 +32,36 @@ let apiKeyManager = {
             .filter(k => k !== '');
         this[keyType].index = 0;
         this[keyType].blacklist = [];
+        this[keyType].bannedMap = {};
         console.log(`Parsed ${this[keyType].keys.length} ${keyType} keys.`);
         return this[keyType].keys.length > 0;
     },
 
-    // 轮询获取下一个可用密钥（跳过黑名单）
+    // 轮询获取下一个可用密钥（支持ban时间复活）
     getNextKey: function(keyType) {
-        if (!this[keyType] || this[keyType].keys.length === 0) {
-            return null;
+        const now = Date.now();
+        const banDuration = 30000; // 30秒
+        const keys = this[keyType].keys;
+        if (!keys || keys.length === 0) return null;
+        // 过滤出未ban的key
+        let availableKeys = keys.filter(k => !this[keyType].bannedMap[k] || (now - this[keyType].bannedMap[k] > banDuration));
+        if (availableKeys.length === 0) {
+            // 所有key都被ban，找最早ban的key复活
+            let minBanKey = null, minBanTime = Infinity;
+            for (const k of keys) {
+                if (this[keyType].bannedMap[k] && this[keyType].bannedMap[k] < minBanTime) {
+                    minBanTime = this[keyType].bannedMap[k];
+                    minBanKey = k;
+                }
+            }
+            if (minBanKey && now - minBanTime > banDuration) {
+                // 复活最早ban的key
+                delete this[keyType].bannedMap[minBanKey];
+                availableKeys = [minBanKey];
+            } else {
+                return null;
+            }
         }
-        const availableKeys = this[keyType].keys.filter(k => !this[keyType].blacklist.includes(k));
-        if (availableKeys.length === 0) return null;
         // 保证 index 不越界
         this[keyType].index = this[keyType].index % availableKeys.length;
         const key = availableKeys[this[keyType].index];
@@ -49,11 +69,11 @@ let apiKeyManager = {
         return key;
     },
 
-    // 标记某个 key 失效，加入黑名单
+    // 标记某个 key 失效，加入banMap
     markKeyInvalid: function(keyType, key) {
-        if (!this[keyType].blacklist.includes(key)) {
-            this[keyType].blacklist.push(key);
-            console.warn(`Key 被标记为失效并加入黑名单: ${keyType} (...${key.slice(-4)})`);
+        if (!this[keyType].bannedMap[key]) {
+            this[keyType].bannedMap[key] = Date.now();
+            console.warn(`Key 被标记为失效并ban 30秒: ${keyType} (...${key.slice(-4)})`);
         }
     },
 
@@ -65,6 +85,7 @@ let apiKeyManager = {
             this[keyType].keys = keysArray || [];
             this[keyType].index = 0;
             this[keyType].blacklist = [];
+            this[keyType].bannedMap = {};
             console.log(`Set ${this[keyType].keys.length} ${keyType} keys externally.`);
         }
     }

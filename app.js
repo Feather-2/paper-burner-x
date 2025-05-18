@@ -523,7 +523,16 @@ async function handleProcessClick() {
                     releaseTranslationSlot,
                     defaultSystemPromptSetting,
                     defaultUserPromptTemplateSetting,
-                    useCustomPromptsSetting
+                    useCustomPromptsSetting,
+                    function onFileSuccess(fileObj) {
+                        // 自动移除已成功处理的文件
+                        const idx = pdfFiles.findIndex(f => f.name === fileObj.name && f.size === fileObj.size);
+                        if (idx !== -1) {
+                            pdfFiles.splice(idx, 1);
+                            updateFileListUI(pdfFiles, isProcessing, handleRemoveFile);
+                            updateProcessButtonState(pdfFiles, isProcessing);
+                        }
+                    }
                 )
                     .then(result => {
                         if (result && !result.error) {

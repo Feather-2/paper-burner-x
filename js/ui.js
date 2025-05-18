@@ -95,6 +95,7 @@ function updateFileListUI(pdfFiles, isProcessing, onRemoveFile) {
         } else {
             window.data = { summaries: {} };
         }
+        console.log('刷新文件列表:', pdfFiles.map(f => f.name));
     } else {
         fileListContainer.classList.add('hidden');
         window.data = {};

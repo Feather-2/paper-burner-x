@@ -12,9 +12,10 @@
  * @param {function} releaseSlot - 释放并发槽函数
  * @param {string} defaultSystemPromptSetting - 默认系统提示
  * @param {string} defaultUserPromptTemplateSetting - 默认用户提示模板
+ * @param {function} onFileSuccess - 文件处理成功后的回调函数
  * @returns {Promise<Object>} 处理结果对象
  */
-async function processSinglePdf(fileToProcess, mistralKey, translationKey, translationModel, maxTokensPerChunkValue, targetLanguageValue, acquireSlot, releaseSlot, defaultSystemPromptSetting, defaultUserPromptTemplateSetting) {
+async function processSinglePdf(fileToProcess, mistralKey, translationKey, translationModel, maxTokensPerChunkValue, targetLanguageValue, acquireSlot, releaseSlot, defaultSystemPromptSetting, defaultUserPromptTemplateSetting, onFileSuccess) {
     let currentMarkdownContent = '';
     let currentTranslationContent = '';
     let currentImagesData = [];
@@ -27,6 +28,9 @@ async function processSinglePdf(fileToProcess, mistralKey, translationKey, trans
     const fileType = fileToProcess.name.split('.').pop().toLowerCase();
     let ocrChunks = [];
     let translatedChunks = [];
+    // 失败计数
+    const fileFailCounter = {};
+    fileFailCounter[fileToProcess.name] = fileFailCounter[fileToProcess.name] || 0;
 
     try {
         if (typeof addProgressLog === "function") {
@@ -77,6 +81,13 @@ async function processSinglePdf(fileToProcess, mistralKey, translationKey, trans
                     ocrSuccess = true;
                 } catch (error) {
                     ocrError = error;
+                    fileFailCounter[fileToProcess.name]++;
+                    if (fileFailCounter[fileToProcess.name] >= 3) {
+                        if (typeof addProgressLog === "function") {
+                            addProgressLog(`${logPrefix} 失败次数已达3次，标记为彻底失败。`);
+                        }
+                        throw new Error('文件OCR失败次数过多，已终止');
+                    }
                     if (error.message && (error.message.includes('无效') || error.message.includes('未授权') || error.message.includes('401') || error.message.includes('invalid') || error.message.includes('Unauthorized'))) {
                         if (typeof apiKeyManager !== "undefined") {
                             apiKeyManager.markKeyInvalid('mistral', mistralKeyInUse);
@@ -93,7 +104,6 @@ async function processSinglePdf(fileToProcess, mistralKey, translationKey, trans
                         const delay = typeof getRetryDelay === 'function' ?
                                       getRetryDelay(ocrRetry) :
                                       Math.min(500 * Math.pow(2, ocrRetry), 30000);
-
                         if (typeof addProgressLog === "function") {
                             addProgressLog(`${logPrefix} OCR 失败: ${error.message}，${delay.toFixed(0)}ms 后重试...`);
                         }
@@ -275,6 +285,10 @@ async function processSinglePdf(fileToProcess, mistralKey, translationKey, trans
             });
         }
 
+        // 处理成功后自动移除文件
+        if (typeof onFileSuccess === 'function') {
+            onFileSuccess(fileToProcess);
+        }
         return {
             file: fileToProcess,
             markdown: currentMarkdownContent,
