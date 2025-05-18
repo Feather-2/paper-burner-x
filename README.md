@@ -1,4 +1,4 @@
-# Paper Burner - PDF文档OCR与翻译工具
+# Paper Burner - 文档OCR与翻译工具
 
 <div align="center">
   <img src="https://img.shields.io/badge/版本-1.0.0-blue.svg" alt="版本">
