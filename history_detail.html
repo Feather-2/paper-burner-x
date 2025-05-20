@@ -849,6 +849,16 @@
       */
       window.refreshTocList = renderTocList; // 暴露renderTocList函数
     })();
+
+    window.addEventListener('storage', function(e) {
+      if (e.key === 'paperBurnerSettings') {
+        // 重新加载设置并刷新 chatbot 配置
+        if (window.ChatbotCore && typeof window.ChatbotCore.getChatbotConfig === 'function') {
+          // 你可以强制刷新 Chatbot UI 或重载配置
+          window.ChatbotUI && window.ChatbotUI.updateChatbotUI && window.ChatbotUI.updateChatbotUI();
+        }
+      }
+    });
   </script>
 </body>
 </html>

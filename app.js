@@ -10,6 +10,7 @@ let isProcessing = false;
 let activeProcessingCount = 0;
 let retryAttempts = new Map();
 const MAX_RETRIES = 3;
+const LAST_SUCCESSFUL_KEYS_LS_KEY = 'paperBurnerLastSuccessfulKeys';
 
 // --- 全局翻译并发控制 ---
 let translationSemaphore = {
@@ -17,6 +18,62 @@ let translationSemaphore = {
     count: 0,
     queue: []
 };
+
+/**
+ * API Key Provider 类
+ * 负责加载、筛选、排序和轮询特定模型的API Keys
+ */
+class KeyProvider {
+    constructor(modelName) {
+        this.modelName = modelName;
+        this.keys = [];      // 存储从localStorage加载的原始key对象数组 {id, value, remark, status, order}
+        this.availableKeys = []; // 存储经过筛选和排序的、当前轮次可用的key对象数组
+        this.currentIndex = 0;
+        this.loadAndPrepareKeys();
+    }
+
+    loadAndPrepareKeys() {
+        this.keys = typeof loadModelKeys === 'function' ? loadModelKeys(this.modelName) : [];
+        // 筛选出 'valid' 或 'untested' 的 keys，并按 order 排序 (loadModelKeys 内部已排序)
+        this.availableKeys = this.keys.filter(key => key.status === 'valid' || key.status === 'untested');
+        this.currentIndex = 0;
+        if (this.availableKeys.length === 0) {
+            console.warn(`KeyProvider: No 'valid' or 'untested' keys found for model ${this.modelName}`);
+        }
+    }
+
+    getNextKey() {
+        if (this.availableKeys.length === 0) {
+            return null; // 没有可用的key
+        }
+        const keyObject = this.availableKeys[this.currentIndex];
+        this.currentIndex = (this.currentIndex + 1) % this.availableKeys.length;
+        return keyObject; // 返回整个key对象，包含 {id, value, status, remark, order}
+    }
+
+    // 当一个key被确认无效时调用
+    async markKeyAsInvalid(keyId) {
+        const keyIndexInAll = this.keys.findIndex(k => k.id === keyId);
+        if (keyIndexInAll !== -1) {
+            this.keys[keyIndexInAll].status = 'invalid';
+            if (typeof saveModelKeys === 'function') {
+                await saveModelKeys(this.modelName, this.keys); // 异步保存
+            }
+        }
+        // 从当前可用列表中移除，并重置索引以确保正确轮询剩余的key
+        this.availableKeys = this.availableKeys.filter(k => k.id !== keyId);
+        this.currentIndex = this.availableKeys.length > 0 ? this.currentIndex % this.availableKeys.length : 0;
+
+        // 如果Key管理弹窗正好显示这个模型, 更新其UI
+        if (typeof window.refreshKeyManagerForModel === 'function') {
+            window.refreshKeyManagerForModel(this.modelName, keyId, 'invalid');
+        }
+    }
+
+    hasAvailableKeys() {
+        return this.availableKeys.length > 0;
+    }
+}
 
 /**
  * 获取一个翻译并发槽（信号量实现）
@@ -54,8 +111,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 2. 应用设置到 UI
     applySettingsToUI(settings);
 
-    // 3. 加载 API Keys（如有记住）
-    loadApiKeysFromStorage();
+    // 3. 加载 API Keys（如有记住） - 此功能已通过KeyProvider实现，且UI元素已移除
+    // loadApiKeysFromStorage(); // 删除此行
 
     // 4. 初始化 UI 状态
     updateFileListUI(pdfFiles, isProcessing, handleRemoveFile);
@@ -80,11 +137,11 @@ function applySettingsToUI(settings) {
         maxTokensPerChunk: maxTokensVal,
         skipProcessedFiles,
         selectedTranslationModel: modelVal,
+        selectedCustomSourceSiteId, // 新增：加载选定的自定义源站点ID
         concurrencyLevel: concurrencyVal,
         translationConcurrencyLevel: translationConcurrencyVal,
         targetLanguage: targetLangVal,
         customTargetLanguageName: customLangNameVal,
-        customModelSettings: cms,
         defaultSystemPrompt: defaultSysPromptVal,
         defaultUserPromptTemplate: defaultUserPromptVal,
         useCustomPrompts: useCustomPromptsVal
@@ -99,6 +156,27 @@ function applySettingsToUI(settings) {
     document.getElementById('skipProcessedFiles').checked = skipProcessedFiles;
     const translationModelSelect = document.getElementById('translationModel');
     if (translationModelSelect) translationModelSelect.value = modelVal;
+
+    // ----- 新增：处理自定义源站点下拉列表的逻辑 -----
+    const customSourceSiteDropdown = document.getElementById('customSourceSiteSelect');
+    if (modelVal === 'custom' && customSourceSiteDropdown) {
+        customSourceSiteDropdown.classList.remove('hidden');
+        if (typeof window.populateCustomSourceSitesDropdown_ui === 'function') {
+            // 假设 ui.js 中有这个函数来填充下拉列表
+            window.populateCustomSourceSitesDropdown_ui(selectedCustomSourceSiteId);
+        } else {
+            console.warn('populateCustomSourceSitesDropdown_ui function not found on window.');
+            // 可选：如果函数不存在，至少清空并禁用它
+            customSourceSiteDropdown.innerHTML = '<option value="">未找到源站点加载函数</option>';
+            customSourceSiteDropdown.disabled = true;
+        }
+    } else if (customSourceSiteDropdown) {
+        customSourceSiteDropdown.classList.add('hidden');
+        customSourceSiteDropdown.innerHTML = ''; // 清空选项
+        customSourceSiteDropdown.disabled = true;
+    }
+    // ----- 结束新增 -----
+
     const concurrencyInput = document.getElementById('concurrencyLevel');
     if (concurrencyInput) concurrencyInput.value = concurrencyVal;
     const translationConcurrencyInput = document.getElementById('translationConcurrencyLevel');
@@ -110,51 +188,44 @@ function applySettingsToUI(settings) {
     const useCustomPromptsCheckbox = document.getElementById('useCustomPromptsCheckbox');
     if (useCustomPromptsCheckbox) useCustomPromptsCheckbox.checked = useCustomPromptsVal || false;
 
-    // 自定义模型设置
-    if (modelVal === 'custom' && cms) {
-        const apiEndpointInput = document.getElementById('customApiEndpoint');
-        const modelIdInput = document.getElementById('customModelId');
-        const requestFormatInput = document.getElementById('customRequestFormat');
-        const temperatureInput = document.getElementById('customTemperature');
-        const maxTokensInput = document.getElementById('customMaxTokens');
-        if (apiEndpointInput) apiEndpointInput.value = cms.apiEndpoint || '';
-        if (modelIdInput) modelIdInput.value = cms.modelId || '';
-        if (requestFormatInput) requestFormatInput.value = cms.requestFormat || 'openai';
-        if (temperatureInput) temperatureInput.value = (cms.temperature !== undefined ? cms.temperature : 0.5);
-        if (maxTokensInput) maxTokensInput.value = (cms.max_tokens !== undefined ? cms.max_tokens : 8000);
-    }
+    // 自定义模型设置 (旧版逻辑，现在主要由源站点管理)
+    // 这里不再直接从 settings.customModelSettings 读取并填充旧的自定义模型输入框
+    // 因为这些设置现在应该通过 key-manager-ui.js 中的源站点表单进行管理。
+    // 如果需要，可以在选择特定源站点时，由 ui.js 更新这些显示（如果这些输入框还保留用于显示目的）。
+
     // 触发 UI 相关联动
-    updateTranslationUIVisibility(isProcessing);
+    updateTranslationUIVisibility(isProcessing); // 这个函数在ui.js，可能需要调整以配合源站点下拉框
     updateCustomLanguageInputVisibility();
     updatePromptTextareasContent();
 }
 
 // =====================
-// API Key 加载
+// API Key 加载 (旧版UI的，现在已不需要)
 // =====================
+/* // 函数整体注释掉或删除
 function loadApiKeysFromStorage() {
     const mistralKeysText = localStorage.getItem('mistralApiKeys');
     const translationKeysText = localStorage.getItem('translationApiKeys');
 
-    if (mistralKeysText) {
-        document.getElementById('mistralApiKeys').value = mistralKeysText;
-        document.getElementById('rememberMistralKey').checked = true;
+    const mistralTextArea = document.getElementById('mistralApiKeys'); // 这些元素已不存在
+    const translationTextArea = document.getElementById('translationApiKeys'); // 这些元素已不存在
+
+    if (mistralKeysText && mistralTextArea) {
+        mistralTextArea.value = mistralKeysText;
     }
-    if (translationKeysText) {
-        document.getElementById('translationApiKeys').value = translationKeysText;
-        document.getElementById('rememberTranslationKey').checked = true;
+    if (translationKeysText && translationTextArea) {
+        translationTextArea.value = translationKeysText;
     }
 }
+*/
 
 // =====================
 // 事件监听器绑定
 // =====================
 function setupEventListeners() {
     // (需要从 ui.js 获取 DOM 元素引用)
-    const mistralTextArea = document.getElementById('mistralApiKeys');
-    const translationTextArea = document.getElementById('translationApiKeys');
-    const rememberMistralCheckbox = document.getElementById('rememberMistralKey');
-    const rememberTranslationCheckbox = document.getElementById('rememberTranslationKey');
+    // const mistralTextArea = document.getElementById('mistralApiKeys'); // 已移除
+    // const translationTextArea = document.getElementById('translationApiKeys'); // 已移除
     const translationModelSelect = document.getElementById('translationModel');
     const advancedSettingsToggle = document.getElementById('advancedSettingsToggle');
     const maxTokensSlider = document.getElementById('maxTokensPerChunk');
@@ -179,32 +250,53 @@ function setupEventListeners() {
         document.getElementById('customTemperature'),
         document.getElementById('customMaxTokens')
     ];
+    const customSourceSiteDropdown = document.getElementById('customSourceSiteSelect'); // Get ref to custom source site dropdown
+    const customSourceSiteToggleBtn = document.getElementById('customSourceSiteToggle'); // 新增：获取切换按钮
+    const customSourceSiteDiv = document.getElementById('customSourceSite'); // 新增：获取要切换的div
+    const customSourceSiteToggleIconEl = document.getElementById('customSourceSiteToggleIcon'); // 新增：获取切换图标
 
-    // API Key 存储
-    rememberMistralCheckbox.addEventListener('change', () => {
-        updateApiKeyStorage('mistralApiKeys', mistralTextArea.value, rememberMistralCheckbox.checked);
-    });
-    rememberTranslationCheckbox.addEventListener('change', () => {
-        updateApiKeyStorage('translationApiKeys', translationTextArea.value, rememberTranslationCheckbox.checked);
-    });
+    // API Key 存储 - 相关逻辑已移除，因为输入框已移除
+    /* // mistralTextArea 的监听器已无意义
     mistralTextArea.addEventListener('input', () => {
-        if (rememberMistralCheckbox.checked) {
-            localStorage.setItem('mistralApiKeys', mistralTextArea.value); // 直接保存
-        }
+        localStorage.setItem('mistralApiKeys', mistralTextArea.value); // 直接保存
         updateProcessButtonState(pdfFiles, isProcessing);
     });
+    */
+    /* // translationTextArea 的监听器已无意义
     translationTextArea.addEventListener('input', () => {
-        if (rememberTranslationCheckbox.checked) {
-            localStorage.setItem('translationApiKeys', translationTextArea.value); // 直接保存
-        }
+        localStorage.setItem('translationApiKeys', translationTextArea.value); // 直接保存
         updateTranslationUIVisibility(isProcessing);
     });
+    */
 
     // 翻译模型和自定义设置
     translationModelSelect.addEventListener('change', () => {
         updateTranslationUIVisibility(isProcessing);
         saveCurrentSettings(); // 保存包括模型选择在内的所有设置
     });
+
+    // 新增: Event-Listener für das customSourceSiteSelect Dropdown-Menü
+    if (customSourceSiteDropdown) {
+        customSourceSiteDropdown.addEventListener('change', () => {
+            saveCurrentSettings(); // Speichere die aktuellen Einstellungen, wenn die Auswahl der benutzerdefinierten Quelle geändert wird
+            // Optional: Log or update UI based on the new selection if needed immediately
+            const settings = loadSettings();
+            console.log("Custom source site selection changed and saved:", settings.selectedCustomSourceSiteId);
+        });
+    }
+
+    // 新增：为"自定义源站点设置"的切换按钮添加事件监听器
+    if (customSourceSiteToggleBtn && customSourceSiteDiv && customSourceSiteToggleIconEl) {
+        customSourceSiteToggleBtn.addEventListener('click', () => {
+            customSourceSiteDiv.classList.toggle('hidden');
+            if (customSourceSiteDiv.classList.contains('hidden')) {
+                customSourceSiteToggleIconEl.setAttribute('icon', 'carbon:chevron-down');
+            } else {
+                customSourceSiteToggleIconEl.setAttribute('icon', 'carbon:chevron-up');
+            }
+        });
+    }
+
     customModelInputs.forEach(input => {
         if (!input) return;
         input.addEventListener('change', saveCurrentSettings);
@@ -368,21 +460,24 @@ function updateCustomLanguageInputVisibility() {
 function saveCurrentSettings() {
     // 从 DOM 读取当前所有设置值
     const targetLangValue = document.getElementById('targetLanguage').value;
+    const selectedModel = document.getElementById('translationModel').value;
+    let selectedSiteId = null;
+    if (selectedModel === 'custom') {
+        const siteDropdown = document.getElementById('customSourceSiteSelect');
+        if (siteDropdown) {
+            selectedSiteId = siteDropdown.value;
+        }
+    }
+
     const settingsData = {
         maxTokensPerChunk: document.getElementById('maxTokensPerChunk').value,
         skipProcessedFiles: document.getElementById('skipProcessedFiles').checked,
-        selectedTranslationModel: document.getElementById('translationModel').value,
+        selectedTranslationModel: selectedModel,
+        selectedCustomSourceSiteId: selectedSiteId, // 新增：保存选定的自定义源站点ID
         concurrencyLevel: document.getElementById('concurrencyLevel').value,
         translationConcurrencyLevel: document.getElementById('translationConcurrencyLevel').value, // Read new setting
         targetLanguage: targetLangValue, // Save target language selection
         customTargetLanguageName: targetLangValue === 'custom' ? document.getElementById('customTargetLanguageInput').value : '', // Save custom language name if applicable
-        customModelSettings: {
-            apiEndpoint: document.getElementById('customApiEndpoint').value,
-            modelId: document.getElementById('customModelId').value,
-            requestFormat: document.getElementById('customRequestFormat').value,
-            temperature: parseFloat(document.getElementById('customTemperature').value),
-            max_tokens: parseInt(document.getElementById('customMaxTokens').value)
-        },
         defaultSystemPrompt: document.getElementById('defaultSystemPrompt').value, // Save default system prompt
         defaultUserPromptTemplate: document.getElementById('defaultUserPromptTemplate').value, // Save default user prompt template
         useCustomPrompts: document.getElementById('useCustomPromptsCheckbox').checked // Save checkbox state
@@ -390,16 +485,9 @@ function saveCurrentSettings() {
     // 调用 storage.js 中的保存函数
     saveSettings(settingsData);
 
-    // 如果是自定义模型，使用模型检测相关函数获取完整信息
-    if (settingsData.selectedTranslationModel === 'custom' && typeof window.modelDetector !== 'undefined') {
-        const modelConfig = window.modelDetector.updateCustomApiConfig();
-        settingsData.customModelSettings.apiEndpoint = modelConfig.endpoint;
-        settingsData.customModelSettings.modelId = modelConfig.modelId;
-    } else {
-        // 原有的逻辑
-        settingsData.customModelSettings.apiEndpoint = customApiEndpoint?.value || '';
-        settingsData.customModelSettings.modelId = customModelIdInput?.value || '';
-    }
+    // 旧的自定义模型设置保存逻辑已移除，因为它们通过源站点配置进行管理和保存。
+    // If a specific custom source site is selected, its details are already saved via key-manager-ui.js
+    // and `loadAllCustomSourceSites()` in `handleProcessClick` will fetch them.
 }
 
 // =====================
@@ -408,34 +496,116 @@ function saveCurrentSettings() {
 async function handleProcessClick() {
     if (isProcessing) return;
 
-    // 1. 解析和验证 API Keys
-    const translationModel = document.getElementById('translationModel').value;
+    // 1. 获取设置，包括选定的翻译模型
+    const settings = loadSettings(); // 从存储加载最新设置
+    // const selectedTranslationModelName = document.getElementById('translationModel').value; // 旧的直接读取方式
+    const selectedTranslationModelName = settings.selectedTranslationModel;
+
     const requiresMistralKey = pdfFiles.some(file => file.name.toLowerCase().endsWith('.pdf'));
 
-    if (requiresMistralKey && !apiKeyManager.parseKeys('mistral')) {
-        showNotification('检测到 PDF 文件，请输入至少一个有效的 Mistral API Key', 'error');
-        return;
-    }
-
-    if (translationModel !== 'none' && !apiKeyManager.parseKeys('translation')) {
-        showNotification(`选择了翻译模型，请输入至少一个有效的翻译 API Key`, 'error');
-        return;
-    }
-    if (pdfFiles.length === 0) {
-        showNotification('请选择至少一个 PDF 文件', 'error');
-        return;
-    }
-    // 2. 验证自定义模型设置
-    if (translationModel === 'custom') {
-        const endpoint = document.getElementById('customApiEndpoint').value.trim();
-        const id = document.getElementById('customModelId').value.trim();
-        if (!endpoint || !id) {
-            showNotification('请填写完整的自定义模型 API Endpoint 和模型 ID', 'error');
+    // 2. 初始化 Key Providers
+    let mistralKeyProvider = null;
+    if (requiresMistralKey) {
+        mistralKeyProvider = new KeyProvider('mistral');
+        if (!mistralKeyProvider.hasAvailableKeys()) {
+            showNotification('检测到 PDF 文件，但没有可用的 Mistral API Key (请在Key管理中添加并确保状态为有效或未测试)', 'error');
             return;
         }
     }
 
-    // 3. 设置处理状态
+    let translationKeyProvider = null;
+    let currentTranslationModelForProvider = null; // 用于 KeyProvider 的模型名
+    let translationModelConfigForProcess = null;   // 用于 processSinglePdf 的模型配置
+
+    if (selectedTranslationModelName !== 'none') {
+        if (selectedTranslationModelName === 'custom') {
+            const selectedCustomSourceId = settings.selectedCustomSourceSiteId; // 从保存的设置中获取
+            if (!selectedCustomSourceId) {
+                isProcessing = false;
+                updateProcessButtonState(pdfFiles, isProcessing);
+                showNotification('请先在主页面选择一个自定义源站点，并确保已配置API Key。', 'error');
+                addProgressLog('错误: 未选择自定义源站点 (从设置加载失败)。');
+
+                // 尝试自动展开自定义源站点设置区域
+                const customSourceSiteToggle = document.getElementById('customSourceSiteToggle');
+                const customSourceSite = document.getElementById('customSourceSite');
+                const customSourceSiteToggleIcon = document.getElementById('customSourceSiteToggleIcon');
+
+                if (customSourceSiteToggle && customSourceSite && customSourceSite.classList.contains('hidden')) {
+                    customSourceSite.classList.remove('hidden');
+                    if (customSourceSiteToggleIcon) {
+                        customSourceSiteToggleIcon.setAttribute('icon', 'carbon:chevron-up');
+                    }
+                }
+
+                return;
+            }
+            const allSourceSites = typeof loadAllCustomSourceSites === 'function' ? loadAllCustomSourceSites() : {};
+            const siteConfig = allSourceSites[selectedCustomSourceId];
+
+            if (!siteConfig) {
+                isProcessing = false;
+                updateProcessButtonState(pdfFiles, isProcessing);
+                showNotification(`未能加载ID为 "${selectedCustomSourceId}" 的自定义源站配置。`, 'error');
+                addProgressLog(`错误: 未能加载自定义源站配置 (ID: ${selectedCustomSourceId})。`);
+                // UI 清理和返回的逻辑...
+                return;
+            }
+            currentTranslationModelForProvider = `custom_source_${selectedCustomSourceId}`;
+            translationModelConfigForProcess = siteConfig;
+            addProgressLog(`使用自定义源站: ${siteConfig.displayName || selectedCustomSourceId}`);
+        } else {
+            // For preset models
+            currentTranslationModelForProvider = selectedTranslationModelName;
+            translationModelConfigForProcess = typeof loadModelConfig === 'function' ? loadModelConfig(selectedTranslationModelName) : {};
+            if (!translationModelConfigForProcess && selectedTranslationModelName !== 'none'){
+                 //尝试从旧的 customModelSettings 加载，以兼容旧版单自定义模型设置，但这部分应逐渐淘汰
+                console.warn(`Preset model config for ${selectedTranslationModelName} not found via loadModelConfig. Attempting fallback (legacy).`);
+            }
+            addProgressLog(`使用预设翻译模型: ${selectedTranslationModelName}`);
+        }
+
+        if (currentTranslationModelForProvider) {
+            translationKeyProvider = new KeyProvider(currentTranslationModelForProvider);
+            if (!translationKeyProvider.hasAvailableKeys()) {
+                // 优化：更友好的错误提示消息
+                const modelDisplayName = translationModelConfigForProcess?.displayName || currentTranslationModelForProvider;
+                const isCustomSource = currentTranslationModelForProvider.startsWith('custom_source_');
+                let errorMsg = '';
+
+                if (isCustomSource) {
+                    const sourceSiteId = currentTranslationModelForProvider.replace('custom_source_', '');
+                    errorMsg = `源站 "${modelDisplayName}" 没有可用的 API Key。请点击源站信息下方的"管理该站点 API Key"按钮添加Key。`;
+
+                    // 如果当前在处理页，则尝试自动触发API Key管理
+                    if (typeof showNotification === 'function') {
+                        setTimeout(() => {
+                            const manageBtn = document.getElementById('manageSourceSiteKeyBtn');
+                            if (manageBtn && !manageBtn.classList.contains('hidden')) {
+                                if (confirm(`是否立即打开源站 "${modelDisplayName}" 的API Key管理界面添加Key？`)) {
+                                    manageBtn.click();
+                                }
+                            }
+                        }, 1000);
+                    }
+                } else {
+                    errorMsg = `模型 "${modelDisplayName}" 没有可用的 API Key。请点击页面右上方的"模型与Key管理"按钮添加Key。`;
+                }
+
+                showNotification(errorMsg, 'error');
+                return;
+            }
+        }
+    } else {
+        addProgressLog('未选择翻译模型，跳过翻译步骤。');
+    }
+
+    if (pdfFiles.length === 0) {
+        showNotification('请选择至少一个文件', 'error');
+        return;
+    }
+
+    // 4. 设置处理状态等...
     isProcessing = true;
     activeProcessingCount = 0;
     retryAttempts.clear();
@@ -444,23 +614,21 @@ async function handleProcessClick() {
     showProgressSection();
     addProgressLog('=== 开始批量处理 ===');
 
-    // 4. 获取并发和重试设置
-    const concurrencyLevel = parseInt(document.getElementById('concurrencyLevel').value) || 1;
-    const translationConcurrencyLevel = parseInt(document.getElementById('translationConcurrencyLevel').value) || 2;
-    const skipEnabled = document.getElementById('skipProcessedFiles').checked;
-    const maxTokensValue = document.getElementById('maxTokensPerChunk').value;
-    const targetLanguageSetting = document.getElementById('targetLanguage').value;
-    const customTargetLanguageNameSetting = document.getElementById('customTargetLanguageInput').value;
-    const defaultSystemPromptSetting = document.getElementById('defaultSystemPrompt').value;
-    const defaultUserPromptTemplateSetting = document.getElementById('defaultUserPromptTemplate').value;
-    const useCustomPromptsSetting = document.getElementById('useCustomPromptsCheckbox').checked;
+    // 5. 获取并发和重试设置等...
+    const concurrencyLevel = parseInt(settings.concurrencyLevel) || 1;
+    const translationConcurrencyLevel = parseInt(settings.translationConcurrencyLevel) || 2;
+    const skipEnabled = settings.skipProcessedFiles;
+    const maxTokensValue = parseInt(settings.maxTokensPerChunk) || 2000;
+    const targetLanguageSetting = settings.targetLanguage;
+    const customTargetLanguageNameSetting = settings.customTargetLanguageName;
+    const defaultSystemPromptSetting = settings.defaultSystemPrompt;
+    const defaultUserPromptTemplateSetting = settings.defaultUserPromptTemplate;
+    const useCustomPromptsSetting = settings.useCustomPrompts;
 
-    // 确定最终的目标语言名称
     const effectiveTargetLanguage = targetLanguageSetting === 'custom'
         ? customTargetLanguageNameSetting.trim() || 'English'
         : targetLanguageSetting;
 
-    // 初始化翻译信号量
     translationSemaphore.limit = translationConcurrencyLevel;
     translationSemaphore.count = 0;
     translationSemaphore.queue = [];
@@ -468,7 +636,6 @@ async function handleProcessClick() {
     addProgressLog(`文件并发: ${concurrencyLevel}, 翻译并发: ${translationConcurrencyLevel}, 最大重试: ${MAX_RETRIES}, 跳过已处理: ${skipEnabled}`);
     updateConcurrentProgress(0);
 
-    // 5. 初始化计数器和待处理队列
     let successCount = 0;
     let skippedCount = 0;
     let errorCount = 0;
@@ -487,10 +654,8 @@ async function handleProcessClick() {
         }
     }
 
-    // 6. 更新初始进度
     updateOverallProgress(successCount, skippedCount, errorCount, filesToProcess.length);
 
-    // 7. 启动并发处理队列
     const processQueue = async () => {
         while (pendingIndices.size > 0 || activeProcessingCount > 0) {
             while (pendingIndices.size > 0 && activeProcessingCount < concurrencyLevel) {
@@ -507,16 +672,70 @@ async function handleProcessClick() {
                 const retryText = currentRetry > 0 ? ` (重试 ${currentRetry}/${MAX_RETRIES})` : '';
                 addProgressLog(`--- [${successCount + skippedCount + errorCount + 1}/${filesToProcess.length}] 开始处理: ${currentFile.name}${retryText} ---`);
 
-                // 获取当前任务的 key
-                const mistralKeyForTask = apiKeyManager.getMistralKey();
-                const translationKeyForTask = apiKeyManager.getTranslationKey();
+                let mistralKeyObject = null;
+                if (mistralKeyProvider) {
+                    if (!mistralKeyProvider.hasAvailableKeys()) {
+                        addProgressLog(`[${currentFile.name}] 错误: Mistral模型无可用Key，文件处理失败。`);
+                        allResults[currentFileIndex] = { file: currentFile, error: 'Mistral模型无可用Key' };
+                        errorCount++;
+                        activeProcessingCount--;
+                        updateConcurrentProgress(activeProcessingCount);
+                        updateOverallProgress(successCount, skippedCount, errorCount, filesToProcess.length);
+                        retryAttempts.delete(fileIdentifier);
+                        continue;
+                    }
+                    mistralKeyObject = mistralKeyProvider.getNextKey();
+                    if (!mistralKeyObject) {
+                         addProgressLog(`[${currentFile.name}] 警告: Mistral Key Provider 返回 null Key。`);
+                        allResults[currentFileIndex] = { file: currentFile, error: 'Mistral Key Provider 异常' };
+                        errorCount++;
+                        activeProcessingCount--;
+                        updateConcurrentProgress(activeProcessingCount);
+                        updateOverallProgress(successCount, skippedCount, errorCount, filesToProcess.length);
+                        retryAttempts.delete(fileIdentifier);
+                        continue;
+                    }
+                }
 
-                // 调用核心处理函数
+                let translationKeyObject = null;
+                // 使用 currentTranslationModelForProvider 来决定是否需要翻译以及获取Key
+                if (translationKeyProvider && currentTranslationModelForProvider && currentTranslationModelForProvider !== 'none') {
+                    if (!translationKeyProvider.hasAvailableKeys()) {
+                        const modelDisplayName = translationModelConfigForProcess?.displayName || currentTranslationModelForProvider;
+                        addProgressLog(`[${currentFile.name}] 警告: ${modelDisplayName} 模型无可用Key，将跳过翻译。`);
+                    } else {
+                        translationKeyObject = translationKeyProvider.getNextKey();
+                        if (!translationKeyObject) {
+                            const modelDisplayName = translationModelConfigForProcess?.displayName || currentTranslationModelForProvider;
+                            addProgressLog(`[${currentFile.name}] 警告: ${modelDisplayName} Key Provider 返回 null Key。将跳过翻译。`);
+                        }
+                    }
+                }
+                // 对于自定义模型，再次确认配置完整性 (translationModelConfigForProcess 应该已经包含所需信息)
+                if (
+                    selectedTranslationModelName === 'custom' &&
+                    (
+                        !translationModelConfigForProcess ||
+                        (!translationModelConfigForProcess.apiEndpoint && !translationModelConfigForProcess.apiBaseUrl) ||
+                        !translationModelConfigForProcess.modelId
+                    )
+                ) {
+                    addProgressLog(`[${currentFile.name}] 错误: 自定义翻译模型 (${translationModelConfigForProcess?.displayName || '未知'}) 配置不完整，将跳过翻译。`);
+                    translationKeyObject = null; // 强制跳过翻译
+                }
+
+                console.log('translationKeyProvider', translationKeyProvider);
+                console.log('currentTranslationModelForProvider', currentTranslationModelForProvider);
+                console.log('translationKeyProvider.hasAvailableKeys()', translationKeyProvider && translationKeyProvider.hasAvailableKeys());
+                console.log('translationKeyProvider.availableKeys', translationKeyProvider && translationKeyProvider.availableKeys);
+                console.log('handleProcessClick: translationKeyObject', translationKeyObject);
+
                 processSinglePdf(
                     currentFile,
-                    mistralKeyForTask,
-                    translationKeyForTask,
-                    translationModel,
+                    mistralKeyObject,
+                    translationKeyObject,
+                    selectedTranslationModelName, // 'custom' or preset model name
+                    translationModelConfigForProcess, // Specific site config or preset model config
                     maxTokensValue,
                     effectiveTargetLanguage,
                     acquireTranslationSlot,
@@ -525,24 +744,54 @@ async function handleProcessClick() {
                     defaultUserPromptTemplateSetting,
                     useCustomPromptsSetting,
                     function onFileSuccess(fileObj) {
-                        // 自动移除已成功处理的文件
-                        const idx = pdfFiles.findIndex(f => f.name === fileObj.name && f.size === fileObj.size);
-                        if (idx !== -1) {
-                            pdfFiles.splice(idx, 1);
-                            updateFileListUI(pdfFiles, isProcessing, handleRemoveFile);
-                            updateProcessButtonState(pdfFiles, isProcessing);
-                        }
+                        // ... (onFileSuccess logic)
                     }
                 )
-                    .then(result => {
-                        if (result && !result.error) {
+                    .then(async result => {
+                        if (result && result.keyInvalid) {
+                            const { type, keyIdToInvalidate, modelName: invalidModelNameFromCallback } = result.keyInvalid;
+                            const affectedKeyProvider = type === 'mistral' ? mistralKeyProvider : translationKeyProvider;
+                            // 使用 currentTranslationModelForProvider (如 custom_source_id) 或 invalidModelNameFromCallback
+                            const modelNameToLog = type === 'mistral' ? 'Mistral' :
+                                (currentTranslationModelForProvider && currentTranslationModelForProvider.startsWith('custom_source_') ?
+                                 (translationModelConfigForProcess?.displayName || currentTranslationModelForProvider) :
+                                 (invalidModelNameFromCallback || selectedTranslationModelName));
+
+                            if (affectedKeyProvider && keyIdToInvalidate) {
+                                addProgressLog(`[${currentFile.name}] 检测到 ${modelNameToLog} API Key (ID: ${keyIdToInvalidate.slice(0,8)}...) 失效。`);
+                                await affectedKeyProvider.markKeyAsInvalid(keyIdToInvalidate);
+
+                                if (affectedKeyProvider.hasAvailableKeys()) {
+                                    pendingIndices.add(currentFileIndex);
+                                    addProgressLog(`[${currentFile.name}] 将使用下一个可用的 ${modelNameToLog} Key 重试文件。`);
+                                } else {
+                                    addProgressLog(`[${currentFile.name}] ${modelNameToLog} 模型已无可用Key，文件处理失败。`);
+                                    allResults[currentFileIndex] = { file: currentFile, error: `${modelNameToLog} 模型已无可用Key` };
+                                    errorCount++;
+                                    retryAttempts.delete(fileIdentifier);
+                                }
+                            } else {
+                                addProgressLog(`[${currentFile.name}] Key失效报告不完整，无法标记。文件可能处理失败。`);
+                                allResults[currentFileIndex] = { file: currentFile, error: result.error || 'Key失效报告不完整' };
+                                errorCount++;
+                                retryAttempts.delete(fileIdentifier);
+                            }
+                        } else if (result && !result.error) {
                             allResults[currentFileIndex] = result;
                             markFileAsProcessed(fileIdentifier, processedFilesRecord);
                             addProgressLog(`[${currentFile.name}] 处理成功！`);
                             successCount++;
                             retryAttempts.delete(fileIdentifier);
+
+                            if (mistralKeyObject) {
+                                recordLastSuccessfulKey('mistral', mistralKeyObject.id);
+                            }
+                            // 当翻译成功时，使用 currentTranslationModelForProvider 记录Key
+                            if (translationKeyObject && currentTranslationModelForProvider && currentTranslationModelForProvider !== 'none') {
+                                recordLastSuccessfulKey(currentTranslationModelForProvider, translationKeyObject.id);
+                            }
+
                         } else {
-                            // 处理失败和重试
                             const errorMsg = result?.error || '未知错误';
                             const nextRetryCount = (retryAttempts.get(fileIdentifier) || 0) + 1;
 
@@ -559,7 +808,6 @@ async function handleProcessClick() {
                         }
                     })
                     .catch(error => {
-                        // 捕获 processSinglePdf 内部未预料的错误
                         console.error(`处理文件 ${currentFile.name} 时发生意外错误:`, error);
                         addProgressLog(`错误: 处理 ${currentFile.name} 失败 - ${error.message}`);
                         allResults[currentFileIndex] = { file: currentFile, error: error.message };
@@ -567,7 +815,6 @@ async function handleProcessClick() {
                         retryAttempts.delete(fileIdentifier);
                     })
                     .finally(() => {
-                        // 任务完成（成功、重试或最终失败）
                         activeProcessingCount--;
                         updateConcurrentProgress(activeProcessingCount);
                         updateOverallProgress(successCount, skippedCount, errorCount, filesToProcess.length);
@@ -581,7 +828,6 @@ async function handleProcessClick() {
         }
     };
 
-    // 8. 执行队列并处理最终结果
     try {
         await processQueue();
     } catch (err) {
@@ -652,6 +898,7 @@ function getBuiltInPrompts(languageName) {
             user_prompt_template = `Please translate the following content into **${targetLangDisplayName}**. \nRequirements:\n\n1. Keep all Markdown syntax elements unchanged (e.g., #headings, *italics*, **bold**, [links](), ![images]()).\n2. Translate academic/professional terms accurately. If necessary, keep the original term in parentheses if unsure about the translation in ${targetLangDisplayName}.\n3. Maintain the original paragraph structure and formatting.\n4. Translate only the content; do not add extra explanations.\n5. For display math formulas, use:\n\$\$\n...\n\$\$\n\nPlease explicitly distinguish between display (block) and inline formulas, and use the correct formula markers. When outputting formulas with $$ or $$$$, add a space or line break before and after, and do not add spaces inside the formula.\n\nDocument Content:\n\n\${content}`;
             break;
     } // End of switch
+    //console.log('getBuiltInPrompts 返回:', {systemPrompt: sys_prompt, userPromptTemplate: user_prompt_template});
     return { systemPrompt: sys_prompt, userPromptTemplate: user_prompt_template };
 } // End of getBuiltInPrompts function
 
@@ -696,3 +943,35 @@ function updatePromptTextareasContent() {
 // 其他协调逻辑
 // =====================
 // ...（如有其他 app.js 级别的协调逻辑，可在此补充）...
+
+/**
+ * 更新本地存储中指定模型最后成功使用的Key ID
+ * @param {string} modelName
+ * @param {string} keyId
+ */
+function recordLastSuccessfulKey(modelName, keyId) {
+    if (!modelName || !keyId) return;
+    try {
+        let records = JSON.parse(localStorage.getItem(LAST_SUCCESSFUL_KEYS_LS_KEY) || '{}');
+        records[modelName] = keyId;
+        localStorage.setItem(LAST_SUCCESSFUL_KEYS_LS_KEY, JSON.stringify(records));
+    } catch (e) {
+        console.error('Failed to record last successful key:', e);
+    }
+}
+
+/**
+ * 获取本地存储中指定模型最后成功使用的Key ID
+ * @param {string} modelName
+ * @returns {string | null}
+ */
+function getLastSuccessfulKeyId(modelName) {
+    if (!modelName) return null;
+    try {
+        const records = JSON.parse(localStorage.getItem(LAST_SUCCESSFUL_KEYS_LS_KEY) || '{}');
+        return records[modelName] || null;
+    } catch (e) {
+        console.error('Failed to get last successful key ID:', e);
+        return null;
+    }
+}

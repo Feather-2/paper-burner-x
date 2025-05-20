@@ -152,7 +152,8 @@ function splitByParagraphs(text, tokenLimit, logContext, chunkIndex) {
  * @param {string} targetLang - 目标语言
  * @param {string} model - 翻译模型
  * @param {string} apiKey - API密钥
- * @param {number} tokenLimit - 每段最大token数
+ * @param {Object | null} modelConfig - 翻译模型的配置对象 (特别是自定义模型)
+ * @param {number | string} tokenLimitInput - 每段最大token数 (可以是数字或字符串)
  * @param {function} acquireSlot - 获取并发槽位的函数
  * @param {function} releaseSlot - 释放并发槽位的函数
  * @param {string} logContext - 日志前缀
@@ -161,7 +162,23 @@ function splitByParagraphs(text, tokenLimit, logContext, chunkIndex) {
  * @param {boolean} useCustomPrompts - 是否使用自定义提示词
  * @returns {Promise<Object>} 包含翻译后文本和分块信息的对象 { translatedText: string, originalChunks: Array<string>, translatedTextChunks: Array<string> }
  */
-async function translateLongDocument(markdownText, targetLang, model, apiKey, tokenLimit, acquireSlot, releaseSlot, logContext = "", defaultSystemPrompt = "", defaultUserPromptTemplate = "", useCustomPrompts = false) {
+async function translateLongDocument(
+    markdownText,
+    targetLang,
+    model,
+    apiKey,
+    modelConfig, // 新增参数
+    tokenLimitInput,
+    acquireSlot,
+    releaseSlot,
+    logContext = "",
+    defaultSystemPrompt = "",
+    defaultUserPromptTemplate = "",
+    useCustomPrompts = false
+) {
+    console.log('translateLongDocument: apiKey', apiKey);
+    const tokenLimit = parseInt(tokenLimitInput, 10) || 2000; // 确保是数字，提供默认值
+
     // 先进行表格保护处理
     let processedText = markdownText;
     let tablePlaceholders = {};
@@ -197,16 +214,18 @@ async function translateLongDocument(markdownText, targetLang, model, apiKey, to
     // 准备API配置用于文本和表格翻译
     let apiConfig;
     if (model === "custom") {
-        // 这里假设 loadSettings 可用
-        const settings = typeof loadSettings === "function" ? loadSettings() : {};
-        const cms = settings.customModelSettings || {};
+        // 兼容 apiEndpoint 和 apiBaseUrl
+        const endpoint = modelConfig.apiEndpoint || modelConfig.apiBaseUrl;
+        if (!modelConfig || !endpoint || !modelConfig.modelId) {
+            throw new Error('Custom model configuration is incomplete for translateLongDocument. API Endpoint (或 apiBaseUrl) and Model ID are required.');
+        }
         apiConfig = buildCustomApiConfig(
             apiKey,
-            cms.apiEndpoint,
-            cms.modelId,
-            cms.requestFormat,
-            cms.temperature,
-            cms.max_tokens
+            endpoint,    // 兼容 apiEndpoint 和 apiBaseUrl
+            modelConfig.modelId,        // 使用传入的 modelConfig
+            modelConfig.requestFormat,  // 使用传入的 modelConfig
+            modelConfig.temperature,
+            modelConfig.max_tokens
         );
     } else {
         // 预设模型
@@ -285,11 +304,44 @@ async function translateLongDocument(markdownText, targetLang, model, apiKey, to
 
                 if (task.type === 'text') {
                     // 翻译文本块
-                    result = await translateMarkdown(
-                        task.content, targetLang, model, apiKey, taskLogContext,
-                        updatedSystemPrompt, defaultUserPromptTemplate, useCustomPrompts,
-                        false // 在 translateLongDocument 内部，文本块翻译不应再次触发 protectMarkdownTables
-                    );
+                    //console.log('document.js 调用 translateMarkdown 参数:', {
+                    //    useCustomPrompts,
+                    //    defaultUserPromptTemplate,
+                    //    defaultSystemPrompt,
+                    //    modelConfig,
+                    //    content: task.content,
+                    //    targetLang,
+                    //    model,
+                    //    apiKey,
+                    //    taskLogContext
+                    //});
+                    if (model === 'custom') {
+                        result = await translateMarkdown(
+                            task.content,
+                            targetLang,
+                            model,
+                            apiKey,
+                            modelConfig,
+                            taskLogContext,
+                            updatedSystemPrompt,
+                            defaultUserPromptTemplate,
+                            useCustomPrompts,
+                            false
+                        );
+                    } else {
+                        result = await translateMarkdown(
+                            task.content,
+                            targetLang,
+                            model,
+                            apiKey,
+                            taskLogContext,
+                            updatedSystemPrompt,
+                            defaultUserPromptTemplate,
+                            useCustomPrompts,
+                            false
+                        );
+                    }
+                    //console.log('document.js translateMarkdown 返回:', result);
                     translationResults.set('text-' + task.index, result);
                 } else if (task.type === 'table') {
                     // 翻译表格
@@ -333,7 +385,9 @@ ${task.content}
                     });
                 }
 
-                releaseSlot();
+                if (typeof releaseSlot === "function") {
+                    releaseSlot();
+                }
                 if (typeof addProgressLog === "function") {
                     addProgressLog(`${taskLogContext} 翻译槽已释放 (成功)。`);
                 }
@@ -341,7 +395,9 @@ ${task.content}
 
             } catch (error) {
                 // 释放翻译槽
-                releaseSlot();
+                if (typeof releaseSlot === "function") {
+                    releaseSlot();
+                }
                 if (typeof addProgressLog === "function") {
                     addProgressLog(`${taskLogContext} 翻译槽已释放 (失败)。`);
                 }

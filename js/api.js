@@ -8,90 +8,6 @@
 // import { addProgressLog, showNotification } from './ui.js';
 
 // ---------------------
-// API Key 管理器
-// ---------------------
-// 负责管理 Mistral 和翻译 API 的密钥轮询与设置
-let apiKeyManager = {
-    mistral: { keys: [], index: 0, blacklist: [], bannedMap: {} }, // 增加 bannedMap
-    translation: { keys: [], index: 0, blacklist: [], bannedMap: {} },
-
-    // 解析 textarea 中的密钥（建议重构到 UI 层）
-    parseKeys: function(keyType) {
-        const textarea = keyType === 'mistral' ? document.getElementById('mistralApiKeys') : document.getElementById('translationApiKeys');
-        if (!textarea) {
-            console.error(`Textarea for ${keyType} not found!`);
-            this[keyType].keys = [];
-            this[keyType].index = 0;
-            this[keyType].blacklist = [];
-            this[keyType].bannedMap = {};
-            return false;
-        }
-        this[keyType].keys = textarea.value
-            .split('\n')
-            .map(k => k.trim())
-            .filter(k => k !== '');
-        this[keyType].index = 0;
-        this[keyType].blacklist = [];
-        this[keyType].bannedMap = {};
-        console.log(`Parsed ${this[keyType].keys.length} ${keyType} keys.`);
-        return this[keyType].keys.length > 0;
-    },
-
-    // 轮询获取下一个可用密钥（支持ban时间复活）
-    getNextKey: function(keyType) {
-        const now = Date.now();
-        const banDuration = 30000; // 30秒
-        const keys = this[keyType].keys;
-        if (!keys || keys.length === 0) return null;
-        // 过滤出未ban的key
-        let availableKeys = keys.filter(k => !this[keyType].bannedMap[k] || (now - this[keyType].bannedMap[k] > banDuration));
-        if (availableKeys.length === 0) {
-            // 所有key都被ban，找最早ban的key复活
-            let minBanKey = null, minBanTime = Infinity;
-            for (const k of keys) {
-                if (this[keyType].bannedMap[k] && this[keyType].bannedMap[k] < minBanTime) {
-                    minBanTime = this[keyType].bannedMap[k];
-                    minBanKey = k;
-                }
-            }
-            if (minBanKey && now - minBanTime > banDuration) {
-                // 复活最早ban的key
-                delete this[keyType].bannedMap[minBanKey];
-                availableKeys = [minBanKey];
-            } else {
-                return null;
-            }
-        }
-        // 保证 index 不越界
-        this[keyType].index = this[keyType].index % availableKeys.length;
-        const key = availableKeys[this[keyType].index];
-        this[keyType].index = (this[keyType].index + 1) % availableKeys.length;
-        return key;
-    },
-
-    // 标记某个 key 失效，加入banMap
-    markKeyInvalid: function(keyType, key) {
-        if (!this[keyType].bannedMap[key]) {
-            this[keyType].bannedMap[key] = Date.now();
-            console.warn(`Key 被标记为失效并ban 30秒: ${keyType} (...${key.slice(-4)})`);
-        }
-    },
-
-    // 快捷方法：获取 Mistral/翻译密钥
-    getMistralKey: function() { return this.getNextKey('mistral'); },
-    getTranslationKey: function() { return this.getNextKey('translation'); },
-    setKeys: function(keyType, keysArray) {
-        if (this[keyType]) {
-            this[keyType].keys = keysArray || [];
-            this[keyType].index = 0;
-            this[keyType].blacklist = [];
-            this[keyType].bannedMap = {};
-            console.log(`Set ${this[keyType].keys.length} ${keyType} keys externally.`);
-        }
-    }
-};
-
-// ---------------------
 // API 错误信息提取工具
 // ---------------------
 // 统一从 API 响应中提取错误信息，便于调试和用户提示
@@ -215,21 +131,41 @@ async function deleteMistralFile(fileId, apiKey) {
 
 // 封装实际的翻译 API 调用逻辑，支持多种模型
 async function callTranslationApi(effectiveConfig, requestBody) {
+    // 添加防御性检查
+    if (!effectiveConfig || !effectiveConfig.endpoint) {
+        throw new Error('无效的 API 配置: 缺少必要的端点信息');
+    }
+
+    if (!effectiveConfig.headers) {
+        effectiveConfig.headers = { 'Content-Type': 'application/json' };
+    }
+    // 确保 Accept header 存在并优先 application/json
+    effectiveConfig.headers['Accept'] = 'application/json, text/plain, */*';
+
     const response = await fetch(effectiveConfig.endpoint, {
         method: 'POST',
         headers: effectiveConfig.headers,
         body: JSON.stringify(requestBody)
     });
 
+    const contentType = response.headers.get('content-type');
     if (!response.ok) {
         const errorText = await getApiError(response, '翻译API返回错误');
         // 包含状态码和部分错误文本，更易调试
         throw new Error(`翻译 API 错误 (${response.status}): ${errorText}`);
     }
 
+    // 检查 Content-Type 是否为 JSON
+    if (!contentType || !contentType.includes('application/json')) {
+        const responseText = await response.text();
+        console.error('Translation API did not return JSON. Response:', responseText.substring(0, 500)); // Log first 500 chars
+        throw new Error(`翻译 API 未返回有效的 JSON 响应。收到的 Content-Type: ${contentType}. 响应内容可能为 HTML 或其他格式。请检查 API Endpoint 配置。`);
+    }
+
     const data = await response.json();
     // 通过配置的 responseExtractor 提取翻译内容
-    const translatedContent = effectiveConfig.responseExtractor(data);
+    const extractor = effectiveConfig.responseExtractor || (d => d?.choices?.[0]?.message?.content);
+    const translatedContent = extractor(data);
 
     if (translatedContent === null || translatedContent === undefined) {
         console.error(`Failed to extract translation from response:`, data);
@@ -240,51 +176,111 @@ async function callTranslationApi(effectiveConfig, requestBody) {
 }
 
 // 辅助函数：构建自定义 API 配置 (添加 bodyBuilder 参数)
-function buildCustomApiConfig(key, customApiEndpoint, customModelId, customRequestFormat, temperature, max_tokens) {
-    // 如果是通过模型检测模块设置的端点，直接使用
+// 注意：此函数与 js/process/translation.js 中的 buildCustomApiConfig 功能类似，
+// 未来可以考虑合并或共享，但目前保持独立，以明确 api.js 的职责是纯粹的API交互。
+function buildCustomApiConfigForTest(key, customApiEndpoint, customModelId, customRequestFormat, temperature, max_tokens) {
     let apiEndpoint = customApiEndpoint;
-
-    // 检查是否有模型检测模块，如果有则使用其提供的完整端点
     if (typeof window.modelDetector !== 'undefined') {
         const fullEndpoint = window.modelDetector.getFullApiEndpoint();
-        if (fullEndpoint) {
-            apiEndpoint = fullEndpoint;
-        }
-    } else {
-        // 兼容性处理：检查是否是baseUrl而不是完整端点
-        if (apiEndpoint && !apiEndpoint.includes('/v1/') && !apiEndpoint.endsWith('/v1')) {
-            // 移除末尾的斜杠（如果有）
-            const cleanBaseUrl = apiEndpoint.endsWith('/') ? apiEndpoint.slice(0, -1) : apiEndpoint;
-            apiEndpoint = `${cleanBaseUrl}/v1/chat/completions`;
-        }
+        if (fullEndpoint) apiEndpoint = fullEndpoint;
     }
-
-    const config = {
+    // ... (此处省略与 translation.js 中类似的具体格式构建逻辑，
+    // 因为 testModelKey 直接调用 translateMarkdown, 而 translateMarkdown 内部会构建这些)
+    // 这个函数如果仅由 testModelKey 的旧版间接使用，可能不再需要细节实现。
+    // 如果 testModelKey 要独立实现API调用，则这里需要完整实现。
+    // 当前 testModelKey 直接使用 translateMarkdown，所以此函数可能不再被直接调用。
+    return {
         endpoint: apiEndpoint,
-        modelName: customModelId, // 直接用ID做显示
+        modelName: customModelId,
         headers: { 'Content-Type': 'application/json' },
-        bodyBuilder: null,
-        responseExtractor: null
+        // bodyBuilder and responseExtractor would be set here if callTranslationApi was used directly by testModelKey
     };
-
-    // 设置认证和 bodyBuilder/responseExtractor
-    switch (customRequestFormat) {
-        case 'openai':
-            config.headers['Authorization'] = `Bearer ${key}`;
-            config.bodyBuilder = (sys_prompt, user_prompt) => ({
-                model: customModelId,
-                messages: [{ role: "system", content: sys_prompt }, { role: "user", content: user_prompt }],
-                temperature: temperature ?? 0.5,
-                max_tokens: max_tokens ?? 8000
-            });
-            config.responseExtractor = (data) => data?.choices?.[0]?.message?.content;
-            break;
-        // ... existing code for other formats ...
-    }
-    return config;
 }
+
+
+// =====================
+// Key 测试函数
+// =====================
+
+/**
+ * 测试某个模型的key是否可用（测活）
+ * @param {string} modelName - 模型名 (e.g., 'mistral', 'deepseek', 'custom')
+ * @param {string} keyValue - API Key 值
+ * @param {Object} modelConfig - 该模型的配置（对于custom模型，包含apiEndpoint, modelId, requestFormat等；对于预设模型，可能为空或包含少量特定配置）
+ * @returns {Promise<boolean>} true 如果可用, false 如果不可用
+ */
+async function testModelKey(modelName, keyValue, modelConfig) {
+    try {
+        if (typeof window.translateMarkdown !== 'function') {
+            // 尝试从 processModule 加载 (如果项目结构如此)
+            if (typeof processModule !== 'undefined' && typeof processModule.translateMarkdown === 'function') {
+                window.translateMarkdown = processModule.translateMarkdown;
+            } else {
+                console.error('translateMarkdown function is not available globally or on processModule.');
+                throw new Error('translateMarkdown 未加载，无法测试Key');
+            }
+        }
+
+        // 构造最小请求内容
+        const testText = 'Hello'; // 使用更短的文本进行测试
+        const targetLang = 'zh'; // 使用语言代码，假设 translateMarkdown 内部能处理
+
+        let effectiveModelTypeForTranslateMarkdown = modelName;
+        // modelConfig is already the specific source site config when modelName starts with 'custom_source_'
+        // or it's the general config for preset models.
+
+        if (modelName.startsWith('custom_source_')) {
+            effectiveModelTypeForTranslateMarkdown = 'custom';
+            // modelConfig (the 3rd argument to testModelKey) is already the correct source site config object
+            // passed from ui.js -> handleTestKey, so no change needed for it here for this case.
+        }
+
+        // 调用 translateMarkdown 进行测试。
+        // 它内部会根据 modelName 和 modelConfig (特别是对custom模型) 来构建实际的API请求。
+        let result;
+        if (effectiveModelTypeForTranslateMarkdown === 'custom') {
+            // custom 模型，传 modelConfig
+            result = await window.translateMarkdown(
+                testText,
+                targetLang,
+                effectiveModelTypeForTranslateMarkdown,
+                keyValue,
+                modelConfig,
+                '[KeyTest]',
+                null,
+                null,
+                false,
+                false
+            );
+        } else {
+            // 预设模型，不传 modelConfig
+            result = await window.translateMarkdown(
+                testText,
+                targetLang,
+                effectiveModelTypeForTranslateMarkdown,
+                keyValue,
+                '[KeyTest]',
+                null,
+                null,
+                false,
+                false
+            );
+        }
+
+        // 简单检查是否有字符串结果返回
+        if (typeof result === 'string' && result.length > 0) {
+            return true; // Key is considered valid
+        }
+        console.warn(`Key test for ${modelName} returned non-string or empty result:`, result);
+        return false; // Key might be valid but API call didn't behave as expected for translation
+
+    } catch (e) {
+        console.error(`Key test failed for model ${modelName} (key: ...${keyValue.slice(-4)}):`, e.message);
+        return false; // Error occurred, key is invalid or configuration is wrong
+    }
+}
+
 
 // --- 导出 API 相关函数 ---
 // (如果使用模块化)
-// export { apiKeyManager, uploadToMistral, getMistralSignedUrl, callMistralOcr, deleteMistralFile, callTranslationApi, getApiError };
-// 这里导出 markKeyInvalid 以便外部调用
+// export { uploadToMistral, getMistralSignedUrl, callMistralOcr, deleteMistralFile, callTranslationApi, getApiError, testModelKey };

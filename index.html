@@ -52,6 +52,17 @@
             min-height: 60px; /* Adjust as needed */
             resize: vertical; /* Allow vertical resize */
         }
+        .flash-tip-anim {
+            opacity: 0;
+            transition: opacity 0.5s;
+            will-change: opacity;
+        }
+        .flash-tip-anim.show {
+            opacity: 1;
+        }
+        .flash-tip-anim.hide {
+            opacity: 0;
+        }
     </style>
 </head>
 <body class="gradient-bg min-h-screen">
@@ -71,7 +82,9 @@
             <!-- 主功能卡片区域 -->
             <!-- ===================== -->
             <div class="bg-white rounded-xl shadow-sm p-6 mb-8">
+
                 <!-- API 密钥设置 -->
+                <!--
                 <div class="mb-6">
                     <h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center">
                         <iconify-icon icon="carbon:api" class="mr-2 text-blue-500" width="24"></iconify-icon>
@@ -83,29 +96,28 @@
                             <div class="relative">
                                 <textarea id="mistralApiKeys" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all api-key-input" placeholder="输入您的 Mistral API Key(s)，每行一个"></textarea>
                             </div>
-                            <div class="mt-2 flex items-center">
-                                <input type="checkbox" id="rememberMistralKey" class="rounded text-blue-500 focus:ring-blue-500 mr-2">
-                                <label for="rememberMistralKey" class="text-sm text-gray-600">记住这些 API Keys</label>
-                            </div>
                         </div>
                         <div>
                             <label for="translationApiKeys" class="block text-sm font-medium text-gray-700 mb-1">翻译 API Keys (可选, 每行一个)</label>
                             <div class="relative">
                                 <textarea id="translationApiKeys" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all api-key-input" placeholder="输入翻译服务 API Key(s)，每行一个 (可选)"></textarea>
                             </div>
-                            <div class="mt-2 flex items-center">
-                                <input type="checkbox" id="rememberTranslationKey" class="rounded text-blue-500 focus:ring-blue-500 mr-2">
-                                <label for="rememberTranslationKey" class="text-sm text-gray-600">记住这些 API Keys（开启后可供后续AI分析使用）</label>
-                            </div>
                         </div>
                     </div>
                 </div>
+                -->
 
                 <!-- 翻译设置 -->
                 <div class="mb-6">
-                    <h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center">
-                        <iconify-icon icon="carbon:translate" class="mr-2 text-blue-500" width="24"></iconify-icon>
-                        翻译设置
+                    <h2 class="text-xl font-semibold text-gray-800 mb-4 flex justify-between items-center">
+                        <span class="flex items-center">
+                            <iconify-icon icon="carbon:translate" class="mr-2 text-blue-500" width="24"></iconify-icon>
+                            翻译设置
+                        </span>
+                        <span class="flex items-center">
+                            <span id="flashConfigTip" class="flash-tip-anim text-base text-blue-600 font-semibold mr-1">配置模型与Key管理</span>
+                            <iconify-icon id="modelKeyManagerBtn" icon="carbon:settings" width="22" class="text-gray-400 hover:text-blue-600 cursor-pointer transition-colors" title="模型与Key管理"></iconify-icon>
+                        </span>
                     </h2>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
@@ -115,9 +127,11 @@
                                 <option value="mistral">Mistral Large</option>
                                 <option value="deepseek">DeepSeek v3</option>
                                 <option value="gemini">Gemini 2.0 Flash</option>
-                                <option value="claude">Claude 3.5 Sonnet</option>
+                                <option value="gemini-preview">Gemini-2.5-flash-preview-04-17</option>
                                 <option value="tongyi-deepseek-v3">通义百炼 DeepSeek v3</option>
+                                <option value="tongyi-qwen-turbo">通义百炼 Qwen Turbo</option>
                                 <option value="volcano-deepseek-v3">火山引擎 DeepSeek v3</option>
+                                <option value="volcano-doubao">火山引擎 豆包1.5-Pro</option>
                                 <option value="custom">自定义模型</option>
                             </select>
                         </div>
@@ -137,50 +151,33 @@
                             </div>
                         </div>
                         <!-- 自定义模型设置区域 -->
-                        <div id="customModelSettingsContainer" class="md:col-span-2">
+                        <div id="customSourceSiteContainer" class="md:col-span-2 hidden">
                             <div class="pt-4">
-                                <button id="customModelSettingsToggle" type="button" class="text-sm text-gray-500 hover:text-gray-700 flex items-center">
+                                <button id="customSourceSiteToggle" type="button" class="text-sm text-gray-500 hover:text-gray-700 flex items-center">
                                     <iconify-icon icon="carbon:settings-adjust" class="mr-1" width="16"></iconify-icon>
-                                    <span>自定义模型设置</span>
-                                    <iconify-icon id="customModelSettingsToggleIcon" icon="carbon:chevron-down" class="ml-1" width="16"></iconify-icon>
+                                    <span>自定义源站点设置</span>
+                                    <iconify-icon id="customSourceSiteToggleIcon" icon="carbon:chevron-down" class="ml-1" width="16"></iconify-icon>
                                 </button>
-                                <div id="customModelSettings" class="hidden mt-2 border-2 border-dashed border-gray-300 rounded-lg p-4">
+                                <div id="customSourceSite" class="hidden mt-2 border-2 border-dashed border-gray-300 rounded-lg p-4">
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div>
-                                            <label for="customApiEndpoint" class="block text-sm font-medium text-gray-700 mb-1">Base URL <span class="text-red-500">*</span></label>
-                                            <input type="url" id="customApiEndpoint" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" placeholder="例如: https://api.openai.com">
-                                            <p class="text-xs text-gray-500 mt-1">当前完整 API 端点: <span id="fullApiEndpointDisplay" class="font-mono">-</span></p>
-                                        </div>
-                                        <div>
-                                            <label for="customModelId" class="block text-sm font-medium text-gray-700 mb-1">模型 ID <span class="text-red-500">*</span></label>
-                                            <div class="relative">
-                                                <select id="customModelId" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" style="display:none;">
-                                                    <option value="">请输入或选择模型</option>
-                                                </select>
-                                                <input type="text" id="customModelIdInput" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" placeholder="例如: gpt-4-turbo 或 grok-3-fast-beta">
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label for="customRequestFormat" class="block text-sm font-medium text-gray-700 mb-1">请求格式</label>
-                                            <select id="customRequestFormat" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
-                                                <option value="openai">OpenAI 格式</option>
-                                                <option value="anthropic">Anthropic 格式</option>
-                                                <option value="gemini">Google Gemini 格式</option>
+                                            <label for="customSourceSiteSelect" class="block text-sm font-medium text-gray-700 mb-1">选择自定义源站点</label>
+                                            <select id="customSourceSiteSelect" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
+                                                <!-- Options will be populated by JavaScript -->
                                             </select>
                                         </div>
-                                        <div>
-                                            <label for="customTemperature" class="block text-sm font-medium text-gray-700 mb-1">温度 (temperature)</label>
-                                            <input type="number" id="customTemperature" min="0" max="2" step="0.01" value="0.5" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" placeholder="0.5">
-                                            <p class="text-xs text-gray-500 mt-1">控制输出的多样性，0~2，默认0.5</p>
+                                        <!-- 添加源站点信息展示区域 -->
+                                        <div id="customSourceSiteInfo" class="mt-3 w-full border border-gray-200 rounded-lg bg-gray-50 p-0 hidden md:col-span-2">
+                                            <!-- 站点信息将由JS动态填充 -->
                                         </div>
-                                        <div>
-                                            <label for="customMaxTokens" class="block text-sm font-medium text-gray-700 mb-1">最大 tokens (max_tokens)</label>
-                                            <input type="number" id="customMaxTokens" min="1" max="32768" step="1" value="8000" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" placeholder="8000">
-                                            <p class="text-xs text-gray-500 mt-1">单次生成最大token数，默认8000</p>
-                                        </div>
-                                        <div class="flex justify-end mt-4">
-                                            <button id="detectModelsBtn" type="button" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
-                                                <iconify-icon icon="carbon:model-alt" class="mr-2" width="16"></iconify-icon>
+                                        <!-- 保留检测按钮但隐藏起来，以便js能找到它并触发 -->
+                                        <div class="mt-2 flex justify-end w-full md:col-span-2">
+                                            <button id="manageSourceSiteKeyBtn" class="px-3 py-1.5 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded transition-colors flex items-center hidden">
+                                                <iconify-icon icon="carbon:api" class="mr-1" width="16"></iconify-icon>
+                                                管理该站点 API Key
+                                            </button>
+                                            <button id="detectModelsBtn" type="button" class="hidden px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors flex items-center">
+                                                <iconify-icon icon="carbon:model-alt" class="mr-1" width="16"></iconify-icon>
                                                 检测可用模型
                                             </button>
                                         </div>
@@ -345,7 +342,7 @@
     <!-- ===================== -->
     <!-- 通知系统浮层 -->
     <!-- ===================== -->
-    <div id="notification-container" class="fixed top-4 right-4 z-50 flex flex-col items-end space-y-2 pointer-events-none max-w-sm"></div>
+    <div id="notification-container" class="fixed top-4 right-4 z-50 flex flex-col items-end space-y-2 pointer-events-none max-w-lg"></div>
 
     <!-- ===================== -->
     <!-- 脚本引入区（顺序不能乱） -->
@@ -353,6 +350,7 @@
     <script src="https://unpkg.com/iconify-icon@1.0.7/dist/iconify-icon.min.js"></script>
     <script src="js/api.js"></script>
     <script src="js/storage.js"></script>
+    <script src="js/key-manager-ui.js"></script>
     <script src="js/ui.js"></script>
     <!-- 修改为普通脚本标签，不使用模块 -->
     <script src="js/process/index.js"></script>
@@ -384,5 +382,51 @@
         <div id="historyDetailContent"></div>
       </div>
     </div>
+
+    <!-- ===================== -->
+    <!-- 模型与Key管理弹窗 -->
+    <!-- ===================== -->
+    <div id="modelKeyManagerModal" class="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center hidden">
+      <div class="bg-white rounded-xl shadow-2xl w-[95vw] max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
+        <!-- 头部 - 样式参考 historyPanel -->
+        <div class="flex justify-between items-center p-4 border-b sticky top-0 bg-white z-10">
+          <span class="font-bold text-lg">模型与 Key 管理</span>
+          <button id="closeModelKeyManager" class="text-gray-400 hover:text-red-500"><iconify-icon icon="carbon:close" width="20"></iconify-icon></button>
+        </div>
+        <!-- 主体内容区 - 左右布局 -->
+        <div class="flex flex-1 overflow-hidden">
+          <!-- 左侧模型列表 -->
+          <div id="modelListColumn" class="w-1/4 min-w-[180px] max-w-[240px] bg-gray-50 border-r overflow-y-auto p-3 space-y-1">
+            <!-- 模型列表将由 JS 动态填充 -->
+          </div>
+          <!-- 右侧配置与 Key 池 -->
+          <div class="flex-1 p-4 overflow-y-auto space-y-4">
+            <div id="modelConfigColumn" class="mb-4">
+              <!-- 当前选中模型的配置项将由 JS 动态填充 -->
+            </div>
+            <div id="keyManagerColumn" class="border-t pt-4">
+              <!-- KeyManagerUI 实例将渲染到这里 -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // 一闪而过的提示文字淡入淡出动画
+      window.addEventListener('DOMContentLoaded', function() {
+        var tip = document.getElementById('flashConfigTip');
+        if (tip) {
+          tip.classList.add('show'); // 淡入
+          setTimeout(function() {
+            tip.classList.remove('show');
+            tip.classList.add('hide'); // 淡出
+          }, 1200);
+          setTimeout(function() {
+            tip.style.display = 'none';
+          }, 1800);
+        }
+      });
+    </script>
 </body>
 </html>

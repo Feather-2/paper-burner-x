@@ -4,8 +4,8 @@
 // buildCustomApiConfig: 兼容自定义模型调用
 // =====================
 function buildCustomApiConfig(key, customApiEndpoint, customModelId, customRequestFormat, temperature, max_tokens) {
-  // 如果是通过模型检测模块设置的端点，直接使用
   let apiEndpoint = customApiEndpoint;
+  let modelId = customModelId;
 
   // 检查是否有模型检测模块，如果有则使用其提供的完整端点
   if (typeof window.modelDetector !== 'undefined') {
@@ -14,16 +14,18 @@ function buildCustomApiConfig(key, customApiEndpoint, customModelId, customReque
       apiEndpoint = fullEndpoint;
     }
   } else {
-    // 兼容性处理：检查是否是baseUrl而不是完整端点
     if (apiEndpoint && !apiEndpoint.includes('/v1/') && !apiEndpoint.endsWith('/v1')) {
-      // 移除末尾的斜杠（如果有）
       const cleanBaseUrl = apiEndpoint.endsWith('/') ? apiEndpoint.slice(0, -1) : apiEndpoint;
       apiEndpoint = `${cleanBaseUrl}/v1/chat/completions`;
     }
   }
 
+  // 新增：如果 customRequestFormat 为空且 endpoint 以 /v1/chat/completions 结尾，则自动设为 openai
+  if ((!customRequestFormat || customRequestFormat === '') && apiEndpoint && apiEndpoint.endsWith('/v1/chat/completions')) {
+    customRequestFormat = 'openai';
+  }
+
   // 获取当前选择的模型ID（如果有模型检测模块）
-  let modelId = customModelId;
   if (typeof window.modelDetector !== 'undefined') {
     const currentModelId = window.modelDetector.getCurrentModelId();
     if (currentModelId) {
@@ -91,7 +93,12 @@ function buildCustomApiConfig(key, customApiEndpoint, customModelId, customReque
       break;
     case 'gemini':
       let baseUrl = config.endpoint.split('?')[0];
+      // 为非流式请求添加 key 参数
       config.endpoint = `${baseUrl}?key=${key}`;
+      // 为流式请求使用不同的端点，添加 alt=sse 参数
+      config.streamEndpoint = `${baseUrl}?key=${key}&alt=sse`;
+      // 默认使用 gemini-2.0-flash，除非特别指定
+      const geminiModelId = modelId || 'gemini-2.0-flash';
       config.bodyBuilder = (sys_prompt, user_prompt) => ({
         contents: [{ role: "user", parts: [{ text: user_prompt }] }],
         generationConfig: { temperature: temperature ?? 0.5, maxOutputTokens: max_tokens ?? 8192 }
@@ -106,18 +113,188 @@ function buildCustomApiConfig(key, customApiEndpoint, customModelId, customReque
         geminiMessages.push({ role: 'user', parts: [{ text: user }] });
         return {
           contents: geminiMessages,
-          generationConfig: { temperature: temperature ?? 0.5, maxOutputTokens: max_tokens ?? 8192 },
-          systemInstruction: { parts: [{ text: sys }] },
-          streamGenerationConfig: { streamType: 'TOKEN' }
+          generationConfig: {
+            temperature: temperature ?? 0.5,
+            maxOutputTokens: max_tokens ?? 8192
+          },
+          systemInstruction: { parts: [{ text: sys }] }
+          // 移除 stream 参数，改用 URL 参数 alt=sse
         };
       };
-      config.responseExtractor = (data) => data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      config.responseExtractor = (data) => {
+        if (data?.candidates && data.candidates.length > 0 && data.candidates[0].content) {
+          const parts = data.candidates[0].content.parts;
+          return parts && parts.length > 0 ? parts[0].text : '';
+        }
+        return '';
+      };
       config.streamSupport = true;
       config.streamHandler = 'gemini';
+      break;
+    case 'gemini-preview':
+      let baseUrlPreview = config.endpoint.split('?')[0];
+      // 为非流式请求添加 key 参数
+      config.endpoint = `${baseUrlPreview}?key=${key}`;
+      // 为流式请求使用不同的端点，添加 alt=sse 参数
+      config.streamEndpoint = `${baseUrlPreview}?key=${key}&alt=sse`;
+      // 默认使用 gemini-2.5-flash-preview-04-17，除非特别指定
+      const previewModelId = modelId || 'gemini-2.5-flash-preview-04-17';
+      config.bodyBuilder = (sys_prompt, user_prompt) => ({
+        contents: [{ role: "user", parts: [{ text: user_prompt }] }],
+        generationConfig: {
+          temperature: temperature ?? 0.5,
+          maxOutputTokens: max_tokens ?? 8192,
+          responseModalities: ["TEXT"],
+          responseMimeType: "text/plain"
+        }
+      });
+      config.streamBodyBuilder = (sys, msgs, user) => {
+        const geminiMessages = [];
+        if (msgs.length) {
+          for (const msg of msgs) {
+            geminiMessages.push({ role: msg.role === 'assistant' ? 'model' : 'user', parts: [{ text: msg.content }] });
+          }
+        }
+        geminiMessages.push({ role: 'user', parts: [{ text: user }] });
+        return {
+          contents: geminiMessages,
+          generationConfig: {
+            temperature: temperature ?? 0.5,
+            maxOutputTokens: max_tokens ?? 8192,
+            responseModalities: ["TEXT"],
+            responseMimeType: "text/plain"
+          },
+          systemInstruction: { parts: [{ text: sys }] }
+        };
+      };
+      config.responseExtractor = (data) => {
+        if (data?.candidates && data.candidates.length > 0 && data.candidates[0].content) {
+          const parts = data.candidates[0].content.parts;
+          return parts && parts.length > 0 ? parts[0].text : '';
+        }
+        return '';
+      };
+      config.streamSupport = true;
+      config.streamHandler = 'gemini';
+      break;
+    case 'volcano-deepseek-v3':
+      config.headers['Authorization'] = `Bearer ${key}`;
+      config.bodyBuilder = (sys_prompt, user_prompt) => ({
+        model: 'deepseek-v3-250324',
+        messages: [
+          { role: 'system', content: sys_prompt },
+          { role: 'user', content: user_prompt }
+        ],
+        temperature: 0.5,
+        max_tokens: 8192,
+        stream: true
+      });
+      config.streamBodyBuilder = (sys, msgs, user) => ({
+        model: 'deepseek-v3-250324',
+        messages: [
+          { role: 'system', content: sys },
+          ...msgs,
+          { role: 'user', content: user }
+        ],
+        temperature: temperature ?? 0.5,
+        max_tokens: max_tokens ?? 8192,
+        stream: true
+      });
+      config.responseExtractor = (data) => data?.choices?.[0]?.message?.content;
+      config.streamSupport = true;
+      config.streamHandler = true;
+      break;
+    case 'volcano-doubao':
+      config.headers['Authorization'] = `Bearer ${key}`;
+      config.bodyBuilder = (sys_prompt, user_prompt) => ({
+        model: 'doubao-1-5-pro-32k-250115',
+        messages: [
+          { role: 'system', content: sys_prompt },
+          { role: 'user', content: user_prompt }
+        ],
+        temperature: 0.5,
+        max_tokens: 8192,
+        stream: true
+      });
+      config.streamBodyBuilder = (sys, msgs, user) => ({
+        model: 'doubao-1-5-pro-32k-250115',
+        messages: [
+          { role: 'system', content: sys },
+          ...msgs,
+          { role: 'user', content: user }
+        ],
+        temperature: temperature ?? 0.5,
+        max_tokens: max_tokens ?? 8192,
+        stream: true
+      });
+      config.responseExtractor = (data) => data?.choices?.[0]?.message?.content;
+      config.streamSupport = true;
+      config.streamHandler = true;
+      break;
+    case 'tongyi-deepseek-v3':
+      config.headers['Authorization'] = `Bearer ${key}`;
+      config.bodyBuilder = (sys_prompt, user_prompt) => ({
+        model: 'deepseek-v3',
+        messages: [
+          { role: 'system', content: sys_prompt },
+          { role: 'user', content: user_prompt }
+        ],
+        temperature: 0.5,
+        max_tokens: 8192,
+        stream: true
+      });
+      config.streamBodyBuilder = (sys, msgs, user) => ({
+        model: 'deepseek-v3',
+        messages: [
+          { role: 'system', content: sys },
+          ...msgs,
+          { role: 'user', content: user }
+        ],
+        temperature: temperature ?? 0.5,
+        max_tokens: max_tokens ?? 8192,
+        stream: true
+      });
+      config.responseExtractor = (data) => data?.choices?.[0]?.message?.content;
+      config.streamSupport = true;
+      config.streamHandler = true;
+      break;
+    case 'tongyi-qwen-turbo':
+      config.headers['Authorization'] = `Bearer ${key}`;
+      config.bodyBuilder = (sys_prompt, user_prompt) => ({
+        model: 'qwen-turbo-latest',
+        messages: [
+          { role: 'system', content: sys_prompt },
+          { role: 'user', content: user_prompt }
+        ],
+        temperature: 0.5,
+        max_tokens: 8192,
+        stream: true
+      });
+      config.streamBodyBuilder = (sys, msgs, user) => ({
+        model: 'qwen-turbo-latest',
+        messages: [
+          { role: 'system', content: sys },
+          ...msgs,
+          { role: 'user', content: user }
+        ],
+        temperature: temperature ?? 0.5,
+        max_tokens: max_tokens ?? 8192,
+        stream: true
+      });
+      config.responseExtractor = (data) => data?.choices?.[0]?.message?.content;
+      config.streamSupport = true;
+      config.streamHandler = true;
       break;
     default:
       throw new Error(`不支持的自定义请求格式: ${customRequestFormat}`);
   }
+  console.log('buildCustomApiConfig:', {
+    customRequestFormat,
+    endpoint: apiEndpoint,
+    modelId,
+    streamSupport: config.streamSupport,
+    hasStreamBodyBuilder: !!config.streamBodyBuilder
+  });
   return config;
 }
 
@@ -126,18 +303,44 @@ let chatHistory = [];
 let isChatbotLoading = false;
 
 // 读取主页面配置（API Key、模型等）
-function getChatbotConfig() {
+function getChatbotConfig(externalConfig = null) {
+  if (externalConfig) return externalConfig;
   const settings = (typeof loadSettings === 'function') ? loadSettings() : JSON.parse(localStorage.getItem('paperBurnerSettings') || '{}');
-  const translationApiKeys = localStorage.getItem('translationApiKeys') || '';
-  const mistralApiKeys = localStorage.getItem('mistralApiKeys') || '';
-  const model = settings.selectedTranslationModel || 'mistral';
-  const cms = settings.customModelSettings || {};
+  let model = settings.selectedTranslationModel || 'mistral';
+  let cms = settings.customModelSettings || {};
+  let siteSpecificAvailableModels = [];
+
+  if (model === 'custom' && settings.selectedCustomSourceSiteId) {
+    const allSites = typeof loadAllCustomSourceSites === 'function' ? loadAllCustomSourceSites() : {};
+    const site = allSites[settings.selectedCustomSourceSiteId];
+    if (site) {
+      cms = site;
+      model = `custom_source_${settings.selectedCustomSourceSiteId}`;
+      siteSpecificAvailableModels = site.availableModels || [];
+    }
+  }
+
+  let activeApiKey = '';
+  let activeKeyId = null;
+
+  if (typeof loadModelKeys === 'function') {
+    const keysForModel = loadModelKeys(model);
+    if (keysForModel && Array.isArray(keysForModel)) {
+      const usableKeys = keysForModel.filter(k => k.status === 'valid' || k.status === 'untested');
+      if (usableKeys.length > 0) {
+        activeApiKey = usableKeys[0].value;
+        activeKeyId = usableKeys[0].id;
+      }
+    }
+  }
+
   return {
     model,
-    mistralApiKeys,
-    translationApiKeys,
+    apiKey: activeApiKey,
+    apiKeyId: activeKeyId,
     cms,
-    settings
+    settings,
+    siteSpecificAvailableModels
   };
 }
 
@@ -195,14 +398,15 @@ function getCurrentDocId() {
 }
 
 // 发送消息到大模型（支持思维导图请求）
-async function sendChatbotMessage(userInput, updateChatbotUI) {
+async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = null) {
   if (isChatbotLoading) return;
   isChatbotLoading = true;
   chatHistory.push({ role: 'user', content: userInput });
   if (typeof updateChatbotUI === 'function') updateChatbotUI();
 
   const isMindMapRequest = userInput.includes('思维导图') || userInput.includes('脑图');
-  const config = getChatbotConfig();
+  // 优先用外部传入的 config
+  const config = getChatbotConfig(externalConfig);
   const doc = getCurrentDocContent();
   const docId = getCurrentDocId();
 
@@ -222,12 +426,8 @@ async function sendChatbotMessage(userInput, updateChatbotUI) {
   }
 
   const conversationHistory = chatHistory.slice(0, -1);
-  let apiKey = '';
-  if (config.model === 'mistral') {
-    apiKey = config.mistralApiKeys.split('\n').map(k => k.trim()).filter(Boolean)[0] || '';
-  } else {
-    apiKey = config.translationApiKeys.split('\n').map(k => k.trim()).filter(Boolean)[0] || '';
-  }
+  const apiKey = config.apiKey;
+
   if (!apiKey) {
     chatHistory.push({ role: 'assistant', content: '未检测到有效的 API Key，请先在主页面配置。' });
     isChatbotLoading = false;
@@ -239,21 +439,53 @@ async function sendChatbotMessage(userInput, updateChatbotUI) {
   let apiConfig;
   let useStreamApi = true; // 默认使用流式API
 
-  if (config.model === 'custom') {
-    // 优先读取弹窗选择的模型ID
+  // 修正：支持 custom_source_xxx 也走自定义分支
+  if (
+    config.model === 'custom' ||
+    (typeof config.model === 'string' && config.model.startsWith('custom_source_'))
+  ) {
+    // 优先读取 index.html 选择的模型ID（settings.selectedCustomModelId）
     let selectedModelId = '';
     try {
-      selectedModelId = localStorage.getItem('lastSelectedCustomModel') || '';
+      // 1. index.html 选择的模型（settings.selectedCustomModelId）
+      if (config.settings && config.settings.selectedCustomModelId) {
+        selectedModelId = config.settings.selectedCustomModelId;
+      }
+      // 2. 浮窗选择的模型（lastSelectedCustomModel）
+      if (!selectedModelId) {
+        selectedModelId = localStorage.getItem('lastSelectedCustomModel') || '';
+      }
     } catch (e) {}
+    // 3. 站点配置的默认模型
+    if (!selectedModelId && config.cms && config.cms.modelId) {
+      selectedModelId = config.cms.modelId;
+    }
+    // 4. 可用模型列表的第一个
+    if (!selectedModelId && Array.isArray(config.siteSpecificAvailableModels) && config.siteSpecificAvailableModels.length > 0) {
+      selectedModelId = typeof config.siteSpecificAvailableModels[0] === 'object'
+        ? config.siteSpecificAvailableModels[0].id
+        : config.siteSpecificAvailableModels[0];
+    }
+    // 新增：如果还是没有模型ID，弹出模型选择界面并阻止对话
+    if (!selectedModelId) {
+      if (typeof window.showModelSelectorForChatbot === 'function') {
+        window.showModelSelectorForChatbot();
+      }
+      chatHistory.push({ role: 'assistant', content: '请先选择一个可用模型后再进行对话。' });
+      isChatbotLoading = false;
+      if (typeof updateChatbotUI === 'function') updateChatbotUI();
+      return;
+    }
     apiConfig = buildCustomApiConfig(
       apiKey,
-      config.cms.apiEndpoint,
-      selectedModelId || config.cms.modelId,
+      config.cms.apiEndpoint || config.cms.apiBaseUrl,
+      selectedModelId,
       config.cms.requestFormat,
       config.cms.temperature,
       config.cms.max_tokens
     );
     useStreamApi = apiConfig.streamSupport && apiConfig.streamBodyBuilder;
+    console.log('最终模型ID:', selectedModelId);
   } else {
     const predefinedConfigs = {
       'mistral': {
@@ -288,6 +520,78 @@ async function sendChatbotMessage(userInput, updateChatbotUI) {
         streamHandler: true,
         responseExtractor: (data) => data?.choices?.[0]?.message?.content
       },
+      'volcano-deepseek-v3': {
+        endpoint: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+        modelName: '火山引擎 DeepSeek v3',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        bodyBuilder: (sys, msgs, user) => ({
+          model: 'deepseek-v3-250324',
+          messages: [
+            { role: 'system', content: sys },
+            ...msgs,
+            { role: 'user', content: user }
+          ],
+          temperature: 0.5,
+          max_tokens: 8192,
+          stream: true
+        }),
+        streamHandler: true,
+        responseExtractor: (data) => data?.choices?.[0]?.message?.content
+      },
+      'volcano-doubao': {
+        endpoint: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+        modelName: '火山引擎 豆包',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        bodyBuilder: (sys, msgs, user) => ({
+          model: 'doubao-1-5-pro-32k-250115',
+          messages: [
+            { role: 'system', content: sys },
+            ...msgs,
+            { role: 'user', content: user }
+          ],
+          temperature: 0.5,
+          max_tokens: 8192,
+          stream: true
+        }),
+        streamHandler: true,
+        responseExtractor: (data) => data?.choices?.[0]?.message?.content
+      },
+      'tongyi-deepseek-v3': {
+        endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+        modelName: '阿里云通义百炼 DeepSeek v3',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        bodyBuilder: (sys, msgs, user) => ({
+          model: 'deepseek-v3',
+          messages: [
+            { role: 'system', content: sys },
+            ...msgs,
+            { role: 'user', content: user }
+          ],
+          temperature: 0.5,
+          max_tokens: 8192,
+          stream: true
+        }),
+        streamHandler: true,
+        responseExtractor: (data) => data?.choices?.[0]?.message?.content
+      },
+      'tongyi-qwen-turbo': {
+        endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+        modelName: '阿里云通义百炼 Qwen Turbo',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        bodyBuilder: (sys, msgs, user) => ({
+          model: 'qwen-turbo-latest',
+          messages: [
+            { role: 'system', content: sys },
+            ...msgs,
+            { role: 'user', content: user }
+          ],
+          temperature: 0.5,
+          max_tokens: 8192,
+          stream: true
+        }),
+        streamHandler: true,
+        responseExtractor: (data) => data?.choices?.[0]?.message?.content
+      },
       'claude': {
         endpoint: 'https://api.anthropic.com/v1/messages',
         modelName: 'claude-3-sonnet-20240229',
@@ -307,8 +611,11 @@ async function sendChatbotMessage(userInput, updateChatbotUI) {
         responseExtractor: (data) => data?.content?.[0]?.text
       },
       'gemini': {
-        endpoint: `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`,
-        modelName: 'gemini-pro',
+        // 基本端点
+        endpoint: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        // 流式端点（添加 alt=sse 参数）
+        streamEndpoint: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}&alt=sse`,
+        modelName: 'gemini-2.0-flash',
         headers: { 'Content-Type': 'application/json' },
         bodyBuilder: (sys, msgs, user) => {
           const geminiMessages = [];
@@ -321,12 +628,54 @@ async function sendChatbotMessage(userInput, updateChatbotUI) {
           return {
             contents: geminiMessages,
             generationConfig: { temperature: 0.5, maxOutputTokens: 2048 },
-            systemInstruction: { parts: [{ text: sys }] },
-            streamGenerationConfig: { streamType: 'TOKEN' }
+            systemInstruction: { parts: [{ text: sys }] }
+            // 移除 stream 参数，使用 URL 参数 alt=sse
           };
         },
         streamHandler: 'gemini',
-        responseExtractor: (data) => data?.candidates?.[0]?.content?.parts?.[0]?.text
+        responseExtractor: (data) => {
+          if (data?.candidates && data.candidates.length > 0 && data.candidates[0].content) {
+            const parts = data.candidates[0].content.parts;
+            return parts && parts.length > 0 ? parts[0].text : '';
+          }
+          return '';
+        }
+      },
+      'gemini-preview': {
+        // 基本端点
+        endpoint: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-04-17:generateContent?key=${apiKey}`,
+        // 流式端点（添加 alt=sse 参数）
+        streamEndpoint: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-04-17:generateContent?key=${apiKey}&alt=sse`,
+        modelName: 'gemini-2.5-flash-preview-04-17',
+        headers: { 'Content-Type': 'application/json' },
+        bodyBuilder: (sys, msgs, user) => {
+          const geminiMessages = [];
+          if (msgs.length) {
+            for (const msg of msgs) {
+              geminiMessages.push({ role: msg.role === 'assistant' ? 'model' : 'user', parts: [{ text: msg.content }] });
+            }
+          }
+          geminiMessages.push({ role: 'user', parts: [{ text: user }] });
+          return {
+            contents: geminiMessages,
+            generationConfig: {
+              temperature: 0.5,
+              maxOutputTokens: 2048,
+              responseModalities: ["TEXT"],
+              responseMimeType: "text/plain"
+            },
+            systemInstruction: { parts: [{ text: sys }] }
+            // 移除 stream 参数，使用 URL 参数 alt=sse
+          };
+        },
+        streamHandler: 'gemini',
+        responseExtractor: (data) => {
+          if (data?.candidates && data.candidates.length > 0 && data.candidates[0].content) {
+            const parts = data.candidates[0].content.parts;
+            return parts && parts.length > 0 ? parts[0].text : '';
+          }
+          return '';
+        }
       }
     };
     apiConfig = predefinedConfigs[config.model] || predefinedConfigs['mistral'];
@@ -346,11 +695,18 @@ async function sendChatbotMessage(userInput, updateChatbotUI) {
   try {
     if (typeof updateChatbotUI === 'function') updateChatbotUI();
     if (useStreamApi) {
-      const requestBody = config.model === 'custom' && apiConfig.streamBodyBuilder ?
-        apiConfig.streamBodyBuilder(systemPrompt, formattedHistory, userInput) :
-        apiConfig.bodyBuilder(systemPrompt, formattedHistory, userInput);
+      // 修正：只要有 streamBodyBuilder 就用它，支持 custom_source_xxx
+      const requestBody = apiConfig.streamBodyBuilder
+        ? apiConfig.streamBodyBuilder(systemPrompt, formattedHistory, userInput)
+        : apiConfig.bodyBuilder(systemPrompt, formattedHistory, userInput);
       let collectedContent = '';
-      const response = await fetch(apiConfig.endpoint, {
+
+      // 为 Gemini 使用特定的流式端点（如果有）
+      const requestEndpoint = ((config.model === 'gemini' || config.model === 'gemini-preview' ||
+                              (apiConfig.streamHandler === 'gemini'))
+                             && apiConfig.streamEndpoint) ? apiConfig.streamEndpoint : apiConfig.endpoint;
+
+      const response = await fetch(requestEndpoint, {
         method: 'POST',
         headers: apiConfig.headers,
         body: JSON.stringify(requestBody)
@@ -383,9 +739,47 @@ async function sendChatbotMessage(userInput, updateChatbotUI) {
         parseChunk = (chunk) => {
           try {
             if (!chunk.trim()) return '';
-            const data = JSON.parse(chunk);
-            return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+            // 尝试解析 JSON
+            let data;
+            try {
+              data = JSON.parse(chunk);
+            } catch (e) {
+              // 如果是行前缀为 "data: "，尝试提取 JSON 部分
+              if (chunk.startsWith('data: ')) {
+                try {
+                  data = JSON.parse(chunk.substring(6));
+                } catch (e2) {
+                  return '';
+                }
+              } else {
+                return '';
+              }
+            }
+
+            // 检查是否是 Gemini 格式的响应
+            if (data.candidates && data.candidates.length > 0) {
+              const candidate = data.candidates[0];
+
+              // 检查常规内容格式
+              if (candidate.content && candidate.content.parts && candidate.content.parts.length > 0) {
+                return candidate.content.parts[0].text || '';
+              }
+
+              // 检查增量更新格式
+              if (candidate.delta && candidate.delta.textDelta) {
+                return candidate.delta.textDelta || '';
+              }
+
+              // 处理特定格式：候选词中的 parts 直接包含文本
+              if (candidate.parts && candidate.parts.length > 0) {
+                return candidate.parts[0].text || '';
+              }
+            }
+
+            return '';
           } catch (e) {
+            console.log("Gemini 解析错误:", e);
             return '';
           }
         };
@@ -429,9 +823,12 @@ async function sendChatbotMessage(userInput, updateChatbotUI) {
       }
       chatHistory[assistantMsgIndex].content = collectedContent || '流式回复处理出错，请重试';
     } else {
-      chatHistory[assistantMsgIndex].content = '正在思考...';
-      if (typeof updateChatbotUI === 'function') updateChatbotUI();
+      // fallback 到非流式分支
+      console.log('[流式] 走了 bodyBuilder 分支');
       const requestBody = apiConfig.bodyBuilder(systemPrompt, userInput);
+      console.log('API Endpoint:', apiConfig.endpoint);
+      console.log('Headers:', apiConfig.headers);
+      console.log('Request Body:', requestBody);
       const response = await fetch(apiConfig.endpoint, {
         method: 'POST',
         headers: apiConfig.headers,
@@ -592,6 +989,77 @@ async function singleChunkSummary(sysPrompt, userInput, config, apiKey) {
             { role: 'user', content: user }
           ]
         }),
+        responseExtractor: (data) => data?.choices?.[0]?.message?.content
+      },
+      'volcano-deepseek-v3': {
+        endpoint: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+        modelName: '火山引擎 DeepSeek v3',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        bodyBuilder: (sys, msgs, user) => ({
+          model: 'deepseek-v3-250324',
+          messages: [
+            { role: 'system', content: sys },
+            ...msgs,
+            { role: 'user', content: user }
+          ],
+          temperature: 0.5,
+          max_tokens: 8192,
+          stream: true
+        }),
+        streamHandler: true,
+        responseExtractor: (data) => data?.choices?.[0]?.message?.content
+      },
+      'volcano-doubao': {
+        endpoint: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+        modelName: '火山引擎 豆包',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        bodyBuilder: (sys, msgs, user) => ({
+          model: 'doubao-1-5-pro-32k-250115',
+          messages: [
+            { role: 'system', content: sys },
+            ...msgs,
+            { role: 'user', content: user }
+          ],
+          temperature: 0.5,
+          max_tokens: 8192,
+          stream: true
+        }),
+        streamHandler: true,
+        responseExtractor: (data) => data?.choices?.[0]?.message?.content
+      },
+      'tongyi-deepseek-v3': {
+        endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+        modelName: '阿里云通义百炼 DeepSeek v3',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        bodyBuilder: (sys, msgs, user) => ({
+          model: 'deepseek-v3',
+          messages: [
+            { role: 'system', content: sys },
+            ...msgs,
+            { role: 'user', content: user }
+          ],
+          temperature: 0.5,
+          max_tokens: 8192,
+          stream: true
+        }),
+        streamHandler: true,
+        responseExtractor: (data) => data?.choices?.[0]?.message?.content
+      },
+      'tongyi-qwen-turbo': {
+        endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+        modelName: '阿里云通义百炼 Qwen Turbo',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        bodyBuilder: (sys, msgs, user) => ({
+          model: 'qwen-turbo-latest',
+          messages: [
+            { role: 'system', content: sys },
+            { role: 'user', content: user }
+          ],
+          temperature: 0.5,
+          max_tokens: 8192,
+          stream: true
+        }),
+        streamHandler: true,
         responseExtractor: (data) => data?.choices?.[0]?.message?.content
       },
       'claude': {

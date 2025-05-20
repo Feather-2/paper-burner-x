@@ -37,9 +37,14 @@ function updateChatbotUI() {
   if (modelSelectorDiv) modelSelectorDiv.remove();
   // 判断当前是否为自定义模型
   let isCustomModel = false;
+  let availableModels = [];
   try {
     const config = window.ChatbotCore.getChatbotConfig();
-    isCustomModel = config.model === 'custom';
+    isCustomModel = config.model === 'custom' || (typeof config.model === 'string' && config.model.startsWith('custom_source_'));
+    if (isCustomModel && Array.isArray(config.siteSpecificAvailableModels)) {
+      availableModels = config.siteSpecificAvailableModels;
+      localStorage.setItem('availableCustomModels', JSON.stringify(availableModels));
+    }
   } catch (e) {}
   // ========== 新增：齿轮按钮和模型选择模式 ===========
   if (!window.isModelSelectorOpen) window.isModelSelectorOpen = false;
@@ -68,14 +73,14 @@ function updateChatbotUI() {
   }
   // 只显示模型选择界面
   if (isCustomModel && window.isModelSelectorOpen) {
-    // 读取模型列表
-    let models = [];
-    try {
-      const saved = localStorage.getItem('availableCustomModels');
-      if (saved) models = JSON.parse(saved);
-    } catch (e) {}
+    let models = availableModels;
     if (!Array.isArray(models) || models.length === 0) models = [];
-    let lastSelected = localStorage.getItem('lastSelectedCustomModel') || '';
+    // 获取主设置区的模型ID
+    let settings = {};
+    try {
+      settings = typeof loadSettings === 'function' ? loadSettings() : {};
+    } catch (e) {}
+    let defaultModelId = settings.selectedCustomModelId || localStorage.getItem('lastSelectedCustomModel') || (models[0]?.id || models[0] || '');
     // 构建下拉框
     modelSelectorDiv = document.createElement('div');
     modelSelectorDiv.id = 'chatbot-model-selector';
@@ -94,9 +99,9 @@ function updateChatbotUI() {
       <select id="chatbot-model-select" style="width:100%;margin:18px 0 0 0;padding:12px 16px;border-radius:10px;border:2px solid #93c5fd;background:white;color:#1e3a8a;font-size:15px;font-weight:600;outline:none;transition:all 0.2s;">
         ${models.length === 0 ? '<option value="">（无可用模型）</option>' : models.map(m => {
           if (typeof m === 'string') {
-            return `<option value="${m}" ${m===lastSelected?'selected':''}>${m}</option>`;
+            return `<option value="${m}" ${m===defaultModelId?'selected':''}>${m}</option>`;
           } else if (typeof m === 'object' && m) {
-            return `<option value="${m.id}" ${m.id===lastSelected?'selected':''}>${m.name || m.id}</option>`;
+            return `<option value="${m.id}" ${m.id===defaultModelId?'selected':''}>${m.name || m.id}</option>`;
           } else {
             return '';
           }
@@ -114,6 +119,17 @@ function updateChatbotUI() {
     if (select) {
       select.onchange = function() {
         localStorage.setItem('lastSelectedCustomModel', this.value);
+        // 同步写入主设置区
+        let settings = {};
+        try {
+          settings = typeof loadSettings === 'function' ? loadSettings() : {};
+        } catch (e) {}
+        settings.selectedCustomModelId = this.value;
+        if (typeof saveSettings === 'function') {
+          saveSettings(settings);
+        } else {
+          localStorage.setItem('paperBurnerSettings', JSON.stringify(settings));
+        }
       };
     }
     // 返回按钮
@@ -488,3 +504,11 @@ function renderMindmapShadow(md) {
   const html = renderNode(tree);
   return html || '<div style=\"color:#94a3b8;opacity:0.5;\">暂无结构化内容</div>';
 }
+
+// 新增：助手强制弹出模型选择界面
+window.showModelSelectorForChatbot = function() {
+  window.isModelSelectorOpen = true;
+  if (typeof window.ChatbotUI === 'object' && typeof window.ChatbotUI.updateChatbotUI === 'function') {
+    window.ChatbotUI.updateChatbotUI();
+  }
+};

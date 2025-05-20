@@ -3,131 +3,98 @@
 /**
  * 处理单个 PDF 文件，包含 OCR、图片提取、分段翻译、错误处理、清理等完整流程
  * @param {File} fileToProcess - 待处理的 PDF 文件对象
- * @param {string} mistralKey - Mistral API Key
- * @param {string} translationKey - 翻译 API Key
- * @param {string} translationModel - 翻译模型标识
+ * @param {Object | null} mistralKeyObject - Mistral API Key 对象 {id, value} 或 null
+ * @param {Object | null} translationKeyObject - 翻译 API Key 对象 {id, value} 或 null
+ * @param {string} selectedTranslationModelName - 选定的翻译模型名称 (e.g., 'deepseek', 'custom', 'none')
+ * @param {Object | null} translationModelConfig - 选定翻译模型的配置对象 (对custom模型尤其重要)
  * @param {number} maxTokensPerChunkValue - 每段最大 token 数
  * @param {string} targetLanguageValue - 目标语言
  * @param {function} acquireSlot - 获取并发槽函数
  * @param {function} releaseSlot - 释放并发槽函数
  * @param {string} defaultSystemPromptSetting - 默认系统提示
  * @param {string} defaultUserPromptTemplateSetting - 默认用户提示模板
+ * @param {boolean} useCustomPromptsSetting - 是否使用自定义提示 (app.js中新增)
  * @param {function} onFileSuccess - 文件处理成功后的回调函数
- * @returns {Promise<Object>} 处理结果对象
+ * @returns {Promise<Object>} 处理结果对象, 可能包含 keyInvalid 属性
  */
-async function processSinglePdf(fileToProcess, mistralKey, translationKey, translationModel, maxTokensPerChunkValue, targetLanguageValue, acquireSlot, releaseSlot, defaultSystemPromptSetting, defaultUserPromptTemplateSetting, onFileSuccess) {
+async function processSinglePdf(
+    fileToProcess,
+    mistralKeyObject,
+    translationKeyObject,
+    selectedTranslationModelName,
+    translationModelConfig,
+    maxTokensPerChunkValue,
+    targetLanguageValue,
+    acquireSlot,
+    releaseSlot,
+    defaultSystemPromptSetting,
+    defaultUserPromptTemplateSetting,
+    useCustomPromptsSetting, // 新增参数
+    onFileSuccess
+) {
     let currentMarkdownContent = '';
     let currentTranslationContent = '';
     let currentImagesData = [];
-    let fileId = null;
+    let mistralFileId = null; // 重命名 fileId to mistralFileId for clarity
     const logPrefix = `[${fileToProcess.name}]`;
-    let mistralKeyInUse = mistralKey;
-    let translationKeyInUse = translationKey;
-    let mistralKeyTried = new Set();
-    let translationKeyTried = new Set();
     const fileType = fileToProcess.name.split('.').pop().toLowerCase();
     let ocrChunks = [];
     let translatedChunks = [];
-    // 失败计数
-    const fileFailCounter = {};
-    fileFailCounter[fileToProcess.name] = fileFailCounter[fileToProcess.name] || 0;
+    // 移除旧的内部重试和key切换逻辑，这些将由 app.js 处理
+
+    console.log('processSinglePdf: translationKeyObject', translationKeyObject);
 
     try {
+        const mistralKeyValue = mistralKeyObject ? mistralKeyObject.value : null;
         if (typeof addProgressLog === "function") {
-            addProgressLog(`${logPrefix} 开始处理 (类型: ${fileType}, Mistral Key: ...${mistralKeyInUse ? mistralKeyInUse.slice(-4) : 'N/A'})`);
+            addProgressLog(`${logPrefix} 开始处理 (类型: ${fileType}, Mistral Key: ...${mistralKeyValue ? mistralKeyValue.slice(-4) : 'N/A'})`);
         }
 
         if (fileType === 'pdf') {
-            // --- OCR 流程 (仅 PDF) ---
-            let ocrSuccess = false;
-            let ocrError = null;
-            for (let ocrRetry = 0; ocrRetry < 5 && !ocrSuccess; ocrRetry++) {
-                try {
-                    if (!mistralKeyInUse || mistralKeyInUse.length < 20) {
-                        throw new Error('无效的 Mistral API Key 提供给 PDF 处理函数');
-                    }
-                    if (typeof addProgressLog === "function") {
-                        addProgressLog(`${logPrefix} 上传到 Mistral...`);
-                    }
-                    fileId = await uploadToMistral(fileToProcess, mistralKeyInUse);
-                    if (typeof addProgressLog === "function") {
-                        addProgressLog(`${logPrefix} 上传成功, File ID: ${fileId}`);
-                    }
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    if (typeof addProgressLog === "function") {
-                        addProgressLog(`${logPrefix} 获取签名 URL...`);
-                    }
-                    const signedUrl = await getMistralSignedUrl(fileId, mistralKeyInUse);
-                    if (typeof addProgressLog === "function") {
-                        addProgressLog(`${logPrefix} 成功获取 URL`);
-                        addProgressLog(`${logPrefix} 开始 OCR 处理...`);
-                    }
-                    const ocrData = await callMistralOcr(signedUrl, mistralKeyInUse);
-                    if (typeof addProgressLog === "function") {
-                        addProgressLog(`${logPrefix} OCR 完成`);
-                        addProgressLog(`${logPrefix} 处理 OCR 结果...`);
-                    }
-
-                    if (typeof processOcrResults !== 'function') {
-                        throw new Error('processOcrResults函数未定义，无法处理OCR结果');
-                    }
-
-                    const processedOcr = processOcrResults(ocrData);
-                    currentMarkdownContent = processedOcr.markdown;
-                    currentImagesData = processedOcr.images;
-                    if (typeof addProgressLog === "function") {
-                        addProgressLog(`${logPrefix} Markdown 生成完成`);
-                    }
-                    ocrSuccess = true;
-                } catch (error) {
-                    ocrError = error;
-                    fileFailCounter[fileToProcess.name]++;
-                    if (fileFailCounter[fileToProcess.name] >= 3) {
-                        if (typeof addProgressLog === "function") {
-                            addProgressLog(`${logPrefix} 失败次数已达3次，标记为彻底失败。`);
-                        }
-                        throw new Error('文件OCR失败次数过多，已终止');
-                    }
-                    if (error.message && (error.message.includes('无效') || error.message.includes('未授权') || error.message.includes('401') || error.message.includes('invalid') || error.message.includes('Unauthorized'))) {
-                        if (typeof apiKeyManager !== "undefined") {
-                            apiKeyManager.markKeyInvalid('mistral', mistralKeyInUse);
-                            mistralKeyTried.add(mistralKeyInUse);
-                            mistralKeyInUse = apiKeyManager.getMistralKey();
-                        }
-                        if (!mistralKeyInUse || mistralKeyTried.has(mistralKeyInUse)) {
-                            throw new Error('所有 Mistral API Key 已失效，请补充有效 key');
-                        }
-                        if (typeof addProgressLog === "function") {
-                            addProgressLog(`${logPrefix} 检测到 Mistral Key 失效，自动切换下一个 key 重试...`);
-                        }
-                    } else {
-                        const delay = typeof getRetryDelay === 'function' ?
-                                      getRetryDelay(ocrRetry) :
-                                      Math.min(500 * Math.pow(2, ocrRetry), 30000);
-                        if (typeof addProgressLog === "function") {
-                            addProgressLog(`${logPrefix} OCR 失败: ${error.message}，${delay.toFixed(0)}ms 后重试...`);
-                        }
-                        await new Promise(resolve => setTimeout(resolve, delay));
-                    }
-                }
-            }
-            if (!ocrSuccess) throw ocrError || new Error('OCR 处理失败');
-        } else if (fileType === 'md' || fileType === 'txt') {
-            // --- 直接读取 MD/TXT 内容 ---
-            if (typeof addProgressLog === "function") {
-                addProgressLog(`${logPrefix} 读取 ${fileType.toUpperCase()} 文件内容...`);
+            if (!mistralKeyValue) {
+                throw new Error('处理 PDF 文件需要 Mistral API Key，但未提供。');
             }
             try {
-                currentMarkdownContent = await fileToProcess.text();
-                 if (typeof addProgressLog === "function") {
-                    addProgressLog(`${logPrefix} ${fileType.toUpperCase()} 文件内容读取完成`);
+                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 上传到 Mistral...`);
+                mistralFileId = await uploadToMistral(fileToProcess, mistralKeyValue);
+                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 上传成功, File ID: ${mistralFileId}`);
+                await new Promise(resolve => setTimeout(resolve, 1000)); // 短暂等待，确保文件在Mistral端准备好
+                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 获取签名 URL...`);
+                const signedUrl = await getMistralSignedUrl(mistralFileId, mistralKeyValue);
+                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 成功获取 URL，开始 OCR 处理...`);
+                const ocrData = await callMistralOcr(signedUrl, mistralKeyValue);
+                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} OCR 完成，处理 OCR 结果...`);
+
+                if (typeof processOcrResults !== 'function') {
+                    throw new Error('processOcrResults函数未定义，无法处理OCR结果');
                 }
-                // 对于 md/txt 文件，我们假设没有需要通过OCR提取的图片
+                const processedOcr = processOcrResults(ocrData);
+                currentMarkdownContent = processedOcr.markdown;
+                currentImagesData = processedOcr.images;
+                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} Markdown 生成完成`);
+            } catch (error) {
+                // 判断是否为 Mistral Key 失效错误
+                if (error.message && (error.message.includes('无效') || error.message.includes('未授权') || error.message.includes('401') || error.message.toLowerCase().includes('invalid api key') || error.message.toLowerCase().includes('unauthorized'))) {
+                    if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} Mistral API Key (...${mistralKeyValue.slice(-4)}) 可能已失效: ${error.message}`);
+                    return {
+                        file: fileToProcess,
+                        keyInvalid: {
+                            type: 'mistral',
+                            keyIdToInvalidate: mistralKeyObject.id
+                        },
+                        error: `Mistral Key 失效: ${error.message}`
+                    };
+                }
+                throw error; // 其他类型的OCR错误，向上抛出由 app.js 的常规重试处理
+            }
+        } else if (fileType === 'md' || fileType === 'txt') {
+            if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 读取 ${fileType.toUpperCase()} 文件内容...`);
+            try {
+                currentMarkdownContent = await fileToProcess.text();
+                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} ${fileType.toUpperCase()} 文件内容读取完成`);
                 currentImagesData = [];
             } catch (readError) {
-                if (typeof addProgressLog === "function") {
-                    addProgressLog(`${logPrefix} 读取 ${fileType.toUpperCase()} 文件失败: ${readError.message}`);
-                }
+                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 读取 ${fileType.toUpperCase()} 文件失败: ${readError.message}`);
                 throw new Error(`读取 ${fileType.toUpperCase()} 文件失败: ${readError.message}`);
             }
         } else {
@@ -135,140 +102,137 @@ async function processSinglePdf(fileToProcess, mistralKey, translationKey, trans
         }
 
         // --- 翻译流程 (如果需要) ---
-        if (translationModel !== 'none') {
-            if (!translationKeyInUse) {
-                if (typeof addProgressLog === "function") {
-                    addProgressLog(`${logPrefix} 警告: 需要翻译但未提供有效的翻译 API Key。跳过翻译。`);
-                }
-                ocrChunks = [currentMarkdownContent]; // If no translation, ocrChunks is the whole content
-                translatedChunks = ['']; // And translatedChunks is empty or a placeholder
+        if (selectedTranslationModelName !== 'none') {
+            const translationKeyValue = translationKeyObject ? translationKeyObject.value : null;
+            if (!translationKeyValue) {
+                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 警告: 需要翻译但未提供有效的翻译 API Key。跳过翻译。`);
+                currentTranslationContent = '[未翻译：缺少API Key]';
+                ocrChunks = [currentMarkdownContent];
+                translatedChunks = [currentTranslationContent];
             } else {
-                if (typeof addProgressLog === "function") {
-                    addProgressLog(`${logPrefix} 开始翻译 (${translationModel}, Key: ...${translationKeyInUse.slice(-4)})`);
-                }
+                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 开始翻译 (${selectedTranslationModelName}, Key: ...${translationKeyValue.slice(-4)})`);
 
-                // 验证estimateTokenCount函数可用
-                if (typeof estimateTokenCount !== 'function') {
-                    throw new Error('estimateTokenCount函数未定义，无法估算文档大小');
-                }
-
+                if (typeof estimateTokenCount !== 'function') throw new Error('estimateTokenCount函数未定义');
                 const estimatedTokens = estimateTokenCount(currentMarkdownContent);
                 const tokenLimit = parseInt(maxTokensPerChunkValue) || 2000;
-                let translationSuccess = false;
-                let translationError = null;
-                for (let tRetry = 0; tRetry < 5 && !translationSuccess; tRetry++) {
-                    try {
-                        if (estimatedTokens > tokenLimit * 1.1) {
-                            if (typeof addProgressLog === "function") {
-                                addProgressLog(`${logPrefix} 文档较大 (~${Math.round(estimatedTokens/1000)}K tokens), 分段翻译`);
-                            }
 
-                            // 验证translateLongDocument函数可用
-                            if (typeof translateLongDocument !== 'function') {
-                                throw new Error('translateLongDocument函数未定义，无法进行长文档翻译');
-                            }
+                try {
+                    if (estimatedTokens > tokenLimit * 1.1) {
+                        if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 文档较大 (~${Math.round(estimatedTokens/1000)}K tokens), 分段翻译`);
+                        if (typeof translateLongDocument !== 'function') throw new Error('translateLongDocument函数未定义');
 
-                            const translationResult = await translateLongDocument( // Store the result object
+                        console.log('main.js 调用 translateLongDocument 参数:', {
+                            useCustomPromptsSetting,
+                            defaultUserPromptTemplateSetting,
+                            defaultSystemPromptSetting,
+                            translationModelConfig,
+                            currentMarkdownContent,
+                            targetLanguageValue,
+                            selectedTranslationModelName,
+                            translationKeyValue,
+                            tokenLimit,
+                            logPrefix
+                        });
+                        let translationResult;
+                        if (selectedTranslationModelName === 'custom') {
+                            translationResult = await translateLongDocument(
                                 currentMarkdownContent,
                                 targetLanguageValue,
-                                translationModel,
-                                translationKeyInUse,
+                                selectedTranslationModelName,
+                                translationKeyValue,
+                                translationModelConfig,
                                 tokenLimit,
                                 acquireSlot,
                                 releaseSlot,
                                 logPrefix,
                                 defaultSystemPromptSetting,
-                                defaultUserPromptTemplateSetting
+                                defaultUserPromptTemplateSetting,
+                                useCustomPromptsSetting
                             );
-                            currentTranslationContent = translationResult.translatedText;
-                            ocrChunks = translationResult.originalChunks; // These are chunks from the processed text (after table protection)
-                            translatedChunks = translationResult.translatedTextChunks; // These are the translated chunks
                         } else {
-                            if (typeof addProgressLog === "function") {
-                                addProgressLog(`${logPrefix} 文档较小 (~${Math.round(estimatedTokens/1000)}K tokens), 直接翻译`);
-                                addProgressLog(`${logPrefix} 获取翻译槽...`);
-                            }
-                            await acquireSlot();
-                            if (typeof addProgressLog === "function") {
-                                addProgressLog(`${logPrefix} 翻译槽已获取。调用 API...`);
-                            }
-                            try {
-                                // 验证translateMarkdown函数可用
-                                if (typeof translateMarkdown !== 'function') {
-                                    throw new Error('translateMarkdown函数未定义，无法进行翻译');
-                                }
-
-                                currentTranslationContent = await translateMarkdown(
-                                    currentMarkdownContent,
-                                    targetLanguageValue,
-                                    translationModel,
-                                    translationKeyInUse,
-                                    logPrefix,
-                                    defaultSystemPromptSetting,
-                                    defaultUserPromptTemplateSetting
-                                );
-                                // For short documents, consider the whole content as a single chunk
-                                ocrChunks = [currentMarkdownContent];
-                                translatedChunks = [currentTranslationContent];
-                            } finally {
-                                releaseSlot();
-                                if (typeof addProgressLog === "function") {
-                                    addProgressLog(`${logPrefix} 翻译槽已释放。`);
-                                }
-                            }
+                            translationResult = await translateLongDocument(
+                                currentMarkdownContent,
+                                targetLanguageValue,
+                                selectedTranslationModelName,
+                                translationKeyValue,
+                                tokenLimit,
+                                acquireSlot,
+                                releaseSlot,
+                                logPrefix,
+                                defaultSystemPromptSetting,
+                                defaultUserPromptTemplateSetting,
+                                useCustomPromptsSetting
+                            );
                         }
-                        translationSuccess = true;
-                    } catch (error) {
-                        translationError = error;
-                        // 检查是否为 key 失效
-                        if (error.message && (error.message.includes('无效') || error.message.includes('未授权') || error.message.includes('401') || error.message.includes('invalid') || error.message.includes('Unauthorized'))) {
-                            if (typeof apiKeyManager !== "undefined") {
-                                apiKeyManager.markKeyInvalid('translation', translationKeyInUse);
-                                translationKeyTried.add(translationKeyInUse);
-                                translationKeyInUse = apiKeyManager.getTranslationKey();
-                            }
-                            if (!translationKeyInUse || translationKeyTried.has(translationKeyInUse)) {
-                                // If all keys fail, set chunks to original and empty translation for this attempt.
-                                ocrChunks = [currentMarkdownContent];
-                                translatedChunks = [`[翻译API Key全部失效，保留原文] ${currentMarkdownContent}`];
-                                throw new Error('所有翻译 API Key 已失效，请补充有效 key');
-                            }
-                            if (typeof addProgressLog === "function") {
-                                addProgressLog(`${logPrefix} 检测到翻译 Key 失效，自动切换下一个 key 重试...`);
-                            }
-                        } else {
-                            // 其他错误指数重试
-                            const delay = typeof getRetryDelay === 'function' ?
-                                         getRetryDelay(tRetry) :
-                                         Math.min(500 * Math.pow(2, tRetry), 30000);
-
-                            if (typeof addProgressLog === "function") {
-                                addProgressLog(`${logPrefix} 翻译失败: ${error.message}，${delay.toFixed(0)}ms 后重试...`);
-                            }
-                            await new Promise(resolve => setTimeout(resolve, delay));
+                        console.log('main.js translateLongDocument 返回:', translationResult);
+                        currentTranslationContent = translationResult.translatedText;
+                        ocrChunks = translationResult.originalChunks;
+                        translatedChunks = translationResult.translatedTextChunks;
+                    } else {
+                        if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 文档较小 (~${Math.round(estimatedTokens/1000)}K tokens), 直接翻译`);
+                        await acquireSlot();
+                        if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 翻译槽已获取。调用 API...`);
+                        try {
+                            if (typeof translateMarkdown !== 'function') throw new Error('translateMarkdown函数未定义');
+                            //console.log('main.js 调用 translateMarkdown 参数:', {
+                            //    useCustomPromptsSetting,
+                            //    defaultUserPromptTemplateSetting,
+                            //    defaultSystemPromptSetting,
+                            //    translationModelConfig,
+                            //    currentMarkdownContent,
+                            //    targetLanguageValue,
+                            //    selectedTranslationModelName,
+                            //    translationKeyValue,
+                            //    logPrefix
+                            //});
+                            //console.log('main.js/document.js 实际传递的 defaultUserPromptTemplateSetting:', defaultUserPromptTemplateSetting);
+                            //console.log('main.js/document.js 实际传递的 defaultSystemPromptSetting:', defaultSystemPromptSetting);
+                            currentTranslationContent = await translateMarkdown(
+                                currentMarkdownContent,
+                                targetLanguageValue,
+                                selectedTranslationModelName,
+                                translationKeyValue,
+                                logPrefix,
+                                defaultSystemPromptSetting,
+                                defaultUserPromptTemplateSetting,
+                                useCustomPromptsSetting
+                            );
+                            //console.log('main.js translateMarkdown 返回:', currentTranslationContent);
+                            ocrChunks = [currentMarkdownContent];
+                            translatedChunks = [currentTranslationContent];
+                        } finally {
+                            releaseSlot();
+                            if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} _翻译槽已释放。`);
                         }
                     }
-                }
-                if (!translationSuccess) {
-                     // If translation ultimately fails after retries
-                    ocrChunks = [currentMarkdownContent]; // Fallback to full original content
-                    translatedChunks = [`[翻译失败: ${translationError ? translationError.message : '未知错误'}] ${currentMarkdownContent}`]; // Fallback for translated content
-                    currentTranslationContent = translatedChunks[0]; // Update the main translation content as well
-                    if (typeof addProgressLog === "function") {
-                        addProgressLog(`${logPrefix} 翻译最终失败，将使用原文并标记错误。`);
+                    if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 翻译完成`);
+                } catch (error) {
+                    // 判断是否为翻译 Key 失效错误
+                    // 这里的判断条件可能需要根据实际API的错误响应来调整
+                    if (error.message && (error.message.includes('无效') || error.message.includes('未授权') || error.message.includes('401') || error.message.toLowerCase().includes('invalid api key') || error.message.toLowerCase().includes('unauthorized') || error.message.includes('API key not valid') || error.message.includes('forbidden'))) {
+                        if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 翻译 API Key (...${translationKeyValue.slice(-4)}) 可能已失效 (${selectedTranslationModelName}): ${error.message}`);
+                        return {
+                            file: fileToProcess,
+                            keyInvalid: {
+                                type: 'translation',
+                                modelName: selectedTranslationModelName,
+                                keyIdToInvalidate: translationKeyObject.id
+                            },
+                            error: `翻译 Key 失效: ${error.message}`
+                        };
                     }
-                }
-
-                if (typeof addProgressLog === "function") {
-                    addProgressLog(`${logPrefix} 翻译完成`);
+                    // 其他翻译错误，标记为翻译失败，但OCR结果可能仍有效
+                    if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 翻译失败: ${error.message}。将使用原文并标记错误。`);
+                    currentTranslationContent = `[翻译失败: ${error.message}] ${currentMarkdownContent}`;
+                    ocrChunks = [currentMarkdownContent];
+                    translatedChunks = [currentTranslationContent];
+                    // 不向上抛出，允许OCR成功但翻译失败的情况，在最终结果中体现
                 }
             }
         } else {
-            if (typeof addProgressLog === "function") {
-                addProgressLog(`${logPrefix} 不需要翻译`);
-            }
-            ocrChunks = [currentMarkdownContent]; // If no translation, ocrChunks is the whole content
-            translatedChunks = ['']; // And translatedChunks is empty or a placeholder for no translation
+            if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 不需要翻译`);
+            ocrChunks = [currentMarkdownContent];
+            translatedChunks = [''];
         }
 
         if (typeof saveResultToDB === "function") {
@@ -280,12 +244,11 @@ async function processSinglePdf(fileToProcess, mistralKey, translationKey, trans
                 ocr: currentMarkdownContent,
                 translation: currentTranslationContent,
                 images: currentImagesData,
-                ocrChunks: ocrChunks,         // Add ocrChunks
-                translatedChunks: translatedChunks // Add translatedChunks
+                ocrChunks: ocrChunks,
+                translatedChunks: translatedChunks
             });
         }
 
-        // 处理成功后自动移除文件
         if (typeof onFileSuccess === 'function') {
             onFileSuccess(fileToProcess);
         }
@@ -294,39 +257,31 @@ async function processSinglePdf(fileToProcess, mistralKey, translationKey, trans
             markdown: currentMarkdownContent,
             translation: currentTranslationContent,
             images: currentImagesData,
-            ocrChunks: ocrChunks,         // Add ocrChunks
-            translatedChunks: translatedChunks, // Add translatedChunks
-            error: null
+            ocrChunks: ocrChunks,
+            translatedChunks: translatedChunks,
+            error: null // 表示此文件处理成功（即使翻译部分可能仅标记了错误）
         };
 
-    } catch (error) {
-        console.error(`${logPrefix} 处理文件时出错:`, error);
-        if (typeof addProgressLog === "function") {
-            addProgressLog(`${logPrefix} 错误: ${error.message}`);
-        }
+    } catch (error) { // 捕获OCR流程中的致命错误，或其他未被特定keyInvalid逻辑捕获的错误
+        console.error(`${logPrefix} 处理文件时发生严重错误:`, error);
+        if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 严重错误: ${error.message}`);
         return {
             file: fileToProcess,
             markdown: null,
             translation: null,
             images: [],
-            ocrChunks: [currentMarkdownContent || ''], // Ensure ocrChunks is an array even in error
-            translatedChunks: [`[处理错误: ${error.message}]`], // Ensure translatedChunks is an array
-            error: error.message
+            ocrChunks: [currentMarkdownContent || ''],
+            translatedChunks: [`[处理错误: ${error.message}]`],
+            error: error.message // 这个error会被 app.js 中的常规重试逻辑捕获
         };
     } finally {
-        // 清理 Mistral 文件 (仅当处理PDF且生成了fileId时)
-        if (fileId && mistralKeyInUse && fileType === 'pdf') {
+        if (mistralFileId && mistralKeyObject && mistralKeyObject.value && fileType === 'pdf') {
             try {
-                await deleteMistralFile(fileId, mistralKeyInUse);
-                if (typeof addProgressLog === "function") {
-                    addProgressLog(`${logPrefix} 已清理 Mistral 临时文件 (ID: ${fileId})`);
-                }
+                await deleteMistralFile(mistralFileId, mistralKeyObject.value);
+                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 已清理 Mistral 临时文件 (ID: ${mistralFileId})`);
             } catch (deleteError) {
-                // 仅记录警告，不影响整体结果
-                console.warn(`${logPrefix} 清理 Mistral 文件 ${fileId} 失败:`, deleteError);
-                if (typeof addProgressLog === "function") {
-                    addProgressLog(`${logPrefix} 警告: 清理 Mistral 文件 ${fileId} 失败: ${deleteError.message}`);
-                }
+                console.warn(`${logPrefix} 清理 Mistral 文件 ${mistralFileId} 失败:`, deleteError);
+                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 警告: 清理 Mistral 文件 ${mistralFileId} 失败: ${deleteError.message}`);
             }
         }
     }
