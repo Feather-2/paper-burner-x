@@ -8,8 +8,11 @@
 // Helper Functions (NEW)
 // ---------------------
 /**
- * 生成一个简单的 UUID (v4) - 仅用于客户端，非加密安全
- * @returns {string}
+ * 生成一个简单的客户端 UUID (Universally Unique Identifier) v4 版本。
+ * 此函数主要用于在 UI 层面为动态生成的元素或组件提供一个唯一的标识符，
+ * 它**不具备加密安全性**，不应用于任何安全相关的场景。
+ *
+ * @returns {string} 返回一个符合 UUID v4 格式的字符串。
  */
 function _generateUUID_ui() {
     return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
@@ -21,15 +24,18 @@ function _generateUUID_ui() {
 // 表单元素创建工具 (NEW - for renderSourceSiteForm)
 // ---------------------
 /**
- * 创建一个配置项的输入框组件 (label + input)
- * @param {string} id - 输入框的 ID
- * @param {string} labelText - 标签文本
- * @param {string|number} value - 输入框的初始值
- * @param {string} type - 输入框类型 (text, url, number, etc.)
- * @param {string} placeholder - 输入框的占位符
- * @param {function} [onChangeCallback] - (可选) 输入框值改变时的回调函数
- * @param {object} [attributes] - (可选) 额外的属性对象 (e.g., {min: 0, max: 10, step: 1})
- * @returns {HTMLElement} - 包含标签和输入框的 div 元素
+ * 创建并返回一个包含标签（label）和输入框（input）的完整配置项组件。
+ * 该组件通常用于动态生成的表单中，用于收集用户输入。
+ *
+ * @param {string} id - 输入框元素的 HTML `id` 属性，同时用于标签的 `for` 属性。
+ * @param {string} labelText - 显示在输入框上方的标签文本内容。
+ * @param {string|number} value - 输入框的初始值。
+ * @param {string} [type='text'] - 输入框的类型 (例如：`text`, `url`, `number`, `password`)。
+ * @param {string} [placeholder=''] - 输入框的占位提示文本。
+ * @param {function} [onChangeCallback] - (可选) 当输入框的值发生改变 (通常是 `change` 或 `input` 事件) 时被调用的回调函数。
+ * @param {Object} [attributes={}] - (可选) 一个包含额外 HTML 属性的对象，这些属性将被直接设置到输入框元素上。
+ *                                   对于 `type='number'`，可以包含 `min`, `max`, `step`。
+ * @returns {HTMLElement} 返回一个 `div` 元素，该元素包装了创建的标签和输入框。
  */
 function createConfigInput(id, labelText, value, type = 'text', placeholder = '', onChangeCallback, attributes = {}) {
     const wrapper = document.createElement('div');
@@ -70,13 +76,17 @@ function createConfigInput(id, labelText, value, type = 'text', placeholder = ''
 }
 
 /**
- * 创建一个配置项的下拉选择框组件 (label + select)
- * @param {string} id - 下拉框的 ID
- * @param {string} labelText - 标签文本
- * @param {string} selectedValue - 预选中的值
- * @param {Array<{value: string, text: string}>} optionsArray - 选项数组
- * @param {function} [onChangeCallback] - (可选) 下拉框值改变时的回调函数
- * @returns {HTMLElement} - 包含标签和下拉框的 div 元素
+ * 创建并返回一个包含标签（label）和下拉选择框（select）的完整配置项组件。
+ * 该组件用于提供一组预定义的选项供用户选择。
+ *
+ * @param {string} id - 下拉选择框元素的 HTML `id` 属性，同时用于标签的 `for` 属性。
+ * @param {string} labelText - 显示在下拉选择框上方的标签文本内容。
+ * @param {string} selectedValue - 需要被预选中的选项的值。
+ * @param {Array<Object>} optionsArray - 一个对象数组，用于生成下拉选项。每个对象应包含：
+ *   @param {string} optionsArray[].value - 选项的实际值。
+ *   @param {string} optionsArray[].text - 选项的显示文本。
+ * @param {function} [onChangeCallback] - (可选) 当下拉选择框的值发生改变时被调用的回调函数。
+ * @returns {HTMLElement} 返回一个 `div` 元素，该元素包装了创建的标签和下拉选择框。
  */
 function createConfigSelect(id, labelText, selectedValue, optionsArray, onChangeCallback) {
     const wrapper = document.createElement('div');
@@ -114,52 +124,105 @@ function createConfigSelect(id, labelText, selectedValue, optionsArray, onChange
 // ---------------------
 // DOM 元素获取（集中管理，便于维护）
 // ---------------------
+/** @type {HTMLTextAreaElement | null} mistralApiKeysTextarea - Mistral API 密钥输入框。 */
 const mistralApiKeysTextarea = document.getElementById('mistralApiKeys');
+/** @type {HTMLInputElement | null} rememberMistralKeyCheckbox - "记住 Mistral 密钥"复选框。 */
 const rememberMistralKeyCheckbox = document.getElementById('rememberMistralKey');
+/** @type {HTMLTextAreaElement | null} translationApiKeysTextarea - (通用)翻译服务 API 密钥输入框。 */
 const translationApiKeysTextarea = document.getElementById('translationApiKeys');
+/** @type {HTMLInputElement | null} rememberTranslationKeyCheckbox - "记住翻译密钥"复选框。 */
 const rememberTranslationKeyCheckbox = document.getElementById('rememberTranslationKey');
+/** @type {HTMLSelectElement | null} translationModelSelect - 翻译模型选择下拉框。 */
 const translationModelSelect = document.getElementById('translationModel');
+/** @type {HTMLElement | null} customModelSettingsContainer - (旧版)自定义模型设置区域的容器。 */
 const customModelSettingsContainer = document.getElementById('customModelSettingsContainer');
+/** @type {HTMLElement | null} customModelSettings - (旧版)自定义模型具体设置的容器。 */
 const customModelSettings = document.getElementById('customModelSettings');
+/** @type {HTMLElement | null} advancedSettingsToggle - 高级设置区域的切换按钮。 */
 const advancedSettingsToggle = document.getElementById('advancedSettingsToggle');
+/** @type {HTMLElement | null} advancedSettings - 高级设置区域的容器。 */
 const advancedSettings = document.getElementById('advancedSettings');
+/** @type {HTMLElement | null} advancedSettingsIcon - 高级设置切换按钮中的图标。 */
 const advancedSettingsIcon = document.getElementById('advancedSettingsIcon');
+/** @type {HTMLInputElement | null} maxTokensPerChunk - 每个文本块最大 Token 数的滑块输入。 */
 const maxTokensPerChunk = document.getElementById('maxTokensPerChunk');
+/** @type {HTMLElement | null} maxTokensPerChunkValue - 显示当前最大 Token 数的元素。 */
 const maxTokensPerChunkValue = document.getElementById('maxTokensPerChunkValue');
+/** @type {HTMLInputElement | null} skipProcessedFilesCheckbox - "跳过已处理文件"复选框。 */
 const skipProcessedFilesCheckbox = document.getElementById('skipProcessedFiles');
+/** @type {HTMLInputElement | null} concurrencyLevelInput - (OCR/通用)并发级别输入框。 */
 const concurrencyLevelInput = document.getElementById('concurrencyLevel');
+/** @type {HTMLElement | null} dropZone - 文件拖放区域。 */
 const dropZone = document.getElementById('dropZone');
+/** @type {HTMLInputElement | null} pdfFileInput - 文件选择输入框 (type="file")。 */
 const pdfFileInput = document.getElementById('pdfFileInput');
+/** @type {HTMLButtonElement | null} browseFilesBtn - "浏览文件"按钮。 */
 const browseFilesBtn = document.getElementById('browseFilesBtn');
+/** @type {HTMLElement | null} fileListContainer - 文件列表的容器。 */
 const fileListContainer = document.getElementById('fileListContainer');
+/** @type {HTMLElement | null} fileList - 文件列表的 UL 或 OL 元素。 */
 const fileList = document.getElementById('fileList');
+/** @type {HTMLButtonElement | null} clearFilesBtn - "清空文件列表"按钮。 */
 const clearFilesBtn = document.getElementById('clearFilesBtn');
+/** @type {HTMLSelectElement | null} targetLanguage - 目标语言选择下拉框。 */
 const targetLanguage = document.getElementById('targetLanguage');
+/** @type {HTMLButtonElement | null} processBtn - "开始处理"按钮。 */
 const processBtn = document.getElementById('processBtn');
+/** @type {HTMLButtonElement | null} downloadAllBtn - "全部下载"按钮。 */
 const downloadAllBtn = document.getElementById('downloadAllBtn');
+/** @type {HTMLElement | null} resultsSection - 处理结果显示区域。 */
 const resultsSection = document.getElementById('resultsSection');
+/** @type {HTMLElement | null} resultsSummary - 处理结果总结信息的容器。 */
 const resultsSummary = document.getElementById('resultsSummary');
+/** @type {HTMLElement | null} progressSection - 进度显示区域。 */
 const progressSection = document.getElementById('progressSection');
+/** @type {HTMLElement | null} batchProgressText - 批处理整体进度文本显示元素。 */
 const batchProgressText = document.getElementById('batchProgressText');
+/** @type {HTMLElement | null} concurrentProgressText - 当前并发任务数文本显示元素。 */
 const concurrentProgressText = document.getElementById('concurrentProgressText');
+/** @type {HTMLElement | null} progressStep - 当前处理步骤文本显示元素。 */
 const progressStep = document.getElementById('progressStep');
+/** @type {HTMLElement | null} progressPercentage - 进度百分比文本显示元素。 */
 const progressPercentage = document.getElementById('progressPercentage');
+/** @type {HTMLElement | null} progressBar - 进度条的内部填充元素。 */
 const progressBar = document.getElementById('progressBar');
+/** @type {HTMLElement | null} progressLog - 详细进度日志的容器。 */
 const progressLog = document.getElementById('progressLog');
+/** @type {HTMLElement | null} notificationContainer - 通知消息的容器。 */
 const notificationContainer = document.getElementById('notification-container');
+/** @type {HTMLElement | null} customModelSettingsToggle - (旧版)自定义模型设置的切换按钮。 */
 const customModelSettingsToggle = document.getElementById('customModelSettingsToggle');
+/** @type {HTMLElement | null} customModelSettingsToggleIcon - (旧版)自定义模型设置切换按钮中的图标。 */
 const customModelSettingsToggleIcon = document.getElementById('customModelSettingsToggleIcon');
+/** @type {HTMLElement | null} customSourceSiteContainer - 自定义API源站点选择区域的容器。 */
 const customSourceSiteContainer = document.getElementById('customSourceSiteContainer');
+/** @type {HTMLSelectElement | null} customSourceSiteSelect - 自定义API源站点选择下拉框。 */
 const customSourceSiteSelect = document.getElementById('customSourceSiteSelect');
-const customSourceSiteToggleIcon = document.getElementById('customSourceSiteToggleIcon');
+/** @type {HTMLElement | null} customSourceSiteToggleIcon - 自定义源站点设置区域切换按钮的图标 (可能与高级设置共用或独立)。 */
+const customSourceSiteToggleIcon = document.getElementById('customSourceSiteToggleIcon'); // 注意：此ID可能与 advancedSettingsIcon 描述冲突，需确认实际HTML结构
+/** @type {HTMLButtonElement | null} detectModelsBtn - "检测可用模型"按钮，通常用于自定义源站点。 */
 const detectModelsBtn = document.getElementById('detectModelsBtn');
 
 // ---------------------
 // 自定义源站点下拉列表填充 (NEW)
 // ---------------------
 /**
- * 填充自定义源站点下拉列表
- * @param {string | null} selectedSiteIdToSet - (可选) 需要预选中的源站点ID
+ * 从 `storage.js` 加载所有已配置的自定义 API 源站点，并使用它们填充 ID 为 `customSourceSiteSelect` 的下拉选择框。
+ *
+ * 主要逻辑:
+ * 1. 获取下拉框 DOM 元素，如果找不到则警告并退出。
+ * 2. 清空下拉框的现有选项。
+ * 3. 调用 `loadAllCustomSourceSites` (应由 `storage.js` 提供并全局可用) 获取所有源站点配置。
+ *    如果加载函数不可用，则显示错误选项并禁用下拉框。
+ * 4. **预选中处理**: 如果未明确传入 `selectedSiteIdToSet`，则尝试从用户设置 (`loadSettings`) 中读取 `selectedCustomSourceSiteId` 作为预选项。
+ * 5. **选项填充**: 如果没有源站点，显示"无自定义源站点"并禁用下拉框。
+ *    否则，启用下拉框，添加一个"-- 请选择源站点 --"的占位符选项，然后遍历每个源站点配置，
+ *    为其创建一个 `<option>` 元素 (使用 `displayName` 或部分 ID 作为文本) 并添加到下拉框。
+ * 6. **设置选中项**: 如果 `selectedSiteIdToSet` 有效且存在于加载的站点中，则将其设为下拉框的当前选中值；否则，默认选中占位符。
+ * 7. **后续更新**: 使用 `setTimeout` 延迟调用 `updateCustomSourceSiteInfo` (如果可用且当前有选中的源站点)，以更新与所选源站点相关的详细信息面板。
+ *
+ * @param {string | null} [selectedSiteIdToSet=null] - (可选) 需要在下拉框中预先选中的源站点的 ID。
+ *                                                    如果为 `null` 或未提供，则会尝试从用户设置中加载上次选择的 ID。
  */
 function populateCustomSourceSitesDropdown_ui(selectedSiteIdToSet = null) {
     const dropdown = document.getElementById('customSourceSiteSelect');
@@ -236,6 +299,12 @@ window.populateCustomSourceSitesDropdown_ui = populateCustomSourceSitesDropdown_
 // ---------------------
 // 文件大小格式化工具
 // ---------------------
+/**
+ * 将文件大小（以字节为单位）转换为更易读的格式 (例如 B, KB, MB, GB, TB)。
+ *
+ * @param {number} bytes - 要格式化的文件大小，单位为字节。
+ * @returns {string} 格式化后的文件大小字符串 (例如 "1.23 MB")。如果输入为 0，则返回 "0 B"。
+ */
 function formatFileSize(bytes) {
     if (bytes === 0) return '0 B';
     const k = 1024;
@@ -248,7 +317,26 @@ function formatFileSize(bytes) {
 // 文件列表 UI 更新
 // ---------------------
 /**
- * 刷新文件列表区域，支持移除操作
+ * 根据提供的文件数组和处理状态，动态更新界面上的文件列表显示。
+ * 为每个文件创建一个列表项，包含文件名、文件大小和移除按钮。
+ *
+ * 主要职责:
+ * 1. 清空现有的文件列表 (`fileList.innerHTML = ''`)。
+ * 2. 如果文件数组 (`pdfFiles`) 不为空：
+ *    a. 显示文件列表容器 (`fileListContainer`)。
+ *    b. 遍历 `pdfFiles` 数组，为每个文件对象创建一个 `div.file-list-item`。
+ *    c. 每个列表项包含：PDF 图标、文件名 (带 title 提示完整名称)、格式化后的文件大小、移除按钮。
+ *    d. 为每个移除按钮 (`.remove-file-btn`) 添加点击事件监听器。
+ *       - 点击时，如果当前不在处理中 (`isProcessing` 为 `false`)，则调用传入的 `onRemoveFile` 回调函数，
+ *         并将该文件的索引作为参数传递，由回调函数负责从实际文件数组中移除该文件。
+ *    e. **更新全局数据**: 根据文件列表的当前状态（单个文件、无文件、多个文件）更新全局的 `window.data` 对象，
+ *       这通常用于后续的单一文件处理或结果展示。
+ * 3. 如果文件数组为空，则隐藏文件列表容器，并清空 `window.data`。
+ *
+ * @param {Array<File>} pdfFiles - 一个包含用户已选择的 File 对象的数组。
+ * @param {boolean} isProcessing - 指示当前是否正在进行文件处理过程。如果为 `true`，移除按钮将被禁用。
+ * @param {function(number):void} onRemoveFile - 当用户点击移除文件按钮时调用的回调函数。
+ *                                            该函数接收被移除文件在 `pdfFiles` 数组中的索引作为参数。
  */
 function updateFileListUI(pdfFiles, isProcessing, onRemoveFile) {
     fileList.innerHTML = '';
@@ -295,6 +383,26 @@ function updateFileListUI(pdfFiles, isProcessing, onRemoveFile) {
 // ---------------------
 // 处理按钮状态更新
 // ---------------------
+/**
+ * 根据当前选择的文件列表、是否正在处理以及特定服务（如Mistral OCR）的API密钥可用性，
+ * 动态更新"开始处理"按钮（`processBtn`）的启用/禁用状态和显示内容。
+ *
+ * 主要逻辑:
+ * 1. **PDF文件检查**: 检查 `pdfFiles` 数组中是否至少包含一个 PDF 文件。
+ * 2. **Mistral密钥检查 (如果需要)**: 如果存在 PDF 文件，则会检查 Mistral 服务的 API 密钥是否已配置且可用。
+ *    它会尝试调用 `loadModelKeys('mistral')` (来自 `storage.js`) 来获取有效的 Mistral 密钥。
+ *    如果找不到有效密钥，则 `mistralKeysAvailable` 会被设为 `false`。
+ * 3. **按钮禁用条件**: "开始处理"按钮将在以下任一情况下被禁用：
+ *    - `pdfFiles` 数组为空。
+ *    - `isProcessing` 为 `true` (即当前正在处理文件)。
+ *    - 存在 PDF 文件但 `mistralKeysAvailable` 为 `false` (即需要 Mistral 服务但其密钥不可用)。
+ * 4. **按钮文本和图标更新**: 根据 `isProcessing` 的状态，按钮的内部 HTML 会被更新：
+ *    - 如果正在处理，按钮显示旋转的沙漏图标和"处理中..."文本。
+ *    - 如果未在处理，按钮显示播放图标和"开始处理"文本。
+ *
+ * @param {Array<File>} pdfFiles - 当前选定的文件对象数组。
+ * @param {boolean} isProcessing - 指示当前是否正在进行文件处理。
+ */
 function updateProcessButtonState(pdfFiles, isProcessing) {
     let mistralKeysAvailable = true; // 默认Key可用，除非检测到需要但没有
     const hasPdfFiles = pdfFiles.some(file => file.name.toLowerCase().endsWith('.pdf'));
@@ -326,6 +434,27 @@ function updateProcessButtonState(pdfFiles, isProcessing) {
 // ---------------------
 // 翻译相关 UI 显隐
 // ---------------------
+/**
+ * 根据当前选择的翻译模型（`translationModelSelect.value`）和处理状态，
+ * 动态调整与翻译功能相关的用户界面元素的可见性。
+ *
+ * 主要逻辑:
+ * 1. **旧版全局自定义模型UI**: 如果选择的翻译模型是 `'custom'`：
+ *    - (注释掉的代码表明曾用于显示 `customModelSettingsContainer` 和 `customModelSettings`，这些可能是旧的全局自定义设置UI，现已部分废弃或由Key管理器取代)。
+ *    - (注释掉的代码表明曾处理旧的 `customModelId` 和 `customModelIdInput` 的显示逻辑)。
+ * 2. **新版自定义源站点UI**: 如果 `customSourceSiteContainer` 和 `customSourceSiteSelect` 存在：
+ *    - 当翻译模型为 `'custom'` 时：
+ *      - 显示 `customSourceSiteContainer` (包含源站点选择下拉框)。
+ *      - 启用 `customSourceSiteSelect` 下拉框。
+ *      - 调用 `window.populateCustomSourceSitesDropdown_ui()` 来填充下拉框选项。
+ *      - 使用 `setTimeout` 延迟调用 `updateCustomSourceSiteInfo()`，以根据当前选中的源站点更新其详细信息面板。
+ *    - 当翻译模型不是 `'custom'` 时：
+ *      - 隐藏 `customSourceSiteContainer`。
+ *      - 清空并禁用 `customSourceSiteSelect` 下拉框。
+ *      - 隐藏自定义源站点的信息面板 (`customSourceSiteInfo`) 和相关的管理按钮 (`manageSourceSiteKeyBtn`)。
+ *
+ * @param {boolean} isProcessing - 指示当前是否正在进行文件处理 (此参数当前在此函数中未被直接使用，但可能为未来扩展保留)。
+ */
 function updateTranslationUIVisibility(isProcessing) {
     const translationModelValue = translationModelSelect.value;
 
@@ -393,6 +522,16 @@ function updateTranslationUIVisibility(isProcessing) {
 // ---------------------
 // 结果与进度区域 UI
 // ---------------------
+/**
+ * 在文件处理完成后，显示结果区域，并隐藏进度区域。
+ * 同时，它会更新结果摘要信息，并根据成功处理的文件数启用或禁用"全部下载"按钮。
+ * 最后，页面会平滑滚动到结果区域。
+ *
+ * @param {number} successCount - 成功处理的文件数量。
+ * @param {number} skippedCount - 因已处理而被跳过的文件数量。
+ * @param {number} errorCount - 处理失败（包括重试后仍失败）的文件数量。
+ * @param {number} pdfFilesLength - 最初选择进行处理的文件总数。
+ */
 function showResultsSection(successCount, skippedCount, errorCount, pdfFilesLength) {
     progressSection.classList.add('hidden');
     resultsSection.classList.remove('hidden');
@@ -417,6 +556,12 @@ function showResultsSection(successCount, skippedCount, errorCount, pdfFilesLeng
     });
 }
 
+/**
+ * 在开始文件处理时，显示进度区域，并隐藏结果区域。
+ * 此函数还会清空之前的进度日志，重置批处理和并发进度的文本显示，
+ * 并调用 `updateProgress` 初始化当前步骤为"初始化..."且进度为 0%。
+ * 最后，页面会平滑滚动到进度区域。
+ */
 function showProgressSection() {
     resultsSection.classList.add('hidden');
     progressSection.classList.remove('hidden');
@@ -434,10 +579,23 @@ function showProgressSection() {
 // ---------------------
 // 并发与进度条 UI
 // ---------------------
+/**
+ * 更新界面上显示的当前并发任务数量。
+ *
+ * @param {number} count - 当前正在并发执行的任务数量。
+ */
 function updateConcurrentProgress(count) {
     concurrentProgressText.textContent = `当前并发任务数: ${count}`;
 }
 
+/**
+ * 更新批处理的整体进度显示，包括已完成数、总文件数以及进度条和百分比文本。
+ *
+ * @param {number} success - 已成功处理的文件数。
+ * @param {number} skipped - 已跳过的文件数。
+ * @param {number} errors - 处理失败的文件数。
+ * @param {number} totalFiles - 本次批处理的总文件数。
+ */
 function updateOverallProgress(success, skipped, errors, totalFiles) {
     const completedCount = success + skipped + errors;
     if (totalFiles > 0) {
@@ -452,6 +610,13 @@ function updateOverallProgress(success, skipped, errors, totalFiles) {
     }
 }
 
+/**
+ * 更新当前处理步骤的文本显示。
+ * 注意：此函数仅更新步骤文本，不直接更新进度条的百分比填充，那个通常由 `updateOverallProgress` 控制。
+ *
+ * @param {string} stepText - 描述当前正在进行的处理步骤的文本 (例如 "OCR识别中...", "翻译中...")。
+ * @param {number} percentage - (此参数当前未被此函数使用，但定义中存在。可能是一个遗留参数或未来用途)。
+ */
 function updateProgress(stepText, percentage) {
     progressStep.textContent = stepText;
 }
@@ -459,6 +624,13 @@ function updateProgress(stepText, percentage) {
 // ---------------------
 // 日志与通知系统
 // ---------------------
+/**
+ * 向进度日志区域（`progressLog`）添加一条新的日志记录。
+ * 每条日志会自动带上当前时间戳。
+ * 日志区域会自动滚动到底部以显示最新的日志。
+ *
+ * @param {string} text - 要添加到日志的文本内容。
+ */
 function addProgressLog(text) {
     const logElement = progressLog;
     const timestamp = new Date().toLocaleTimeString();
@@ -469,7 +641,14 @@ function addProgressLog(text) {
 }
 
 /**
- * 显示通知（支持 info/success/warning/error）
+ * 在屏幕右上角显示一个通知消息。
+ * 通知可以有不同的类型（info, success, warning, error），并会在指定时间后自动消失。
+ * 用户也可以手动点击关闭按钮来关闭通知。
+ *
+ * @param {string} message - 要显示的通知消息文本。
+ * @param {'info' | 'success' | 'warning' | 'error'} [type='info'] - 通知的类型，决定了其图标和边框颜色。
+ * @param {number} [duration=5000] - 通知显示的持续时间（毫秒），之后会自动关闭。
+ * @returns {HTMLElement} 返回创建的通知 DOM 元素，主要用于测试或特殊情况下的直接操作。
  */
 function showNotification(message, type = 'info', duration = 5000) {
     const notification = document.createElement('div');
@@ -520,6 +699,13 @@ function showNotification(message, type = 'info', duration = 5000) {
     return notification;
 }
 
+/**
+ * 关闭指定的通知消息元素。
+ * 此函数会清除通知的自动关闭定时器，并应用 CSS 过渡效果使其平滑消失，
+ * 然后从 DOM 中移除该通知元素。
+ *
+ * @param {HTMLElement} notification - 要关闭的通知 DOM 元素 (通常由 `showNotification` 返回或在事件处理中获取)。
+ */
 function closeNotification(notification) {
     if (!notification || !notification.parentNode) return;
 

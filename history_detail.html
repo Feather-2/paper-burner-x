@@ -8,11 +8,11 @@
   <link type="text/css" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsmind/style/jsmind.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
   <style>
-    /* 页面基础样式 */
+    /* ====================\n     * 页面基础与布局样式\n     * ==================== */
     body { font-family: sans-serif; background: #f7f7fa; margin: 0; }
     .container { max-width: 1200px; margin: 40px auto; background: #fff; border-radius: 12px; border: 2px dashed #e2e8f0; padding: 32px; }
 
-    /* 标签栏样式改进 */
+    /* ====================\n     * 标签页导航样式\n     * ==================== */
     .tabs-container { border-bottom: 2px solid #e2e8f0; margin-bottom: 16px; display: flex; }
     .tab-btn {
       padding: 8px 24px;
@@ -38,6 +38,7 @@
       font-weight: 500;
     }
 
+    /* ====================\n     * 标签页内容区域样式\n     * ==================== */
     .tab-content {
       background: #fff;
       border-radius: 8px;
@@ -47,7 +48,7 @@
       margin-top: -2px;
     }
 
-    /* 表格样式 */
+    /* ====================\n     * Markdown 表格样式\n     * ==================== */
     .markdown-body table {
       border-collapse: collapse;
       width: 100%;
@@ -71,7 +72,8 @@
       background-color: #f1f5f9;
     }
 
-    /* 分块对比样式 */
+    /* ====================\n     * 分块对比视图样式\n     * ==================== */
+    /* 分块对比区域的标题栏，包含标题和切换按钮 */
     .chunk-compare-title-bar {
       display: flex;
       justify-content: space-between;
@@ -81,6 +83,7 @@
     .chunk-compare-title-bar h3 {
       margin: 0; /* 移除h3的默认外边距 */
     }
+    /* 切换原文/译文位置按钮 */
     #swap-chunks-btn {
       background: transparent;
       border: 1px solid #ccc;
@@ -95,19 +98,20 @@
       background-color: #f0f0f0;
       border-color: #bbb;
     }
-
+    /* 分块对比主容器，垂直排列块对 */
     .chunk-compare-container { display: flex; flex-direction: column; gap: 1em; }
+    /* 单个原文/译文对比块对，水平排列 */
     .chunk-pair { display: flex; gap: 1em; border-bottom: 1px solid #eee; padding-bottom: 1em; }
     .chunk-pair:last-child { border-bottom: none; }
+    /* 块对中的单个块（原文或译文） */
     .chunk-pair > div { flex: 1; min-width: 0; background: #fdfdfd; padding:12px; border-radius:6px; border:1px solid #eef; }
     .chunk-pair h4 { margin-top: 0; font-size: 0.9em; color: #555; border-bottom: 1px dashed #ddd; padding-bottom: 0.5em; margin-bottom: 0.5em;}
+    /* 确保分块内容区域在内容过长时可以横向滚动 */
     .chunk-compare-container .markdown-body {
       overflow-x: auto; /* 为分块内容区域添加横向滚动条 */
     }
 
-    /* 其他样式保持不变 */
-    /* .compare-flex { display: flex; gap: 2em; } */ /* 普通对比已隐藏，此样式可以移除或保留 */
-    /* .compare-flex > div { flex: 1; min-width: 0; } */ /* 普通对比已隐藏 */
+    /* ==========================\n     * Markdown 内容通用样式\n     * ========================== */
     .markdown-body { font-size: 1rem; line-height: 1.7; }
     .markdown-body img {
       max-width: 100%;
@@ -123,7 +127,9 @@
   </style>
 </head>
 <body>
-  <!-- 浮动TOC按钮及悬浮目录 -->
+  <!-- ===================== -->
+  <!-- 浮动TOC目录按钮及悬浮窗 -->
+  <!-- ===================== -->
   <div id="toc-float-btn" style="position:fixed;left:24px;top:24px;z-index:10000;width:48px;height:48px;background:#2563eb;border-radius:50%;box-shadow:0 3px 10px rgba(59, 130, 246, 0.25);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background 0.2s;"><i class="fa fa-list" style="color:#fff;font-size:22px;"></i></div>
   <div id="toc-popup" style="display:none;position:fixed;left:24px;top:80px;z-index:9999;width:300px;max-width:85vw;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 5px 15px rgba(0,0,0,0.1);transition:opacity 0.2s, transform 0.2s; transform: translateY(-10px); opacity: 0;">
     <div id="toc-popup-header" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #e2e8f0;">
@@ -132,33 +138,49 @@
     </div>
     <ul id="toc-list" style="list-style:none;padding:10px 0;margin:0;font-size:0.95em;max-height:60vh;overflow-y:auto;"></ul>
   </div>
+  <!-- TOC 悬浮窗的特定样式 -->
   <style id="toc-modern-style">
+    /* TOC弹窗滚动条样式 */
     #toc-popup::-webkit-scrollbar {width:5px;}
     #toc-popup::-webkit-scrollbar-track {background:#f8fafc;}
     #toc-popup::-webkit-scrollbar-thumb {background:#cbd5e1;border-radius:3px;}
     #toc-popup::-webkit-scrollbar-thumb:hover {background:#94a3b8;}
+    /* TOC列表项通用样式 */
     #toc-list li {margin-bottom:0;line-height:1.5;}
     #toc-list li a {display:block;padding:7px 20px;color:#334155;text-decoration:none;font-weight:500;transition:background 0.15s, color 0.15s, border-left-color 0.15s;border-left:3px dashed #e2e8f0;}
     #toc-list li a:hover {background:#eef2ff;color:#3b82f6;border-left-color:#3b82f6;}
+    /* 不同层级标题的缩进和字体大小 */
     #toc-list li.toc-h2 a {padding-left:20px;font-size:1em;}
     #toc-list li.toc-h3 a {padding-left:36px;font-size:0.92em;color:#475569;}
     #toc-list li.toc-h3 a:hover {color:#3b82f6;}
+    /* TOC项中的英文翻译样式 */
     #toc-list span.toc-en-translation {font-size:0.9em;color:#64748b;margin-left:5px;font-weight:400;}
+    /* TOC浮动按钮和关闭按钮的悬停效果 */
     #toc-float-btn:hover {background:#1d4ed8;}
     #toc-popup-close-btn:hover {background:#eef2ff;color:#3b82f6;}
   </style>
+
+  <!-- ===================== -->
+  <!-- 主内容容器 -->
+  <!-- ===================== -->
   <div class="container">
     <h2 id="fileName">历史详情</h2>
     <div class="meta" id="fileMeta"></div>
+
+    <!-- 标签页导航 -->
     <div class="tabs-container">
       <button class="tab-btn" id="tab-ocr">仅OCR</button>
       <button class="tab-btn" id="tab-translation">仅翻译</button>
       <!-- <button class="tab-btn" id="tab-compare">对比</button> -->
       <button class="tab-btn" id="tab-chunk-compare">分块对比</button>
     </div>
+    <!-- 标签页内容显示区域 -->
     <div class="tab-content" id="tabContent"></div>
   </div>
+
+  <!-- ===================== -->
   <!-- 依赖的JS库 -->
+  <!-- ===================== -->
   <script src="js/storage.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
@@ -171,10 +193,27 @@
   <script src="js/chatbot/chatbot-core.js"></script>
   <script src="js/chatbot/chatbot-ui.js"></script>
   <script src="js/chatbot/chatbot.js"></script>
+
+  <!-- ===================== -->
+  <!-- 页面核心逻辑脚本 -->
+  <!-- ===================== -->
   <script>
+    /**
+     * @type {boolean}
+     * @description 状态变量，用于分块对比视图，标记原文内容是否显示在左侧（或上方）。
+     */
     let isOriginalFirstInChunkCompare = true; // 状态变量：原文是否在左侧
 
-    // 预处理Markdown，避免非公式 $ 被误判，并处理图片、上标、下标等
+    /**
+     * 预处理 Markdown 文本，以安全地渲染图片、自定义语法（如上下标）并兼容 KaTeX。
+     * - 将 Markdown 中的本地图片引用 (e.g., `![alt](images/img-1.jpeg.png)`) 替换为 Base64 嵌入式图片。
+     * - 解析自定义的上下标语法 (e.g., `${base}^{sup}$`, `${base}_{sub}$`) 并转换为 HTML `<sup>` 和 `<sub>` 标签。
+     * - 其他如 `$formula$` 和 `$$block formula$$` 的 LaTeX 标记会保留，交由后续的 `renderWithKatexFailback` 处理。
+     *
+     * @param {string} md -输入的 Markdown 文本。
+     * @param {Array<Object>} images -一个包含图片对象的数组，每个对象应有 `name` 或 `id` (用于匹配) 和 `data` (Base64 图片数据或其前缀)。
+     * @returns {string} 处理后的 Markdown 文本，其中图片被替换，自定义语法被转换。
+     */
     function safeMarkdown(md, images) {
       if (!md) return '';
       // 构建图片名与base64的映射表，支持多种key
@@ -234,7 +273,17 @@
       return md;
     }
 
-    // 使用KaTeX渲染公式，失败时降级为code
+    /**
+     * 使用 KaTeX 渲染 Markdown 文本中的数学公式，并提供降级处理。
+     * 它会按以下顺序处理：
+     * 1. 将长度较短 (<=10字符) 的块级公式 `$$...$$` 转换为行内公式 `$...\$`。
+     * 2. 尝试使用 KaTeX 渲染行内公式 `$...\$`。如果渲染失败，则将公式内容包裹在 `<code>` 标签中显示。
+     * 3. 尝试使用 KaTeX 渲染剩余的（通常是多行的）块级公式 `$$...$$`。如果渲染失败，则同样包裹在 `<code>` 标签中。
+     * 4. 对处理完公式的文本，使用 `marked.parse()` 将其余 Markdown 内容转换为 HTML。
+     *
+     * @param {string} md - 经过 `safeMarkdown` 处理的 Markdown 文本。
+     * @returns {string} 包含渲染后公式和其余 Markdown 内容的 HTML 字符串。
+     */
     function renderWithKatexFailback(md) {
       // 1. 先把短的 $$...$$ 转为 $...$
       md = md.replace(/\$\$([^\n]+?)\$\$/g, function(_, content) {
@@ -270,13 +319,32 @@
       return marked.parse(md);
     }
 
-    // 获取URL参数
+    /**
+     * 从当前页面的 URL 中获取指定查询参数的值。
+     * @param {string} name - 要获取的查询参数的名称。
+     * @returns {string|null} 查询参数的值，如果不存在则返回 null。
+     */
     function getQueryParam(name) {
       const url = new URL(window.location.href);
       return url.searchParams.get(name);
     }
+    /**
+     * @type {Object|null}
+     * @description 存储从 IndexedDB 加载的当前历史记录的详细数据。
+     */
     let data = null;
-    // 渲染历史详情主流程
+
+    /**
+     * 异步渲染历史详情页面的主函数。
+     * - 从 URL 查询参数中获取记录 ID。
+     * - 使用 `getResultFromDB` (来自 storage.js) 从 IndexedDB 加载对应的历史数据。
+     * - 如果数据成功加载：
+     *   - 更新页面标题 (`#fileName`) 和元数据 (`#fileMeta`)。
+     *   - 根据数据中是否存在有效的分块信息 (`ocrChunks`, `translatedChunks`)，
+     *     决定默认显示的标签页（优先显示分块对比，否则显示 OCR 内容）。
+     * - 如果未找到数据，则显示提示信息。
+     * @async
+     */
     async function renderDetail() {
       const id = getQueryParam('id');
       if (!id) return;
@@ -299,7 +367,21 @@
       }
     }
 
-    // 切换tab并渲染内容
+    /**
+     * 切换并显示指定的标签页内容。
+     * - 更新标签按钮的激活状态 (`active` class)。
+     * - 根据传入的 `tab` 参数 ( 'ocr', 'translation', 'chunk-compare' )，生成对应的 HTML 内容。
+     * - OCR 和翻译标签页：直接渲染 `data.ocr` 或 `data.translation` 字段。
+     * - 分块对比标签页 (`chunk-compare`)：
+     *   - 检查 `data.ocrChunks` 和 `data.translatedChunks` 是否有效且数量匹配。
+     *   - 如果有效，则为每一对原文/译文块生成对比视图。使用 `renderLevelAlignedFlex` 进行布局。
+     *   - 提供一个按钮 (`#swap-chunks-btn`) 用于切换原文和译文在对比视图中的左右位置。
+     *   - 如果分块数据无效，则显示提示信息。
+     * - 将生成的 HTML 设置到 `#tabContent` 区域。
+     * - 调用 `window.refreshTocList()` 更新目录（TOC）。
+     *
+     * @param {string} tab - 要显示的标签页标识符 ('ocr', 'translation', or 'chunk-compare')。
+     */
     function showTab(tab) {
       document.getElementById('tab-ocr').classList.remove('active');
       document.getElementById('tab-translation').classList.remove('active');
@@ -315,7 +397,6 @@
         html = '<h3>翻译内容</h3>' +
           '<div id="translation-content" class="markdown-body" style="background:#fff;padding:16px;border-radius:8px;border:1px solid #e2e8f0;">' + renderWithKatexFailback(safeMarkdown(data.translation || '', data.images)) + '</div>';
       // } else if (tab === 'compare') { // 渲染逻辑注释掉
-      //   // ... (普通对比的渲染逻辑已注释)
       } else if (tab === 'chunk-compare') {
         document.getElementById('tab-chunk-compare').classList.add('active');
         if (data.ocrChunks && data.ocrChunks.length > 0 && data.translatedChunks && data.translatedChunks.length === data.ocrChunks.length) {
@@ -326,7 +407,12 @@
               </div>
               <div class="chunk-compare-container">
             `;
-            // 优化分块：标题分块+内容合并
+            /**
+             * 解析Markdown文本为逻辑块数组，主要基于标题进行分割。
+             * 代码块 (```...```) 会被视为单个块的一部分，不会被分割。
+             * @param {string} md - Markdown文本。
+             * @returns {Array<Object>} 每个对象包含 `{ content: string }`。
+             */
             function parseMarkdownBlocks(md) {
               const lines = (md || '').split(/\r?\n/);
               const blocks = [];
@@ -362,6 +448,13 @@
               flush();
               return blocks;
             }
+            /**
+             * 对齐两组Markdown逻辑块，用于并排显示。
+             * 简单地按索引逐个配对，如果某一组块少，则对应位置为空字符串。
+             * @param {Array<Object>} blocks1 - 第一组块。
+             * @param {Array<Object>} blocks2 - 第二组块。
+             * @returns {Array<Array<string>>} 每个内部数组包含两个字符串 `[block1_content, block2_content]`。
+             */
             function alignBlocks(blocks1, blocks2) {
               // 简单按类型和顺序对齐
               const maxLen = Math.max(blocks1.length, blocks2.length);
@@ -374,6 +467,21 @@
               }
               return aligned;
             }
+            /**
+             * 渲染单个OCR块和其对应的翻译块的对齐视图，支持分层结构。
+             * - 它首先使用 `parseMarkdownBlocks` 将OCR和翻译文本分割成小块（基于标题）。
+             * - 然后使用 `alignBlocks` 对齐这些小块。
+             * - 为每个对齐的小块对生成并排的HTML结构，用于显示原文和译文。
+             * - 提供工具栏按钮，用于切换显示模式（对比、仅原文、仅译文）、复制整块内容以及导航到上下块。
+             * - 原始块内容存储在 `window.blockRawContent_[blockIndex]` 中，供复制功能使用。
+             *
+             * @param {string} ocrChunk - OCR文本块。
+             * @param {string} translatedChunk - 对应的翻译文本块。
+             * @param {Array<Object>} images - 与此文档关联的图片数据。
+             * @param {number} blockIndex - 当前大块在整个文档分块中的索引。
+             * @param {number} totalBlocks - 文档分块的总数。
+             * @returns {string} 生成的HTML字符串，用于显示对齐的块内容。
+             */
             function renderLevelAlignedFlex(ocrChunk, translatedChunk, images, blockIndex, totalBlocks) {
               const ocrBlocks = parseMarkdownBlocks(ocrChunk);
               const transBlocks = parseMarkdownBlocks(translatedChunk);
@@ -682,13 +790,21 @@
     // 页面加载后渲染详情
     renderDetail();
 
-    // TOC目录功能（悬浮窗版）
-    (function(){
+    /**
+     * @namespace TocFeature
+     * @description 管理页面右侧浮动的目录 (Table of Contents) 功能。
+     * 包括TOC按钮的点击事件、TOC悬浮窗的显示/隐藏、
+     * 以及动态生成TOC列表项。
+     */
+    (function TocFeature(){
       const tocBtn = document.getElementById('toc-float-btn');
       const tocPopup = document.getElementById('toc-popup');
       const tocList = document.getElementById('toc-list');
       const tocCloseBtn = document.getElementById('toc-popup-close-btn');
-      // 中英文映射表
+      /**
+       * @const {Object<string, string>} tocMap
+       * @description 用于TOC中标题的中文到英文的简单映射表。
+       */
       const tocMap = {
         '历史详情': 'History Detail',
         'OCR内容': 'OCR Content',
@@ -697,9 +813,16 @@
         '仅翻译': 'Translation Only',
         '分块对比': 'Chunk Compare',
       };
+      /**
+       * @type {Array<HTMLElement>}
+       * @description 存储TOC列表项对应的页面内标题DOM元素。
+       */
       let tocNodes = []; // 存储目录对应的标题DOM元素
 
-      // 显示临时加载效果
+      /**
+       * 在TOC导航时，如果目标章节与当前视口距离较远，显示一个临时的加载/导航效果。
+       * @param {string} sectionName - 正在导航到的章节名称。
+       */
       function showTemporaryLoadingEffect(sectionName) {
         let effectDiv = document.getElementById('toc-loading-effect');
         const mainContainer = document.querySelector('.container');
@@ -766,7 +889,14 @@
         tocPopup.style.transform = 'translateY(-10px)';
         setTimeout(() => { tocPopup.style.display = 'none'; }, 200);
       };
-      // 生成目录
+      /**
+       * 生成并渲染TOC目录列表。
+       * - 清空现有列表。
+       * - 从 `.container` 中查找所有 `h2` (排除 `#fileName`) 和 `h3` 元素作为TOC条目。
+       * - 为每个标题元素生成一个列表项，包含其文本和可选的英文翻译（来自 `tocMap`）。
+       * - 列表项链接到对应标题的ID，点击时平滑滚动到该标题，并根据距离触发加载效果。
+       * - 存储标题DOM节点到 `tocNodes` 数组。
+       */
       function renderTocList() {
         tocList.innerHTML = '';
         tocNodes = []; // 每次渲染时清空并重新填充
@@ -850,6 +980,12 @@
       window.refreshTocList = renderTocList; // 暴露renderTocList函数
     })();
 
+    /**
+     * 监听 localStorage 的 `storage` 事件。
+     * 如果 `paperBurnerSettings` 发生变化（通常在主页面修改设置导致），
+     * 尝试更新聊天机器人 (Chatbot) 的配置或UI（如果相关模块已加载并可用）。
+     * @param {StorageEvent} e - storage 事件对象。
+     */
     window.addEventListener('storage', function(e) {
       if (e.key === 'paperBurnerSettings') {
         // 重新加载设置并刷新 chatbot 配置

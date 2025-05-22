@@ -3,16 +3,83 @@
 // =====================
 // 全局状态变量与并发控制
 // =====================
+/**
+ * @file app.js
+ * @description
+ * 该文件是应用程序的主入口点和事件协调器。它负责管理用户界面交互、
+ * 文件处理流程（包括 OCR 和翻译）、API 密钥管理、设置加载与保存、
+ * 以及整体应用程序状态。
+ *
+ * 主要功能包括：
+ * - **初始化**: DOMContentLoaded后加载设置、处理记录，并绑定事件监听器。
+ * - **UI交互**: 管理文件列表、处理按钮状态、进度显示、翻译设置等UI元素的更新。
+ * - **文件处理**:
+ *   - 协调PDF、MD、TXT文件的读取、分块、OCR（使用Mistral API）。
+ *   - 调用翻译模块对提取的文本进行翻译（支持多种预设及自定义模型）。
+ * - **API密钥管理**:
+ *   - 通过 `KeyProvider` 类管理不同模型（Mistral、翻译模型）的API密钥。
+ *   - 支持密钥的轮询使用、状态标记（有效/无效）、以及从localStorage加载和保存。
+ * - **并发控制**:
+ *   - 管理文件处理的并发数量。
+ *   - 通过信号量 (`translationSemaphore`) 控制翻译任务的并发。
+ * - **错误处理与重试**: 实现文件处理失败时的重试机制。
+ * - **结果处理**: 收集处理结果，并提供下载功能。
+ * - **设置管理**: 加载和保存用户设置（如分块大小、并发数、所选模型等）。
+ * - **提示词管理**: 根据用户选择的目标语言或自定义设置，生成或加载相应的翻译提示词。
+ */
+
+/**
+ * @type {File[]}
+ * @description 存储用户选择的待处理文件列表。
+ */
 let pdfFiles = [];
+/**
+ * @type {Array<Object>}
+ * @description 存储所有文件处理后的结果对象。每个对象通常包含文件名、OCR文本、翻译文本等。
+ */
 let allResults = [];
+/**
+ * @type {Object}
+ * @description 从 localStorage 加载的已处理文件记录，用于跳过已处理的文件。键为文件标识符，值为 true。
+ */
 let processedFilesRecord = {};
+/**
+ * @type {boolean}
+ * @description 标记当前是否正在进行文件处理流程。
+ */
 let isProcessing = false;
+/**
+ * @type {number}
+ * @description 当前活动的（正在处理中的）文件数量。
+ */
 let activeProcessingCount = 0;
+/**
+ * @type {Map<string, number>}
+ * @description 记录每个文件（以其标识符为键）当前的重试次数。
+ */
 let retryAttempts = new Map();
+/**
+ * @const {number} MAX_RETRIES
+ * @description 单个文件处理失败时的最大重试次数。
+ */
 const MAX_RETRIES = 3;
+/**
+ * @const {string} LAST_SUCCESSFUL_KEYS_LS_KEY
+ * @description 用于在 localStorage 中存储各模型最后一次成功使用的 API Key ID 的键名。
+ */
 const LAST_SUCCESSFUL_KEYS_LS_KEY = 'paperBurnerLastSuccessfulKeys';
 
-// --- 全局翻译并发控制 ---
+/**
+ * @typedef {Object} Semaphore
+ * @property {number} limit - 信号量允许的最大并发数。
+ * @property {number} count - 当前已占用的并发数。
+ * @property {Array<Function>} queue - 等待获取信号量的任务队列。
+ */
+
+/**
+ * @type {Semaphore}
+ * @description 用于控制翻译任务并发的信号量。
+ */
 let translationSemaphore = {
     limit: 2, // 默认翻译并发数，可由设置覆盖
     count: 0,
@@ -20,18 +87,43 @@ let translationSemaphore = {
 };
 
 /**
- * API Key Provider 类
- * 负责加载、筛选、排序和轮询特定模型的API Keys
+ * @class KeyProvider
+ * @description 负责加载、筛选、排序和轮询特定模型的API Keys。
+ * 它从 localStorage 读取保存的密钥，管理其状态（如'valid', 'untested', 'invalid'），
+ * 并在处理过程中提供下一个可用的密钥。
  */
 class KeyProvider {
+    /**
+     * KeyProvider 构造函数。
+     * @param {string} modelName - 需要管理 API Keys 的模型名称 (例如 'mistral', 'gemini', 或自定义源站点 'custom_source_xxx')。
+     */
     constructor(modelName) {
+        /** @type {string} */
         this.modelName = modelName;
-        this.keys = [];      // 存储从localStorage加载的原始key对象数组 {id, value, remark, status, order}
-        this.availableKeys = []; // 存储经过筛选和排序的、当前轮次可用的key对象数组
+        /**
+         * @type {Array<Object>}
+         * @description 存储从localStorage加载的原始key对象数组。
+         * 每个对象结构: {id: string, value: string, remark: string, status: string, order: number}
+         */
+        this.keys = [];
+        /**
+         * @type {Array<Object>}
+         * @description 存储经过筛选和排序的、当前轮次可用的key对象数组 (status为 'valid' 或 'untested')。
+         */
+        this.availableKeys = [];
+        /**
+         * @type {number}
+         * @description 当前轮询可用密钥列表的索引。
+         */
         this.currentIndex = 0;
         this.loadAndPrepareKeys();
     }
 
+    /**
+     * 加载并准备指定模型的API Keys。
+     * 它会调用 `loadModelKeys` 从 localStorage 获取密钥，
+     * 然后筛选出状态为 'valid' 或 'untested' 的密钥，并按 `order` 排序。
+     */
     loadAndPrepareKeys() {
         this.keys = typeof loadModelKeys === 'function' ? loadModelKeys(this.modelName) : [];
         // 筛选出 'valid' 或 'untested' 的 keys，并按 order 排序 (loadModelKeys 内部已排序)
@@ -42,6 +134,11 @@ class KeyProvider {
         }
     }
 
+    /**
+     * 获取下一个可用的API Key对象。
+     * 实现轮询机制，循环使用 `availableKeys` 列表中的密钥。
+     * @returns {Object|null} 返回一个密钥对象 {id, value, status, remark, order}，如果没有可用密钥则返回 null。
+     */
     getNextKey() {
         if (this.availableKeys.length === 0) {
             return null; // 没有可用的key
@@ -51,7 +148,13 @@ class KeyProvider {
         return keyObject; // 返回整个key对象，包含 {id, value, status, remark, order}
     }
 
-    // 当一个key被确认无效时调用
+    /**
+     * 将指定的API Key标记为无效。
+     * 这会更新该密钥在 `this.keys` 中的状态，并将其从 `this.availableKeys` 中移除。
+     * 同时，会尝试异步保存更新后的密钥列表到 localStorage，并刷新Key管理界面的UI（如果存在）。
+     * @param {string} keyId - 要标记为无效的密钥的ID。
+     * @async
+     */
     async markKeyAsInvalid(keyId) {
         const keyIndexInAll = this.keys.findIndex(k => k.id === keyId);
         if (keyIndexInAll !== -1) {
@@ -70,13 +173,21 @@ class KeyProvider {
         }
     }
 
+    /**
+     * 检查是否有可用的 API Keys。
+     * @returns {boolean} 如果 `availableKeys` 列表不为空，则返回 true，否则返回 false。
+     */
     hasAvailableKeys() {
         return this.availableKeys.length > 0;
     }
 }
 
 /**
- * 获取一个翻译并发槽（信号量实现）
+ * 获取一个翻译并发槽（基于信号量实现）。
+ * 如果当前并发数未达到上限，则立即获取槽位。
+ * 否则，将请求加入等待队列，直到有槽位释放。
+ * @returns {Promise<void>} 当成功获取槽位时 resolve 的 Promise。
+ * @async
  */
 async function acquireTranslationSlot() {
     if (translationSemaphore.count < translationSemaphore.limit) {
@@ -90,7 +201,8 @@ async function acquireTranslationSlot() {
 }
 
 /**
- * 释放一个翻译并发槽
+ * 释放一个翻译并发槽。
+ * 减少当前并发数，并检查等待队列中是否有任务，如果有，则唤醒队列中的下一个任务。
  */
 function releaseTranslationSlot() {
     translationSemaphore.count--;
@@ -103,6 +215,15 @@ function releaseTranslationSlot() {
 // =====================
 // DOMContentLoaded 入口初始化
 // =====================
+/**
+ * 当DOM完全加载并解析后执行的初始化函数。
+ * 主要任务包括：
+ * 1. 加载用户设置和已处理文件记录。
+ * 2. 将加载的设置应用到UI元素上。
+ * 3. 初始化UI组件状态（如文件列表、处理按钮等）。
+ * 4. 绑定所有必要的事件监听器。
+ * 5. 初始化自定义模型检测UI（如果相关功能已定义）。
+ */
 document.addEventListener('DOMContentLoaded', () => {
     // 1. 加载设置和已处理文件记录
     const settings = loadSettings();
@@ -131,6 +252,11 @@ document.addEventListener('DOMContentLoaded', () => {
 // =====================
 // UI 设置应用
 // =====================
+/**
+ * 将加载的设置对象应用到各个UI元素上。
+ * 例如，设置滑块的值、复选框的选中状态、下拉菜单的选定项等。
+ * @param {Object} settings - 从 `loadSettings` 加载的设置对象。
+ */
 function applySettingsToUI(settings) {
     // 解构所有设置项
     const {
@@ -222,6 +348,10 @@ function loadApiKeysFromStorage() {
 // =====================
 // 事件监听器绑定
 // =====================
+/**
+ * 绑定应用程序中所有主要的DOM事件监听器。
+ * 包括API Key输入、模型选择、高级设置切换、文件上传、处理按钮点击等。
+ */
 function setupEventListeners() {
     // (需要从 ui.js 获取 DOM 元素引用)
     // const mistralTextArea = document.getElementById('mistralApiKeys'); // 已移除
@@ -366,6 +496,10 @@ function setupEventListeners() {
 // 事件处理函数
 // =====================
 
+/**
+ * 处理文件拖拽到上传区域时的 `dragover` 事件。
+ * @param {DragEvent} e - 拖拽事件对象。
+ */
 function handleDragOver(e) {
     e.preventDefault();
     if (!isProcessing) {
@@ -373,10 +507,18 @@ function handleDragOver(e) {
     }
 }
 
+/**
+ * 处理文件拖拽离开上传区域时的 `dragleave` 事件。
+ * @param {DragEvent} e - 拖拽事件对象。
+ */
 function handleDragLeave(e) {
     e.currentTarget.classList.remove('border-blue-500', 'bg-blue-50');
 }
 
+/**
+ * 处理文件拖放到上传区域时的 `drop` 事件。
+ * @param {DragEvent} e - 拖拽事件对象。
+ */
 function handleDrop(e) {
     e.preventDefault();
     if (isProcessing) return;
@@ -384,12 +526,21 @@ function handleDrop(e) {
     addFilesToList(e.dataTransfer.files);
 }
 
+/**
+ * 处理通过文件输入框选择文件后的 `change` 事件。
+ * @param {Event} e - 事件对象，`e.target` 是文件输入框。
+ */
 function handleFileSelect(e) {
     if (isProcessing) return;
     addFilesToList(e.target.files);
     e.target.value = null; // 允许重新选择相同文件
 }
 
+/**
+ * 处理点击"清空列表"按钮的事件。
+ * 清空 `pdfFiles` 数组和 `allResults` 数组，并更新UI。
+ * 同时清空 `window.data` 用于调试或特定UI显示。
+ */
 function handleClearFiles() {
     if (isProcessing) return;
     pdfFiles = [];
@@ -400,6 +551,10 @@ function handleClearFiles() {
     updateProcessButtonState(pdfFiles, isProcessing);
 }
 
+/**
+ * 处理从文件列表中移除单个文件的操作。
+ * @param {number} indexToRemove - 要从 `pdfFiles` 数组中移除的文件的索引。
+ */
 function handleRemoveFile(indexToRemove) {
     pdfFiles.splice(indexToRemove, 1);
     // ========== 新增：移除文件时刷新 window.data ==========
@@ -414,6 +569,12 @@ function handleRemoveFile(indexToRemove) {
     updateProcessButtonState(pdfFiles, isProcessing);
 }
 
+/**
+ * 将用户选择的文件添加到待处理列表 `pdfFiles` 中。
+ * 会进行文件类型检查（只接受 PDF, MD, TXT）和重复文件检查（基于文件名和大小）。
+ * 添加文件后会更新UI。
+ * @param {FileList} selectedFiles - 用户通过拖拽或文件对话框选择的文件列表。
+ */
 function addFilesToList(selectedFiles) {
     if (!selectedFiles || selectedFiles.length === 0) return;
     let filesAdded = false;
@@ -445,7 +606,10 @@ function addFilesToList(selectedFiles) {
     }
 }
 
-// 根据目标语言下拉菜单更新自定义语言输入框的可见性
+/**
+ * 根据目标语言下拉菜单的选择，更新自定义语言输入框的可见性。
+ * 如果选择了 "custom"，则显示自定义语言名称输入框，否则隐藏。
+ */
 function updateCustomLanguageInputVisibility() {
     const targetLangValue = document.getElementById('targetLanguage').value;
     const customInputContainer = document.getElementById('customTargetLanguageContainer');
@@ -456,7 +620,10 @@ function updateCustomLanguageInputVisibility() {
     }
 }
 
-// 保存当前所有设置的辅助函数
+/**
+ * 保存当前所有用户设置到 localStorage。
+ * 从UI元素读取各项配置值，构建设置对象，然后调用 `saveSettings` (来自 storage.js)。
+ */
 function saveCurrentSettings() {
     // 从 DOM 读取当前所有设置值
     const targetLangValue = document.getElementById('targetLanguage').value;
@@ -493,6 +660,22 @@ function saveCurrentSettings() {
 // =====================
 // 核心处理流程启动
 // =====================
+/**
+ * 处理点击"开始处理"按钮的事件，启动核心的文件处理流程。
+ * 步骤包括：
+ * 1. 加载最新设置。
+ * 2. 根据是否需要OCR（PDF文件）和用户选择的翻译模型，初始化 `KeyProvider` 实例。
+ * 3. 检查所需API Keys是否可用，若不可用则提示用户并中止。
+ * 4. 检查是否有文件被选中。
+ * 5. 设置处理状态变量，更新UI（如进度条、按钮状态）。
+ * 6. 获取并发数、重试次数、目标语言等处理参数。
+ * 7. 遍历文件列表，对于需要处理的文件（未跳过），将其加入处理队列。
+ * 8. 启动异步处理队列 `processQueue`，该队列会并发地调用 `processSinglePdf` 处理每个文件。
+ * 9. `processSinglePdf` 会处理单个文件的OCR、分块、翻译，并处理可能的Key失效和重试。
+ * 10. 收集每个文件的处理结果（成功、失败、跳过）。
+ * 11. 处理完成后，更新UI，保存已处理文件记录，并显示结果下载区域。
+ * @async
+ */
 async function handleProcessClick() {
     if (isProcessing) return;
 
@@ -514,8 +697,10 @@ async function handleProcessClick() {
     }
 
     let translationKeyProvider = null;
-    let currentTranslationModelForProvider = null; // 用于 KeyProvider 的模型名
-    let translationModelConfigForProcess = null;   // 用于 processSinglePdf 的模型配置
+    /** @type {string|null}  用于 KeyProvider 的模型名 (例如 'gemini', 'custom_source_xxx') */
+    let currentTranslationModelForProvider = null;
+    /** @type {Object|null} 用于 processSinglePdf 的模型配置对象 (包含baseUrl, modelId等) */
+    let translationModelConfigForProcess = null;
 
     if (selectedTranslationModelName !== 'none') {
         if (selectedTranslationModelName === 'custom') {
@@ -552,12 +737,12 @@ async function handleProcessClick() {
                 return;
             }
             currentTranslationModelForProvider = `custom_source_${selectedCustomSourceId}`;
-            translationModelConfigForProcess = siteConfig;
+            translationModelConfigForProcess = siteConfig; // siteConfig 包含 apiBaseUrl, modelId 等
             addProgressLog(`使用自定义源站: ${siteConfig.displayName || selectedCustomSourceId}`);
         } else {
             // For preset models
             currentTranslationModelForProvider = selectedTranslationModelName;
-            translationModelConfigForProcess = typeof loadModelConfig === 'function' ? loadModelConfig(selectedTranslationModelName) : {};
+            translationModelConfigForProcess = typeof loadModelConfig === 'function' ? loadModelConfig(selectedTranslationModelName) : {}; // 可能包含预设的baseUrl等
             if (!translationModelConfigForProcess && selectedTranslationModelName !== 'none'){
                  //尝试从旧的 customModelSettings 加载，以兼容旧版单自定义模型设置，但这部分应逐渐淘汰
                 console.warn(`Preset model config for ${selectedTranslationModelName} not found via loadModelConfig. Attempting fallback (legacy).`);
@@ -656,6 +841,12 @@ async function handleProcessClick() {
 
     updateOverallProgress(successCount, skippedCount, errorCount, filesToProcess.length);
 
+    /**
+     * 异步处理队列，负责调度单个文件的处理。
+     * 它会根据设定的并发数 (`concurrencyLevel`) 来启动 `processSinglePdf` 任务。
+     * 内部维护一个待处理文件索引集合 `pendingIndices` 和当前活动处理数 `activeProcessingCount`。
+     * @async
+     */
     const processQueue = async () => {
         while (pendingIndices.size > 0 || activeProcessingCount > 0) {
             while (pendingIndices.size > 0 && activeProcessingCount < concurrencyLevel) {
@@ -854,6 +1045,10 @@ async function handleProcessClick() {
 // =====================
 // 下载处理
 // =====================
+/**
+ * 处理点击"下载全部结果"按钮的事件。
+ * 如果 `allResults` 数组中有内容，则调用 `downloadAllResults` (来自 ui.js) 来打包并下载结果。
+ */
 function handleDownloadClick() {
     if (allResults.length > 0) {
         downloadAllResults(allResults);
@@ -865,6 +1060,11 @@ function handleDownloadClick() {
 // =====================
 // 内置提示模板获取
 // =====================
+/**
+ * 根据指定的目标语言名称，获取内置的翻译系统提示和用户提示模板。
+ * @param {string} languageName - 目标语言的名称 (例如 'chinese', 'english', 'japanese', 或自定义语言名)。
+ * @returns {{systemPrompt: string, userPromptTemplate: string}} 包含系统提示和用户提示模板的对象。
+ */
 function getBuiltInPrompts(languageName) {
     const langLower = languageName.toLowerCase();
     let sys_prompt = '';
@@ -905,6 +1105,15 @@ function getBuiltInPrompts(languageName) {
 // =====================
 // 提示区内容与状态联动
 // =====================
+/**
+ * 更新自定义提示文本区域的内容和启用/禁用状态。
+ * - 如果用户勾选了"启用自定义提示"：
+ *   - 显示提示容器，启用文本区域。
+ *   - 如果保存的自定义提示为空或与内置提示相同，则显示对应语言的内置提示。
+ *   - 否则，显示用户已保存的自定义提示。
+ * - 如果未勾选：
+ *   - 隐藏提示容器，禁用文本区域。
+ */
 function updatePromptTextareasContent() {
     const useCustomCheckbox = document.getElementById('useCustomPromptsCheckbox');
     const systemPromptTextarea = document.getElementById('defaultSystemPrompt');
@@ -945,9 +1154,9 @@ function updatePromptTextareasContent() {
 // ...（如有其他 app.js 级别的协调逻辑，可在此补充）...
 
 /**
- * 更新本地存储中指定模型最后成功使用的Key ID
- * @param {string} modelName
- * @param {string} keyId
+ * 更新本地存储中指定模型最后成功使用的Key ID。
+ * @param {string} modelName - 模型名称 (例如 'mistral', 'gemini', 或 'custom_source_xxx')。
+ * @param {string} keyId - 成功使用的 API Key 的 ID。
  */
 function recordLastSuccessfulKey(modelName, keyId) {
     if (!modelName || !keyId) return;
@@ -961,9 +1170,9 @@ function recordLastSuccessfulKey(modelName, keyId) {
 }
 
 /**
- * 获取本地存储中指定模型最后成功使用的Key ID
- * @param {string} modelName
- * @returns {string | null}
+ * 获取本地存储中指定模型最后成功使用的Key ID。
+ * @param {string} modelName - 模型名称。
+ * @returns {string | null} 存储的 Key ID，如果未找到则返回 null。
  */
 function getLastSuccessfulKeyId(modelName) {
     if (!modelName) return null;

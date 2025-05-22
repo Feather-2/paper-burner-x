@@ -1,9 +1,38 @@
 // process/tables.js
 
 /**
- * 在翻译前对Markdown表格进行特殊处理，确保表格在翻译过程中保持完整性
- * @param {string} markdown - 原始Markdown文本
- * @returns {Object} 处理后的文本及表格映射
+ * 在翻译前对Markdown表格进行特殊处理，将其替换为占位符，以确保表格结构在翻译过程中保持完整性。
+ *
+ * 主要步骤：
+ * 1. **预处理**：
+ *    - 标准化换行符为 `\n`。
+ *    - 移除每行表格前可能存在的影响识别的行首空格或制表符。
+ * 2. **表格边界检测**：
+ *    - 使用更可靠的方法检测表格：寻找连续的表格行（包括表头、分隔行和数据行）。
+ *    - 定义表格行 (`tableRowRegex`) 和表格分隔行 (`tableSepRegex`) 的正则表达式。
+ *    - 扫描文本行，识别潜在的表格标题（以 "TABLE", "Table", "表" 开头且下一行是表格行的行）。
+ * 3. **表格范围确定**：
+ *    - 遍历文本行，标记表格的开始和结束行号，存入 `tableRanges`。
+ *    - 考虑最小有效表格行数 (`minTableRows`)，避免将非表格内容误认为表格。
+ *    - 如果表格前有识别到的标题，则将标题行也包含在表格范围内。
+ *    - 特殊处理文档末尾的表格。
+ * 4. **合并相邻表格**：
+ *    - 遍历 `tableRanges`，如果两个表格范围相邻或仅由空行/特定注释行隔开，则将它们合并为一个范围。
+ *      这有助于处理因 Markdown 解析不完美或原始文档格式问题导致的表格被错误分割的情况。
+ * 5. **提取表格并替换为占位符**：
+ *    - 从后向前遍历 `tableRanges`（避免替换影响后续行号的准确性）。
+ *    - 对每个表格范围，提取其完整的 Markdown 内容。
+ *    - 生成唯一的占位符，如 `__TABLE_PLACEHOLDER_0__`。
+ *    - 将原始表格内容存储在 `tablePlaceholders` 对象中，键为占位符，值为表格 Markdown 文本。
+ *    - 在原始文本 (`processedText`) 中，用占位符替换掉实际的表格内容。
+ *    - 同时更新 `lines` 数组（用于内部处理），将表格内容替换为占位符，以便后续步骤的正确索引。
+ * 6. **返回结果**：返回一个对象，包含：
+ *    - `processedText`：表格已被占位符替换的 Markdown 文本。
+ *    - `tablePlaceholders`：一个映射对象，键是占位符，值是对应的原始表格 Markdown 内容。
+ *
+ * @param {string} markdown - 原始的 Markdown 文本内容。
+ * @returns {Object} 一个包含两部分的对象：
+ *                   `{ processedText: string, tablePlaceholders: Object }`。
  */
 function protectMarkdownTables(markdown) {
     // 预处理：标准化换行符并确保每行表格前没有空格影响识别
@@ -146,9 +175,25 @@ function protectMarkdownTables(markdown) {
 }
 
 /**
- * 从翻译结果中提取表格内容并清理
- * @param {string} translatedText - 翻译后的原始文本
- * @returns {string|null} 提取出的表格文本，如果没有找到则返回null
+ * 从大语言模型翻译返回的文本中提取并清理出 Markdown 表格内容。
+ * 模型返回的表格有时可能被包裹在代码块中，或者包含额外的解释性文字，此函数旨在尽可能准确地提取核心表格。
+ *
+ * 主要步骤：
+ * 1. **初步清理**：移除字符串首尾的空格。
+ * 2. **移除代码块标记**：如果文本以 ` ``` `开始和结束，则移除这些标记。
+ *    - 如果代码块内部有语言标识 (如 `markdown` 或 `md`)，也一并移除。
+ * 3. **提取潜在表格标题**：检查清理后文本的第一行是否以 "TABLE" 或 "表" 开头，如果是，则将其视为表格标题并暂存。
+ * 4. **提取表格行**：
+ *    - 遍历剩余的文本行。
+ *    - 如果一行以 `|` 开头，则认为进入了表格内容，将其加入 `tableLines` 数组。
+ *    - 如果已在表格内部，但当前行不以 `|` 开头：
+ *      - 若该行为空行或包含表格分隔符特征 (`---`)，则仍视为表格的一部分。
+ *      - 否则，认为表格内容结束。
+ * 5. **组合结果**：将提取到的标题行（如果有）和表格行重新组合成完整的表格 Markdown 文本。
+ * 6. **返回结果**：如果成功提取到表格内容，则返回该内容；否则返回 `null`。
+ *
+ * @param {string} translatedText - 从翻译 API 收到的原始响应文本，可能包含表格。
+ * @returns {string|null} 清理并提取出的 Markdown 表格文本。如果未找到有效表格结构，则返回 `null`。
  */
 function extractTableFromTranslation(translatedText) {
     // 清理可能的引号或代码块
@@ -198,10 +243,34 @@ function extractTableFromTranslation(translatedText) {
 }
 
 /**
- * 在翻译后恢复Markdown表格，并翻译表格内容但保持表格结构
- * @param {string} translatedText - 翻译后的文本
- * @param {Object} tablePlaceholders - 表格占位符映射
- * @returns {Promise<string>} 恢复了表格的文本
+ * 在翻译后的文本中恢复 Markdown 表格，并将原始表格内容（存储在占位符中的）进行翻译后再替换回去。
+ * 此函数旨在确保表格结构在整个翻译流程中保持不变，同时表格内的文本得到正确翻译。
+ *
+ * 主要步骤：
+ * 1. **收集待翻译表格**：遍历 `tablePlaceholders` 对象，将每个占位符及其对应的原始表格内容收集到 `tablesToTranslate` 数组中。
+ * 2. **批量翻译表格 (如果提供了 API 配置)**：
+ *    - 检查是否提供了 `apiConfig` 和 `targetLang`。如果未提供或没有需要翻译的表格，则跳过翻译步骤，直接用原始表格替换占位符。
+ *    - **构建专用提示词**：为表格翻译创建特定的系统提示 (`tableSystemPrompt`) 和用户提示 (`tableUserPrompt`)。
+ *      这些提示词强调保持表格结构（分隔符 `|`, 对齐标记 `:--:`, 行列数, 数学公式等）不变，仅翻译文本内容。
+ *    - **逐个翻译表格**：
+ *      - 对 `tablesToTranslate` 中的每个表格：
+ *        - 使用 `apiConfig.bodyBuilder` 构建请求体。
+ *        - 调用 `callTranslationApi` 发送翻译请求。
+ *        - 使用 `extractTableFromTranslation` 从翻译结果中提取并清理表格内容。
+ *        - 如果成功提取到翻译后的表格 (`cleanedTable`)，则在主文本 (`result`) 中用它替换掉对应的占位符。
+ *        - 如果提取失败或翻译出错，则记录警告/错误，并使用原始表格内容替换占位符作为兜底。
+ * 3. **直接恢复原始表格 (如果未提供 API 配置或无表格)**：
+ *    - 如果跳过了翻译步骤，则直接遍历 `tablePlaceholders`，用原始表格内容替换主文本中的占位符。
+ * 4. **返回结果**：返回已恢复（并可能已翻译）表格的完整 Markdown 文本。
+ *
+ * @param {string} translatedText - 包含表格占位符的、已经过初步翻译的 Markdown 文本。
+ * @param {Object} tablePlaceholders - 一个对象，键是表格占位符 (如 `__TABLE_PLACEHOLDER_0__`)，值是对应的原始表格 Markdown 内容。
+ * @param {Object} [apiConfig=null] - (可选) 用于翻译表格的 API 配置对象。如果为 `null`，表格将不被翻译，直接用原文恢复。
+ * @param {string} [targetLang=null] - (可选) 目标翻译语言。与 `apiConfig` 一同提供时用于翻译表格。
+ * @param {string} [model=null] - (可选, 未直接使用，但暗示了 apiConfig 的来源) 使用的模型名称。
+ * @param {string} [apiKey=null] - (可选, 未直接使用，但暗示了 apiConfig 的来源) API 密钥。
+ * @param {string} [logContext=""] - (可选) 日志记录的上下文前缀。
+ * @returns {Promise<string>} 已恢复表格（内容可能已翻译）的 Markdown 文本。
  */
 async function restoreMarkdownTables(translatedText, tablePlaceholders, apiConfig = null, targetLang = null, model = null, apiKey = null, logContext = "") {
     let result = translatedText;
@@ -289,9 +358,26 @@ ${table.content}
 }
 
 /**
- * 诊断和修复表格格式问题
- * @param {string} tableContent - 表格内容
- * @returns {string} 修复后的表格内容
+ * 诊断并尝试修复 Markdown 表格的常见格式问题。
+ * 此函数主要关注表头与分隔行的一致性，以及数据行列数与表头的一致性。
+ *
+ * 主要步骤：
+ * 1. **预处理**：按行分割表格内容，移除空行和行首尾空格。
+ * 2. **基本检查**：如果行数少于3行（表头、分隔、至少一行数据），则认为不是有效表格或过于简单，直接返回原内容。
+ * 3. **表头分析**：分割表头行，计算列数 (`columnCount`)。
+ * 4. **分隔行修复**：
+ *    - 检查分隔行 (`lines[1]`) 是否包含必要的 `-` 和 `|` 字符。
+ *    - 如果格式明显错误（如缺少 `-`），则根据 `columnCount` 生成一个标准的分隔行 (`| --- | --- | ... |`) 并替换原分隔行。
+ *    - 如果格式基本正确，但其单元格数量与表头不匹配，也重新生成标准分隔行并替换。
+ * 5. **数据行修复**：
+ *    - 遍历从第三行开始的所有数据行。
+ *    - 分割每行数据，计算其单元格数量。
+ *    - 如果单元格数量与 `columnCount` 不匹配，则尝试通过添加或截断单元格来修复该行，使其列数与表头一致。
+ *      （当前实现是补齐空单元格 `| |`）。
+ * 6. **返回结果**：返回修复后的表格内容（行通过 `\n` 连接）。
+ *
+ * @param {string} tableContent - 存在格式问题的 Markdown 表格文本。
+ * @returns {string} 尝试修复后的 Markdown 表格文本。
  */
 function diagnoseAndFixTableFormat(tableContent) {
     // 按行分割表格
@@ -362,9 +448,22 @@ function diagnoseAndFixTableFormat(tableContent) {
 }
 
 /**
- * 修复并验证表格格式
- * @param {string} tableContent - 表格内容
- * @returns {string} 修复后的表格内容
+ * 尝试修复并验证 Markdown 表格的格式，特别是处理对齐标记行错位的问题。
+ * 此函数首先调用 `diagnoseAndFixTableFormat` 进行初步的格式修复，
+ * 然后专门检查是否存在多行对齐标记或对齐标记行不在第二行（分隔行）的情况。
+ *
+ * 主要步骤：
+ * 1. **初步修复**：调用 `diagnoseAndFixTableFormat(tableContent)` 对表格进行基础的格式修正。
+ * 2. **对齐标记行检查**：
+ *    - 将修复后的表格按行分割，并过滤掉空行。
+ *    - 查找所有包含对齐标记（`:--:`, `:--`, `--:`）的行 (`alignmentLines`)。
+ *    - **错位处理**：如果找到了对齐标记行，并且表格的第二行（预期的分隔行位置）并不包含连字符 `-`（表明它可能不是一个正常的分隔行）：
+ *      - 找到第一个包含对齐标记的行的索引 (`alignmentLineIndex`)。
+ *      - 如果该对齐标记行不在第二行 (`alignmentLineIndex > 1`)，则将其移动到第二行的位置，即先删除原来的对齐标记行，然后在第二行处插入它。
+ * 3. **返回结果**：返回经过上述处理（可能被进一步修复）的表格 Markdown 文本。
+ *
+ * @param {string} tableContent - 可能包含格式问题（尤其是对齐标记错位）的 Markdown 表格文本。
+ * @returns {string} 修复后的 Markdown 表格文本。
  */
 function fixTableFormat(tableContent) {
     // 先尝试基本的修复

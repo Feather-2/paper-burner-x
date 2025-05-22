@@ -21,19 +21,25 @@
       }
     </script>
     <style>
+        /* 谷歌字体 Nunito */
         @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700&display=swap');
+        /* 基础字体设置 */
         body {
             font-family: 'Nunito', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         }
+        /* 背景渐变 */
         .gradient-bg {
             background: linear-gradient(135deg, #f5f7fa 0%, #e4edf9 100%);
         }
+        /* 卡片渐变 */
         .gradient-card {
             background: linear-gradient(135deg, #ffffff 0%, #f9fbff 100%);
         }
+        /* 通用过渡效果 */
         .transition-all {
             transition: all 0.3s ease;
         }
+        /* 文件列表项样式 */
         .file-list-item {
             display: flex;
             align-items: center;
@@ -47,19 +53,22 @@
         .file-list-item:last-child {
             margin-bottom: 0;
         }
-        /* Style for Textareas */
+        /* API Key 输入框样式 */
         textarea.api-key-input {
-            min-height: 60px; /* Adjust as needed */
-            resize: vertical; /* Allow vertical resize */
+            min-height: 60px; /* 最小高度 */
+            resize: vertical; /* 允许垂直方向调整大小 */
         }
+        /* 闪烁提示动画基类 */
         .flash-tip-anim {
             opacity: 0;
             transition: opacity 0.5s;
             will-change: opacity;
         }
+        /* 闪烁提示显示状态 */
         .flash-tip-anim.show {
             opacity: 1;
         }
+        /* 闪烁提示隐藏状态 */
         .flash-tip-anim.hide {
             opacity: 0;
         }
@@ -83,7 +92,7 @@
             <!-- ===================== -->
             <div class="bg-white rounded-xl shadow-sm p-6 mb-8">
 
-                <!-- API 密钥设置 -->
+                <!-- API 密钥设置 (旧版，已注释掉) -->
                 <!--
                 <div class="mb-6">
                     <h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center">
@@ -107,7 +116,9 @@
                 </div>
                 -->
 
+                <!-- ===================== -->
                 <!-- 翻译设置 -->
+                <!-- ===================== -->
                 <div class="mb-6">
                     <h2 class="text-xl font-semibold text-gray-800 mb-4 flex justify-between items-center">
                         <span class="flex items-center">
@@ -120,6 +131,7 @@
                         </span>
                     </h2>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- 翻译模型选择 -->
                         <div>
                             <label for="translationModel" class="block text-sm font-medium text-gray-700 mb-1">翻译模型</label>
                             <select id="translationModel" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
@@ -135,6 +147,7 @@
                                 <option value="custom">自定义模型</option>
                             </select>
                         </div>
+                        <!-- 目标语言选择 -->
                         <div>
                             <label for="targetLanguage" class="block text-sm font-medium text-gray-700 mb-1">目标语言</label>
                             <select id="targetLanguage" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
@@ -145,32 +158,36 @@
                                 <option value="french">Français</option>
                                 <option value="custom">自定义</option>
                             </select>
+                            <!-- 自定义目标语言名称输入区域 -->
                             <div id="customTargetLanguageContainer" class="hidden mt-2">
                                  <label for="customTargetLanguageInput" class="block text-sm font-medium text-gray-700 mb-1">自定义目标语言名称</label>
                                  <input type="text" id="customTargetLanguageInput" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" placeholder="例如: Spanish">
                             </div>
                         </div>
-                        <!-- 自定义模型设置区域 -->
+                        <!-- 自定义源站点设置区域 (选择自定义模型时显示) -->
                         <div id="customSourceSiteContainer" class="md:col-span-2 hidden">
                             <div class="pt-4">
+                                <!-- 展开/收起自定义源站点设置的按钮 -->
                                 <button id="customSourceSiteToggle" type="button" class="text-sm text-gray-500 hover:text-gray-700 flex items-center">
                                     <iconify-icon icon="carbon:settings-adjust" class="mr-1" width="16"></iconify-icon>
                                     <span>自定义源站点设置</span>
                                     <iconify-icon id="customSourceSiteToggleIcon" icon="carbon:chevron-down" class="ml-1" width="16"></iconify-icon>
                                 </button>
+                                <!-- 自定义源站点详细配置区 -->
                                 <div id="customSourceSite" class="hidden mt-2 border-2 border-dashed border-gray-300 rounded-lg p-4">
                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <!-- 选择已保存的自定义源站点 -->
                                         <div>
                                             <label for="customSourceSiteSelect" class="block text-sm font-medium text-gray-700 mb-1">选择自定义源站点</label>
                                             <select id="customSourceSiteSelect" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
                                                 <!-- Options will be populated by JavaScript -->
                                             </select>
                                         </div>
-                                        <!-- 添加源站点信息展示区域 -->
+                                        <!-- 显示选定源站点的基本信息 -->
                                         <div id="customSourceSiteInfo" class="mt-3 w-full border border-gray-200 rounded-lg bg-gray-50 p-0 hidden md:col-span-2">
                                             <!-- 站点信息将由JS动态填充 -->
                                         </div>
-                                        <!-- 保留检测按钮但隐藏起来，以便js能找到它并触发 -->
+                                        <!-- 管理API Key及检测模型的按钮（通常根据选择的源站点动态显示/隐藏） -->
                                         <div class="mt-2 flex justify-end w-full md:col-span-2">
                                             <button id="manageSourceSiteKeyBtn" class="px-3 py-1.5 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded transition-colors flex items-center hidden">
                                                 <iconify-icon icon="carbon:api" class="mr-1" width="16"></iconify-icon>
@@ -190,36 +207,44 @@
 
                 <hr class="my-6 border-gray-200">
 
+                <!-- ===================== -->
                 <!-- 高级设置区域 -->
+                <!-- ===================== -->
                 <div class="mt-4 mb-6">
+                    <!-- 展开/收起高级设置的按钮 -->
                     <button id="advancedSettingsToggle" class="text-sm text-gray-500 hover:text-gray-700 flex items-center" type="button">
                         <iconify-icon icon="carbon:settings-adjust" class="mr-1" width="16"></iconify-icon>
                         <span>高级设置</span>
                         <iconify-icon icon="carbon:chevron-down" class="ml-1" width="16" id="advancedSettingsIcon"></iconify-icon>
                     </button>
 
+                    <!-- 高级设置详细内容区 -->
                     <div id="advancedSettings" class="hidden mt-2">
                         <div class="border-2 border-dashed border-gray-300 rounded-lg p-6">
                             <h3 class="text-lg font-semibold text-gray-800 mb-4 border-b pb-2 flex items-center"><iconify-icon icon="carbon:settings-check" class="mr-2 text-gray-600"></iconify-icon>性能与流程设置</h3>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                                <!-- 文件处理并发数 -->
                                 <div>
                                     <label for="concurrencyLevel" class="block text-sm font-medium text-gray-700 mb-1">文件处理并发数</label>
                                     <input type="number" id="concurrencyLevel" min="1" max="10" value="1"
                                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-all text-sm">
                                     <p class="text-xs text-gray-500 mt-1">同时处理的 PDF 文件数量。默认 1。</p>
                                 </div>
+                                <!-- 翻译任务并发数 -->
                                 <div>
                                     <label for="translationConcurrencyLevel" class="block text-sm font-medium text-gray-700 mb-1">翻译任务并发数</label>
                                     <input type="number" id="translationConcurrencyLevel" min="1" max="150" value="2"
                                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-all text-sm">
                                     <p class="text-xs text-gray-500 mt-1">同时进行的翻译 API 调用数量。默认 2。</p>
                                 </div>
+                                <!-- 翻译分段最大Token数 -->
                                 <div class="md:col-span-2">
                                     <label for="maxTokensPerChunk" class="block text-sm font-medium text-gray-700 mb-1">翻译分段最大Token数 (<span id="maxTokensPerChunkValue">2000</span>)</label>
                                     <input type="range" id="maxTokensPerChunk" min="500" max="10000" step="100" value="2000"
                                            class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
                                     <p class="text-xs text-gray-500 mt-1">长文档翻译时，按此限制分段。默认 2000。</p>
                                 </div>
+                                <!-- 跳过已处理文件选项 -->
                                 <div class="md:col-span-2 flex items-center mt-2">
                                     <input type="checkbox" id="skipProcessedFiles" class="rounded text-blue-500 focus:ring-blue-500 h-4 w-4 mr-2 flex-shrink-0">
                                     <label for="skipProcessedFiles" class="text-sm text-gray-600">跳过已处理过的文件 (基于文件名和大小)</label>
@@ -227,16 +252,20 @@
                             </div>
 
                             <h3 class="text-lg font-semibold text-gray-800 mb-4 border-b pb-2 flex items-center"><iconify-icon icon="carbon:edit" class="mr-2 text-gray-600"></iconify-icon>自定义翻译提示</h3>
+                             <!-- 启用自定义提示复选框 -->
                              <div class="flex items-center mb-3">
                                  <input type="checkbox" id="useCustomPromptsCheckbox" class="rounded text-blue-500 focus:ring-blue-500 h-4 w-4 mr-2 flex-shrink-0">
                                  <label for="useCustomPromptsCheckbox" class="text-sm font-medium text-gray-700">启用自定义提示 (覆盖内置提示)</label>
                              </div>
                              <p class="text-xs text-gray-500 mb-4">启用后可修改下方用于翻译的系统提示和用户提示模板。如果留空，将使用通用后备提示。可用占位符：<code><strong>${targetLangName}</strong></code>, <code><strong>${content}</strong></code>。</p>
+                            <!-- 自定义提示输入区域 -->
                             <div id="customPromptsContainer" class="hidden space-y-4">
+                                <!-- 自定义系统提示 -->
                                 <div>
                                     <label for="defaultSystemPrompt" class="block text-sm font-medium text-gray-700 mb-1">自定义系统提示</label>
                                     <textarea id="defaultSystemPrompt" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-all api-key-input text-sm disabled:opacity-50 disabled:bg-gray-100" placeholder="启用后可编辑..." disabled></textarea>
                                 </div>
+                                <!-- 自定义用户提示模板 -->
                                 <div>
                                     <label for="defaultUserPromptTemplate" class="block text-sm font-medium text-gray-700 mb-1">自定义用户提示模板</label>
                                     <textarea id="defaultUserPromptTemplate" rows="6" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-all api-key-input text-sm disabled:opacity-50 disabled:bg-gray-100" placeholder="启用后可编辑..." disabled></textarea>
@@ -246,12 +275,15 @@
                     </div>
                 </div>
 
+                <!-- ===================== -->
                 <!-- PDF 文件上传区域 -->
+                <!-- ===================== -->
                 <div class="mb-6">
                     <h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center">
                         <iconify-icon icon="carbon:document-multiple-01" class="mr-2 text-blue-500" width="24"></iconify-icon>
                         文件上传 (可多选)
                     </h2>
+                    <!-- 拖拽区域与浏览按钮 -->
                     <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center mb-4" id="dropZone">
                         <input type="file" id="pdfFileInput" accept=".pdf,.md,.txt" class="hidden" multiple>
                         <div class="mx-auto mb-4 w-16 h-16 flex items-center justify-center rounded-full bg-blue-50">
@@ -263,6 +295,7 @@
                             浏览文件
                         </button>
                     </div>
+                    <!-- 已选文件列表显示区域 -->
                     <div id="fileListContainer" class="max-h-60 overflow-y-auto border-2 border-dashed border-gray-300 rounded-lg p-3 bg-gray-50 hidden">
                         <div class="flex justify-between items-center mb-2">
                             <span class="text-sm font-medium text-gray-700">已选文件:</span>
@@ -286,17 +319,21 @@
             <!-- ===================== -->
             <!-- 进度与结果区域 -->
             <!-- ===================== -->
+            <!-- 处理进度显示区 -->
             <div id="progressSection" class="bg-white rounded-xl shadow-sm p-6 mb-8 hidden">
                 <h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center">
                     <iconify-icon icon="carbon:progress-bar" class="mr-2 text-blue-500" width="24"></iconify-icon>
                     处理进度
                 </h2>
+                <!-- 批处理总体进度文本 -->
                 <div class="mb-2">
                     <span id="batchProgressText" class="text-sm font-medium text-gray-700"></span>
                 </div>
+                <!-- 并发任务进度文本 -->
                  <div class="mb-2">
                     <span id="concurrentProgressText" class="text-sm font-medium text-gray-600"></span>
                 </div>
+                <!-- 单个文件/步骤进度条 -->
                 <div class="mb-4">
                     <div class="flex justify-between mb-1">
                         <span id="progressStep" class="text-sm font-medium text-gray-700">等待开始...</span>
@@ -306,18 +343,22 @@
                         <div id="progressBar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
                     </div>
                 </div>
+                <!-- 处理日志显示区 -->
                 <div id="progressLog" class="bg-gray-50 rounded-lg p-4 h-40 overflow-auto text-sm text-gray-600 font-mono"></div>
             </div>
 
+            <!-- 处理结果显示与下载区 -->
             <div id="resultsSection" class="bg-white rounded-xl shadow-sm p-6 mb-8 hidden">
                 <h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center">
                     <iconify-icon icon="carbon:document-download" class="mr-2 text-blue-500" width="24"></iconify-icon>
                     处理完成
                 </h2>
                 <p class="text-gray-600 mb-4">所有文件处理完成。您可以下载包含所有结果的 ZIP 文件。</p>
+                <!-- 结果统计摘要 -->
                 <div id="resultsSummary" class="mb-4 text-sm text-gray-700">
                     <!-- Summary will be added here -->
                 </div>
+                <!-- 下载全部结果按钮 -->
                 <button id="downloadAllBtn" class="mt-3 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 flex items-center justify-center w-full md:w-auto">
                     <iconify-icon icon="carbon:download" class="mr-2" width="20"></iconify-icon>
                     <span>下载全部结果 (ZIP)</span>
@@ -329,18 +370,19 @@
         <!-- 页脚 -->
         <!-- ===================== -->
         <footer class="text-center text-gray-500 text-sm mt-12">
-
-        <p class="mb-2">
-            <a href="https://github.com/baoyudu/ocrpdf" class="text-blue-500 hover:text-blue-700 transition-colors" target="_blank" rel="noopener noreferrer">
-                <iconify-icon icon="carbon:logo-github" class="mr-1" inline></iconify-icon>
-                GitHub
-            </a>
-        </p>
+            <!-- 版权或链接信息 -->
+            <p class="mb-2">
+                <a href="https://github.com/baoyudu/ocrpdf" class="text-blue-500 hover:text-blue-700 transition-colors" target="_blank" rel="noopener noreferrer">
+                    <iconify-icon icon="carbon:logo-github" class="mr-1" inline></iconify-icon>
+                    GitHub
+                </a>
+            </p>
         </footer>
     </div>
 
     <!-- ===================== -->
     <!-- 通知系统浮层 -->
+    <!-- (用于显示操作反馈，如成功、错误、警告信息) -->
     <!-- ===================== -->
     <div id="notification-container" class="fixed top-4 right-4 z-50 flex flex-col items-end space-y-2 pointer-events-none max-w-lg"></div>
 
@@ -358,24 +400,27 @@
     <script src="app.js"></script>
     <script src="js/history.js"></script>
 
-    <!-- 历史记录浮窗按钮 -->
+    <!-- ===================== -->
+    <!-- 历史记录浮动按钮与面板 -->
+    <!-- ===================== -->
+    <!-- 浮动按钮，点击显示历史记录面板 -->
     <div id="history-fab" style="position:fixed;bottom:32px;right:32px;z-index:9999;">
       <button id="showHistoryBtn" class="bg-blue-600 text-white rounded-full shadow-lg p-4 hover:bg-blue-700 transition-all">
         <iconify-icon icon="carbon:time" width="28"></iconify-icon>
       </button>
     </div>
-    <!-- 历史记录面板 -->
+    <!-- 历史记录面板 (模态框) -->
     <div id="historyPanel" class="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center hidden">
       <div class="bg-white rounded-xl shadow-2xl p-6 w-[90vw] max-w-5xl max-h-[90vh] overflow-y-auto relative">
         <div class="flex justify-between items-center mb-2">
           <span class="font-bold text-lg">历史记录</span>
           <button id="closeHistoryPanel" class="text-gray-400 hover:text-red-500"><iconify-icon icon="carbon:close" width="20"></iconify-icon></button>
         </div>
-        <div id="historyList"></div>
+        <div id="historyList"></div> <!-- 历史记录列表将由JS填充 -->
         <button id="clearHistoryBtn" class="mt-4 w-full bg-red-100 text-red-600 border-2 border-dashed border-red-200 rounded py-2 hover:bg-red-200">清空历史</button>
       </div>
     </div>
-    <!-- 详情弹窗 -->
+    <!-- 历史记录详情弹窗 (已废弃，详情在新页面打开) -->
     <div id="historyDetailModal" class="fixed inset-0 z-[99999] bg-black bg-opacity-30 flex items-center justify-center hidden">
       <div class="bg-white rounded-xl border-2 border-dashed border-gray-300 p-6 w-[90vw] max-w-2xl max-h-[90vh] overflow-y-auto relative">
         <button id="closeHistoryDetail" class="absolute top-2 right-2 text-gray-400 hover:text-red-500"><iconify-icon icon="carbon:close" width="20"></iconify-icon></button>
@@ -388,22 +433,24 @@
     <!-- ===================== -->
     <div id="modelKeyManagerModal" class="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center hidden">
       <div class="bg-white rounded-xl shadow-2xl w-[95vw] max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
-        <!-- 头部 - 样式参考 historyPanel -->
+        <!-- 弹窗头部 -->
         <div class="flex justify-between items-center p-4 border-b sticky top-0 bg-white z-10">
           <span class="font-bold text-lg">模型与 Key 管理</span>
           <button id="closeModelKeyManager" class="text-gray-400 hover:text-red-500"><iconify-icon icon="carbon:close" width="20"></iconify-icon></button>
         </div>
         <!-- 主体内容区 - 左右布局 -->
         <div class="flex flex-1 overflow-hidden">
-          <!-- 左侧模型列表 -->
+          <!-- 左侧模型/源站点列表 -->
           <div id="modelListColumn" class="w-1/4 min-w-[180px] max-w-[240px] bg-gray-50 border-r overflow-y-auto p-3 space-y-1">
-            <!-- 模型列表将由 JS 动态填充 -->
+            <!-- 模型/源站点列表将由 JS 动态填充 -->
           </div>
-          <!-- 右侧配置与 Key 池 -->
+          <!-- 右侧配置项与Key池管理 -->
           <div class="flex-1 p-4 overflow-y-auto space-y-4">
+            <!-- 当前选中模型/源站点的配置项 -->
             <div id="modelConfigColumn" class="mb-4">
-              <!-- 当前选中模型的配置项将由 JS 动态填充 -->
+              <!-- 配置项将由 JS 动态填充 -->
             </div>
+            <!-- API Key 管理界面 (由 key-manager-ui.js 渲染) -->
             <div id="keyManagerColumn" class="border-t pt-4">
               <!-- KeyManagerUI 实例将渲染到这里 -->
             </div>
@@ -413,7 +460,7 @@
     </div>
 
     <script>
-      // 一闪而过的提示文字淡入淡出动画
+      // 一闪而过的提示文字淡入淡出动画 (用于"配置模型与Key管理"提示)
       window.addEventListener('DOMContentLoaded', function() {
         var tip = document.getElementById('flashConfigTip');
         if (tip) {
@@ -421,10 +468,10 @@
           setTimeout(function() {
             tip.classList.remove('show');
             tip.classList.add('hide'); // 淡出
-          }, 1200);
+          }, 1200); // 持续显示1.2秒
           setTimeout(function() {
-            tip.style.display = 'none';
-          }, 1800);
+            tip.style.display = 'none'; // 动画结束后隐藏元素
+          }, 1800); // 总共1.8秒后隐藏
         }
       });
     </script>

@@ -1,4 +1,84 @@
-// js/storage.js
+/**
+ * @file js/storage.js
+ * @description
+ * 此文件负责管理应用程序中所有与浏览器本地存储相关的功能，
+ * 包括 localStorage 和 IndexedDB。它提供了统一的接口来保存和加载用户设置、
+ * API 密钥、已处理文件记录、模型配置以及其他需要持久化的数据。
+ *
+ * 主要功能包括：
+ * - **常量定义**: 定义用于 localStorage 和 IndexedDB 存储键的常量。
+ * - **已处理文件记录**: 管理已上传并处理过的文件记录，避免重复处理。
+ * - **通用设置**: 保存和加载应用的全局设置，如默认处理选项等。
+ * - **IndexedDB 数据库操作**:
+ *   - 打开和初始化名为 `ResultDB` 的 IndexedDB 数据库，其中包含 `results` 对象存储区。
+ *   - 将PDF处理结果（包括元数据、提取的文本、翻译、摘要等）保存到 IndexedDB。
+ *   - 从 IndexedDB 检索、删除或清空处理结果。
+ * - **UUID 生成**: 提供生成唯一标识符的功能，主要用于 IndexedDB 中的记录ID。
+ * - **模型配置**: (部分可能为旧版) 保存和加载与特定翻译模型相关的配置，例如自定义模型的 Base URL。
+ * - **API 密钥管理**: 安全地保存和加载用户为不同翻译服务或自定义模型配置的 API 密钥。
+ *   支持多模型/多源站点的密钥管理，并包含对旧版单一密钥格式的兼容和迁移逻辑。
+ * - **旧配置迁移**: 实现将旧版本存储的自定义模型配置迁移到新版多源站点结构的功能。
+ * - **自定义源站点配置**: 管理用户添加的自定义 API 源站点及其相关配置（如名称、Base URL、API Key、默认模型等）。
+ */
+
+// =====================
+// 常量定义
+// =====================
+
+/**
+ * @const {string} SETTINGS_KEY
+ * @description 用于在 localStorage 中存储通用设置的键名。
+ */
+const SETTINGS_KEY = 'userSettings';
+
+/**
+ * @const {string} PROCESSED_FILES_KEY
+ * @description 用于在 localStorage 中存储已处理文件记录的键名。
+ */
+const PROCESSED_FILES_KEY = 'processedFilesRecord';
+
+/**
+ * @const {string} API_KEYS_STORAGE_KEY
+ * @description 用于在 localStorage 中存储（新版）多模型/多源站 API 密钥列表的键名。
+ * @deprecated 请使用 `MODEL_KEYS_STORAGE_KEY`。此常量可能指向旧的密钥存储方式或已被取代。
+ */
+const API_KEYS_STORAGE_KEY = 'apiKeys'; // 旧的或特定用途的, 新的统一用 modelKeys
+
+/**
+ * @const {string} CUSTOM_MODELS_KEY
+ * @description 用于在 localStorage 中存储自定义模型列表的键名 (可能指旧版可用模型列表)。
+ */
+const CUSTOM_MODELS_KEY = 'customModels'; // 存储自定义模型列表
+
+/**
+ * @const {string} LEGACY_CUSTOM_CONFIG_KEY
+ * @description 用于在 localStorage 中存储旧版单一自定义模型配置的键名。
+ * 这个配置通常包含一个自定义模型的 Base URL 和 API Key。
+ */
+const LEGACY_CUSTOM_CONFIG_KEY = 'custom_model_config'; // 旧的自定义配置key
+
+/**
+ * @const {string} MODEL_KEYS_STORAGE_KEY
+ * @description 用于在 localStorage 中存储（新版）与多个模型或源站点关联的 API 密钥及配置列表的键名。
+ * 这个键名代表了当前推荐的存储 API Keys 和相关源站信息的方式。
+ */
+const MODEL_KEYS_STORAGE_KEY = 'modelKeys'; // 新的存储key，用于多站点
+
+/**
+ * @const {string} DB_NAME
+ * @description IndexedDB 数据库的名称。
+ */
+const DB_NAME = 'ResultDB';
+/**
+ * @const {string} DB_STORE_NAME
+ * @description IndexedDB 中用于存储处理结果的对象存储区的名称。
+ */
+const DB_STORE_NAME = 'results';
+/**
+ * @const {number} DB_VERSION
+ * @description IndexedDB 数据库的版本号。更改此版本号会触发 `onupgradeneeded` 事件。
+ */
+const DB_VERSION = 1;
 
 // =====================
 // 本地存储相关工具函数
@@ -7,8 +87,6 @@
 // 导入依赖 (如果需要，例如 showNotification)
 // import { showNotification } from './ui.js';
 
-const SETTINGS_KEY = 'paperBurnerSettings'; // 设置项存储 key
-const PROCESSED_FILES_KEY = 'paperBurnerProcessedFiles'; // 已处理文件记录 key
 const MODEL_CONFIGS_KEY = 'translationModelConfigs';
 const MODEL_KEYS_KEY = 'translationModelKeys';
 const CUSTOM_SOURCE_SITES_KEY = 'paperBurnerCustomSourceSites'; // 新增：自定义源站列表的 Key
@@ -188,17 +266,14 @@ function loadAvailableModels() {
 }
 
 // --- IndexedDB 历史记录存储 ---
-const DB_NAME = 'PaperBurnerDB';
-const DB_VERSION = 1;
-const STORE_NAME = 'results';
 
 function openDB() {
     return new Promise(function(resolve, reject) {
         const req = indexedDB.open(DB_NAME, DB_VERSION);
         req.onupgradeneeded = function(e) {
             const db = e.target.result;
-            if (!db.objectStoreNames.contains(STORE_NAME)) {
-                db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+            if (!db.objectStoreNames.contains(DB_STORE_NAME)) {
+                db.createObjectStore(DB_STORE_NAME, { keyPath: 'id' });
             }
         };
         req.onsuccess = function() { resolve(req.result); };
@@ -209,8 +284,8 @@ function openDB() {
 async function saveResultToDB(resultObj) {
     const db = await openDB();
     return new Promise(function(resolve, reject) {
-        const tx = db.transaction(STORE_NAME, 'readwrite');
-        tx.objectStore(STORE_NAME).put(resultObj);
+        const tx = db.transaction(DB_STORE_NAME, 'readwrite');
+        tx.objectStore(DB_STORE_NAME).put(resultObj);
         tx.oncomplete = function() { resolve(); };
         tx.onerror = function() { reject(tx.error); };
     });
@@ -219,8 +294,8 @@ async function saveResultToDB(resultObj) {
 async function getAllResultsFromDB() {
     const db = await openDB();
     return new Promise(function(resolve, reject) {
-        const tx = db.transaction(STORE_NAME, 'readonly');
-        const store = tx.objectStore(STORE_NAME);
+        const tx = db.transaction(DB_STORE_NAME, 'readonly');
+        const store = tx.objectStore(DB_STORE_NAME);
         const req = store.getAll();
         req.onsuccess = function() { resolve(req.result); };
         req.onerror = function() { reject(req.error); };
@@ -230,8 +305,8 @@ async function getAllResultsFromDB() {
 async function getResultFromDB(id) {
     const db = await openDB();
     return new Promise(function(resolve, reject) {
-        const tx = db.transaction(STORE_NAME, 'readonly');
-        const store = tx.objectStore(STORE_NAME);
+        const tx = db.transaction(DB_STORE_NAME, 'readonly');
+        const store = tx.objectStore(DB_STORE_NAME);
         const req = store.get(id);
         req.onsuccess = function() { resolve(req.result); };
         req.onerror = function() { reject(req.error); };
@@ -241,8 +316,8 @@ async function getResultFromDB(id) {
 async function deleteResultFromDB(id) {
     const db = await openDB();
     return new Promise(function(resolve, reject) {
-        const tx = db.transaction(STORE_NAME, 'readwrite');
-        tx.objectStore(STORE_NAME).delete(id);
+        const tx = db.transaction(DB_STORE_NAME, 'readwrite');
+        tx.objectStore(DB_STORE_NAME).delete(id);
         tx.oncomplete = function() { resolve(); };
         tx.onerror = function() { reject(tx.error); };
     });
@@ -251,8 +326,8 @@ async function deleteResultFromDB(id) {
 async function clearAllResultsFromDB() {
     const db = await openDB();
     return new Promise(function(resolve, reject) {
-        const tx = db.transaction(STORE_NAME, 'readwrite');
-        tx.objectStore(STORE_NAME).clear();
+        const tx = db.transaction(DB_STORE_NAME, 'readwrite');
+        tx.objectStore(DB_STORE_NAME).clear();
         tx.oncomplete = function() { resolve(); };
         tx.onerror = function() { reject(tx.error); };
     });

@@ -1,18 +1,48 @@
 /**
  * KeyManagerUI 类负责渲染和管理单个模型的 API Key 池。
+ *
+ * 主要功能：
+ *  - 渲染 API Key 的增删改查界面。
+ *  - 支持批量导入/导出特定模型或所有模型的 Key 配置。
+ *  - 支持 Key 的优先级调整（上移/下移）、状态标记（untested, testing, valid, invalid）、备注编辑。
+ *  - 提供"全部测试"、"单个测试"的 UI 入口，通过回调与外部测试逻辑交互。
+ *  - 支持自定义源站点模型的友好显示名称。
+ *  - 从 localStorage 加载和保存 Key 数据，并能响应外部对上次成功使用 Key 的记录。
+ *
+ * 设计说明：
+ *  - 该类主要关注 UI 的构建和用户交互，实际的 Key 存储、加载和测试逻辑通过构造函数中传递的回调函数与外部模块（如 app.js, storage.js, api.js）解耦。
+ *  - 每个 KeyManagerUI 实例管理一个特定模型（`modelName`）的 Key 池。
+ *  - UI 元素动态创建，支持响应式更新（例如，Key 状态变化后仅更新对应条目）。
+ *
+ * @param {string} modelName - 当前 KeyManagerUI 实例管理的模型名称 (例如 'mistral', 'deepseek', 'custom_source_abcdef123')。
+ * @param {HTMLElement} containerElement - Key 池 UI 将被渲染到的父级 DOM 容器元素。
+ * @param {function(string, Object): Promise<void>} onTestKey - 测试单个 Key 的异步回调函数。
+ *   接收 `modelName` (string) 和 `keyObject` (Object) 作为参数。
+ * @param {function(string, Array<Object>): Promise<void>} onTestAllKeys - 测试当前模型所有 Key 的异步回调函数。
+ *   接收 `modelName` (string) 和 `keysArray` (Array<Object>) 作为参数。
+ * @param {function(string): Array<Object>} loadKeysFunction - 加载指定模型 Key 列表的函数。
+ *   接收 `modelName` (string) 作为参数，应返回一个 Key 对象数组。
+ * @param {function(string, Array<Object>): void} saveKeysFunction - 保存指定模型 Key 列表的函数。
+ *   接收 `modelName` (string) 和 `keysArray` (Array<Object>) 作为参数。
  */
 const LAST_SUCCESSFUL_KEYS_LS_KEY_FOR_UI = 'paperBurnerLastSuccessfulKeys'; // 与 app.js 中保持一致
 
 class KeyManagerUI {
     /**
-     * 构造函数
-     * @param {string} modelName - 当前管理的模型名称 (e.g., 'mistral', 'custom')
-     * @param {HTMLElement} containerElement - Key 池 UI 将被渲染到的 DOM 容器元素
-     * @param {function(string, Array<Object>)} onSaveKeys - 保存 Key 数组的回调函数 (modelName, keysArray)
-     * @param {function(string, Object)} onTestKey - 测试单个 Key 的回调函数 (modelName, keyObject)
-     * @param {function(string, Array<Object>)} onTestAllKeys - 测试当前模型所有 Key 的回调 (modelName, keysArray)
-     * @param {function(string): Array<Object>} loadKeysFunction - 加载指定模型Key的函数
-     * @param {function(string, Array<Object>)} saveKeysFunction - 保存指定模型Key的函数
+     * 构造函数：初始化 KeyManagerUI 实例。
+     *
+     * 主要步骤:
+     * 1. 保存传入的参数（模型名、容器元素、回调函数等）到实例属性。
+     * 2. 调用 `loadKeysFunction` 加载当前模型的 Key 数据，如果不存在则初始化为空数组。
+     * 3. 从 localStorage 读取当前模型上次成功使用的 Key ID (如果有记录的话)，用于 UI 高亮显示。
+     * 4. 调用 `render` 方法，首次渲染 Key 管理界面。
+     *
+     * @param {string} modelName - 当前管理的模型名称 (e.g., 'mistral', 'custom')。
+     * @param {HTMLElement} containerElement - Key 池 UI 将被渲染到的 DOM 容器元素。
+     * @param {function(string, Object)} onTestKey - 测试单个 Key 的回调函数 (参数: modelName, keyObject)。
+     * @param {function(string, Array<Object>)} onTestAllKeys - 测试当前模型所有 Key 的回调 (参数: modelName, keysArray)。
+     * @param {function(string): Array<Object>} loadKeysFunction - 加载指定模型 Key 的函数。
+     * @param {function(string, Array<Object>)} saveKeysFunction - 保存指定模型 Key 的函数。
      */
     constructor(modelName, containerElement, onTestKey, onTestAllKeys, loadKeysFunction, saveKeysFunction) {
         this.modelName = modelName;
@@ -35,7 +65,13 @@ class KeyManagerUI {
     }
 
     /**
-     * 重新加载并渲染Key列表
+     * 重新加载指定模型的 Key 数据并完全重新渲染 Key 列表 UI。
+     * 当外部数据源（例如 localStorage 中的 Key 列表）发生变化，且需要 KeyManagerUI
+     * 实例更新其显示时，可以调用此方法。
+     *
+     * 主要步骤:
+     * 1. 调用 `this.loadKeys` (即构造时传入的 `loadKeysFunction`) 重新获取当前模型的 Key 列表。
+     * 2. 调用 `this.render()` 方法，用最新的 Key 数据彻底重建 UI。
      */
     refreshKeys() {
         this.keys = this.loadKeys(this.modelName) || [];
@@ -43,7 +79,13 @@ class KeyManagerUI {
     }
 
     /**
-     * 渲染整个 Key 池 UI
+     * 渲染整个 Key 池 UI 到指定的容器元素中。
+     * 此方法会先清空容器，然后逐步构建并添加以下区域：
+     *  - 按钮操作区：包含"全部测试"、"导出配置"、"导入配置"以及"添加新 Key"的触发按钮。
+     *  - 添加新 Key 输入区（初始隐藏）：提供文本域批量输入新 Key 及备注。
+     *  - Key 列表区：如果存在 Key，则遍历 `this.keys` 数组，为每个 Key 对象调用 `_createKeyItemElement` 生成对应的 UI 条目并添加到列表中；如果不存在 Key，则显示提示信息。
+     *
+     * 此方法是 UI 更新的核心，当 Key 列表发生较大变化（如增删、导入）或需要强制刷新时被调用。
      */
     render() {
         this.containerElement.innerHTML = ''; // 清空容器
@@ -125,8 +167,18 @@ class KeyManagerUI {
     }
 
     /**
-     * 创建 "添加新 Key" 的 DOM 结构
-     * @returns {HTMLElement}
+     * 创建"添加新 Key"区域的 DOM 结构。
+     * 该区域允许用户输入一个或多个 API Key（通过文本域，每行一个 Key 被视为一个独立的 Key），
+     * 并为这些 Key 添加一个统一的备注。
+     *
+     * DOM 结构包括:
+     * - 区域标题 (根据 `this.modelName` 动态生成，对自定义源站点有特殊显示)。
+     * - 一个 `textarea` 用于输入 Key 值(支持批量)。
+     * - 一个 `input[type=text]` 用于输入备注。
+     * - 一个"添加 Key(s)"按钮，点击后会处理输入、调用 `_addKey` 方法，并清空输入框。
+     *
+     * @returns {HTMLElement} 包含添加新 Key 表单元素的 `div` 容器。
+     * @private
      */
     _createAddKeySection() {
         const section = document.createElement('div');
@@ -217,10 +269,20 @@ class KeyManagerUI {
     }
 
     /**
-     * 创建单个 Key 条目的 DOM 结构
-     * @param {Object} keyObj - Key 对象 { id, value, remark, status, order }
-     * @param {number} index - Key 在数组中的索引
-     * @returns {HTMLElement}
+     * 为单个 Key 对象创建并返回其在列表中的 DOM 元素表示。
+     * 每个 Key 条目 UI 包含以下部分：
+     *  - Key 值显示：默认部分隐藏，点击可切换完整显示/隐藏。旁边可能会有"上次成功使用"的星形图标。
+     *  - 状态指示器：显示 Key 的当前状态 (untested, testing, valid, invalid)，并根据状态应用不同样式。
+     *  - 备注输入框：允许用户编辑和查看 Key 的备注。
+     *  - 操作按钮区：
+     *    - 上移/下移按钮：调整 Key 在列表中的顺序（优先级）。
+     *    - 测试按钮：触发 `onTestKey` 回调以测试当前 Key。
+     *    - 删除按钮：调用 `_deleteKey` 方法删除当前 Key。
+     *
+     * @param {Object} keyObj - 要渲染的 Key 对象。应包含 `id`, `value`, `remark`, `status`, `order` 属性。
+     * @param {number} index - Key 对象在 `this.keys` 数组中的当前索引，用于判断是否禁用上移/下移按钮。
+     * @returns {HTMLElement} 代表单个 Key 条目的 `div` 元素。
+     * @private
      */
     _createKeyItemElement(keyObj, index) {
         const item = document.createElement('div');
@@ -323,9 +385,19 @@ class KeyManagerUI {
     }
 
      /**
-     * 更新 Key 状态的视觉指示器
-     * @param {HTMLElement} indicatorElement - 状态指示器的 DOM 元素
-     * @param {string} status - Key 的状态 ('untested', 'valid', 'invalid', 'testing')
+     * 更新 Key 状态的视觉指示器（DOM 元素）的样式和内容。
+     * 根据传入的 `status`，此方法会修改 `indicatorElement` 的文本内容和 CSS 类名，
+     * 以便直观地展示 Key 的当前状态。
+     *
+     * 支持的状态及其对应样式:
+     * - `valid`: 绿色背景，表示 Key 有效。
+     * - `invalid`: 红色背景，表示 Key 无效。
+     * - `testing`: 黄色背景，并显示一个旋转图标，表示 Key 正在测试中。
+     * - `untested` (或任何其他未知状态): 灰色背景，表示 Key 尚未测试。
+     *
+     * @param {HTMLElement} indicatorElement - 要更新的状态指示器 DOM 元素 (通常是一个 `<span>`)。
+     * @param {string} status - Key 的当前状态字符串 (e.g., 'valid', 'invalid', 'testing', 'untested')。
+     * @private
      */
     _updateKeyStatusIndicator(indicatorElement, status) {
         indicatorElement.textContent = status.toUpperCase();
@@ -349,9 +421,14 @@ class KeyManagerUI {
 
 
     /**
-     * 添加一个新的 Key
-     * @param {string} value - Key 的值
-     * @param {string} remark - Key 的备注
+     * 向当前模型的 Key 池中添加一个新的 Key 对象。
+     * 新 Key 将具有一个唯一生成的 ID (`_generateUUID`)，初始状态为 'untested'，
+     * `order` 属性根据其在数组中的位置（末尾）设定。
+     * 添加后，会调用 `saveKeys` 保存更新后的 Key 列表，并调用 `render` 刷新整个 UI。
+     *
+     * @param {string} value - 新 Key 的 API Key 字符串值。
+     * @param {string} remark - 新 Key 的备注信息（可选）。
+     * @private
      */
     _addKey(value, remark) {
         const newKey = {
@@ -367,8 +444,12 @@ class KeyManagerUI {
     }
 
     /**
-     * 删除一个 Key
-     * @param {string} keyId - 要删除的 Key 的 ID
+     * 从当前模型的 Key 池中删除具有指定 ID 的 Key。
+     * 删除后，会重新计算剩余 Key 的 `order` 属性以保持连续性，
+     * 然后调用 `saveKeys` 保存更改，并调用 `render` 刷新 UI。
+     *
+     * @param {string} keyId - 要删除的 Key 对象的 `id` 属性。
+     * @private
      */
     _deleteKey(keyId) {
         this.keys = this.keys.filter(key => key.id !== keyId);
@@ -379,9 +460,14 @@ class KeyManagerUI {
     }
 
     /**
-     * 更新 Key 的备注
-     * @param {string} keyId - Key 的 ID
-     * @param {string} newRemark - 新的备注内容
+     * 更新具有指定 ID 的 Key 对象的备注信息。
+     * 找到对应的 Key 对象后，修改其 `remark` 属性，并调用 `saveKeys` 保存更改。
+     * 此操作通常不会触发完整的 UI `render`，除非备注的显示非常复杂。
+     * （当前实现中，由于输入框直接绑定，可能不需要显式 UI 更新，但保存是必要的。）
+     *
+     * @param {string} keyId - 要更新备注的 Key 对象的 `id` 属性。
+     * @param {string} newRemark - 新的备注文本。
+     * @private
      */
     _updateRemark(keyId, newRemark) {
         const key = this.keys.find(k => k.id === keyId);
@@ -393,9 +479,15 @@ class KeyManagerUI {
     }
 
     /**
-     * 移动 Key (调整顺序/优先级)
-     * @param {number} index - 当前 Key 的索引
-     * @param {number} direction - 移动方向 (-1 表示上移, 1 表示下移)
+     * 调整指定索引处的 Key 在列表中的顺序（即优先级）。
+     * 根据 `direction` 参数，将 Key 向上或向下移动一位。
+     * 实现方式是通过交换目标 Key 与相邻 Key 的 `order` 属性值，
+     * 然后对整个 `this.keys` 数组按 `order` 重新排序。
+     * 操作完成后，调用 `saveKeys` 保存更改，并调用 `render` 刷新 UI。
+     *
+     * @param {number} index - 要移动的 Key 在 `this.keys` 数组中的当前索引。
+     * @param {number} direction - 移动方向：-1 表示上移（提高优先级），1 表示下移（降低优先级）。
+     * @private
      */
     _moveKey(index, direction) {
         if (direction === -1 && index === 0) return; // 不能将第一个元素上移
@@ -417,9 +509,14 @@ class KeyManagerUI {
     }
 
     /**
-     * 更新指定 Key 的状态，并重新渲染该 Key 的条目或整个列表
-     * @param {string} keyId - Key 的 ID
-     * @param {string} newStatus - 新的状态 ('untested', 'valid', 'invalid', 'testing')
+     * 更新具有指定 ID 的 Key 对象的状态，并相应地刷新其在 UI 中的状态指示器。
+     * 此方法旨在实现更细粒度的 UI 更新：当 Key 状态改变时，
+     * 它会尝试只更新该 Key 对应条目中的状态指示器部分，而不是重新渲染整个列表，以提高性能。
+     * 如果找不到对应的 DOM 元素，则会回退到完整的 `render` 调用。
+     * 状态更改后会调用 `saveKeys` 保存。
+     *
+     * @param {string} keyId - 要更新状态的 Key 对象的 `id` 属性。
+     * @param {string} newStatus - Key 的新状态 (e.g., 'untested', 'valid', 'invalid', 'testing')。
      */
     updateKeyStatus(keyId, newStatus) {
         const key = this.keys.find(k => k.id === keyId);
@@ -442,8 +539,12 @@ class KeyManagerUI {
 
 
     /**
-     * 生成一个简单的 UUID (如果 storage.js 中的 generateUUID 不可用)
-     * @returns {string}
+     * 生成一个符合 RFC4122 version 4 的 UUID (Universally Unique Identifier)。
+     * 优先尝试使用全局作用域下可能已定义的 `generateUUID` 函数 (例如由 `storage.js` 提供)。
+     * 如果全局函数不可用，则使用一个内置的回退算法生成一个随机的 UUID 字符串。
+     *
+     * @returns {string} 生成的 UUID 字符串，格式如 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'。
+     * @private
      */
     _generateUUID() {
         // 尝试使用全局的 generateUUID (如果已在 storage.js 中定义并挂载到 window 或通过模块导入)
@@ -458,7 +559,13 @@ class KeyManagerUI {
     }
 
     /**
-     * 导出当前模型的 Key 配置为 JSON 文件
+     * 将当前模型 (`this.modelName`) 的所有 Key 配置导出为一个 JSON 文件。
+     * JSON 文件内容是 `this.keys` 数组的字符串表示。
+     * 文件名格式为 `<modelName>-keys.json`。
+     * 通过动态创建 `<a>` 标签并模拟点击来实现浏览器下载。
+     * 导出成功后会尝试显示一个通知（如果 `showNotification` 函数可用）。
+     *
+     * @private
      */
     _exportKeys() {
         const dataStr = JSON.stringify(this.keys, null, 2);
@@ -479,7 +586,10 @@ class KeyManagerUI {
     }
 
     /**
-     * 导入 Key 配置（覆盖当前模型的 Key）
+     * 导入 Key 配置（覆盖当前模型的 Key）。
+     * 支持格式校验与错误提示。
+     *
+     * 文件内容需为 Key 对象数组。
      */
     _importKeys() {
         const input = document.createElement('input');

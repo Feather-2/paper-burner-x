@@ -1,11 +1,30 @@
 // process/document.js
 
 /**
- * 将长文档分割为可翻译的块
- * @param {string} markdown - 要分割的Markdown文本
- * @param {number} tokenLimit - 每块的最大token数
- * @param {string} logContext - 日志前缀
- * @returns {Array<string>} 分割后的文本块数组
+ * 将长文档分割为可翻译的块。
+ * 此函数旨在将 Markdown 文本按照指定的 token 限制进行智能分块，
+ * 以便适应大语言模型处理上下文长度的限制。
+ *
+ * 主要策略：
+ * 1. **Token 估算与初步判断**：
+ *    - 使用 `estimateTokenCount` 估算整个文档的 token 数。
+ *    - 如果文档未超过 token 限制的 1.1 倍，则不进行分割，直接返回原文作为一个块。
+ * 2. **行级初步分割**：
+ *    - 遍历文本的每一行。
+ *    - 跟踪当前块的 token 数和行内容。
+ *    - 智能分割点选择：
+ *      - 当 `currentTokenCount + lineTokens > tokenLimit` 且当前块已有一定内容 (`currentTokenCount > tokenLimit * 0.1`) 时，进行分割。
+ *      - 在非代码块内，如果遇到一级或二级 Markdown 标题 (`#` 或 `##`)，并且当前块内容已超过限制的 50%，则在此标题前分割，以保持章节完整性。
+ *    - 维护 `inCodeBlock` 状态，避免在代码块内部错误地根据标题分割。
+ * 3. **二次段落级分割（针对超大块）**：
+ *    - 对初步分割产生的每个块进行检查。
+ *    - 如果某个块的 token 数仍然超过限制的 1.1 倍，则调用 `splitByParagraphs` 对其进行更细致的段落级分割。
+ * 4. **日志记录**：在关键步骤通过 `addProgressLog` (如果可用) 输出日志，方便追踪分割过程。
+ *
+ * @param {string} markdown - 要分割的Markdown文本。
+ * @param {number} tokenLimit - 每块的最大token数。
+ * @param {string} [logContext=""] - 日志前缀，用于区分不同上下文的日志输出。
+ * @returns {Array<string>} 分割后的文本块数组。
  */
 function splitMarkdownIntoChunks(markdown, tokenLimit, logContext = "") {
     const estimatedTokens = estimateTokenCount(markdown);
@@ -95,12 +114,25 @@ function splitMarkdownIntoChunks(markdown, tokenLimit, logContext = "") {
 }
 
 /**
- * 按段落分割过大的文本块
- * @param {string} text - 需要分割的文本
- * @param {number} tokenLimit - 每块的最大token数
- * @param {string} logContext - 日志前缀
- * @param {number} chunkIndex - 当前块的索引
- * @returns {Array<string>} 分割后的子块数组
+ * 按段落分割过大的文本块。
+ * 当 `splitMarkdownIntoChunks` 初步分割后，某些块可能仍然过大，
+ * 此函数尝试将这些超大块按照 Markdown 的段落（空行分隔）进一步细分。
+ *
+ * 主要逻辑：
+ * 1. **段落分割**：使用 `text.split('\n\n')` 将文本块分割成段落数组。
+ * 2. **逐段累加与分割**：
+ *    - 遍历每个段落。
+ *    - 估算段落的 token 数。
+ *    - 如果单个段落本身就超过 `tokenLimit * 1.1`，则直接将其作为一个独立的块（不再细分），并记录警告。
+ *    - 否则，将段落加入当前子块，并累加 token 数。
+ *    - 如果加入当前段落会导致子块超过 `tokenLimit`，并且子块中已有内容，则先将当前子块保存，然后开始新的子块。
+ * 3. **日志记录**：记录段落分割的过程和结果。
+ *
+ * @param {string} text - 需要按段落分割的文本块。
+ * @param {number} tokenLimit - 每块的最大token数。
+ * @param {string} logContext - 日志前缀。
+ * @param {number} chunkIndex - 当前块在原始分割结果中的索引 (用于日志)。
+ * @returns {Array<string>} 分割后的子块数组。
  */
 function splitByParagraphs(text, tokenLimit, logContext, chunkIndex) {
     if (typeof addProgressLog === "function") {
@@ -147,20 +179,59 @@ function splitByParagraphs(text, tokenLimit, logContext, chunkIndex) {
 }
 
 /**
- * 翻译长文档（分段翻译并处理表格）
- * @param {string} markdownText - 待翻译的Markdown文本
- * @param {string} targetLang - 目标语言
- * @param {string} model - 翻译模型
- * @param {string} apiKey - API密钥
- * @param {Object | null} modelConfig - 翻译模型的配置对象 (特别是自定义模型)
- * @param {number | string} tokenLimitInput - 每段最大token数 (可以是数字或字符串)
- * @param {function} acquireSlot - 获取并发槽位的函数
- * @param {function} releaseSlot - 释放并发槽位的函数
- * @param {string} logContext - 日志前缀
- * @param {string} defaultSystemPrompt - 默认系统提示词
- * @param {string} defaultUserPromptTemplate - 默认用户提示词模板
- * @param {boolean} useCustomPrompts - 是否使用自定义提示词
- * @returns {Promise<Object>} 包含翻译后文本和分块信息的对象 { translatedText: string, originalChunks: Array<string>, translatedTextChunks: Array<string> }
+ * 翻译长文档，支持分段、表格保护、并发控制和自定义模型配置。
+ *
+ * 核心流程：
+ * 1. **参数准备与 Token 限制**：
+ *    - 确保 `tokenLimitInput` 被正确解析为数字。
+ * 2. **表格保护**：
+ *    - 调用 `protectMarkdownTables` (如果可用) 将 Markdown 中的表格替换为占位符 (如 `__TABLE_PLACEHOLDER_0__`)，
+ *      并将原始表格内容存储在 `tablePlaceholders` 对象中。这可以防止翻译API破坏表格结构。
+ *    - 如果检测到表格，更新系统提示 `updatedSystemPrompt`，告知模型如何处理这些占位符。
+ * 3. **文本分块**：
+ *    - 使用 `splitMarkdownIntoChunks` 将经过表格保护处理的文本 (`processedText`) 分割成 `originalTextChunks`。
+ * 4. **API 配置构建**：
+ *    - 根据 `model` 参数是 'custom' 还是预定义模型，调用 `buildCustomApiConfig` 或 `buildPredefinedApiConfig` 来准备 API 请求所需的配置对象 (`apiConfig`)。
+ *    - 对于自定义模型，会从 `modelConfig` 参数中获取详细配置（如端点、模型ID、请求格式等）。
+ * 5. **创建翻译任务队列 (`allTranslationTasks`)**：
+ *    - 将所有文本块的翻译任务添加到队列中。
+ *    - 如果有受保护的表格，将每个表格的翻译也作为一个独立的任务添加到队列中。
+ * 6. **并发翻译与重试**：
+ *    - 遍历 `allTranslationTasks`，为每个任务创建一个异步翻译 Promise。
+ *    - 使用 `acquireSlot` 和 `releaseSlot` 控制并发翻译的数量。
+ *    - 对每个任务执行翻译：
+ *      - **文本块翻译**：调用 `translateMarkdown` (并根据模型类型传递必要的参数，如 `modelConfig` for custom)。
+ *      - **表格翻译**：构造特定的系统提示和用户提示，指导模型仅翻译表格内容并保持结构，然后调用 `callTranslationApi`。翻译结果会经过 `extractTableFromTranslation` 清理。
+ *    - 实现重试机制 (最多 `MAX_TRANSLATION_RETRIES` 次)，使用 `getRetryDelay` 计算退避延迟。
+ *    - 如果任务在多次重试后仍然失败，则记录错误，并将原文（或原始表格内容）作为翻译结果的兜底。
+ *    - 将所有任务的翻译结果（成功或失败的兜底）存储在 `translationResults` Map 中，键为 `text-{index}` 或 `table-{index}`。
+ * 7. **等待所有任务完成**：使用 `Promise.all` 等待所有翻译 Promise 执行完毕。
+ * 8. **结果组装与表格还原**：
+ *    - **构建翻译后表格映射**：从 `translationResults` 中提取已翻译的表格内容，存入 `translatedTablePlaceholders`。
+ *    - **还原分块中的表格**：
+ *      - 对 `originalTextChunks` 中的每个块，使用 `restoreMarkdownTables` 和原始 `tablePlaceholders` 还原其包含的原始表格，得到 `restoredOcrChunks`。
+ *      - 对 `translationResults` 中每个文本块的翻译结果，使用 `restoreMarkdownTables` 和 `translatedTablePlaceholders` 还原其包含的已翻译表格，得到 `translatedTextChunks`。
+ *    - **合并翻译文本**：将 `translatedTextChunks` 连接起来得到 `combinedTranslation`。
+ *    - **最终表格还原**：为保险起见，再次对 `combinedTranslation` 使用 `translatedTablePlaceholders` 进行一次整体的表格占位符替换。
+ * 9. **返回结果**：返回一个对象，包含最终的完整翻译文本 `translatedText`，以及还原了表格的原文分块 `originalChunks` 和译文分块 `translatedTextChunks`。
+ *
+ * @param {string} markdownText - 待翻译的Markdown文本。
+ * @param {string} targetLang - 目标语言代码 (如 'zh-CN', 'en')。
+ * @param {string} model - 使用的翻译模型名称 (如 'mistral', 'custom')。
+ * @param {string} apiKey - 对应翻译模型的 API 密钥。
+ * @param {Object | null} modelConfig - 当 `model` 为 "custom" 时，提供自定义模型的配置对象，
+ *                                   包含 `apiEndpoint` (或 `apiBaseUrl`), `modelId`, `requestFormat`, `temperature`, `max_tokens` 等。
+ * @param {number | string} tokenLimitInput - 每个翻译分块的最大 token 限制。
+ * @param {function} acquireSlot - 用于获取并发执行槽位的函数。
+ * @param {function} releaseSlot - 用于释放并发执行槽位的函数。
+ * @param {string} [logContext=""] - 日志记录的上下文前缀。
+ * @param {string} [defaultSystemPrompt=""] - 默认的系统提示词。
+ * @param {string} [defaultUserPromptTemplate=""] - 默认的用户提示词模板 (应包含 `${content}` 和 `${targetLangName}` 占位符)。
+ * @param {boolean} [useCustomPrompts=false] - 是否使用自定义的提示词（如果为 false，则使用内置或默认提示词）。
+ * @returns {Promise<Object>} 一个包含翻译结果的对象，结构为：
+ *                          `{ translatedText: string, originalChunks: Array<string>, translatedTextChunks: Array<string> }`。
+ *                          `originalChunks` 和 `translatedTextChunks` 是经过表格还原处理后的分块数组。
+ * @throws {Error} 如果自定义模型配置不完整或发生其他严重错误。
  */
 async function translateLongDocument(
     markdownText,

@@ -3,6 +3,37 @@
 // =====================
 // buildCustomApiConfig: 兼容自定义模型调用
 // =====================
+/**
+ * 构建自定义 API 访问配置。
+ * 该函数负责根据传入的参数，生成一个完整的 API 请求配置对象，
+ * 包括请求端点、模型ID、请求头、请求体构建器、响应提取器以及流式支持等。
+ *
+ * 主要逻辑：
+ * 1. 端点处理：如果 `window.modelDetector` 存在且能提供完整端点，则优先使用。
+ *    否则，如果提供的 `customApiEndpoint` 不规范（不含 `/v1/` 或 `/v1` 结尾），
+ *    会自动拼接 `/v1/chat/completions`。
+ * 2. 请求格式自动推断：如果 `customRequestFormat` 为空且端点以 `/v1/chat/completions` 结尾，
+ *    则自动设置为 `openai` 格式。
+ * 3. 模型ID获取：如果 `window.modelDetector` 存在，则尝试获取当前选择的模型ID。
+ * 4. 根据 `customRequestFormat` (如 'openai', 'anthropic', 'gemini' 等) 构建特定配置：
+ *    - 设置认证头 (Authorization, x-api-key)。
+ *    - 定义 `bodyBuilder` 用于构建非流式请求的请求体。
+ *    - 定义 `streamBodyBuilder` 用于构建流式请求的请求体。
+ *    - 定义 `responseExtractor` 用于从 API 响应中提取所需内容。
+ *    - 设置 `streamSupport` 标记是否支持流式响应。
+ *    - 为 Gemini 等特殊模型处理端点参数 (如 `alt=sse`)。
+ * 5. 对于不支持的 `customRequestFormat`，会抛出错误。
+ * 6. 最终返回构建好的 `config` 对象。
+ *
+ * @param {string} key API 密钥。
+ * @param {string} customApiEndpoint 自定义 API 端点基础 URL。
+ * @param {string} customModelId 自定义模型 ID。
+ * @param {string} customRequestFormat 自定义请求格式 (e.g., 'openai', 'anthropic', 'gemini')。
+ * @param {number} [temperature] 模型温度参数，控制生成文本的随机性。
+ * @param {number} [max_tokens] 模型最大输出 token 数。
+ * @returns {object} 构建好的 API 配置对象，包含 endpoint, modelName, headers, bodyBuilder, responseExtractor, streamSupport, streamBodyBuilder 等。
+ * @throws {Error} 如果 customRequestFormat 不被支持。
+ */
 function buildCustomApiConfig(key, customApiEndpoint, customModelId, customRequestFormat, temperature, max_tokens) {
   let apiEndpoint = customApiEndpoint;
   let modelId = customModelId;
@@ -299,10 +330,32 @@ function buildCustomApiConfig(key, customApiEndpoint, customModelId, customReque
 }
 
 // 聊天历史（上下文）
+/** @type {Array<{role: string, content: string}>} */
 let chatHistory = [];
 let isChatbotLoading = false;
 
 // 读取主页面配置（API Key、模型等）
+/**
+ * 读取聊天机器人配置。
+ * 该函数负责从 localStorage (或外部传入的配置) 中加载与聊天机器人相关的设置。
+ *
+ * 主要步骤：
+ * 1. 如果提供了 `externalConfig`，则直接返回该配置。
+ * 2. 否则，尝试从 localStorage 加载 `paperBurnerSettings`。
+ * 3. 获取当前选择的翻译模型 (`selectedTranslationModel`)，默认为 'mistral'。
+ * 4. 如果选择的模型是 'custom' 并且存在 `selectedCustomSourceSiteId`：
+ *    - 尝试加载所有自定义源站点配置 (`loadAllCustomSourceSites`)。
+ *    - 找到对应的站点配置，并将其作为 `cms` (customModelSettings)。
+ *    - 更新 `model` 名称为 `custom_source_{siteId}` 格式。
+ *    - 获取该站点的可用模型列表 `siteSpecificAvailableModels`。
+ * 5. 加载当前模型可用的 API Key (`loadModelKeys`)：
+ *    - 筛选出状态为 'valid' 或 'untested' 的 Key。
+ *    - 如果存在可用 Key，则选择第一个作为 `activeApiKey` 和 `activeKeyId`。
+ * 6. 返回包含 `model`, `apiKey`, `apiKeyId`, `cms`, `settings`, `siteSpecificAvailableModels` 的配置对象。
+ *
+ * @param {object} [externalConfig=null] 可选的外部配置对象，如果提供，则直接使用此配置。
+ * @returns {object} 包含模型、API Key、自定义模型设置等的配置对象。
+ */
 function getChatbotConfig(externalConfig = null) {
   if (externalConfig) return externalConfig;
   const settings = (typeof loadSettings === 'function') ? loadSettings() : JSON.parse(localStorage.getItem('paperBurnerSettings') || '{}');
@@ -345,6 +398,14 @@ function getChatbotConfig(externalConfig = null) {
 }
 
 // 获取当前文档内容（OCR/翻译）
+/**
+ * 获取当前文档的相关内容。
+ * 该函数从全局 `window.data` 对象中提取 OCR 文本、翻译文本、图片列表和文档名称。
+ * 这些信息将用于构建聊天机器人的上下文。
+ *
+ * @returns {object} 包含 `ocr`, `translation`, `images`, `name` 的文档内容对象。
+ *                   如果 `window.data` 不存在或内容为空，则返回相应的空值。
+ */
 function getCurrentDocContent() {
   if (window.data) {
     return {
@@ -358,6 +419,14 @@ function getCurrentDocContent() {
 }
 
 // 组装对话消息格式
+/**
+ * 根据聊天历史和用户当前输入构建对话消息列表。
+ * 消息格式遵循大语言模型 API 的标准，通常是 `{ role: 'user'/'assistant', content: '...' }`。
+ *
+ * @param {Array<object>} history 包含先前对话的数组，每个元素是一个消息对象。
+ * @param {string} userInput 用户当前的输入文本。
+ * @returns {Array<object>} 构建好的完整消息列表，准备发送给大模型。
+ */
 function buildChatMessages(history, userInput) {
   const messages = history.map(m => ({ role: m.role, content: m.content }));
   messages.push({ role: 'user', content: userInput });
@@ -365,6 +434,26 @@ function buildChatMessages(history, userInput) {
 }
 
 // =============== 新增：智能分段函数 ===============
+/**
+ * 智能分段函数，用于将长文本内容分割成适合模型处理的块。
+ *
+ * 主要策略：
+ * 1. 限制总长度：如果内容超过 50000 字符，则截取前 50000 字符。
+ * 2. 短内容直接返回：如果内容长度小于等于 `maxChunk`，则直接返回包含单个块的数组。
+ * 3. 长内容分割：
+ *    - 迭代处理内容，每次尝试分割出一个 `maxChunk` 大小的块。
+ *    - 优先在块的后半部分（`maxChunk * 0.3` 之后）寻找 Markdown 标题 (`
+#`, `
+##`, `
+###`) 作为分割点，
+ *      以保持段落完整性。如果找到，则在该标题前分割。
+ *    - 如果未找到合适的 Markdown 标题，则按 `maxChunk` 长度硬分割。
+ * 4. 返回分割后的文本块数组。
+ *
+ * @param {string} content 需要分割的文本内容。
+ * @param {number} [maxChunk=20000] 每个分块的最大字符数。
+ * @returns {Array<string>} 分割后的文本块数组。
+ */
 function splitContentSmart(content, maxChunk = 20000) {
   // 最多只取前5万字
   if (content.length > 50000) content = content.slice(0, 50000);
@@ -391,6 +480,14 @@ function splitContentSmart(content, maxChunk = 20000) {
 }
 
 // =============== 新增：文档唯一ID生成 ===============
+/**
+ * 生成当前文档的唯一 ID。
+ * 该 ID 用于区分不同文档的聊天上下文或相关数据存储 (如思维导图数据)。
+ * ID 的生成基于文档名称、图片数量、OCR 文本长度和翻译文本长度的组合，
+ * 以期在实际使用中具有足够的唯一性。
+ *
+ * @returns {string} 当前文档的唯一 ID。
+ */
 function getCurrentDocId() {
   const doc = getCurrentDocContent();
   // 用文件名+图片数量+ocr长度+translation长度做唯一性（可根据实际情况调整）
@@ -398,6 +495,64 @@ function getCurrentDocId() {
 }
 
 // 发送消息到大模型（支持思维导图请求）
+/**
+ * 发送消息到大语言模型并处理响应，支持思维导图生成请求。
+ *
+ * 核心流程：
+ * 1. 状态检查与准备：
+ *    - 如果 `isChatbotLoading` 为 true，则不执行，防止重复请求。
+ *    - 将用户输入 (`userInput`) 添加到 `chatHistory`。
+ *    - 调用 `updateChatbotUI` 更新界面。
+ * 2. 配置加载与内容获取：
+ *    - 判断是否为思维导图请求 (`isMindMapRequest`)。
+ *    - 获取聊天机器人配置 (`getChatbotConfig`)，优先使用 `externalConfig`。
+ *    - 获取当前文档内容 (`getCurrentDocContent`) 和文档 ID (`getCurrentDocId`)。
+ *    - 提取文档内容（优先翻译，其次 OCR），并限制长度。
+ * 3. 构建 System Prompt：
+ *    - 基础提示告知模型其角色为 PDF 文档助手，并强调回答需基于文档、简洁、学术准确。
+ *    - 如果是思维导图请求，追加特定格式要求。
+ *    - 如果存在文档内容，将其附加到 System Prompt。
+ * 4. API Key 检查：
+ *    - 如果没有有效的 API Key，则添加错误消息到 `chatHistory` 并返回。
+ * 5. 构建 API 请求配置 (`apiConfig`)：
+ *    - 如果模型为 'custom' 或以 'custom_source_' 开头，则调用 `buildCustomApiConfig`。
+ *      - 优先顺序获取模型 ID：`settings.selectedCustomModelId` -> `localStorage.lastSelectedCustomModel` -> `cms.modelId` -> `siteSpecificAvailableModels[0]`。
+ *      - 如果最终无模型 ID，则提示用户选择并返回。
+ *    - 否则，从预定义的 `predefinedConfigs` 中获取配置。
+ *    - 判断是否使用流式 API (`useStreamApi`)。
+ * 6. 发送请求与处理响应（流式优先）：
+ *    - 添加一个空的助手消息到 `chatHistory`，用于后续填充流式内容。
+ *    - 如果 `useStreamApi` 为 true：
+ *      - 构建流式请求体 (`apiConfig.streamBodyBuilder` 或 `apiConfig.bodyBuilder`)。
+ *      - 确定请求端点 (Gemini 等模型可能使用特定流式端点)。
+ *      - 发起 `fetch` 请求。
+ *      - 处理响应流：使用 `TextDecoder` 解码，根据 `apiConfig.streamHandler` (如 'claude', 'gemini') 解析每个数据块，
+ *        逐步更新 `chatHistory` 中的助手消息内容，并定时刷新 UI。
+ *    - 如果 `useStreamApi` 为 false (或流式请求失败回退)：
+ *      - 构建非流式请求体 (`apiConfig.bodyBuilder`)。
+ *      - 发起 `fetch` 请求，获取完整 JSON 响应。
+ *      - 使用 `apiConfig.responseExtractor` 提取答案。
+ * 7. 思维导图后处理：
+ *    - 如果是思维导图请求且成功获取到内容：
+ *      - 尝试从模型回复中提取 Markdown 格式的思维导图数据 (优先代码块内容)。
+ *      - 对 Markdown 数据进行安全检查 (确保有根节点和二级节点)。
+ *      - 将安全的 Markdown 数据存储到 `localStorage` (键名包含 `docId`)。
+ *      - 更新 `chatHistory` 中的助手消息，替换为包含思维导图预览和放大按钮的 HTML 结构。
+ *      - 设置 `hasMindMap` 和 `mindMapData` 属性。
+ * 8. 错误处理：
+ *    - 捕获 API 请求错误、流处理错误、内容解析错误等。
+ *    - 对于特定错误 (如流不支持、429/401/403 状态码)，提供更具体的错误信息。
+ *    - 如果流式请求失败且是自定义模型，尝试以非流式方式重试一次。
+ * 9. 清理与 UI 更新：
+ *    - 设置 `isChatbotLoading` 为 false。
+ *    - 调用 `updateChatbotUI` 刷新界面。
+ *    - 如果是思维导图请求且成功，延迟渲染思维导图预览 (使用 `window.MindMap.render`)。
+ *
+ * @param {string} userInput 用户输入的查询或指令。
+ * @param {function} updateChatbotUI 更新聊天界面显示的回调函数。
+ * @param {object} [externalConfig=null] 可选的外部配置对象，用于覆盖默认配置加载逻辑。
+ * @returns {Promise<void>} 无明确返回值，主要通过回调更新 UI 和内部状态。
+ */
 async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = null) {
   if (isChatbotLoading) return;
   isChatbotLoading = true;
@@ -951,6 +1106,32 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
 }
 
 // =============== 新增：分段整理辅助函数 ===============
+/**
+ * 针对单个文本块进行摘要或处理的辅助函数。
+ * 主要用于长文本分块处理的场景，例如对每个文档分块进行初步总结。
+ * 此函数不依赖聊天历史，仅进行单轮请求。
+ *
+ * 主要步骤：
+ * 1. API 配置构建：
+ *    - 如果 `config.model` 是 'custom'，调用 `buildCustomApiConfig` 生成配置。
+ *    - 否则，从简化的 `predefinedConfigs` (仅包含非流式配置) 中获取配置。
+ * 2. 构建请求体：调用 `apiConfig.bodyBuilder`，传入系统提示 (`sysPrompt`) 和用户输入 (`userInput`)，
+ *    注意历史记录参数为空数组 `[]`。
+ * 3. 发送请求：使用 `fetch` 发送 POST 请求。
+ * 4. 处理响应：
+ *    - 检查响应状态，如果非 OK 则抛出错误。
+ *    - 解析 JSON 响应。
+ *    - 使用 `apiConfig.responseExtractor` 提取所需内容。
+ *    - 如果提取失败，抛出错误。
+ * 5. 返回提取到的内容 (通常是文本摘要)。
+ *
+ * @param {string} sysPrompt 系统提示，指导模型如何处理输入。
+ * @param {string} userInput 需要处理的文本块内容。
+ * @param {object} config 聊天机器人配置对象 (通常来自 `getChatbotConfig`)。
+ * @param {string} apiKey API 密钥。
+ * @returns {Promise<string>} 模型处理后的文本结果。
+ * @throws {Error} 如果 API 请求失败或响应解析失败。
+ */
 async function singleChunkSummary(sysPrompt, userInput, config, apiKey) {
   // 只做单轮整理，不带历史
   let apiConfig;

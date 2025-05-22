@@ -1,3 +1,17 @@
+/**
+ * @file js/index.js
+ * @description
+ * 主 UI 初始化和模块管理脚本。
+ * 该文件负责:
+ *  - 初始化全局 `window.ui`命名空间，用于挂载各个 UI 模块的功能。
+ *  - 定义 UI 模块的注册机制 (`window.ui.registerModule`)。
+ *  - 管理模块加载状态 (`window.ui.moduleStatus`, `EXPECTED_UI_MODULES`, `_allModulesReady`)。
+ *  - 提供一个就绪回调队列 (`window.ui.onReady`, `_pendingInitializations`)，确保在所有模块加载完毕且 DOM 就绪后执行初始化代码。
+ *  - 包含核心的 UI 初始化逻辑 (`initializeAllUI_internal`)，用于绑定全局事件监听器、初始化特定 UI 组件等。
+ *  - 处理特定 UI 元素的动态显隐和交互，如翻译模型选择相关的 UI (`updateTranslationUIVisibility`, `handleCustomModelSelection`)。
+ *  - 监听 `DOMContentLoaded` 事件以启动整个 UI 初始化流程。
+ */
+
 if (typeof window.ui === 'undefined') {
   console.log('DEBUG index.js: Initializing window.ui object');
   window.ui = {};
@@ -45,8 +59,15 @@ EXPECTED_UI_MODULES.forEach(name => {
 });
 
 /**
- * 更新翻译相关UI元素的可见性 (例如自定义源站点部分)
- * @param {boolean} showCustomUI - 如果为 true, 显示自定义UI部分；否则隐藏。
+ * 根据是否选择自定义翻译模型，更新相关 UI 元素的可见性和状态。
+ * 当用户在翻译模型下拉菜单中选择 "custom" 或从 "custom" 切换到其他模型时，此函数被调用。
+ *
+ * 主要操作:
+ * - 显示或隐藏自定义源站点容器 (`customSourceSiteContainer`)。
+ * - 启用或禁用自定义源站点选择下拉框 (`customSourceSiteSelect`)，并在隐藏时清空其选择。
+ * - 显示或隐藏自定义源站点信息区域 (`customSourceSiteInfo`)，并在隐藏时清空其内容。
+ *
+ * @param {boolean} showCustomUI - 如果为 `true`，则显示自定义模型相关的 UI 部分；否则隐藏它们。
  */
 function updateTranslationUIVisibility(showCustomUI) {
     // console.log(`UI::updateTranslationUIVisibility, showCustom: ${showCustomUI}`); // Original log
@@ -86,6 +107,13 @@ let _domReady = false;
 let _initializationExecuted = false; // Flag to prevent multiple executions
 
 
+/**
+ * 检查所有在 `EXPECTED_UI_MODULES` 中定义的预期 UI 模块是否都已注册并标记为就绪。
+ * 它遍历 `EXPECTED_UI_MODULES` 数组，并检查 `window.ui.moduleStatus` 中对应模块的状态。
+ *
+ * @returns {boolean} 如果所有预期模块都已就绪，则返回 `true`；否则返回 `false`。
+ * @private
+ */
 function _allModulesReady() {
     for (const moduleName of EXPECTED_UI_MODULES) {
         if (!window.ui.moduleStatus[moduleName]) {
@@ -97,6 +125,22 @@ function _allModulesReady() {
     return true;
 }
 
+/**
+ * (全局 `window.ui` 接口)
+ * 注册一个 UI 模块及其提供的功能函数到全局 `window.ui` 对象上。
+ * 每个模块通过调用此函数来声明自身已加载，并将其公开的接口挂载到 `window.ui`。
+ *
+ * 主要步骤:
+ * 1. 参数校验：确保 `moduleName` 和 `functions` 对象有效。
+ * 2. 函数挂载：遍历 `functions` 对象中的每个函数，将其赋值给 `window.ui[funcName]`。
+ *    如果发生命名冲突（覆盖已有的非核心 `window.ui` 属性），会打印警告。
+ * 3. 状态更新：将 `window.ui.moduleStatus[moduleName]` 设置为 `true`，标记该模块已加载。
+ * 4. 触发初始化：调用 `_executePendingInitializations` 尝试执行待处理的初始化任务，
+ *    因为一个新模块的加载可能满足了所有初始化条件。
+ *
+ * @param {string} moduleName - 要注册的模块的名称 (应与 `EXPECTED_UI_MODULES` 中的条目对应)。
+ * @param {Object} functions -一个对象，其键是函数名，值是函数本身。这些函数将被添加到 `window.ui`。
+ */
 window.ui.registerModule = function(moduleName, functions) {
     console.log('DEBUG index.js: registerModule - START. Module:', moduleName, 'Functions:', Object.keys(functions));
     if (!moduleName || typeof moduleName !== 'string') {
@@ -134,6 +178,19 @@ window.ui.registerModule = function(moduleName, functions) {
     }
 };
 
+/**
+ * 执行所有通过 `window.ui.onReady` 排队的待处理初始化回调函数。
+ * 此函数仅在以下所有条件都满足时才会实际执行回调：
+ *  - DOM 已加载完成 (`_domReady` 为 `true`)。
+ *  - 所有预期的 UI 模块都已注册 (`_allModulesReady()` 返回 `true`)。
+ *  - 初始化流程尚未执行过 (`_initializationExecuted` 为 `false`)。
+ *
+ * 执行时，它会：
+ * 1. 设置 `_initializationExecuted = true` 防止重入。
+ * 2. 依次执行 `_pendingInitializations` 队列中的所有回调函数。
+ * 3. 调用核心的 `initializeAllUI_internal()` 函数来完成最终的 UI 设置。
+ * @private
+ */
 function _executePendingInitializations() {
     console.log(`DEBUG index.js: _executePendingInitializations called. DOM Ready: ${_domReady}, All Modules Ready: ${typeof _allModulesReady === 'function' ? _allModulesReady() : 'unknown'}, Executed: ${_initializationExecuted}`);
     if (_initializationExecuted) {
@@ -168,6 +225,14 @@ function _executePendingInitializations() {
     }
 }
 
+/**
+ * (全局 `window.ui` 接口)
+ * 注册一个回调函数，该函数将在整个 UI（包括所有模块和 DOM）完全准备就绪后执行。
+ * 如果调用此函数时 UI 已经就绪，则回调会几乎立即异步执行。
+ * 否则，回调会被添加到一个队列 (`_pendingInitializations`) 中，等待所有条件满足后由 `_executePendingInitializations` 统一执行。
+ *
+ * @param {function} callback - 当 UI 完全就绪时要执行的回调函数。
+ */
 window.ui.onReady = function(callback) {
     console.log("DEBUG index.js: window.ui.onReady called with a callback.");
     if (typeof callback !== 'function') {
@@ -188,7 +253,15 @@ window.ui.onReady = function(callback) {
     }
 };
 
-// 内部函数：处理自定义模型选择的逻辑
+/**
+ * 处理当翻译模型下拉框选择发生变化时的逻辑，特别是针对"自定义模型"选项。
+ * 当用户选择或取消选择 "custom" 模型时，此函数负责：
+ *  1. 调用 `window.ui.updateTranslationUIVisibility` 来切换相关 UI 元素的显隐。
+ *  2. 如果选择了 "custom" 模型：
+ *     - 尝试调用 `window.ui.tryPopulateCustomSourceSitesDropdown` 来填充自定义源站点下拉列表。
+ *     - 自动展开自定义源站点设置区域（如果该区域存在且当前是折叠状态）。
+ * @private
+ */
 function handleCustomModelSelection() {
     console.log("DEBUG index.js: handleCustomModelSelection: 处理自定义模式选择");
     const isCustomModel = document.getElementById('translationModel').value === 'custom';
@@ -222,7 +295,16 @@ function handleCustomModelSelection() {
 window.ui.handleCustomModelSelection = handleCustomModelSelection;
 
 
-// 核心UI初始化逻辑，注册事件监听器等
+/**
+ * 核心的内部 UI 初始化函数。
+ * 此函数在所有模块加载完毕且 DOM 就绪后，由 `_executePendingInitializations` 调用。
+ * 主要职责包括：
+ *  - 调用 `window.ui.registerGlobalUIEventListeners` (如果由模块提供) 来注册全局性的事件监听器 (如键盘快捷键)。
+ *  - 调用 `window.ui.registerSourceSiteListeners` (如果由模块提供) 来注册与自定义源站点相关的事件监听器。
+ *  - 调用 `window.ui.initKeyManagerDisplay` (如果由模块提供) 来初始化 API Key 管理器的显示。
+ *  - 检查初始的翻译模型选择状态，并调用 `updateTranslationUIVisibility` 和/或 `handleCustomModelSelection` 以确保 UI 正确显示。
+ * @private
+ */
 function initializeAllUI_internal() {
     console.log("DEBUG index.js: Executing initializeAllUI_internal (event listeners, etc.)...");
 
@@ -279,6 +361,20 @@ function initializeAllUI_internal() {
 }
 
 
+/**
+ * DOMContentLoaded 事件的监听器回调。
+ * 当 HTML 文档完全加载并解析完成后（不等待样式表、图像和子框架），此函数被触发。
+ *
+ * 主要操作:
+ * 1. 设置全局标志 `_domReady = true`。
+ * 2. 调用 `_executePendingInitializations()` 尝试启动待处理的初始化任务。
+ *    （如果此时模块尚未全部加载，`_executePendingInitializations` 内部逻辑会等待）。
+ * 3. 为翻译模型选择器 (`#translationModel`) 绑定 `change` 事件监听器：
+ *    - 当选择变化时，调用 `window.ui.handleCustomModelSelection` 更新相关 UI。
+ *    - (注释中提及) `saveCurrentSettings` 应由 `app.js` 处理，以避免逻辑冲突。
+ * 4. (注释中提及) 初始的自定义模型检查和 UI 更新会由 `initializeAllUI_internal` 通过 `onReady` 流程处理，
+ *    此处不再直接触发 `handleCustomModelSelection`。
+ */
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DEBUG index.js: DOMContentLoaded event fired.');
     _domReady = true;

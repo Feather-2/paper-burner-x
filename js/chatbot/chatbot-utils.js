@@ -1,13 +1,25 @@
 // chatbot-utils.js
 
-// 转义 HTML
+/**
+ * 转义 HTML 特殊字符，防止 XSS 攻击。
+ * 将 &, <, >, ", ' 替换为相应的 HTML 实体。
+ * @param {string} str 需要转义的原始字符串。
+ * @returns {string} 转义后的安全字符串。
+ */
 function escapeHtml(str) {
   return str.replace(/[&<>"']/g, function (c) {
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c];
   });
 }
 
-// 显示操作反馈toast
+/**
+ * 显示一个短暂的浮动提示消息 (Toast)。
+ * Toast 用于向用户反馈操作结果，如"已复制到剪贴板"。
+ * 如果页面上不存在 ID 为 `chatbot-toast` 的元素，则会创建一个。
+ * Toast 会在显示约2秒后自动淡出消失。
+ *
+ * @param {string} message 要在 Toast 中显示的消息文本。
+ */
 function showToast(message) {
   let toast = document.getElementById('chatbot-toast');
   if (!toast) {
@@ -34,7 +46,13 @@ function showToast(message) {
   }, 2000);
 }
 
-// 复制助手消息到剪贴板
+/**
+ * 复制指定索引的助手消息内容到用户剪贴板。
+ * 使用 `navigator.clipboard.writeText` API。
+ * 成功或失败时会调用 `showToast` 显示反馈。
+ *
+ * @param {number} messageIndex `ChatbotCore.chatHistory` 数组中目标助手消息的索引。
+ */
 function copyAssistantMessage(messageIndex) {
   if (!window.ChatbotCore || !window.ChatbotCore.chatHistory[messageIndex]) return;
   const text = window.ChatbotCore.chatHistory[messageIndex].content;
@@ -45,7 +63,13 @@ function copyAssistantMessage(messageIndex) {
   });
 }
 
-// 导出消息为PNG图片
+/**
+ * 将指定索引的助手消息内容导出为 PNG 图片。
+ * 依赖 `html2canvas` 库。如果该库未加载，则会尝试动态加载它。
+ * 实际的导出操作由 `doExportAsPng` 函数执行。
+ *
+ * @param {number} messageIndex `ChatbotCore.chatHistory` 数组中目标助手消息的索引。
+ */
 function exportMessageAsPng(messageIndex) {
   if (!window.ChatbotCore || !window.ChatbotCore.chatHistory[messageIndex]) return;
   if (typeof html2canvas === 'undefined') {
@@ -65,7 +89,13 @@ function exportMessageAsPng(messageIndex) {
   doExportAsPng(messageIndex);
 }
 
-// 执行PNG导出
+/**
+ * 执行将指定消息元素导出为 PNG 图片的核心逻辑。
+ * 此函数在 `html2canvas` 加载完成后被 `exportMessageAsPng` 调用，或者直接被调用（如果库已加载）。
+ * 它会查找对应的消息 DOM 元素，如果找不到，则会尝试使用 `exportContentDirectly` 作为后备方案。
+ *
+ * @param {number} messageIndex 目标助手消息在 `ChatbotCore.chatHistory` 中的索引。
+ */
 function doExportAsPng(messageIndex) {
   const messageElements = document.querySelectorAll('.assistant-message');
   const targetElement = document.querySelector(`.assistant-message[data-message-index="${messageIndex}"]`);
@@ -77,6 +107,19 @@ function doExportAsPng(messageIndex) {
   processExport(element);
 }
 
+/**
+ * 处理将消息 DOM 元素转换为 PNG 图片并下载的详细过程。
+ * 1. 获取与消息相关的用户问题文本作为图片的一部分。
+ * 2. 创建一个临时的、屏幕外渲染的 `div` (`exportContainer`) 用于容纳要导出的内容。
+ * 3. 设置 `exportContainer` 的样式，使其在视觉上接近聊天气泡，并包含问题文本、消息内容和水印。
+ * 4. 使用 `html2canvas` 将 `exportContainer` 渲染到 `<canvas>` 元素。
+ * 5. 将 `<canvas>` 内容转换为 PNG 数据 URL。
+ * 6. 创建一个临时的 `<a>` 标签，设置其 `href` 为数据 URL，`download` 属性为文件名，然后模拟点击以下载图片。
+ * 7. 清理：移除临时的 `exportContainer`。
+ * 8. 显示操作反馈 Toast。
+ *
+ * @param {HTMLElement} messageElement 要导出为图片的助手消息的 DOM 元素。
+ */
 function processExport(messageElement) {
   let questionText = "未知问题";
   try {
@@ -142,6 +185,14 @@ function processExport(messageElement) {
   });
 }
 
+/**
+ * 当无法直接定位到消息的 DOM 元素时，提供一个后备方案来导出纯文本内容为图片。
+ * 这通常发生在 `doExportAsPng` 找不到对应的 `.assistant-message` 元素时。
+ * 它会创建一个包含纯文本内容的容器，并尝试将其导出为图片，流程与 `processExport` 类似，
+ * 但内容源是直接的字符串而不是 DOM 元素的 innerHTML。
+ *
+ * @param {string} content 要导出为图片的纯文本内容。
+ */
 function exportContentDirectly(content) {
   let questionText = "未知问题";
   try {

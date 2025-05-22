@@ -1,6 +1,9 @@
 // chatbot-ui.js
 
-// 发送按钮事件
+/**
+ * 处理聊天机器人发送按钮的点击事件。
+ * 获取输入框内容，如果内容非空，则清空输入框并调用 `ChatbotCore.sendChatbotMessage` 发送消息。
+ */
 function handleChatbotSend() {
   const input = document.getElementById('chatbot-input');
   if (!input) return;
@@ -10,7 +13,11 @@ function handleChatbotSend() {
   window.ChatbotCore.sendChatbotMessage(val, updateChatbotUI);
 }
 
-// 预设问题点击
+/**
+ * 处理预设问题的点击事件 (UI层面封装)。
+ * 将预设问题填充到输入框，并调用 `handleChatbotSend` 发送。
+ * @param {string} q 预设问题文本。
+ */
 function handlePresetQuestion(q) {
   const input = document.getElementById('chatbot-input');
   if (!input) return;
@@ -18,7 +25,36 @@ function handlePresetQuestion(q) {
   handleChatbotSend();
 }
 
-// 更新 Chatbot UI
+/**
+ * 更新聊天机器人界面的核心函数。
+ * 根据 `window.isChatbotOpen` 状态控制聊天窗口 (modal) 和浮动按钮 (fab) 的显隐。
+ * 动态渲染聊天消息列表、预设问题、以及自定义模型的模型选择器（如果适用）。
+ *
+ * 主要逻辑：
+ * 1. **显隐控制**：根据 `isChatbotOpen` 控制 modal 和 fab 的 `display` 样式。
+ * 2. **模型信息获取**：调用 `ChatbotCore.getChatbotConfig` 获取当前模型配置，判断是否为自定义模型 (`isCustomModel`)，并获取可用模型列表 (`availableModels`)。
+ * 3. **齿轮按钮与模型选择模式** (`window.isModelSelectorOpen`)：
+ *    - 如果是自定义模型，则显示一个齿轮按钮，点击可进入模型选择模式。
+ *    - 如果进入模型选择模式 (`isModelSelectorOpen` 为 true)：
+ *      - 构建并显示模型选择界面 (`chatbot-model-selector`)，包含一个下拉列表供用户选择模型。
+ *      - 从 `availableModels` 或 `localStorage.availableCustomModels` 加载模型列表。
+ *      - 默认选中 `settings.selectedCustomModelId` 或 `localStorage.lastSelectedCustomModel` 或列表中的第一个模型。
+ *      - 监听下拉框的 `onchange` 事件，将选择的模型 ID 保存到 `localStorage.lastSelectedCustomModel` 和主设置中。
+ *      - 提供"返回"按钮，点击后退出模型选择模式，恢复聊天界面。
+ *      - 在模型选择模式下，隐藏预设问题和聊天内容区域。
+ * 4. **聊天消息渲染**：
+ *    - 遍历 `ChatbotCore.chatHistory` 数组。
+ *    - 根据消息的 `role` ('user', 'assistant', 'segment-summary', 'final-summary') 和特性 (`hasMindMap`) 渲染不同的 HTML 结构。
+ *    - 用户消息靠右显示，助手消息靠左显示。
+ *    - 助手消息支持 Markdown 解析 (使用 `marked.js` 和 `katex`，带回退机制) 和代码高亮。
+ *    - 如果消息包含思维导图 (`hasMindMap`)，则渲染一个模糊的思维导图预览 (`renderMindmapShadow`) 和一个"放大查看/编辑"按钮。
+ *    - 助手消息为空（流式思考中）时，显示"思考中..."提示。
+ *    - 为每条助手消息添加复制内容和导出为PNG的按钮。
+ *    - 如果 `ChatbotCore.isChatbotLoading` 为 true，显示打字动画加载指示器。
+ *    - 添加 CSS 样式美化 Markdown 内容。
+ *    - 自动滚动聊天区域到底部。
+ * 5. **输入框与发送按钮状态更新**：根据 `ChatbotCore.isChatbotLoading` 状态启用/禁用输入框和发送按钮。
+ */
 function updateChatbotUI() {
   const modal = document.getElementById('chatbot-modal');
   const fab = document.getElementById('chatbot-fab');
@@ -302,7 +338,29 @@ function updateChatbotUI() {
   }
 }
 
-// 初始化 Chatbot 浮动按钮和弹窗
+/**
+ * 初始化聊天机器人浮动按钮 (FAB) 和主弹窗 (Modal) 的 UI。
+ * 如果对应的 DOM 元素不存在，则创建并添加到 `document.body`。
+ * 设置 FAB 的点击事件以打开聊天弹窗，设置弹窗关闭按钮的事件以关闭弹窗。
+ * 调用 `updateChatbotUI` 进行首次渲染。
+ *
+ * 主要步骤：
+ * 1. **FAB 初始化**：
+ *    - 检查 `chatbot-fab` 是否存在，不存在则创建。
+ *    - 设置 FAB 的样式、图标和交互效果 (鼠标悬浮放大)。
+ *    - 绑定 `onclick` 事件，设置为 `window.isChatbotOpen = true` 并调用 `updateChatbotUI`。
+ * 2. **Modal 初始化**：
+ *    - 检查 `chatbot-modal` 是否存在，不存在则创建。
+ *    - 设置 Modal 的基本样式、结构 (包含头部、预设问题区、聊天内容区、输入区)。
+ *    - 头部包含标题和关闭按钮。
+ *    - 预设问题区通过 `window.ChatbotPreset.PRESET_QUESTIONS` (带兜底) 动态生成按钮。
+ *    - 输入区包含文本输入框和发送按钮。
+ *    - 底部包含免责声明。
+ *    - 添加响应式样式，适配小屏幕设备。
+ *    - 添加暗黑模式样式。
+ * 3. **关闭按钮事件**：为 `chatbot-close-btn` 绑定 `onclick` 事件，设置为 `window.isChatbotOpen = false` 并调用 `updateChatbotUI`。
+ * 4. **初始UI更新**：调用 `updateChatbotUI`。
+ */
 function initChatbotUI() {
   let fab = document.getElementById('chatbot-fab');
   if (!fab) {
@@ -445,6 +503,28 @@ if (document.readyState === 'loading') {
   initChatbotUI();
 }
 
+/**
+ * 根据 Markdown 文本生成思维导图的静态 HTML 预览 (虚影效果)。
+ * 主要用于在聊天界面快速展示思维导图的结构概览。
+ *
+ * 实现逻辑：
+ * 1. **解析 Markdown 为树结构 (`parseTree`)**：
+ *    - 按行分割 Markdown 文本。
+ *    - 识别 `#` (一级)、`##` (二级)、`###` (三级) 标题，构建层级关系。
+ *    - 返回一个包含 `text` 和 `children` 属性的树状对象。
+ * 2. **递归渲染树节点 (`renderNode`)**：
+ *    - 接受节点对象、当前层级和是否为最后一个兄弟节点的标记。
+ *    - 为不同层级的节点应用不同的背景色、圆点颜色和字体样式，以区分层级。
+ *    - 使用绝对定位和相对定位创建连接线和层级缩进的视觉效果。
+ *    - 递归渲染子节点。
+ * 3. **调用与返回**：
+ *    - 调用 `parseTree` 解析传入的 `md` 文本。
+ *    - 调用 `renderNode` 渲染根节点。
+ *    - 如果生成的 HTML 为空或解析失败，返回一个提示"暂无结构化内容"的 div。
+ *
+ * @param {string} md Markdown 格式的思维导图文本。
+ * @returns {string} 生成的思维导图预览 HTML 字符串。
+ */
 function renderMindmapShadow(md) {
   // 解析 markdown 为树结构
   function parseTree(md) {
@@ -505,7 +585,11 @@ function renderMindmapShadow(md) {
   return html || '<div style=\"color:#94a3b8;opacity:0.5;\">暂无结构化内容</div>';
 }
 
-// 新增：助手强制弹出模型选择界面
+/**
+ * 全局函数，用于强制聊天机器人界面弹出（或切换到）模型选择器。
+ * 当需要用户在进行下一步操作前必须选择一个模型时调用。
+ * 它会设置 `window.isModelSelectorOpen = true` 并调用 `ChatbotUI.updateChatbotUI` 来刷新界面。
+ */
 window.showModelSelectorForChatbot = function() {
   window.isModelSelectorOpen = true;
   if (typeof window.ChatbotUI === 'object' && typeof window.ChatbotUI.updateChatbotUI === 'function') {

@@ -1,6 +1,25 @@
 // process/translation.js
 
 // 辅助函数：构建预定义 API 配置
+/**
+ * 为预定义的翻译模型构建 API 请求配置。
+ * 此函数接收一个基础的 API 配置对象 (`apiConfig`) 和 API 密钥 (`key`)，
+ * 然后根据模型名称（从 `apiConfig.modelName` 中提取并转换为小写）来设置特定的认证头部。
+ *
+ * 主要逻辑：
+ * 1. **配置浅拷贝**：创建 `apiConfig` 和 `apiConfig.headers` 的浅拷贝，以避免修改原始对象。
+ * 2. **认证头部设置**：
+ *    - 将 `config.modelName` 转为小写进行比较。
+ *    - 如果模型名称包含 "claude"，则在头部设置 `x-api-key`。
+ *    - 如果模型名称包含 "gemini"，则将 API 密钥作为查询参数 `key` 追加到端点 URL。
+ *      它会正确处理端点 URL 中可能已存在的查询参数。
+ *    - 对于其他模型（如 Mistral, DeepSeek 等），默认在头部设置 `Authorization: Bearer {key}`。
+ * 3. **返回配置**：返回更新后的配置对象。
+ *
+ * @param {Object} apiConfig - 预定义模型的初始配置对象，通常包含 `endpoint`, `modelName`, `headers`, `bodyBuilder`, `responseExtractor`。
+ * @param {string} key - 用于认证的 API 密钥。
+ * @returns {Object} 添加了认证头部（或更新了端点）的完整 API 配置对象。
+ */
 function buildPredefinedApiConfig(apiConfig, key) {
     const config = { ...apiConfig }; // 浅拷贝
     config.headers = { ...config.headers }; // 浅拷贝 headers
@@ -21,6 +40,36 @@ function buildPredefinedApiConfig(apiConfig, key) {
 }
 
 // 辅助函数：构建自定义 API 配置
+/**
+ * 为用户自定义的翻译模型构建 API 请求配置。
+ * 此函数根据用户提供的基础 URL、模型 ID、请求格式、密钥以及可选的温度和最大 token 数，
+ * 生成一个完整的、可用于调用自定义翻译 API 的配置对象。
+ *
+ * 主要逻辑：
+ * 1. **基础 URL 处理**：
+ *    - 移除 `baseApiUrlInput` 末尾可能存在的斜杠 `/`。
+ * 2. **端点构建**：
+ *    - `finalApiEndpoint` 初始化为处理后的 `baseApiUrl`。
+ *    - 定义一个常见的 OpenAI 兼容路径后缀 `commonPathSuffix` (即 `/v1/chat/completions`)。
+ *    - **特殊处理 Gemini**：如果 `customRequestFormat` 是 'gemini' 或 'gemini-preview'，则不追加通用后缀，因为 Gemini 的端点结构不同，通常由用户提供更完整的路径，并且 API 密钥会作为查询参数添加。
+ *    - **通用后缀追加**：对于非 Gemini 格式，如果 `baseApiUrl` 尚未包含 `/v1/chat/completions` 或 `/v1/messages` (针对 Anthropic 类接口的简单检查)，则将 `commonPathSuffix` 追加到 `baseApiUrl`。
+ * 3. **初始化配置对象**：创建包含 `endpoint`, `modelName`, `headers` (默认 `Content-Type: application/json`), `bodyBuilder`, 和 `responseExtractor` 的 `config` 对象。
+ * 4. **根据 `customRequestFormat` 配置特定部分**：
+ *    - **'openai'**：设置 `Authorization: Bearer {key}` 头部；定义 `bodyBuilder` 以构建 OpenAI 格式的消息体；定义 `responseExtractor` 以从响应中提取 `choices[0].message.content`。
+ *    - **'anthropic'**：设置 `x-api-key: {key}` 和 `anthropic-version: 2023-06-01` 头部；定义 `bodyBuilder` 以构建 Anthropic 格式的消息体（包含 `system` prompt 和 `messages` 数组）；定义 `responseExtractor` 以提取 `content[0].text`。
+ *      - *注意*：对于 Anthropic，如果用户提供的 `baseApiUrl` 比较基础（如 `https://api.anthropic.com`），并且未被自动追加 OpenAI 的后缀，则可能需要用户提供更完整的路径（如包含 `/v1/messages`）。
+ *    - **'gemini' / 'gemini-preview'**：将 API 密钥作为查询参数 `?key={key}` 追加到 `finalApiEndpoint`；定义 `bodyBuilder` 以构建 Gemini 的 `contents` 结构 (将系统提示和用户提示合并到用户角色的 `parts` 中) 和 `generationConfig`；定义 `responseExtractor` 以提取 `candidates[0].content.parts[0].text`。
+ *    - **default (回退)**：如果 `customRequestFormat` 不被显式支持，则默认按 OpenAI 兼容格式处理，并打印警告。设置 `Authorization` 头部，并使用 OpenAI 类似的 `bodyBuilder` 和 `responseExtractor`。
+ * 5. **返回配置**：返回构建好的 `config` 对象。
+ *
+ * @param {string} key - API 密钥。
+ * @param {string} baseApiUrlInput - 用户提供的 API 基础 URL (例如 `https://api.example.com` 或 `https://api.gemini.example/v1beta/models/gemini-pro:generateContent`)。
+ * @param {string} customModelId - 用户指定的模型 ID (例如 `gpt-3.5-turbo`, `claude-2`, `gemini-pro`)。
+ * @param {string} customRequestFormat - 请求体和响应体的格式类型 (如 'openai', 'anthropic', 'gemini')。
+ * @param {number} [temperature] - (可选) 模型生成时的温度参数。
+ * @param {number} [max_tokens] - (可选) 模型生成的最大 token 数。
+ * @returns {Object} 构建好的 API 配置对象，包含 `endpoint`, `modelName`, `headers`, `bodyBuilder`, `responseExtractor`。
+ */
 function buildCustomApiConfig(key, baseApiUrlInput, customModelId, customRequestFormat, temperature, max_tokens) {
     let baseApiUrl = baseApiUrlInput.trim();
     if (baseApiUrl.endsWith('/')) {
@@ -112,25 +161,59 @@ function buildCustomApiConfig(key, baseApiUrlInput, customModelId, customRequest
 }
 
 /**
- * 翻译单个 Markdown 块
- * @param {string} markdown - 待翻译的 Markdown 文本
- * @param {string} targetLang - 目标语言
- * @param {string} model - 翻译模型
- * @param {string} apiKey - 翻译 API Key
- * @param {string} logContext - 日志前缀
- * @param {string} defaultSystemPrompt - 系统提示
- * @param {string} defaultUserPromptTemplate - 用户提示模板
- * @param {boolean} useCustomPrompts - 是否使用自定义提示
- * @param {boolean} processTablePlaceholders - 是否处理表格占位符（默认为true）
- * @returns {Promise<string>} 翻译后的文本
+ * 翻译单个 Markdown 文本块，支持预定义模型和自定义模型，并可选择性处理内嵌的表格占位符。
  *
- * 注意：如需传递自定义模型配置（modelConfig），只能通过 arguments[4] 传递，
- * 不要在参数列表中直接传递 modelConfig，否则会导致参数错位！
+ * 主要步骤：
+ * 1. **参数处理与兼容性**：
+ *    - 由于函数签名在支持自定义模型配置 (`modelConfig`) 时变得复杂，通过检查 `arguments` 来正确解析传入的参数，
+ *      特别是当 `model` 为 "custom" 时，`modelConfigForCustom` 从 `arguments[4]` 获取，后续参数依次顺延。
+ * 2. **表格预处理** (如果 `actualProcessTablePlaceholders` 为 true 且 `protectMarkdownTables` 函数可用)：
+ *    - 调用 `protectMarkdownTables` 将 Markdown 中的表格替换为占位符 (如 `__TABLE_PLACEHOLDER_0__`)。
+ *    - 存储原始表格内容在 `tablePlaceholders` 中。
+ *    - 如果检测到表格，则在系统提示中追加说明，告知模型如何处理这些占位符（即保持不变）。
+ * 3. **构建 Prompt**：
+ *    - 初始化 `systemPrompt` 和 `userPrompt`。
+ *    - 如果使用了表格保护，则向 `systemPrompt` 追加关于如何处理表格占位符的指示。
+ *    - 如果未使用自定义提示 (`!actualUseCustomPrompts`) 或者自定义提示为空，则调用 `getBuiltInPrompts` (如果可用) 获取内置的针对目标语言的提示模板，否则使用非常基础的兜底提示。
+ *    - **替换模板变量**：在最终的 `userPrompt` 中，将 `${targetLangName}` 替换为实际的目标语言名称，将 `${content}` 替换为经过表格预处理的文本 (`processedText`)。
+ *    - *警告检查*：如果最终的 `userPrompt` 未包含 `processedText`，则打印警告，因为模型可能无法接收到待翻译内容。
+ * 4. **构建 API 配置 (`apiConfig`)**：
+ *    - 如果 `model` 是 "custom"：
+ *      - 检查 `modelConfigForCustom` 是否有效（包含端点和模型 ID）。
+ *      - 调用 `buildCustomApiConfig` 生成配置。
+ *    - 否则（预定义模型）：
+ *      - 从全局设置 (`loadSettings`) 中获取温度和最大 token 数等参数。
+ *      - 定义一个包含各预设模型（如 'deepseek', 'gemini', 'mistral', 'tongyi-...', 'volcano-...'）详细配置的 `predefinedConfigs` 对象。
+ *        每个模型的配置包括 `endpoint`, `modelName`, `headers`, `bodyBuilder`, `responseExtractor`。
+ *      - 检查选定的 `model` 是否在 `predefinedConfigs` 中，如果不在则抛出错误。
+ *      - 调用 `buildPredefinedApiConfig` 生成配置。
+ * 5. **构建请求体 (`requestBody`)**：
+ *    - 使用 `apiConfig.bodyBuilder` (如果存在) 并传入 `systemPrompt` 和 `userPrompt` 来构建请求体。
+ *    - 如果 `bodyBuilder` 不存在，则构建一个通用的包含 `model` 和 `messages` (system + user) 的请求体。
+ * 6. **调用翻译 API**：
+ *    - 调用 `callTranslationApi` (应为实际的 fetch 调用封装) 并传入 `apiConfig` 和 `requestBody`，获取翻译结果 `result`。
+ * 7. **表格后处理** (如果之前进行了表格保护且 `actualProcessTablePlaceholders` 为 true 且 `extractTableFromTranslation` 函数可用)：
+ *    - **逐个翻译表格内容**：
+ *      - 遍历 `tablePlaceholders` 中的每个原始表格。
+ *      - 为每个表格构建特定的翻译提示（强调保持结构，仅翻译文本）。
+ *      - 再次调用 `callTranslationApi` 翻译该表格。
+ *      - 使用 `extractTableFromTranslation` 从翻译结果中提取纯净的表格 Markdown。
+ *      - 在主翻译结果 `finalResult` (初始为 `result`) 中，用翻译后的表格替换其占位符。
+ *      - 如果表格翻译或提取失败，则用原始表格替换占位符作为兜底。
+ *    - 返回包含已翻译并恢复表格的 `finalResult`。
+ * 8. **直接返回结果**：如果未进行表格处理，则直接返回步骤 6 中得到的 `result`。
  *
- * 正确调用方式：
- *   translateMarkdown(md, lang, model, key, logPrefix, sysPrompt, userPrompt, useCustom, processTable)
- *   // 如需传递 modelConfig（仅 custom 模型时）：
- *   translateMarkdown(md, lang, 'custom', key, modelConfig, logPrefix, sysPrompt, userPrompt, useCustom, processTable)
+ * @param {string} markdown - 待翻译的 Markdown 文本块。
+ * @param {string} targetLang - 目标翻译语言代码 (如 'zh-CN', 'en')。
+ * @param {string} model - 使用的翻译模型名称 (如 'mistral', 'custom', 'deepseek')。
+ * @param {string} apiKey - 对应翻译模型的 API 密钥。
+ * @param {string} [logContext=""] - (或 `modelConfig` 当 `model`='custom') 日志记录的上下文前缀。如果 `model` 为 "custom"，此位置应为 `modelConfig` 对象，后续参数顺延。
+ * @param {string} [defaultSystemPrompt=""] - (顺延参数) 翻译时使用的默认系统提示词。
+ * @param {string} [defaultUserPromptTemplate=""] - (顺延参数) 翻译时使用的默认用户提示词模板 (应包含 `${content}` 和 `${targetLangName}` 占位符)。
+ * @param {boolean} [useCustomPrompts=false] - (顺延参数) 是否使用用户自定义的提示词。
+ * @param {boolean} [processTablePlaceholders=true] - (顺延参数) 是否对文本中的 Markdown 表格进行占位符保护和独立翻译处理。
+ * @returns {Promise<string>} 翻译后的 Markdown 文本块。如果处理了表格，则表格内容也会被翻译并恢复到文本中。
+ * @throws {Error} 如果模型名称不支持、自定义模型配置不完整，或在API调用过程中发生不可恢复的错误。
  */
 async function translateMarkdown(
     markdown,

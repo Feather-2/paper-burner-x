@@ -1,21 +1,65 @@
 // process/main.js
 
 /**
- * 处理单个 PDF 文件，包含 OCR、图片提取、分段翻译、错误处理、清理等完整流程
- * @param {File} fileToProcess - 待处理的 PDF 文件对象
- * @param {Object | null} mistralKeyObject - Mistral API Key 对象 {id, value} 或 null
- * @param {Object | null} translationKeyObject - 翻译 API Key 对象 {id, value} 或 null
- * @param {string} selectedTranslationModelName - 选定的翻译模型名称 (e.g., 'deepseek', 'custom', 'none')
- * @param {Object | null} translationModelConfig - 选定翻译模型的配置对象 (对custom模型尤其重要)
- * @param {number} maxTokensPerChunkValue - 每段最大 token 数
- * @param {string} targetLanguageValue - 目标语言
- * @param {function} acquireSlot - 获取并发槽函数
- * @param {function} releaseSlot - 释放并发槽函数
- * @param {string} defaultSystemPromptSetting - 默认系统提示
- * @param {string} defaultUserPromptTemplateSetting - 默认用户提示模板
- * @param {boolean} useCustomPromptsSetting - 是否使用自定义提示 (app.js中新增)
- * @param {function} onFileSuccess - 文件处理成功后的回调函数
- * @returns {Promise<Object>} 处理结果对象, 可能包含 keyInvalid 属性
+ * 处理单个 PDF 文件或 Markdown/TXT 文件的核心函数。
+ * 该函数封装了从文件上传、OCR（如果需要）、内容提取、分段翻译（如果需要）、
+ * 错误处理到结果保存的完整流程。
+ *
+ * 主要流程：
+ * 1. **初始化与日志**：
+ *    - 记录文件处理开始的日志，包括文件名、类型和使用的 API Key 信息（部分屏蔽）。
+ * 2. **文件类型判断与内容提取**：
+ *    - **PDF 文件**：
+ *      - 检查 Mistral API Key 是否提供，未提供则抛出错误。
+ *      - 调用 `uploadToMistral` 上传文件。
+ *      - 调用 `getMistralSignedUrl` 获取签名 URL。
+ *      - 调用 `callMistralOcr` 进行 OCR 处理。
+ *      - 调用 `processOcrResults` (如果可用) 处理 OCR 结果，提取 Markdown 内容和图片数据。
+ *      - 捕获 OCR 过程中的错误，特别是 API Key 失效的错误 (如401)，如果发生则返回特定错误对象，以便上层进行 Key 失效处理。
+ *    - **MD/TXT 文件**：
+ *      - 直接读取文件文本内容作为 Markdown 内容，图片数据为空。
+ *      - 捕获文件读取错误。
+ *    - **不支持的文件类型**：抛出错误。
+ * 3. **翻译流程** (如果 `selectedTranslationModelName` 不是 'none')：
+ *    - 检查翻译 API Key 是否提供，未提供则记录警告，翻译内容标记为未翻译。
+ *    - **估算 Token 数与分段判断**：
+ *      - 使用 `estimateTokenCount` (如果可用) 估算 Markdown 内容的 token 数。
+ *      - 如果 token 数超过 `tokenLimit * 1.1`，则判断为长文档，调用 `translateLongDocument` (如果可用) 进行分段翻译。
+ *        `translateLongDocument` 内部会处理表格保护、并发控制、自定义模型配置和重试逻辑。
+ *      - 否则，判断为短文档，直接调用 `translateMarkdown` (如果可用) 进行单块翻译。
+ *        在调用 `translateMarkdown` 前后通过 `acquireSlot` 和 `releaseSlot` 控制并发。
+ *    - **错误处理**：
+ *      - 捕获翻译过程中的错误，特别是 API Key 失效的错误。如果发生，返回特定错误对象以便上层处理。
+ *      - 其他翻译错误，则将翻译内容标记为失败，但保留 OCR 结果（如果成功）。
+ * 4. **结果保存**：
+ *    - 调用 `saveResultToDB` (如果可用) 将处理结果（包括原文、译文、图片、分块信息）保存到 IndexedDB。
+ * 5. **成功回调**：
+ *    - 调用 `onFileSuccess` 回调函数，通知上层该文件处理成功。
+ * 6. **返回结果对象**：
+ *    - 返回一个包含处理结果的对象，包括 `file`, `markdown`, `translation`, `images`, `ocrChunks`, `translatedChunks` 和 `error` (成功时为 `null`)。
+ *    - 如果发生可识别的 Key 失效，`keyInvalid` 字段会被设置。
+ * 7. **异常捕获 (Final Catch)**：
+ *    - 捕获整个流程中未被特定逻辑捕获的严重错误，记录日志，并返回包含错误信息的对象。
+ * 8. **资源清理 (Finally Block)**：
+ *    - 如果是 PDF 文件且成功上传到 Mistral，则调用 `deleteMistralFile` 清理在 Mistral 服务器上的临时文件。
+ *    - 捕获并记录清理过程中的潜在错误。
+ *
+ * @param {File} fileToProcess - 待处理的 PDF、Markdown 或 TXT 文件对象。
+ * @param {Object | null} mistralKeyObject - Mistral API Key 对象，包含 `id` 和 `value`，或为 `null`。
+ * @param {Object | null} translationKeyObject - 选定翻译模型对应的 API Key 对象，包含 `id` 和 `value`，或为 `null`。
+ * @param {string} selectedTranslationModelName - 选定的翻译模型名称 (如 'deepseek', 'custom', 'none')。
+ * @param {Object | null} translationModelConfig - 当 `selectedTranslationModelName` 为 'custom' 时，提供自定义模型的配置对象。
+ * @param {number} maxTokensPerChunkValue - (用于长文档翻译) 每个翻译分块的最大 token 限制。
+ * @param {string} targetLanguageValue - 目标翻译语言代码 (如 'zh-CN', 'en')。
+ * @param {function} acquireSlot - 用于获取并发执行槽位的函数。
+ * @param {function} releaseSlot - 用于释放并发执行槽位的函数。
+ * @param {string} defaultSystemPromptSetting - 翻译时使用的默认系统提示词。
+ * @param {string} defaultUserPromptTemplateSetting - 翻译时使用的默认用户提示词模板。
+ * @param {boolean} useCustomPromptsSetting - 是否使用用户自定义的提示词。
+ * @param {function} onFileSuccess - 单个文件处理成功后的回调函数，参数为成功处理的 `File` 对象。
+ * @returns {Promise<Object>} 一个包含处理结果的对象。成功时结构如：
+ *   `{ file, markdown, translation, images, ocrChunks, translatedChunks, error: null }`。
+ *   失败或 Key 失效时，`error` 字段会有错误信息，`keyInvalid` 字段可能被设置。
  */
 async function processSinglePdf(
     fileToProcess,
@@ -187,16 +231,30 @@ async function processSinglePdf(
                             //});
                             //console.log('main.js/document.js 实际传递的 defaultUserPromptTemplateSetting:', defaultUserPromptTemplateSetting);
                             //console.log('main.js/document.js 实际传递的 defaultSystemPromptSetting:', defaultSystemPromptSetting);
-                            currentTranslationContent = await translateMarkdown(
-                                currentMarkdownContent,
-                                targetLanguageValue,
-                                selectedTranslationModelName,
-                                translationKeyValue,
-                                logPrefix,
-                                defaultSystemPromptSetting,
-                                defaultUserPromptTemplateSetting,
-                                useCustomPromptsSetting
-                            );
+                            if (selectedTranslationModelName === 'custom') {
+                                currentTranslationContent = await translateMarkdown(
+                                    currentMarkdownContent,
+                                    targetLanguageValue,
+                                    selectedTranslationModelName,
+                                    translationKeyValue,
+                                    translationModelConfig,
+                                    logPrefix,
+                                    defaultSystemPromptSetting,
+                                    defaultUserPromptTemplateSetting,
+                                    useCustomPromptsSetting
+                                );
+                            } else {
+                                currentTranslationContent = await translateMarkdown(
+                                    currentMarkdownContent,
+                                    targetLanguageValue,
+                                    selectedTranslationModelName,
+                                    translationKeyValue,
+                                    logPrefix,
+                                    defaultSystemPromptSetting,
+                                    defaultUserPromptTemplateSetting,
+                                    useCustomPromptsSetting
+                                );
+                            }
                             //console.log('main.js translateMarkdown 返回:', currentTranslationContent);
                             ocrChunks = [currentMarkdownContent];
                             translatedChunks = [currentTranslationContent];
@@ -262,6 +320,7 @@ async function processSinglePdf(
             error: null // 表示此文件处理成功（即使翻译部分可能仅标记了错误）
         };
 
+
     } catch (error) { // 捕获OCR流程中的致命错误，或其他未被特定keyInvalid逻辑捕获的错误
         console.error(`${logPrefix} 处理文件时发生严重错误:`, error);
         if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 严重错误: ${error.message}`);
@@ -287,7 +346,23 @@ async function processSinglePdf(
     }
 }
 
+console.log('main.js: Checking before assignment...');
+console.log('main.js: typeof processModule:', typeof processModule);
+if (typeof processModule !== 'undefined') {
+    console.log('main.js: processModule object keys:', Object.keys(processModule));
+}
+console.log('main.js: typeof processSinglePdf (the function):', typeof processSinglePdf);
+console.log('main.js: Is processSinglePdf a function?', processSinglePdf instanceof Function);
+
+
 // 将函数添加到processModule对象
 if (typeof processModule !== 'undefined') {
+    console.log('main.js: Attempting to assign processSinglePdf to processModule...');
     processModule.processSinglePdf = processSinglePdf;
+    console.log('main.js: Assignment done. typeof processModule.processSinglePdf:', typeof processModule.processSinglePdf);
+    if (processModule.processSinglePdf === null) {
+        console.warn('main.js: processModule.processSinglePdf is NULL immediately after assignment!');
+    }
+} else {
+    console.warn('main.js: processModule is undefined at the point of assignment.');
 }
