@@ -196,16 +196,26 @@ function processExport(messageElement) {
 function exportContentDirectly(content) {
   let questionText = "未知问题";
   try {
-    for (let i = window.ChatbotCore.chatHistory.length - 2; i >= 0; i--) {
-      if (window.ChatbotCore.chatHistory[i].role === 'user') {
-        questionText = window.ChatbotCore.chatHistory[i].content;
+    // Try to find the last user question in history to associate with this content
+    const history = window.ChatbotCore && window.ChatbotCore.chatHistory ? window.ChatbotCore.chatHistory : [];
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].role === 'user' && history[i+1] && history[i+1].content === content) {
+        questionText = history[i].content;
         if (questionText.length > 60) {
+          questionText = questionText.substring(0, 57) + '...';
+        }
+        break;
+      } else if (history[i].role === 'user' && i === history.length -2) { // Fallback if current content is the last one
+        questionText = history[i].content;
+         if (questionText.length > 60) {
           questionText = questionText.substring(0, 57) + '...';
         }
         break;
       }
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error("Error finding question for direct export:", e);
+  }
   const exportContainer = document.createElement('div');
   exportContainer.style.position = 'absolute';
   exportContainer.style.left = '-9999px';
@@ -231,6 +241,12 @@ function exportContentDirectly(content) {
   watermark.style.opacity = '0.4';
   watermark.textContent = 'Created with Paper Burner';
   const contentContainer = document.createElement('div');
+  // For direct content, we should escape it before setting textContent if it might contain HTML
+  // However, if the 'content' is already supposed to be plain text, textContent is fine.
+  // If 'content' is markdown that was rendered to HTML, we'd need a different approach
+  // Assuming 'content' here is mostly plain text or pre-formatted for display.
+  contentContainer.style.whiteSpace = 'pre-wrap'; // Preserve line breaks
+  contentContainer.style.wordBreak = 'break-word';
   contentContainer.textContent = content;
   exportContainer.appendChild(docTitle);
   exportContainer.appendChild(contentContainer);
@@ -260,11 +276,153 @@ function exportContentDirectly(content) {
   });
 }
 
+/**
+ * 根据 Markdown 文本生成思维导图的静态 HTML 预览 (虚影效果)。
+ * 主要用于在聊天界面快速展示思维导图的结构概览。
+ *
+ * 实现逻辑：
+ * 1. **解析 Markdown 为树结构 (`parseTree`)**：
+ *    - 按行分割 Markdown 文本。
+ *    - 识别 `#` (一级)、`##` (二级)、`###` (三级) 标题，构建层级关系。
+ *    - 返回一个包含 `text` 和 `children` 属性的树状对象。
+ * 2. **递归渲染树节点 (`renderNode`)**：
+ *    - 接受节点对象、当前层级和是否为最后一个兄弟节点的标记。
+ *    - 为不同层级的节点应用不同的背景色、圆点颜色和字体样式，以区分层级。
+ *    - 使用绝对定位和相对定位创建连接线和层级缩进的视觉效果。
+ *    - 递归渲染子节点。
+ * 3. **调用与返回**：
+ *    - 调用 `parseTree` 解析传入的 `md` 文本。
+ *    - 调用 `renderNode` 渲染根节点。
+ *    - 如果生成的 HTML 为空或解析失败，返回一个提示"暂无结构化内容"的 div。
+ *
+ * @param {string} md Markdown 格式的思维导图文本。
+ * @returns {string} 生成的思维导图预览 HTML 字符串。
+ */
+function renderMindmapShadow(md) {
+  // 解析 markdown 为树结构
+  function parseTree(md) {
+    const lines = md.split(/\r?\n/).filter(l => l.trim());
+    const root = { text: '', children: [] };
+    let last1 = null, last2 = null;
+    lines.forEach(line => {
+      let m1 = line.match(/^# (.+)/);
+      let m2 = line.match(/^## (.+)/);
+      let m3 = line.match(/^### (.+)/);
+      if (m1) {
+        last1 = { text: m1[1], children: [] };
+        root.children.push(last1);
+        last2 = null;
+      } else if (m2 && last1) {
+        last2 = { text: m2[1], children: [] };
+        last1.children.push(last2);
+      } else if (m3 && last2) {
+        last2.children.push({ text: m3[1], children: [] });
+      }
+    });
+    return root;
+  }
+  // 递归渲染树状结构
+  function renderNode(node, level = 0, isLast = true) {
+    if (!node.text && node.children.length === 0) return '';
+    if (!node.text) {
+      // 根节点
+      return `<div class=\"mindmap-shadow-root\">${node.children.map((c,i,a)=>renderNode(c,0,i===a.length-1)).join('')}</div>`;
+    }
+    // 节点样式
+    const colors = [
+      'rgba(59,130,246,0.13)', // 主节点
+      'rgba(59,130,246,0.09)', // 二级
+      'rgba(59,130,246,0.06)'  // 三级
+    ];
+    const dotColors = [
+      'rgba(59,130,246,0.35)',
+      'rgba(59,130,246,0.22)',
+      'rgba(59,130,246,0.15)'
+    ];
+    let html = `<div class=\"mindmap-shadow-node level${level}\" style=\"position:relative;margin-left:${level*28}px;padding:3px 8px 3px 12px;background:${colors[level]||colors[2]};border-radius:8px;min-width:60px;max-width:260px;margin-bottom:2px;opacity:0.7;border:1px dashed rgba(59,130,246,0.2);\">`;
+    // 圆点
+    html += `<span style=\"position:absolute;left:-10px;top:50%;transform:translateY(-50%);width:7px;height:7px;border-radius:4px;background:${dotColors[level]||dotColors[2]};box-shadow:0 0 0 1px #e0e7ef;\"></span>`;
+    // 线条（如果不是根节点且不是最后一个兄弟）
+    if (level > 0) {
+      html += `<span style=\"position:absolute;left:-6px;top:0;height:100%;width:1.5px;background:linear-gradient(to bottom,rgba(59,130,246,0.10),rgba(59,130,246,0.03));z-index:0;\"></span>`;
+    }
+    // Use escapeHtml from the same utils file
+    html += `<span style=\"color:#2563eb;font-weight:${level===0?'bold':'normal'};font-size:${level===0?'1.08em':'1em'};\">${escapeHtml(node.text)}</span>`;
+    if (node.children && node.children.length > 0) {
+      html += `<div class=\"mindmap-shadow-children\" style=\"margin-top:4px;\">${node.children.map((c,i,a)=>renderNode(c,level+1,i===a.length-1)).join('')}</div>`;
+    }
+    html += '</div>';
+    return html;
+  }
+  const tree = parseTree(md);
+  const html = renderNode(tree);
+  return html || '<div style=\"color:#94a3b8;opacity:0.5;\">暂无结构化内容</div>';
+}
+
+/**
+ * 压缩图片到目标大小和尺寸。
+ * @param {string} base64Src - Base64 编码的源图片数据。
+ * @param {number} targetSizeBytes - 目标文件大小（字节）。
+ * @param {number} maxDimension - 图片的最大宽度/高度。
+ * @param {number} initialQuality - 初始压缩质量 (0-1)。
+ * @returns {Promise<string>} - 压缩后的 Base64 图片数据。
+ */
+async function compressImage(base64Src, targetSizeBytes, maxDimension, initialQuality = 0.85) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let canvas = document.createElement('canvas');
+      let ctx = canvas.getContext('2d');
+      let width = img.width;
+      let height = img.height;
+
+      if (width > height) {
+        if (width > maxDimension) {
+          height = Math.round(height * (maxDimension / width));
+          width = maxDimension;
+        }
+      } else {
+        if (height > maxDimension) {
+          width = Math.round(width * (maxDimension / height));
+          height = maxDimension;
+        }
+      }
+      canvas.width = width;
+      canvas.height = height;
+      ctx.drawImage(img, 0, 0, width, height);
+
+      let quality = initialQuality;
+      let compressedBase64 = canvas.toDataURL('image/jpeg', quality);
+      let iterations = 0;
+      const maxIterations = 10; // Prevent infinite loop
+
+      // Iteratively reduce quality to meet size target (simplified)
+      while (compressedBase64.length * 0.75 > targetSizeBytes && quality > 0.1 && iterations < maxIterations) {
+        quality -= 0.1;
+        compressedBase64 = canvas.toDataURL('image/jpeg', Math.max(0.1, quality));
+        iterations++;
+      }
+
+      if (compressedBase64.length * 0.75 > targetSizeBytes && targetSizeBytes < 100 * 1024) { // if still too large for small targets, warn but proceed
+         console.warn(`Image compression for small target (${targetSizeBytes}B) resulted in ${Math.round(compressedBase64.length * 0.75 / 1024)}KB. Quality: ${quality.toFixed(2)}`);
+      }
+      resolve(compressedBase64);
+    };
+    img.onerror = (err) => {
+      console.error("Image loading error for compression:", err, base64Src.substring(0,100));
+      reject(new Error('无法加载图片进行压缩'));
+    };
+    img.src = base64Src;
+  });
+}
+
 window.ChatbotUtils = {
   escapeHtml,
   showToast,
   copyAssistantMessage,
   exportMessageAsPng,
   doExportAsPng,
-  exportContentDirectly
+  exportContentDirectly,
+  renderMindmapShadow,
+  compressImage
 };

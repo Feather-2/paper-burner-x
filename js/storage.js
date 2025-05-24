@@ -75,10 +75,15 @@ const DB_NAME = 'ResultDB';
  */
 const DB_STORE_NAME = 'results';
 /**
+ * @const {string} ANNOTATIONS_STORE_NAME
+ * @description IndexedDB 中用于存储高亮和批注的对象存储区的名称。
+ */
+const ANNOTATIONS_STORE_NAME = 'annotations';
+/**
  * @const {number} DB_VERSION
  * @description IndexedDB 数据库的版本号。更改此版本号会触发 `onupgradeneeded` 事件。
  */
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 // =====================
 // 本地存储相关工具函数
@@ -274,6 +279,11 @@ function openDB() {
             const db = e.target.result;
             if (!db.objectStoreNames.contains(DB_STORE_NAME)) {
                 db.createObjectStore(DB_STORE_NAME, { keyPath: 'id' });
+            }
+            // 新增：创建 annotations 对象存储区
+            if (!db.objectStoreNames.contains(ANNOTATIONS_STORE_NAME)) {
+                const annotationsStore = db.createObjectStore(ANNOTATIONS_STORE_NAME, { keyPath: 'id' });
+                annotationsStore.createIndex('docId', 'docId', { unique: false });
             }
         };
         req.onsuccess = function() { resolve(req.result); };
@@ -727,6 +737,73 @@ function deleteCustomSourceSite(sourceSiteId) {
             showNotification(`尝试删除不存在的源站 (ID: ${sourceSiteId})。`, "warning");
         }
     }
+}
+
+// ========== 新增：高亮与批注数据存储 ==========
+
+/**
+ * 将高亮/批注对象保存到 IndexedDB。
+ * @param {Object} annotation - 高亮/批注对象，应包含 id, docId 等属性。
+ * @returns {Promise<void>}
+ */
+async function saveAnnotationToDB(annotation) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(ANNOTATIONS_STORE_NAME, 'readwrite');
+        const store = tx.objectStore(ANNOTATIONS_STORE_NAME);
+        // 确保有 createdAt 和 updatedAt 时间戳
+        const now = new Date().toISOString();
+        annotation.createdAt = annotation.createdAt || now;
+        annotation.updatedAt = now;
+        store.put(annotation);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+    });
+}
+
+/**
+ * 根据文档 ID 从 IndexedDB 获取所有高亮/批注。
+ * @param {string} docId - 文档 ID。
+ * @returns {Promise<Array<Object>>} - 与该文档关联的高亮/批注对象数组。
+ */
+async function getAnnotationsForDocFromDB(docId) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(ANNOTATIONS_STORE_NAME, 'readonly');
+        const store = tx.objectStore(ANNOTATIONS_STORE_NAME);
+        const index = store.index('docId');
+        const request = index.getAll(docId);
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => reject(request.error);
+    });
+}
+
+/**
+ * 更新 IndexedDB 中的一个高亮/批注对象。
+ * (等同于保存，因为 put 会覆盖)
+ * @param {Object} annotation - 要更新的高亮/批注对象。
+ * @returns {Promise<void>}
+ */
+async function updateAnnotationInDB(annotation) {
+    // put 操作会覆盖已存在的记录（如果 key 相同），或者新增一条记录。
+    // 我们确保 updatedAt 时间戳被更新。
+    return saveAnnotationToDB(annotation);
+}
+
+/**
+ * 根据 ID 从 IndexedDB 删除一个高亮/批注。
+ * @param {string} annotationId - 要删除的高亮/批注的 ID。
+ * @returns {Promise<void>}
+ */
+async function deleteAnnotationFromDB(annotationId) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(ANNOTATIONS_STORE_NAME, 'readwrite');
+        const store = tx.objectStore(ANNOTATIONS_STORE_NAME);
+        const request = store.delete(annotationId);
+        request.onsuccess = resolve;
+        request.onerror = () => reject(request.error);
+    });
 }
 
 // --- 导出多模型配置和key存取方法 ---

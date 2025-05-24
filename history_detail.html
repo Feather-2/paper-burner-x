@@ -7,158 +7,372 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
   <link type="text/css" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsmind/style/jsmind.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <link rel="stylesheet" href="css/history_detail.css">
   <style>
-    /* ====================\n     * 页面基础与布局样式\n     * ==================== */
-    body { font-family: sans-serif; background: #f7f7fa; margin: 0; }
-    .container { max-width: 1200px; margin: 40px auto; background: #fff; border-radius: 12px; border: 2px dashed #e2e8f0; padding: 32px; }
+    /* NEW DOCK STYLES */
+    #bottom-left-dock {
+      position: fixed;
+      bottom: 15px;
+      left: 15px;
+      background-color: rgba(255, 255, 255, 0.95); /* UPDATED for more distinct white background */
+      border: 1px dashed #94a3b8; /* Keep this border, good for white background */
+      color: #334155; /* Keep this text color */
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      z-index: 2000;
+      opacity: 0;
+      transition: opacity 0.4s ease-in-out, transform 0.2s ease-out, padding 0.2s ease-out, min-width 0.2s ease-out, height 0.2s ease-out;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05); /* UPDATED */
+      transform: translateY(10px);
+      min-width: 30px;
+      height: auto;
+    }
 
-    /* ====================\n     * 标签页导航样式\n     * ==================== */
-    .tabs-container { border-bottom: 2px solid #e2e8f0; margin-bottom: 16px; display: flex; }
-    .tab-btn {
-      padding: 8px 24px;
-      background: transparent;
-      margin-right: 4px;
-      border-radius: 6px 6px 0 0;
+    /* TOC 模式选择器样式 */
+    .toc-mode-selector {
+      display: flex;
+      gap: 5px;
+      margin: 8px 0;
+      padding: 5px;
+      background-color: #f5f7fa;
+      border-radius: 4px;
+      justify-content: center;
+    }
+
+    .toc-mode-btn {
+      padding: 4px 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background-color: #fff;
       cursor: pointer;
-      font-size: 1rem;
-      border: 2px solid transparent;
-      border-bottom: none;
-      position: relative;
-      bottom: -2px;
+      font-size: 12px;
       transition: all 0.2s ease;
     }
-    .tab-btn:hover:not(.active) {
-      background: #f1f5f9;
-    }
-    .tab-btn.active {
-      background: #fff;
-      color: #2563eb;
-      border-color: #e2e8f0;
-      border-bottom: 2px solid #fff;
-      font-weight: 500;
+
+    .toc-mode-btn.active {
+      background-color: #3b82f6;
+      color: white;
+      border-color: #2563eb;
     }
 
-    /* ====================\n     * 标签页内容区域样式\n     * ==================== */
-    .tab-content {
-      background: #fff;
-      border-radius: 8px;
-      padding: 24px;
-      min-height: 300px;
-      border: 2px dashed #e2e8f0;
-      margin-top: -2px;
+    .toc-mode-btn:hover:not(.active) {
+      background-color: #f0f4f8;
     }
 
-    /* ====================\n     * Markdown 表格样式\n     * ==================== */
-    .markdown-body table {
-      border-collapse: collapse;
-      width: 100%;
-      margin: 16px 0;
-      font-size: 0.95em;
-    }
-    .markdown-body table th,
-    .markdown-body table td {
-      border: 1px solid #ddd;
-      padding: 8px 12px;
-      text-align: left;
-    }
-    .markdown-body table th {
-      background-color: #f2f2f2;
-      font-weight: 600;
-    }
-    .markdown-body table tr:nth-child(even) {
-      background-color: #f8f8f8;
-    }
-    .markdown-body table tr:hover {
-      background-color: #f1f5f9;
+    /* 设置对话框中的单选按钮样式 */
+    .radio-container {
+      margin: 10px 0 15px;
     }
 
-    /* ====================\n     * 分块对比视图样式\n     * ==================== */
-    /* 分块对比区域的标题栏，包含标题和切换按钮 */
-    .chunk-compare-title-bar {
+    .radio-group {
+      margin-bottom: 8px;
       display: flex;
-      justify-content: space-between;
       align-items: center;
-      margin-bottom: 1em; /* 调整标题和内容之间的间距 */
-    }
-    .chunk-compare-title-bar h3 {
-      margin: 0; /* 移除h3的默认外边距 */
-    }
-    /* 切换原文/译文位置按钮 */
-    #swap-chunks-btn {
-      background: transparent;
-      border: 1px solid #ccc;
-      border-radius: 5px;
-      padding: 5px 10px;
-      cursor: pointer;
-      font-size: 1.1em; /* 图标大小 */
-      line-height: 1;
-      color: #333;
-    }
-    #swap-chunks-btn:hover {
-      background-color: #f0f0f0;
-      border-color: #bbb;
-    }
-    /* 分块对比主容器，垂直排列块对 */
-    .chunk-compare-container { display: flex; flex-direction: column; gap: 1em; }
-    /* 单个原文/译文对比块对，水平排列 */
-    .chunk-pair { display: flex; gap: 1em; border-bottom: 1px solid #eee; padding-bottom: 1em; }
-    .chunk-pair:last-child { border-bottom: none; }
-    /* 块对中的单个块（原文或译文） */
-    .chunk-pair > div { flex: 1; min-width: 0; background: #fdfdfd; padding:12px; border-radius:6px; border:1px solid #eef; }
-    .chunk-pair h4 { margin-top: 0; font-size: 0.9em; color: #555; border-bottom: 1px dashed #ddd; padding-bottom: 0.5em; margin-bottom: 0.5em;}
-    /* 确保分块内容区域在内容过长时可以横向滚动 */
-    .chunk-compare-container .markdown-body {
-      overflow-x: auto; /* 为分块内容区域添加横向滚动条 */
     }
 
-    /* ==========================\n     * Markdown 内容通用样式\n     * ========================== */
-    .markdown-body { font-size: 1rem; line-height: 1.7; }
-    .markdown-body img {
-      max-width: 100%;
-      height: auto;
-      margin: 8px 0;
-      border-radius: 6px;
-      border: 1px dashed #e2e8f0;
-      display: block;
+    .radio-group input[type="radio"] {
+      margin-right: 8px;
     }
-    pre { background: #f3f3f3; padding: 8px; border-radius: 4px; overflow-x: auto; border: 1px dashed #e2e8f0; }
-    h2 { margin-top: 0; } /* 移除h3，只保留h2的顶部外边距移除 */
-    .meta { color: #888; font-size: 0.95em; margin-bottom: 1em; }
+
+    .radio-group label {
+      cursor: pointer;
+    }
+
+    /* TOC 高亮效果 */
+    .toc-highlight {
+      animation: toc-highlight-flash 2s ease-out;
+    }
+
+    @keyframes toc-highlight-flash {
+      0%, 100% { background-color: transparent; }
+      50% { background-color: rgba(59, 130, 246, 0.2); }
+    }
+
+    /* 转换后的标题样式 */
+    .converted-from-heading {
+      font-weight: 600;
+      margin-top: 1.5em;
+      margin-bottom: 0.75em;
+      color: #333;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 5px;
+    }
+
+    /* TOC 信息提示样式 */
+    .toc-info {
+      padding: 10px;
+      margin: 10px 0;
+      background-color: #f8f9fa;
+      border-left: 3px solid #3b82f6;
+      color: #4b5563;
+      font-style: italic;
+      border-radius: 0 4px 4px 0;
+    }
+
+    #bottom-left-dock.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* Updated styles for dock-info-stack and its new columns */
+    #dock-info-stack {
+      display: flex;
+      flex-direction: row; /* Columns side-by-side */
+      gap: 2px; /* Further reduced gap between Label column and Value column */
+      align-items: flex-start; /* Align columns at their top */
+    }
+
+    .dock-column {
+      display: flex;
+      flex-direction: column;
+      gap: 2px; /* Gap between lines within a column */
+    }
+
+    .dock-values-column {
+      text-align: right; /* Right-align the values/percentages */
+      min-width: 40px; /* Slightly reduced min-width */
+    }
+    .dock-values-column > div {
+      justify-content: flex-end; /* Ensure content within value divs also aligns right if they are flex */
+    }
+
+    /* Individual stat items, if they need specific styling for clickability */
+    .stat-item-clickable {
+      text-decoration: underline;
+      cursor: pointer;
+    }
+    .stat-item-clickable:hover {
+      color: #1d4ed8;
+    }
+
+    #bottom-left-dock > #dock-info-stack,
+    #bottom-left-dock > a,
+    #bottom-left-dock > #dock-collapsed-progress-display { /* Added new direct child */
+      display: flex;
+      align-items: center;
+    }
+
+    #dock-stats {
+      display: flex;
+      gap: 8px; /* Space between highlight and annotation counts */
+    }
+
+    #bottom-left-dock a {
+      color: #3b82f6; /* Slightly softer blue for links/icons, can be adjusted */
+      text-decoration: none;
+    }
+    #bottom-left-dock a:hover {
+      color: #2563eb; /* Darker blue on hover */
+    }
+
+    #settings-link i.fa-cog, /* Changed ID */
+    #dock-toggle-btn i {
+      font-size: 1.2em;
+      padding: 3px;
+    }
+    #dock-toggle-btn {
+        margin-left: auto; /* Pushes toggle button to the far right */
+        cursor: pointer;
+    }
+
+    /* Style for the standalone progress display in collapsed mode */
+    /* Ensure it's hidden by default when the dock is NOT collapsed */
+    #bottom-left-dock:not(.dock-collapsed) #dock-collapsed-progress-display {
+        display: none;
+    }
+
+    #dock-collapsed-progress-display {
+        /* display: none; */ /* This can be removed if the above :not selector is robust */
+        color: #334155; /* Match updated dock text color */
+        font-weight: 500;
+    }
+
+    /* Collapsed state */
+    #bottom-left-dock.dock-collapsed {
+      padding: 6px 10px; /* Slightly adjust padding for collapsed state */
+      gap: 8px; /* Adjust gap for items in collapsed row */
+      /* min-width to allow content to show */
+    }
+
+    /* Hide these elements when collapsed */
+    #bottom-left-dock.dock-collapsed #dock-info-stack,
+    #bottom-left-dock.dock-collapsed #settings-link {
+      display: none;
+    }
+
+    /* Show and style the specific progress display for collapsed mode */
+    #bottom-left-dock.dock-collapsed #dock-collapsed-progress-display {
+        display: inline; /* Show it */
+    }
+
+    /* This rule is no longer needed as #dock-stats is inside #dock-info-stack which gets hidden */
+    /* #bottom-left-dock.dock-collapsed #dock-stats, */
+
+    /* Ensure these are visible in collapsed state - REVISED */
+    /* #bottom-left-dock.dock-collapsed #dock-reading-progress, */
+    /* #bottom-left-dock.dock-collapsed #settings-link {  */
+      /* display: flex; */
+      /* align-items: center; */
+    /* } */
+
+    /* This rule is no longer needed as #dock-stats is inside #dock-info-stack */
+    /* #bottom-left-dock.dock-collapsed #dock-stats span {
+        text-decoration: underline;
+        cursor: pointer;
+    }
+    #bottom-left-dock.dock-collapsed #dock-stats span:hover {
+        color: #1d4ed8;
+    } */
+
+    #bottom-left-dock.dock-collapsed #dock-toggle-btn {
+      margin-left: auto; /* Ensure toggle button is pushed to the right if other elements are minimal */
+    }
+
+    /* Style for the new sub-blocks, can be adjusted */
+    .sub-block {
+        display: inline; /* Or inline-block if padding/margin is needed and wrap behavior is desired */
+    }
+
+   /* NEW STYLES FOR CENTERING IMAGES AND TABLES from Markdown content */
+   .markdown-body img {
+     display: block; /* Allows margin auto to work for horizontal centering */
+     margin-left: auto;
+     margin-right: auto;
+     max-width: 100%; /* Ensures image is responsive and doesn't overflow container */
+     height: auto;    /* Maintains aspect ratio */
+   }
+
+   .markdown-body table {
+     display: table;  /* Allows margin auto to work for centering while preserving table layout */
+     margin-left: auto;
+     margin-right: auto;
+     /* width: auto; /* Default for display:table, table will size to its content */
+   }
+
+    /* Custom Context Menu Styles (Notion-like) */
+    #custom-context-menu {
+        background-color: #fff; /* White background */
+        border: 1px solid #eee; /* Light border */
+        border-radius: 8px; /* Rounded corners */
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); /* Softer shadow */
+        padding: 6px 0; /* Vertical padding */
+        min-width: 220px; /* Minimum width */
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-size: 14px;
+        color: #333; /* Darker text color */
+        z-index: 10000; /* Ensure it's on top */
+    }
+
+    #custom-context-menu ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    #custom-context-menu li {
+        padding: 8px 12px; /* Padding for items */
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        transition: background-color 0.15s ease-in-out;
+    }
+
+    #custom-context-menu li:hover {
+        background-color: #f5f5f5; /* Light gray hover */
+    }
+
+    #custom-context-menu li i.fa { /* Icon styling */
+        margin-right: 10px;
+        color: #555;
+        width: 16px; /* Fixed width for alignment */
+        text-align: center;
+    }
+
+    #custom-context-menu .color-palette {
+        display: flex;
+        align-items: center;
+        margin-left: auto; /* Push color palette to the right */
+        padding-left: 10px;
+    }
+
+    #custom-context-menu .color-option {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%; /* Circular color options */
+        margin-left: 6px;
+        cursor: pointer;
+        border: 1px solid rgba(0,0,0,0.1);
+        transition: transform 0.1s ease-out;
+    }
+    #custom-context-menu .color-option:hover {
+        transform: scale(1.15);
+    }
+
+    /* Specific color styles - ensure these match your JS color names */
+    .color-yellow { background-color: yellow; }
+    .color-pink { background-color: pink; }
+    .color-lightblue { background-color: lightblue; }
+    .color-lightgreen { background-color: lightgreen; }
+    .color-purple { background-color: purple; }
+    .color-orange { background-color: orange; }
+
+    /* Divider style */
+    #custom-context-menu hr.menu-divider {
+        border: none;
+        border-top: 1px solid #eee;
+        margin: 6px 0;
+    }
+
+    /* Add underline and pointer to stats in EXPANDED mode as well */
+    /* This is now handled by .stat-item-clickable on the specific spans */
+    /* #bottom-left-dock:not(.dock-collapsed) #dock-stats span {
+        text-decoration: underline;
+        cursor: pointer;
+    }
+    #bottom-left-dock:not(.dock-collapsed) #dock-stats span:hover {
+        color: #1d4ed8;
+    } */
   </style>
 </head>
 <body>
+  <!-- NEW DOCK STRUCTURE -->
+  <div id="bottom-left-dock">
+    <div id="dock-info-stack">
+      <div class="dock-column dock-labels-column">
+        <div class="dock-stat-item-wrapper-progress">阅读进度:</div>
+        <div class="dock-stat-item-wrapper-highlight"><span class="stat-item-clickable" data-stat-type="highlight">高亮: <span id="highlight-count">0</span></span></div>
+        <div class="dock-stat-item-wrapper-img">图片: <span id="image-count">0</span></div>
+        <div class="dock-stat-item-wrapper-formula">公式: <span id="formula-count">0</span></div>
+      </div>
+      <div class="dock-column dock-values-column">
+        <div class="dock-stat-item-wrapper-progress"><span id="reading-progress-percentage-verbose">0</span>%</div>
+        <div class="dock-stat-item-wrapper-annotation"><span class="stat-item-clickable" data-stat-type="annotation">批注: <span id="annotation-count">0</span></span></div>
+        <div class="dock-stat-item-wrapper-tbl">表格: <span id="table-count">0</span></div>
+        <div class="dock-stat-item-wrapper-words">总字数: <span id="total-word-count">0</span></div>
+      </div>
+    </div>
+    <span id="dock-collapsed-progress-display"><span id="reading-progress-percentage">0</span>%</span>
+    <a href="#" id="settings-link" title="设置"><i class="fa fa-cog"></i></a>
+    <a href="#" id="dock-toggle-btn" title="折叠"><i class="fa fa-chevron-down"></i></a>
+  </div>
+
   <!-- ===================== -->
   <!-- 浮动TOC目录按钮及悬浮窗 -->
   <!-- ===================== -->
-  <div id="toc-float-btn" style="position:fixed;left:24px;top:24px;z-index:10000;width:48px;height:48px;background:#2563eb;border-radius:50%;box-shadow:0 3px 10px rgba(59, 130, 246, 0.25);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background 0.2s;"><i class="fa fa-list" style="color:#fff;font-size:22px;"></i></div>
-  <div id="toc-popup" style="display:none;position:fixed;left:24px;top:80px;z-index:9999;width:300px;max-width:85vw;background:#fff;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 5px 15px rgba(0,0,0,0.1);transition:opacity 0.2s, transform 0.2s; transform: translateY(-10px); opacity: 0;">
-    <div id="toc-popup-header" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #e2e8f0;">
-      <span style="font-weight:600;font-size:1.05em;color:#1e293b;"><i class="fa fa-list" style="margin-right:8px;color:#3b82f6;"></i>目录 / TOC</span>
-      <button id="toc-popup-close-btn" style="background:transparent;border:none;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:14px;color:#475569;transition:background 0.15s, color 0.15s;">关闭</button>
+  <div id="toc-float-btn"><i class="fa fa-list"></i></div>
+  <div id="toc-popup" class="toc-popup-hidden">
+    <div id="toc-popup-header">
+      <span><i class="fa fa-list"></i>目录 / TOC</span>
+      <button id="toc-popup-close-btn">关闭</button>
     </div>
-    <ul id="toc-list" style="list-style:none;padding:10px 0;margin:0;font-size:0.95em;max-height:60vh;overflow-y:auto;"></ul>
+    <ul id="toc-list"></ul>
   </div>
-  <!-- TOC 悬浮窗的特定样式 -->
-  <style id="toc-modern-style">
-    /* TOC弹窗滚动条样式 */
-    #toc-popup::-webkit-scrollbar {width:5px;}
-    #toc-popup::-webkit-scrollbar-track {background:#f8fafc;}
-    #toc-popup::-webkit-scrollbar-thumb {background:#cbd5e1;border-radius:3px;}
-    #toc-popup::-webkit-scrollbar-thumb:hover {background:#94a3b8;}
-    /* TOC列表项通用样式 */
-    #toc-list li {margin-bottom:0;line-height:1.5;}
-    #toc-list li a {display:block;padding:7px 20px;color:#334155;text-decoration:none;font-weight:500;transition:background 0.15s, color 0.15s, border-left-color 0.15s;border-left:3px dashed #e2e8f0;}
-    #toc-list li a:hover {background:#eef2ff;color:#3b82f6;border-left-color:#3b82f6;}
-    /* 不同层级标题的缩进和字体大小 */
-    #toc-list li.toc-h2 a {padding-left:20px;font-size:1em;}
-    #toc-list li.toc-h3 a {padding-left:36px;font-size:0.92em;color:#475569;}
-    #toc-list li.toc-h3 a:hover {color:#3b82f6;}
-    /* TOC项中的英文翻译样式 */
-    #toc-list span.toc-en-translation {font-size:0.9em;color:#64748b;margin-left:5px;font-weight:400;}
-    /* TOC浮动按钮和关闭按钮的悬停效果 */
-    #toc-float-btn:hover {background:#1d4ed8;}
-    #toc-popup-close-btn:hover {background:#eef2ff;color:#3b82f6;}
-  </style>
 
   <!-- ===================== -->
   <!-- 主内容容器 -->
@@ -179,30 +393,208 @@
   </div>
 
   <!-- ===================== -->
+  <!-- 自定义上下文菜单 -->
+  <!-- ===================== -->
+  <div id="custom-context-menu" class="context-menu-hidden">
+    <ul>
+      <li data-action="highlight-block">
+        高亮此区块
+        <div class="color-palette">
+          <span class="color-option color-yellow" data-color="yellow" title="黄色"></span>
+          <span class="color-option color-pink" data-color="pink" title="粉色"></span>
+          <span class="color-option color-lightblue" data-color="lightblue" title="浅蓝色"></span>
+          <span class="color-option color-lightgreen" data-color="lightgreen" title="浅绿色"></span>
+          <span class="color-option color-purple" data-color="purple" title="紫色"></span>
+          <span class="color-option color-orange" data-color="orange" title="橙色"></span>
+        </div>
+      </li>
+      <li data-action="remove-highlight" id="remove-highlight-option" style="display: none;">取消高亮</li>
+      <hr class="menu-divider" id="highlight-actions-divider" style="display: none;">
+      <li data-action="add-note" id="add-note-option" style="display: none;">添加批注</li>
+      <li data-action="edit-note" id="edit-note-option" style="display: none;">编辑批注</li>
+      <hr class="menu-divider" id="note-actions-divider" style="display: none;">
+      <li data-action="copy-content" id="copy-content-option"><i class="fa fa-copy"></i>复制内容</li>
+      <!-- 更多操作可以后续添加 -->
+    </ul>
+  </div>
+
+  <!-- Dock Settings Modal -->
+  <div id="dock-settings-modal" class="dock-settings-modal modal-overlay"> <!-- Default: not visible -->
+    <div class="dock-settings-modal-content modal-content"> <!-- ADDED modal-content class -->
+      <span class="dock-settings-modal-close-btn" id="dock-settings-close-btn">&times;</span>
+      <h2>显示设置</h2>
+      <div class="checkbox-container"> <!-- Container for checkboxes -->
+        <div class="checkbox-group">
+          <input type="checkbox" id="ds-readingProgress" data-config-key="readingProgress">
+          <label for="ds-readingProgress">阅读进度</label>
+        </div>
+        <div class="checkbox-group">
+          <input type="checkbox" id="ds-highlights" data-config-key="highlights">
+          <label for="ds-highlights">高亮</label>
+        </div>
+        <div class="checkbox-group">
+          <input type="checkbox" id="ds-annotations" data-config-key="annotations">
+          <label for="ds-annotations">批注</label>
+        </div>
+        <div class="checkbox-group">
+          <input type="checkbox" id="ds-images" data-config-key="images">
+          <label for="ds-images">图片</label>
+        </div>
+        <div class="checkbox-group">
+          <input type="checkbox" id="ds-tables" data-config-key="tables">
+          <label for="ds-tables">表格</label>
+        </div>
+        <div class="checkbox-group">
+          <input type="checkbox" id="ds-formulas" data-config-key="formulas">
+          <label for="ds-formulas">公式</label>
+        </div>
+        <div class="checkbox-group">
+          <input type="checkbox" id="ds-words" data-config-key="words">
+          <label for="ds-words">总字数</label>
+        </div>
+      </div>
+
+      <!-- 新增TOC显示模式设置部分 -->
+      <h3>目录(TOC)设置</h3>
+      <div class="radio-container">
+        <div class="radio-group">
+          <input type="radio" id="toc-mode-both" name="toc-mode" value="both" checked>
+          <label for="toc-mode-both">双语目录</label>
+        </div>
+        <div class="radio-group">
+          <input type="radio" id="toc-mode-ocr" name="toc-mode" value="ocr">
+          <label for="toc-mode-ocr">仅原文目录</label>
+        </div>
+        <div class="radio-group">
+          <input type="radio" id="toc-mode-translation" name="toc-mode" value="translation">
+          <label for="toc-mode-translation">仅译文目录</label>
+        </div>
+      </div>
+
+      <div class="dock-settings-modal-buttons">
+        <button id="dock-settings-save-btn" class="btn btn-primary">保存</button>
+        <button id="dock-settings-cancel-btn" class="btn btn-secondary">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== -->
   <!-- 依赖的JS库 -->
   <!-- ===================== -->
   <script src="js/storage.js"></script>
+  <script src="js/annotation_logic.js"></script>       <!-- Defines helpers like checkIfTextIsHighlighted -->
+  <script src="js/custom_markdown_renderer.js"></script> <!-- Defines createCustomMarkdownRenderer -->
+  <script src="js/annotation_highlighter.js"></script>   <!-- Defines applyPreprocessedAnnotations, uses helpers from annotation_logic.js -->
+  <script src="js/toc_logic.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
   <script src="js/mindmap.js"></script>
+
   <script src="js/chatbot/chatbot-utils.js"></script>
   <script src="js/chatbot/chatbot-preset.js"></script>
   <script src="js/chatbot/chatbot-core.js"></script>
   <script src="js/chatbot/chatbot-ui.js"></script>
   <script src="js/chatbot/chatbot.js"></script>
+  <script src="js/dock_logic.js"></script>
+  <script src="js/markdown_processor.js"></script>
+  <script src="js/sub_block_segmenter.js"></script>
 
   <!-- ===================== -->
   <!-- 页面核心逻辑脚本 -->
   <!-- ===================== -->
   <script>
-    /**
-     * @type {boolean}
-     * @description 状态变量，用于分块对比视图，标记原文内容是否显示在左侧（或上方）。
-     */
     let isOriginalFirstInChunkCompare = true; // 状态变量：原文是否在左侧
+    let docIdForLocalStorage = null; // To store the current document ID for localStorage keys
+    var currentVisibleTabId = null;  // To store the ID of the currently visible tab
+    // let progressPercentageSpan = null; // MOVED to dock_logic.js
+    // let progressPercentageVerboseSpan = null; // MOVED to dock_logic.js
+    // let dockElement = null; // MOVED to dock_logic.js
+
+    // NEW FUNCTION DEFINITION
+    function adjustLongHeadingsToParagraphs(parentElement) {
+      if (!parentElement) return;
+
+      // Only process headings within elements having 'markdown-body' class
+      const markdownBodies = parentElement.querySelectorAll('.markdown-body');
+
+      markdownBodies.forEach(markdownBody => {
+        const headings = markdownBody.querySelectorAll('h1, h2, h3, h4, h5, h6');
+        headings.forEach(heading => {
+          // Skip the main fileName heading if it's somehow caught by this logic
+          if (heading.id === 'fileName') {
+              return;
+          }
+
+          const textContent = heading.textContent || "";
+          if (textContent.length > 30) {
+            const p = document.createElement('p');
+
+            // Move all child nodes from heading to p
+            while (heading.firstChild) {
+              p.appendChild(heading.firstChild);
+            }
+
+            // Copy all attributes from heading to p
+            for (let i = 0; i < heading.attributes.length; i++) {
+              const attr = heading.attributes[i];
+              p.setAttribute(attr.name, attr.value);
+            }
+
+            // Add a class to indicate this was a converted heading,
+            // in case specific styling is needed later.
+            p.classList.add('converted-from-heading');
+
+            // Replace the heading with the new paragraph element in the DOM
+            if (heading.parentNode) {
+              heading.parentNode.replaceChild(p, heading);
+            }
+          }
+        });
+      });
+    }
+
+    function debounce(func, delay) {
+      let timeout;
+      return function(...args) {
+        const context = this;
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(context, args), delay);
+      };
+    }
+
+    function saveScrollPosition() {
+      if (!docIdForLocalStorage || !currentVisibleTabId) return;
+      const scrollableElement = document.documentElement; // Changed from .container
+      if (scrollableElement) {
+        const scrollKey = `scrollPos_${docIdForLocalStorage}_${currentVisibleTabId}`;
+        localStorage.setItem(scrollKey, scrollableElement.scrollTop);
+        // console.log(`Saved scroll for ${scrollKey} on documentElement: ${scrollableElement.scrollTop}`);
+      }
+    }
+    // const debouncedSaveScrollPosition = debounce(saveScrollPosition, 300); // Debounce with 300ms
+    const debouncedSaveScrollPosition = debounce(saveScrollPosition, 300); // 取消注释，修复问题
+
+    function saveChatbotStateOnUnload() {
+      if (docIdForLocalStorage && typeof window.isChatbotOpen !== 'undefined') {
+        localStorage.setItem(`chatbotOpenState_${docIdForLocalStorage}`, window.isChatbotOpen);
+        // console.log(`Saved chatbot state on beforeunload for ${docIdForLocalStorage}: ${window.isChatbotOpen}`);
+      }
+    }
+
+    // MOVED to dock_logic.js: function updateReadingProgress() { ... }
+    // MOVED to dock_logic.js: const debouncedUpdateReadingProgress = debounce(updateReadingProgress, 100);
+
+    // MOVED to dock_logic.js: function updateHighlightSummary() { ... }
+    // MOVED to dock_logic.js: function updateAnnotationSummary() { ... }
+    // MOVED to dock_logic.js: function updateImageCount() { ... }
+    // MOVED to dock_logic.js: function updateTableCount(contentElement) { ... }
+    // MOVED to dock_logic.js: function updateFormulaCount(contentElement) { ... }
+    // MOVED to dock_logic.js: function updateWordCount(contentElement) { ... }
+    // MOVED to dock_logic.js: function updateAllDockStats() { ... }
 
     /**
      * 预处理 Markdown 文本，以安全地渲染图片、自定义语法（如上下标）并兼容 KaTeX。
@@ -214,64 +606,7 @@
      * @param {Array<Object>} images -一个包含图片对象的数组，每个对象应有 `name` 或 `id` (用于匹配) 和 `data` (Base64 图片数据或其前缀)。
      * @returns {string} 处理后的 Markdown 文本，其中图片被替换，自定义语法被转换。
      */
-    function safeMarkdown(md, images) {
-      if (!md) return '';
-      // 构建图片名与base64的映射表，支持多种key
-      let imgMap = {};
-      if (Array.isArray(images)) {
-        images.forEach((img, idx) => {
-          let keys = [];
-          if (img.name) keys.push(img.name);
-          if (img.id) keys.push(img.id);
-          keys.push(`img-${idx}.jpeg.png`);
-          keys.push(`img-${idx+1}.jpeg.png`);
-          // 兼容 images/ 前缀
-          keys = keys.concat(keys.map(k => 'images/' + k));
-          let src = img.data.startsWith('data:') ? img.data : 'data:image/png;base64,' + img.data;
-          keys.forEach(k => imgMap[k] = src);
-        });
-      }
-      // 替换Markdown中的本地图片引用为base64
-      md = md.replace(/!\[.*?\]\((?:images\/)?(img-\d+\.jpeg\.png)\)/gi, function(_, fname) {
-        if (imgMap[fname]) {
-          return `![](${imgMap[fname]})`;
-        } else {
-          // 如果图片在映射中找不到，保留原始路径或显示alt文本
-          // console.warn("Image not found in map:", fname);
-          return `<span>[图片: ${fname}]</span>`; // 或者返回 match
-        }
-      });
-      // 处理上标、下标等自定义语法
-      md = md.replace(/\$\{\s*([^}]*)\s*\}\^\{([^}]*)\}\$/g, function(_, base, sup) {
-        base = base.trim();
-        sup = sup.trim();
-        if (base) {
-          return `<span>${base}<sup>${sup}</sup></span>`;
-        } else {
-          return `<sup>${sup}</sup>`;
-        }
-      });
-      md = md.replace(/\$\{\s*([^}]*)\s*\}_\{([^}]*)\}\$/g, function(_, base, sub) {
-        base = base.trim();
-        sub = sub.trim();
-        if (base) {
-          return `<span>${base}<sub>${sub}</sub></span>`;
-        } else {
-          return `<sub>${sub}</sub>`;
-        }
-      });
-      md = md.replace(/\$\{\s*\}\^\{([^}]*)\}\$/g, function(_, sup) {
-        return `<sup>${sup.trim()}</sup>`;
-      });
-      md = md.replace(/\$\{\s*\}_\{([^}]*)\}\$/g, function(_, sub) {
-        return `<sub>${sub.trim()}</sub>`;
-      });
-      md = md.replace(/\$\{\s*([^}]*)\s*\}\$/g, function(_, sup) {
-        return `<sup>${sup.trim()}</sup>`;
-      });
-      // 其余 $...$、$$...$$ 保留，交给 KaTeX 处理
-      return md;
-    }
+    // MOVED to js/markdown_processor.js: function safeMarkdown(md, images) { ... }
 
     /**
      * 使用 KaTeX 渲染 Markdown 文本中的数学公式，并提供降级处理。
@@ -282,42 +617,10 @@
      * 4. 对处理完公式的文本，使用 `marked.parse()` 将其余 Markdown 内容转换为 HTML。
      *
      * @param {string} md - 经过 `safeMarkdown` 处理的 Markdown 文本。
+     * @param {Function} customRenderer - 自定义的 Markdown 渲染器函数，用于处理特殊内容。
      * @returns {string} 包含渲染后公式和其余 Markdown 内容的 HTML 字符串。
      */
-    function renderWithKatexFailback(md) {
-      // 1. 先把短的 $$...$$ 转为 $...$
-      md = md.replace(/\$\$([^\n]+?)\$\$/g, function(_, content) {
-        if (content.trim().length <= 10) {
-          // 短内容（≤10字符），无论有没有等号，都转为行内公式
-          return `$${content}$`;
-        } else {
-          // 块级公式
-          try {
-            return katex.renderToString(content, { displayMode: true, throwOnError: true });
-          } catch (e) {
-            return `<code>$$${content}$$</code>`;
-          }
-        }
-      });
-      // 2. 行内公式
-      md = md.replace(/\$([^$\n]+?)\$/g, function(_, content) {
-        try {
-          return katex.renderToString(content, { displayMode: false, throwOnError: true });
-        } catch (e) {
-          return `<code>$${content}$</code>`;
-        }
-      });
-      // 3. 剩下的块级公式（多行的）
-      md = md.replace(/\$\$([\s\S]+?)\$\$/g, function(_, content) {
-        try {
-          return katex.renderToString(content, { displayMode: true, throwOnError: true });
-        } catch (e) {
-          return `<code>$$${content}$$</code>`;
-        }
-      });
-      // 4. 其它 markdown
-      return marked.parse(md);
-    }
+    // MOVED to js/markdown_processor.js: function renderWithKatexFailback(md, customRenderer) { ... }
 
     /**
      * 从当前页面的 URL 中获取指定查询参数的值。
@@ -335,6 +638,13 @@
     let data = null;
 
     /**
+     * 将块级元素内容按标点分割成子块 (span.sub-block)。
+     * @param {HTMLElement} blockElement - 要分割的块级元素 (如 p, h1-h6)。
+     * @param {string|number} parentBlockIndex - 父块的索引。
+     */
+    // MOVED to js/sub_block_segmenter.js: function segmentBlockIntoSubBlocks(blockElement, parentBlockIndex) { ... }
+
+    /**
      * 异步渲染历史详情页面的主函数。
      * - 从 URL 查询参数中获取记录 ID。
      * - 使用 `getResultFromDB` (来自 storage.js) 从 IndexedDB 加载对应的历史数据。
@@ -348,6 +658,31 @@
     async function renderDetail() {
       const id = getQueryParam('id');
       if (!id) return;
+      docIdForLocalStorage = id; // Store doc ID for localStorage operations
+
+      // Restore chatbot open state
+      const savedChatbotOpenState = localStorage.getItem(`chatbotOpenState_${docIdForLocalStorage}`);
+      if (savedChatbotOpenState === 'true') {
+        window.isChatbotOpen = true;
+      } else if (savedChatbotOpenState === 'false') {
+        window.isChatbotOpen = false;
+      }
+
+      // 从localStorage恢复保存的比例设置
+      const savedChunkCompareRatio = localStorage.getItem(`chunkCompareRatio_${docIdForLocalStorage}`);
+      if (savedChunkCompareRatio !== null && !isNaN(parseFloat(savedChunkCompareRatio))) {
+        window.chunkCompareRatio = parseFloat(savedChunkCompareRatio);
+      }
+
+      // console.log(`Chatbot state after attempting restore from localStorage for ${docIdForLocalStorage}: ${window.isChatbotOpen}`);
+
+      // Initialize Dock Logic once docIdForLocalStorage is available
+      if (typeof window.DockLogic !== 'undefined' && typeof window.DockLogic.init === 'function') {
+        window.DockLogic.init(docIdForLocalStorage);
+      } else {
+        console.error("DockLogic not available or init function missing.");
+      }
+
       data = await getResultFromDB(id);
       window.data = data; // for debugging
       if (!data) {
@@ -359,12 +694,114 @@
       document.getElementById('fileName').textContent = data.name;
       document.getElementById('fileMeta').innerHTML = `时间: ${new Date(data.time).toLocaleString()} &nbsp; | &nbsp; 图片数: ${data.images ? data.images.length : 0}`;
 
-      // 默认显示OCR标签页，或者如果有分块数据则显示分块对比
-      if (data.ocrChunks && data.ocrChunks.length > 0 && data.translatedChunks && data.translatedChunks.length > 0 && data.ocrChunks.length === data.translatedChunks.length) {
-        showTab('chunk-compare');
+      // ========== 确保批注数据在渲染前加载 ==========
+      if (id) { // 确保我们有文档 ID
+        try {
+          const annotations = await getAnnotationsForDocFromDB(id);
+          console.log(`Annotations for docId '${id}' (loaded in renderDetail):`, annotations);
+          data.annotations = annotations || []; // 存储到 data 对象，确保是数组
+          // updateAnnotationSummary(); // Handled by updateAllDockStats via showTab
+          // updateHighlightSummary(); // Handled by updateAllDockStats via showTab
+        } catch (error) {
+          console.error(`Error loading annotations for docId '${id}' in renderDetail:`, error);
+          data.annotations = []; // 出错时也确保是个空数组
+          // updateAnnotationSummary(); // Handled by updateAllDockStats via showTab
+          // updateHighlightSummary(); // Handled by updateAllDockStats via showTab
+        }
       } else {
-        showTab('ocr');
+        // updateAnnotationSummary(); // Handled by updateAllDockStats via showTab
+        // updateHighlightSummary(); // Handled by updateAllDockStats via showTab
       }
+      // =============================================
+
+      // ========== 在 window.data 设置并填充批注后，显式加载聊天记录 ==========
+      if (window.data) {
+        if (window.ChatbotCore && typeof window.ChatbotCore.reloadChatHistoryAndUpdateUI === 'function' &&
+            window.ChatbotUI && typeof window.ChatbotUI.updateChatbotUI === 'function') {
+          console.log('renderDetail: Calling reloadChatHistoryAndUpdateUI after window.data and annotations are set. Current docId:', window.ChatbotCore.getCurrentDocId ? window.ChatbotCore.getCurrentDocId() : 'unknown');
+          window.ChatbotCore.reloadChatHistoryAndUpdateUI(window.ChatbotUI.updateChatbotUI);
+        } else {
+          console.error('renderDetail: ChatbotCore or ChatbotUI not fully available for history reload.');
+        }
+      }
+      // =================================================================
+
+      // Initialize annotation system after data is loaded and DOM is likely ready
+      if (typeof window.initializeGlobalAnnotationVariables === 'function') {
+        window.initializeGlobalAnnotationVariables();
+      }
+      if (typeof window.initAnnotationSystem === 'function') {
+        window.initAnnotationSystem();
+      } else {
+        console.error("initAnnotationSystem is not defined. Check js/annotation_logic.js");
+      }
+
+      // Determine initial tab, AFTER annotations are loaded
+      let initialTab = 'ocr'; // Default tab
+      if (docIdForLocalStorage) {
+        const savedTabKey = `activeTab_${docIdForLocalStorage}`;
+        const savedTab = localStorage.getItem(savedTabKey);
+        if (savedTab && ['ocr', 'translation', 'chunk-compare'].includes(savedTab)) {
+          initialTab = savedTab;
+        } else if (data.ocrChunks && data.ocrChunks.length > 0 && data.translatedChunks && data.translatedChunks.length > 0 && data.ocrChunks.length === data.translatedChunks.length) {
+           initialTab = 'chunk-compare';
+        }
+      } else if (data.ocrChunks && data.ocrChunks.length > 0 && data.translatedChunks && data.translatedChunks.length > 0 && data.ocrChunks.length === data.translatedChunks.length) {
+        initialTab = 'chunk-compare';
+      }
+
+      // 现在，在批注肯定加载完毕后，才调用 showTab
+      showTab(initialTab);
+
+      // The block for loading annotations (previously around line 415) has been moved up.
+
+      // Add scroll listener for saving scroll position
+      window.removeEventListener('scroll', debouncedSaveScrollPosition);
+      window.addEventListener('scroll', debouncedSaveScrollPosition);
+      // Add scroll listener for updating reading progress - MOVED TO DOCK_LOGIC.JS
+      // window.removeEventListener('scroll', debouncedUpdateReadingProgress);
+      // window.addEventListener('scroll', debouncedUpdateReadingProgress);
+
+      // Add listener to save chatbot state on page unload
+      window.removeEventListener('beforeunload', saveChatbotStateOnUnload);
+      window.addEventListener('beforeunload', saveChatbotStateOnUnload);
+
+      // Manage Annotations Link Click - Changed to Settings Link - MOVED TO DOCK_LOGIC.JS
+      // const settingsLink = document.getElementById('settings-link');
+      // if (settingsLink) {
+      //   settingsLink.onclick = function(event) {
+      //     event.preventDefault();
+      //     alert('管理页面即将推出！'); // Updated alert message
+      //   };
+      // }
+
+      // Dock Toggle Button Click - MOVED TO DOCK_LOGIC.JS
+      // const dockToggleBtn = document.getElementById('dock-toggle-btn');
+      // const dock = document.getElementById('bottom-left-dock');
+      // if (dockToggleBtn && dock) {
+      //   // Restore collapsed state
+      //   const dockCollapsedKey = `dockCollapsed_${docIdForLocalStorage}`;
+      //   const isCollapsed = localStorage.getItem(dockCollapsedKey) === 'true';
+      //   if (isCollapsed) {
+      //     dock.classList.add('dock-collapsed');
+      //     dockToggleBtn.innerHTML = '<i class="fa fa-chevron-up"></i>';
+      //     dockToggleBtn.title = '展开';
+      //   }
+
+      //   dockToggleBtn.onclick = function(event) {
+      //     event.preventDefault();
+      //     const currentlyCollapsed = dock.classList.toggle('dock-collapsed');
+      //     if (currentlyCollapsed) {
+      //       this.innerHTML = '<i class="fa fa-chevron-up"></i>';
+      //       this.title = '展开';
+      //       localStorage.setItem(dockCollapsedKey, 'true');
+      //     } else {
+      //       this.innerHTML = '<i class="fa fa-chevron-down"></i>';
+      //       this.title = '折叠';
+      //       localStorage.setItem(dockCollapsedKey, 'false');
+      //     }
+      //   };
+      // }
     }
 
     /**
@@ -383,21 +820,64 @@
      * @param {string} tab - 要显示的标签页标识符 ('ocr', 'translation', or 'chunk-compare')。
      */
     function showTab(tab) {
+      currentVisibleTabId = tab; // Update global current tab ID
+      window.currentBlockTokensForCopy = window.currentBlockTokensForCopy || {}; // Initialize if not exists
+
+      // 根据 tab 参数立即设置全局内容标识符
+      if (tab === 'ocr') {
+        window.globalCurrentContentIdentifier = 'ocr';
+      } else if (tab === 'translation') {
+        window.globalCurrentContentIdentifier = 'translation';
+      } else {
+        window.globalCurrentContentIdentifier = ''; // 例如分块对比或其他标签页
+      }
+
+      if (docIdForLocalStorage) {
+        const activeTabKey = `activeTab_${docIdForLocalStorage}`;
+        localStorage.setItem(activeTabKey, tab);
+        // console.log(`Saved active tab for ${docIdForLocalStorage}: ${tab}`);
+      }
+
       document.getElementById('tab-ocr').classList.remove('active');
       document.getElementById('tab-translation').classList.remove('active');
       // document.getElementById('tab-compare').classList.remove('active'); // 对应按钮已注释，此行也可注释
       document.getElementById('tab-chunk-compare').classList.remove('active');
 
       let html = '';
+      let contentContainerId = ''; // 用于 applyAnnotationsToContent
+      let activeContentElement = null; // 用于 applyAnnotationsToContent
+      const significantTokenTypes = ['paragraph', 'heading', 'code', 'table', 'blockquote', 'list', 'html', 'hr'];
+
+      // ---- 增加日志 ----
+      // 日志现在可以准确反映 globalCurrentContentIdentifier
+      console.log(`[showTab - ${tab}] 即将渲染。当前 window.globalCurrentContentIdentifier:`, window.globalCurrentContentIdentifier);
+      if (data && data.annotations) {
+          console.log(`[showTab - ${tab}] data.annotations (长度 ${data.annotations.length}):`, JSON.parse(JSON.stringify(data.annotations)));
+      } else {
+          console.log(`[showTab - ${tab}] data.annotations 不可用或为空。`);
+      }
+      // ---- 日志结束 ----
+
       if(tab === 'ocr') {
         document.getElementById('tab-ocr').classList.add('active');
-        html = '<h3>OCR内容</h3><div class="markdown-body" style="background:#fff;padding:16px;border-radius:8px;border:1px solid #e2e8f0;">' + renderWithKatexFailback(safeMarkdown(data.ocr || '', data.images)) + '</div>';
+        contentContainerId = 'ocr-content-wrapper';
+        let ocrText = data.ocr || '';
+        const ocrLexerTokens = marked.lexer(ocrText);
+        window.currentBlockTokensForCopy['ocr'] = ocrLexerTokens.filter(token => significantTokenTypes.includes(token.type));
+        const ocrCustomRenderer = createCustomMarkdownRenderer(data.annotations, 'ocr', MarkdownProcessor.renderWithKatexFailback); // MODIFIED
+        const ocrContentHTML = MarkdownProcessor.renderWithKatexFailback(MarkdownProcessor.safeMarkdown(ocrText, data.images), ocrCustomRenderer); // MODIFIED
+        html = `<h3>OCR内容</h3><div id="${contentContainerId}" class="markdown-body content-wrapper">${ocrContentHTML}</div>`;
       } else if(tab === 'translation') {
         document.getElementById('tab-translation').classList.add('active');
-        html = '<h3>翻译内容</h3>' +
-          '<div id="translation-content" class="markdown-body" style="background:#fff;padding:16px;border-radius:8px;border:1px solid #e2e8f0;">' + renderWithKatexFailback(safeMarkdown(data.translation || '', data.images)) + '</div>';
-      // } else if (tab === 'compare') { // 渲染逻辑注释掉
+        contentContainerId = 'translation-content-wrapper';
+        let transText = data.translation || '';
+        const transLexerTokens = marked.lexer(transText);
+        window.currentBlockTokensForCopy['translation'] = transLexerTokens.filter(token => significantTokenTypes.includes(token.type));
+        const translationCustomRenderer = createCustomMarkdownRenderer(data.annotations, 'translation', MarkdownProcessor.renderWithKatexFailback); // MODIFIED
+        const translationContentHTML = MarkdownProcessor.renderWithKatexFailback(MarkdownProcessor.safeMarkdown(transText, data.images), translationCustomRenderer); // MODIFIED
+        html = `<h3>翻译内容</h3><div id="${contentContainerId}" class="markdown-body content-wrapper">${translationContentHTML}</div>`;
       } else if (tab === 'chunk-compare') {
+        // window.globalCurrentContentIdentifier = ''; // 已在函数开头正确设置
         document.getElementById('tab-chunk-compare').classList.add('active');
         if (data.ocrChunks && data.ocrChunks.length > 0 && data.translatedChunks && data.translatedChunks.length === data.ocrChunks.length) {
             html = `
@@ -487,16 +967,26 @@
               const transBlocks = parseMarkdownBlocks(translatedChunk);
               const aligned = alignBlocks(ocrBlocks, transBlocks);
               let showMode = window[`showMode_block_${blockIndex}`] || 'both';
+
+              // 在分块对比内部也尝试使用自定义渲染器
+              // 注意：这里的 annotations 应该是整个文档的，contentIdentifier 需要根据当前块是原文还是译文来确定
+              // 为了简化，我们暂时假设分块对比中的内容不直接参与这种精细的预标注，
+              // 或者需要更复杂的逻辑来传递正确的 contentIdentifier
+              // MODIFIED: Pass empty array for annotations in chunk-compare mode to disable highlights/annotations
+              const annotationsForChunkRender = [];
+              const ocrRenderer = createCustomMarkdownRenderer(annotationsForChunkRender, 'ocr', MarkdownProcessor.renderWithKatexFailback);
+              const transRenderer = createCustomMarkdownRenderer(annotationsForChunkRender, 'translation', MarkdownProcessor.renderWithKatexFailback);
+
               // 整块复制按钮
               let html = `
-                <div class="block-toolbar" style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;">
-                  <div class="block-toolbar-left" style="display:flex;gap:8px;align-items:center;">
-                    <span class="block-mode-btn" data-mode="both" data-block="${blockIndex}">对比</span>
-                    <span class="block-mode-btn" data-mode="ocr" data-block="${blockIndex}">原文</span>
-                    <span class="block-mode-btn" data-mode="trans" data-block="${blockIndex}">译文</span>
+                <div class="block-toolbar" data-block-toolbar="${blockIndex}">
+                  <div class="block-toolbar-left">
+                    <span class="block-mode-btn ${showMode === 'both' ? 'active' : ''}" data-mode="both" data-block="${blockIndex}">对比</span>
+                    <span class="block-mode-btn ${showMode === 'ocr' ? 'active' : ''}" data-mode="ocr" data-block="${blockIndex}">原文</span>
+                    <span class="block-mode-btn ${showMode === 'trans' ? 'active' : ''}" data-mode="trans" data-block="${blockIndex}">译文</span>
                     <button class="block-copy-btn" data-block="${blockIndex}" title="复制本块内容">复制本块</button>
                   </div>
-                  <div class="block-toolbar-right" style="display:flex;gap:4px;">
+                  <div class="block-toolbar-right">
                     ${blockIndex > 0 ? `<button class="block-nav-btn" data-dir="prev" data-block="${blockIndex}" title="上一段">↑</button>` : ''}
                     ${blockIndex < totalBlocks-1 ? `<button class="block-nav-btn" data-dir="next" data-block="${blockIndex}" title="下一段">↓</button>` : ''}
                   </div>
@@ -504,20 +994,21 @@
               `;
               for (let i = 0; i < aligned.length; i++) {
                 html += `
-                  <div class="align-flex block-flex block-flex-${blockIndex}" data-block="${blockIndex}" data-align-index="${i}">
-                    <div class="align-block align-block-ocr" style="display:${showMode==='trans'?'none':'block'}">
-                      <div class="align-title" style="display:flex;align-items:center;justify-content:space-between;">
+                  <div class="align-flex block-flex block-flex-${blockIndex} ${showMode==='ocr'?'block-mode-ocr-only':showMode==='trans'?'block-mode-trans-only':'block-mode-both'}" data-block="${blockIndex}" data-align-index="${i}">
+                    <div class="align-block align-block-ocr">
+                      <div class="align-title">
                         <span>原文</span>
                         <button class="block-struct-copy-btn" data-block="${blockIndex}" data-type="ocr" data-idx="${i}" title="复制原文结构">复制</button>
                       </div>
-                      <div class="align-content markdown-body">${renderWithKatexFailback(safeMarkdown(aligned[i][0], images))}</div>
+                      <div class="align-content markdown-body">${MarkdownProcessor.renderWithKatexFailback(MarkdownProcessor.safeMarkdown(aligned[i][0], images), isOriginalFirstInChunkCompare ? ocrRenderer : transRenderer)}</div>
                     </div>
-                    <div class="align-block align-block-trans" style="display:${showMode==='ocr'?'none':'block'}">
-                      <div class="align-title" style="display:flex;align-items:center;justify-content:space-between;">
+                    <div class="splitter" title="拖动调整比例"></div>
+                    <div class="align-block align-block-trans">
+                      <div class="align-title">
                         <span>译文</span>
                         <button class="block-struct-copy-btn" data-block="${blockIndex}" data-type="trans" data-idx="${i}" title="复制译文结构">复制</button>
                       </div>
-                      <div class="align-content markdown-body">${renderWithKatexFailback(safeMarkdown(aligned[i][1], images))}</div>
+                      <div class="align-content markdown-body">${MarkdownProcessor.renderWithKatexFailback(MarkdownProcessor.safeMarkdown(aligned[i][1], images), isOriginalFirstInChunkCompare ? transRenderer : ocrRenderer)}</div>
                     </div>
                   </div>
                 `;
@@ -526,234 +1017,304 @@
               window[`blockRawContent_${blockIndex}`] = aligned;
               return html;
             }
-            // 添加美观的flex卡片样式
-            if (!document.getElementById('align-flex-style')) {
-              const style = document.createElement('style');
-              style.id = 'align-flex-style';
-              style.innerHTML = `
-                .align-flex {
-                  display: flex;
-                  gap: 1em;
-                  margin-bottom: 1em;
-                }
-                .align-block {
-                  flex: 1;
-                  background: #f9fafb;
-                  border-radius: 8px;
-                  border: 1px solid #e2e8f0;
-                  padding: 12px;
-                  min-width: 0;
-                  overflow-x: auto;
-                  box-sizing: border-box;
-                  box-shadow: 0 1px 4px 0 rgba(0,0,0,0.03);
-                }
-                .align-title {
-                  font-size: 0.98em;
-                  color: #64748b;
-                  margin-bottom: 6px;
-                  font-weight: 500;
-                  border-bottom: 1px dashed #e2e8f0;
-                  padding-bottom: 2px;
-                }
-                .align-content {
-                  word-break: break-all;
-                  white-space: pre-wrap;
-                  overflow-x: auto;
-                }
-                .align-content table, .align-content pre {
-                  max-width: 100%;
-                  overflow-x: auto;
-                  display: block;
-                  word-break: break-all;
-                  white-space: pre-wrap;
-                }
-              `;
-              document.head.appendChild(style);
-            }
-            // 添加工具栏样式
-            if (!document.getElementById('block-toolbar-style')) {
-              const style = document.createElement('style');
-              style.id = 'block-toolbar-style';
-              style.innerHTML = `
-                .block-toolbar-left .block-mode-btn {
-                  font-size: 12px;
-                  color: #64748b;
-                  cursor: pointer;
-                  padding: 2px 8px;
-                  border-radius: 4px;
-                  transition: background 0.15s, color 0.15s;
-                  user-select: none;
-                }
-                .block-toolbar-left .block-mode-btn.active {
-                  background: #e0e7ff;
-                  color: #2563eb;
-                  font-weight: bold;
-                }
-                .block-toolbar-left .block-mode-btn:hover:not(.active) {
-                  background: #f1f5f9;
-                  color: #1e293b;
-                }
-                .block-toolbar-left .block-copy-btn {
-                  font-size: 12px;
-                  color: #64748b;
-                  background: #f1f5f9;
-                  border: 1px solid #e2e8f0;
-                  border-radius: 4px;
-                  padding: 2px 8px;
-                  margin-left: 8px;
-                  cursor: pointer;
-                  transition: background 0.15s, color 0.15s;
-                }
-                .block-toolbar-left .block-copy-btn:hover {
-                  background: #e0e7ff;
-                  color: #2563eb;
-                }
-                .block-struct-copy-btn {
-                  font-size: 11px;
-                  color: #64748b;
-                  background: #f1f5f9;
-                  border: 1px solid #e2e8f0;
-                  border-radius: 4px;
-                  padding: 1px 6px;
-                  margin-left: 8px;
-                  cursor: pointer;
-                  transition: background 0.15s, color 0.15s;
-                }
-                .block-struct-copy-btn:hover {
-                  background: #e0e7ff;
-                  color: #2563eb;
-                }
-              `;
-              document.head.appendChild(style);
-            }
             // 渲染每个分块，增加唯一id
             for (let i = 0; i < data.ocrChunks.length; i++) {
                 const ocrChunk = data.ocrChunks[i] || '';
                 const translatedChunk = data.translatedChunks[i] || '';
-                const ocrDiv = `<div id="block-${i}" class="block-outer"><h4>原文块 ${i+1}</h4>${renderLevelAlignedFlex(ocrChunk, translatedChunk, data.images, i, data.ocrChunks.length)}</div>`;
-                const translatedDiv = `<div id="block-${i}" class="block-outer"><h4>译文块 ${i+1}</h4>${renderLevelAlignedFlex(translatedChunk, ocrChunk, data.images, i, data.ocrChunks.length)}</div>`;
+                let blockHtmlToRender;
+                let outerBlockTitle;
+
                 if (isOriginalFirstInChunkCompare) {
-                    html += `<div class="chunk-pair">${ocrDiv}</div>`;
+                    // 当原文在左侧时，调用 renderLevelAlignedFlex(原文, 译文)
+                    // window[`blockRawContent_${i}`] 将存储 [原文子块, 译文子块]
+                    blockHtmlToRender = renderLevelAlignedFlex(ocrChunk, translatedChunk, data.images, i, data.ocrChunks.length);
+                    outerBlockTitle = `原文块 ${i+1}`;
                 } else {
-                    html += `<div class="chunk-pair">${translatedDiv}</div>`;
+                    // 当译文在左侧时，调用 renderLevelAlignedFlex(译文, 原文)
+                    // window[`blockRawContent_${i}`] 将存储 [译文子块, 原文子块]
+                    blockHtmlToRender = renderLevelAlignedFlex(translatedChunk, ocrChunk, data.images, i, data.ocrChunks.length);
+                    outerBlockTitle = `译文块 ${i+1}`; // 标题也反映左侧内容
                 }
+                html += `<div class="chunk-pair">`;
+                html += `<div id="block-${i}" class="block-outer">`; // id 用于导航
+                html += `<h4>${outerBlockTitle}</h4>`;
+                html += blockHtmlToRender;
+                html += `</div></div>`;
             }
             html += '</div>';
             // 绑定每个分块的切换按钮和导航按钮事件
             setTimeout(() => {
-              // 切换显示
-              const modeBtns = document.querySelectorAll('.block-mode-btn');
-              modeBtns.forEach(btn => {
+              // 拖动分割条实现 - 使用CSS变量而不是直接设置样式
+              let ratio = window.chunkCompareRatio;
+              if (typeof ratio !== 'number' || isNaN(ratio)) ratio = 0.5;
+              window.chunkCompareRatio = ratio; // 确保全局变量被设置
+
+              function applyRatioToAll() {
+                const currentRatio = window.chunkCompareRatio || 0.5;
+                document.querySelectorAll('.align-flex').forEach(flex => {
+                  // 使用CSS变量而不是直接设置样式
+                  flex.style.setProperty('--ocr-ratio', (currentRatio * 100) + '%');
+                  flex.style.setProperty('--trans-ratio', ((1 - currentRatio) * 100) + '%');
+                });
+              }
+              applyRatioToAll();
+
+              // 以下是旧的拖动实现，已被新的实现替代，移除以避免冲突
+              /*
+              let dragging = false;
+              let startX = 0;
+              let startRatio = ratio;
+              document.querySelectorAll('.splitter').forEach(splitter => {
+                splitter.onmousedown = function(e) {
+                  dragging = true;
+                  startX = e.clientX;
+                  startRatio = ratio;
+                  splitter.classList.add('active');
+                  // 使用CSS类而不是直接设置样式
+                  document.body.classList.add('dragging-cursor');
+                  e.preventDefault();
+                };
+              });
+
+              document.addEventListener('mousemove', function(e) {
+                if (!dragging) return;
+                const flex = document.querySelector('.align-flex');
+                if (!flex) return;
+                const rect = flex.getBoundingClientRect();
+                let dx = e.clientX - startX;
+                let newRatio = startRatio + dx / rect.width;
+                newRatio = Math.max(0.3, Math.min(0.7, newRatio));
+                window.chunkCompareRatio = newRatio;
+                ratio = newRatio;
+                applyRatioToAll();
+              });
+
+              document.addEventListener('mouseup', function() {
+                if (dragging) {
+                  dragging = false;
+                  // 使用CSS类而不是直接设置样式
+                  document.body.classList.remove('dragging-cursor');
+                  document.querySelectorAll('.splitter').forEach(s => s.classList.remove('active'));
+                }
+              });
+              */
+
+              // 重新绑定分块对比工具栏按钮事件 - 使用CSS类管理显示模式
+              document.querySelectorAll('.block-mode-btn').forEach(btn => {
                 btn.onclick = function() {
-                  const mode = btn.getAttribute('data-mode');
-                  const block = btn.getAttribute('data-block');
-                  window[`showMode_block_${block}`] = mode;
-                  document.querySelectorAll(`.block-flex-${block}`).forEach(flex => {
-                    flex.querySelector('.align-block-ocr').style.display = (mode==='trans') ? 'none' : 'block';
-                    flex.querySelector('.align-block-trans').style.display = (mode==='ocr') ? 'none' : 'block';
-                  });
-                  document.querySelectorAll(`.block-mode-btn[data-block='${block}']`).forEach(b => {
+                  const blockIndex = this.dataset.block;
+                  const mode = this.dataset.mode;
+                  window[`showMode_block_${blockIndex}`] = mode;
+
+                  // 更新按钮激活状态
+                  document.querySelectorAll(`.block-mode-btn[data-block="${blockIndex}"]`).forEach(b => {
                     b.classList.remove('active');
-                    if(b.getAttribute('data-mode')===mode) b.classList.add('active');
+                  });
+                  this.classList.add('active');
+
+                  // 使用CSS类管理显示模式，而不是直接操作样式
+                  document.querySelectorAll(`.block-flex-${blockIndex}`).forEach(flexPair => {
+                    // 移除所有模式类
+                    flexPair.classList.remove('block-mode-ocr-only', 'block-mode-trans-only', 'block-mode-both');
+
+                    // 添加对应的模式类
+                    if (mode === 'ocr') {
+                      flexPair.classList.add('block-mode-ocr-only');
+                    } else if (mode === 'trans') {
+                      flexPair.classList.add('block-mode-trans-only');
+                    } else { // mode === 'both'
+                      flexPair.classList.add('block-mode-both');
+                      // 当切换回 both 模式时，重新应用拖动条的比例
+                      applyRatioToAllFlexPairsInBlock(blockIndex);
+                    }
                   });
                 };
               });
-              // 默认高亮
-              modeBtns.forEach(btn => {
-                const mode = btn.getAttribute('data-mode');
-                const block = btn.getAttribute('data-block');
-                if((window[`showMode_block_${block}`]||'both')===mode) btn.classList.add('active');
+
+              // 辅助函数：将当前拖动比例应用到指定blockIndex的所有flexPair
+              function applyRatioToAllFlexPairsInBlock(blockIndexToUpdate) {
+                const currentRatio = window.chunkCompareRatio || 0.5;
+                document.querySelectorAll(`.block-flex-${blockIndexToUpdate}`).forEach(flex => {
+                  // 使用CSS变量
+                  flex.style.setProperty('--ocr-ratio', (currentRatio * 100) + '%');
+                  flex.style.setProperty('--trans-ratio', ((1 - currentRatio) * 100) + '%');
+                });
+              }
+
+              // 初始化拖动比例应用到所有分块的所有对比对
+              // 确保在按钮事件绑定之后，但在第一次渲染时就能正确设置
+              if (document.querySelector('.align-flex')) { // 确保有可操作的元素
+                const allBlockIndexes = new Set();
+                document.querySelectorAll('[data-block]').forEach(el => allBlockIndexes.add(el.dataset.block));
+                allBlockIndexes.forEach(idx => {
+                    if(window[`showMode_block_${idx}`] === undefined || window[`showMode_block_${idx}`] === 'both') {
+                        applyRatioToAllFlexPairsInBlock(idx);
+                    }
+                });
+              }
+
+              // 拖动分割条实现
+              let draggingSplitterInfo = null; // {splitter, flexContainer, startX, initialOcrBasisPx}
+
+              document.querySelectorAll('.splitter').forEach(splitter => {
+                splitter.onmousedown = function(e) {
+                  const flexContainer = e.target.closest('.align-flex');
+                  if (!flexContainer) return;
+                  const ocrBlock = flexContainer.querySelector('.align-block-ocr');
+                  if (!ocrBlock || getComputedStyle(ocrBlock).display === 'none') return; // 只在对比模式下拖动
+
+                  draggingSplitterInfo = {
+                    splitter: e.target,
+                    flexContainer: flexContainer,
+                    startX: e.clientX,
+                    initialOcrBasisPx: ocrBlock.offsetWidth
+                  };
+
+                  e.target.classList.add('active');
+                  // 使用CSS类而不是直接设置样式
+                  document.body.classList.add('dragging-cursor');
+                  e.preventDefault();
+                };
               });
-              // 导航按钮
-              const navBtns = document.querySelectorAll('.block-nav-btn');
-              navBtns.forEach(btn => {
+
+              document.addEventListener('mousemove', function(e) {
+                if (!draggingSplitterInfo) return;
+
+                const { splitter, flexContainer, startX, initialOcrBasisPx } = draggingSplitterInfo;
+                const ocrBlock = flexContainer.querySelector('.align-block-ocr');
+                const transBlock = flexContainer.querySelector('.align-block-trans');
+                if (!ocrBlock || !transBlock) return;
+
+                const dx = e.clientX - startX;
+                const containerWidth = flexContainer.offsetWidth;
+                if (containerWidth === 0) return;
+
+                let newOcrWidthPx = initialOcrBasisPx + dx;
+                // 限制最小/最大宽度，例如总宽度的20%到80%
+                const minWidthPx = containerWidth * 0.2;
+                const maxWidthPx = containerWidth * 0.8;
+                newOcrWidthPx = Math.max(minWidthPx, Math.min(newOcrWidthPx, maxWidthPx));
+
+                const newOcrRatio = newOcrWidthPx / containerWidth;
+
+                // 更新当前拖动的块的比例
+                flexContainer.style.setProperty('--ocr-ratio', (newOcrRatio * 100) + '%');
+                flexContainer.style.setProperty('--trans-ratio', ((1 - newOcrRatio) * 100) + '%');
+
+                // 更新全局比例，以便新加载的块或切换回对比模式时使用
+                window.chunkCompareRatio = newOcrRatio;
+
+                // 调用applyRatioToAll()使所有其他块的比例联动
+                // 但排除当前正在拖动的块，避免视觉抖动
+                document.querySelectorAll('.align-flex').forEach(flex => {
+                  if (flex !== flexContainer) {
+                    flex.style.setProperty('--ocr-ratio', (newOcrRatio * 100) + '%');
+                    flex.style.setProperty('--trans-ratio', ((1 - newOcrRatio) * 100) + '%');
+                  }
+                });
+              });
+
+              document.addEventListener('mouseup', function() {
+                if (draggingSplitterInfo) {
+                  draggingSplitterInfo.splitter.classList.remove('active');
+                  draggingSplitterInfo = null;
+                  // 使用CSS类而不是直接设置样式
+                  document.body.classList.remove('dragging-cursor');
+
+                  // 不再需要调用applyRatioToAll，因为在mousemove中已经应用了比例
+                  // if (typeof window.chunkCompareRatio === 'number') {
+                  //   applyRatioToAll();
+                  // }
+
+                  // 持久化当前的比例设置到localStorage
+                  if (docIdForLocalStorage && typeof window.chunkCompareRatio === 'number') {
+                    localStorage.setItem(`chunkCompareRatio_${docIdForLocalStorage}`, window.chunkCompareRatio.toString());
+                  }
+                }
+              });
+
+              document.querySelectorAll('.block-copy-btn').forEach(btn => {
                 btn.onclick = function() {
-                  const dir = btn.getAttribute('data-dir');
-                  const block = parseInt(btn.getAttribute('data-block'));
-                  let target = null;
-                  if(dir==='prev' && block>0) target = document.getElementById(`block-${block-1}`);
-                  if(dir==='next' && document.getElementById(`block-${block+1}`)) target = document.getElementById(`block-${block+1}`);
-                  if(target) {
-                    document.querySelectorAll('.block-outer').forEach(el=>el.classList.remove('block-highlight'));
-                    target.scrollIntoView({behavior:'smooth',block:'center'});
-                    target.classList.add('block-highlight');
-                    setTimeout(()=>target.classList.remove('block-highlight'), 1200);
+                  const blockIndex = this.dataset.block;
+                  const rawBlockContent = window[`blockRawContent_${blockIndex}`];
+                  const currentMode = window[`showMode_block_${blockIndex}`] || 'both'; // 获取当前模式
+
+                  if (rawBlockContent && Array.isArray(rawBlockContent)) {
+                    let textToCopy = "";
+                    let alertMessage = "";
+
+                    if (currentMode === 'ocr') {
+                      rawBlockContent.forEach(pair => {
+                        // 如果原文在左，pair[0]是原文；如果译文在左，pair[0]是译文
+                        const ocrText = isOriginalFirstInChunkCompare ? (pair && pair[0]) : (pair && pair[1]);
+                        if (ocrText) textToCopy += ocrText + "\n\n";
+                      });
+                      textToCopy = textToCopy.trim();
+                      alertMessage = `第 ${parseInt(blockIndex) + 1} 块的 原文 已复制!`;
+                    } else if (currentMode === 'trans') {
+                      rawBlockContent.forEach(pair => {
+                        // 如果原文在左，pair[1]是译文；如果译文在左，pair[1]是原文
+                        const transText = isOriginalFirstInChunkCompare ? (pair && pair[1]) : (pair && pair[0]);
+                        if (transText) textToCopy += transText + "\n\n";
+                      });
+                      textToCopy = textToCopy.trim();
+                      alertMessage = `第 ${parseInt(blockIndex) + 1} 块的 译文 已复制!`;
+                    } else { // mode === 'both'
+                      rawBlockContent.forEach(pair => {
+                        const ocrText = isOriginalFirstInChunkCompare ? (pair && pair[0]) : (pair && pair[1]);
+                        const transText = isOriginalFirstInChunkCompare ? (pair && pair[1]) : (pair && pair[0]);
+                        if (ocrText) textToCopy += "原文:\n" + ocrText + "\n\n";
+                        if (transText) textToCopy += "译文:\n" + transText + "\n\n";
+                      });
+                      textToCopy = textToCopy.trim();
+                      alertMessage = `第 ${parseInt(blockIndex) + 1} 块的 原文和译文 已复制!`;
+                    }
+
+                    if (textToCopy) {
+                      navigator.clipboard.writeText(textToCopy)
+                        .then(() => alert(alertMessage))
+                        .catch(err => {
+                          console.error('复制失败:', err);
+                          alert('复制失败，请查看控制台。');
+                        });
+                    } else {
+                      alert('没有内容可复制。');
+                    }
                   }
                 };
               });
-              // 结构块复制
-              const structCopyBtns = document.querySelectorAll('.block-struct-copy-btn');
-              structCopyBtns.forEach(btn => {
+
+              document.querySelectorAll('.block-struct-copy-btn').forEach(btn => {
                 btn.onclick = function() {
-                  const block = btn.getAttribute('data-block');
-                  const idx = btn.getAttribute('data-idx');
-                  const type = btn.getAttribute('data-type');
-                  const aligned = window[`blockRawContent_${block}`];
-                  let text = '';
-                  if (type === 'ocr') text = aligned[idx][0] || '';
-                  else text = aligned[idx][1] || '';
-                  navigator.clipboard.writeText(text).then(()=>{
-                    btn.textContent = '已复制';
-                    setTimeout(()=>{btn.textContent='复制';}, 1000);
-                  });
-                };
-              });
-              // 整块复制
-              const blockCopyBtns = document.querySelectorAll('.block-copy-btn');
-              blockCopyBtns.forEach(btn => {
-                btn.onclick = function() {
-                  const block = btn.getAttribute('data-block');
-                  const mode = window[`showMode_block_${block}`] || 'both';
-                  const aligned = window[`blockRawContent_${block}`];
-                  let text = '';
-                  if (mode === 'both') {
-                    for (let i = 0; i < aligned.length; i++) {
-                      text += '【原文】\n' + (aligned[i][0]||'') + '\n\n【译文】\n' + (aligned[i][1]||'') + '\n\n';
-                    }
-                  } else if (mode === 'ocr') {
-                    for (let i = 0; i < aligned.length; i++) {
-                      text += (aligned[i][0]||'') + '\n\n'; // 原文
-                    }
-                  } else if (mode === 'trans') {
-                    for (let i = 0; i < aligned.length; i++) {
-                      text += (aligned[i][1]||'') + '\n\n'; // 译文
-                    }
+                  const blockIndex = this.dataset.block;
+                  const type = this.dataset.type; // 'ocr' or 'trans'
+                  const structIdx = parseInt(this.dataset.idx);
+                  const rawBlockContent = window[`blockRawContent_${blockIndex}`];
+                  if (rawBlockContent && rawBlockContent[structIdx]) {
+                    const textToCopy = (type === 'ocr') ? rawBlockContent[structIdx][0] : rawBlockContent[structIdx][1];
+                    navigator.clipboard.writeText(textToCopy)
+                      .then(() => alert(`第 ${parseInt(blockIndex) + 1} 块的 ${type === 'ocr' ? '原文' : '译文'} (结构 ${structIdx + 1}) 已复制!`))
+                      .catch(err => console.error('复制失败:', err));
                   }
-                  navigator.clipboard.writeText(text.trim()).then(()=>{
-                    btn.textContent = '已复制';
-                    setTimeout(()=>{btn.textContent='复制本块';}, 1000);
-                  });
                 };
               });
+
+              document.querySelectorAll('.block-nav-btn').forEach(btn => {
+                btn.onclick = function() {
+                  const blockIndex = parseInt(this.dataset.block);
+                  const direction = this.dataset.dir;
+                  let targetIndex = direction === 'prev' ? blockIndex - 1 : blockIndex + 1;
+                  const targetElement = document.getElementById(`block-${targetIndex}`);
+                  if (targetElement) {
+                    targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    // 可选：添加高亮效果
+                    targetElement.classList.add('block-highlight');
+                    setTimeout(() => targetElement.classList.remove('block-highlight'), 1500);
+                  }
+                };
+              });
+
             }, 0);
-            // 高亮样式
-            if (!document.getElementById('block-highlight-style')) {
-              const style = document.createElement('style');
-              style.id = 'block-highlight-style';
-              style.innerHTML = `
-                .block-outer.block-highlight {
-                  box-shadow: 0 0 0 3px #2563eb44;
-                  transition: box-shadow 0.3s;
-                }
-                .block-toolbar .block-toggle-btn.active {
-                  background: #e0e7ff;
-                  color: #2563eb;
-                  border-radius: 5px;
-                }
-                .block-toolbar .block-toggle-btn, .block-toolbar .block-nav-btn {
-                  background: transparent;
-                  border: none;
-                  cursor: pointer;
-                  font-size: 1.1em;
-                  padding: 4px 7px;
-                  transition: background 0.15s;
-                }
-                .block-toolbar .block-toggle-btn:hover, .block-toolbar .block-nav-btn:hover {
-                  background: #f1f5f9;
-                }
-              `;
-              document.head.appendChild(style);
-            }
         } else {
             html = '<h3>分块对比</h3><p>此记录没有有效的分块对比数据。</p>';
             if (!data.ocrChunks || !data.translatedChunks) {
@@ -766,8 +1327,21 @@
         }
       }
       document.getElementById('tabContent').innerHTML = html;
+
+      // NEW: Adjust long headings. This should be called AFTER innerHTML is set
+      // and BEFORE refreshTocList is called.
+      const tabContentElement = document.getElementById('tabContent');
+      if (tabContentElement) {
+          adjustLongHeadingsToParagraphs(tabContentElement);
+      }
+
       if (typeof window.refreshTocList === 'function') {
         window.refreshTocList(); // 更新TOC
+      }
+
+      // Update reading progress when tab changes and content is rendered - CALLING DOCK_LOGIC
+      if (window.DockLogic && typeof window.DockLogic.forceUpdateReadingProgress === 'function') {
+        window.DockLogic.forceUpdateReadingProgress();
       }
 
       // 如果是分块对比视图，并且按钮存在，则绑定事件
@@ -780,6 +1354,116 @@
             };
         }
       }
+
+      // After tab content is updated, refresh chatbot UI if it's open
+      if (window.isChatbotOpen && typeof window.ChatbotUI !== 'undefined' && typeof window.ChatbotUI.updateChatbotUI === 'function') {
+        window.ChatbotUI.updateChatbotUI();
+      }
+
+      // 应用高亮和批注
+      if ((tab === 'ocr' || tab === 'translation') && contentContainerId) {
+        activeContentElement = document.getElementById(contentContainerId);
+        if (activeContentElement) {
+            const directChildNodes = Array.from(activeContentElement.children);
+            const blockElements = directChildNodes.filter(node =>
+                node.nodeType === Node.ELEMENT_NODE && true
+            );
+            blockElements.forEach((element, index) => {
+                element.dataset.blockIndex = String(index);
+                // MODIFIED to use SubBlockSegmenter
+                if (typeof window.SubBlockSegmenter !== 'undefined' && typeof window.SubBlockSegmenter.segment === 'function') {
+                    window.SubBlockSegmenter.segment(element, index);
+                } else {
+                    console.error("SubBlockSegmenter.segment is not available.");
+                }
+            });
+
+            if (data && data.annotations) {
+                if (typeof window.applyBlockAnnotations === 'function') {
+                    console.log(`[showTab] 为 ${window.globalCurrentContentIdentifier} 调用块级批注应用函数 (操作对象将是子块)`);
+                    window.applyBlockAnnotations(activeContentElement, data.annotations, window.globalCurrentContentIdentifier);
+                } else {
+                    console.warn("[showTab] 块级/子块批注应用函数 (applyBlockAnnotations) 未定义。请检查 js/annotation_highlighter.js");
+                }
+            }
+        }
+        if (typeof window.addAnnotationListenersToContainer === 'function') {
+            // 为 OCR 和 Translation 视图传递当前的全局内容标识符
+            window.addAnnotationListenersToContainer(contentContainerId, window.globalCurrentContentIdentifier);
+        } else {
+            console.error("addAnnotationListenersToContainer 未定义。请检查 js/annotation_logic.js");
+        }
+      } else if (tab === 'chunk-compare') {
+         // 对于分块对比视图，为每个原文和译文块单独处理
+         setTimeout(() => { //确保DOM更新完毕
+            const ocrContentAreas = document.querySelectorAll('.chunk-compare-container .align-block-ocr .align-content.markdown-body');
+            const transContentAreas = document.querySelectorAll('.chunk-compare-container .align-block-trans .align-content.markdown-body');
+
+            function processContentArea(area, isOcrArea) {
+                if (!area.id) {
+                    area.id = 'chunk-content-' + _page_generateUUID();
+                }
+                const effectiveContentIdentifier = isOriginalFirstInChunkCompare ? (isOcrArea ? 'ocr' : 'translation') : (isOcrArea ? 'translation' : 'ocr');
+
+                // 1. 分割子块
+                const directChildNodes = Array.from(area.children);
+                const blockElements = directChildNodes.filter(node => node.nodeType === Node.ELEMENT_NODE);
+                blockElements.forEach((element, index) => {
+                    element.dataset.blockIndex = String(index); // 为每个块内元素设置独立的 blockIndex
+                    // MODIFIED to use SubBlockSegmenter
+                    if (typeof window.SubBlockSegmenter !== 'undefined' && typeof window.SubBlockSegmenter.segment === 'function') {
+                        window.SubBlockSegmenter.segment(element, index);
+                    } else {
+                        console.error("SubBlockSegmenter.segment is not available for chunk processing.");
+                    }
+                });
+
+                // 2. 应用批注
+                if (data && data.annotations && typeof window.applyBlockAnnotations === 'function') {
+                    // console.log(`[showTab ChunkCompare] 为 ${area.id} (类型: ${effectiveContentIdentifier}) 应用批注`);
+                    // MODIFIED: Pass empty array for annotations in chunk-compare mode
+                    const annotationsToApply = (currentVisibleTabId === 'chunk-compare') ? [] : data.annotations;
+                    window.applyBlockAnnotations(area, annotationsToApply, effectiveContentIdentifier);
+                }
+
+                // 3. 添加监听器
+                if (typeof window.addAnnotationListenersToContainer === 'function') {
+                    // console.log(`[showTab ChunkCompare] 为 ${area.id} (类型: ${effectiveContentIdentifier}) 添加监听器`);
+                    window.addAnnotationListenersToContainer(area.id, effectiveContentIdentifier);
+                }
+            }
+
+            ocrContentAreas.forEach(area => processContentArea(area, true));
+            transContentAreas.forEach(area => processContentArea(area, false));
+
+         }, 0);
+      }
+
+      // Attempt to restore scroll position for the current tab
+      if (docIdForLocalStorage && currentVisibleTabId) {
+        const scrollKey = `scrollPos_${docIdForLocalStorage}_${currentVisibleTabId}`;
+        const savedScrollTop = localStorage.getItem(scrollKey);
+        // console.log(`[showTab] Attempting to restore scroll for ${scrollKey} on documentElement. Saved value: ${savedScrollTop}`);
+        if (savedScrollTop !== null && !isNaN(parseInt(savedScrollTop, 10))) {
+          const scrollableElement = document.documentElement; // Changed from .container
+          if (scrollableElement) {
+            requestAnimationFrame(() => {
+              if(currentVisibleTabId === tab) { // Ensure tab hasn't changed during async operation
+                scrollableElement.scrollTop = parseInt(savedScrollTop, 10);
+                // console.log(`[showTab] Restored scroll for ${scrollKey} (tab: ${tab}) on documentElement to ${scrollableElement.scrollTop}`);
+              }
+            });
+          }
+        }
+      }
+      // Call updateReadingProgress after potential scroll restoration and content rendering - CALLING DOCK_LOGIC
+      if (window.DockLogic && typeof window.DockLogic.forceUpdateReadingProgress === 'function') {
+        window.DockLogic.forceUpdateReadingProgress();
+      }
+      // updateAllDockStats(); // Update all dock stats after tab content is fully processed - CALLING DOCK_LOGIC
+      if (window.DockLogic && typeof window.DockLogic.updateStats === 'function') {
+        window.DockLogic.updateStats(window.data, currentVisibleTabId);
+      }
     }
     // 绑定tab按钮点击事件
     document.getElementById('tab-ocr').onclick = function() { showTab('ocr'); };
@@ -791,194 +1475,36 @@
     renderDetail();
 
     /**
+     * 将批注应用到指定的内容容器上。
+     * @param {HTMLElement} containerElement - 内容的DOM容器 (例如包含OCR或翻译文本的div)。
+     * @param {Array<Object>} annotations - 当前文档的批注对象数组。
+     * @param {string} contentIdentifier - 内容类型标识符 (例如 'ocr', 'translation')。
+     */
+    // MOVED to js/annotation_logic.js: function applyAnnotationsToContent(...) {...}
+
+    // ==========================
+    // 自定义上下文菜单逻辑 -- MOVED to js/annotation_logic.js
+    // ==========================
+    // const contextMenu = document.getElementById('custom-context-menu'); // Will be handled by annotation_logic.js
+
+    // MOVED to js/annotation_logic.js: function fuzzyMatch(...) {...}
+    // MOVED to js/annotation_logic.js: function checkIfTextIsHighlighted(...) {...}
+    // MOVED to js/annotation_logic.js: function checkIfTextHasNote(...) {...}
+    // MOVED to js/annotation_logic.js: function updateContextMenuOptions(...) {...}
+    // MOVED to js/annotation_logic.js: function showContextMenu(...) {...}
+    // MOVED to js/annotation_logic.js: function hideContextMenu(...) {...}
+    // MOVED to js/annotation_logic.js: function addContextMenuListener(...) {...} // Renamed to addAnnotationListenersToContainer
+    // MOVED to js/annotation_logic.js: contextMenu.addEventListener('click', async (event) => {...});
+    // MOVED to js/annotation_logic.js: document.addEventListener('click', (event) => {...});
+    // MOVED to js/annotation_logic.js: function _page_generateUUID() {...}
+
+    /**
      * @namespace TocFeature
      * @description 管理页面右侧浮动的目录 (Table of Contents) 功能。
      * 包括TOC按钮的点击事件、TOC悬浮窗的显示/隐藏、
      * 以及动态生成TOC列表项。
      */
-    (function TocFeature(){
-      const tocBtn = document.getElementById('toc-float-btn');
-      const tocPopup = document.getElementById('toc-popup');
-      const tocList = document.getElementById('toc-list');
-      const tocCloseBtn = document.getElementById('toc-popup-close-btn');
-      /**
-       * @const {Object<string, string>} tocMap
-       * @description 用于TOC中标题的中文到英文的简单映射表。
-       */
-      const tocMap = {
-        '历史详情': 'History Detail',
-        'OCR内容': 'OCR Content',
-        '仅OCR': 'OCR Only',
-        '翻译内容': 'Translation',
-        '仅翻译': 'Translation Only',
-        '分块对比': 'Chunk Compare',
-      };
-      /**
-       * @type {Array<HTMLElement>}
-       * @description 存储TOC列表项对应的页面内标题DOM元素。
-       */
-      let tocNodes = []; // 存储目录对应的标题DOM元素
-
-      /**
-       * 在TOC导航时，如果目标章节与当前视口距离较远，显示一个临时的加载/导航效果。
-       * @param {string} sectionName - 正在导航到的章节名称。
-       */
-      function showTemporaryLoadingEffect(sectionName) {
-        let effectDiv = document.getElementById('toc-loading-effect');
-        const mainContainer = document.querySelector('.container');
-
-        if (!effectDiv) {
-          effectDiv = document.createElement('div');
-          effectDiv.id = 'toc-loading-effect';
-          effectDiv.style.position = 'fixed';
-          effectDiv.style.top = '50%';
-          effectDiv.style.left = '50%';
-          effectDiv.style.transform = 'translate(-50%, -50%)';
-          effectDiv.style.background = 'rgba(0, 0, 0, 0.75)';
-          effectDiv.style.color = 'white';
-          effectDiv.style.padding = '15px 25px';
-          effectDiv.style.borderRadius = '8px';
-          effectDiv.style.zIndex = '10001'; // 比TOC弹窗(9999)和按钮(10000)更高
-          effectDiv.style.fontSize = '1.1em';
-          effectDiv.style.textAlign = 'center';
-          effectDiv.style.opacity = '0';
-          effectDiv.style.transition = 'opacity 0.3s ease-in-out';
-          document.body.appendChild(effectDiv);
-        }
-
-        if (mainContainer) {
-          mainContainer.style.transition = 'filter 0.3s ease-in-out'; // 添加filter过渡效果
-          mainContainer.style.filter = 'blur(4px)';
-        }
-
-        effectDiv.textContent = `正在前往: ${sectionName.substring(0,30)}${sectionName.length > 30 ? '...' : ''}`;
-        // 确保在下一帧应用opacity以触发过渡
-        requestAnimationFrame(() => {
-          effectDiv.style.opacity = '1';
-        });
-
-        setTimeout(() => {
-          effectDiv.style.opacity = '0';
-          if (mainContainer) {
-            mainContainer.style.filter = 'none';
-          }
-          // 可选: 过渡结束后从DOM中移除，如果效果不频繁触发，可以保留以复用
-          // setTimeout(() => { if (effectDiv && effectDiv.parentNode) effectDiv.parentNode.removeChild(effectDiv); }, 300);
-        }, 1500); // 效果持续时间
-      }
-
-      // 打开/关闭悬浮窗
-      tocBtn.onclick = function() {
-        const isOpen = tocPopup.style.display === 'block';
-        if (isOpen) {
-          tocPopup.style.opacity = '0';
-          tocPopup.style.transform = 'translateY(-10px)';
-          setTimeout(() => { tocPopup.style.display = 'none'; }, 200);
-        } else {
-          renderTocList(); // 每次打开时重新渲染，确保内容最新
-          tocPopup.style.display = 'block';
-          setTimeout(() => {
-            tocPopup.style.opacity = '1';
-            tocPopup.style.transform = 'translateY(0)';
-          }, 10); // Short delay for display:block to take effect before transition
-        }
-      };
-      // 关闭悬浮窗按钮
-      tocCloseBtn.onclick = function() {
-        tocPopup.style.opacity = '0';
-        tocPopup.style.transform = 'translateY(-10px)';
-        setTimeout(() => { tocPopup.style.display = 'none'; }, 200);
-      };
-      /**
-       * 生成并渲染TOC目录列表。
-       * - 清空现有列表。
-       * - 从 `.container` 中查找所有 `h2` (排除 `#fileName`) 和 `h3` 元素作为TOC条目。
-       * - 为每个标题元素生成一个列表项，包含其文本和可选的英文翻译（来自 `tocMap`）。
-       * - 列表项链接到对应标题的ID，点击时平滑滚动到该标题，并根据距离触发加载效果。
-       * - 存储标题DOM节点到 `tocNodes` 数组。
-       */
-      function renderTocList() {
-        tocList.innerHTML = '';
-        tocNodes = []; // 每次渲染时清空并重新填充
-        const container = document.querySelector('.container');
-        if(!container) return;
-        const headingElements = Array.from(container.querySelectorAll('h2:not(#fileName), h3')); // 排除fileName的h2
-
-        headingElements.forEach((nodeEl, idx) => {
-          if(!nodeEl.id) nodeEl.id = 'toc-anchor-' + idx;
-          tocNodes.push(nodeEl); // 存储DOM节点
-
-          let zh = nodeEl.textContent.trim();
-          let en = tocMap[zh]; // 获取英文翻译
-          const li = document.createElement('li');
-          li.className = nodeEl.tagName==='H2' ? 'toc-h2' : 'toc-h3';
-          let linkHTML = `${zh}`;
-          if(en && en !== zh) { // 只有当英文翻译存在且与中文不同时才显示
-            linkHTML += ` <span class="toc-en-translation">/ ${en}</span>`;
-          }
-          li.innerHTML = `<a href="#${nodeEl.id}">${linkHTML}</a>`;
-          li.querySelector('a').onclick = function(e){
-            e.preventDefault();
-            const targetElement = document.getElementById(nodeEl.id);
-            if (targetElement) {
-              const clickedNodeIndex = tocNodes.findIndex(n => n.id === nodeEl.id);
-              let currentTopNodeIndex = 0; // 默认为第一个
-
-              if (tocNodes.length > 0) {
-                let minPositiveTop = Infinity;
-                let foundPositive = false;
-                for (let i = 0; i < tocNodes.length; i++) {
-                  const rect = tocNodes[i].getBoundingClientRect();
-                  if (rect.top >= 0 && rect.top < minPositiveTop) {
-                    minPositiveTop = rect.top;
-                    currentTopNodeIndex = i;
-                    foundPositive = true;
-                  }
-                }
-                // 如果没有在视口内或下方的，则取最接近视口顶部的上方元素
-                if (!foundPositive) {
-                  let maxNegativeTop = -Infinity;
-                  let foundNegative = false;
-                  for (let i = 0; i < tocNodes.length; i++) {
-                    const rect = tocNodes[i].getBoundingClientRect();
-                    if (rect.top < 0 && rect.top > maxNegativeTop) {
-                      maxNegativeTop = rect.top;
-                      currentTopNodeIndex = i;
-                      foundNegative = true;
-                    }
-                  }
-                  if (!foundNegative && tocNodes.length > 0) { // 如果都找不到（例如所有元素都在视口下方很远）
-                     currentTopNodeIndex = 0; // 或者根据情况选择最后一个
-                  }
-                }
-              }
-
-              const indexDifference = Math.abs(clickedNodeIndex - currentTopNodeIndex);
-
-              if (indexDifference >= 6) {
-                showTemporaryLoadingEffect(nodeEl.textContent.trim() || "目标章节");
-              }
-
-              targetElement.scrollIntoView({behavior:'smooth',block:'start'});
-            }
-          };
-          tocList.appendChild(li);
-        });
-      }
-      // 点击页面其他地方关闭目录 (可选，如果需要请取消注释)
-      /*
-      document.addEventListener('click', function(event) {
-        if (tocPopup.style.display === 'block' &&
-            !tocPopup.contains(event.target) &&
-            !tocBtn.contains(event.target)) {
-          tocPopup.style.opacity = '0';
-          tocPopup.style.transform = 'translateY(-10px)';
-          setTimeout(() => { tocPopup.style.display = 'none'; }, 200);
-        }
-      });
-      */
-      window.refreshTocList = renderTocList; // 暴露renderTocList函数
-    })();
+    // MOVED to js/toc_logic.js: (function TocFeature(){...})();
 
     /**
      * 监听 localStorage 的 `storage` 事件。
@@ -995,6 +1521,233 @@
         }
       }
     });
+
+    /**
+     * 将 exact 文本转为模糊正则，允许空格、换行模糊匹配，大小写不敏感
+     * @param {string} exact
+     * @returns {RegExp}
+     */
+    function escapeRegExp(string) {
+      // 更安全地转义所有正则特殊字符
+      return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+    function fuzzyRegFromExact(exact) {
+      // 先转义所有正则特殊字符
+      let pattern = escapeRegExp(exact);
+      // 将所有空白替换为 \s+，允许跨行、多个空格
+      pattern = pattern.replace(/\s+/g, '\\s+');
+      // 可选：忽略前后空白
+      pattern = '\\s*' + pattern + '\\s*';
+      return new RegExp(pattern, 'gi');
+    }
+
+    // function highlightTextWithAnnotations(text, annotations, contentIdentifier) { // Obsolete due to block based.
+    //   console.warn('[highlightTextWithAnnotations] This function is part of the old text-based highlighting system and should ideally be phased out.');
+    //   if (!annotations || !Array.isArray(annotations) || !text) return text;
+    //   // 只处理当前内容类型的高亮
+    //   const relevant = annotations.filter(
+    //     ann =>
+    //       ann.targetType === contentIdentifier &&
+    //       ann.target &&
+    //       Array.isArray(ann.target.selector) &&
+    //       ann.target.selector[0] &&
+    //       ann.target.selector[0].exact
+    //   );
+    //   if (relevant.length === 0) return text;
+
+    //   // 按照 exact 长度降序排序，避免嵌套覆盖
+    //   relevant.sort((a, b) => (b.target.selector[0].exact.length - a.target.selector[0].exact.length));
+
+    //   let result = text;
+    //   relevant.forEach(ann => {
+    //     const color = ann.highlightColor || 'yellow';
+    //     const note = ann.body && ann.body.length > 0 && ann.body[0].value ? ann.body[0].value : '';
+    //     const exact = ann.target.selector[0].exact;
+    //     const reg = fuzzyRegFromExact(exact);
+    //     result = result.replace(
+    //       reg,
+    //       `<mark class="annotation-highlight" style="background:${color}" title="${note.replace(/"/g, '&quot;')}">$&</mark>`
+    //     );
+    //   });
+    //   return result;
+    // }
+
+    /**
+     * 从数据库中移除指定文本的高亮批注
+     * @param {string} selectedText - 要取消高亮的文本
+     * @param {string} docId - 文档ID
+     */
+    // MOVED to js/annotation_logic.js: async function removeHighlightFromText(selectedText, docId) {...}
+
+    /**
+     * 为现有的高亮文本添加批注
+     * @param {string} selectedText - 选中的文本
+     * @param {string} noteText - 批注内容
+     * @param {string} docId - 文档ID
+     */
+    // MOVED to js/annotation_logic.js: async function addNoteToExistingHighlight(selectedText, noteText, docId) {...}
+
+    // Dock Settings Modal Logic
+    const dockSettingsModal = document.getElementById('dock-settings-modal');
+    const openDockSettingsBtn = document.getElementById('settings-link'); // This is the cog icon in the dock
+    const closeDockSettingsBtn = document.getElementById('dock-settings-close-btn');
+    const saveDockSettingsBtn = document.getElementById('dock-settings-save-btn');
+    const cancelDockSettingsBtn = document.getElementById('dock-settings-cancel-btn');
+    const dockSettingsCheckboxes = dockSettingsModal.querySelectorAll('.checkbox-group input[type="checkbox"]');
+
+    console.log('Dock Settings Modal Logic: Script block reached.'); // Log: Script block reached
+    if (dockSettingsModal) {
+        console.log('Dock Settings Modal Logic: dockSettingsModal element found.', dockSettingsModal);
+    } else {
+        console.error('Dock Settings Modal Logic: dockSettingsModal element NOT found!');
+    }
+
+    if (openDockSettingsBtn) {
+        console.log('Dock Settings Modal Logic: openDockSettingsBtn element (settings-link) found.', openDockSettingsBtn);
+        openDockSettingsBtn.addEventListener('click', function(event) {
+            console.log('Dock Settings Modal Logic: settings-link clicked.'); // Log: Click event triggered
+            event.preventDefault();
+            event.stopPropagation();
+            openDockSettingsModal();
+        });
+        console.log('Dock Settings Modal Logic: Click event listener attached to settings-link.'); // Log: Listener attached
+    } else {
+        console.error('Dock Settings Modal Logic: openDockSettingsBtn (settings-link) element NOT found! Cannot attach click listener.');
+    }
+
+    function openDockSettingsModal() {
+      console.log('Dock Settings Modal Logic: openDockSettingsModal() called.'); // 新增日志
+      try {
+        if (!window.DockLogic || typeof window.DockLogic.getCurrentDisplayConfig !== 'function') {
+          alert('DockLogic 功能尚未准备好。');
+          console.error('DockLogic or getCurrentDisplayConfig is not available. Modal will not open.'); // 更详细的错误
+          return;
+        }
+        console.log('Dock Settings Modal Logic: DockLogic and getCurrentDisplayConfig are available.'); // 新增日志
+
+        const currentConfig = window.DockLogic.getCurrentDisplayConfig();
+        if (!currentConfig) { // Further check if getCurrentDisplayConfig returned something valid
+            alert('无法获取当前的 Dock 显示配置。');
+            console.error('Failed to get current display config from DockLogic. Modal will not open.'); // 更详细的错误
+            return;
+        }
+        console.log('Dock Settings Modal Logic: currentConfig obtained:', currentConfig); // 新增日志
+
+        dockSettingsCheckboxes.forEach(checkbox => {
+          const key = checkbox.dataset.configKey;
+          if (currentConfig.hasOwnProperty(key)) {
+            checkbox.checked = currentConfig[key];
+          }
+        });
+        console.log('Dock Settings Modal Logic: Checkboxes updated.'); // 新增日志
+
+        // 同步 TOC 模式设置
+        updateTocModeRadioButtons();
+
+        dockSettingsModal.classList.add('visible');
+        console.log('Dock Settings Modal Logic: "visible" class ADDED to dockSettingsModal. Modal should be visible now if CSS is correct.'); // 新增日志
+      } catch (error) {
+        console.error('Error opening dock settings modal:', error);
+        alert('打开设置时发生错误，请查看控制台了解详情。');
+        // Even if an error occurs, ensure the default link action is prevented if possible,
+        // though the event object might not be in scope here directly unless passed.
+        // The preventDefault in the calling handler should ideally cover this.
+      }
+    }
+
+    function closeDockSettingsModal() {
+      console.log('Dock Settings Modal Logic: closeDockSettingsModal() called.'); // 新增日志
+      // dockSettingsModal.style.display = 'none'; // OLD way
+      dockSettingsModal.classList.remove('visible'); // NEW way: use CSS class for visibility
+      console.log('Dock Settings Modal Logic: "visible" class REMOVED from dockSettingsModal.'); // 新增日志
+    }
+
+    function saveDockSettings() {
+      if (!window.DockLogic || typeof window.DockLogic.updateDisplayConfig !== 'function') {
+        alert('DockLogic 功能尚未准备好。');
+        return;
+      }
+      const newConfig = {};
+      dockSettingsCheckboxes.forEach(checkbox => {
+        newConfig[checkbox.dataset.configKey] = checkbox.checked;
+      });
+      window.DockLogic.updateDisplayConfig(newConfig);
+
+      // 保存 TOC 模式设置
+      const selectedTocMode = document.querySelector('input[name="toc-mode"]:checked');
+      if (selectedTocMode) {
+        const tocMode = selectedTocMode.value;
+        // 如果 window.TocFeature 存在则直接调用其方法，否则通过模拟点击实现
+        const tocPopup = document.getElementById('toc-popup'); // 修复：在函数内获取 tocPopup 元素
+        if (tocPopup) {
+          const tocModeBtn = tocPopup.querySelector(`.toc-mode-btn[data-mode="${tocMode}"]`);
+          if (tocModeBtn) {
+            tocModeBtn.click(); // 模拟点击对应的模式按钮
+          }
+        }
+        // 保存到 localStorage 以便页面刷新后恢复
+        if (docIdForLocalStorage) {
+          localStorage.setItem(`tocMode_${docIdForLocalStorage}`, tocMode);
+        }
+      }
+
+      closeDockSettingsModal();
+    }
+
+    if (closeDockSettingsBtn) closeDockSettingsBtn.onclick = closeDockSettingsModal;
+    if (saveDockSettingsBtn) saveDockSettingsBtn.onclick = saveDockSettings;
+    if (cancelDockSettingsBtn) cancelDockSettingsBtn.onclick = closeDockSettingsModal;
+
+    // Close modal if user clicks outside the modal content
+    dockSettingsModal.addEventListener('click', function(event) {
+        if (event.target === dockSettingsModal) {
+            closeDockSettingsModal();
+        }
+    });
+
+    // 处理 TOC 模式设置与 TOC 弹窗中的按钮同步
+    function syncTocModeSettings() {
+      // 从 localStorage 加载保存的 TOC 模式
+      if (docIdForLocalStorage) {
+        const savedTocMode = localStorage.getItem(`tocMode_${docIdForLocalStorage}`);
+        if (savedTocMode && ['both', 'ocr', 'translation'].includes(savedTocMode)) {
+          // 更新单选按钮状态
+          const radioBtn = document.getElementById(`toc-mode-${savedTocMode}`);
+          if (radioBtn) {
+            radioBtn.checked = true;
+          }
+
+          // 如果 TOC 弹窗已加载，同步其按钮状态
+          const tocPopup = document.getElementById('toc-popup');
+          if (tocPopup) {
+            const tocModeBtn = tocPopup.querySelector(`.toc-mode-btn[data-mode="${savedTocMode}"]`);
+            if (tocModeBtn) {
+              // 模拟点击以更新状态
+              tocModeBtn.click();
+            }
+          }
+        }
+      }
+    }
+
+    // 在页面加载完成后同步 TOC 模式设置
+    document.addEventListener('DOMContentLoaded', syncTocModeSettings);
+
+    // 在打开设置对话框前同步当前 TOC 模式到单选按钮
+    function updateTocModeRadioButtons() {
+      const tocPopup = document.getElementById('toc-popup');
+      if (tocPopup) {
+        const activeTocModeBtn = tocPopup.querySelector('.toc-mode-btn.active');
+        if (activeTocModeBtn) {
+          const mode = activeTocModeBtn.dataset.mode;
+          const radioBtn = document.getElementById(`toc-mode-${mode}`);
+          if (radioBtn) {
+            radioBtn.checked = true;
+          }
+        }
+      }
+    }
   </script>
+
 </body>
 </html>

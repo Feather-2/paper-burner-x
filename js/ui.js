@@ -1531,6 +1531,8 @@ document.addEventListener('DOMContentLoaded', function() {
                             if (modelSelect) {
                                 const selectedModelId = modelSelect.value;
                                 site.modelId = selectedModelId;
+                                // 新增：同步写入 lastSelectedCustomModel
+                                localStorage.setItem('lastSelectedCustomModel', selectedModelId);
                                 if (typeof saveCustomSourceSite === 'function') {
                                     saveCustomSourceSite(site);
                                 }
@@ -1559,6 +1561,8 @@ document.addEventListener('DOMContentLoaded', function() {
                             }
                             // 新增：切换时立即保存
                             site.modelId = modelSelect.value;
+                            // 新增：同步写入 lastSelectedCustomModel
+                            localStorage.setItem('lastSelectedCustomModel', modelSelect.value);
                             if (typeof saveCustomSourceSite === 'function') {
                                 saveCustomSourceSite(site);
                             }
@@ -1672,6 +1676,18 @@ document.addEventListener('DOMContentLoaded', function() {
                     for (let i = 0; i < customSourceSiteSelect.options.length; i++) {
                         if (customSourceSiteSelect.options[i].value) {
                             customSourceSiteSelect.value = customSourceSiteSelect.options[i].value;
+                            // 新增：保存到 localStorage
+                            let settings = typeof loadSettings === 'function' ? loadSettings() : {};
+                            settings.selectedCustomSourceSiteId = customSourceSiteSelect.value;
+                            if (typeof saveSettings === 'function') {
+                                saveSettings(settings);
+                            } else {
+                                localStorage.setItem('paperBurnerSettings', JSON.stringify(settings));
+                            }
+                            // 确保UI也更新
+                            if (typeof updateCustomSourceSiteInfo === 'function') {
+                                updateCustomSourceSiteInfo(customSourceSiteSelect.value);
+                            }
                             break;
                         }
                     }

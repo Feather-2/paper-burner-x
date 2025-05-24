@@ -1,0 +1,1106 @@
+/* ====================
+ * 页面基础与布局样式
+ * ==================== */
+body {
+  font-family: sans-serif;
+  background: #f7f7fa;
+  margin: 0;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 40px auto;
+  background: #fff;
+  border-radius: 12px;
+  border: 2px dashed #e2e8f0;
+  padding: 32px;
+}
+
+/* ====================
+ * 标签页导航样式
+ * ==================== */
+.tabs-container {
+  border-bottom: 2px solid #e2e8f0;
+  margin-bottom: 16px;
+  display: flex;
+}
+
+.tab-btn {
+  padding: 8px 24px;
+  background: transparent;
+  margin-right: 4px;
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+  font-size: 1rem;
+  border: 2px solid transparent;
+  border-bottom: none;
+  position: relative;
+  bottom: -2px;
+  transition: all 0.2s ease;
+}
+
+.tab-btn:hover:not(.active) {
+  background: #f1f5f9;
+}
+
+.tab-btn.active {
+  background: #fff;
+  color: #2563eb;
+  border-color: #e2e8f0;
+  border-bottom: 2px solid #fff;
+  font-weight: 500;
+}
+
+/* ====================
+ * 标签页内容区域样式
+ * ==================== */
+.tab-content {
+  background: #fff;
+  border-radius: 8px;
+  padding: 24px;
+  min-height: 300px;
+  border: 2px dashed #e2e8f0;
+  margin-top: -2px;
+}
+
+/* ====================
+ * Markdown 表格样式
+ * ==================== */
+.markdown-body table {
+  border-collapse: collapse;
+  width: auto;
+  margin: 16px auto;
+  font-size: 0.95em;
+  display: table;
+}
+
+.markdown-body table th,
+.markdown-body table td {
+  border: 1px solid #ddd;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.markdown-body table th {
+  background-color: #f2f2f2;
+  font-weight: 600;
+}
+
+.markdown-body table tr:nth-child(even) {
+  background-color: #f8f8f8;
+}
+
+.markdown-body table tr:hover {
+  background-color: #f1f5f9;
+}
+
+/* ====================
+ * 分块对比视图样式
+ * ==================== */
+/* 分块对比区域的标题栏，包含标题和切换按钮 */
+.chunk-compare-title-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1em; /* 调整标题和内容之间的间距 */
+}
+
+.chunk-compare-title-bar h3 {
+  margin: 0; /* 移除h3的默认外边距 */
+}
+
+/* 切换原文/译文位置按钮 */
+#swap-chunks-btn {
+  background: transparent;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 1.1em; /* 图标大小 */
+  line-height: 1;
+  color: #333;
+}
+
+#swap-chunks-btn:hover {
+  background-color: #f0f0f0;
+  border-color: #bbb;
+}
+
+/* 分块对比主容器，垂直排列块对 */
+.chunk-compare-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1em;
+}
+
+/* 单个原文/译文对比块对，水平排列 */
+.chunk-pair {
+  display: flex;
+  gap: 1em;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 1em;
+}
+
+.chunk-pair:last-child {
+  border-bottom: none;
+}
+
+/* 块对中的单个块（原文或译文） */
+.chunk-pair > div {
+  flex: 1;
+  min-width: 0;
+  background: #fdfdfd;
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid #eef;
+}
+
+.chunk-pair h4 {
+  margin-top: 0;
+  font-size: 0.9em;
+  color: #555;
+  border-bottom: 1px dashed #ddd;
+  padding-bottom: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+/* 确保分块内容区域在内容过长时可以横向滚动 */
+.chunk-compare-container .markdown-body {
+  overflow-x: auto; /* 为分块内容区域添加横向滚动条 */
+}
+
+/* ==========================
+ * Markdown 内容通用样式
+ * ========================== */
+.content-wrapper {
+  background: #fff;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.markdown-body {
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.markdown-body img {
+  max-width: 100%;
+  height: auto;
+  margin: 8px 0;
+  border-radius: 6px;
+  border: 1px dashed #e2e8f0;
+  display: block;
+}
+
+pre {
+  background: #f3f3f3;
+  padding: 8px;
+  border-radius: 4px;
+  overflow-x: auto;
+  border: 1px dashed #e2e8f0;
+}
+
+h2 {
+  margin-top: 0;
+} /* 移除h3，只保留h2的顶部外边距移除 */
+
+.meta {
+  color: #888;
+  font-size: 0.95em;
+  margin-bottom: 1em;
+}
+
+/* ==========================
+ * 自定义上下文菜单样式
+ * ========================== */
+#custom-context-menu {
+  position: absolute;
+  z-index: 10000;
+  background-color: #fff;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
+  padding: 5px 0;
+  min-width: 180px;
+  display: none; /* Initially hidden */
+}
+
+#custom-context-menu ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+#custom-context-menu ul li {
+  padding: 8px 15px;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+#custom-context-menu ul li:hover {
+  background-color: #f0f0f0;
+}
+
+/* 取消高亮选项的特殊样式 */
+#custom-context-menu ul li[data-action="remove-highlight"] {
+  color: #dc3545;
+  border-top: 1px solid #eee;
+}
+
+#custom-context-menu ul li[data-action="remove-highlight"]:hover {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+/* 添加批注选项的特殊样式 */
+#custom-context-menu ul li[data-action="add-note"] {
+  color: #28a745;
+  border-top: 1px solid #eee;
+}
+
+#custom-context-menu ul li[data-action="add-note"]:hover {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+/* 编辑批注选项的特殊样式 */
+#custom-context-menu ul li[data-action="edit-note"] {
+  color: #17a2b8;
+  border-top: 1px solid #eee;
+}
+
+#custom-context-menu ul li[data-action="edit-note"]:hover {
+  background-color: #d1ecf1;
+  color: #0c5460;
+}
+
+#custom-context-menu ul li .color-palette {
+  display: flex;
+  gap: 5px;
+  padding-top: 5px;
+}
+
+#custom-context-menu ul li .color-option {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid #eee;
+  cursor: pointer;
+}
+
+#custom-context-menu ul li .color-option:hover {
+  border-color: #999;
+}
+
+.color-yellow {
+  background-color: rgba(255, 255, 0, 0.75);
+}
+
+.color-pink {
+  background-color: rgba(253, 170, 200, 0.75);
+}
+
+.color-lightblue {
+  background-color: rgba(95, 211, 250, 0.75);
+}
+
+.color-lightgreen {
+  background-color: rgba(178, 253, 178, 0.75);
+}
+
+.color-purple {
+  background-color: rgba(221, 160, 221, 0.75);
+}
+
+.color-orange {
+  background-color: rgba(255, 165, 0, 0.75);
+}
+
+.highlight-yellow {
+  background-color: rgba(255, 255, 0, 0.75);
+}
+
+.highlight-pink {
+  background-color: rgba(253, 170, 200, 0.75);
+}
+
+.highlight-lightblue {
+  background-color: rgba(95, 211, 250, 0.75);
+}
+
+.highlight-lightgreen {
+  background-color: rgba(178, 253, 178, 0.75);
+}
+
+.highlight-purple {
+  background-color: rgba(221, 160, 221, 0.75);
+}
+
+.highlight-orange {
+  background-color: rgba(255, 165, 0, 0.75);
+}
+
+/* 高亮文本悬停效果 */
+.annotation-highlight:hover {
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  transform: translateY(-1px); /* 轻微上移效果 */
+}
+
+/* 高亮文本右上角的小符号 */
+.annotation-highlight::after {
+  content: "📝"; /* 使用笔记本emoji作为符号 */
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #ccc;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none; /* 不阻止点击事件 */
+  z-index: 10;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+/* 鼠标悬停时显示小符号 */
+.annotation-highlight:hover::after {
+  opacity: 1;
+}
+
+/* 有批注的高亮文本显示不同的符号 */
+.annotation-highlight.has-note::after {
+  content: "💬"; /* 使用对话框emoji表示有批注 */
+  opacity: 0.8; /* 有批注的始终显示，但透明度较低 */
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.annotation-highlight.has-note:hover::after {
+  opacity: 1;
+}
+
+/* 移动设备上始终显示小符号 */
+@media (max-width: 768px) {
+  .annotation-highlight::after {
+    opacity: 0.6;
+  }
+
+  .annotation-highlight.has-note::after {
+    opacity: 0.9;
+  }
+}
+
+/* ==========================
+ * TOC 浮动按钮和弹窗样式
+ * ========================== */
+#toc-float-btn {
+  position: fixed;
+  left: 24px;
+  top: 24px;
+  z-index: 10000;
+  width: 48px;
+  height: 48px;
+  background: #2563eb;
+  border-radius: 50%;
+  box-shadow: 0 3px 10px rgba(59, 130, 246, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+#toc-float-btn i {
+  color: #fff;
+  font-size: 22px;
+}
+
+#toc-popup {
+  display: none;
+  position: fixed;
+  left: 6px;
+  top: 80px;
+  z-index: 9999;
+  width: 220px;
+  max-width: 85vw;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+  transition: opacity 0.2s, transform 0.2s;
+  transform: translateY(-10px);
+  opacity: 0;
+}
+
+#toc-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+#toc-popup-header span {
+  font-weight: 600;
+  font-size: 0.95em;
+  color: #1e293b;
+}
+
+#toc-popup-header i {
+  margin-right: 8px;
+  color: #3b82f6;
+}
+
+#toc-popup-close-btn {
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #475569;
+  transition: background 0.15s, color 0.15s;
+}
+
+#toc-list {
+  list-style: none;
+  padding: 8px 0;
+  margin: 0;
+  font-size: 0.85em;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+/* ==========================
+ * TOC 悬浮窗的特定样式
+ * ========================== */
+/* TOC弹窗滚动条样式 */
+#toc-popup::-webkit-scrollbar {
+  width: 5px;
+}
+
+#toc-popup::-webkit-scrollbar-track {
+  background: #f8fafc;
+}
+
+#toc-popup::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+#toc-popup::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* TOC列表项通用样式 */
+#toc-list li {
+  margin-bottom: 0;
+  line-height: 1.4;
+}
+
+#toc-list li a {
+  display: block;
+  padding: 5px 16px;
+  color: #334155;
+  text-decoration: none;
+  font-weight: 500;
+  transition: background 0.15s, color 0.15s, border-left-color 0.15s;
+  border-left: 3px dashed #e2e8f0;
+}
+
+#toc-list li a:hover {
+  background: #eef2ff;
+  color: #3b82f6;
+  border-left-color: #3b82f6;
+}
+
+/* 不同层级标题的缩进和字体大小 */
+#toc-list li.toc-h2 a {
+  padding-left: 16px;
+  font-size: 0.95em;
+}
+
+#toc-list li.toc-h3 a {
+  padding-left: 28px;
+  font-size: 0.88em;
+  color: #475569;
+}
+
+#toc-list li.toc-h3 a:hover {
+  color: #3b82f6;
+}
+
+/* TOC项中的英文翻译样式 */
+#toc-list span.toc-en-translation {
+  font-size: 0.85em;
+  color: #64748b;
+  margin-left: 4px;
+  font-weight: 400;
+}
+
+/* TOC浮动按钮和关闭按钮的悬停效果 */
+#toc-float-btn:hover {
+  background: #1d4ed8;
+}
+
+#toc-popup-close-btn:hover {
+  background: #eef2ff;
+  color: #3b82f6;
+}
+
+/* ==========================
+ * 分块对比 Flex 样式
+ * ========================== */
+.align-flex {
+  display: flex;
+  gap: 0;
+  margin-bottom: 1em;
+  position: relative;
+  align-items: stretch;
+}
+
+.align-block {
+  min-width: 0;
+  overflow-x: auto;
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  padding: 12px;
+  box-sizing: border-box;
+  box-shadow: 0 1px 4px 0 rgba(0,0,0,0.03);
+  transition: flex-basis 0.2s;
+}
+
+.splitter {
+  width: 4px;
+  min-width: 4px;
+  max-width: 12px;
+  background: transparent;
+  cursor: col-resize;
+  position: relative;
+  z-index: 2;
+  margin: 0 0.5em;
+  border: none;
+  border-radius: 2px;
+  transition: background 0.2s;
+}
+
+.splitter:hover,
+.splitter.active {
+  background: rgba(37,99,235,0.08);
+  border-left: 2px dashed #2563eb;
+  border-right: 2px dashed #2563eb;
+  border-radius: 3px;
+}
+
+.align-title {
+  font-size: 0.98em;
+  color: #64748b;
+  margin-bottom: 6px;
+  font-weight: 500;
+  border-bottom: 1px dashed #e2e8f0;
+  padding-bottom: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.align-content {
+  word-break: break-all;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+.align-content pre {
+  max-width: 100%;
+  overflow-x: auto;
+  display: block;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+/* ==========================
+ * 分块工具栏样式
+ * ========================== */
+.block-toolbar {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.block-toolbar-left {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.block-toolbar-right {
+  display: flex;
+  gap: 4px;
+}
+
+.block-toolbar-left .block-mode-btn {
+  font-size: 12px;
+  color: #64748b;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+  user-select: none;
+}
+
+.block-toolbar-left .block-mode-btn.active {
+  background: #e0e7ff;
+  color: #2563eb;
+  font-weight: bold;
+}
+
+.block-toolbar-left .block-mode-btn:hover:not(.active) {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+
+.block-toolbar-left .block-copy-btn {
+  font-size: 12px;
+  color: #64748b;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 2px 8px;
+  margin-left: 8px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.block-toolbar-left .block-copy-btn:hover {
+  background: #e0e7ff;
+  color: #2563eb;
+}
+
+.block-struct-copy-btn {
+  font-size: 11px;
+  color: #64748b;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-left: 8px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.block-struct-copy-btn:hover {
+  background: #e0e7ff;
+  color: #2563eb;
+}
+
+/* ==========================
+ * 分块高亮样式
+ * ========================== */
+.block-outer.block-highlight {
+  box-shadow: 0 0 0 3px #2563eb44;
+  transition: box-shadow 0.3s;
+}
+
+.block-toolbar .block-toggle-btn.active {
+  background: #e0e7ff;
+  color: #2563eb;
+  border-radius: 5px;
+}
+
+.block-toolbar .block-toggle-btn,
+.block-toolbar .block-nav-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1em;
+  padding: 4px 7px;
+  transition: background 0.15s;
+}
+
+.block-toolbar .block-toggle-btn:hover,
+.block-toolbar .block-nav-btn:hover {
+  background: #f1f5f9;
+}
+
+/* ==========================
+ * 批注高亮样式
+ * ========================== */
+.annotation-highlight {
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.annotation-highlight.bg-yellow {
+  background-color: rgba(255, 255, 0, 0.75);
+}
+
+.annotation-highlight.bg-pink {
+  background-color: rgba(253, 170, 200, 0.75);
+}
+
+.annotation-highlight.bg-lightblue {
+  background-color: rgba(95, 211, 250, 0.75);
+}
+
+.annotation-highlight.bg-lightgreen {
+  background-color: rgba(178, 253, 178, 0.75);
+}
+
+.annotation-highlight.bg-purple {
+  background-color: rgba(221, 160, 221, 0.75);
+}
+
+.annotation-highlight.bg-orange {
+  background-color: rgba(255, 165, 0, 0.75);
+}
+
+/* ==========================
+ * 动态状态管理CSS类
+ * ========================== */
+
+/* 分块对比显示模式 */
+.block-mode-ocr-only .align-block-trans,
+.block-mode-ocr-only .splitter {
+  display: none !important;
+}
+
+.block-mode-ocr-only .align-block-ocr {
+  flex-basis: 100% !important;
+  max-width: 100% !important;
+  width: 100% !important;
+}
+
+.block-mode-trans-only .align-block-ocr,
+.block-mode-trans-only .splitter {
+  display: none !important;
+}
+
+.block-mode-trans-only .align-block-trans {
+  flex-basis: 100% !important;
+  max-width: 100% !important;
+  width: 100% !important;
+}
+
+.block-mode-both .align-block-ocr,
+.block-mode-both .align-block-trans {
+  display: block !important;
+}
+
+.block-mode-both .splitter {
+  display: block !important;
+}
+
+/* Flex比例CSS变量支持 - 只在对比模式下生效 */
+.block-mode-both .align-block-ocr {
+  flex-basis: var(--ocr-ratio, 50%) !important;
+  max-width: var(--ocr-ratio, 50%) !important;
+}
+
+.block-mode-both .align-block-trans {
+  flex-basis: var(--trans-ratio, 50%) !important;
+  max-width: var(--trans-ratio, 50%) !important;
+}
+
+/* 拖拽状态 */
+.dragging-cursor {
+  cursor: col-resize !important;
+}
+
+/* 上下文菜单状态 */
+.context-menu-visible {
+  display: block !important;
+}
+
+.context-menu-hidden {
+  display: none !important;
+}
+
+/* TOC弹窗状态 */
+.toc-popup-visible {
+  display: block !important;
+  opacity: 1 !important;
+  transform: translateY(0) !important;
+}
+
+.toc-popup-hidden {
+  display: none !important;
+}
+
+.toc-popup-hiding {
+  opacity: 0 !important;
+  transform: translateY(-10px) !important;
+}
+
+/* 临时加载效果 */
+.loading-effect {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  background: rgba(0, 0, 0, 0.75) !important;
+  color: white !important;
+  padding: 15px 25px !important;
+  border-radius: 8px !important;
+  z-index: 10001 !important;
+  font-size: 1.1em !important;
+  text-align: center !important;
+  opacity: 0 !important;
+  transition: opacity 0.3s ease-in-out !important;
+}
+
+.loading-effect-visible {
+  opacity: 1 !important;
+}
+
+.content-blurred {
+  filter: blur(4px) !important;
+  transition: filter 0.3s ease-in-out !important;
+}
+
+/* 动态高亮样式 */
+.dynamic-highlight {
+  cursor: pointer !important;
+}
+
+/* ==========================
+ * Modal (Pop-up) Styles
+ * ========================== */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex; /* Use flexbox for centering */
+  align-items: center; /* Vertical center */
+  justify-content: center; /* Horizontal center */
+  z-index: 10000; /* Ensure it's on top */
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.modal-overlay.visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.modal-content {
+  background-color: #fff;
+  padding: 25px 30px;
+  border-radius: 10px;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+  width: auto;
+  max-width: 500px; /* Max width of the modal */
+  min-width: 350px; /* Min width of the modal */
+  z-index: 10001;
+  transform: translateY(-20px);
+  transition: transform 0.3s ease;
+  position: relative; /* Added for absolute positioning of close button */
+}
+
+.modal-overlay.visible .modal-content {
+  transform: translateY(0);
+}
+
+/* Dock Settings Modal Specific Adjustments - Placed after generic modal styles */
+.dock-settings-modal-content .checkbox-container { /* Targetting specific container in dock settings */
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start; /* Align items to the start, or space-around for more spread */
+  gap: 10px 15px; /* Row gap and column gap for checkboxes */
+  margin-bottom: 20px; /* Space before the button area */
+}
+
+.dock-settings-modal-content .checkbox-group {
+  display: inline-flex; /* Align checkbox and label nicely in a line */
+  align-items: center;
+  /* flex-basis: calc(50% - 10px); */ /* Example: for 2 items per row if using space-between/around */
+  /* No fixed margin-right or margin-bottom, rely on gap from container */
+}
+
+.dock-settings-modal-content .checkbox-group label {
+  margin-left: 6px; /* Space between checkbox and its label text */
+  font-size: 0.9em;
+  color: #495057;
+  white-space: nowrap; /* Prevent label text from wrapping if possible */
+  cursor: pointer;
+}
+
+.dock-settings-modal-content .checkbox-group input[type="checkbox"] {
+  margin-right: 0; /* Override default if any, spacing handled by label */
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+/* Close button for Dock Settings Modal - specific styling */
+.dock-settings-modal-content .dock-settings-modal-close-btn {
+  position: absolute; /* Position relative to modal-content */
+  top: 10px;  /* Adjust as needed */
+  right: 15px; /* Adjust as needed */
+  background: none;
+  border: none;
+  font-size: 1.7em; /* Slightly smaller if preferred */
+  color: #6c757d;
+  cursor: pointer;
+  padding: 5px; /* Easier to click */
+  line-height: 1;
+}
+.dock-settings-modal-content .dock-settings-modal-close-btn:hover {
+  color: #343a40;
+}
+
+/* Title for Dock Settings Modal */
+.dock-settings-modal-content h2 {
+  margin-top: 0; /* Reset top margin */
+  margin-bottom: 20px; /* Space after title before checkboxes */
+  font-size: 1.3em; /* Slightly smaller if preferred over generic modal-header h3 */
+  color: #343a40;
+  text-align: center;
+  font-weight: 600;
+}
+
+/* Button container in Dock Settings Modal - acting as a footer */
+.dock-settings-modal-content .dock-settings-modal-buttons {
+  border-top: 1px dashed #ced4da; /* Dashed divider */
+  padding-top: 15px; /* Space above buttons */
+  margin-top: 15px;  /* Additional space if checkboxes are many and wrap */
+  display: flex;
+  justify-content: flex-end; /* Align buttons to the right */
+  gap: 10px; /* Space between buttons */
+}
+
+/* The following generic .modal-body styles are KEPT for other modals,
+   but Dock Settings Modal uses more specific styling above for its checkbox area. */
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #e9ecef;
+  padding-bottom: 15px;
+  margin-bottom: 20px;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.4em;
+  color: #343a40;
+}
+
+.modal-close-btn { /* Generic close button - Dock settings uses a more specific one */
+  background: none;
+  border: none;
+  font-size: 1.8em;
+  color: #6c757d;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+.modal-close-btn:hover {
+  color: #343a40;
+}
+
+.modal-body p {
+  font-size: 0.95em;
+  color: #495057;
+  margin-bottom: 15px;
+}
+
+/* Generic checkbox group styling for OTHER modals, if any */
+.modal-body .checkbox-group {
+  display: flex;
+  flex-direction: column; /* STACKED by default for generic modals */
+  gap: 10px; /* Space between checkbox lines */
+}
+
+.modal-body .checkbox-group label {
+  display: flex;
+  align-items: center;
+  font-size: 0.9em;
+  color: #495057;
+  cursor: pointer;
+}
+
+.modal-body .checkbox-group input[type="checkbox"] {
+  margin-right: 10px;
+  width: 16px; /* Custom size for checkbox */
+  height: 16px; /* Custom size for checkbox */
+  cursor: pointer;
+}
+
+.modal-footer {
+  border-top: 1px solid #e9ecef; /* Solid for generic, Dock settings will override if its .dock-settings-modal-buttons is effectively a footer */
+  padding-top: 20px;
+  margin-top: 25px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.btn {
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-size: 0.9em;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.btn-primary {
+  background-color: #007bff;
+  border-color: #007bff;
+  color: white;
+}
+.btn-primary:hover {
+  background-color: #0056b3;
+  border-color: #0056b3;
+}
+
+.btn-secondary {
+  background-color: #6c757d;
+  border-color: #6c757d;
+  color: white;
+}
+.btn-secondary:hover {
+  background-color: #545b62;
+  border-color: #545b62;
+}
+
+/* Ensure this doesn't conflict if modal is initially display:none in HTML */
+#dock-settings-modal.modal-overlay {
+    /* If using inline style display:flex to show, these might need !important or be more specific */
+    /* For now, assuming JS handles display, so opacity/visibility are primary for transition */
+}
+
+/* 调整TOC模式选择器样式 */
+.toc-mode-selector {
+  display: none; /* 默认隐藏，由JavaScript控制显示 */
+  gap: 4px;
+  margin: 6px 8px;
+  padding: 4px;
+  background-color: #f5f7fa;
+  border-radius: 4px;
+  justify-content: center;
+}
+
+.toc-mode-btn {
+  padding: 3px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background-color: #fff;
+  cursor: pointer;
+  font-size: 11px; /* 减小字体大小 */
+  transition: all 0.2s ease;
+}
