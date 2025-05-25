@@ -292,7 +292,7 @@ let isChatbotLoading = false;
  */
 function saveChatHistory(docId, history) {
   try {
-    console.log(`[saveChatHistory] Saving history for docId: "${docId}". History:`, JSON.stringify(history));
+    //console.log(`[saveChatHistory] Saving history for docId: "${docId}". History:`, JSON.stringify(history));
     localStorage.setItem('chatHistory_' + docId, JSON.stringify(history));
   } catch (e) {
     console.error('[saveChatHistory] Error saving chat history:', e);
@@ -555,33 +555,41 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
   const config = getChatbotConfig(externalConfig);
   const docContentInfo = getCurrentDocContent(); // <--- 获取当前文档的实际内容
 
-  // 获取文档内容（优先翻译，没有就用OCR）
-  let content = docContentInfo.translation || docContentInfo.ocr || ''; // <--- 从 docContentInfo 获取
-  if (content.length > 50000) {
-    content = content.slice(0, 50000);
+  // 使用新的 PromptConstructor 来构建 systemPrompt
+  let systemPrompt = '';
+  if (window.PromptConstructor && typeof window.PromptConstructor.buildSystemPrompt === 'function') {
+    systemPrompt = window.PromptConstructor.buildSystemPrompt(docContentInfo, isMindMapRequest, plainTextInput);
+  } else {
+    // Fallback or error handling if PromptConstructor is not available
+    console.error("PromptConstructor.buildSystemPrompt is not available. Using basic prompt.");
+    systemPrompt = `你现在是 PDF 文档智能助手，用户正在查看文档\"${docContentInfo.name || '当前文档'}\"。`;
+    if (docContentInfo.translation || docContentInfo.ocr) {
+      systemPrompt += `\n\n文档内容：\n${(docContentInfo.translation || docContentInfo.ocr || '').slice(0, 50000)}`;
+    }
   }
 
-  // 组装 systemPrompt
-  // 使用 docContentInfo.name 作为文档名，而不是 config.cms.name
-  let systemPrompt = `你现在是 PDF 文档智能助手，用户正在查看文档\"${docContentInfo.name || '当前文档'}\"。\n你的回答应该：\n1. 基于PDF文档内容\n2. 简洁清晰\n3. 学术准确`;
-  if (isMindMapRequest) {
-    systemPrompt += `\n\n请注意：用户请求生成思维导图。请按照以下Markdown格式返回思维导图结构：\n# 文档主题（根节点）\n## 一级主题1\n### 二级主题1.1\n### 二级主题1.2\n## 一级主题2\n### 二级主题2.1\n#### 三级主题2.1.1\n\n只需提供思维导图的结构，不要添加额外的解释。结构应该清晰反映文档的层次关系和主要内容。`;
-  }
-  if (content) {
-    systemPrompt += `\n\n文档内容：\n${content}`;
-  }
 
   console.log('[sendChatbotMessage] Final systemPrompt to be used:', systemPrompt);
-  console.log('[sendChatbotMessage] Content length passed to systemPrompt:', content ? content.length : 0);
+  console.log('[sendChatbotMessage] Content length passed to systemPrompt (via docContentInfo in PromptConstructor):', (docContentInfo.translation || docContentInfo.ocr || '').length);
   console.log('[sendChatbotMessage] docContentInfo at the time of systemPrompt build:', JSON.stringify(docContentInfo));
   console.log('[sendChatbotMessage] window.data at the time of systemPrompt build:', JSON.stringify(window.data)); // 直接检查 window.data
 
   // conversationHistory should map its content to handle potential arrays correctly for non-OpenAI models if needed by their bodyBuilders
   // However, bodyBuilders are now designed to handle rich 'userInput' and rich 'msg.content' from history.
-  const conversationHistory = chatHistory.slice(0, -1).map(msg => ({
-    role: msg.role,
-    content: msg.content
-  }));
+  let conversationHistory = []; // Initialize as empty
+  // Check the global option for using context. Default to true if the option or its parent is not defined.
+  if (window.chatbotActiveOptions && typeof window.chatbotActiveOptions.useContext === 'boolean' && window.chatbotActiveOptions.useContext === false) {
+    // If useContext is explicitly false, conversationHistory remains empty (no context).
+    console.log('[sendChatbotMessage] Context is OFF. Sending no history.');
+  } else {
+    // Default behavior or if useContext is true: use chat history.
+    conversationHistory = chatHistory.slice(0, -1).map(msg => ({
+      role: msg.role,
+      content: msg.content // This content can be rich (text or array of parts)
+    }));
+    console.log('[sendChatbotMessage] Context is ON. Sending history:', JSON.stringify(conversationHistory));
+  }
+
   const apiKey = config.apiKey;
 
   if (!apiKey) {
@@ -985,6 +993,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
       } catch (streamError) {
         //console.warn("流式读取错误:", streamError);
       }
+      console.log("[sendChatbotMessage] Raw AI response (streamed):", collectedContent); // Added log for raw streamed content
       chatHistory[assistantMsgIndex].content = collectedContent || '流式回复处理出错，请重试';
     } else {
       // fallback 到非流式分支
@@ -1004,6 +1013,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
       }
       const data = await response.json();
       const answer = apiConfig.responseExtractor(data);
+      console.log("[sendChatbotMessage] Raw AI response (non-streamed):", answer); // Added log for raw non-streamed content
       if (!answer) {
         throw new Error("API 响应解析失败，未能提取回复内容");
       }
@@ -1013,11 +1023,15 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
     if (isMindMapRequest && chatHistory[assistantMsgIndex].content) {
       try {
         const assistantResponseContent = chatHistory[assistantMsgIndex].content;
+        console.log("[sendChatbotMessage] Mind Map: assistantResponseContent (before processing):", assistantResponseContent); // Log for Mind Map raw content
+
         let mindMapMarkdown = assistantResponseContent;
         const codeBlockMatch = assistantResponseContent.match(/```(?:markdown)?\s*([\s\S]+?)```/);
         if (codeBlockMatch && codeBlockMatch[1]) {
           mindMapMarkdown = codeBlockMatch[1].trim();
         }
+        console.log("[sendChatbotMessage] Mind Map: mindMapMarkdown after extraction:", mindMapMarkdown); // Log for Mind Map after regex extraction
+
         const originalContent = assistantResponseContent;
         let displayContent = originalContent;
         if (displayContent.length > 800) {
@@ -1034,6 +1048,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         let safeMindMapMarkdown = mindMapMarkdown;
         if (!safeMindMapMarkdown.trim() || !/^#/.test(safeMindMapMarkdown.trim()) || !/\n##?\s+/.test(safeMindMapMarkdown)) {
           safeMindMapMarkdown = '# 思维导图\n\n暂无结构化内容';
+          console.log("[sendChatbotMessage] Mind Map: Content defaulted to '暂无结构化内容'. Original mindMapMarkdown was:", mindMapMarkdown); // Log if defaulting
         }
         console.log('存储到localStorage的思维导图内容:', safeMindMapMarkdown);
         window.localStorage.setItem('mindmapData_' + docIdForThisMessage, safeMindMapMarkdown);

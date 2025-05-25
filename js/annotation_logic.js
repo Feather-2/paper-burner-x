@@ -68,18 +68,32 @@ function checkIfTargetIsHighlighted(annotationId = null, contentIdentifier, targ
         return false;
     }
 
-    const annotation = window.data.annotations.find(ann => {
-        if (ann.targetType !== contentIdentifier) return false;
-        if (annotationId) return ann.id === annotationId; // ID 优先
+    let annotation;
+    if (annotationId) {
+        // ID 优先匹配
+        annotation = window.data.annotations.find(ann =>
+            ann.targetType === contentIdentifier && ann.id === annotationId
+        );
+    } else if (targetIdentifier !== null && identifierType) {
+        // 通过目标标识符查找，与removeAnnotationFromTarget保持一致的匹配逻辑
+        const targetIdStr = String(targetIdentifier).trim();
 
-        if (targetIdentifier !== null && identifierType) {
-            return ann.target &&
-                   Array.isArray(ann.target.selector) &&
-                   ann.target.selector[0] &&
-                   (ann.target.selector[0][identifierType] === targetIdentifier || String(ann.target.selector[0][identifierType]) === targetIdentifier);
-        }
-        return false;
-    });
+        annotation = window.data.annotations.find(ann => {
+            // 确保基本条件匹配
+            if (ann.targetType !== contentIdentifier) return false;
+            if (!ann.target || !Array.isArray(ann.target.selector) || !ann.target.selector[0]) return false;
+
+            // 获取选择器中的标识符，确保转换为字符串进行比较
+            const selectorId = ann.target.selector[0][identifierType];
+            if (selectorId === undefined) return false;
+
+            const selectorIdStr = String(selectorId).trim();
+
+            // 使用与removeAnnotationFromTarget相同的比较逻辑
+            return selectorIdStr === targetIdStr || Math.abs(Number(selectorIdStr) - Number(targetIdStr)) < 0.001;
+        });
+    }
+
     // console.log('[checkIfTargetIsHighlighted] 找到的批注:', annotation, '结果:', !!annotation);
     return !!annotation;
 }
@@ -96,22 +110,37 @@ function checkIfTargetHasNote(annotationId = null, contentIdentifier, targetIden
     // console.log(`[checkIfTargetHasNote] ID: ${annotationId}, ContentID: ${contentIdentifier}, TargetID: ${targetIdentifier}, Type: ${identifierType}`);
     if (!window.data || !window.data.annotations) return false;
 
-    const annotation = window.data.annotations.find(ann => {
-        if (ann.targetType !== contentIdentifier) return false;
-        if (annotationId) {
-            if (ann.id !== annotationId) return false;
-        } else if (targetIdentifier !== null && identifierType) {
-            if (!(ann.target &&
-                Array.isArray(ann.target.selector) &&
-                ann.target.selector[0] &&
-                (ann.target.selector[0][identifierType] === targetIdentifier || String(ann.target.selector[0][identifierType]) === targetIdentifier))) {
-                return false;
-            }
-        } else {
-            return false; // 必须提供 annotationId 或 targetIdentifier 与 identifierType
-        }
-        return ann.body && ann.body.length > 0 && ann.body[0].value && ann.body[0].value.trim() !== '';
-    });
+    let annotation;
+    if (annotationId) {
+        // ID 优先匹配
+        annotation = window.data.annotations.find(ann =>
+            ann.targetType === contentIdentifier &&
+            ann.id === annotationId &&
+            ann.body && ann.body.length > 0 && ann.body[0].value && ann.body[0].value.trim() !== ''
+        );
+    } else if (targetIdentifier !== null && identifierType) {
+        // 通过目标标识符查找，与其他函数保持一致的匹配逻辑
+        const targetIdStr = String(targetIdentifier).trim();
+
+        annotation = window.data.annotations.find(ann => {
+            // 确保基本条件匹配
+            if (ann.targetType !== contentIdentifier) return false;
+            if (!ann.target || !Array.isArray(ann.target.selector) || !ann.target.selector[0]) return false;
+
+            // 获取选择器中的标识符，确保转换为字符串进行比较
+            const selectorId = ann.target.selector[0][identifierType];
+            if (selectorId === undefined) return false;
+
+            const selectorIdStr = String(selectorId).trim();
+
+            // 使用与其他函数相同的比较逻辑
+            const idMatch = selectorIdStr === targetIdStr || Math.abs(Number(selectorIdStr) - Number(targetIdStr)) < 0.001;
+
+            // 还需要检查是否有批注内容
+            return idMatch && ann.body && ann.body.length > 0 && ann.body[0].value && ann.body[0].value.trim() !== '';
+        });
+    }
+
     // console.log('[checkIfTargetHasNote] 找到的批注:', annotation, '结果:', !!annotation);
     return !!annotation;
 }
@@ -216,15 +245,61 @@ async function removeAnnotationFromTarget(docId, annotationId = null, targetIden
         throw new Error('未指定要删除的批注 (无ID或目标标识符)。');
     }
 
+    // 增强日志：记录所有相关参数
+    console.log(`[批注逻辑] removeAnnotationFromTarget 参数: docId=${docId}, annotationId=${annotationId}, targetIdentifier=${targetIdentifier}, contentIdentifier=${contentIdentifier}, identifierType=${identifierType}`);
+
+    // 记录当前所有批注的数量和类型
+    if (window.data.annotations) {
+        console.log(`[批注逻辑] 当前批注总数: ${window.data.annotations.length}`);
+        const typeCounts = {};
+        window.data.annotations.forEach(ann => {
+            const type = ann.targetType || 'unknown';
+            typeCounts[type] = (typeCounts[type] || 0) + 1;
+        });
+        console.log(`[批注逻辑] 批注类型统计:`, typeCounts);
+    }
+
     let annotationsToRemove = [];
     if (annotationId) {
+        // 通过ID查找批注
         annotationsToRemove = window.data.annotations.filter(ann => ann.id === annotationId && ann.targetType === contentIdentifier);
+        console.log(`[批注逻辑] 通过ID查找批注: ${annotationsToRemove.length}个匹配`);
     } else if (targetIdentifier !== null && identifierType) {
-        annotationsToRemove = window.data.annotations.filter(ann =>
-            ann.targetType === contentIdentifier &&
-            ann.target && ann.target.selector && ann.target.selector[0] &&
-            (ann.target.selector[0][identifierType] === targetIdentifier || String(ann.target.selector[0][identifierType]) === targetIdentifier)
-        );
+        // 通过目标标识符查找批注，增强类型比较
+        const targetIdStr = String(targetIdentifier).trim();
+
+        annotationsToRemove = window.data.annotations.filter(ann => {
+            // 确保基本条件匹配
+            if (ann.targetType !== contentIdentifier) return false;
+            if (!ann.target || !Array.isArray(ann.target.selector) || !ann.target.selector[0]) return false;
+
+            // 获取选择器中的标识符，确保转换为字符串进行比较
+            const selectorId = ann.target.selector[0][identifierType];
+            if (selectorId === undefined) return false;
+
+            const selectorIdStr = String(selectorId).trim();
+
+            // 记录详细的比较信息以便调试
+            const isMatch = selectorIdStr === targetIdStr;
+            if (selectorIdStr === targetIdStr || Math.abs(Number(selectorIdStr) - Number(targetIdStr)) < 0.001) {
+                console.log(`[批注逻辑] 找到匹配: ${selectorIdStr} == ${targetIdStr} (${identifierType})`);
+                return true;
+            }
+            return false;
+        });
+
+        console.log(`[批注逻辑] 通过${identifierType}查找批注: ${annotationsToRemove.length}个匹配 (目标值: ${targetIdStr})`);
+
+        // 如果没有找到匹配，记录所有可能的值以便调试
+        if (annotationsToRemove.length === 0) {
+            const allValues = window.data.annotations
+                .filter(ann => ann.targetType === contentIdentifier && ann.target && ann.target.selector && ann.target.selector[0])
+                .map(ann => {
+                    const val = ann.target.selector[0][identifierType];
+                    return val !== undefined ? String(val) : 'undefined';
+                });
+            console.log(`[批注逻辑] 当前所有${identifierType}值:`, allValues);
+        }
     }
 
     if (annotationsToRemove.length === 0) {
@@ -232,12 +307,17 @@ async function removeAnnotationFromTarget(docId, annotationId = null, targetIden
         return;
     }
 
+    console.log(`[批注逻辑] 将删除${annotationsToRemove.length}个批注:`, annotationsToRemove);
+
     for (const annotation of annotationsToRemove) {
         try {
             await deleteAnnotationFromDB(annotation.id);
             const index = window.data.annotations.findIndex(ann => ann.id === annotation.id);
             if (index > -1) {
                 window.data.annotations.splice(index, 1);
+                console.log(`[批注逻辑] 成功从内存中删除批注 ID: ${annotation.id}`);
+            } else {
+                console.warn(`[批注逻辑] 无法从内存中删除批注 ID: ${annotation.id} (未找到索引)`);
             }
         } catch (error) {
             console.error(`[批注逻辑] removeAnnotationFromTarget: 删除批注失败:`, error);
@@ -264,20 +344,39 @@ async function addNoteToAnnotation(noteText, docId, annotationId = null, targetI
         throw new Error('未指定要添加批注的目标 (无ID或目标标识符)。');
     }
 
+    // 增强日志：记录所有相关参数
+    console.log(`[批注逻辑] addNoteToAnnotation 参数: docId=${docId}, annotationId=${annotationId}, targetIdentifier=${targetIdentifier}, contentIdentifier=${contentIdentifier}, identifierType=${identifierType}`);
+
     let existingAnnotation;
     if (annotationId) {
+        // 通过ID查找批注
         existingAnnotation = window.data.annotations.find(ann =>
             ann.id === annotationId &&
             ann.targetType === contentIdentifier &&
             (ann.motivation === 'highlighting' || ann.motivation === 'commenting')
         );
+        console.log(`[批注逻辑] 通过ID查找批注进行添加/更新批注: ${existingAnnotation ? '找到' : '未找到'}`);
     } else if (targetIdentifier !== null && identifierType) {
-        existingAnnotation = window.data.annotations.find(ann =>
-            ann.targetType === contentIdentifier &&
-            ann.target && ann.target.selector && ann.target.selector[0] &&
-            (ann.target.selector[0][identifierType] === targetIdentifier || String(ann.target.selector[0][identifierType]) === targetIdentifier) &&
-            (ann.motivation === 'highlighting' || ann.motivation === 'commenting')
-        );
+        // 通过目标标识符查找批注，使用与其他函数一致的匹配逻辑
+        const targetIdStr = String(targetIdentifier).trim();
+
+        existingAnnotation = window.data.annotations.find(ann => {
+            // 确保基本条件匹配
+            if (ann.targetType !== contentIdentifier) return false;
+            if (!ann.target || !Array.isArray(ann.target.selector) || !ann.target.selector[0]) return false;
+            if (!(ann.motivation === 'highlighting' || ann.motivation === 'commenting')) return false;
+
+            // 获取选择器中的标识符，确保转换为字符串进行比较
+            const selectorId = ann.target.selector[0][identifierType];
+            if (selectorId === undefined) return false;
+
+            const selectorIdStr = String(selectorId).trim();
+
+            // 使用与其他函数相同的比较逻辑
+            return selectorIdStr === targetIdStr || Math.abs(Number(selectorIdStr) - Number(targetIdStr)) < 0.001;
+        });
+
+        console.log(`[批注逻辑] 通过${identifierType}查找批注进行添加/更新批注: ${existingAnnotation ? '找到' : '未找到'} (目标值: ${targetIdStr})`);
     }
 
     if (!existingAnnotation) {
@@ -296,6 +395,7 @@ async function addNoteToAnnotation(noteText, docId, annotationId = null, targetI
 
     try {
         await updateAnnotationInDB(existingAnnotation);
+        console.log(`[批注逻辑] 成功更新批注 ID: ${existingAnnotation.id}`);
     } catch (error) {
         console.error(`[批注逻辑] addNoteToAnnotation: 更新批注失败:`, error);
         throw error;
@@ -360,10 +460,9 @@ function initAnnotationSystem() {
         const originalSelectedText = annotationContextMenuElement.dataset.contextSelectedText; // For copy
 
         if (!currentContentIdentifier && (action === 'highlight-block' || action === 'add-note' || action === 'edit-note' || action === 'remove-highlight')) {
-             alert('错误：无法确定当前操作的内容类型 (OCR/翻译)。');
-             console.error('[批注逻辑] Context menu action failed: currentContentIdentifier from menu dataset is missing.');
-             hideContextMenu();
-             return;
+            alert('请重新右键点击目标区块后再操作。');
+            hideContextMenu();
+            return;
         }
 
         const hasValidContext = targetIdentifier && identifierType;

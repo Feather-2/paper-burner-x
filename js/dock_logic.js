@@ -318,6 +318,32 @@
         // Attach scroll listener for reading progress
         global.removeEventListener('scroll', debouncedUpdateReadingProgress); // Remove first to avoid duplicates if init is called multiple times
         global.addEventListener('scroll', debouncedUpdateReadingProgress);
+
+        // Add click listeners for highlight and annotation stats
+        const highlightStatClickable = dockElement.querySelector('.dock-stat-item-wrapper-highlight .stat-item-clickable[data-stat-type="highlight"]');
+        const annotationStatClickable = dockElement.querySelector('.dock-stat-item-wrapper-annotation .stat-item-clickable[data-stat-type="annotation"]');
+
+        if (highlightStatClickable) {
+            highlightStatClickable.addEventListener('click', function() {
+                if (typeof global.openAnnotationsSummaryModal === 'function') {
+                    // Open with filter for 'highlighting', and 'all' content types initially
+                    global.openAnnotationsSummaryModal('highlighting', 'all');
+                } else {
+                    console.warn('openAnnotationsSummaryModal function not found on window.');
+                }
+            });
+        }
+
+        if (annotationStatClickable) {
+            annotationStatClickable.addEventListener('click', function() {
+                if (typeof global.openAnnotationsSummaryModal === 'function') {
+                    // Open with filter for 'commenting', and 'all' content types initially
+                    global.openAnnotationsSummaryModal('commenting', 'all');
+                } else {
+                    console.warn('openAnnotationsSummaryModal function not found on window.');
+                }
+            });
+        }
     }
 
     // Expose public interface

@@ -338,6 +338,233 @@
     #bottom-left-dock:not(.dock-collapsed) #dock-stats span:hover {
         color: #1d4ed8;
     } */
+
+    /* Annotations Summary Modal CSS */
+    #annotations-summary-modal .modal-content {
+      max-width: 80%;
+      width: 950px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+    #annotations-summary-modal .modal-close-btn {
+      position: absolute;
+      top: 12px;
+      right: 18px;
+      font-size: 2em;
+      color: #888;
+      cursor: pointer;
+      z-index: 10;
+      background: none;
+      border: none;
+      line-height: 1;
+      padding: 0;
+      transition: color 0.2s;
+    }
+    #annotations-summary-modal .modal-close-btn:hover {
+      color: #333;
+    }
+    #annotations-summary-modal .table-container {
+      overflow-y: auto;
+      flex-grow: 1;
+      margin-top: 15px;
+      border: 1px solid #e0e0e0; /* Added border for definition */
+    }
+
+    #annotations-summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    #annotations-summary-table th,
+    #annotations-summary-table td {
+      border: 1px solid #ddd;
+      padding: 10px 8px; /* Adjusted padding */
+      text-align: left;
+      vertical-align: top;
+      word-break: break-word; /* Help with long content */
+    }
+
+    #annotations-summary-table th {
+      background-color: #f7f7f7; /* Lighter background for header */
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      font-weight: 600; /* Bolder header text */
+    }
+
+    #annotations-summary-table .color-swatch {
+      display: inline-block;
+      width: 18px; /* Slightly larger */
+      height: 18px; /* Slightly larger */
+      border: 1px solid #ccc;
+      border-radius: 4px; /* Rounded corners */
+      vertical-align: middle;
+      box-shadow: 0 0 2px rgba(0,0,0,0.1); /* Subtle shadow */
+    }
+
+    #annotations-summary-table .action-btn {
+      padding: 5px 10px; /* Adjusted padding */
+      font-size: 12px;
+      cursor: pointer;
+      border: 1px solid #007bff; /* Blue border */
+      background-color: #fff; /* White background */
+      color: #007bff; /* Blue text */
+      border-radius: 4px;
+      transition: all 0.2s ease;
+    }
+    #annotations-summary-table .action-btn:hover {
+      background-color: #007bff; /* Blue background on hover */
+      color: #fff; /* White text on hover */
+    }
+    #annotations-summary-table .action-btn:disabled {
+      border-color: #ccc;
+      background-color: #f0f0f0;
+      color: #aaa;
+      cursor: not-allowed;
+    }
+
+    .annotations-summary-controls {
+      margin-bottom: 15px;
+      display: flex;
+      gap: 20px;
+      align-items: center;
+      padding: 10px;
+      background-color: #f9f9f9;
+      border-radius: 4px;
+      border: 1px solid #e0e0e0;
+      flex-wrap: wrap;
+    }
+    .annotations-summary-controls label {
+      margin-right: 5px;
+      font-weight: 500;
+    }
+    .annotations-summary-controls select {
+      padding: 6px 8px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      background-color: #fff;
+    }
+    .annotations-summary-color-filter {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: 10px;
+      flex-wrap: wrap;
+    }
+    .annotations-summary-color-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      margin-right: 6px;
+      cursor: pointer;
+    }
+    .annotations-summary-color-checkbox input[type="checkbox"] {
+      margin: 0 2px 0 0;
+      accent-color: #007bff;
+    }
+    .annotations-summary-color-swatch {
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      border: 1px solid #bbb;
+      display: inline-block;
+      margin-right: 2px;
+    }
+    /* Temporary highlight for jumped-to element */
+    .jump-to-highlight-effect { /* Renamed for clarity */
+      transition: background-color 0.3s ease-in-out, box-shadow 0.3s ease-in-out;
+      background-color: rgba(255, 220, 0, 0.45) !important; /* Softer yellow, more transparent */
+      box-shadow: 0 0 12px rgba(255, 220, 0, 0.6) !important; /* Softer glow */
+      border-radius: 5px !important; /* Smoother radius */
+      outline: 2px solid rgba(255, 200, 0, 0.7); /* Added outline */
+    }
+
+    /* 批注详情模态框增强样式 */
+    #annotations-summary-table td {
+      max-width: 250px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #annotations-summary-table td:nth-child(4) {
+      cursor: pointer;
+      position: relative;
+    }
+
+    #annotations-summary-table td:nth-child(4):hover {
+      background-color: #f0f0f0;
+    }
+
+    #annotations-summary-table td:nth-child(4)::after {
+      content: "👁️";
+      position: absolute;
+      right: 5px;
+      top: 50%;
+      transform: translateY(-50%);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    #annotations-summary-table td:nth-child(4):hover::after {
+      opacity: 0.7;
+    }
+
+    /* 文本片段预览对话框样式 */
+    .full-text-dialog {
+      animation: fadeIn 0.2s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translate(-50%, -48%); }
+      to { opacity: 1; transform: translate(-50%, -50%); }
+    }
+
+    .full-text-dialog button {
+      background-color: #f0f0f0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      transition: all 0.2s;
+    }
+
+    .full-text-dialog button:hover {
+      background-color: #e0e0e0;
+    }
+
+    /* 颜色筛选区域样式增强 */
+    .annotations-summary-color-filter {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: 10px;
+      flex-wrap: wrap;
+      padding: 5px;
+      border: 1px solid #eee;
+      border-radius: 4px;
+      background-color: #fafafa;
+    }
+
+    .annotations-summary-color-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      margin-right: 6px;
+      cursor: pointer;
+      padding: 3px 5px;
+      border-radius: 3px;
+      transition: background-color 0.2s;
+    }
+
+    .annotations-summary-color-checkbox:hover {
+      background-color: #f0f0f0;
+    }
+
+    .annotations-summary-color-checkbox input[type="checkbox"] {
+      margin: 0 2px 0 0;
+      accent-color: #007bff;
+    }
   </style>
 </head>
 <body>
@@ -478,6 +705,49 @@
     </div>
   </div>
 
+  <!-- Annotations/Highlights Summary Modal -->
+  <div id="annotations-summary-modal" class="modal-overlay"> <!-- Default: not visible via CSS -->
+    <div class="modal-content">
+      <span class="modal-close-btn" id="annotations-summary-close-btn">&times;</span>
+      <h2 id="annotations-summary-title">批注与高亮详情</h2>
+      <div class="annotations-summary-controls">
+        <label for="annotations-filter-type">类型:</label>
+        <select id="annotations-filter-type">
+          <option value="all">全部</option>
+          <option value="highlighting">仅高亮</option>
+          <option value="commenting">带批注</option>
+        </select>
+        <label for="annotations-filter-content">内容来源:</label>
+        <select id="annotations-filter-content">
+          <option value="all">全部 (OCR/翻译)</option>
+          <option value="ocr">仅 OCR</option>
+          <option value="translation">仅翻译</option>
+        </select>
+        <div class="annotations-summary-color-filter" id="annotations-summary-color-filter">
+          <!-- 动态插入颜色多选 -->
+        </div>
+      </div>
+      <div class="table-container">
+        <table id="annotations-summary-table">
+          <thead>
+            <tr>
+              <th>类型</th>
+              <th>来源</th>
+              <th>标识符</th>
+              <th>文本片段 (预览)</th>
+              <th>笔记</th>
+              <th>颜色</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="annotations-summary-table-body">
+            <!-- Rows will be populated by JavaScript -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <!-- ===================== -->
   <!-- 依赖的JS库 -->
   <!-- ===================== -->
@@ -494,6 +764,7 @@
   <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
   <script src="js/mindmap.js"></script>
 
+  <script src="js/chatbot/prompt-constructor.js"></script> <!-- Add this line -->
   <script src="js/chatbot/chatbot-utils.js"></script>
   <script src="js/chatbot/chatbot-preset.js"></script>
   <script src="js/chatbot/chatbot-core.js"></script>
@@ -502,6 +773,8 @@
   <script src="js/dock_logic.js"></script>
   <script src="js/markdown_processor.js"></script>
   <script src="js/sub_block_segmenter.js"></script>
+  <script src="js/dock_settings_modal.js"></script> <!-- ADDED -->
+  <script src="js/annotations_summary_modal.js"></script> <!-- ADDED -->
 
   <!-- ===================== -->
   <!-- 页面核心逻辑脚本 -->
@@ -509,7 +782,9 @@
   <script>
     let isOriginalFirstInChunkCompare = true; // 状态变量：原文是否在左侧
     let docIdForLocalStorage = null; // To store the current document ID for localStorage keys
+    window.docIdForLocalStorage = null; // 将变量挂载到 window 对象上，使其成为全局变量
     var currentVisibleTabId = null;  // To store the ID of the currently visible tab
+    window.currentVisibleTabId = null; // 将变量挂载到 window 对象上，使其成为全局变量
     // let progressPercentageSpan = null; // MOVED to dock_logic.js
     // let progressPercentageVerboseSpan = null; // MOVED to dock_logic.js
     // let dockElement = null; // MOVED to dock_logic.js
@@ -659,6 +934,7 @@
       const id = getQueryParam('id');
       if (!id) return;
       docIdForLocalStorage = id; // Store doc ID for localStorage operations
+      window.docIdForLocalStorage = id; // 同时更新挂载到 window 对象上的变量
 
       // Restore chatbot open state
       const savedChatbotOpenState = localStorage.getItem(`chatbotOpenState_${docIdForLocalStorage}`);
@@ -821,6 +1097,7 @@
      */
     function showTab(tab) {
       currentVisibleTabId = tab; // Update global current tab ID
+      window.currentVisibleTabId = tab; // 同时更新挂载到 window 对象上的变量
       window.currentBlockTokensForCopy = window.currentBlockTokensForCopy || {}; // Initialize if not exists
 
       // 根据 tab 参数立即设置全局内容标识符
@@ -1588,165 +1865,10 @@
     // MOVED to js/annotation_logic.js: async function addNoteToExistingHighlight(selectedText, noteText, docId) {...}
 
     // Dock Settings Modal Logic
-    const dockSettingsModal = document.getElementById('dock-settings-modal');
-    const openDockSettingsBtn = document.getElementById('settings-link'); // This is the cog icon in the dock
-    const closeDockSettingsBtn = document.getElementById('dock-settings-close-btn');
-    const saveDockSettingsBtn = document.getElementById('dock-settings-save-btn');
-    const cancelDockSettingsBtn = document.getElementById('dock-settings-cancel-btn');
-    const dockSettingsCheckboxes = dockSettingsModal.querySelectorAll('.checkbox-group input[type="checkbox"]');
+    // MOVED to js/dock_settings_modal.js
 
-    console.log('Dock Settings Modal Logic: Script block reached.'); // Log: Script block reached
-    if (dockSettingsModal) {
-        console.log('Dock Settings Modal Logic: dockSettingsModal element found.', dockSettingsModal);
-    } else {
-        console.error('Dock Settings Modal Logic: dockSettingsModal element NOT found!');
-    }
-
-    if (openDockSettingsBtn) {
-        console.log('Dock Settings Modal Logic: openDockSettingsBtn element (settings-link) found.', openDockSettingsBtn);
-        openDockSettingsBtn.addEventListener('click', function(event) {
-            console.log('Dock Settings Modal Logic: settings-link clicked.'); // Log: Click event triggered
-            event.preventDefault();
-            event.stopPropagation();
-            openDockSettingsModal();
-        });
-        console.log('Dock Settings Modal Logic: Click event listener attached to settings-link.'); // Log: Listener attached
-    } else {
-        console.error('Dock Settings Modal Logic: openDockSettingsBtn (settings-link) element NOT found! Cannot attach click listener.');
-    }
-
-    function openDockSettingsModal() {
-      console.log('Dock Settings Modal Logic: openDockSettingsModal() called.'); // 新增日志
-      try {
-        if (!window.DockLogic || typeof window.DockLogic.getCurrentDisplayConfig !== 'function') {
-          alert('DockLogic 功能尚未准备好。');
-          console.error('DockLogic or getCurrentDisplayConfig is not available. Modal will not open.'); // 更详细的错误
-          return;
-        }
-        console.log('Dock Settings Modal Logic: DockLogic and getCurrentDisplayConfig are available.'); // 新增日志
-
-        const currentConfig = window.DockLogic.getCurrentDisplayConfig();
-        if (!currentConfig) { // Further check if getCurrentDisplayConfig returned something valid
-            alert('无法获取当前的 Dock 显示配置。');
-            console.error('Failed to get current display config from DockLogic. Modal will not open.'); // 更详细的错误
-            return;
-        }
-        console.log('Dock Settings Modal Logic: currentConfig obtained:', currentConfig); // 新增日志
-
-        dockSettingsCheckboxes.forEach(checkbox => {
-          const key = checkbox.dataset.configKey;
-          if (currentConfig.hasOwnProperty(key)) {
-            checkbox.checked = currentConfig[key];
-          }
-        });
-        console.log('Dock Settings Modal Logic: Checkboxes updated.'); // 新增日志
-
-        // 同步 TOC 模式设置
-        updateTocModeRadioButtons();
-
-        dockSettingsModal.classList.add('visible');
-        console.log('Dock Settings Modal Logic: "visible" class ADDED to dockSettingsModal. Modal should be visible now if CSS is correct.'); // 新增日志
-      } catch (error) {
-        console.error('Error opening dock settings modal:', error);
-        alert('打开设置时发生错误，请查看控制台了解详情。');
-        // Even if an error occurs, ensure the default link action is prevented if possible,
-        // though the event object might not be in scope here directly unless passed.
-        // The preventDefault in the calling handler should ideally cover this.
-      }
-    }
-
-    function closeDockSettingsModal() {
-      console.log('Dock Settings Modal Logic: closeDockSettingsModal() called.'); // 新增日志
-      // dockSettingsModal.style.display = 'none'; // OLD way
-      dockSettingsModal.classList.remove('visible'); // NEW way: use CSS class for visibility
-      console.log('Dock Settings Modal Logic: "visible" class REMOVED from dockSettingsModal.'); // 新增日志
-    }
-
-    function saveDockSettings() {
-      if (!window.DockLogic || typeof window.DockLogic.updateDisplayConfig !== 'function') {
-        alert('DockLogic 功能尚未准备好。');
-        return;
-      }
-      const newConfig = {};
-      dockSettingsCheckboxes.forEach(checkbox => {
-        newConfig[checkbox.dataset.configKey] = checkbox.checked;
-      });
-      window.DockLogic.updateDisplayConfig(newConfig);
-
-      // 保存 TOC 模式设置
-      const selectedTocMode = document.querySelector('input[name="toc-mode"]:checked');
-      if (selectedTocMode) {
-        const tocMode = selectedTocMode.value;
-        // 如果 window.TocFeature 存在则直接调用其方法，否则通过模拟点击实现
-        const tocPopup = document.getElementById('toc-popup'); // 修复：在函数内获取 tocPopup 元素
-        if (tocPopup) {
-          const tocModeBtn = tocPopup.querySelector(`.toc-mode-btn[data-mode="${tocMode}"]`);
-          if (tocModeBtn) {
-            tocModeBtn.click(); // 模拟点击对应的模式按钮
-          }
-        }
-        // 保存到 localStorage 以便页面刷新后恢复
-        if (docIdForLocalStorage) {
-          localStorage.setItem(`tocMode_${docIdForLocalStorage}`, tocMode);
-        }
-      }
-
-      closeDockSettingsModal();
-    }
-
-    if (closeDockSettingsBtn) closeDockSettingsBtn.onclick = closeDockSettingsModal;
-    if (saveDockSettingsBtn) saveDockSettingsBtn.onclick = saveDockSettings;
-    if (cancelDockSettingsBtn) cancelDockSettingsBtn.onclick = closeDockSettingsModal;
-
-    // Close modal if user clicks outside the modal content
-    dockSettingsModal.addEventListener('click', function(event) {
-        if (event.target === dockSettingsModal) {
-            closeDockSettingsModal();
-        }
-    });
-
-    // 处理 TOC 模式设置与 TOC 弹窗中的按钮同步
-    function syncTocModeSettings() {
-      // 从 localStorage 加载保存的 TOC 模式
-      if (docIdForLocalStorage) {
-        const savedTocMode = localStorage.getItem(`tocMode_${docIdForLocalStorage}`);
-        if (savedTocMode && ['both', 'ocr', 'translation'].includes(savedTocMode)) {
-          // 更新单选按钮状态
-          const radioBtn = document.getElementById(`toc-mode-${savedTocMode}`);
-          if (radioBtn) {
-            radioBtn.checked = true;
-          }
-
-          // 如果 TOC 弹窗已加载，同步其按钮状态
-          const tocPopup = document.getElementById('toc-popup');
-          if (tocPopup) {
-            const tocModeBtn = tocPopup.querySelector(`.toc-mode-btn[data-mode="${savedTocMode}"]`);
-            if (tocModeBtn) {
-              // 模拟点击以更新状态
-              tocModeBtn.click();
-            }
-          }
-        }
-      }
-    }
-
-    // 在页面加载完成后同步 TOC 模式设置
-    document.addEventListener('DOMContentLoaded', syncTocModeSettings);
-
-    // 在打开设置对话框前同步当前 TOC 模式到单选按钮
-    function updateTocModeRadioButtons() {
-      const tocPopup = document.getElementById('toc-popup');
-      if (tocPopup) {
-        const activeTocModeBtn = tocPopup.querySelector('.toc-mode-btn.active');
-        if (activeTocModeBtn) {
-          const mode = activeTocModeBtn.dataset.mode;
-          const radioBtn = document.getElementById(`toc-mode-${mode}`);
-          if (radioBtn) {
-            radioBtn.checked = true;
-          }
-        }
-      }
-    }
+    // Annotations/Highlights Summary Modal Logic
+    // MOVED to js/annotations_summary_modal.js
   </script>
 
 </body>
