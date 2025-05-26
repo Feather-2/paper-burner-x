@@ -6,6 +6,12 @@
      * @param {string|number} parentBlockIndex - 父块的索引。
      */
     function segmentBlockIntoSubBlocks(blockElement, parentBlockIndex) {
+        // 如果块元素本身是表格，或者其内部有表格，则不进行分割处理
+        if (blockElement.tagName === 'TABLE' || blockElement.querySelector('table')) {
+            // console.warn('SubBlockSegmenter: Skipping segmentation for TABLE element or element containing a TABLE.');
+            return; // 直接返回，不修改表格内容
+        }
+
         let subBlockTrueCounter = 0; // Counter for non-empty sub-blocks
         const newChildNodesContainer = document.createDocumentFragment();
         let firstGeneratedSubBlockElement = null; // Store the first (potentially only) sub-block
