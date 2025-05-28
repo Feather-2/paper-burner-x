@@ -37,6 +37,20 @@ body {
   position: relative;
   bottom: -2px;
   transition: all 0.2s ease;
+  white-space: nowrap; /* 防止文本换行 */
+  overflow: hidden;
+  text-overflow: ellipsis; /* 文本溢出时显示省略号 */
+  min-width: 80px; /* 确保最小宽度 */
+  text-align: center; /* 文本居中 */
+}
+
+/* 适应较小屏幕的标签页按钮 */
+@media (max-width: 768px) {
+  .tab-btn {
+    padding: 8px 12px;
+    font-size: 0.9rem;
+    min-width: 60px;
+  }
 }
 
 .tab-btn:hover:not(.active) {
@@ -478,6 +492,71 @@ h2 {
   overflow-y: auto;
 }
 
+#toc-list ul.toc-children {
+  list-style: none;
+  padding-left: 0; /* 移除默认缩进 */
+  margin: 0;
+  overflow: hidden; /* 确保折叠时内容被隐藏 */
+}
+
+/* 添加每级标题的默认缩进和字体样式 */
+#toc-list li.toc-h1 {
+  margin-top: 6px;
+}
+
+#toc-list li.toc-h2 {
+  margin-top: 4px;
+}
+
+#toc-list li.toc-h3,
+#toc-list li.toc-h4,
+#toc-list li.toc-h5,
+#toc-list li.toc-h6 {
+  margin-top: 2px;
+}
+
+/* 折叠按钮样式 */
+#toc-list .toc-toggle {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  text-align: center;
+  line-height: 16px;
+  margin-right: 2px;
+  font-size: 10px;
+  color: #666;
+  transition: transform 0.2s ease;
+  cursor: pointer;
+}
+
+#toc-list .toc-toggle.collapsed {
+  transform: rotate(-90deg);
+}
+
+/* 有子项的TOC项样式 */
+#toc-list li.has-children > a {
+  font-weight: 600;
+}
+
+/* 折叠状态下的子项容器 */
+#toc-list .toc-children.collapsed {
+  height: 0 !important;
+  margin: 0;
+  padding: 0;
+}
+
+/* 修复悬停状态与折叠状态的冲突 */
+#toc-list li a:hover .toc-toggle {
+  color: #3b82f6;
+}
+
+/* 为折叠按钮单独设置悬停样式 */
+#toc-list .toc-toggle:hover {
+  color: #3b82f6;
+  background-color: rgba(59, 130, 246, 0.1);
+  border-radius: 3px;
+}
+
 /* ==========================
  * TOC 悬浮窗的特定样式
  * ========================== */
@@ -505,6 +584,20 @@ h2 {
   line-height: 1.4;
 }
 
+/* 文件名占位符的特殊样式 */
+#toc-list li a[href^="#placeholder-"] {
+  font-weight: 600;
+  color: #2563eb;
+  border-left-color: #2563eb;
+  background-color: rgba(59, 130, 246, 0.1);
+  padding-left: 16px;
+}
+
+#toc-list li a[href^="#placeholder-"]::before {
+  content: "📄 ";
+  margin-right: 4px;
+}
+
 #toc-list li a {
   display: block;
   padding: 5px 16px;
@@ -513,6 +606,11 @@ h2 {
   font-weight: 500;
   transition: background 0.15s, color 0.15s, border-left-color 0.15s;
   border-left: 3px dashed #e2e8f0;
+  /* 添加多行支持 */
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.3;
+  padding-right: 8px;
 }
 
 #toc-list li a:hover {
@@ -528,7 +626,7 @@ h2 {
 }
 
 #toc-list li.toc-h3 a {
-  padding-left: 28px;
+  padding-left: 24px; /* 略微调整缩进 */
   font-size: 0.88em;
   color: #475569;
 }
@@ -1103,4 +1201,389 @@ h2 {
   cursor: pointer;
   font-size: 11px; /* 减小字体大小 */
   transition: all 0.2s ease;
+}
+
+/* 多行TOC文本布局 */
+#toc-list .toc-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  line-height: 1.5;
+  width: 100%;
+  padding: 0; /* 移除内边距 */
+  margin: 0; /* 移除外边距 */
+}
+
+#toc-list li.has-children > a .toc-text {
+  padding-left: 0;
+}
+
+/* 针对不同级别标题的文本缩进调整 */
+#toc-list li.toc-h2 a .toc-text {
+  padding-left: 4px; /* 减小缩进 */
+}
+
+#toc-list li.toc-h3 a .toc-text {
+  padding-left: 4px; /* 减小缩进 */
+}
+
+#toc-list li.toc-h4 a .toc-text,
+#toc-list li.toc-h5 a .toc-text,
+#toc-list li.toc-h6 a .toc-text {
+  padding-left: 4px; /* 减小缩进 */
+}
+
+/* 图表标题在TOC中的特殊样式 */
+#toc-list li.toc-caption a::before {
+  content: "📊 ";
+  margin-right: 4px;
+  font-size: 14px;
+}
+
+#toc-list li.toc-caption a {
+  color: #2563eb;
+  font-style: italic;
+}
+
+#toc-list li.toc-caption a:hover {
+  background-color: rgba(37, 99, 235, 0.1);
+}
+
+/* TOC 结构化标题样式 */
+/* 通用结构化标题样式 */
+.toc-structured .toc-prefix {
+  font-weight: bold;
+  color: #0066cc;
+  margin-right: 4px;
+  display: inline-block;
+}
+
+/* 章节标题样式（如"第一章"） */
+.toc-structure-chapter .toc-prefix {
+  color: #d32f2f;
+  font-size: 1.1em;
+}
+
+/* 数字编号标题样式（如"1.1"） */
+.toc-structure-numeric .toc-prefix {
+  font-family: 'Consolas', monospace;
+  letter-spacing: 0.5px;
+}
+
+/* 罗马数字标题样式 */
+.toc-structure-roman .toc-prefix {
+  font-style: italic;
+  color: #6a1b9a;
+}
+
+/* 字母标题样式 */
+.toc-structure-letter .toc-prefix {
+  color: #00695c;
+}
+
+/* 添加toc-content类的样式 */
+.toc-content {
+  display: inline-block;
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
+  font-weight: normal; /* 普通字重 */
+}
+
+/* 可以通过首字符样式强调，但不单独拿出来 */
+.toc-content::first-letter {
+  font-weight: 600; /* 稍微加粗首字母 */
+  color: #2563eb; /* 首字母使用蓝色 */
+}
+
+/* 结构化标题内容的特殊处理 */
+.toc-structured .toc-content {
+  padding-left: 0;
+  margin-left: 2px; /* 与前缀之间添加小间距 */
+}
+
+/* 结构化标题缩进优化 */
+/* 第一级（章节）不缩进 */
+#toc-list > li.toc-structured {
+  padding-left: 0;
+}
+
+/* 各级结构化标题的缩进 */
+#toc-list .toc-structured.toc-h1 { padding-left: 0; }
+#toc-list .toc-structured.toc-h2 { padding-left: 12px; }
+#toc-list .toc-structured.toc-h3 { padding-left: 24px; }
+#toc-list .toc-structured.toc-h4 { padding-left: 36px; }
+#toc-list .toc-structured.toc-h5 { padding-left: 48px; }
+#toc-list .toc-structured.toc-h6 { padding-left: 60px; }
+
+/* 图表标题作为子项的样式调整 */
+.toc-caption {
+  font-style: italic;
+  color: #616161;
+  padding-left: 12px !important; /* 覆盖默认缩进，确保图表标题作为子项正确缩进 */
+}
+
+/* 结构化标题的图表子项缩进 */
+.toc-structured + li.toc-caption {
+  padding-left: 24px !important;
+}
+
+/* 图表图标样式 */
+.toc-chart-icon {
+  margin-right: 4px;
+  font-size: 0.9em;
+  opacity: 0.8;
+}
+
+/* 表格和图表的不同样式 */
+.toc-caption:hover {
+  background-color: rgba(0, 0, 0, 0.03);
+}
+
+/* 图表标题悬停效果 */
+.toc-caption:hover .toc-chart-icon {
+  opacity: 1;
+}
+
+/* 强化层级视觉效果 */
+/* 为结构化标题添加微妙的左边框，表示层级 */
+.toc-structured {
+  border-left: none;
+  position: relative;
+}
+
+.toc-structured.toc-h2 {
+  border-left: 3px solid rgba(0, 102, 204, 0.1);
+}
+
+.toc-structured.toc-h3 {
+  border-left: 3px solid rgba(0, 102, 204, 0.15);
+}
+
+.toc-structured.toc-h4 {
+  border-left: 3px solid rgba(0, 102, 204, 0.2);
+}
+
+.toc-structured.toc-h5, .toc-structured.toc-h6 {
+  border-left: 3px solid rgba(0, 102, 204, 0.25);
+}
+
+/* 图表标题与其父级关联 */
+.toc-caption {
+  position: relative;
+}
+
+.toc-caption::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  border-left: 2px dotted rgba(97, 97, 97, 0.2);
+}
+
+/* 优化折叠按钮与结构化标题的对齐 */
+.toc-structured .toc-toggle {
+  margin-right: 4px;
+}
+
+/* 强化TOC的视觉层级 */
+#toc-list ul.toc-children {
+  margin-left: 0;
+  border-left: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+/* 简单数字列表项样式 */
+.toc-simple-numbered {
+  position: relative;
+}
+
+/* 简单数字列表前缀样式 */
+.toc-simple-numbered .toc-prefix {
+  color: #2563eb;
+  font-weight: bold;
+  font-size: 0.9em;
+}
+
+/* 增加简单数字列表项的缩进，使其看起来更像子项 */
+#toc-list li.toc-simple-numbered {
+  padding-left: 12px !important;
+}
+
+/* 添加连接线，显示层级关系 */
+.toc-simple-numbered::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  border-left: 2px dotted rgba(37, 99, 235, 0.3);
+}
+
+/* 简单数字列表项悬停效果 */
+.toc-simple-numbered:hover::before {
+  border-left-color: rgba(37, 99, 235, 0.6);
+}
+
+/* 调整不同结构下的简单数字列表缩进 */
+.toc-structure-numeric + .toc-simple-numbered,
+.toc-structure-chapter + .toc-simple-numbered,
+.toc-structure-roman + .toc-simple-numbered,
+.toc-structure-letter + .toc-simple-numbered,
+.toc-structure-special + .toc-simple-numbered {
+  margin-left: 12px;
+}
+
+/* 保持简单数字列表项之间的连续性 */
+.toc-simple-numbered + .toc-simple-numbered {
+  margin-top: 0;
+  border-top: none;
+}
+
+/* 带空格多级编号标题样式 */
+.toc-spaced-numeric .toc-prefix {
+  font-family: 'Consolas', monospace;
+  letter-spacing: 0.5px;
+  color: #0066cc;
+  font-weight: bold;
+}
+
+/* 带空格多级编号标题悬停效果 */
+.toc-spaced-numeric:hover {
+  background-color: rgba(0, 102, 204, 0.05);
+}
+
+/* 确保带空格多级编号标题与标准数字编号具有相同的缩进 */
+#toc-list .toc-spaced-numeric {
+  padding-left: inherit; /* 继承标准数字编号的缩进 */
+}
+
+/* 优化带空格多级编号与其子项的连接线 */
+.toc-spaced-numeric + li:not(.toc-spaced-numeric):before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: -10px;
+  height: 10px;
+  border-left: 2px dotted rgba(0, 102, 204, 0.2);
+}
+
+/* TOC展开模式样式 */
+#toc-popup {
+  transition: width 0.3s ease-in-out;
+}
+
+#toc-popup.toc-expanded {
+  width: 440px; /* 展开模式宽度为原来的2倍 */
+}
+
+/* 展开按钮样式 */
+#toc-expand-btn {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: #3b82f6;
+  cursor: pointer;
+  font-size: 18px;
+  padding: 4px;
+  border-radius: 4px;
+  line-height: 1;
+  opacity: 0.7;
+  transition: opacity 0.2s, background-color 0.2s;
+}
+
+#toc-expand-btn:hover {
+  opacity: 1;
+  background-color: rgba(59, 130, 246, 0.1);
+}
+
+/* 控制非展开模式下的文本显示 */
+#toc-popup:not(.toc-expanded) .toc-text {
+  max-height: 3.9em; /* 三行文本的高度 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* 保持flex布局，但限制显示行数 */
+  display: -webkit-box;
+  -webkit-line-clamp: 3; /* 限制显示3行 */
+  -webkit-box-orient: vertical;
+}
+
+/* 非展开模式下也保持首字符的显示 */
+#toc-popup:not(.toc-expanded) .toc-content::first-letter {
+  font-weight: 600;
+  color: #2563eb;
+}
+
+/* 在展开模式下取消文本限制 */
+#toc-popup.toc-expanded .toc-text {
+  max-height: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  -webkit-line-clamp: unset;
+}
+
+/* TOC底部控制按钮区域 */
+.toc-controls {
+  padding: 8px 12px;
+  text-align: center;
+  border-top: 1px solid #e2e8f0;
+  font-size: 0.8em;
+  color: #64748b;
+}
+
+.toc-control-btn {
+  background: transparent;
+  border: none;
+  margin: 0 6px;
+  padding: 2px 6px;
+  color: #3b82f6;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.toc-control-btn:hover {
+  background-color: rgba(59, 130, 246, 0.1);
+}
+
+/* 结构化标题的首字母样式特殊处理，避免与前缀冲突 */
+.toc-structured .toc-content::first-letter {
+  font-weight: normal; /* 恢复普通字重，避免与前缀重叠强调 */
+  color: inherit; /* 使用继承的颜色，避免与前缀重叠强调 */
+}
+
+/* 图表标题的特殊样式处理 */
+.toc-caption .toc-content {
+  font-style: italic; /* 保持图表标题的斜体 */
+  color: #2563eb; /* 保持蓝色 */
+}
+
+/* 图表标题的首字母保持与其他内容一致 */
+.toc-caption .toc-content::first-letter {
+  font-weight: inherit;
+  color: inherit;
+}
+
+#toc-list .toc-text,
+#toc-list .toc-content {
+  font-size: 12px !important;
+  line-height: 1.2 !important;
+  padding: 1px 0 !important;
+}
+
+.toc-content {
+  display: -webkit-box !important;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  word-break: break-all;
+  white-space: normal;
 }

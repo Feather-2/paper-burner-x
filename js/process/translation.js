@@ -447,8 +447,8 @@ async function translateMarkdown(
                 responseExtractor: (data) => data?.choices?.[0]?.message?.content
             },
             'gemini-preview': {
-                endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-04-17:generateContent',
-                modelName: 'Google gemini-2.5-flash-preview-04-17',
+                endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent',
+                modelName: 'Google gemini-2.5-flash-preview-05-20',
                 headers: { 'Content-Type': 'application/json' },
                 bodyBuilder: (sys, user) => ({
                     contents: [

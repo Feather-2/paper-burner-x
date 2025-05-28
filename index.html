@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="PDF OCR与翻译工具 - 使用 Mistral OCR 提取 PDF 文本并转换为 Markdown，可选择使用 AI 模型进行翻译">
-    <title>Paper Burner - PDF文档 OCR与翻译工具</title>
+    <meta name="description" content="Paper Burner - 您的一站式AI文献阅读与智能分析平台，支持OCR、翻译、深度解析与高级管理。">
+    <title>Paper Burner - AI文献阅读与智能分析平台</title>
     <!-- Tailwind CSS & 依赖库 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/iconify-icon@2.0.0/dist/iconify-icon.min.js"></script>
@@ -20,6 +20,7 @@
         document.head.appendChild(script);
       }
     </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
     <style>
         /* 谷歌字体 Nunito */
         @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700&display=swap');
@@ -29,7 +30,8 @@
         }
         /* 背景渐变 */
         .gradient-bg {
-            background: linear-gradient(135deg, #f5f7fa 0%, #e4edf9 100%);
+            /* background: linear-gradient(135deg, #f5f7fa 0%, #e4edf9 100%); */
+            background-color: #F3F6FA; /* 主题背景色 */
         }
         /* 卡片渐变 */
         .gradient-card {
@@ -72,25 +74,120 @@
         .flash-tip-anim.hide {
             opacity: 0;
         }
+        /* Skeleton Character Rows */
+        .skeleton-bg .skeleton-row {
+            border-radius: 8px;
+            background: linear-gradient(90deg, #e5e7eb 25%, #f3f6fa 50%, #e5e7eb 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.8s infinite linear;
+        }
+        .skeleton-fake-text {
+            color: #d1d5db;
+            font-size: 1rem;
+            font-family: 'Fira Mono', 'Consolas', monospace;
+            font-weight: bold;
+            opacity: 0.5;
+            letter-spacing: 0.1em;
+            animation: shimmer 1.8s infinite linear;
+            user-select: none;
+        }
+        .skeleton-fake-text.text-lg {
+            font-size: 1.25rem;
+        }
+
+        /* New Top-Blue to Bottom-White Gradient for Landing Page Background */
+        .ocean-gradient-bg {
+          background: linear-gradient(to bottom, #93C5FD 0%, #FFFFFF 100%); /* Tailwind blue-300 to white */
+        }
+
+        /* ===== 版权声明弹窗美化与动画 ===== */
+        #copyrightModal {
+          backdrop-filter: blur(6px) saturate(120%);
+          background: rgba(30, 41, 59, 0.35) !important; /* 深色毛玻璃 */
+          animation: copyrightModalFadeIn 0.4s cubic-bezier(.4,2,.6,1) both;
+        }
+        @keyframes copyrightModalFadeIn {
+          0% { opacity: 0; }
+          100% { opacity: 1; }
+        }
+        .copyright-card-ani {
+          background: linear-gradient(135deg, #f8fafc 60%, #e0e7ef 100%);
+          box-shadow: 0 8px 32px 0 rgba(31, 41, 55, 0.18), 0 1.5px 6px 0 rgba(59,130,246,0.08);
+          border-radius: 1.5rem;
+          border: 1.5px solid #e0e7ef;
+          animation: copyrightCardPopIn 0.5s cubic-bezier(.4,2,.6,1) both;
+          max-width: 900px;
+          transform: scale(0.9);
+          transform-origin: top center;
+        }
+        @keyframes copyrightCardPopIn {
+          0% { transform: scale(0.92) translateY(40px); opacity: 0; }
+          100% { transform: scale(1) translateY(0); opacity: 1; }
+        }
+        .copyright-card-ani h2 {
+          letter-spacing: 0.02em;
+          background: linear-gradient(90deg, #2563eb 30%, #60a5fa 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+        }
+        .copyright-card-ani .main-btn {
+          background: linear-gradient(90deg, #2563eb 60%, #38bdf8 100%);
+          color: #fff;
+          font-weight: 600;
+          box-shadow: 0 2px 8px 0 rgba(59,130,246,0.10);
+          border-radius: 0.75rem;
+          transition: background 0.2s, box-shadow 0.2s;
+        }
+        .copyright-card-ani .main-btn:hover {
+          background: linear-gradient(90deg, #1d4ed8 60%, #0ea5e9 100%);
+          box-shadow: 0 4px 16px 0 rgba(59,130,246,0.18);
+        }
+        .copyright-card-ani .iconify-icon {
+          vertical-align: middle;
+        }
     </style>
 </head>
 <body class="gradient-bg min-h-screen">
-    <div class="container mx-auto px-4 py-8 max-w-6xl">
+    <script>
+        // Redirect to landing page if it hasn't been shown yet
+        if (!localStorage.getItem('paperBurnerLandingPageShown')) {
+            // Check if the current page is not landing-page.html to prevent redirect loop
+            // and also ensure we are in the root or a similar path if index.html is not at root.
+            var currentPath = window.location.pathname;
+            if (currentPath.indexOf('landing-page.html') === -1) {
+                var basePath = currentPath.substring(0, currentPath.lastIndexOf('/') + 1);
+                // Ensure that if index.html is in a subfolder, landing-page.html is sought in the same folder.
+                // If index.html is at root, basePath will be "/", and landing-page.html will be /landing-page.html.
+                window.location.href = basePath + 'landing-page.html';
+            }
+        }
+    </script>
+
+    <div id="mainAppContainer" class="container mx-auto px-4 py-8 max-w-6xl">
         <!-- ===================== -->
         <!-- 顶部标题与简介 -->
         <!-- ===================== -->
-        <header class="text-center mb-12">
-            <h1 class="text-3xl md:text-4xl font-bold text-gray-800 mb-3">Paper Burner: PDF <span class="text-blue-600">OCR</span> 与翻译工具</h1>
-            <p class="text-gray-600 max-w-2xl mx-auto">使用 Mistral OCR 提取 PDF 文本并转换为 Markdown，可选择使用 AI 模型进行全文中文翻译</p>
-            <p class="text-gray-600 max-w-2xl mx-auto">完美保持公式、图表格式</p>
-            <p class="text-gray-600 max-w-2xl mx-auto text-sm">注意：AI 模型翻译结果仅供参考，最终内容请以原文为准</p>
+        <header class="text-center mt-8 mb-12">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-800 mb-3">Paper Burner: <span class="text-blue-600">AI 辅助</span> 的文献阅读与分析工具</h1>
+            <p class="text-gray-600 max-w-2xl mx-auto">提供PDF文本提取、翻译、内容分析及管理功能，旨在提升文献处理效率。</p>
         </header>
 
         <main>
             <!-- ===================== -->
+            <!-- 新增的步骤标题 -->
+            <!-- ===================== -->
+            <div class="mb-6">
+                <h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center">
+                    <iconify-icon icon="carbon:document-preliminary" class="mr-2 text-blue-500" width="24"></iconify-icon>
+                    Step 1：文档识别
+                </h2>
+            </div>
+
+            <!-- ===================== -->
             <!-- 主功能卡片区域 -->
             <!-- ===================== -->
-            <div class="bg-white rounded-xl shadow-sm p-6 mb-8">
+            <div class="bg-white rounded-xl shadow-sm p-6 mb-3">
 
                 <!-- API 密钥设置 (旧版，已注释掉) -->
                 <!--
@@ -139,7 +236,7 @@
                                 <option value="mistral">Mistral Large</option>
                                 <option value="deepseek">DeepSeek v3</option>
                                 <option value="gemini">Gemini 2.0 Flash</option>
-                                <option value="gemini-preview">Gemini-2.5-flash-preview-04-17</option>
+                                <option value="gemini-preview">Gemini-2.5-flash-preview-05-20</option>
                                 <option value="tongyi-deepseek-v3">通义百炼 DeepSeek v3</option>
                                 <option value="tongyi-qwen-turbo">通义百炼 Qwen Turbo</option>
                                 <option value="volcano-deepseek-v3">火山引擎 DeepSeek v3</option>
@@ -233,14 +330,14 @@
                                 <!-- 翻译任务并发数 -->
                                 <div>
                                     <label for="translationConcurrencyLevel" class="block text-sm font-medium text-gray-700 mb-1">翻译任务并发数</label>
-                                    <input type="number" id="translationConcurrencyLevel" min="1" max="150" value="2"
+                                    <input type="number" id="translationConcurrencyLevel" min="1" max="150" value="30"
                                            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-all text-sm">
                                     <p class="text-xs text-gray-500 mt-1">同时进行的翻译 API 调用数量。默认 2。</p>
                                 </div>
                                 <!-- 翻译分段最大Token数 -->
                                 <div class="md:col-span-2">
                                     <label for="maxTokensPerChunk" class="block text-sm font-medium text-gray-700 mb-1">翻译分段最大Token数 (<span id="maxTokensPerChunkValue">2000</span>)</label>
-                                    <input type="range" id="maxTokensPerChunk" min="500" max="10000" step="100" value="2000"
+                                    <input type="range" id="maxTokensPerChunk" min="500" max="10000" step="100" value="1000"
                                            class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
                                     <p class="text-xs text-gray-500 mt-1">长文档翻译时，按此限制分段。默认 2000。</p>
                                 </div>
@@ -364,6 +461,8 @@
                     <span>下载全部结果 (ZIP)</span>
                 </button>
             </div>
+            <!-- Moved disclaimer text inside main -->
+            <p class="text-center text-gray-500 text-xs max-w-xl mx-auto mt-0 mb-4">注意：AI 模型翻译结果仅供参考，最终内容请以原文为准</p>
         </main>
 
         <!-- ===================== -->
@@ -372,11 +471,10 @@
         <footer class="text-center text-gray-500 text-sm mt-12">
             <!-- 版权或链接信息 -->
             <p class="mb-2">
-                <a href="https://github.com/baoyudu/ocrpdf" class="text-blue-500 hover:text-blue-700 transition-colors" target="_blank" rel="noopener noreferrer">
+                <span id="showCopyrightModal" class="text-blue-500 hover:text-blue-700 transition-colors cursor-pointer select-none">
                     <iconify-icon icon="carbon:logo-github" class="mr-1" inline></iconify-icon>
-                    GitHub
-                </a>
-
+                    Paper Burner
+                </span>
             </p>
         </footer>
     </div>
@@ -406,19 +504,22 @@
     <!-- ===================== -->
     <!-- 浮动按钮，点击显示历史记录面板 -->
     <div id="history-fab" style="position:fixed;bottom:32px;right:32px;z-index:9999;">
-      <button id="showHistoryBtn" class="bg-blue-600 text-white rounded-full shadow-lg p-4 hover:bg-blue-700 transition-all">
+      <button id="showHistoryBtn" class="bg-blue-600 text-white rounded-full shadow-lg p-4 hover:bg-blue-700 transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1">
         <iconify-icon icon="carbon:time" width="28"></iconify-icon>
       </button>
     </div>
     <!-- 历史记录面板 (模态框) -->
-    <div id="historyPanel" class="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center hidden">
-      <div class="bg-white rounded-xl shadow-2xl p-6 w-[90vw] max-w-5xl max-h-[90vh] overflow-y-auto relative">
-        <div class="flex justify-between items-center mb-2">
-          <span class="font-bold text-lg">历史记录</span>
-          <button id="closeHistoryPanel" class="text-gray-400 hover:text-red-500"><iconify-icon icon="carbon:close" width="20"></iconify-icon></button>
+    <div id="historyPanel" class="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-center justify-center hidden p-4">
+      <div class="bg-white rounded-xl shadow-xl p-6 w-[90vw] max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
+        <div class="flex justify-between items-center pb-3 mb-3 border-b border-gray-200">
+          <span class="font-semibold text-lg text-gray-700">历史记录</span>
+          <button id="closeHistoryPanel" class="text-gray-400 hover:text-red-500 transition-colors"><iconify-icon icon="carbon:close" width="24"></iconify-icon></button>
         </div>
-        <div id="historyList"></div> <!-- 历史记录列表将由JS填充 -->
-        <button id="clearHistoryBtn" class="mt-4 w-full bg-red-100 text-red-600 border-2 border-dashed border-red-200 rounded py-2 hover:bg-red-200">清空历史</button>
+        <div id="historyList" class="flex-grow overflow-y-auto space-y-2 pr-2"></div> <!-- 历史记录列表将由JS填充, 添加了右边距防止滚动条遮挡内容 -->
+        <button id="clearHistoryBtn" class="mt-4 w-full bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-lg py-2.5 px-4 transition-colors flex items-center justify-center text-sm font-medium">
+            <iconify-icon icon="carbon:trash-can" class="mr-2" width="18"></iconify-icon>
+            清空历史
+        </button>
       </div>
     </div>
     <!-- 历史记录详情弹窗 (已废弃，详情在新页面打开) -->
@@ -460,6 +561,84 @@
       </div>
     </div>
 
+    <!-- ===================== -->
+    <!-- 版权声明浮动卡片 -->
+    <!-- ===================== -->
+    <div id="copyrightModal" class="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center hidden px-4 py-8">
+      <div class="copyright-card-ani p-6 md:p-10 w-full max-w-6xl relative max-h-[90vh] overflow-y-auto">
+        <button id="closeCopyrightModal" class="absolute top-4 right-4 text-gray-400 hover:text-red-500 transition-colors z-10">
+            <iconify-icon icon="carbon:close" width="24"></iconify-icon>
+        </button>
+        <div class="text-center mb-5 md:mb-6">
+          <h2 class="text-2xl md:text-3xl font-extrabold tracking-tight mb-2">Paper Burner (本分支) 功能概览</h2>
+        </div>
+        <div class="text-gray-700 space-y-4 md:space-y-5 text-sm md:text-base font-normal">
+          <p class="leading-relaxed text-left text-sm md:text-base text-gray-700 font-normal">
+            我们满怀敬意地基于优秀的开源项目 <a href="https://github.com/baoyudu/paper-burner" target="_blank" class="text-blue-600 hover:text-blue-700 font-semibold underline">Paper Burner (原始版本)</a> 进行构建。
+            致力于将该分支项目，全面升级为一个功能强大且用户友好的 <span class="font-semibold text-blue-600">一站式AI文献阅读与智能分析平台</span>，专注于以下核心增强：
+          </p>
+          <div>
+            <h3 class="text-base md:text-lg font-bold text-blue-700 mb-3 md:mb-4 flex items-center">
+              <iconify-icon icon="carbon:list-checked" class="mr-2 text-blue-500" width="20"></iconify-icon>
+              本分支的主要特性：
+            </h3>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-x-5 gap-y-3 text-xs md:text-sm">
+              <div class="flex items-start p-3 bg-slate-50 rounded-lg shadow-sm border-2 border-dashed border-blue-200">
+                <iconify-icon icon="carbon:settings-adjust" class="text-blue-500 mr-3 mt-0.5 flex-shrink-0" width="26"></iconify-icon>
+                <div>
+                  <h4 class="font-semibold text-gray-800 text-base mb-1">模型与API Key管理</h4>
+                  <p class="text-xs md:text-sm text-gray-500 font-normal leading-snug">支持配置的导入导出，多Key轮询与基本检测功能，以及对自定义翻译源的兼容。</p>
+                </div>
+              </div>
+              <div class="flex items-start p-3 bg-slate-50 rounded-lg shadow-sm border-2 border-dashed border-blue-200">
+                <iconify-icon icon="carbon:text-long-paragraph" class="text-blue-500 mr-3 mt-0.5 flex-shrink-0" width="26"></iconify-icon>
+                <div>
+                  <h4 class="font-semibold text-gray-800 text-base mb-1">多模式文献阅读</h4>
+                  <p class="text-xs md:text-sm text-gray-500 font-normal leading-snug">提供多种方式查看，支持Markdown渲染，并可进行对照阅读。</p>
+                </div>
+              </div>
+              <div class="flex items-start p-3 bg-slate-50 rounded-lg shadow-sm border-2 border-dashed border-blue-200">
+                <iconify-icon icon="carbon:tool-box" class="text-blue-500 mr-3 mt-0.5 flex-shrink-0" width="26"></iconify-icon>
+                <div>
+                  <h4 class="font-semibold text-gray-800 text-base mb-1">阅读辅助工具集</h4>
+                  <p class="text-xs md:text-sm text-gray-500 font-normal leading-snug">包含高亮与标注、目录生成、基础信息展示等功能，方便处理和导航较长文献。</p>
+                </div>
+              </div>
+              <div class="flex items-start p-3 bg-slate-50 rounded-lg shadow-sm border-2 border-dashed border-blue-200">
+                <iconify-icon icon="carbon:chip" class="text-blue-500 mr-3 mt-0.5 flex-shrink-0" width="26"></iconify-icon>
+                <div>
+                  <h4 class="font-semibold text-gray-800 text-base mb-1">AI智能分析引擎</h4>
+                  <p class="text-xs md:text-sm text-gray-500 font-normal leading-snug">赋能图表生成、图像识别、精准内容提问、长文本深度解析与智能总结。</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="leading-relaxed text-left text-sm md:text-base text-gray-700 font-normal">
+            我们希望本分支能成为一款便捷的浏览器端文献处理工具，保持轻量易用的特点，能高效进行文献处理与阅读，方便用户快速上手。
+          </p>
+          <div>
+            <h3 class="text-base md:text-lg font-bold text-blue-700 mb-2 flex items-center">
+              <iconify-icon icon="carbon:next-outline" class="mr-2 text-blue-500" width="20"></iconify-icon>
+              后续计划：
+            </h3>
+            <p class="text-sm md:text-base text-gray-600 font-normal leading-relaxed text-left">
+              我们将持续探索与集成更多前沿功能，如自定义术语库增强翻译准确性、本地内容持久化与同步、以及更深度的AI协作特性，敬请期待！
+            </p>
+          </div>
+          <div class="border-t-2 border-dashed border-blue-200 pt-5 mt-5 text-center space-y-3">
+            <p class="text-sm md:text-base text-gray-600 font-normal">探索本分支的更多细节或贡献您的智慧：</p>
+            <a href="https://github.com/Feather-2/paper-burner" target="_blank" class="main-btn inline-flex items-center justify-center px-7 py-3 text-sm md:text-base font-bold shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+              <iconify-icon icon="carbon:logo-github" class="mr-2" width="20"></iconify-icon>
+              访问新分支 (Feather-2/paper-burner)
+            </a>
+            <p class="text-xs text-gray-400 font-normal pt-1">
+              您的每一个建议对我们都至关重要！欢迎前往新分支的 <a href="https://github.com/Feather-2/paper-burner/issues" target="_blank" class="text-blue-600 hover:text-blue-700 underline font-semibold">Issue 区</a> 分享您的想法或参与讨论。
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script>
       // 一闪而过的提示文字淡入淡出动画 (用于"配置模型与Key管理"提示)
       window.addEventListener('DOMContentLoaded', function() {
@@ -475,6 +654,50 @@
           }, 1800); // 总共1.8秒后隐藏
         }
       });
+
+      // 版权声明弹窗逻辑
+      (function() {
+        var modal = document.getElementById('copyrightModal');
+        var showBtn = document.getElementById('showCopyrightModal');
+        var closeBtn = document.getElementById('closeCopyrightModal');
+        var alreadyShown = localStorage.getItem('paperBurnerBranchInfoShown');
+
+        function openModal() {
+          if (modal) modal.classList.remove('hidden');
+        }
+
+        function closeModal() {
+          if (modal) modal.classList.add('hidden');
+        }
+
+        if (showBtn) {
+          showBtn.addEventListener('click', openModal);
+        }
+        if (closeBtn) {
+          closeBtn.addEventListener('click', function() {
+            closeModal();
+            // 确保用户手动关闭后，标记为已显示，避免下次自动弹出
+            localStorage.setItem('paperBurnerBranchInfoShown', 'true');
+          });
+        }
+        // 点击遮罩关闭
+        if (modal) {
+          modal.addEventListener('click', function(e) {
+            if (e.target === modal) {
+              closeModal();
+              localStorage.setItem('paperBurnerBranchInfoShown', 'true');
+            }
+          });
+        }
+
+        // 首次访问自动展开"关于本分支"卡片 (如果 Landing Page 未显示)
+        // var landingPageIsActive = !localStorage.getItem('paperBurnerLandingPageShown'); // This logic is no longer needed here
+        // if (!alreadyShown && modal && !landingPageIsActive) { // This logic is no longer needed here
+        //   openModal();
+        // }
+      })();
+
+      // Landing Page Logic Removed - main app is now shown by default // This line and related block will be removed by the next instruction.
     </script>
 </body>
 </html>

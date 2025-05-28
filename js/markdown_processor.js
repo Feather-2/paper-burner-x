@@ -1,5 +1,8 @@
 // js/markdown_processor.js
 (function MarkdownProcessor(global) {
+    // 缓存已经渲染好的 HTML，避免重复运行 heavy marked.parse and KaTeX
+    const renderCache = new Map();
+
     /**
      * 预处理 Markdown 文本，以安全地渲染图片、自定义语法（如上下标）并兼容 KaTeX。
      * - 将 Markdown 中的本地图片引用 (e.g., `![alt](images/img-1.jpeg.png)`) 替换为 Base64 嵌入式图片。
@@ -11,7 +14,12 @@
      * @returns {string} 处理后的 Markdown 文本，其中图片被替换，自定义语法被转换。
      */
     function safeMarkdown(md, images) {
-      if (!md) return '';
+      performance.mark('safeMarkdown-start');
+      if (!md) {
+        performance.mark('safeMarkdown-end');
+        performance.measure('safeMarkdown', 'safeMarkdown-start', 'safeMarkdown-end');
+        return '';
+      }
       // 构建图片名与base64的映射表，支持多种key
       let imgMap = {};
       if (Array.isArray(images)) {
@@ -66,7 +74,10 @@
         return `<sup>${sup.trim()}</sup>`;
       });
       // 其余 $...$、$$...$$ 保留，交给 KaTeX 处理
-      return md;
+      const __safeMdResult = md;
+      performance.mark('safeMarkdown-end');
+      performance.measure('safeMarkdown', 'safeMarkdown-start', 'safeMarkdown-end');
+      return __safeMdResult;
     }
 
     /**
@@ -82,40 +93,54 @@
      * @returns {string} 包含渲染后公式和其余 Markdown 内容的 HTML 字符串。
      */
     function renderWithKatexFailback(md, customRenderer) {
-        // 1. 先把短的 $$...$$ 转为 $...$
-        md = md.replace(/\$\$([^\n]+?)\$\$/g, function(_, content) {
-            if (content.trim().length <= 10) {
-                // 短内容（≤10字符），无论有没有等号，都转为行内公式
-                return `$${content}$`;
-            } else {
-                // 块级公式
-                try {
-                    return katex.renderToString(content, { displayMode: true, throwOnError: true });
-                } catch (e) {
-                    return `<code>$$${content}$$</code>`;
-                }
-            }
-        });
-        // 2. 行内公式
-        md = md.replace(/\$([^$\n]+?)\$/g, function(_, content) {
-            try {
-                return katex.renderToString(content, { displayMode: false, throwOnError: true });
-            } catch (e) {
-                return `<code>$${content}$</code>`;
-            }
-        });
-        // 3. 剩下的块级公式（多行的）
-        md = md.replace(/\$\$([\s\S]+?)\$\$/g, function(_, content) {
-            try {
-                return katex.renderToString(content, { displayMode: true, throwOnError: true });
-            } catch (e) {
-                return `<code>$$${content}$$</code>`;
-            }
-        });
-        // 4. 其它 markdown
-        // 使用传入的渲染器（如果提供），否则使用默认的 marked.parse
-        const markedOptions = customRenderer ? { renderer: customRenderer } : {};
-        return marked.parse(md, markedOptions);
+      performance.mark('renderKatex-start');
+      // 在处理前保留原始 Markdown 作为缓存键
+      const rawMd = md;
+      // 如果缓存中已有结果，则直接返回
+      if (renderCache.has(rawMd)) {
+        performance.mark('renderKatex-end');
+        performance.measure('renderWithKatex (cache)', 'renderKatex-start', 'renderKatex-end');
+        return renderCache.get(rawMd);
+      }
+      // 1. 先把短的 $$...$$ 转为 $...$
+      md = md.replace(/\$\$([^\n]+?)\$\$/g, function(_, content) {
+        if (content.trim().length <= 10) {
+          // 短内容（≤10字符），无论有没有等号，都转为行内公式
+          return `$${content}$`;
+        } else {
+          // 块级公式
+          try {
+            return katex.renderToString(content, { displayMode: true, throwOnError: true });
+          } catch (e) {
+            return `<code>$$${content}$$</code>`;
+          }
+        }
+      });
+      // 2. 行内公式
+      md = md.replace(/\$([^$\n]+?)\$/g, function(_, content) {
+        try {
+          return katex.renderToString(content, { displayMode: false, throwOnError: true });
+        } catch (e) {
+          return `<code>$${content}$</code>`;
+        }
+      });
+      // 3. 剩下的块级公式（多行的）
+      md = md.replace(/\$\$([\s\S]+?)\$\$/g, function(_, content) {
+        try {
+          return katex.renderToString(content, { displayMode: true, throwOnError: true });
+        } catch (e) {
+          return `<code>$$${content}$$</code>`;
+        }
+      });
+      // 4. 其它 markdown
+      // 使用传入的渲染器（如果提供），否则使用默认的 marked.parse
+      const markedOptions = customRenderer ? { renderer: customRenderer } : {};
+      const __rpResult = marked.parse(md, markedOptions);
+      // 缓存渲染结果
+      renderCache.set(rawMd, __rpResult);
+      performance.mark('renderKatex-end');
+      performance.measure('renderWithKatex', 'renderKatex-start', 'renderKatex-end');
+      return __rpResult;
     }
 
     // Expose public interface

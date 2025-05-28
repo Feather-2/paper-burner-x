@@ -1348,7 +1348,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // 构建HTML以展示站点信息
                 let infoHtml = `
                     <div class="p-3">
-                        <h3 class="font-bold text-gray-800 text-xl mb-3">${site.displayName || '未命名源站点'}</h3>
+                        <h3 class="font-bold text-gray-800 text-xl mt-1 mb-2">${site.displayName || '未命名源站点'}</h3>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
                             <div><span class="font-medium">API Base URL:</span> <span class="text-gray-600">${site.apiBaseUrl || '未设置'}</span></div>
                             <div><span class="font-medium">当前模型:</span> <span id="currentModelPreview_${siteId}" class="text-gray-600">${site.modelId || '未设置'}</span></div>
@@ -1435,9 +1435,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 infoHtml += `
                     <div class="mt-6 pt-3 border-t border-dashed ">
                         <div class="flex items-center justify-between">
-                            <div class="flex items-center">
-                                <span class="font-medium mr-2">API Keys:</span>
-                                <span class="text-sm ${customSourceKeysCount > 0 ? 'text-green-600' : 'text-red-600'}">
+                            <div class="flex items-center gap-3 h-full">
+                                <span class="font-medium">API Keys:</span>
+                                <span class="text-sm ${customSourceKeysCount > 0 ? 'text-green-600' : 'text-red-600'} flex items-center">
                                     ${customSourceKeysCount > 0 ?
                                       `<iconify-icon icon="carbon:checkmark-filled" class="mr-1" width="14"></iconify-icon>${customSourceKeysCount}个可用Key` :
                                       `<iconify-icon icon="carbon:warning-filled" class="mr-1" width="14"></iconify-icon>无可用Key`}
@@ -1698,7 +1698,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const infoContainer = document.getElementById('customSourceSiteInfo');
                 if (infoContainer) {
                     infoContainer.classList.remove('hidden');
-                    infoContainer.innerHTML = `<div class="p-4 text-center text-red-500 text-sm font-semibold">您还没设置自定义源站点，请您先手动进行设置...</div>`;
+                    infoContainer.innerHTML = `<div class="p-4 text-center text-red-500 text-sm font-semibold">您还没设置自定义源站点，请您先手动进行设置...<br>如果您已进行设置，请尝试刷新</div>`;
                 }
             } else {
                 updateCustomSourceSiteInfo(customSourceSiteSelect.value);

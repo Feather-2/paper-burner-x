@@ -1,0 +1,659 @@
+/* history_detail_inline_styles.css - 从history_detail.html中提取的内联CSS样式 */
+
+/* NEW DOCK STYLES */
+#bottom-left-dock {
+  position: fixed;
+  bottom: 15px;
+  left: 15px;
+  background-color: rgba(255, 255, 255, 0.95); /* UPDATED for more distinct white background */
+  border: 1px dashed #94a3b8; /* Keep this border, good for white background */
+  color: #334155; /* Keep this text color */
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  z-index: 2000;
+  opacity: 0;
+  transition: opacity 0.4s ease-in-out, transform 0.2s ease-out, padding 0.2s ease-out, min-width 0.2s ease-out, height 0.2s ease-out;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05); /* UPDATED */
+  transform: translateY(10px);
+  min-width: 30px;
+  height: auto;
+}
+
+/* TOC 模式选择器样式 */
+.toc-mode-selector {
+  display: flex;
+  gap: 5px;
+  margin: 8px 0;
+  padding: 5px;
+  background-color: #f5f7fa;
+  border-radius: 4px;
+  justify-content: center;
+}
+
+.toc-mode-btn {
+  padding: 4px 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background-color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+
+.toc-mode-btn.active {
+  background-color: #3b82f6;
+  color: white;
+  border-color: #2563eb;
+}
+
+.toc-mode-btn:hover:not(.active) {
+  background-color: #f0f4f8;
+}
+
+/* 设置对话框中的单选按钮样式 */
+.radio-container {
+  margin: 10px 0 15px;
+}
+
+.radio-group {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+}
+
+.radio-group input[type="radio"] {
+  margin-right: 8px;
+}
+
+.radio-group label {
+  cursor: pointer;
+}
+
+/* TOC 高亮效果 */
+.toc-highlight, .toc-target-highlight {
+  animation: toc-highlight-pulse 3s ease-out;
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes toc-highlight-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+    background-color: rgba(59, 130, 246, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 10px 3px rgba(59, 130, 246, 0.5);
+    background-color: rgba(59, 130, 246, 0.15);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    background-color: transparent;
+  }
+}
+
+/* 确保图片和表格等特殊元素在高亮时的效果 */
+.markdown-body img.toc-highlight,
+.markdown-body table.toc-highlight,
+.markdown-body img.toc-target-highlight,
+.markdown-body table.toc-target-highlight {
+  border: 2px solid rgba(59, 130, 246, 0.5);
+  border-radius: 4px;
+}
+
+/* 转换后的标题样式 */
+.converted-from-heading {
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.75em;
+  color: #333;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 5px;
+}
+
+/* TOC 信息提示样式 */
+.toc-info {
+  padding: 10px;
+  margin: 10px 0;
+  background-color: #f8f9fa;
+  border-left: 3px solid #3b82f6;
+  color: #4b5563;
+  font-style: italic;
+  border-radius: 0 4px 4px 0;
+}
+
+#bottom-left-dock.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Updated styles for dock-info-stack and its new columns */
+#dock-info-stack {
+  display: flex;
+  flex-direction: row; /* Columns side-by-side */
+  gap: 2px; /* Further reduced gap between Label column and Value column */
+  align-items: flex-start; /* Align columns at their top */
+}
+
+.dock-column {
+  display: flex;
+  flex-direction: column;
+  gap: 2px; /* Gap between lines within a column */
+}
+
+.dock-values-column {
+  text-align: right; /* Right-align the values/percentages */
+  min-width: 40px; /* Slightly reduced min-width */
+}
+.dock-values-column > div {
+  justify-content: flex-end; /* Ensure content within value divs also aligns right if they are flex */
+}
+
+/* Individual stat items, if they need specific styling for clickability */
+.stat-item-clickable {
+  text-decoration: underline;
+  cursor: pointer;
+}
+.stat-item-clickable:hover {
+  color: #1d4ed8;
+}
+
+#bottom-left-dock > #dock-info-stack,
+#bottom-left-dock > a,
+#bottom-left-dock > #dock-collapsed-progress-display { /* Added new direct child */
+  display: flex;
+  align-items: center;
+}
+
+#dock-stats {
+  display: flex;
+  gap: 8px; /* Space between highlight and annotation counts */
+}
+
+#bottom-left-dock a {
+  color: #3b82f6; /* Slightly softer blue for links/icons, can be adjusted */
+  text-decoration: none;
+}
+#bottom-left-dock a:hover {
+  color: #2563eb; /* Darker blue on hover */
+}
+
+#settings-link i.fa-cog, /* Changed ID */
+#dock-toggle-btn i {
+  font-size: 1.2em;
+  padding: 3px;
+}
+#dock-toggle-btn {
+    margin-left: auto; /* Pushes toggle button to the far right */
+    cursor: pointer;
+}
+
+/* Style for the standalone progress display in collapsed mode */
+/* Ensure it's hidden by default when the dock is NOT collapsed */
+#bottom-left-dock:not(.dock-collapsed) #dock-collapsed-progress-display {
+    display: none;
+}
+
+#dock-collapsed-progress-display {
+    /* display: none; */ /* This can be removed if the above :not selector is robust */
+    color: #334155; /* Match updated dock text color */
+    font-weight: 500;
+}
+
+/* Collapsed state */
+#bottom-left-dock.dock-collapsed {
+  padding: 6px 10px; /* Slightly adjust padding for collapsed state */
+  gap: 8px; /* Adjust gap for items in collapsed row */
+  /* min-width to allow content to show */
+}
+
+/* Hide these elements when collapsed */
+#bottom-left-dock.dock-collapsed #dock-info-stack,
+#bottom-left-dock.dock-collapsed #settings-link {
+  display: none;
+}
+
+/* Show and style the specific progress display for collapsed mode */
+#bottom-left-dock.dock-collapsed #dock-collapsed-progress-display {
+    display: inline; /* Show it */
+}
+
+/* This rule is no longer needed as #dock-stats is inside #dock-info-stack which gets hidden */
+/* #bottom-left-dock.dock-collapsed #dock-stats, */
+
+/* Ensure these are visible in collapsed state - REVISED */
+/* #bottom-left-dock.dock-collapsed #dock-reading-progress, */
+/* #bottom-left-dock.dock-collapsed #settings-link {  */
+  /* display: flex; */
+  /* align-items: center; */
+/* } */
+
+/* This rule is no longer needed as #dock-stats is inside #dock-info-stack */
+/* #bottom-left-dock.dock-collapsed #dock-stats span {
+    text-decoration: underline;
+    cursor: pointer;
+}
+#bottom-left-dock.dock-collapsed #dock-stats span:hover {
+    color: #1d4ed8;
+} */
+
+#bottom-left-dock.dock-collapsed #dock-toggle-btn {
+  margin-left: auto; /* Ensure toggle button is pushed to the right if other elements are minimal */
+}
+
+/* Style for the new sub-blocks, can be adjusted */
+.sub-block {
+    display: inline; /* Or inline-block if padding/margin is needed and wrap behavior is desired */
+}
+
+/* NEW STYLES FOR CENTERING IMAGES AND TABLES from Markdown content */
+.markdown-body img {
+  display: block; /* Allows margin auto to work for horizontal centering */
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 100%; /* Ensures image is responsive and doesn't overflow container */
+  height: auto;    /* Maintains aspect ratio */
+}
+
+.markdown-body table {
+  display: table;  /* Allows margin auto to work for centering while preserving table layout */
+  margin-left: auto;
+  margin-right: auto;
+  /* width: auto; /* Default for display:table, table will size to its content */
+}
+
+/* Custom Context Menu Styles (Notion-like) */
+#custom-context-menu {
+    background-color: #fff; /* White background */
+    border: 1px solid #eee; /* Light border */
+    border-radius: 8px; /* Rounded corners */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); /* Softer shadow */
+    padding: 6px 0; /* Vertical padding */
+    min-width: 220px; /* Minimum width */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    color: #333; /* Darker text color */
+    z-index: 10000; /* Ensure it's on top */
+}
+
+#custom-context-menu ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+#custom-context-menu li {
+    padding: 8px 12px; /* Padding for items */
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    transition: background-color 0.15s ease-in-out;
+}
+
+#custom-context-menu li:hover {
+    background-color: #f5f5f5; /* Light gray hover */
+}
+
+#custom-context-menu li i.fa { /* Icon styling */
+    margin-right: 10px;
+    color: #555;
+    width: 16px; /* Fixed width for alignment */
+    text-align: center;
+}
+
+#custom-context-menu .color-palette {
+    display: flex;
+    align-items: center;
+    margin-left: auto; /* Push color palette to the right */
+    padding-left: 10px;
+}
+
+#custom-context-menu .color-option {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%; /* Circular color options */
+    margin-left: 6px;
+    cursor: pointer;
+    border: 1px solid rgba(0,0,0,0.1);
+    transition: transform 0.1s ease-out;
+}
+#custom-context-menu .color-option:hover {
+    transform: scale(1.15);
+}
+
+/* Specific color styles - ensure these match your JS color names */
+.color-yellow { background-color: yellow; }
+.color-pink { background-color: pink; }
+.color-lightblue { background-color: lightblue; }
+.color-lightgreen { background-color: lightgreen; }
+.color-purple { background-color: purple; }
+.color-orange { background-color: orange; }
+
+/* Divider style */
+#custom-context-menu hr.menu-divider {
+    border: none;
+    border-top: 1px solid #eee;
+    margin: 6px 0;
+}
+
+/* Annotations Summary Modal CSS */
+#annotations-summary-modal .modal-content {
+  max-width: 80%;
+  width: 950px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+#annotations-summary-modal .modal-close-btn {
+  position: absolute;
+  top: 12px;
+  right: 18px;
+  font-size: 2em;
+  color: #888;
+  cursor: pointer;
+  z-index: 10;
+  background: none;
+  border: none;
+  line-height: 1;
+  padding: 0;
+  transition: color 0.2s;
+}
+#annotations-summary-modal .modal-close-btn:hover {
+  color: #333;
+}
+#annotations-summary-modal .table-container {
+  overflow-y: auto;
+  flex-grow: 1;
+  margin-top: 15px;
+  border: 1px solid #e0e0e0; /* Added border for definition */
+}
+
+#annotations-summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+#annotations-summary-table th,
+#annotations-summary-table td {
+  border: 1px solid #ddd;
+  padding: 10px 8px; /* Adjusted padding */
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word; /* Help with long content */
+}
+
+#annotations-summary-table th {
+  background-color: #f7f7f7; /* Lighter background for header */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-weight: 600; /* Bolder header text */
+}
+
+#annotations-summary-table .color-swatch {
+  display: inline-block;
+  width: 18px; /* Slightly larger */
+  height: 18px; /* Slightly larger */
+  border: 1px solid #ccc;
+  border-radius: 4px; /* Rounded corners */
+  vertical-align: middle;
+  box-shadow: 0 0 2px rgba(0,0,0,0.1); /* Subtle shadow */
+}
+
+#annotations-summary-table .action-btn {
+  padding: 5px 10px; /* Adjusted padding */
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid #007bff; /* Blue border */
+  background-color: #fff; /* White background */
+  color: #007bff; /* Blue text */
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+#annotations-summary-table .action-btn:hover {
+  background-color: #007bff; /* Blue background on hover */
+  color: #fff; /* White text on hover */
+}
+#annotations-summary-table .action-btn:disabled {
+  border-color: #ccc;
+  background-color: #f0f0f0;
+  color: #aaa;
+  cursor: not-allowed;
+}
+
+.annotations-summary-controls {
+  margin-bottom: 15px;
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  padding: 10px;
+  background-color: #f9f9f9;
+  border-radius: 4px;
+  border: 1px solid #e0e0e0;
+  flex-wrap: wrap;
+}
+.annotations-summary-controls label {
+  margin-right: 5px;
+  font-weight: 500;
+}
+.annotations-summary-controls select {
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  background-color: #fff;
+}
+.annotations-summary-color-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  flex-wrap: wrap;
+}
+.annotations-summary-color-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 6px;
+  cursor: pointer;
+}
+.annotations-summary-color-checkbox input[type="checkbox"] {
+  margin: 0 2px 0 0;
+  accent-color: #007bff;
+}
+.annotations-summary-color-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid #bbb;
+  display: inline-block;
+  margin-right: 2px;
+}
+/* Temporary highlight for jumped-to element */
+.jump-to-highlight-effect { /* Renamed for clarity */
+  transition: background-color 0.3s ease-in-out, box-shadow 0.3s ease-in-out;
+  background-color: rgba(255, 220, 0, 0.45) !important; /* Softer yellow, more transparent */
+  box-shadow: 0 0 12px rgba(255, 220, 0, 0.6) !important; /* Softer glow */
+  border-radius: 5px !important; /* Smoother radius */
+  outline: 2px solid rgba(255, 200, 0, 0.7); /* Added outline */
+}
+
+/* 批注详情模态框增强样式 */
+#annotations-summary-table td {
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#annotations-summary-table td:nth-child(4) {
+  cursor: pointer;
+  position: relative;
+}
+
+#annotations-summary-table td:nth-child(4):hover {
+  background-color: #f0f0f0;
+}
+
+#annotations-summary-table td:nth-child(4)::after {
+  content: "👁️";
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+#annotations-summary-table td:nth-child(4):hover::after {
+  opacity: 0.7;
+}
+
+/* 文本片段预览对话框样式 */
+.full-text-dialog {
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translate(-50%, -48%); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
+}
+
+.full-text-dialog button {
+  background-color: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.full-text-dialog button:hover {
+  background-color: #e0e0e0;
+}
+
+/* 颜色筛选区域样式增强 */
+.annotations-summary-color-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  flex-wrap: wrap;
+  padding: 5px;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  background-color: #fafafa;
+}
+
+.annotations-summary-color-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 6px;
+  cursor: pointer;
+  padding: 3px 5px;
+  border-radius: 3px;
+  transition: background-color 0.2s;
+}
+
+.annotations-summary-color-checkbox:hover {
+  background-color: #f0f0f0;
+}
+
+.annotations-summary-color-checkbox input[type="checkbox"] {
+  margin: 0 2px 0 0;
+  accent-color: #007bff;
+}
+
+/* TOC 层级样式 */
+#toc-list li.toc-h1 a {
+  padding-left: 12px;
+  font-size: 1em;
+  font-weight: 600;
+}
+
+#toc-list li.toc-h2 a {
+  padding-left: 20px;
+  font-size: 0.95em;
+  font-weight: 500;
+}
+
+#toc-list li.toc-h3 a {
+  padding-left: 28px;
+  font-size: 0.9em;
+  font-weight: 500;
+}
+
+#toc-list li.toc-h4 a {
+  padding-left: 36px;
+  font-size: 0.85em;
+  font-weight: normal;
+}
+
+#toc-list li.toc-h5 a {
+  padding-left: 44px;
+  font-size: 0.8em;
+  font-weight: normal;
+  color: #555;
+}
+
+#toc-list li.toc-h6 a {
+  padding-left: 52px;
+  font-size: 0.75em;
+  font-weight: normal;
+  color: #666;
+}
+
+/* 转换后的标题在TOC中的样式 */
+#toc-list li.toc-p.converted-from-heading a {
+  /* 根据原始标签应用相应的样式 */
+}
+
+/* 可折叠TOC样式 */
+#toc-list .toc-toggle {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+  text-align: center;
+  line-height: 16px;
+  margin-right: 4px;
+  color: #666;
+  transition: transform 0.2s;
+  float: left;
+  margin-top: 2px;
+}
+
+#toc-list .toc-toggle.collapsed {
+  transform: rotate(-90deg);
+}
+
+#toc-list .toc-children {
+  height: auto;
+  overflow: hidden;
+  transition: height 0.3s ease;
+  clear: both;
+}
+
+#toc-list .toc-children.collapsed {
+  height: 0;
+}
+
+/* 为有子项的TOC项添加特殊样式 */
+#toc-list .has-children > a {
+  font-weight: 600;
+  display: flex;
+  align-items: flex-start;
+}
+
+/* TOC项中的英文翻译样式 */
+#toc-list span.toc-en-translation {
+  font-size: 0.85em;
+  color: #64748b;
+  margin-left: 4px;
+  font-weight: 400;
+  display: inline-block;
+}

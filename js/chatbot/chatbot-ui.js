@@ -520,64 +520,169 @@ function updateChatbotUI() {
 
     modelSelectorDiv = document.createElement('div');
     modelSelectorDiv.id = 'chatbot-model-selector';
-    modelSelectorDiv.style.margin = '20px auto 0 auto'; // Adjusted margin-top
+    modelSelectorDiv.style.margin = '-30px auto 0 auto'; // 向上移动适当距离，使卡片位置更合理
     modelSelectorDiv.style.maxWidth = '340px';
     modelSelectorDiv.style.background = 'linear-gradient(135deg,#f0f9ff 80%,#e0f2fe 100%)';
     modelSelectorDiv.style.border = '2px dashed #93c5fd';
     modelSelectorDiv.style.borderRadius = '16px';
-    modelSelectorDiv.style.padding = '32px 24px 24px 24px';
-    modelSelectorDiv.style.boxShadow = '0 4px 24px #2563eb11';
-    // 读取温度和max_tokens默认值
+    modelSelectorDiv.style.padding = '20px 16px 16px 16px';
+    // 固定高度以适应父容器，超出则滚动
+    modelSelectorDiv.style.maxHeight = '100%';
+    modelSelectorDiv.style.overflowY = 'auto';
+    // 读取温度和 max_tokens 默认值（避免未定义）
     let defaultTemperature = 0.5;
     let defaultMaxTokens = 8000;
-    try {
-      if (settings.customModelSettings) {
-        if (typeof settings.customModelSettings.temperature === 'number') {
-          defaultTemperature = settings.customModelSettings.temperature;
-        }
-        if (typeof settings.customModelSettings.max_tokens === 'number') {
-          defaultMaxTokens = settings.customModelSettings.max_tokens;
-        }
-      }
-    } catch (e) {}
+    try { if (settings.customModelSettings) {
+      defaultTemperature = typeof settings.customModelSettings.temperature==='number'?settings.customModelSettings.temperature:defaultTemperature;
+      defaultMaxTokens = typeof settings.customModelSettings.max_tokens==='number'?settings.customModelSettings.max_tokens:defaultMaxTokens;
+    }} catch{};
+    const defaultConcurrency = (window.chatbotActiveOptions && Number.isInteger(window.chatbotActiveOptions.segmentConcurrency))
+        ? window.chatbotActiveOptions.segmentConcurrency : 20;
     modelSelectorDiv.innerHTML = `
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;justify-content:center;">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.5"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 5 15.4a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 8a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 8 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09A1.65 1.65 0 0 0 16 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 8c.14.31.22.65.22 1v.09A1.65 1.65 0 0 0 21 12c0 .35-.08.69-.22 1z"/></svg>
-        <span style="font-size:17px;font-weight:700;color:#2563eb;">选择自定义模型</span>
+      <!-- 模块标题 -->
+      <div style="text-align:center;font-size:17px;font-weight:700;color:#2563eb;margin-bottom:8px;">选择自定义模型</div>
+      <!-- 默认模型 行 -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <span style="font-size:14px;font-weight:500;">默认模型</span>
+        <button id="chatbot-add-special-models-btn" style="width:24px;height:24px;border:none;background:transparent;font-size:18px;cursor:pointer;line-height:18px;">＋</button>
       </div>
-      <select id="chatbot-model-select" style="width:100%;margin:18px 0 0 0;padding:12px 16px;border-radius:10px;border:2px solid #93c5fd;background:white;color:#1e3a8a;font-size:15px;font-weight:600;outline:none;transition:all 0.2s;">
-        ${models.length === 0 ? '<option value="">（无可用模型）</option>' : models.map(m => {
-          if (typeof m === 'string') {
-            return `<option value="${m}" ${m===defaultModelId?'selected':''}>${m}</option>`;
-          } else if (typeof m === 'object' && m) {
-            return `<option value="${m.id}" ${m.id===defaultModelId?'selected':''}>${m.name || m.id}</option>`;
-          } else {
-            return '';
-          }
-        }).join('')}
+      <!-- 特殊模型 容器，默认隐藏 -->
+      <div id="chatbot-special-models-container" style="display:none;flex-direction:column;gap:12px;margin-bottom:12px;">
+        <div>
+          <div style="font-size:14px;color:#1e3a8a;font-weight:500;margin-bottom:4px;">多模态模型</div>
+          <select id="chatbot-multimodal-model-select" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid #93c5fd;">
+            <option value="">使用默认模型</option>
+            ${models.map(m=>typeof m==='string'?`<option value="${m}">${m}</option>`:`<option value="${m.id}">${m.name||m.id}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <div style="font-size:14px;color:#1e3a8a;font-weight:500;margin-bottom:4px;">Batch模型</div>
+          <select id="chatbot-batch-model-select" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid #93c5fd;">
+            <option value="">使用默认模型</option>
+            ${models.map(m=>typeof m==='string'?`<option value="${m}">${m}</option>`:`<option value="${m.id}">${m.name||m.id}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <select id="chatbot-model-select" style="width:100%;margin-bottom:12px;padding:12px 16px;border-radius:10px;border:2px solid #93c5fd;background:white;color:#1e3a8a;font-size:15px;font-weight:600;outline:none;">
+        ${models.length===0?'<option value="">（无可用模型）</option>':models.map(m=>typeof m==='string'?`<option value="${m}"${m===defaultModelId?' selected':''}>${m}</option>`:`<option value="${m.id}"${m.id===defaultModelId?' selected':''}>${m.name||m.id}</option>`).join('')}
       </select>
-      <div style="margin-top:22px;margin-bottom:10px;">
-        <div style="font-size:14px;color:#1e3a8a;font-weight:500;display:flex;align-items:center;justify-content:space-between;">
-          <span>温度（temperature）</span>
-          <span style="font-size:12px;color:#64748b;font-weight:400;">（0=更确定，1=更随机）</span>
+      <!-- 温度 & 并发上限 同行显示 -->
+      <div style="display:flex;justify-content:space-between;gap:16px;margin:4px 0;">
+        <div style="flex:1;">
+          <div style="font-size:14px;color:#1e3a8a;font-weight:500;display:flex;align-items:center;justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:4px;">
+              <span>温度 (0-1)</span><button id="chatbot-temp-help-btn" style="background:none;border:none;color:#2563eb;cursor:pointer;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-circle-info"></i></button>
+            </div>
+            <input id="chatbot-temp-input" type="number" min="0" max="1" step="0.01" value="${defaultTemperature}" style="width:50px;padding:2px;border-radius:4px;border:1px solid #93c5fd;font-size:14px;" />
+          </div>
+          <input id="chatbot-temp-range" type="range" min="0" max="1" step="0.01" value="${defaultTemperature}" style="width:100%;margin-top:4px;height:20px;" />
         </div>
-        <div style='display:flex;align-items:center;gap:10px;margin-top:8px;'>
-          <input id="chatbot-temp-range" type="range" min="0" max="1" step="0.01" value="${defaultTemperature}" style="flex:1;" />
-          <input id="chatbot-temp-input" type="number" min="0" max="1" step="0.01" value="${defaultTemperature}" style="width:60px;padding:4px 6px;border-radius:6px;border:1.5px solid #93c5fd;font-size:14px;" />
+        <div style="flex:1;">
+          <div style="font-size:14px;color:#1e3a8a;font-weight:500;display:flex;align-items:center;justify-content:space-between;">
+            <div style="display:flex;align-items:center;gap:4px;">
+              <span>并发上限</span><button id="chatbot-concurrency-help-btn" style="background:none;border:none;color:#2563eb;cursor:pointer;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-circle-info"></i></button>
+            </div>
+            <input id="chatbot-concurrency-input" type="number" min="1" max="50" step="1" value="${defaultConcurrency}" style="width:50px;padding:2px;border-radius:4px;border:1px solid #93c5fd;font-size:14px;" />
+          </div>
+          <input id="chatbot-concurrency-range" type="range" min="1" max="50" step="1" value="${defaultConcurrency}" style="width:100%;margin-top:4px;height:20px;" />
         </div>
       </div>
-      <div style="margin-bottom:18px;">
-        <div style="font-size:14px;color:#1e3a8a;font-weight:500;display:flex;align-items:center;justify-content:space-between;">
-          <span>回复长度（max_tokens）</span>
-          <span style="font-size:12px;color:#64748b;font-weight:400;">（最大输出Token数）</span>
+      <!-- 最大输出Token -->
+      <div style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;font-size:14px;color:#1e3a8a;font-weight:500;">
+          <div style="display:flex;align-items:center;gap:4px;">
+            <span>回复长度</span><button id="chatbot-maxtokens-help-btn" style="background:none;border:none;color:#2563eb;cursor:pointer;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-circle-info"></i></button>
+          </div>
+          <span style="font-size:12px;color:#64748b;">(max_tokens)</span>
         </div>
-        <div style='display:flex;align-items:center;gap:10px;margin-top:8px;'>
-          <input id="chatbot-maxtokens-range" type="range" min="256" max="32768" step="64" value="${defaultMaxTokens}" style="flex:1;" />
-          <input id="chatbot-maxtokens-input" type="number" min="256" max="32768" step="1" value="${defaultMaxTokens}" style="width:80px;padding:4px 6px;border-radius:6px;border:1.5px solid #93c5fd;font-size:14px;" />
+        <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+          <input id="chatbot-maxtokens-range" type="range" min="256" max="32768" step="64" value="${defaultMaxTokens}" style="flex:1;height:24px;" />
+          <input id="chatbot-maxtokens-input" type="number" min="256" max="32768" step="1" value="${defaultMaxTokens}" style="width:70px;height:24px;padding:0 4px;border-radius:4px;border:1px solid #93c5fd;font-size:14px;" />
         </div>
       </div>
-      <button id="chatbot-model-back-btn" style="margin-top:8px;width:100%;padding:10px 0;font-size:15px;font-weight:600;background:linear-gradient(90deg,#3b82f6,#2563eb);color:white;border:none;border-radius:8px;box-shadow:0 2px 8px #2563eb22;cursor:pointer;transition:all 0.2s;">返回</button>
+      <button id="chatbot-model-back-btn" style="margin-top:8px;width:100%;padding:8px 0;font-size:15px;font-weight:600;background:linear-gradient(90deg,#3b82f6,#2563eb);color:white;border:none;border-radius:8px;cursor:pointer;transition:all 0.2s;">返回</button>
     `;
+    // 切换"多模态/Batch模型"容器
+    const addSpecialBtn = modelSelectorDiv.querySelector('#chatbot-add-special-models-btn');
+    const specialContainer = modelSelectorDiv.querySelector('#chatbot-special-models-container');
+    if (addSpecialBtn && specialContainer) {
+      addSpecialBtn.onclick = () => {
+        if (specialContainer.style.display === 'none') {
+          specialContainer.style.display = 'flex';
+          addSpecialBtn.textContent = '－';
+        } else {
+          specialContainer.style.display = 'none';
+          addSpecialBtn.textContent = '＋';
+        }
+      };
+    }
+    // 多模态模型 & Batch模型 选择保存
+    const multiSelect = modelSelectorDiv.querySelector('#chatbot-multimodal-model-select');
+    // FIRST_EDIT: 修改多模态模型选择器的 onchange 处理，添加持久化存储
+    if (multiSelect) multiSelect.onchange = e => {
+        window.chatbotActiveOptions.multimodalModel = e.target.value;
+        let settings = {};
+        try { settings = typeof loadSettings === 'function' ? loadSettings() : {}; } catch {}
+        settings.multimodalModel = e.target.value;
+        if (typeof saveSettings === 'function') {
+            saveSettings(settings);
+        } else {
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        }
+    };
+    // 新增：初始化多模态模型选择器并恢复已保存值
+    let userSettings = {};
+    try { userSettings = typeof loadSettings === 'function' ? loadSettings() : {}; } catch {}
+    if (multiSelect) {
+        multiSelect.value = userSettings.multimodalModel || '';
+        window.chatbotActiveOptions.multimodalModel = userSettings.multimodalModel || '';
+    }
+    const batchSelect = modelSelectorDiv.querySelector('#chatbot-batch-model-select');
+    // SECOND_EDIT: 修改Batch模型选择器的 onchange 处理，添加持久化存储
+    if (batchSelect) batchSelect.onchange = e => {
+        window.chatbotActiveOptions.batchModel = e.target.value;
+        let settings = {};
+        try { settings = typeof loadSettings === 'function' ? loadSettings() : {}; } catch {}
+        settings.batchModel = e.target.value;
+        if (typeof saveSettings === 'function') {
+            saveSettings(settings);
+        } else {
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        }
+    };
+    // 新增：初始化Batch模型选择器并恢复已保存值
+    if (batchSelect) {
+        batchSelect.value = userSettings.batchModel || '';
+        window.chatbotActiveOptions.batchModel = userSettings.batchModel || '';
+    }
+    // 并发上限输入联动及保存
+    const concurrencyInput = modelSelectorDiv.querySelector('#chatbot-concurrency-input');
+    const concurrencyRange = modelSelectorDiv.querySelector('#chatbot-concurrency-range');
+    function saveConcurrency() {
+      let v = parseInt(concurrencyInput.value);
+      if (isNaN(v) || v < 1) v = 1;
+      if (v > 50) v = 50;
+      concurrencyInput.value = v;
+      concurrencyRange.value = v;
+      window.chatbotActiveOptions.segmentConcurrency = v;
+      // 同步到设置
+      let settings = {};
+      try { settings = typeof loadSettings === 'function' ? loadSettings() : {}; } catch {};
+      settings.segmentConcurrency = v;
+      if (typeof saveSettings === 'function') saveSettings(settings);
+      else localStorage.setItem('paperBurnerSettings', JSON.stringify(settings));
+    }
+    if (concurrencyInput && concurrencyRange) {
+      concurrencyInput.oninput = saveConcurrency;
+      concurrencyRange.oninput = saveConcurrency;
+    }
+    // SECOND_EDIT: 添加帮助按钮点击事件
+    const tempHelpBtn = modelSelectorDiv.querySelector('#chatbot-temp-help-btn');
+    if (tempHelpBtn) tempHelpBtn.onclick = () => ChatbotUtils.showToast('温度：调节模型生成的随机性，0表示最确定，1表示最随机', 'info', 3000);
+    const concurrencyHelpBtn = modelSelectorDiv.querySelector('#chatbot-concurrency-help-btn');
+    if (concurrencyHelpBtn) concurrencyHelpBtn.onclick = () => ChatbotUtils.showToast('并发上限：控制同时处理分段的最大并发请求数', 'info', 3000);
+    const maxTokensHelpBtn = modelSelectorDiv.querySelector('#chatbot-maxtokens-help-btn');
+    if (maxTokensHelpBtn) maxTokensHelpBtn.onclick = () => ChatbotUtils.showToast('回复长度：模型最大输出的token数量', 'info', 3000);
     // 隐藏预设问题和聊天内容
     chatbotPresetBody.style.display = 'none';
     if (chatBody) chatBody.style.display = 'none';
@@ -724,7 +829,9 @@ function updateChatbotUI() {
           } else {
             try {
               if (typeof marked !== 'undefined' && typeof katex !== 'undefined') {
-                if (typeof renderWithKatexFailback === 'function') {
+                if (typeof renderWithKatexStreaming === 'function') {
+                  renderedContent = renderWithKatexStreaming(m.content);
+                } else if (typeof renderWithKatexFailback === 'function') {
                   renderedContent = renderWithKatexFailback(m.content);
                 } else {
                   renderedContent = marked.parse(m.content);
@@ -2000,3 +2107,25 @@ ChatbotUI.showImageModal = function(imageSrc) {
   }
   modal.style.display = 'flex';
 };
+
+function renderWithKatexStreaming(md) {
+  // 渲染所有闭合的块级公式
+  md = md.replace(/\$\$([\s\S]+?)\$\$/g, function(_, tex) {
+    try {
+      return '<div class="katex-block">' + katex.renderToString(tex, { displayMode: true }) + '</div>';
+    } catch (e) {
+      return '<pre>' + tex + '</pre>';
+    }
+  });
+  // 渲染所有闭合的行内公式
+  md = md.replace(/\$([^\$]+?)\$/g, function(_, tex) {
+    try {
+      return '<span class="katex-inline">' + katex.renderToString(tex, { displayMode: false }) + '</span>';
+    } catch (e) {
+      return '<code>' + tex + '</code>';
+    }
+  });
+  // 未闭合的 $$ 或 $ 保留原样
+  return marked.parse(md);
+}
+window.renderWithKatexStreaming = renderWithKatexStreaming;

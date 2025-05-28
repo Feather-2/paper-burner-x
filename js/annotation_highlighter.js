@@ -9,38 +9,153 @@
  * @param {string} contentIdentifier - 当前内容类型的标识符 ('ocr' 或 'translation')。
  */
 function applyBlockAnnotations(containerElement, allAnnotations, contentIdentifier) {
-    // 新增：如果在分块对比模式下，则不应用任何高亮或注释
-    if (window.currentVisibleTabId === 'chunk-compare') {
-        // console.log("[BlockHighlighter] 当前为分块对比模式，跳过应用块级/子块级批注。");
-        // 清理可能由 custom_markdown_renderer 预添加的 pre-annotated 类或样式（如果需要更彻底的清理）
-        // 但主要目的是不应用视觉高亮，所以直接返回即可。
-        // 如果 custom_markdown_renderer 已经添加了带有 data-annotation-id 的 span，它们会保留，但不会被赋予高亮样式。
-        // 如果需要移除这些 span 或其特定类，可以在这里添加逻辑，但可能不是必需的。
-        return;
+    // ====== 调用时机日志 ======
+    console.log('[applyBlockAnnotations] 被调用', {
+        contentIdentifier,
+        containerElement,
+        annotationCount: allAnnotations ? allAnnotations.length : 0,
+        callStack: (new Error().stack)
+    });
+
+    // ====== 新增：4.1日志（入口） ======
+    try {
+        const sub41 = containerElement.querySelector('.sub-block[data-sub-block-id="4.1"]');
+        if (sub41) {
+            console.log('[调试][入口] 4.1 outerHTML:', sub41.outerHTML);
+            console.log('[调试][入口] 4.1 textContent:', sub41.textContent);
+        } else {
+            console.log('[调试][入口] 4.1 不存在');
+        }
+    } catch (e) { console.error('[调试][入口] 4.1 日志异常', e); }
+
+    // ====== 新增：高亮应用前全局检测 ======
+    const allBlocksPre = document.querySelectorAll('[data-block-index]');
+    allBlocksPre.forEach(block => {
+        const subs = block.querySelectorAll('.sub-block');
+        console.log(`[检测][applyBlockAnnotations前] block#${block.dataset.blockIndex} 有${subs.length}个sub-block:`, Array.from(subs).map(sb => (sb.textContent || '').substring(0, 20)));
+    });
+
+    // 打印所有 sub-block 的内容（分割后）
+    if (containerElement) {
+        const allSubBlocks = containerElement.querySelectorAll('.sub-block');
+        allSubBlocks.forEach(sb => {
+            console.log('[applyBlockAnnotations][分割后] sub-block', sb.dataset.subBlockId, '内容：', sb.textContent);
+        });
     }
 
+    // ====== 日志：高亮应用开始 ======
+    console.log(`[BlockHighlighter] 开始应用高亮，contentIdentifier=${contentIdentifier}`);
+    const allSubBlocks = containerElement.querySelectorAll('.sub-block');
+    console.log(`[BlockHighlighter] 当前子块数量: ${allSubBlocks.length}`);
+    console.log(`[BlockHighlighter] 当前子块ID:`, Array.from(allSubBlocks).map(sb => sb.dataset.subBlockId));
+
+    performance.mark('applyAnnotations-start');
+    if (window.currentVisibleTabId === 'chunk-compare') {
+        return;
+    }
     if (!containerElement || !allAnnotations) {
         console.log("[BlockHighlighter] 未提供容器元素或批注数据。");
         return;
     }
-    // console.log(`[BlockHighlighter] 正在为 ${contentIdentifier} 的容器应用块级/子块级批注:`, containerElement);
+    // ====== 日志：去重前 ======
+    console.log('[BlockHighlighter] 去重前 annotation 数量:', allAnnotations.length);
+    const beforeAnnList = allAnnotations.map(ann => ann.target && ann.target.selector && ann.target.selector[0] && ann.target.selector[0].subBlockId).filter(Boolean);
+    console.log('[BlockHighlighter] 去重前 subBlockId 列表:', beforeAnnList);
+    // ========== 去重 ==========
+    const seen = new Set();
+    const dedupedAnnotations = [];
+    for (const ann of allAnnotations) {
+        if (ann.targetType !== contentIdentifier) {
+            dedupedAnnotations.push(ann);
+            continue;
+        }
+        let key = '';
+        if (ann.target && ann.target.selector && ann.target.selector[0]) {
+            if (ann.target.selector[0].subBlockId) {
+                key = 'subBlockId:' + ann.target.selector[0].subBlockId;
+            } else if (ann.target.selector[0].blockIndex !== undefined) {
+                key = 'blockIndex:' + ann.target.selector[0].blockIndex;
+            }
+        }
+        if (!key) {
+            dedupedAnnotations.push(ann);
+            continue;
+        }
+        if (!seen.has(key)) {
+            seen.add(key);
+            dedupedAnnotations.push(ann);
+        }
+    }
+    allAnnotations = dedupedAnnotations;
+    // ====== 日志：去重后 ======
+    console.log('[BlockHighlighter] 去重后 annotation 数量:', allAnnotations.length);
+    const afterAnnList = allAnnotations.map(ann => ann.target && ann.target.selector && ann.target.selector[0] && ann.target.selector[0].subBlockId).filter(Boolean);
+    console.log('[BlockHighlighter] 去重后 subBlockId 列表:', afterAnnList);
 
+    // ====== 日志：清理高亮前 ======
+    const beforeCleanSubBlocks = containerElement.querySelectorAll('.sub-block');
+    console.log(`[BlockHighlighter] 清理前子块数量: ${beforeCleanSubBlocks.length}`);
+
+    // 1. 只移除高亮样式和属性，不删除子块
+    const existingAnnotationSpans = containerElement.querySelectorAll('[data-annotation-id]');
+    function hasSubBlockDescendant(node) {
+        if (!node || !node.querySelectorAll) return false;
+        return node.querySelectorAll('.sub-block').length > 0;
+    }
+
+    existingAnnotationSpans.forEach(span => {
+        if (span.classList.contains('sub-block')) {
+            // 只移除高亮样式和批注属性，不删除子块
+            span.style.backgroundColor = '';
+            span.style.border = '';
+            span.style.padding = '';
+            span.style.borderRadius = '';
+            span.style.boxShadow = '';
+            span.classList.remove('annotated-sub-block', 'has-note');
+            span.removeAttribute('data-annotation-id');
+            span.removeAttribute('title');
+        } else if (span.classList.contains('annotation-wrapper')) {
+            const parent = span.parentNode;
+            while (span.firstChild) {
+                parent.insertBefore(span.firstChild, span);
+            }
+            span.remove();
+        } else if (span.classList.contains('pre-annotated')) {
+            // 只清理属性，不删除节点
+            span.style.backgroundColor = '';
+            span.style.border = '';
+            span.style.padding = '';
+            span.style.borderRadius = '';
+            span.style.boxShadow = '';
+            span.classList.remove('pre-annotated', 'annotated-block', 'annotated-sub-block', 'has-annotation', 'has-highlight', 'has-note');
+            span.removeAttribute('data-annotation-id');
+            span.removeAttribute('data-highlight-color');
+            span.removeAttribute('title');
+        } else {
+            // 递归检测所有后代是否包含 .sub-block
+            if (hasSubBlockDescendant(span)) {
+                console.warn('[高亮清理保护-递归] 跳过包含 sub-block 的节点:', span.outerHTML);
+                return;
+            } else {
+                span.remove();
+            }
+        }
+    });
+
+    // 2. 移除所有带有批注相关类的元素上的类和样式
     const existingHighlights = containerElement.querySelectorAll('.annotated-block, .annotated-sub-block');
     existingHighlights.forEach(el => {
-        // 1. Reset el itself (the annotation target)
         el.style.backgroundColor = '';
         el.style.border = '';
         el.style.padding = '';
         el.style.borderRadius = '';
         el.style.boxShadow = '';
         if (el.classList.contains('katex-display') || el.tagName === 'IMG' || el.tagName === 'TABLE') {
-            el.style.display = ''; // Reset display
-            el.style.width = '';   // Reset width
-            el.style.marginLeft = ''; // Reset margin
-            el.style.marginRight = '';// Reset margin
+            el.style.display = '';
+            el.style.width = '';
+            el.style.marginLeft = '';
+            el.style.marginRight = '';
         }
-
-        // 2. Reset known children that might have been styled
         const katexChild = el.querySelector('.katex-display');
         if (katexChild) {
             katexChild.style.border = ''; katexChild.style.padding = '';
@@ -55,15 +170,20 @@ function applyBlockAnnotations(containerElement, allAnnotations, contentIdentifi
             imgChild.style.marginLeft = ''; imgChild.style.marginRight = '';
             imgChild.style.borderRadius = ''; imgChild.style.boxShadow = '';
         }
-        const tableChild = el.querySelector('table'); // Table *inside* el
+        const tableChild = el.querySelector('table');
         if (tableChild) {
             tableChild.style.border = ''; tableChild.style.padding = '';
             tableChild.style.display = ''; tableChild.style.width = '';
             tableChild.style.marginLeft = ''; tableChild.style.marginRight = '';
             tableChild.style.borderRadius = ''; tableChild.style.boxShadow = '';
         }
-
-        // 3. Reset parent if 'el' is a span.sub-block inside a table that was styled
+        el.classList.remove('annotated-block', 'annotated-sub-block', 'has-annotation', 'has-highlight');
+        if (el.hasAttribute('data-annotation-id')) {
+            el.removeAttribute('data-annotation-id');
+        }
+        if (el.hasAttribute('data-highlight-color')) {
+            el.removeAttribute('data-highlight-color');
+        }
         if (el.tagName === 'SPAN' && el.classList.contains('sub-block') &&
             el.parentElement && el.parentElement.tagName === 'TABLE') {
             const subBlockId = el.dataset.subBlockId;
@@ -72,81 +192,146 @@ function applyBlockAnnotations(containerElement, allAnnotations, contentIdentifi
                 if (el.parentElement.dataset.blockIndex === subBlockIdPrefix) {
                     el.parentElement.style.border = '';
                     el.parentElement.style.padding = '';
-                    el.parentElement.style.display = ''; // Reset display for parent table
-                    el.parentElement.style.width = '';   // Reset width for parent table
-                    el.parentElement.style.marginLeft = ''; // Reset margin for parent table
-                    el.parentElement.style.marginRight = '';// Reset margin for parent table
+                    el.parentElement.style.display = '';
+                    el.parentElement.style.width = '';
+                    el.parentElement.style.marginLeft = '';
+                    el.parentElement.style.marginRight = '';
                     el.parentElement.style.borderRadius = '';
                     el.parentElement.style.boxShadow = '';
                 }
             }
         }
-
         el.classList.remove('annotated-block', 'annotated-sub-block', 'has-note');
         el.removeAttribute('title');
         el.removeAttribute('data-annotation-id');
     });
 
+    // ====== 日志：高亮应用前后子块对比 ======
+    const afterCleanSubBlocks = containerElement.querySelectorAll('.sub-block');
+    console.log(`[BlockHighlighter] 清理后子块数量: ${afterCleanSubBlocks.length}`);
+    console.log(`[BlockHighlighter] 清理后子块ID:`, Array.from(afterCleanSubBlocks).map(sb => sb.dataset.subBlockId));
+
+    // ====== 新增：4.1日志（高亮清理后） ======
+    try {
+        const sub41 = containerElement.querySelector('.sub-block[data-sub-block-id="4.1"]');
+        if (sub41) {
+            console.log('[调试][高亮清理后] 4.1 outerHTML:', sub41.outerHTML);
+            console.log('[调试][高亮清理后] 4.1 textContent:', sub41.textContent);
+        } else {
+            console.log('[调试][高亮清理后] 4.1 不存在');
+        }
+    } catch (e) { console.error('[调试][高亮清理后] 4.1 日志异常', e); }
+
+    // ====== 新增：高亮清理后全局检测 ======
+    const allBlocksAfterHighlight = document.querySelectorAll('[data-block-index]');
+    allBlocksAfterHighlight.forEach(block => {
+        const subs = block.querySelectorAll('.sub-block');
+        console.log(`[检测][高亮清理后] block#${block.dataset.blockIndex} 有${subs.length}个sub-block:`, Array.from(subs).map(sb => (sb.textContent || '').substring(0, 20)));
+    });
+
     // 优先处理子块批注
     const subBlockElements = containerElement.querySelectorAll('span.sub-block[data-sub-block-id]');
-    // console.log(`[BlockHighlighter] 找到 ${subBlockElements.length} 个子块元素`);
-
     subBlockElements.forEach((subBlockElement) => {
         const subBlockId = subBlockElement.dataset.subBlockId;
         if (typeof subBlockId === 'undefined') {
-            // console.warn(`[BlockHighlighter] 子块元素缺少 'data-sub-block-id' 属性。`, subBlockElement);
             return;
         }
-
-        const annotation = allAnnotations.find(ann =>
+        // 新增：高亮循环前日志
+        console.log('[高亮循环] subBlockId:', subBlockId, '内容:', subBlockElement.textContent);
+        // 先用 subBlockId 匹配
+        let annotation = allAnnotations.find(ann =>
             ann.targetType === contentIdentifier &&
-            ann.target &&
-            Array.isArray(ann.target.selector) &&
+            ann.target && Array.isArray(ann.target.selector) &&
             ann.target.selector[0] &&
-            ann.target.selector[0].subBlockId === subBlockId && // **优先匹配 subBlockId**
+            ann.target.selector[0].subBlockId === subBlockId &&
             (ann.motivation === 'highlighting' || ann.motivation === 'commenting')
         );
-
+        if (!annotation) {
+            // fallback: 用 exact 匹配
+            annotation = allAnnotations.find(ann =>
+                ann.targetType === contentIdentifier &&
+                ann.target && Array.isArray(ann.target.selector) &&
+                ann.target.selector[0] &&
+                ann.target.selector[0].exact &&
+                subBlockElement.textContent &&
+                subBlockElement.textContent.trim().replace(/\s+/g, '') === ann.target.selector[0].exact.trim().replace(/\s+/g, '') &&
+                (ann.motivation === 'highlighting' || ann.motivation === 'commenting')
+            );
+            if (annotation) {
+                console.warn(`[高亮fallback] subBlockId未命中，使用exact文本匹配成功: "${subBlockElement.textContent.trim()}"`);
+            }
+        } else if (
+            annotation.target && annotation.target.selector && annotation.target.selector[0] &&
+            annotation.target.selector[0].exact &&
+            subBlockElement.textContent.trim().replace(/\s+/g, '') !== annotation.target.selector[0].exact.trim().replace(/\s+/g, '')
+        ) {
+            // subBlockId 命中但内容和 exact 不一致，输出警告，但依然允许高亮
+            console.warn(`[高亮警告] subBlockId 命中但内容和 exact 不一致: subBlockId=${subBlockId}, span内容="${subBlockElement.textContent.trim()}", exact="${annotation.target.selector[0].exact.trim()}"`);
+        }
         if (annotation) {
-            // console.log(`[BlockHighlighter] 为子块 ${subBlockId} 找到批注:`, annotation);
             applyAnnotationToElement(subBlockElement, annotation, contentIdentifier, subBlockId, 'subBlock');
         }
     });
 
-    // 然后处理块级批注 (如果子块没有覆盖的话)
-    // 注意：如果一个块的多个子块被分别批注，那么对整个块的批注可能会显得多余或冲突。
-    // 当前逻辑是，如果子块有批注，优先显示子块批注。
-    // 也可以考虑，如果一个块的 *所有* 子块都被同一种方式批注，则合并为对整个块的批注视觉效果。这会更复杂。
+    // 块级批注
     const blockElements = containerElement.querySelectorAll('[data-block-index]');
     blockElements.forEach((blockElement) => {
-        // 如果这个块的任何子块已经被标注了，就跳过对这个父块的标注，避免样式冲突
         if (blockElement.querySelector('.annotated-sub-block')) {
-            // console.log(`[BlockHighlighter] 块 ${blockElement.dataset.blockIndex} 包含已标注的子块，跳过父块标注。`);
             return;
         }
-
         const blockIdentifier = blockElement.dataset.blockIndex;
         if (typeof blockIdentifier === 'undefined') {
             return;
         }
-
         const annotation = allAnnotations.find(ann =>
             ann.targetType === contentIdentifier &&
             ann.target &&
             Array.isArray(ann.target.selector) &&
             ann.target.selector[0] &&
-            !ann.target.selector[0].subBlockId && // **确保不是子块批注**
+            !ann.target.selector[0].subBlockId &&
             (ann.target.selector[0].blockIndex === blockIdentifier || String(ann.target.selector[0].blockIndex) === blockIdentifier) &&
             (ann.motivation === 'highlighting' || ann.motivation === 'commenting')
         );
-
         if (annotation) {
-            // console.log(`[BlockHighlighter] 为块 ${blockIdentifier} 找到批注:`, annotation);
             applyAnnotationToElement(blockElement, annotation, contentIdentifier, blockIdentifier, 'block');
         }
     });
 
-    // console.log("[BlockHighlighter] 块级/子块级批注处理完毕。");
+    // ====== 日志：高亮应用后子块对比 ======
+    const afterHighlightSubBlocks = containerElement.querySelectorAll('.sub-block');
+    console.log(`[BlockHighlighter] 高亮后子块数量: ${afterHighlightSubBlocks.length}`);
+    console.log(`[BlockHighlighter] 高亮后子块ID:`, Array.from(afterHighlightSubBlocks).map(sb => sb.dataset.subBlockId));
+
+    // ====== 新增：4.1日志（高亮应用后） ======
+    try {
+        const sub41 = containerElement.querySelector('.sub-block[data-sub-block-id="4.1"]');
+        if (sub41) {
+            console.log('[调试][高亮应用后] 4.1 outerHTML:', sub41.outerHTML);
+            console.log('[调试][高亮应用后] 4.1 textContent:', sub41.textContent);
+        } else {
+            console.log('[调试][高亮应用后] 4.1 不存在');
+        }
+    } catch (e) { console.error('[调试][高亮应用后] 4.1 日志异常', e); }
+
+    // ====== 新增：高亮应用后全局检测 ======
+    allBlocksAfterHighlight.forEach(block => {
+        const subs = block.querySelectorAll('.sub-block');
+        console.log(`[检测][高亮应用后] block#${block.dataset.blockIndex} 有${subs.length}个sub-block:`, Array.from(subs).map(sb => (sb.textContent || '').substring(0, 20)));
+    });
+
+    // 只在 annotation 没有对应 DOM 时报警
+    allAnnotations.forEach(ann => {
+        if (ann.targetType === contentIdentifier && ann.target && ann.target.selector && ann.target.selector[0] && ann.target.selector[0].subBlockId) {
+            const subBlockId = ann.target.selector[0].subBlockId;
+            const dom = containerElement.querySelector(`.sub-block[data-sub-block-id=\"${subBlockId}\"]`);
+            if (!dom) {
+                console.warn(`[BlockHighlighter] annotation 指向的子块 ${subBlockId} 页面上不存在！`);
+            }
+        }
+    });
+
+    performance.mark('applyAnnotations-end');
+    performance.measure('applyAnnotations', 'applyAnnotations-start', 'applyAnnotations-end');
 }
 
 /**
@@ -158,6 +343,86 @@ function applyBlockAnnotations(containerElement, allAnnotations, contentIdentifi
  * @param {'block'|'subBlock'} elementType - 元素类型
  */
 function applyAnnotationToElement(element, annotation, contentIdentifier, elementIdentifier, elementType) {
+    // ====== 高亮空内容保护 ======
+    if ((!element.textContent || !element.textContent.trim()) && !element.querySelector('img')) {
+        console.warn(`[高亮保护] 跳过空内容的${elementType}，subBlockId/blockIndex: ${elementIdentifier}，annotationId: ${annotation.id}`);
+        return;
+    }
+    // ====== 高亮前日志 ======
+    console.log(`[高亮应用] ${elementType}(${elementIdentifier}) 高亮前内容: "${element.textContent}"`);
+
+    // ====== 精确高亮逻辑，仅对 subBlock 生效 ======
+    if (elementType === 'subBlock' && annotation.target && annotation.target.selector && annotation.target.selector[0] && annotation.target.selector[0].exact) {
+        const exact = annotation.target.selector[0].exact.trim();
+        const elementText = element.textContent.trim();
+        if (exact && elementText !== exact) {
+            // 只高亮 exact 部分
+            const idx = elementText.indexOf(exact);
+            if (idx !== -1) {
+                // 构造新的 HTML，exact 部分用 span 包裹
+                const before = elementText.slice(0, idx);
+                const match = elementText.slice(idx, idx + exact.length);
+                const after = elementText.slice(idx + exact.length);
+                // 构造高亮 span
+                const highlightSpan = document.createElement('span');
+                highlightSpan.className = 'exact-highlight annotated-sub-block';
+                highlightSpan.style.backgroundColor = getHighlightColor(annotation.highlightColor || 'yellow');
+                highlightSpan.style.borderRadius = '6px';
+                highlightSpan.style.boxShadow = `0 0 5px ${getHighlightColor(annotation.highlightColor || 'yellow')}`;
+                highlightSpan.style.padding = '0 3px';
+                highlightSpan.textContent = match;
+                if (annotation.body && annotation.body.length > 0 && annotation.body[0].value) {
+                    highlightSpan.title = annotation.body[0].value;
+                    highlightSpan.classList.add('has-note');
+                }
+                highlightSpan.dataset.annotationId = annotation.id;
+                // 事件绑定
+                if (!highlightSpan._annotationEventBound) {
+                    highlightSpan.addEventListener('click', function handleClick(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const range = document.createRange();
+                        range.selectNodeContents(this);
+                        const selection = window.getSelection();
+                        selection.removeAllRanges();
+                        selection.addRange(range);
+                        window.globalCurrentSelection = {
+                            text: this.textContent,
+                            range: range.cloneRange(),
+                            annotationId: this.dataset.annotationId,
+                            targetElement: this,
+                            subBlockId: elementIdentifier
+                        };
+                        const parentBlock = this.closest('[data-block-index]');
+                        if (parentBlock) {
+                            window.globalCurrentSelection.blockIndex = parentBlock.dataset.blockIndex;
+                        }
+                        if (typeof window.checkIfTargetIsHighlighted === 'function' &&
+                            typeof window.checkIfTargetHasNote === 'function' &&
+                            typeof window.updateContextMenuOptions === 'function' &&
+                            typeof window.showContextMenu === 'function') {
+                            const isHighlighted = window.checkIfTargetIsHighlighted(annotation.id, contentIdentifier, elementIdentifier, 'subBlockId');
+                            const hasNoteForClick = window.checkIfTargetHasNote(annotation.id, contentIdentifier, elementIdentifier, 'subBlockId');
+                            window.updateContextMenuOptions(isHighlighted, hasNoteForClick);
+                            window.showContextMenu(e.pageX, e.pageY);
+                        }
+                    });
+                    highlightSpan._annotationEventBound = true;
+                }
+                // 构造新内容
+                element.innerHTML = '';
+                if (before) element.appendChild(document.createTextNode(before));
+                element.appendChild(highlightSpan);
+                if (after) element.appendChild(document.createTextNode(after));
+                // 只做精确高亮，不再整体高亮
+                return;
+            } else {
+                // 没找到 exact，降级为整体高亮
+                console.warn(`[精确高亮] exact 未在 subBlock 中找到，降级为整体高亮: subBlockId=${elementIdentifier}, exact="${exact}", span内容="${elementText}"`);
+            }
+        }
+    }
+
     // 获取原始颜色并调整为更浅的荧光色
     const originalColor = annotation.highlightColor || 'yellow';
     // 转换颜色为荧光浅色
@@ -206,13 +471,19 @@ function applyAnnotationToElement(element, annotation, contentIdentifier, elemen
         katexDisplayElement.style.marginRight = 'auto';
         katexDisplayElement.style.borderRadius = '12px';
     } else if (imgElement) {
-        imgElement.style.border = `2px dashed ${color}`;
+        console.log('[图片高亮] imgElement:', imgElement);
+        console.log('[图片高亮] 应用颜色:', color);
+        console.log('[图片高亮] 父元素 (element) tagName:', element.tagName); // 查看父元素类型
+
+        imgElement.style.setProperty('border', `2px dashed ${color}`, 'important');
         imgElement.style.padding = '4px';
         imgElement.style.display = 'block';
         imgElement.style.width = 'fit-content';
         imgElement.style.marginLeft = 'auto';
         imgElement.style.marginRight = 'auto';
         imgElement.style.borderRadius = '12px';
+        imgElement.style.boxShadow = `0 0 5px ${color}`;
+        console.log('[图片高亮] imgElement.style.border after set:', imgElement.style.border); // 确认样式是否应用
     } else if (effectiveTableToStyle) {
         effectiveTableToStyle.style.border = `2px dashed ${color}`;
         effectiveTableToStyle.style.padding = '4px';
@@ -237,73 +508,78 @@ function applyAnnotationToElement(element, annotation, contentIdentifier, elemen
     }
     element.dataset.annotationId = annotation.id;
 
-    // 通过克隆节点移除所有旧的事件监听器并添加新的
-    const newElement = element.cloneNode(true); // true for deep clone
-    element.parentNode.replaceChild(newElement, element);
+    // 只绑定一次事件，避免内容丢失
+    if (!element._annotationEventBound) {
+        element.addEventListener('click', function handleClick(e) {
+            e.preventDefault();
+            e.stopPropagation();
 
-    newElement.addEventListener('click', function handleClick(e) {
-        e.preventDefault();
-        e.stopPropagation();
+            const range = document.createRange();
+            range.selectNodeContents(this);
 
-        const range = document.createRange();
-        range.selectNodeContents(this);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
 
-        const selection = window.getSelection();
-        selection.removeAllRanges();
-        selection.addRange(range);
+            window.globalCurrentSelection = {
+                text: this.textContent,
+                range: range.cloneRange(),
+                annotationId: this.dataset.annotationId,
+                targetElement: this
+            };
 
-        window.globalCurrentSelection = {
-            text: this.textContent,
-            range: range.cloneRange(),
-            annotationId: this.dataset.annotationId,
-            targetElement: this
-        };
-
-        if (elementType === 'subBlock') {
-            window.globalCurrentSelection.subBlockId = elementIdentifier;
-            // 尝试从父元素获取 blockIndex
-            const parentBlock = this.closest('[data-block-index]');
-            if (parentBlock) {
-                window.globalCurrentSelection.blockIndex = parentBlock.dataset.blockIndex;
+            if (elementType === 'subBlock') {
+                window.globalCurrentSelection.subBlockId = elementIdentifier;
+                // 尝试从父元素获取 blockIndex
+                const parentBlock = this.closest('[data-block-index]');
+                if (parentBlock) {
+                    window.globalCurrentSelection.blockIndex = parentBlock.dataset.blockIndex;
+                }
+            } else { // block
+                window.globalCurrentSelection.blockIndex = elementIdentifier;
             }
-        } else { // block
-            window.globalCurrentSelection.blockIndex = elementIdentifier;
-        }
-        // console.log(`[BlockHighlighter] ${elementType} 点击，全局选区已设置:`, window.globalCurrentSelection);
+            // console.log(`[BlockHighlighter] ${elementType} 点击，全局选区已设置:`, window.globalCurrentSelection);
 
-        // 检查 annotation_logic.js 中的函数是否已更新
-        // 优先使用 subBlockId (如果存在)，否则使用 blockIndex
-        const idToCheck = this.dataset.annotationId;
-        const identifierForCheck = elementType === 'subBlock' ? window.globalCurrentSelection.subBlockId : window.globalCurrentSelection.blockIndex;
-        const typeForCheck = elementType === 'subBlock' ? 'subBlockId' : 'blockIndex';
+            // 检查 annotation_logic.js 中的函数是否已更新
+            // 优先使用 subBlockId (如果存在)，否则使用 blockIndex
+            const idToCheck = this.dataset.annotationId;
+            const identifierForCheck = elementType === 'subBlock' ? window.globalCurrentSelection.subBlockId : window.globalCurrentSelection.blockIndex;
+            const typeForCheck = elementType === 'subBlock' ? 'subBlockId' : 'blockIndex';
 
 
-        if (typeof window.checkIfTargetIsHighlighted === 'function' &&
-            typeof window.checkIfTargetHasNote === 'function' &&
-            typeof window.updateContextMenuOptions === 'function' &&
-            typeof window.showContextMenu === 'function') {
+            if (typeof window.checkIfTargetIsHighlighted === 'function' &&
+                typeof window.checkIfTargetHasNote === 'function' &&
+                typeof window.updateContextMenuOptions === 'function' &&
+                typeof window.showContextMenu === 'function') {
 
-            const isHighlighted = window.checkIfTargetIsHighlighted(idToCheck, contentIdentifier, identifierForCheck, typeForCheck);
-            const hasNoteForClick = window.checkIfTargetHasNote(idToCheck, contentIdentifier, identifierForCheck, typeForCheck);
+                const isHighlighted = window.checkIfTargetIsHighlighted(idToCheck, contentIdentifier, identifierForCheck, typeForCheck);
+                const hasNoteForClick = window.checkIfTargetHasNote(idToCheck, contentIdentifier, identifierForCheck, typeForCheck);
 
-            window.updateContextMenuOptions(isHighlighted, hasNoteForClick);
-            window.showContextMenu(e.pageX, e.pageY);
-        } else {
-             // Fallback or error for older/missing functions from annotation_logic.js
-            console.error("[BlockHighlighter] 上下文菜单相关函数 (checkIfTargetIsHighlighted, checkIfTargetHasNote) 未从 annotation_logic.js 中正确加载或未更新。");
-            // Fallback to old block/paragraph logic if new generic functions are not available
-            const oldBlockIndex = window.globalCurrentSelection.blockIndex; // Use blockIndex for fallback
-            if (oldBlockIndex && typeof window.checkIfBlockIsHighlighted === 'function' && typeof window.checkIfBlockHasNote === 'function') {
-                console.log('[BlockHighlighter] 回退使用 checkIfBlockIsHighlighted/checkIfBlockHasNote');
-                const isHighlighted = window.checkIfBlockIsHighlighted(idToCheck, contentIdentifier, oldBlockIndex);
-                const hasNoteForClick = window.checkIfBlockHasNote(idToCheck, contentIdentifier, oldBlockIndex);
                 window.updateContextMenuOptions(isHighlighted, hasNoteForClick);
                 window.showContextMenu(e.pageX, e.pageY);
             } else {
-                 console.error("[BlockHighlighter] 无法找到合适的上下文菜单检查函数。");
+                 // Fallback or error for older/missing functions from annotation_logic.js
+                console.error("[BlockHighlighter] 上下文菜单相关函数 (checkIfTargetIsHighlighted, checkIfTargetHasNote) 未从 annotation_logic.js 中正确加载或未更新。");
+                // Fallback to old block/paragraph logic if new generic functions are not available
+                const oldBlockIndex = window.globalCurrentSelection.blockIndex; // Use blockIndex for fallback
+                if (oldBlockIndex && typeof window.checkIfBlockIsHighlighted === 'function' && typeof window.checkIfBlockHasNote === 'function') {
+                    console.log('[BlockHighlighter] 回退使用 checkIfBlockIsHighlighted/checkIfBlockHasNote');
+                    const isHighlighted = window.checkIfBlockIsHighlighted(idToCheck, contentIdentifier, oldBlockIndex);
+                    const hasNoteForClick = window.checkIfBlockHasNote(idToCheck, contentIdentifier, oldBlockIndex);
+                    window.updateContextMenuOptions(isHighlighted, hasNoteForClick);
+                    window.showContextMenu(e.pageX, e.pageY);
+                } else {
+                     console.error("[BlockHighlighter] 无法找到合适的上下文菜单检查函数。");
+                }
             }
-        }
-    });
+        });
+        element._annotationEventBound = true;
+    }
+
+    // ====== 高亮后日志 ======
+    setTimeout(() => {
+        console.log(`[高亮应用] ${elementType}(${elementIdentifier}) 高亮后内容: "${element.textContent}"`);
+    }, 0);
 }
 
 /**
@@ -373,6 +649,52 @@ function getHighlightColor(color) {
     return 'rgba(255, 255, 0, 0.75)';
 }
 
+// ========== 新增：单个块/子块高亮/取消高亮 ==========
+/**
+ * 只高亮一个块或子块
+ * @param {HTMLElement} element - 目标DOM元素
+ * @param {Object} annotation - 批注对象
+ * @param {string} contentIdentifier - 内容标识符 ('ocr' 或 'translation')
+ * @param {string} elementIdentifier - 元素标识符 (blockIndex 或 subBlockId)
+ * @param {'block'|'subBlock'} elementType - 元素类型
+ */
+function highlightBlockOrSubBlock(element, annotation, contentIdentifier, elementIdentifier, elementType) {
+    applyAnnotationToElement(element, annotation, contentIdentifier, elementIdentifier, elementType);
+}
+
+/**
+ * 只移除一个块或子块的高亮
+ * @param {HTMLElement} element - 目标DOM元素
+ */
+function removeHighlightFromBlockOrSubBlock(element) {
+    if (!element) return;
+    element.style.backgroundColor = '';
+    element.style.border = '';
+    element.style.padding = '';
+    element.style.borderRadius = '';
+    element.style.boxShadow = '';
+    element.classList.remove('annotated-block', 'annotated-sub-block', 'has-note', 'has-highlight');
+    element.removeAttribute('title');
+    element.removeAttribute('data-annotation-id');
+    element.removeAttribute('data-highlight-color');
+    // 还原特殊元素样式（如有）
+    const katexDisplayElement = element.classList.contains('katex-display') ? element : element.querySelector('.katex-display');
+    const imgElement = element.querySelector('img');
+    const tableElement = element.tagName === 'TABLE' ? element : element.querySelector('table');
+    [katexDisplayElement, imgElement, tableElement].forEach(el => {
+        if (el) {
+            el.style.border = '';
+            el.style.padding = '';
+            el.style.display = '';
+            el.style.width = '';
+            el.style.marginLeft = '';
+            el.style.marginRight = '';
+            el.style.borderRadius = '';
+            el.style.boxShadow = '';
+        }
+    });
+}
+
 // 暴露新函数
 window.applyBlockAnnotations = applyBlockAnnotations;
 
@@ -383,3 +705,7 @@ window.applyParagraphAnnotations = applyBlockAnnotations;
 if (window.applyPreprocessedAnnotations) {
     delete window.applyPreprocessedAnnotations;
 }
+
+// 导出到 window
+window.highlightBlockOrSubBlock = highlightBlockOrSubBlock;
+window.removeHighlightFromBlockOrSubBlock = removeHighlightFromBlockOrSubBlock;

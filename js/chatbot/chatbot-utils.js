@@ -143,11 +143,6 @@ function processExport(messageElement) {
   exportContainer.style.color = '#111827';
   exportContainer.style.fontSize = '15px';
   exportContainer.style.lineHeight = '1.5';
-  const docTitle = document.createElement('div');
-  docTitle.style.marginBottom = '12px';
-  docTitle.style.fontWeight = 'bold';
-  docTitle.style.fontSize = '14px';
-  docTitle.textContent = `问题: ${questionText}`;
   const watermark = document.createElement('div');
   watermark.style.position = 'absolute';
   watermark.style.bottom = '10px';
@@ -157,7 +152,6 @@ function processExport(messageElement) {
   watermark.textContent = 'Created with Paper Burner';
   const contentContainer = document.createElement('div');
   contentContainer.innerHTML = messageElement.innerHTML;
-  exportContainer.appendChild(docTitle);
   exportContainer.appendChild(contentContainer);
   exportContainer.appendChild(watermark);
   document.body.appendChild(exportContainer);
@@ -228,11 +222,6 @@ function exportContentDirectly(content) {
   exportContainer.style.color = '#111827';
   exportContainer.style.fontSize = '15px';
   exportContainer.style.lineHeight = '1.5';
-  const docTitle = document.createElement('div');
-  docTitle.style.marginBottom = '12px';
-  docTitle.style.fontWeight = 'bold';
-  docTitle.style.fontSize = '14px';
-  docTitle.textContent = `问题: ${questionText}`;
   const watermark = document.createElement('div');
   watermark.style.position = 'absolute';
   watermark.style.bottom = '10px';
@@ -248,7 +237,6 @@ function exportContentDirectly(content) {
   contentContainer.style.whiteSpace = 'pre-wrap'; // Preserve line breaks
   contentContainer.style.wordBreak = 'break-word';
   contentContainer.textContent = content;
-  exportContainer.appendChild(docTitle);
   exportContainer.appendChild(contentContainer);
   exportContainer.appendChild(watermark);
   document.body.appendChild(exportContainer);

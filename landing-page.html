@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Paper Burner - 您的一站式AI文献阅读与智能分析平台，支持OCR、翻译、深度解析与高级管理。">
+    <title>Paper Burner - AI文献阅读与智能分析平台</title>
+    <!-- Tailwind CSS & 依赖库 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/iconify-icon@2.0.0/dist/iconify-icon.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
+    <style>
+        /* 谷歌字体 Nunito */
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700&display=swap');
+        /* 基础字体设置 */
+        body {
+            font-family: 'Nunito', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        /* 背景渐变 */
+        .gradient-bg {
+            /* background: linear-gradient(135deg, #f5f7fa 0%, #e4edf9 100%); */
+            background-color: #F3F6FA; /* 主题背景色 */
+        }
+        /* 卡片渐变 */
+        .gradient-card {
+            background: linear-gradient(135deg, #ffffff 0%, #f9fbff 100%);
+        }
+        /* 通用过渡效果 */
+        .transition-all {
+            transition: all 0.3s ease;
+        }
+        /* 文件列表项样式 */
+        .file-list-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.5rem;
+            background-color: #f8f9fa;
+            margin-bottom: 0.5rem;
+            border: 1px solid #e9ecef;
+        }
+        .file-list-item:last-child {
+            margin-bottom: 0;
+        }
+        /* API Key 输入框样式 */
+        textarea.api-key-input {
+            min-height: 60px; /* 最小高度 */
+            resize: vertical; /* 允许垂直方向调整大小 */
+        }
+        /* 闪烁提示动画基类 */
+        .flash-tip-anim {
+            opacity: 0;
+            transition: opacity 0.5s;
+            will-change: opacity;
+        }
+        /* 闪烁提示显示状态 */
+        .flash-tip-anim.show {
+            opacity: 1;
+        }
+        /* 闪烁提示隐藏状态 */
+        .flash-tip-anim.hide {
+            opacity: 0;
+        }
+        /* Skeleton Character Rows */
+        .skeleton-bg .skeleton-row {
+            border-radius: 8px;
+            background: linear-gradient(90deg, #e5e7eb 25%, #f3f6fa 50%, #e5e7eb 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.8s infinite linear;
+        }
+        .skeleton-fake-text {
+            color: #d1d5db;
+            font-size: 1rem;
+            font-family: 'Fira Mono', 'Consolas', monospace;
+            font-weight: bold;
+            opacity: 0.5;
+            letter-spacing: 0.1em;
+            animation: shimmer 1.8s infinite linear;
+            user-select: none;
+        }
+        .skeleton-fake-text.text-lg {
+            font-size: 1.25rem;
+        }
+
+        /* New Top-Blue to Bottom-White Gradient for Landing Page Background */
+        .ocean-gradient-bg {
+          background: linear-gradient(to bottom, #93C5FD 0%, #FFFFFF 100%); /* Tailwind blue-300 to white */
+        }
+
+        .select-anim {
+          /* 原有文字渐变动画可删除或保留 */
+        }
+        .select-anim-bg {
+          position: relative;
+          display: inline-block;
+          z-index: 1;
+          color: #222;
+          font-weight: bold;
+        }
+        .select-anim-bg::before {
+          content: '';
+          position: absolute;
+          left: 0; top: 0; bottom: 0;
+          width: 100%;
+          background: linear-gradient(90deg, #2563eb 0%, #fef9c3 100%);
+          opacity: 0.7;
+          z-index: -1;
+          border-radius: 4px;
+          transition: none;
+          animation: select-bg-sweep 1.8s cubic-bezier(.4,0,.2,1) 1;
+        }
+        @keyframes select-bg-sweep {
+          0%   { width: 0; }
+          15%  { width: 0; }
+          100% { width: 100%; }
+        }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen">
+
+    <!-- ===================== -->
+    <!-- Landing Page Section -->
+    <!-- ===================== -->
+    <div id="landingPageSection" class="min-h-screen flex flex-col items-center justify-center ocean-gradient-bg p-4 sm:p-8 text-gray-800 relative" style="opacity: 0; transition: opacity 0.5s ease-in-out;">
+
+        <!-- GitHub Link and Stars -->
+        <div class="absolute top-4 right-4 md:top-6 md:right-6 z-10">
+            <a href="https://github.com/Feather-2/paper-burner" target="_blank" rel="noopener noreferrer"
+               class="flex items-center text-gray-600 hover:text-blue-600 transition-colors bg-white/80 backdrop-blur-sm p-2.5 rounded-lg shadow-lg hover:shadow-xl">
+                <iconify-icon icon="carbon:logo-github" class="text-xl md:text-2xl"></iconify-icon>
+                <span class="ml-2 text-xs md:text-sm font-medium">View on GitHub</span>
+                <span id="githubStars" class="ml-2 text-xs md:text-sm font-semibold text-blue-600 bg-blue-100/70 px-2 py-0.5 rounded-full hidden"></span>
+            </a>
+        </div>
+
+        <div class="max-w-6xl w-full space-y-16 md:space-y-24 text-center landing-content-container relative z-[2]">
+
+            <!-- Hero Section -->
+            <section class="hero-section pt-12 md:pt-16 min-h-[85vh] flex flex-col justify-center">
+                <div class="mb-6 md:mb-8 animate-float">
+                    <iconify-icon icon="carbon:rocket" class="text-7xl sm:text-8xl md:text-9xl text-[#5782F3] mx-auto"></iconify-icon>
+                </div>
+                <h1 class="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-800 mb-5 md:mb-7 leading-tight hero-title">
+                    还在为文献海洋迷失方向？<br class="hidden sm:block">
+                    <span class="select-anim-bg">Paper Burner 为你点燃阅读力！</span>
+                </h1>
+                <p class="text-lg md:text-xl text-gray-600 mb-10 md:mb-12 max-w-3xl mx-auto hero-subtitle">
+                    本分支致力于将优秀的开源项目 <a href='https://github.com/baoyudu/paper-burner' target='_blank' class='text-[#5782F3] hover:text-blue-700 underline font-medium'><span class="select-anim-bg">Paper Burner (原始版本)</span></a> 全面升级，为您打造 <span class="select-anim-bg">即开即用、功能强大且用户友好</span> 的一站式 <span class="select-anim-bg">AI文献识别、翻译、阅读与智能分析</span> 平台。
+                </p>
+
+                <a href="index.html" id="enterAppButton" class="px-10 py-3.5 md:px-12 md:py-4 bg-[#5782F3] text-white rounded-lg hover:bg-blue-700 transition-all focus:outline-none focus:ring-4 focus:ring-blue-500/50 text-lg md:text-xl font-semibold flex items-center mx-auto shadow-xl hover:shadow-2xl transform hover:scale-105 hero-cta">
+                    <iconify-icon icon="carbon:launch" class="mr-2 md:mr-3" width="24"></iconify-icon>
+                    立即体验高效阅读
+                </a>
+                <!-- Moved and Restyled Tip Paragraph -->
+                <p class="text-xs text-gray-500 mt-16 max-w-2xl mx-auto">
+                    提示：目前OCR功能主要依赖Mistral API，我们预计在未来适配更多AI模型以提供更广泛的选择。
+                </p>
+            </section>
+
+            <!-- Features Section - Updated -->
+            <section class="features-section py-12 md:py-16 bg-white/70 backdrop-blur-md shadow-2xl rounded-3xl p-6 md:p-12">
+                <h2 class="text-3xl md:text-4xl font-semibold text-gray-700 mb-10 md:mb-12 text-center flex items-center justify-center features-title">
+                    <iconify-icon icon="carbon:list-checked" class="mr-3 text-blue-600" width="36"></iconify-icon>
+                    本分支主要特性
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <!-- Feature 1: 模型与API Key管理 -->
+                    <div class="flex flex-col items-center text-center p-4 bg-gray-50 rounded-lg shadow-md">
+                        <div class="flowchart-icon-wrapper bg-gray-100 p-4 rounded-full mb-3 shadow-md">
+                            <iconify-icon icon="carbon:settings-adjust" class="text-3xl text-blue-600"></iconify-icon>
+                        </div>
+                        <h3 class="font-semibold text-lg text-gray-700 mb-1.5">模型与API Key管理</h3>
+                        <p class="text-sm text-gray-600 leading-relaxed">
+                            支持配置的导入导出，多Key轮询与基本检测功能，以及对自定义翻译源的兼容。
+                        </p>
+                    </div>
+
+                    <!-- Feature 2: 多模式文献阅读 -->
+                    <div class="flex flex-col items-center text-center p-4 bg-gray-50 rounded-lg shadow-md">
+                        <div class="flowchart-icon-wrapper bg-gray-100 p-4 rounded-full mb-3 shadow-md">
+                            <iconify-icon icon="carbon:text-long-paragraph" class="text-3xl text-sky-600"></iconify-icon>
+                        </div>
+                        <h3 class="font-semibold text-lg text-gray-700 mb-1.5">多模式文献阅读</h3>
+                        <p class="text-sm text-gray-600 leading-relaxed">
+                            提供历史记录查看，支持Markdown渲染（含公式、图表），并可进行原文与译文对照阅读。
+                        </p>
+                    </div>
+
+                    <!-- Feature 3: 阅读辅助工具集 -->
+                    <div class="flex flex-col items-center text-center p-4 bg-gray-50 rounded-lg shadow-md">
+                        <div class="flowchart-icon-wrapper bg-gray-100 p-4 rounded-full mb-3 shadow-md">
+                            <iconify-icon icon="carbon:tool-box" class="text-3xl text-indigo-600"></iconify-icon>
+                        </div>
+                        <h3 class="font-semibold text-lg text-gray-700 mb-1.5">阅读辅助工具集</h3>
+                        <p class="text-sm text-gray-600 leading-relaxed">
+                            包含高亮与标注、TOC目录生成、Dock栏信息展示等功能，以方便处理和导航较长文献。
+                        </p>
+                    </div>
+
+                    <!-- Feature 4: AI智能分析引擎 -->
+                    <div class="flex flex-col items-center text-center p-4 bg-gray-50 rounded-lg shadow-md">
+                        <div class="flowchart-icon-wrapper bg-gray-100 p-4 rounded-full mb-3 shadow-md">
+                            <iconify-icon icon="carbon:chip" class="text-3xl text-purple-600"></iconify-icon>
+                        </div>
+                        <h3 class="font-semibold text-lg text-gray-700 mb-1.5">AI智能分析引擎</h3>
+                        <p class="text-sm text-gray-600 leading-relaxed">
+                            赋能图表生成、图像识别、精准内容提问、长文本深度解析与智能总结。
+                        </p>
+                    </div>
+                </div>
+                <!-- Button for Features Section -->
+                <div class="mt-10 text-center">
+                    <a href="index.html" id="enterOcrFeaturesBtn" class="px-6 py-3 bg-[#5782F3] text-white rounded-lg hover:bg-blue-700 transition-all focus:outline-none focus:ring-4 focus:ring-blue-500/50 text-md font-semibold inline-flex items-center mx-auto shadow-lg hover:shadow-xl transform hover:scale-105">
+                        <iconify-icon icon="carbon:scan" class="mr-2" width="20"></iconify-icon>
+                        进入OCR流程
+                    </a>
+                </div>
+            </section>
+
+            <!-- New Combined Section: Tribute, Vision & Outlook -->
+            <section class="combined-info-section py-12 md:py-16">
+                <div class="max-w-4xl mx-auto space-y-10">
+                    <div class="text-center mb-10 md:mb-12">
+                        <h2 class="text-3xl md:text-4xl font-semibold text-gray-700 flex items-center justify-center">
+                            <iconify-icon icon="carbon:compass" class="mr-3 text-[#5782F3]" width="36"></iconify-icon>
+                            致敬、愿景与展望
+                        </h2>
+                    </div>
+
+                    <!-- Sub-section: About Branch & Original Project -->
+                    <div class="bg-white/70 backdrop-blur-md p-6 md:p-8 rounded-xl shadow-lg">
+                        <h3 class="text-xl md:text-2xl font-semibold text-gray-700 mb-3 flex items-center">
+                            <iconify-icon icon="carbon:branch" class="mr-2 text-[#5782F3]" width="24"></iconify-icon>
+                            致敬与创新：我们的源与流
+                        </h3>
+                        <p class="text-gray-600 text-sm md:text-base leading-relaxed">
+                            我们满怀敬意地基于 <a href="https://github.com/baoyudu/paper-burner" target="_blank" class="text-[#5782F3] hover:text-blue-700 underline font-medium">baoyudu/paper-burner</a> 这一卓越开源项目构建。我们承袭其探索精神，专注于核心功能增强，旨在扩展并深化其能力，为您提供一个更全面的文献处理伙伴。
+                        </p>
+                    </div>
+
+                    <!-- Sub-section: Our Vision -->
+                    <div class="bg-white/70 backdrop-blur-md p-6 md:p-8 rounded-xl shadow-lg">
+                        <h3 class="text-xl md:text-2xl font-semibold text-gray-700 mb-3 flex items-center">
+                            <iconify-icon icon="carbon:idea" class="mr-2 text-[#5782F3]" width="24"></iconify-icon>
+                            我们的愿景
+                        </h3>
+                        <p class="text-gray-600 text-sm md:text-base leading-relaxed">
+                            我们希望本分支能成为一款便捷的浏览器端文献处理工具，保持轻量易用的特点，能高效进行文献处理与阅读，方便用户快速上手。
+                        </p>
+                    </div>
+
+                    <!-- Sub-section: Future Plans -->
+                    <div class="bg-white/70 backdrop-blur-md p-6 md:p-8 rounded-xl shadow-lg">
+                        <h3 class="text-xl md:text-2xl font-semibold text-gray-700 mb-3 flex items-center">
+                            <iconify-icon icon="carbon:next-filled" class="mr-2 text-[#5782F3]" width="24"></iconify-icon>
+                            后续计划
+                        </h3>
+                        <p class="text-gray-600 text-sm md:text-base leading-relaxed">
+                            我们将持续探索与集成更多前沿功能，如自定义术语库增强翻译准确性、本地内容持久化与同步、以及更深度的AI协作特性，敬请期待！
+                        </p>
+                    </div>
+                    <!-- Button for Combined Section -->
+                    <div class="mt-12 text-center">
+                        <a href="index.html" id="enterOcrCombinedBtn" class="px-6 py-3 bg-[#5782F3] text-white rounded-lg hover:bg-blue-700 transition-all focus:outline-none focus:ring-4 focus:ring-blue-500/50 text-md font-semibold inline-flex items-center mx-auto shadow-lg hover:shadow-xl transform hover:scale-105">
+                            <iconify-icon icon="carbon:scan" class="mr-2" width="20"></iconify-icon>
+                            进入OCR流程
+                        </a>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+    <!-- <script src="https://unpkg.com/iconify-icon@1.0.7/dist/iconify-icon.min.js"></script> -->
+    <script>
+      // Landing Page Logic
+      (function() {
+        var landingPage = document.getElementById('landingPageSection');
+        var githubStarsSpan = document.getElementById('githubStars');
+        var enterAppButton = document.getElementById('enterAppButton');
+        var enterOcrFeaturesBtn = document.getElementById('enterOcrFeaturesBtn');
+        var enterOcrCombinedBtn = document.getElementById('enterOcrCombinedBtn');
+
+        // Initialize a global store for stoppable animations (e.g., looping ones)
+        window.stoppableLandingPageAnimations = [];
+
+        // Fetch GitHub Stars
+        if (githubStarsSpan) {
+            fetch('https://api.github.com/repos/Feather-2/paper-burner')
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.stargazers_count !== undefined) {
+                        githubStarsSpan.textContent = data.stargazers_count + ' Stars';
+                        githubStarsSpan.classList.remove('hidden');
+                    }
+                })
+                .catch(error => console.error('Error fetching GitHub stars:', error));
+        }
+
+        function setLandingPageShownAndRedirect(event) {
+            event.preventDefault(); // Prevent default link behavior
+            localStorage.setItem('paperBurnerLandingPageShown', 'true');
+            // Stop any ongoing stoppable animations before redirecting
+            if (window.stoppableLandingPageAnimations) {
+                window.stoppableLandingPageAnimations.forEach(anim => anim.pause());
+            }
+            window.location.href = event.currentTarget.href; // Proceed to the link's href
+        }
+
+        if (enterAppButton) {
+            enterAppButton.addEventListener('click', setLandingPageShownAndRedirect);
+        }
+        if (enterOcrFeaturesBtn) {
+            enterOcrFeaturesBtn.addEventListener('click', setLandingPageShownAndRedirect);
+        }
+        if (enterOcrCombinedBtn) {
+            enterOcrCombinedBtn.addEventListener('click', setLandingPageShownAndRedirect);
+        }
+
+        function initLandingPageAnimations() {
+            if (!landingPage) return;
+
+            landingPage.style.opacity = '1'; // Fade in landing page
+
+            // Hero Section Animations (Immediate)
+            anime({
+                targets: '.hero-title',
+                translateY: [20, 0],
+                opacity: [0, 1],
+                duration: 800,
+                easing: 'easeOutExpo',
+                delay: 200
+            });
+            anime({
+                targets: '.hero-subtitle',
+                translateY: [20, 0],
+                opacity: [0, 1],
+                duration: 800,
+                easing: 'easeOutExpo',
+                delay: 400
+            });
+            anime({
+                targets: '.hero-cta',
+                translateY: [20, 0],
+                opacity: [0, 1],
+                duration: 800,
+                easing: 'easeOutExpo',
+                delay: 600
+            });
+            const rocketAnimation = anime({
+                targets: '.animate-float', // Rocket icon
+                translateY: ['-10px', '10px'],
+                direction: 'alternate',
+                loop: true,
+                duration: 2000,
+                easing: 'easeInOutSine'
+            });
+            window.stoppableLandingPageAnimations.push(rocketAnimation); // Add looping animation to stoppable list
+
+            // Intersection Observer options
+            const observerOptions = {
+                root: null, // relative to document viewport
+                rootMargin: '0px',
+                threshold: 0.1 // 10% of item is visible
+            };
+
+            // Observer for Features Section
+            const featuresSection = document.querySelector('.features-section');
+            if (featuresSection) {
+                const featuresObserver = new IntersectionObserver((entries, observer) => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) {
+                            anime({
+                                targets: '.features-title',
+                                opacity: [0, 1],
+                                translateY: [20,0],
+                                duration: 800,
+                                easing: 'easeOutExpo',
+                                delay: 100
+                            });
+                            // No longer animating .feature-card directly, but its children
+                            // observer.unobserve(entry.target); // Unobserve the whole section once title is animated
+                        }
+                    });
+                }, observerOptions);
+                featuresObserver.observe(featuresSection);
+            }
+
+            // Observer for individual Feature Cards skeleton animation
+            document.querySelectorAll('.feature-card').forEach(card => {
+                const cardObserver = new IntersectionObserver((entries, observer) => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) {
+                            const skeleton = entry.target.querySelector('.skeleton-loader');
+                            const content = entry.target.querySelector('.actual-content');
+
+                            // Skeleton animation: pulse + fade out
+                            const tl = anime.timeline({
+                                easing: 'easeOutExpo',
+                            });
+
+                            tl.add({
+                                targets: skeleton.querySelectorAll('.skeleton-icon, .skeleton-title, .skeleton-line'),
+                                opacity: [0.5, 1, 0.5, 1, 0.3], // Pulse effect
+                                duration: 700,
+                                delay: anime.stagger(50, {from: 'center'})
+                            })
+                            .add({
+                                targets: skeleton,
+                                opacity: 0,
+                                duration: 400,
+                                complete: function() {
+                                    skeleton.style.display = 'none'; // Hide skeleton after fade
+                                }
+                            }, '-=200') // Overlap with previous animation slightly
+                            .add({
+                                targets: content,
+                                opacity: [0, 1],
+                                translateY: [10, 0],
+                                duration: 500,
+                                begin: function(){
+                                    content.style.opacity = '0'; // Ensure it starts from 0 if quickly re-intersecting (though unobserve helps)
+                                }
+                            }, '-=300'); // Start content animation before skeleton fully disappears
+
+                            observer.unobserve(entry.target); // Animate only once per card
+                        }
+                    });
+                }, {...observerOptions, threshold: 0.2}); // Trigger when 20% of card is visible
+                cardObserver.observe(card);
+            });
+
+            // Observer for About Section
+            const aboutSection = document.querySelector('.about-section');
+            if (aboutSection) {
+                const aboutObserver = new IntersectionObserver((entries, observer) => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) {
+                            anime({
+                                targets: '.about-card',
+                                opacity: [0, 1],
+                                translateY: [30, 0],
+                                duration: 800,
+                                easing: 'easeOutExpo',
+                                delay: 200
+                            });
+                            observer.unobserve(entry.target); // Animate only once
+                        }
+                    });
+                }, observerOptions);
+                aboutObserver.observe(aboutSection);
+            }
+        }
+        // Show landing page and initialize animations
+        if (landingPage) {
+             setTimeout(initLandingPageAnimations, 100); // Delay animations slightly
+        }
+
+      })();
+    </script>
+</body>
+</html>

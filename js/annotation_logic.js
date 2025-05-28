@@ -396,6 +396,24 @@ async function addNoteToAnnotation(noteText, docId, annotationId = null, targetI
     try {
         await updateAnnotationInDB(existingAnnotation);
         console.log(`[批注逻辑] 成功更新批注 ID: ${existingAnnotation.id}`);
+        // 新增：批注内容变动后立即刷新目标元素的title/class
+        let targetElement = null;
+        if (identifierType === 'subBlockId') {
+            const containerId = contentIdentifier + '-content-wrapper';
+            const container = document.getElementById(containerId);
+            if (container) {
+                targetElement = container.querySelector('.sub-block[data-sub-block-id="' + (existingAnnotation.target.selector[0].subBlockId || targetIdentifier) + '"]');
+            }
+        } else if (identifierType === 'blockIndex') {
+            const containerId = contentIdentifier + '-content-wrapper';
+            const container = document.getElementById(containerId);
+            if (container) {
+                targetElement = container.querySelector('[data-block-index="' + (existingAnnotation.target.selector[0].blockIndex || targetIdentifier) + '"]');
+            }
+        }
+        if (targetElement && window.highlightBlockOrSubBlock) {
+            window.highlightBlockOrSubBlock(targetElement, existingAnnotation, contentIdentifier, targetIdentifier, identifierType === 'subBlockId' ? 'subBlock' : 'block');
+        }
     } catch (error) {
         console.error(`[批注逻辑] addNoteToAnnotation: 更新批注失败:`, error);
         throw error;
@@ -404,13 +422,123 @@ async function addNoteToAnnotation(noteText, docId, annotationId = null, targetI
 
 // 主初始化函数，由 history_detail.html 调用
 function initAnnotationSystem() {
-    // console.log("[批注系统] 初始化中 (子块/块级模式)...");
     annotationContextMenuElement = document.getElementById('custom-context-menu');
     if (!annotationContextMenuElement) {
         console.error("未找到批注上下文菜单元素 ('custom-context-menu')！");
         return;
     }
 
+    // ========== 事件委托：只在 .container 上全局绑定一次 contextmenu ==========
+    const mainContainer = document.querySelector('.container');
+    if (mainContainer) {
+        if (mainContainer._annotationContextMenuBound) return;
+        mainContainer._annotationContextMenuBound = true;
+        mainContainer.addEventListener('contextmenu', function(event) {
+            // 防呆：内容未加载完成时禁止右键
+            if (!window.contentReady) {
+                alert('请等待内容加载完成后再右键区块。');
+                return;
+            }
+            // 只处理 .sub-block 或 [data-block-index] 的右键
+            const targetSubBlock = event.target.closest('.sub-block[data-sub-block-id]');
+            const targetBlock = event.target.closest('[data-block-index]');
+            if (!targetSubBlock && !targetBlock) return;
+
+            // 新增：判断是否为只读视图 (分块对比模式)
+            const isReadOnlyView = window.currentVisibleTabId === 'chunk-compare';
+            if (isReadOnlyView) {
+                event.preventDefault();
+                hideContextMenu();
+                return;
+            }
+
+            let targetElementForAnnotation;
+            let identifier, identifierType, blockIndexForContext = null, selectedTextForContext;
+            let isOnlySubBlock = false;
+
+            if (targetSubBlock) {
+                targetElementForAnnotation = targetSubBlock;
+                identifier = targetSubBlock.dataset.subBlockId;
+                identifierType = 'subBlockId';
+                if (targetSubBlock.dataset.isOnlySubBlock === "true") {
+                    isOnlySubBlock = true;
+                }
+                const parentBlockElement = targetSubBlock.closest('[data-block-index]');
+                if (parentBlockElement) {
+                    blockIndexForContext = parentBlockElement.dataset.blockIndex;
+                }
+            } else if (targetBlock) {
+                targetElementForAnnotation = targetBlock;
+                identifier = targetBlock.dataset.blockIndex;
+                identifierType = 'blockIndex';
+                blockIndexForContext = identifier;
+            } else {
+                hideContextMenu();
+                return;
+            }
+
+            event.preventDefault();
+
+            const annotationId = targetElementForAnnotation.dataset.annotationId;
+            selectedTextForContext = targetElementForAnnotation.textContent;
+
+            // 选区设置
+            const range = document.createRange();
+            range.selectNodeContents(targetElementForAnnotation);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            window.globalCurrentSelection = {
+                text: selectedTextForContext,
+                range: range.cloneRange(),
+                annotationId: annotationId,
+                targetElement: targetElementForAnnotation,
+                contentIdentifierForSelection: window.globalCurrentContentIdentifier,
+                [identifierType]: identifier,
+                blockIndex: blockIndexForContext
+            };
+
+            // Store context directly on the menu element
+            annotationContextMenuElement.dataset.contextContentIdentifier = window.globalCurrentContentIdentifier;
+            annotationContextMenuElement.dataset.contextTargetIdentifier = identifier;
+            annotationContextMenuElement.dataset.contextIdentifierType = identifierType;
+            if (annotationId) {
+                annotationContextMenuElement.dataset.contextAnnotationId = annotationId;
+            } else {
+                delete annotationContextMenuElement.dataset.contextAnnotationId;
+            }
+            if (selectedTextForContext) {
+                annotationContextMenuElement.dataset.contextSelectedText = selectedTextForContext;
+            } else {
+                delete annotationContextMenuElement.dataset.contextSelectedText;
+            }
+            if (isOnlySubBlock && identifierType === 'subBlockId') {
+                annotationContextMenuElement.dataset.contextIsOnlySubBlock = "true";
+            } else {
+                delete annotationContextMenuElement.dataset.contextIsOnlySubBlock;
+            }
+            if (blockIndexForContext) {
+                annotationContextMenuElement.dataset.contextBlockIndex = blockIndexForContext;
+            } else {
+                delete annotationContextMenuElement.dataset.contextBlockIndex;
+            }
+
+            console.log(`%c[AnnotationLogic ContxtMenu] Event triggered for container: ${mainContainer.id}, content type: ${window.globalCurrentContentIdentifier}`, 'color: blue; font-weight: bold;');
+            console.log(`  Stored on menu - contentId: ${annotationContextMenuElement.dataset.contextContentIdentifier}, targetId: ${annotationContextMenuElement.dataset.contextTargetIdentifier}, type: ${annotationContextMenuElement.dataset.contextIdentifierType}, annId: ${annotationContextMenuElement.dataset.contextAnnotationId}, blockIdx: ${annotationContextMenuElement.dataset.contextBlockIndex}`);
+            console.log(`  Selected text stored on menu: ${(annotationContextMenuElement.dataset.contextSelectedText || '').substring(0,50)}...`);
+
+            const isHighlighted = checkIfTargetIsHighlighted(annotationId, window.globalCurrentContentIdentifier, identifier, identifierType);
+            const hasNote = checkIfTargetHasNote(annotationId, window.globalCurrentContentIdentifier, identifier, identifierType);
+
+            console.log(`  checkIfTargetIsHighlighted(...) returned: ${isHighlighted}`);
+            console.log(`  checkIfTargetHasNote(...) returned: ${hasNote}`);
+
+            window.globalCurrentHighlightStatus = isHighlighted;
+            updateContextMenuOptions(isHighlighted, hasNote, false);
+            showContextMenu(event.pageX, event.pageY);
+        }, false);
+    }
+    // ...其余初始化逻辑...
     annotationContextMenuElement.addEventListener('click', async (event) => {
         let target = event.target;
         let action, color;
@@ -453,20 +581,22 @@ function initAnnotationSystem() {
         }
 
         // Retrieve context from the menu's dataset
-        const currentContentIdentifier = annotationContextMenuElement.dataset.contextContentIdentifier;
-        const targetIdentifier = annotationContextMenuElement.dataset.contextTargetIdentifier;
-        const identifierType = annotationContextMenuElement.dataset.contextIdentifierType;
-        const targetAnnotationId = annotationContextMenuElement.dataset.contextAnnotationId; // Might be undefined
-        const originalSelectedText = annotationContextMenuElement.dataset.contextSelectedText; // For copy
+        let currentContentIdentifier = annotationContextMenuElement.dataset.contextContentIdentifier
+            || (window.globalCurrentSelection && window.globalCurrentSelection.contentIdentifierForSelection)
+            || window.globalCurrentContentIdentifier; // 兜底
+        let targetIdentifier = annotationContextMenuElement.dataset.contextTargetIdentifier || (window.globalCurrentSelection && (window.globalCurrentSelection.subBlockId || window.globalCurrentSelection.blockIndex));
+        let identifierType = annotationContextMenuElement.dataset.contextIdentifierType || (window.globalCurrentSelection && (window.globalCurrentSelection.subBlockId ? 'subBlockId' : 'blockIndex'));
+        let targetAnnotationId = annotationContextMenuElement.dataset.contextAnnotationId || (window.globalCurrentSelection && window.globalCurrentSelection.annotationId);
+        let originalSelectedText = annotationContextMenuElement.dataset.contextSelectedText || (window.globalCurrentSelection && window.globalCurrentSelection.text);
 
-        if (!currentContentIdentifier && (action === 'highlight-block' || action === 'add-note' || action === 'edit-note' || action === 'remove-highlight')) {
+        if ((!(currentContentIdentifier && identifierType && targetIdentifier)) &&
+            (action === 'highlight-block' || action === 'add-note' || action === 'edit-note' || action === 'remove-highlight')) {
+            console.log('context debug', {currentContentIdentifier, targetIdentifier, identifierType, targetAnnotationId, windowGlobal: window.globalCurrentSelection, windowGlobalContent: window.globalCurrentContentIdentifier});
             alert('请重新右键点击目标区块后再操作。');
             hideContextMenu();
             return;
         }
-
         const hasValidContext = targetIdentifier && identifierType;
-
         if (!hasValidContext && (action === 'highlight-block' || action === 'add-note' || action === 'edit-note' || action === 'remove-highlight' || action === 'copy-content')) {
             alert('操作目标无效。请重新右键点击目标区块。');
             console.error('[批注逻辑] Context menu action failed: targetIdentifier or identifierType from menu dataset is missing.');
@@ -480,8 +610,34 @@ function initAnnotationSystem() {
             if (action === 'remove-highlight') {
                 // identifierType is already from dataset
                 await removeAnnotationFromTarget(docId, targetAnnotationId, targetIdentifier, currentContentIdentifier, identifierType);
+                // 新增：只移除目标元素的高亮
+                let targetElement = null;
+                if (identifierType === 'subBlockId') {
+                    const containerId = currentContentIdentifier + '-content-wrapper';
+                    const container = document.getElementById(containerId);
+                    if (container) {
+                        targetElement = container.querySelector('.sub-block[data-sub-block-id="' + targetIdentifier + '"]');
+                    }
+                } else if (identifierType === 'blockIndex') {
+                    const containerId = currentContentIdentifier + '-content-wrapper';
+                    const container = document.getElementById(containerId);
+                    if (container) {
+                        targetElement = container.querySelector('[data-block-index="' + targetIdentifier + '"]');
+                    }
+                }
+                if (targetElement && window.removeHighlightFromBlockOrSubBlock) {
+                    window.removeHighlightFromBlockOrSubBlock(targetElement);
+                }
+                // 新增：局部刷新所有高亮，保证同步
+                if (typeof window.applyBlockAnnotations === 'function') {
+                    const containerId = currentContentIdentifier + '-content-wrapper';
+                    const container = document.getElementById(containerId);
+                    if (container) {
+                        window.applyBlockAnnotations(container, window.data.annotations, currentContentIdentifier);
+                    }
+                }
                 console.log(`${identifierType} 高亮已尝试取消`);
-                refreshNeeded = true;
+                refreshNeeded = false; // 不再全量刷新
             } else if (action === 'add-note' || action === 'edit-note') {
                 // identifierType is from dataset
                 const isCurrentlyHighlighted = checkIfTargetIsHighlighted(targetAnnotationId, currentContentIdentifier, targetIdentifier, identifierType);
@@ -509,6 +665,17 @@ function initAnnotationSystem() {
                     else if (noteText.trim() === '') {
                         alert('批注内容不能为空。');
                     } else {
+                        // 新增：同步 exact 字段
+                        let annotationToUpdate = window.data.annotations.find(a =>
+                            a.targetType === currentContentIdentifier &&
+                            (a.id === targetAnnotationId ||
+                             (targetIdentifier && identifierType && a.target && a.target.selector && a.target.selector[0] &&
+                              (a.target.selector[0][identifierType] === targetIdentifier || String(a.target.selector[0][identifierType]) === targetIdentifier)
+                             ))
+                        );
+                        if (annotationToUpdate && window.globalCurrentSelection && window.globalCurrentSelection.targetElement) {
+                            annotationToUpdate.target.selector[0].exact = window.globalCurrentSelection.targetElement.textContent.trim();
+                        }
                         await addNoteToAnnotation(noteText, docId, targetAnnotationId, targetIdentifier, currentContentIdentifier, identifierType);
                         console.log(action === 'edit-note' ? `${identifierType} 批注已更新` : `批注已添加到现有 ${identifierType} 高亮`);
                         refreshNeeded = true;
@@ -518,20 +685,51 @@ function initAnnotationSystem() {
                 if (!color) {
                     console.warn("高亮操作未选择颜色");
                 } else {
-                    const existingAnnotationForTarget = window.data.annotations.find(ann =>
+                    // ====== 修正：高亮保存前去重，保证唯一性 ======
+                    // 先查找所有同 target 的 annotation
+                    const duplicateAnnotations = window.data.annotations.filter(ann =>
                         ann.targetType === currentContentIdentifier &&
                         ann.target && ann.target.selector && ann.target.selector[0] &&
                         (ann.target.selector[0][identifierType] === targetIdentifier || String(ann.target.selector[0][identifierType]) === targetIdentifier) &&
                         (ann.motivation === 'highlighting' || ann.motivation === 'commenting')
                     );
-
+                    let existingAnnotationForTarget = duplicateAnnotations[0];
+                    // 如果有多个，移除多余的，只保留第一个
+                    if (duplicateAnnotations.length > 1) {
+                        for (let i = 1; i < duplicateAnnotations.length; i++) {
+                            await removeAnnotationFromTarget(docId, duplicateAnnotations[i].id, targetIdentifier, currentContentIdentifier, identifierType);
+                        }
+                        // 只保留第一个
+                    }
                     if (existingAnnotationForTarget) {
                         existingAnnotationForTarget.highlightColor = color;
                         existingAnnotationForTarget.modified = new Date().toISOString();
                         if (existingAnnotationForTarget.motivation !== 'commenting') {
                            existingAnnotationForTarget.motivation = 'highlighting';
                         }
+                        // 新增：同步 exact 字段
+                        if (window.globalCurrentSelection && window.globalCurrentSelection.targetElement) {
+                            existingAnnotationForTarget.target.selector[0].exact = window.globalCurrentSelection.targetElement.textContent.trim();
+                        }
                         await updateAnnotationInDB(existingAnnotationForTarget);
+                        // 新增：只高亮目标元素
+                        let targetElement = null;
+                        if (identifierType === 'subBlockId') {
+                            const containerId = currentContentIdentifier + '-content-wrapper';
+                            const container = document.getElementById(containerId);
+                            if (container) {
+                                targetElement = container.querySelector('.sub-block[data-sub-block-id="' + targetIdentifier + '"]');
+                            }
+                        } else if (identifierType === 'blockIndex') {
+                            const containerId = currentContentIdentifier + '-content-wrapper';
+                            const container = document.getElementById(containerId);
+                            if (container) {
+                                targetElement = container.querySelector('[data-block-index="' + targetIdentifier + '"]');
+                            }
+                        }
+                        if (targetElement && window.highlightBlockOrSubBlock) {
+                            window.highlightBlockOrSubBlock(targetElement, existingAnnotationForTarget, currentContentIdentifier, targetIdentifier, identifierType === 'subBlockId' ? 'subBlock' : 'block');
+                        }
                         console.log(`${identifierType} 高亮颜色已更新:`, existingAnnotationForTarget);
                     } else {
                         const newAnnotation = {
@@ -552,30 +750,45 @@ function initAnnotationSystem() {
                             body: []
                         };
                         newAnnotation.target.selector[0][identifierType] = targetIdentifier;
-                        if (originalSelectedText) { // Use text from dataset if available
-                           newAnnotation.target.selector[0].exact = originalSelectedText;
+                        // 新建时写入 exact
+                        if (window.globalCurrentSelection && window.globalCurrentSelection.targetElement) {
+                            newAnnotation.target.selector[0].exact = window.globalCurrentSelection.targetElement.textContent.trim();
+                        } else if (originalSelectedText) {
+                            newAnnotation.target.selector[0].exact = originalSelectedText;
                         }
-                        // For blockIndex on subBlock annotations, this info might need to be passed via dataset too if crucial
-                        // Or, assume it's less critical if globalCurrentSelection is lost.
-                        // For now, we rely on targetIdentifier and identifierType for targeting.
-                        // If blockIndex is needed for new sub-block annotations, it must be added to dataset.
                         const contextBlockIndex = annotationContextMenuElement.dataset.contextBlockIndex;
                         if (identifierType === 'subBlockId' && contextBlockIndex) {
                             newAnnotation.target.selector[0].blockIndex = contextBlockIndex;
                         }
-
                         await saveAnnotationToDB(newAnnotation);
                         if (!window.data.annotations) window.data.annotations = [];
                         window.data.annotations.push(newAnnotation);
+                        // 新增：只高亮目标元素
+                        let targetElement = null;
+                        if (identifierType === 'subBlockId') {
+                            const containerId = currentContentIdentifier + '-content-wrapper';
+                            const container = document.getElementById(containerId);
+                            if (container) {
+                                targetElement = container.querySelector('.sub-block[data-sub-block-id="' + targetIdentifier + '"]');
+                            }
+                        } else if (identifierType === 'blockIndex') {
+                            const containerId = currentContentIdentifier + '-content-wrapper';
+                            const container = document.getElementById(containerId);
+                            if (container) {
+                                targetElement = container.querySelector('[data-block-index="' + targetIdentifier + '"]');
+                            }
+                        }
+                        if (targetElement && window.highlightBlockOrSubBlock) {
+                            window.highlightBlockOrSubBlock(targetElement, newAnnotation, currentContentIdentifier, targetIdentifier, identifierType === 'subBlockId' ? 'subBlock' : 'block');
+                        }
                         console.log(`新 ${identifierType} 高亮已保存:`, newAnnotation);
                     }
-                    refreshNeeded = true;
+                    refreshNeeded = false; // 不再全量刷新
                 }
             } else if (action === 'copy-content') {
                 let textToCopy = originalSelectedText; // Default to textContent
                 const contextBlockIndex = annotationContextMenuElement.dataset.contextBlockIndex;
-                const isOnlySubBlock = annotationContextMenuElement.dataset.contextIsOnlySubBlock === "true";
-
+                // 唯一子块判断逻辑修正
                 if (identifierType === 'blockIndex' && currentContentIdentifier && targetIdentifier) {
                     const blockIndex = parseInt(targetIdentifier, 10);
                     if (!isNaN(blockIndex) &&
@@ -583,33 +796,34 @@ function initAnnotationSystem() {
                         window.currentBlockTokensForCopy[currentContentIdentifier] &&
                         window.currentBlockTokensForCopy[currentContentIdentifier][blockIndex] &&
                         typeof window.currentBlockTokensForCopy[currentContentIdentifier][blockIndex].raw === 'string') {
-
                         textToCopy = window.currentBlockTokensForCopy[currentContentIdentifier][blockIndex].raw;
                         console.log(`[批注逻辑] 复制块级内容: 使用来自 currentBlockTokensForCopy 的原始 Markdown (块索引: ${blockIndex})。`);
                     } else {
                         console.warn(`[批注逻辑] 复制块级内容: 无法从 currentBlockTokensForCopy 获取原始 Markdown (块索引: ${blockIndex})，回退到 textContent。`);
                     }
-                } else if (identifierType === 'subBlockId' && isOnlySubBlock && currentContentIdentifier && contextBlockIndex) {
-                    // It's a sub-block, it IS the only sub-block of its parent, and we have the parent's blockIndex
+                } else if (identifierType === 'subBlockId' && currentContentIdentifier && contextBlockIndex) {
+                    // 统计 annotation 里所有属于该父块的唯一子块
                     const parentBlockIndex = parseInt(contextBlockIndex, 10);
-                    if (!isNaN(parentBlockIndex) &&
+                    const allSubBlockIds = window.data.annotations
+                        .map(a => a.target && a.target.selector && a.target.selector[0] && a.target.selector[0].subBlockId)
+                        .filter(id => id && id.startsWith(`${parentBlockIndex}.`));
+                    const uniqueSubBlockIds = Array.from(new Set(allSubBlockIds));
+                    if (uniqueSubBlockIds.length === 1 &&
                         window.currentBlockTokensForCopy &&
                         window.currentBlockTokensForCopy[currentContentIdentifier] &&
                         window.currentBlockTokensForCopy[currentContentIdentifier][parentBlockIndex] &&
                         typeof window.currentBlockTokensForCopy[currentContentIdentifier][parentBlockIndex].raw === 'string') {
-
                         textToCopy = window.currentBlockTokensForCopy[currentContentIdentifier][parentBlockIndex].raw;
                         console.log(`[批注逻辑] 复制唯一的子块: 使用其父块的原始 Markdown (父块索引: ${parentBlockIndex})。`);
                     } else {
-                        console.warn(`[批注逻辑] 复制唯一的子块: 无法从 currentBlockTokensForCopy 获取父块的原始 Markdown (父块索引: ${parentBlockIndex})，回退到子块的 textContent。`);
+                        // 不是唯一子块，或无法获取父块内容，回退到子块的 textContent
+                        console.log(`[批注逻辑] 复制子块 (非唯一或无父块信息) 或其他内容: 使用 textContent。`);
                         // textToCopy remains originalSelectedText (sub-block's textContent)
                     }
                 } else {
-                     // This covers:
-                     // 1. Sub-blocks that are NOT the only one in their parent.
-                     // 2. Any other case not specifically handled above.
-                     console.log(`[批注逻辑] 复制子块 (非唯一或无父块信息) 或其他内容: 使用 textContent。`);
-                     // textToCopy remains originalSelectedText (textContent)
+                    // 其它情况
+                    console.log(`[批注逻辑] 复制子块 (非唯一或无父块信息) 或其他内容: 使用 textContent。`);
+                    // textToCopy remains originalSelectedText (textContent)
                 }
 
                 if (!textToCopy) { // originalSelectedText could be empty if target has no text
@@ -632,16 +846,47 @@ function initAnnotationSystem() {
         } finally {
             hideContextMenu(); // Always hide menu after action or error
             if (refreshNeeded) {
-                if (typeof window.showTab === 'function' && window.currentVisibleTabId) {
-                    const currentScroll = document.documentElement.scrollTop || document.body.scrollTop;
-                    await Promise.resolve(window.showTab(window.currentVisibleTabId));
-                    requestAnimationFrame(() => {
-                        document.documentElement.scrollTop = document.body.scrollTop = currentScroll;
-                        if(typeof window.updateReadingProgress === 'function') window.updateReadingProgress();
-                    });
-                } else {
-                    console.warn("[批注系统] window.showTab 或 window.currentVisibleTabId 不可用，无法自动刷新视图。");
+                // ========== 优化：只局部刷新高亮和批注事件 ==========
+                // 只在 OCR/translation tab 下局部刷新，不再全量 showTab
+                const tab = window.currentVisibleTabId;
+                let containerId = null;
+                let contentIdentifier = null;
+                if (tab === 'ocr') {
+                    containerId = 'ocr-content-wrapper';
+                    contentIdentifier = 'ocr';
+                } else if (tab === 'translation') {
+                    containerId = 'translation-content-wrapper';
+                    contentIdentifier = 'translation';
                 }
+                if (containerId && typeof window.applyBlockAnnotations === 'function') {
+                    const container = document.getElementById(containerId);
+                    if (container) {
+                        window.applyBlockAnnotations(container, window.data.annotations, contentIdentifier);
+                    }
+                }
+                if (containerId && typeof window.addAnnotationListenersToContainer === 'function') {
+                    window.addAnnotationListenersToContainer(containerId, contentIdentifier);
+                }
+                // Dock/TOC统计也可局部刷新（可选）
+                if (window.DockLogic && typeof window.DockLogic.updateStats === 'function') {
+                    window.DockLogic.updateStats(window.data, window.currentVisibleTabId);
+                }
+                if (typeof window.refreshTocList === 'function') {
+                    window.refreshTocList();
+                }
+                if(typeof window.updateReadingProgress === 'function') window.updateReadingProgress();
+                // =====================================================
+                // 只有在内容结构变化时才需要全量 showTab
+                // if (typeof window.showTab === 'function' && window.currentVisibleTabId) {
+                //     const currentScroll = document.documentElement.scrollTop || document.body.scrollTop;
+                //     await Promise.resolve(window.showTab(window.currentVisibleTabId));
+                //     requestAnimationFrame(() => {
+                //         document.documentElement.scrollTop = document.body.scrollTop = currentScroll;
+                //         if(typeof window.updateReadingProgress === 'function') window.updateReadingProgress();
+                //     });
+                // } else {
+                //     console.warn("[批注系统] window.showTab 或 window.currentVisibleTabId 不可用，无法自动刷新视图。");
+                // }
             }
         }
     });
@@ -655,125 +900,6 @@ function initAnnotationSystem() {
     });
     // console.log("[批注系统] 事件监听器已添加 (子块/块级模式)。");
 }
-
-// 更新右键菜单处理函数
-function addAnnotationListenersToContainer(containerId, specificContentIdentifier) {
-    const container = document.getElementById(containerId);
-    if (!container) {
-        console.error(`[添加批注监听器] 未找到容器 ${containerId}。`);
-        return;
-    }
-    if (!specificContentIdentifier) {
-        console.error(`[添加批注监听器] 未为容器 ${containerId} 提供 specificContentIdentifier。`);
-        return;
-    }
-
-    container.addEventListener('contextmenu', (event) => {
-        // 新增：判断是否为只读视图 (分块对比模式)
-        const isReadOnlyView = window.currentVisibleTabId === 'chunk-compare';
-
-        if (isReadOnlyView) {
-            event.preventDefault(); // 阻止默认的浏览器右键菜单
-            hideContextMenu();    // 确保我们的自定义菜单也隐藏
-            return;               // 不执行任何菜单显示逻辑
-        }
-
-        const targetSubBlock = event.target.closest('.sub-block[data-sub-block-id]');
-        const targetBlock = event.target.closest('[data-block-index]');
-
-        let targetElementForAnnotation;
-        let identifier, identifierType, blockIndexForContext = null, selectedTextForContext;
-        let isOnlySubBlock = false; // New variable
-
-        if (targetSubBlock) {
-            targetElementForAnnotation = targetSubBlock;
-            identifier = targetSubBlock.dataset.subBlockId;
-            identifierType = 'subBlockId';
-            if (targetSubBlock.dataset.isOnlySubBlock === "true") { // Check for the new attribute
-                isOnlySubBlock = true;
-            }
-            const parentBlockElement = targetSubBlock.closest('[data-block-index]');
-            if (parentBlockElement) {
-                blockIndexForContext = parentBlockElement.dataset.blockIndex;
-            }
-        } else if (targetBlock) {
-            targetElementForAnnotation = targetBlock;
-            identifier = targetBlock.dataset.blockIndex;
-            identifierType = 'blockIndex';
-            blockIndexForContext = identifier;
-        } else {
-            hideContextMenu();
-            return;
-        }
-
-        event.preventDefault();
-
-        const annotationId = targetElementForAnnotation.dataset.annotationId;
-        selectedTextForContext = targetElementForAnnotation.textContent;
-
-        // Still set globalCurrentSelection for immediate use if needed by other minor logic,
-        // but primary context for menu actions will come from menu dataset.
-        const range = document.createRange();
-        range.selectNodeContents(targetElementForAnnotation);
-        const selection = window.getSelection();
-        selection.removeAllRanges();
-        selection.addRange(range);
-        window.globalCurrentSelection = {
-            text: selectedTextForContext,
-            range: range.cloneRange(),
-            annotationId: annotationId,
-            targetElement: targetElementForAnnotation,
-            contentIdentifierForSelection: specificContentIdentifier,
-            [identifierType]: identifier,
-            blockIndex: blockIndexForContext
-        };
-
-        // Store context directly on the menu element
-        annotationContextMenuElement.dataset.contextContentIdentifier = specificContentIdentifier;
-        annotationContextMenuElement.dataset.contextTargetIdentifier = identifier;
-        annotationContextMenuElement.dataset.contextIdentifierType = identifierType;
-        if (annotationId) {
-            annotationContextMenuElement.dataset.contextAnnotationId = annotationId;
-        } else {
-            delete annotationContextMenuElement.dataset.contextAnnotationId;
-        }
-        if (selectedTextForContext) {
-            annotationContextMenuElement.dataset.contextSelectedText = selectedTextForContext;
-        } else {
-            delete annotationContextMenuElement.dataset.contextSelectedText;
-        }
-        if (isOnlySubBlock && identifierType === 'subBlockId') { // Store the flag if it's a sub-block and it's the only one
-            annotationContextMenuElement.dataset.contextIsOnlySubBlock = "true";
-        } else {
-            delete annotationContextMenuElement.dataset.contextIsOnlySubBlock;
-        }
-        if (blockIndexForContext) { // Store blockIndex for sub-block creation context
-            annotationContextMenuElement.dataset.contextBlockIndex = blockIndexForContext;
-        }
-         else {
-            delete annotationContextMenuElement.dataset.contextBlockIndex;
-        }
-
-        console.log(`%c[AnnotationLogic ContxtMenu] Event triggered for container: ${container.id}, content type: ${specificContentIdentifier}`, 'color: blue; font-weight: bold;');
-        console.log(`  Stored on menu - contentId: ${annotationContextMenuElement.dataset.contextContentIdentifier}, targetId: ${annotationContextMenuElement.dataset.contextTargetIdentifier}, type: ${annotationContextMenuElement.dataset.contextIdentifierType}, annId: ${annotationContextMenuElement.dataset.contextAnnotationId}, blockIdx: ${annotationContextMenuElement.dataset.contextBlockIndex}`);
-        console.log(`  Selected text stored on menu: ${(annotationContextMenuElement.dataset.contextSelectedText || '').substring(0,50)}...`);
-
-        const isHighlighted = checkIfTargetIsHighlighted(annotationId, specificContentIdentifier, identifier, identifierType);
-        const hasNote = checkIfTargetHasNote(annotationId, specificContentIdentifier, identifier, identifierType);
-
-        console.log(`  checkIfTargetIsHighlighted(...) returned: ${isHighlighted}`);
-        console.log(`  checkIfTargetHasNote(...) returned: ${hasNote}`);
-
-        window.globalCurrentHighlightStatus = isHighlighted;
-        // 在非只读模式下，isReadOnlyView 应该是 false
-        updateContextMenuOptions(isHighlighted, hasNote, false);
-        showContextMenu(event.pageX, event.pageY);
-    });
-}
-
-// 将需要从 history_detail.html 直接调用的函数暴露到全局作用域
-window.initAnnotationSystem = initAnnotationSystem;
-window.addAnnotationListenersToContainer = addAnnotationListenersToContainer;
 
 // 暴露新的通用函数
 window.checkIfTargetIsHighlighted = checkIfTargetIsHighlighted;

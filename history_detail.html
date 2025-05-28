@@ -8,564 +8,8 @@
   <link type="text/css" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsmind/style/jsmind.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
   <link rel="stylesheet" href="css/history_detail.css">
-  <style>
-    /* NEW DOCK STYLES */
-    #bottom-left-dock {
-      position: fixed;
-      bottom: 15px;
-      left: 15px;
-      background-color: rgba(255, 255, 255, 0.95); /* UPDATED for more distinct white background */
-      border: 1px dashed #94a3b8; /* Keep this border, good for white background */
-      color: #334155; /* Keep this text color */
-      padding: 8px 12px;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 500;
-      z-index: 2000;
-      opacity: 0;
-      transition: opacity 0.4s ease-in-out, transform 0.2s ease-out, padding 0.2s ease-out, min-width 0.2s ease-out, height 0.2s ease-out;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.05); /* UPDATED */
-      transform: translateY(10px);
-      min-width: 30px;
-      height: auto;
-    }
+  <link rel="stylesheet" href="css/history_detail_inline_styles.css">
 
-    /* TOC 模式选择器样式 */
-    .toc-mode-selector {
-      display: flex;
-      gap: 5px;
-      margin: 8px 0;
-      padding: 5px;
-      background-color: #f5f7fa;
-      border-radius: 4px;
-      justify-content: center;
-    }
-
-    .toc-mode-btn {
-      padding: 4px 10px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      background-color: #fff;
-      cursor: pointer;
-      font-size: 12px;
-      transition: all 0.2s ease;
-    }
-
-    .toc-mode-btn.active {
-      background-color: #3b82f6;
-      color: white;
-      border-color: #2563eb;
-    }
-
-    .toc-mode-btn:hover:not(.active) {
-      background-color: #f0f4f8;
-    }
-
-    /* 设置对话框中的单选按钮样式 */
-    .radio-container {
-      margin: 10px 0 15px;
-    }
-
-    .radio-group {
-      margin-bottom: 8px;
-      display: flex;
-      align-items: center;
-    }
-
-    .radio-group input[type="radio"] {
-      margin-right: 8px;
-    }
-
-    .radio-group label {
-      cursor: pointer;
-    }
-
-    /* TOC 高亮效果 */
-    .toc-highlight {
-      animation: toc-highlight-flash 2s ease-out;
-    }
-
-    @keyframes toc-highlight-flash {
-      0%, 100% { background-color: transparent; }
-      50% { background-color: rgba(59, 130, 246, 0.2); }
-    }
-
-    /* 转换后的标题样式 */
-    .converted-from-heading {
-      font-weight: 600;
-      margin-top: 1.5em;
-      margin-bottom: 0.75em;
-      color: #333;
-      border-bottom: 1px solid #eee;
-      padding-bottom: 5px;
-    }
-
-    /* TOC 信息提示样式 */
-    .toc-info {
-      padding: 10px;
-      margin: 10px 0;
-      background-color: #f8f9fa;
-      border-left: 3px solid #3b82f6;
-      color: #4b5563;
-      font-style: italic;
-      border-radius: 0 4px 4px 0;
-    }
-
-    #bottom-left-dock.visible {
-      opacity: 1;
-      transform: translateY(0);
-    }
-
-    /* Updated styles for dock-info-stack and its new columns */
-    #dock-info-stack {
-      display: flex;
-      flex-direction: row; /* Columns side-by-side */
-      gap: 2px; /* Further reduced gap between Label column and Value column */
-      align-items: flex-start; /* Align columns at their top */
-    }
-
-    .dock-column {
-      display: flex;
-      flex-direction: column;
-      gap: 2px; /* Gap between lines within a column */
-    }
-
-    .dock-values-column {
-      text-align: right; /* Right-align the values/percentages */
-      min-width: 40px; /* Slightly reduced min-width */
-    }
-    .dock-values-column > div {
-      justify-content: flex-end; /* Ensure content within value divs also aligns right if they are flex */
-    }
-
-    /* Individual stat items, if they need specific styling for clickability */
-    .stat-item-clickable {
-      text-decoration: underline;
-      cursor: pointer;
-    }
-    .stat-item-clickable:hover {
-      color: #1d4ed8;
-    }
-
-    #bottom-left-dock > #dock-info-stack,
-    #bottom-left-dock > a,
-    #bottom-left-dock > #dock-collapsed-progress-display { /* Added new direct child */
-      display: flex;
-      align-items: center;
-    }
-
-    #dock-stats {
-      display: flex;
-      gap: 8px; /* Space between highlight and annotation counts */
-    }
-
-    #bottom-left-dock a {
-      color: #3b82f6; /* Slightly softer blue for links/icons, can be adjusted */
-      text-decoration: none;
-    }
-    #bottom-left-dock a:hover {
-      color: #2563eb; /* Darker blue on hover */
-    }
-
-    #settings-link i.fa-cog, /* Changed ID */
-    #dock-toggle-btn i {
-      font-size: 1.2em;
-      padding: 3px;
-    }
-    #dock-toggle-btn {
-        margin-left: auto; /* Pushes toggle button to the far right */
-        cursor: pointer;
-    }
-
-    /* Style for the standalone progress display in collapsed mode */
-    /* Ensure it's hidden by default when the dock is NOT collapsed */
-    #bottom-left-dock:not(.dock-collapsed) #dock-collapsed-progress-display {
-        display: none;
-    }
-
-    #dock-collapsed-progress-display {
-        /* display: none; */ /* This can be removed if the above :not selector is robust */
-        color: #334155; /* Match updated dock text color */
-        font-weight: 500;
-    }
-
-    /* Collapsed state */
-    #bottom-left-dock.dock-collapsed {
-      padding: 6px 10px; /* Slightly adjust padding for collapsed state */
-      gap: 8px; /* Adjust gap for items in collapsed row */
-      /* min-width to allow content to show */
-    }
-
-    /* Hide these elements when collapsed */
-    #bottom-left-dock.dock-collapsed #dock-info-stack,
-    #bottom-left-dock.dock-collapsed #settings-link {
-      display: none;
-    }
-
-    /* Show and style the specific progress display for collapsed mode */
-    #bottom-left-dock.dock-collapsed #dock-collapsed-progress-display {
-        display: inline; /* Show it */
-    }
-
-    /* This rule is no longer needed as #dock-stats is inside #dock-info-stack which gets hidden */
-    /* #bottom-left-dock.dock-collapsed #dock-stats, */
-
-    /* Ensure these are visible in collapsed state - REVISED */
-    /* #bottom-left-dock.dock-collapsed #dock-reading-progress, */
-    /* #bottom-left-dock.dock-collapsed #settings-link {  */
-      /* display: flex; */
-      /* align-items: center; */
-    /* } */
-
-    /* This rule is no longer needed as #dock-stats is inside #dock-info-stack */
-    /* #bottom-left-dock.dock-collapsed #dock-stats span {
-        text-decoration: underline;
-        cursor: pointer;
-    }
-    #bottom-left-dock.dock-collapsed #dock-stats span:hover {
-        color: #1d4ed8;
-    } */
-
-    #bottom-left-dock.dock-collapsed #dock-toggle-btn {
-      margin-left: auto; /* Ensure toggle button is pushed to the right if other elements are minimal */
-    }
-
-    /* Style for the new sub-blocks, can be adjusted */
-    .sub-block {
-        display: inline; /* Or inline-block if padding/margin is needed and wrap behavior is desired */
-    }
-
-   /* NEW STYLES FOR CENTERING IMAGES AND TABLES from Markdown content */
-   .markdown-body img {
-     display: block; /* Allows margin auto to work for horizontal centering */
-     margin-left: auto;
-     margin-right: auto;
-     max-width: 100%; /* Ensures image is responsive and doesn't overflow container */
-     height: auto;    /* Maintains aspect ratio */
-   }
-
-   .markdown-body table {
-     display: table;  /* Allows margin auto to work for centering while preserving table layout */
-     margin-left: auto;
-     margin-right: auto;
-     /* width: auto; /* Default for display:table, table will size to its content */
-   }
-
-    /* Custom Context Menu Styles (Notion-like) */
-    #custom-context-menu {
-        background-color: #fff; /* White background */
-        border: 1px solid #eee; /* Light border */
-        border-radius: 8px; /* Rounded corners */
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); /* Softer shadow */
-        padding: 6px 0; /* Vertical padding */
-        min-width: 220px; /* Minimum width */
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        font-size: 14px;
-        color: #333; /* Darker text color */
-        z-index: 10000; /* Ensure it's on top */
-    }
-
-    #custom-context-menu ul {
-        list-style: none;
-        padding: 0;
-        margin: 0;
-    }
-
-    #custom-context-menu li {
-        padding: 8px 12px; /* Padding for items */
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        transition: background-color 0.15s ease-in-out;
-    }
-
-    #custom-context-menu li:hover {
-        background-color: #f5f5f5; /* Light gray hover */
-    }
-
-    #custom-context-menu li i.fa { /* Icon styling */
-        margin-right: 10px;
-        color: #555;
-        width: 16px; /* Fixed width for alignment */
-        text-align: center;
-    }
-
-    #custom-context-menu .color-palette {
-        display: flex;
-        align-items: center;
-        margin-left: auto; /* Push color palette to the right */
-        padding-left: 10px;
-    }
-
-    #custom-context-menu .color-option {
-        width: 18px;
-        height: 18px;
-        border-radius: 50%; /* Circular color options */
-        margin-left: 6px;
-        cursor: pointer;
-        border: 1px solid rgba(0,0,0,0.1);
-        transition: transform 0.1s ease-out;
-    }
-    #custom-context-menu .color-option:hover {
-        transform: scale(1.15);
-    }
-
-    /* Specific color styles - ensure these match your JS color names */
-    .color-yellow { background-color: yellow; }
-    .color-pink { background-color: pink; }
-    .color-lightblue { background-color: lightblue; }
-    .color-lightgreen { background-color: lightgreen; }
-    .color-purple { background-color: purple; }
-    .color-orange { background-color: orange; }
-
-    /* Divider style */
-    #custom-context-menu hr.menu-divider {
-        border: none;
-        border-top: 1px solid #eee;
-        margin: 6px 0;
-    }
-
-    /* Add underline and pointer to stats in EXPANDED mode as well */
-    /* This is now handled by .stat-item-clickable on the specific spans */
-    /* #bottom-left-dock:not(.dock-collapsed) #dock-stats span {
-        text-decoration: underline;
-        cursor: pointer;
-    }
-    #bottom-left-dock:not(.dock-collapsed) #dock-stats span:hover {
-        color: #1d4ed8;
-    } */
-
-    /* Annotations Summary Modal CSS */
-    #annotations-summary-modal .modal-content {
-      max-width: 80%;
-      width: 950px;
-      max-height: 85vh;
-      display: flex;
-      flex-direction: column;
-      position: relative;
-    }
-    #annotations-summary-modal .modal-close-btn {
-      position: absolute;
-      top: 12px;
-      right: 18px;
-      font-size: 2em;
-      color: #888;
-      cursor: pointer;
-      z-index: 10;
-      background: none;
-      border: none;
-      line-height: 1;
-      padding: 0;
-      transition: color 0.2s;
-    }
-    #annotations-summary-modal .modal-close-btn:hover {
-      color: #333;
-    }
-    #annotations-summary-modal .table-container {
-      overflow-y: auto;
-      flex-grow: 1;
-      margin-top: 15px;
-      border: 1px solid #e0e0e0; /* Added border for definition */
-    }
-
-    #annotations-summary-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }
-
-    #annotations-summary-table th,
-    #annotations-summary-table td {
-      border: 1px solid #ddd;
-      padding: 10px 8px; /* Adjusted padding */
-      text-align: left;
-      vertical-align: top;
-      word-break: break-word; /* Help with long content */
-    }
-
-    #annotations-summary-table th {
-      background-color: #f7f7f7; /* Lighter background for header */
-      position: sticky;
-      top: 0;
-      z-index: 1;
-      font-weight: 600; /* Bolder header text */
-    }
-
-    #annotations-summary-table .color-swatch {
-      display: inline-block;
-      width: 18px; /* Slightly larger */
-      height: 18px; /* Slightly larger */
-      border: 1px solid #ccc;
-      border-radius: 4px; /* Rounded corners */
-      vertical-align: middle;
-      box-shadow: 0 0 2px rgba(0,0,0,0.1); /* Subtle shadow */
-    }
-
-    #annotations-summary-table .action-btn {
-      padding: 5px 10px; /* Adjusted padding */
-      font-size: 12px;
-      cursor: pointer;
-      border: 1px solid #007bff; /* Blue border */
-      background-color: #fff; /* White background */
-      color: #007bff; /* Blue text */
-      border-radius: 4px;
-      transition: all 0.2s ease;
-    }
-    #annotations-summary-table .action-btn:hover {
-      background-color: #007bff; /* Blue background on hover */
-      color: #fff; /* White text on hover */
-    }
-    #annotations-summary-table .action-btn:disabled {
-      border-color: #ccc;
-      background-color: #f0f0f0;
-      color: #aaa;
-      cursor: not-allowed;
-    }
-
-    .annotations-summary-controls {
-      margin-bottom: 15px;
-      display: flex;
-      gap: 20px;
-      align-items: center;
-      padding: 10px;
-      background-color: #f9f9f9;
-      border-radius: 4px;
-      border: 1px solid #e0e0e0;
-      flex-wrap: wrap;
-    }
-    .annotations-summary-controls label {
-      margin-right: 5px;
-      font-weight: 500;
-    }
-    .annotations-summary-controls select {
-      padding: 6px 8px;
-      border-radius: 4px;
-      border: 1px solid #ccc;
-      background-color: #fff;
-    }
-    .annotations-summary-color-filter {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      margin-left: 10px;
-      flex-wrap: wrap;
-    }
-    .annotations-summary-color-checkbox {
-      display: flex;
-      align-items: center;
-      gap: 2px;
-      margin-right: 6px;
-      cursor: pointer;
-    }
-    .annotations-summary-color-checkbox input[type="checkbox"] {
-      margin: 0 2px 0 0;
-      accent-color: #007bff;
-    }
-    .annotations-summary-color-swatch {
-      width: 16px;
-      height: 16px;
-      border-radius: 4px;
-      border: 1px solid #bbb;
-      display: inline-block;
-      margin-right: 2px;
-    }
-    /* Temporary highlight for jumped-to element */
-    .jump-to-highlight-effect { /* Renamed for clarity */
-      transition: background-color 0.3s ease-in-out, box-shadow 0.3s ease-in-out;
-      background-color: rgba(255, 220, 0, 0.45) !important; /* Softer yellow, more transparent */
-      box-shadow: 0 0 12px rgba(255, 220, 0, 0.6) !important; /* Softer glow */
-      border-radius: 5px !important; /* Smoother radius */
-      outline: 2px solid rgba(255, 200, 0, 0.7); /* Added outline */
-    }
-
-    /* 批注详情模态框增强样式 */
-    #annotations-summary-table td {
-      max-width: 250px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    #annotations-summary-table td:nth-child(4) {
-      cursor: pointer;
-      position: relative;
-    }
-
-    #annotations-summary-table td:nth-child(4):hover {
-      background-color: #f0f0f0;
-    }
-
-    #annotations-summary-table td:nth-child(4)::after {
-      content: "👁️";
-      position: absolute;
-      right: 5px;
-      top: 50%;
-      transform: translateY(-50%);
-      opacity: 0;
-      transition: opacity 0.2s;
-    }
-
-    #annotations-summary-table td:nth-child(4):hover::after {
-      opacity: 0.7;
-    }
-
-    /* 文本片段预览对话框样式 */
-    .full-text-dialog {
-      animation: fadeIn 0.2s ease-out;
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translate(-50%, -48%); }
-      to { opacity: 1; transform: translate(-50%, -50%); }
-    }
-
-    .full-text-dialog button {
-      background-color: #f0f0f0;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      transition: all 0.2s;
-    }
-
-    .full-text-dialog button:hover {
-      background-color: #e0e0e0;
-    }
-
-    /* 颜色筛选区域样式增强 */
-    .annotations-summary-color-filter {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      margin-left: 10px;
-      flex-wrap: wrap;
-      padding: 5px;
-      border: 1px solid #eee;
-      border-radius: 4px;
-      background-color: #fafafa;
-    }
-
-    .annotations-summary-color-checkbox {
-      display: flex;
-      align-items: center;
-      gap: 2px;
-      margin-right: 6px;
-      cursor: pointer;
-      padding: 3px 5px;
-      border-radius: 3px;
-      transition: background-color 0.2s;
-    }
-
-    .annotations-summary-color-checkbox:hover {
-      background-color: #f0f0f0;
-    }
-
-    .annotations-summary-color-checkbox input[type="checkbox"] {
-      margin: 0 2px 0 0;
-      accent-color: #007bff;
-    }
-  </style>
 </head>
 <body>
   <!-- NEW DOCK STRUCTURE -->
@@ -775,11 +219,26 @@
   <script src="js/sub_block_segmenter.js"></script>
   <script src="js/dock_settings_modal.js"></script> <!-- ADDED -->
   <script src="js/annotations_summary_modal.js"></script> <!-- ADDED -->
+  <script src="js/history_detail_scripts.js"></script>
 
   <!-- ===================== -->
   <!-- 页面核心逻辑脚本 -->
   <!-- ===================== -->
   <script>
+    // ---- 一键屏蔽非错误 console.log ----
+    const PRODUCTION_MODE = false; // 设置为 true 来屏蔽 console.log, false 则不屏蔽
+    if (PRODUCTION_MODE) {
+      const originalConsoleLog = console.log;
+      console.log = function() {
+        // 可以选择在这里什么都不做，或者记录到一个备用日志系统
+        // originalConsoleLog.apply(console, arguments); // 如果需要，可以取消注释来保留原始日志
+      };
+    }
+
+    // ========== 新增：防止 showTab 重复渲染的锁 ==========
+    let renderingTab = null;
+    // =====================================================
+
     let isOriginalFirstInChunkCompare = true; // 状态变量：原文是否在左侧
     let docIdForLocalStorage = null; // To store the current document ID for localStorage keys
     window.docIdForLocalStorage = null; // 将变量挂载到 window 对象上，使其成为全局变量
@@ -793,43 +252,80 @@
     function adjustLongHeadingsToParagraphs(parentElement) {
       if (!parentElement) return;
 
-      // Only process headings within elements having 'markdown-body' class
-      const markdownBodies = parentElement.querySelectorAll('.markdown-body');
+      console.log('[adjustLongHeadingsToParagraphs] 开始处理，父元素:', parentElement);
 
-      markdownBodies.forEach(markdownBody => {
-        const headings = markdownBody.querySelectorAll('h1, h2, h3, h4, h5, h6');
-        headings.forEach(heading => {
+      // 创建一个数组来存储所有需要处理的markdown-body元素
+      let markdownBodies = [];
+
+      // 检查父元素本身是否有markdown-body类
+      if (parentElement.classList && parentElement.classList.contains('markdown-body')) {
+        markdownBodies.push(parentElement);
+        console.log('[adjustLongHeadingsToParagraphs] 父元素本身是markdown-body');
+      }
+
+      // 查找父元素内的所有markdown-body元素
+      const childMarkdownBodies = parentElement.querySelectorAll('.markdown-body');
+      childMarkdownBodies.forEach(el => {
+        if (!markdownBodies.includes(el)) { // 避免重复
+          markdownBodies.push(el);
+        }
+      });
+
+      console.log('[adjustLongHeadingsToParagraphs] 找到 markdown-body 元素数量:', markdownBodies.length);
+
+      markdownBodies.forEach((markdownBody, mbIdx) => {
+        const headings = Array.from(markdownBody.querySelectorAll('h1, h2, h3, h4, h5, h6'));
+        console.log(`[adjustLongHeadingsToParagraphs] markdown-body #${mbIdx} 中找到标题元素数量:`, headings.length);
+
+        // 逆序遍历，防止DOM结构变化影响
+        for (let hIdx = headings.length - 1; hIdx >= 0; hIdx--) {
+          const heading = headings[hIdx];
           // Skip the main fileName heading if it's somehow caught by this logic
           if (heading.id === 'fileName') {
-              return;
+              console.log('[adjustLongHeadingsToParagraphs] 跳过 fileName 标题');
+              continue;
           }
+
+          // 补丁：如果没有 id，分配唯一 id
+          if (!heading.id) heading.id = 'auto-hx-' + hIdx;
 
           const textContent = heading.textContent || "";
+          console.log(`[adjustLongHeadingsToParagraphs] 标题 #${hIdx} (${heading.tagName}), ID: ${heading.id}, 文本长度: ${textContent.length}, 文本: "${textContent.substring(0, 50)}${textContent.length > 50 ? '...' : ''}"`);
+
           if (textContent.length > 30) {
-            const p = document.createElement('p');
+            console.log(`[adjustLongHeadingsToParagraphs] 标题 #${hIdx} 文本长度 > 30，准备转换为段落`);
 
-            // Move all child nodes from heading to p
-            while (heading.firstChild) {
-              p.appendChild(heading.firstChild);
-            }
+            try {
+              const p = document.createElement('p');
+              const originalTagName = heading.tagName.toLowerCase(); // 存储原始标签名
 
-            // Copy all attributes from heading to p
-            for (let i = 0; i < heading.attributes.length; i++) {
-              const attr = heading.attributes[i];
-              p.setAttribute(attr.name, attr.value);
-            }
+              // 递归移动所有子节点，彻底保留结构
+              while (heading.firstChild) {
+                p.appendChild(heading.firstChild);
+              }
 
-            // Add a class to indicate this was a converted heading,
-            // in case specific styling is needed later.
-            p.classList.add('converted-from-heading');
+              // Copy all attributes from heading to p
+              for (let i = 0; i < heading.attributes.length; i++) {
+                const attr = heading.attributes[i];
+                p.setAttribute(attr.name, attr.value);
+              }
 
-            // Replace the heading with the new paragraph element in the DOM
-            if (heading.parentNode) {
+              // Add a class to indicate this was a converted heading,
+              // in case specific styling is needed later.
+              p.classList.add('converted-from-heading');
+              p.dataset.originalTag = originalTagName; // 将原始标签名存储到 data-* 属性
+              p.style.fontWeight = 'bold'; // 直接设置字体加粗
+
               heading.parentNode.replaceChild(p, heading);
+              console.log(`[adjustLongHeadingsToParagraphs] 成功将标题 #${hIdx} 转换为段落（递归移动子节点）`);
+            } catch (error) {
+              console.error(`[adjustLongHeadingsToParagraphs] 转换标题 #${hIdx} 时出错:`, error);
             }
           }
-        });
+        }
       });
+
+      console.log('[adjustLongHeadingsToParagraphs] 处理完成');
     }
 
     function debounce(func, delay) {
@@ -967,6 +463,12 @@
         document.getElementById('tabContent').innerHTML = '';
         return;
       }
+
+      // === 新增：如果没有翻译内容，隐藏"仅翻译"和"分块对比"按钮 ===
+      if (!data.translation || data.translation.trim() === "") {
+        document.getElementById('tab-translation').style.display = 'none';
+        document.getElementById('tab-chunk-compare').style.display = 'none';
+      }
       document.getElementById('fileName').textContent = data.name;
       document.getElementById('fileMeta').innerHTML = `时间: ${new Date(data.time).toLocaleString()} &nbsp; | &nbsp; 图片数: ${data.images ? data.images.length : 0}`;
 
@@ -1017,12 +519,26 @@
       if (docIdForLocalStorage) {
         const savedTabKey = `activeTab_${docIdForLocalStorage}`;
         const savedTab = localStorage.getItem(savedTabKey);
-        if (savedTab && ['ocr', 'translation', 'chunk-compare'].includes(savedTab)) {
+        if (
+          savedTab &&
+          ['ocr', 'translation', 'chunk-compare'].includes(savedTab) &&
+          !(savedTab !== 'ocr' && (!data.translation || data.translation.trim() === ""))
+        ) {
           initialTab = savedTab;
-        } else if (data.ocrChunks && data.ocrChunks.length > 0 && data.translatedChunks && data.translatedChunks.length > 0 && data.ocrChunks.length === data.translatedChunks.length) {
-           initialTab = 'chunk-compare';
+        } else if (
+          data.ocrChunks && data.ocrChunks.length > 0 &&
+          data.translatedChunks && data.translatedChunks.length > 0 &&
+          data.ocrChunks.length === data.translatedChunks.length &&
+          data.translation && data.translation.trim() !== ""
+        ) {
+          initialTab = 'chunk-compare';
         }
-      } else if (data.ocrChunks && data.ocrChunks.length > 0 && data.translatedChunks && data.translatedChunks.length > 0 && data.ocrChunks.length === data.translatedChunks.length) {
+      } else if (
+        data.ocrChunks && data.ocrChunks.length > 0 &&
+        data.translatedChunks && data.translatedChunks.length > 0 &&
+        data.ocrChunks.length === data.translatedChunks.length &&
+        data.translation && data.translation.trim() !== ""
+      ) {
         initialTab = 'chunk-compare';
       }
 
@@ -1096,18 +612,42 @@
      * @param {string} tab - 要显示的标签页标识符 ('ocr', 'translation', or 'chunk-compare')。
      */
     function showTab(tab) {
-      currentVisibleTabId = tab; // Update global current tab ID
-      window.currentVisibleTabId = tab; // 同时更新挂载到 window 对象上的变量
-      window.currentBlockTokensForCopy = window.currentBlockTokensForCopy || {}; // Initialize if not exists
-
-      // 根据 tab 参数立即设置全局内容标识符
+      // === 新增：没有翻译内容时禁止切换到翻译和对比页 ===
+      if ((tab === 'translation' || tab === 'chunk-compare') && (!data || !data.translation || data.translation.trim() === "")) {
+        alert('没有翻译内容，无法显示该页面');
+        return;
+      }
+      // ========== 保证内容标识符始终正确 ==========
       if (tab === 'ocr') {
         window.globalCurrentContentIdentifier = 'ocr';
       } else if (tab === 'translation') {
         window.globalCurrentContentIdentifier = 'translation';
       } else {
-        window.globalCurrentContentIdentifier = ''; // 例如分块对比或其他标签页
+        window.globalCurrentContentIdentifier = '';
       }
+      // ========== 防抖锁：防止同一 tab 重复渲染 ==========
+      if (renderingTab === tab) {
+        console.log(`[showTab] Tab ${tab} 正在渲染中，跳过重复渲染`);
+        return;
+      }
+      renderingTab = tab;
+      // ================================================
+      // 性能测试断点 - 总渲染
+      console.time('[性能] showTab_总渲染');
+      currentVisibleTabId = tab; // Update global current tab ID
+      window.currentVisibleTabId = tab; // 同时更新挂载到 window 对象上的变量
+      window.currentBlockTokensForCopy = window.currentBlockTokensForCopy || {}; // Initialize if not exists
+
+      // ========== 新增：用局部变量保存内容标识符 ==========
+      let contentIdentifier = '';
+      if (tab === 'ocr') {
+        contentIdentifier = 'ocr';
+      } else if (tab === 'translation') {
+        contentIdentifier = 'translation';
+      }
+      window.globalCurrentContentIdentifier = contentIdentifier;
+      console.log('[showTab] 设置 window.globalCurrentContentIdentifier =', contentIdentifier);
+      // ==================================================
 
       if (docIdForLocalStorage) {
         const activeTabKey = `activeTab_${docIdForLocalStorage}`;
@@ -1139,20 +679,14 @@
         document.getElementById('tab-ocr').classList.add('active');
         contentContainerId = 'ocr-content-wrapper';
         let ocrText = data.ocr || '';
-        const ocrLexerTokens = marked.lexer(ocrText);
-        window.currentBlockTokensForCopy['ocr'] = ocrLexerTokens.filter(token => significantTokenTypes.includes(token.type));
-        const ocrCustomRenderer = createCustomMarkdownRenderer(data.annotations, 'ocr', MarkdownProcessor.renderWithKatexFailback); // MODIFIED
-        const ocrContentHTML = MarkdownProcessor.renderWithKatexFailback(MarkdownProcessor.safeMarkdown(ocrText, data.images), ocrCustomRenderer); // MODIFIED
-        html = `<h3>OCR内容</h3><div id="${contentContainerId}" class="markdown-body content-wrapper">${ocrContentHTML}</div>`;
+        // 性能测试断点 - OCR渲染
+        console.time('[性能] OCR分批渲染');
+        html = `<h3>OCR内容</h3><div id="${contentContainerId}" class="markdown-body content-wrapper"></div>`;
       } else if(tab === 'translation') {
         document.getElementById('tab-translation').classList.add('active');
         contentContainerId = 'translation-content-wrapper';
-        let transText = data.translation || '';
-        const transLexerTokens = marked.lexer(transText);
-        window.currentBlockTokensForCopy['translation'] = transLexerTokens.filter(token => significantTokenTypes.includes(token.type));
-        const translationCustomRenderer = createCustomMarkdownRenderer(data.annotations, 'translation', MarkdownProcessor.renderWithKatexFailback); // MODIFIED
-        const translationContentHTML = MarkdownProcessor.renderWithKatexFailback(MarkdownProcessor.safeMarkdown(transText, data.images), translationCustomRenderer); // MODIFIED
-        html = `<h3>翻译内容</h3><div id="${contentContainerId}" class="markdown-body content-wrapper">${translationContentHTML}</div>`;
+        html = `<h3>翻译内容</h3><div id="${contentContainerId}" class="markdown-body content-wrapper"></div>`;
+        console.time('[性能] 翻译分批渲染');
       } else if (tab === 'chunk-compare') {
         // window.globalCurrentContentIdentifier = ''; // 已在函数开头正确设置
         document.getElementById('tab-chunk-compare').classList.add('active');
@@ -1336,46 +870,6 @@
               }
               applyRatioToAll();
 
-              // 以下是旧的拖动实现，已被新的实现替代，移除以避免冲突
-              /*
-              let dragging = false;
-              let startX = 0;
-              let startRatio = ratio;
-              document.querySelectorAll('.splitter').forEach(splitter => {
-                splitter.onmousedown = function(e) {
-                  dragging = true;
-                  startX = e.clientX;
-                  startRatio = ratio;
-                  splitter.classList.add('active');
-                  // 使用CSS类而不是直接设置样式
-                  document.body.classList.add('dragging-cursor');
-                  e.preventDefault();
-                };
-              });
-
-              document.addEventListener('mousemove', function(e) {
-                if (!dragging) return;
-                const flex = document.querySelector('.align-flex');
-                if (!flex) return;
-                const rect = flex.getBoundingClientRect();
-                let dx = e.clientX - startX;
-                let newRatio = startRatio + dx / rect.width;
-                newRatio = Math.max(0.3, Math.min(0.7, newRatio));
-                window.chunkCompareRatio = newRatio;
-                ratio = newRatio;
-                applyRatioToAll();
-              });
-
-              document.addEventListener('mouseup', function() {
-                if (dragging) {
-                  dragging = false;
-                  // 使用CSS类而不是直接设置样式
-                  document.body.classList.remove('dragging-cursor');
-                  document.querySelectorAll('.splitter').forEach(s => s.classList.remove('active'));
-                }
-              });
-              */
-
               // 重新绑定分块对比工具栏按钮事件 - 使用CSS类管理显示模式
               document.querySelectorAll('.block-mode-btn').forEach(btn => {
                 btn.onclick = function() {
@@ -1498,11 +992,6 @@
                   // 使用CSS类而不是直接设置样式
                   document.body.classList.remove('dragging-cursor');
 
-                  // 不再需要调用applyRatioToAll，因为在mousemove中已经应用了比例
-                  // if (typeof window.chunkCompareRatio === 'number') {
-                  //   applyRatioToAll();
-                  // }
-
                   // 持久化当前的比例设置到localStorage
                   if (docIdForLocalStorage && typeof window.chunkCompareRatio === 'number') {
                     localStorage.setItem(`chunkCompareRatio_${docIdForLocalStorage}`, window.chunkCompareRatio.toString());
@@ -1604,17 +1093,167 @@
         }
       }
       document.getElementById('tabContent').innerHTML = html;
+      // 分批渲染逻辑（仅对 OCR 和翻译标签页生效）
+      if(tab === 'ocr' || tab === 'translation') {
+        const contentText = tab === 'ocr' ? (data.ocr || '') : (data.translation || '');
+        const contentContainer = document.getElementById(contentContainerId);
+        const batchSize = 30; // 每批渲染的段落数，可调整
+        const tokens = marked.lexer(contentText).filter(token => ['paragraph','heading','code','table','blockquote','list','html','hr'].includes(token.type));
+        window.currentBlockTokensForCopy[tab] = tokens;
+        const customRenderer = createCustomMarkdownRenderer(data.annotations, tab, MarkdownProcessor.renderWithKatexFailback);
+
+        // Define segmentInBatches here, so it's in scope for renderBatch's callback
+        function segmentInBatches(containerElement, batchSize = 10, delay = 50, onDone) {
+            const blocks = Array.from(containerElement.children).filter(node => node.nodeType === Node.ELEMENT_NODE);
+            let i = 0;
+            function runBatch() {
+                const end = Math.min(i + batchSize, blocks.length);
+                for (; i < end; i++) {
+                    const el = blocks[i];
+                    el.dataset.blockIndex = String(i);
+                    if (window.SubBlockSegmenter && typeof window.SubBlockSegmenter.segment === 'function') {
+                        window.SubBlockSegmenter.segment(el, i);
+                    } else {
+                        console.error("SubBlockSegmenter.segment is not available.");
+                    }
+                }
+                if (i < blocks.length) {
+                    setTimeout(runBatch, delay);
+                } else {
+                    // 所有父块的子块分割完成
+                    onDone && onDone();
+                }
+            }
+            runBatch();
+        }
+
+        function renderBatch(startIdx, onDoneAllBatchesCallback) { // Added onDoneAllBatchesCallback parameter
+          const fragment = document.createDocumentFragment();
+          for(let i=startIdx;i<Math.min(tokens.length, startIdx+batchSize);i++){
+            const htmlStr = MarkdownProcessor.renderWithKatexFailback(MarkdownProcessor.safeMarkdown(tokens[i].raw || '', data.images), customRenderer);
+            const wrap = document.createElement('div');
+            wrap.innerHTML = htmlStr;
+            while(wrap.firstChild) fragment.appendChild(wrap.firstChild);
+          }
+          contentContainer.appendChild(fragment);
+          if(startIdx+batchSize<tokens.length) {
+            setTimeout(()=>renderBatch(startIdx+batchSize, onDoneAllBatchesCallback),0); // Pass callback along
+          } else {
+            // 所有批次渲染完成
+            if(tab==='ocr') console.timeEnd('[性能] OCR分批渲染');
+            if(tab==='translation') console.timeEnd('[性能] 翻译分批渲染');
+
+            // Use requestAnimationFrame to allow browser to paint/layout before further DOM manipulation
+            requestAnimationFrame(() => {
+              console.log(`[showTab - ${tab}] RAF triggered after all batches rendered.`);
+              const currentTabContentWrapper = document.getElementById(contentContainerId);
+              if (currentTabContentWrapper) {
+                  adjustLongHeadingsToParagraphs(currentTabContentWrapper);
+              }
+
+              // Now, call segmentInBatches on the fully rendered content
+              activeContentElement = document.getElementById(contentContainerId); // Re-affirm activeContentElement
+              if (activeContentElement) {
+                segmentInBatches(activeContentElement, 10, 50, () => {
+                    // This is the onDone callback for segmentInBatches
+                    // All segmentation is complete, now apply annotations and listeners
+                    if (data && data.annotations && typeof window.applyBlockAnnotations === 'function') {
+                        window.applyBlockAnnotations(activeContentElement, data.annotations, contentIdentifier);
+                    }
+                    // Finally, update Dock stats and TOC as content and structure are finalized
+                    if (window.DockLogic && typeof window.DockLogic.updateStats === 'function') {
+                      console.log(`[showTab - ${tab}] OCR/Translation: segmentInBatches done, forcing Dock stats update.`);
+                      window.DockLogic.updateStats(window.data, currentVisibleTabId);
+                    }
+                    if (typeof window.refreshTocList === 'function') {
+                      console.log(`[showTab - ${tab}] OCR/Translation: segmentInBatches done, forcing TOC refresh.`);
+                      window.refreshTocList();
+                    }
+                    // ========== 渲染完成，解锁 ==========='
+                    renderingTab = null;
+                    // ====================================
+                    // ========== 内容加载完成 =============
+                    window.contentReady = true;
+                    console.log('[DEBUG] window.contentReady = true (after OCR/Translation segmentInBatches)');
+                    // ====================================
+                });
+              } else {
+                // ========== 渲染完成，解锁 ==========='
+                renderingTab = null;
+                // ====================================
+                // ========== 内容加载完成 =============
+                window.contentReady = true;
+                console.log('[DEBUG] window.contentReady = true (after OCR/Translation segmentInBatches, no activeContentElement)');
+                // ====================================
+              }
+            }); // End of requestAnimationFrame
+          }
+        }
+
+        // Start rendering batches and provide a callback for when all are done
+        renderBatch(0, () => {
+          // This callback is executed after all batches for OCR/Translation are rendered
+          console.log(`[showTab - ${tab}] All batches rendered. Proceeding with DOM processing.`);
+
+          // Use requestAnimationFrame to allow browser to paint/layout before further DOM manipulation
+          requestAnimationFrame(() => {
+            console.log(`[showTab - ${tab}] RAF triggered after all batches rendered.`);
+            const currentTabContentWrapper = document.getElementById(contentContainerId);
+            if (currentTabContentWrapper) {
+                adjustLongHeadingsToParagraphs(currentTabContentWrapper);
+            }
+
+            // Now, call segmentInBatches on the fully rendered content
+            activeContentElement = document.getElementById(contentContainerId); // Re-affirm activeContentElement
+            if (activeContentElement) {
+              segmentInBatches(activeContentElement, 10, 50, () => {
+                  // This is the onDone callback for segmentInBatches
+                  // All segmentation is complete, now apply annotations and listeners
+                  if (data && data.annotations && typeof window.applyBlockAnnotations === 'function') {
+                      window.applyBlockAnnotations(activeContentElement, data.annotations, contentIdentifier);
+                  }
+                  // Finally, update Dock stats and TOC as content and structure are finalized
+                  if (window.DockLogic && typeof window.DockLogic.updateStats === 'function') {
+                    console.log(`[showTab - ${tab}] OCR/Translation: segmentInBatches done, forcing Dock stats update.`);
+                    window.DockLogic.updateStats(window.data, currentVisibleTabId);
+                  }
+                  if (typeof window.refreshTocList === 'function') {
+                    console.log(`[showTab - ${tab}] OCR/Translation: segmentInBatches done, forcing TOC refresh.`);
+                    window.refreshTocList();
+                  }
+                  // ========== 渲染完成，解锁 ==========='
+                  renderingTab = null;
+                  // ====================================
+                  // ========== 内容加载完成 =============
+                  window.contentReady = true;
+                  console.log('[DEBUG] window.contentReady = true (after OCR/Translation segmentInBatches)');
+                  // ====================================
+              });
+            } else {
+              // ========== 渲染完成，解锁 ==========='
+              renderingTab = null;
+              // ====================================
+              // ========== 内容加载完成 =============
+              window.contentReady = true;
+              console.log('[DEBUG] window.contentReady = true (after OCR/Translation segmentInBatches, no activeContentElement)');
+              // ====================================
+            }
+          }); // End of requestAnimationFrame
+        });
+      }
 
       // NEW: Adjust long headings. This should be called AFTER innerHTML is set
       // and BEFORE refreshTocList is called.
-      const tabContentElement = document.getElementById('tabContent');
-      if (tabContentElement) {
-          adjustLongHeadingsToParagraphs(tabContentElement);
-      }
+      // MOVED: adjustLongHeadingsToParagraphs is now called after renderBatch completes for OCR/Translation
+      // const tabContentElement = document.getElementById('tabContent');
+      // if (tabContentElement) {
+      //     adjustLongHeadingsToParagraphs(tabContentElement);
+      // }
 
-      if (typeof window.refreshTocList === 'function') {
-        window.refreshTocList(); // 更新TOC
-      }
+      // MOVED: refreshTocList is now called later for OCR/Translation
+      // if (typeof window.refreshTocList === 'function') {
+      //   window.refreshTocList(); // 更新TOC
+      // }
 
       // Update reading progress when tab changes and content is rendered - CALLING DOCK_LOGIC
       if (window.DockLogic && typeof window.DockLogic.forceUpdateReadingProgress === 'function') {
@@ -1638,82 +1277,128 @@
       }
 
       // 应用高亮和批注
+      // MOVED: The logic for applying annotations and adding listeners for OCR/Translation
+      // is now inside the callback chain starting from renderBatch a few lines above.
+      /*
       if ((tab === 'ocr' || tab === 'translation') && contentContainerId) {
         activeContentElement = document.getElementById(contentContainerId);
         if (activeContentElement) {
-            const directChildNodes = Array.from(activeContentElement.children);
-            const blockElements = directChildNodes.filter(node =>
-                node.nodeType === Node.ELEMENT_NODE && true
-            );
-            blockElements.forEach((element, index) => {
-                element.dataset.blockIndex = String(index);
-                // MODIFIED to use SubBlockSegmenter
-                if (typeof window.SubBlockSegmenter !== 'undefined' && typeof window.SubBlockSegmenter.segment === 'function') {
-                    window.SubBlockSegmenter.segment(element, index);
-                } else {
-                    console.error("SubBlockSegmenter.segment is not available.");
+            // 分批异步分割子块，避免一次性阻塞
+            function segmentInBatches(containerElement, batchSize = 10, delay = 50, onDone) {
+                const blocks = Array.from(containerElement.children).filter(node => node.nodeType === Node.ELEMENT_NODE);
+                let i = 0;
+                function runBatch() {
+                    const end = Math.min(i + batchSize, blocks.length);
+                    for (; i < end; i++) {
+                        const el = blocks[i];
+                        el.dataset.blockIndex = String(i);
+                        if (window.SubBlockSegmenter && typeof window.SubBlockSegmenter.segment === 'function') {
+                            window.SubBlockSegmenter.segment(el, i);
+                        } else {
+                            console.error("SubBlockSegmenter.segment is not available.");
+                        }
+                    }
+                    if (i < blocks.length) {
+                        setTimeout(runBatch, delay);
+                    } else {
+                        // 所有父块的子块分割完成
+                        onDone && onDone();
+                    }
                 }
-            });
-
-            if (data && data.annotations) {
-                if (typeof window.applyBlockAnnotations === 'function') {
-                    console.log(`[showTab] 为 ${window.globalCurrentContentIdentifier} 调用块级批注应用函数 (操作对象将是子块)`);
-                    window.applyBlockAnnotations(activeContentElement, data.annotations, window.globalCurrentContentIdentifier);
-                } else {
-                    console.warn("[showTab] 块级/子块批注应用函数 (applyBlockAnnotations) 未定义。请检查 js/annotation_highlighter.js");
-                }
+                runBatch();
             }
-        }
-        if (typeof window.addAnnotationListenersToContainer === 'function') {
-            // 为 OCR 和 Translation 视图传递当前的全局内容标识符
-            window.addAnnotationListenersToContainer(contentContainerId, window.globalCurrentContentIdentifier);
-        } else {
-            console.error("addAnnotationListenersToContainer 未定义。请检查 js/annotation_logic.js");
+
+            segmentInBatches(activeContentElement, 10, 50, () => {
+                // 所有分割完成后，应用批注和监听器
+                if (data && data.annotations && typeof window.applyBlockAnnotations === 'function') {
+                    window.applyBlockAnnotations(activeContentElement, data.annotations, window.globalCurrentContentIdentifier);
+                }
+                // **** 新增：在所有子块分割和批注应用完成后，再次更新Dock统计 ****
+                if (window.DockLogic && typeof window.DockLogic.updateStats === 'function') {
+                  console.log(`[showTab - ${tab}] OCR/Translation content and annotations processed, forcing Dock stats update.`);
+                  window.DockLogic.updateStats(window.data, currentVisibleTabId);
+                }
+                // TOC refresh will be handled later
+            });
         }
       } else if (tab === 'chunk-compare') {
+      */
+      // The chunk-compare logic for annotations and Dock stats remains, as it has its own processing path.
+      // We only moved the OCR/Translation specific part.
+      if (tab === 'chunk-compare') { // This is the original start of the else if block
          // 对于分块对比视图，为每个原文和译文块单独处理
          setTimeout(() => { //确保DOM更新完毕
             const ocrContentAreas = document.querySelectorAll('.chunk-compare-container .align-block-ocr .align-content.markdown-body');
             const transContentAreas = document.querySelectorAll('.chunk-compare-container .align-block-trans .align-content.markdown-body');
+            let areasProcessed = 0;
+            const totalAreasToProcess = ocrContentAreas.length + transContentAreas.length;
 
-            function processContentArea(area, isOcrArea) {
+            function singleAreaProcessed() {
+                areasProcessed++;
+                if (areasProcessed === totalAreasToProcess) {
+                    // 所有分块对比区域处理完毕后更新Dock统计和TOC
+                    if (window.DockLogic && typeof window.DockLogic.updateStats === 'function') {
+                        console.log(`[showTab - ${tab}] Chunk-compare: all areas processed, forcing Dock stats update.`);
+                        window.DockLogic.updateStats(window.data, currentVisibleTabId);
+                    }
+                    if (typeof window.refreshTocList === 'function') {
+                        console.log(`[showTab - ${tab}] Chunk-compare: all areas processed, forcing TOC refresh.`);
+                        window.refreshTocList();
+                    }
+                }
+            }
+
+            function processContentAreaAsync(area, isOcrArea, callback) { // Renamed for clarity
                 if (!area.id) {
                     area.id = 'chunk-content-' + _page_generateUUID();
                 }
                 const effectiveContentIdentifier = isOriginalFirstInChunkCompare ? (isOcrArea ? 'ocr' : 'translation') : (isOcrArea ? 'translation' : 'ocr');
+                const blockElements = Array.from(area.children).filter(node => node.nodeType === Node.ELEMENT_NODE);
 
-                // 1. 分割子块
-                const directChildNodes = Array.from(area.children);
-                const blockElements = directChildNodes.filter(node => node.nodeType === Node.ELEMENT_NODE);
-                blockElements.forEach((element, index) => {
-                    element.dataset.blockIndex = String(index); // 为每个块内元素设置独立的 blockIndex
-                    // MODIFIED to use SubBlockSegmenter
-                    if (typeof window.SubBlockSegmenter !== 'undefined' && typeof window.SubBlockSegmenter.segment === 'function') {
-                        window.SubBlockSegmenter.segment(element, index);
-                    } else {
-                        console.error("SubBlockSegmenter.segment is not available for chunk processing.");
+                let i = 0;
+                const batchSize = 5;
+                function runChunkSubBatch() {
+                    const end = Math.min(i + batchSize, blockElements.length);
+                    for (; i < end; i++) {
+                        const element = blockElements[i];
+                        element.dataset.blockIndex = String(i);
+                        if (typeof window.SubBlockSegmenter !== 'undefined' && typeof window.SubBlockSegmenter.segment === 'function') {
+                            window.SubBlockSegmenter.segment(element, i);
+                        } else {
+                            console.error("SubBlockSegmenter.segment is not available for chunk processing.");
+                        }
                     }
-                });
-
-                // 2. 应用批注
-                if (data && data.annotations && typeof window.applyBlockAnnotations === 'function') {
-                    // console.log(`[showTab ChunkCompare] 为 ${area.id} (类型: ${effectiveContentIdentifier}) 应用批注`);
-                    // MODIFIED: Pass empty array for annotations in chunk-compare mode
-                    const annotationsToApply = (currentVisibleTabId === 'chunk-compare') ? [] : data.annotations;
-                    window.applyBlockAnnotations(area, annotationsToApply, effectiveContentIdentifier);
+                    if (i < blockElements.length) {
+                        setTimeout(runChunkSubBatch, 20);
+                    } else {
+                        if (data && data.annotations && typeof window.applyBlockAnnotations === 'function') {
+                            const annotationsToApply = (currentVisibleTabId === 'chunk-compare') ? [] : data.annotations;
+                            window.applyBlockAnnotations(area, annotationsToApply, effectiveContentIdentifier);
+                        }
+                        callback(); // Signal completion for this area
+                    }
                 }
-
-                // 3. 添加监听器
-                if (typeof window.addAnnotationListenersToContainer === 'function') {
-                    // console.log(`[showTab ChunkCompare] 为 ${area.id} (类型: ${effectiveContentIdentifier}) 添加监听器`);
-                    window.addAnnotationListenersToContainer(area.id, effectiveContentIdentifier);
-                }
+                runChunkSubBatch();
             }
 
-            ocrContentAreas.forEach(area => processContentArea(area, true));
-            transContentAreas.forEach(area => processContentArea(area, false));
-
+            if (totalAreasToProcess === 0) { // Handle case with no content areas
+                 if (window.DockLogic && typeof window.DockLogic.updateStats === 'function') {
+                    console.log(`[showTab - ${tab}] Chunk-compare has no content areas, forcing Dock stats update.`);
+                    window.DockLogic.updateStats(window.data, currentVisibleTabId);
+                }
+                // TOC refresh will be handled later -> Actually, should be called here too if no areas.
+                if (typeof window.refreshTocList === 'function') {
+                    console.log(`[showTab - ${tab}] Chunk-compare has no content areas, forcing TOC refresh.`);
+                    window.refreshTocList();
+                }
+            } else {
+                ocrContentAreas.forEach(area => processContentAreaAsync(area, true, singleAreaProcessed));
+                transContentAreas.forEach(area => processContentAreaAsync(area, false, singleAreaProcessed));
+            }
          }, 0);
+         // ========== 渲染完成，解锁 ===========
+         renderingTab = null;
+         // ====================================
       }
 
       // Attempt to restore scroll position for the current tab
@@ -1737,10 +1422,8 @@
       if (window.DockLogic && typeof window.DockLogic.forceUpdateReadingProgress === 'function') {
         window.DockLogic.forceUpdateReadingProgress();
       }
-      // updateAllDockStats(); // Update all dock stats after tab content is fully processed - CALLING DOCK_LOGIC
-      if (window.DockLogic && typeof window.DockLogic.updateStats === 'function') {
-        window.DockLogic.updateStats(window.data, currentVisibleTabId);
-      }
+      // 性能测试断点 - 总渲染结束
+      console.timeEnd('[性能] showTab_总渲染');
     }
     // 绑定tab按钮点击事件
     document.getElementById('tab-ocr').onclick = function() { showTab('ocr'); };
@@ -1751,124 +1434,26 @@
     // 页面加载后渲染详情
     renderDetail();
 
-    /**
-     * 将批注应用到指定的内容容器上。
-     * @param {HTMLElement} containerElement - 内容的DOM容器 (例如包含OCR或翻译文本的div)。
-     * @param {Array<Object>} annotations - 当前文档的批注对象数组。
-     * @param {string} contentIdentifier - 内容类型标识符 (例如 'ocr', 'translation')。
-     */
-    // MOVED to js/annotation_logic.js: function applyAnnotationsToContent(...) {...}
-
-    // ==========================
-    // 自定义上下文菜单逻辑 -- MOVED to js/annotation_logic.js
-    // ==========================
-    // const contextMenu = document.getElementById('custom-context-menu'); // Will be handled by annotation_logic.js
-
-    // MOVED to js/annotation_logic.js: function fuzzyMatch(...) {...}
-    // MOVED to js/annotation_logic.js: function checkIfTextIsHighlighted(...) {...}
-    // MOVED to js/annotation_logic.js: function checkIfTextHasNote(...) {...}
-    // MOVED to js/annotation_logic.js: function updateContextMenuOptions(...) {...}
-    // MOVED to js/annotation_logic.js: function showContextMenu(...) {...}
-    // MOVED to js/annotation_logic.js: function hideContextMenu(...) {...}
-    // MOVED to js/annotation_logic.js: function addContextMenuListener(...) {...} // Renamed to addAnnotationListenersToContainer
-    // MOVED to js/annotation_logic.js: contextMenu.addEventListener('click', async (event) => {...});
-    // MOVED to js/annotation_logic.js: document.addEventListener('click', (event) => {...});
-    // MOVED to js/annotation_logic.js: function _page_generateUUID() {...}
-
-    /**
-     * @namespace TocFeature
-     * @description 管理页面右侧浮动的目录 (Table of Contents) 功能。
-     * 包括TOC按钮的点击事件、TOC悬浮窗的显示/隐藏、
-     * 以及动态生成TOC列表项。
-     */
-    // MOVED to js/toc_logic.js: (function TocFeature(){...})();
-
-    /**
-     * 监听 localStorage 的 `storage` 事件。
-     * 如果 `paperBurnerSettings` 发生变化（通常在主页面修改设置导致），
-     * 尝试更新聊天机器人 (Chatbot) 的配置或UI（如果相关模块已加载并可用）。
-     * @param {StorageEvent} e - storage 事件对象。
-     */
-    window.addEventListener('storage', function(e) {
-      if (e.key === 'paperBurnerSettings') {
-        // 重新加载设置并刷新 chatbot 配置
-        if (window.ChatbotCore && typeof window.ChatbotCore.getChatbotConfig === 'function') {
-          // 你可以强制刷新 Chatbot UI 或重载配置
-          window.ChatbotUI && window.ChatbotUI.updateChatbotUI && window.ChatbotUI.updateChatbotUI();
+    // 自动恢复 globalCurrentContentIdentifier
+    (function restoreContentIdentifierFromLocalStorage() {
+      try {
+        // 优先用 docIdForLocalStorage，如果没有则尝试从URL获取
+        let docId = window.docIdForLocalStorage;
+        if (!docId && typeof getQueryParam === 'function') {
+          docId = getQueryParam('id');
         }
+        if (!docId) return;
+        const savedTabKey = `activeTab_${docId}`;
+        const savedTab = localStorage.getItem(savedTabKey);
+        if (savedTab === 'ocr' || savedTab === 'translation') {
+          window.globalCurrentContentIdentifier = savedTab;
+          console.log('[auto-restore] 恢复 globalCurrentContentIdentifier =', savedTab);
+        }
+      } catch (e) {
+        // 忽略
       }
-    });
+    })();
 
-    /**
-     * 将 exact 文本转为模糊正则，允许空格、换行模糊匹配，大小写不敏感
-     * @param {string} exact
-     * @returns {RegExp}
-     */
-    function escapeRegExp(string) {
-      // 更安全地转义所有正则特殊字符
-      return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    }
-    function fuzzyRegFromExact(exact) {
-      // 先转义所有正则特殊字符
-      let pattern = escapeRegExp(exact);
-      // 将所有空白替换为 \s+，允许跨行、多个空格
-      pattern = pattern.replace(/\s+/g, '\\s+');
-      // 可选：忽略前后空白
-      pattern = '\\s*' + pattern + '\\s*';
-      return new RegExp(pattern, 'gi');
-    }
-
-    // function highlightTextWithAnnotations(text, annotations, contentIdentifier) { // Obsolete due to block based.
-    //   console.warn('[highlightTextWithAnnotations] This function is part of the old text-based highlighting system and should ideally be phased out.');
-    //   if (!annotations || !Array.isArray(annotations) || !text) return text;
-    //   // 只处理当前内容类型的高亮
-    //   const relevant = annotations.filter(
-    //     ann =>
-    //       ann.targetType === contentIdentifier &&
-    //       ann.target &&
-    //       Array.isArray(ann.target.selector) &&
-    //       ann.target.selector[0] &&
-    //       ann.target.selector[0].exact
-    //   );
-    //   if (relevant.length === 0) return text;
-
-    //   // 按照 exact 长度降序排序，避免嵌套覆盖
-    //   relevant.sort((a, b) => (b.target.selector[0].exact.length - a.target.selector[0].exact.length));
-
-    //   let result = text;
-    //   relevant.forEach(ann => {
-    //     const color = ann.highlightColor || 'yellow';
-    //     const note = ann.body && ann.body.length > 0 && ann.body[0].value ? ann.body[0].value : '';
-    //     const exact = ann.target.selector[0].exact;
-    //     const reg = fuzzyRegFromExact(exact);
-    //     result = result.replace(
-    //       reg,
-    //       `<mark class="annotation-highlight" style="background:${color}" title="${note.replace(/"/g, '&quot;')}">$&</mark>`
-    //     );
-    //   });
-    //   return result;
-    // }
-
-    /**
-     * 从数据库中移除指定文本的高亮批注
-     * @param {string} selectedText - 要取消高亮的文本
-     * @param {string} docId - 文档ID
-     */
-    // MOVED to js/annotation_logic.js: async function removeHighlightFromText(selectedText, docId) {...}
-
-    /**
-     * 为现有的高亮文本添加批注
-     * @param {string} selectedText - 选中的文本
-     * @param {string} noteText - 批注内容
-     * @param {string} docId - 文档ID
-     */
-    // MOVED to js/annotation_logic.js: async function addNoteToExistingHighlight(selectedText, noteText, docId) {...}
-
-    // Dock Settings Modal Logic
-    // MOVED to js/dock_settings_modal.js
-
-    // Annotations/Highlights Summary Modal Logic
-    // MOVED to js/annotations_summary_modal.js
   </script>
 
 </body>

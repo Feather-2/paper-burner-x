@@ -47,28 +47,46 @@ function parseTableOfContents(tocInput) {
  *                          ]
  */
 function segmentDocumentByToC(fullDocumentText, structuredToC) {
-    // TODO: 实现基于 structuredToC 将 fullDocumentText 分割成章节的逻辑。
-    // 然后，对于每个章节，将其 rawSectionText 分割成 naturalSegments。
-    // 这可能需要使用目录中的标记或文本中的标题检测。
-    console.log('[segmentation-strategy] 正在按目录分割文档。全文长度:', fullDocumentText.length);
-    // 占位符实现
+    // New: 基于 Markdown 标题解析分段
+    const headingRegex = /^#{1,6}\s+(.+)$/gm;
+    const matches = [];
+    let m;
+    while ((m = headingRegex.exec(fullDocumentText)) !== null) {
+        matches.push({
+            title: m[1].trim(),
+            level: m[0].split(' ')[0].length, // '#' 数量
+            index: m.index
+        });
+    }
+    // 若无任何标题，退回全文一段
+    if (matches.length === 0) {
+        const all = fullDocumentText;
+        return [{ tocTitle: "全文", tocLevel: 1, rawSectionText: all,
+            naturalSegments: splitIntoNaturalParagraphs(all) }];
+    }
     const sections = [];
-    // 模拟查找目录条目及其文本
-    if (structuredToC && structuredToC.children && structuredToC.children.length > 0) {
-        const firstSectionMeta = structuredToC.children[0];
-        sections.push({
-            tocTitle: firstSectionMeta.title || "示例章节",
-            tocLevel: firstSectionMeta.level || 1,
-            rawSectionText: "这是示例章节的原始文本。它包含多个句子，可以分割成自然段落。\n\n这是同一章节的另一个段落。",
-            naturalSegments: splitIntoNaturalParagraphs("这是示例章节的原始文本。它包含多个句子，可以分割成自然段落。\n\n这是同一章节的另一个段落。")
-        });
-    } else {
-         sections.push({
-            tocTitle: "默认章节",
-            tocLevel: 1,
-            rawSectionText: fullDocumentText.slice(0, Math.min(fullDocumentText.length, 1000)), // 取文档的一部分
-            naturalSegments: splitIntoNaturalParagraphs(fullDocumentText.slice(0, Math.min(fullDocumentText.length, 1000)))
-        });
+    // 按顺序提取每个章节文本
+    for (let i = 0; i < matches.length; i++) {
+        const current = matches[i];
+        const start = current.index + fullDocumentText.slice(current.index).split("\n")[0].length + 1;
+        const end = (i + 1 < matches.length) ? matches[i+1].index : fullDocumentText.length;
+        const raw = fullDocumentText.slice(start, end).trim();
+        // 超长时按自然段落拆分并合并至阈值
+        const paras = splitIntoNaturalParagraphs(raw);
+        const threshold = 10000;
+        const segments = [];
+        let buf = "";
+        for (const p of paras) {
+            if (buf.length + p.length <= threshold) {
+                buf = buf ? buf + '\n\n' + p : p;
+            } else {
+                if (buf) segments.push(buf);
+                buf = p;
+            }
+        }
+        if (buf) segments.push(buf);
+        sections.push({ tocTitle: current.title, tocLevel: current.level,
+            rawSectionText: raw, naturalSegments: segments });
     }
     return sections;
 }
@@ -97,26 +115,37 @@ function splitIntoNaturalParagraphs(text) {
  *                            { summary: string, details: Array<string>, length: number }。
  */
 async function processSegment(segmentText) {
-    // TODO: 实现对您现有"翻译/理解"算法的调用。
-    // 如果底层调用是异步的，则此函数也应是异步的。
-    // 确保它能优雅地处理错误。
-    console.log('[segmentation-strategy] 正在处理片段:', segmentText.substring(0, 50) + "...");
+    try {
+        // 使用 ChatbotCore.singleChunkSummary 生成摘要
+        const config = window.ChatbotCore.getChatbotConfig();
+        const apiKey = config.apiKey;
+        // 构建系统提示：精简摘要和要点，不超过200字
+        const sysPrompt = `请提炼以下文本的大意和要点，尽量精简，不超过200字：\n${segmentText}`;
+        const summary = await window.ChatbotCore.singleChunkSummary(sysPrompt, segmentText, config, apiKey);
+        return { summary: summary, details: [], length: segmentText.length };
+    } catch (error) {
+        console.error('[segmentation-strategy] 调用 singleChunkSummary 失败:', error);
+        return { summary: '片段处理失败。', details: [error.message], length: segmentText.length };
+    }
+}
 
-    // 占位符：模拟对"理解"服务的异步调用
-    await new Promise(resolve => setTimeout(resolve, 50)); // 模拟网络延迟
-
-    // 将此处替换为对您的"理解"函数的实际调用
-    // const understandingResult = await yourExistingTranslationOrUnderstandingFunction(segmentText);
-    const understandingResult = {
-        summary: "片段摘要: " + segmentText.substring(0, Math.min(30, segmentText.length)) + "...",
-        details: segmentText.toLowerCase().includes("图") ? ["检测到图表"] : (segmentText.toLowerCase().includes("数据") ? ["检测到数据点"] : []),
-    };
-
-    return {
-        summary: understandingResult.summary,
-        details: understandingResult.details,
-        length: segmentText.length
-    };
+// 新增：带重试机制的分段处理，指数退避
+async function processSegmentWithRetry(segmentText, retries = 3, initialDelay = 500) {
+    let attempt = 0;
+    let delay = initialDelay;
+    while (true) {
+        try {
+            return await processSegment(segmentText);
+        } catch (error) {
+            attempt++;
+            console.warn(`[segmentation-strategy] 处理片段失败，重试第 ${attempt}/${retries}`, error);
+            if (attempt >= retries) {
+                return { summary: "片段处理失败。", details: [error.message], length: segmentText.length, error: true };
+            }
+            await new Promise(res => setTimeout(res, delay));
+            delay *= 2;
+        }
+    }
 }
 
 /**
@@ -253,6 +282,26 @@ async function retrieveRelevantContent(userQuery, preprocessedJson, charLimit = 
     return relevantSegmentTexts;
 }
 
+// 新增：通用并发池，限制同时运行的异步任务数量
+async function processWithConcurrencyLimit(items, handler, limit) {
+    const results = [];
+    const executing = [];
+    for (const item of items) {
+        const p = handler(item).then(res => {
+            // 任务完成后从执行列表中移除
+            executing.splice(executing.indexOf(p), 1);
+            return res;
+        });
+        results.push(p);
+        executing.push(p);
+        if (executing.length >= limit) {
+            // 等待最先完成的任务腾出名额
+            await Promise.race(executing);
+        }
+    }
+    return Promise.all(results);
+}
+
 /**
  * 基于ToC的分段和处理策略的主协调函数。
  * 此函数将在文档的初始OCR/文本提取之后调用。
@@ -265,47 +314,36 @@ async function runSegmentationAndProcessing(documentText, tocInput) {
     console.log("[segmentation-strategy] 开始基于ToC的分段和处理。");
 
     // 1. 解析ToC
-    // 如果未提供tocInput，则非常基本地尝试从文档开头查找潜在的ToC行。
-    // 更稳健的解决方案是专门的ToC提取模块。
     const effectiveTocInput = tocInput || documentText.substring(0, Math.min(documentText.length, 4000));
     const structuredToC = parseTableOfContents(effectiveTocInput);
 
-    // 2. 按ToC将文档分割成章节，然后再分割成自然段落
+    // 2. 按ToC分段
     const tocSections = segmentDocumentByToC(documentText, structuredToC);
 
-    // 3. 并发处理每个ToC章节内的每个自然段落
-    const allProcessedNaturalSegmentsData = []; // 存储每个ToC章节已处理的自然段落数组
-
+    // 3. 并发处理每个自然段落，使用并发池
+    const allProcessedNaturalSegmentsData = [];
     for (const section of tocSections) {
-        const processedSegmentsForThisSection = [];
+        let results = [];
         if (section.naturalSegments && section.naturalSegments.length > 0) {
-            // 并发处理示例（可以使用池或限制器进行优化）
-            const segmentPromises = section.naturalSegments.map(naturalSegmentText =>
-                processSegment(naturalSegmentText).catch(error => {
-                    console.error(`[segmentation-strategy] 处理自然段落时出错: "${naturalSegmentText.substring(0,30)}..."`, error);
-                    return { // 处理失败的段落的回退
-                        summary: "片段处理期间出错。",
-                        details: [error.message],
-                        length: naturalSegmentText.length
-                    };
-                })
+            // 从全局选项获取并发上限，默认20
+            const limit = (window.chatbotActiveOptions && Number.isInteger(window.chatbotActiveOptions.segmentConcurrency))
+                ? window.chatbotActiveOptions.segmentConcurrency : 20;
+            results = await processWithConcurrencyLimit(
+                section.naturalSegments,
+                segText => processSegmentWithRetry(segText),
+                limit
             );
-            const results = await Promise.all(segmentPromises);
-            processedSegmentsForThisSection.push(...results);
         }
-        allProcessedNaturalSegmentsData.push(processedSegmentsForThisSection);
+        allProcessedNaturalSegmentsData.push(results);
     }
 
-    // 4. 构建最终的JSON结构
+    // 4. 构建JSON
     const preprocessedJson = buildPreprocessedJson(tocSections, allProcessedNaturalSegmentsData);
 
     console.log("[segmentation-strategy] 预处理完成。生成的JSON（第一个条目的示例）:",
         preprocessedJson.length > 0 ? JSON.stringify(preprocessedJson[0], null, 2).substring(0, 500) + "..." : "未生成条目。"
     );
 
-    // 5. 存储或返回preprocessedJson
-    // 例如，可以将其存储在当前文档的window.data中，或保存到与文档关联的IndexedDB中。
-    // 示例: if (window.data) window.data.preprocessedSegments = preprocessedJson;
     return preprocessedJson;
 }
 
@@ -317,6 +355,7 @@ if (typeof window.SegmentationStrategy === 'undefined') {
 window.SegmentationStrategy.parseTableOfContents = parseTableOfContents;
 window.SegmentationStrategy.segmentDocumentByToC = segmentDocumentByToC;
 window.SegmentationStrategy.processSegment = processSegment;
+window.SegmentationStrategy.processSegmentWithRetry = processSegmentWithRetry;
 window.SegmentationStrategy.buildPreprocessedJson = buildPreprocessedJson;
 window.SegmentationStrategy.retrieveRelevantContent = retrieveRelevantContent;
 window.SegmentationStrategy.runSegmentationAndProcessing = runSegmentationAndProcessing;
