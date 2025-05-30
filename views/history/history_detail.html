@@ -7,8 +7,8 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
   <link type="text/css" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsmind/style/jsmind.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-  <link rel="stylesheet" href="css/history_detail.css">
-  <link rel="stylesheet" href="css/history_detail_inline_styles.css">
+  <link rel="stylesheet" href="../../css/history_detail.css">
+  <link rel="stylesheet" href="../../css/history_detail_inline_styles.css">
 
 </head>
 <body>
@@ -195,31 +195,58 @@
   <!-- ===================== -->
   <!-- 依赖的JS库 -->
   <!-- ===================== -->
-  <script src="js/storage.js"></script>
-  <script src="js/annotation_logic.js"></script>       <!-- Defines helpers like checkIfTextIsHighlighted -->
-  <script src="js/custom_markdown_renderer.js"></script> <!-- Defines createCustomMarkdownRenderer -->
-  <script src="js/annotation_highlighter.js"></script>   <!-- Defines applyPreprocessedAnnotations, uses helpers from annotation_logic.js -->
-  <script src="js/toc_logic.js"></script>
+  <script src="../../js/storage/storage.js"></script>
+  <script src="../../js/annotations/annotation_logic.js"></script>       <!-- Defines helpers like checkIfTextIsHighlighted -->
+  <script src="../../js/annotations/custom_markdown_renderer.js"></script> <!-- Defines createCustomMarkdownRenderer -->
+  <script src="../../js/annotations/annotation_highlighter.js"></script>   <!-- Defines applyPreprocessedAnnotations, uses helpers from annotation_logic.js -->
+  <script src="../../js/ui/toc_logic.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
-  <script src="js/mindmap.js"></script>
+  <script src="../../js/mindmap.js"></script>
 
-  <script src="js/chatbot/prompt-constructor.js"></script> <!-- Add this line -->
-  <script src="js/chatbot/chatbot-utils.js"></script>
-  <script src="js/chatbot/chatbot-preset.js"></script>
-  <script src="js/chatbot/chatbot-core.js"></script>
-  <script src="js/chatbot/chatbot-ui.js"></script>
-  <script src="js/chatbot/chatbot.js"></script>
-  <script src="js/dock_logic.js"></script>
-  <script src="js/markdown_processor.js"></script>
-  <script src="js/sub_block_segmenter.js"></script>
-  <script src="js/dock_settings_modal.js"></script> <!-- ADDED -->
-  <script src="js/annotations_summary_modal.js"></script> <!-- ADDED -->
-  <script src="js/history_detail_scripts.js"></script>
+  <script src="../../js/chatbot/utils/mermaid-loader.js"></script>
+  <script src="../../js/chatbot/utils/markdown-katex-render.js"></script>
+  <script src="../../js/chatbot/prompt/prompt-constructor.js"></script> <!-- Add this line -->
+  <script src="../../js/chatbot/utils/chatbot-utils.js"></script>
+  <script src="../../js/chatbot/prompt/chatbot-preset.js"></script>
+  <script src="../../js/chatbot/utils/chatbot-image-utils.js"></script> <!-- Moved up to be with other utils -->
+  <script src="../../js/chatbot/utils/chatbot-rendering-utils.js"></script> <!-- NEW -->
+  <script src="../../js/chatbot/actions/chatbot-actions.js"></script> <!-- NEW -->
+  <script src="../../js/chatbot/ui/chatbot-message-renderer.js"></script> <!-- NEW -->
+  <script src="../../js/chatbot/core/chatbot-core.js"></script>
+  <script src="../../js/chatbot/renderers/chatbot-mermaid-renderer.js"></script>
+  <script src="../../js/chatbot/renderers/chatbot-mindmap-renderer.js"></script>
+  <script src="../../js/chatbot/ui/chatbot-preset-questions-ui.js"></script>
+  <script src="../../js/chatbot/ui/chatbot-floating-options.js"></script> <!-- 新增引用 -->
+  <script src="../../js/chatbot/ui/chatbot-ui.js"></script>
+  <script src="../../js/chatbot/ui/chatbot-model-selector-ui.js"></script>
+  <script src="../../js/chatbot/core/chatbot.js"></script>
+  <script src="../../js/chatbot/strategy/segmentation-strategy.js"></script>
+  <script src="../../js/chatbot/chatbot-utils.js"></script>
+  <script src="../../js/chatbot/chatbot-preset.js"></script>
+  <script src="../../js/chatbot/chatbot-image-utils.js"></script> <!-- Moved up to be with other utils -->
+  <script src="../../js/chatbot/chatbot-rendering-utils.js"></script> <!-- NEW -->
+  <script src="../../js/chatbot/chatbot-actions.js"></script> <!-- NEW -->
+  <script src="../../js/chatbot/chatbot-message-renderer.js"></script> <!-- NEW -->
+  <script src="../../js/chatbot/chatbot-core.js"></script>
+  <script src="../../js/chatbot/chatbot-mermaid-renderer.js"></script>
+  <script src="../../js/chatbot/chatbot-mindmap-renderer.js"></script>
+  <script src="../../js/chatbot/ui/chatbot-preset-questions-ui.js"></script>
+  <script src="../../js/chatbot/ui/chatbot-floating-options.js"></script> <!-- 新增引用 -->
+  <script src="../../js/chatbot/ui/chatbot-ui.js"></script>
+  <script src="../../js/chatbot/ui/chatbot-model-selector-ui.js"></script>
+
+  <script src="../../js/chatbot/chatbot.js"></script>
+  <script src="../../js/ui/dock/dock_logic.js"></script>
+  <script src="../../js/processing/markdown_processor.js"></script>
+  <script src="../../js/processing/sub_block_segmenter.js"></script>
+  <script src="../../js/ui/dock/dock_settings_modal.js"></script> <!-- ADDED -->
+  <script src="../../js/annotations/annotations_summary_modal.js"></script> <!-- ADDED -->
+  <script src="../../js/history/history_detail_scripts.js"></script>
 
   <!-- ===================== -->
   <!-- 页面核心逻辑脚本 -->

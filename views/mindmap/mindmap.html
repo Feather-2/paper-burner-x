@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>思维导图 - Markmap</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <!-- Markmap 依赖 -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script src="https://cdn.jsdelivr.net/npm/markmap-lib"></script>
+  <script src="https://cdn.jsdelivr.net/npm/markmap-view"></script>
+  <!-- Monaco Editor CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs/loader.js"></script>
+  <!-- 导出PNG需要的库 -->
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <style>
+    /* 谷歌字体 Nunito */
+    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700&display=swap');
+
+    body {
+      margin:0;
+      background: linear-gradient(135deg, #f3f6fa 0%, #e4edf9 100%);
+      font-family: 'Nunito', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* 顶部栏样式 */
+    .topbar {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 54px;
+      background: #fff; border-bottom: 1px solid #e2e8f0; z-index: 100; /* Increased z-index */
+      display: flex; align-items: center; justify-content: space-between; padding: 0 20px;
+      box-sizing: border-box;
+      box-shadow: 0 4px 24px 0 rgba(59,130,246,0.08), 0 1.5px 6px 0 rgba(59,130,246,0.04);
+      border-radius: 0 0 18px 18px;
+    }
+    .topbar-title {
+      display: flex;
+      align-items: center;
+      font-weight: 600;
+      font-size: 1.1em;
+      color: #2563eb;
+    }
+    .topbar-title svg {
+      width: 24px;
+      height: 24px;
+      margin-right: 8px;
+      fill: #2563eb;
+    }
+
+    /* 主容器与面板样式 */
+    .container {
+      position: fixed;
+      top: 54px;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      display: flex;
+      transition: all 0.3s ease;
+      border-radius: 18px;
+      box-shadow: 0 8px 32px 0 rgba(31, 41, 55, 0.10), 0 1.5px 6px 0 rgba(59,130,246,0.06);
+      background: #f8fafc;
+    }
+
+    .editor-container {
+      width: 35%; /* 编辑器初始宽度减小 */
+      min-width: 200px; /* 最小宽度 */
+      height: 100%;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border-right: 1px solid #e0e7ef;
+      box-shadow: 1px 0 5px rgba(0,0,0,0.03);
+      border-radius: 18px;
+      box-shadow: 0 2px 8px 0 rgba(59,130,246,0.06);
+      margin: 12px;
+      background: linear-gradient(135deg, #fff 60%, #f3f6fa 100%);
+    }
+
+    .editor-header {
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #f9fafb; /* Slightly lighter header */
+      padding: 0 16px;
+      font-size: 0.9em;
+      font-weight: 600;
+      color: #334155;
+      border-bottom: 1px dashed #e2e8f0; /* 虚线边框 */
+      flex-shrink: 0;
+      border-radius: 18px 18px 0 0;
+      background: linear-gradient(90deg, #f9fafb 80%, #e0e7ef 100%);
+      box-shadow: 0 2px 8px 0 rgba(59,130,246,0.04);
+    }
+
+    #monaco-container {
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .splitter {
+      width: 6px;
+      background: repeating-linear-gradient(90deg, #e0e7ef, #e0e7ef 4px, #f3f6fa 4px, #f3f6fa 8px);
+      cursor: ew-resize;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 50; /* Ensure splitter is above editor/map content during drag */
+      border-radius: 8px;
+    }
+    .splitter:hover {
+      background: #cbd5e1;
+    }
+    .splitter::before { /* 更改为竖向虚线 */
+      content: "";
+      height: 20px;
+      border-left: 2px dashed #b0bfd0;
+    }
+
+    .markmap-container {
+      flex: 1;
+      min-width: 200px; /* 最小宽度 */
+      position: relative;
+      overflow: hidden;
+      background: #fdfdff; /* Slightly different background for contrast */
+      border-radius: 18px;
+      box-shadow: 0 2px 8px 0 rgba(59,130,246,0.06);
+      margin: 12px;
+      background: linear-gradient(135deg, #fff 60%, #f3f6fa 100%);
+      border: 1.5px dashed #e0e7ef;
+    }
+
+    .markmap-header {
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end; /* 将按钮放在右侧 */
+      background: #f9fafb;
+      padding: 0 16px;
+      border-bottom: 1px dashed #e2e8f0; /* 虚线边框 */
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      border-radius: 18px 18px 0 0;
+      background: linear-gradient(90deg, #f9fafb 80%, #e0e7ef 100%);
+      box-shadow: 0 2px 8px 0 rgba(59,130,246,0.04);
+    }
+
+    #markmap {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* 按钮通用样式 */
+    .button {
+      background: linear-gradient(90deg, #3b82f6 60%, #60a5fa 100%);
+      color: #fff;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 8px; /* 更大的圆角 */
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 2px 8px 0 rgba(59,130,246,0.08);
+    }
+    .button svg {
+      width: 14px; height: 14px;
+    }
+
+    .button:hover {
+      background: linear-gradient(90deg, #2563eb 60%, #3b82f6 100%);
+      color: #fff;
+      transform: translateY(-1px);
+      box-shadow: 0 3px 8px rgba(37,99,235,0.2);
+    }
+
+    .button.outline {
+      background: #f8fafc;
+      color: #2563eb;
+      border: 1.5px dashed #2563eb; /* 虚线边框 */
+    }
+
+    .button.outline:hover {
+      background: #e0e7ef;
+      color: #1d4ed8;
+      border-color: #1d4ed8;
+    }
+
+    .button.small {
+      padding: 4px 8px;
+      font-size: 12px;
+    }
+
+    .button.icon-only {
+      padding: 6px;
+    }
+
+    .action-buttons {
+      display: flex;
+      gap: 8px;
+    }
+
+    /* 面板控制按钮样式 */
+    .panel-control {
+      background: transparent;
+      color: #64748b;
+      border: 1.5px dashed #cbd5e1;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 10px !important;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      box-shadow: 0 2px 8px 0 rgba(59,130,246,0.08);
+      border-width: 1.5px;
+    }
+
+    .panel-control:hover {
+      color: #3b82f6;
+      border-color: #3b82f6;
+      background: rgba(59, 130, 246, 0.05);
+    }
+
+    .panel-control svg {
+      width: 14px;
+      height: 14px;
+      margin-right: 4px;
+    }
+
+    /* 布局控制（隐藏面板） */
+    .hide-editor .editor-container, .hide-editor .splitter {
+      width: 0 !important; /* Important to override inline style from resize */
+      min-width: 0 !important;
+      overflow: hidden;
+      border-right: none;
+    }
+     .hide-editor .splitter { display: none; }
+
+
+    .hide-mindmap .markmap-container, .hide-mindmap .splitter {
+      width: 0 !important; /* Important to override inline style from resize */
+      min-width: 0 !important;
+      overflow: hidden;
+    }
+    .hide-mindmap .splitter { display: none; }
+
+
+    /* 响应式布局 */
+    @media (max-width: 768px) {
+      .container {
+        flex-direction: column;
+      }
+      .editor-container, .markmap-container {
+        width: 100% !important; /* Override inline style from resize */
+        height: 50%;
+      }
+      .splitter {
+        width: 100%;
+        height: 6px;
+        cursor: ns-resize;
+      }
+      .splitter::before {
+        height: auto;
+        width: 20px;
+        border-left: none;
+        border-top: 2px dashed #b0bfd0;
+      }
+
+      .hide-editor .editor-container, .hide-mindmap .markmap-container {
+        height: 0 !important; /* Important to override inline style from resize */
+      }
+       .hide-editor .splitter, .hide-mindmap .splitter { display: none; }
+      .topbar { padding: 0 10px; }
+      .topbar-title span { display: none; } /* Hide text on small screens */
+      .container, .editor-container, .markmap-container {
+        border-radius: 0;
+        margin: 0;
+        box-shadow: none;
+      }
+      .topbar {
+        border-radius: 0;
+      }
+    }
+
+    /* 打印样式 */
+    @media print {
+      body { overflow: visible !important; }
+      .topbar, .editor-container, .splitter, .action-buttons, .editor-header, .markmap-header {
+        display: none !important;
+      }
+      .container {
+        position: static !important;
+        top: 0;
+        display: block !important;
+      }
+      .markmap-container {
+        width: 100% !important;
+        height: auto !important;
+        flex: none !important;
+        overflow: visible !important;
+        border: none !important;
+        padding-top: 0 !important; /* 防止顶部空白 */
+      }
+      #markmap {
+        width: 100% !important;
+        height: auto !important;
+        page-break-inside: avoid;
+      }
+       svg { /* Ensure SVG scales well for printing */
+        max-width: 100%;
+        height: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="topbar-title" style="gap:12px;">
+      <!-- Font Awesome diagram-project 现成思维导图风格 logo -->
+      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="6" height="6" rx="1"/>
+        <rect x="15" y="3" width="6" height="6" rx="1"/>
+        <rect x="9" y="15" width="6" height="6" rx="1"/>
+        <path d="M6 9v2a2 2 0 0 0 2 2h2m4 0h2a2 2 0 0 0 2-2V9"/>
+        <path d="M12 15V13"/>
+      </svg>
+      <span style="font-size:1.2em;font-weight:700;letter-spacing:0.02em;">思维导图</span>
+      <button id="auto-save-btn" class="button small outline" style="margin-left:16px;min-width:90px;">自动保存: 开</button>
+      <button id="toggle-layout-btn" class="button small outline" style="margin-left:8px;" title="切换编辑器左右布局">⇄ 切换布局</button>
+    </div>
+    <div class="action-buttons">
+      <button id="export-svg-btn" class="button outline" title="导出为 SVG">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8L21 12L17 16"/><line x1="3" y1="12" x2="21" y2="12"/><path d="M12 19v-4M12 9V5"/><path d="M5 19v-4M5 9V5"/></svg>
+        SVG
+      </button>
+      <button id="export-png-btn" class="button outline" title="导出为 PNG">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        PNG
+      </button>
+      <button id="save-btn" class="button" title="保存到本地存储">
+         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        保存
+      </button>
+    </div>
+  </div>
+
+  <div class="container" id="main-container">
+    <div class="editor-container" id="editor-area">
+      <div class="editor-header">
+        <div class="flex items-center">
+          <button id="auto-save-btn" class="button small outline" style="margin-right: 8px;">自动保存: 开</button>
+        </div>
+        <span>Markdown</span>
+        <div class="flex items-center">
+          <small id="save-status" style="color:#64748b; margin-right: 10px;">未修改</small>
+          <button id="toggle-editor-btn" class="panel-control" title="隐藏编辑器">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"></path></svg>
+            隐藏
+          </button>
+        </div>
+      </div>
+      <div id="monaco-container"></div>
+    </div>
+
+    <div class="splitter" id="splitter"></div>
+
+    <div class="markmap-container" id="markmap-area">
+      <div class="markmap-header">
+        <button id="toggle-mindmap-btn" class="panel-control" title="隐藏思维导图">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"></path></svg>
+          隐藏
+        </button>
+      </div>
+      <svg id="markmap"></svg>
+    </div>
+  </div>
+
+  <script>
+    // 获取 Markdown 数据（兼容原有 docId 方案）
+    function getQueryParam(name) {
+      const url = window.location.search;
+      const params = new URLSearchParams(url);
+      return params.get(name);
+    }
+
+    const docId = getQueryParam('docId');
+    let md = '';
+    if (docId) {
+      md = window.localStorage.getItem('mindmapData_' + docId) || '';
+    }
+    if (!md) {
+      md = '# 思维导图示例\n\n## 分支 1\n- 条目 1.1\n- 条目 1.2\n\n## 分支 2\n- 条目 2.1\n  - 子条目 2.1.1\n- 条目 2.2';
+    }
+
+    // 全局变量
+    let editor;
+    let markmapInstance;
+    let autoSaveEnabled = true; // 默认开启自动保存
+    let autoSaveInterval;
+    let isDirty = false;
+    let renderTimeout;
+
+    // 渲染 Markmap
+    function renderMarkmap(mdContent) {
+      if (markmapInstance) {
+        markmapInstance.setData(transformer.transform(mdContent).root);
+        markmapInstance.fit(); // Ensure it fits after update
+      } else {
+        document.getElementById('markmap').innerHTML = ''; // Clear previous before new instance
+        const { root, features } = transformer.transform(mdContent);
+        const assets = transformer.getUsedAssets(features);
+        if (assets.styles) loadCSS(assets.styles);
+        if (assets.scripts) loadJS(assets.scripts, { getMarkmap: () => window.markmap });
+        markmapInstance = Markmap.create('#markmap', { autoFit: true }, root);
+      }
+    }
+
+    // 保存数据到 localStorage
+    function saveToLocalStorage() {
+      if (!editor) return;
+      const content = editor.getValue();
+      if (docId) {
+        window.localStorage.setItem('mindmapData_' + docId, content);
+        showSaveStatus('已保存');
+        isDirty = false;
+      } else {
+        showSaveStatus('无法保存 (无 docId)', true);
+      }
+    }
+
+    // 显示保存状态
+    function showSaveStatus(message, isError = false) {
+      const saveStatus = document.getElementById('save-status');
+      if (saveStatus) {
+        saveStatus.textContent = message;
+        saveStatus.style.color = isError ? '#ef4444' : '#64748b';
+        setTimeout(() => {
+          saveStatus.textContent = isDirty ? '未保存' : '已保存';
+          saveStatus.style.color = isDirty ? '#ef4444' : '#64748b';
+        }, 2500);
+      }
+    }
+
+    // 设置自动保存
+    function toggleAutoSave() {
+      autoSaveEnabled = !autoSaveEnabled;
+      const autoSaveBtn = document.getElementById('auto-save-btn');
+      if (autoSaveEnabled) {
+        autoSaveBtn.textContent = '自动保存: 开';
+        autoSaveBtn.classList.remove('outline');
+        saveToLocalStorage(); // Save once when turning on
+        autoSaveInterval = setInterval(saveToLocalStorage, 10000); // 10秒自动保存
+      } else {
+        autoSaveBtn.textContent = '自动保存: 关';
+        autoSaveBtn.classList.add('outline');
+        if (autoSaveInterval) clearInterval(autoSaveInterval);
+      }
+    }
+
+    // 导出SVG
+    function exportSvg() {
+      let svgEl = document.querySelector('#markmap svg');
+      if (!svgEl) {
+        const markmapNode = document.getElementById('markmap');
+        if (markmapNode && markmapNode.tagName.toLowerCase() === 'svg') {
+          svgEl = markmapNode;
+        }
+      }
+      if (!svgEl) {
+        showSaveStatus('未找到SVG元素', true);
+        return;
+      }
+
+      // 确保有xmlns属性
+      if (!svgEl.getAttribute('xmlns')) {
+        svgEl.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      }
+      let serializer = new XMLSerializer();
+      let svgData = '<?xml version="1.0" standalone="no"?>\r\n' + serializer.serializeToString(svgEl);
+
+      let blob = new Blob([svgData], {type: 'image/svg+xml;charset=utf-8'});
+      let url = URL.createObjectURL(blob);
+      let link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', (docId || 'markmap') + '.svg');
+      link.click();
+      URL.revokeObjectURL(url);
+      showSaveStatus('SVG已导出');
+    }
+
+    // 导出PNG
+    function exportPng() {
+      let svgEl = document.querySelector('#markmap svg');
+      if (!svgEl) {
+        const markmapNode = document.getElementById('markmap');
+        if (markmapNode && markmapNode.tagName.toLowerCase() === 'svg') {
+          svgEl = markmapNode;
+        }
+      }
+      if (!svgEl) {
+        showSaveStatus('未找到SVG元素', true);
+        return;
+      }
+
+      // 获取内容实际边界
+      let bbox = svgEl.getBBox();
+      let width = bbox.width;
+      let height = bbox.height;
+      let x = bbox.x;
+      let y = bbox.y;
+
+      // 4倍高清
+      let scale = 4;
+      let canvas = document.createElement('canvas');
+      canvas.width = width * scale;
+      canvas.height = height * scale;
+      let context = canvas.getContext('2d');
+      context.fillStyle = '#fff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+
+      // 复制SVG并设置viewBox和宽高
+      let serializer = new XMLSerializer();
+      let clonedSvg = svgEl.cloneNode(true);
+      clonedSvg.setAttribute('viewBox', `${x} ${y} ${width} ${height}`);
+      clonedSvg.setAttribute('width', width);
+      clonedSvg.setAttribute('height', height);
+      if (!clonedSvg.getAttribute('xmlns')) {
+        clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      }
+      let source = '<?xml version="1.0" standalone="no"?>\r\n' + serializer.serializeToString(clonedSvg);
+
+      let image = new Image();
+      image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(source);
+
+      image.onload = function () {
+        // 居中绘制
+        context.setTransform(scale, 0, 0, scale, 0, 0);
+        context.drawImage(image, 0, 0, width, height, 0, 0, width, height);
+        let a = document.createElement('a');
+        a.download = (docId || 'markmap') + '.png';
+        a.href = canvas.toDataURL('image/png');
+        a.click();
+        showSaveStatus('PNG已导出');
+      };
+      image.onerror = function () {
+        showSaveStatus('导出PNG失败: 无法加载SVG图像', true);
+      };
+    }
+
+    // 初始化 Monaco Editor
+    let transformer, loadCSS, loadJS, Markmap;
+
+    function initMonacoEditor() {
+      ({ loadCSS, loadJS, Markmap } = window.markmap);
+      transformer = new window.markmap.Transformer();
+
+      require.config({ paths: { 'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs' } });
+      require(['vs/editor/editor.main'], function() {
+        editor = monaco.editor.create(document.getElementById('monaco-container'), {
+          value: md,
+          language: 'markdown',
+          theme: 'vs', // 'vs-dark' for dark theme
+          automaticLayout: true,
+          wordWrap: 'on',
+          lineNumbers: 'on',
+          minimap: { enabled: false }, // Minimalist: disable minimap
+          scrollBeyondLastLine: false,
+          renderWhitespace: 'none', // Minimalist: hide whitespace chars
+          fontFamily: 'Menlo, Monaco, Consolas, "Courier New", monospace', // Common monospaced fonts
+          fontSize: 14,
+          padding: { top: 10, bottom: 10 }
+        });
+
+        editor.onDidChangeModelContent(function() {
+          const content = editor.getValue();
+          isDirty = true;
+          showSaveStatus('未保存', true);
+
+          clearTimeout(renderTimeout);
+          renderTimeout = setTimeout(() => {
+            renderMarkmap(content);
+          }, 1000); // 1秒后刷新
+        });
+
+        // 初始渲染
+        renderMarkmap(md);
+        showSaveStatus(isDirty ? '未保存' : '已同步', isDirty); // Initial status based on localStorage
+      });
+    }
+
+    // 初始化界面交互和可调节面板
+    function initUI() {
+      document.getElementById('toggle-editor-btn').addEventListener('click', function() {
+        const container = document.getElementById('main-container');
+        const isHidden = container.classList.toggle('hide-editor');
+        this.innerHTML = isHidden ?
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"></path></svg> 显示' :
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"></path></svg> 隐藏';
+        if(editor) editor.layout(); // Monaco needs relayout
+        if(markmapInstance) markmapInstance.fit();
+      });
+
+      // 修复思维导图隐藏逻辑
+      document.getElementById('toggle-mindmap-btn').addEventListener('click', function() {
+        const container = document.getElementById('main-container');
+        const isHidden = container.classList.toggle('hide-mindmap');
+        if (isHidden) {
+          this.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"></path></svg> 显示';
+        } else {
+          this.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"></path></svg> 隐藏';
+        }
+        if(editor) editor.layout();
+        if(markmapInstance) markmapInstance.fit();
+      });
+
+      // 自动保存按钮逻辑（放到logo区）
+      const autoSaveBtn = document.getElementById('auto-save-btn');
+      autoSaveBtn.onclick = function() {
+        toggleAutoSave();
+        autoSaveBtn.textContent = autoSaveEnabled ? '自动保存: 开' : '自动保存: 关';
+      };
+      autoSaveBtn.textContent = autoSaveEnabled ? '自动保存: 开' : '自动保存: 关';
+
+      // 编辑器左右切换
+      const toggleLayoutBtn = document.getElementById('toggle-layout-btn');
+      toggleLayoutBtn.onclick = function() {
+        const container = document.getElementById('main-container');
+        if (container.style.flexDirection === 'row-reverse') {
+          container.style.flexDirection = '';
+        } else {
+          container.style.flexDirection = 'row-reverse';
+        }
+        if(editor) editor.layout();
+        if(markmapInstance) markmapInstance.fit();
+      };
+
+      document.getElementById('save-btn').addEventListener('click', saveToLocalStorage);
+
+      // 导出功能
+      document.getElementById('export-svg-btn').addEventListener('click', exportSvg);
+      document.getElementById('export-png-btn').addEventListener('click', exportPng);
+
+      // 面板拖拽调整逻辑
+      const splitter = document.getElementById('splitter');
+      const editorArea = document.getElementById('editor-area');
+      const markmapArea = document.getElementById('markmap-area');
+      const container = document.getElementById('main-container');
+
+      let isDragging = false;
+      let startX, startY, startEditorWidth, startMarkmapWidth, startEditorHeight, startMarkmapHeight;
+
+      splitter.addEventListener('mousedown', function(e) {
+        e.preventDefault(); // Prevent text selection
+        isDragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        startEditorWidth = editorArea.offsetWidth;
+        startMarkmapWidth = markmapArea.offsetWidth;
+        startEditorHeight = editorArea.offsetHeight;
+        startMarkmapHeight = markmapArea.offsetHeight;
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+      });
+
+      function onMouseMove(e) {
+        if (!isDragging) return;
+
+        // Horizontal drag for desktop
+        if (window.innerWidth > 768) { // Check if not in mobile layout
+            const dx = e.clientX - startX;
+            let newEditorWidth = startEditorWidth + dx;
+            let newMarkmapWidth = startMarkmapWidth - dx;
+
+            // Enforce min width
+            const minWidth = 100; // px
+            if (newEditorWidth < minWidth) {
+                newEditorWidth = minWidth;
+                newMarkmapWidth = container.offsetWidth - minWidth - splitter.offsetWidth;
+            }
+            if (newMarkmapWidth < minWidth) {
+                newMarkmapWidth = minWidth;
+                newEditorWidth = container.offsetWidth - minWidth - splitter.offsetWidth;
+            }
+
+            editorArea.style.width = newEditorWidth + 'px';
+            markmapArea.style.width = newMarkmapWidth + 'px';
+        } else { // Vertical drag for mobile
+            const dy = e.clientY - startY;
+            let newEditorHeight = startEditorHeight + dy;
+            let newMarkmapHeight = startMarkmapHeight - dy;
+
+            const minHeight = 100; // px
+             if (newEditorHeight < minHeight) {
+                newEditorHeight = minHeight;
+                newMarkmapHeight = container.offsetHeight - minHeight - splitter.offsetHeight;
+            }
+            if (newMarkmapHeight < minHeight) {
+                newMarkmapHeight = minHeight;
+                newEditorHeight = container.offsetHeight - minHeight - splitter.offsetHeight;
+            }
+            editorArea.style.height = newEditorHeight + 'px';
+            markmapArea.style.height = newMarkmapHeight + 'px';
+        }
+        if (editor) editor.layout(); // Trigger Monaco relayout
+        if (markmapInstance) markmapInstance.fit(); // Trigger Markmap refit
+      }
+
+      function onMouseUp() {
+        if (!isDragging) return;
+        isDragging = false;
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+        if (editor) editor.layout();
+        if (markmapInstance) markmapInstance.fit();
+      }
+
+      // 悬浮显示按钮逻辑
+      const showEditorBtn = document.getElementById('show-editor-btn');
+      const showMindmapBtn = document.getElementById('show-mindmap-btn');
+      function updateShowPanelButtons() {
+        const container = document.getElementById('main-container');
+        showEditorBtn.style.display = container.classList.contains('hide-editor') ? 'flex' : 'none';
+        showMindmapBtn.style.display = container.classList.contains('hide-mindmap') ? 'flex' : 'none';
+      }
+      showEditorBtn.onclick = function() {
+        document.getElementById('main-container').classList.remove('hide-editor');
+        updateShowPanelButtons();
+        if(editor) editor.layout();
+        if(markmapInstance) markmapInstance.fit();
+      };
+      showMindmapBtn.onclick = function() {
+        document.getElementById('main-container').classList.remove('hide-mindmap');
+        updateShowPanelButtons();
+        if(editor) editor.layout();
+        if(markmapInstance) markmapInstance.fit();
+      };
+      // 在切换隐藏时也更新
+      document.getElementById('toggle-editor-btn').addEventListener('click', updateShowPanelButtons);
+      document.getElementById('toggle-mindmap-btn').addEventListener('click', updateShowPanelButtons);
+      // 初始化时也调用
+      updateShowPanelButtons();
+    }
+
+    // 页面加载后初始化
+    window.addEventListener('DOMContentLoaded', function() {
+      initMonacoEditor();
+      initUI();
+
+      // 默认开启自动保存
+      if (autoSaveEnabled) {
+        toggleAutoSave();
+      }
+    });
+  </script>
+  <!-- 悬浮显示按钮 -->
+  <button id="show-editor-btn" style="display:none;position:fixed;left:12px;top:50%;transform:translateY(-50%);z-index:2000;box-shadow:0 2px 8px rgba(37,99,235,0.15);background:#fff;color:#2563eb;border:1.5px dashed #2563eb;border-radius:50%;width:48px;height:48px;align-items:center;justify-content:center;cursor:pointer;outline:none;transition:background 0.2s;" title="显示编辑器">
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+  </button>
+  <button id="show-mindmap-btn" style="display:none;position:fixed;right:12px;top:50%;transform:translateY(-50%);z-index:2000;box-shadow:0 2px 8px rgba(37,99,235,0.15);background:#fff;color:#2563eb;border:1.5px dashed #2563eb;border-radius:50%;width:48px;height:48px;align-items:center;justify-content:center;cursor:pointer;outline:none;transition:background 0.2s;" title="显示思维导图">
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+  </button>
+</body>
+</html>

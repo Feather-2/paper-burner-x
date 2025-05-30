@@ -28,23 +28,23 @@
  * @param {string} key API 密钥。
  * @param {string} customApiEndpoint 自定义 API 端点基础 URL。
  * @param {string} customModelId 自定义模型 ID。
- * @param {string} customRequestFormat 自定义请求格式 (e.g., 'openai', 'anthropic', 'gemini')。
+ * @param {string} customRequestFormat 自定义请求格式 (例如 'openai', 'anthropic', 'gemini')。
  * @param {number} [temperature] 模型温度参数，控制生成文本的随机性。
  * @param {number} [max_tokens] 模型最大输出 token 数。
  * @returns {object} 构建好的 API 配置对象，包含 endpoint, modelName, headers, bodyBuilder, responseExtractor, streamSupport, streamBodyBuilder 等。
  * @throws {Error} 如果 customRequestFormat 不被支持。
  */
 
-// Helper to extract text from userContent if it's an array
+// 辅助函数：如果 userContent 是数组，则提取其中的文本内容
 const extractTextFromUserContent = (userContent) => {
   if (Array.isArray(userContent)) {
     const textPart = userContent.find(part => part.type === 'text');
     return textPart ? textPart.text : '';
   }
-  return userContent; // Assume it's already a string
+  return userContent; // 假设已经是字符串
 };
 
-// Helper to convert OpenAI-style userContent to Gemini format
+// 辅助函数：将 OpenAI 风格的 userContent 转换为 Gemini 格式
 const convertOpenAIToGeminiParts = (userContent) => {
   if (Array.isArray(userContent)) {
     return userContent.map(part => {
@@ -59,10 +59,10 @@ const convertOpenAIToGeminiParts = (userContent) => {
       return null;
     }).filter(p => p);
   }
-  return [{ text: userContent }]; // Assume string
+  return [{ text: userContent }]; // 假设为字符串
 };
 
-// Helper to convert OpenAI-style userContent to Anthropic format
+// 辅助函数：将 OpenAI 风格的 userContent 转换为 Anthropic 格式
 const convertOpenAIToAnthropicContent = (userContent) => {
   if (Array.isArray(userContent)) {
     return userContent.map(part => {
@@ -77,7 +77,7 @@ const convertOpenAIToAnthropicContent = (userContent) => {
       return null;
     }).filter(p => p);
   }
-  return [{ type: 'text', text: userContent }]; // Assume string
+  return [{ type: 'text', text: userContent }]; // 假设为字符串
 };
 
 function buildCustomApiConfig(key, customApiEndpoint, customModelId, customRequestFormat, temperature, max_tokens) {
@@ -348,6 +348,26 @@ function clearCurrentDocChatHistory(updateChatbotUI) {
   }
 }
 
+// =============== 新增：删除指定索引的聊天消息 ===============
+/**
+ * 删除指定索引的聊天消息。
+ * @param {string} docId 当前文档的ID。
+ * @param {number} index 要删除消息的索引。
+ * @param {function} updateUIAfterDelete 删除后更新UI的回调函数。
+ */
+function deleteMessageFromHistory(docId, index, updateUIAfterDelete) {
+  if (index >= 0 && index < chatHistory.length) {
+    chatHistory.splice(index, 1); // 从数组中移除消息
+    saveChatHistory(docId, chatHistory); // 保存更新后的历史记录
+    console.log(`Message at index ${index} for docId '${docId}' deleted.`);
+    if (typeof updateUIAfterDelete === 'function') {
+      updateUIAfterDelete(); // 调用回调更新UI
+    }
+  } else {
+    console.error(`[deleteMessageFromHistory] Invalid index: ${index} for chatHistory of length ${chatHistory.length}`);
+  }
+}
+
 // 读取主页面配置（API Key、模型等）
 /**
  * 读取聊天机器人配置。
@@ -456,10 +476,7 @@ function buildChatMessages(history, userInput) {
  * 2. 短内容直接返回：如果内容长度小于等于 `maxChunk`，则直接返回包含单个块的数组。
  * 3. 长内容分割：
  *    - 迭代处理内容，每次尝试分割出一个 `maxChunk` 大小的块。
- *    - 优先在块的后半部分（`maxChunk * 0.3` 之后）寻找 Markdown 标题 (`
-#`, `
-##`, `
-###`) 作为分割点，
+ *    - 优先在块的后半部分（`maxChunk * 0.3` 之后）寻找 Markdown 标题 (`#`, `##`, `###`) 作为分割点，
  *      以保持段落完整性。如果找到，则在该标题前分割。
  *    - 如果未找到合适的 Markdown 标题，则按 `maxChunk` 长度硬分割。
  * 4. 返回分割后的文本块数组。
@@ -956,21 +973,28 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
           }
         };
       } else {
+        // 修改：支持 reasoning_content 流式输出
         parseChunk = (chunk) => {
           try {
-            if (!chunk.trim() || !chunk.startsWith('data:')) return '';
+            if (!chunk.trim() || !chunk.startsWith('data:')) return { content: '', reasoning: '' };
             const data = JSON.parse(chunk.replace(/^data: /, ''));
-            return data.choices?.[0]?.delta?.content || '';
+            const delta = data.choices?.[0]?.delta || {};
+            return {
+              content: delta.content || '',
+              reasoning: delta.reasoning_content || ''
+            };
           } catch (e) {
             if (!chunk.includes('[DONE]') && chunk.trim() && !chunk.trim().startsWith(':')) {
               //console.warn("解析流式回复块错误:", chunk, e);
             }
-            return '';
+            return { content: '', reasoning: '' };
           }
         };
       }
       let lastUpdateTime = Date.now();
       const UPDATE_INTERVAL = 100;
+      // 新增：reasoning_content 流式收集
+      let collectedReasoning = '';
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -978,12 +1002,30 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
           const chunk = decoder.decode(value);
           const lines = chunk.split('\n');
           for (const line of lines) {
-            const content = parseChunk(line);
-            if (content) {
-              collectedContent += content;
+            // 修改：parseChunk 返回对象
+            const parsed = parseChunk(line);
+            if (typeof parsed === 'string') {
+              // 兼容旧逻辑
+              if (parsed) {
+                collectedContent += parsed;
+                const now = Date.now();
+                if (now - lastUpdateTime > UPDATE_INTERVAL) {
+                  chatHistory[assistantMsgIndex].content = collectedContent;
+                  if (typeof updateChatbotUI === 'function') updateChatbotUI();
+                  lastUpdateTime = now;
+                }
+              }
+            } else if (parsed && (parsed.content || parsed.reasoning)) {
+              if (parsed.reasoning) {
+                collectedReasoning += parsed.reasoning;
+                chatHistory[assistantMsgIndex].reasoningContent = collectedReasoning;
+              }
+              if (parsed.content) {
+                collectedContent += parsed.content;
+                chatHistory[assistantMsgIndex].content = collectedContent;
+              }
               const now = Date.now();
               if (now - lastUpdateTime > UPDATE_INTERVAL) {
-                chatHistory[assistantMsgIndex].content = collectedContent;
                 if (typeof updateChatbotUI === 'function') updateChatbotUI();
                 lastUpdateTime = now;
               }
@@ -993,8 +1035,9 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
       } catch (streamError) {
         //console.warn("流式读取错误:", streamError);
       }
-      console.log("[sendChatbotMessage] Raw AI response (streamed):", collectedContent); // Added log for raw streamed content
+      // 最终赋值
       chatHistory[assistantMsgIndex].content = collectedContent || '流式回复处理出错，请重试';
+      if (collectedReasoning) chatHistory[assistantMsgIndex].reasoningContent = collectedReasoning;
     } else {
       // fallback 到非流式分支
       console.log('[非流式] 调用 bodyBuilder');
@@ -1054,9 +1097,9 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         window.localStorage.setItem('mindmapData_' + docIdForThisMessage, safeMindMapMarkdown);
         chatHistory[assistantMsgIndex].content =
           `<div style="position:relative;">
-            <div id=\"mindmap-container\" style=\"width:100%;height:400px;margin-top:20px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;overflow:auto;filter:blur(2.5px);transition:filter 0.3s;\"></div>
-            <div style=\"position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;z-index:2;\">
-              <button onclick=\"window.open('mindmap.html?docId=${encodeURIComponent(docIdForThisMessage)}','_blank')\" style=\"padding:12px 28px;font-size:18px;background:rgba(59,130,246,0.92);color:#fff;border:none;border-radius:8px;box-shadow:0 2px 8px rgba(59,130,246,0.12);cursor:pointer;\">放大查看/编辑思维导图</button>
+            <div id="mindmap-container" style="width:100%;height:400px;margin-top:20px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;overflow:auto;filter:blur(2.5px);transition:filter 0.3s;"></div>
+            <div style="position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;z-index:2;">
+              <button onclick="window.open((window.location.pathname.endsWith('/history_detail.html') ? '../mindmap/mindmap.html' : 'views/mindmap/mindmap.html') + '?docId=${encodeURIComponent(docIdForThisMessage)}','_blank')" style="padding:12px 28px;font-size:18px;background:rgba(59,130,246,0.92);color:#fff;border:none;border-radius:8px;box-shadow:0 2px 8px rgba(59,130,246,0.12);cursor:pointer;">放大查看/编辑思维导图</button>
             </div>
           </div>`;
         chatHistory[assistantMsgIndex].hasMindMap = true;
@@ -1410,6 +1453,7 @@ window.ChatbotCore = {
   loadChatHistory,
   clearChatHistory,
   clearCurrentDocChatHistory, // <-- 导出
+  deleteMessageFromHistory, // <-- 导出新函数
   getCurrentDocId,
   reloadChatHistoryAndUpdateUI
 };

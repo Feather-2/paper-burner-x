@@ -92,12 +92,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
     /**
      * (全局可调用) 在新的浏览器标签页或窗口中显示指定历史记录的详细信息。
-     * 它通过构建一个指向 `history_detail.html` 的 URL (包含记录 ID 作为查询参数) 并使用 `window.open` 实现。
+     * 它通过构建一个指向 `views/history/history_detail.html` 的 URL (包含记录 ID 作为查询参数) 并使用 `window.open` 实现。
      *
      * @param {string} id - 要查看详情的历史记录的唯一 ID。
      */
     window.showHistoryDetail = function(id) {
-        window.open('history_detail.html?id=' + encodeURIComponent(id), '_blank');
+        window.open('views/history/history_detail.html?id=' + encodeURIComponent(id), '_blank');
     };
 
     /**
