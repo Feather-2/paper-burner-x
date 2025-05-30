@@ -7,6 +7,7 @@
   <img src="https://img.shields.io/badge/Pure-JavaScript-yellow.svg" alt="JavaScript">
 </div>
 
+[点击以查看分支特性](https://paperburner.viwoplus.site/views/landing/landing-page.html)
 
 ## ✨ 分支新特性概览 (截至25/5/29)
 
