@@ -7,6 +7,9 @@
   <img src="https://img.shields.io/badge/Pure-JavaScript-yellow.svg" alt="JavaScript">
 </div>
 
+![落地页](https://github.com/user-attachments/assets/3caa09e5-0a50-458b-8af6-bfafcce688f0)
+
+[点击以查看分支特性](https://paperburner.viwoplus.site/views/landing/landing-page.html)
 
 ## ✨ 分支新特性概览 (截至25/5/29)
 
@@ -49,6 +52,9 @@
   - Mistral Large
   - 基于openai格式的自定义模型
 
+
+### 简易使用教程
+![paperburner简易使用教程](https://github.com/user-attachments/assets/14576277-a301-4d95-9e32-3f6e489afaac)
 
 ---
 
