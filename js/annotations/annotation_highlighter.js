@@ -10,21 +10,21 @@
  */
 function applyBlockAnnotations(containerElement, allAnnotations, contentIdentifier) {
     // ====== 调用时机日志 ======
-    console.log('[applyBlockAnnotations] 被调用', {
-        contentIdentifier,
-        containerElement,
-        annotationCount: allAnnotations ? allAnnotations.length : 0,
-        callStack: (new Error().stack)
-    });
+    // console.log('[applyBlockAnnotations] 被调用', {
+    //    contentIdentifier,
+    //    containerElement,
+    //    annotationCount: allAnnotations ? allAnnotations.length : 0,
+    //    callStack: (new Error().stack)
+    //});
 
     // ====== 新增：4.1日志（入口） ======
     try {
         const sub41 = containerElement.querySelector('.sub-block[data-sub-block-id="4.1"]');
         if (sub41) {
-            console.log('[调试][入口] 4.1 outerHTML:', sub41.outerHTML);
-            console.log('[调试][入口] 4.1 textContent:', sub41.textContent);
+            //console.log('[调试][入口] 4.1 outerHTML:', sub41.outerHTML);
+            //console.log('[调试][入口] 4.1 textContent:', sub41.textContent);
         } else {
-            console.log('[调试][入口] 4.1 不存在');
+            //console.log('[调试][入口] 4.1 不存在');
         }
     } catch (e) { console.error('[调试][入口] 4.1 日志异常', e); }
 
@@ -32,35 +32,35 @@ function applyBlockAnnotations(containerElement, allAnnotations, contentIdentifi
     const allBlocksPre = document.querySelectorAll('[data-block-index]');
     allBlocksPre.forEach(block => {
         const subs = block.querySelectorAll('.sub-block');
-        console.log(`[检测][applyBlockAnnotations前] block#${block.dataset.blockIndex} 有${subs.length}个sub-block:`, Array.from(subs).map(sb => (sb.textContent || '').substring(0, 20)));
+       // console.log(`[检测][applyBlockAnnotations前] block#${block.dataset.blockIndex} 有${subs.length}个sub-block:`, Array.from(subs).map(sb => (sb.textContent || '').substring(0, 20)));
     });
 
     // 打印所有 sub-block 的内容（分割后）
     if (containerElement) {
         const allSubBlocks = containerElement.querySelectorAll('.sub-block');
         allSubBlocks.forEach(sb => {
-            console.log('[applyBlockAnnotations][分割后] sub-block', sb.dataset.subBlockId, '内容：', sb.textContent);
+            // console.log('[applyBlockAnnotations][分割后] sub-block', sb.dataset.subBlockId, '内容：', sb.textContent);
         });
     }
 
     // ====== 日志：高亮应用开始 ======
-    console.log(`[BlockHighlighter] 开始应用高亮，contentIdentifier=${contentIdentifier}`);
+    //console.log(`[BlockHighlighter] 开始应用高亮，contentIdentifier=${contentIdentifier}`);
     const allSubBlocks = containerElement.querySelectorAll('.sub-block');
-    console.log(`[BlockHighlighter] 当前子块数量: ${allSubBlocks.length}`);
-    console.log(`[BlockHighlighter] 当前子块ID:`, Array.from(allSubBlocks).map(sb => sb.dataset.subBlockId));
+    //console.log(`[BlockHighlighter] 当前子块数量: ${allSubBlocks.length}`);
+    //console.log(`[BlockHighlighter] 当前子块ID:`, Array.from(allSubBlocks).map(sb => sb.dataset.subBlockId));
 
     performance.mark('applyAnnotations-start');
     if (window.currentVisibleTabId === 'chunk-compare') {
         return;
     }
     if (!containerElement || !allAnnotations) {
-        console.log("[BlockHighlighter] 未提供容器元素或批注数据。");
+        //console.log("[BlockHighlighter] 未提供容器元素或批注数据。");
         return;
     }
     // ====== 日志：去重前 ======
-    console.log('[BlockHighlighter] 去重前 annotation 数量:', allAnnotations.length);
+    //console.log('[BlockHighlighter] 去重前 annotation 数量:', allAnnotations.length);
     const beforeAnnList = allAnnotations.map(ann => ann.target && ann.target.selector && ann.target.selector[0] && ann.target.selector[0].subBlockId).filter(Boolean);
-    console.log('[BlockHighlighter] 去重前 subBlockId 列表:', beforeAnnList);
+    //console.log('[BlockHighlighter] 去重前 subBlockId 列表:', beforeAnnList);
     // ========== 去重 ==========
     const seen = new Set();
     const dedupedAnnotations = [];
@@ -88,13 +88,13 @@ function applyBlockAnnotations(containerElement, allAnnotations, contentIdentifi
     }
     allAnnotations = dedupedAnnotations;
     // ====== 日志：去重后 ======
-    console.log('[BlockHighlighter] 去重后 annotation 数量:', allAnnotations.length);
+    //console.log('[BlockHighlighter] 去重后 annotation 数量:', allAnnotations.length);
     const afterAnnList = allAnnotations.map(ann => ann.target && ann.target.selector && ann.target.selector[0] && ann.target.selector[0].subBlockId).filter(Boolean);
-    console.log('[BlockHighlighter] 去重后 subBlockId 列表:', afterAnnList);
+    //console.log('[BlockHighlighter] 去重后 subBlockId 列表:', afterAnnList);
 
     // ====== 日志：清理高亮前 ======
     const beforeCleanSubBlocks = containerElement.querySelectorAll('.sub-block');
-    console.log(`[BlockHighlighter] 清理前子块数量: ${beforeCleanSubBlocks.length}`);
+    //console.log(`[BlockHighlighter] 清理前子块数量: ${beforeCleanSubBlocks.length}`);
 
     // 1. 只移除高亮样式和属性，不删除子块
     const existingAnnotationSpans = containerElement.querySelectorAll('[data-annotation-id]');
@@ -208,17 +208,17 @@ function applyBlockAnnotations(containerElement, allAnnotations, contentIdentifi
 
     // ====== 日志：高亮应用前后子块对比 ======
     const afterCleanSubBlocks = containerElement.querySelectorAll('.sub-block');
-    console.log(`[BlockHighlighter] 清理后子块数量: ${afterCleanSubBlocks.length}`);
-    console.log(`[BlockHighlighter] 清理后子块ID:`, Array.from(afterCleanSubBlocks).map(sb => sb.dataset.subBlockId));
+    //console.log(`[BlockHighlighter] 清理后子块数量: ${afterCleanSubBlocks.length}`);
+    //console.log(`[BlockHighlighter] 清理后子块ID:`, Array.from(afterCleanSubBlocks).map(sb => sb.dataset.subBlockId));
 
     // ====== 新增：4.1日志（高亮清理后） ======
     try {
         const sub41 = containerElement.querySelector('.sub-block[data-sub-block-id="4.1"]');
         if (sub41) {
-            console.log('[调试][高亮清理后] 4.1 outerHTML:', sub41.outerHTML);
-            console.log('[调试][高亮清理后] 4.1 textContent:', sub41.textContent);
+            //console.log('[调试][高亮清理后] 4.1 outerHTML:', sub41.outerHTML);
+            //console.log('[调试][高亮清理后] 4.1 textContent:', sub41.textContent);
         } else {
-            console.log('[调试][高亮清理后] 4.1 不存在');
+            //console.log('[调试][高亮清理后] 4.1 不存在');
         }
     } catch (e) { console.error('[调试][高亮清理后] 4.1 日志异常', e); }
 
@@ -226,7 +226,7 @@ function applyBlockAnnotations(containerElement, allAnnotations, contentIdentifi
     const allBlocksAfterHighlight = document.querySelectorAll('[data-block-index]');
     allBlocksAfterHighlight.forEach(block => {
         const subs = block.querySelectorAll('.sub-block');
-        console.log(`[检测][高亮清理后] block#${block.dataset.blockIndex} 有${subs.length}个sub-block:`, Array.from(subs).map(sb => (sb.textContent || '').substring(0, 20)));
+        //console.log(`[检测][高亮清理后] block#${block.dataset.blockIndex} 有${subs.length}个sub-block:`, Array.from(subs).map(sb => (sb.textContent || '').substring(0, 20)));
     });
 
     // 优先处理子块批注
@@ -237,7 +237,7 @@ function applyBlockAnnotations(containerElement, allAnnotations, contentIdentifi
             return;
         }
         // 新增：高亮循环前日志
-        console.log('[高亮循环] subBlockId:', subBlockId, '内容:', subBlockElement.textContent);
+        //console.log('[高亮循环] subBlockId:', subBlockId, '内容:', subBlockElement.textContent);
         // 先用 subBlockId 匹配
         let annotation = allAnnotations.find(ann =>
             ann.targetType === contentIdentifier &&
@@ -299,24 +299,24 @@ function applyBlockAnnotations(containerElement, allAnnotations, contentIdentifi
 
     // ====== 日志：高亮应用后子块对比 ======
     const afterHighlightSubBlocks = containerElement.querySelectorAll('.sub-block');
-    console.log(`[BlockHighlighter] 高亮后子块数量: ${afterHighlightSubBlocks.length}`);
-    console.log(`[BlockHighlighter] 高亮后子块ID:`, Array.from(afterHighlightSubBlocks).map(sb => sb.dataset.subBlockId));
+    ////console.log(`[BlockHighlighter] 高亮后子块数量: ${afterHighlightSubBlocks.length}`);
+    ////console.log(`[BlockHighlighter] 高亮后子块ID:`, Array.from(afterHighlightSubBlocks).map(sb => sb.dataset.subBlockId));
 
     // ====== 新增：4.1日志（高亮应用后） ======
     try {
         const sub41 = containerElement.querySelector('.sub-block[data-sub-block-id="4.1"]');
         if (sub41) {
-            console.log('[调试][高亮应用后] 4.1 outerHTML:', sub41.outerHTML);
-            console.log('[调试][高亮应用后] 4.1 textContent:', sub41.textContent);
+            //console.log('[调试][高亮应用后] 4.1 outerHTML:', sub41.outerHTML);
+            //console.log('[调试][高亮应用后] 4.1 textContent:', sub41.textContent);
         } else {
-            console.log('[调试][高亮应用后] 4.1 不存在');
+            //console.log('[调试][高亮应用后] 4.1 不存在');
         }
     } catch (e) { console.error('[调试][高亮应用后] 4.1 日志异常', e); }
 
     // ====== 新增：高亮应用后全局检测 ======
     allBlocksAfterHighlight.forEach(block => {
         const subs = block.querySelectorAll('.sub-block');
-        console.log(`[检测][高亮应用后] block#${block.dataset.blockIndex} 有${subs.length}个sub-block:`, Array.from(subs).map(sb => (sb.textContent || '').substring(0, 20)));
+        //console.log(`[检测][高亮应用后] block#${block.dataset.blockIndex} 有${subs.length}个sub-block:`, Array.from(subs).map(sb => (sb.textContent || '').substring(0, 20)));
     });
 
     // 只在 annotation 没有对应 DOM 时报警
@@ -349,7 +349,7 @@ function applyAnnotationToElement(element, annotation, contentIdentifier, elemen
         return;
     }
     // ====== 高亮前日志 ======
-    console.log(`[高亮应用] ${elementType}(${elementIdentifier}) 高亮前内容: "${element.textContent}"`);
+    //console.log(`[高亮应用] ${elementType}(${elementIdentifier}) 高亮前内容: "${element.textContent}"`);
 
     // ====== 精确高亮逻辑，仅对 subBlock 生效 ======
     if (elementType === 'subBlock' && annotation.target && annotation.target.selector && annotation.target.selector[0] && annotation.target.selector[0].exact) {
@@ -538,7 +538,7 @@ function applyAnnotationToElement(element, annotation, contentIdentifier, elemen
             } else { // block
                 window.globalCurrentSelection.blockIndex = elementIdentifier;
             }
-            // console.log(`[BlockHighlighter] ${elementType} 点击，全局选区已设置:`, window.globalCurrentSelection);
+            //console.log(`[BlockHighlighter] ${elementType} 点击，全局选区已设置:`, window.globalCurrentSelection);
 
             // 检查 annotation_logic.js 中的函数是否已更新
             // 优先使用 subBlockId (如果存在)，否则使用 blockIndex
@@ -563,7 +563,7 @@ function applyAnnotationToElement(element, annotation, contentIdentifier, elemen
                 // Fallback to old block/paragraph logic if new generic functions are not available
                 const oldBlockIndex = window.globalCurrentSelection.blockIndex; // Use blockIndex for fallback
                 if (oldBlockIndex && typeof window.checkIfBlockIsHighlighted === 'function' && typeof window.checkIfBlockHasNote === 'function') {
-                    console.log('[BlockHighlighter] 回退使用 checkIfBlockIsHighlighted/checkIfBlockHasNote');
+                    //console.log('[BlockHighlighter] 回退使用 checkIfBlockIsHighlighted/checkIfBlockHasNote');
                     const isHighlighted = window.checkIfBlockIsHighlighted(idToCheck, contentIdentifier, oldBlockIndex);
                     const hasNoteForClick = window.checkIfBlockHasNote(idToCheck, contentIdentifier, oldBlockIndex);
                     window.updateContextMenuOptions(isHighlighted, hasNoteForClick);
@@ -578,7 +578,7 @@ function applyAnnotationToElement(element, annotation, contentIdentifier, elemen
 
     // ====== 高亮后日志 ======
     setTimeout(() => {
-        console.log(`[高亮应用] ${elementType}(${elementIdentifier}) 高亮后内容: "${element.textContent}"`);
+        //console.log(`[高亮应用] ${elementType}(${elementIdentifier}) 高亮后内容: "${element.textContent}"`);
     }, 0);
 }
 

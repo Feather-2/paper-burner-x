@@ -538,19 +538,19 @@ function getCurrentDocId() {
 async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = null, displayUserInput = null) {
   // 1. 在函数最开始获取 docId，并打印
   const docIdForThisMessage = getCurrentDocId();
-  console.log('[sendChatbotMessage] START - docId being used:', docIdForThisMessage);
+  // console.log('[sendChatbotMessage] START - docId being used:', docIdForThisMessage);
 
   if (isChatbotLoading) {
-    console.log('[sendChatbotMessage] Chatbot is loading, returning.');
+    // console.log('[sendChatbotMessage] Chatbot is loading, returning.');
     return;
   }
   isChatbotLoading = true;
 
   // 2. 打印推入前的 chatHistory
-  console.log('[sendChatbotMessage] chatHistory BEFORE user message push:', JSON.stringify(chatHistory));
+  // console.log('[sendChatbotMessage] chatHistory BEFORE user message push:', JSON.stringify(chatHistory));
   chatHistory.push({ role: 'user', content: displayUserInput || userInput });
   // 3. 打印推入后的 chatHistory
-  console.log('[sendChatbotMessage] chatHistory AFTER user message push:', JSON.stringify(chatHistory));
+  // console.log('[sendChatbotMessage] chatHistory AFTER user message push:', JSON.stringify(chatHistory));
 
   // 4. 在第一次 saveChatHistory 前打印将要保存的内容和 docId
   // console.log(`[sendChatbotMessage] Attempting to save USER message with docId: "${docIdForThisMessage}" and history:`, JSON.stringify(chatHistory)); // 这行由 saveChatHistory 内部日志替代
@@ -586,10 +586,10 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
   }
 
 
-  console.log('[sendChatbotMessage] Final systemPrompt to be used:', systemPrompt);
-  console.log('[sendChatbotMessage] Content length passed to systemPrompt (via docContentInfo in PromptConstructor):', (docContentInfo.translation || docContentInfo.ocr || '').length);
-  console.log('[sendChatbotMessage] docContentInfo at the time of systemPrompt build:', JSON.stringify(docContentInfo));
-  console.log('[sendChatbotMessage] window.data at the time of systemPrompt build:', JSON.stringify(window.data)); // 直接检查 window.data
+  // console.log('[sendChatbotMessage] Final systemPrompt to be used:', systemPrompt);
+  // console.log('[sendChatbotMessage] Content length passed to systemPrompt (via docContentInfo in PromptConstructor):', (docContentInfo.translation || docContentInfo.ocr || '').length);
+  // console.log('[sendChatbotMessage] docContentInfo at the time of systemPrompt build:', JSON.stringify(docContentInfo));
+  // console.log('[sendChatbotMessage] window.data at the time of systemPrompt build:', JSON.stringify(window.data)); // 直接检查 window.data
 
   // conversationHistory should map its content to handle potential arrays correctly for non-OpenAI models if needed by their bodyBuilders
   // However, bodyBuilders are now designed to handle rich 'userInput' and rich 'msg.content' from history.
@@ -597,14 +597,14 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
   // Check the global option for using context. Default to true if the option or its parent is not defined.
   if (window.chatbotActiveOptions && typeof window.chatbotActiveOptions.useContext === 'boolean' && window.chatbotActiveOptions.useContext === false) {
     // If useContext is explicitly false, conversationHistory remains empty (no context).
-    console.log('[sendChatbotMessage] Context is OFF. Sending no history.');
+    // console.log('[sendChatbotMessage] Context is OFF. Sending no history.');
   } else {
     // Default behavior or if useContext is true: use chat history.
     conversationHistory = chatHistory.slice(0, -1).map(msg => ({
       role: msg.role,
       content: msg.content // This content can be rich (text or array of parts)
     }));
-    console.log('[sendChatbotMessage] Context is ON. Sending history:', JSON.stringify(conversationHistory));
+    // console.log('[sendChatbotMessage] Context is ON. Sending history:', JSON.stringify(conversationHistory));
   }
 
   const apiKey = config.apiKey;
@@ -887,7 +887,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
       const requestBody = apiConfig.streamBodyBuilder
         ? apiConfig.streamBodyBuilder(systemPrompt, formattedHistory, userInput) // userInput is rich
         : apiConfig.bodyBuilder(systemPrompt, formattedHistory, userInput); // userInput is rich
-      console.log('[sendChatbotMessage] STREAM API Request Body:', JSON.stringify(requestBody, null, 2)); // 打印格式化的JSON
+      // console.log('[sendChatbotMessage] STREAM API Request Body:', JSON.stringify(requestBody, null, 2)); // 打印格式化的JSON
       let collectedContent = '';
 
       // 为 Gemini 使用特定的流式端点（如果有）
@@ -1042,7 +1042,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
       // fallback 到非流式分支
       console.log('[非流式] 调用 bodyBuilder');
       const requestBody = apiConfig.bodyBuilder(systemPrompt, userInput); // userInput is rich
-      console.log('[sendChatbotMessage] NON-STREAM API Request Body:', JSON.stringify(requestBody, null, 2)); // 打印格式化的JSON
+      // console.log('[sendChatbotMessage] NON-STREAM API Request Body:', JSON.stringify(requestBody, null, 2)); // 打印格式化的JSON
       console.log('API Endpoint:', apiConfig.endpoint);
       console.log('Headers:', apiConfig.headers);
       const response = await fetch(apiConfig.endpoint, {
@@ -1172,7 +1172,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
     }
 
     // 确保在 finally 块中保存最新的 chatHistory，包含AI的回复
-    console.log(`[sendChatbotMessage] FINALLY - Attempting to save with docId: "${docIdForThisMessage}" and history:`, JSON.stringify(chatHistory));
+    // console.log(`[sendChatbotMessage] FINALLY - Attempting to save with docId: "${docIdForThisMessage}" and history:`, JSON.stringify(chatHistory));
     saveChatHistory(docIdForThisMessage, chatHistory); // 确保使用一致的 docId
   }
 }

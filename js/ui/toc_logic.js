@@ -1341,6 +1341,11 @@
     window.getCurrentTocStructure = function() {
       return tocStructure;
     };
+
+    // Expose getTocNodes to window
+    window.getTocNodes = function() {
+      return tocNodes;
+    };
   }
 
   // 点击页面其他地方关闭目录 (可选，如果需要请取消注释)

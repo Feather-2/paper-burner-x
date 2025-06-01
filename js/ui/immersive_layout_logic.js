@@ -319,9 +319,23 @@
         dockElement.style.display = '';
         window.DockLogic.updateStats(window.data, window.currentVisibleTabId);
     }
-    if (window.DockLogic && typeof window.DockLogic.forceUpdateReadingProgress === 'function') {
-        window.DockLogic.forceUpdateReadingProgress();
-    }
+
+    // 增加延迟，确保DOM结构完全更新后再更新阅读进度和绑定滚动事件
+    setTimeout(() => {
+        if (window.DockLogic) {
+            // 先解绑旧的滚动事件监听器，避免重复绑定
+            if (typeof window.DockLogic.unbindScrollForCurrentScrollable === 'function') {
+                console.log("[ImmersiveLayout] 进入沉浸模式前，先解绑旧的滚动事件");
+                window.DockLogic.unbindScrollForCurrentScrollable();
+            }
+
+            // 然后强制更新阅读进度，这会重新绑定滚动事件到正确的元素
+            if (typeof window.DockLogic.forceUpdateReadingProgress === 'function') {
+                console.log("[ImmersiveLayout] 进入沉浸模式后，延迟调用 forceUpdateReadingProgress");
+                window.DockLogic.forceUpdateReadingProgress();
+            }
+        }
+    }, 300);
 
     // --- BEGIN: Force TOC to be expanded in immersive mode ---
     if (tocPopupElement && !tocPopupElement.classList.contains('toc-expanded')) {
@@ -428,9 +442,23 @@
         dockElement.style.display = '';
         window.DockLogic.updateStats(window.data, window.currentVisibleTabId);
     }
-    if (window.DockLogic && typeof window.DockLogic.forceUpdateReadingProgress === 'function') {
-        window.DockLogic.forceUpdateReadingProgress();
-    }
+
+    // 增加延迟，确保DOM结构完全更新后再更新阅读进度和绑定滚动事件
+    setTimeout(() => {
+        if (window.DockLogic) {
+            // 先解绑旧的滚动事件监听器，避免重复绑定
+            if (typeof window.DockLogic.unbindScrollForCurrentScrollable === 'function') {
+                console.log("[ImmersiveLayout] 退出沉浸模式前，先解绑旧的滚动事件");
+                window.DockLogic.unbindScrollForCurrentScrollable();
+            }
+
+            // 然后强制更新阅读进度，这会重新绑定滚动事件到正确的元素
+            if (typeof window.DockLogic.forceUpdateReadingProgress === 'function') {
+                console.log("[ImmersiveLayout] 退出沉浸模式后，延迟调用 forceUpdateReadingProgress");
+                window.DockLogic.forceUpdateReadingProgress();
+            }
+        }
+    }, 300);
 
     localStorage.setItem(LS_IMMERSIVE_KEY, 'false');
     document.dispatchEvent(new CustomEvent('immersiveModeExited'));

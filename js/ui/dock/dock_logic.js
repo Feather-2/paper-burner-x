@@ -34,12 +34,18 @@
             // It depends on the currently active tab within the immersive main content area.
             const immersiveMainArea = document.getElementById('immersive-main-content-area');
             if (immersiveMainArea) {
+                // Try to find the specific, scrollable tab content area first
+                const tabContentScroller = immersiveMainArea.querySelector('.tab-content[style*="overflow-y: auto"], .tab-content[style*="overflow: auto"]');
+                if (tabContentScroller) return tabContentScroller;
+
                 const activeTabContent = immersiveMainArea.querySelector('.tab-content .content-wrapper, .tab-content .chunk-compare-container');
                 if (activeTabContent) {
                     // Check if this activeTabContent itself is scrollable, or if its parent .tab-content is.
                     // Often, the .tab-content (with overflow-y: auto) is the actual scroller for its children.
                     const tabContentParent = activeTabContent.closest('.tab-content');
-                    if (tabContentParent && getComputedStyle(tabContentParent).overflowY === 'auto') {
+                    if (tabContentParent && (tabContentParent.style.overflowY === 'auto' ||
+                                           tabContentParent.style.overflow === 'auto' ||
+                                           getComputedStyle(tabContentParent).overflowY === 'auto')) {
                         return tabContentParent;
                     }
                     return activeTabContent; // Fallback to the content wrapper itself if .tab-content isn't the scroller
@@ -65,8 +71,14 @@
         // 获取当前滚动元素
         const el = getCurrentScrollableElement();
         if (el) {
+            console.log(`[DockLogic] 绑定滚动事件到元素:`, el.id || el.className || el.tagName);
             el.addEventListener('scroll', debouncedUpdateReadingProgress);
             lastScrollableElement = el;
+
+            // 立即更新一次阅读进度，确保显示正确
+            setTimeout(() => _updateReadingProgress(), 50);
+        } else {
+            console.warn(`[DockLogic] 未找到可滚动元素，无法绑定滚动事件`);
         }
     }
     function unbindScrollForCurrentScrollable() {
@@ -438,10 +450,12 @@
         init: initialize,
         updateStats: _updateAllDockStats,
         forceUpdateReadingProgress: function() {
+            // 增加延迟，确保DOM结构已更新
             setTimeout(() => {
+                console.log("[DockLogic] 强制更新阅读进度");
                 _updateReadingProgress();
                 bindScrollForCurrentScrollable(); // 每次强制刷新后也重新绑定
-            }, 50);
+            }, 200); // 增加延迟时间
         },
         updateDisplayConfig: function(newConfig) {
             if (typeof newConfig === 'object' && newConfig !== null) {
