@@ -207,6 +207,10 @@ body.immersive-active > #chatbot-fab
 #immersive-main-content-area {
     position: relative; /* for z-index context */
     z-index: 0;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
 /* 调整dock设置弹窗、批注弹窗等在沉浸模式下的z-index，确保它们能显示在沉浸式布局之上 */
