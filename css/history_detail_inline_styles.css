@@ -183,11 +183,11 @@
   color: #2563eb; /* Darker blue on hover */
 }
 
-#settings-link i.fa-cog, /* Changed ID */
-#dock-toggle-btn i {
-  font-size: 1.2em;
-  padding: 3px;
+#settings-link i.fa-cog { /* Styles for settings cog icon if it's not a round button */
+  font-size: 1.2em; /* Keep or adjust as needed */
+  padding: 3px; /* Keep or adjust as needed */
 }
+
 #dock-toggle-btn {
     margin-left: auto; /* Pushes toggle button to the far right */
     cursor: pointer;
@@ -657,3 +657,77 @@
   font-weight: 400;
   display: inline-block;
 }
+
+/* NEW UNIFIED BUTTON STYLES (Appearance and Internal Layout) */
+.common-round-btn-base { /* Base for visual styling, not positioning */
+  border-radius: 50% !important;
+  background-color: #2563eb !important; /* Default blue */
+  color: white !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-shadow: 0 2px 8px rgba(59,130,246,0.15) !important;
+  border: none !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+  transition: background-color 0.2s, transform 0.2s !important;
+  /* Position and z-index to be handled by individual button's CSS rule */
+}
+.common-round-btn-base:hover {
+  background-color: #1d4ed8 !important;
+  transform: scale(1.08);
+}
+
+.tiny-round-btn {
+  /* Apply common styles by copying */
+  border-radius: 50% !important;
+  background-color: #2563eb !important;
+  color: white !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-shadow: 0 2px 8px rgba(59,130,246,0.15) !important;
+  border: none !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+  transition: background-color 0.2s, transform 0.2s !important;
+
+  width: 36px !important;
+  height: 36px !important;
+  font-size: 18px !important; /* Icon size */
+}
+.tiny-round-btn:hover { /* Explicit hover for specificity if needed */
+  background-color: #1d4ed8 !important;
+  transform: scale(1.08);
+}
+
+.big-round-btn {
+  /* Apply common styles by copying */
+  border-radius: 50% !important;
+  background-color: #2563eb !important;
+  color: white !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-shadow: 0 2px 8px rgba(59,130,246,0.15) !important;
+  border: none !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+  transition: background-color 0.2s, transform 0.2s !important;
+
+  width: 44px !important;
+  height: 44px !important;
+  font-size: 22px !important; /* Icon size */
+}
+.big-round-btn:hover { /* Explicit hover for specificity if needed */
+  background-color: #1d4ed8 !important;
+  transform: scale(1.08);
+}
+
+/* Styling for icons within these buttons to ensure they inherit size correctly */
+.tiny-round-btn > i, .big-round-btn > i {
+  font-size: inherit !important;
+  line-height: 1 !important; /* Ensure proper vertical alignment of icon */
+  padding: 0 !important; /* Remove any specific padding on the icon itself */
+}
+/* END NEW UNIFIED BUTTON STYLES */

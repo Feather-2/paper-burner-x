@@ -1,0 +1,476 @@
+/* css/immersive_layout.css */
+
+:root {
+  --immersive-separator-color: #ccc;
+  --immersive-handle-width: 8px;
+  --immersive-handle-color: #e0e0e0;
+  --immersive-handle-hover-color: #d0d0d0;
+  --immersive-panel-min-width: 50px; /* 最小宽度，防止面板被完全压缩 */
+  --dock-height-in-immersive: 60px; /* 与HTML中placeholder高度一致，可调整 */
+}
+
+/* 确保沉浸式布局容器在需要时可以显示为 flex */
+#immersive-layout-container {
+  /* display: flex; */ /* JS会控制这个 */
+}
+
+#immersive-content-area {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  /* height: calc(100vh - var(--dock-height-in-immersive)); */ /* REMOVED: 为Dock预留空间, 现在dock在TOC内部 */
+}
+
+.immersive-panel {
+  overflow: auto; /* 面板内容多时可以滚动 */
+  padding: 10px;
+  box-sizing: border-box;
+  position: relative; /* 用于内部绝对定位的元素，例如TOC的控制按钮 */
+  min-width: var(--immersive-panel-min-width);
+  display: flex; /* 使面板内部也可以使用flex布局 */
+  flex-direction: column; /* 默认垂直排列子元素 */
+  height: 100%; /* Ensure panel stretches to fill parent's height */
+}
+
+/* 主内容区域在沉浸模式下可能需要特殊处理其内部的 .container 样式 */
+#immersive-main-content-area .container {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  padding: 15px 20px !important; /* Slightly adjusted padding */
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08); /* Subtle shadow for card effect */
+  height: 100%; /* 让其撑满父容器 */
+  display: flex;
+  flex-direction: column;
+  gap: 10px; /* Consistent gap between header block, tabs, and content body */
+  background-color: #ffffff; /* Explicit white background for the card */
+  border-radius: 6px; /* Slightly reduced border-radius */
+  border: 1px solid #e7e7e7; /* Add a very light border to define edges clearly */
+  /* overflow: hidden; */ /* REMOVED this line to prevent scrollbar issues */
+}
+
+#immersive-main-content-area .container .tabs-container {
+  flex-shrink: 0;
+}
+
+#immersive-main-content-area .container .tab-content {
+  flex-grow: 1;
+  overflow-y: auto; /* 标签内容区域独立滚动 */
+  height: 0; /* flex-grow 生效的关键 */
+}
+
+
+/* TOC特定样式调整 */
+#immersive-toc-area #toc-popup {
+  position: static; /* 覆盖 fixed 定位 */
+  display: flex !important; /* 强制显示 */
+  flex-direction: column;
+  width: 100% !important;
+  flex-grow: 10; /* TOC content gets more growth priority - Increased from 8 to 10 */
+  flex-basis: 0;
+  min-height: 50px; /* Greatly reduced min-height to allow flex-grow to dominate */
+  /* height: auto; */ /* REMOVED to let flex properties fully control height */
+  max-height: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  transform: none !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  transition: none !important;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+  background-color: transparent; /* 背景透明，依赖于父级面板的背景 */
+}
+
+#immersive-toc-area #toc-popup #toc-popup-header {
+  background-color: transparent; /* 与TOC区域背景一致 */
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--immersive-separator-color, #ccc);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+#immersive-toc-area #toc-popup #toc-list {
+  overflow-y: auto; /* 允许内容滚动 */
+  flex-grow: 1; /* 占据剩余空间 */
+  padding: 10px;
+  background-color: transparent;
+  max-height: none !important; /* Override potential max-height from other stylesheets */
+}
+
+#immersive-toc-area #toc-popup #toc-popup-close-btn {
+  display: none; /* 在沉浸式TOC区域中不需要关闭按钮 */
+}
+
+#immersive-toc-area #toc-popup .toc-controls {
+  padding: 5px;
+  background-color: transparent;
+  border-top: 1px solid var(--immersive-separator-color, #ccc);
+}
+
+#immersive-toc-area #toc-popup #toc-mode-selector {
+  margin-left: auto; /* 将模式选择器推到右侧 */
+}
+
+/* Chatbot特定样式调整 */
+#immersive-chatbot-area #chatbot-modal {
+  position: static !important; /* 覆盖 fixed 定位 */
+  display: flex !important; /* 强制显示 */
+  width: 100% !important;
+  height: 100% !important;
+  pointer-events: auto !important;
+  background-color: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+#immersive-chatbot-area .chatbot-window {
+  position: static !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  resize: none !important; /* 禁止拖动chatbot窗口自身大小 */
+  overflow: hidden !important; /* chatbot-window本身不滚动，内部的#chatbot-body滚动 */
+  display: flex;
+  flex-direction: column;
+}
+
+#immersive-chatbot-area #chatbot-fab {
+  display: none !important; /* 沉浸模式下隐藏FAB */
+}
+
+/* 隐藏chatbot自己的全屏和位置切换按钮，因为布局由外部控制 */
+#immersive-chatbot-area #chatbot-fullscreen-toggle-btn,
+#immersive-chatbot-area #chatbot-position-toggle-btn,
+#immersive-chatbot-area #chatbot-close-btn {
+  display: none !important;
+}
+
+
+.immersive-resize-handle {
+  width: var(--immersive-handle-width);
+  background-color: transparent; /* 初始透明，悬停时变色 */
+  cursor: col-resize;
+  flex-shrink: 0; /* 防止拖动条被压缩 */
+  position: relative;
+  z-index: 1; /* 确保在面板之上 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 在拖动条中间加一条细线，使其更易见 */
+.immersive-resize-handle::before {
+  content: '';
+  position: absolute;
+  left: calc(50% - 1px);
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: var(--immersive-separator-color); /* 与面板分隔线颜色一致 */
+  transition: background-color 0.2s ease;
+}
+
+.immersive-resize-handle:hover::before {
+  background-color: var(--main-accent-color, #007bff); /* 悬停时变色 */
+}
+
+/* 拖动时的样式 (如果需要) */
+.immersive-dragging .immersive-resize-handle::before {
+  background-color: var(--main-accent-color-dark, #0056b3);
+}
+
+/* 当body上应用了 no-scroll 类时（例如沉浸模式下），禁用滚动 */
+body.no-scroll {
+  overflow: hidden;
+}
+
+/* 原本的 .container 和 #toc-float-btn, #toc-popup 在沉浸模式下需要隐藏 */
+body.immersive-active > .container,
+body.immersive-active > #toc-float-btn,
+body.immersive-active > #toc-popup:not(#immersive-toc-area #toc-popup),
+body.immersive-active > #chatbot-modal:not(#immersive-chatbot-area #chatbot-modal),
+body.immersive-active > #chatbot-fab
+/* body.immersive-active > #bottom-left-dock REMOVED - Dock is now moved, not hidden globally */
+{
+  display: none !important;
+}
+
+/* 确保沉浸式布局下的主要内容区域不会被其他元素遮挡，比如聊天机器人的某些内部定位元素 */
+#immersive-main-content-area {
+    position: relative; /* for z-index context */
+    z-index: 0;
+}
+
+/* 调整dock设置弹窗、批注弹窗等在沉浸模式下的z-index，确保它们能显示在沉浸式布局之上 */
+body.immersive-active .modal-overlay {
+    z-index: 20001 !important; /* 高于沉浸式布局的 header */
+}
+
+body.immersive-active #custom-context-menu {
+    z-index: 20002 !important;
+}
+
+/* 确保原始的 toc-popup 在非沉浸模式下能正常显示 */
+#toc-popup {
+    /* 保留其原始样式 */
+}
+
+/* 沉浸模式下，如果 chatbot-window 内部有自己的 resize handle (通常没有，但以防万一) */
+#immersive-chatbot-area .chatbot-window::after {
+    display: none !important; /* 隐藏可能的伪元素 resize handle */
+}
+
+/* Styling for the toggle button when it acts as an exit button */
+/* #toggle-immersive-btn.immersive-exit-btn-active {
+  position: fixed !important; // Ensure it overrides inline styles if any
+  top: auto !important;
+  right: 20px !important;
+  bottom: 20px !important; // Position relative to viewport bottom, removed dock height adjustment
+  left: auto !important;
+  width: 40px !important; // Smaller, circular or square button
+  height: 40px !important;
+  padding: 0 !important;
+  border-radius: 50% !important; // Circular
+  background-color: #dc3545 !important; // Danger color for exit
+  color: white !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px; // Adjust icon size
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
+  transition: transform 0.2s ease-out;
+}
+
+#toggle-immersive-btn.immersive-exit-btn-active:hover {
+  transform: scale(1.1);
+  background-color: #c82333 !important; // Darker on hover
+} */
+
+/* Base style for the immersive toggle button */
+#toggle-immersive-btn {
+  position: fixed !important;
+  top: 15px !important;
+  right: 15px !important;
+  z-index: 20000 !important; /* High z-index, consistent with other fixed corner buttons */
+  /* Visual styles (width, height, padding, border-radius, background-color, color, font-size, box-shadow)
+     will be handled by the .tiny-round-btn class added in HTML.
+     Remove conflicting properties here. */
+  border: none; /* Explicitly keep if .tiny-round-btn doesn't set it, but it does */
+  cursor: pointer; /* Keep, though .tiny-round-btn also sets it */
+  display: flex; /* Keep, though .tiny-round-btn also sets it */
+  align-items: center; /* Keep, though .tiny-round-btn also sets it */
+  justify-content: center; /* Keep, though .tiny-round-btn also sets it */
+  transition: transform 0.2s ease-out, background-color 0.2s ease; /* Keep, .tiny-round-btn has similar */
+  /* Remove original:
+  width: 36px !important;
+  height: 36px !important;
+  padding: 0 !important;
+  border-radius: 50% !important;
+  background-color: var(--main-accent-color, #007bff) !important;
+  color: white !important;
+  font-size: 16px !important; // Icon size
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2) !important;
+  */
+}
+
+#toggle-immersive-btn:hover {
+  /* Hover effect handled by .tiny-round-btn */
+  /* transform: scale(1.1); */
+  /* background-color: var(--main-accent-color-dark, #0056b3) !important; */
+}
+
+/* Styles when immersive mode is active (mostly for icon change via JS, positioning is the same) */
+#toggle-immersive-btn.immersive-exit-btn-active {
+  /* The base style #toggle-immersive-btn already covers position, size, and default BG. */
+  /* This class is now mainly a flag for JS to change the icon and title. */
+  /* If a different background for "exit" state is desired (but not red as per user): */
+  /* background-color: var(--secondary-accent-color, #5bc0de) !important; */
+}
+
+/* #toggle-immersive-btn.immersive-exit-btn-active:hover { */
+  /* If hover for exit needs to be different */
+  /* background-color: var(--secondary-accent-color-dark, #31b0d5) !important; */
+/* } */
+
+
+/* New Dock placeholder inside TOC area */
+#immersive-toc-area #toc-dock-placeholder {
+  flex-shrink: 0;
+  flex-grow: 1;    /* Restored grow factor for the dock */
+  flex-basis: 50px;   /* Restored basis for the dock */
+  min-height: 50px; /* Restored min-height for the dock */
+  border-top: 1px dashed var(--immersive-separator-color, #ccc);
+  border-bottom: 1px dashed var(--immersive-separator-color, #ccc);
+  background-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+#immersive-toc-area #toc-dock-placeholder #bottom-left-dock {
+  position: static !important;
+  width: 100% !important;
+  height: 100% !important;
+  bottom: auto !important;
+  left: auto !important;
+  right: auto !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center; /* Changed to center */
+  gap: 8px; /* Added gap */
+  padding: 0 5px;
+  visibility: visible !important;
+  opacity: 1 !important;
+  background-color: transparent;
+}
+
+/* Removed old #immersive-dock-placeholder styles */
+
+/* Horizontal Resize Handle for TOC vs Dock adjustment */
+#toc-vs-dock-resize-handle {
+  height: var(--immersive-handle-width, 8px); /* Use existing variable for consistency, or define a new one */
+  background-color: transparent; /* Similar to vertical handles, color on hover */
+  cursor: ns-resize; /* North-South resize cursor for vertical dragging */
+  flex-shrink: 0; /* Prevent shrinking */
+  position: relative;
+  z-index: 10; /* Ensure it's above content but below potential popups */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 2px 0; /* Small margin to visually separate from content areas slightly */
+}
+
+#toc-vs-dock-resize-handle::before {
+  content: '';
+  position: absolute;
+  top: calc(50% - 1px); /* Center the 2px line vertically */
+  left: 0;
+  right: 0;
+  height: 2px; /* Thickness of the visual line */
+  background-color: var(--immersive-separator-color, #ccc);
+  transition: background-color 0.2s ease;
+}
+
+#toc-vs-dock-resize-handle:hover::before {
+  background-color: var(--main-accent-color, #007bff); /* Highlight on hover */
+}
+
+/* Optional: Style when dragging */
+body.toc-dock-resizing #toc-vs-dock-resize-handle::before {
+  background-color: var(--main-accent-color-dark, #0056b3); /* Darker when actively dragging */
+}
+
+/* Immersive Mode: Main Content Area Header Styling - REFINED */
+
+/* Grouping fileName and fileMeta - no new div, control via flex item properties if .container is flex column */
+#immersive-main-content-area #fileName {
+  font-size: 1.2em; /* Title font size */
+  font-weight: 600; /* Semibold for emphasis */
+  color: #2c3e50; /* Dark, slightly desaturated blue/grey */
+  line-height: 1.4;
+  margin-bottom: 0; /* Remove bottom margin, rely on parent's gap */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+#immersive-main-content-area #fileMeta {
+  font-size: 0.8em;
+  color: #7f8c8d; /* Mid-grey for secondary info */
+  line-height: 1.3;
+  text-align: left; /* Left-aligned under the title */
+  margin-top: -2px; /* Slightly pull up towards the title if gap is too large */
+}
+
+#immersive-main-content-area .tabs-container {
+  padding-bottom: 0; /* Remove any bottom padding if using border for separation */
+  border-bottom: 2px solid #e0e0e0; /* Clearer separator */
+  display: flex;
+  gap: 0; /* No gap, buttons will manage their own spacing/borders */
+  margin-bottom: 0; /* Rely on parent's gap */
+  position: relative; /* For ::after pseudo-element if needed for active tab indicator */
+}
+
+#immersive-main-content-area .tabs-container .tab-btn {
+  padding: 8px 14px; /* Comfortable padding */
+  font-size: 0.9em;
+  font-weight: 500;
+  border-radius: 5px 5px 0 0; /* Top rounded corners for tab look */
+  background-color: transparent;
+  border: 1px solid transparent; /* Initially transparent border */
+  border-bottom: none; /* No bottom border on the button itself */
+  color: #34495e; /* Tab text color */
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  position: relative; /* For z-index and precise alignment */
+  margin-right: 2px; /* Small gap between tabs */
+  margin-bottom: -2px; /* Pull button down to overlap/align with container's border-bottom */
+}
+
+#immersive-main-content-area .tabs-container .tab-btn:hover {
+  background-color: #f0f2f5; /* Light hover state */
+  color: #2c3e50;
+}
+
+#immersive-main-content-area .tabs-container .tab-btn.active {
+  background-color: var(--body-bg-color, white); /* Match page background to appear connected to content */
+  color: var(--main-accent-color, #007bff);
+  border-left-color: #e0e0e0;
+  border-right-color: #e0e0e0;
+  border-top-color: #e0e0e0;
+  /* The bottom border of the button is effectively made by the container's border-bottom NOT showing through */
+  /* or by setting its own bottom border to the background color if it needs to sit on top */
+  font-weight: 600;
+  z-index: 1; /* Ensure active tab is above the container's border */
+}
+
+#immersive-main-content-area .tab-content {
+  padding-top: 12px; /* Space between tabs and content body */
+  /* font-family: 'YourPreferredFont', sans-serif; */ /* Example: consider a clean font */
+}
+
+#immersive-main-content-area .tab-content > h3 {
+  margin-top: 0;
+  font-size: 1.05em;
+  color: #333;
+  margin-bottom: 10px; /* Space below h3 in tab content */
+  font-weight: 600;
+}
+
+/* Specific fix for the duplicate padding issue if .container is inside .immersive-panel with padding */
+/* This assumes .immersive-main-content-area IS an .immersive-panel */
+#immersive-main-content-area.immersive-panel {
+    padding: 10px !important; /* Panel has padding, container card sits within */
+}
+
+/* Reset padding on the general .immersive-panel if we want specific panels to override */
+/* This might be too broad, an alternative is to ensure specific panels like #immersive-main-content-area */
+/* have their padding managed correctly. For now, let's adjust #immersive-main-content-area.immersive-panel directly. */
+
+/* Ensure other panels like TOC and Chatbot still use the default .immersive-panel padding or have their own */
+#immersive-toc-area.immersive-panel {
+    padding: 10px 15px; /* Adjusted padding-top from 20px to 10px */
+    /* width: 19%; */ /* Example: Original was 20%, adjust as needed or use flex-basis */
+    /* flex-basis: 19%; */
+}
+
+#immersive-chatbot-area.immersive-panel {
+    padding: 10px 15px; /* Adjusted padding-top from 20px to 10px */
+    /* width: 23.5%; */ /* Example: Original was 25%, adjust as needed or use flex-basis */
+    /* flex-basis: 23.5%; */
+}
+
+/* If widths were adjusted, the flex-grow of main content might need to be more assertive or handles adjusted. */
+/* For now, focusing on padding to achieve the scaled feel without altering overall layout widths drastically. */

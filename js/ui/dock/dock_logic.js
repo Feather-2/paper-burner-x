@@ -27,6 +27,55 @@
         words: true
     };
 
+    // Helper function to get the current scrollable element
+    function getCurrentScrollableElement() {
+        if (global.ImmersiveLayout && global.ImmersiveLayout.isActive()) {
+            // In immersive mode, scrolling is more complex.
+            // It depends on the currently active tab within the immersive main content area.
+            const immersiveMainArea = document.getElementById('immersive-main-content-area');
+            if (immersiveMainArea) {
+                const activeTabContent = immersiveMainArea.querySelector('.tab-content .content-wrapper, .tab-content .chunk-compare-container');
+                if (activeTabContent) {
+                    // Check if this activeTabContent itself is scrollable, or if its parent .tab-content is.
+                    // Often, the .tab-content (with overflow-y: auto) is the actual scroller for its children.
+                    const tabContentParent = activeTabContent.closest('.tab-content');
+                    if (tabContentParent && getComputedStyle(tabContentParent).overflowY === 'auto') {
+                        return tabContentParent;
+                    }
+                    return activeTabContent; // Fallback to the content wrapper itself if .tab-content isn't the scroller
+                }
+                // If no specific tab content found, try the .container within immersive main area
+                const mainContainerInImmersive = immersiveMainArea.querySelector('.container');
+                if (mainContainerInImmersive) return mainContainerInImmersive;
+                return immersiveMainArea; // Fallback to the immersive main area itself
+            }
+        }
+        // Default to document.documentElement when not in immersive mode or if specific elements aren't found
+        return document.documentElement;
+    }
+
+    // --- 新增：动态绑定/解绑 scroll 事件 ---
+    let lastScrollableElement = null;
+    function bindScrollForCurrentScrollable() {
+        // 解绑旧的
+        if (lastScrollableElement) {
+            lastScrollableElement.removeEventListener('scroll', debouncedUpdateReadingProgress);
+            lastScrollableElement = null;
+        }
+        // 获取当前滚动元素
+        const el = getCurrentScrollableElement();
+        if (el) {
+            el.addEventListener('scroll', debouncedUpdateReadingProgress);
+            lastScrollableElement = el;
+        }
+    }
+    function unbindScrollForCurrentScrollable() {
+        if (lastScrollableElement) {
+            lastScrollableElement.removeEventListener('scroll', debouncedUpdateReadingProgress);
+            lastScrollableElement = null;
+        }
+    }
+
     function debounce(func, delay) {
         let timeout;
         return function(...args) {
@@ -42,9 +91,11 @@
             return;
         }
 
-        const scrollTop = document.documentElement.scrollTop;
-        const scrollHeight = document.documentElement.scrollHeight;
-        const clientHeight = document.documentElement.clientHeight;
+        const scrollableElement = getCurrentScrollableElement();
+
+        const scrollTop = scrollableElement.scrollTop;
+        const scrollHeight = scrollableElement.scrollHeight;
+        const clientHeight = scrollableElement.clientHeight;
 
         if (scrollHeight <= clientHeight) { // Content fits viewport, no scrollbar
             progressPercentageSpan.textContent = '100';
@@ -355,6 +406,8 @@
 
         global.removeEventListener('scroll', debouncedUpdateReadingProgress);
         global.addEventListener('scroll', debouncedUpdateReadingProgress);
+        // 新增：自动绑定到当前滚动容器
+        bindScrollForCurrentScrollable();
 
         const highlightStatClickable = dockElement.querySelector('.dock-stat-item-wrapper-highlight .stat-item-clickable[data-stat-type="highlight"]');
         const annotationStatClickable = dockElement.querySelector('.dock-stat-item-wrapper-annotation .stat-item-clickable[data-stat-type="annotation"]');
@@ -384,7 +437,12 @@
     global.DockLogic = {
         init: initialize,
         updateStats: _updateAllDockStats,
-        forceUpdateReadingProgress: _updateReadingProgress,
+        forceUpdateReadingProgress: function() {
+            setTimeout(() => {
+                _updateReadingProgress();
+                bindScrollForCurrentScrollable(); // 每次强制刷新后也重新绑定
+            }, 50);
+        },
         updateDisplayConfig: function(newConfig) {
             if (typeof newConfig === 'object' && newConfig !== null) {
                 for (const key in dockDisplayConfig) {
@@ -423,7 +481,9 @@
         },
         getCurrentDisplayConfig: function() {
             return { ...dockDisplayConfig };
-        }
+        },
+        bindScrollForCurrentScrollable,
+        unbindScrollForCurrentScrollable
     };
 
 })(window);

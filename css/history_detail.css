@@ -415,25 +415,33 @@ h2 {
  * TOC 浮动按钮和弹窗样式
  * ========================== */
 #toc-float-btn {
-  position: fixed;
-  left: 24px;
-  top: 24px;
-  z-index: 10000;
+  position: fixed !important; /* Ensure it's fixed */
+  left: 15px !important; /* Adjusted from 24px */
+  top: 15px !important;  /* Adjusted from 24px */
+  z-index: 20000 !important; /* Consistent high z-index */
+  /* Visual styles (width, height, background, border-radius, box-shadow, icon color/size)
+     will be handled by the .tiny-round-btn class added in HTML.
+     Remove conflicting properties here. */
+  cursor: pointer; /* Keep, though .tiny-round-btn also sets it */
+  display: flex; /* Keep, though .tiny-round-btn also sets it */
+  align-items: center; /* Keep, though .tiny-round-btn also sets it */
+  justify-content: center; /* Keep, though .tiny-round-btn also sets it */
+  transition: background 0.2s; /* Keep, .tiny-round-btn has similar */
+  /* Remove original:
   width: 48px;
   height: 48px;
   background: #2563eb;
   border-radius: 50%;
   box-shadow: 0 3px 10px rgba(59, 130, 246, 0.25);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: background 0.2s;
+  */
 }
 
 #toc-float-btn i {
+  /* Icon color and font-size will be handled by .tiny-round-btn > i */
+  /* Remove original:
   color: #fff;
   font-size: 22px;
+  */
 }
 
 #toc-popup {

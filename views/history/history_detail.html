@@ -9,9 +9,52 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
   <link rel="stylesheet" href="../../css/history_detail.css">
   <link rel="stylesheet" href="../../css/history_detail_inline_styles.css">
+  <link rel="stylesheet" href="../../css/immersive_layout.css"> <!-- 新增沉浸式布局CSS -->
 
 </head>
 <body>
+  <!-- Immersive Mode Toggle Button -->
+  <button id="toggle-immersive-btn" class="tiny-round-btn">
+    <i class="fas fa-expand-alt"></i> <!-- Default icon for entering immersive mode -->
+  </button>
+
+  <!-- Immersive Layout Container -->
+  <div id="immersive-layout-container" style="display: none; /* Initially hidden */
+                                              width: 100vw;
+                                              height: 100vh;
+                                              position: fixed;
+                                              top: 0;
+                                              left: 0;
+                                              z-index: 1999; /* Below toggle button, above most other things */
+                                              background-color: var(--body-bg-color, #fff); /* Match body background */
+                                              flex-direction: column;">
+    <!-- Removed immersive-layout-header -->
+
+    <div id="immersive-content-area" style="display: flex; flex: 1; overflow: hidden;">
+      <!-- TOC Area -->
+      <div id="immersive-toc-area" class="immersive-panel" style="width: 20%; border-right: 2px dashed var(--immersive-separator-color, #ccc);">
+        <!-- TOC will be rendered or moved here -->
+      </div>
+
+      <!-- Resizable Handle 1 -->
+      <div class="immersive-resize-handle" data-target-prev="immersive-toc-area" data-target-next="immersive-main-content-area"></div>
+
+      <!-- Main Content Area (where original .container's content will go) -->
+      <div id="immersive-main-content-area" class="immersive-panel" style="flex: 1;">
+        <!-- Original .container content (tabs, tab content etc.) will be programmatically moved here -->
+      </div>
+
+      <!-- Resizable Handle 2 -->
+      <div class="immersive-resize-handle" data-target-prev="immersive-main-content-area" data-target-next="immersive-chatbot-area"></div>
+
+      <!-- Chatbot Area -->
+      <div id="immersive-chatbot-area" class="immersive-panel" style="width: 20%; border-left: 2px dashed var(--immersive-separator-color, #ccc);">
+        <!-- Chatbot will be rendered or moved here -->
+      </div>
+    </div>
+    <!-- Removed Placeholder for Dock in immersive mode -->
+  </div>
+
   <!-- NEW DOCK STRUCTURE -->
   <div id="bottom-left-dock">
     <div id="dock-info-stack">
@@ -36,7 +79,7 @@
   <!-- ===================== -->
   <!-- 浮动TOC目录按钮及悬浮窗 -->
   <!-- ===================== -->
-  <div id="toc-float-btn"><i class="fa fa-list"></i></div>
+  <div id="toc-float-btn" class="tiny-round-btn"><i class="fa fa-list"></i></div>
   <div id="toc-popup" class="toc-popup-hidden">
     <div id="toc-popup-header">
       <span><i class="fa fa-list"></i>目录 / TOC</span>
@@ -206,7 +249,6 @@
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
-  <script src="../../js/mindmap.js"></script>
 
   <script src="../../js/chatbot/utils/mermaid-loader.js"></script>
   <script src="../../js/chatbot/utils/markdown-katex-render.js"></script>
@@ -224,28 +266,19 @@
   <script src="../../js/chatbot/ui/chatbot-floating-options.js"></script> <!-- 新增引用 -->
   <script src="../../js/chatbot/ui/chatbot-ui.js"></script>
   <script src="../../js/chatbot/ui/chatbot-model-selector-ui.js"></script>
-  <script src="../../js/chatbot/core/chatbot.js"></script>
   <script src="../../js/chatbot/strategy/segmentation-strategy.js"></script>
-  <script src="../../js/chatbot/chatbot-utils.js"></script>
-  <script src="../../js/chatbot/chatbot-preset.js"></script>
-  <script src="../../js/chatbot/chatbot-image-utils.js"></script> <!-- Moved up to be with other utils -->
-  <script src="../../js/chatbot/chatbot-rendering-utils.js"></script> <!-- NEW -->
-  <script src="../../js/chatbot/chatbot-actions.js"></script> <!-- NEW -->
-  <script src="../../js/chatbot/chatbot-message-renderer.js"></script> <!-- NEW -->
-  <script src="../../js/chatbot/chatbot-mermaid-renderer.js"></script>
-  <script src="../../js/chatbot/chatbot-mindmap-renderer.js"></script>
   <script src="../../js/chatbot/ui/chatbot-preset-questions-ui.js"></script>
   <script src="../../js/chatbot/ui/chatbot-floating-options.js"></script> <!-- 新增引用 -->
   <script src="../../js/chatbot/ui/chatbot-ui.js"></script>
   <script src="../../js/chatbot/ui/chatbot-model-selector-ui.js"></script>
 
-  <script src="../../js/chatbot/chatbot.js"></script>
   <script src="../../js/ui/dock/dock_logic.js"></script>
   <script src="../../js/processing/markdown_processor.js"></script>
   <script src="../../js/processing/sub_block_segmenter.js"></script>
   <script src="../../js/ui/dock/dock_settings_modal.js"></script> <!-- ADDED -->
   <script src="../../js/annotations/annotations_summary_modal.js"></script> <!-- ADDED -->
   <script src="../../js/history/history_detail_scripts.js"></script>
+  <script src="../../js/ui/immersive_layout_logic.js"></script> <!-- 新增沉浸式布局JS -->
 
   <!-- ===================== -->
   <!-- 页面核心逻辑脚本 -->
@@ -275,6 +308,35 @@
     // let dockElement = null; // MOVED to dock_logic.js
 
     // NEW FUNCTION DEFINITION
+    function getCurrentScrollableElementForHistoryDetail() {
+        if (window.ImmersiveLayout && window.ImmersiveLayout.isActive()) {
+            const immersiveMainArea = document.getElementById('immersive-main-content-area');
+            if (immersiveMainArea) {
+                // Try to find the specific, scrollable tab content area first
+                const tabContentScroller = immersiveMainArea.querySelector('.tab-content[style*="overflow-y: auto"], .tab-content[style*="overflow: auto"]');
+                if (tabContentScroller) return tabContentScroller;
+
+                // Fallback: look for a .content-wrapper or .chunk-compare-container within .tab-content
+                const activeTabContentBlock = immersiveMainArea.querySelector('.tab-content .content-wrapper, .tab-content .chunk-compare-container');
+                if (activeTabContentBlock) {
+                    // It might be that the .tab-content itself is the designated scroller
+                    const parentTabContent = activeTabContentBlock.closest('.tab-content');
+                    if (parentTabContent && (parentTabContent.style.overflowY === 'auto' || parentTabContent.style.overflow === 'auto')) {
+                        return parentTabContent;
+                    }
+                    return activeTabContentBlock; // If not, the block itself might be (less common for primary scroll)
+                }
+                // Fallback to the general .container if present inside immersive main area
+                const containerInImmersive = immersiveMainArea.querySelector('.container');
+                if(containerInImmersive) return containerInImmersive;
+
+                return immersiveMainArea; // Last fallback for immersive mode
+            }
+        }
+        // Default to document.documentElement when not in immersive mode or if specific elements aren't found
+        return document.documentElement;
+    }
+
     function adjustLongHeadingsToParagraphs(parentElement) {
       if (!parentElement) return;
 
@@ -365,11 +427,11 @@
 
     function saveScrollPosition() {
       if (!docIdForLocalStorage || !currentVisibleTabId) return;
-      const scrollableElement = document.documentElement; // Changed from .container
+      const scrollableElement = getCurrentScrollableElementForHistoryDetail(); // MODIFIED
       if (scrollableElement) {
         const scrollKey = `scrollPos_${docIdForLocalStorage}_${currentVisibleTabId}`;
         localStorage.setItem(scrollKey, scrollableElement.scrollTop);
-        // console.log(`Saved scroll for ${scrollKey} on documentElement: ${scrollableElement.scrollTop}`);
+        // console.log(`Saved scroll for ${scrollKey} on ${scrollableElement.id || scrollableElement.tagName}: ${scrollableElement.scrollTop}`);
       }
     }
     // const debouncedSaveScrollPosition = debounce(saveScrollPosition, 300); // Debounce with 300ms
@@ -1431,14 +1493,12 @@
       if (docIdForLocalStorage && currentVisibleTabId) {
         const scrollKey = `scrollPos_${docIdForLocalStorage}_${currentVisibleTabId}`;
         const savedScrollTop = localStorage.getItem(scrollKey);
-        // console.log(`[showTab] Attempting to restore scroll for ${scrollKey} on documentElement. Saved value: ${savedScrollTop}`);
         if (savedScrollTop !== null && !isNaN(parseInt(savedScrollTop, 10))) {
-          const scrollableElement = document.documentElement; // Changed from .container
+          const scrollableElement = getCurrentScrollableElementForHistoryDetail(); // MODIFIED
           if (scrollableElement) {
             requestAnimationFrame(() => {
               if(currentVisibleTabId === tab) { // Ensure tab hasn't changed during async operation
                 scrollableElement.scrollTop = parseInt(savedScrollTop, 10);
-                // console.log(`[showTab] Restored scroll for ${scrollKey} (tab: ${tab}) on documentElement to ${scrollableElement.scrollTop}`);
               }
             });
           }
@@ -1447,6 +1507,10 @@
       // Call updateReadingProgress after potential scroll restoration and content rendering - CALLING DOCK_LOGIC
       if (window.DockLogic && typeof window.DockLogic.forceUpdateReadingProgress === 'function') {
         window.DockLogic.forceUpdateReadingProgress();
+      }
+      // 新增：每次渲染后都绑定 scroll 事件到正确容器
+      if (window.DockLogic && typeof window.DockLogic.bindScrollForCurrentScrollable === 'function') {
+        window.DockLogic.bindScrollForCurrentScrollable();
       }
       // 性能测试断点 - 总渲染结束
       console.timeEnd('[性能] showTab_总渲染');
@@ -1459,6 +1523,49 @@
 
     // 页面加载后渲染详情
     renderDetail();
+
+    // Function to restore scroll position, callable after mode changes or tab changes
+    function restoreScrollPositionForCurrentTab() {
+        if (docIdForLocalStorage && currentVisibleTabId) {
+            const scrollKey = `scrollPos_${docIdForLocalStorage}_${currentVisibleTabId}`;
+            const savedScrollTop = localStorage.getItem(scrollKey);
+            if (savedScrollTop !== null && !isNaN(parseInt(savedScrollTop, 10))) {
+                const scrollableElement = getCurrentScrollableElementForHistoryDetail();
+                if (scrollableElement) {
+                    requestAnimationFrame(() => {
+                        if (localStorage.getItem(`activeTab_${docIdForLocalStorage}`) === currentVisibleTabId) {
+                             scrollableElement.scrollTop = parseInt(savedScrollTop, 10);
+                        }
+                    });
+                }
+            }
+        }
+        // 新增：每次恢复滚动后都绑定 scroll 事件到正确容器
+        if (window.DockLogic && typeof window.DockLogic.bindScrollForCurrentScrollable === 'function') {
+            window.DockLogic.bindScrollForCurrentScrollable();
+        }
+    }
+
+    // Listen for immersive mode changes to restore scroll position
+    document.addEventListener('immersiveModeEntered', function() {
+        restoreScrollPositionForCurrentTab();
+        if (window.DockLogic && typeof window.DockLogic.forceUpdateReadingProgress === 'function') {
+            window.DockLogic.forceUpdateReadingProgress(); // Also update progress indicator
+        }
+        if (window.DockLogic && typeof window.DockLogic.bindScrollForCurrentScrollable === 'function') {
+            window.DockLogic.bindScrollForCurrentScrollable();
+        }
+    });
+
+    document.addEventListener('immersiveModeExited', function() {
+        restoreScrollPositionForCurrentTab();
+        if (window.DockLogic && typeof window.DockLogic.forceUpdateReadingProgress === 'function') {
+            window.DockLogic.forceUpdateReadingProgress(); // Also update progress indicator
+        }
+        if (window.DockLogic && typeof window.DockLogic.bindScrollForCurrentScrollable === 'function') {
+            window.DockLogic.bindScrollForCurrentScrollable();
+        }
+    });
 
     // 自动恢复 globalCurrentContentIdentifier
     (function restoreContentIdentifierFromLocalStorage() {
