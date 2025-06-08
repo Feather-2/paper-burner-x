@@ -1,5 +1,5 @@
 
-# Paper Burner - AI文献识别、翻译、阅读与智能分析工具
+# Paper Burner X - AI文献识别、翻译、阅读与智能分析工具 
 
 <div align="center">
   <img src="https://img.shields.io/badge/版本-1.0.0-blue.svg" alt="版本">
@@ -57,7 +57,7 @@
 ![paperburner简易使用教程](https://github.com/user-attachments/assets/14576277-a301-4d95-9e32-3f6e489afaac)
 
 ---
-
+# 原项目： Paper burner
 
 ## 📝 项目介绍
 
