@@ -131,7 +131,7 @@ Paper Burner是为广大研究生和研究人员设计的PDF文档处理工具�
 <div align="center">
   <p>如果这个工具对您有帮助，请考虑给项目一个⭐</p>
   <p>Contributors</p>
-  <a href="https://github.com/baoyudu/paper-burner/graphs/contributors">
-    <img src="https://contrib.rocks/image?repo=baoyudu/paper-burner" />
+  <a href="https://github.com/feather-2/paper-burner/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=feather-2/paper-burner" />
   </a>
 </div>
