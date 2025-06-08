@@ -1,6 +1,6 @@
 
 # Paper Burner X - AI文献识别、翻译、阅读与智能分析工具 
-
+> 因避免和 Paper Burner 原项目名称产生重复，为示尊重和区分，故该分支项目改名 Paper Burner X
 <div align="center">
   <img src="https://img.shields.io/badge/版本-1.0.0-blue.svg" alt="版本">
   <img src="https://img.shields.io/badge/License-GPL_v2-blue.svg" alt="许可证">
