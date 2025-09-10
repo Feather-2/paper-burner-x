@@ -823,6 +823,31 @@
      * @param {string} tab - 要显示的标签页标识符 ('ocr', 'translation', or 'chunk-compare')。
      */
     function showTab(tab) {
+      // ========== 先尝试清理上一视图的资源（尤其 chunk-compare） ==========
+      try {
+        const prevTab = window.currentVisibleTabId;
+        if (prevTab === 'chunk-compare' && tab !== 'chunk-compare') {
+          // 断开观察器并清空优化器缓存
+          if (window.ChunkCompareOptimizer && window.ChunkCompareOptimizer.instance && typeof window.ChunkCompareOptimizer.instance.cleanup === 'function') {
+            window.ChunkCompareOptimizer.instance.cleanup();
+          }
+          // 清空分块解析缓存，释放大数组
+          if (window.chunkParseCache) {
+            Object.keys(window.chunkParseCache).forEach(k => delete window.chunkParseCache[k]);
+          }
+          // 释放块级原始内容引用
+          if (typeof window.__lastChunkCompareTotalBlocks === 'number') {
+            for (let i = 0; i <= window.__lastChunkCompareTotalBlocks; i++) {
+              try { delete window[`blockRawContent_${i}`]; } catch(e) { /* ignore */ }
+            }
+            window.__lastChunkCompareTotalBlocks = 0;
+          }
+          // 清理大型临时数据
+          if (window.largeDocumentData) window.largeDocumentData = null;
+        }
+      } catch (e) {
+        console.warn('[showTab] 清理上一视图资源时出错:', e);
+      }
       // === 新增：没有翻译内容时禁止切换到翻译和对比页 ===
       if ((tab === 'translation' || tab === 'chunk-compare') && (!data || !data.translation || data.translation.trim() === "")) {
         alert('没有翻译内容，无法显示该页面');
@@ -902,6 +927,24 @@
         // 性能监控：记录分块对比开始时间
         window.chunkCompareStartTime = performance.now();
         console.log(`[性能] 开始渲染分块对比，总块数: ${data.ocrChunks ? data.ocrChunks.length : 0}`);
+
+        // ========== 超长文本降级策略开关 ==========
+        (function computeLargeDocFlag(){
+          const LARGE_TEXT_THRESHOLD = 80000; // 8万字阈值
+          let totalLen = 0;
+          try {
+            if (Array.isArray(data.ocrChunks)) {
+              for (let i = 0; i < data.ocrChunks.length; i++) totalLen += (data.ocrChunks[i] ? data.ocrChunks[i].length : 0);
+            }
+            if (Array.isArray(data.translatedChunks)) {
+              for (let i = 0; i < data.translatedChunks.length; i++) totalLen += (data.translatedChunks[i] ? data.translatedChunks[i].length : 0);
+            }
+          } catch(e) { /* ignore */ }
+          window.disableEqualizeForLargeDoc = totalLen > LARGE_TEXT_THRESHOLD;
+          console.log(`[Chunk-Compare] 文本总长度=${totalLen}，等高降级=${window.disableEqualizeForLargeDoc}`);
+          // 记录用于后续清理的块数量
+          try { window.__lastChunkCompareTotalBlocks = (Array.isArray(data.ocrChunks) ? data.ocrChunks.length : 0); } catch(e) { window.__lastChunkCompareTotalBlocks = 0; }
+        })();
         
         // window.globalCurrentContentIdentifier = ''; // 已在函数开头正确设置
         document.getElementById('tab-chunk-compare').classList.add('active');
@@ -1368,6 +1411,10 @@
               // 一次性、逐卡片的简化等高（避免视口进入时抖动）：
               // 在当前布局基础上，以 0.5 为初始，按 hL/(hL+hR) 估算每对的专属比例，仅设置一次
               function equalizePairsOnce() {
+                if (window.disableEqualizeForLargeDoc) {
+                  // 超长文本时跳过逐对等高，避免大量 reflow
+                  return;
+                }
                 const pairs = document.querySelectorAll('.align-flex');
                 pairs.forEach(flex => {
                   if (flex.hasAttribute('data-equalized')) return;
@@ -1387,9 +1434,12 @@
                   flex.style.setProperty('--trans-ratio', ((1 - r) * 100) + '%');
                 });
               }
-              applyRatioToAll();
-              // 简化的一次性等高（无复验、无视口触发，避免抖动）
-              try { equalizePairsOnce(); } catch {}
+              // 超长文本时不对所有对齐对写入比例，保留默认 50/50（避免全量 DOM 循环）
+              if (!window.disableEqualizeForLargeDoc) {
+                applyRatioToAll();
+                // 简化的一次性等高（无复验、无视口触发，避免抖动）
+                try { equalizePairsOnce(); } catch {}
+              }
 
               // 性能优化：缓存DOM查询结果
               const blockModeButtons = document.querySelectorAll('.block-mode-btn');
@@ -2058,9 +2108,10 @@
               // 内存优化：清理旧的缓存（如果太多的话）
               if (window.chunkParseCache && Object.keys(window.chunkParseCache).length > 100) {
                 console.log('[性能] 清理部分解析缓存以释放内存');
-                // 只保留最近的50个缓存项
+                // 超长文档更激进地清理缓存
+                const MAX_CACHE_ITEMS = (window.disableEqualizeForLargeDoc ? 5 : 50);
                 const cacheKeys = Object.keys(window.chunkParseCache);
-                const keysToDelete = cacheKeys.slice(0, cacheKeys.length - 50);
+                const keysToDelete = cacheKeys.slice(0, cacheKeys.length - MAX_CACHE_ITEMS);
                 keysToDelete.forEach(key => delete window.chunkParseCache[key]);
               }
 
@@ -2085,7 +2136,9 @@
         const batchSize = 30; // 每批渲染的段落数，可调整
         const tokens = marked.lexer(contentText).filter(token => ['paragraph','heading','code','table','blockquote','list','html','hr'].includes(token.type));
         window.currentBlockTokensForCopy[tab] = tokens;
-        const customRenderer = createCustomMarkdownRenderer(data.annotations, tab, MarkdownProcessor.renderWithKatexFailback);
+        // 性能优化：禁用预标注（inline span 注入），统一改为渲染完成后由 applyBlockAnnotations 处理
+        // 这样可避免在长文本上进行大量正则匹配与 DOM 拼接。
+        const customRenderer = createCustomMarkdownRenderer([], tab, MarkdownProcessor.renderWithKatexFailback);
 
         // Define segmentInBatches here, so it's in scope for renderBatch's callback
         function segmentInBatches(containerElement, batchSize = 10, delay = 50, onDone) {
@@ -2534,6 +2587,28 @@
 
     // 页面加载后渲染详情
     renderDetail();
+
+    // 额外的资源清理：页面卸载时主动释放大对象引用，协助 GC
+    window.addEventListener('beforeunload', function cleanupLargeRefs() {
+      try {
+        if (window.ChunkCompareOptimizer && window.ChunkCompareOptimizer.instance && typeof window.ChunkCompareOptimizer.instance.cleanup === 'function') {
+          window.ChunkCompareOptimizer.instance.cleanup();
+        }
+      } catch {}
+      try {
+        if (window.chunkParseCache) {
+          Object.keys(window.chunkParseCache).forEach(k => delete window.chunkParseCache[k]);
+        }
+      } catch {}
+      try {
+        if (typeof window.__lastChunkCompareTotalBlocks === 'number') {
+          for (let i = 0; i <= window.__lastChunkCompareTotalBlocks; i++) {
+            delete window[`blockRawContent_${i}`];
+          }
+        }
+      } catch {}
+      window.largeDocumentData = null;
+    });
 
     // Function to restore scroll position, callable after mode changes or tab changes
     function restoreScrollPositionForCurrentTab() {
