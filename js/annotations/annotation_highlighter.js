@@ -9,6 +9,9 @@
  * @param {string} contentIdentifier - 当前内容类型的标识符 ('ocr' 或 'translation')。
  */
 function applyBlockAnnotations(containerElement, allAnnotations, contentIdentifier) {
+    const __ANNOTATION_DEBUG__ = (function(){
+        try { return !!(window && (window.ENABLE_ANNOTATION_DEBUG || localStorage.getItem('ENABLE_ANNOTATION_DEBUG') === 'true')); } catch { return false; }
+    })();
     // ====== 调用时机日志 ======
     // console.log('[applyBlockAnnotations] 被调用', {
     //    contentIdentifier,
@@ -134,7 +137,7 @@ function applyBlockAnnotations(containerElement, allAnnotations, contentIdentifi
         } else {
             // 递归检测所有后代是否包含 .sub-block
             if (hasSubBlockDescendant(span)) {
-                console.warn('[高亮清理保护-递归] 跳过包含 sub-block 的节点:', span.outerHTML);
+            if (__ANNOTATION_DEBUG__) console.warn('[高亮清理保护-递归] 跳过包含 sub-block 的节点:', span.outerHTML);
                 return;
             } else {
                 span.remove();
@@ -258,7 +261,7 @@ function applyBlockAnnotations(containerElement, allAnnotations, contentIdentifi
                 (ann.motivation === 'highlighting' || ann.motivation === 'commenting')
             );
             if (annotation) {
-                console.warn(`[高亮fallback] subBlockId未命中，使用exact文本匹配成功: "${subBlockElement.textContent.trim()}"`);
+                if (__ANNOTATION_DEBUG__) console.warn(`[高亮fallback] subBlockId未命中，使用exact文本匹配成功: "${subBlockElement.textContent.trim()}"`);
             }
         } else if (
             annotation.target && annotation.target.selector && annotation.target.selector[0] &&
@@ -266,7 +269,7 @@ function applyBlockAnnotations(containerElement, allAnnotations, contentIdentifi
             subBlockElement.textContent.trim().replace(/\s+/g, '') !== annotation.target.selector[0].exact.trim().replace(/\s+/g, '')
         ) {
             // subBlockId 命中但内容和 exact 不一致，输出警告，但依然允许高亮
-            console.warn(`[高亮警告] subBlockId 命中但内容和 exact 不一致: subBlockId=${subBlockId}, span内容="${subBlockElement.textContent.trim()}", exact="${annotation.target.selector[0].exact.trim()}"`);
+            if (__ANNOTATION_DEBUG__) console.warn(`[高亮警告] subBlockId 命中但内容和 exact 不一致: subBlockId=${subBlockId}, span内容=\"${subBlockElement.textContent.trim()}\", exact=\"${annotation.target.selector[0].exact.trim()}\"`);
         }
         if (annotation) {
             applyAnnotationToElement(subBlockElement, annotation, contentIdentifier, subBlockId, 'subBlock');

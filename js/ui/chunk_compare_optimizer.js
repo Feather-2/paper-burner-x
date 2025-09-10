@@ -58,9 +58,7 @@ class ChunkCompareOptimizer {
     createSkeletonContainer(chunkCount) {
         return `
             <div class="chunk-compare-container" id="chunk-compare-container">
-                <div class="visible-chunks-container" id="visible-chunks-container">
-                    <!-- 分块将在这里渲染 -->
-                </div>
+                <!-- 分块将在这里渲染 -->
             </div>
         `;
     }
@@ -161,9 +159,7 @@ class ChunkCompareOptimizer {
                 </div>
             </div>
             <div class="chunk-compare-container large-document-mode" id="chunk-compare-container">
-                <div class="visible-chunks-container" id="visible-chunks-container">
-                    ${this.renderPageChunks(0, ocrChunks, translatedChunks, options)}
-                </div>
+                ${this.renderPageChunks(0, ocrChunks, translatedChunks, options)}
                 <div class="chunk-loading-indicator" style="display: none;">
                     <div class="loading-spinner"></div>
                     <span>正在加载分块...</span>
@@ -206,11 +202,8 @@ class ChunkCompareOptimizer {
      */
     renderSingleChunkImmediate(item) {
         const { index, ocrChunk, translatedChunk, options } = item;
-        const ocrPreview = this.getContentPreview(ocrChunk);
-        const transPreview = this.getContentPreview(translatedChunk);
-        
         return `
-            <div class="chunk-pair optimized-chunk large-doc-chunk" data-chunk-index="${index}" id="chunk-${index}">
+            <div class="chunk-pair" data-chunk-index="${index}" id="chunk-${index}">
                 <div class="block-outer" data-block-index="${index}">
                     <div class="chunk-header">
                         <h4>第 ${index + 1} 块</h4>
@@ -219,26 +212,7 @@ class ChunkCompareOptimizer {
                             <span class="char-count">译文: ${translatedChunk.length}字</span>
                         </div>
                     </div>
-                    <div class="chunk-preview-container" data-lazy-load="true">
-                        <div class="chunk-preview-row">
-                            <div class="chunk-preview ocr-preview">
-                                <div class="preview-label">原文预览:</div>
-                                <div class="preview-content">${ocrPreview}</div>
-                            </div>
-                            <div class="chunk-preview trans-preview">
-                                <div class="preview-label">译文预览:</div>
-                                <div class="preview-content">${transPreview}</div>
-                            </div>
-                        </div>
-                        <div class="chunk-actions">
-                            <button class="load-full-content-btn" onclick="ChunkCompareOptimizer.instance.loadFullChunk(${index})">
-                                展开完整内容
-                            </button>
-                            <button class="copy-chunk-btn" onclick="ChunkCompareOptimizer.instance.copyChunkContent(${index})">
-                                复制内容
-                            </button>
-                        </div>
-                    </div>
+                    <div class="chunk-loading" data-lazy-load="true">正在加载完整内容...</div>
                 </div>
             </div>
         `;
@@ -291,14 +265,16 @@ class ChunkCompareOptimizer {
         
         // 更新页面内容
         setTimeout(() => {
-            const container = document.getElementById('visible-chunks-container');
+            const container = document.getElementById('chunk-compare-container');
             if (container) {
                 container.innerHTML = this.renderPageChunks(
                     pageIndex, 
                     data.ocrChunks, 
                     data.translatedChunks, 
                     data.options
-                );
+                ) + `\n<div class=\"chunk-loading-indicator\" style=\"display: none;\">\n  <div class=\"loading-spinner\"></div>\n  <span>正在加载分块...</span>\n</div>`;
+                // 观察新插入的分块，进入视口即懒加载完整内容
+                this.observeChunks(container);
             }
             
             // 更新页面状态
@@ -422,9 +398,7 @@ class ChunkCompareOptimizer {
                 </div>
             </div>
             <div class="chunk-compare-container" id="chunk-compare-container" style="position: relative;">
-                <div class="visible-chunks-container" id="visible-chunks-container">
-                    <!-- 动态渲染的分块将出现在这里 -->
-                </div>
+                <!-- 动态渲染的分块将出现在这里 -->
                 <div class="chunk-loading-indicator" style="display: none;">
                     <div class="loading-spinner"></div>
                     <span>正在渲染分块...</span>
@@ -475,7 +449,7 @@ class ChunkCompareOptimizer {
         if (this.isRendering) return;
         this.isRendering = true;
 
-        const container = document.getElementById('visible-chunks-container');
+        const container = document.getElementById('chunk-compare-container');
         
         if (!container) {
             this.isRendering = false;
@@ -497,7 +471,8 @@ class ChunkCompareOptimizer {
             const batch = this.renderQueue.splice(0, currentBatchSize);
             
             // 使用 requestIdleCallback 进行空闲时间渲染
-            await this.renderBatchWithIdleTime(batch, container);
+            const anchor = container.querySelector('.chunk-loading-indicator');
+            await this.renderBatchWithIdleTime(batch, container, anchor);
             
             rendered += batch.length;
 
@@ -519,14 +494,18 @@ class ChunkCompareOptimizer {
      * @param {Array} batch 待渲染的批次
      * @param {Element} container 容器元素
      */
-    renderBatchWithIdleTime(batch, container) {
+    renderBatchWithIdleTime(batch, container, anchor) {
         return new Promise((resolve) => {
             const renderBatch = (deadline) => {
                 while (batch.length > 0 && deadline.timeRemaining() > 5) {
                     const item = batch.shift();
                     const chunkElement = this.renderSingleChunk(item);
                     if (chunkElement) {
-                        container.appendChild(chunkElement);
+                        if (anchor && anchor.parentNode === container) {
+                            container.insertBefore(chunkElement, anchor);
+                        } else {
+                            container.appendChild(chunkElement);
+                        }
                     }
                 }
                 
@@ -568,9 +547,9 @@ class ChunkCompareOptimizer {
 
         const startTime = performance.now();
         
-        // 创建分块元素
+        // 创建分块元素（仅使用 chunk-pair 作为容器，不添加多余类）
         const chunkElement = document.createElement('div');
-        chunkElement.className = 'chunk-pair optimized-chunk';
+        chunkElement.className = 'chunk-pair';
         chunkElement.dataset.chunkIndex = index;
         chunkElement.id = `chunk-${index}`;
         
@@ -587,6 +566,34 @@ class ChunkCompareOptimizer {
     }
 
     /**
+     * 更新从缓存克隆出来的分块元素的索引相关属性
+     * @param {Element} el - 分块根元素（.chunk-pair）
+     * @param {number} index - 目标分块索引
+     */
+    updateChunkElement(el, index) {
+        try {
+            if (!el) return;
+            // 根元素 id 与 dataset
+            el.id = `chunk-${index}`;
+            el.dataset.chunkIndex = index;
+            // 内层 block-outer 的索引
+            const outer = el.querySelector('.block-outer');
+            if (outer) outer.setAttribute('data-block-index', String(index));
+            // 懒加载容器保持即可；更新加载按钮的 onclick（若存在）
+            const loadBtn = el.querySelector('.load-full-content-btn');
+            if (loadBtn) {
+                loadBtn.setAttribute('onclick', `ChunkCompareOptimizer.instance.loadFullChunk(${index})`);
+            }
+            // 更新工具栏上的 data-block 标记
+            el.querySelectorAll('[data-block]').forEach(node => {
+                node.setAttribute('data-block', String(index));
+            });
+        } catch (e) {
+            console.warn('[ChunkOptimizer] updateChunkElement failed:', e);
+        }
+    }
+
+    /**
      * 创建分块占位符
      * @param {number} index 分块索引
      * @param {string} ocrChunk OCR内容
@@ -594,9 +601,6 @@ class ChunkCompareOptimizer {
      * @returns {string} 占位符HTML
      */
     createChunkPlaceholder(index, ocrChunk, translatedChunk) {
-        const ocrPreview = this.getContentPreview(ocrChunk);
-        const transPreview = this.getContentPreview(translatedChunk);
-        
         return `
             <div class="block-outer" data-block-index="${index}">
                 <div class="chunk-header">
@@ -606,19 +610,7 @@ class ChunkCompareOptimizer {
                         <span class="char-count">译文: ${translatedChunk.length}字</span>
                     </div>
                 </div>
-                <div class="chunk-preview-container" data-lazy-load="true">
-                    <div class="chunk-preview ocr-preview">
-                        <div class="preview-label">原文预览:</div>
-                        <div class="preview-content">${ocrPreview}</div>
-                    </div>
-                    <div class="chunk-preview trans-preview">
-                        <div class="preview-label">译文预览:</div>
-                        <div class="preview-content">${transPreview}</div>
-                    </div>
-                    <div class="load-full-content-btn" onclick="ChunkCompareOptimizer.instance.loadFullChunk(${index})">
-                        点击加载完整内容
-                    </div>
-                </div>
+                <div class="chunk-loading" data-lazy-load="true">正在加载完整内容...</div>
             </div>
         `;
     }
@@ -647,7 +639,7 @@ class ChunkCompareOptimizer {
      * @param {number} index 分块索引
      */
     async loadFullChunk(index) {
-        const chunkElement = document.getElementById(`chunk-${index}`);
+        const chunkElement = document.querySelector(`.chunk-pair[data-chunk-index="${index}"]`);
         if (!chunkElement) return;
 
         const lazyContainer = chunkElement.querySelector('[data-lazy-load="true"]');
@@ -670,11 +662,23 @@ class ChunkCompareOptimizer {
                 window.data?.ocrChunks?.length || 0
             );
 
-            lazyContainer.innerHTML = fullContent;
-            lazyContainer.removeAttribute('data-lazy-load');
+            // 用完整内容替换预览容器，避免预览样式残留在原文上方
+            lazyContainer.outerHTML = fullContent;
+
+            // 重新获取 chunkElement（节点结构发生了变化，但根容器不变）
+            const updatedChunkElement = document.querySelector(`.chunk-pair[data-chunk-index="${index}"]`) || chunkElement;
 
             // 绑定事件
-            this.bindChunkEvents(chunkElement);
+            this.bindChunkEvents(updatedChunkElement);
+
+            // 应用当前比例到新插入的 align-flex 容器
+            try {
+                const ratio = (typeof window.chunkCompareRatio === 'number' && isFinite(window.chunkCompareRatio)) ? window.chunkCompareRatio : 0.5;
+                updatedChunkElement.querySelectorAll('.align-flex').forEach(flex => {
+                    flex.style.setProperty('--ocr-ratio', (ratio * 100) + '%');
+                    flex.style.setProperty('--trans-ratio', ((1 - ratio) * 100) + '%');
+                });
+            } catch (e) { /* ignore */ }
 
         } catch (error) {
             console.error(`加载分块 ${index} 失败:`, error);

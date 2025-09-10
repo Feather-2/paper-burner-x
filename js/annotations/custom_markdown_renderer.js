@@ -6,6 +6,9 @@
  * @returns {marked.Renderer} 一个 marked.js 渲染器实例。
  */
 function createCustomMarkdownRenderer(annotations, contentIdentifier, getKatexProcessedHtml) {
+    const __ANNOTATION_DEBUG__ = (function(){
+        try { return !!(window && (window.ENABLE_ANNOTATION_DEBUG || localStorage.getItem('ENABLE_ANNOTATION_DEBUG') === 'true')); } catch { return false; }
+    })();
     const renderer = new marked.Renderer();
     const originalTextRenderer = renderer.text;
     const originalParagraphRenderer = renderer.paragraph;
@@ -65,7 +68,7 @@ function createCustomMarkdownRenderer(annotations, contentIdentifier, getKatexPr
             textToProcess = token.raw; // 后备到 token.raw
             // console.warn('[CustomMarkdownRenderer] Token 是对象，token.text 不是字符串，使用 token.raw:', textToProcess);
         } else {
-            console.warn('[CustomMarkdownRenderer] 输入 `token` 不是字符串或无法识别的 token 对象。类型:', typeof token, '值:', token, '. 强制转换为字符串。');
+            if (__ANNOTATION_DEBUG__) console.warn('[CustomMarkdownRenderer] 输入 `token` 不是字符串或无法识别的 token 对象。类型:', typeof token, '值:', token, '. 强制转换为字符串。');
             textToProcess = String(token); // 最后手段
         }
 
@@ -109,7 +112,7 @@ function createCustomMarkdownRenderer(annotations, contentIdentifier, getKatexPr
                         // 如果原始 token 是一个字符串，那么用 'match' (也是字符串) 调用 originalTextRenderer 应该是安全的。
                         let originalRenderedOutput = originalTextRenderer.call(this, match);
                         if (typeof originalRenderedOutput !== 'string') {
-                            console.warn(`[CustomMarkdownRenderer] originalTextRenderer 对于匹配 "${match}" (原始token是字符串) 未返回字符串。得到 ${typeof originalRenderedOutput}。强制转换。`);
+                            if (__ANNOTATION_DEBUG__) console.warn(`[CustomMarkdownRenderer] originalTextRenderer 对于匹配 "${match}" (原始token是字符串) 未返回字符串。得到 ${typeof originalRenderedOutput}。强制转换。`);
                             originalRenderedOutput = String(originalRenderedOutput);
                         }
                         textToWrapInSpan = originalRenderedOutput;
@@ -128,7 +131,7 @@ function createCustomMarkdownRenderer(annotations, contentIdentifier, getKatexPr
         // 默认路径: 使用原始 token 调用 originalTextRenderer
         let defaultOutput = originalTextRenderer.call(this, token);
         if (typeof defaultOutput !== 'string') {
-            console.warn(`[CustomMarkdownRenderer] originalTextRenderer 对于 token "${JSON.stringify(token)}" (默认路径) 未返回字符串。得到 ${typeof defaultOutput}。强制转换。`);
+            if (__ANNOTATION_DEBUG__) console.warn(`[CustomMarkdownRenderer] originalTextRenderer 对于 token "${JSON.stringify(token)}" (默认路径) 未返回字符串。得到 ${typeof defaultOutput}。强制转换。`);
             defaultOutput = String(defaultOutput);
         }
         return defaultOutput;

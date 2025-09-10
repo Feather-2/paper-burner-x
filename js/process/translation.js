@@ -283,8 +283,13 @@ async function translateMarkdown(
     if (!options.boundPrompt && typeof window !== 'undefined' && window.promptPoolUI) {
         const poolPrompt = window.promptPoolUI.getPromptForTranslation();
         if (poolPrompt) {
-            promptFromPool = poolPrompt;
-            usePromptPool = true;
+            // 仅当提示词非空时才启用提示词池
+            const sys = (poolPrompt.systemPrompt || '').trim();
+            const usr = (poolPrompt.userPromptTemplate || '').trim();
+            if (sys && usr) {
+                promptFromPool = poolPrompt;
+                usePromptPool = true;
+            }
         }
     }
     // 如果调用方传入 boundPrompt，则优先使用
@@ -295,11 +300,20 @@ async function translateMarkdown(
 
     // 根据提示词来源设置提示词
     if (usePromptPool && promptFromPool) {
-        // 使用提示词池的提示词
-        systemPrompt = promptFromPool.systemPrompt + tableHandlingNote;
-        userPrompt = promptFromPool.userPromptTemplate;
-        console.log(`[翻译] 使用提示词池的提示词`);
-    } else if (!actualUseCustomPrompts || !systemPrompt || !userPrompt) {
+        // 使用提示词池的提示词（再次防御非空）
+        const sys = (promptFromPool.systemPrompt || '').trim();
+        const usr = (promptFromPool.userPromptTemplate || '').trim();
+        if (sys && usr) {
+            systemPrompt = sys + tableHandlingNote;
+            userPrompt = usr;
+            console.log(`[翻译] 使用提示词池的提示词`);
+        } else {
+            usePromptPool = false; // 回退
+        }
+    }
+
+    if (!usePromptPool) {
+      if (!actualUseCustomPrompts || !systemPrompt || !userPrompt) {
         // 使用内置模板或后备方案
         if (typeof getBuiltInPrompts === "function") {
             const prompts = getBuiltInPrompts(targetLang);
@@ -310,9 +324,25 @@ async function translateMarkdown(
             systemPrompt = "You are a professional document translation assistant." + tableHandlingNote;
             userPrompt = "Please translate the following content into the target language:\n\n${content}";
         }
-    } else {
-        // 使用自定义提示词
-        systemPrompt = actualDefaultSystemPrompt + tableHandlingNote;
+      } else {
+        // 使用自定义提示词（再次检查非空）
+        const sys = (actualDefaultSystemPrompt || '').trim();
+        const usr = (actualDefaultUserPromptTemplate || '').trim();
+        if (sys && usr) {
+            systemPrompt = sys + tableHandlingNote;
+            userPrompt = usr;
+        } else {
+            // 回退到内置
+            if (typeof getBuiltInPrompts === "function") {
+                const prompts = getBuiltInPrompts(targetLang);
+                systemPrompt = prompts.systemPrompt + tableHandlingNote;
+                userPrompt = prompts.userPromptTemplate;
+            } else {
+                systemPrompt = "You are a professional document translation assistant." + tableHandlingNote;
+                userPrompt = "Please translate the following content into the target language:\n\n${content}";
+            }
+        }
+      }
     }
 
     // 替换模板变量 - 使用预处理后的文本

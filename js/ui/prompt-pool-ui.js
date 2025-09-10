@@ -64,6 +64,11 @@ class PromptPoolUI {
                     const similarityEl = document.getElementById('similarityControl');
                     if (similarityEl) similarityEl.value = settings.similarityControl;
                 }
+                // 恢复生成并发
+                if (settings.generationConcurrency) {
+                    const ccEl = document.getElementById('generationConcurrency');
+                    if (ccEl) ccEl.value = settings.generationConcurrency;
+                }
                 if (settings.generationModel) {
                     const modelEl = document.getElementById('generationModel');
                     if (modelEl) {
@@ -85,6 +90,16 @@ class PromptPoolUI {
                 const userEl = document.getElementById('generatorUserPrompt');
                 if (sysEl) sysEl.value = settings.generatorSystemPrompt || this.buildDefaultGeneratorSystemPrompt();
                 if (userEl) userEl.value = settings.generatorUserPrompt || this.buildDefaultGeneratorUserPrompt();
+
+                // 恢复生成并发
+                if (settings.generationConcurrency) {
+                    const ccEl = document.getElementById('generationConcurrency');
+                    if (ccEl) ccEl.value = settings.generationConcurrency;
+                }
+
+                // 恢复生成语言
+                const langEl = document.getElementById('generatorLanguage');
+                if (langEl) langEl.value = settings.generatorLanguage || '中文';
             }
         } catch (error) {
             console.error('[PromptPoolUI] 加载设置失败:', error);
@@ -108,6 +123,8 @@ class PromptPoolUI {
                 variationCount: document.getElementById('variationCount')?.value,
                 similarityControl: document.getElementById('similarityControl')?.value,
                 generationModel: document.getElementById('generationModel')?.value,
+                generationConcurrency: document.getElementById('generationConcurrency')?.value,
+                generatorLanguage: document.getElementById('generatorLanguage')?.value || '中文',
 
                 // 提示词池模式
                 promptPoolMode: document.getElementById('promptPoolMode')?.value,
@@ -205,7 +222,9 @@ class PromptPoolUI {
             'generationModel',
             'promptPoolMode',
             'generatorSystemPrompt',
-            'generatorUserPrompt'
+            'generatorUserPrompt',
+            'generationConcurrency',
+            'generatorLanguage'
         ];
 
         parameterInputs.forEach(inputId => {
@@ -251,13 +270,14 @@ class PromptPoolUI {
 
 强制要求：
 1. 返回 JSON，包含字段 variations（数组）。
-2. 每个变体包含：name（名称）、systemPrompt（系统提示）、userPromptTemplate（用户提示模板）、description（简要说明）。
+2. 每个变体包含：name（名称）、systemPrompt（系统提示）、userPromptTemplate（用户提示模板）、description（简要说明）。必须同时给出 systemPrompt 与 userPromptTemplate 两个字段。
 3. 相似度控制：请按请求给定的相似度要求理解（无需在文本中体现具体数值）。注意：风格与约束必须完全一致，仅体现措辞与语序差异。
 4. userPromptTemplate 必须且仅出现一次占位符：\${targetLangName} 与 \${content}。
 5. 严禁改变参考提示词的风格、语气、规则、术语偏好与输出格式要求；严禁引入“学术/商务/口语/文学”等风格标签的切换或暗示。
 6. 允许调整表述顺序、同义替换与句式变化，但要保持语义与约束等价。
 7. 仅输出严格的 JSON 对象（不包含 Markdown 代码块、注释或额外文本）。
-8. 使用单行（minified）JSON 输出：不得换行、不得缩进。`
+8. 使用单行（minified）JSON 输出：不得换行、不得缩进。
+9. 所有可读文本（如 name/description）请使用 \${genlanguage} 编写。`
         );
     }
 
@@ -275,7 +295,8 @@ ${userRef}
 
 请基于以上参考提示词生成 \${count} 个“同风格改写”变体：保持风格、语气、规则与输出要求不变，仅做措辞/语序/句式的等价改写。
 
-请确保每个变体的 userPromptTemplate 都包含且仅包含一次 \${targetLangName} 与 \${content} 占位符。严格输出为单行 JSON（无任何额外文字/提示/代码块）。`
+每个变体必须包含 systemPrompt 与 userPromptTemplate 两个字段；并且确保 userPromptTemplate 都包含且仅包含一次 \${targetLangName} 与 \${content} 占位符。严格输出为单行 JSON（无任何额外文字/提示/代码块）。
+请使用 \${genlanguage} 编写所有需要人类阅读的文本（如 name/description）。`
         );
     }
 
@@ -471,6 +492,11 @@ ${userRef}
         const count = parseInt(document.getElementById('variationCount')?.value || '10');
         const similarity = parseFloat(document.getElementById('similarityControl')?.value || '0.6');
         const apiModel = document.getElementById('generationModel')?.value;
+        const concurrencyRaw = document.getElementById('generationConcurrency')?.value || '1';
+        let concurrency = parseInt(concurrencyRaw, 10);
+        if (!Number.isFinite(concurrency) || concurrency < 1) concurrency = 1;
+        if (concurrency > 10) concurrency = 10;
+        const genLanguage = (document.getElementById('generatorLanguage')?.value || '中文').trim() || '中文';
 
         // 验证参数
         if (!referenceSystemPrompt || !referenceUserPrompt) {
@@ -508,42 +534,103 @@ ${userRef}
         // 显示生成状态
         generateBtn.disabled = true;
         generateStatus.classList.remove('hidden');
-        this.showGenerationProgress('正在调用AI生成提示词变体...', 10);
+        this.showGenerationProgress(`准备生成：${count} × 并发 ${concurrency}，共计 ${count*concurrency} 个`, 10);
 
         try {
-            // 调用AI生成变体
-            this.showGenerationProgress('AI正在生成变体...', 30);
+            // 支持在生成器提示词中使用 ${count} 与 ${genlanguage} 占位符
+            let genSysRaw = document.getElementById('generatorSystemPrompt')?.value?.trim();
+            let genUserRaw = document.getElementById('generatorUserPrompt')?.value?.trim();
+            if (!genSysRaw) genSysRaw = this.buildDefaultGeneratorSystemPrompt();
+            if (!genUserRaw) genUserRaw = this.buildDefaultGeneratorUserPrompt();
+            const genSys = genSysRaw
+                .replace(/\$\{count\}/g, String(count))
+                .replace(/\$\{genlanguage\}/g, genLanguage);
+            const genUser = genUserRaw
+                .replace(/\$\{count\}/g, String(count))
+                .replace(/\$\{genlanguage\}/g, genLanguage);
 
-            // 支持在生成器提示词中使用 ${count} 占位符
-            const genSysRaw = document.getElementById('generatorSystemPrompt')?.value?.trim() || undefined;
-            const genUserRaw = document.getElementById('generatorUserPrompt')?.value?.trim() || undefined;
-            const genSys = genSysRaw ? genSysRaw.replace(/\$\{count\}/g, String(count)) : undefined;
-            const genUser = genUserRaw ? genUserRaw.replace(/\$\{count\}/g, String(count)) : undefined;
+            // 构造并发任务
+            const tasks = [];
+            let finished = 0;
+            let successBatches = 0;
+            let failedBatches = 0;
+            const collected = [];
+            const totalBatches = concurrency;
 
-            const variations = await this.promptPool.generateVariationsWithAI(
-                referenceSystemPrompt,
-                referenceUserPrompt,
-                count,
-                similarity,
-                apiModel,
-                apiKey,
-                { generatorSystemPrompt: genSys, generatorUserPrompt: genUser }
-            );
+            const updateBatchProgress = () => {
+                finished++;
+                const pct = 30 + Math.round((finished / totalBatches) * 50); // 30%~80% 区间
+                this.showGenerationProgress(`AI并发生成中... 已完成 ${finished}/${totalBatches} 次`, pct);
+            };
 
-            this.showGenerationProgress('验证生成的变体...', 70);
+            for (let i = 0; i < totalBatches; i++) {
+                tasks.push(
+                    (async () => {
+                        // 轻微抖动，降低同秒触发限流概率
+                        await new Promise(r => setTimeout(r, 80 * i));
+                        let success = false;
+                        let lastErr = null;
+                        const maxAttempts = 2;
+                        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                            try {
+                                const arr = await this.promptPool.generateVariationsWithAI(
+                                    referenceSystemPrompt,
+                                    referenceUserPrompt,
+                                    count,
+                                    similarity,
+                                    apiModel,
+                                    apiKey,
+                                    { generatorSystemPrompt: genSys, generatorUserPrompt: genUser }
+                                );
+                                collected.push(...arr);
+                                successBatches++;
+                                success = true;
+                                break;
+                            } catch (err) {
+                                lastErr = err;
+                                const msg = (err && err.message) ? err.message : '';
+                                if (attempt < maxAttempts && /429|rate|Too Many|limit/i.test(msg)) {
+                                    // 指数退避 + 抖动
+                                    const delay = 400 + Math.floor(Math.random()*400) * attempt;
+                                    await new Promise(r => setTimeout(r, delay));
+                                    continue;
+                                }
+                                break;
+                            }
+                        }
+                        if (!success) {
+                            console.warn('[PromptPoolUI] 并发批次失败:', lastErr);
+                            failedBatches++;
+                        }
+                        updateBatchProgress();
+                    })()
+                );
+            }
+
+            await Promise.allSettled(tasks);
+
+            // 去重：按 systemPrompt + userPromptTemplate 组合键
+            const seen = new Set();
+            const unique = [];
+            for (const v of collected) {
+                const key = `${(v.systemPrompt||'').trim()}||${(v.userPromptTemplate||'').trim()}`;
+                if (!seen.has(key)) { seen.add(key); unique.push(v); }
+            }
+
+            this.showGenerationProgress('验证并写入结果...', 90);
 
             // 添加到池中
-            this.promptPool.addVariationsToPool(variations);
-
-            this.showGenerationProgress('更新界面...', 90);
+            this.promptPool.addVariationsToPool(unique);
 
             // 更新UI
             this.updateUI();
 
             this.showGenerationProgress('完成！', 100);
 
-            // 显示成功消息
-            this.showNotification(`成功生成 ${variations.length} 个AI提示词变体！`, 'success');
+            // 成功/失败反馈
+            const totalExpected = count * totalBatches;
+            const msg = `成功生成 ${unique.length}/${totalExpected} 条；批次成功 ${successBatches}，失败 ${failedBatches}`;
+            this.showNotification(msg, failedBatches === 0 ? 'success' : 'warning');
 
         } catch (error) {
             console.error('AI生成提示词变体失败:', error);
@@ -1485,10 +1572,13 @@ ${userRef}
 
         switch (mode) {
             case 'custom':
-                return {
-                    systemPrompt: document.getElementById('defaultSystemPrompt')?.value || '',
-                    userPromptTemplate: document.getElementById('defaultUserPromptTemplate')?.value || ''
-                };
+                {
+                    const sys = (document.getElementById('defaultSystemPrompt')?.value || '').trim();
+                    const usr = (document.getElementById('defaultUserPromptTemplate')?.value || '').trim();
+                    // 若自定义为空，则返回 null，让上层回退到内置提示词
+                    if (!sys || !usr) return null;
+                    return { systemPrompt: sys, userPromptTemplate: usr };
+                }
             case 'pool':
                 // 会话内固定：处理进行中时锁定首次选择，确保单次处理的一致性
                 if (typeof window !== 'undefined' && window.isProcessing && this.sessionLockedPrompt) {

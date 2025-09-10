@@ -83,19 +83,23 @@
 }
 
 /* 强制修复：确保所有内容容器都正确填充 */
-#immersive-main-content-area .tab-content .content-wrapper,
-#immersive-main-content-area .tab-content .chunk-compare-container {
+#immersive-main-content-area .tab-content .content-wrapper {
   flex: 1 !important;
   min-height: 0 !important;
   overflow-y: auto !important;
   margin: 0 !important;
   display: flex !important;
   flex-direction: column !important;
+  padding: 20px !important; /* 给内容适当的呼吸空间 */
 }
 
-/* 为content-wrapper恢复必要的内边距，但通过内部容器实现 */
-#immersive-main-content-area .tab-content .content-wrapper {
-  padding: 20px !important; /* 给内容适当的呼吸空间 */
+#immersive-main-content-area .tab-content .chunk-compare-container {
+  /* 让 tab-content 成为唯一滚动容器，避免内部再滚动 */
+  flex: none !important;
+  min-height: auto !important;
+  overflow: visible !important;
+  margin: 0 !important;
+  display: block !important;
 }
 
 /* chunk-compare-container保持原有的间距设计 */

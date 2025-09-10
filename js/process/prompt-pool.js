@@ -169,7 +169,7 @@ ${referenceUserPrompt}
 
 请基于以上参考提示词生成 ${count} 个“同风格改写”变体：保持风格、语气、规则与输出要求不变，仅做措辞/语序/句式的等价改写。相似度：${similarity}（${this.getSimilarityDescription(similarity)}）。
 
-请确保每个变体的 userPromptTemplate 都包含且仅包含一次 \${targetLangName} 与 \${content} 占位符。严格输出为单行 JSON（无任何额外文字/提示/代码块）。`;
+每个变体必须包含 systemPrompt 与 userPromptTemplate 两个字段；并确保 userPromptTemplate 都包含且仅包含一次 \${targetLangName} 与 \${content} 占位符。严格输出为单行 JSON（无任何额外文字/提示/代码块）。`;
 
         try {
             // 调用AI API生成变体

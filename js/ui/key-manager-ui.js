@@ -688,10 +688,11 @@ KeyManagerUI.importAllModelKeys = function(saveKeysFunc, refreshUIFunc) {
 };
 
 KeyManagerUI.exportAllModelData = function() {
-    const modelKeys = JSON.parse(localStorage.getItem('translationModelKeys') || '{}');
-    const modelConfigs = JSON.parse(localStorage.getItem('translationModelConfigs') || '{}');
-    const customSourceSites = JSON.parse(localStorage.getItem('paperBurnerCustomSourceSites') || '{}');
-    const data = { modelKeys, modelConfigs, customSourceSites };
+    // 仅导出新版规范字段，保持“干净”
+    const translationModelKeys = JSON.parse(localStorage.getItem('translationModelKeys') || '{}');
+    const translationModelConfigs = JSON.parse(localStorage.getItem('translationModelConfigs') || '{}');
+    const paperBurnerCustomSourceSites = JSON.parse(localStorage.getItem('paperBurnerCustomSourceSites') || '{}');
+    const data = { translationModelKeys, translationModelConfigs, paperBurnerCustomSourceSites };
     const dataStr = JSON.stringify(data, null, 2);
     const blob = new Blob([dataStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -720,10 +721,101 @@ KeyManagerUI.importAllModelData = function(refreshUIFunc) {
         reader.onload = (e) => {
             try {
                 const imported = JSON.parse(e.target.result);
-                if (!imported.modelKeys || !imported.modelConfigs || !imported.customSourceSites) throw new Error('文件结构不正确');
-                localStorage.setItem('translationModelKeys', JSON.stringify(imported.modelKeys));
-                localStorage.setItem('translationModelConfigs', JSON.stringify(imported.modelConfigs));
-                localStorage.setItem('paperBurnerCustomSourceSites', JSON.stringify(imported.customSourceSites));
+
+                // 1) 容错提取不同历史字段名
+                let importedModelKeys = imported.modelKeys 
+                    || imported.translationModelKeys 
+                    || imported.keys 
+                    || imported.keyStore 
+                    || {};
+                let importedModelConfigs = imported.modelConfigs 
+                    || imported.translationModelConfigs 
+                    || imported.configs 
+                    || imported.modelConfig 
+                    || {};
+                let importedCustomSourceSites = imported.customSourceSites 
+                    || imported.paperBurnerCustomSourceSites 
+                    || imported.customSites 
+                    || imported.sourceSites 
+                    || {};
+
+                // 2) 归一化 modelKeys（数组项可为字符串或对象）
+                const genUUID = (function(){
+                    if (typeof generateUUID === 'function') return generateUUID;
+                    return function(){
+                        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                            var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                            return v.toString(16);
+                        });
+                    }
+                })();
+
+                const normalizedModelKeys = {};
+                if (typeof importedModelKeys === 'object' && importedModelKeys) {
+                    Object.keys(importedModelKeys).forEach(modelName => {
+                        const arr = Array.isArray(importedModelKeys[modelName]) ? importedModelKeys[modelName] : [];
+                        const normArr = arr.map((item, idx) => {
+                            if (typeof item === 'string') {
+                                return { id: genUUID(), value: item, remark: '', status: 'untested', order: idx };
+                            } else if (item && typeof item === 'object') {
+                                const value = (typeof item.value === 'string' && item.value) ? item.value
+                                              : (typeof item.key === 'string' ? item.key : '');
+                                return {
+                                    id: typeof item.id === 'string' && item.id ? item.id : genUUID(),
+                                    value,
+                                    remark: typeof item.remark === 'string' ? item.remark : (item.note || ''),
+                                    status: typeof item.status === 'string' ? item.status : 'untested',
+                                    order: typeof item.order === 'number' ? item.order : idx
+                                };
+                            } else {
+                                return null;
+                            }
+                        }).filter(Boolean);
+                        normalizedModelKeys[modelName] = normArr;
+                    });
+                }
+
+                // 3) 归一化 modelConfigs（确保为对象）
+                const normalizedModelConfigs = (typeof importedModelConfigs === 'object' && importedModelConfigs) ? importedModelConfigs : {};
+
+                // 4) 归一化 customSourceSites：支持对象或数组
+                let normalizedCustomSourceSites = {};
+                if (Array.isArray(importedCustomSourceSites)) {
+                    importedCustomSourceSites.forEach((site, idx) => {
+                        if (!site || typeof site !== 'object') return;
+                        const id = (typeof site.id === 'string' && site.id) ? site.id : genUUID();
+                        normalizedCustomSourceSites[id] = {
+                            id,
+                            displayName: site.displayName || site.name || `自定义源站 ${idx+1}`,
+                            apiBaseUrl: site.apiBaseUrl || site.baseUrl || site.apiBase || '',
+                            modelId: site.modelId || site.defaultModel || '',
+                            availableModels: Array.isArray(site.availableModels) ? site.availableModels : [],
+                            requestFormat: site.requestFormat || 'openai',
+                            temperature: (typeof site.temperature === 'number') ? site.temperature : 0.5,
+                            max_tokens: (typeof site.max_tokens === 'number') ? site.max_tokens : 8000
+                        };
+                    });
+                } else if (typeof importedCustomSourceSites === 'object' && importedCustomSourceSites) {
+                    // 已是对象结构，尽量保留
+                    normalizedCustomSourceSites = importedCustomSourceSites;
+                } else {
+                    normalizedCustomSourceSites = {};
+                }
+
+                // 5) 可选导入 lastSuccessfulKeys（若存在）
+                const lastSuccessful = imported.lastSuccessfulKeys 
+                    || imported.paperBurnerLastSuccessfulKeys 
+                    || imported.lastSuccessful 
+                    || null;
+
+                // 6) 写入 localStorage（允许任意子集存在，不再强制三者齐备）
+                localStorage.setItem('translationModelKeys', JSON.stringify(normalizedModelKeys));
+                localStorage.setItem('translationModelConfigs', JSON.stringify(normalizedModelConfigs));
+                localStorage.setItem('paperBurnerCustomSourceSites', JSON.stringify(normalizedCustomSourceSites));
+                if (lastSuccessful && typeof lastSuccessful === 'object') {
+                    localStorage.setItem('paperBurnerLastSuccessfulKeys', JSON.stringify(lastSuccessful));
+                }
+
                 if (typeof refreshUIFunc === 'function') refreshUIFunc();
                 if (typeof showNotification === 'function') {
                     showNotification('所有模型配置和Key已导入并覆盖', 'success', 2000);

@@ -402,20 +402,23 @@ function updateChatbotUI() {
     }
     mainContentArea.style.paddingTop = current_padding_top_for_main_content_area + 'px';
 
-    const titleBar = document.getElementById('chatbot-title-bar');
-    const inputContainer = document.getElementById('chatbot-input-container');
+    // 仅在“固定模式”下根据内容自适应高度；浮动/全屏不改动用户设置的尺寸
+    if (!window.isChatbotFloating && !window.isChatbotFullscreen) {
+      const titleBar = document.getElementById('chatbot-title-bar');
+      const inputContainer = document.getElementById('chatbot-input-container');
 
-    if (titleBar && inputContainer && chatbotWindow) {
-        const h_title_bar = titleBar.offsetHeight;
-        const h_input_container = inputContainer.offsetHeight;
-        const h_chat_body_target = 250;
+      if (titleBar && inputContainer && chatbotWindow) {
+          const h_title_bar = titleBar.offsetHeight;
+          const h_input_container = inputContainer.offsetHeight;
+          const h_chat_body_target = 250;
 
-        const desired_window_height = h_title_bar + current_padding_top_for_main_content_area + h_chat_body_target + h_input_container;
+          const desired_window_height = h_title_bar + current_padding_top_for_main_content_area + h_chat_body_target + h_input_container;
 
-        const min_win_h_px = parseFloat(getComputedStyle(chatbotWindow).minHeight) || 520;
-        const max_win_h_px = parseFloat(getComputedStyle(chatbotWindow).maxHeight) || (0.85 * window.innerHeight);
+          const min_win_h_px = parseFloat(getComputedStyle(chatbotWindow).minHeight) || 520;
+          const max_win_h_px = parseFloat(getComputedStyle(chatbotWindow).maxHeight) || (0.85 * window.innerHeight);
 
-        chatbotWindow.style.height = Math.max(min_win_h_px, Math.min(max_win_h_px, desired_window_height)) + 'px';
+          chatbotWindow.style.height = Math.max(min_win_h_px, Math.min(max_win_h_px, desired_window_height)) + 'px';
+      }
     }
   }
 

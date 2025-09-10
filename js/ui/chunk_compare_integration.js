@@ -8,6 +8,10 @@
 
     // 等待页面和优化器加载完成
     function initializeChunkCompareOptimization() {
+        // 避免重复初始化（多次 setTimeout 或脚本重复触发）
+        if (window.__chunkCompareIntegrationInitialized) {
+            return;
+        }
         if (!window.ChunkCompareOptimizer || !window.ChunkCompareOptimizer.instance) {
             console.warn('[ChunkIntegration] 优化器未加载，延迟初始化');
             setTimeout(initializeChunkCompareOptimization, 100);
@@ -16,7 +20,10 @@
 
         console.log('[ChunkIntegration] 开始集成分块对比优化器');
 
-        // 保存原有的渲染函数引用
+        // 标记已初始化，防止重复绑定事件
+        window.__chunkCompareIntegrationInitialized = true;
+
+        // 保存原有的渲染函数引用（如需使用，可在后续扩展）
         const originalShowTab = window.showTab;
 
         // 增强切换按钮功能
@@ -209,23 +216,26 @@
             }, 100);
         }
 
-        // 绑定键盘快捷键
-        document.addEventListener('keydown', function(e) {
-            // Ctrl/Cmd + Shift + P: 切换性能模式
-            if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'P') {
-                e.preventDefault();
-                togglePerformanceMode();
-            }
-
-            // Ctrl/Cmd + Shift + S: 切换原文/译文位置
-            if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'S') {
-                e.preventDefault();
-                const swapBtn = document.getElementById('swap-chunks-btn');
-                if (swapBtn && window.currentVisibleTabId === 'chunk-compare') {
-                    handleChunkSwap();
+        // 绑定键盘快捷键（仅绑定一次）
+        if (!window.__chunkCompareKeydownBound) {
+            window.__chunkCompareKeydownBound = true;
+            document.addEventListener('keydown', function(e) {
+                // Ctrl/Cmd + Shift + P: 切换性能模式
+                if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'P') {
+                    e.preventDefault();
+                    togglePerformanceMode();
                 }
-            }
-        });
+
+                // Ctrl/Cmd + Shift + S: 切换原文/译文位置
+                if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'S') {
+                    e.preventDefault();
+                    const swapBtn = document.getElementById('swap-chunks-btn');
+                    if (swapBtn && window.currentVisibleTabId === 'chunk-compare') {
+                        handleChunkSwap();
+                    }
+                }
+            });
+        }
 
         // 添加快捷键提示
         addKeyboardShortcutHints();
@@ -235,16 +245,20 @@
      * 添加键盘快捷键提示
      */
     function addKeyboardShortcutHints() {
+        // 防止重复绑定观察者
+        if (window.__chunkCompareHintsObserverBound) return;
+        window.__chunkCompareHintsObserverBound = true;
+
         // 监听分块对比标签的激活
         const observer = new MutationObserver(function(mutations) {
-            mutations.forEach(function(mutation) {
+            for (const mutation of mutations) {
                 if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
                     const target = mutation.target;
                     if (target.id === 'tab-chunk-compare' && target.classList.contains('active')) {
-                        showKeyboardHints();
+                        showKeyboardHints(observer);
                     }
                 }
-            });
+            }
         });
 
         const chunkTab = document.getElementById('tab-chunk-compare');
@@ -256,13 +270,21 @@
     /**
      * 显示键盘快捷键提示
      */
-    function showKeyboardHints() {
-        // 检查是否已经显示过提示
-        if (localStorage.getItem('chunkCompareHintsShown') === 'true') {
+    function showKeyboardHints(observerInstance) {
+        // 本地与内存双重防抖：防止多次渲染
+        if (window.__chunkCompareHintsShown || localStorage.getItem('chunkCompareHintsShown') === 'true') {
             return;
         }
+        // 如果DOM中已存在同名元素，也不再渲染
+        if (document.querySelector('.keyboard-hints')) return;
+
+        // 先设置标记，避免短时间内重复触发造成多次追加
+        window.__chunkCompareHintsShown = true;
+        localStorage.setItem('chunkCompareHintsShown', 'true');
 
         setTimeout(() => {
+            // 若已存在，不重复创建
+            if (document.querySelector('.keyboard-hints')) return;
             const hintsEl = document.createElement('div');
             hintsEl.className = 'keyboard-hints';
             hintsEl.innerHTML = `
@@ -295,16 +317,17 @@
 
             document.body.appendChild(hintsEl);
 
-            // 标记已显示
-            localStorage.setItem('chunkCompareHintsShown', 'true');
-
             // 10秒后自动移除
             setTimeout(() => {
                 if (hintsEl.parentElement) {
                     hintsEl.remove();
                 }
             }, 10000);
-        }, 1000);
+            // 观察者可在首次显示后断开，避免无意义监听
+            if (observerInstance && typeof observerInstance.disconnect === 'function') {
+                observerInstance.disconnect();
+            }
+        }, 500);
     }
 
     /**

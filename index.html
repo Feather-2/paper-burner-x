@@ -534,10 +534,20 @@
                                     <!-- 生成参数控制 -->
                                     <div id="ppGenSection">
                                     <!-- 生成参数控制 -->
-                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                                    <div class="grid grid-cols-1 md:grid-cols-5 gap-3 mb-3">
                                         <div>
                                             <label class="block text-xs text-gray-600 mb-1">生成数量</label>
                                             <input type="number" id="variationCount" value="10" min="5" max="20" class="w-full text-sm border border-gray-300 rounded px-2 py-1">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-600 mb-1">并发数</label>
+                                            <input type="number" id="generationConcurrency" value="1" min="1" max="10" class="w-full text-sm border border-gray-300 rounded px-2 py-1">
+                                            <p class="text-xs text-gray-500 mt-1">最多 10；总生成量 = 生成数量 × 并发数</p>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-600 mb-1">生成语言</label>
+                                            <input type="text" id="generatorLanguage" value="中文" placeholder="如：中文、English、日本語" class="w-full text-sm border border-gray-300 rounded px-2 py-1">
+                                            <p class="text-xs text-gray-500 mt-1">用于替换生成器提示词中的 ${genlanguage}</p>
                                         </div>
                                         <div>
                                             <label class="block text-xs text-gray-600 mb-1">相似度</label>

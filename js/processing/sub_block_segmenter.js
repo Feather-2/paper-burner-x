@@ -8,10 +8,16 @@
     function segmentBlockIntoSubBlocks(blockElement, parentBlockIndex) {
         // 性能埋点：分块开始
         performance.mark('subBlock-start');
+        // 调试开关：本文件的检测/一致性类日志统一受控
+        const __SUBBLOCK_DEBUG__ = (function(){
+            try {
+                return !!(window && (window.ENABLE_SUBBLOCK_DEBUG || localStorage.getItem('ENABLE_SUBBLOCK_DEBUG') === 'true'));
+            } catch { return false; }
+        })();
 
         // ===== 新增：分割前检测 =====
         const preSubBlocks = Array.from(blockElement.querySelectorAll('.sub-block'));
-        if (preSubBlocks.length > 0) {
+        if (__SUBBLOCK_DEBUG__ && preSubBlocks.length > 0) {
             console.warn(`[SubBlockSegmenter][检测] 分割前已存在 ${preSubBlocks.length} 个 .sub-block，内容摘要：`, preSubBlocks.map(sb => (sb.textContent || '').substring(0, 30)));
         }
         const preTextContent = blockElement.textContent;
@@ -140,13 +146,13 @@
         const postSubBlocks = Array.from(blockElement.querySelectorAll('.sub-block'));
         const postTextContent = blockElement.textContent;
         if (preSubBlocks.length > 0) {
-            if (postSubBlocks.length < preSubBlocks.length) {
+            if (__SUBBLOCK_DEBUG__ && postSubBlocks.length < preSubBlocks.length) {
                 console.error(`[SubBlockSegmenter][检测] 分割后子块数量变少！分割前: ${preSubBlocks.length}，分割后: ${postSubBlocks.length}`);
                 console.error(`[SubBlockSegmenter][检测] 分割前内容摘要:`, preSubBlocks.map(sb => (sb.textContent || '').substring(0, 30)));
                 console.error(`[SubBlockSegmenter][检测] 分割后内容摘要:`, postSubBlocks.map(sb => (sb.textContent || '').substring(0, 30)));
             }
             // 检查内容拼接（如前后内容合并到一个 span）
-            if (postSubBlocks.length === 1 && preSubBlocks.length > 1) {
+            if (__SUBBLOCK_DEBUG__ && postSubBlocks.length === 1 && preSubBlocks.length > 1) {
                 const mergedContent = postSubBlocks[0].textContent || '';
                 const preConcat = preSubBlocks.map(sb => sb.textContent || '').join('');
                 if (mergedContent.replace(/\s+/g, '') === preConcat.replace(/\s+/g, '')) {
@@ -155,9 +161,9 @@
             }
         }
         if (postSubBlocks.length > 0) {
-            // 检查是否有异常长的子块
+            // 检查是否有异常长的子块（仅在开启调试时输出）
             const maxLen = Math.max(...postSubBlocks.map(sb => (sb.textContent || '').length));
-            if (maxLen > 200 && postSubBlocks.length > 1) {
+            if (__SUBBLOCK_DEBUG__ && maxLen > 500 && postSubBlocks.length > 1) {
                 console.warn(`[SubBlockSegmenter][检测] 存在异常长的子块，长度: ${maxLen}`);
             }
         }
@@ -166,7 +172,7 @@
         const newTextContent = blockElement.textContent;
         // console.log(`[SubBlockSegmenter] 块 #${parentBlockIndex} 分块后文本长度: ${newTextContent.length}`);
 
-        if (originalTextContent.trim() !== newTextContent.trim()) {
+        if (__SUBBLOCK_DEBUG__ && originalTextContent.trim() !== newTextContent.trim()) {
             console.warn(`[SubBlockSegmenter] 警告: 块 #${parentBlockIndex} 分块前后内容不一致!`);
             console.warn(`[SubBlockSegmenter] 分块前内容: "${originalTextContent.substring(0, 50)}..."`);
             console.warn(`[SubBlockSegmenter] 分块后内容: "${newTextContent.substring(0, 50)}..."`);
@@ -191,7 +197,7 @@
                 const content = (sb.textContent || '').trim();
                 // 查找 annotation 里的 exact
                 const ann = window.data.annotations.find(a => a.target && a.target.selector && a.target.selector[0] && a.target.selector[0].subBlockId === subBlockId);
-                if (ann && ann.target.selector[0].exact) {
+                if (__SUBBLOCK_DEBUG__ && ann && ann.target.selector[0].exact) {
                     const exact = ann.target.selector[0].exact.trim();
                     if (content !== exact) {
                         console.warn(`[分割一致性检测] subBlockId=${subBlockId} 分割内容与 annotation.exact 不一致！\n分割内容: "${content}"\nannotation.exact: "${exact}"`);

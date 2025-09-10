@@ -5,18 +5,15 @@
 /* 优化后的分块容器 */
 .chunk-compare-container {
   position: relative;
-  overflow-y: auto;
-  max-height: 80vh;
+  /* 取消内部滚动与固定高度，改由页面整体滚动 */
+  /* overflow-y: auto; */
+  /* max-height: 80vh; */
   scroll-behavior: smooth;
   margin: 0;
   padding: 0;
 }
 
-/* 可见分块容器 */
-.visible-chunks-container {
-  margin: 0;
-  padding: 0;
-}
+/* （已移除 visible-chunks 容器，相关样式不再需要） */
 
 /* 移除虚拟化占位符的多余空间 */
 .virtual-spacer-top,
@@ -310,9 +307,7 @@
   pointer-events: none;
 }
 
-.visible-chunks-container {
-  position: relative;
-}
+/* （已移除 visible-chunks 容器，相关样式不再需要） */
 
 /* 性能模式样式 */
 .performance-mode .chunk-preview {
