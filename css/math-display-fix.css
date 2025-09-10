@@ -1,0 +1,205 @@
+/* css/math-display-fix.css */
+/* 专门修复数学公式显示问题的样式 */
+
+/* 修复块级数学公式显示 */
+.katex-display-fixed {
+    display: block !important;
+    margin: 16px auto !important;
+    text-align: center !important;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px 0;
+    line-height: 1.2;
+}
+
+/* 修复行内数学公式显示 */
+.katex-inline-fixed {
+    display: inline !important;
+    margin: 0 2px !important;
+    vertical-align: baseline;
+    line-height: 1;
+}
+
+/* 改进的数学错误显示 */
+.math-error-block {
+    display: block;
+    margin: 16px 0;
+    padding: 12px 16px;
+    background-color: #fff5f5;
+    border: 1px solid #feb2b2;
+    border-radius: 6px;
+    color: #c53030;
+    font-family: 'Courier New', Consolas, monospace;
+    font-size: 0.9em;
+    text-align: center;
+    cursor: help;
+}
+
+.math-error-inline {
+    display: inline;
+    margin: 0 2px;
+    padding: 2px 6px;
+    background-color: #fed7d7;
+    border: 1px solid #feb2b2;
+    border-radius: 3px;
+    color: #c53030;
+    font-family: 'Courier New', Consolas, monospace;
+    font-size: 0.85em;
+    cursor: help;
+}
+
+/* 段落内数学公式的间距修复 */
+p .katex-inline-fixed,
+p .katex-inline,
+p .math-error-inline {
+    margin: 0 0.1em;
+}
+
+/* 防止数学公式在段落中造成不当换行 */
+p {
+    line-height: 1.6;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+/* 确保数学公式不会被截断 */
+.katex {
+    white-space: nowrap;
+}
+
+.katex-display,
+.katex-display-fixed {
+    white-space: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+/* 移动设备上的数学公式优化 */
+@media (max-width: 768px) {
+    .katex-display-fixed {
+        font-size: 0.9em;
+        margin: 12px auto;
+        padding: 6px 0;
+    }
+    
+    .katex-inline-fixed {
+        font-size: 0.85em;
+    }
+    
+    .math-error-block {
+        padding: 8px 12px;
+        font-size: 0.8em;
+    }
+    
+    .math-error-inline {
+        font-size: 0.75em;
+        padding: 1px 4px;
+    }
+}
+
+/* 数学公式和中文文本的间距优化 */
+.katex-inline-fixed + .katex-inline-fixed,
+.katex-inline + .katex-inline-fixed,
+.katex-inline-fixed + .katex-inline {
+    margin-left: 0.2em;
+}
+
+/* 修复长公式在容器中的显示 */
+.markdown-body .katex-display-fixed,
+.content-wrapper .katex-display-fixed {
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* 公式渲染加载状态 */
+.math-loading {
+    background-color: #f7fafc;
+    border-radius: 4px;
+    padding: 4px 8px;
+    color: #718096;
+    font-style: italic;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* 深色模式下的数学错误样式 */
+@media (prefers-color-scheme: dark) {
+    .math-error-block {
+        background-color: #742a2a;
+        border-color: #e53e3e;
+        color: #feb2b2;
+    }
+    
+    .math-error-inline {
+        background-color: #822727;
+        border-color: #e53e3e;
+        color: #feb2b2;
+    }
+    
+    .math-loading {
+        background-color: #2d3748;
+        color: #a0aec0;
+    }
+}
+
+/* 高对比度模式支持 */
+@media (prefers-contrast: high) {
+    .katex-display-fixed,
+    .katex-inline-fixed {
+        border: 1px solid currentColor;
+        padding: 2px 4px;
+    }
+    
+    .math-error-block,
+    .math-error-inline {
+        border-width: 2px;
+        font-weight: bold;
+    }
+}
+
+/* 无障碍支持 */
+.katex-display-fixed:focus,
+.katex-inline-fixed:focus,
+.math-error-block:focus,
+.math-error-inline:focus {
+    outline: 2px solid #4299e1;
+    outline-offset: 2px;
+}
+
+/* 打印样式 */
+@media print {
+    .katex-display-fixed,
+    .katex-inline-fixed {
+        break-inside: avoid;
+    }
+    
+    .math-error-block,
+    .math-error-inline {
+        border: 2px solid #000;
+        background: #fff;
+        color: #000;
+    }
+}
+
+/* 修复特定容器中的数学公式显示 */
+.align-content.markdown-body .katex-display-fixed {
+    margin: 12px 0;
+}
+
+.align-content.markdown-body .katex-inline-fixed {
+    margin: 0 1px;
+}
+
+/* 防止数学公式影响行高 */
+.align-content.markdown-body p {
+    line-height: 1.6;
+}
+
+.align-content.markdown-body p .katex-inline-fixed {
+    vertical-align: middle;
+}

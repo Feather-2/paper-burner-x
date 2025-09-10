@@ -281,7 +281,10 @@ function applySettingsToUI(settings) {
     }
     document.getElementById('skipProcessedFiles').checked = skipProcessedFiles;
     const translationModelSelect = document.getElementById('translationModel');
-    if (translationModelSelect) translationModelSelect.value = modelVal;
+    if (translationModelSelect) {
+        const normalizedModel = (modelVal === 'gemini-preview') ? 'gemini' : modelVal;
+        translationModelSelect.value = normalizedModel;
+    }
 
     // ----- 新增：处理自定义源站点下拉列表的逻辑 -----
     const customSourceSiteDropdown = document.getElementById('customSourceSiteSelect');
@@ -311,8 +314,23 @@ function applySettingsToUI(settings) {
     if (targetLanguageSelect) targetLanguageSelect.value = targetLangVal || 'chinese';
     const customTargetLanguageInput = document.getElementById('customTargetLanguageInput');
     if (customTargetLanguageInput) customTargetLanguageInput.value = customLangNameVal || '';
-    const useCustomPromptsCheckbox = document.getElementById('useCustomPromptsCheckbox');
-    if (useCustomPromptsCheckbox) useCustomPromptsCheckbox.checked = useCustomPromptsVal || false;
+
+    // 单个自定义提示词：填充默认或用户上次修改
+    const defaultSystemPromptTextarea = document.getElementById('defaultSystemPrompt');
+    const defaultUserPromptTemplateTextarea = document.getElementById('defaultUserPromptTemplate');
+    const sysDefault = '你是专业的文档翻译助手。请将用户提供的内容精准翻译为指定语言，严格保留 Markdown 结构与标记，不添加任何说明性文字。';
+    const userDefault = '请将以下内容翻译为${targetLangName}：\n\n${content}';
+    if (defaultSystemPromptTextarea) {
+        defaultSystemPromptTextarea.value = (defaultSysPromptVal && defaultSysPromptVal.trim()) ? defaultSysPromptVal : sysDefault;
+    }
+    if (defaultUserPromptTemplateTextarea) {
+        defaultUserPromptTemplateTextarea.value = (defaultUserPromptVal && defaultUserPromptVal.trim()) ? defaultUserPromptVal : userDefault;
+    }
+    
+    // 设置提示词模式
+    const promptMode = settings.promptMode || 'builtin';
+    const promptModeRadio = document.querySelector(`input[name="promptMode"][value="${promptMode}"]`);
+    if (promptModeRadio) promptModeRadio.checked = true;
 
     // 自定义模型设置 (旧版逻辑，现在主要由源站点管理)
     // 这里不再直接从 settings.customModelSettings 读取并填充旧的自定义模型输入框
@@ -320,9 +338,8 @@ function applySettingsToUI(settings) {
     // 如果需要，可以在选择特定源站点时，由 ui.js 更新这些显示（如果这些输入框还保留用于显示目的）。
 
     // 触发 UI 相关联动
-    updateTranslationUIVisibility(isProcessing); // 这个函数在ui.js，可能需要调整以配合源站点下拉框
+    updateTranslationUIVisibility(isProcessing);
     updateCustomLanguageInputVisibility();
-    updatePromptTextareasContent();
 }
 
 // =====================
@@ -368,11 +385,10 @@ function setupEventListeners() {
     const clearBtn = document.getElementById('clearFilesBtn');
     const processBtn = document.getElementById('processBtn');
     const downloadBtn = document.getElementById('downloadAllBtn');
-    const targetLanguageSelect = document.getElementById('targetLanguage'); // Get ref to target language select
-    const customTargetLanguageInput = document.getElementById('customTargetLanguageInput'); // Get ref to custom language input
-    const useCustomPromptsCheckbox = document.getElementById('useCustomPromptsCheckbox'); // Get ref to custom prompt checkbox
-    const defaultSystemPromptTextarea = document.getElementById('defaultSystemPrompt'); // Get ref to default system prompt textarea
-    const defaultUserPromptTemplateTextarea = document.getElementById('defaultUserPromptTemplate'); // Get ref to default user prompt template textarea
+    const targetLanguageSelect = document.getElementById('targetLanguage'); 
+    const customTargetLanguageInput = document.getElementById('customTargetLanguageInput');
+    const defaultSystemPromptTextarea = document.getElementById('defaultSystemPrompt');
+    const defaultUserPromptTemplateTextarea = document.getElementById('defaultUserPromptTemplate');
     const customModelInputs = [
         document.getElementById('customApiEndpoint'),
         document.getElementById('customModelId'),
@@ -380,10 +396,10 @@ function setupEventListeners() {
         document.getElementById('customTemperature'),
         document.getElementById('customMaxTokens')
     ];
-    const customSourceSiteDropdown = document.getElementById('customSourceSiteSelect'); // Get ref to custom source site dropdown
-    const customSourceSiteToggleBtn = document.getElementById('customSourceSiteToggle'); // 新增：获取切换按钮
-    const customSourceSiteDiv = document.getElementById('customSourceSite'); // 新增：获取要切换的div
-    const customSourceSiteToggleIconEl = document.getElementById('customSourceSiteToggleIcon'); // 新增：获取切换图标
+    const customSourceSiteDropdown = document.getElementById('customSourceSiteSelect');
+    const customSourceSiteToggleBtn = document.getElementById('customSourceSiteToggle');
+    const customSourceSiteDiv = document.getElementById('customSourceSite');
+    const customSourceSiteToggleIconEl = document.getElementById('customSourceSiteToggleIcon');
 
     // API Key 存储 - 相关逻辑已移除，因为输入框已移除
     /* // mistralTextArea 的监听器已无意义
@@ -475,17 +491,16 @@ function setupEventListeners() {
     targetLanguageSelect.addEventListener('change', () => {
         updateCustomLanguageInputVisibility(); // Update visibility based on selection
         saveCurrentSettings(); // Save the new selection
-        updatePromptTextareasContent(); // Update prompt textareas based on new language
     });
     customTargetLanguageInput.addEventListener('input', saveCurrentSettings); // Save custom language name changes
 
     // 默认提示编辑
-    useCustomPromptsCheckbox.addEventListener('change', () => {
-        updatePromptTextareasContent(); // Update enable/disable and content
-        saveCurrentSettings(); // Save the new checkbox state
-    });
-    defaultSystemPromptTextarea.addEventListener('input', saveCurrentSettings);
-    defaultUserPromptTemplateTextarea.addEventListener('input', saveCurrentSettings);
+    if (defaultSystemPromptTextarea) {
+        defaultSystemPromptTextarea.addEventListener('input', saveCurrentSettings);
+    }
+    if (defaultUserPromptTemplateTextarea) {
+        defaultUserPromptTemplateTextarea.addEventListener('input', saveCurrentSettings);
+    }
 
     // 处理和下载
     processBtn.addEventListener('click', handleProcessClick);
@@ -640,14 +655,14 @@ function saveCurrentSettings() {
         maxTokensPerChunk: document.getElementById('maxTokensPerChunk').value,
         skipProcessedFiles: document.getElementById('skipProcessedFiles').checked,
         selectedTranslationModel: selectedModel,
-        selectedCustomSourceSiteId: selectedSiteId, // 新增：保存选定的自定义源站点ID
+        selectedCustomSourceSiteId: selectedSiteId,
         concurrencyLevel: document.getElementById('concurrencyLevel').value,
-        translationConcurrencyLevel: document.getElementById('translationConcurrencyLevel').value, // Read new setting
-        targetLanguage: targetLangValue, // Save target language selection
-        customTargetLanguageName: targetLangValue === 'custom' ? document.getElementById('customTargetLanguageInput').value : '', // Save custom language name if applicable
-        defaultSystemPrompt: document.getElementById('defaultSystemPrompt').value, // Save default system prompt
-        defaultUserPromptTemplate: document.getElementById('defaultUserPromptTemplate').value, // Save default user prompt template
-        useCustomPrompts: document.getElementById('useCustomPromptsCheckbox').checked // Save checkbox state
+        translationConcurrencyLevel: document.getElementById('translationConcurrencyLevel').value,
+        targetLanguage: targetLangValue,
+        customTargetLanguageName: targetLangValue === 'custom' ? document.getElementById('customTargetLanguageInput').value : '',
+        defaultSystemPrompt: document.getElementById('defaultSystemPrompt').value,
+        defaultUserPromptTemplate: document.getElementById('defaultUserPromptTemplate').value,
+        promptMode: document.querySelector('input[name="promptMode"]:checked')?.value || 'builtin'
     };
     // 调用 storage.js 中的保存函数
     saveSettings(settingsData);
@@ -792,6 +807,9 @@ async function handleProcessClick() {
 
     // 4. 设置处理状态等...
     isProcessing = true;
+    if (typeof window !== 'undefined' && window.promptPoolUI && typeof window.promptPoolUI.resetSessionLock === 'function') {
+        window.promptPoolUI.resetSessionLock();
+    }
     activeProcessingCount = 0;
     retryAttempts.clear();
     allResults = new Array(pdfFiles.length);
@@ -1105,48 +1123,7 @@ function getBuiltInPrompts(languageName) {
 // =====================
 // 提示区内容与状态联动
 // =====================
-/**
- * 更新自定义提示文本区域的内容和启用/禁用状态。
- * - 如果用户勾选了"启用自定义提示"：
- *   - 显示提示容器，启用文本区域。
- *   - 如果保存的自定义提示为空或与内置提示相同，则显示对应语言的内置提示。
- *   - 否则，显示用户已保存的自定义提示。
- * - 如果未勾选：
- *   - 隐藏提示容器，禁用文本区域。
- */
-function updatePromptTextareasContent() {
-    const useCustomCheckbox = document.getElementById('useCustomPromptsCheckbox');
-    const systemPromptTextarea = document.getElementById('defaultSystemPrompt');
-    const userPromptTextarea = document.getElementById('defaultUserPromptTemplate');
-    const currentSettings = loadSettings(); // Get current settings to access saved prompts
-    const targetLangValue = document.getElementById('targetLanguage').value;
-    const effectiveLangName = targetLangValue === 'custom' ? (document.getElementById('customTargetLanguageInput').value.trim() || 'English') : targetLangValue;
-    const promptsContainer = document.getElementById('customPromptsContainer'); // Get the container
-
-    if (useCustomCheckbox.checked) {
-        promptsContainer.classList.remove('hidden'); // Show the container
-        systemPromptTextarea.disabled = false; // Enable the textarea
-        userPromptTextarea.disabled = false; // Enable the textarea
-
-        const builtInPrompts = getBuiltInPrompts(effectiveLangName);
-        const savedSystemPrompt = currentSettings.defaultSystemPrompt;
-        const savedUserPrompt = currentSettings.defaultUserPromptTemplate;
-
-        // If saved prompt is empty or same as built-in, show built-in, else show saved
-        systemPromptTextarea.value = (savedSystemPrompt === null || savedSystemPrompt.trim() === '' || savedSystemPrompt === builtInPrompts.systemPrompt)
-            ? builtInPrompts.systemPrompt
-            : savedSystemPrompt;
-
-        userPromptTextarea.value = (savedUserPrompt === null || savedUserPrompt.trim() === '' || savedUserPrompt === builtInPrompts.userPromptTemplate)
-            ? builtInPrompts.userPromptTemplate
-            : savedUserPrompt;
-
-    } else {
-        promptsContainer.classList.add('hidden'); // Hide the container
-        systemPromptTextarea.disabled = true; // Disable the textarea
-        userPromptTextarea.disabled = true; // Disable the textarea
-    }
-}
+// updatePromptTextareasContent函数已移除，因为新的提示词系统通过promptPoolUI处理
 
 // =====================
 // 其他协调逻辑

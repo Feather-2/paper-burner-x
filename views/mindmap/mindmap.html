@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <title>思维导图 - Markmap</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  
   <!-- Markmap 依赖 -->
   <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <script src="https://cdn.jsdelivr.net/npm/markmap-lib"></script>
@@ -62,7 +63,7 @@
     }
 
     .editor-container {
-      width: 35%; /* 编辑器初始宽度减小 */
+      width: 25%; /* 默认左:右 = 1:3，编辑器占 25% */
       min-width: 200px; /* 最小宽度 */
       height: 100%;
       background: #fff;
@@ -248,12 +249,19 @@
      .hide-editor .splitter { display: none; }
 
 
-    .hide-mindmap .markmap-container, .hide-mindmap .splitter {
-      width: 0 !important; /* Important to override inline style from resize */
+    /* 隐藏思维导图时，彻底收起右侧区域并让编辑器占满 */
+    .hide-mindmap .markmap-container {
+      display: none !important;
+      width: 0 !important;
       min-width: 0 !important;
-      overflow: hidden;
+      flex: 0 0 0 !important; /* 彻底不占据弹性空间 */
+      overflow: hidden !important;
     }
-    .hide-mindmap .splitter { display: none; }
+    .hide-mindmap .splitter { display: none !important; }
+    .hide-mindmap .editor-container {
+      width: 100% !important;
+      flex: 1 1 auto !important;
+    }
 
 
     /* 响应式布局 */
@@ -280,7 +288,7 @@
       .hide-editor .editor-container, .hide-mindmap .markmap-container {
         height: 0 !important; /* Important to override inline style from resize */
       }
-       .hide-editor .splitter, .hide-mindmap .splitter { display: none; }
+      .hide-editor .splitter, .hide-mindmap .splitter { display: none !important; }
       .topbar { padding: 0 10px; }
       .topbar-title span { display: none; } /* Hide text on small screens */
       .container, .editor-container, .markmap-container {
@@ -358,9 +366,7 @@
   <div class="container" id="main-container">
     <div class="editor-container" id="editor-area">
       <div class="editor-header">
-        <div class="flex items-center">
-          <button id="auto-save-btn" class="button small outline" style="margin-right: 8px;">自动保存: 开</button>
-        </div>
+        <div class="flex items-center"><!-- 左侧保留占位，避免布局抖动 --></div>
         <span>Markdown</span>
         <div class="flex items-center">
           <small id="save-status" style="color:#64748b; margin-right: 10px;">未修改</small>
@@ -601,6 +607,7 @@
 
     // 初始化界面交互和可调节面板
     function initUI() {
+      
       document.getElementById('toggle-editor-btn').addEventListener('click', function() {
         const container = document.getElementById('main-container');
         const isHidden = container.classList.toggle('hide-editor');

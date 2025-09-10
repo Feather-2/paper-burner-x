@@ -224,7 +224,8 @@ async function translateMarkdown(
     defaultSystemPrompt = "",
     defaultUserPromptTemplate = "",
     useCustomPrompts = false,
-    processTablePlaceholders = true
+    processTablePlaceholders = true,
+    options = {}
 ) {
     //console.log('translateMarkdown 分块内容:', markdown);
 
@@ -242,6 +243,7 @@ async function translateMarkdown(
         actualDefaultUserPromptTemplate = arguments[7] !== undefined ? arguments[7] : "";
         actualUseCustomPrompts = arguments[8] !== undefined ? arguments[8] : false;
         actualProcessTablePlaceholders = arguments[9] !== undefined ? arguments[9] : true;
+        options = arguments[10] !== undefined ? arguments[10] : {};
     }
 
     // 表格预处理 - 仅当需要处理表格时
@@ -263,31 +265,54 @@ async function translateMarkdown(
         }
     }
 
-    // 构建 prompt
+    // 构建 prompt - 集成提示词池支持
     let systemPrompt = actualDefaultSystemPrompt;
     let userPrompt = actualDefaultUserPromptTemplate;
 
     // 增加表格处理提示
+    let tableHandlingNote = "";
     if (hasProtectedTables) {
-        systemPrompt = actualDefaultSystemPrompt + "\n\n注意：文档中的表格已被特殊标记为占位符（如__TABLE_PLACEHOLDER_0__），请直接翻译占位符以外的内容，保持占位符不变。表格将在后续步骤中单独处理。";
+        tableHandlingNote = "\n\n注意：文档中的表格已被特殊标记为占位符（如__TABLE_PLACEHOLDER_0__），请直接翻译占位符以外的内容，保持占位符不变。表格将在后续步骤中单独处理。";
     }
 
-    // 如果未启用自定义提示，或自定义提示为空，则使用内置模板
-    if (!actualUseCustomPrompts || !systemPrompt || !userPrompt) {
+    // 检查是否应该使用提示词池（支持外部绑定覆盖）
+    let usePromptPool = false;
+    let promptFromPool = null;
+    
+    // 尝试从提示词池UI获取提示词（如果可用）
+    if (!options.boundPrompt && typeof window !== 'undefined' && window.promptPoolUI) {
+        const poolPrompt = window.promptPoolUI.getPromptForTranslation();
+        if (poolPrompt) {
+            promptFromPool = poolPrompt;
+            usePromptPool = true;
+        }
+    }
+    // 如果调用方传入 boundPrompt，则优先使用
+    if (options.boundPrompt && options.boundPrompt.id && options.boundPrompt.systemPrompt && options.boundPrompt.userPromptTemplate) {
+        promptFromPool = options.boundPrompt;
+        usePromptPool = true;
+    }
+
+    // 根据提示词来源设置提示词
+    if (usePromptPool && promptFromPool) {
+        // 使用提示词池的提示词
+        systemPrompt = promptFromPool.systemPrompt + tableHandlingNote;
+        userPrompt = promptFromPool.userPromptTemplate;
+        console.log(`[翻译] 使用提示词池的提示词`);
+    } else if (!actualUseCustomPrompts || !systemPrompt || !userPrompt) {
+        // 使用内置模板或后备方案
         if (typeof getBuiltInPrompts === "function") {
             const prompts = getBuiltInPrompts(targetLang);
-            systemPrompt = prompts.systemPrompt;
+            systemPrompt = prompts.systemPrompt + tableHandlingNote;
             userPrompt = prompts.userPromptTemplate;
-
-            // 同样增加表格处理提示
-            if (hasProtectedTables) {
-                systemPrompt = systemPrompt + "\n\n注意：文档中的表格已被特殊标记为占位符（如__TABLE_PLACEHOLDER_0__），请直接翻译占位符以外的内容，保持占位符不变。表格将在后续步骤中单独处理。";
-            }
         } else {
             // 兜底
-            systemPrompt = "You are a professional document translation assistant.";
+            systemPrompt = "You are a professional document translation assistant." + tableHandlingNote;
             userPrompt = "Please translate the following content into the target language:\n\n${content}";
         }
+    } else {
+        // 使用自定义提示词
+        systemPrompt = actualDefaultSystemPrompt + tableHandlingNote;
     }
 
     // 替换模板变量 - 使用预处理后的文本
@@ -327,28 +352,43 @@ async function translateMarkdown(
         const temperature = (settings.customModelSettings && settings.customModelSettings.temperature) || 0.5;
         const maxTokens = (settings.customModelSettings && settings.customModelSettings.max_tokens) || 8000;
 
+        // 允许从配置覆盖部分预设端点/模型（例如 Gemini 选择具体模型）
+        let geminiEndpointDynamic = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+        try {
+            if (typeof loadModelConfig === 'function') {
+                const gcfg = loadModelConfig('gemini');
+                const preferred = gcfg && (gcfg.preferredModelId || gcfg.modelId);
+                if (preferred && typeof preferred === 'string' && preferred.trim()) {
+                    geminiEndpointDynamic = `https://generativelanguage.googleapis.com/v1beta/models/${preferred.trim()}:generateContent`;
+                }
+            }
+        } catch (e) { /* ignore and use default */ }
+
         // 更新后的预设模型配置
         const predefinedConfigs = {
 
             'deepseek': {
                 endpoint: 'https://api.deepseek.com/v1/chat/completions',
-                modelName: 'DeepSeek v3 (deepseek-v3)',
+                modelName: 'DeepSeek',
                 headers: { 'Content-Type': 'application/json' },
-                bodyBuilder: (sys, user) => ({
-                    model: "deepseek-chat",
+                bodyBuilder: (sys, user) => {
+                    let modelId = 'deepseek-chat';
+                    try { const cfg = loadModelConfig && loadModelConfig('deepseek'); if (cfg && (cfg.preferredModelId||cfg.modelId)) modelId = cfg.preferredModelId||cfg.modelId; } catch {}
+                    return ({
+                    model: modelId,
                     messages: [
                         { role: "system", content: sys },
                         { role: "user", content: user }
                     ],
                     temperature: temperature,
                     max_tokens: maxTokens
-                }),
+                }); },
                 responseExtractor: (data) => data?.choices?.[0]?.message?.content
             },
 
             'gemini': {
-                endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
-                modelName: 'Google Gemini 2.0 Flash',
+                endpoint: geminiEndpointDynamic,
+                modelName: 'Google Gemini',
                 headers: { 'Content-Type': 'application/json' },
                 bodyBuilder: (sys, user) => ({
                     contents: [
@@ -386,64 +426,40 @@ async function translateMarkdown(
                 }),
                 responseExtractor: (data) => data?.choices?.[0]?.message?.content
             },
-            'tongyi-deepseek-v3': {
+            'tongyi': {
                 endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
-                modelName: '阿里云通义百炼 DeepSeek v3',
+                modelName: '通义百炼',
                 headers: { 'Content-Type': 'application/json' },
-                bodyBuilder: (sys, user) => ({
-                    model: "deepseek-v3",
+                bodyBuilder: (sys, user) => {
+                    let modelId = 'qwen-turbo-latest';
+                    try { const cfg = loadModelConfig && loadModelConfig('tongyi'); if (cfg && (cfg.preferredModelId||cfg.modelId)) modelId = cfg.preferredModelId||cfg.modelId; } catch {}
+                    return ({
+                    model: modelId,
                     messages: [
                         { role: "system", content: sys },
                         { role: "user", content: user }
                     ],
                     temperature: temperature,
                     max_tokens: maxTokens
-                }),
+                }); },
                 responseExtractor: (data) => data?.choices?.[0]?.message?.content
             },
-            'tongyi-qwen-turbo': {
-                endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
-                modelName: '阿里云通义百炼 Qwen Turbo',
-                headers: { 'Content-Type': 'application/json' },
-                bodyBuilder: (sys, user) => ({
-                    model: "qwen-turbo-latest",
-                    messages: [
-                        { role: "system", content: sys },
-                        { role: "user", content: user }
-                    ],
-                    temperature: temperature,
-                    max_tokens: maxTokens
-                }),
-                responseExtractor: (data) => data?.choices?.[0]?.message?.content
-            },
-            'volcano-deepseek-v3': {
+            'volcano': {
                 endpoint: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
-                modelName: '火山引擎 DeepSeek v3',
+                modelName: '火山引擎',
                 headers: { 'Content-Type': 'application/json' },
-                bodyBuilder: (sys, user) => ({
-                    model: "deepseek-v3-250324",
+                bodyBuilder: (sys, user) => {
+                    let modelId = 'doubao-1-5-pro-32k-250115';
+                    try { const cfg = loadModelConfig && loadModelConfig('volcano'); if (cfg && (cfg.preferredModelId||cfg.modelId)) modelId = cfg.preferredModelId||cfg.modelId; } catch {}
+                    return ({
+                    model: modelId,
                     messages: [
                         { role: "system", content: sys },
                         { role: "user", content: user }
                     ],
                     temperature: temperature,
                     max_tokens: Math.min(maxTokens, 16384)
-                }),
-                responseExtractor: (data) => data?.choices?.[0]?.message?.content
-            },
-            'volcano-doubao': {
-                endpoint: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
-                modelName: '火山引擎 豆包1.5-Pro',
-                headers: { 'Content-Type': 'application/json' },
-                bodyBuilder: (sys, user) => ({
-                    model: "doubao-1-5-pro-32k-250115",
-                    messages: [
-                        { role: "system", content: sys },
-                        { role: "user", content: user }
-                    ],
-                    temperature: temperature,
-                    max_tokens: Math.min(maxTokens, 16384)
-                }),
+                }); },
                 responseExtractor: (data) => data?.choices?.[0]?.message?.content
             },
             'gemini-preview': {
@@ -497,8 +513,131 @@ async function translateMarkdown(
             ]
         };
 
-    // 实际调用
-    const result = await callTranslationApi(apiConfig, requestBody);
+    // 实际调用（记录提示词池使用成功率 + 队列入队/出队）
+    let result;
+    const poolPromptId = (usePromptPool && promptFromPool && promptFromPool.id) ? promptFromPool.id : null;
+    // 入队（如调用方未预入队，则在此兜底入队）
+    const requestId = options.requestId || `req_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+    if (!options.requestId && poolPromptId && typeof window.translationPromptPool !== 'undefined' && typeof window.translationPromptPool.enqueueRequest === 'function') {
+        window.translationPromptPool.enqueueRequest(poolPromptId, { requestId, model: apiConfig.modelName || 'unknown' });
+    }
+    const startTimeMs = Date.now();
+    let primaryError = null;
+    try {
+        // 出队（开始执行，不再算“待迁移”）
+        if (poolPromptId && typeof window.translationPromptPool !== 'undefined' && typeof window.translationPromptPool.dequeueRequest === 'function') {
+            window.translationPromptPool.dequeueRequest(poolPromptId, requestId);
+        }
+        result = await callTranslationApi(apiConfig, requestBody);
+        if (poolPromptId && typeof window.translationPromptPool !== 'undefined' && typeof window.translationPromptPool.recordPromptUsage === 'function') {
+            window.translationPromptPool.recordPromptUsage(
+                poolPromptId,
+                true,
+                Date.now() - startTimeMs,
+                null,
+                { model: apiConfig.modelName || 'unknown', endpoint: apiConfig.endpoint || '' }
+            );
+        }
+    } catch (e) {
+        // 出队（失败也确保不再算“待迁移”）
+        if (poolPromptId && typeof window.translationPromptPool !== 'undefined' && typeof window.translationPromptPool.dequeueRequest === 'function') {
+            window.translationPromptPool.dequeueRequest(poolPromptId, requestId);
+        }
+        if (poolPromptId && typeof window.translationPromptPool !== 'undefined' && typeof window.translationPromptPool.recordPromptUsage === 'function') {
+            window.translationPromptPool.recordPromptUsage(
+                poolPromptId,
+                false,
+                Date.now() - startTimeMs,
+                e && e.message ? e.message : String(e),
+                { model: apiConfig.modelName || 'unknown', endpoint: apiConfig.endpoint || '' }
+            );
+        }
+        primaryError = e;
+    }
+
+    // 即时切换并重试一次（谨慎）：仅在提示词池模式、允许失败切换、存在健康替代时执行
+    if (!result && poolPromptId && typeof window.translationPromptPool !== 'undefined') {
+        try {
+            const cfgOk = (typeof window.translationPromptPool.getHealthConfig === 'function') ? window.translationPromptPool.getHealthConfig() : null;
+            const canSwitch = cfgOk && cfgOk.switchOnFailure;
+            const newPrompt = (typeof window.translationPromptPool.selectHealthyPrompt === 'function')
+                ? window.translationPromptPool.selectHealthyPrompt(poolPromptId)
+                : null;
+
+            if (canSwitch && newPrompt && newPrompt.id !== poolPromptId) {
+                if (typeof addProgressLog === 'function') {
+                    addProgressLog(`${actualLogContext} 首次失败，尝试切换至健康提示词并重试一次...`);
+                }
+
+                // 重建基于新提示词的 prompts
+                const retrySystemPrompt = (newPrompt.systemPrompt || '') + tableHandlingNote;
+                let retryUserPrompt = (newPrompt.userPromptTemplate || '')
+                    .replace(/\$\{targetLangName\}/g, targetLang)
+                    .replace(/\$\{content\}/g, processedText);
+
+                // 入队 + 出队（重试请求）
+                const retryRequestId = `${requestId}_r1`;
+                if (typeof window.translationPromptPool.enqueueRequest === 'function') {
+                    window.translationPromptPool.enqueueRequest(newPrompt.id, { requestId: retryRequestId, model: apiConfig.modelName || 'unknown' });
+                }
+                if (typeof window.translationPromptPool.dequeueRequest === 'function') {
+                    window.translationPromptPool.dequeueRequest(newPrompt.id, retryRequestId);
+                }
+
+                const retryBody = apiConfig.bodyBuilder
+                    ? apiConfig.bodyBuilder(retrySystemPrompt, retryUserPrompt)
+                    : {
+                        model: apiConfig.modelName,
+                        messages: [
+                            { role: 'system', content: retrySystemPrompt },
+                            { role: 'user', content: retryUserPrompt }
+                        ]
+                    };
+
+                const retryStart = Date.now();
+                try {
+                    result = await callTranslationApi(apiConfig, retryBody);
+                    if (typeof window.translationPromptPool.recordPromptUsage === 'function') {
+                        window.translationPromptPool.recordPromptUsage(
+                            newPrompt.id,
+                            true,
+                            Date.now() - retryStart,
+                            null,
+                            { model: apiConfig.modelName || 'unknown', endpoint: apiConfig.endpoint || '' }
+                        );
+                    }
+                    if (typeof window !== 'undefined' && window.isProcessing && window.promptPoolUI) {
+                        // 将会话锁定到新的健康提示词
+                        window.promptPoolUI.sessionLockedPrompt = newPrompt;
+                    }
+                    if (typeof addProgressLog === 'function') {
+                        addProgressLog(`${actualLogContext} 重试成功。`);
+                    }
+                } catch (e2) {
+                    if (typeof window.translationPromptPool.recordPromptUsage === 'function') {
+                        window.translationPromptPool.recordPromptUsage(
+                            newPrompt.id,
+                            false,
+                            Date.now() - retryStart,
+                            e2 && e2.message ? e2.message : String(e2),
+                            { model: apiConfig.modelName || 'unknown', endpoint: apiConfig.endpoint || '' }
+                        );
+                    }
+                    if (typeof addProgressLog === 'function') {
+                        addProgressLog(`${actualLogContext} 重试失败：${e2.message}`);
+                    }
+                }
+            }
+        } catch (swErr) {
+            // 保守处理：任何切换逻辑错误都不影响主异常流
+            console.warn('Immediate switch-retry failed silently:', swErr);
+        }
+    }
+
+    if (!result) {
+        // 两次均失败，抛出原始异常
+        throw primaryError || new Error('调用翻译 API 失败');
+    }
 
     // 如果存在表格保护处理且需要处理表格占位符，恢复表格
     if (hasProtectedTables && actualProcessTablePlaceholders && typeof extractTableFromTranslation === 'function') {

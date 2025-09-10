@@ -10,6 +10,8 @@
   <link rel="stylesheet" href="../../css/history_detail.css">
   <link rel="stylesheet" href="../../css/history_detail_inline_styles.css">
   <link rel="stylesheet" href="../../css/immersive_layout.css"> <!-- 新增沉浸式布局CSS -->
+  <link rel="stylesheet" href="../../css/unified-button-sizes.css"> <!-- 统一按钮尺寸系统 -->
+  <link rel="stylesheet" href="../../css/chunk_compare_optimizer.css"> <!-- 分块对比优化样式 -->
 
 </head>
 <body>
@@ -242,6 +244,12 @@
   <script src="../../js/annotations/annotation_logic.js"></script>       <!-- Defines helpers like checkIfTextIsHighlighted -->
   <script src="../../js/annotations/custom_markdown_renderer.js"></script> <!-- Defines createCustomMarkdownRenderer -->
   <script src="../../js/annotations/annotation_highlighter.js"></script>   <!-- Defines applyPreprocessedAnnotations, uses helpers from annotation_logic.js -->
+  <script src="../../js/annotations/precise_text_selector.js"></script>    <!-- 精确文本选择器 -->
+  <script src="../../js/annotations/word_selection_enhancement.js"></script> <!-- 词汇选择增强 -->
+  <script src="../../js/annotations/emergency_right_click_fix.js"></script> <!-- 紧急右键修复 -->
+  <script src="../../js/annotations/word_selection_tester.js"></script>    <!-- 词汇选择测试工具 -->
+  <script src="../../js/annotations/right_click_precise_selector.js"></script> <!-- 右键精确选择器 -->
+  <script src="../../js/annotations/highlight_integrator.js"></script>     <!-- 高亮和标注集成器 -->
   <script src="../../js/ui/toc_logic.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
@@ -279,6 +287,10 @@
   <script src="../../js/annotations/annotations_summary_modal.js"></script> <!-- ADDED -->
   <script src="../../js/history/history_detail_scripts.js"></script>
   <script src="../../js/ui/immersive_layout_logic.js"></script> <!-- 新增沉浸式布局JS -->
+  <script src="../../js/ui/immersive_layout_fix.js"></script> <!-- 新增沉浸式布局修复JS -->
+  <script src="../../js/ui/chunk_compare_optimizer.js"></script> <!-- 分块对比性能优化器 -->
+  <script src="../../js/ui/chunk_compare_integration.js"></script> <!-- 分块对比优化器集成 -->
+  <script src="../../js/ui/chunk_compare_performance_tester.js"></script> <!-- 分块对比性能测试器 -->
 
   <!-- ===================== -->
   <!-- 页面核心逻辑脚本 -->
@@ -297,6 +309,7 @@
     // ========== 新增：防止 showTab 重复渲染的锁 ==========
     let renderingTab = null;
     // =====================================================
+
 
     let isOriginalFirstInChunkCompare = true; // 状态变量：原文是否在左侧
     let docIdForLocalStorage = null; // To store the current document ID for localStorage keys
@@ -891,16 +904,36 @@
         html = `<h3>翻译内容</h3><div id="${contentContainerId}" class="markdown-body content-wrapper"></div>`;
         console.time('[性能] 翻译分批渲染');
       } else if (tab === 'chunk-compare') {
+        // 性能监控：记录分块对比开始时间
+        window.chunkCompareStartTime = performance.now();
+        console.log(`[性能] 开始渲染分块对比，总块数: ${data.ocrChunks ? data.ocrChunks.length : 0}`);
+        
         // window.globalCurrentContentIdentifier = ''; // 已在函数开头正确设置
         document.getElementById('tab-chunk-compare').classList.add('active');
         if (data.ocrChunks && data.ocrChunks.length > 0 && data.translatedChunks && data.translatedChunks.length === data.ocrChunks.length) {
-            html = `
-              <div class="chunk-compare-title-bar">
-                <h3>分块对比</h3>
-                <button id="swap-chunks-btn" title="切换原文/译文位置">⇆</button>
-              </div>
-              <div class="chunk-compare-container">
-            `;
+            // 使用优化器进行分块对比渲染
+            if (window.ChunkCompareOptimizer && window.ChunkCompareOptimizer.instance) {
+                console.log('[性能] 使用优化后的分块对比渲染器');
+                html = window.ChunkCompareOptimizer.instance.optimizeChunkComparison(
+                    data.ocrChunks, 
+                    data.translatedChunks, 
+                    {
+                        images: data.images,
+                        isOriginalFirst: window.isOriginalFirstInChunkCompare !== false
+                    }
+                );
+            } else {
+                // 回退到原有渲染逻辑
+                console.warn('[性能] 优化器不可用，使用原有渲染逻辑');
+                html = `
+                  <div class="chunk-compare-title-bar">
+                    <h3>分块对比</h3>
+                    <button id="swap-chunks-btn" title="切换原文/译文位置">⇆</button>
+                  </div>
+                  <div class="chunk-compare-container">
+                `;
+                // 继续使用原有的渲染逻辑...
+            }
             /**
              * 解析Markdown文本为逻辑块数组，主要基于标题进行分割。
              * 代码块 (```...```) 会被视为单个块的一部分，不会被分割。
@@ -977,11 +1010,35 @@
              * @returns {string} 生成的HTML字符串，用于显示对齐的块内容。
              */
             function renderLevelAlignedFlex(ocrChunk, translatedChunk, images, blockIndex, totalBlocks) {
+              // 性能优化：缓存解析结果避免重复计算
+              const cacheKey = `${blockIndex}_${ocrChunk.length}_${translatedChunk.length}`;
+              if (window.chunkParseCache && window.chunkParseCache[cacheKey]) {
+                const cachedResult = window.chunkParseCache[cacheKey];
+                const ocrBlocks = cachedResult.ocrBlocks;
+                const transBlocks = cachedResult.transBlocks;
+                const aligned = cachedResult.aligned;
+                let showMode = window[`showMode_block_${blockIndex}`] || 'both';
+                
+                // 使用缓存的解析结果渲染HTML
+                return renderAlignedHTML(ocrBlocks, transBlocks, aligned, images, blockIndex, totalBlocks, showMode);
+              }
+              
               const ocrBlocks = parseMarkdownBlocks(ocrChunk);
               const transBlocks = parseMarkdownBlocks(translatedChunk);
               const aligned = alignBlocks(ocrBlocks, transBlocks);
+              
+              // 缓存解析结果
+              if (!window.chunkParseCache) window.chunkParseCache = {};
+              window.chunkParseCache[cacheKey] = { ocrBlocks, transBlocks, aligned };
+              
               let showMode = window[`showMode_block_${blockIndex}`] || 'both';
-
+              return renderAlignedHTML(ocrBlocks, transBlocks, aligned, images, blockIndex, totalBlocks, showMode);
+            }
+            
+            /**
+             * 渲染对齐后的HTML内容
+             */
+            function renderAlignedHTML(ocrBlocks, transBlocks, aligned, images, blockIndex, totalBlocks, showMode) {
               // 在分块对比内部也尝试使用自定义渲染器
               // 注意：这里的 annotations 应该是整个文档的，contentIdentifier 需要根据当前块是原文还是译文来确定
               // 为了简化，我们暂时假设分块对比中的内容不直接参与这种精细的预标注，
@@ -1006,8 +1063,11 @@
                   </div>
                 </div>
               `;
+              
+              // 性能优化：批量构建HTML字符串减少字符串拼接次数
+              const alignedHTML = [];
               for (let i = 0; i < aligned.length; i++) {
-                html += `
+                alignedHTML.push(`
                   <div class="align-flex block-flex block-flex-${blockIndex} ${showMode==='ocr'?'block-mode-ocr-only':showMode==='trans'?'block-mode-trans-only':'block-mode-both'}" data-block="${blockIndex}" data-align-index="${i}">
                     <div class="align-block align-block-ocr">
                       <div class="align-title">
@@ -1025,13 +1085,17 @@
                       <div class="align-content markdown-body">${MarkdownProcessor.renderWithKatexFailback(MarkdownProcessor.safeMarkdown(aligned[i][1], images), isOriginalFirstInChunkCompare ? transRenderer : ocrRenderer)}</div>
                     </div>
                   </div>
-                `;
+                `);
               }
+              
+              html += alignedHTML.join('');
+              
               // 记录原始内容，供复制用
               window[`blockRawContent_${blockIndex}`] = aligned;
               return html;
             }
-            // 渲染每个分块，增加唯一id
+            
+            // 恢复原始渲染逻辑：渲染每个分块，增加唯一id
             for (let i = 0; i < data.ocrChunks.length; i++) {
                 const ocrChunk = data.ocrChunks[i] || '';
                 const translatedChunk = data.translatedChunks[i] || '';
@@ -1055,26 +1119,92 @@
                 html += blockHtmlToRender;
                 html += `</div></div>`;
             }
-            html += '</div>';
             // 绑定每个分块的切换按钮和导航按钮事件
             setTimeout(() => {
               // 拖动分割条实现 - 使用CSS变量而不是直接设置样式
               let ratio = window.chunkCompareRatio;
               if (typeof ratio !== 'number' || isNaN(ratio)) ratio = 0.5;
-              window.chunkCompareRatio = ratio; // 确保全局变量被设置
+              window.chunkCompareRatio = ratio;
 
               function applyRatioToAll() {
                 const currentRatio = window.chunkCompareRatio || 0.5;
                 document.querySelectorAll('.align-flex').forEach(flex => {
-                  // 使用CSS变量而不是直接设置样式
                   flex.style.setProperty('--ocr-ratio', (currentRatio * 100) + '%');
                   flex.style.setProperty('--trans-ratio', ((1 - currentRatio) * 100) + '%');
                 });
               }
               applyRatioToAll();
 
-              // 重新绑定分块对比工具栏按钮事件 - 使用CSS类管理显示模式
-              document.querySelectorAll('.block-mode-btn').forEach(btn => {
+              // 性能优化：缓存DOM查询结果
+              const blockModeButtons = document.querySelectorAll('.block-mode-btn');
+              const allSplitters = document.querySelectorAll('.splitter');
+              const blockCopyButtons = document.querySelectorAll('.block-copy-btn');
+              const blockStructCopyButtons = document.querySelectorAll('.block-struct-copy-btn');
+              const blockNavButtons = document.querySelectorAll('.block-nav-btn');
+              
+              // 性能优化：使用事件委托减少事件监听器数量
+              const chunkCompareContainer = document.querySelector('.chunk-compare-container');
+              if (chunkCompareContainer && !chunkCompareContainer.dataset.delegateSet) {
+                // 为复制按钮添加事件委托
+                chunkCompareContainer.addEventListener('click', function(e) {
+                  if (e.target.classList.contains('block-copy-btn')) {
+                    // 复制按钮逻辑保持不变，但通过事件委托触发
+                    const btn = e.target;
+                    const blockIndex = btn.dataset.block;
+                    const rawBlockContent = window[`blockRawContent_${blockIndex}`];
+                    const currentMode = window[`showMode_block_${blockIndex}`] || 'both';
+                    
+                    // 复制逻辑保持原样...
+                    if (rawBlockContent && Array.isArray(rawBlockContent)) {
+                      let textToCopy = "";
+                      let alertMessage = "";
+                      
+                      if (currentMode === 'ocr') {
+                        rawBlockContent.forEach(pair => {
+                          const ocrText = isOriginalFirstInChunkCompare ? (pair && pair[0]) : (pair && pair[1]);
+                          if (ocrText) textToCopy += ocrText + "\n\n";
+                        });
+                        textToCopy = textToCopy.trim();
+                        alertMessage = `第 ${parseInt(blockIndex) + 1} 块的 原文 已复制!`;
+                      } else if (currentMode === 'trans') {
+                        rawBlockContent.forEach(pair => {
+                          const transText = isOriginalFirstInChunkCompare ? (pair && pair[1]) : (pair && pair[0]);
+                          if (transText) textToCopy += transText + "\n\n";
+                        });
+                        textToCopy = textToCopy.trim();
+                        alertMessage = `第 ${parseInt(blockIndex) + 1} 块的 译文 已复制!`;
+                      } else {
+                        rawBlockContent.forEach(pair => {
+                          const ocrText = isOriginalFirstInChunkCompare ? (pair && pair[0]) : (pair && pair[1]);
+                          const transText = isOriginalFirstInChunkCompare ? (pair && pair[1]) : (pair && pair[0]);
+                          if (ocrText) textToCopy += "原文:\n" + ocrText + "\n\n";
+                          if (transText) textToCopy += "译文:\n" + transText + "\n\n";
+                        });
+                        textToCopy = textToCopy.trim();
+                        alertMessage = `第 ${parseInt(blockIndex) + 1} 块的 原文和译文 已复制!`;
+                      }
+                      
+                      if (textToCopy) {
+                        navigator.clipboard.writeText(textToCopy)
+                          .then(() => alert(alertMessage))
+                          .catch(err => {
+                            console.error('复制失败:', err);
+                            alert('复制失败，请查看控制台。');
+                          });
+                      } else {
+                        alert('没有内容可复制。');
+                      }
+                    } else {
+                      alert('没有内容可复制。');
+                    }
+                  }
+                });
+                
+                chunkCompareContainer.dataset.delegateSet = 'true';
+              }
+              
+              // 保留原有的独立事件绑定（为了兼容性）
+              blockModeButtons.forEach(btn => {
                 btn.onclick = function() {
                   const blockIndex = this.dataset.block;
                   const mode = this.dataset.mode;
@@ -1130,7 +1260,7 @@
               // 拖动分割条实现
               let draggingSplitterInfo = null; // {splitter, flexContainer, startX, initialOcrBasisPx}
 
-              document.querySelectorAll('.splitter').forEach(splitter => {
+              allSplitters.forEach(splitter => {
                 splitter.onmousedown = function(e) {
                   const flexContainer = e.target.closest('.align-flex');
                   if (!flexContainer) return;
@@ -1202,7 +1332,7 @@
                 }
               });
 
-              document.querySelectorAll('.block-copy-btn').forEach(btn => {
+              blockCopyButtons.forEach(btn => {
                 btn.onclick = function() {
                   const blockIndex = this.dataset.block;
                   const rawBlockContent = window[`blockRawContent_${blockIndex}`];
@@ -1253,7 +1383,7 @@
                 };
               });
 
-              document.querySelectorAll('.block-struct-copy-btn').forEach(btn => {
+              blockStructCopyButtons.forEach(btn => {
                 btn.onclick = function() {
                   const blockIndex = this.dataset.block;
                   const type = this.dataset.type; // 'ocr' or 'trans'
@@ -1268,7 +1398,7 @@
                 };
               });
 
-              document.querySelectorAll('.block-nav-btn').forEach(btn => {
+              blockNavButtons.forEach(btn => {
                 btn.onclick = function() {
                   const blockIndex = parseInt(this.dataset.block);
                   const direction = this.dataset.dir;
@@ -1282,6 +1412,19 @@
                   }
                 };
               });
+
+              // 性能监控：记录分块对比渲染时间  
+              const renderEndTime = performance.now();
+              console.log(`[性能] 分块对比渲染完成，总块数: ${data.ocrChunks.length}，耗时: ${(renderEndTime - window.chunkCompareStartTime || 0).toFixed(2)}ms`);
+              
+              // 内存优化：清理旧的缓存（如果太多的话）
+              if (window.chunkParseCache && Object.keys(window.chunkParseCache).length > 100) {
+                console.log('[性能] 清理部分解析缓存以释放内存');
+                // 只保留最近的50个缓存项
+                const cacheKeys = Object.keys(window.chunkParseCache);
+                const keysToDelete = cacheKeys.slice(0, cacheKeys.length - 50);
+                keysToDelete.forEach(key => delete window.chunkParseCache[key]);
+              }
 
             }, 0);
         } else {

@@ -12,7 +12,7 @@ body {
   margin: 40px auto;
   background: #fff;
   border-radius: 12px;
-  border: 2px dashed #e2e8f0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   padding: 32px;
 }
 
@@ -73,7 +73,6 @@ body {
   border-radius: 8px;
   padding: 24px;
   min-height: 300px;
-  border: 2px dashed #e2e8f0;
   margin-top: -2px;
 }
 

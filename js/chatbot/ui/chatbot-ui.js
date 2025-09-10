@@ -25,6 +25,11 @@ window.forceChatbotWidthReset = false; // 是否强制重置聊天窗口宽度
 window.lastIsChunkCompareActive = undefined; // 上一次 Chunk Compare 标签页的激活状态
 window.chatbotInitialLoad = true; // 是否为首次加载
 
+// 浮动模式状态
+window.isChatbotFloating = localStorage.getItem('chatbotFloating') === 'true' || false;
+window.chatbotFloatingPosition = JSON.parse(localStorage.getItem('chatbotFloatingPosition') || '{"x": 100, "y": 100}');
+window.chatbotFloatingSize = JSON.parse(localStorage.getItem('chatbotFloatingSize') || '{"width": 420, "height": 580}');
+
 // 高级聊天功能选项
 window.chatbotActiveOptions = {
   useContext: true, // 是否使用上下文
@@ -133,6 +138,13 @@ function updateChatbotUI() {
   const fab = document.getElementById('chatbot-fab');
   if (!modal || !fab) return;
 
+  // 检测沉浸式模式
+  const inImmersive = !!(window.ImmersiveLayout && typeof window.ImmersiveLayout.isActive === 'function' && window.ImmersiveLayout.isActive());
+  // 在沉浸式模式下强制禁用浮动模式
+  if (inImmersive && window.isChatbotFloating) {
+    window.isChatbotFloating = false;
+  }
+
   const currentDocId = window.ChatbotCore && typeof window.ChatbotCore.getCurrentDocId === 'function' ? window.ChatbotCore.getCurrentDocId() : 'default_doc';
   const fullscreenButton = document.getElementById('chatbot-fullscreen-toggle-btn');
 
@@ -210,50 +222,73 @@ function updateChatbotUI() {
         modal.style.background = 'transparent';
         modal.style.pointerEvents = 'none';
 
-        chatbotWindow.style.position = 'absolute';
-        let newMaxWidth = '720px';
-        let newWidth = '92vw';
-        let newMinHeight = 'calc(520px * 1.1)';
-        let newMaxHeight = 'calc(85vh * 1.1)';
+        if (window.isChatbotFloating) {
+          // 浮动模式
+          chatbotWindow.style.position = 'fixed';
+          chatbotWindow.style.left = window.chatbotFloatingPosition.x + 'px';
+          chatbotWindow.style.top = window.chatbotFloatingPosition.y + 'px';
+          chatbotWindow.style.right = 'auto';
+          chatbotWindow.style.bottom = 'auto';
+          chatbotWindow.style.width = window.chatbotFloatingSize.width + 'px';
+          chatbotWindow.style.height = window.chatbotFloatingSize.height + 'px';
+          chatbotWindow.style.maxWidth = '90vw';
+          chatbotWindow.style.maxHeight = '90vh';
+          chatbotWindow.style.minWidth = '320px';
+          chatbotWindow.style.minHeight = '400px';
+          chatbotWindow.style.borderRadius = '16px';
+          chatbotWindow.style.boxShadow = '0 20px 60px rgba(0,0,0,0.25), 0 0 0 1px rgba(0,0,0,0.1)';
+          chatbotWindow.style.zIndex = '100001';
+          chatbotWindow.classList.add('floating-mode');
+        } else {
+          // 固定位置模式
+          chatbotWindow.classList.remove('floating-mode');
+          chatbotWindow.style.position = 'absolute';
+          let newMaxWidth = '720px';
+          let newWidth = '92vw';
+          let newMinHeight = 'calc(520px * 1.1)';
+          let newMaxHeight = 'calc(85vh * 1.1)';
 
-        const isOnHistoryDetail = window.location.pathname.includes('history_detail.html');
-        const chunkCompareTabElement = document.getElementById('tab-chunk-compare');
-        const isChunkCompareActive = isOnHistoryDetail && chunkCompareTabElement && chunkCompareTabElement.classList.contains('active');
+          const isOnHistoryDetail = window.location.pathname.includes('history_detail.html');
+          const chunkCompareTabElement = document.getElementById('tab-chunk-compare');
+          const isChunkCompareActive = isOnHistoryDetail && chunkCompareTabElement && chunkCompareTabElement.classList.contains('active');
 
-        if (isChunkCompareActive) {
-          newMinHeight = 'calc(520px * 1.25)';
-          newMaxHeight = '99vh';
-          newMaxWidth = 'calc(720px * 0.90)';
-          newWidth = 'calc(92vw * 0.90)';
+          if (isChunkCompareActive) {
+            newMinHeight = 'calc(520px * 1.25)';
+            newMaxHeight = '99vh';
+            newMaxWidth = 'calc(720px * 0.90)';
+            newWidth = 'calc(92vw * 0.90)';
+          }
+
+          if (window.forceChatbotWidthReset || !chatbotWindow.style.width.endsWith('px')) {
+            chatbotWindow.style.width = newWidth;
+          }
+          chatbotWindow.style.maxWidth = newMaxWidth;
+          chatbotWindow.style.minWidth = `calc(${newWidth} * 0.32)`;
+          chatbotWindow.style.minHeight = newMinHeight;
+          chatbotWindow.style.maxHeight = newMaxHeight;
+          if (window.forceChatbotWidthReset || !chatbotWindow.style.height.endsWith('px')) {
+              chatbotWindow.style.height = '';
+          }
+
+          if (window.isChatbotPositionedLeft) {
+            chatbotWindow.style.left = '44px';
+            chatbotWindow.style.right = 'auto';
+          } else {
+            chatbotWindow.style.right = '44px';
+            chatbotWindow.style.left = 'auto';
+          }
+          chatbotWindow.style.top = 'auto';
+          chatbotWindow.style.bottom = '44px';
+          chatbotWindow.style.borderRadius = '24px';
+          chatbotWindow.style.boxShadow = '0 10px 40px rgba(0,0,0,0.18),0 0 0 1px rgba(0,0,0,0.05)';
         }
 
-        if (window.forceChatbotWidthReset || !chatbotWindow.style.width.endsWith('px')) {
-          chatbotWindow.style.width = newWidth;
-        }
-        chatbotWindow.style.maxWidth = newMaxWidth;
-        chatbotWindow.style.minWidth = `calc(${newWidth} * 0.32)`;
-        chatbotWindow.style.minHeight = newMinHeight;
-        chatbotWindow.style.maxHeight = newMaxHeight;
-        if (window.forceChatbotWidthReset || !chatbotWindow.style.height.endsWith('px')) {
-            chatbotWindow.style.height = '';
-        }
-        chatbotWindow.style.borderRadius = '24px';
         chatbotWindow.style.padding = '';
         chatbotWindow.style.margin = '';
         chatbotWindow.style.border = '';
         chatbotWindow.style.boxSizing = 'border-box';
         chatbotWindow.style.overflow = 'auto';
-        chatbotWindow.style.resize = 'both';
-
-        if (window.isChatbotPositionedLeft) {
-          chatbotWindow.style.left = '44px';
-          chatbotWindow.style.right = 'auto';
-        } else {
-          chatbotWindow.style.right = '44px';
-          chatbotWindow.style.left = 'auto';
-        }
-        chatbotWindow.style.top = 'auto';
-        chatbotWindow.style.bottom = '44px';
+        chatbotWindow.style.resize = 'none'; // 禁用默认resize，使用自定义拖拽
 
         if (fullscreenButton) {
           fullscreenButton.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path></svg>`;
@@ -263,19 +298,43 @@ function updateChatbotUI() {
     }
   } else {
     modal.style.display = 'none';
-    fab.style.display = 'block';
+    // 在沉浸式模式下不显示 FAB，以免与沉浸布局冲突
+    fab.style.display = inImmersive ? 'none' : 'block';
   }
   window.forceChatbotWidthReset = false;
   window.lastIsChunkCompareActive = currentChunkCompareActive;
 
   const posToggleBtn = document.getElementById('chatbot-position-toggle-btn');
   if (posToggleBtn) {
-    if (window.isChatbotPositionedLeft) {
-      posToggleBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline><path d="M20 4v16"></path></svg>`;
-      posToggleBtn.title = "切换到右下角";
+    if (window.isChatbotFloating) {
+      // 浮动模式下隐藏位置切换按钮
+      posToggleBtn.style.display = 'none';
     } else {
-      posToggleBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline><path d="M4 4v16"></path></svg>`;
-      posToggleBtn.title = "切换到左下角";
+      posToggleBtn.style.display = 'flex';
+      if (window.isChatbotPositionedLeft) {
+        posToggleBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline><path d="M20 4v16"></path></svg>`;
+        posToggleBtn.title = "切换到右下角";
+      } else {
+        posToggleBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline><path d="M4 4v16"></path></svg>`;
+        posToggleBtn.title = "切换到左下角";
+      }
+    }
+  }
+
+  const floatToggleBtn = document.getElementById('chatbot-float-toggle-btn');
+  if (floatToggleBtn) {
+    // 在沉浸式模式隐藏浮动切换按钮
+    if (inImmersive) {
+      floatToggleBtn.style.display = 'none';
+    } else {
+      floatToggleBtn.style.display = 'flex';
+    }
+    if (window.isChatbotFloating) {
+      floatToggleBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path></svg>`;
+      floatToggleBtn.title = "固定模式";
+    } else {
+      floatToggleBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>`;
+      floatToggleBtn.title = "浮动模式";
     }
   }
 
@@ -528,12 +587,12 @@ function initChatbotUI() {
       fab.style.left = 'auto';
     }
     fab.style.zIndex = '99999';
-    // FAB 内部的按钮 HTML，包含一个机器人图标和悬浮放大效果
+    // FAB 内部的按钮 HTML，使用响应式尺寸和CSS变量
     fab.innerHTML = `
-      <button style="width:62px;height:62px;border:none;outline:none;background:linear-gradient(135deg,#3b82f6,#1d4ed8);border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;transform:scale(1);transition:transform 0.2s;color:white;"
+      <button class="chatbot-fab-button"
         onmouseover="this.style.transform='scale(1.05)';"
         onmouseout="this.style.transform='scale(1)';">
-        <i class="fa-solid fa-robot" style="font-size: 24px;"></i>
+        <i class="fa-solid fa-robot"></i>
       </button>
     `;
     document.body.appendChild(fab);
@@ -560,15 +619,32 @@ function initChatbotUI() {
     modal.style.pointerEvents = 'none'; // 自身不接收鼠标事件，允许穿透
     // Modal 内部的 HTML 结构
     modal.innerHTML = `
-      <div class="chatbot-window" style="background:var(--chat-bg,#ffffff);max-width:720px;width:92vw;min-height:520px;max-height:85vh;border-radius:24px;box-shadow:0 10px 40px rgba(0,0,0,0.18),0 0 0 1px rgba(0,0,0,0.05);position:absolute;bottom:44px;display:flex;flex-direction:column;overflow:auto;/* 允许拖拽调整大小 */resize:both;pointer-events:auto;transition: width 0.3s ease-out, height 0.3s ease-out, top 0.3s ease-out, left 0.3s ease-out, right 0.3s ease-out, bottom 0.3s ease-out, border-radius 0.3s ease-out;">
+      <div class="chatbot-window" style="background:var(--chat-bg,#ffffff);max-width:720px;width:92vw;min-height:520px;max-height:85vh;border-radius:24px;box-shadow:0 10px 40px rgba(0,0,0,0.18),0 0 0 1px rgba(0,0,0,0.05);position:absolute;bottom:44px;display:flex;flex-direction:column;overflow:auto;/* 禁用默认resize，使用自定义拖拽 */resize:none;pointer-events:auto;transition: width 0.3s ease-out, height 0.3s ease-out, top 0.3s ease-out, left 0.3s ease-out, right 0.3s ease-out, bottom 0.3s ease-out, border-radius 0.3s ease-out;">
+        <!-- 拖拽调整大小的句柄 -->
+        <div class="chatbot-resize-handles">
+          <div class="chatbot-resize-handle chatbot-resize-n" data-direction="n"></div>
+          <div class="chatbot-resize-handle chatbot-resize-s" data-direction="s"></div>
+          <div class="chatbot-resize-handle chatbot-resize-w" data-direction="w"></div>
+          <div class="chatbot-resize-handle chatbot-resize-e" data-direction="e"></div>
+          <div class="chatbot-resize-handle chatbot-resize-nw" data-direction="nw"></div>
+          <div class="chatbot-resize-handle chatbot-resize-ne" data-direction="ne"></div>
+          <div class="chatbot-resize-handle chatbot-resize-sw" data-direction="sw"></div>
+          <div class="chatbot-resize-handle chatbot-resize-se" data-direction="se"></div>
+        </div>
+        <!-- 浮动切换按钮 -->
+        <div style="position:absolute;top:18px;right:138px;z-index:11;">
+          <button id="chatbot-float-toggle-btn" title="浮动模式" style="width:32px;height:32px;border-radius:16px;border:none;background:rgba(0,0,0,0.06);color:#666;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;box-shadow:0 2px 6px rgba(0,0,0,0.06);" onmouseover="this.style.background='rgba(0,0,0,0.1)';this.style.transform='scale(1.05)'" onmouseout="this.style.background='rgba(0,0,0,0.06)';this.style.transform='scale(1)'">
+            {/* 图标由 updateChatbotUI 动态设置 */}
+          </button>
+        </div>
         <!-- 全屏切换按钮 -->
-        <div style="position:absolute;top:18px;right:58px;z-index:11;">
+        <div style="position:absolute;top:18px;right:98px;z-index:11;">
           <button id="chatbot-fullscreen-toggle-btn" title="全屏模式" style="width:32px;height:32px;border-radius:16px;border:none;background:rgba(0,0,0,0.06);color:#666;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;box-shadow:0 2px 6px rgba(0,0,0,0.06);" onmouseover="this.style.background='rgba(0,0,0,0.1)';this.style.transform='scale(1.05)'" onmouseout="this.style.background='rgba(0,0,0,0.06)';this.style.transform='scale(1)'">
             {/* 图标由 updateChatbotUI 动态设置 */}
           </button>
         </div>
         <!-- 位置切换按钮 -->
-        <div style="position:absolute;top:18px;right:98px;z-index:11;">
+        <div style="position:absolute;top:18px;right:58px;z-index:11;">
           <button id="chatbot-position-toggle-btn" title="切换位置" style="width:32px;height:32px;border-radius:16px;border:none;background:rgba(0,0,0,0.06);color:#666;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;box-shadow:0 2px 6px rgba(0,0,0,0.06);" onmouseover="this.style.background='rgba(0,0,0,0.1)';this.style.transform='scale(1.05)'" onmouseout="this.style.background='rgba(0,0,0,0.06)';this.style.transform='scale(1)'">
             {/* 图标由 updateChatbotUI 动态设置 */}
           </button>
@@ -582,8 +658,8 @@ function initChatbotUI() {
             </svg>
           </button>
         </div>
-        <!-- 标题栏 -->
-        <div id="chatbot-title-bar" style="padding:20px 24px 16px 24px;display:flex;align-items:center;gap:8px;border-bottom:1px dashed rgba(0,0,0,0.1);flex-shrink:0;">
+        <!-- 标题栏 (可拖拽移动窗口) -->
+        <div id="chatbot-title-bar" class="chatbot-draggable-header" style="padding:20px 24px 16px 24px;display:flex;align-items:center;gap:8px;border-bottom:1px dashed rgba(0,0,0,0.1);flex-shrink:0;">
           <div style="width:36px;height:36px;border-radius:18px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);display:flex;align-items:center;justify-content:center;">
             <i class="fa-solid fa-robot" style="font-size: 16px; color: white;"></i>
           </div>
@@ -645,6 +721,80 @@ function initChatbotUI() {
         #chatbot-body::-webkit-scrollbar {width:6px;background:transparent;}
         #chatbot-body::-webkit-scrollbar-thumb {background:rgba(0,0,0,0.1);border-radius:6px;}
         #chatbot-body::-webkit-scrollbar-thumb:hover {background:rgba(0,0,0,0.15);}
+        
+        /* 拖拽调整大小句柄样式 */
+        .chatbot-resize-handles {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          pointer-events: none;
+          z-index: 5;
+          display: none; /* 默认隐藏 */
+        }
+
+        /* 只有在浮动模式下才显示调整大小句柄 */
+        .chatbot-window.floating-mode .chatbot-resize-handles {
+          display: block;
+        }
+
+        /* 浮动模式下标题栏可拖拽 */
+        .chatbot-window.floating-mode .chatbot-draggable-header {
+          cursor: move;
+        }
+        
+        .chatbot-resize-handle {
+          position: absolute;
+          pointer-events: auto;
+          background: transparent;
+          transition: background-color 0.2s ease;
+        }
+        
+        .chatbot-resize-handle:hover {
+          background-color: rgba(59, 130, 246, 0.2);
+        }
+        
+        /* 上下边缘 */
+        .chatbot-resize-n, .chatbot-resize-s {
+          left: 8px;
+          right: 8px;
+          height: 8px;
+          cursor: ns-resize;
+        }
+        .chatbot-resize-n { top: 0; }
+        .chatbot-resize-s { bottom: 0; }
+        
+        /* 左右边缘 */
+        .chatbot-resize-w, .chatbot-resize-e {
+          top: 8px;
+          bottom: 8px;
+          width: 8px;
+          cursor: ew-resize;
+        }
+        .chatbot-resize-w { left: 0; }
+        .chatbot-resize-e { right: 0; }
+        
+        /* 四个角 */
+        .chatbot-resize-nw, .chatbot-resize-ne, .chatbot-resize-sw, .chatbot-resize-se {
+          width: 16px;
+          height: 16px;
+        }
+        .chatbot-resize-nw { top: 0; left: 0; cursor: nw-resize; }
+        .chatbot-resize-ne { top: 0; right: 0; cursor: ne-resize; }
+        .chatbot-resize-sw { bottom: 0; left: 0; cursor: sw-resize; }
+        .chatbot-resize-se { bottom: 0; right: 0; cursor: se-resize; }
+        
+        /* 拖拽移动时的样式 */
+        .chatbot-dragging {
+          user-select: none;
+          pointer-events: none;
+        }
+        
+        .chatbot-dragging .chatbot-window {
+          pointer-events: auto;
+        }
+        
         /* 响应式：小屏幕下窗口占满底部 */
         @media (max-width:600px) {
           .chatbot-window {
@@ -658,6 +808,9 @@ function initChatbotUI() {
           }
           .message-actions { /* 消息操作按钮在小屏幕下更明显 */
             opacity: 0.9 !important;
+          }
+          .chatbot-resize-handles {
+            display: none; /* 移动端禁用拖拽调整大小 */
           }
         }
         /* 暗黑模式样式 */
@@ -679,6 +832,29 @@ function initChatbotUI() {
   }
 
   // --- 核心控制按钮事件绑定 ---
+  // 浮动模式切换按钮点击事件
+  document.getElementById('chatbot-float-toggle-btn').onclick = function() {
+    // 沉浸式模式下禁用浮动模式切换
+    if (window.ImmersiveLayout && typeof window.ImmersiveLayout.isActive === 'function' && window.ImmersiveLayout.isActive()) {
+      return; // 直接忽略
+    }
+    window.isChatbotFloating = !window.isChatbotFloating;
+    localStorage.setItem('chatbotFloating', String(window.isChatbotFloating));
+    
+    if (window.isChatbotFloating) {
+      // 切换到浮动模式时，记录当前位置和大小
+      const chatbotWindow = modal.querySelector('.chatbot-window');
+      if (chatbotWindow) {
+        const rect = chatbotWindow.getBoundingClientRect();
+        window.chatbotFloatingPosition = { x: rect.left, y: rect.top };
+        window.chatbotFloatingSize = { width: rect.width, height: rect.height };
+        localStorage.setItem('chatbotFloatingPosition', JSON.stringify(window.chatbotFloatingPosition));
+        localStorage.setItem('chatbotFloatingSize', JSON.stringify(window.chatbotFloatingSize));
+      }
+    }
+    updateChatbotUI();
+  };
+
   // 全屏切换按钮点击事件
   document.getElementById('chatbot-fullscreen-toggle-btn').onclick = function() {
     const wasFullscreen = window.isChatbotFullscreen;
@@ -704,7 +880,174 @@ function initChatbotUI() {
     updateChatbotUI();
   };
 
+  // --- 拖拽和调整大小功能初始化 ---
+  initChatbotDragAndResize();
+
   updateChatbotUI(); // 首次完整渲染或更新UI
+}
+
+/**
+ * 初始化聊天机器人的拖拽移动和调整大小功能
+ */
+function initChatbotDragAndResize() {
+  const modal = document.getElementById('chatbot-modal');
+  if (!modal) return;
+
+  let isDragging = false;
+  let isResizing = false;
+  let dragStartX, dragStartY;
+  let initialX, initialY, initialWidth, initialHeight;
+  let resizeDirection = '';
+
+  // 拖拽移动功能 (仅在浮动模式下生效)
+  function handleDragStart(e) {
+    if (!window.isChatbotFloating || window.isChatbotFullscreen) return;
+    
+    const chatbotWindow = modal.querySelector('.chatbot-window');
+    if (!chatbotWindow) return;
+
+    isDragging = true;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    
+    const rect = chatbotWindow.getBoundingClientRect();
+    initialX = rect.left;
+    initialY = rect.top;
+
+    document.body.classList.add('chatbot-dragging');
+    e.preventDefault();
+  }
+
+  function handleDragMove(e) {
+    if (!isDragging || !window.isChatbotFloating) return;
+
+    const deltaX = e.clientX - dragStartX;
+    const deltaY = e.clientY - dragStartY;
+    
+    const newX = Math.max(0, Math.min(window.innerWidth - 320, initialX + deltaX));
+    const newY = Math.max(0, Math.min(window.innerHeight - 200, initialY + deltaY));
+
+    window.chatbotFloatingPosition = { x: newX, y: newY };
+    localStorage.setItem('chatbotFloatingPosition', JSON.stringify(window.chatbotFloatingPosition));
+    
+    const chatbotWindow = modal.querySelector('.chatbot-window');
+    if (chatbotWindow) {
+      chatbotWindow.style.left = newX + 'px';
+      chatbotWindow.style.top = newY + 'px';
+    }
+  }
+
+  function handleDragEnd() {
+    if (isDragging) {
+      isDragging = false;
+      document.body.classList.remove('chatbot-dragging');
+    }
+  }
+
+  // 调整大小功能
+  function handleResizeStart(e) {
+    if (window.isChatbotFullscreen || !window.isChatbotFloating) return;
+    
+    const chatbotWindow = modal.querySelector('.chatbot-window');
+    if (!chatbotWindow) return;
+
+    isResizing = true;
+    resizeDirection = e.target.dataset.direction;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    
+    const rect = chatbotWindow.getBoundingClientRect();
+    initialX = rect.left;
+    initialY = rect.top;
+    initialWidth = rect.width;
+    initialHeight = rect.height;
+
+    document.body.classList.add('chatbot-dragging');
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  function handleResizeMove(e) {
+    if (!isResizing || !window.isChatbotFloating) return;
+
+    const deltaX = e.clientX - dragStartX;
+    const deltaY = e.clientY - dragStartY;
+    
+    let newX = initialX;
+    let newY = initialY;
+    let newWidth = initialWidth;
+    let newHeight = initialHeight;
+
+    // 根据拖拽方向调整大小和位置
+    if (resizeDirection.includes('n')) {
+      newY = initialY + deltaY;
+      newHeight = initialHeight - deltaY;
+    }
+    if (resizeDirection.includes('s')) {
+      newHeight = initialHeight + deltaY;
+    }
+    if (resizeDirection.includes('w')) {
+      newX = initialX + deltaX;
+      newWidth = initialWidth - deltaX;
+    }
+    if (resizeDirection.includes('e')) {
+      newWidth = initialWidth + deltaX;
+    }
+
+    // 应用最小和最大尺寸限制
+    newWidth = Math.max(320, Math.min(window.innerWidth * 0.9, newWidth));
+    newHeight = Math.max(400, Math.min(window.innerHeight * 0.9, newHeight));
+
+    // 确保窗口不会超出屏幕边界
+    newX = Math.max(0, Math.min(window.innerWidth - newWidth, newX));
+    newY = Math.max(0, Math.min(window.innerHeight - newHeight, newY));
+
+    // 更新全局状态
+    window.chatbotFloatingPosition = { x: newX, y: newY };
+    window.chatbotFloatingSize = { width: newWidth, height: newHeight };
+    localStorage.setItem('chatbotFloatingPosition', JSON.stringify(window.chatbotFloatingPosition));
+    localStorage.setItem('chatbotFloatingSize', JSON.stringify(window.chatbotFloatingSize));
+
+    // 应用新的位置和大小
+    const chatbotWindow = modal.querySelector('.chatbot-window');
+    if (chatbotWindow) {
+      chatbotWindow.style.left = newX + 'px';
+      chatbotWindow.style.top = newY + 'px';
+      chatbotWindow.style.width = newWidth + 'px';
+      chatbotWindow.style.height = newHeight + 'px';
+    }
+  }
+
+  function handleResizeEnd() {
+    if (isResizing) {
+      isResizing = false;
+      resizeDirection = '';
+      document.body.classList.remove('chatbot-dragging');
+    }
+  }
+
+  // 绑定拖拽移动事件 (标题栏)
+  modal.addEventListener('mousedown', function(e) {
+    if (e.target.closest('.chatbot-draggable-header')) {
+      handleDragStart(e);
+    } else if (e.target.closest('.chatbot-resize-handle')) {
+      handleResizeStart(e);
+    }
+  });
+
+  // 全局鼠标移动和释放事件
+  document.addEventListener('mousemove', function(e) {
+    if (isDragging) {
+      handleDragMove(e);
+    } else if (isResizing) {
+      handleResizeMove(e);
+    }
+  });
+
+  document.addEventListener('mouseup', function() {
+    handleDragEnd();
+    handleResizeEnd();
+  });
 }
 
 // 将核心函数挂载到 window 对象和 ChatbotUI 命名空间下，便于外部调用

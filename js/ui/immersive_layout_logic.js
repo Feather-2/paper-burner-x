@@ -217,6 +217,12 @@
   }
 
   function enterImmersiveMode() {
+    // 检查是否为移动端设备
+    if (window.innerWidth <= 700) {
+      console.warn('拒绝在移动端（≤700px）进入沉浸式布局');
+      return;
+    }
+
     reQueryDynamicElements();
 
     let missingElements = [];
@@ -238,6 +244,12 @@
     isImmersiveActive = true;
     storeOriginalPositions();
 
+    // 添加进入动画类
+    document.body.classList.add('immersive-entering');
+    immersiveContainer.style.opacity = '0';
+    immersiveContainer.style.transform = 'scale(0.95)';
+    immersiveContainer.style.transition = 'opacity 0.4s ease, transform 0.4s ease';
+
     // Append TOC content first
     if (tocPopupElement && immersiveTocArea) {
         immersiveTocArea.appendChild(tocPopupElement);
@@ -248,23 +260,19 @@
         if (!tocVsDockResizeHandle) { // Create if it doesn't exist
             tocVsDockResizeHandle = document.createElement('div');
             tocVsDockResizeHandle.id = 'toc-vs-dock-resize-handle';
-            // Class name for styling (can also use ID)
-            // tocVsDockResizeHandle.className = 'immersive-resize-handle-horizontal';
         }
-        // Insert after tocPopupElement, if tocPopupElement is present and in immersiveTocArea
         if (tocPopupElement && tocPopupElement.parentNode === immersiveTocArea) {
             immersiveTocArea.insertBefore(tocVsDockResizeHandle, tocPopupElement.nextSibling);
-        } else { // Fallback: append to immersiveTocArea if tocPopupElement isn't there or not yet moved
+        } else {
             immersiveTocArea.appendChild(tocVsDockResizeHandle);
         }
     }
 
-    // Then append the dock placeholder to TOC area, it will be after the handle
+    // Then append the dock placeholder to TOC area
     if (immersiveDockPlaceholderElement && immersiveTocArea) {
-        // If tocVsDockResizeHandle is present and in immersiveTocArea, insert placeholder after it
         if (tocVsDockResizeHandle && tocVsDockResizeHandle.parentNode === immersiveTocArea) {
             immersiveTocArea.insertBefore(immersiveDockPlaceholderElement, tocVsDockResizeHandle.nextSibling);
-        } else { // Fallback: append to immersiveTocArea if handle isn't there
+        } else {
             immersiveTocArea.appendChild(immersiveDockPlaceholderElement);
         }
     }
@@ -277,40 +285,57 @@
         immersiveChatbotArea.appendChild(chatbotModalElement);
     }
 
-    // Move the actual dock into its placeholder (which is now at the bottom of TOC area)
+    // Move the actual dock into its placeholder
     if (dockElement && immersiveDockPlaceholderElement) {
         immersiveDockPlaceholderElement.appendChild(dockElement);
 
-        // --- BEGIN: Force Dock to be expanded in immersive mode ---
+        // Force Dock to be expanded in immersive mode
         if (dockElement.classList.contains('dock-collapsed')) {
             dockElement.classList.remove('dock-collapsed');
             const dockToggleBtn = document.getElementById('dock-toggle-btn');
             if (dockToggleBtn) {
-                dockToggleBtn.innerHTML = '<i class="fa fa-chevron-down"></i>'; // Icon for "expanded" state
+                dockToggleBtn.innerHTML = '<i class="fa fa-chevron-down"></i>';
                 dockToggleBtn.title = '折叠';
             }
-            // Update localStorage if DockLogic uses it for collapsed state
             if (typeof window !== 'undefined' && window.docIdForLocalStorage) {
                 localStorage.setItem(`dockCollapsed_${window.docIdForLocalStorage}`, 'false');
             }
         }
-        // --- END: Force Dock to be expanded ---
     }
 
     document.body.classList.add('immersive-active', 'no-scroll');
     immersiveContainer.style.display = 'flex';
+    
+    // 简单的强制重新计算，修复初始化时的布局问题
+    setTimeout(() => {
+      if (immersiveContainer) {
+        immersiveContainer.offsetHeight; // 触发重新布局
+      }
+    }, 0);
+    
+    // 动画进入效果
+    requestAnimationFrame(() => {
+      immersiveContainer.style.opacity = '1';
+      immersiveContainer.style.transform = 'scale(1)';
+      
+      setTimeout(() => {
+        document.body.classList.remove('immersive-entering');
+        immersiveContainer.style.transition = '';
+      }, 400);
+    });
+
     if (toggleBtn) {
       toggleBtn.innerHTML = '<i class="fas fa-compress-alt"></i>';
       toggleBtn.classList.add('immersive-exit-btn-active');
       toggleBtn.title = '退出沉浸模式';
     }
 
+    // 其他初始化逻辑保持不变...
     if (typeof window.refreshTocList === 'function') {
       window.refreshTocList();
     }
-    // 沉浸式下AI助手始终为开，不写localStorage，不影响普通模式
     if (window.ChatbotUI && typeof window.ChatbotUI.updateChatbotUI === 'function') {
-      window.isChatbotOpen = true; // 只在沉浸式下强制为开
+      window.isChatbotOpen = true;
       window.isChatbotFullscreen = false;
       window.forceChatbotWidthReset = true;
       window.ChatbotUI.updateChatbotUI();
@@ -320,26 +345,68 @@
         window.DockLogic.updateStats(window.data, window.currentVisibleTabId);
     }
 
-    // 增加延迟，确保DOM结构完全更新后再更新阅读进度和绑定滚动事件
     setTimeout(() => {
         if (window.DockLogic) {
-            // 先解绑旧的滚动事件监听器，避免重复绑定
             if (typeof window.DockLogic.unbindScrollForCurrentScrollable === 'function') {
                 console.log("[ImmersiveLayout] 进入沉浸模式前，先解绑旧的滚动事件");
                 window.DockLogic.unbindScrollForCurrentScrollable();
             }
-
-            // 然后强制更新阅读进度，这会重新绑定滚动事件到正确的元素
             if (typeof window.DockLogic.forceUpdateReadingProgress === 'function') {
                 console.log("[ImmersiveLayout] 进入沉浸模式后，延迟调用 forceUpdateReadingProgress");
                 window.DockLogic.forceUpdateReadingProgress();
             }
         }
+        
+        // 强制修复沉浸模式下的布局问题
+        if (immersiveMainArea) {
+            const container = immersiveMainArea.querySelector('.container');
+            if (container) {
+                // 强制container为flex布局
+                container.style.display = 'flex';
+                container.style.flexDirection = 'column';
+                container.style.height = '100%';
+                
+                const tabContent = container.querySelector('.tab-content');
+                if (tabContent) {
+                    // 强制tab-content正确填充
+                    tabContent.style.display = 'flex';
+                    tabContent.style.flexDirection = 'column';
+                    tabContent.style.flex = '1';
+                    tabContent.style.minHeight = '0';
+                    tabContent.style.overflow = 'hidden';
+                    
+                    // 处理不同类型的内容容器
+                    const contentWrapper = tabContent.querySelector('.content-wrapper');
+                    const chunkCompareContainer = tabContent.querySelector('.chunk-compare-container');
+                    
+                    if (contentWrapper) {
+                        contentWrapper.style.flex = '1';
+                        contentWrapper.style.overflowY = 'auto';
+                        contentWrapper.style.minHeight = '0';
+                        contentWrapper.style.margin = '0';
+                    }
+                    
+                    if (chunkCompareContainer) {
+                        chunkCompareContainer.style.flex = '1';
+                        chunkCompareContainer.style.overflowY = 'auto';
+                        chunkCompareContainer.style.minHeight = '0';
+                    }
+                    
+                    // 确保h3标题不参与flex计算
+                    const h3Title = tabContent.querySelector('h3');
+                    if (h3Title) {
+                        h3Title.style.flex = 'none';
+                        h3Title.style.marginTop = '0';
+                        h3Title.style.marginBottom = '16px';
+                    }
+                }
+            }
+        }
     }, 300);
 
-    // --- BEGIN: Force TOC to be expanded in immersive mode ---
+    // Force TOC to be expanded in immersive mode
     if (tocPopupElement && !tocPopupElement.classList.contains('toc-expanded')) {
-      const tocExpandBtn = document.getElementById('toc-expand-btn'); // As per toc_logic.js
+      const tocExpandBtn = document.getElementById('toc-expand-btn');
       if (tocExpandBtn) {
         tocPopupElement.classList.add('toc-expanded');
         const icon = tocExpandBtn.querySelector('i');
@@ -350,10 +417,9 @@
         tocExpandBtn.title = '收起目录';
       }
     }
-    // --- END: Force TOC to be expanded ---
 
     loadPanelSizes();
-    initializeTocDockResizer(); // Initialize resizer for TOC vs Dock
+    initializeTocDockResizer();
     localStorage.setItem(LS_IMMERSIVE_KEY, 'true');
     document.dispatchEvent(new CustomEvent('immersiveModeEntered'));
   }
@@ -362,106 +428,114 @@
     reQueryDynamicElements();
     isImmersiveActive = false;
 
-    destroyTocDockResizer(); // Destroy resizer for TOC vs Dock
-
-    // Remove the TOC vs Dock resize handle if it exists
-    if (tocVsDockResizeHandle && tocVsDockResizeHandle.parentNode === immersiveTocArea) {
-        immersiveTocArea.removeChild(tocVsDockResizeHandle);
-        // tocVsDockResizeHandle = null; // Optional: allow it to be recreated or keep reference
+    // 添加退出动画
+    document.body.classList.add('immersive-exiting');
+    if (immersiveContainer) {
+      immersiveContainer.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+      immersiveContainer.style.opacity = '0';
+      immersiveContainer.style.transform = 'scale(0.98)';
     }
 
-    if (originalTocPopupParent && tocPopupElement && tocPopupElement.parentNode === immersiveTocArea) {
-      originalTocPopupParent.insertBefore(tocPopupElement, originalTocPopupNextSibling);
-    } else if (tocPopupElement && immersiveTocArea.contains(tocPopupElement)) {
-        immersiveTocArea.removeChild(tocPopupElement);
-        if (originalTocPopupParent) {
-             originalTocPopupParent.insertBefore(tocPopupElement, originalTocPopupNextSibling);
-        }
-    }
-
-    if (originalMainContainerParent && mainPageContainer && mainPageContainer.parentNode === immersiveMainArea) {
-      originalMainContainerParent.insertBefore(mainPageContainer, originalMainContainerNextSibling);
-    } else if (mainPageContainer && immersiveMainArea.contains(mainPageContainer)) {
-        immersiveMainArea.removeChild(mainPageContainer);
-        if (originalMainContainerParent) {
-            originalMainContainerParent.insertBefore(mainPageContainer, originalMainContainerNextSibling);
-        }
-    }
-
-    if (chatbotModalElement && originalChatbotModalParent && chatbotModalElement.parentNode === immersiveChatbotArea) {
-      originalChatbotModalParent.insertBefore(chatbotModalElement, originalChatbotModalNextSibling);
-    } else if (chatbotModalElement && immersiveChatbotArea.contains(chatbotModalElement)) {
-       immersiveChatbotArea.removeChild(chatbotModalElement);
-       if (originalChatbotModalParent) {
-            originalChatbotModalParent.insertBefore(chatbotModalElement, originalChatbotModalNextSibling);
-       }
-    } else if (!chatbotModalElement && originalChatbotModalParent) {
-      immersiveChatbotArea.innerHTML = '';
-    }
-
-    if (dockElement && originalDockElementParent) {
-        if (immersiveDockPlaceholderElement && immersiveDockPlaceholderElement.contains(dockElement)) {
-            immersiveDockPlaceholderElement.removeChild(dockElement);
-        }
-        originalDockElementParent.insertBefore(dockElement, originalDockElementNextSibling);
-    } else if (dockElement && immersiveDockPlaceholderElement && immersiveDockPlaceholderElement.contains(dockElement)){
-        immersiveDockPlaceholderElement.removeChild(dockElement);
-    }
-
-    document.body.classList.remove('immersive-active', 'no-scroll');
-    if (immersiveContainer) immersiveContainer.style.display = 'none';
-    if (toggleBtn) {
-      toggleBtn.innerHTML = '<i class="fas fa-expand-alt"></i>';
-      toggleBtn.classList.remove('immersive-exit-btn-active');
-      toggleBtn.title = '进入沉浸式布局';
-    }
-
-    if (typeof window.refreshTocList === 'function') {
-      window.refreshTocList();
-    }
-
-    // Restore chatbot state for normal mode from localStorage BEFORE updating UI
-    if (typeof window.docIdForLocalStorage !== 'undefined' && window.docIdForLocalStorage) {
-        const savedChatbotOpenState = localStorage.getItem(`chatbotOpenState_${window.docIdForLocalStorage}`);
-        if (savedChatbotOpenState === 'true') {
-            window.isChatbotOpen = true;
-        } else if (savedChatbotOpenState === 'false') {
-            window.isChatbotOpen = false;
-        } else {
-            // Optional: Default to false if no state is saved for normal mode
-            // window.isChatbotOpen = false;
-        }
-    }
-
-    // Update Chatbot UI based on the now restored (or default) window.isChatbotOpen state
-    if (window.ChatbotUI && typeof window.ChatbotUI.updateChatbotUI === 'function') {
-      window.ChatbotUI.updateChatbotUI();
-    }
-
-    if (window.DockLogic && typeof window.DockLogic.updateStats === 'function' && window.data && window.currentVisibleTabId) {
-        dockElement.style.display = '';
-        window.DockLogic.updateStats(window.data, window.currentVisibleTabId);
-    }
-
-    // 增加延迟，确保DOM结构完全更新后再更新阅读进度和绑定滚动事件
     setTimeout(() => {
-        if (window.DockLogic) {
-            // 先解绑旧的滚动事件监听器，避免重复绑定
-            if (typeof window.DockLogic.unbindScrollForCurrentScrollable === 'function') {
-                console.log("[ImmersiveLayout] 退出沉浸模式前，先解绑旧的滚动事件");
-                window.DockLogic.unbindScrollForCurrentScrollable();
-            }
+      destroyTocDockResizer();
 
-            // 然后强制更新阅读进度，这会重新绑定滚动事件到正确的元素
-            if (typeof window.DockLogic.forceUpdateReadingProgress === 'function') {
-                console.log("[ImmersiveLayout] 退出沉浸模式后，延迟调用 forceUpdateReadingProgress");
-                window.DockLogic.forceUpdateReadingProgress();
-            }
-        }
+      // Remove the TOC vs Dock resize handle
+      if (tocVsDockResizeHandle && tocVsDockResizeHandle.parentNode === immersiveTocArea) {
+          immersiveTocArea.removeChild(tocVsDockResizeHandle);
+      }
+
+      // 恢复元素位置的逻辑保持不变...
+      if (originalTocPopupParent && tocPopupElement && tocPopupElement.parentNode === immersiveTocArea) {
+        originalTocPopupParent.insertBefore(tocPopupElement, originalTocPopupNextSibling);
+      } else if (tocPopupElement && immersiveTocArea.contains(tocPopupElement)) {
+          immersiveTocArea.removeChild(tocPopupElement);
+          if (originalTocPopupParent) {
+               originalTocPopupParent.insertBefore(tocPopupElement, originalTocPopupNextSibling);
+          }
+      }
+
+      if (originalMainContainerParent && mainPageContainer && mainPageContainer.parentNode === immersiveMainArea) {
+        originalMainContainerParent.insertBefore(mainPageContainer, originalMainContainerNextSibling);
+      } else if (mainPageContainer && immersiveMainArea.contains(mainPageContainer)) {
+          immersiveMainArea.removeChild(mainPageContainer);
+          if (originalMainContainerParent) {
+              originalMainContainerParent.insertBefore(mainPageContainer, originalMainContainerNextSibling);
+          }
+      }
+
+      if (chatbotModalElement && originalChatbotModalParent && chatbotModalElement.parentNode === immersiveChatbotArea) {
+        originalChatbotModalParent.insertBefore(chatbotModalElement, originalChatbotModalNextSibling);
+      } else if (chatbotModalElement && immersiveChatbotArea.contains(chatbotModalElement)) {
+         immersiveChatbotArea.removeChild(chatbotModalElement);
+         if (originalChatbotModalParent) {
+              originalChatbotModalParent.insertBefore(chatbotModalElement, originalChatbotModalNextSibling);
+         }
+      } else if (!chatbotModalElement && originalChatbotModalParent) {
+        immersiveChatbotArea.innerHTML = '';
+      }
+
+      if (dockElement && originalDockElementParent) {
+          if (immersiveDockPlaceholderElement && immersiveDockPlaceholderElement.contains(dockElement)) {
+              immersiveDockPlaceholderElement.removeChild(dockElement);
+          }
+          originalDockElementParent.insertBefore(dockElement, originalDockElementNextSibling);
+      } else if (dockElement && immersiveDockPlaceholderElement && immersiveDockPlaceholderElement.contains(dockElement)){
+          immersiveDockPlaceholderElement.removeChild(dockElement);
+      }
+
+      document.body.classList.remove('immersive-active', 'no-scroll', 'immersive-exiting');
+      if (immersiveContainer) {
+        immersiveContainer.style.display = 'none';
+        immersiveContainer.style.transition = '';
+        immersiveContainer.style.opacity = '';
+        immersiveContainer.style.transform = '';
+      }
+      
+      if (toggleBtn) {
+        toggleBtn.innerHTML = '<i class="fas fa-expand-alt"></i>';
+        toggleBtn.classList.remove('immersive-exit-btn-active');
+        toggleBtn.title = '进入沉浸式布局';
+      }
+
+      // 其他退出逻辑保持不变...
+      if (typeof window.refreshTocList === 'function') {
+        window.refreshTocList();
+      }
+
+      if (typeof window.docIdForLocalStorage !== 'undefined' && window.docIdForLocalStorage) {
+          const savedChatbotOpenState = localStorage.getItem(`chatbotOpenState_${window.docIdForLocalStorage}`);
+          if (savedChatbotOpenState === 'true') {
+              window.isChatbotOpen = true;
+          } else if (savedChatbotOpenState === 'false') {
+              window.isChatbotOpen = false;
+          }
+      }
+
+      if (window.ChatbotUI && typeof window.ChatbotUI.updateChatbotUI === 'function') {
+        window.ChatbotUI.updateChatbotUI();
+      }
+
+      if (window.DockLogic && typeof window.DockLogic.updateStats === 'function' && window.data && window.currentVisibleTabId) {
+          dockElement.style.display = '';
+          window.DockLogic.updateStats(window.data, window.currentVisibleTabId);
+      }
+
+      setTimeout(() => {
+          if (window.DockLogic) {
+              if (typeof window.DockLogic.unbindScrollForCurrentScrollable === 'function') {
+                  console.log("[ImmersiveLayout] 退出沉浸模式前，先解绑旧的滚动事件");
+                  window.DockLogic.unbindScrollForCurrentScrollable();
+              }
+              if (typeof window.DockLogic.forceUpdateReadingProgress === 'function') {
+                  console.log("[ImmersiveLayout] 退出沉浸模式后，延迟调用 forceUpdateReadingProgress");
+                  window.DockLogic.forceUpdateReadingProgress();
+              }
+          }
+      }, 300);
+
+      localStorage.setItem(LS_IMMERSIVE_KEY, 'false');
+      document.dispatchEvent(new CustomEvent('immersiveModeExited'));
     }, 300);
-
-    localStorage.setItem(LS_IMMERSIVE_KEY, 'false');
-    document.dispatchEvent(new CustomEvent('immersiveModeExited'));
   }
 
   function initResizeHandles() {
@@ -489,6 +563,11 @@
 
         document.body.classList.add('immersive-dragging');
         document.body.style.userSelect = 'none';
+        document.body.style.cursor = 'col-resize';
+        
+        // 添加视觉反馈
+        activeHandle.style.background = 'linear-gradient(to bottom, rgba(59, 130, 246, 0.2) 10%, rgba(59, 130, 246, 0.4) 50%, rgba(59, 130, 246, 0.2) 90%)';
+        
         e.preventDefault();
       });
     });
@@ -504,20 +583,35 @@
 
       const newWidthPrev = startWidthPrev + dx;
       const newWidthNext = startWidthNext - dx;
-      const minPanelWidth = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--immersive-panel-min-width')) || 50;
+      const minPanelWidth = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--immersive-panel-min-width')) || 80;
 
       if (newWidthPrev >= minPanelWidth && newWidthNext >= minPanelWidth) {
         prevPanel.style.width = newWidthPrev + 'px';
         nextPanel.style.width = newWidthNext + 'px';
+        
+        // 平滑的过渡动画
+        prevPanel.style.transition = 'none';
+        nextPanel.style.transition = 'none';
       }
     });
 
     document.addEventListener('mouseup', function() {
       if (activeHandle) {
         savePanelSizes();
-        activeHandle = null;
+        
+        // 恢复样式
         document.body.classList.remove('immersive-dragging');
         document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+        activeHandle.style.background = '';
+        
+        // 恢复过渡动画
+        const prevPanel = document.getElementById(activeHandle.dataset.targetPrev);
+        const nextPanel = document.getElementById(activeHandle.dataset.targetNext);
+        if (prevPanel) prevPanel.style.transition = '';
+        if (nextPanel) nextPanel.style.transition = '';
+        
+        activeHandle = null;
       }
     });
   }
@@ -532,6 +626,18 @@
     reQueryDynamicElements();
 
     toggleBtn.addEventListener('click', () => {
+      // 检查是否为移动端设备（屏幕宽度小于等于700px）
+      if (window.innerWidth <= 700) {
+        console.warn('沉浸式布局在移动端（≤700px）不可用');
+        // 可选：显示提示消息
+        if (window.showToast) {
+          window.showToast('沉浸式布局在手机端不可用', 'warning');
+        } else {
+          alert('沉浸式布局在手机端不可用，请在更大的屏幕上使用');
+        }
+        return;
+      }
+
       if (isImmersiveActive) {
         exitImmersiveMode();
       } else {
@@ -541,9 +647,27 @@
 
     initResizeHandles();
 
+    // 监听窗口大小变化，如果变成移动端尺寸则自动退出沉浸模式
+    function handleWindowResize() {
+      if (window.innerWidth <= 700 && isImmersiveActive) {
+        console.log('检测到屏幕缩小到移动端尺寸，自动退出沉浸式布局');
+        exitImmersiveMode();
+      }
+    }
+
+    // 添加窗口大小变化监听器
+    window.addEventListener('resize', handleWindowResize);
+
     // Restore immersive state from localStorage
     const savedImmersiveState = localStorage.getItem(LS_IMMERSIVE_KEY);
     if (savedImmersiveState === 'true') {
+      // 检查是否为移动端，如果是则不恢复沉浸模式
+      if (window.innerWidth <= 700) {
+        console.log('检测到移动端设备，不恢复沉浸式布局状态');
+        localStorage.setItem(LS_IMMERSIVE_KEY, 'false'); // 清除保存的状态
+        return;
+      }
+      
       // Slight delay to ensure other initializations (like TOC, Chatbot) can occur first
       // especially if they also interact with elements moved by immersive mode.
       setTimeout(() => {

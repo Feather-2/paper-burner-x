@@ -136,7 +136,114 @@ async function processSinglePdf(
             try {
                 currentMarkdownContent = await fileToProcess.text();
                 if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} ${fileType.toUpperCase()} 文件内容读取完成`);
-                currentImagesData = [];
+                // 尝试从历史记录引用中携带图片：
+                // 约定：如果 Markdown 以注释行 "<!-- PBX-HISTORY-REF:<id> -->" 开头，则从 IndexedDB 中取出该记录的 images。
+                try {
+                    const refMatch = currentMarkdownContent.match(/^<!--\s*PBX-HISTORY-REF:([^>]+)\s*-->\s*/m);
+                    const isRetryFailed = /<!--\s*PBX-MODE:retry-failed\s*-->/.test(currentMarkdownContent);
+                    if (refMatch && typeof getResultFromDB === 'function') {
+                        const refId = refMatch[1].trim();
+                        const refRecord = await getResultFromDB(refId);
+                        if (refRecord && Array.isArray(refRecord.images)) {
+                            currentImagesData = refRecord.images;
+                            if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 关联到历史记录 ${refId}，已载入 ${currentImagesData.length} 张图片`);
+                        } else {
+                            currentImagesData = [];
+                        }
+
+                        // ============ 特殊模式：失败片段重试，直接写回原历史 ============
+                        if (isRetryFailed) {
+                            if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 检测到失败片段重试模式，准备逐段翻译并写回历史记录 ${refId}`);
+
+                            // 按 PBX-CHUNK-INDEX 解析出各段内容
+                            const re = /<!--\s*PBX-CHUNK-INDEX:(\d+)\s*-->\s*([\s\S]*?)(?=(?:<!--\s*PBX-CHUNK-INDEX:\d+\s*-->)|$)/g;
+                            const retryList = [];
+                            let m;
+                            while ((m = re.exec(currentMarkdownContent)) !== null) {
+                                const idx = parseInt(m[1], 10);
+                                const text = (m[2] || '').trim();
+                                if (!isNaN(idx) && text) retryList.push({ index: idx, text });
+                            }
+
+                            if (retryList.length === 0) {
+                                throw new Error('未找到可重试的失败片段。');
+                            }
+
+                            // 获取翻译模型与参数
+                            const targetLanguageValue = targetLanguage; // 来自参数
+                            const modelName = selectedTranslationModelName;
+                            const apiKeyVal = translationKeyObject ? translationKeyObject.value : null;
+                            if (!apiKeyVal) throw new Error('缺少翻译API Key，无法执行失败片段重试。');
+
+                            // 依次翻译每段（受并发槽控制）
+                            const translatedPieces = [];
+                            for (let i = 0; i < retryList.length; i++) {
+                                const item = retryList[i];
+                                if (typeof acquireSlot === 'function') await acquireSlot();
+                                try {
+                                    let out;
+                                    if (modelName === 'custom') {
+                                        out = await translateMarkdown(
+                                            item.text,
+                                            targetLanguageValue,
+                                            'custom',
+                                            apiKeyVal,
+                                            translationModelConfig,
+                                            `${logPrefix}[retry ${i+1}/${retryList.length}]`,
+                                            defaultSystemPromptSetting,
+                                            defaultUserPromptTemplateSetting,
+                                            useCustomPromptsSetting
+                                        );
+                                    } else {
+                                        out = await translateMarkdown(
+                                            item.text,
+                                            targetLanguageValue,
+                                            modelName,
+                                            apiKeyVal,
+                                            `${logPrefix}[retry ${i+1}/${retryList.length}]`,
+                                            defaultSystemPromptSetting,
+                                            defaultUserPromptTemplateSetting,
+                                            useCustomPromptsSetting
+                                        );
+                                    }
+                                    translatedPieces.push({ index: item.index, text: out });
+                                } finally {
+                                    if (typeof releaseSlot === 'function') releaseSlot();
+                                }
+                            }
+
+                            // 写回原历史记录：替换对应分块译文
+                            if (!refRecord) throw new Error('未找到原历史记录，无法写回。');
+                            if (!Array.isArray(refRecord.ocrChunks) || !Array.isArray(refRecord.translatedChunks)) {
+                                throw new Error('原历史记录缺少分块信息，无法写回。');
+                            }
+                            translatedPieces.forEach(p => {
+                                const safeIdx = Math.max(0, Math.min(p.index, refRecord.ocrChunks.length - 1));
+                                refRecord.translatedChunks[safeIdx] = p.text;
+                            });
+                            refRecord.translation = (refRecord.translatedChunks || []).join('\n\n');
+                            refRecord.time = new Date().toISOString();
+                            await saveResultToDB(refRecord);
+                            if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 已将 ${translatedPieces.length} 个失败片段写回历史记录 ${refId}`);
+
+                            // 准备返回对象并跳过后续的常规保存逻辑
+                            return {
+                                file: fileToProcess,
+                                markdown: currentMarkdownContent,
+                                translation: translatedPieces.map(p => p.text).join('\n\n'),
+                                images: currentImagesData,
+                                ocrChunks: retryList.map(r => r.text),
+                                translatedChunks: translatedPieces.map(p => p.text),
+                                error: null
+                            };
+                        }
+                    } else {
+                        currentImagesData = [];
+                    }
+                } catch (e) {
+                    console.warn(`${logPrefix} 读取历史图片引用失败:`, e);
+                    currentImagesData = [];
+                }
             } catch (readError) {
                 if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 读取 ${fileType.toUpperCase()} 文件失败: ${readError.message}`);
                 throw new Error(`读取 ${fileType.toUpperCase()} 文件失败: ${readError.message}`);

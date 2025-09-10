@@ -1,0 +1,558 @@
+/* ==========================
+ * TOC 优化样式 - 现代化设计
+ * ========================== */
+
+/* TOC 浮动按钮 - 现代化设计 */
+#toc-float-btn {
+  position: fixed !important;
+  left: 20px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  width: 48px !important;
+  height: 48px !important;
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8) !important;
+  border: none !important;
+  border-radius: 16px !important;
+  color: white !important;
+  cursor: pointer !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  z-index: 9999 !important;
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.4) !important;
+  backdrop-filter: blur(10px) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 20px !important;
+}
+
+#toc-float-btn:hover {
+  transform: translateY(-50%) scale(1.1) !important;
+  box-shadow: 0 12px 32px rgba(59, 130, 246, 0.5) !important;
+  background: linear-gradient(135deg, #2563eb, #1e40af) !important;
+}
+
+#toc-float-btn:active {
+  transform: translateY(-50%) scale(0.95) !important;
+}
+
+/* TOC 弹窗 - 现代化设计 */
+#toc-popup {
+  display: none;
+  position: fixed;
+  left: 20px;
+  top: 50%;
+  transform: translateY(-50%) translateX(-20px) scale(0.9);
+  width: 360px;
+  max-height: 75vh;
+  background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid rgba(226, 232, 240, 0.6);
+  border-radius: 20px;
+  box-shadow: 
+    0 25px 50px rgba(0, 0, 0, 0.15),
+    0 0 0 1px rgba(255, 255, 255, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  z-index: 10000;
+  opacity: 0;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(20px);
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* TOC 弹窗头部 */
+#toc-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 16px 24px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(99, 102, 241, 0.08) 100%);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.12);
+  backdrop-filter: blur(10px);
+}
+
+#toc-popup-header span {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#toc-popup-header i {
+  color: #3b82f6;
+  font-size: 1.2rem;
+}
+
+/* 关闭按钮 */
+#toc-popup-close-btn {
+  background: rgba(148, 163, 184, 0.1);
+  border: none;
+  border-radius: 10px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: 1rem;
+}
+
+#toc-popup-close-btn:hover {
+  background: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
+  transform: scale(1.1);
+}
+
+/* TOC 模式选择器 */
+.toc-mode-selector {
+  display: none;
+  gap: 8px;
+  margin: 16px 20px;
+  padding: 10px;
+  background: rgba(248, 250, 252, 0.9);
+  border-radius: 14px;
+  border: 1px solid rgba(226, 232, 240, 0.6);
+  backdrop-filter: blur(10px);
+}
+
+.toc-mode-btn {
+  padding: 10px 18px;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #64748b;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(10px);
+  user-select: none;
+  position: relative;
+  overflow: hidden;
+}
+
+.toc-mode-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent);
+  transition: left 0.5s;
+}
+
+.toc-mode-btn:hover::before {
+  left: 100%;
+}
+
+.toc-mode-btn:hover {
+  background: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.15);
+}
+
+.toc-mode-btn.active {
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  color: white;
+  border-color: #3b82f6;
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+  transform: translateY(-2px);
+}
+
+/* TOC 列表容器 */
+#toc-list {
+  list-style: none;
+  padding: 12px 0;
+  margin: 0;
+  max-height: calc(75vh - 160px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(59, 130, 246, 0.3) transparent;
+}
+
+#toc-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+#toc-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#toc-list::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.3);
+  border-radius: 3px;
+  transition: background 0.2s ease;
+}
+
+#toc-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.5);
+}
+
+/* TOC 子项容器 */
+#toc-list ul.toc-children {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* TOC 项级别样式 */
+#toc-list li.toc-h1 {
+  margin-top: 10px;
+  border-left: 4px solid #3b82f6;
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.05), transparent);
+}
+
+#toc-list li.toc-h2 {
+  margin-top: 6px;
+  border-left: 3px solid #6366f1;
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.04), transparent);
+}
+
+#toc-list li.toc-h3,
+#toc-list li.toc-h4,
+#toc-list li.toc-h5,
+#toc-list li.toc-h6 {
+  margin-top: 3px;
+  border-left: 2px solid rgba(148, 163, 184, 0.4);
+}
+
+/* 折叠按钮 */
+#toc-list .toc-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 10px;
+  border-radius: 8px;
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  font-weight: bold;
+}
+
+#toc-list .toc-toggle:hover {
+  background: rgba(59, 130, 246, 0.2);
+  transform: scale(1.15);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
+}
+
+#toc-list .toc-toggle.collapsed {
+  transform: rotate(-90deg);
+  background: rgba(148, 163, 184, 0.1);
+  color: #64748b;
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+#toc-list .toc-toggle.collapsed:hover {
+  transform: rotate(-90deg) scale(1.15);
+  background: rgba(148, 163, 184, 0.2);
+}
+
+/* TOC 链接样式 */
+#toc-list li {
+  margin-bottom: 0;
+  line-height: 1.6;
+  position: relative;
+}
+
+#toc-list li a {
+  display: flex;
+  align-items: center;
+  padding: 12px 18px 12px 24px;
+  color: #475569;
+  text-decoration: none;
+  border-radius: 12px;
+  margin: 3px 12px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+  background: transparent;
+  backdrop-filter: blur(10px);
+}
+
+#toc-list li a::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.1), transparent);
+  transition: left 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#toc-list li a:hover::before {
+  left: 100%;
+}
+
+#toc-list li a:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(99, 102, 241, 0.08) 100%);
+  color: #3b82f6;
+  transform: translateX(6px);
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.15);
+}
+
+#toc-list li a:active {
+  transform: translateX(3px) scale(0.98);
+}
+
+/* 有子项的TOC项样式 */
+#toc-list li.has-children > a {
+  font-weight: 600;
+  position: relative;
+}
+
+#toc-list li.has-children > a::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 0;
+  background: linear-gradient(90deg, #3b82f6, #6366f1);
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 2px;
+}
+
+#toc-list li.has-children > a:hover::after {
+  width: 100%;
+}
+
+/* 折叠状态下的子项容器 */
+#toc-list .toc-children.collapsed {
+  height: 0 !important;
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+/* TOC 文本内容 */
+.toc-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  flex: 1;
+}
+
+/* TOC 前缀样式 */
+.toc-prefix {
+  font-weight: 700;
+  color: #3b82f6;
+  margin-right: 8px;
+  font-family: 'SF Mono', 'Monaco', 'Cascadia Code', monospace;
+  background: rgba(59, 130, 246, 0.1);
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+/* TOC 内容 */
+.toc-content {
+  display: inline-block;
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+}
+
+/* TOC 英文翻译 */
+.toc-en-translation {
+  font-size: 0.85rem;
+  color: #64748b;
+  margin-left: 6px;
+  font-style: italic;
+  opacity: 0.8;
+}
+
+/* 图表标题样式 */
+.toc-caption {
+  font-style: italic;
+  color: #7c3aed;
+  background: linear-gradient(90deg, rgba(124, 58, 237, 0.05), transparent);
+  border-left: 3px solid #7c3aed !important;
+}
+
+.toc-chart-icon {
+  margin-right: 6px;
+  font-size: 1rem;
+  opacity: 0.9;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.1));
+}
+
+.toc-caption:hover .toc-chart-icon {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+/* 结构化标题样式 */
+.toc-structured .toc-prefix {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(99, 102, 241, 0.15));
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.toc-structure-chapter .toc-prefix {
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.15), rgba(239, 68, 68, 0.15));
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.2);
+}
+
+.toc-structure-numeric .toc-prefix {
+  font-family: 'SF Mono', 'Monaco', 'Cascadia Code', monospace;
+  letter-spacing: 0.5px;
+}
+
+/* TOC 控制按钮区域 */
+.toc-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: rgba(248, 250, 252, 0.8);
+  border-top: 1px solid rgba(226, 232, 240, 0.6);
+  backdrop-filter: blur(10px);
+  gap: 8px;
+}
+
+.toc-control-btn {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: 0.9rem;
+  backdrop-filter: blur(10px);
+  user-select: none;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.toc-control-btn:hover {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+}
+
+/* TOC 弹窗状态 */
+.toc-popup-visible {
+  display: block !important;
+  opacity: 1 !important;
+  transform: translateY(-50%) translateX(0) scale(1) !important;
+}
+
+.toc-popup-hidden {
+  display: none !important;
+}
+
+.toc-popup-hiding {
+  opacity: 0 !important;
+  transform: translateY(-50%) translateX(-20px) scale(0.9) !important;
+}
+
+/* TOC 展开状态 */
+#toc-popup.toc-expanded {
+  width: 450px;
+  max-height: 85vh;
+}
+
+#toc-popup.toc-expanded #toc-list {
+  max-height: calc(85vh - 160px);
+}
+
+/* 目标高亮效果 */
+.toc-target-highlight {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(99, 102, 241, 0.15)) !important;
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3) !important;
+  border-left: 4px solid #3b82f6 !important;
+  transition: all 0.3s ease !important;
+  border-radius: 8px !important;
+  padding: 12px !important;
+}
+
+/* 加载效果 */
+.loading-effect {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.95), rgba(99, 102, 241, 0.95));
+  color: white;
+  padding: 20px 32px;
+  border-radius: 16px;
+  box-shadow: 0 20px 40px rgba(59, 130, 246, 0.3);
+  z-index: 20000;
+  font-weight: 600;
+  backdrop-filter: blur(20px);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.8);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.loading-effect-visible {
+  opacity: 1 !important;
+  transform: translate(-50%, -50%) scale(1) !important;
+}
+
+.content-blurred {
+  filter: blur(2px);
+  transition: filter 0.3s ease;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  #toc-float-btn {
+    left: 15px !important;
+    width: 44px !important;
+    height: 44px !important;
+    font-size: 18px !important;
+  }
+  
+  #toc-popup {
+    left: 15px;
+    width: calc(100vw - 30px);
+    max-width: 350px;
+  }
+  
+  .toc-mode-btn {
+    padding: 8px 12px;
+    font-size: 0.8rem;
+  }
+  
+  #toc-list li a {
+    padding: 10px 14px 10px 18px;
+    margin: 2px 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  #toc-popup {
+    width: calc(100vw - 20px);
+    left: 10px;
+    max-height: 70vh;
+  }
+  
+  #toc-popup-header {
+    padding: 16px 18px 12px 18px;
+  }
+  
+  #toc-popup-header span {
+    font-size: 1rem;
+  }
+}

@@ -234,16 +234,33 @@
                             <select id="translationModel" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
                                 <option value="none">不需要翻译</option>
                                 <option value="mistral">Mistral Large</option>
-                                <option value="deepseek">DeepSeek v3</option>
-                                <option value="gemini">Gemini 2.0 Flash</option>
-                                <option value="gemini-preview">Gemini-2.5-flash-preview-05-20</option>
-                                <option value="tongyi-deepseek-v3">通义百炼 DeepSeek v3</option>
-                                <option value="tongyi-qwen-turbo">通义百炼 Qwen Turbo</option>
-                                <option value="volcano-deepseek-v3">火山引擎 DeepSeek v3</option>
-                                <option value="volcano-doubao">火山引擎 豆包1.5-Pro</option>
+                                <option value="deepseek">deepseek</option>
+                                <option value="gemini">gemini</option>
+                                <option value="tongyi">通义百炼</option>
+                                <option value="volcano">火山引擎</option>
                                 <option value="custom">自定义模型</option>
                             </select>
+                            <div id="translationModelDefaultHint" class="text-xs text-gray-500 mt-1"></div>
                         </div>
+                        <!-- Gemini 模型信息（选择 Gemini 时显示） -->
+                        <div id="geminiModelInfo" class="md:col-span-2 hidden">
+                            <div class="mt-2 border border-gray-200 rounded-lg bg-gray-50 p-3">
+                                <div class="flex items-center justify-between">
+                                    <div class="text-sm text-gray-700 font-medium">Gemini 默认模型</div>
+                                    <div class="flex items-center gap-2">
+                                        <span id="geminiKeysCountHint" class="text-xs text-gray-500"></span>
+                                        <button id="geminiDetectBtn" type="button" class="px-2 py-1 text-xs border rounded hover:bg-white">检测可用模型</button>
+                                    </div>
+                                </div>
+                                <div class="mt-2">
+                                    <select id="geminiModelSelect" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors">
+                                       <!-- 动态填充，可为空则仅显示占位提示 -->
+                                    </select>
+                                    <p id="geminiModelHint" class="mt-1 text-xs text-gray-500">若列表为空，请先点击上方“检测可用模型”。</p>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- 目标语言选择 -->
                         <div>
                             <label for="targetLanguage" class="block text-sm font-medium text-gray-700 mb-1">目标语言</label>
@@ -259,6 +276,56 @@
                             <div id="customTargetLanguageContainer" class="hidden mt-2">
                                  <label for="customTargetLanguageInput" class="block text-sm font-medium text-gray-700 mb-1">自定义目标语言名称</label>
                                  <input type="text" id="customTargetLanguageInput" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" placeholder="例如: Spanish">
+                            </div>
+                        </div>
+                        <!-- DeepSeek 模型信息（选择 DeepSeek 时显示） -->
+                        <div id="deepseekModelInfo" class="md:col-span-2 hidden">
+                            <div class="mt-2 border border-gray-200 rounded-lg bg-gray-50 p-3">
+                                <div class="flex items-center justify-between">
+                                    <div class="text-sm text-gray-700 font-medium">DeepSeek 默认模型</div>
+                                    <div class="flex items-center gap-2">
+                                        <span id="deepseekKeysCountHint" class="text-xs text-gray-500"></span>
+                                        <button id="deepseekDetectBtn" type="button" class="px-2 py-1 text-xs border rounded hover:bg-white">检测可用模型</button>
+                                    </div>
+                                </div>
+                                <div class="mt-2">
+                                    <select id="deepseekModelSelect" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"></select>
+                                    <p id="deepseekModelHint" class="mt-1 text-xs text-gray-500">若列表为空，请先点击上方“检测可用模型”。</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 通义 模型信息（选择通义时显示） -->
+                        <div id="tongyiModelInfo" class="md:col-span-2 hidden">
+                            <div class="mt-2 border border-gray-200 rounded-lg bg-gray-50 p-3">
+                                <div class="flex items-center justify-between">
+                                    <div class="text-sm text-gray-700 font-medium">通义 默认模型</div>
+                                    <div class="flex items-center gap-2">
+                                        <span id="tongyiKeysCountHint" class="text-xs text-gray-500"></span>
+                                        <button id="tongyiDetectBtn" type="button" class="px-2 py-1 text-xs border rounded hover:bg-white">检测可用模型</button>
+                                    </div>
+                                </div>
+                                <div class="mt-2">
+                                    <select id="tongyiModelSelect" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"></select>
+                                    <p id="tongyiModelHint" class="mt-1 text-xs text-gray-500">若列表为空，请先点击上方“检测可用模型”。</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 火山 模型信息（选择火山时显示） -->
+                        <div id="volcanoModelInfo" class="md:col-span-2 hidden">
+                            <div class="mt-2 border border-gray-200 rounded-lg bg-gray-50 p-3">
+                                <div class="flex items-center justify-between">
+                                    <div class="text-sm text-gray-700 font-medium">火山 默认模型</div>
+                                    <div class="flex items-center gap-2">
+                                        <span id="volcanoKeysCountHint" class="text-xs text-gray-500"></span>
+                                        <button id="volcanoDetectBtn" type="button" class="px-2 py-1 text-xs border rounded hover:bg-white">检测可用模型</button>
+                                    </div>
+                                </div>
+                                <div class="mt-2">
+                                    <select id="volcanoModelSelect" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"></select>
+                                    <p id="volcanoModelHint" class="mt-1 text-xs text-gray-500">若列表为空，请手动输入或在设置中选择。</p>
+                                </div>
                             </div>
                         </div>
                         <!-- 自定义源站点设置区域 (选择自定义模型时显示) -->
@@ -348,26 +415,184 @@
                                 </div>
                             </div>
 
-                            <h3 class="text-lg font-semibold text-gray-800 mb-4 border-b pb-2 flex items-center"><iconify-icon icon="carbon:edit" class="mr-2 text-gray-600"></iconify-icon>自定义翻译提示</h3>
-                             <!-- 启用自定义提示复选框 -->
-                             <div class="flex items-center mb-3">
-                                 <input type="checkbox" id="useCustomPromptsCheckbox" class="rounded text-blue-500 focus:ring-blue-500 h-4 w-4 mr-2 flex-shrink-0">
-                                 <label for="useCustomPromptsCheckbox" class="text-sm font-medium text-gray-700">启用自定义提示 (覆盖内置提示)</label>
-                             </div>
-                             <p class="text-xs text-gray-500 mb-4">启用后可修改下方用于翻译的系统提示和用户提示模板。如果留空，将使用通用后备提示。可用占位符：<code><strong>${targetLangName}</strong></code>, <code><strong>${content}</strong></code>。</p>
-                            <!-- 自定义提示输入区域 -->
-                            <div id="customPromptsContainer" class="hidden space-y-4">
-                                <!-- 自定义系统提示 -->
+                            <h3 class="text-lg font-semibold text-gray-800 mb-4 border-b pb-2 flex items-center"><iconify-icon icon="carbon:edit" class="mr-2 text-gray-600"></iconify-icon>翻译提示词管理</h3>
+
+                            <!-- 提示词模式选择（单选，三选一） -->
+                            <div class="mb-4">
+                                <div class="flex items-center space-x-6 mb-3">
+                                    <label class="flex items-center">
+                                        <input type="radio" name="promptMode" value="pool" id="promptModePool" class="rounded text-blue-500 focus:ring-blue-500 h-4 w-4 mr-2">
+                                        <span class="text-sm font-medium text-gray-700">提示词池</span>
+                                    </label>
+                                    <label class="flex items-center">
+                                        <input type="radio" name="promptMode" value="builtin" id="promptModeBuiltin" class="rounded text-blue-500 focus:ring-blue-500 h-4 w-4 mr-2" checked>
+                                        <span class="text-sm font-medium text-gray-700">内置提示词</span>
+                                    </label>
+                                    <label class="flex items-center">
+                                        <input type="radio" name="promptMode" value="custom" id="promptModeCustom" class="rounded text-blue-500 focus:ring-blue-500 h-4 w-4 mr-2">
+                                        <span class="text-sm font-medium text-gray-700">单个自定义</span>
+                                    </label>
+                                </div>
+                                <p class="text-xs text-gray-500">选择翻译提示词的使用方式。提示词池提供多样表达且保持风格一致。</p>
+                            </div>
+
+                            <!-- 单个自定义提示区域 -->
+                            <div id="customPromptsContainer" class="hidden space-y-4 mb-6">
                                 <div>
                                     <label for="defaultSystemPrompt" class="block text-sm font-medium text-gray-700 mb-1">自定义系统提示</label>
-                                    <textarea id="defaultSystemPrompt" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-all api-key-input text-sm disabled:opacity-50 disabled:bg-gray-100" placeholder="启用后可编辑..." disabled></textarea>
+                                    <textarea id="defaultSystemPrompt" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-all api-key-input text-sm" placeholder="输入系统提示词..."></textarea>
                                 </div>
-                                <!-- 自定义用户提示模板 -->
                                 <div>
                                     <label for="defaultUserPromptTemplate" class="block text-sm font-medium text-gray-700 mb-1">自定义用户提示模板</label>
-                                    <textarea id="defaultUserPromptTemplate" rows="6" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-all api-key-input text-sm disabled:opacity-50 disabled:bg-gray-100" placeholder="启用后可编辑..." disabled></textarea>
+                                    <textarea id="defaultUserPromptTemplate" rows="6" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-all api-key-input text-sm" placeholder="请将以下内容翻译为${targetLangName}：&#10;&#10;${content}"></textarea>
+                                    <p class="text-xs text-gray-500 mt-1">可用占位符：<code>${targetLangName}</code>, <code>${content}</code></p>
                                 </div>
-                             </div>
+                            </div>
+
+                            <!-- 提示词池管理区域 -->
+                            <div id="promptPoolContainer" class="hidden">
+                                
+                                <!-- 参考提示词输入（去除橙色，改为中性） -->
+                                <div id="ppRefSection" class="bg-gray-50 rounded-lg p-4 mb-4 border border-gray-200">
+                                    <h4 class="font-medium text-gray-800 mb-3 flex items-center">
+                                        <iconify-icon icon="carbon:template" class="text-blue-600 mr-2" width="18"></iconify-icon>
+                                        参考提示词 (AI生成基础)
+                                    </h4>
+                                    <div class="space-y-3">
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">参考系统提示词</label>
+                                            <textarea id="referenceSystemPrompt" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 text-sm" placeholder="你是专业的翻译助手，请准确翻译用户提供的内容。"></textarea>
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">参考用户提示模板</label>
+                                            <textarea id="referenceUserPrompt" rows="4" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 text-sm" placeholder="请将以下内容翻译为${targetLangName}：&#10;&#10;${content}"></textarea>
+                                            <p class="text-xs text-gray-500 mt-1">必须包含 <code>${targetLangName}</code> 和 <code>${content}</code> 占位符</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 提示词池控制面板 -->
+                                <div class="bg-blue-50 rounded-lg p-4 mb-4">
+                                    <div id="ppControlHeader" class="flex justify-between items-center mb-3">
+                                        <div class="flex items-center">
+                                            <iconify-icon icon="carbon:ai-status-running" class="text-blue-600 mr-2" width="20"></iconify-icon>
+                                            <span class="font-medium text-blue-800">AI生成提示词池</span>
+                                            <span id="poolStatsText" class="ml-2 text-sm text-blue-600">(0 个已选)</span>
+                                        </div>
+                                        <div class="flex items-center space-x-2">
+                                            <select id="promptPoolMode" class="text-sm border border-blue-200 rounded px-2 py-1 bg-white">
+                                                <option value="random">智能随机</option>
+                                                <option value="rotation">健康轮换</option>
+                                            </select>
+                                        <button id="toggleGeneratorPromptsBtn" class="text-xs px-2 py-1 border rounded hover:bg-gray-50">生成器提示词</button>
+                                        <button id="resetGeneratorPromptsBtn" class="text-xs px-2 py-1 border rounded hover:bg-gray-50">重置为默认</button>
+                                        </div>
+                                    </div>
+
+                                    <!-- 健康状态概览 -->
+                                    <div id="healthOverview" class="bg-white rounded-md p-3 mb-3 border border-blue-200">
+                                        <div class="flex items-center justify-between mb-2">
+                                            <span class="text-sm font-medium text-gray-700">健康状态概览</span>
+                                            <button id="healthSettingsBtn" class="text-xs text-blue-600 hover:text-blue-800">
+                                                <iconify-icon icon="carbon:settings" width="14"></iconify-icon> 设置
+                                            </button>
+                                        </div>
+                                        <div class="grid grid-cols-4 gap-3 text-center">
+                                            <div class="text-xs">
+                                                <div class="text-green-600 font-medium" id="healthyCount">0</div>
+                                                <div class="text-gray-500">健康</div>
+                                            </div>
+                                            <div class="text-xs">
+                                                <div class="text-yellow-600 font-medium" id="degradedCount">0</div>
+                                                <div class="text-gray-500">降级</div>
+                                            </div>
+                                            <div class="text-xs">
+                                                <div class="text-red-600 font-medium" id="deactivatedCount">0</div>
+                                                <div class="text-gray-500">失活</div>
+                                            </div>
+                                            <div class="text-xs">
+                                                <div class="text-blue-600 font-medium" id="successRate">0%</div>
+                                                <div class="text-gray-500">成功率</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 生成器元提示词（可选） -->
+                                    <div id="generatorPromptsPanel" class="hidden mb-3">
+                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div>
+                                                <label class="block text-xs text-gray-600 mb-1">生成器系统提示（可选）</label>
+                                                <textarea id="generatorSystemPrompt" rows="3" class="w-full text-sm border border-gray-300 rounded px-2 py-1" placeholder="自定义用于生成变体的系统提示（不填用默认）"></textarea>
+                                            </div>
+                                            <div>
+                                                <label class="block text-xs text-gray-600 mb-1">生成器用户提示（可选）</label>
+                                                <textarea id="generatorUserPrompt" rows="3" class="w-full text-sm border border-gray-300 rounded px-2 py-1" placeholder="自定义用于生成变体的用户提示（不填用默认）"></textarea>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 生成参数控制 -->
+                                    <div id="ppGenSection">
+                                    <!-- 生成参数控制 -->
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                                        <div>
+                                            <label class="block text-xs text-gray-600 mb-1">生成数量</label>
+                                            <input type="number" id="variationCount" value="10" min="5" max="20" class="w-full text-sm border border-gray-300 rounded px-2 py-1">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-600 mb-1">相似度</label>
+                                            <select id="similarityControl" class="w-full text-sm border border-gray-300 rounded px-2 py-1">
+                                                <option value="0.2">差异很大</option>
+                                                <option value="0.4">中等差异</option>
+                                                <option value="0.6" selected>适度相似</option>
+                                                <option value="0.8">高度相似</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs text-gray-600 mb-1">AI模型</label>
+                                            <select id="generationModel" class="w-full text-sm border border-gray-300 rounded px-2 py-1">
+                                                <option value="">加载中...</option>
+                                            </select>
+                                            <p class="text-xs text-gray-500 mt-1">自动使用已配置的API密钥</p>
+                                        </div>
+                                    </div>
+
+                                    <!-- 生成控制按钮 -->
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex items-center space-x-3">
+                                            <button id="generateVariationsBtn" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm flex items-center disabled:opacity-50 disabled:cursor-not-allowed">
+                                                <iconify-icon icon="carbon:ai-status" class="mr-2" width="16"></iconify-icon>
+                                                AI生成变体
+                                            </button>
+                                            <div id="generateStatus" class="text-xs text-gray-600 hidden">
+                                                <iconify-icon icon="carbon:loading" class="animate-spin mr-1" width="14"></iconify-icon>
+                                                正在生成...
+                                            </div>
+                                        </div>
+                                        <div class="flex items-center space-x-2">
+                                            <button id="clearPoolBtn" class="px-3 py-1.5 bg-gray-400 text-white rounded text-xs hover:bg-gray-500 transition-colors">
+                                                清空
+                                            </button>
+                                            <button id="importPoolBtn" class="px-3 py-1.5 bg-green-600 text-white rounded text-xs hover:bg-green-700 transition-colors">
+                                                导入
+                                            </button>
+                                            <button id="exportPoolBtn" class="px-3 py-1.5 bg-green-600 text-white rounded text-xs hover:bg-green-700 transition-colors">
+                                                导出
+                                            </button>
+                                        </div>
+                                    </div>
+                                    </div> <!-- /#ppGenSection -->
+                                </div>
+
+                                <!-- 提示词列表容器 -->
+                                <div id="promptPoolList" class="space-y-2 max-h-96 overflow-y-auto border border-gray-200 rounded-lg p-3 bg-gray-50">
+                                    <div class="text-center text-gray-500 text-sm py-8">
+                                        <iconify-icon icon="carbon:ai-status-queued" class="text-gray-400 mb-2" width="32"></iconify-icon>
+                                        <p>暂无提示词</p>
+                                        <p class="text-xs mt-1">请先填写参考提示词，然后点击"AI生成变体"</p>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -473,7 +698,7 @@
             <p class="mb-2">
                 <span id="showCopyrightModal" class="text-blue-500 hover:text-blue-700 transition-colors cursor-pointer select-none">
                     <iconify-icon icon="carbon:logo-github" class="mr-1" inline></iconify-icon>
-                    Paper Burner X 丨 基于 Paper Burner 
+                    Paper Burner X 丨 基于 Paper Burner
                 </span>
             </p>
         </footer>
@@ -495,9 +720,14 @@
     <script src="js/ui/ui.js"></script>
     <!-- 修改为普通脚本标签，不使用模块 -->
     <script src="js/process/index.js"></script>
+    <script src="js/process/prompt-pool-api.js"></script>
+    <script src="js/process/prompt-pool.js"></script>
+    <script src="js/ui/prompt-pool-ui.js"></script>
     <script src="js/api/model-detector.js"></script>
     <script src="js/app.js"></script>
     <script src="js/history/history.js"></script>
+
+    
 
     <!-- ===================== -->
     <!-- 历史记录浮动按钮与面板 -->

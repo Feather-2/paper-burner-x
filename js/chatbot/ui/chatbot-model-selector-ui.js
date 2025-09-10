@@ -68,9 +68,14 @@ window.ChatbotModelSelectorUI = {
     // 主体HTML结构
     modelSelectorDiv.innerHTML = `
       <div style="text-align:center;font-size:17px;font-weight:700;color:#2563eb;margin-bottom:8px;">选择自定义模型</div>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:8px;">
         <span style="font-size:14px;font-weight:500;">默认模型</span>
-        <button id="chatbot-add-special-models-btn" style="width:24px;height:24px;border:none;background:transparent;font-size:18px;cursor:pointer;line-height:18px;">＋</button>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <button id="chatbot-detect-gemini-btn" title="检测 Gemini 可用模型" style="border:1px dashed #93c5fd;background:#eff6ff;color:#2563eb;border-radius:6px;padding:4px 8px;font-size:12px;">检测 Gemini</button>
+          <button id="chatbot-detect-deepseek-btn" title="检测 DeepSeek 可用模型" style="border:1px dashed #93c5fd;background:#eff6ff;color:#2563eb;border-radius:6px;padding:4px 8px;font-size:12px;">检测 DeepSeek</button>
+          <button id="chatbot-detect-tongyi-btn" title="检测 通义可用模型" style="border:1px dashed #93c5fd;background:#eff6ff;color:#2563eb;border-radius:6px;padding:4px 8px;font-size:12px;">检测 通义</button>
+          <button id="chatbot-add-special-models-btn" style="width:24px;height:24px;border:none;background:transparent;font-size:18px;cursor:pointer;line-height:18px;">＋</button>
+        </div>
       </div>
       <div id="chatbot-special-models-container" style="display:none;flex-direction:column;gap:12px;margin-bottom:12px;">
         <div>
@@ -231,6 +236,122 @@ window.ChatbotModelSelectorUI = {
           localStorage.setItem('paperBurnerSettings', JSON.stringify(settings));
         }
       };
+    }
+
+    // 工具：将新模型ID列表追加到主下拉
+    async function appendModelsToMainSelect(ids) {
+      const mainSelect = document.getElementById('chatbot-model-select');
+      if (!mainSelect || !Array.isArray(ids)) return 0;
+      const existing = new Set(Array.from(mainSelect.options).map(o => o.value));
+      let added = 0;
+      ids.forEach(id => {
+        const mid = String(id || '').trim();
+        if (!mid || existing.has(mid)) return;
+        const opt = document.createElement('option');
+        opt.value = mid; opt.textContent = mid;
+        mainSelect.appendChild(opt);
+        added++;
+      });
+      return added;
+    }
+
+    // 检测 Gemini 可用模型并填充列表（仅当当前选择或默认选择是 Gemini 时生效）
+    const detectGeminiBtn = modelSelectorDiv.querySelector('#chatbot-detect-gemini-btn');
+    if (detectGeminiBtn) {
+      detectGeminiBtn.onclick = async () => {
+        try {
+          // 仅在可用 Key 存在时进行
+          const keys = (typeof loadModelKeys === 'function') ? (loadModelKeys('gemini') || []) : [];
+          const usableKeys = keys.filter(k => k.status !== 'invalid' && k.value);
+          if (usableKeys.length === 0) {
+            return ChatbotUtils.showToast('请先在模型与Key管理中配置 Gemini 的 API Key', 'warning', 3000);
+          }
+          const apiKey = usableKeys[0].value.trim();
+          detectGeminiBtn.disabled = true;
+          detectGeminiBtn.textContent = '检测中...';
+          const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`);
+          if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+          const data = await resp.json();
+          const items = Array.isArray(data.models || data.data) ? (data.models || data.data) : [];
+          if (items.length === 0) {
+            return ChatbotUtils.showToast('未返回模型列表', 'info', 3000);
+          }
+          const ids = items.map(m => (m.name ? String(m.name).split('/').pop() : (m.id || ''))).filter(Boolean);
+          const added = await appendModelsToMainSelect(ids);
+          if (added > 0) ChatbotUtils.showToast(`已加入 ${added} 个 Gemini 模型到列表`, 'success', 3000);
+        } catch (e) {
+          ChatbotUtils.showToast(`检测失败：${e.message}`, 'error', 3000);
+        } finally {
+          detectGeminiBtn.disabled = false;
+          detectGeminiBtn.textContent = '检测 Gemini';
+        }
+      };
+    }
+
+    // 检测 DeepSeek 可用模型
+    const detectDeepseekBtn = modelSelectorDiv.querySelector('#chatbot-detect-deepseek-btn');
+    if (detectDeepseekBtn) {
+      detectDeepseekBtn.onclick = async () => {
+        try {
+          const keys = (typeof loadModelKeys === 'function') ? (loadModelKeys('deepseek') || []) : [];
+          const usable = keys.filter(k => k.status !== 'invalid' && k.value);
+          if (usable.length === 0) {
+            return ChatbotUtils.showToast('请先配置 DeepSeek 的 API Key', 'warning', 3000);
+          }
+          const apiKey = usable[0].value.trim();
+          detectDeepseekBtn.disabled = true; detectDeepseekBtn.textContent = '检测中...';
+          const resp = await fetch('https://api.deepseek.com/v1/models', { headers: { 'Authorization': `Bearer ${apiKey}` } });
+          if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+          const data = await resp.json();
+          const items = Array.isArray(data.data) ? data.data : [];
+          const ids = items.map(m => m.id).filter(Boolean);
+          const added = await appendModelsToMainSelect(ids);
+          ChatbotUtils.showToast(added > 0 ? `已加入 ${added} 个 DeepSeek 模型到列表` : '未返回模型列表', added > 0 ? 'success' : 'info', 3000);
+        } catch (e) {
+          ChatbotUtils.showToast(`检测失败：${e.message}`, 'error', 3000);
+        } finally {
+          detectDeepseekBtn.disabled = false; detectDeepseekBtn.textContent = '检测 DeepSeek';
+        }
+      };
+    }
+
+    // 检测 通义（DashScope）可用模型
+    const detectTongyiBtn = modelSelectorDiv.querySelector('#chatbot-detect-tongyi-btn');
+    if (detectTongyiBtn) {
+      detectTongyiBtn.onclick = async () => {
+        try {
+          // 统一使用 'tongyi' 的 Key 列表
+          let keys = [];
+          if (typeof loadModelKeys === 'function') {
+            keys = loadModelKeys('tongyi') || [];
+          }
+          const usable = keys.filter(k => k.status !== 'invalid' && k.value);
+          if (usable.length === 0) {
+            return ChatbotUtils.showToast('请先配置 通义 的 API Key', 'warning', 3000);
+          }
+          const apiKey = usable[0].value.trim();
+          detectTongyiBtn.disabled = true; detectTongyiBtn.textContent = '检测中...';
+          // 使用 OpenAI 兼容模式的模型列表端点（用户指定）
+          const resp = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/models', { headers: { 'Authorization': `Bearer ${apiKey}` } });
+          if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+          const data = await resp.json();
+          const items = Array.isArray(data.data) ? data.data : (Array.isArray(data.models) ? data.models : (Array.isArray(data?.data?.models) ? data.data.models : []));
+          const ids = items.map(m => (m.model || m.id || m.name)).filter(Boolean);
+          const added = await appendModelsToMainSelect(ids);
+          ChatbotUtils.showToast(added > 0 ? `已加入 ${added} 个 通义 模型到列表` : '未返回模型列表', added > 0 ? 'success' : 'info', 3000);
+        } catch (e) {
+          ChatbotUtils.showToast(`检测失败：${e.message}`, 'error', 3000);
+        } finally {
+          detectTongyiBtn.disabled = false; detectTongyiBtn.textContent = '检测 通义';
+        }
+      };
+    }
+
+    // 检测 火山（Ark）可用模型
+    const detectVolcanoBtn = modelSelectorDiv.querySelector('#chatbot-detect-volcano-btn');
+    if (detectVolcanoBtn) {
+      // 按用户要求：不提供在线检测，改为手动填写
+      detectVolcanoBtn.style.display = 'none';
     }
 
     // 温度、最大token参数绑定

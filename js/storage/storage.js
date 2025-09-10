@@ -447,6 +447,35 @@ function loadModelKeys(model) {
         console.error("Error loading or migrating model keys from localStorage for model " + model + ":", e);
     }
 
+    // 兼容迁移：将旧命名的通义/火山 Key 合并到新命名下
+    try {
+        const raw = localStorage.getItem(MODEL_KEYS_KEY);
+        if (raw) {
+            const allModelKeyStores = JSON.parse(raw);
+            if (model === 'tongyi') {
+                const old1 = Array.isArray(allModelKeyStores['tongyi-deepseek-v3']) ? allModelKeyStores['tongyi-deepseek-v3'] : [];
+                const old2 = Array.isArray(allModelKeyStores['tongyi-qwen-turbo']) ? allModelKeyStores['tongyi-qwen-turbo'] : [];
+                const merged = [...old1, ...old2];
+                if (merged.length > 0) {
+                    // 统一为对象数组格式
+                    const normalized = merged.map((k, idx) => (typeof k === 'string') ? ({ id: generateUUID(), value: k, remark: '', status: 'untested', order: idx }) : k);
+                    saveModelKeys('tongyi', normalized);
+                    return normalized.sort((a,b)=> (a.order||0)-(b.order||0));
+                }
+            }
+            if (model === 'volcano') {
+                const old1 = Array.isArray(allModelKeyStores['volcano-deepseek-v3']) ? allModelKeyStores['volcano-deepseek-v3'] : [];
+                const old2 = Array.isArray(allModelKeyStores['volcano-doubao']) ? allModelKeyStores['volcano-doubao'] : [];
+                const merged = [...old1, ...old2];
+                if (merged.length > 0) {
+                    const normalized = merged.map((k, idx) => (typeof k === 'string') ? ({ id: generateUUID(), value: k, remark: '', status: 'untested', order: idx }) : k);
+                    saveModelKeys('volcano', normalized);
+                    return normalized.sort((a,b)=> (a.order||0)-(b.order||0));
+                }
+            }
+        }
+    } catch (e) { /* ignore */ }
+
     // 进一步兼容非常旧的、独立的 localStorage key (mistralApiKeys, translationApiKeys)
     let legacyKeysArray = [];
     if (model === 'mistral') {
@@ -810,4 +839,24 @@ async function deleteAnnotationFromDB(annotationId) {
 // export { saveModelConfig, loadModelConfig, saveModelKeys, loadModelKeys };
 
 // --- 导出 Storage 相关函数 ---
+
+// --- 显式暴露必要的函数到全局作用域 ---
+if (typeof window !== 'undefined') {
+    // 暴露提示词池需要的关键函数
+    window.loadAllCustomSourceSites = loadAllCustomSourceSites;
+    // 纠正导出名称：函数为 saveCustomSourceSite（单数）
+    window.saveCustomSourceSite = saveCustomSourceSite;
+    window.loadKeys = loadModelKeys;  // 为了兼容性，使用 loadKeys 作为别名
+    window.loadModelKeys = loadModelKeys;
+    window.loadSettings = loadSettings;
+    window.saveSettings = saveSettings;
+    console.log('[Storage] 函数已暴露到全局作用域:', {
+        loadAllCustomSourceSites: typeof window.loadAllCustomSourceSites,
+        saveCustomSourceSite: typeof window.saveCustomSourceSite,
+        loadKeys: typeof window.loadKeys,
+        loadModelKeys: typeof window.loadModelKeys,
+        loadSettings: typeof window.loadSettings,
+        saveSettings: typeof window.saveSettings
+    });
+}
 // export { updateApiKeyStorage, loadProcessedFilesRecord, saveProcessedFilesRecord, isAlreadyProcessed, markFileAsProcessed, saveSettings, loadSettings };

@@ -58,19 +58,49 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         // 按时间倒序排列
         results.sort((a, b) => new Date(b.time) - new Date(a.time));
-        listDiv.innerHTML = results.map(r => `
-            <div class="border-b py-2">
+        listDiv.innerHTML = results.map(r => {
+            const totalChunks = Array.isArray(r.ocrChunks) ? r.ocrChunks.length : 0;
+            const translatedChunks = Array.isArray(r.translatedChunks) ? r.translatedChunks : [];
+            const { successCount, failedCount } = (function analyze() {
+                let success = 0, failed = 0;
+                if (totalChunks === 0) return { successCount: 0, failedCount: 0 };
+                for (let i = 0; i < totalChunks; i++) {
+                    const t = translatedChunks[i] || '';
+                    if (_isChunkFailed(t)) {
+                        failed++;
+                    } else {
+                        success++;
+                    }
+                }
+                return { successCount: success, failedCount: failed };
+            })();
+            const statusBadge = totalChunks > 0
+                ? (failedCount > 0
+                    ? `<span class="ml-2 inline-block text-xs px-2 py-0.5 rounded bg-yellow-100 text-yellow-700">部分失败 ${failedCount}/${totalChunks}</span>`
+                    : `<span class="ml-2 inline-block text-xs px-2 py-0.5 rounded bg-green-100 text-green-700">完成 ${successCount}/${totalChunks}</span>`)
+                : `<span class="ml-2 inline-block text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500">未分块</span>`;
+
+            const disableRetryFailed = failedCount === 0 ? 'disabled opacity-50 cursor-not-allowed' : '';
+
+            return `
+            <div class="border-b py-2" id="history-item-${r.id.replace(/[^a-zA-Z0-9_-]/g,'_')}">
                 <div class="flex justify-between items-center">
-                    <span class="font-semibold">${r.name}</span>
+                    <span class="font-semibold flex items-center">${r.name}${statusBadge}</span>
                     <button onclick="deleteHistoryRecord('${r.id}')" class="text-xs text-red-400 hover:text-red-600">删除</button>
                 </div>
                 <div class="text-xs text-gray-500">时间: ${new Date(r.time).toLocaleString()}</div>
                 <div class="text-xs text-gray-500">OCR: ${r.ocr ? r.ocr.slice(0, 40).replace(/\\n/g, ' ') + (r.ocr.length > 40 ? '...' : '') : '无'}</div>
                 <div class="text-xs text-gray-500">翻译: ${r.translation ? r.translation.slice(0, 40).replace(/\\n/g, ' ') + (r.translation.length > 40 ? '...' : '') : '无'}</div>
-                <button onclick="showHistoryDetail('${r.id}')" class="mt-1 text-blue-500 text-xs hover:underline">查看详情</button>
-                <button onclick="downloadHistoryRecord('${r.id}')" class="mt-1 text-green-600 text-xs hover:underline ml-2">下载</button>
-            </div>
-        `).join('');
+                <div class="mt-2 flex items-center flex-wrap gap-2">
+                  <button onclick="showHistoryDetail('${r.id}')" class="text-blue-600 text-xs hover:underline">查看详情</button>
+                  <button onclick="downloadHistoryRecord('${r.id}')" class="text-green-600 text-xs hover:underline">下载</button>
+                  <span class="mx-1 text-gray-300">|</span>
+                  <button id="retry-failed-btn-${r.id}" onclick="retryTranslateRecord('${r.id}','failed')" class="text-xs px-2 py-1 border rounded hover:bg-gray-50 ${disableRetryFailed}">重试失败段</button>
+                  <button id="retry-all-btn-${r.id}" onclick="retryTranslateRecord('${r.id}','all')" class="text-xs px-2 py-1 border rounded hover:bg-gray-50">重新翻译全部</button>
+                  <span id="retry-status-${r.id}" class="text-xs text-gray-500"></span>
+                </div>
+            </div>`;
+        }).join('');
     }
 
     // ---------------------
@@ -148,5 +178,258 @@ document.addEventListener('DOMContentLoaded', function() {
         const zipBlob = await zip.generateAsync({ type: 'blob', compression: "DEFLATE", compressionOptions: { level: 6 } });
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         saveAs(zipBlob, `PaperBurner_${r.name}_${timestamp}.zip`);
+    };
+
+    // ---------------------
+    // 重新翻译（全部/失败段）
+    // ---------------------
+
+    function _isChunkFailed(text) {
+        if (text == null) return true;
+        let t = String(text).trim();
+        if (!t) return true;
+        // 取首行，规避后续原文内容干扰
+        const firstLine = t.split('\n', 1)[0];
+        // 去除常见 Markdown 前缀（引用符、粗体符号等）
+        let norm = firstLine.replace(/^>+\s*/, '').trim();
+        norm = norm.replace(/^\*\*(.*)\*\*$/,'$1').trim();
+        // 识别多种失败提示格式
+        if (/^\[(?:翻译失败|处理错误|翻译错误|翻译意外失败)/i.test(norm)) return true;
+        if (/保留原文\s*Part/i.test(norm)) return true;
+        return false;
+    }
+
+    function _setBusy(id, busy, msg = '') {
+        const failedBtn = document.getElementById(`retry-failed-btn-${id}`);
+        const allBtn = document.getElementById(`retry-all-btn-${id}`);
+        const statusEl = document.getElementById(`retry-status-${id}`);
+        if (failedBtn) failedBtn.disabled = !!busy;
+        if (allBtn) allBtn.disabled = !!busy;
+        if (statusEl) statusEl.textContent = msg || '';
+    }
+
+    function _getEffectiveTargetLanguage(settings) {
+        if (!settings) return 'chinese';
+        if (settings.targetLanguage === 'custom') {
+            const name = (settings.customTargetLanguageName || '').trim();
+            return name || 'English';
+        }
+        return settings.targetLanguage || 'chinese';
+    }
+
+    function _getTranslationContext() {
+        const settings = typeof loadSettings === 'function' ? loadSettings() : {};
+        const modelName = settings.selectedTranslationModel || 'none';
+        if (modelName === 'none') {
+            showNotification && showNotification('当前未选择翻译模型，无法执行重译。', 'warning');
+            return null;
+        }
+
+        let providerKey = modelName;
+        let modelConfig = null;
+        if (modelName === 'custom') {
+            const siteId = settings.selectedCustomSourceSiteId;
+            if (!siteId) {
+                showNotification && showNotification('未选择自定义源站点，请先在主界面选择。', 'error');
+                return null;
+            }
+            const allSites = typeof loadAllCustomSourceSites === 'function' ? loadAllCustomSourceSites() : {};
+            const siteCfg = allSites[siteId];
+            if (!siteCfg) {
+                showNotification && showNotification('未能加载选定的自定义源站配置。', 'error');
+                return null;
+            }
+            providerKey = `custom_source_${siteId}`;
+            modelConfig = siteCfg;
+        }
+
+        // KeyProvider 来自 app.js，作为全局可用
+        let kp = null;
+        try { kp = new KeyProvider(providerKey); } catch(e) { console.error(e); }
+        if (!kp || !kp.hasAvailableKeys()) {
+            showNotification && showNotification('所选模型没有可用的 API Key，请先配置。', 'error');
+            return null;
+        }
+
+        const ctx = {
+            settings,
+            modelName,
+            modelConfig,
+            keyProvider: kp,
+            targetLangName: _getEffectiveTargetLanguage(settings),
+            tokenLimit: parseInt(settings.maxTokensPerChunk) || 2000,
+            defaultSystemPrompt: settings.defaultSystemPrompt || '',
+            defaultUserPromptTemplate: settings.defaultUserPromptTemplate || '',
+            useCustomPrompts: !!settings.useCustomPrompts
+        };
+        return ctx;
+    }
+
+    async function _translateOneChunk(chunkText, ctx, logPrefix) {
+        // 轮询 Key，失败时标记无效并切换
+        let lastErr = null;
+        for (let attempt = 0; attempt < 5; attempt++) {
+            const keyObj = ctx.keyProvider.getNextKey();
+            if (!keyObj) { lastErr = new Error('无可用Key'); break; }
+            const keyVal = keyObj.value;
+            try {
+                if (ctx.modelName === 'custom') {
+                    const res = await translateMarkdown(
+                        chunkText,
+                        ctx.targetLangName,
+                        'custom',
+                        keyVal,
+                        ctx.modelConfig,
+                        logPrefix || '',
+                        ctx.defaultSystemPrompt,
+                        ctx.defaultUserPromptTemplate,
+                        ctx.useCustomPrompts
+                    );
+                    return res;
+                } else {
+                    const res = await translateMarkdown(
+                        chunkText,
+                        ctx.targetLangName,
+                        ctx.modelName,
+                        keyVal,
+                        logPrefix || '',
+                        ctx.defaultSystemPrompt,
+                        ctx.defaultUserPromptTemplate,
+                        ctx.useCustomPrompts
+                    );
+                    return res;
+                }
+            } catch (e) {
+                const msg = (e && e.message ? e.message : String(e)).toLowerCase();
+                lastErr = e;
+                // 常见失活/未授权关键词，标记Key失效
+                if (msg.includes('unauthorized') || msg.includes('invalid') || msg.includes('forbidden') || msg.includes('401')) {
+                    try { await ctx.keyProvider.markKeyAsInvalid(keyObj.id); } catch {}
+                    continue;
+                } else {
+                    // 其他错误不标记失活，但尝试下一个Key
+                    continue;
+                }
+            }
+        }
+        throw lastErr || new Error('翻译失败');
+    }
+
+    async function _retryRecordInternal(id, mode) {
+        const ctx = _getTranslationContext();
+        if (!ctx) return;
+        _setBusy(id, true, '处理中...');
+        try {
+            const record = await getResultFromDB(id);
+            if (!record) {
+                showNotification && showNotification('未找到历史记录。', 'error');
+                return;
+            }
+            const logPrefix = `[重译:${record.name}]`;
+
+            if (mode === 'all') {
+                // 按需求：不要直接执行重译，将整篇加入“上传文件列表”（虚拟目录），供用户统一点击处理
+                const baseName = (record.name || 'document').replace(/\.pdf$/i, '');
+                const header = `<!-- PBX-HISTORY-REF:${record.id} -->\n`;
+                const mdBody = (record.ocr && record.ocr.trim()) ? record.ocr : Array.isArray(record.ocrChunks) ? record.ocrChunks.join('\n\n') : '';
+                const mdText = header + mdBody;
+                if (!mdText) {
+                    showNotification && showNotification('该记录没有可用的 OCR 文本，无法加入待处理列表。', 'warning');
+                    return;
+                }
+                const uniqueSuffix = Math.random().toString(36).slice(2,6);
+                const fileName = `${baseName}-retranslate-${uniqueSuffix}.md`;
+                try {
+                    const virtualFile = new File([mdText], fileName, { type: 'text/markdown' });
+                    try { virtualFile.virtualType = 'retranslate'; } catch(_) {}
+                    if (typeof addFilesToList === 'function') {
+                        addFilesToList([virtualFile]);
+                        showNotification && showNotification(`已将“${fileName}”加入待处理列表，请在主界面点击“开始处理”。`, 'success');
+                    } else {
+                        // 后备：直接操作全局数组并刷新UI
+                        if (typeof window !== 'undefined' && Array.isArray(window.pdfFiles)) {
+                            window.pdfFiles.push(virtualFile);
+                            if (typeof updateFileListUI === 'function' && typeof updateProcessButtonState === 'function' && typeof handleRemoveFile === 'function') {
+                                updateFileListUI(window.pdfFiles, window.isProcessing || false, handleRemoveFile);
+                                updateProcessButtonState(window.pdfFiles, window.isProcessing || false);
+                            }
+                            showNotification && showNotification(`已将“${fileName}”加入待处理列表，请在主界面点击“开始处理”。`, 'success');
+                        } else {
+                            showNotification && showNotification('无法加入待处理列表：缺少文件列表接口。', 'error');
+                        }
+                    }
+                } catch (e) {
+                    console.error('创建虚拟文件失败:', e);
+                    showNotification && showNotification('创建虚拟文件失败，无法加入待处理列表。', 'error');
+                }
+            } else {
+                // 仅重试失败段 -> 改为加入待处理列表（仅包含失败片段的 OCR 文本）
+                const total = Array.isArray(record.ocrChunks) ? record.ocrChunks.length : 0;
+                if (total === 0) {
+                    showNotification && showNotification('此记录缺少分块信息，无法筛选失败片段。', 'warning');
+                    return;
+                }
+                if (!Array.isArray(record.translatedChunks)) {
+                    showNotification && showNotification('此记录缺少译文分块信息，无法识别失败片段。', 'warning');
+                    return;
+                }
+                const pieces = [];
+                for (let i = 0; i < total; i++) {
+                    if (_isChunkFailed(record.translatedChunks[i])) {
+                        const ocrText = record.ocrChunks[i] || '';
+                        if (ocrText.trim()) {
+                            // 添加可解析的原始分块索引标记
+                            pieces.push(`<!-- PBX-CHUNK-INDEX:${i} -->\n\n${ocrText}`);
+                        }
+                    }
+                }
+                if (pieces.length === 0) {
+                    showNotification && showNotification('没有需要重试的片段。', 'info');
+                    return;
+                }
+                const header = `<!-- PBX-HISTORY-REF:${record.id} -->\n<!-- PBX-MODE:retry-failed -->\n`;
+                const mdText = header + pieces.join('\n\n\n');
+                const baseName = (record.name || 'document').replace(/\.pdf$/i, '');
+                const uniqueSuffix = Math.random().toString(36).slice(2,6);
+                const fileName = `${baseName}-retry-failed-${uniqueSuffix}.md`;
+                try {
+                    const virtualFile = new File([mdText], fileName, { type: 'text/markdown' });
+                    try { virtualFile.virtualType = 'retry-failed'; } catch(_) {}
+                    if (typeof addFilesToList === 'function') {
+                        addFilesToList([virtualFile]);
+                        showNotification && showNotification(`已将“${fileName}”加入待处理列表（失败片段），请点击“开始处理”。`, 'success');
+                    } else if (typeof window !== 'undefined' && Array.isArray(window.pdfFiles)) {
+                        window.pdfFiles.push(virtualFile);
+                        if (typeof updateFileListUI === 'function' && typeof updateProcessButtonState === 'function' && typeof handleRemoveFile === 'function') {
+                            updateFileListUI(window.pdfFiles, window.isProcessing || false, handleRemoveFile);
+                            updateProcessButtonState(window.pdfFiles, window.isProcessing || false);
+                        }
+                        showNotification && showNotification(`已将“${fileName}”加入待处理列表（失败片段），请点击“开始处理”。`, 'success');
+                    } else {
+                        showNotification && showNotification('无法加入待处理列表：缺少文件列表接口。', 'error');
+                    }
+                } catch (e) {
+                    console.error('创建虚拟文件失败:', e);
+                    showNotification && showNotification('创建虚拟文件失败，无法加入待处理列表。', 'error');
+                }
+            }
+
+            // 刷新列表显示状态
+            await renderHistoryList();
+        } catch (e) {
+            console.error('重译发生错误:', e);
+            showNotification && showNotification(`重译失败：${e && e.message ? e.message : String(e)}`, 'error');
+        } finally {
+            _setBusy(id, false, '');
+        }
+    }
+
+    /**
+     * (全局可调用) 对历史记录执行重新翻译
+     * @param {string} id 历史记录ID
+     * @param {('all'|'failed')} mode 模式：全部或仅失败
+     */
+    window.retryTranslateRecord = function(id, mode) {
+        _retryRecordInternal(id, mode === 'all' ? 'all' : 'failed');
     };
 });

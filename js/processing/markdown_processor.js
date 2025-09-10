@@ -20,30 +20,47 @@
         performance.measure('safeMarkdown', 'safeMarkdown-start', 'safeMarkdown-end');
         return '';
       }
-      // 构建图片名与base64的映射表，支持多种key
+      // 构建图片名与base64的映射表，支持多种key（兼容 OCR 使用的 images/<id>.png 与旧格式 img-#.jpeg.png）
       let imgMap = {};
       if (Array.isArray(images)) {
         images.forEach((img, idx) => {
           let keys = [];
           if (img.name) keys.push(img.name);
           if (img.id) keys.push(img.id);
+          // 旧的顺序文件名
           keys.push(`img-${idx}.jpeg.png`);
           keys.push(`img-${idx+1}.jpeg.png`);
-          // 兼容 images/ 前缀
-          keys = keys.concat(keys.map(k => 'images/' + k));
+
+          // 为每个 key 添加常见扩展与前缀组合
+          const expanded = new Set();
+          keys.forEach(k => {
+            expanded.add(k);
+            expanded.add(k + '.png');
+            expanded.add('images/' + k);
+            expanded.add('images/' + k + '.png');
+          });
+
           let src = img.data.startsWith('data:') ? img.data : 'data:image/png;base64,' + img.data;
-          keys.forEach(k => imgMap[k] = src);
+          expanded.forEach(k => imgMap[k] = src);
         });
       }
-      // 替换Markdown中的本地图片引用为base64
-      md = md.replace(/!\[.*?\]\((?:images\/)?(img-\d+\.jpeg\.png)\)/gi, function(_, fname) {
-        if (imgMap[fname]) {
-          return `![](${imgMap[fname]})`;
-        } else {
-          // 如果图片在映射中找不到，保留原始路径或显示alt文本
-          // console.warn("Image not found in map:", fname);
-          return `<span>[图片: ${fname}]</span>`; // 或者返回 match
-        }
+      // 替换Markdown中的本地图片引用为base64（泛化匹配）
+      md = md.replace(/!\[[^\]]*\]\(([^)]+)\)/g, function(match, path) {
+        // 仅处理相对路径（避免 http/https/data 等外链）
+        const p = String(path).trim();
+        if (/^(https?:|data:|\/\/)/i.test(p)) return match;
+
+        // 去除查询与锚点
+        const clean = p.split('?')[0].split('#')[0];
+        // 尝试直接映射
+        if (imgMap[clean]) return `![](${imgMap[clean]})`;
+
+        // 再尝试去掉前导 './'
+        const noDot = clean.replace(/^\.\//, '');
+        if (imgMap[noDot]) return `![](${imgMap[noDot]})`;
+
+        // 保留原样（可能是外部相对路径，或稍后由打包器处理）
+        return match;
       });
       // 处理上标、下标等自定义语法
       md = md.replace(/\$\{\s*([^}]*)\s*\}\^\{([^}]*)\}\$/g, function(_, base, sup) {
@@ -82,6 +99,7 @@
 
     /**
      * 使用 KaTeX 渲染 Markdown 文本中的数学公式，并提供降级处理。
+     * 支持延迟渲染选项以提升大文档的性能。
      * 它会按以下顺序处理：
      * 1. 将长度较短 (<=10字符) 的块级公式 `$$...$$` 转换为行内公式 `$...\$`。
      * 2. 尝试使用 KaTeX 渲染行内公式 `$...\$`。如果渲染失败，则将公式内容包裹在 `<code>` 标签中显示。
@@ -90,6 +108,7 @@
      *
      * @param {string} md - 经过 `safeMarkdown` 处理的 Markdown 文本。
      * @param {Function} customRenderer - 自定义的 Markdown 渲染器函数，用于处理特殊内容。
+     * @param {boolean} lazyRender - 是否启用延迟渲染模式，适用于大文档性能优化。
      * @returns {string} 包含渲染后公式和其余 Markdown 内容的 HTML 字符串。
      */
     function renderWithKatexFailback(md, customRenderer) {

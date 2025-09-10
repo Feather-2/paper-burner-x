@@ -374,6 +374,23 @@ async function translateLongDocument(
                 let result;
 
                 if (task.type === 'text') {
+                    // Step 1: 为任务预绑定提示词并入队，便于失败时做“真正队列替换”
+                    let boundPrompt = null;
+                    let requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2,8)}_t${task.index}`;
+                    try {
+                        if (typeof window !== 'undefined' && window.promptPoolUI && typeof window.promptPoolUI.getPromptForTranslation === 'function') {
+                            const p = window.promptPoolUI.getPromptForTranslation();
+                            // 仅当池模式返回 id/system/user 时认为可用
+                            if (p && p.id && p.systemPrompt && p.userPromptTemplate) {
+                                boundPrompt = p;
+                                if (typeof window.translationPromptPool !== 'undefined' && typeof window.translationPromptPool.enqueueRequest === 'function') {
+                                    window.translationPromptPool.enqueueRequest(p.id, { requestId, model: (apiConfig && apiConfig.modelName) || model });
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('[PromptPool] 预绑定提示词失败（跳过绑定）:', e);
+                    }
                     // 翻译文本块
                     //console.log('document.js 调用 translateMarkdown 参数:', {
                     //    useCustomPrompts,
@@ -397,7 +414,8 @@ async function translateLongDocument(
                             updatedSystemPrompt,
                             defaultUserPromptTemplate,
                             useCustomPrompts,
-                            false
+                            false,
+                            { boundPrompt, requestId }
                         );
                     } else {
                         result = await translateMarkdown(
@@ -409,7 +427,8 @@ async function translateLongDocument(
                             updatedSystemPrompt,
                             defaultUserPromptTemplate,
                             useCustomPrompts,
-                            false
+                            false,
+                            { boundPrompt, requestId }
                         );
                     }
                     //console.log('document.js translateMarkdown 返回:', result);

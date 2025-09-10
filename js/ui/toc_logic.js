@@ -1271,12 +1271,40 @@
             showTemporaryLoadingEffect(originalText || "目标章节");
           }
 
-            // 修改：将元素滚动到视口中间而不是顶部
-            targetElement.scrollIntoView({
-              behavior: 'smooth',
-              block: 'center', // 改为center使目标元素位于视口中间
-              inline: 'nearest'
-            });
+            // 修复：在沉浸模式下使用自定义滚动逻辑，避免布局偏移
+            if (window.ImmersiveLayout && window.ImmersiveLayout.isActive()) {
+              // 沉浸模式下使用自定义滚动定位
+              const scrollContainer = document.querySelector('#immersive-main-content-area .tab-content');
+              if (scrollContainer && scrollContainer.style.overflowY === 'auto') {
+                // 计算目标元素相对于滚动容器的位置
+                const containerRect = scrollContainer.getBoundingClientRect();
+                const targetRect = targetElement.getBoundingClientRect();
+                const currentScrollTop = scrollContainer.scrollTop;
+                
+                // 计算目标位置（将元素置于容器中心）
+                const targetScrollTop = currentScrollTop + targetRect.top - containerRect.top - (containerRect.height / 2) + (targetRect.height / 2);
+                
+                // 平滑滚动到目标位置
+                scrollContainer.scrollTo({
+                  top: Math.max(0, targetScrollTop),
+                  behavior: 'smooth'
+                });
+              } else {
+                // 备用方案：使用原生scrollIntoView
+                targetElement.scrollIntoView({
+                  behavior: 'smooth',
+                  block: 'center',
+                  inline: 'nearest'
+                });
+              }
+            } else {
+              // 普通模式下使用原生scrollIntoView
+              targetElement.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center',
+                inline: 'nearest'
+              });
+            }
 
             // 添加临时高亮效果
             targetElement.classList.add('toc-target-highlight');

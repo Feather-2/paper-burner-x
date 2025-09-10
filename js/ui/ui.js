@@ -20,6 +20,219 @@ function _generateUUID_ui() {
     );
 }
 
+// Gemini 模型信息区（检测与默认模型选择）
+function renderGeminiInfoPanel() {
+    const keys = typeof loadModelKeys === 'function' ? (loadModelKeys('gemini') || []) : [];
+    const usableKeys = keys.filter(k => k.status !== 'invalid' && k.value);
+    const keysHint = document.getElementById('geminiKeysCountHint');
+    if (keysHint) keysHint.textContent = usableKeys.length > 0 ? `可用Key: ${usableKeys.length}` : '无可用 Key';
+
+    const selectEl = document.getElementById('geminiModelSelect');
+    const hintEl = document.getElementById('geminiModelHint');
+    const cfg = typeof loadModelConfig === 'function' ? (loadModelConfig('gemini') || {}) : {};
+    const preferred = cfg.preferredModelId || cfg.modelId || '';
+
+    if (selectEl && selectEl.dataset.initialized !== 'true') {
+        // 初始填充一个条目用于展示当前默认
+        selectEl.innerHTML = '';
+        if (preferred) {
+            const opt = document.createElement('option');
+            opt.value = preferred; opt.textContent = preferred + '（当前）';
+            selectEl.appendChild(opt);
+        } else {
+            const opt = document.createElement('option');
+            opt.value = ''; opt.textContent = '（未设置，点击检测获取列表）';
+            selectEl.appendChild(opt);
+        }
+        selectEl.dataset.initialized = 'true';
+    }
+
+    if (selectEl) {
+        selectEl.onchange = function() {
+            const val = this.value;
+            if (val) {
+                if (typeof saveModelConfig === 'function') saveModelConfig('gemini', { preferredModelId: val });
+                if (typeof showNotification === 'function') showNotification(`Gemini 默认模型已设为 ${val}`, 'success');
+            }
+        };
+    }
+
+    const detectBtn = document.getElementById('geminiDetectBtn');
+    if (detectBtn) {
+        detectBtn.onclick = async function() {
+            if (usableKeys.length === 0) {
+                if (typeof showNotification === 'function') showNotification('请先在“模型与Key管理”中添加 Gemini 的 API Key', 'warning');
+                return;
+            }
+            detectBtn.disabled = true;
+            detectBtn.textContent = '检测中...';
+            try {
+                const apiKey = usableKeys[0].value.trim();
+                const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`);
+                if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+                const data = await resp.json();
+                const items = Array.isArray(data.models || data.data) ? (data.models || data.data) : [];
+                if (!selectEl) return;
+                if (items.length === 0) {
+                    selectEl.innerHTML = '<option value="">（未返回模型列表）</option>';
+                    if (hintEl) hintEl.textContent = '未返回模型列表。';
+                } else {
+                    selectEl.innerHTML = '';
+                    items.forEach(m => {
+                        const id = m.name ? String(m.name).split('/').pop() : (m.id || '');
+                        if (!id) return;
+                        const opt = document.createElement('option');
+                        opt.value = id; opt.textContent = id;
+                        if (preferred && id === preferred) opt.selected = true;
+                        selectEl.appendChild(opt);
+                    });
+                    if (hintEl) hintEl.textContent = '从列表中选择默认模型。';
+                }
+            } catch (e) {
+                console.error(e);
+                if (hintEl) hintEl.textContent = `检测失败：${e.message}`;
+            } finally {
+                detectBtn.disabled = false;
+                detectBtn.textContent = '检测可用模型';
+            }
+        };
+    }
+}
+
+// DeepSeek 面板
+function renderDeepseekInfoPanel() {
+    const keys = typeof loadModelKeys === 'function' ? (loadModelKeys('deepseek') || []) : [];
+    const usableKeys = keys.filter(k => k.status !== 'invalid' && k.value);
+    const keysHint = document.getElementById('deepseekKeysCountHint');
+    if (keysHint) keysHint.textContent = usableKeys.length > 0 ? `可用Key: ${usableKeys.length}` : '无可用 Key';
+    const selectEl = document.getElementById('deepseekModelSelect');
+    const hintEl = document.getElementById('deepseekModelHint');
+    const cfg = typeof loadModelConfig === 'function' ? (loadModelConfig('deepseek') || {}) : {};
+    const preferred = cfg.preferredModelId || cfg.modelId || '';
+    if (selectEl && selectEl.options.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = preferred; opt.textContent = preferred ? preferred + '（当前）' : '（未设置，点击检测获取列表）';
+        selectEl.appendChild(opt);
+    }
+    selectEl.onchange = function(){
+        if (!this.value) return;
+        if (typeof saveModelConfig === 'function') saveModelConfig('deepseek', { preferredModelId: this.value });
+        if (typeof showNotification === 'function') showNotification(`DeepSeek 默认模型已设为 ${this.value}`, 'success');
+    };
+    const detectBtn = document.getElementById('deepseekDetectBtn');
+    if (detectBtn) detectBtn.onclick = async function(){
+        if (usableKeys.length === 0) { showNotification && showNotification('请先在Key管理中添加 DeepSeek Key','warning'); return; }
+        detectBtn.disabled = true; detectBtn.textContent = '检测中...';
+        try{
+            const apiKey = usableKeys[0].value.trim();
+            const resp = await fetch('https://api.deepseek.com/v1/models', { headers: { 'Authorization': `Bearer ${apiKey}` } });
+            if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+            const data = await resp.json();
+            const items = Array.isArray(data.data) ? data.data : [];
+            if (items.length === 0) { if (hintEl) hintEl.textContent='未返回模型列表'; selectEl.innerHTML='<option value="">（未返回模型列表）</option>'; return; }
+            selectEl.innerHTML='';
+            items.forEach(m=>{ const id = m.id; if (!id) return; const opt=document.createElement('option'); opt.value=id; opt.textContent=id; if (preferred && id===preferred) opt.selected=true; selectEl.appendChild(opt); });
+            if (hintEl) hintEl.textContent='从列表中选择默认模型。';
+        }catch(e){ if (hintEl) hintEl.textContent=`检测失败：${e.message}`; }
+        finally{ detectBtn.disabled=false; detectBtn.textContent='检测可用模型'; }
+    };
+}
+
+// 通义 面板
+function renderTongyiInfoPanel() {
+    // 聚合两个通义条目的 Key
+    let keys = [];
+    if (typeof loadModelKeys === 'function') {
+        keys = loadModelKeys('tongyi') || [];
+    }
+    const usableKeys = keys.filter(k => k.status !== 'invalid' && k.value);
+    const keysHint = document.getElementById('tongyiKeysCountHint');
+    if (keysHint) keysHint.textContent = usableKeys.length > 0 ? `可用Key: ${usableKeys.length}` : '无可用 Key';
+    const selectEl = document.getElementById('tongyiModelSelect');
+    const hintEl = document.getElementById('tongyiModelHint');
+    const cfg = typeof loadModelConfig === 'function' ? (loadModelConfig('tongyi') || {}) : {};
+    const preferred = cfg.preferredModelId || cfg.modelId || '';
+    if (selectEl && selectEl.options.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = preferred; opt.textContent = preferred ? preferred + '（当前）' : '（未设置，请手动输入或在设置中选择）';
+        selectEl.appendChild(opt);
+    }
+    selectEl.onchange = function(){ if (!this.value) return; saveModelConfig && saveModelConfig('tongyi', { preferredModelId: this.value }); showNotification && showNotification(`通义 默认模型已设为 ${this.value}`, 'success'); };
+    const detectBtn = document.getElementById('tongyiDetectBtn');
+    if (detectBtn) detectBtn.onclick = async function(){
+        if (usableKeys.length === 0) { showNotification && showNotification('请先在Key管理中添加 通义 Key','warning'); return; }
+        detectBtn.disabled = true; detectBtn.textContent='检测中...';
+        try{
+            const apiKey = usableKeys[0].value.trim();
+            // 使用 OpenAI 兼容模式的模型列表端点（用户指定）
+            const resp = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/models', { headers: { 'Authorization': `Bearer ${apiKey}` } });
+            if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+            const data = await resp.json();
+            const items = Array.isArray(data.data) ? data.data : (Array.isArray(data.models) ? data.models : (Array.isArray(data?.data?.models) ? data.data.models : []));
+            if (!items || items.length===0) { if(hintEl) hintEl.textContent='未返回模型列表'; selectEl.innerHTML='<option value="">（未返回模型列表）</option>'; return; }
+            selectEl.innerHTML='';
+            items.forEach(m=>{ const id = m.model || m.id || m.name; if (!id) return; const opt=document.createElement('option'); opt.value=id; opt.textContent=id; if (preferred && id===preferred) opt.selected=true; selectEl.appendChild(opt); });
+            if (hintEl) hintEl.textContent='从列表中选择默认模型。';
+        }catch(e){ if(hintEl) hintEl.textContent=`检测失败：${e.message}`; }
+        finally{ detectBtn.disabled=false; detectBtn.textContent='检测可用模型'; }
+    };
+}
+
+// 火山 面板
+function renderVolcanoInfoPanel() {
+    let keys = [];
+    if (typeof loadModelKeys === 'function') {
+        keys = loadModelKeys('volcano') || [];
+    }
+    const usableKeys = keys.filter(k => k.status !== 'invalid' && k.value);
+    const keysHint = document.getElementById('volcanoKeysCountHint');
+    if (keysHint) keysHint.textContent = usableKeys.length > 0 ? `可用Key: ${usableKeys.length}` : '无可用 Key';
+    const selectEl = document.getElementById('volcanoModelSelect');
+    const hintEl = document.getElementById('volcanoModelHint');
+    const cfg = typeof loadModelConfig === 'function' ? (loadModelConfig('volcano') || {}) : {};
+    const preferred = cfg.preferredModelId || cfg.modelId || '';
+    if (selectEl && selectEl.options.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = preferred; opt.textContent = preferred ? preferred + '（当前）' : '（未设置，请手动输入或在设置中选择）';
+        selectEl.appendChild(opt);
+    }
+    selectEl.onchange = function(){ if (!this.value) return; saveModelConfig && saveModelConfig('volcano', { preferredModelId: this.value }); showNotification && showNotification(`火山 默认模型已设为 ${this.value}`, 'success'); };
+    const detectBtn = document.getElementById('volcanoDetectBtn');
+    if (detectBtn) {
+        // 按用户要求：不提供在线检测，改为手动填写
+        detectBtn.style.display = 'none';
+        if (hintEl) hintEl.textContent = '请手动输入模型ID，或在设置中选择。';
+    }
+
+    // 手动输入模型ID支持
+    if (selectEl) {
+        const manualWrap = document.createElement('div');
+        manualWrap.className = 'mt-2 flex items-center gap-2';
+        manualWrap.innerHTML = `
+            <input id="volcanoManualInput" type="text" class="flex-grow px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500" placeholder="例如：doubao-1-5-pro-32k-250115">
+            <button id="volcanoSaveModelBtn" class="px-3 py-1.5 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 transition-colors">保存为默认</button>
+        `;
+        selectEl.parentElement.appendChild(manualWrap);
+
+        const inputEl = manualWrap.querySelector('#volcanoManualInput');
+        const saveBtn = manualWrap.querySelector('#volcanoSaveModelBtn');
+        if (preferred) inputEl.value = preferred;
+        saveBtn.onclick = function() {
+            const val = (inputEl.value || '').trim();
+            if (!val) { showNotification && showNotification('请输入模型ID', 'warning'); return; }
+            if (typeof saveModelConfig === 'function') saveModelConfig('volcano', { preferredModelId: val });
+            // 确保下拉里也能选到
+            let has = false;
+            for (let i=0;i<selectEl.options.length;i++){ if (selectEl.options[i].value === val) { has = true; break; } }
+            if (!has) {
+                const opt = document.createElement('option'); opt.value = val; opt.textContent = val; selectEl.appendChild(opt);
+            }
+            selectEl.value = val;
+            showNotification && showNotification(`火山 默认模型已设为 ${val}`, 'success');
+        };
+    }
+}
+
 // ---------------------
 // 表单元素创建工具 (NEW - for renderSourceSiteForm)
 // ---------------------
@@ -345,13 +558,31 @@ function updateFileListUI(pdfFiles, isProcessing, onRemoveFile) {
         pdfFiles.forEach((file, index) => {
             const listItem = document.createElement('div');
             listItem.className = 'file-list-item';
+            // 识别虚拟文件类型（基于自定义属性或文件名模式）
+            let virtualBadge = '';
+            const vType = (file && file.virtualType) ? String(file.virtualType) : '';
+            const nameLower = (file && file.name) ? file.name.toLowerCase() : '';
+            const isRetranslate = vType === 'retranslate' || /-retranslate-/.test(nameLower);
+            const isRetryFailed = vType === 'retry-failed' || /-retry-failed-/.test(nameLower);
+            if (isRetranslate) {
+                virtualBadge = '<span class="ml-2 inline-block text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 flex-shrink-0">重译</span>';
+            } else if (isRetryFailed) {
+                virtualBadge = '<span class="ml-2 inline-block text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 flex-shrink-0">失败重试</span>';
+            }
+
+            // 简单按扩展名变化图标
+            const ext = (file.name.split('.').pop() || '').toLowerCase();
+            const icon = ext === 'pdf' ? 'carbon:document-pdf' : 'carbon:document'
+            const iconColor = ext === 'pdf' ? 'text-red-500' : 'text-gray-500';
+
             listItem.innerHTML = `
                 <div class="flex items-center overflow-hidden mr-2">
-                    <iconify-icon icon="carbon:document-pdf" class="text-red-500 mr-2 flex-shrink-0" width="20"></iconify-icon>
+                    <iconify-icon icon="${icon}" class="${iconColor} mr-2 flex-shrink-0" width="20"></iconify-icon>
                     <span class="text-sm text-gray-800 truncate" title="${file.name}">${file.name}</span>
+                    ${virtualBadge}
                     <span class="text-xs text-gray-500 ml-2 flex-shrink-0">(${formatFileSize(file.size)})</span>
                 </div>
-                <button data-index="${index}" class="remove-file-btn text-gray-400 hover:text-red-600 flex-shrink-0">
+                <button data-index="${index}" class="remove-file-btn text-gray-400 hover:text-red-600 flex-shrink-0" title="移除">
                     <iconify-icon icon="carbon:close" width="16"></iconify-icon>
                 </button>
             `;
@@ -517,6 +748,42 @@ function updateTranslationUIVisibility(isProcessing) {
         }
     }
     // ----- 结束新增 -----
+
+    // ----- 新增：Gemini 默认模型信息面板显示/隐藏 -----
+    const geminiInfo = document.getElementById('geminiModelInfo');
+    if (geminiInfo) {
+        if (translationModelValue === 'gemini') {
+            geminiInfo.classList.remove('hidden');
+            try { renderGeminiInfoPanel(); } catch (e) { console.error('renderGeminiInfoPanel error', e); }
+        } else {
+            geminiInfo.classList.add('hidden');
+        }
+    }
+
+    // DeepSeek 信息面板
+    const dsInfo = document.getElementById('deepseekModelInfo');
+    if (dsInfo) {
+        if (translationModelValue === 'deepseek') {
+            dsInfo.classList.remove('hidden');
+            try { renderDeepseekInfoPanel(); } catch(e){ console.error(e); }
+        } else dsInfo.classList.add('hidden');
+    }
+    // 通义信息（两个选项都显示同一面板）
+    const tyInfo = document.getElementById('tongyiModelInfo');
+    if (tyInfo) {
+        if (translationModelValue === 'tongyi') {
+            tyInfo.classList.remove('hidden');
+            try { renderTongyiInfoPanel(); } catch(e){ console.error(e); }
+        } else tyInfo.classList.add('hidden');
+    }
+    // 火山信息
+    const vcInfo = document.getElementById('volcanoModelInfo');
+    if (vcInfo) {
+        if (translationModelValue === 'volcano') {
+            vcInfo.classList.remove('hidden');
+            try { renderVolcanoInfoPanel(); } catch(e){ console.error(e); }
+        } else vcInfo.classList.add('hidden');
+    }
 }
 
 // ---------------------
@@ -750,13 +1017,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const supportedModelsForKeyManager = [
         { key: 'mistral', name: 'Mistral OCR' },
-        { key: 'deepseek', name: 'DeepSeek v3' },
-        { key: 'gemini', name: 'Gemini 2.0 Flash' },
-        { key: 'gemini-preview', name: 'Gemini-2.5 Preview' },
-        { key: 'tongyi-deepseek-v3', name: '通义百炼 DeepSeek v3' },
-        { key: 'tongyi-qwen-turbo', name: '通义百炼 Qwen Turbo' },
-        { key: 'volcano-deepseek-v3', name: '火山引擎 DeepSeek v3' },
-        { key: 'volcano-doubao', name: '火山引擎 豆包1.5-Pro' },
+        { key: 'deepseek', name: 'deepseek' },
+        { key: 'gemini', name: 'gemini' },
+        { key: 'tongyi', name: '通义百炼' },
+        { key: 'volcano', name: '火山引擎' },
         { key: 'custom', name: '自定义翻译模型' }
     ];
 
@@ -1212,6 +1476,190 @@ document.addEventListener('DOMContentLoaded', function() {
             loadModelKeys,
             saveModelKeys
         );
+
+        // 追加：对于 Gemini 提供“检测可用模型并设为默认”的小面板
+        if (modelKeyOrSourceSiteModelName === 'gemini') {
+            const panel = document.createElement('div');
+            panel.className = 'mt-4 p-3 border rounded-md bg-blue-50';
+            panel.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <div class="text-sm text-blue-800 font-medium">Gemini 可用模型检测</div>
+                    <button id="detectGeminiModelsBtn" class="px-2 py-1 text-xs border rounded hover:bg-white">检测</button>
+                </div>
+                <div id="geminiModelsArea" class="mt-2 text-sm text-gray-700">
+                    <span class="text-gray-500">点击“检测”从 Google API 拉取模型列表</span>
+                </div>
+            `;
+            keyManagerColumn.appendChild(panel);
+
+            const detectBtn = panel.querySelector('#detectGeminiModelsBtn');
+            const area = panel.querySelector('#geminiModelsArea');
+            detectBtn.onclick = async () => {
+                const keys = (loadModelKeys('gemini') || []).filter(k => k.status !== 'invalid' && k.value);
+                if (keys.length === 0) { area.innerHTML = '<span class="text-red-600">无可用 Gemini API Key</span>'; return; }
+                const apiKey = keys[0].value.trim();
+                detectBtn.disabled = true; detectBtn.textContent = '检测中...';
+                try {
+                    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`);
+                    if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+                    const data = await resp.json();
+                    const items = Array.isArray(data.models || data.data) ? (data.models || data.data) : [];
+                    if (items.length === 0) { area.innerHTML = '<span class="text-gray-500">未返回模型列表</span>'; return; }
+                    const select = document.createElement('select');
+                    select.className = 'mt-2 w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm';
+                    items.forEach(m => {
+                        const id = m.name ? String(m.name).split('/').pop() : (m.id || '');
+                        if (!id) return;
+                        const opt = document.createElement('option');
+                        opt.value = id; opt.textContent = id;
+                        select.appendChild(opt);
+                    });
+                    const saveBtn = document.createElement('button');
+                    saveBtn.className = 'mt-2 px-3 py-1.5 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded';
+                    saveBtn.textContent = '设为默认模型';
+                    saveBtn.onclick = () => {
+                        saveModelConfig('gemini', { preferredModelId: select.value });
+                        if (typeof showNotification === 'function') showNotification(`Gemini 默认模型已设为 ${select.value}`, 'success');
+                    };
+                    area.innerHTML = '';
+                    area.appendChild(select);
+                    area.appendChild(saveBtn);
+                } catch (e) {
+                    console.error(e);
+                    area.innerHTML = `<span class="text-red-600">检测失败: ${e.message}</span>`;
+                } finally {
+                    detectBtn.disabled = false; detectBtn.textContent = '检测';
+                }
+            };
+        }
+
+        // 追加：DeepSeek 检测面板
+        if (modelKeyOrSourceSiteModelName === 'deepseek') {
+            const panel = document.createElement('div');
+            panel.className = 'mt-4 p-3 border rounded-md bg-blue-50';
+            panel.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <div class="text-sm text-blue-800 font-medium">DeepSeek 可用模型检测</div>
+                    <button id="detectDeepseekModelsBtn" class="px-2 py-1 text-xs border rounded hover:bg-white">检测</button>
+                </div>
+                <div id="deepseekModelsArea" class="mt-2 text-sm text-gray-700">
+                    <span class="text-gray-500">点击“检测”从 DeepSeek API 拉取模型列表</span>
+                </div>
+            `;
+            keyManagerColumn.appendChild(panel);
+            const detectBtn = panel.querySelector('#detectDeepseekModelsBtn');
+            const area = panel.querySelector('#deepseekModelsArea');
+            detectBtn.onclick = async () => {
+                const keys = (loadModelKeys('deepseek') || []).filter(k => k.status !== 'invalid' && k.value);
+                if (keys.length === 0) { area.innerHTML = '<span class="text-red-600">无可用 DeepSeek API Key</span>'; return; }
+                const apiKey = keys[0].value.trim();
+                detectBtn.disabled = true; detectBtn.textContent = '检测中...';
+                try {
+                    const resp = await fetch('https://api.deepseek.com/v1/models', { headers: { 'Authorization': `Bearer ${apiKey}` } });
+                    if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+                    const data = await resp.json();
+                    const items = Array.isArray(data.data) ? data.data : [];
+                    if (items.length === 0) { area.innerHTML = '<span class="text-gray-500">未返回模型列表</span>'; return; }
+                    const select = document.createElement('select');
+                    select.className = 'mt-2 w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm';
+                    items.forEach(m => { const id = m.id; if (!id) return; const opt = document.createElement('option'); opt.value = id; opt.textContent = id; select.appendChild(opt); });
+                    const saveBtn = document.createElement('button');
+                    saveBtn.className = 'mt-2 px-3 py-1.5 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded';
+                    saveBtn.textContent = '设为默认模型';
+                    saveBtn.onclick = () => { saveModelConfig('deepseek', { preferredModelId: select.value }); showNotification && showNotification(`DeepSeek 默认模型已设为 ${select.value}`, 'success'); };
+                    area.innerHTML = '';
+                    area.appendChild(select);
+                    area.appendChild(saveBtn);
+                } catch(e) { console.error(e); area.innerHTML = `<span class=\"text-red-600\">检测失败: ${e.message}</span>`; }
+                finally { detectBtn.disabled = false; detectBtn.textContent = '检测'; }
+            };
+        }
+
+        // 追加：通义 检测面板（两个通义条目使用同一保存命名空间 'tongyi'）
+        if (modelKeyOrSourceSiteModelName === 'tongyi') {
+            const panel = document.createElement('div');
+            panel.className = 'mt-4 p-3 border rounded-md bg-blue-50';
+            panel.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <div class="text-sm text-blue-800 font-medium">通义 可用模型检测</div>
+                    <button id="detectTongyiModelsBtn" class="px-2 py-1 text-xs border rounded hover:bg-white">检测</button>
+                </div>
+                <div id="tongyiModelsArea" class="mt-2 text-sm text-gray-700">
+                    <span class="text-gray-500">点击“检测”从 DashScope API 拉取模型列表</span>
+                </div>
+            `;
+            keyManagerColumn.appendChild(panel);
+            const detectBtn = panel.querySelector('#detectTongyiModelsBtn');
+            const area = panel.querySelector('#tongyiModelsArea');
+            detectBtn.onclick = async () => {
+                let keys = (loadModelKeys('tongyi') || []);
+                keys = keys.filter(k => k.status !== 'invalid' && k.value);
+                if (keys.length === 0) { area.innerHTML = '<span class="text-red-600">无可用 通义 API Key</span>'; return; }
+                const apiKey = keys[0].value.trim();
+                detectBtn.disabled = true; detectBtn.textContent = '检测中...';
+                try {
+                    const resp = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/models', { headers: { 'Authorization': `Bearer ${apiKey}` } });
+                    if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+                    const data = await resp.json();
+                    const items = Array.isArray(data.data) ? data.data : (Array.isArray(data.models) ? data.models : (Array.isArray(data?.data?.models) ? data.data.models : []));
+                    if (!items || items.length === 0) { area.innerHTML = '<span class="text-gray-500">未返回模型列表</span>'; return; }
+                    const select = document.createElement('select');
+                    select.className = 'mt-2 w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm';
+                    items.forEach(m => { const id = m.model || m.id || m.name; if (!id) return; const opt = document.createElement('option'); opt.value = id; opt.textContent = id; select.appendChild(opt); });
+                    const saveBtn = document.createElement('button');
+                    saveBtn.className = 'mt-2 px-3 py-1.5 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded';
+                    saveBtn.textContent = '设为默认模型';
+                    saveBtn.onclick = () => { saveModelConfig('tongyi', { preferredModelId: select.value }); showNotification && showNotification(`通义 默认模型已设为 ${select.value}`, 'success'); };
+                    area.innerHTML = '';
+                    area.appendChild(select);
+                    area.appendChild(saveBtn);
+                } catch(e) { console.error(e); area.innerHTML = `<span class=\"text-red-600\">检测失败: ${e.message}</span>`; }
+                finally { detectBtn.disabled = false; detectBtn.textContent = '检测'; }
+            };
+        }
+
+        // 追加：火山 检测面板（两个火山条目使用 'volcano'）
+        if (modelKeyOrSourceSiteModelName === 'volcano') {
+            const panel = document.createElement('div');
+            panel.className = 'mt-4 p-3 border rounded-md bg-blue-50';
+            panel.innerHTML = `
+                <div class="flex items-center justify之间">
+                    <div class="text-sm text-blue-800 font-medium">火山 可用模型检测</div>
+                    <button id="detectVolcanoModelsBtn" class="px-2 py-1 text-xs border rounded hover:bg白">检测</button>
+                </div>
+                <div id="volcanoModelsArea" class="mt-2 text-sm text-gray-700">
+                    <span class="text-gray-500">点击“检测”从 Ark API 拉取模型列表</span>
+                </div>
+            `;
+            // 修正误植
+            panel.innerHTML = panel.innerHTML.replace('之间', 'between').replace('白', 'white');
+            keyManagerColumn.appendChild(panel);
+            const detectBtn = panel.querySelector('#detectVolcanoModelsBtn');
+            const area = panel.querySelector('#volcanoModelsArea');
+            // 按用户要求：不提供在线检测，改为手动输入并保存
+            if (detectBtn && area) {
+                detectBtn.style.display = 'none';
+                area.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <input id="volcanoKMManualInput" type="text" class="flex-grow px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500" placeholder="例如：doubao-1-5-pro-32k-250115">
+                        <button id="volcanoKMSaveBtn" class="px-3 py-1.5 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded">设为默认</button>
+                    </div>
+                    <div class="mt-1 text-xs text-gray-600">不提供在线检测；请手动输入模型ID。</div>
+                `;
+                try { const cfg = loadModelConfig && loadModelConfig('volcano'); if (cfg && (cfg.preferredModelId || cfg.modelId)) area.querySelector('#volcanoKMManualInput').value = cfg.preferredModelId || cfg.modelId; } catch {}
+                const saveBtn = area.querySelector('#volcanoKMSaveBtn');
+                saveBtn.onclick = () => {
+                    const val = (area.querySelector('#volcanoKMManualInput').value || '').trim();
+                    if (!val) { showNotification && showNotification('请输入模型ID', 'warning'); return; }
+                    saveModelConfig && saveModelConfig('volcano', { preferredModelId: val });
+                    showNotification && showNotification(`火山 默认模型已设为 ${val}`, 'success');
+                };
+                // 不再绑定在线检测
+                return;
+            }
+            if (detectBtn) detectBtn.style.display = 'none';
+            if (area) area.innerHTML = '<span class="text-gray-600">请手动输入模型ID，或在设置中选择。示例：<code>doubao-1-5-pro-32k-250115</code> / <code>deepseek-v3-250324</code></span>';
+        }
     }
 
     async function handleTestKey(modelName, keyObject) {
