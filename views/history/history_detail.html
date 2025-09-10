@@ -1194,17 +1194,51 @@
                       <div class="align-block align-block-ocr">
                         <div class="align-title">
                           <span>${titleLeft}</span>
-                          <button class="block-struct-copy-btn" data-block="${blockIndex}" data-type="ocr" data-idx="para-${i}" title="复制原文结构">复制</button>
+                          <div class="align-actions">
+                            <button class="block-struct-copy-btn block-icon-btn" data-block="${blockIndex}" data-type="ocr" data-idx="${i}" title="复制原文结构">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                            </button>
+                            <button class="block-edit-btn block-icon-btn" data-block="${blockIndex}" data-type="ocr" data-idx="${i}" title="编辑此段">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+                            </button>
+                            <button class="block-edit-reset-btn block-icon-btn" data-block="${blockIndex}" data-type="ocr" data-idx="${i}" title="重置为原文" style="display:none;">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+                            </button>
+                          </div>
                         </div>
-                        <div class="align-content markdown-body">${MarkdownProcessor.renderWithKatexFailback(MarkdownProcessor.safeMarkdown(stripEdgeWhitespace(pO), images), isOriginalFirstInChunkCompare ? ocrRenderer : transRenderer)}</div>
+                        <div class="align-content markdown-body" data-raw-markdown="${encodeURIComponent(stripEdgeWhitespace(pO))}">${MarkdownProcessor.renderWithKatexFailback(MarkdownProcessor.safeMarkdown(stripEdgeWhitespace((()=>{const key = `chunkOverride_${window.docIdForLocalStorage||'default'}_${blockIndex}_${i}_ocr`; const ov = localStorage.getItem(key); return ov ? ov : pO;})()), images), isOriginalFirstInChunkCompare ? ocrRenderer : transRenderer)}</div>
+                        <div class="align-edit-panel" style="display:none;">
+                          <textarea class="align-edit-area" style="width:100%;min-height:120px;box-sizing:border-box;"></textarea>
+                          <div class="align-edit-actions" style="margin-top:6px;display:flex;gap:8px;">
+                            <button class="align-edit-save" data-block="${blockIndex}" data-type="ocr" data-idx="para-${i}">保存</button>
+                            <button class="align-edit-cancel" data-block="${blockIndex}" data-type="ocr" data-idx="para-${i}">取消</button>
+                          </div>
+                        </div>
                       </div>
                       <div class="splitter" title="拖动调整比例"></div>
                       <div class="align-block align-block-trans">
                         <div class="align-title">
                           <span>${titleRight}</span>
-                          <button class="block-struct-copy-btn" data-block="${blockIndex}" data-type="trans" data-idx="para-${i}" title="复制译文结构">复制</button>
+                          <div class="align-actions">
+                            <button class="block-struct-copy-btn block-icon-btn" data-block="${blockIndex}" data-type="trans" data-idx="${i}" title="复制译文结构">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                            </button>
+                            <button class="block-edit-btn block-icon-btn" data-block="${blockIndex}" data-type="trans" data-idx="${i}" title="编辑此段">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+                            </button>
+                            <button class="block-edit-reset-btn block-icon-btn" data-block="${blockIndex}" data-type="trans" data-idx="${i}" title="重置为原文" style="display:none;">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+                            </button>
+                          </div>
                         </div>
-                        <div class="align-content markdown-body">${MarkdownProcessor.renderWithKatexFailback(MarkdownProcessor.safeMarkdown(stripEdgeWhitespace(pT), images), isOriginalFirstInChunkCompare ? transRenderer : ocrRenderer)}</div>
+                        <div class="align-content markdown-body" data-raw-markdown="${encodeURIComponent(stripEdgeWhitespace(pT))}">${MarkdownProcessor.renderWithKatexFailback(MarkdownProcessor.safeMarkdown(stripEdgeWhitespace((()=>{const key = `chunkOverride_${window.docIdForLocalStorage||'default'}_${blockIndex}_${i}_trans`; const ov = localStorage.getItem(key); return ov ? ov : pT;})()), images), isOriginalFirstInChunkCompare ? transRenderer : ocrRenderer)}</div>
+                        <div class="align-edit-panel" style="display:none;">
+                          <textarea class="align-edit-area" style="width:100%;min-height:120px;"></textarea>
+                          <div class="align-edit-actions" style="margin-top:6px;display:flex;gap:8px;">
+                            <button class="align-edit-save" data-block="${blockIndex}" data-type="trans" data-idx="para-${i}">保存</button>
+                            <button class="align-edit-cancel" data-block="${blockIndex}" data-type="trans" data-idx="para-${i}">取消</button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   `);
@@ -1217,20 +1251,54 @@
                   const titleRight = isTablePair ? '表格' : '译文';
                   alignedHTML.push(`
                     <div class="align-flex block-flex block-flex-${blockIndex} ${isTablePair ? 'table-pair ' : ''}${showMode==='ocr'?'block-mode-ocr-only':showMode==='trans'?'block-mode-trans-only':'block-mode-both'}" data-block="${blockIndex}" data-align-index="${i}">
-                      <div class="align-block align-block-ocr">
-                        <div class="align-title">
+                       <div class="align-block align-block-ocr">
+                         <div class="align-title">
                           <span>${titleLeft}</span>
-                          <button class="block-struct-copy-btn" data-block="${blockIndex}" data-type="ocr" data-idx="${i}" title="复制原文结构">复制</button>
+                          <div class="align-actions">
+                            <button class="block-struct-copy-btn block-icon-btn" data-block="${blockIndex}" data-type="ocr" data-idx="${i}" title="复制原文结构">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                            </button>
+                            <button class="block-edit-btn block-icon-btn" data-block="${blockIndex}" data-type="ocr" data-idx="${i}" title="编辑此段">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+                            </button>
+                            <button class="block-edit-reset-btn block-icon-btn" data-block="${blockIndex}" data-type="ocr" data-idx="${i}" title="重置为原文" style="display:none;">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+                            </button>
+                          </div>
+                         </div>
+                        <div class="align-content markdown-body" data-raw-markdown="${encodeURIComponent(stripEdgeWhitespace(aligned[i][0]))}">${MarkdownProcessor.renderWithKatexFailback(MarkdownProcessor.safeMarkdown(stripEdgeWhitespace((()=>{const key = `chunkOverride_${window.docIdForLocalStorage||'default'}_${blockIndex}_${i}_ocr`; const ov = localStorage.getItem(key); return ov ? ov : aligned[i][0];})()), images), isOriginalFirstInChunkCompare ? ocrRenderer : transRenderer)}</div>
+                        <div class="align-edit-panel" style="display:none;">
+                          <textarea class="align-edit-area" style="width:100%;min-height:120px;"></textarea>
+                          <div class="align-edit-actions" style="margin-top:6px;display:flex;gap:8px;">
+                            <button class="align-edit-save" data-block="${blockIndex}" data-type="ocr" data-idx="${i}">保存</button>
+                            <button class="align-edit-cancel" data-block="${blockIndex}" data-type="ocr" data-idx="${i}">取消</button>
+                          </div>
                         </div>
-                        <div class="align-content markdown-body">${MarkdownProcessor.renderWithKatexFailback(MarkdownProcessor.safeMarkdown(stripEdgeWhitespace(aligned[i][0]), images), isOriginalFirstInChunkCompare ? ocrRenderer : transRenderer)}</div>
                       </div>
                       <div class="splitter" title="拖动调整比例"></div>
-                      <div class="align-block align-block-trans">
-                        <div class="align-title">
+                       <div class="align-block align-block-trans">
+                         <div class="align-title">
                           <span>${titleRight}</span>
-                          <button class="block-struct-copy-btn" data-block="${blockIndex}" data-type="trans" data-idx="${i}" title="复制译文结构">复制</button>
+                          <div class="align-actions">
+                            <button class="block-struct-copy-btn block-icon-btn" data-block="${blockIndex}" data-type="trans" data-idx="${i}" title="复制译文结构">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                            </button>
+                            <button class="block-edit-btn block-icon-btn" data-block="${blockIndex}" data-type="trans" data-idx="${i}" title="编辑此段">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+                            </button>
+                            <button class="block-edit-reset-btn block-icon-btn" data-block="${blockIndex}" data-type="trans" data-idx="${i}" title="重置为原文" style="display:none;">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+                            </button>
+                          </div>
+                         </div>
+                        <div class="align-content markdown-body" data-raw-markdown="${encodeURIComponent(stripEdgeWhitespace(aligned[i][1]))}">${MarkdownProcessor.renderWithKatexFailback(MarkdownProcessor.safeMarkdown(stripEdgeWhitespace((()=>{const key = `chunkOverride_${window.docIdForLocalStorage||'default'}_${blockIndex}_${i}_trans`; const ov = localStorage.getItem(key); return ov ? ov : aligned[i][1];})()), images), isOriginalFirstInChunkCompare ? transRenderer : ocrRenderer)}</div>
+                        <div class="align-edit-panel" style="display:none;">
+                          <textarea class="align-edit-area" style="width:100%;min-height:120px;"></textarea>
+                          <div class="align-edit-actions" style="margin-top:6px;display:flex;gap:8px;">
+                            <button class="align-edit-save" data-block="${blockIndex}" data-type="trans" data-idx="${i}">保存</button>
+                            <button class="align-edit-cancel" data-block="${blockIndex}" data-type="trans" data-idx="${i}">取消</button>
+                          </div>
                         </div>
-                        <div class="align-content markdown-body">${MarkdownProcessor.renderWithKatexFailback(MarkdownProcessor.safeMarkdown(stripEdgeWhitespace(aligned[i][1]), images), isOriginalFirstInChunkCompare ? transRenderer : ocrRenderer)}</div>
                       </div>
                     </div>
                   `);
@@ -1335,6 +1403,101 @@
               if (chunkCompareContainer && !chunkCompareContainer.dataset.delegateSet) {
                 // 为复制按钮添加事件委托
                 chunkCompareContainer.addEventListener('click', function(e) {
+                  // 段落编辑：进入编辑
+                  if (e.target.classList.contains('block-edit-btn') || e.target.closest('.block-edit-btn')) {
+                    const btn = e.target.closest('.block-edit-btn');
+                    const blockIndex = btn.dataset.block;
+                    const idx = btn.dataset.idx;
+                    const type = btn.dataset.type; // 'ocr' | 'trans'
+                    const flex = btn.closest('.align-block');
+                    const content = flex.querySelector('.align-content.markdown-body');
+                    const panel = flex.querySelector('.align-edit-panel');
+                    const textarea = panel && panel.querySelector('.align-edit-area');
+                    if (!content || !panel || !textarea) return;
+                    // 初始文案：优先已保存覆盖，其次 data-raw-markdown
+                    const key = `chunkOverride_${window.docIdForLocalStorage||'default'}_${blockIndex}_${idx}_${type}`;
+                    const saved = localStorage.getItem(key);
+                    const raw = decodeURIComponent(content.getAttribute('data-raw-markdown') || '') || '';
+                    textarea.value = saved || raw;
+                    // 让编辑区域尽量占满当前卡片高度
+                    const h = Math.max(content.offsetHeight, 120);
+                    textarea.style.minHeight = h + 'px';
+                    content.style.display = 'none';
+                    panel.style.display = '';
+                    // 显示重置按钮（如果存在覆盖）
+                    const resetBtn = flex.querySelector('.block-edit-reset-btn[data-block="'+blockIndex+'"][data-type="'+type+'"][data-idx="'+idx+'"]');
+                    if (resetBtn) resetBtn.style.display = saved ? '' : 'none';
+                    return;
+                  }
+                  // 段落编辑：保存
+                  if (e.target.classList.contains('align-edit-save')) {
+                    const btn = e.target;
+                    const blockIndex = btn.dataset.block;
+                    const idx = btn.dataset.idx;
+                    const type = btn.dataset.type; // 'ocr' | 'trans'
+                    const block = btn.closest('.align-block');
+                    const content = block.querySelector('.align-content.markdown-body');
+                    const panel = block.querySelector('.align-edit-panel');
+                    const textarea = panel && panel.querySelector('.align-edit-area');
+                    if (!content || !panel || !textarea) return;
+                    const md = (textarea.value || '').trim();
+                    const key = `chunkOverride_${window.docIdForLocalStorage||'default'}_${blockIndex}_${idx}_${type}`;
+                    if (md) localStorage.setItem(key, md); else localStorage.removeItem(key);
+                    // 重新渲染该侧
+                    try {
+                      const imgs = (window.data && window.data.images) || [];
+                      const html = window.MarkdownProcessor && window.MarkdownProcessor.renderWithKatexFailback
+                        ? window.MarkdownProcessor.renderWithKatexFailback(window.MarkdownProcessor.safeMarkdown(md, imgs))
+                        : md.replace(/\n/g, '<br>');
+                      content.innerHTML = html;
+                      content.setAttribute('data-raw-markdown', encodeURIComponent(md));
+                    } catch { content.textContent = md; }
+                    panel.style.display = 'none';
+                    content.style.display = '';
+                    // 显示重置按钮
+                    const resetBtn = block.querySelector('.block-edit-reset-btn[data-block="'+blockIndex+'"][data-type="'+type+'"][data-idx="'+idx+'"]');
+                    if (resetBtn) resetBtn.style.display = md ? '' : 'none';
+                    return;
+                  }
+                  // 段落编辑：取消
+                  if (e.target.classList.contains('align-edit-cancel')) {
+                    const btn = e.target;
+                    const block = btn.closest('.align-block');
+                    const content = block.querySelector('.align-content.markdown-body');
+                    const panel = block.querySelector('.align-edit-panel');
+                    if (!content || !panel) return;
+                    panel.style.display = 'none';
+                    content.style.display = '';
+                    return;
+                  }
+                  // 段落编辑：重置覆盖
+                  if (e.target.classList.contains('block-edit-reset-btn')) {
+                    const btn = e.target;
+                    const blockIndex = btn.dataset.block;
+                    const idx = btn.dataset.idx;
+                    const type = btn.dataset.type;
+                    const key = `chunkOverride_${window.docIdForLocalStorage||'default'}_${blockIndex}_${idx}_${type}`;
+                    localStorage.removeItem(key);
+                    // 还原为原始 data-raw-markdown
+                    const block = btn.closest('.align-block');
+                    const content = block.querySelector('.align-content.markdown-body');
+                    const panel = block.querySelector('.align-edit-panel');
+                    if (content) {
+                      const md = decodeURIComponent(content.getAttribute('data-raw-markdown') || '') || '';
+                      try {
+                        const imgs = (window.data && window.data.images) || [];
+                        const html = window.MarkdownProcessor && window.MarkdownProcessor.renderWithKatexFailback
+                          ? window.MarkdownProcessor.renderWithKatexFailback(window.MarkdownProcessor.safeMarkdown(md, imgs))
+                          : md.replace(/\n/g, '<br>');
+                        content.innerHTML = html;
+                      } catch { content.textContent = md; }
+                    }
+                    if (panel) panel.style.display = 'none';
+                    if (content) content.style.display = '';
+                    // 隐藏重置按钮
+                    btn.style.display = 'none';
+                    return;
+                  }
                   if (e.target.classList.contains('block-copy-btn')) {
                     // 复制按钮逻辑保持不变，但通过事件委托触发
                     const btn = e.target;

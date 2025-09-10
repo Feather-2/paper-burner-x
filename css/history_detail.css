@@ -726,6 +726,26 @@ h2 {
   justify-content: space-between;
 }
 
+.align-title .align-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.block-icon-btn {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.block-icon-btn:hover { background: #e0e7ff; border-color: #c7d2fe; }
+.block-icon-btn svg { width: 14px; height: 14px; stroke: #64748b; }
+.block-icon-btn:hover svg { stroke: #2563eb; }
+
 .align-content {
   word-break: break-all;
   white-space: pre-wrap;
