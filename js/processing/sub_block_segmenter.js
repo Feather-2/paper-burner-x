@@ -5,7 +5,7 @@
      * @param {HTMLElement} blockElement - 要分割的块级元素 (如 p, h1-h6)。
      * @param {string|number} parentBlockIndex - 父块的索引。
      */
-    function segmentBlockIntoSubBlocks(blockElement, parentBlockIndex) {
+    function segmentBlockIntoSubBlocks(blockElement, parentBlockIndex, force = false) {
         // 性能埋点：分块开始
         performance.mark('subBlock-start');
         // 调试开关：本文件的检测/一致性类日志统一受控
@@ -32,11 +32,22 @@
             // console.log(`[SubBlockSegmenter] 现有子块ID列表:`, Array.from(existingSubBlocks).map(sb => sb.dataset.subBlockId));
         }
 
-        // 优化：只有当文本足够长且包含中文句号才进行分块
+        // 优化：只有当文本足够长且包含中文或英文句读符号才进行分块
         const rawText = (blockElement.textContent || '').trim();
-        // console.log(`[SubBlockSegmenter] 块 #${parentBlockIndex} 文本长度: ${rawText.length}, 包含中文句号: ${rawText.indexOf('。') !== -1}`);
+        const containsCnPeriod = rawText.indexOf('。') !== -1;
+        const containsEnPunct = /[\.!?;:]/.test(rawText);
+        // console.log(`[SubBlockSegmenter] 块 #${parentBlockIndex} 文本长度: ${rawText.length}, CN句号: ${containsCnPeriod}, EN标点: ${containsEnPunct}`);
 
-        if (rawText.length < 80 || rawText.indexOf('。') === -1) {
+        // ===== 新增：公式感知检测 =====
+        const hasFormula = checkForFormulas(blockElement, rawText);
+        if (__SUBBLOCK_DEBUG__ && hasFormula) {
+            console.log(`[SubBlockSegmenter] 块 #${parentBlockIndex} 包含数学公式，启用公式感知分割`);
+        }
+
+        // 修改分割条件：包含公式的块使用不同的分割策略
+        // 仅当文本很短且也不含中英文句读时才跳过；
+        // 只要存在句读符，即使很短也执行分块以支持精确高亮。
+        if (!force && !hasFormula && (rawText.length < 80 && (!containsCnPeriod && !containsEnPunct))) {
             // 跳过分割
             // console.log(`[SubBlockSegmenter] 块 #${parentBlockIndex} 不满足分块条件，跳过分块`);
             performance.mark('subBlock-end');
@@ -50,6 +61,11 @@
             return; // 直接返回，不修改表格内容
         }
 
+        // ===== 新增：公式感知分割处理 =====
+        if (hasFormula) {
+            return segmentFormulaAwareBlock(blockElement, parentBlockIndex, rawText, __SUBBLOCK_DEBUG__);
+        }
+
         // ===== 新增：保存原始内容，用于对比 =====
         const originalContent = blockElement.innerHTML;
         const originalTextContent = blockElement.textContent;
@@ -58,9 +74,9 @@
         const newChildNodesContainer = document.createDocumentFragment();
         let firstGeneratedSubBlockElement = null; // Store the first (potentially only) sub-block
 
-        // Define delimiters: ONLY Chinese period
+        // Define delimiters: Chinese period or common English sentence punctuation
         // The regex captures the delimiter itself and any trailing whitespace.
-        const delimiterRegex = /([。])(\s*)/g; // 只使用中文句号作为分隔符
+        const delimiterRegex = /([。\.!?;:])(\s*)/g;
 
         let currentSpanContentNodes = []; // Nodes for the current sub-block being built
 
@@ -213,8 +229,217 @@
     }
 
     // Expose public interface
+    // ===== 新增：公式检测函数 =====
+    function checkForFormulas(blockElement, rawText) {
+        // 检查LaTeX公式模式
+        const latexPatterns = [
+            /\$\$[\s\S]*?\$\$/,     // 块级公式 $$...$$
+            /\\\[[\s\S]*?\\\]/,   // 块级公式 \[...\]
+            /\$[^$\n]+\$/,          // 行内公式 $...$
+            /\\\([^\n]*?\\\)/     // 行内公式 \(...\)
+        ];
+        
+        // 检查是否包含数学公式
+        for (const pattern of latexPatterns) {
+            if (pattern.test(rawText)) {
+                return true;
+            }
+        }
+        
+        // 检查是否已经渲染的KaTeX元素
+        if (blockElement.querySelector('.katex, .katex-display, .katex-inline')) {
+            return true;
+        }
+        
+        return false;
+    }
+
+    // ===== 新增：公式感知的分割函数 =====
+    function segmentFormulaAwareBlock(blockElement, parentBlockIndex, rawText, debug) {
+        if (debug) {
+            console.log(`[SubBlockSegmenter] 开始公式感知分割，块 #${parentBlockIndex}`);
+        }
+
+        // 检测公式位置和类型
+        const formulaInfo = analyzeFormulas(blockElement, rawText);
+        
+        if (formulaInfo.hasBlockFormula) {
+            // 包含块级公式：按公式边界分割
+            return segmentByFormulaBreaks(blockElement, parentBlockIndex, formulaInfo, debug);
+        } else if (formulaInfo.hasInlineFormula) {
+            // 只有行内公式：使用保守分割策略
+            return segmentWithInlineFormulaProtection(blockElement, parentBlockIndex, debug);
+        } else {
+            // 可能是已渲染的公式：跳过分割
+            if (debug) {
+                console.log(`[SubBlockSegmenter] 块 #${parentBlockIndex} 包含已渲染公式，跳过分割`);
+            }
+            return;
+        }
+    }
+
+    // ===== 新增：分析公式信息 =====
+    function analyzeFormulas(blockElement, rawText) {
+        const info = {
+            hasBlockFormula: false,
+            hasInlineFormula: false,
+            blockFormulas: [],
+            inlineFormulas: [],
+            renderedFormulas: []
+        };
+
+        // 检测块级公式
+        const blockFormulaRegex = /\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]/g;
+        let match;
+        while ((match = blockFormulaRegex.exec(rawText)) !== null) {
+            info.hasBlockFormula = true;
+            info.blockFormulas.push({
+                content: match[0],
+                start: match.index,
+                end: match.index + match[0].length
+            });
+        }
+
+        // 检测行内公式
+        const inlineFormulaRegex = /\$[^$\n]+\$|\\\([^\n]*?\\\)/g;
+        while ((match = inlineFormulaRegex.exec(rawText)) !== null) {
+            info.hasInlineFormula = true;
+            info.inlineFormulas.push({
+                content: match[0],
+                start: match.index,
+                end: match.index + match[0].length
+            });
+        }
+
+        // 检测已渲染的公式
+        const katexElements = blockElement.querySelectorAll('.katex, .katex-display, .katex-inline');
+        if (katexElements.length > 0) {
+            Array.from(katexElements).forEach(el => {
+                info.renderedFormulas.push({
+                    element: el,
+                    type: el.classList.contains('katex-display') ? 'block' : 'inline'
+                });
+            });
+        }
+
+        return info;
+    }
+
+    // ===== 新增：按公式边界分割 =====
+    function segmentByFormulaBreaks(blockElement, parentBlockIndex, formulaInfo, debug) {
+        if (debug) {
+            console.log(`[SubBlockSegmenter] 块 #${parentBlockIndex} 按公式边界分割，发现${formulaInfo.blockFormulas.length}个块级公式`);
+        }
+
+        // 获取所有分割点（句号 + 块级公式边界）
+        const rawText = blockElement.textContent || '';
+        const breakPoints = [];
+        
+        // 添加句号分割点
+        let sentenceMatch;
+        const sentenceRegex = /[。]/g;
+        while ((sentenceMatch = sentenceRegex.exec(rawText)) !== null) {
+            breakPoints.push(sentenceMatch.index + 1); // +1 to include the period
+        }
+        
+        // 添加公式边界分割点
+        formulaInfo.blockFormulas.forEach(formula => {
+            breakPoints.push(formula.start);
+            breakPoints.push(formula.end);
+        });
+        
+        // 排序并去重
+        const uniqueBreakPoints = [...new Set(breakPoints)].sort((a, b) => a - b);
+        
+        if (uniqueBreakPoints.length <= 2) {
+            // 分割点太少，跳过分割
+            return;
+        }
+        
+        // 执行分割
+        return performSmartSegmentation(blockElement, parentBlockIndex, uniqueBreakPoints, rawText, debug);
+    }
+
+    // ===== 新增：行内公式保护分割 =====
+    function segmentWithInlineFormulaProtection(blockElement, parentBlockIndex, debug) {
+        if (debug) {
+            console.log(`[SubBlockSegmenter] 块 #${parentBlockIndex} 使用行内公式保护分割`);
+        }
+        
+        // 只在句号处分割，避免切断行内公式
+        const rawText = blockElement.textContent || '';
+        const breakPoints = [0]; // 起始点
+        
+        let match;
+        const sentenceRegex = /[。]/g;
+        while ((match = sentenceRegex.exec(rawText)) !== null) {
+            breakPoints.push(match.index + 1);
+        }
+        
+        breakPoints.push(rawText.length); // 结束点
+        
+        if (breakPoints.length <= 2) {
+            return; // 没有有效分割点
+        }
+        
+        return performSmartSegmentation(blockElement, parentBlockIndex, breakPoints, rawText, debug);
+    }
+
+    // ===== 新增：智能分割执行 =====
+    function performSmartSegmentation(blockElement, parentBlockIndex, breakPoints, rawText, debug) {
+        let subBlockTrueCounter = 0;
+        const newChildNodesContainer = document.createDocumentFragment();
+        let firstGeneratedSubBlockElement = null;
+
+        for (let i = 0; i < breakPoints.length - 1; i++) {
+            const start = breakPoints[i];
+            const end = breakPoints[i + 1];
+            const segmentText = rawText.substring(start, end).trim();
+            
+            if (segmentText.length === 0) continue;
+            
+            // 创建子块
+            const span = document.createElement('span');
+            span.className = 'sub-block';
+            const subBlockId = `${parentBlockIndex}.${subBlockTrueCounter}`;
+            span.dataset.subBlockId = subBlockId;
+            span.textContent = segmentText;
+            
+            if (debug) {
+                console.log(`[SubBlockSegmenter] 创建智能子块 #${subBlockId}, 内容: "${segmentText.substring(0, 30)}..."`);
+            }
+            
+            newChildNodesContainer.appendChild(span);
+            
+            if (subBlockTrueCounter === 0) {
+                firstGeneratedSubBlockElement = span;
+            } else {
+                firstGeneratedSubBlockElement = null;
+            }
+            
+            subBlockTrueCounter++;
+        }
+        
+        if (subBlockTrueCounter > 0) {
+            blockElement.innerHTML = '';
+            blockElement.appendChild(newChildNodesContainer);
+            
+            // 标记唯一子块
+            if (firstGeneratedSubBlockElement && subBlockTrueCounter === 1) {
+                firstGeneratedSubBlockElement.dataset.isOnlySubBlock = "true";
+            }
+            
+            if (debug) {
+                console.log(`[SubBlockSegmenter] 块 #${parentBlockIndex} 智能分割完成，生成 ${subBlockTrueCounter} 个子块`);
+            }
+        }
+    }
+
     global.SubBlockSegmenter = {
-        segment: segmentBlockIntoSubBlocks
+        segment: segmentBlockIntoSubBlocks,
+        // 暴露新功能用于测试
+        checkForFormulas: checkForFormulas,
+        analyzeFormulas: analyzeFormulas
     };
 
 })(window);

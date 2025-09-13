@@ -2150,7 +2150,8 @@
                     const el = blocks[i];
                     el.dataset.blockIndex = String(i);
                     if (window.SubBlockSegmenter && typeof window.SubBlockSegmenter.segment === 'function') {
-                        window.SubBlockSegmenter.segment(el, i);
+                        // 强制分段，保证英文/短段也有子块，便于精确高亮
+                        window.SubBlockSegmenter.segment(el, i, true);
                     } else {
                         console.error("SubBlockSegmenter.segment is not available.");
                     }
@@ -2331,7 +2332,8 @@
                         const el = blocks[i];
                         el.dataset.blockIndex = String(i);
                         if (window.SubBlockSegmenter && typeof window.SubBlockSegmenter.segment === 'function') {
-                            window.SubBlockSegmenter.segment(el, i);
+                            // 强制分段，保证英文/短段也有子块，便于精确高亮
+                            window.SubBlockSegmenter.segment(el, i, true);
                         } else {
                             console.error("SubBlockSegmenter.segment is not available.");
                         }

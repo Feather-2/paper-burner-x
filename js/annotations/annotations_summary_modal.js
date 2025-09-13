@@ -226,45 +226,28 @@ function populateAnnotationsSummaryTable(typeFilter = 'all', contentFilter = 'al
       }
       row.insertCell().textContent = identifierText;
 
-      // 增强文本片段预览
+      // 增强文本片段预览（优先原始 Markdown，再回退 exact）
       const textCell = row.insertCell();
       let textSnippet = '[无文本片段]';
 
-      // 尝试获取更丰富的文本片段
       if (targetSelector) {
-        // 1. 优先显示 exact
-        if (targetSelector.exact) {
+        // 优先：以所属块的原始 Markdown 作为预览
+        let preferredBlockIndex = null;
+        if (targetSelector.blockIndex !== undefined && targetSelector.blockIndex !== null) {
+          preferredBlockIndex = parseInt(targetSelector.blockIndex, 10);
+        } else if (targetSelector.subBlockId) {
+          const parts = String(targetSelector.subBlockId).split('.');
+          if (parts.length > 0 && !isNaN(parseInt(parts[0], 10))) preferredBlockIndex = parseInt(parts[0], 10);
+        }
+        if (preferredBlockIndex !== null &&
+            window.currentBlockTokensForCopy &&
+            window.currentBlockTokensForCopy[ann.targetType] &&
+            window.currentBlockTokensForCopy[ann.targetType][preferredBlockIndex] &&
+            typeof window.currentBlockTokensForCopy[ann.targetType][preferredBlockIndex].raw === 'string') {
+          textSnippet = window.currentBlockTokensForCopy[ann.targetType][preferredBlockIndex].raw;
+        } else if (targetSelector.exact) {
+          // 回退：展示 exact（渲染后的文本片段）
           textSnippet = targetSelector.exact;
-        }
-        // 2. 没有 exact，再考虑唯一子块显示父块内容
-        else if (targetSelector.subBlockId) {
-          const parts = targetSelector.subBlockId.split('.');
-          if (parts.length === 2) {
-            const parentBlockIndex = parseInt(parts[0], 10);
-            // 统计 annotation 里所有属于该父块的唯一子块
-            const allSubBlockIds = window.data.annotations
-              .map(a => a.target && a.target.selector && a.target.selector[0] && a.target.selector[0].subBlockId)
-              .filter(id => id && id.startsWith(`${parentBlockIndex}.`));
-            const uniqueSubBlockIds = Array.from(new Set(allSubBlockIds));
-            if (uniqueSubBlockIds.length === 1 &&
-                window.currentBlockTokensForCopy &&
-                window.currentBlockTokensForCopy[ann.targetType] &&
-                window.currentBlockTokensForCopy[ann.targetType][parentBlockIndex] &&
-                typeof window.currentBlockTokensForCopy[ann.targetType][parentBlockIndex].raw === 'string') {
-              textSnippet = window.currentBlockTokensForCopy[ann.targetType][parentBlockIndex].raw;
-            }
-          }
-        }
-        // 3. 块级批注
-        else if (targetSelector.blockIndex !== undefined && !targetSelector.subBlockId) {
-          const blockIndex = parseInt(targetSelector.blockIndex, 10);
-          if (!isNaN(blockIndex) &&
-              window.currentBlockTokensForCopy &&
-              window.currentBlockTokensForCopy[ann.targetType] &&
-              window.currentBlockTokensForCopy[ann.targetType][blockIndex] &&
-              typeof window.currentBlockTokensForCopy[ann.targetType][blockIndex].raw === 'string') {
-            textSnippet = window.currentBlockTokensForCopy[ann.targetType][blockIndex].raw;
-          }
         }
       }
 
@@ -485,13 +468,27 @@ function populateAnnotationsSummaryTable(typeFilter = 'all', contentFilter = 'al
       jumpButton.className = 'action-btn';
       jumpButton.dataset.annotationId = ann.id;
       jumpButton.dataset.targetType = ann.targetType;
-      jumpButton.dataset.blockIndex = (targetSelector && targetSelector.blockIndex !== undefined) ? targetSelector.blockIndex : '';
-      jumpButton.dataset.subBlockId = (targetSelector && targetSelector.subBlockId !== undefined) ? targetSelector.subBlockId : '';
+      // 为跨子块批注提供回退子块ID与块索引
+      let dataBlockIndex = (targetSelector && targetSelector.blockIndex !== undefined) ? String(targetSelector.blockIndex) : '';
+      let dataSubBlockId = (targetSelector && targetSelector.subBlockId !== undefined) ? String(targetSelector.subBlockId) : '';
+      if (!dataSubBlockId && targetSelector && targetSelector.type === 'CrossBlockRangeSelector') {
+        if (Array.isArray(targetSelector.affectedSubBlocks) && targetSelector.affectedSubBlocks.length > 0) {
+          dataSubBlockId = String(targetSelector.affectedSubBlocks[0]);
+        } else if (targetSelector.startSubBlockId) {
+          dataSubBlockId = String(targetSelector.startSubBlockId);
+        }
+      }
+      if (!dataBlockIndex && dataSubBlockId) {
+        const parts = dataSubBlockId.split('.');
+        if (parts.length > 0 && parts[0]) dataBlockIndex = parts[0];
+      }
+      jumpButton.dataset.blockIndex = dataBlockIndex;
+      jumpButton.dataset.subBlockId = dataSubBlockId;
 
-      // Disable jump button if in chunk-compare mode, or no valid target
-      if (window.currentVisibleTabId === 'chunk-compare' || (!targetSelector || (targetSelector.subBlockId === undefined && targetSelector.blockIndex === undefined))) {
+      // 仅在分块对比模式禁用跳转；其余场景即使缺少定位信息也尝试按 annotationId 跳转
+      if (window.currentVisibleTabId === 'chunk-compare') {
           jumpButton.disabled = true;
-          jumpButton.title = window.currentVisibleTabId === 'chunk-compare' ? '分块对比模式下禁用跳转' : '无有效跳转目标';
+          jumpButton.title = '分块对比模式下禁用跳转';
       }
 
 
@@ -501,11 +498,7 @@ function populateAnnotationsSummaryTable(typeFilter = 'all', contentFilter = 'al
         const targetType = this.dataset.targetType;
         const blockIndex = this.dataset.blockIndex;
         const subBlockId = this.dataset.subBlockId;
-
-        if (!targetType || (subBlockId === '' && blockIndex === '')) {
-          alert('无效的跳转目标。');
-          return;
-        }
+        if (!targetType) return;
 
         // Switch tab if necessary
         if (window.currentVisibleTabId !== targetType && window.currentVisibleTabId !== `${targetType}-content-wrapper`) { // Check against common tab ID patterns
@@ -521,29 +514,36 @@ function populateAnnotationsSummaryTable(typeFilter = 'all', contentFilter = 'al
         }
 
 
+        // 优先：等待目标高亮/元素出现后再跳转（处理分批渲染/分块延时）
+        if (typeof window.scrollToAnnotationAsync === 'function') {
+          const okAsync = await window.scrollToAnnotationAsync(this.dataset.annotationId, {
+            targetType,
+            subBlockId,
+            blockIndex,
+            timeoutMs: 5000,
+            pollIntervalMs: 120
+          });
+          if (okAsync) return;
+        } else if (typeof window.scrollToAnnotation === 'function') {
+          const ok = window.scrollToAnnotation(this.dataset.annotationId, true);
+          if (ok) return;
+        }
+
+        // 回退：按 subBlockId 或 blockIndex 定位
         let elementToJump = null;
-        const contentWrapperId = `${targetType}-content-wrapper`; // e.g., ocr-content-wrapper
+        const contentWrapperId = `${targetType}-content-wrapper`;
         const contentWrapper = document.getElementById(contentWrapperId);
-
-        if (!contentWrapper) {
-          console.error(`Content wrapper ${contentWrapperId} not found.`);
-          alert(`无法找到内容区域 ${contentWrapperId} 以进行跳转。`);
-          return;
+        if (contentWrapper) {
+          if (subBlockId && subBlockId !== 'undefined' && subBlockId !== '') {
+            elementToJump = contentWrapper.querySelector(`.sub-block[data-sub-block-id="${subBlockId}"]`);
+          } else if (blockIndex !== '') {
+            elementToJump = contentWrapper.querySelector(`[data-block-index="${blockIndex}"]`);
+          }
         }
-
-        if (subBlockId && subBlockId !== 'undefined' && subBlockId !== '') {
-          elementToJump = contentWrapper.querySelector(`.sub-block[data-sub-block-id="${subBlockId}"]`);
-        } else if (blockIndex !== '') {
-          // 直接查找块级元素
-          elementToJump = contentWrapper.querySelector(`[data-block-index="${blockIndex}"]`);
-        }
-
         if (elementToJump) {
           elementToJump.scrollIntoView({ behavior: 'smooth', block: 'center' });
           elementToJump.classList.add('jump-to-highlight-effect');
-          setTimeout(() => {
-            elementToJump.classList.remove('jump-to-highlight-effect');
-          }, 2500); // Keep highlight for 2.5 seconds
+          setTimeout(() => elementToJump.classList.remove('jump-to-highlight-effect'), 2500);
         } else {
           alert('在当前视图中未找到目标元素。它可能已被过滤或不存在。');
           console.warn('Element not found for jump:', {targetType, blockIndex, subBlockId});
@@ -573,45 +573,28 @@ function populateAnnotationsSummaryTable(typeFilter = 'all', contentFilter = 'al
       }
       row.insertCell().textContent = identifierText;
 
-      // 增强文本片段预览
+      // 增强文本片段预览（优先原始 Markdown，再回退 exact）
       const textCell = row.insertCell();
       let textSnippet = '[无文本片段]';
 
-      // 尝试获取更丰富的文本片段
       if (targetSelector) {
-        // 1. 优先显示 exact
-        if (targetSelector.exact) {
+        // 优先：以所属块的原始 Markdown 作为预览
+        let preferredBlockIndex = null;
+        if (targetSelector.blockIndex !== undefined && targetSelector.blockIndex !== null) {
+          preferredBlockIndex = parseInt(targetSelector.blockIndex, 10);
+        } else if (targetSelector.subBlockId) {
+          const parts = String(targetSelector.subBlockId).split('.');
+          if (parts.length > 0 && !isNaN(parseInt(parts[0], 10))) preferredBlockIndex = parseInt(parts[0], 10);
+        }
+        if (preferredBlockIndex !== null &&
+            window.currentBlockTokensForCopy &&
+            window.currentBlockTokensForCopy[ann.targetType] &&
+            window.currentBlockTokensForCopy[ann.targetType][preferredBlockIndex] &&
+            typeof window.currentBlockTokensForCopy[ann.targetType][preferredBlockIndex].raw === 'string') {
+          textSnippet = window.currentBlockTokensForCopy[ann.targetType][preferredBlockIndex].raw;
+        } else if (targetSelector.exact) {
+          // 回退：展示 exact（渲染后的文本片段）
           textSnippet = targetSelector.exact;
-        }
-        // 2. 没有 exact，再考虑唯一子块显示父块内容
-        else if (targetSelector.subBlockId) {
-          const parts = targetSelector.subBlockId.split('.');
-          if (parts.length === 2) {
-            const parentBlockIndex = parseInt(parts[0], 10);
-            // 统计 annotation 里所有属于该父块的唯一子块
-            const allSubBlockIds = window.data.annotations
-              .map(a => a.target && a.target.selector && a.target.selector[0] && a.target.selector[0].subBlockId)
-              .filter(id => id && id.startsWith(`${parentBlockIndex}.`));
-            const uniqueSubBlockIds = Array.from(new Set(allSubBlockIds));
-            if (uniqueSubBlockIds.length === 1 &&
-                window.currentBlockTokensForCopy &&
-                window.currentBlockTokensForCopy[ann.targetType] &&
-                window.currentBlockTokensForCopy[ann.targetType][parentBlockIndex] &&
-                typeof window.currentBlockTokensForCopy[ann.targetType][parentBlockIndex].raw === 'string') {
-              textSnippet = window.currentBlockTokensForCopy[ann.targetType][parentBlockIndex].raw;
-            }
-          }
-        }
-        // 3. 块级批注
-        else if (targetSelector.blockIndex !== undefined && !targetSelector.subBlockId) {
-          const blockIndex = parseInt(targetSelector.blockIndex, 10);
-          if (!isNaN(blockIndex) &&
-              window.currentBlockTokensForCopy &&
-              window.currentBlockTokensForCopy[ann.targetType] &&
-              window.currentBlockTokensForCopy[ann.targetType][blockIndex] &&
-              typeof window.currentBlockTokensForCopy[ann.targetType][blockIndex].raw === 'string') {
-            textSnippet = window.currentBlockTokensForCopy[ann.targetType][blockIndex].raw;
-          }
         }
       }
 
@@ -832,13 +815,27 @@ function populateAnnotationsSummaryTable(typeFilter = 'all', contentFilter = 'al
       jumpButton.className = 'action-btn';
       jumpButton.dataset.annotationId = ann.id;
       jumpButton.dataset.targetType = ann.targetType;
-      jumpButton.dataset.blockIndex = (targetSelector && targetSelector.blockIndex !== undefined) ? targetSelector.blockIndex : '';
-      jumpButton.dataset.subBlockId = (targetSelector && targetSelector.subBlockId !== undefined) ? targetSelector.subBlockId : '';
+      // 为跨子块批注提供回退子块ID与块索引（未分组场景）
+      let dataBlockIndex2 = (targetSelector && targetSelector.blockIndex !== undefined) ? String(targetSelector.blockIndex) : '';
+      let dataSubBlockId2 = (targetSelector && targetSelector.subBlockId !== undefined) ? String(targetSelector.subBlockId) : '';
+      if (!dataSubBlockId2 && targetSelector && targetSelector.type === 'CrossBlockRangeSelector') {
+        if (Array.isArray(targetSelector.affectedSubBlocks) && targetSelector.affectedSubBlocks.length > 0) {
+          dataSubBlockId2 = String(targetSelector.affectedSubBlocks[0]);
+        } else if (targetSelector.startSubBlockId) {
+          dataSubBlockId2 = String(targetSelector.startSubBlockId);
+        }
+      }
+      if (!dataBlockIndex2 && dataSubBlockId2) {
+        const parts = dataSubBlockId2.split('.');
+        if (parts.length > 0 && parts[0]) dataBlockIndex2 = parts[0];
+      }
+      jumpButton.dataset.blockIndex = dataBlockIndex2;
+      jumpButton.dataset.subBlockId = dataSubBlockId2;
 
-      // Disable jump button if in chunk-compare mode, or no valid target
-      if (window.currentVisibleTabId === 'chunk-compare' || (!targetSelector || (targetSelector.subBlockId === undefined && targetSelector.blockIndex === undefined))) {
+      // 仅在分块对比模式禁用跳转
+      if (window.currentVisibleTabId === 'chunk-compare') {
           jumpButton.disabled = true;
-          jumpButton.title = window.currentVisibleTabId === 'chunk-compare' ? '分块对比模式下禁用跳转' : '无有效跳转目标';
+          jumpButton.title = '分块对比模式下禁用跳转';
       }
 
 
@@ -848,11 +845,7 @@ function populateAnnotationsSummaryTable(typeFilter = 'all', contentFilter = 'al
         const targetType = this.dataset.targetType;
         const blockIndex = this.dataset.blockIndex;
         const subBlockId = this.dataset.subBlockId;
-
-        if (!targetType || (subBlockId === '' && blockIndex === '')) {
-          alert('无效的跳转目标。');
-          return;
-        }
+        if (!targetType) return;
 
         // Switch tab if necessary
         if (window.currentVisibleTabId !== targetType && window.currentVisibleTabId !== `${targetType}-content-wrapper`) { // Check against common tab ID patterns
@@ -868,29 +861,36 @@ function populateAnnotationsSummaryTable(typeFilter = 'all', contentFilter = 'al
         }
 
 
+        // 优先：等待目标高亮/元素出现后再跳转（处理分批渲染/分块延时）
+        if (typeof window.scrollToAnnotationAsync === 'function') {
+          const okAsync = await window.scrollToAnnotationAsync(this.dataset.annotationId, {
+            targetType,
+            subBlockId,
+            blockIndex,
+            timeoutMs: 5000,
+            pollIntervalMs: 120
+          });
+          if (okAsync) return;
+        } else if (typeof window.scrollToAnnotation === 'function') {
+          const ok = window.scrollToAnnotation(this.dataset.annotationId, true);
+          if (ok) return;
+        }
+
+        // 回退：按 subBlockId 或 blockIndex 定位
         let elementToJump = null;
-        const contentWrapperId = `${targetType}-content-wrapper`; // e.g., ocr-content-wrapper
+        const contentWrapperId = `${targetType}-content-wrapper`;
         const contentWrapper = document.getElementById(contentWrapperId);
-
-        if (!contentWrapper) {
-          console.error(`Content wrapper ${contentWrapperId} not found.`);
-          alert(`无法找到内容区域 ${contentWrapperId} 以进行跳转。`);
-          return;
+        if (contentWrapper) {
+          if (subBlockId && subBlockId !== 'undefined' && subBlockId !== '') {
+            elementToJump = contentWrapper.querySelector(`.sub-block[data-sub-block-id="${subBlockId}"]`);
+          } else if (blockIndex !== '') {
+            elementToJump = contentWrapper.querySelector(`[data-block-index="${blockIndex}"]`);
+          }
         }
-
-        if (subBlockId && subBlockId !== 'undefined' && subBlockId !== '') {
-          elementToJump = contentWrapper.querySelector(`.sub-block[data-sub-block-id="${subBlockId}"]`);
-        } else if (blockIndex !== '') {
-          // 直接查找块级元素
-          elementToJump = contentWrapper.querySelector(`[data-block-index="${blockIndex}"]`);
-        }
-
         if (elementToJump) {
           elementToJump.scrollIntoView({ behavior: 'smooth', block: 'center' });
           elementToJump.classList.add('jump-to-highlight-effect');
-          setTimeout(() => {
-            elementToJump.classList.remove('jump-to-highlight-effect');
-          }, 2500); // Keep highlight for 2.5 seconds
+          setTimeout(() => elementToJump.classList.remove('jump-to-highlight-effect'), 2500);
         } else {
           alert('在当前视图中未找到目标元素。它可能已被过滤或不存在。');
           console.warn('Element not found for jump:', {targetType, blockIndex, subBlockId});
@@ -985,4 +985,3 @@ lastSeenColors = new Set(getAllHighlightColors());
 
 // 每秒检查一次新颜色
 setInterval(checkForNewColors, 1000);
-
