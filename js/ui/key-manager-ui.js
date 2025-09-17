@@ -101,7 +101,7 @@ class KeyManagerUI {
         if (this.keys.length > 0) {
             const testAllButton = document.createElement('button');
             testAllButton.innerHTML = '<iconify-icon icon="carbon:chemistry" class="mr-1"></iconify-icon>全部测试';
-            testAllButton.className = 'px-3 py-1.5 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded transition-colors flex items-center';
+            testAllButton.className = 'px-2.5 py-1 text-xs rounded-md border border-slate-200 hover:border-blue-300 text-slate-600 transition-colors flex items-center';
             testAllButton.addEventListener('click', () => {
                 if (this.onTestAllKeys) {
                     this.onTestAllKeys(this.modelName, this.keys);
@@ -113,7 +113,7 @@ class KeyManagerUI {
         // 导出配置按钮
         const exportButton = document.createElement('button');
         exportButton.innerHTML = '<iconify-icon icon="carbon:export" class="mr-1"></iconify-icon>导出配置';
-        exportButton.className = 'px-3 py-1.5 text-sm bg-gray-500 hover:bg-gray-600 text-white rounded transition-colors flex items-center';
+        exportButton.className = 'px-2.5 py-1 text-xs rounded-md border border-slate-200 hover:border-blue-300 text-slate-600 transition-colors flex items-center';
         exportButton.addEventListener('click', () => {
             this._exportKeys();
         });
@@ -122,7 +122,7 @@ class KeyManagerUI {
         // 导入配置按钮
         const importButton = document.createElement('button');
         importButton.innerHTML = '<iconify-icon icon="carbon:import" class="mr-1"></iconify-icon>导入配置';
-        importButton.className = 'px-3 py-1.5 text-sm bg-gray-500 hover:bg-gray-600 text-white rounded transition-colors flex items-center';
+        importButton.className = 'px-2.5 py-1 text-xs rounded-md border border-slate-200 hover:border-blue-300 text-slate-600 transition-colors flex items-center';
         importButton.addEventListener('click', () => {
             this._importKeys();
         });
@@ -132,12 +132,17 @@ class KeyManagerUI {
 
         // "Add New Key" button (plus icon)
         const addNewKeyButton = document.createElement('button');
-        addNewKeyButton.innerHTML = '<iconify-icon icon="carbon:add" width="20"></iconify-icon>';
+        addNewKeyButton.innerHTML = '<iconify-icon icon="carbon:add" width="14"></iconify-icon><span class="ml-1">添加新 Key</span>';
         addNewKeyButton.title = '添加新的 API Key';
-        addNewKeyButton.className = 'p-1.5 text-sm bg-green-500 hover:bg-green-600 text-white rounded transition-colors flex items-center';
+        addNewKeyButton.className = 'px-2.5 py-1 text-xs rounded-md border border-slate-200 hover:border-green-400 text-green-600 transition-colors flex items-center';
         buttonHeader.appendChild(addNewKeyButton); // Add to the right part of the header
 
         this.containerElement.appendChild(buttonHeader);
+
+        const importExportHint = document.createElement('p');
+        importExportHint.className = 'text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded px-3 py-2 mb-3 flex items-center gap-2';
+        importExportHint.innerHTML = '<iconify-icon icon="carbon:information" width="14"></iconify-icon><span>导入/导出的配置文件采用 Paper Burner X 固定格式 JSON，请勿修改字段结构。</span>';
+        this.containerElement.appendChild(importExportHint);
 
         // 1. "添加新 Key"区域 (initially hidden)
         const addKeySection = this._createAddKeySection();
@@ -400,7 +405,15 @@ class KeyManagerUI {
      * @private
      */
     _updateKeyStatusIndicator(indicatorElement, status) {
-        indicatorElement.textContent = status && status.toUpperCase() || 'UNTESTED'; // 默认显示 UNTESTED
+        const labelMap = {
+            valid: '可用',
+            invalid: '不可用',
+            testing: '检测中',
+            untested: '未测试'
+        };
+        const normalized = (status || 'untested').toLowerCase();
+        const label = labelMap[normalized] || labelMap.untested;
+        indicatorElement.textContent = label;
         switch (status) {
             case 'valid':
                 indicatorElement.className = 'text-xs px-2 py-0.5 rounded-full font-medium bg-green-100 text-green-700';
@@ -409,12 +422,13 @@ class KeyManagerUI {
                 indicatorElement.className = 'text-xs px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-700';
                 break;
             case 'testing':
-                indicatorElement.className = 'text-xs px-2 py-0.5 rounded-full font-medium bg-yellow-100 text-yellow-700';
-                indicatorElement.innerHTML = '<iconify-icon icon="carbon:circle-dash" class="animate-spin"></iconify-icon> ' + status.toUpperCase();
+                indicatorElement.className = 'text-xs px-2 py-0.5 rounded-full font-medium bg-yellow-100 text-yellow-700 flex items-center gap-1';
+                indicatorElement.innerHTML = '<iconify-icon icon="carbon:circle-dash" class="animate-spin" ></iconify-icon><span>检测中</span>';
                 break;
             case 'untested':
             default:
                 indicatorElement.className = 'text-xs px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-600';
+                indicatorElement.textContent = label;
                 break;
         }
     }

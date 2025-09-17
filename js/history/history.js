@@ -345,6 +345,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (typeof addFilesToList === 'function') {
                         addFilesToList([virtualFile]);
                         showNotification && showNotification(`已将“${fileName}”加入待处理列表，请在主界面点击“开始处理”。`, 'success');
+                        // 成功后自动关闭历史面板，避免遮挡主界面交互
+                        try { document.getElementById('historyPanel')?.classList.add('hidden'); } catch(_) {}
                     } else {
                         // 后备：直接操作全局数组并刷新UI
                         if (typeof window !== 'undefined' && Array.isArray(window.pdfFiles)) {
@@ -354,6 +356,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 updateProcessButtonState(window.pdfFiles, window.isProcessing || false);
                             }
                             showNotification && showNotification(`已将“${fileName}”加入待处理列表，请在主界面点击“开始处理”。`, 'success');
+                            try { document.getElementById('historyPanel')?.classList.add('hidden'); } catch(_) {}
                         } else {
                             showNotification && showNotification('无法加入待处理列表：缺少文件列表接口。', 'error');
                         }
@@ -398,6 +401,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (typeof addFilesToList === 'function') {
                         addFilesToList([virtualFile]);
                         showNotification && showNotification(`已将“${fileName}”加入待处理列表（失败片段），请点击“开始处理”。`, 'success');
+                        try { document.getElementById('historyPanel')?.classList.add('hidden'); } catch(_) {}
                     } else if (typeof window !== 'undefined' && Array.isArray(window.pdfFiles)) {
                         window.pdfFiles.push(virtualFile);
                         if (typeof updateFileListUI === 'function' && typeof updateProcessButtonState === 'function' && typeof handleRemoveFile === 'function') {
@@ -405,6 +409,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             updateProcessButtonState(window.pdfFiles, window.isProcessing || false);
                         }
                         showNotification && showNotification(`已将“${fileName}”加入待处理列表（失败片段），请点击“开始处理”。`, 'success');
+                        try { document.getElementById('historyPanel')?.classList.add('hidden'); } catch(_) {}
                     } else {
                         showNotification && showNotification('无法加入待处理列表：缺少文件列表接口。', 'error');
                     }

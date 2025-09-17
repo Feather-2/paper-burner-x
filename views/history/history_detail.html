@@ -911,6 +911,22 @@
       }
       // ---- 日志结束 ----
 
+      if (tab === 'chunk-compare') {
+        // 安全校验：需要 ocrChunks/transChunks 同步存在且长度一致
+        if (!data || !Array.isArray(data.ocrChunks) || !Array.isArray(data.translatedChunks) || data.ocrChunks.length === 0 || data.translatedChunks.length === 0 || data.ocrChunks.length !== data.translatedChunks.length) {
+          document.getElementById('tab-chunk-compare').classList.add('active');
+          const warn = `<div class="warning-box" style="padding:12px;border:1px solid #fbbf24;background:#fffbeb;color:#92400e;border-radius:8px;">`
+                     + `无法进入“分块对比”：当前记录的原文分块数量与译文分块数量不一致，或缺少分块信息。`
+                     + `<br>请先查看“仅OCR/仅翻译”，或重新生成分块以使用对比功能。`
+                     + `</div>`;
+          document.getElementById('tabContent').innerHTML = warn;
+          if (typeof window.refreshTocList === 'function') window.refreshTocList();
+          renderingTab = null;
+          console.timeEnd && console.timeEnd('[性能] showTab_总渲染');
+          return;
+        }
+      }
+
       if(tab === 'ocr') {
         document.getElementById('tab-ocr').classList.add('active');
         contentContainerId = 'ocr-content-wrapper';

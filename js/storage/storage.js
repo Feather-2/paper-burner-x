@@ -63,6 +63,16 @@ const LEGACY_CUSTOM_CONFIG_KEY = 'custom_model_config'; // 旧的自定义配置
  * 这个键名代表了当前推荐的存储 API Keys 和相关源站信息的方式。
  */
 const MODEL_KEYS_STORAGE_KEY = 'modelKeys'; // 新的存储key，用于多站点
+/**
+ * @const {string} GLOSSARY_KEY
+ * @description 翻译备择库（术语库）存储键名。
+ */
+const GLOSSARY_KEY = 'translationGlossary';
+/**
+ * @const {string} GLOSSARY_SETS_KEY
+ * @description 多术语库集合键名：{ [id]: { id, name, enabled, entries: [...] } }
+ */
+const GLOSSARY_SETS_KEY = 'translationGlossarySets';
 
 /**
  * @const {string} DB_NAME
@@ -213,7 +223,8 @@ function loadSettings() {
         },
         defaultSystemPrompt: '',
         defaultUserPromptTemplate: '',
-        useCustomPrompts: false
+        useCustomPrompts: false,
+        enableGlossary: false
     };
     try {
         const storedSettings = localStorage.getItem(SETTINGS_KEY);
@@ -369,6 +380,209 @@ function saveModelConfig(model, config) {
     } catch {}
     allConfigs[model] = config;
     localStorage.setItem(MODEL_CONFIGS_KEY, JSON.stringify(allConfigs));
+}
+
+// ========== 新增：翻译备择库（术语库）存取 ==========
+
+/**
+ * 加载翻译备择库条目列表。
+ * @returns {Array<Object>} 条目数组：[{ id, term, translation, caseSensitive, wholeWord, enabled }]
+ */
+function loadGlossaryEntries() {
+    try {
+        // 优先从多术语库集合加载所有已启用的条目
+        const sets = loadGlossarySets();
+        const setIds = Object.keys(sets || {});
+        if (setIds.length > 0) {
+            const out = [];
+            setIds.forEach(id => {
+                const s = sets[id];
+                if (s && s.enabled && Array.isArray(s.entries)) {
+                    s.entries.forEach(item => {
+                        out.push({
+                            id: item.id || generateUUID(),
+                            term: String(item.term || '').trim(),
+                            translation: String(item.translation || '').trim(),
+                            caseSensitive: !!item.caseSensitive,
+                            wholeWord: !!item.wholeWord,
+                            enabled: item.enabled === undefined ? true : !!item.enabled
+                        });
+                    });
+                }
+            });
+            return out;
+        }
+        // 兼容旧版单库
+        const raw = localStorage.getItem(GLOSSARY_KEY);
+        if (!raw) return [];
+        const list = JSON.parse(raw);
+        if (!Array.isArray(list)) return [];
+        return list.filter(Boolean).map(item => ({
+            id: item.id || generateUUID(),
+            term: String(item.term || '').trim(),
+            translation: String(item.translation || '').trim(),
+            caseSensitive: !!item.caseSensitive,
+            wholeWord: !!item.wholeWord,
+            enabled: item.enabled === undefined ? true : !!item.enabled
+        }));
+    } catch (e) {
+        console.error('Failed to load glossary entries:', e);
+        return [];
+    }
+}
+
+/**
+ * 保存翻译备择库条目列表。
+ * @param {Array<Object>} entries - 条目数组
+ */
+function saveGlossaryEntries(entries) {
+    try {
+        const list = Array.isArray(entries) ? entries : [];
+        localStorage.setItem(GLOSSARY_KEY, JSON.stringify(list));
+    } catch (e) {
+        console.error('Failed to save glossary:', e);
+    }
+}
+
+/**
+ * 导出术语库为 JSON 字符串。
+ * @returns {string}
+ */
+function exportGlossary() {
+    try {
+        const list = loadGlossaryEntries();
+        return JSON.stringify(list, null, 2);
+    } catch (e) {
+        console.error('Failed to export glossary:', e);
+        return '[]';
+    }
+}
+
+/**
+ * 从 JSON 文本导入术语库，返回导入后的数组。
+ * @param {string} jsonText
+ * @returns {Array<Object>}
+ */
+function importGlossary(jsonText) {
+    try {
+        const parsed = JSON.parse(jsonText);
+        if (!Array.isArray(parsed)) throw new Error('格式错误：应为数组');
+        const normalized = parsed.filter(Boolean).map((item, idx) => ({
+            id: item.id || generateUUID(),
+            term: String(item.term || '').trim(),
+            translation: String(item.translation || '').trim(),
+            caseSensitive: !!item.caseSensitive,
+            wholeWord: !!item.wholeWord,
+            enabled: item.enabled === undefined ? true : !!item.enabled
+        })).filter(it => it.term && it.translation);
+        saveGlossaryEntries(normalized);
+        return normalized;
+    } catch (e) {
+        console.error('Failed to import glossary:', e);
+        throw e;
+    }
+}
+
+// ==== 多术语库集合 API ====
+function loadGlossarySets() {
+    try {
+        const raw = localStorage.getItem(GLOSSARY_SETS_KEY);
+        let sets = raw ? JSON.parse(raw) : {};
+        if (!sets || typeof sets !== 'object') sets = {};
+        // 迁移：若无集合但存在旧的单库，则创建一个默认库
+        if (Object.keys(sets).length === 0) {
+            const legacy = (function(){ try { return JSON.parse(localStorage.getItem(GLOSSARY_KEY) || '[]'); } catch { return []; } })();
+            if (Array.isArray(legacy) && legacy.length > 0) {
+                const id = generateUUID();
+                sets[id] = {
+                    id,
+                    name: '默认术语库',
+                    enabled: true,
+                    entries: legacy.filter(Boolean).map(item => ({
+                        id: item.id || generateUUID(),
+                        term: String(item.term || '').trim(),
+                        translation: String(item.translation || '').trim(),
+                        caseSensitive: !!item.caseSensitive,
+                        wholeWord: !!item.wholeWord,
+                        enabled: item.enabled === undefined ? true : !!item.enabled
+                    }))
+                };
+                localStorage.setItem(GLOSSARY_SETS_KEY, JSON.stringify(sets));
+            }
+        }
+        return sets;
+    } catch (e) {
+        console.error('Failed to load glossary sets:', e);
+        return {};
+    }
+}
+
+function saveGlossarySets(sets) {
+    try {
+        localStorage.setItem(GLOSSARY_SETS_KEY, JSON.stringify(sets || {}));
+    } catch (e) { console.error('Failed to save glossary sets:', e); }
+}
+
+function createGlossarySet(name) {
+    const sets = loadGlossarySets();
+    const id = generateUUID();
+    sets[id] = { id, name: name || ('术语库-' + id.slice(0,8)), enabled: true, entries: [] };
+    saveGlossarySets(sets);
+    return sets[id];
+}
+
+function deleteGlossarySet(id) {
+    const sets = loadGlossarySets();
+    if (sets[id]) { delete sets[id]; saveGlossarySets(sets); }
+}
+
+function renameGlossarySet(id, newName) {
+    const sets = loadGlossarySets();
+    if (sets[id]) { sets[id].name = String(newName || '').trim() || sets[id].name; saveGlossarySets(sets); }
+}
+
+function toggleGlossarySet(id, enabled) {
+    const sets = loadGlossarySets();
+    if (sets[id]) { sets[id].enabled = !!enabled; saveGlossarySets(sets); }
+}
+
+function updateGlossarySetEntries(id, entries) {
+    const sets = loadGlossarySets();
+    if (sets[id]) { sets[id].entries = Array.isArray(entries) ? entries : []; saveGlossarySets(sets); }
+}
+
+function exportGlossarySet(id) {
+    const sets = loadGlossarySets();
+    const s = sets[id];
+    if (!s) return '{}';
+    return JSON.stringify(s, null, 2);
+}
+
+function importGlossarySet(jsonText) {
+    const obj = JSON.parse(jsonText);
+    if (!obj || typeof obj !== 'object' || !Array.isArray(obj.entries)) throw new Error('文件不是有效的术语库');
+    const sets = loadGlossarySets();
+    // 新建ID，避免覆盖
+    const id = generateUUID();
+    sets[id] = {
+        id,
+        name: String(obj.name || ('导入库-' + id.slice(0,8))),
+        enabled: obj.enabled === undefined ? true : !!obj.enabled,
+        entries: obj.entries.filter(Boolean).map(item => ({
+            id: item.id || generateUUID(),
+            term: String(item.term || '').trim(),
+            translation: String(item.translation || '').trim(),
+            caseSensitive: !!item.caseSensitive,
+            wholeWord: !!item.wholeWord,
+            enabled: item.enabled === undefined ? true : !!item.enabled
+        }))
+    };
+    saveGlossarySets(sets);
+    return sets[id];
+}
+
+function exportAllGlossarySets() {
+    return JSON.stringify(loadGlossarySets(), null, 2);
 }
 
 /**

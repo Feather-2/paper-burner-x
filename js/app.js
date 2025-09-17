@@ -270,7 +270,8 @@ function applySettingsToUI(settings) {
         customTargetLanguageName: customLangNameVal,
         defaultSystemPrompt: defaultSysPromptVal,
         defaultUserPromptTemplate: defaultUserPromptVal,
-        useCustomPrompts: useCustomPromptsVal
+        useCustomPrompts: useCustomPromptsVal,
+        enableGlossary: enableGlossaryVal
     } = settings;
 
     // 应用到各 DOM 元素
@@ -331,6 +332,10 @@ function applySettingsToUI(settings) {
     const promptMode = settings.promptMode || 'builtin';
     const promptModeRadio = document.querySelector(`input[name="promptMode"][value="${promptMode}"]`);
     if (promptModeRadio) promptModeRadio.checked = true;
+
+    // 备择库开关
+    const enableGlossaryToggle = document.getElementById('enableGlossaryToggle');
+    if (enableGlossaryToggle) enableGlossaryToggle.checked = !!enableGlossaryVal;
 
     // 自定义模型设置 (旧版逻辑，现在主要由源站点管理)
     // 这里不再直接从 settings.customModelSettings 读取并填充旧的自定义模型输入框
@@ -400,6 +405,7 @@ function setupEventListeners() {
     const customSourceSiteToggleBtn = document.getElementById('customSourceSiteToggle');
     const customSourceSiteDiv = document.getElementById('customSourceSite');
     const customSourceSiteToggleIconEl = document.getElementById('customSourceSiteToggleIcon');
+    const enableGlossaryToggle = document.getElementById('enableGlossaryToggle');
 
     // API Key 存储 - 相关逻辑已移除，因为输入框已移除
     /* // mistralTextArea 的监听器已无意义
@@ -448,6 +454,10 @@ function setupEventListeners() {
         input.addEventListener('change', saveCurrentSettings);
         input.addEventListener('input', saveCurrentSettings); // 实时保存
     });
+
+    if (enableGlossaryToggle) {
+        enableGlossaryToggle.addEventListener('change', saveCurrentSettings);
+    }
 
     // 高级设置
     advancedSettingsToggle.addEventListener('click', () => {
@@ -586,17 +596,18 @@ function handleRemoveFile(indexToRemove) {
 
 /**
  * 将用户选择的文件添加到待处理列表 `pdfFiles` 中。
- * 会进行文件类型检查（只接受 PDF, MD, TXT）和重复文件检查（基于文件名和大小）。
+ * 会进行文件类型检查（支持 PDF / MD / TXT / DOCX / PPTX / HTML / EPUB）和重复文件检查（基于文件名和大小）。
  * 添加文件后会更新UI。
  * @param {FileList} selectedFiles - 用户通过拖拽或文件对话框选择的文件列表。
  */
 function addFilesToList(selectedFiles) {
     if (!selectedFiles || selectedFiles.length === 0) return;
     let filesAdded = false;
+    const supportedTypes = ['pdf', 'md', 'txt', 'docx', 'pptx', 'html', 'htm', 'epub'];
     for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i];
         const fileType = file.name.split('.').pop().toLowerCase();
-        if (fileType === 'pdf' || fileType === 'md' || fileType === 'txt') {
+        if (supportedTypes.includes(fileType)) {
             if (!pdfFiles.some(existingFile => existingFile.name === file.name && existingFile.size === file.size)) {
                 pdfFiles.push(file);
                 filesAdded = true;
@@ -604,7 +615,7 @@ function addFilesToList(selectedFiles) {
                 showNotification(`文件 "${file.name}" 已在列表中`, 'info');
             }
         } else {
-            showNotification(`文件 "${file.name}" 不是支持的文件类型 (PDF, MD, TXT)，已忽略`, 'warning');
+            showNotification(`文件 "${file.name}" 不是支持的文件类型 (PDF / MD / TXT / DOCX / PPTX / HTML / EPUB)，已忽略`, 'warning');
         }
     }
     if (filesAdded) {
@@ -662,7 +673,8 @@ function saveCurrentSettings() {
         customTargetLanguageName: targetLangValue === 'custom' ? document.getElementById('customTargetLanguageInput').value : '',
         defaultSystemPrompt: document.getElementById('defaultSystemPrompt').value,
         defaultUserPromptTemplate: document.getElementById('defaultUserPromptTemplate').value,
-        promptMode: document.querySelector('input[name="promptMode"]:checked')?.value || 'builtin'
+        promptMode: document.querySelector('input[name="promptMode"]:checked')?.value || 'builtin',
+        enableGlossary: document.getElementById('enableGlossaryToggle')?.checked || false
     };
     // 调用 storage.js 中的保存函数
     saveSettings(settingsData);

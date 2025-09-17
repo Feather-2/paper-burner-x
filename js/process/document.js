@@ -435,13 +435,34 @@ async function translateLongDocument(
                     translationResults.set('text-' + task.index, result);
                 } else if (task.type === 'table') {
                     // 翻译表格
-                    const tableSystemPrompt = `你是一个精确翻译表格的助手。请将表格翻译成${targetLang}，严格保持以下格式要求：
+                    let tableSystemPrompt = `你是一个精确翻译表格的助手。请将表格翻译成${targetLang}，严格保持以下格式要求：
 1. 保持所有表格分隔符（|）和结构完全不变
 2. 保持表格对齐标记（:--:、:--、--:）不变
 3. 保持表格的行数和列数完全一致
 4. 保持数学公式、符号和百分比等专业内容不变
 5. 翻译表格标题（如有）和表格内的文本内容
 6. 表格内容与表格外内容要明确区分`;
+
+                    // 注入术语库（如启用且有命中）
+                    try {
+                        const settingsForGlossary = (typeof loadSettings === 'function') ? loadSettings() : {};
+                        const glossaryEnabled = !!settingsForGlossary.enableGlossary;
+                        if (glossaryEnabled && typeof getGlossaryMatchesForText === 'function') {
+                            const matches = getGlossaryMatchesForText(task.content);
+                            if (matches && matches.length > 0 && typeof buildGlossaryInstruction === 'function') {
+                                const instr = buildGlossaryInstruction(matches, targetLang);
+                                if (instr) {
+                                    tableSystemPrompt = tableSystemPrompt + "\n\n" + instr;
+                                    if (typeof addProgressLog === 'function') {
+                                        const names = matches.slice(0, 6).map(m => m.term).join(', ');
+                                        addProgressLog(`${taskLogContext} [表格] 命中备择库 ${matches.length} 条：${names}${matches.length>6?'...':''}`);
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Glossary injection for table skipped due to error:', e);
+                    }
 
                     // 用户提示词
                     const tableUserPrompt = `请将以下Markdown表格翻译成${targetLang}，请确保完全保持表格结构和格式：

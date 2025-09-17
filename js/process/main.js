@@ -17,8 +17,15 @@
  *      - 调用 `processOcrResults` (如果可用) 处理 OCR 结果，提取 Markdown 内容和图片数据。
  *      - 捕获 OCR 过程中的错误，特别是 API Key 失效的错误 (如401)，如果发生则返回特定错误对象，以便上层进行 Key 失效处理。
  *    - **MD/TXT 文件**：
- *      - 直接读取文件文本内容作为 Markdown 内容，图片数据为空。
- *      - 捕获文件读取错误。
+ *      - 直接读取文件文本内容作为 Markdown 内容。
+ *    - **DOCX 文件**：
+ *      - 使用 `mammoth` 将文档转换为 HTML，再转为 Markdown。
+ *    - **HTML 文件**：
+ *      - 直接解析 HTML 并转为 Markdown。
+ *    - **PPTX 文件**：
+ *      - 解析各幻灯片 XML，提取文本内容并拼接。
+ *    - **EPUB 文件**：
+ *      - 解析 OPF 清单与 spine，依次抽取章节 HTML 转为 Markdown。
  *    - **不支持的文件类型**：抛出错误。
  * 3. **翻译流程** (如果 `selectedTranslationModelName` 不是 'none')：
  *    - 检查翻译 API Key 是否提供，未提供则记录警告，翻译内容标记为未翻译。
@@ -61,6 +68,23 @@
  *   `{ file, markdown, translation, images, ocrChunks, translatedChunks, error: null }`。
  *   失败或 Key 失效时，`error` 字段会有错误信息，`keyInvalid` 字段可能被设置。
  */
+function convertHtmlToMarkdown(htmlText) {
+    const html = String(htmlText || '');
+    if (typeof TurndownService === 'function') {
+        try {
+            const turndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
+            return turndown.turndown(html);
+        } catch (err) {
+            console.warn('[convertHtmlToMarkdown] turndown 转换失败，回退为纯文本', err);
+        }
+    }
+    return html
+        .replace(/\r?\n/g, '\n')
+        .replace(/<\s*br\s*\/?>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/\n{3,}/g, '\n\n');
+}
+
 async function processSinglePdf(
     fileToProcess,
     mistralKeyObject,
@@ -247,6 +271,114 @@ async function processSinglePdf(
             } catch (readError) {
                 if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 读取 ${fileType.toUpperCase()} 文件失败: ${readError.message}`);
                 throw new Error(`读取 ${fileType.toUpperCase()} 文件失败: ${readError.message}`);
+            }
+        } else if (fileType === 'docx') {
+            if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 解析 DOCX 文档...`);
+            if (typeof mammoth === 'undefined' || !mammoth || typeof mammoth.convertToHtml !== 'function') {
+                throw new Error('缺少 mammoth 库，无法解析 DOCX');
+            }
+            try {
+                const arrayBuffer = await fileToProcess.arrayBuffer();
+                const result = await mammoth.convertToHtml({ arrayBuffer });
+                const html = result && result.value ? result.value : '';
+                currentMarkdownContent = convertHtmlToMarkdown(html);
+                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} DOCX 文本转换完成`);
+            } catch (error) {
+                console.error('DOCX 解析失败:', error);
+                throw new Error(`DOCX 解析失败: ${error.message || error}`);
+            }
+        } else if (fileType === 'html' || fileType === 'htm') {
+            if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 解析 HTML 文档...`);
+            try {
+                const rawHtml = await fileToProcess.text();
+                currentMarkdownContent = convertHtmlToMarkdown(rawHtml);
+                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} HTML 文本转换完成`);
+            } catch (error) {
+                console.error('HTML 解析失败:', error);
+                throw new Error(`HTML 解析失败: ${error.message || error}`);
+            }
+        } else if (fileType === 'pptx') {
+            if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 解析 PPTX 文档...`);
+            if (typeof JSZip === 'undefined') {
+                throw new Error('缺少 JSZip 库，无法解析 PPTX');
+            }
+            try {
+                const arrayBuffer = await fileToProcess.arrayBuffer();
+                const zip = await JSZip.loadAsync(arrayBuffer);
+                const slidePaths = Object.keys(zip.files)
+                    .filter(path => /^ppt\/slides\/slide\d+\.xml$/i.test(path))
+                    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+                if (slidePaths.length === 0) {
+                    throw new Error('未找到幻灯片内容');
+                }
+                const slides = [];
+                const parser = new DOMParser();
+                for (const slidePath of slidePaths) {
+                    const xmlText = await zip.file(slidePath).async('string');
+                    const doc = parser.parseFromString(xmlText, 'application/xml');
+                    const textNodes = Array.from(doc.getElementsByTagName('a:t'));
+                    const text = textNodes.map(node => node.textContent || '').join(' ').trim();
+                    if (text) slides.push(text);
+                }
+                currentMarkdownContent = slides.length > 0 ? slides.join('\n\n---\n\n') : '[PPTX 无文本内容]';
+                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} PPTX 文本提取完成，共 ${slides.length} 页`);
+            } catch (error) {
+                console.error('PPTX 解析失败:', error);
+                throw new Error(`PPTX 解析失败: ${error.message || error}`);
+            }
+        } else if (fileType === 'epub') {
+            if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 解析 EPUB 文档...`);
+            if (typeof JSZip === 'undefined') {
+                throw new Error('缺少 JSZip 库，无法解析 EPUB');
+            }
+            try {
+                const arrayBuffer = await fileToProcess.arrayBuffer();
+                const zip = await JSZip.loadAsync(arrayBuffer);
+                const containerFile = zip.file('META-INF/container.xml');
+                if (!containerFile) throw new Error('未找到 container.xml');
+                const containerXml = await containerFile.async('string');
+                const parser = new DOMParser();
+                const containerDoc = parser.parseFromString(containerXml, 'application/xml');
+                const rootfileEl = containerDoc.querySelector('rootfile');
+                const opfPath = rootfileEl ? rootfileEl.getAttribute('full-path') : null;
+                if (!opfPath) throw new Error('未找到 OPF 清单');
+                const opfFile = zip.file(opfPath);
+                if (!opfFile) throw new Error(`OPF 文件缺失: ${opfPath}`);
+                const opfXml = await opfFile.async('string');
+                const opfDoc = parser.parseFromString(opfXml, 'application/xml');
+                const manifest = {};
+                opfDoc.querySelectorAll('manifest > item').forEach(item => {
+                    const id = item.getAttribute('id');
+                    const href = item.getAttribute('href');
+                    if (id && href) manifest[id] = href;
+                });
+                const spineItems = [];
+                opfDoc.querySelectorAll('spine > itemref').forEach(itemref => {
+                    const idref = itemref.getAttribute('idref');
+                    if (idref && manifest[idref]) spineItems.push(manifest[idref]);
+                });
+                if (spineItems.length === 0) throw new Error('未找到章节信息');
+                const baseDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : '';
+                const chapters = [];
+                for (const href of spineItems) {
+                    const relative = href.replace(/\\/g, '/');
+                    const path = baseDir ? `${baseDir}${relative}` : relative;
+                    let entry = zip.file(path) || zip.file(decodeURIComponent(path));
+                    if (!entry && baseDir) {
+                        const alt = `${baseDir}${decodeURIComponent(relative)}`;
+                        entry = zip.file(alt);
+                    }
+                    if (!entry) continue;
+                    const html = await entry.async('string');
+                    const markdown = convertHtmlToMarkdown(html).trim();
+                    if (markdown) chapters.push(markdown);
+                }
+                if (chapters.length === 0) throw new Error('未解析到章节正文');
+                currentMarkdownContent = chapters.join('\n\n---\n\n');
+                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} EPUB 文本解析完成，共 ${chapters.length} 章`);
+            } catch (error) {
+                console.error('EPUB 解析失败:', error);
+                throw new Error(`EPUB 解析失败: ${error.message || error}`);
             }
         } else {
             throw new Error(`不支持的文件类型: ${fileType}`);

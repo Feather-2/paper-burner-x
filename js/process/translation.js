@@ -345,6 +345,27 @@ async function translateMarkdown(
       }
     }
 
+    // 注入：翻译备择库（术语库）命中与提示注入
+    try {
+        const settingsForGlossary = (typeof loadSettings === 'function') ? loadSettings() : {};
+        const glossaryEnabled = !!settingsForGlossary.enableGlossary;
+        if (glossaryEnabled && typeof getGlossaryMatchesForText === 'function') {
+            const matches = getGlossaryMatchesForText(processedText);
+            if (matches && matches.length > 0) {
+                const instr = (typeof buildGlossaryInstruction === 'function') ? buildGlossaryInstruction(matches, targetLang) : '';
+                if (instr) {
+                    systemPrompt = (systemPrompt || '') + "\n\n" + instr;
+                    if (typeof addProgressLog === 'function') {
+                        const names = matches.slice(0, 6).map(m => m.term).join(', ');
+                        addProgressLog(`${actualLogContext} 命中备择库 ${matches.length} 条：${names}${matches.length>6?'...':''}`);
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('Glossary injection skipped due to error:', e);
+    }
+
     // 替换模板变量 - 使用预处理后的文本
     userPrompt = userPrompt
         .replace(/\$\{targetLangName\}/g, targetLang)
@@ -600,10 +621,24 @@ async function translateMarkdown(
                 }
 
                 // 重建基于新提示词的 prompts
-                const retrySystemPrompt = (newPrompt.systemPrompt || '') + tableHandlingNote;
+                let retrySystemPrompt = (newPrompt.systemPrompt || '') + tableHandlingNote;
                 let retryUserPrompt = (newPrompt.userPromptTemplate || '')
                     .replace(/\$\{targetLangName\}/g, targetLang)
                     .replace(/\$\{content\}/g, processedText);
+
+                // 重新评估术语库命中并注入（确保重试也带有一致的术语指引）
+                try {
+                    const st2 = (typeof loadSettings === 'function') ? loadSettings() : {};
+                    if (st2 && st2.enableGlossary && typeof getGlossaryMatchesForText === 'function') {
+                        const matches2 = getGlossaryMatchesForText(processedText);
+                        if (matches2 && matches2.length > 0 && typeof buildGlossaryInstruction === 'function') {
+                            const instr2 = buildGlossaryInstruction(matches2, targetLang);
+                            if (instr2) retrySystemPrompt = retrySystemPrompt + "\n\n" + instr2;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Glossary injection (retry) skipped:', e);
+                }
 
                 // 入队 + 出队（重试请求）
                 const retryRequestId = `${requestId}_r1`;

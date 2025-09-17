@@ -191,12 +191,43 @@ function renderVolcanoInfoPanel() {
     const hintEl = document.getElementById('volcanoModelHint');
     const cfg = typeof loadModelConfig === 'function' ? (loadModelConfig('volcano') || {}) : {};
     const preferred = cfg.preferredModelId || cfg.modelId || '';
-    if (selectEl && selectEl.options.length === 0) {
-        const opt = document.createElement('option');
-        opt.value = preferred; opt.textContent = preferred ? preferred + '（当前）' : '（未设置，请手动输入或在设置中选择）';
-        selectEl.appendChild(opt);
+    if (selectEl) {
+        // 移除下拉选项中的重复值，避免渲染多个相同模型
+        const seenValues = new Set();
+        Array.from(selectEl.options).forEach(opt => {
+            const key = opt.value || '__empty__';
+            if (seenValues.has(key) && key !== '__empty__') {
+                opt.remove();
+            } else {
+                seenValues.add(key);
+            }
+        });
+
+        if (selectEl.options.length === 0) {
+            const opt = document.createElement('option');
+            opt.value = preferred;
+            opt.textContent = preferred ? `${preferred}（当前）` : '（未设置，请手动输入或在设置中选择）';
+            selectEl.appendChild(opt);
+        }
+
+        selectEl.onchange = function(){
+            if (!this.value) return;
+            if (typeof saveModelConfig === 'function') {
+                saveModelConfig('volcano', { preferredModelId: this.value });
+            }
+            // 更新选项文案，确保仅当前项带“（当前）”标记
+            Array.from(selectEl.options).forEach(opt => {
+                if (opt.value === this.value) {
+                    opt.textContent = `${opt.value}（当前）`;
+                } else if (opt.value) {
+                    opt.textContent = opt.value;
+                } else {
+                    opt.textContent = '（未设置，请手动输入或在设置中选择）';
+                }
+            });
+            showNotification && showNotification(`火山 默认模型已设为 ${this.value}`, 'success');
+        };
     }
-    selectEl.onchange = function(){ if (!this.value) return; saveModelConfig && saveModelConfig('volcano', { preferredModelId: this.value }); showNotification && showNotification(`火山 默认模型已设为 ${this.value}`, 'success'); };
     const detectBtn = document.getElementById('volcanoDetectBtn');
     if (detectBtn) {
         // 按用户要求：不提供在线检测，改为手动填写
@@ -206,30 +237,76 @@ function renderVolcanoInfoPanel() {
 
     // 手动输入模型ID支持
     if (selectEl) {
-        const manualWrap = document.createElement('div');
-        manualWrap.className = 'mt-2 flex items-center gap-2';
-        manualWrap.innerHTML = `
-            <input id="volcanoManualInput" type="text" class="flex-grow px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500" placeholder="例如：doubao-1-5-pro-32k-250115">
-            <button id="volcanoSaveModelBtn" class="px-3 py-1.5 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 transition-colors">保存为默认</button>
-        `;
-        selectEl.parentElement.appendChild(manualWrap);
+        const parent = selectEl.parentElement;
+        if (parent) {
+            // 清理旧版重复的输入区，仅保留第一个
+            const legacyInputs = parent.querySelectorAll('#volcanoManualInput');
+            legacyInputs.forEach((inputEl, idx) => {
+                const wrap = inputEl.closest('.pbx-volcano-manual-wrap') || inputEl.parentElement;
+                if (idx === 0) {
+                    if (wrap) wrap.classList.add('pbx-volcano-manual-wrap');
+                } else if (wrap) {
+                    wrap.remove();
+                } else {
+                    inputEl.remove();
+                }
+            });
 
-        const inputEl = manualWrap.querySelector('#volcanoManualInput');
-        const saveBtn = manualWrap.querySelector('#volcanoSaveModelBtn');
-        if (preferred) inputEl.value = preferred;
-        saveBtn.onclick = function() {
-            const val = (inputEl.value || '').trim();
-            if (!val) { showNotification && showNotification('请输入模型ID', 'warning'); return; }
-            if (typeof saveModelConfig === 'function') saveModelConfig('volcano', { preferredModelId: val });
-            // 确保下拉里也能选到
-            let has = false;
-            for (let i=0;i<selectEl.options.length;i++){ if (selectEl.options[i].value === val) { has = true; break; } }
-            if (!has) {
-                const opt = document.createElement('option'); opt.value = val; opt.textContent = val; selectEl.appendChild(opt);
+            let manualWrap = parent.querySelector('.pbx-volcano-manual-wrap');
+            if (!manualWrap) {
+                manualWrap = document.createElement('div');
+                manualWrap.className = 'mt-2 flex items-center gap-2 pbx-volcano-manual-wrap';
+
+                const inputEl = document.createElement('input');
+                inputEl.id = 'volcanoManualInput';
+                inputEl.type = 'text';
+                inputEl.placeholder = '例如：doubao-1-5-pro-32k-250115';
+                inputEl.className = 'flex-grow px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500';
+
+                const saveBtn = document.createElement('button');
+                saveBtn.id = 'volcanoSaveModelBtn';
+                saveBtn.className = 'px-3 py-1.5 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 transition-colors';
+                saveBtn.textContent = '保存为默认';
+
+                manualWrap.appendChild(inputEl);
+                manualWrap.appendChild(saveBtn);
+                parent.appendChild(manualWrap);
             }
-            selectEl.value = val;
-            showNotification && showNotification(`火山 默认模型已设为 ${val}`, 'success');
-        };
+
+            const inputEl = manualWrap.querySelector('#volcanoManualInput');
+            const saveBtn = manualWrap.querySelector('#volcanoSaveModelBtn');
+            if (inputEl) inputEl.value = preferred || '';
+            if (saveBtn && inputEl) {
+                saveBtn.onclick = function() {
+                    const val = (inputEl.value || '').trim();
+                    if (!val) { showNotification && showNotification('请输入模型ID', 'warning'); return; }
+
+                    if (typeof saveModelConfig === 'function') {
+                        saveModelConfig('volcano', { preferredModelId: val });
+                    }
+
+                    let matchedOption = Array.from(selectEl.options).find(opt => opt.value === val);
+                    if (!matchedOption) {
+                        matchedOption = document.createElement('option');
+                        matchedOption.value = val;
+                        selectEl.appendChild(matchedOption);
+                    }
+
+                    // 更新下拉选项文案，保持唯一且带“（当前）”标记
+                    Array.from(selectEl.options).forEach(opt => {
+                        if (opt.value === val) {
+                            opt.textContent = `${val}（当前）`;
+                        } else if (opt.value) {
+                            opt.textContent = opt.value;
+                        } else {
+                            opt.textContent = '（未设置，请手动输入或在设置中选择）';
+                        }
+                    });
+                    selectEl.value = val;
+                    showNotification && showNotification(`火山 默认模型已设为 ${val}`, 'success');
+                };
+            }
+        }
     }
 }
 
@@ -749,6 +826,16 @@ function updateTranslationUIVisibility(isProcessing) {
     }
     // ----- 结束新增 -----
 
+    // 翻译备择库管理模块
+    const glossarySection = document.getElementById('glossaryManagerSection');
+    if (glossarySection) {
+        if (translationModelValue === 'none') {
+            glossarySection.classList.add('hidden');
+        } else {
+            glossarySection.classList.remove('hidden');
+        }
+    }
+
     // ----- 新增：Gemini 默认模型信息面板显示/隐藏 -----
     const geminiInfo = document.getElementById('geminiModelInfo');
     if (geminiInfo) {
@@ -1016,12 +1103,12 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentSelectedSourceSiteId = null; // 新增: 当前选中的自定义源站ID
 
     const supportedModelsForKeyManager = [
-        { key: 'mistral', name: 'Mistral OCR' },
-        { key: 'deepseek', name: 'deepseek' },
-        { key: 'gemini', name: 'gemini' },
-        { key: 'tongyi', name: '通义百炼' },
-        { key: 'volcano', name: '火山引擎' },
-        { key: 'custom', name: '自定义翻译模型' }
+        { key: 'mistral', name: 'Mistral OCR', group: 'ocr' },
+        { key: 'deepseek', name: 'DeepSeek 翻译', group: 'translation' },
+        { key: 'gemini', name: 'Gemini 翻译', group: 'translation' },
+        { key: 'tongyi', name: '通义百炼', group: 'translation' },
+        { key: 'volcano', name: '火山引擎', group: 'translation' },
+        { key: 'custom', name: '自定义翻译模型', group: 'translation' }
     ];
 
     if (modelKeyManagerBtn && modelKeyManagerModal && closeModelKeyManager && modelListColumn && modelConfigColumn && keyManagerColumn) {
@@ -1046,19 +1133,53 @@ document.addEventListener('DOMContentLoaded', function() {
     function renderModelList() {
         modelListColumn.innerHTML = '';
 
-        // 先插入导入/导出按钮
-        const exportAllBtn = document.createElement('button');
-        exportAllBtn.innerHTML = '<iconify-icon icon="carbon:export" class="mr-1"></iconify-icon>导出全部配置';
-        exportAllBtn.className = 'w-full text-left px-3 py-2 text-sm rounded-md flex items-center hover:bg-gray-100 transition-colors';
+        const modelHasValidKey = {};
+        const hasUsableKey = (keys = []) => keys.some(k => k && k.value && k.value.trim() && k.status !== 'invalid');
 
-        const importAllBtn = document.createElement('button');
-        importAllBtn.innerHTML = '<iconify-icon icon="carbon:import" class="mr-1"></iconify-icon>导入全部配置';
-        importAllBtn.className = 'w-full text-left px-3 py-2 text-sm rounded-md flex items-center hover:bg-gray-100 transition-colors mb-2';
+        supportedModelsForKeyManager.forEach(model => {
+            if (typeof loadModelKeys !== 'function') {
+                modelHasValidKey[model.key] = false;
+                return;
+            }
 
-        exportAllBtn.addEventListener('click', () => {
+            if (model.key === 'custom') {
+                let anyCustomKey = false;
+                const sites = typeof loadAllCustomSourceSites === 'function' ? loadAllCustomSourceSites() : {};
+                Object.keys(sites || {}).forEach(siteId => {
+                    const siteKeys = loadModelKeys(`custom_source_${siteId}`) || [];
+                    if (hasUsableKey(siteKeys)) anyCustomKey = true;
+                });
+                modelHasValidKey[model.key] = anyCustomKey;
+            } else {
+                const keys = loadModelKeys(model.key) || [];
+                modelHasValidKey[model.key] = hasUsableKey(keys);
+            }
+        });
+
+        const hasMistralKey = !!modelHasValidKey['mistral'];
+        const translationHasKey = supportedModelsForKeyManager
+            .filter(m => m.group === 'translation')
+            .some(m => modelHasValidKey[m.key]);
+
+        const headerSection = document.createElement('div');
+        headerSection.className = 'mb-3 space-y-1';
+
+        const importExportRow = document.createElement('div');
+        importExportRow.className = 'flex items-center gap-2 px-1';
+
+        const exportIconBtn = document.createElement('button');
+        exportIconBtn.type = 'button';
+        exportIconBtn.innerHTML = '<iconify-icon icon="carbon:export" width="16"></iconify-icon><span class="ml-1">导出全部</span>';
+        exportIconBtn.className = 'px-2 py-1 text-xs rounded-md border border-slate-200 hover:border-blue-300 text-slate-600 transition-colors flex items-center';
+        exportIconBtn.addEventListener('click', () => {
             KeyManagerUI.exportAllModelData();
         });
-        importAllBtn.addEventListener('click', () => {
+
+        const importIconBtn = document.createElement('button');
+        importIconBtn.type = 'button';
+        importIconBtn.innerHTML = '<iconify-icon icon="carbon:import-export" width="16"></iconify-icon><span class="ml-1">导入全部</span>';
+        importIconBtn.className = 'px-2 py-1 text-xs rounded-md border border-slate-200 hover:border-blue-300 text-slate-600 transition-colors flex items-center';
+        importIconBtn.addEventListener('click', () => {
             KeyManagerUI.importAllModelData(() => {
                 if (typeof renderModelList === 'function') renderModelList();
                 if (typeof keyManagerColumn !== 'undefined' && typeof selectedModelForManager !== 'undefined') {
@@ -1067,22 +1188,69 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
 
-        modelListColumn.appendChild(exportAllBtn);
-        modelListColumn.appendChild(importAllBtn);
+        importExportRow.appendChild(exportIconBtn);
+        importExportRow.appendChild(importIconBtn);
+        headerSection.appendChild(importExportRow);
 
-        // 再插入模型按钮
-        supportedModelsForKeyManager.forEach(model => {
-            const button = document.createElement('button');
-            button.textContent = model.name;
-            button.dataset.modelKey = model.key;
-            button.className = 'w-full text-left px-3 py-2 text-sm rounded-md transition-colors ';
-            if (model.key === selectedModelForManager) {
-                button.classList.add('bg-blue-100', 'text-blue-700', 'font-semibold');
-            } else {
-                button.classList.add('hover:bg-gray-200', 'text-gray-700');
+        const importExportHint = document.createElement('div');
+        importExportHint.className = 'text-[11px] text-slate-500 px-1';
+        importExportHint.textContent = '配置文件为 Paper Burner X 专用 JSON。';
+        headerSection.appendChild(importExportHint);
+        modelListColumn.appendChild(headerSection);
+
+        const divider = document.createElement('div');
+        divider.className = 'border-t border-dashed border-slate-200 my-3';
+        modelListColumn.appendChild(divider);
+
+        if (!hasMistralKey) {
+            const ocrWarning = document.createElement('div');
+            ocrWarning.className = 'mb-3 text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2 flex items-start gap-2';
+            ocrWarning.innerHTML = '<iconify-icon icon="carbon:warning" width="14"></iconify-icon><span>当前未提供 OCR Key，无法进行 PDF 的 OCR 操作。</span>';
+            modelListColumn.appendChild(ocrWarning);
+        }
+
+        if (!translationHasKey) {
+            const translationWarning = document.createElement('div');
+            translationWarning.className = 'mb-3 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-3 py-2 flex items-start gap-2';
+            translationWarning.innerHTML = '<iconify-icon icon="carbon:warning" width="14"></iconify-icon><span>当前无有效翻译 Key，无法进行翻译操作。</span>';
+            modelListColumn.appendChild(translationWarning);
+        }
+
+        const sections = [
+            { title: '所有 OCR 方式', group: 'ocr', className: 'mt-4 mb-2' },
+            { title: '翻译和分析 API', group: 'translation', className: 'mt-5 mb-2' }
+        ];
+
+        sections.forEach((section, idx) => {
+            const header = document.createElement('div');
+            header.className = `text-xs font-semibold text-slate-500 uppercase tracking-wide px-1 ${section.className || ''}`;
+            header.textContent = section.title;
+            modelListColumn.appendChild(header);
+
+            supportedModelsForKeyManager
+                .filter(model => model.group === section.group)
+                .forEach(model => {
+                    const button = document.createElement('button');
+                    button.dataset.modelKey = model.key;
+                    button.className = 'w-full text-left px-3 py-2 text-sm rounded-md transition-colors ';
+                    const indicator = modelHasValidKey[model.key]
+                        ? '<span class="inline-block w-1.5 h-1.5 mr-2 rounded-full bg-emerald-500"></span>'
+                        : '<span class="inline-block w-1.5 h-1.5 mr-2 rounded-full bg-slate-300"></span>';
+                    button.innerHTML = indicator + model.name;
+                    if (model.key === selectedModelForManager) {
+                        button.classList.add('bg-blue-100', 'text-blue-700', 'font-semibold');
+                    } else {
+                        button.classList.add('hover:bg-gray-200', 'text-gray-700');
+                    }
+                    button.addEventListener('click', () => selectModelForManager(model.key));
+                    modelListColumn.appendChild(button);
+                });
+
+            if (idx !== sections.length - 1) {
+                const sectionDivider = document.createElement('div');
+                sectionDivider.className = 'border-t border-dashed border-slate-200 my-3';
+                modelListColumn.appendChild(sectionDivider);
             }
-            button.addEventListener('click', () => selectModelForManager(model.key));
-            modelListColumn.appendChild(button);
         });
     }
 
@@ -1143,16 +1311,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
         } else {
             title.textContent = `${modelDefinition.name} - 配置`;
-            // 移除旧的自定义模型配置相关代码，因为它们现在通过源站管理
-            const existingInputs = modelConfigColumn.querySelectorAll('input, select, button, p, div:not(#sourceSitesListContainer):not(#sourceSiteConfigFormContainer)');
-            existingInputs.forEach(el => {
-                if(el.id !== 'addNewSourceSiteBtn') el.remove();
-            });
-
-            const info = document.createElement('p');
-            info.textContent = '此预设模型没有额外的可配置项。';
-            info.className = 'text-sm text-gray-600';
-            modelConfigColumn.appendChild(info);
         }
     }
 
@@ -1278,7 +1436,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const siteIdForForm = isEditing ? siteData.id : _generateUUID_ui();
 
         form.appendChild(createConfigInput(`sourceDisplayName_${siteIdForForm}`, '显示名称 *', isEditing ? siteData.displayName : '', 'text', '例如: 我的备用 OpenAI', () => {}));
-        form.appendChild(createConfigInput(`sourceApiBaseUrl_${siteIdForForm}`, 'API Base URL *', isEditing ? siteData.apiBaseUrl : '', 'url', '例如: https://api.openai.com/v1', () => {}));
+        form.appendChild(createConfigInput(`sourceApiBaseUrl_${siteIdForForm}`, 'API Base URL *', isEditing ? siteData.apiBaseUrl : '', 'url', '例如: https://api.openai.com', () => {}));
 
         // --- Enhanced Model ID Input with Detection ---
         const modelIdGroup = document.createElement('div');
@@ -1312,24 +1470,37 @@ document.addEventListener('DOMContentLoaded', function() {
         modelIdGroup.appendChild(modelIdInputContainer);
 
         // Temporary API Key for detection
-        const tempApiKeyInput = createConfigInput(`sourceTempApiKey_${siteIdForForm}`, 'API Key (仅用于模型检测)', '', 'password', '输入一个Key来检测模型', null, {autocomplete: 'new-password'});
+        const tempApiKeyInput = createConfigInput(`sourceTempApiKey_${siteIdForForm}`, 'API Key (检测时使用，可留空)', '', 'password', '如需临时检测可填写 Key', null, {autocomplete: 'new-password'});
         tempApiKeyInput.classList.add('text-xs'); // Smaller label
         tempApiKeyInput.querySelector('label').classList.add('text-gray-500');
         tempApiKeyInput.querySelector('input').classList.add('text-xs', 'py-1');
+        const tempHint = document.createElement('p');
+        tempHint.className = 'mt-1 text-[11px] text-slate-400';
+        tempHint.textContent = '如已在下方“API Key”列表中添加 Key，可留空自动使用。';
+        tempApiKeyInput.appendChild(tempHint);
         modelIdGroup.appendChild(tempApiKeyInput); // Add it below the model ID input group
 
         form.appendChild(modelIdGroup);
         // Event listener for detectModelsButton
         detectModelsButton.addEventListener('click', async () => {
             const baseUrl = document.getElementById(`sourceApiBaseUrl_${siteIdForForm}`).value.trim();
-            const tempApiKey = document.getElementById(`sourceTempApiKey_${siteIdForForm}`).value.trim();
+            let tempApiKey = document.getElementById(`sourceTempApiKey_${siteIdForForm}`).value.trim();
+            let usedStoredKey = false;
 
             if (!baseUrl) {
                 showNotification('请输入 API Base URL 以检测模型。', 'warning');
                 return;
             }
+            if (!tempApiKey && typeof loadModelKeys === 'function') {
+                const storedKeys = (loadModelKeys(`custom_source_${siteIdForForm}`) || [])
+                    .filter(k => k && k.value && k.value.trim() && k.status !== 'invalid');
+                if (storedKeys.length > 0) {
+                    tempApiKey = storedKeys[0].value.trim();
+                    usedStoredKey = true;
+                }
+            }
             if (!tempApiKey) {
-                showNotification('请输入一个临时 API Key 以检测模型。', 'warning');
+                showNotification('未找到可用的 API Key，请在下方添加或临时输入再检测。', 'warning');
                 return;
             }
 
@@ -1338,6 +1509,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
             try {
                 const detectedModels = await window.modelDetector.detectModelsForModal(baseUrl, tempApiKey);
+                if (usedStoredKey) {
+                    showNotification && showNotification('已使用已保存的 Key 进行模型检测。', 'info');
+                }
                 showNotification(`检测到 ${detectedModels.length} 个模型。`, 'success');
 
                 const currentModelIdValue = document.getElementById(`sourceModelId_${siteIdForForm}`).value;
