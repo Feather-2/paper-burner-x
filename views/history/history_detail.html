@@ -95,7 +95,17 @@
   <!-- ===================== -->
   <div class="container">
     <h2 id="fileName">历史详情</h2>
-    <div class="meta" id="fileMeta"></div>
+    <div class="meta" id="fileMeta">
+      <div class="meta-info">
+        <span id="fileMetaTime"></span>
+        <span class="meta-separator">|</span>
+        <span id="fileMetaImages"></span>
+      </div>
+      <button class="meta-export-trigger" id="exportTrigger" type="button" aria-haspopup="true" aria-expanded="false">
+        <i class="fa fa-download"></i>
+        <span>导出</span>
+      </button>
+    </div>
 
     <!-- 标签页导航 -->
     <div class="tabs-container">
@@ -103,6 +113,29 @@
       <button class="tab-btn" id="tab-translation">仅翻译</button>
       <!-- <button class="tab-btn" id="tab-compare">对比</button> -->
       <button class="tab-btn" id="tab-chunk-compare">分块对比</button>
+    </div>
+    <div class="history-export-controls" id="history-export-controls">
+      <div class="export-panel-backdrop" id="exportPanelBackdrop"></div>
+      <div class="export-panel" id="exportPanel">
+        <div class="export-panel-header">
+          <div class="export-panel-title"><i class="fa fa-share-square-o"></i>导出当前视图</div>
+          <button type="button" class="export-panel-close" id="exportPanelClose" aria-label="关闭导出面板"><i class="fa fa-times"></i></button>
+        </div>
+        <div class="export-panel-body">
+          <div class="export-format-list">
+            <button type="button" class="export-menu-btn" data-format="html"><i class="fa fa-code"></i>HTML</button>
+            <button type="button" class="export-menu-btn" data-format="pdf"><i class="fa fa-file-pdf-o"></i>PDF</button>
+            <button type="button" class="export-menu-btn" data-format="docx"><i class="fa fa-file-word-o"></i>DOCX</button>
+            <button type="button" class="export-menu-btn" data-format="markdown"><i class="fa fa-file-text-o"></i>Markdown</button>
+          </div>
+          <div class="export-config" id="exportConfig">
+            <div class="export-config-content" id="exportConfigContent">
+              <div class="export-config-placeholder">请选择导出格式以查看设置</div>
+            </div>
+            <button type="button" class="export-confirm-btn" id="exportConfirmBtn" disabled>导出</button>
+          </div>
+        </div>
+      </div>
     </div>
     <!-- 标签页内容显示区域 -->
     <div class="tab-content" id="tabContent"></div>
@@ -240,6 +273,8 @@
   <!-- ===================== -->
   <!-- 依赖的JS库 -->
   <!-- ===================== -->
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+  <script src="../../js/lib/jszip.min.js"></script>
   <script src="../../js/storage/storage.js"></script>
   <script src="../../js/annotations/annotation_logic.js"></script>       <!-- Defines helpers like checkIfTextIsHighlighted -->
   <script src="../../js/annotations/custom_markdown_renderer.js"></script> <!-- Defines createCustomMarkdownRenderer -->
@@ -251,7 +286,6 @@
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
 
   <script src="../../js/chatbot/utils/mermaid-loader.js"></script>
   <script src="../../js/chatbot/utils/markdown-katex-render.js"></script>
@@ -280,6 +314,7 @@
   <script src="../../js/processing/sub_block_segmenter.js"></script>
   <script src="../../js/ui/dock/dock_settings_modal.js"></script> <!-- ADDED -->
   <script src="../../js/annotations/annotations_summary_modal.js"></script> <!-- ADDED -->
+  <script src="../../js/history/history_exporter.js"></script>
   <script src="../../js/history/history_detail_scripts.js"></script>
   <script src="../../js/ui/immersive_layout_logic.js"></script> <!-- 新增沉浸式布局JS -->
   <script src="../../js/ui/immersive_layout_fix.js"></script> <!-- 新增沉浸式布局修复JS -->
@@ -668,9 +703,13 @@
 
       data = await getResultFromDB(id);
       window.data = data; // for debugging
+      const fileMetaTimeEl = document.getElementById('fileMetaTime');
+      const fileMetaImagesEl = document.getElementById('fileMetaImages');
+
       if (!data) {
         document.getElementById('fileName').textContent = '未找到数据';
-        document.getElementById('fileMeta').textContent = '';
+        if (fileMetaTimeEl) fileMetaTimeEl.textContent = '时间: --';
+        if (fileMetaImagesEl) fileMetaImagesEl.textContent = '图片数: --';
         document.getElementById('tabContent').innerHTML = '';
         return;
       }
@@ -681,7 +720,13 @@
         document.getElementById('tab-chunk-compare').style.display = 'none';
       }
       document.getElementById('fileName').textContent = data.name;
-      document.getElementById('fileMeta').innerHTML = `时间: ${new Date(data.time).toLocaleString()} &nbsp; | &nbsp; 图片数: ${data.images ? data.images.length : 0}`;
+      if (fileMetaTimeEl) {
+        fileMetaTimeEl.textContent = `时间: ${new Date(data.time).toLocaleString()}`;
+      }
+      if (fileMetaImagesEl) {
+        const imageCount = Array.isArray(data.images) ? data.images.length : 0;
+        fileMetaImagesEl.textContent = `图片数: ${imageCount}`;
+      }
 
       // ========== 确保批注数据在渲染前加载 ==========
       if (id) { // 确保我们有文档 ID
