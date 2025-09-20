@@ -300,6 +300,27 @@ async function translateLongDocument(
         );
     } else {
         // 预设模型
+        let deeplxEndpointTemplate = 'https://api.deeplx.org/<api-key>/translate';
+        try {
+            if (typeof loadModelConfig === 'function') {
+                const dlcfg = loadModelConfig('deeplx');
+                if (dlcfg) {
+                    if (dlcfg.endpointTemplate && typeof dlcfg.endpointTemplate === 'string') {
+                        deeplxEndpointTemplate = dlcfg.endpointTemplate.trim() || deeplxEndpointTemplate;
+                    } else if (dlcfg.apiBaseUrlTemplate && typeof dlcfg.apiBaseUrlTemplate === 'string') {
+                        deeplxEndpointTemplate = dlcfg.apiBaseUrlTemplate.trim() || deeplxEndpointTemplate;
+                    } else if (dlcfg.apiBaseUrl && typeof dlcfg.apiBaseUrl === 'string') {
+                        const base = dlcfg.apiBaseUrl.trim();
+                        if (base) {
+                            deeplxEndpointTemplate = base.endsWith('/') ? `${base}<api-key>/translate` : `${base}/<api-key>/translate`;
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('加载 DeepLX 配置失败，将在长文档翻译中使用默认模板。', e);
+        }
+
         const predefinedConfigs = {
             "mistral": {
                 endpoint: "https://api.mistral.ai/v1/chat/completions",
@@ -314,8 +335,55 @@ async function translateLongDocument(
                 }),
                 responseExtractor: (data) => data?.choices?.[0]?.message?.content
             },
+            "deeplx": {
+                endpoint: deeplxEndpointTemplate,
+                modelName: "DeepLX",
+                headers: { "Content-Type": "application/json" },
+                bodyBuilder: (sys, user, ctx = {}) => {
+                    const payload = {
+                        text: ctx && ctx.processedText ? ctx.processedText : user
+                    };
+                    const targetLangCode = (typeof mapToDeeplxLangCode === 'function')
+                        ? mapToDeeplxLangCode(ctx && ctx.targetLang ? ctx.targetLang : undefined)
+                        : undefined;
+                    if (targetLangCode) {
+                        payload.target_lang = targetLangCode;
+                    }
+                    if (ctx && ctx.sourceLang) {
+                        const src = (typeof mapToDeeplxLangCode === 'function') ? mapToDeeplxLangCode(ctx.sourceLang) : undefined;
+                        if (src) payload.source_lang = src;
+                    }
+                    return payload;
+                },
+                responseExtractor: (data) => {
+                    if (!data) return '';
+                    if (typeof data === 'string') return data;
+                    if (typeof data.text === 'string') return data.text;
+                    if (data.data) {
+                        if (typeof data.data === 'string') return data.data;
+                        if (typeof data.data.text === 'string') return data.data.text;
+                    }
+                    if (Array.isArray(data.translations) && data.translations.length > 0) {
+                        const first = data.translations[0];
+                        if (typeof first === 'string') return first;
+                        if (first && typeof first.text === 'string') return first.text;
+                    }
+                    if (Array.isArray(data.alternatives) && data.alternatives.length > 0) {
+                        const alt = data.alternatives[0];
+                        if (typeof alt === 'string') return alt;
+                        if (alt && typeof alt.text === 'string') return alt.text;
+                    }
+                    if (typeof data.result === 'string') return data.result;
+                    if (data.result && typeof data.result.text === 'string') return data.result.text;
+                    if (typeof data.translation === 'string') return data.translation;
+                    return null;
+                }
+            }
             // 其他模型配置可补充...
         };
+        if (!predefinedConfigs[model]) {
+            throw new Error(`暂不支持模型 ${model} 的长文档处理。`);
+        }
         apiConfig = buildPredefinedApiConfig(predefinedConfigs[model], apiKey);
     }
 
@@ -473,7 +541,13 @@ ${task.content}
 
                     // 构建请求体
                     const requestBody = apiConfig.bodyBuilder
-                        ? apiConfig.bodyBuilder(tableSystemPrompt, tableUserPrompt)
+                        ? apiConfig.bodyBuilder(tableSystemPrompt, tableUserPrompt, {
+                            processedText: task.content,
+                            rawText: task.content,
+                            targetLang,
+                            tablePlaceholder: task.placeholder,
+                            requestType: 'table'
+                        })
                         : {
                             model: apiConfig.modelName,
                             messages: [

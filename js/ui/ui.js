@@ -138,6 +138,128 @@ function renderDeepseekInfoPanel() {
     };
 }
 
+const DEEPLX_DEFAULT_ENDPOINT_TEMPLATE = 'https://api.deeplx.org/<api-key>/translate';
+
+const DEEPLX_LANGUAGE_ORDER = ['BG','ZH','CS','DA','NL','EN','ET','FI','FR','DE','EL','HU','IT','JA','LV','LT','PL','PT','RO','RU'];
+const DEEPLX_FALLBACK_LANG_DISPLAY = {
+    'BG': { zh: '保加利亚语', native: 'Български' },
+    'ZH': { zh: '中文', native: '中文' },
+    'CS': { zh: '捷克语', native: 'Česky' },
+    'DA': { zh: '丹麦语', native: 'Dansk' },
+    'NL': { zh: '荷兰语', native: 'Nederlands' },
+    'EN': { zh: '英语', native: 'English' },
+    'ET': { zh: '爱沙尼亚语', native: 'Eesti' },
+    'FI': { zh: '芬兰语', native: 'Suomi' },
+    'FR': { zh: '法语', native: 'Français' },
+    'DE': { zh: '德语', native: 'Deutsch' },
+    'EL': { zh: '希腊语', native: 'Ελληνικά' },
+    'HU': { zh: '匈牙利语', native: 'Magyar' },
+    'IT': { zh: '意大利语', native: 'Italiano' },
+    'JA': { zh: '日语', native: '日本語' },
+    'LV': { zh: '拉脱维亚语', native: 'Latviešu' },
+    'LT': { zh: '立陶宛语', native: 'Lietuvių' },
+    'PL': { zh: '波兰语', native: 'Polski' },
+    'PT': { zh: '葡萄牙语', native: 'Português' },
+    'RO': { zh: '罗马尼亚语', native: 'Română' },
+    'RU': { zh: '俄语', native: 'Русский' }
+};
+
+if (typeof window !== 'undefined') {
+    window.getDeeplxLangDisplay = function(code) {
+        const displayMap = (typeof window.DEEPLX_LANG_DISPLAY === 'object' && window.DEEPLX_LANG_DISPLAY) || {};
+        return displayMap[code] || DEEPLX_FALLBACK_LANG_DISPLAY[code] || null;
+    };
+}
+
+function getDeeplxEndpointTemplate() {
+    const cfg = typeof loadModelConfig === 'function' ? (loadModelConfig('deeplx') || {}) : {};
+    if (cfg && typeof cfg.endpointTemplate === 'string' && cfg.endpointTemplate.trim()) {
+        return cfg.endpointTemplate.trim();
+    }
+    if (cfg && typeof cfg.apiBaseUrlTemplate === 'string' && cfg.apiBaseUrlTemplate.trim()) {
+        return cfg.apiBaseUrlTemplate.trim();
+    }
+    if (cfg && typeof cfg.apiBaseUrl === 'string' && cfg.apiBaseUrl.trim()) {
+        const base = cfg.apiBaseUrl.trim();
+        return base.endsWith('/') ? `${base}<api-key>/translate` : `${base}/<api-key>/translate`;
+    }
+    return DEEPLX_DEFAULT_ENDPOINT_TEMPLATE;
+}
+
+function setupDeeplxEndpointInput(inputEl, resetBtn) {
+    if (!inputEl) return;
+    const template = getDeeplxEndpointTemplate();
+    inputEl.value = template;
+    inputEl.placeholder = DEEPLX_DEFAULT_ENDPOINT_TEMPLATE;
+
+    if (inputEl.dataset.bound === 'true') {
+        return;
+    }
+
+    const saveTemplate = (value, notify = true) => {
+        const sanitized = value && value.trim() ? value.trim() : DEEPLX_DEFAULT_ENDPOINT_TEMPLATE;
+        if (typeof saveModelConfig === 'function') {
+            const existing = typeof loadModelConfig === 'function' ? (loadModelConfig('deeplx') || {}) : {};
+            saveModelConfig('deeplx', { ...existing, endpointTemplate: sanitized });
+        }
+        if (notify && typeof showNotification === 'function') {
+            showNotification('DeepLX 接口模板已保存', 'success');
+        }
+        inputEl.value = sanitized;
+    };
+
+    inputEl.addEventListener('blur', () => saveTemplate(inputEl.value, true));
+    inputEl.addEventListener('keydown', (evt) => {
+        if (evt.key === 'Enter') {
+            evt.preventDefault();
+            inputEl.blur();
+        }
+    });
+
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            inputEl.value = DEEPLX_DEFAULT_ENDPOINT_TEMPLATE;
+            saveTemplate(DEEPLX_DEFAULT_ENDPOINT_TEMPLATE, true);
+        });
+    }
+
+    inputEl.dataset.bound = 'true';
+}
+
+function renderDeeplxInfoPanel() {
+    const keys = typeof loadModelKeys === 'function' ? (loadModelKeys('deeplx') || []) : [];
+    const usableKeys = keys.filter(k => k.status !== 'invalid' && k.value);
+    const keysHint = document.getElementById('deeplxKeysCountHint');
+    if (keysHint) {
+        keysHint.textContent = usableKeys.length > 0 ? `可用Key: ${usableKeys.length}` : '无可用 Key';
+    }
+    const inputEl = document.getElementById('deeplxEndpointTemplateInput');
+    const resetBtn = document.getElementById('deeplxEndpointResetBtn');
+    setupDeeplxEndpointInput(inputEl, resetBtn);
+
+    const tableEl = document.getElementById('deeplxLangTable');
+    if (tableEl && tableEl.dataset.initialized !== 'true') {
+        const rows = DEEPLX_LANGUAGE_ORDER.map(function(code) {
+            const info = (typeof window.getDeeplxLangDisplay === 'function')
+                ? window.getDeeplxLangDisplay(code)
+                : (window.DEEPLX_LANG_DISPLAY && window.DEEPLX_LANG_DISPLAY[code]) || DEEPLX_FALLBACK_LANG_DISPLAY[code] || {};
+            const zhName = info.zh || '--';
+            const nativeName = info.native || '';
+            return `<li class="py-0.5 flex justify-between"><code>${code}</code><span class="flex-1 px-2 text-left">${zhName}</span><span>${nativeName}</span></li>`;
+        }).join('');
+        tableEl.innerHTML = `
+            <details class="bg-slate-100 border border-slate-200 rounded-md px-3 py-2">
+                <summary class="cursor-pointer text-sm text-slate-700 select-none">常用语言代码对照（点击展开）</summary>
+                <ul class="mt-2 text-xs text-slate-700 space-y-1">${rows}</ul>
+            </details>`;
+        tableEl.dataset.initialized = 'true';
+    }
+
+    if (typeof window.updateDeeplxTargetLangHint === 'function') {
+        window.updateDeeplxTargetLangHint();
+    }
+}
+
 // 通义 面板
 function renderTongyiInfoPanel() {
     // 聚合两个通义条目的 Key
@@ -871,6 +993,14 @@ function updateTranslationUIVisibility(isProcessing) {
             try { renderVolcanoInfoPanel(); } catch(e){ console.error(e); }
         } else vcInfo.classList.add('hidden');
     }
+
+    const dlInfo = document.getElementById('deeplxModelInfo');
+    if (dlInfo) {
+        if (translationModelValue === 'deeplx') {
+            dlInfo.classList.remove('hidden');
+            try { renderDeeplxInfoPanel(); } catch(e){ console.error(e); }
+        } else dlInfo.classList.add('hidden');
+    }
 }
 
 // ---------------------
@@ -1108,6 +1238,7 @@ document.addEventListener('DOMContentLoaded', function() {
         { key: 'gemini', name: 'Gemini 翻译', group: 'translation' },
         { key: 'tongyi', name: '通义百炼', group: 'translation' },
         { key: 'volcano', name: '火山引擎', group: 'translation' },
+        { key: 'deeplx', name: 'DeepLX (DeepL 接口)', group: 'translation' },
         { key: 'custom', name: '自定义翻译模型', group: 'translation' }
     ];
 
@@ -1833,6 +1964,24 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             if (detectBtn) detectBtn.style.display = 'none';
             if (area) area.innerHTML = '<span class="text-gray-600">请手动输入模型ID，或在设置中选择。示例：<code>doubao-1-5-pro-32k-250115</code> / <code>deepseek-v3-250324</code></span>';
+        }
+
+        if (modelKeyOrSourceSiteModelName === 'deeplx') {
+            const panel = document.createElement('div');
+            panel.className = 'mt-4 p-3 border rounded-md bg-blue-50';
+            const placeholderHtml = DEEPLX_DEFAULT_ENDPOINT_TEMPLATE.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            panel.innerHTML = `
+                <div class="text-sm text-blue-800 font-medium mb-2">DeepLX 接口模板</div>
+                <div class="flex items-center gap-2">
+                    <input id="deeplxEndpointTemplateInput-manager" type="text" class="flex-1 px-3 py-1.5 border border-blue-200 rounded-md text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors" placeholder="${placeholderHtml}">
+                    <button id="deeplxEndpointResetBtn-manager" type="button" class="px-2 py-1 text-xs border border-blue-300 rounded hover:bg-white">恢复默认</button>
+                </div>
+                <p class="mt-2 text-xs text-blue-900 leading-5">模板中的 <code>&lt;api-key&gt;</code> 或 {API_KEY} 会自动替换为当前使用的 Key，可用于自建代理地址。</p>
+            `;
+            keyManagerColumn.appendChild(panel);
+            const inputEl = panel.querySelector('#deeplxEndpointTemplateInput-manager');
+            const resetBtn = panel.querySelector('#deeplxEndpointResetBtn-manager');
+            setupDeeplxEndpointInput(inputEl, resetBtn);
         }
     }
 

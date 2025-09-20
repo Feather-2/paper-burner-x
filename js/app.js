@@ -316,6 +316,10 @@ function applySettingsToUI(settings) {
     const customTargetLanguageInput = document.getElementById('customTargetLanguageInput');
     if (customTargetLanguageInput) customTargetLanguageInput.value = customLangNameVal || '';
 
+    if (typeof updateCustomLanguageInputVisibility === 'function') {
+        updateCustomLanguageInputVisibility();
+    }
+
     // 单个自定义提示词：填充默认或用户上次修改
     const defaultSystemPromptTextarea = document.getElementById('defaultSystemPrompt');
     const defaultUserPromptTemplateTextarea = document.getElementById('defaultUserPromptTemplate');
@@ -424,6 +428,9 @@ function setupEventListeners() {
     // 翻译模型和自定义设置
     translationModelSelect.addEventListener('change', () => {
         updateTranslationUIVisibility(isProcessing);
+        if (typeof window.updateDeeplxTargetLangHint === 'function') {
+            window.updateDeeplxTargetLangHint();
+        }
         saveCurrentSettings(); // 保存包括模型选择在内的所有设置
     });
 
@@ -500,9 +507,17 @@ function setupEventListeners() {
     // 目标语言选择
     targetLanguageSelect.addEventListener('change', () => {
         updateCustomLanguageInputVisibility(); // Update visibility based on selection
+        if (typeof window.updateDeeplxTargetLangHint === 'function') {
+            window.updateDeeplxTargetLangHint();
+        }
         saveCurrentSettings(); // Save the new selection
     });
-    customTargetLanguageInput.addEventListener('input', saveCurrentSettings); // Save custom language name changes
+    customTargetLanguageInput.addEventListener('input', () => {
+        saveCurrentSettings();
+        if (typeof window.updateDeeplxTargetLangHint === 'function') {
+            window.updateDeeplxTargetLangHint();
+        }
+    }); // Save custom language name changes
 
     // 默认提示编辑
     if (defaultSystemPromptTextarea) {
@@ -515,6 +530,10 @@ function setupEventListeners() {
     // 处理和下载
     processBtn.addEventListener('click', handleProcessClick);
     downloadBtn.addEventListener('click', handleDownloadClick);
+
+    if (typeof window.updateDeeplxTargetLangHint === 'function') {
+        window.updateDeeplxTargetLangHint();
+    }
 }
 
 // =====================
@@ -644,7 +663,46 @@ function updateCustomLanguageInputVisibility() {
     } else {
         customInputContainer.classList.add('hidden');
     }
+
+    if (typeof window.updateDeeplxTargetLangHint === 'function') {
+        window.updateDeeplxTargetLangHint();
+    }
 }
+
+function updateDeeplxTargetLangHint() {
+    const hintEl = document.getElementById('deeplxTargetLangHint');
+    if (!hintEl) return;
+    const modelSelect = document.getElementById('translationModel');
+    const modelValue = modelSelect ? modelSelect.value : '';
+    if (modelValue !== 'deeplx') {
+        hintEl.textContent = '选择 DeepLX 后会显示对应的目标语言代码。';
+        return;
+    }
+
+    const targetSelect = document.getElementById('targetLanguage');
+    let langValue = targetSelect ? targetSelect.value : '';
+    if (langValue === 'custom') {
+        const customInput = document.getElementById('customTargetLanguageInput');
+        if (customInput && customInput.value.trim()) {
+            langValue = customInput.value.trim();
+        } else {
+            langValue = '';
+        }
+    }
+
+    const mapper = (typeof window.mapToDeeplxLangCode === 'function') ? window.mapToDeeplxLangCode : null;
+    const code = mapper ? mapper(langValue) : undefined;
+    if (code) {
+        const displayMap = (typeof window.DEEPLX_LANG_DISPLAY === 'object') ? window.DEEPLX_LANG_DISPLAY : null;
+        const display = displayMap && displayMap[code];
+        const zhName = display && display.zh ? display.zh : '';
+        hintEl.textContent = zhName ? `当前目标语言代码：${code}（${zhName}）` : `当前目标语言代码：${code}`;
+    } else {
+        hintEl.textContent = '请在目标语言中选择 DeepL 支持的语言，或在自定义输入框中手动填写如 EN、DE 等代码。';
+    }
+}
+
+window.updateDeeplxTargetLangHint = updateDeeplxTargetLangHint;
 
 /**
  * 保存当前所有用户设置到 localStorage。

@@ -33,10 +33,107 @@ function buildPredefinedApiConfig(apiConfig, key) {
         // Correctly handle potential existing query parameters
         let baseUrl = config.endpoint.split('?')[0];
         config.endpoint = `${baseUrl}?key=${key}`;
+    } else if (modelNameLower.includes('deeplx')) {
+        const encodedKey = encodeURIComponent(key.trim());
+        const placeholderPatterns = ['{API_KEY}', '{api_key}', '{apiKey}', '{key}', '__API_KEY__', '<api-key>', '<API_KEY>', ':API_KEY', ':api_key', ':key', '${API_KEY}', '${api_key}'];
+        let endpoint = config.endpoint || '';
+        let replaced = false;
+        placeholderPatterns.forEach(function(pattern) {
+            if (endpoint.includes(pattern)) {
+                endpoint = endpoint.replace(new RegExp(pattern, 'g'), encodedKey);
+                replaced = true;
+            }
+        });
+        if (!replaced) {
+            // 如果模板中未包含占位符，则尝试在末尾追加 Key
+            if (!endpoint.endsWith('/')) endpoint += '/';
+            endpoint += encodedKey;
+        }
+        config.endpoint = endpoint;
+        // DeepLX 接口通常不需要 Authorization 头，确保移除可能的残留
+        if (config.headers['Authorization']) delete config.headers['Authorization'];
     } else {
         config.headers['Authorization'] = `Bearer ${key}`;
     }
     return config;
+}
+
+const DEEPLX_LANG_CODE_MAP = {
+    'bulgarian': 'BG', 'bg': 'BG', 'български': 'BG', '保加利亚语': 'BG',
+    'chinese': 'ZH', 'zh': 'ZH', 'zh-cn': 'ZH', 'zh_cn': 'ZH', '中文': 'ZH', '中文(简体)': 'ZH', '简体中文': 'ZH', 'traditional chinese': 'ZH', 'zh-tw': 'ZH', 'zh_tw': 'ZH', '中文(繁体)': 'ZH', '繁体中文': 'ZH',
+    'czech': 'CS', 'cs': 'CS', 'čeština': 'CS', '捷克语': 'CS',
+    'danish': 'DA', 'da': 'DA', 'dansk': 'DA', '丹麦语': 'DA',
+    'dutch': 'NL', 'nl': 'NL', 'nederlands': 'NL', '荷兰语': 'NL',
+    'english': 'EN', 'en': 'EN', 'english (uk)': 'EN', 'english (gb)': 'EN', 'en-gb': 'EN', 'english (us)': 'EN', 'en-us': 'EN', 'english (american)': 'EN', '英语': 'EN',
+    'estonian': 'ET', 'et': 'ET', 'eesti': 'ET', '爱沙尼亚语': 'ET',
+    'finnish': 'FI', 'fi': 'FI', 'suomi': 'FI', '芬兰语': 'FI',
+    'french': 'FR', 'fr': 'FR', 'français': 'FR', '法语': 'FR',
+    'german': 'DE', 'de': 'DE', 'deutsch': 'DE', '德语': 'DE',
+    'greek': 'EL', 'el': 'EL', 'ελληνικά': 'EL', '希腊语': 'EL',
+    'hungarian': 'HU', 'hu': 'HU', 'magyar': 'HU', '匈牙利语': 'HU',
+    'italian': 'IT', 'it': 'IT', 'italiano': 'IT', '意大利语': 'IT',
+    'japanese': 'JA', 'ja': 'JA', '日本語': 'JA', '日语': 'JA',
+    'latvian': 'LV', 'lv': 'LV', 'latviešu': 'LV', '拉脱维亚语': 'LV',
+    'lithuanian': 'LT', 'lt': 'LT', 'lietuvių': 'LT', '立陶宛语': 'LT',
+    'polish': 'PL', 'pl': 'PL', 'polski': 'PL', '波兰语': 'PL',
+    'portuguese': 'PT', 'pt': 'PT', 'português': 'PT', 'portuguese (portugal)': 'PT', '葡萄牙语': 'PT', '葡萄牙语（葡萄牙）': 'PT', '葡萄牙语（巴西）': 'PT', 'portuguese (brazil)': 'PT', 'pt-br': 'PT',
+    'romanian': 'RO', 'ro': 'RO', 'română': 'RO', '罗马尼亚语': 'RO',
+    'russian': 'RU', 'ru': 'RU', 'русский': 'RU', '俄语': 'RU'
+};
+
+
+
+const DEEPLX_LANG_DISPLAY = {
+    'BG': { zh: '保加利亚语', native: 'Български' },
+    'ZH': { zh: '中文', native: '中文' },
+    'CS': { zh: '捷克语', native: 'Česky' },
+    'DA': { zh: '丹麦语', native: 'Dansk' },
+    'NL': { zh: '荷兰语', native: 'Nederlands' },
+    'EN': { zh: '英语', native: 'English' },
+    'ET': { zh: '爱沙尼亚语', native: 'Eesti' },
+    'FI': { zh: '芬兰语', native: 'Suomi' },
+    'FR': { zh: '法语', native: 'Français' },
+    'DE': { zh: '德语', native: 'Deutsch' },
+    'EL': { zh: '希腊语', native: 'Ελληνικά' },
+    'HU': { zh: '匈牙利语', native: 'Magyar' },
+    'IT': { zh: '意大利语', native: 'Italiano' },
+    'JA': { zh: '日语', native: '日本語' },
+    'LV': { zh: '拉脱维亚语', native: 'Latviešu' },
+    'LT': { zh: '立陶宛语', native: 'Lietuvių' },
+    'PL': { zh: '波兰语', native: 'Polski' },
+    'PT': { zh: '葡萄牙语', native: 'Português' },
+    'RO': { zh: '罗马尼亚语', native: 'Română' },
+    'RU': { zh: '俄语', native: 'Русский' }
+};
+
+
+
+
+
+function mapToDeeplxLangCode(targetLang) {
+    if (!targetLang) return undefined;
+    const normalized = String(targetLang).trim();
+    if (!normalized) return undefined;
+    const lower = normalized.toLowerCase();
+    if (DEEPLX_LANG_CODE_MAP[lower]) {
+        return DEEPLX_LANG_CODE_MAP[lower];
+    }
+    if (/^[a-z]{2}$/i.test(normalized)) {
+        return normalized.toUpperCase();
+    }
+    if (/^[a-z]{2}-[a-z]{2}$/i.test(normalized)) {
+        return normalized.toUpperCase();
+    }
+    return undefined;
+}
+
+if (typeof window !== 'undefined') {
+    window.mapToDeeplxLangCode = mapToDeeplxLangCode;
+    window.DEEPLX_LANG_CODE_MAP = DEEPLX_LANG_CODE_MAP;
+    window.DEEPLX_LANG_DISPLAY = DEEPLX_LANG_DISPLAY;
+    if (typeof window.updateDeeplxTargetLangHint === 'function') {
+        try { window.updateDeeplxTargetLangHint(); } catch (e) { console.warn('updateDeeplxTargetLangHint failed', e); }
+    }
 }
 
 // 辅助函数：构建自定义 API 配置
@@ -415,8 +512,74 @@ async function translateMarkdown(
             }
         } catch (e) { /* ignore and use default */ }
 
+        let deeplxEndpointTemplate = 'https://api.deeplx.org/<api-key>/translate';
+        try {
+            if (typeof loadModelConfig === 'function') {
+                const dlcfg = loadModelConfig('deeplx');
+                if (dlcfg) {
+                    if (dlcfg.endpointTemplate && typeof dlcfg.endpointTemplate === 'string') {
+                        deeplxEndpointTemplate = dlcfg.endpointTemplate.trim() || deeplxEndpointTemplate;
+                    } else if (dlcfg.apiBaseUrlTemplate && typeof dlcfg.apiBaseUrlTemplate === 'string') {
+                        deeplxEndpointTemplate = dlcfg.apiBaseUrlTemplate.trim() || deeplxEndpointTemplate;
+                    } else if (dlcfg.apiBaseUrl && typeof dlcfg.apiBaseUrl === 'string') {
+                        // 兼容旧字段，自动附加占位符
+                        const base = dlcfg.apiBaseUrl.trim();
+                        if (base) {
+                            deeplxEndpointTemplate = base.endsWith('/') ? `${base}<api-key>/translate` : `${base}/<api-key>/translate`;
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('加载 DeepLX 配置失败，将使用默认模板。', e);
+        }
+
         // 更新后的预设模型配置
         const predefinedConfigs = {
+
+            'deeplx': {
+                endpoint: deeplxEndpointTemplate,
+                modelName: 'DeepLX',
+                headers: { 'Content-Type': 'application/json' },
+                bodyBuilder: (sys, user, ctx = {}) => {
+                    const text = ctx && ctx.processedText ? ctx.processedText : user;
+                    const payload = {
+                        text: text
+                    };
+                    const targetLangCode = mapToDeeplxLangCode(ctx && ctx.targetLang ? ctx.targetLang : undefined);
+                    if (targetLangCode) {
+                        payload.target_lang = targetLangCode;
+                    }
+                    if (ctx && ctx.sourceLang) {
+                        const sourceCode = mapToDeeplxLangCode(ctx.sourceLang);
+                        if (sourceCode) payload.source_lang = sourceCode;
+                    }
+                    return payload;
+                },
+                responseExtractor: (data) => {
+                    if (!data) return '';
+                    if (typeof data === 'string') return data;
+                    if (typeof data.text === 'string') return data.text;
+                    if (data.data) {
+                        if (typeof data.data === 'string') return data.data;
+                        if (typeof data.data.text === 'string') return data.data.text;
+                    }
+                    if (Array.isArray(data.translations) && data.translations.length > 0) {
+                        const first = data.translations[0];
+                        if (typeof first === 'string') return first;
+                        if (first && typeof first.text === 'string') return first.text;
+                    }
+                    if (Array.isArray(data.alternatives) && data.alternatives.length > 0) {
+                        const alt = data.alternatives[0];
+                        if (typeof alt === 'string') return alt;
+                        if (alt && typeof alt.text === 'string') return alt.text;
+                    }
+                    if (typeof data.result === 'string') return data.result;
+                    if (data.result && typeof data.result.text === 'string') return data.result.text;
+                    if (typeof data.translation === 'string') return data.translation;
+                    return null;
+                }
+            },
 
             'deepseek': {
                 endpoint: 'https://api.deepseek.com/v1/chat/completions',
@@ -554,8 +717,18 @@ async function translateMarkdown(
     }
 
     // 构建请求体
+    const bodyBuilderContext = {
+        processedText,
+        targetLang,
+        originalText: markdown,
+        hasProtectedTables,
+        tablePlaceholders,
+        options,
+        requestType: 'initial'
+    };
+
     const requestBody = apiConfig.bodyBuilder
-        ? apiConfig.bodyBuilder(systemPrompt, userPrompt)
+        ? apiConfig.bodyBuilder(systemPrompt, userPrompt, bodyBuilderContext)
         : {
             model: apiConfig.modelName,
             messages: [
@@ -650,7 +823,7 @@ async function translateMarkdown(
                 }
 
                 const retryBody = apiConfig.bodyBuilder
-                    ? apiConfig.bodyBuilder(retrySystemPrompt, retryUserPrompt)
+                    ? apiConfig.bodyBuilder(retrySystemPrompt, retryUserPrompt, { ...bodyBuilderContext, requestType: 'retry' })
                     : {
                         model: apiConfig.modelName,
                         messages: [
@@ -730,7 +903,13 @@ ${tableContent}
 注意：请保持表格格式完全不变，包括所有的 | 符号、对齐标记、数学公式和符号。`;
 
                 const tableRequestBody = apiConfig.bodyBuilder
-                    ? apiConfig.bodyBuilder(tableSystemPrompt, tableUserPrompt)
+                    ? apiConfig.bodyBuilder(tableSystemPrompt, tableUserPrompt, {
+                        processedText: tableContent,
+                        rawText: tableContent,
+                        targetLang,
+                        tablePlaceholder: placeholder,
+                        requestType: 'table'
+                    })
                     : {
                         model: apiConfig.modelName,
                         messages: [

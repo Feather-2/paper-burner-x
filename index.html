@@ -236,6 +236,7 @@
                                 <option value="mistral">Mistral Large</option>
                                 <option value="deepseek">deepseek</option>
                                 <option value="gemini">gemini</option>
+                                <option value="deeplx">DeepLX (DeepL 接口)</option>
                                 <option value="tongyi">通义百炼</option>
                                 <option value="volcano">火山引擎</option>
                                 <option value="custom">自定义模型</option>
@@ -279,6 +280,26 @@
                                  <input type="text" id="customTargetLanguageInput" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" placeholder="例如: Spanish">
                             </div>
                         </div>
+                        <!-- DeepLX 模型信息（选择 DeepLX 时显示） -->
+                        <div id="deeplxModelInfo" class="md:col-span-2 hidden">
+                            <div class="mt-2 border border-gray-200 rounded-lg bg-gray-50 p-3">
+                                <div class="flex items-center justify-between">
+                                    <div class="text-sm text-gray-700 font-medium">DeepLX 接口设置</div>
+                                    <span id="deeplxKeysCountHint" class="text-xs text-gray-500"></span>
+                                </div>
+                                <div class="mt-2 space-y-2">
+                                    <label for="deeplxEndpointTemplateInput" class="text-xs text-gray-500 block">接口模板（使用 &lt;api-key&gt; 或 {API_KEY} 占位符）</label>
+                                    <div class="flex items-center gap-2">
+                                        <input id="deeplxEndpointTemplateInput" type="text" class="flex-1 px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors" placeholder="https://api.deeplx.org/&lt;api-key&gt;/translate">
+                                        <button id="deeplxEndpointResetBtn" type="button" class="px-2 py-1 text-xs border rounded hover:bg-white">恢复默认</button>
+                                    </div>
+                                    <p class="text-xs text-gray-500 leading-5">默认模板会在占位符位置插入当前使用的 API Key，例如 <code>https://api.deeplx.org/&lt;api-key&gt;/translate</code>。如需自建代理，可在此输入自定义地址。</p>
+                                    <p id="deeplxTargetLangHint" class="text-xs text-blue-700 leading-5"></p>
+                                    <div id="deeplxLangTable" class="mt-2 text-xs text-gray-600 leading-5"></div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- DeepSeek 模型信息（选择 DeepSeek 时显示） -->
                         <div id="deepseekModelInfo" class="md:col-span-2 hidden">
                             <div class="mt-2 border border-gray-200 rounded-lg bg-gray-50 p-3">
