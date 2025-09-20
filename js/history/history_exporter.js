@@ -1239,6 +1239,7 @@ body.history-export-print-mode .history-export-root .export-section {
       const parser = new DOMParser();
       const wrapped = `<div>${payload.bodyHtml || ''}</div>`;
       this.dom = parser.parseFromString(wrapped, 'text/html');
+      this.stripTableFormulas();
     }
 
     build() {
@@ -1264,6 +1265,31 @@ body.history-export-print-mode .history-export-root .export-section {
         footerXml: footerInfo && footerInfo.xml,
         footerFileName: footerInfo && footerInfo.fileName
       };
+    }
+
+    stripTableFormulas() {
+      if (!this.dom) return;
+      const tables = Array.from(this.dom.querySelectorAll('table'));
+      if (!tables.length) return;
+      tables.forEach(table => {
+        const handled = new Set();
+        const displayNodes = Array.from(table.querySelectorAll('.katex-display'));
+        displayNodes.forEach(node => {
+          handled.add(node);
+          const mathEl = node.querySelector('math');
+          const fallback = this.formatFormulaFallbackText(this.getFormulaFallbackText(node, mathEl));
+          const textNode = this.dom.createTextNode(fallback || '');
+          node.replaceWith(textNode);
+        });
+        const inlineNodes = Array.from(table.querySelectorAll('.katex'));
+        inlineNodes.forEach(node => {
+          if (handled.has(node) || node.closest('.katex-display')) return;
+          const mathEl = node.querySelector('math');
+          const fallback = this.formatFormulaFallbackText(this.getFormulaFallbackText(node, mathEl));
+          const textNode = this.dom.createTextNode(fallback || '');
+          node.replaceWith(textNode);
+        });
+      });
     }
 
     wrapDocument(bodyXml) {
@@ -1444,45 +1470,45 @@ ${footerParagraph}
       }
 
       if (classList.contains('katex-display')) {
-        return [this.createBlockFormula(el)];
+        return [this.createBlockFormula(el, context)];
       }
 
       switch (tag) {
         case 'p':
-          return [this.createParagraph(el, { maxWidthTwip: context.maxWidthTwip })];
+          return [this.createParagraph(el, { maxWidthTwip: context.maxWidthTwip, inlineContext: context })];
         case 'h1':
-          return [this.createParagraph(el, { style: 'Heading1', maxWidthTwip: context.maxWidthTwip })];
+          return [this.createParagraph(el, { style: 'Heading1', maxWidthTwip: context.maxWidthTwip, inlineContext: context })];
         case 'h2':
-          return [this.createParagraph(el, { style: 'Heading2', maxWidthTwip: context.maxWidthTwip })];
+          return [this.createParagraph(el, { style: 'Heading2', maxWidthTwip: context.maxWidthTwip, inlineContext: context })];
         case 'h3':
-          return [this.createParagraph(el, { style: 'Heading3', maxWidthTwip: context.maxWidthTwip })];
+          return [this.createParagraph(el, { style: 'Heading3', maxWidthTwip: context.maxWidthTwip, inlineContext: context })];
         case 'h4':
-          return [this.createParagraph(el, { style: 'Heading4', maxWidthTwip: context.maxWidthTwip })];
+          return [this.createParagraph(el, { style: 'Heading4', maxWidthTwip: context.maxWidthTwip, inlineContext: context })];
         case 'h5':
-          return [this.createParagraph(el, { style: 'Heading5', maxWidthTwip: context.maxWidthTwip })];
+          return [this.createParagraph(el, { style: 'Heading5', maxWidthTwip: context.maxWidthTwip, inlineContext: context })];
         case 'h6':
-          return [this.createParagraph(el, { style: 'Heading6', maxWidthTwip: context.maxWidthTwip })];
+          return [this.createParagraph(el, { style: 'Heading6', maxWidthTwip: context.maxWidthTwip, inlineContext: context })];
         case 'ul':
           return this.convertList(el, false, context);
         case 'ol':
           return this.convertList(el, true, context);
         case 'li':
-          return [this.createParagraph(el, { maxWidthTwip: context.maxWidthTwip })];
+          return [this.createParagraph(el, { maxWidthTwip: context.maxWidthTwip, inlineContext: context })];
         case 'table':
-          return [this.convertTable(el, context.maxWidthTwip)];
+          return [this.convertTable(el, context.maxWidthTwip, context)];
         case 'thead':
         case 'tbody':
         case 'tfoot':
           return this.convertChildren(el.childNodes, context);
         case 'tr':
-          return [this.convertTableRow(el)];
+          return [this.convertTableRow(el, context.maxWidthTwip, context)];
         case 'td':
         case 'th': {
           const widthHint = context.maxWidthTwip && context.maxWidthTwip > 0 ? Math.max(0, context.maxWidthTwip) : 2340;
-          return [this.convertTableCell(el, widthHint)];
+          return [this.convertTableCell(el, widthHint, context)];
         }
         case 'pre':
-          return [this.createParagraph(el, { codeBlock: true, maxWidthTwip: context.maxWidthTwip })];
+          return [this.createParagraph(el, { codeBlock: true, maxWidthTwip: context.maxWidthTwip, inlineContext: context })];
         case 'blockquote':
           return this.convertBlockquote(el, context);
         case 'img':
@@ -1503,7 +1529,7 @@ ${footerParagraph}
         case 'footer':
           return this.convertGenericContainer(el, context);
         default:
-          return [this.createParagraph(el, { maxWidthTwip: context.maxWidthTwip })];
+          return [this.createParagraph(el, { maxWidthTwip: context.maxWidthTwip, inlineContext: context })];
       }
     }
 
@@ -1518,7 +1544,7 @@ ${footerParagraph}
     convertGenericContainer(el, context = {}) {
       const hasBlockChild = Array.from(el.childNodes || []).some(child => this.isBlockElement(child));
       if (!hasBlockChild) {
-        return [this.createParagraph(el, { maxWidthTwip: context.maxWidthTwip })];
+        return [this.createParagraph(el, { maxWidthTwip: context.maxWidthTwip, inlineContext: context })];
       }
       return this.convertChildren(el.childNodes, context);
     }
@@ -1690,7 +1716,7 @@ ${footerParagraph}
       return items;
     }
 
-    convertTable(tableEl, parentWidthTwip) {
+    convertTable(tableEl, parentWidthTwip, context = {}) {
       const rows = [];
       const tableRows = Array.from(tableEl.rows || []);
       const columnCount = tableRows.reduce((max, tr) => Math.max(max, tr.cells ? tr.cells.length : 0), 0) || 1;
@@ -1698,8 +1724,13 @@ ${footerParagraph}
       const cellWidth = Math.floor(tableWidth / columnCount);
       const gridCols = new Array(columnCount).fill(0).map(() => `<w:gridCol w:w="${cellWidth}"/>`).join('');
 
+      const rowContext = Object.assign({}, context, {
+        maxWidthTwip: Math.max(0, cellWidth - 240),
+        skipFormula: true
+      });
+
       tableRows.forEach(tr => {
-        rows.push(this.convertTableRow(tr, cellWidth));
+        rows.push(this.convertTableRow(tr, cellWidth, rowContext));
       });
 
       const tblBorders = `
@@ -1717,26 +1748,31 @@ ${footerParagraph}
       return `<w:tbl>${tblPr}${tblGrid}${rows.join('')}</w:tbl>`;
     }
 
-    convertTableRow(tr, cellWidth) {
+    convertTableRow(tr, cellWidth, context = {}) {
       const cellsArr = Array.from(tr.cells || []);
       let effectiveWidth = cellWidth;
       if (!effectiveWidth) {
-        const tableWidth = 9360;
+        const tableWidth = context.maxWidthTwip && context.maxWidthTwip > 0 ? context.maxWidthTwip : 9360;
         const count = cellsArr.length || 1;
         effectiveWidth = Math.floor(tableWidth / count);
       }
-      const cells = cellsArr.map(cell => this.convertTableCell(cell, effectiveWidth)).join('');
+      const cells = cellsArr.map(cell => this.convertTableCell(cell, effectiveWidth, context)).join('');
       return `<w:tr>${cells}</w:tr>`;
     }
 
-    convertTableCell(cellEl, cellWidth) {
+    convertTableCell(cellEl, cellWidth, parentContext = {}) {
       const cellContent = [];
       const childNodes = Array.from(cellEl.childNodes || []);
+      const cellContext = Object.assign({}, parentContext, {
+        maxWidthTwip: Math.max(0, cellWidth - 240),
+        skipFormula: true,
+        formulaCache: parentContext.formulaCache || new Set()
+      });
       if (childNodes.length === 0) {
         cellContent.push(this.createParagraphFromRuns(this.createTextRun('', {})));
       } else {
         childNodes.forEach(child => {
-          const blocks = this.convertBlock(child, { maxWidthTwip: Math.max(0, cellWidth - 240) });
+          const blocks = this.convertBlock(child, cellContext);
           if (blocks.length === 0) {
             cellContent.push(this.createParagraphFromRuns(this.createTextRun('', {})));
           } else {
@@ -1760,12 +1796,16 @@ ${footerParagraph}
     }
 
     createParagraph(element, options = {}) {
-      const inlineContext = { maxWidthTwip: options.maxWidthTwip };
+      const inlineContext = Object.assign({}, options.inlineContext || {}, {
+        maxWidthTwip: options.maxWidthTwip
+      });
       if (options.codeBlock) {
         inlineContext.code = true;
       }
       const runs = this.convertInline(Array.from(element.childNodes || []), inlineContext);
-      return this.createParagraphFromRuns(runs, options);
+      const paragraphOptions = Object.assign({}, options);
+      delete paragraphOptions.inlineContext;
+      return this.createParagraphFromRuns(runs, paragraphOptions);
     }
 
     createParagraphFromRuns(runs, options = {}) {
@@ -1846,11 +1886,11 @@ ${footerParagraph}
           return;
         }
         if (tag === 'span' && el.classList.contains('katex')) {
-          runs += this.createInlineFormula(el, false);
+          runs += this.createInlineFormula(el, false, context);
           return;
         }
         if (tag === 'span' && el.classList.contains('katex-display')) {
-          runs += this.createInlineFormula(el, true);
+          runs += this.createInlineFormula(el, true, context);
           return;
         }
         if (tag === 'img') {
@@ -1930,6 +1970,18 @@ ${footerParagraph}
       processed = processed.replace(/\r\n/g, '\n');
       if (!context.code) {
         processed = processed.replace(/\s+/g, ' ');
+      }
+      if (context.formulaFallback) {
+        processed = processed.replace(/[\u2000-\u200B\u202F\u205F\u2060]/g, '');
+        processed = dedupeRepeatedSequence(processed);
+        processed = dedupeSplitRepeats(processed);
+        if (context.formulaCache) {
+          const key = processed;
+          if (context.formulaCache.has(key)) {
+            return '';
+          }
+          context.formulaCache.add(key);
+        }
       }
       if (!/\S/.test(processed)) {
         return '';
@@ -2194,45 +2246,151 @@ ${footerParagraph}
       return id;
     }
 
-    createInlineFormula(element, isDisplay) {
+    getFormulaFallbackText(element, mathEl) {
+      if (!element) return '';
+      const texNode = element.querySelector('annotation[encoding="application/x-tex"]');
+      if (texNode && texNode.textContent) {
+        return this.normalizeFormulaText(texNode.textContent);
+      }
+      const dataOriginal = element.getAttribute('data-original-text');
+      if (dataOriginal && dataOriginal.trim()) {
+        return this.normalizeFormulaText(dataOriginal);
+      }
+      if (mathEl && mathEl.textContent) {
+        return this.normalizeFormulaText(mathEl.textContent);
+      }
+      return this.normalizeFormulaText(element.textContent || '');
+    }
+
+    normalizeFormulaText(text) {
+      if (!text) return '';
+      return String(text).replace(/\s+/g, ' ').trim();
+    }
+
+    formatFormulaFallbackText(text) {
+      const normalized = this.normalizeFormulaText(text);
+      if (!normalized) return '';
+      let result = normalized;
+
+      const greekMap = {
+        '\\alpha': 'α',
+        '\\beta': 'β',
+        '\\gamma': 'γ',
+        '\\delta': 'δ',
+        '\\epsilon': 'ε',
+        '\\zeta': 'ζ',
+        '\\eta': 'η',
+        '\\theta': 'θ',
+        '\\iota': 'ι',
+        '\\kappa': 'κ',
+        '\\lambda': 'λ',
+        '\\mu': 'μ',
+        '\\nu': 'ν',
+        '\\xi': 'ξ',
+        '\\pi': 'π',
+        '\\rho': 'ρ',
+        '\\sigma': 'σ',
+        '\\tau': 'τ',
+        '\\upsilon': 'υ',
+        '\\phi': 'φ',
+        '\\chi': 'χ',
+        '\\psi': 'ψ',
+        '\\omega': 'ω',
+        '\\Alpha': 'Α',
+        '\\Beta': 'Β',
+        '\\Gamma': 'Γ',
+        '\\Delta': 'Δ',
+        '\\Theta': 'Θ',
+        '\\Lambda': 'Λ',
+        '\\Pi': 'Π',
+        '\\Sigma': 'Σ',
+        '\\Phi': 'Φ',
+        '\\Psi': 'Ψ',
+        '\\Omega': 'Ω'
+      };
+
+      Object.keys(greekMap).forEach(function(key) {
+        const value = greekMap[key];
+        result = result.replace(new RegExp(key + '(?![A-Za-z])', 'g'), value);
+      });
+
+      result = result.replace(/\\mathrm\{([^}]+)\}/g, '$1');
+      result = result.replace(/\\text\{([^}]+)\}/g, '$1');
+      result = result.replace(/\\left\s*/g, '');
+      result = result.replace(/\\right\s*/g, '');
+      result = result.replace(/\\pm/g, '±');
+      result = result.replace(/\\times/g, '×');
+      result = result.replace(/\\cdot/g, '·');
+      result = result.replace(/\\leq/g, '≤');
+      result = result.replace(/\\geq/g, '≥');
+      result = result.replace(/\\neq/g, '≠');
+      result = result.replace(/\\infty/g, '∞');
+      result = result.replace(/\\degree/g, '°');
+      result = result.replace(/\\%/g, '%');
+      result = result.replace(/\\,/g, ' ');
+      result = result.replace(/\\\s/g, ' ');
+      result = result.replace(/[{}]/g, '');
+      result = result.replace(/\s+/g, ' ').trim();
+      return result;
+    }
+
+    renderFormulaFallback(text, context = {}, wrapAsParagraph = false) {
+      const clean = this.formatFormulaFallbackText(text);
+      if (!clean) return '';
+      const runContext = { formulaFallback: true };
+      if (context.formulaCache) {
+        runContext.formulaCache = context.formulaCache;
+      }
+      const run = this.createTextRun(clean, runContext);
+      if (!run) return '';
+      if (wrapAsParagraph) {
+        return this.createParagraphFromRuns(run);
+      }
+      return run;
+    }
+
+    createInlineFormula(element, isDisplay, context = {}) {
+      let mathEl = null;
       try {
-        const mathEl = element.querySelector('math');
-        if (!mathEl) {
-          const texNode = element.querySelector('annotation[encoding="application/x-tex"]');
-          const fallback = texNode ? texNode.textContent : element.getAttribute('data-original-text') || element.innerText || element.textContent || '';
-          const clean = fallback.replace(/[\s]+/g, ' ').trim();
-          return clean ? this.createTextRun(clean, {}) : '';
-        }
+        mathEl = element.querySelector('math');
+      } catch (error) {
+        mathEl = null;
+      }
+      const fallbackText = this.getFormulaFallbackText(element, mathEl);
+      if (context.skipFormula) {
+        return this.renderFormulaFallback(fallbackText, context);
+      }
+      if (!mathEl) {
+        return this.renderFormulaFallback(fallbackText, context);
+      }
+      try {
         const ommlCore = this.mathConverter.convert(mathEl);
         if (ommlCore) {
           return `<w:r>${ommlCore}</w:r>`;
         }
-        const texNode = element.querySelector('annotation[encoding="application/x-tex"]');
-        const fallback = texNode ? texNode.textContent : mathEl.textContent || '';
-        const clean = fallback.replace(/[\s]+/g, ' ').trim();
-        return clean ? this.createTextRun(clean, {}) : '';
       } catch (err) {
-        const texNode = element.querySelector('annotation[encoding="application/x-tex"]');
-        const text = texNode ? texNode.textContent : element.innerText || element.textContent || '';
-        const clean = text.replace(/[\s]+/g, ' ').trim();
-        return clean ? this.createTextRun(clean, {}) : '';
+        return this.renderFormulaFallback(fallbackText, context);
       }
+      return this.renderFormulaFallback(fallbackText || mathEl.textContent || '', context);
     }
 
-    createBlockFormula(element) {
+    createBlockFormula(element, context = {}) {
       const mathEl = element.querySelector('math');
-      if (!mathEl) {
-        const texNode = element.querySelector('annotation[encoding="application/x-tex"]');
-        const fallback = texNode ? texNode.textContent : element.getAttribute('data-original-text') || element.innerText || element.textContent || '';
-        const clean = fallback.replace(/[\s]+/g, ' ').trim();
-        return clean ? this.createParagraphFromRuns(this.createTextRun(clean, {})) : '';
+      const fallbackText = this.getFormulaFallbackText(element, mathEl);
+      if (context.skipFormula) {
+        return this.renderFormulaFallback(fallbackText, context, true);
       }
-      const omml = this.mathConverter.convert(mathEl);
+      if (!mathEl) {
+        return this.renderFormulaFallback(fallbackText, context, true);
+      }
+      let omml = '';
+      try {
+        omml = this.mathConverter.convert(mathEl);
+      } catch (err) {
+        omml = '';
+      }
       if (!omml) {
-        const texNode = element.querySelector('annotation[encoding="application/x-tex"]');
-        const fallback = texNode ? texNode.textContent : mathEl.textContent || '';
-        const clean = fallback.replace(/[\s]+/g, ' ').trim();
-        return clean ? this.createParagraphFromRuns(this.createTextRun(clean, {})) : '';
+        return this.renderFormulaFallback(fallbackText || mathEl.textContent || '', context, true);
       }
       return `<w:p><w:pPr><w:spacing w:after="160"/></w:pPr><m:oMathPara>${omml}</m:oMathPara></w:p>`;
     }
