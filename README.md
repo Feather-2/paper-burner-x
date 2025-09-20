@@ -9,7 +9,7 @@
 
 ![落地页](https://github.com/user-attachments/assets/d18d5b3f-fba7-4ab1-84d8-2fa651209c57)
 
-[点击以查看分支特性](https://paperburner.viwoplus.site/views/landing/landing-page.html)
+[落地页](https://paperburner.viwoplus.site/views/landing/landing-page.html)
 
 ## ✨ 特性概览 (截至25/9/20)
 
