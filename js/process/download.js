@@ -34,6 +34,29 @@
  *                                       每个对象应包含 `file`, `error`, `markdown`, `translation`, `images`, `skipped` 等属性。
  * @returns {Promise<void>} 函数没有显式返回值，主要副作用是触发文件下载。
  */
+function sanitizeFileName(name) {
+    return (name || 'document').replace(/[\\/:*?"<>|]/g, '_');
+}
+
+function sanitizePath(path) {
+    return (path || '').split('/').map(segment => sanitizeFileName(segment)).filter(Boolean).join('/');
+}
+
+function removeExtension(name) {
+    if (!name) return '';
+    const idx = name.lastIndexOf('.');
+    return idx === -1 ? name : name.slice(0, idx);
+}
+
+function ensureFileName(baseName, ext) {
+    const sanitized = sanitizeFileName(baseName || 'document');
+    if (!ext) return sanitized;
+    if (sanitized.toLowerCase().endsWith(`.${ext.toLowerCase()}`)) {
+        return sanitized;
+    }
+    return `${sanitized}.${ext}`;
+}
+
 async function downloadAllResults(allResultsData) {
     const successfulResults = allResultsData.filter(result => result && !result.error && result.markdown && !result.skipped);
 
@@ -59,9 +82,14 @@ async function downloadAllResults(allResultsData) {
     let filesAdded = 0;
 
     for (const result of successfulResults) {
-        const pdfName = result.file.name.replace(/\.pdf$/i, '');
-        const safeFolderName = pdfName.replace(/[/\\:*?"<>|]/g, '_').substring(0, 100);
-        const folder = zip.folder(safeFolderName);
+        const relativePath = (result.relativePath || (result.file && result.file.pbxRelativePath) || (result.file && result.file.name) || 'document').replace(/\\/g, '/');
+        const dirPath = relativePath.includes('/') ? relativePath.slice(0, relativePath.lastIndexOf('/')) : '';
+        const baseName = relativePath.includes('/') ? relativePath.slice(relativePath.lastIndexOf('/') + 1) : relativePath;
+        const baseWithoutExt = removeExtension(baseName);
+        const sanitizedDir = sanitizePath(dirPath);
+        const sanitizedBase = sanitizeFileName(baseWithoutExt || 'document').substring(0, 120) || 'document';
+        const folderPath = sanitizedDir ? `${sanitizedDir}/${sanitizedBase}` : sanitizedBase;
+        const folder = zip.folder(folderPath);
 
         folder.file('document.md', result.markdown);
 
@@ -81,15 +109,15 @@ async function downloadAllResults(allResultsData) {
                     if (base64Data) {
                         imagesFolder.file(`${img.id}.png`, base64Data, { base64: true });
                     } else {
-                        console.warn(`Skipping image ${img.id} in ${safeFolderName} due to missing data.`);
+                        console.warn(`Skipping image ${img.id} in ${folderPath} due to missing data.`);
                         if (typeof addProgressLog === "function") {
-                            addProgressLog(`警告: 跳过图片 ${img.id} (文件: ${safeFolderName})，数据缺失。`);
+                            addProgressLog(`警告: 跳过图片 ${img.id} (文件: ${folderPath})，数据缺失。`);
                         }
                     }
                 } catch (imgError) {
-                    console.error(`Error adding image ${img.id} to zip for ${safeFolderName}:`, imgError);
+                    console.error(`Error adding image ${img.id} to zip for ${folderPath}:`, imgError);
                     if (typeof addProgressLog === "function") {
-                        addProgressLog(`警告: 打包图片 ${img.id} (文件: ${safeFolderName}) 时出错: ${imgError.message}`);
+                        addProgressLog(`警告: 打包图片 ${img.id} (文件: ${folderPath}) 时出错: ${imgError.message}`);
                     }
                 }
             }

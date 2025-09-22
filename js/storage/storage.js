@@ -224,7 +224,11 @@ function loadSettings() {
         defaultSystemPrompt: '',
         defaultUserPromptTemplate: '',
         useCustomPrompts: false,
-        enableGlossary: false
+        enableGlossary: false,
+        batchModeEnabled: false,
+        batchModeTemplate: '{original_name}_{output_language}_{processing_time:YYYYMMDD-HHmmss}.{original_type}',
+        batchModeFormats: ['original', 'markdown'],
+        batchModeZipEnabled: false
     };
     try {
         const storedSettings = localStorage.getItem(SETTINGS_KEY);

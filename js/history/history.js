@@ -51,61 +51,915 @@ document.addEventListener('DOMContentLoaded', function() {
      */
     async function renderHistoryList() {
         const listDiv = document.getElementById('historyList');
+        if (!listDiv) return;
+
         const results = await getAllResultsFromDB();
         if (!results || results.length === 0) {
             listDiv.innerHTML = '<div class="text-gray-400 text-center py-8">暂无历史记录</div>';
+            window.__historyRecordCache = {};
+            window.__historyBatchCache = {};
             return;
         }
-        // 按时间倒序排列
+
         results.sort((a, b) => new Date(b.time) - new Date(a.time));
-        listDiv.innerHTML = results.map(r => {
-            const totalChunks = Array.isArray(r.ocrChunks) ? r.ocrChunks.length : 0;
-            const translatedChunks = Array.isArray(r.translatedChunks) ? r.translatedChunks : [];
-            const { successCount, failedCount } = (function analyze() {
-                let success = 0, failed = 0;
-                if (totalChunks === 0) return { successCount: 0, failedCount: 0 };
-                for (let i = 0; i < totalChunks; i++) {
-                    const t = translatedChunks[i] || '';
-                    if (_isChunkFailed(t)) {
-                        failed++;
-                    } else {
-                        success++;
-                    }
+
+        const recordCache = {};
+        const batchMap = new Map();
+        const singleRecords = [];
+
+        results.forEach(record => {
+            recordCache[record.id] = record;
+            if (record.batchId) {
+                if (!batchMap.has(record.batchId)) {
+                    batchMap.set(record.batchId, []);
                 }
-                return { successCount: success, failedCount: failed };
-            })();
-            const statusBadge = totalChunks > 0
-                ? (failedCount > 0
-                    ? `<span class="ml-2 inline-block text-xs px-2 py-0.5 rounded bg-yellow-100 text-yellow-700">部分失败 ${failedCount}/${totalChunks}</span>`
-                    : `<span class="ml-2 inline-block text-xs px-2 py-0.5 rounded bg-green-100 text-green-700">完成 ${successCount}/${totalChunks}</span>`)
-                : `<span class="ml-2 inline-block text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500">未分块</span>`;
+                batchMap.get(record.batchId).push(record);
+            } else {
+                singleRecords.push(record);
+            }
+        });
 
-            const disableRetryFailed = failedCount === 0 ? 'disabled opacity-50 cursor-not-allowed' : '';
+        const fragments = [];
 
-            return `
-            <div class="border-b py-2" id="history-item-${r.id.replace(/[^a-zA-Z0-9_-]/g,'_')}">
-                <div class="flex justify-between items-center">
-                    <span class="font-semibold flex items-center">${r.name}${statusBadge}</span>
-                    <button onclick="deleteHistoryRecord('${r.id}')" class="text-xs text-red-400 hover:text-red-600">删除</button>
-                </div>
-                <div class="text-xs text-gray-500">时间: ${new Date(r.time).toLocaleString()}</div>
-                <div class="text-xs text-gray-500">OCR: ${r.ocr ? r.ocr.slice(0, 40).replace(/\\n/g, ' ') + (r.ocr.length > 40 ? '...' : '') : '无'}</div>
-                <div class="text-xs text-gray-500">翻译: ${r.translation ? r.translation.slice(0, 40).replace(/\\n/g, ' ') + (r.translation.length > 40 ? '...' : '') : '无'}</div>
-                <div class="mt-2 flex items-center flex-wrap gap-2">
-                  <button onclick="showHistoryDetail('${r.id}')" class="text-blue-600 text-xs hover:underline">查看详情</button>
-                  <button onclick="downloadHistoryRecord('${r.id}')" class="text-green-600 text-xs hover:underline">下载</button>
-                  <span class="mx-1 text-gray-300">|</span>
-                  <button id="retry-failed-btn-${r.id}" onclick="retryTranslateRecord('${r.id}','failed')" class="text-xs px-2 py-1 border rounded hover:bg-gray-50 ${disableRetryFailed}">重试失败段</button>
-                  <button id="retry-all-btn-${r.id}" onclick="retryTranslateRecord('${r.id}','all')" class="text-xs px-2 py-1 border rounded hover:bg-gray-50">重新翻译全部</button>
-                  <span id="retry-status-${r.id}" class="text-xs text-gray-500"></span>
-                </div>
-            </div>`;
-        }).join('');
+        batchMap.forEach((group, batchId) => {
+            group.sort((a, b) => {
+                const orderA = typeof a.batchOrder === 'number' ? a.batchOrder : (typeof a.batchOriginalIndex === 'number' ? a.batchOriginalIndex + 1 : 0);
+                const orderB = typeof b.batchOrder === 'number' ? b.batchOrder : (typeof b.batchOriginalIndex === 'number' ? b.batchOriginalIndex + 1 : 0);
+                if (orderA !== orderB) return orderA - orderB;
+                return new Date(a.time) - new Date(b.time);
+            });
+            fragments.push(renderBatchGroupItem(batchId, group));
+        });
+
+        singleRecords.forEach(record => {
+            fragments.push(renderHistoryRecordItem(record));
+        });
+
+        listDiv.innerHTML = fragments.join('') || '<div class="text-gray-400 text-center py-8">暂无历史记录</div>';
+
+        window.__historyRecordCache = recordCache;
+        const batchCache = {};
+        batchMap.forEach((group, batchId) => {
+            batchCache[batchId] = group;
+        });
+        window.__historyBatchCache = batchCache;
     }
 
-    // ---------------------
-    // 历史记录操作（删除/查看/下载）
-    // ---------------------
+    const DEFAULT_EXPORT_TEMPLATE = '{original_name}_{output_language}_{processing_time:YYYYMMDD-HHmmss}.{original_type}';
+    const DEFAULT_EXPORT_FORMATS = ['original', 'markdown'];
+    const SUPPORTED_EXPORT_FORMATS = ['original', 'markdown', 'html', 'docx', 'pdf'];
+    const TEXTUAL_ORIGINAL_EXTENSIONS = new Set(['txt', 'md', 'markdown', 'yaml', 'yml', 'json', 'csv', 'ini', 'cfg', 'log', 'tex', 'html', 'htm']);
+    const PACKAGING_OPTIONS = {
+        preserve: 'preserve',
+        flat: 'flat'
+    };
+
+    const historyListElement = document.getElementById('historyList');
+    if (historyListElement) {
+        historyListElement.addEventListener('click', handleHistoryListAction);
+        historyListElement.addEventListener('change', handleHistoryListChange);
+    }
+
+    function renderBatchGroupItem(batchId, records) {
+        const safeBatchId = sanitizeId(batchId || 'batch');
+        const representative = records[0] || {};
+        const summaryName = representative.name || batchId || '批量任务';
+        const timeLabel = formatDisplayTime(representative.time);
+        const targetLang = representative.batchOutputLanguage || representative.targetLanguage || '';
+        const template = representative.batchTemplate || DEFAULT_EXPORT_TEMPLATE;
+        const formats = Array.isArray(representative.batchFormats) && representative.batchFormats.length > 0
+            ? Array.from(new Set(['original', ...representative.batchFormats]))
+            : DEFAULT_EXPORT_FORMATS;
+        const zipEnabled = typeof representative.batchZip === 'boolean' ? representative.batchZip : false;
+        const structure = representative.batchZipStructure || PACKAGING_OPTIONS.preserve;
+
+        const childrenHtml = records.map(record => renderHistoryRecordItem(record, { withinBatch: true, batchId })).join('');
+        const configId = `batch-export-config-${safeBatchId}`;
+
+        return `
+        <details class="history-batch-group border border-blue-200 bg-blue-50/60 rounded-lg mb-3" data-batch-id="${escapeAttr(batchId)}">
+            <summary class="cursor-pointer select-none px-3 py-2">
+                <div class="flex flex-col gap-1">
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                            <span>批量任务</span>
+                            <span class="text-blue-600">${escapeHtml(summaryName)}</span>
+                            <span class="text-[11px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">${records.length} 个文件</span>
+                        </span>
+                        <span class="text-xs text-gray-500">${timeLabel}${targetLang ? ` · 语言：${escapeHtml(targetLang)}` : ''}</span>
+                    </div>
+                    <div class="flex flex-wrap gap-2 text-xs text-gray-600">
+                        <button type="button" class="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600" data-history-action="open-batch-export" data-batch-id="${escapeAttr(batchId)}" data-target="${configId}">导出</button>
+                        <button type="button" class="px-2 py-1 border border-gray-300 rounded hover:bg-gray-100 text-gray-600" data-history-action="delete-batch" data-batch-id="${escapeAttr(batchId)}">删除</button>
+                    </div>
+                </div>
+            </summary>
+            <div class="px-3 pb-3 space-y-2">
+                ${renderExportConfigPanel({
+                    id: configId,
+                    scope: 'batch',
+                    ownerId: batchId,
+                    template,
+                    formats,
+                    zipEnabled,
+                    structure,
+                    withinBatch: true
+                })}
+                ${childrenHtml || '<div class="text-xs text-gray-500">暂无记录</div>'}
+            </div>
+        </details>
+        `;
+    }
+
+    function renderHistoryRecordItem(record, options = {}) {
+        const safeId = sanitizeId(record.id || 'record');
+        const withinBatch = !!options.withinBatch;
+        const status = analyzeRecordStatus(record);
+        const statusBadge = buildStatusBadge(status);
+        const ocrSnippet = buildSnippetText(record.ocr);
+        const translationSnippet = buildSnippetText(record.translation);
+        const timeLabel = formatDisplayTime(record.time);
+        const targetLang = record.batchOutputLanguage || record.targetLanguage || '';
+        const relativePathLabel = buildRelativePathLabel(record);
+        const template = record.batchTemplate || DEFAULT_EXPORT_TEMPLATE;
+        const formats = Array.isArray(record.batchFormats) && record.batchFormats.length > 0
+            ? Array.from(new Set(['original', ...record.batchFormats]))
+            : DEFAULT_EXPORT_FORMATS;
+        const zipEnabled = typeof record.batchZip === 'boolean' ? record.batchZip : false;
+        const structure = record.batchZipStructure || PACKAGING_OPTIONS.preserve;
+        const configId = `record-export-config-${safeId}${options.batchId ? `-${sanitizeId(options.batchId)}` : ''}`;
+        const retryDisabled = status.failed === 0 ? 'disabled opacity-50 cursor-not-allowed' : '';
+
+        const containerClasses = withinBatch
+            ? 'border border-gray-200 rounded-lg p-3 bg-white'
+            : 'border border-gray-200 rounded-lg p-4 bg-white shadow-sm';
+
+        return `
+        <div class="${containerClasses}" id="history-item-${safeId}" data-record-id="${escapeAttr(record.id)}">
+            <div class="flex flex-col gap-1">
+                <div class="flex justify-between items-start gap-2">
+                    <div class="min-w-0">
+                        <div class="text-sm font-semibold text-gray-800 flex items-center gap-2 break-all">
+                            ${escapeHtml(record.name || '未命名')} ${statusBadge}
+                        </div>
+                        <div class="text-xs text-gray-500 mt-1">
+                            ${timeLabel}${targetLang ? ` · 语言：${escapeHtml(targetLang)}` : ''}
+                            ${relativePathLabel ? ` · <span title="${escapeAttr(relativePathLabel)}">${escapeHtml(relativePathLabel)}</span>` : ''}
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap gap-2 text-xs text-gray-600 justify-end">
+                        <button type="button" class="px-2 py-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100" data-history-action="open-record-export" data-record-id="${escapeAttr(record.id)}" data-target="${configId}">导出</button>
+                        <button type="button" class="px-2 py-1 border border-gray-200 rounded hover:bg-gray-100" onclick="showHistoryDetail('${record.id}')">详情</button>
+                        <button type="button" class="px-2 py-1 border border-gray-200 rounded hover:bg-gray-100 text-green-600" onclick="downloadHistoryRecord('${record.id}')">下载</button>
+                        ${withinBatch ? '' : `<button type="button" class="px-2 py-1 border border-gray-200 rounded hover:bg-gray-100 text-red-500" onclick="deleteHistoryRecord('${record.id}')">删除</button>`}
+                    </div>
+                </div>
+                <div class="text-xs text-gray-600 break-words">OCR：${ocrSnippet}</div>
+                <div class="text-xs text-gray-600 break-words">翻译：${translationSnippet}</div>
+                <div class="flex flex-wrap items-center gap-2 text-xs text-gray-600 mt-2">
+                    <button id="retry-failed-btn-${safeId}" onclick="retryTranslateRecord('${record.id}','failed')" class="px-2 py-1 border border-gray-200 rounded hover:bg-gray-100 ${retryDisabled}">重试失败段</button>
+                    <button id="retry-all-btn-${safeId}" onclick="retryTranslateRecord('${record.id}','all')" class="px-2 py-1 border border-gray-200 rounded hover:bg-gray-100">重新翻译全部</button>
+                    <span id="retry-status-${safeId}" class="text-xs text-gray-500"></span>
+                </div>
+                ${renderExportConfigPanel({
+                    id: configId,
+                    scope: 'record',
+                    ownerId: record.id,
+                    template,
+                    formats,
+                    zipEnabled,
+                    structure,
+                    withinBatch
+                })}
+            </div>
+        </div>
+        `;
+    }
+
+    function renderExportConfigPanel({ id, scope, ownerId, template, formats, zipEnabled, structure, withinBatch }) {
+        const formatOptions = SUPPORTED_EXPORT_FORMATS.map(fmt => {
+            const checked = formats.includes(fmt) ? 'checked' : '';
+            const label = fmt === 'original' ? '原格式' : fmt.toUpperCase();
+            return `<label class="flex items-center space-x-2"><input type="checkbox" value="${fmt}" ${checked} data-config-format="${fmt}" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"><span>${label}</span></label>`;
+        }).join('');
+
+        const sectionClasses = withinBatch ? 'mt-2 hidden border border-dashed border-blue-200 bg-white rounded-lg p-3' : 'mt-3 hidden border border-dashed border-gray-200 bg-gray-50 rounded-lg p-3';
+        const structureValue = structure && PACKAGING_OPTIONS[structure] ? structure : PACKAGING_OPTIONS.preserve;
+        const preserveChecked = structureValue === PACKAGING_OPTIONS.preserve ? 'checked' : '';
+        const flatChecked = structureValue === PACKAGING_OPTIONS.flat ? 'checked' : '';
+
+        const zipCheckedAttr = (zipEnabled || structureValue === PACKAGING_OPTIONS.flat) ? 'checked' : '';
+        const zipDisabledAttr = structureValue === PACKAGING_OPTIONS.flat ? 'disabled' : '';
+
+        return `
+        <div id="${id}" class="${sectionClasses}" data-config-scope="${scope}" data-owner-id="${escapeAttr(ownerId)}">
+            <label class="block text-xs text-gray-600 mb-2">
+                命名模板
+                <input type="text" class="mt-1 w-full border border-gray-200 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-blue-400 focus:border-blue-400" value="${escapeAttr(template || DEFAULT_EXPORT_TEMPLATE)}" data-config-template>
+            </label>
+            <div class="flex flex-col gap-2 text-xs text-gray-700" data-config-formats>
+                ${formatOptions}
+            </div>
+            <div class="mt-3 text-xs text-gray-600" data-config-structure-group>
+                <span class="block mb-1">ZIP 结构</span>
+                <label class="flex items-center space-x-2">
+                    <input type="radio" name="pack-structure-${id}" value="preserve" ${preserveChecked} data-config-structure>
+                    <span>保留原始目录结构</span>
+                </label>
+                <label class="flex items-center space-x-2">
+                    <input type="radio" name="pack-structure-${id}" value="flat" ${flatChecked} data-config-structure>
+                    <span>原文/译文分组，不保留目录</span>
+                </label>
+            </div>
+            <label class="mt-3 flex items-center space-x-2 text-xs text-gray-600">
+                <input type="checkbox" ${zipCheckedAttr} ${zipDisabledAttr} data-config-zip class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                <span>导出为 ZIP（某些结构将自动启用）</span>
+            </label>
+            <div class="mt-3 flex items-center gap-2">
+                <button type="button" class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700" data-history-action="confirm-${scope}-export" data-owner-id="${escapeAttr(ownerId)}" data-target="${id}">确认导出</button>
+                <button type="button" class="px-3 py-1 border border-gray-200 rounded text-gray-600 hover:bg-gray-100" data-history-action="cancel-config" data-target="${id}">取消</button>
+            </div>
+        </div>
+        `;
+    }
+
+    function analyzeRecordStatus(record) {
+        const ocrChunks = Array.isArray(record.ocrChunks) ? record.ocrChunks : [];
+        const translatedChunks = Array.isArray(record.translatedChunks) ? record.translatedChunks : [];
+        const total = ocrChunks.length;
+        if (total === 0) {
+            return { total: 0, success: 0, failed: 0 };
+        }
+        let failed = 0;
+        for (let i = 0; i < total; i++) {
+            const text = translatedChunks[i] || '';
+            if (_isChunkFailed(text)) {
+                failed++;
+            }
+        }
+        const success = total - failed;
+        return { total, success, failed };
+    }
+
+    function buildStatusBadge(status) {
+        if (!status || status.total === 0) {
+            return '<span class="ml-2 inline-block text-[11px] px-2 py-0.5 rounded bg-gray-100 text-gray-500">未分块</span>';
+        }
+        if (status.failed > 0) {
+            return `<span class="ml-2 inline-block text-[11px] px-2 py-0.5 rounded bg-amber-100 text-amber-700">部分失败 ${status.success}/${status.total}</span>`;
+        }
+        return `<span class="ml-2 inline-block text-[11px] px-2 py-0.5 rounded bg-green-100 text-green-700">完成 ${status.success}/${status.total}</span>`;
+    }
+
+    function buildSnippetText(text) {
+        if (!text) return '无';
+        const sanitized = text.replace(/\s+/g, ' ').trim();
+        return sanitized.length > 80 ? `${escapeHtml(sanitized.slice(0, 80))}…` : escapeHtml(sanitized);
+    }
+
+    function formatDisplayTime(timeValue) {
+        if (!timeValue) return '未知时间';
+        try {
+            const date = new Date(timeValue);
+            if (Number.isNaN(date.getTime())) return '未知时间';
+            return date.toLocaleString();
+        } catch (e) {
+            return '未知时间';
+        }
+    }
+
+    function buildRelativePathLabel(record) {
+        const rel = record.relativePath || (record.file && record.file.pbxRelativePath) || '';
+        if (!rel) return '';
+        return rel;
+    }
+
+    function sanitizeId(id) {
+        return String(id || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    }
+
+    function escapeHtml(str) {
+        return String(str || '').replace(/[&<>"']/g, function(ch) {
+            switch (ch) {
+                case '&': return '&amp;';
+                case '<': return '&lt;';
+                case '>': return '&gt;';
+                case '"': return '&quot;';
+                case "'": return '&#39;';
+                default: return ch;
+            }
+        });
+    }
+
+    function escapeAttr(str) {
+        return escapeHtml(str).replace(/"/g, '&quot;');
+    }
+
+    async function handleHistoryListAction(event) {
+        const actionButton = event.target.closest('[data-history-action]');
+        if (!actionButton) return;
+
+        const action = actionButton.getAttribute('data-history-action');
+        const targetId = actionButton.getAttribute('data-target');
+
+        try {
+            switch (action) {
+                case 'open-record-export':
+                case 'open-batch-export': {
+                    const panel = targetId ? document.getElementById(targetId) : null;
+                    if (!panel) break;
+                    if (action === 'open-batch-export') {
+                        const parentDetails = actionButton.closest('details');
+                        if (parentDetails) parentDetails.open = true;
+                    }
+                    togglePanelVisibility(panel);
+                    break;
+                }
+                case 'cancel-config': {
+                    const panel = targetId ? document.getElementById(targetId) : null;
+                    if (panel) {
+                        panel.classList.add('hidden');
+                    }
+                    break;
+                }
+                case 'confirm-record-export': {
+                    const recordId = actionButton.getAttribute('data-owner-id');
+                    if (!recordId) break;
+                    const panel = targetId ? document.getElementById(targetId) : null;
+                    if (!panel) break;
+                    const config = collectExportConfig(panel);
+                    if (config.formats.length === 0) {
+                        showNotification && showNotification('请至少选择一种导出格式', 'warning');
+                        break;
+                    }
+                    const recordCache = window.__historyRecordCache || {};
+                    const record = recordCache[recordId];
+                    if (!record) {
+                        showNotification && showNotification('未找到历史记录数据', 'error');
+                        break;
+                    }
+                    panel.classList.add('hidden');
+                    await performHistoryExport([record], config);
+                    break;
+                }
+                case 'confirm-batch-export': {
+                    const batchId = actionButton.getAttribute('data-owner-id');
+                    if (!batchId) break;
+                    const panel = targetId ? document.getElementById(targetId) : null;
+                    if (!panel) break;
+                    const config = collectExportConfig(panel);
+                    if (config.formats.length === 0) {
+                        showNotification && showNotification('请至少选择一种导出格式', 'warning');
+                        break;
+                    }
+                    const batchCache = window.__historyBatchCache || {};
+                    const records = batchCache[batchId];
+                    if (!records || records.length === 0) {
+                        showNotification && showNotification('未找到批量任务记录', 'error');
+                        break;
+                    }
+                    panel.classList.add('hidden');
+                    await performHistoryExport(records, config, { batchId });
+                    break;
+                }
+                case 'delete-batch': {
+                    const batchId = actionButton.getAttribute('data-batch-id');
+                    if (!batchId) break;
+                    if (!confirm('确定要删除整个批量任务吗？此操作不可恢复。')) break;
+                    await deleteBatchRecords(batchId);
+                    await renderHistoryList();
+                    showNotification && showNotification('批量任务已删除', 'success');
+                    break;
+                }
+                default:
+                    break;
+            }
+        } catch (error) {
+            console.error('历史记录操作失败:', error);
+            showNotification && showNotification(`导出失败：${error && error.message ? error.message : error}`, 'error');
+        }
+    }
+
+    function handleHistoryListChange(event) {
+        const target = event.target;
+        if (!target) return;
+
+        if (target.hasAttribute('data-config-structure')) {
+            const panel = target.closest('[data-config-scope]');
+            if (!panel) return;
+            const zipInput = panel.querySelector('[data-config-zip]');
+            if (!zipInput) return;
+            if (target.value === PACKAGING_OPTIONS.flat) {
+                zipInput.checked = true;
+                zipInput.disabled = true;
+            } else {
+                zipInput.disabled = false;
+            }
+        }
+    }
+
+    function togglePanelVisibility(panel) {
+        if (!panel) return;
+        if (panel.classList.contains('hidden')) {
+            // 隐藏同级已展开的配置面板
+            const siblings = panel.parentElement ? panel.parentElement.querySelectorAll('[data-config-scope]') : [];
+            siblings.forEach(el => { if (el !== panel) el.classList.add('hidden'); });
+            panel.classList.remove('hidden');
+        } else {
+            panel.classList.add('hidden');
+        }
+    }
+
+    function collectExportConfig(panel) {
+        const templateInput = panel.querySelector('[data-config-template]');
+        const formatInputs = panel.querySelectorAll('[data-config-formats] input[type="checkbox"]');
+        const zipInput = panel.querySelector('[data-config-zip]');
+        const structureInput = panel.querySelector('[data-config-structure]:checked');
+
+        const template = templateInput && templateInput.value && templateInput.value.trim()
+            ? templateInput.value.trim()
+            : DEFAULT_EXPORT_TEMPLATE;
+        const formats = Array.from(formatInputs || [])
+            .filter(input => input.checked)
+            .map(input => input.value)
+            .filter(fmt => SUPPORTED_EXPORT_FORMATS.includes(fmt));
+        if (!formats.includes('original')) {
+            formats.unshift('original');
+            const originalCheckbox = panel.querySelector('[data-config-formats] input[value="original"]');
+            if (originalCheckbox) originalCheckbox.checked = true;
+            if (typeof showNotification === 'function') {
+                showNotification('已自动保留“原格式”导出。', 'info');
+            }
+        }
+        const uniqueFormats = Array.from(new Set(formats));
+        const structure = structureInput ? structureInput.value : PACKAGING_OPTIONS.preserve;
+        const enforceZip = structure === PACKAGING_OPTIONS.flat;
+        const zip = enforceZip ? true : (zipInput ? zipInput.checked : false);
+        if (enforceZip && zipInput) {
+            zipInput.checked = true;
+            zipInput.disabled = true;
+        } else if (zipInput) {
+            zipInput.disabled = false;
+        }
+
+        return { template, formats: uniqueFormats, zip, structure };
+    }
+
+    async function performHistoryExport(records, config, context = {}) {
+        if (!Array.isArray(records) || records.length === 0) return;
+        if (!config || config.formats.length === 0) return;
+
+        const exporter = window.PBXHistoryExporter;
+        if (!exporter) {
+            showNotification && showNotification('导出模块尚未加载完成', 'error');
+            return;
+        }
+
+        const structure = config.structure || PACKAGING_OPTIONS.preserve;
+        const enforceZip = structure === PACKAGING_OPTIONS.flat;
+        const shouldZip = enforceZip || config.zip || records.length > 1 || config.formats.length > 1;
+        if (shouldZip && typeof JSZip === 'undefined') {
+            showNotification && showNotification('JSZip 未加载，无法打包成 ZIP', 'error');
+            return;
+        }
+
+        const ensureExporter = (format, shouldZip) => {
+            if (format === 'pdf' && shouldZip) {
+                showNotification && showNotification('PDF 导出目前不支持打包为 ZIP，请单独导出或选择其他格式。', 'warning');
+                return null;
+            }
+            const handler = resolveFormatHandler(format, exporter);
+            if (!handler || !handler.exporterFn) {
+                showNotification && showNotification(`暂不支持导出 ${format.toUpperCase()} 格式`, 'warning');
+                return null;
+            }
+            return handler;
+        };
+
+        const assets = [];
+        const generatedPaths = new Set();
+        for (const record of records) {
+            const variants = [];
+            const hasTranslation = record.translation && record.translation.trim();
+            if (hasTranslation) {
+                variants.push('translation');
+            }
+            const includeOriginal = !hasTranslation || structure === PACKAGING_OPTIONS.flat || shouldZip;
+            if (includeOriginal) {
+                variants.push('original');
+            }
+            if (variants.length === 0) {
+                variants.push('original');
+            }
+            for (const variant of variants) {
+                const payload = buildExportPayloadFromRecord(record, variant);
+                if (!payload && format !== 'original') continue;
+                for (const format of config.formats) {
+                    if (!SUPPORTED_EXPORT_FORMATS.includes(format)) continue;
+
+                    if (format === 'original') {
+                        if (variant === 'translation' && !TEXTUAL_ORIGINAL_EXTENSIONS.has((record.originalExtension || record.fileType || '').toLowerCase())) {
+                            continue;
+                        }
+                        const originalAsset = buildOriginalAsset(record);
+                        if (!originalAsset) {
+                            showNotification && showNotification('无法导出原始格式：缺少原始内容。', 'warning');
+                            continue;
+                        }
+                        if (variant === 'original') {
+                            const relativeDirOriginal = computeRelativeDirectory(record, 'original', format, structure);
+                            const sanitizedDirOriginal = relativeDirOriginal ? sanitizePath(relativeDirOriginal) : '';
+                            const originalName = determineOriginalFileName(record, originalAsset.extension);
+                            const uniqueOriginalName = ensureUniqueFileName(originalName, sanitizedDirOriginal, generatedPaths, 'original');
+                            if (!shouldZip) {
+                                saveAs(originalAsset.blob, uniqueOriginalName);
+                            } else {
+                                assets.push({ blob: originalAsset.blob, fileName: uniqueOriginalName, relativeDir: sanitizedDirOriginal });
+                            }
+                        } else if (variant === 'translation') {
+                            const translatedAsset = buildOriginalTranslationAsset(record, originalAsset.extension);
+                            if (!translatedAsset) continue;
+                            const contextForTemplate = buildTemplateContext(record, 'original', 'translation');
+                            const desiredName = applyNamingTemplate(config.template, contextForTemplate);
+                            const fileName = ensureFileName(desiredName, originalAsset.extension || 'txt');
+                            const relativeDir = computeRelativeDirectory(record, 'translation', format, structure);
+                            const sanitizedDir = relativeDir ? sanitizePath(relativeDir) : '';
+                            const uniqueName = ensureUniqueFileName(fileName, sanitizedDir, generatedPaths, 'original-translation');
+                            if (!shouldZip) {
+                                saveAs(translatedAsset.blob, uniqueName);
+                            } else {
+                                assets.push({ blob: translatedAsset.blob, fileName: uniqueName, relativeDir: sanitizedDir });
+                            }
+                        }
+                        continue;
+                    }
+
+                    const handler = ensureExporter(format, shouldZip);
+                    if (!handler) continue;
+
+                    if (format === 'pdf' && shouldZip) {
+                        continue; // 已提示
+                    }
+
+                    if (!payload) continue;
+                    const contextForTemplate = buildTemplateContext(record, format, variant);
+                    const desiredName = applyNamingTemplate(config.template, contextForTemplate);
+                    const fileName = ensureFileName(desiredName, handler.extension);
+                    const options = shouldZip ? { returnBlob: true, fileName } : { returnBlob: true, fileName };
+
+                    try {
+                        const result = await handler.exporterFn(payload, options);
+                        if (!result) continue;
+                        const blob = result.blob || (result.content ? new Blob([result.content], { type: result.mime || 'application/octet-stream' }) : null);
+                        if (!blob) continue;
+
+                        const relativeDir = computeRelativeDirectory(record, variant, format, structure);
+                        const sanitizedDir = relativeDir ? sanitizePath(relativeDir) : '';
+                        const uniqueName = ensureUniqueFileName(fileName, sanitizedDir, generatedPaths, variant);
+                        if (!shouldZip) {
+                            saveAs(blob, uniqueName);
+                            continue;
+                        }
+
+                        assets.push({ blob, fileName: uniqueName, relativeDir: sanitizedDir });
+                    } catch (error) {
+                        console.error('导出失败:', error);
+                        showNotification && showNotification(`导出 ${format.toUpperCase()} (${variant === 'original' ? '原文' : '译文'}) 失败：${error.message || error}`, 'error');
+                    }
+                }
+            }
+        }
+
+        if (!shouldZip) {
+            return;
+        }
+
+        const filteredAssets = assets.filter(asset => asset && asset.blob);
+        if (!filteredAssets.length) {
+            showNotification && showNotification('没有可打包的导出文件', 'warning');
+            return;
+        }
+
+        const zip = new JSZip();
+        filteredAssets.forEach(asset => {
+            const dir = asset.relativeDir ? asset.relativeDir : '';
+            const path = dir ? `${dir}/${asset.fileName}` : asset.fileName;
+            zip.file(path, asset.blob);
+        });
+
+        const archiveName = buildArchiveName(records, config, context);
+        const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+        saveAs(zipBlob, archiveName);
+        showNotification && showNotification(`已生成 ZIP (${filteredAssets.length} 个文件)`, 'success');
+    }
+
+    function resolveFormatHandler(format, exporter) {
+        switch (format) {
+            case 'markdown':
+                return { extension: 'md', exporterFn: exporter.exportAsMarkdown };
+            case 'html':
+                return { extension: 'html', exporterFn: exporter.exportAsHtml };
+            case 'docx':
+                return { extension: 'docx', exporterFn: exporter.exportAsDocx };
+            case 'pdf':
+                return { extension: 'pdf', exporterFn: exporter.exportAsPdf };
+            default:
+                return { extension: format, exporterFn: null };
+        }
+    }
+
+    function buildExportPayloadFromRecord(record, variant = 'auto') {
+        if (!record) return null;
+        const data = {
+            id: record.id,
+            name: record.name,
+            time: record.time,
+            ocr: record.ocr || '',
+            translation: record.translation || '',
+            images: Array.isArray(record.images) ? record.images : [],
+            ocrChunks: Array.isArray(record.ocrChunks) ? record.ocrChunks : [],
+            translatedChunks: Array.isArray(record.translatedChunks) ? record.translatedChunks : []
+        };
+        let mode = 'ocr';
+        if (variant === 'translation') {
+            if (!data.translation || !data.translation.trim()) return null;
+            mode = 'translation';
+        } else if (variant === 'original') {
+            if (!data.ocr || !data.ocr.trim()) return null;
+            mode = 'ocr';
+        } else {
+            mode = data.translation ? 'translation' : 'ocr';
+            if (mode === 'translation' && (!data.translation || !data.translation.trim())) {
+                mode = 'ocr';
+            }
+        }
+        const exporter = window.PBXHistoryExporter;
+        if (!exporter || typeof exporter.preparePayload !== 'function') {
+            return null;
+        }
+        const payload = exporter.preparePayload(mode, data);
+        if (payload) {
+            payload.customFileName = record.name;
+        }
+        return payload;
+    }
+
+    function buildTemplateContext(record, format, variant = 'translation') {
+        const relativePath = normalizeRelativePath(record);
+        const originalName = relativePath ? relativePath.split('/').pop() : (record.name || 'document');
+        let originalType;
+        if (format === 'markdown') {
+            originalType = 'md';
+        } else if (format === 'html') {
+            originalType = 'html';
+        } else if (format === 'docx') {
+            originalType = 'docx';
+        } else if (format === 'pdf') {
+            originalType = 'pdf';
+        } else if (format === 'original') {
+            originalType = (record.originalExtension || record.fileType || 'txt').replace(/[^a-zA-Z0-9_-]/g, '') || 'txt';
+        } else {
+            originalType = format.replace(/[^a-zA-Z0-9_-]/g, '') || 'txt';
+        }
+        return {
+            originalName,
+            originalType,
+            outputLanguage: record.batchOutputLanguage || record.targetLanguage || '',
+            processingTime: record.processedAt || record.time,
+            batchId: record.batchId || null,
+            variant: variant === 'original' ? 'original' : 'translation'
+        };
+    }
+
+    function applyNamingTemplate(template, context) {
+        const safeTemplate = template || DEFAULT_EXPORT_TEMPLATE;
+        return safeTemplate.replace(/\{([^{}]+)\}/g, (match, token) => {
+            const [key, modifier] = token.split(':');
+            switch (key) {
+                case 'original_name':
+                    return sanitizeFileName(context.originalName || 'document');
+                case 'original_type':
+                    return (context.originalType || '').replace(/[^a-zA-Z0-9_-]/g, '');
+                case 'output_language':
+                    return sanitizeFileName(context.outputLanguage || '');
+                case 'processing_time':
+                    return formatProcessingTime(context.processingTime, modifier);
+                case 'batch_id':
+                    return sanitizeFileName(context.batchId || '');
+                case 'variant':
+                    return sanitizeFileName(context.variant || '');
+                default:
+                    return '';
+            }
+        });
+    }
+
+    function formatProcessingTime(timeValue, pattern = 'YYYYMMDD-HHmmss') {
+        if (!timeValue) return '';
+        const date = new Date(timeValue);
+        if (Number.isNaN(date.getTime())) return '';
+        const pad = num => String(num).padStart(2, '0');
+        return pattern
+            .replace(/YYYY/g, date.getFullYear())
+            .replace(/MM/g, pad(date.getMonth() + 1))
+            .replace(/DD/g, pad(date.getDate()))
+            .replace(/HH/g, pad(date.getHours()))
+            .replace(/mm/g, pad(date.getMinutes()))
+            .replace(/ss/g, pad(date.getSeconds()));
+    }
+
+    function ensureFileName(baseName, extension) {
+        const sanitized = sanitizeFileName(baseName || 'document');
+        const ext = (extension || '').replace(/[^a-zA-Z0-9]/g, '');
+        if (!ext) return sanitized;
+        if (sanitized.toLowerCase().endsWith(`.${ext.toLowerCase()}`)) {
+            return sanitized;
+        }
+        return `${sanitized}.${ext}`;
+    }
+
+    function sanitizeFileName(name) {
+        return (name || 'document').replace(/[\\/:*?"<>|]/g, '_');
+    }
+
+    function sanitizePath(path) {
+        return (path || '').split('/').map(segment => sanitizeFileName(segment)).filter(Boolean).join('/');
+    }
+
+    function ensureFileExtension(baseName, extension) {
+        const sanitized = sanitizeFileName(baseName || 'document');
+        const ext = (extension || '').replace(/[^a-zA-Z0-9]/g, '');
+        if (!ext) return sanitized;
+        if (sanitized.toLowerCase().endsWith(`.${ext.toLowerCase()}`)) {
+            return sanitized;
+        }
+        return `${sanitized}.${ext}`;
+    }
+
+    function normalizeRelativePath(record) {
+        const rel = record.relativePath || '';
+        if (!rel) {
+            return (record.name || '').replace(/\\/g, '/');
+        }
+        return rel.replace(/\\/g, '/');
+    }
+
+    function normalizeRelativeDir(record) {
+        const rel = normalizeRelativePath(record);
+        if (!rel) return '';
+        const lastSlash = rel.lastIndexOf('/');
+        if (lastSlash === -1) return '';
+        return sanitizePath(rel.slice(0, lastSlash));
+    }
+
+    function computeRelativeDirectory(record, variant, format, structure) {
+        if (structure === PACKAGING_OPTIONS.flat) {
+            const variantDir = variant === 'original' ? 'original' : 'translation';
+            let formatDir;
+            if (format === 'original') {
+                formatDir = (record.originalExtension || record.fileType || 'raw').toLowerCase();
+            } else {
+                formatDir = format.toLowerCase();
+            }
+            return `${variantDir}/${sanitizeFileName(formatDir || 'raw')}`;
+        }
+        return normalizeRelativeDir(record);
+    }
+
+    function ensureUniqueFileName(fileName, dir, set, variant) {
+        let uniqueName = fileName;
+        let counter = 1;
+        let key = `${dir}||${uniqueName}`;
+        while (set.has(key)) {
+            uniqueName = appendSuffix(fileName, counter++, variant);
+            key = `${dir}||${uniqueName}`;
+        }
+        set.add(key);
+        return uniqueName;
+    }
+
+    function appendSuffix(fileName, counter, variant) {
+        let baseSuffix;
+        if (variant === 'original') {
+            baseSuffix = '_original';
+        } else if (variant === 'original-translation') {
+            baseSuffix = '_translated';
+        } else {
+            baseSuffix = '_translation';
+        }
+        const suffix = counter === 1 ? baseSuffix : `${baseSuffix}${counter}`;
+        const idx = fileName.lastIndexOf('.');
+        if (idx === -1) {
+            return `${fileName}${suffix}`;
+        }
+        const name = fileName.slice(0, idx);
+        const ext = fileName.slice(idx);
+        return `${name}${suffix}${ext}`;
+    }
+
+    function buildOriginalAsset(record) {
+        if (!record) return null;
+        const extension = (record.originalExtension || record.fileType || 'txt').toLowerCase();
+        if (record.originalEncoding === 'text' && typeof record.originalContent === 'string') {
+            const mime = guessMimeType(extension, true);
+            return {
+                blob: new Blob([record.originalContent], { type: `${mime};charset=utf-8` }),
+                extension
+            };
+        }
+        if (record.originalEncoding && record.originalEncoding !== 'text' && record.originalBinary) {
+            const buffer = base64ToArrayBuffer(record.originalBinary);
+            if (!buffer) return null;
+            const mime = guessMimeType(extension, false);
+            return {
+                blob: new Blob([buffer], { type: mime }),
+                extension
+            };
+        }
+        return null;
+    }
+
+    function buildOriginalTranslationAsset(record, extension) {
+        if (!record || !record.translation || !record.translation.trim()) {
+            return null;
+        }
+        const lowered = (extension || '').toLowerCase();
+        if (!TEXTUAL_ORIGINAL_EXTENSIONS.has(lowered)) {
+            // 暂不支持复杂二进制格式的译文导出
+            return null;
+        }
+        const mime = guessMimeType(lowered, true);
+        // 直接输出译文内容（目前为 Markdown 或纯文本）
+        const content = record.translation;
+        return {
+            blob: new Blob([content], { type: `${mime};charset=utf-8` })
+        };
+    }
+
+    function determineOriginalFileName(record, extension) {
+        const relativePath = normalizeRelativePath(record);
+        if (relativePath) {
+            const parts = relativePath.split('/');
+            const baseName = parts.pop() || relativePath;
+            return ensureFileExtension(baseName, extension || 'txt');
+        }
+        const base = sanitizeFileName(record.name || 'document');
+        return ensureFileExtension(base, extension || 'txt');
+    }
+
+    function guessMimeType(ext, isText) {
+        const lowercase = (ext || '').toLowerCase();
+        if (isText) {
+            if (lowercase === 'html' || lowercase === 'htm') return 'text/html';
+            if (lowercase === 'md' || lowercase === 'markdown') return 'text/markdown';
+            if (lowercase === 'yaml' || lowercase === 'yml') return 'text/yaml';
+            if (lowercase === 'json') return 'application/json';
+            if (lowercase === 'txt') return 'text/plain';
+            return 'text/plain';
+        }
+        if (lowercase === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        if (lowercase === 'pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+        if (lowercase === 'epub') return 'application/epub+zip';
+        if (lowercase === 'pdf') return 'application/pdf';
+        return 'application/octet-stream';
+    }
+
+    function base64ToArrayBuffer(base64) {
+        try {
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        } catch (error) {
+            console.warn('base64ToArrayBuffer failed:', error);
+            return null;
+        }
+    }
+
+    function buildArchiveName(records, config, context) {
+        const firstRecord = records[0];
+        const ext = 'zip';
+        const suffix = config.structure === PACKAGING_OPTIONS.flat ? '_flat' : '';
+        if (records.length === 1) {
+            const baseName = applyNamingTemplate(config.template, buildTemplateContext(firstRecord, 'zip'));
+            return ensureFileName(`${baseName}${suffix}`, ext);
+        }
+        const base = context.batchId || 'batch';
+        const time = formatProcessingTime(firstRecord.processedAt || firstRecord.time, 'YYYYMMDD-HHmmss');
+        return ensureFileName(`${base}_${time || Date.now()}${suffix}`, ext);
+    }
+
+    async function deleteBatchRecords(batchId) {
+        const batchCache = window.__historyBatchCache || {};
+        const records = batchCache[batchId];
+        if (!records || !records.length) return;
+        for (const record of records) {
+            await deleteResultFromDB(record.id);
+        }
+    }
 
     /**
      * (全局可调用) 删除指定 ID 的单条历史记录。
@@ -160,10 +1014,28 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         const zip = new JSZip();
-        // 文件夹名处理，去除非法字符
-        const folder = zip.folder(r.name.replace(/\.pdf$/i, '').replace(/[/\\:*?"<>|]/g, '_').substring(0, 100));
+        const normalizedPath = (r.relativePath || r.name || '').replace(/\\/g, '/');
+        const dirPath = normalizedPath.includes('/') ? normalizedPath.slice(0, normalizedPath.lastIndexOf('/')) : '';
+        const baseName = normalizedPath.includes('/') ? normalizedPath.slice(normalizedPath.lastIndexOf('/') + 1) : (r.name || 'document');
+        const baseWithoutExt = baseName.replace(/\.[^.]+$/, '');
+        const sanitizedDir = dirPath ? sanitizePath(dirPath) : '';
+        const sanitizedBase = sanitizeFileName(baseWithoutExt).substring(0, 120) || 'document';
+        const folderPath = sanitizedDir ? `${sanitizedDir}/${sanitizedBase}` : sanitizedBase;
+        const folder = zip.folder(folderPath);
         folder.file('document.md', r.ocr || '');
         if (r.translation) folder.file('translation.md', r.translation);
+        if (r.originalEncoding === 'text' && typeof r.originalContent === 'string') {
+            const ext = (r.originalExtension || r.fileType || 'txt').toLowerCase();
+            const mime = guessMimeType(ext, true);
+            folder.file(`original.${ext || 'txt'}`, new Blob([r.originalContent], { type: `${mime};charset=utf-8` }));
+        } else if (r.originalEncoding && r.originalEncoding !== 'text' && r.originalBinary) {
+            const buffer = base64ToArrayBuffer(r.originalBinary);
+            if (buffer) {
+                const ext = (r.originalExtension || r.fileType || 'bin').toLowerCase();
+                const mime = guessMimeType(ext, false);
+                folder.file(`original.${ext || 'bin'}`, new Blob([buffer], { type: mime }));
+            }
+        }
         if (r.images && r.images.length > 0) {
             const imagesFolder = folder.folder('images');
             for (const img of r.images) {
@@ -177,7 +1049,8 @@ document.addEventListener('DOMContentLoaded', function() {
         // 生成zip并下载
         const zipBlob = await zip.generateAsync({ type: 'blob', compression: "DEFLATE", compressionOptions: { level: 6 } });
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        saveAs(zipBlob, `PaperBurner_${r.name}_${timestamp}.zip`);
+        const archiveName = ensureFileName(`${sanitizedBase}_${timestamp}`, 'zip');
+        saveAs(zipBlob, archiveName);
     };
 
     // ---------------------

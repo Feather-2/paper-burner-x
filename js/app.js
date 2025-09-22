@@ -87,6 +87,41 @@ let translationSemaphore = {
 };
 
 /**
+ * @const {string}
+ * @description 批量导出的默认命名模板。
+ */
+const DEFAULT_BATCH_TEMPLATE = '{original_name}_{output_language}_{processing_time:YYYYMMDD-HHmmss}.{original_type}';
+
+const SUPPORTED_FILE_EXTENSIONS = ['pdf', 'md', 'txt', 'docx', 'pptx', 'html', 'htm', 'epub', 'yaml', 'yml', 'json', 'csv', 'ini', 'cfg', 'log', 'tex'];
+const SUPPORTED_ARCHIVE_EXTENSIONS = ['zip'];
+
+/**
+ * @type {boolean}
+ * @description 用户是否开启批量模式的偏好设置。
+ */
+let batchModeEnabled = false;
+/**
+ * @type {string}
+ * @description 批量导出使用的命名模板。
+ */
+let batchModeTemplate = DEFAULT_BATCH_TEMPLATE;
+/**
+ * @type {string[]}
+ * @description 批量导出需要生成的格式集合。
+ */
+let batchModeFormats = ['original', 'markdown'];
+/**
+ * @type {boolean}
+ * @description 批量导出时是否强制打包为 ZIP。
+ */
+let batchModeZipEnabled = false;
+/**
+ * @type {{id:string,total:number,template:string,formats:string[],outputLanguage:string,startedAt:string,counter:number}|null}
+ * @description 当前批量处理的上下文信息，在一次处理流程内存在。
+ */
+let activeBatchSession = null;
+
+/**
  * @class KeyProvider
  * @description 负责加载、筛选、排序和轮询特定模型的API Keys。
  * 它从 localStorage 读取保存的密钥，管理其状态（如'valid', 'untested', 'invalid'），
@@ -271,8 +306,21 @@ function applySettingsToUI(settings) {
         defaultSystemPrompt: defaultSysPromptVal,
         defaultUserPromptTemplate: defaultUserPromptVal,
         useCustomPrompts: useCustomPromptsVal,
-        enableGlossary: enableGlossaryVal
+        enableGlossary: enableGlossaryVal,
+        batchModeEnabled: batchEnabledVal = false,
+        batchModeTemplate: batchTemplateVal = DEFAULT_BATCH_TEMPLATE,
+        batchModeFormats: batchFormatsVal = ['markdown'],
+        batchModeZipEnabled: batchZipVal = false
     } = settings;
+
+    batchModeEnabled = !!batchEnabledVal;
+    batchModeTemplate = typeof batchTemplateVal === 'string' && batchTemplateVal.trim()
+        ? batchTemplateVal
+        : DEFAULT_BATCH_TEMPLATE;
+    batchModeFormats = Array.isArray(batchFormatsVal) && batchFormatsVal.length > 0
+        ? Array.from(new Set(['original', ...batchFormatsVal]))
+        : ['original', 'markdown'];
+    batchModeZipEnabled = !!batchZipVal;
 
     // 应用到各 DOM 元素
     const maxTokensSlider = document.getElementById('maxTokensPerChunk');
@@ -316,6 +364,40 @@ function applySettingsToUI(settings) {
     const customTargetLanguageInput = document.getElementById('customTargetLanguageInput');
     if (customTargetLanguageInput) customTargetLanguageInput.value = customLangNameVal || '';
 
+    const batchTemplateInput = document.getElementById('batchModeTemplate');
+    if (batchTemplateInput) {
+        batchTemplateInput.value = batchModeTemplate;
+    }
+    const batchFormatCheckboxes = document.querySelectorAll('[data-batch-format]');
+    const batchZipCheckbox = document.querySelector('[data-batch-zip]');
+    if (batchFormatCheckboxes.length > 0) {
+        let matched = false;
+        batchFormatCheckboxes.forEach(cb => {
+            const fmt = cb.getAttribute('data-batch-format');
+            const isChecked = batchModeFormats.includes(fmt);
+            cb.checked = isChecked;
+            if (isChecked) matched = true;
+        });
+        const originalCheckbox = document.querySelector('[data-batch-format="original"]');
+        if (originalCheckbox && !originalCheckbox.checked) {
+            originalCheckbox.checked = true;
+            if (!batchModeFormats.includes('original')) batchModeFormats.unshift('original');
+        }
+        if (!matched) {
+            batchModeFormats = ['original', 'markdown'];
+            batchFormatCheckboxes.forEach(cb => {
+                if (['original', 'markdown'].includes(cb.getAttribute('data-batch-format'))) {
+                    cb.checked = true;
+                } else {
+                    cb.checked = false;
+                }
+            });
+        }
+    }
+    if (batchZipCheckbox) {
+        batchZipCheckbox.checked = batchModeZipEnabled;
+    }
+
     if (typeof updateCustomLanguageInputVisibility === 'function') {
         updateCustomLanguageInputVisibility();
     }
@@ -349,6 +431,10 @@ function applySettingsToUI(settings) {
     // 触发 UI 相关联动
     updateTranslationUIVisibility(isProcessing);
     updateCustomLanguageInputVisibility();
+
+    if (typeof syncBatchModeControls === 'function') {
+        syncBatchModeControls(pdfFiles.length);
+    }
 }
 
 // =====================
@@ -390,10 +476,17 @@ function setupEventListeners() {
     const translationConcurrencyInput = document.getElementById('translationConcurrencyLevel'); // Get ref to new input
     const dropZone = document.getElementById('dropZone');
     const fileInput = document.getElementById('pdfFileInput');
+    const folderInput = document.getElementById('folderInput');
     const browseBtn = document.getElementById('browseFilesBtn');
+    const browseFolderBtn = document.getElementById('browseFolderBtn');
+    const githubImportBtn = document.getElementById('githubImportBtn');
     const clearBtn = document.getElementById('clearFilesBtn');
     const processBtn = document.getElementById('processBtn');
     const downloadBtn = document.getElementById('downloadAllBtn');
+    const batchToggle = document.getElementById('batchModeToggle');
+    const batchTemplateInput = document.getElementById('batchModeTemplate');
+    const batchFormatInputs = document.querySelectorAll('[data-batch-format]');
+    const batchZipCheckbox = document.querySelector('[data-batch-zip]');
     const targetLanguageSelect = document.getElementById('targetLanguage'); 
     const customTargetLanguageInput = document.getElementById('customTargetLanguageInput');
     const defaultSystemPromptTextarea = document.getElementById('defaultSystemPrompt');
@@ -466,6 +559,63 @@ function setupEventListeners() {
         enableGlossaryToggle.addEventListener('change', saveCurrentSettings);
     }
 
+    if (batchToggle) {
+        batchToggle.addEventListener('change', () => {
+            batchModeEnabled = batchToggle.checked;
+            syncBatchModeControls(pdfFiles.length);
+            saveCurrentSettings();
+        });
+    }
+    if (batchTemplateInput) {
+        const syncTemplateValue = () => {
+            const raw = batchTemplateInput.value;
+            batchModeTemplate = raw && raw.trim() ? raw.trim() : DEFAULT_BATCH_TEMPLATE;
+        };
+        batchTemplateInput.addEventListener('input', () => {
+            syncTemplateValue();
+            saveCurrentSettings();
+        });
+        batchTemplateInput.addEventListener('blur', () => {
+            if (!batchTemplateInput.value.trim()) {
+                batchTemplateInput.value = DEFAULT_BATCH_TEMPLATE;
+                batchModeTemplate = DEFAULT_BATCH_TEMPLATE;
+                saveCurrentSettings();
+            }
+        });
+    }
+    if (batchFormatInputs && batchFormatInputs.length > 0) {
+        batchFormatInputs.forEach(input => {
+            input.addEventListener('change', () => {
+                const selected = Array.from(document.querySelectorAll('[data-batch-format]:checked'))
+                    .map(el => el.getAttribute('data-batch-format'))
+                    .filter(Boolean);
+                if (!selected.includes('original')) {
+                    const originalCheckbox = document.querySelector('[data-batch-format="original"]');
+                    if (originalCheckbox) {
+                        originalCheckbox.checked = true;
+                    }
+                    selected.unshift('original');
+                    if (typeof showNotification === 'function') {
+                        showNotification('已自动保留“原格式”导出项。', 'info');
+                    }
+                }
+                if (selected.length === 0) {
+                    const fallback = document.querySelector('[data-batch-format="original"]');
+                    if (fallback) fallback.checked = true;
+                    selected.push('original');
+                }
+                batchModeFormats = Array.from(new Set(selected));
+                saveCurrentSettings();
+            });
+        });
+    }
+    if (batchZipCheckbox) {
+        batchZipCheckbox.addEventListener('change', () => {
+            batchModeZipEnabled = batchZipCheckbox.checked;
+            saveCurrentSettings();
+        });
+    }
+
     // 高级设置
     advancedSettingsToggle.addEventListener('click', () => {
         const settingsDiv = document.getElementById('advancedSettings');
@@ -502,6 +652,18 @@ function setupEventListeners() {
     dropZone.addEventListener('drop', handleDrop);
     browseBtn.addEventListener('click', () => { if (!isProcessing) fileInput.click(); });
     fileInput.addEventListener('change', handleFileSelect);
+    if (browseFolderBtn && folderInput) {
+        browseFolderBtn.addEventListener('click', () => { if (!isProcessing) folderInput.click(); });
+    }
+    if (folderInput) {
+        folderInput.addEventListener('change', handleFolderSelect);
+    }
+    if (githubImportBtn) {
+        githubImportBtn.addEventListener('click', async () => {
+            if (isProcessing) return;
+            await handleGithubImport();
+        });
+    }
     clearBtn.addEventListener('click', handleClearFiles);
 
     // 目标语言选择
@@ -563,21 +725,28 @@ function handleDragLeave(e) {
  * 处理文件拖放到上传区域时的 `drop` 事件。
  * @param {DragEvent} e - 拖拽事件对象。
  */
-function handleDrop(e) {
+async function handleDrop(e) {
     e.preventDefault();
     if (isProcessing) return;
     e.currentTarget.classList.remove('border-blue-500', 'bg-blue-50');
-    addFilesToList(e.dataTransfer.files);
+    const files = await extractFilesFromDataTransfer(e.dataTransfer);
+    await addFilesToList(files);
 }
 
 /**
  * 处理通过文件输入框选择文件后的 `change` 事件。
  * @param {Event} e - 事件对象，`e.target` 是文件输入框。
  */
-function handleFileSelect(e) {
+async function handleFileSelect(e) {
     if (isProcessing) return;
-    addFilesToList(e.target.files);
+    await addFilesToList(e.target.files);
     e.target.value = null; // 允许重新选择相同文件
+}
+
+async function handleFolderSelect(e) {
+    if (isProcessing) return;
+    await addFilesToList(e.target.files);
+    e.target.value = null;
 }
 
 /**
@@ -594,6 +763,32 @@ function handleClearFiles() {
     updateFileListUI(pdfFiles, isProcessing, handleRemoveFile);
     updateProcessButtonState(pdfFiles, isProcessing);
 }
+
+/**
+ * 根据当前已选择的文件数量同步批量模式相关控件的状态。
+ *
+ * @param {number} fileCount - 当前列表中的文件数量。
+ */
+function syncBatchModeControls(fileCount) {
+    const wrapper = document.getElementById('batchModeToggleWrapper');
+    const toggle = document.getElementById('batchModeToggle');
+    const configPanel = document.getElementById('batchModeConfig');
+
+    const available = fileCount >= 2;
+    if (wrapper) {
+        wrapper.classList.toggle('hidden', !available);
+    }
+    if (toggle) {
+        toggle.disabled = !available;
+        toggle.checked = available && batchModeEnabled;
+    }
+    if (configPanel) {
+        const shouldShowConfig = available && batchModeEnabled;
+        configPanel.classList.toggle('hidden', !shouldShowConfig);
+    }
+}
+
+window.syncBatchModeControls = syncBatchModeControls;
 
 /**
  * 处理从文件列表中移除单个文件的操作。
@@ -619,36 +814,374 @@ function handleRemoveFile(indexToRemove) {
  * 添加文件后会更新UI。
  * @param {FileList} selectedFiles - 用户通过拖拽或文件对话框选择的文件列表。
  */
-function addFilesToList(selectedFiles) {
+async function addFilesToList(selectedFiles) {
     if (!selectedFiles || selectedFiles.length === 0) return;
-    let filesAdded = false;
-    const supportedTypes = ['pdf', 'md', 'txt', 'docx', 'pptx', 'html', 'htm', 'epub'];
-    for (let i = 0; i < selectedFiles.length; i++) {
-        const file = selectedFiles[i];
-        const fileType = file.name.split('.').pop().toLowerCase();
-        if (supportedTypes.includes(fileType)) {
-            if (!pdfFiles.some(existingFile => existingFile.name === file.name && existingFile.size === file.size)) {
-                pdfFiles.push(file);
-                filesAdded = true;
-            } else {
-                showNotification(`文件 "${file.name}" 已在列表中`, 'info');
+    const fileArray = Array.from(selectedFiles);
+    const incomingFiles = [];
+
+    for (const rawFile of fileArray) {
+        const ext = deriveExtension(rawFile && rawFile.name ? rawFile.name : '');
+        if (SUPPORTED_ARCHIVE_EXTENSIONS.includes(ext)) {
+            const extracted = await extractFilesFromZip(rawFile);
+            if (extracted.length === 0) {
+                showNotification && showNotification(`压缩包 "${rawFile.name}" 中没有可处理的文件`, 'info');
             }
-        } else {
-            showNotification(`文件 "${file.name}" 不是支持的文件类型 (PDF / MD / TXT / DOCX / PPTX / HTML / EPUB)，已忽略`, 'warning');
+            incomingFiles.push(...extracted);
+            continue;
         }
+
+        if (!isSupportedFileExtension(ext)) {
+            const supportedLabel = SUPPORTED_FILE_EXTENSIONS.map(v => v.toUpperCase()).join(' / ');
+            showNotification && showNotification(`文件 "${rawFile.name}" 不是支持的文件类型 (${supportedLabel})，已忽略`, 'warning');
+            continue;
+        }
+
+        annotateFileMetadata(rawFile);
+        incomingFiles.push(rawFile);
     }
+
+    if (incomingFiles.length === 0) return;
+
+    let filesAdded = false;
+    incomingFiles.forEach(file => {
+        const identifier = buildFileIdentifier(file);
+        const duplication = pdfFiles.some(existing => buildFileIdentifier(existing) === identifier);
+        if (duplication) {
+            showNotification && showNotification(`文件 "${getFileDisplayName(file)}" 已在列表中`, 'info');
+            return;
+        }
+        pdfFiles.push(file);
+        filesAdded = true;
+    });
+
     if (filesAdded) {
-        // ========== 新增：切换文件时刷新 window.data ==========
         if (pdfFiles.length === 1) {
-            // 只选中一个文件时，初始化 window.data
             window.data = { name: pdfFiles[0].name, ocr: '', translation: '', images: [], summaries: {} };
         } else if (pdfFiles.length > 1) {
-            // 多文件时，window.data 可按需处理（此处只清空）
             window.data = { summaries: {} };
         }
         updateFileListUI(pdfFiles, isProcessing, handleRemoveFile);
         updateProcessButtonState(pdfFiles, isProcessing);
+        syncBatchModeControls(pdfFiles.length);
     }
+}
+
+function deriveExtension(name) {
+    if (!name || typeof name !== 'string') return '';
+    const cleaned = name.split('?')[0].split('#')[0];
+    const parts = cleaned.split('.');
+    if (parts.length <= 1) return '';
+    return parts.pop().trim().toLowerCase();
+}
+
+function isSupportedFileExtension(ext) {
+    return SUPPORTED_FILE_EXTENSIONS.includes((ext || '').toLowerCase());
+}
+
+function getFileRelativePath(file) {
+    if (!file) return '';
+    return file.pbxRelativePath || file.webkitRelativePath || file.relativePath || file.fullPath || file.name || '';
+}
+
+function getFileDisplayName(file) {
+    const rel = getFileRelativePath(file);
+    if (!rel) return file && file.name ? file.name : '';
+    const normalized = rel.replace(/\\/g, '/');
+    const parts = normalized.split('/');
+    return parts[parts.length - 1] || rel;
+}
+
+function annotateFileMetadata(file, providedPath) {
+    if (!file) return;
+    const relativePath = providedPath || file.webkitRelativePath || file.relativePath || file.fullPath || file.name || '';
+    try {
+        file.pbxRelativePath = relativePath;
+        file.originalName = file.originalName || file.name;
+    } catch (e) {
+        // ignore readonly property assignment errors
+    }
+}
+
+function buildFileIdentifier(file) {
+    const rel = getFileRelativePath(file).toLowerCase();
+    return `${rel}__${file && typeof file.size === 'number' ? file.size : '0'}`;
+}
+
+async function extractFilesFromZip(zipFile, options = {}) {
+    if (typeof JSZip === 'undefined') {
+        showNotification && showNotification('缺少 JSZip 依赖，无法解压 ZIP', 'error');
+        return [];
+    }
+    try {
+        const zip = await JSZip.loadAsync(zipFile);
+        const entries = [];
+        const zipFiles = Object.keys(zip.files);
+        const pathPrefix = options.pathPrefix ? options.pathPrefix.replace(/\\/g, '/') : '';
+        const stripRoot = options.stripRoot || false;
+
+        for (const key of zipFiles) {
+            const entry = zip.files[key];
+            if (!entry || entry.dir) continue;
+            const normalizedPath = key.replace(/\\/g, '/');
+
+            if (pathPrefix) {
+                if (!normalizedPath.startsWith(pathPrefix)) continue;
+            }
+
+            const ext = deriveExtension(normalizedPath);
+            if (!isSupportedFileExtension(ext)) continue;
+
+            const blob = await entry.async('blob');
+            const baseNameParts = normalizedPath.split('/');
+            let displayName = baseNameParts.pop();
+            let relativePath = normalizedPath;
+
+            if (pathPrefix) {
+                relativePath = normalizedPath.substring(pathPrefix.length);
+                if (relativePath.startsWith('/')) {
+                    relativePath = relativePath.slice(1);
+                }
+            } else if (stripRoot && baseNameParts.length > 0) {
+                // remove first segment (top-level directory)
+                const segments = normalizedPath.split('/');
+                segments.shift();
+                relativePath = segments.join('/');
+                displayName = segments.pop() || displayName;
+            }
+
+            if (!relativePath) {
+                relativePath = displayName;
+            }
+
+            const derivedName = displayName || normalizedPath;
+            const newFile = new File([blob], derivedName, {
+                type: blob.type || 'application/octet-stream',
+                lastModified: zipFile.lastModified || Date.now()
+            });
+            annotateFileMetadata(newFile, relativePath);
+            try {
+                newFile.virtualSource = 'zip';
+                newFile.sourceArchive = zipFile.name;
+            } catch (_) {}
+            entries.push(newFile);
+        }
+
+        return entries;
+    } catch (error) {
+        console.error('解压 ZIP 文件失败:', error);
+        showNotification && showNotification(`解压 "${zipFile && zipFile.name ? zipFile.name : 'ZIP'}" 失败: ${error.message || error}`, 'error');
+        return [];
+    }
+}
+
+async function extractFilesFromDataTransfer(dataTransfer) {
+    if (!dataTransfer) return [];
+    const items = dataTransfer.items;
+    if (items && items.length > 0 && items[0].webkitGetAsEntry) {
+        const promises = [];
+        for (let i = 0; i < items.length; i++) {
+            const entry = items[i].webkitGetAsEntry && items[i].webkitGetAsEntry();
+            if (entry) {
+                promises.push(traverseFileSystemEntry(entry));
+            }
+        }
+        const results = await Promise.all(promises);
+        return results.flat();
+    }
+    const fallbackFiles = Array.from(dataTransfer.files || []);
+    fallbackFiles.forEach(file => annotateFileMetadata(file));
+    return fallbackFiles;
+}
+
+function traverseFileSystemEntry(entry, path = '') {
+    return new Promise((resolve) => {
+        if (!entry) {
+            resolve([]);
+            return;
+        }
+
+        if (entry.isFile) {
+            entry.file(file => {
+                const relativePath = path ? `${path}/${file.name}` : file.name;
+                annotateFileMetadata(file, relativePath);
+                resolve([file]);
+            }, () => resolve([]));
+        } else if (entry.isDirectory) {
+            const directoryReader = entry.createReader();
+            const accumulated = [];
+
+            const readEntries = () => {
+                directoryReader.readEntries(async batch => {
+                    if (!batch.length) {
+                        const nestedResults = [];
+                        for (const child of accumulated) {
+                            const childPath = path ? `${path}/${child.name}` : child.name;
+                            const childFiles = await traverseFileSystemEntry(child, childPath);
+                            nestedResults.push(...childFiles);
+                        }
+                        resolve(nestedResults);
+                    } else {
+                        accumulated.push(...batch);
+                        readEntries();
+                    }
+                }, () => resolve([]));
+            };
+
+            readEntries();
+        } else {
+            resolve([]);
+        }
+    });
+}
+
+async function handleGithubImport() {
+    const rawUrl = prompt('请输入 GitHub 仓库或目录链接 (例如 https://github.com/user/repo 或 https://github.com/user/repo/tree/branch/path):');
+    if (!rawUrl) return;
+
+    const parsed = parseGithubUrl(rawUrl.trim());
+    if (!parsed) {
+        showNotification && showNotification('无法解析 GitHub 链接，请检查格式。', 'error');
+        return;
+    }
+
+    const { owner, repo, ref, pathPrefix } = parsed;
+
+    try {
+        showNotification && showNotification('正在从 GitHub 获取文件列表，请稍候...', 'info');
+        const treeEntries = await fetchGithubTree(owner, repo, ref, pathPrefix);
+        if (!treeEntries.length) {
+            showNotification && showNotification('在指定路径中未找到可处理的文件。', 'warning');
+            return;
+        }
+
+        const files = await downloadGithubFiles(owner, repo, ref, treeEntries, pathPrefix);
+        if (!files.length) {
+            showNotification && showNotification('获取 GitHub 文件失败或没有可处理的文件。', 'warning');
+            return;
+        }
+
+        await addFilesToList(files);
+        showNotification && showNotification(`已从 ${owner}/${repo} 导入 ${files.length} 个文件`, 'success');
+    } catch (error) {
+        console.error('GitHub 导入失败:', error);
+        showNotification && showNotification(`GitHub 导入失败：${error.message || error}`, 'error');
+    }
+}
+
+function parseGithubUrl(rawUrl) {
+    try {
+        const url = new URL(rawUrl);
+        if (!/github\.com$/i.test(url.hostname)) {
+            return null;
+        }
+        const segments = url.pathname.split('/').filter(Boolean);
+        if (segments.length < 2) {
+            return null;
+        }
+        const owner = decodeURIComponent(segments[0]);
+        const repo = decodeURIComponent(segments[1].replace(/\.git$/i, ''));
+        let ref = 'main';
+        let pathPrefix = '';
+
+        if (segments[2] === 'tree' || segments[2] === 'blob') {
+            if (segments.length >= 4) {
+                ref = decodeURIComponent(segments[3]);
+                if (segments.length > 4) {
+                    pathPrefix = segments.slice(4).map(decodeURIComponent).join('/');
+                }
+            }
+        }
+
+        return { owner, repo, ref, pathPrefix };
+    } catch (error) {
+        console.warn('parseGithubUrl error:', error);
+        return null;
+    }
+}
+
+async function fetchGithubTree(owner, repo, ref, pathPrefix) {
+    const encodedRef = encodeURIComponent(ref);
+    const treeUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/${encodedRef}?recursive=1`;
+    const response = await fetch(treeUrl, { headers: { 'Accept': 'application/vnd.github+json' } });
+    if (response.status === 404) {
+        throw new Error('未找到仓库或分支，请检查链接');
+    }
+    if (response.status === 403) {
+        throw new Error('GitHub API 速率限制，请稍后再试');
+    }
+    if (!response.ok) {
+        throw new Error(`GitHub API 返回错误状态 ${response.status}`);
+    }
+    const data = await response.json();
+    if (!data || !Array.isArray(data.tree)) {
+        throw new Error('GitHub API 返回数据不完整');
+    }
+
+    const prefix = pathPrefix ? pathPrefix.replace(/\\/g, '/').replace(/^\//, '').replace(/\/$/, '') : '';
+    const prefixSegments = prefix ? prefix.split('/') : [];
+    const matched = data.tree.filter(item => {
+        if (!item || item.type !== 'blob') return false;
+        if (!prefix) return true;
+        if (!item.path) return false;
+        return item.path === prefix || item.path.startsWith(prefix + '/');
+    });
+
+    return matched;
+}
+
+async function downloadGithubFiles(owner, repo, ref, treeEntries, pathPrefix) {
+    const files = [];
+    const prefix = pathPrefix ? pathPrefix.replace(/\\/g, '/').replace(/^\//, '').replace(/\/$/, '') : '';
+    const repoIdentifier = `${owner}/${repo}@${ref}`;
+
+    const queue = treeEntries.slice();
+    const concurrency = 4;
+    const workers = new Array(concurrency).fill(null).map(async () => {
+        while (queue.length > 0) {
+            const entry = queue.shift();
+            if (!entry || !entry.path) continue;
+            let relativePath = entry.path;
+            if (prefix) {
+                if (!entry.path.startsWith(prefix + '/')) {
+                    continue;
+                }
+                relativePath = entry.path.slice(prefix.length + 1);
+            }
+            if (!relativePath || relativePath.endsWith('/')) continue;
+            const ext = deriveExtension(relativePath);
+            if (!isSupportedFileExtension(ext)) continue;
+
+            const rawPathParts = entry.path.split('/').map(encodeURIComponent).join('/');
+            const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${rawPathParts}`;
+            try {
+                const fileResponse = await fetch(rawUrl);
+                if (!fileResponse.ok) {
+                    console.warn(`无法获取 ${rawUrl}: ${fileResponse.status}`);
+                    continue;
+                }
+                const blob = await fileResponse.blob();
+                const displayName = relativePath.split('/').pop();
+                const file = new File([blob], displayName || 'document', {
+                    type: blob.type || 'application/octet-stream',
+                    lastModified: Date.now()
+                });
+                const annotatedPath = (prefixSegments.length > 1)
+                    ? [prefixSegments.slice(-1)[0], relativePath].join('/').replace(/^\//, '')
+                    : relativePath;
+                annotateFileMetadata(file, annotatedPath);
+                try {
+                    file.virtualSource = 'github';
+                    file.sourceArchive = repoIdentifier;
+                } catch (_) {}
+                files.push(file);
+            } catch (error) {
+                console.warn('下载 GitHub 文件失败:', error);
+            }
+        }
+    });
+
+    await Promise.all(workers);
+    return files;
 }
 
 /**
@@ -732,7 +1265,11 @@ function saveCurrentSettings() {
         defaultSystemPrompt: document.getElementById('defaultSystemPrompt').value,
         defaultUserPromptTemplate: document.getElementById('defaultUserPromptTemplate').value,
         promptMode: document.querySelector('input[name="promptMode"]:checked')?.value || 'builtin',
-        enableGlossary: document.getElementById('enableGlossaryToggle')?.checked || false
+        enableGlossary: document.getElementById('enableGlossaryToggle')?.checked || false,
+        batchModeEnabled: batchModeEnabled,
+        batchModeTemplate: batchModeTemplate,
+        batchModeFormats: Array.from(new Set(batchModeFormats)),
+        batchModeZipEnabled: batchModeZipEnabled
     };
     // 调用 storage.js 中的保存函数
     saveSettings(settingsData);
@@ -902,6 +1439,22 @@ async function handleProcessClick() {
         ? customTargetLanguageNameSetting.trim() || 'English'
         : targetLanguageSetting;
 
+    if (batchModeEnabled && pdfFiles.length >= 2) {
+        const uniqueFormats = Array.from(new Set(batchModeFormats && batchModeFormats.length > 0 ? batchModeFormats : ['markdown']));
+        activeBatchSession = {
+            id: `batch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+            total: pdfFiles.length,
+            template: batchModeTemplate && batchModeTemplate.trim() ? batchModeTemplate.trim() : DEFAULT_BATCH_TEMPLATE,
+            formats: uniqueFormats,
+            outputLanguage: effectiveTargetLanguage,
+            startedAt: new Date().toISOString(),
+            counter: 0,
+            zipOutput: batchModeZipEnabled
+        };
+    } else {
+        activeBatchSession = null;
+    }
+
     translationSemaphore.limit = translationConcurrencyLevel;
     translationSemaphore.count = 0;
     translationSemaphore.queue = [];
@@ -1009,6 +1562,22 @@ async function handleProcessClick() {
                 console.log('translationKeyProvider.availableKeys', translationKeyProvider && translationKeyProvider.availableKeys);
                 console.log('handleProcessClick: translationKeyObject', translationKeyObject);
 
+                let batchContextForFile = null;
+                if (activeBatchSession) {
+                    activeBatchSession.counter += 1;
+                    batchContextForFile = {
+                        id: activeBatchSession.id,
+                        total: activeBatchSession.total,
+                        template: activeBatchSession.template,
+                        formats: activeBatchSession.formats,
+                        outputLanguage: activeBatchSession.outputLanguage,
+                        startedAt: activeBatchSession.startedAt,
+                        order: currentFileIndex + 1,
+                        originalIndex: currentFileIndex,
+                        attempt: activeBatchSession.counter
+                    };
+                }
+
                 processSinglePdf(
                     currentFile,
                     mistralKeyObject,
@@ -1022,6 +1591,7 @@ async function handleProcessClick() {
                     defaultSystemPromptSetting,
                     defaultUserPromptTemplateSetting,
                     useCustomPromptsSetting,
+                    batchContextForFile,
                     function onFileSuccess(fileObj) {
                         // ... (onFileSuccess logic)
                     }
@@ -1120,6 +1690,7 @@ async function handleProcessClick() {
         updateProgress('全部完成!', 100);
         updateConcurrentProgress(0);
 
+        activeBatchSession = null;
         isProcessing = false;
         updateProcessButtonState(pdfFiles, isProcessing);
         showResultsSection(successCount, skippedCount, errorCount, filesToProcess.length);

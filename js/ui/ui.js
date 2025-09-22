@@ -582,6 +582,12 @@ const targetLanguage = document.getElementById('targetLanguage');
 const processBtn = document.getElementById('processBtn');
 /** @type {HTMLButtonElement | null} downloadAllBtn - "全部下载"按钮。 */
 const downloadAllBtn = document.getElementById('downloadAllBtn');
+/** @type {HTMLElement | null} batchModeToggleWrapper - 批量模式开关容器。 */
+const batchModeToggleWrapper = document.getElementById('batchModeToggleWrapper');
+/** @type {HTMLInputElement | null} batchModeToggle - 批量模式开关。 */
+const batchModeToggle = document.getElementById('batchModeToggle');
+/** @type {HTMLElement | null} batchModeConfigPanel - 批量模式配置面板。 */
+const batchModeConfigPanel = document.getElementById('batchModeConfig');
 /** @type {HTMLElement | null} resultsSection - 处理结果显示区域。 */
 const resultsSection = document.getElementById('resultsSection');
 /** @type {HTMLElement | null} resultsSummary - 处理结果总结信息的容器。 */
@@ -725,6 +731,11 @@ function formatFileSize(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
+function getFileDisplayPath(file) {
+    if (!file) return '';
+    return file.pbxRelativePath || file.webkitRelativePath || file.relativePath || file.fullPath || file.name || '';
+}
+
 // ---------------------
 // 文件列表 UI 更新
 // ---------------------
@@ -755,6 +766,8 @@ function updateFileListUI(pdfFiles, isProcessing, onRemoveFile) {
     if (pdfFiles.length > 0) {
         fileListContainer.classList.remove('hidden');
         pdfFiles.forEach((file, index) => {
+            const displayPath = getFileDisplayPath(file);
+            const displayName = (displayPath.split('/').pop() || file.name || '').trim() || file.name;
             const listItem = document.createElement('div');
             listItem.className = 'file-list-item';
             // 识别虚拟文件类型（基于自定义属性或文件名模式）
@@ -770,14 +783,18 @@ function updateFileListUI(pdfFiles, isProcessing, onRemoveFile) {
             }
 
             // 简单按扩展名变化图标
-            const ext = (file.name.split('.').pop() || '').toLowerCase();
+            const extSource = displayName || file.name || '';
+            const ext = (extSource.split('.').pop() || '').toLowerCase();
             const icon = ext === 'pdf' ? 'carbon:document-pdf' : 'carbon:document'
             const iconColor = ext === 'pdf' ? 'text-red-500' : 'text-gray-500';
 
             listItem.innerHTML = `
                 <div class="flex items-center overflow-hidden mr-2">
                     <iconify-icon icon="${icon}" class="${iconColor} mr-2 flex-shrink-0" width="20"></iconify-icon>
-                    <span class="text-sm text-gray-800 truncate" title="${file.name}">${file.name}</span>
+                    <span class="flex flex-col overflow-hidden">
+                        <span class="text-sm text-gray-800 truncate" title="${displayName}">${displayName}</span>
+                        ${displayPath && displayPath !== displayName ? `<span class="text-[11px] text-gray-500 truncate" title="${displayPath}">${displayPath}</span>` : ''}
+                    </span>
                     ${virtualBadge}
                     <span class="text-xs text-gray-500 ml-2 flex-shrink-0">(${formatFileSize(file.size)})</span>
                 </div>
@@ -807,6 +824,10 @@ function updateFileListUI(pdfFiles, isProcessing, onRemoveFile) {
     } else {
         fileListContainer.classList.add('hidden');
         window.data = {};
+    }
+
+    if (typeof window.syncBatchModeControls === 'function') {
+        window.syncBatchModeControls(pdfFiles.length);
     }
 }
 

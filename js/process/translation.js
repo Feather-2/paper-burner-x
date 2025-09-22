@@ -58,6 +58,23 @@ function buildPredefinedApiConfig(apiConfig, key) {
     return config;
 }
 
+
+function buildInstructionBlock(content) {
+    const trimmed = (content || '').trim();
+    if (!trimmed) return '';
+    return `[[PBX_INSTR_START]]
+${trimmed}
+[[PBX_INSTR_END]]
+
+`;
+}
+
+function stripInstructionBlocks(text) {
+    if (typeof text !== 'string') return text;
+    return text.replace(/\s*\[\[PBX_INSTR_START\]\][\s\S]*?\[\[PBX_INSTR_END\]\]\s*/gi, '').trim();
+}
+
+
 const DEEPLX_LANG_CODE_MAP = {
     'bulgarian': 'BG', 'bg': 'BG', 'български': 'BG', '保加利亚语': 'BG',
     'chinese': 'ZH', 'zh': 'ZH', 'zh-cn': 'ZH', 'zh_cn': 'ZH', '中文': 'ZH', '中文(简体)': 'ZH', '简体中文': 'ZH', 'traditional chinese': 'ZH', 'zh-tw': 'ZH', 'zh_tw': 'ZH', '中文(繁体)': 'ZH', '繁体中文': 'ZH',
@@ -542,9 +559,10 @@ async function translateMarkdown(
                 modelName: 'DeepLX',
                 headers: { 'Content-Type': 'application/json' },
                 bodyBuilder: (sys, user, ctx = {}) => {
-                    const text = ctx && ctx.processedText ? ctx.processedText : user;
+                    const instructionBlock = ctx && ctx.instructionBlock ? ctx.instructionBlock : buildInstructionBlock(sys);
+                    const textContent = ctx && ctx.processedText ? ctx.processedText : user;
                     const payload = {
-                        text: text
+                        text: `${instructionBlock || ''}${textContent}`
                     };
                     const targetLangCode = mapToDeeplxLangCode(ctx && ctx.targetLang ? ctx.targetLang : undefined);
                     if (targetLangCode) {
@@ -724,7 +742,8 @@ async function translateMarkdown(
         hasProtectedTables,
         tablePlaceholders,
         options,
-        requestType: 'initial'
+        requestType: 'initial',
+        instructionBlock: buildInstructionBlock(systemPrompt)
     };
 
     const requestBody = apiConfig.bodyBuilder
@@ -753,6 +772,7 @@ async function translateMarkdown(
             window.translationPromptPool.dequeueRequest(poolPromptId, requestId);
         }
         result = await callTranslationApi(apiConfig, requestBody);
+        result = stripInstructionBlocks(result);
         if (poolPromptId && typeof window.translationPromptPool !== 'undefined' && typeof window.translationPromptPool.recordPromptUsage === 'function') {
             window.translationPromptPool.recordPromptUsage(
                 poolPromptId,
@@ -834,7 +854,8 @@ async function translateMarkdown(
 
                 const retryStart = Date.now();
                 try {
-                    result = await callTranslationApi(apiConfig, retryBody);
+                result = await callTranslationApi(apiConfig, retryBody);
+                result = stripInstructionBlocks(result);
                     if (typeof window.translationPromptPool.recordPromptUsage === 'function') {
                         window.translationPromptPool.recordPromptUsage(
                             newPrompt.id,
@@ -922,7 +943,7 @@ ${tableContent}
                     addProgressLog(`${actualLogContext} 正在翻译表格...`);
                 }
                 const translatedTable = await callTranslationApi(apiConfig, tableRequestBody);
-                const cleanedTable = extractTableFromTranslation(translatedTable) || tableContent;
+                const cleanedTable = extractTableFromTranslation(stripInstructionBlocks(translatedTable)) || tableContent;
                 finalResult = finalResult.replace(placeholder, cleanedTable);
 
             } catch (tableError) {

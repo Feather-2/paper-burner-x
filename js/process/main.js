@@ -85,6 +85,19 @@ function convertHtmlToMarkdown(htmlText) {
         .replace(/\n{3,}/g, '\n\n');
 }
 
+function arrayBufferToBase64(buffer) {
+    if (!buffer) return null;
+    const bytes = buffer instanceof ArrayBuffer ? new Uint8Array(buffer) : new Uint8Array(buffer.buffer || []);
+    if (!bytes.length) return null;
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, i + chunkSize);
+        binary += String.fromCharCode.apply(null, chunk);
+    }
+    return btoa(binary);
+}
+
 async function processSinglePdf(
     fileToProcess,
     mistralKeyObject,
@@ -94,20 +107,27 @@ async function processSinglePdf(
     maxTokensPerChunkValue,
     targetLanguageValue,
     acquireSlot,
-    releaseSlot,
-    defaultSystemPromptSetting,
-    defaultUserPromptTemplateSetting,
-    useCustomPromptsSetting, // 新增参数
+   releaseSlot,
+   defaultSystemPromptSetting,
+   defaultUserPromptTemplateSetting,
+   useCustomPromptsSetting, // 新增参数
+    batchContext,
     onFileSuccess
 ) {
     let currentMarkdownContent = '';
     let currentTranslationContent = '';
     let currentImagesData = [];
     let mistralFileId = null; // 重命名 fileId to mistralFileId for clarity
-    const logPrefix = `[${fileToProcess.name}]`;
-    const fileType = fileToProcess.name.split('.').pop().toLowerCase();
+const logPrefix = `[${fileToProcess.name}]`;
+const fileType = fileToProcess.name.split('.').pop().toLowerCase();
+    const relativePath = fileToProcess.pbxRelativePath || fileToProcess.webkitRelativePath || fileToProcess.relativePath || fileToProcess.fullPath || fileToProcess.name;
+    const sourceArchive = fileToProcess.sourceArchive || null;
     let ocrChunks = [];
     let translatedChunks = [];
+    let originalContent = null;
+    let originalBinary = null;
+    let originalEncoding = null;
+    let originalExtension = fileType || '';
     // 移除旧的内部重试和key切换逻辑，这些将由 app.js 处理
 
     console.log('processSinglePdf: translationKeyObject', translationKeyObject);
@@ -155,10 +175,12 @@ async function processSinglePdf(
                 }
                 throw error; // 其他类型的OCR错误，向上抛出由 app.js 的常规重试处理
             }
-        } else if (fileType === 'md' || fileType === 'txt') {
+        } else if (fileType === 'md' || fileType === 'txt' || fileType === 'yaml' || fileType === 'yml' || fileType === 'json' || fileType === 'csv' || fileType === 'ini' || fileType === 'cfg' || fileType === 'log' || fileType === 'tex') {
             if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 读取 ${fileType.toUpperCase()} 文件内容...`);
             try {
-                currentMarkdownContent = await fileToProcess.text();
+                originalContent = await fileToProcess.text();
+                originalEncoding = 'text';
+                currentMarkdownContent = originalContent;
                 if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} ${fileType.toUpperCase()} 文件内容读取完成`);
                 // 尝试从历史记录引用中携带图片：
                 // 约定：如果 Markdown 以注释行 "<!-- PBX-HISTORY-REF:<id> -->" 开头，则从 IndexedDB 中取出该记录的 images。
@@ -279,6 +301,8 @@ async function processSinglePdf(
             }
             try {
                 const arrayBuffer = await fileToProcess.arrayBuffer();
+                originalBinary = arrayBuffer;
+                originalEncoding = 'arraybuffer';
                 const result = await mammoth.convertToHtml({ arrayBuffer });
                 const html = result && result.value ? result.value : '';
                 currentMarkdownContent = convertHtmlToMarkdown(html);
@@ -290,8 +314,9 @@ async function processSinglePdf(
         } else if (fileType === 'html' || fileType === 'htm') {
             if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 解析 HTML 文档...`);
             try {
-                const rawHtml = await fileToProcess.text();
-                currentMarkdownContent = convertHtmlToMarkdown(rawHtml);
+                originalContent = await fileToProcess.text();
+                originalEncoding = 'text';
+                currentMarkdownContent = convertHtmlToMarkdown(originalContent);
                 if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} HTML 文本转换完成`);
             } catch (error) {
                 console.error('HTML 解析失败:', error);
@@ -304,6 +329,8 @@ async function processSinglePdf(
             }
             try {
                 const arrayBuffer = await fileToProcess.arrayBuffer();
+                originalBinary = arrayBuffer;
+                originalEncoding = 'arraybuffer';
                 const zip = await JSZip.loadAsync(arrayBuffer);
                 const slidePaths = Object.keys(zip.files)
                     .filter(path => /^ppt\/slides\/slide\d+\.xml$/i.test(path))
@@ -333,6 +360,8 @@ async function processSinglePdf(
             }
             try {
                 const arrayBuffer = await fileToProcess.arrayBuffer();
+                originalBinary = arrayBuffer;
+                originalEncoding = 'arraybuffer';
                 const zip = await JSZip.loadAsync(arrayBuffer);
                 const containerFile = zip.file('META-INF/container.xml');
                 if (!containerFile) throw new Error('未找到 container.xml');
@@ -532,17 +561,36 @@ async function processSinglePdf(
             translatedChunks = [''];
         }
 
+        const processedAt = new Date().toISOString();
         if (typeof saveResultToDB === "function") {
             await saveResultToDB({
                 id: `${fileToProcess.name}_${fileToProcess.size}`,
                 name: fileToProcess.name,
                 size: fileToProcess.size,
-                time: new Date().toISOString(),
+                time: processedAt,
                 ocr: currentMarkdownContent,
                 translation: currentTranslationContent,
                 images: currentImagesData,
                 ocrChunks: ocrChunks,
-                translatedChunks: translatedChunks
+                translatedChunks: translatedChunks,
+                fileType: fileType,
+                targetLanguage: targetLanguageValue,
+                relativePath: relativePath,
+                sourceArchive: sourceArchive,
+                originalContent: originalEncoding === 'text' ? originalContent : null,
+                originalEncoding: originalEncoding,
+                originalBinary: originalEncoding && originalEncoding !== 'text' && originalBinary ? arrayBufferToBase64(originalBinary) : null,
+                originalExtension: originalExtension,
+                batchId: batchContext ? batchContext.id : null,
+                batchOrder: batchContext ? batchContext.order : null,
+                batchTotal: batchContext ? batchContext.total : null,
+                batchTemplate: batchContext ? batchContext.template : null,
+                batchFormats: batchContext ? batchContext.formats : null,
+                batchStartedAt: batchContext ? batchContext.startedAt : null,
+                batchOutputLanguage: batchContext ? batchContext.outputLanguage : null,
+                batchOriginalIndex: batchContext ? batchContext.originalIndex : null,
+                batchAttempt: batchContext ? batchContext.attempt : null,
+                batchZip: batchContext ? batchContext.zipOutput : null
             });
         }
 
@@ -556,7 +604,26 @@ async function processSinglePdf(
             images: currentImagesData,
             ocrChunks: ocrChunks,
             translatedChunks: translatedChunks,
-            error: null // 表示此文件处理成功（即使翻译部分可能仅标记了错误）
+            error: null, // 表示此文件处理成功（即使翻译部分可能仅标记了错误）
+            processedAt,
+            fileType,
+            targetLanguage: targetLanguageValue,
+            relativePath,
+            sourceArchive,
+            originalContent: originalEncoding === 'text' ? originalContent : null,
+            originalEncoding,
+            originalBinary: originalEncoding && originalEncoding !== 'text' && originalBinary ? arrayBufferToBase64(originalBinary) : null,
+            originalExtension,
+            batchId: batchContext ? batchContext.id : null,
+            batchOrder: batchContext ? batchContext.order : null,
+            batchTotal: batchContext ? batchContext.total : null,
+            batchTemplate: batchContext ? batchContext.template : null,
+            batchFormats: batchContext ? batchContext.formats : null,
+            batchStartedAt: batchContext ? batchContext.startedAt : null,
+            batchOutputLanguage: batchContext ? batchContext.outputLanguage : null,
+            batchOriginalIndex: batchContext ? batchContext.originalIndex : null,
+            batchAttempt: batchContext ? batchContext.attempt : null,
+            batchZip: batchContext ? batchContext.zipOutput : null
         };
 
 

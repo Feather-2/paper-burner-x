@@ -2,6 +2,7 @@
   const KATEX_CDN = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css';
 
   const EXPORT_LABELS = {
+    original: '原格式',
     html: 'HTML',
     pdf: 'PDF',
     docx: 'DOCX',
@@ -341,19 +342,28 @@
       return;
     }
 
-    const payload = buildExportPayload(activeTab, data);
-    if (!payload) {
-      alert('当前视图没有可导出的内容。');
-      return;
-    }
-
     const originalDisabled = triggerButton.disabled;
     const originalHtml = triggerButton.innerHTML;
     try {
       triggerButton.disabled = true;
       const loadingLabel = `导出${EXPORT_LABELS[format] || ''}中...`;
       triggerButton.innerHTML = `<i class="fa fa-spinner fa-spin"></i><span>${loadingLabel}</span>`;
-      if (format === 'html') {
+      if (format === 'original') {
+        const originalAsset = buildOriginalAssetForDetail(data);
+        if (!originalAsset) {
+          alert('当前记录缺少原始内容，无法导出。');
+          return;
+        }
+        const baseName = sanitizeFileName(data.name || 'document');
+        const fileName = ensureFileExtension(baseName, originalAsset.extension || 'txt');
+        saveAs(originalAsset.blob, fileName);
+      } else {
+        const payload = buildExportPayload(activeTab, data);
+        if (!payload) {
+          alert('当前视图没有可导出的内容。');
+          return;
+        }
+        if (format === 'html') {
         exportAsHtml(payload, options);
       } else if (format === 'markdown') {
         exportAsMarkdown(payload, options);
@@ -364,6 +374,7 @@
       } else {
         console.warn('[HistoryExporter] 未知导出格式:', format);
         alert('暂不支持该导出格式。');
+      }
       }
     } catch (error) {
       console.error('[HistoryExporter] 导出失败:', error);
@@ -522,13 +533,39 @@
 
   function exportAsHtml(payload, options = {}) {
     const documentHtml = buildHtmlDocument(payload, options);
-    const fileName = buildFileName(payload, 'html');
+    const fileName = resolveFileName(payload, 'html', options);
+    if (options.returnContent) {
+      return {
+        fileName,
+        content: documentHtml,
+        mime: 'text/html;charset=utf-8'
+      };
+    }
+    if (options.returnBlob) {
+      return {
+        fileName,
+        blob: new Blob([documentHtml], { type: 'text/html;charset=utf-8' })
+      };
+    }
     saveBlob(documentHtml, fileName, 'text/html;charset=utf-8');
   }
 
   function exportAsMarkdown(payload, options = {}) {
     const markdown = buildMarkdownDocument(payload, options);
-    const fileName = buildFileName(payload, 'md');
+    const fileName = resolveFileName(payload, 'md', options);
+    if (options.returnContent) {
+      return {
+        fileName,
+        content: markdown,
+        mime: 'text/markdown;charset=utf-8'
+      };
+    }
+    if (options.returnBlob) {
+      return {
+        fileName,
+        blob: new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
+      };
+    }
     saveBlob(markdown, fileName, 'text/markdown;charset=utf-8');
   }
 
@@ -568,7 +605,14 @@
     }
 
     const docxBlob = await zip.generateAsync({ type: 'blob' });
-    saveAs(docxBlob, buildFileName(payload, 'docx'));
+    const fileName = resolveFileName(payload, 'docx', options);
+    if (options.returnBlob) {
+      return {
+        fileName,
+        blob: docxBlob
+      };
+    }
+    saveAs(docxBlob, fileName);
   }
 
   function exportAsPdf(payload, options = {}) {
@@ -1180,6 +1224,36 @@ body.history-export-print-mode .history-export-root .export-section {
     const modeKey = payload.tab.replace(/[^a-z\-]/gi, '') || 'export';
     const timestamp = formatTimestamp(payload.exportTime);
     return `${payload.fileNameBase}_${modeKey}_${timestamp}.${ext}`;
+  }
+
+  function ensureFileExtension(name, ext) {
+    const sanitized = sanitizeFileName(name || '');
+    const base = sanitized.replace(/(\.[^.]+)?$/, '');
+    const safeBase = base || 'document';
+    const normalizedExt = (ext || '').toString().trim().toLowerCase() || 'txt';
+    return `${safeBase}.${normalizedExt}`;
+  }
+
+  function resolveFileName(payload, ext, options = {}) {
+    if (options && options.fileName) {
+      const desired = options.fileName;
+      const lower = desired.toLowerCase();
+      const targetExt = (ext || '').toString().trim().toLowerCase();
+      if (targetExt && lower.endsWith(`.${targetExt}`)) {
+        return sanitizeFileName(desired);
+      }
+      return ensureFileExtension(desired, targetExt || 'txt');
+    }
+    if (payload && payload.customFileName) {
+      const desired = payload.customFileName;
+      const lower = desired.toLowerCase();
+      const targetExt = (ext || '').toString().trim().toLowerCase();
+      if (targetExt && lower.endsWith(`.${targetExt}`)) {
+        return sanitizeFileName(desired);
+      }
+      return ensureFileExtension(desired, targetExt || 'txt');
+    }
+    return buildFileName(payload, ext);
   }
 
   function saveBlob(content, fileName, mimeType) {
@@ -2852,5 +2926,77 @@ ${rels}
   function escapeMarkdown(str) {
     return String(str).replace(/[\\`*_{}\[\]()#+\-.!]/g, '\\$&');
   }
+
+  function buildOriginalAssetForDetail(data) {
+    if (!data) return null;
+    const extension = (data.originalExtension || data.fileType || 'txt').toLowerCase();
+    if (data.originalEncoding === 'text' && typeof data.originalContent === 'string') {
+      const mime = guessMimeType(extension, true);
+      return {
+        blob: new Blob([data.originalContent], { type: `${mime};charset=utf-8` }),
+        extension
+      };
+    }
+    if (data.originalEncoding && data.originalEncoding !== 'text' && data.originalBinary) {
+      const buffer = base64ToArrayBuffer(data.originalBinary);
+      if (!buffer) return null;
+      const mime = guessMimeType(extension, false);
+      return {
+        blob: new Blob([buffer], { type: mime }),
+        extension
+      };
+    }
+    return null;
+  }
+
+  function guessMimeType(ext, isText) {
+    const lowercase = (ext || '').toLowerCase();
+    if (isText) {
+      if (lowercase === 'html' || lowercase === 'htm') return 'text/html';
+      if (lowercase === 'md' || lowercase === 'markdown') return 'text/markdown';
+      if (lowercase === 'yaml' || lowercase === 'yml') return 'text/yaml';
+      if (lowercase === 'json') return 'application/json';
+      if (lowercase === 'txt') return 'text/plain';
+      return 'text/plain';
+    }
+    if (lowercase === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    if (lowercase === 'pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+    if (lowercase === 'epub') return 'application/epub+zip';
+    if (lowercase === 'pdf') return 'application/pdf';
+    return 'application/octet-stream';
+  }
+
+  function base64ToArrayBuffer(base64) {
+    try {
+      const binaryString = atob(base64);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      return bytes.buffer;
+    } catch (error) {
+      console.warn('[HistoryExporter] base64ToArrayBuffer failed:', error);
+      return null;
+    }
+  }
+
+  window.PBXHistoryExporter = window.PBXHistoryExporter || {};
+  Object.assign(window.PBXHistoryExporter, {
+    preparePayload: function(mode, data) {
+      return buildExportPayload(mode, data);
+    },
+    exportAsHtml,
+    exportAsMarkdown,
+    exportAsDocx,
+    exportAsPdf,
+    resolveFileName,
+    ensureFileExtension,
+    sanitizeFileName,
+    buildExportStyles,
+    buildMainContent,
+    formatTimestamp,
+    katexCdn: KATEX_CDN
+  });
 
 })(window, document);

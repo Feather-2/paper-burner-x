@@ -146,6 +146,69 @@
         .copyright-card-ani .iconify-icon {
           vertical-align: middle;
         }
+        .feature-card-modern {
+          position: relative;
+          overflow: hidden;
+          border-radius: 20px;
+          padding: clamp(16px, 2vw, 20px);
+          background: linear-gradient(130deg, rgba(87,130,243,0.08), rgba(255,255,255,0.98));
+          border: 1px solid rgba(87,130,243,0.14);
+          box-shadow: 0 12px 28px rgba(70,96,168,0.12);
+          transition: transform 0.25s ease, box-shadow 0.25s ease;
+        }
+        .feature-card-modern::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(135deg, rgba(255,255,255,0.32), rgba(87,130,243,0.18));
+          opacity: 0;
+          transition: opacity 0.3s ease;
+        }
+        .feature-card-modern:hover {
+          transform: translateY(-4px);
+          box-shadow: 0 18px 36px rgba(70,96,168,0.16);
+        }
+        .feature-card-modern:hover::before {
+          opacity: 1;
+        }
+        .feature-card-modern > * {
+          position: relative;
+          z-index: 1;
+        }
+        .feature-icon-ring {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 42px;
+          height: 42px;
+          border-radius: 14px;
+          background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(87,130,243,0.16));
+          box-shadow: inset 0 1px 0 rgba(255,255,255,0.5);
+        }
+        .feature-meta {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.3rem;
+          margin-top: 0.6rem;
+        }
+        .feature-meta span {
+          display: inline-flex;
+          align-items: center;
+          padding: 0.28rem 0.65rem;
+          border-radius: 999px;
+          font-size: 0.75rem;
+          font-weight: 600;
+          letter-spacing: 0.01em;
+          backdrop-filter: blur(8px);
+        }
+        .feature-card-inner {
+          display: flex;
+          align-items: flex-start;
+          gap: 14px;
+        }
+        .feature-card-inner h4 {
+          margin-bottom: 0.35rem;
+        }
     </style>
 </head>
 <body class="gradient-bg min-h-screen">
@@ -683,21 +746,36 @@
                 <!-- PDF 文件上传区域 -->
                 <!-- ===================== -->
                 <div class="mb-6">
-                    <h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center">
-                        <iconify-icon icon="carbon:document-multiple-01" class="mr-2 text-blue-500" width="24"></iconify-icon>
-                        文件上传 (可多选)
-                    </h2>
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-xl font-semibold text-gray-800 flex items-center">
+                            <iconify-icon icon="carbon:document-multiple-01" class="mr-2 text-blue-500" width="24"></iconify-icon>
+                            文件上传 (可多选)
+                        </h2>
+                        <label id="batchModeToggleWrapper" class="hidden flex items-center space-x-2 text-sm text-gray-600">
+                            <span class="select-none">批量模式</span>
+                            <input type="checkbox" id="batchModeToggle" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        </label>
+                    </div>
                     <!-- 拖拽区域与浏览按钮 -->
                     <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center mb-4" id="dropZone">
-                        <input type="file" id="pdfFileInput" accept=".pdf,.md,.txt,.docx,.html,.htm" class="hidden" multiple>
+                        <input type="file" id="pdfFileInput" accept=".pdf,.md,.txt,.docx,.pptx,.html,.htm,.epub,.yaml,.yml,.zip" class="hidden" multiple>
+                        <input type="file" id="folderInput" class="hidden" webkitdirectory mozdirectory multiple>
                         <div class="mx-auto mb-4 w-16 h-16 flex items-center justify-center rounded-full bg-blue-50">
                             <iconify-icon icon="carbon:upload" class="text-blue-500" width="32"></iconify-icon>
                         </div>
-                        <h3 class="text-lg font-medium text-gray-800 mb-1">拖放 PDF / MD / TXT / DOCX / PPTX / HTML / EPUB 文件到这里</h3>
+                        <h3 class="text-lg font-medium text-gray-800 mb-1">拖放 PDF / MD / TXT / DOCX / PPTX / HTML / EPUB / YAML 文件到这里</h3>
                         <p class="text-sm text-gray-500 mb-4">或者</p>
-                        <button id="browseFilesBtn" class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
-                            浏览文件
-                        </button>
+                        <div class="flex flex-wrap justify-center gap-3">
+                            <button id="browseFilesBtn" class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                                浏览文件
+                            </button>
+                            <button id="browseFolderBtn" class="px-6 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                                上传文件夹
+                            </button>
+                            <button id="githubImportBtn" class="px-6 py-2 bg-slate-500 text-white rounded-lg hover:bg-slate-600 transition-all focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2">
+                                GitHub 导入
+                            </button>
+                        </div>
                     </div>
                     <!-- 已选文件列表显示区域 -->
                     <div id="fileListContainer" class="max-h-60 overflow-y-auto border-2 border-dashed border-gray-300 rounded-lg p-3 bg-gray-50 hidden">
@@ -707,6 +785,47 @@
                         </div>
                         <div id="fileList">
                             <!-- File items will be added here by JavaScript -->
+                        </div>
+                    </div>
+
+                    <div id="batchModeConfig" class="hidden mt-4 border border-blue-200 bg-blue-50/60 rounded-lg p-4">
+                        <div class="flex flex-col md:flex-row md:items-start md:space-x-6 space-y-4 md:space-y-0">
+                            <div class="flex-1 min-w-0">
+                                <label for="batchModeTemplate" class="block text-sm font-medium text-gray-700 mb-1">命名模板</label>
+                                <input type="text" id="batchModeTemplate" class="w-full rounded-md border border-blue-200 bg-white px-3 py-2 text-sm text-gray-800 focus:border-blue-400 focus:ring-2 focus:ring-blue-200" placeholder="例如 {original_name}_{output_language}_{processing_time:YYYYMMDD-HHmmss}.{original_type}">
+                                <p class="text-xs text-gray-600 mt-2 leading-4">
+                                    可用变量：<span class="font-mono text-[11px]">{original_name}</span>、<span class="font-mono text-[11px]">{original_type}</span>、<span class="font-mono text-[11px]">{output_language}</span>、<span class="font-mono text-[11px]">{processing_time}</span> (支持 <span class="font-mono text-[11px]">{processing_time:YYYYMMDD-HHmmss}</span> 等格式)。
+                                </p>
+                            </div>
+                            <div class="md:w-64">
+                                <span class="block text-sm font-medium text-gray-700 mb-1">批量导出格式</span>
+                                <div class="space-y-2 text-sm text-gray-700">
+                                    <label class="flex items-center space-x-2">
+                                        <input type="checkbox" data-batch-format="markdown" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" checked>
+                                        <span>Markdown</span>
+                                    </label>
+                                    <label class="flex items-center space-x-2">
+                                        <input type="checkbox" data-batch-format="original" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" checked>
+                                        <span>原格式</span>
+                                    </label>
+                                    <label class="flex items-center space-x-2">
+                                        <input type="checkbox" data-batch-format="html" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                        <span>HTML</span>
+                                    </label>
+                                    <label class="flex items-center space-x-2">
+                                        <input type="checkbox" data-batch-format="docx" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                        <span>DOCX</span>
+                                    </label>
+                                    <label class="flex items-center space-x-2">
+                                        <input type="checkbox" data-batch-format="pdf" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                        <span>PDF</span>
+                                    </label>
+                                    <label class="flex items-center space-x-2 pt-1 border-t border-blue-100 mt-2">
+                                        <input type="checkbox" id="batchModeZipToggle" data-batch-zip class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                        <span>导出时打包为 ZIP</span>
+                                    </label>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -812,7 +931,9 @@
     <script src="js/ui/prompt-pool-ui.js"></script>
     <script src="js/api/model-detector.js"></script>
     <script src="js/app.js"></script>
+    <script src="js/history/history_exporter.js"></script>
     <script src="js/history/history.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
 
 
 
@@ -882,65 +1003,107 @@
     <!-- 版权声明浮动卡片 -->
     <!-- ===================== -->
     <div id="copyrightModal" class="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center hidden px-4 py-8">
-      <div class="copyright-card-ani p-6 md:p-10 w-full max-w-6xl relative max-h-[90vh] overflow-y-auto">
+      <div class="copyright-card-ani p-6 md:p-10 w-full max-w-6xl relative max-h-[90vh] flex flex-col">
         <button id="closeCopyrightModal" class="absolute top-4 right-4 text-gray-400 hover:text-red-500 transition-colors z-10">
             <iconify-icon icon="carbon:close" width="24"></iconify-icon>
         </button>
         <div class="text-center mb-5 md:mb-6">
-          <h2 class="text-2xl md:text-3xl font-extrabold tracking-tight mb-2">Paper Burner X (本分支) 功能概览</h2>
+          <h2 class="text-2xl md:text-3xl font-extrabold tracking-tight mb-2">Paper Burner X 功能概览</h2>
         </div>
-        <div class="text-gray-700 space-y-4 md:space-y-5 text-sm md:text-base font-normal">
+        <div class="text-gray-700 space-y-4 md:space-y-5 text-sm md:text-base font-normal overflow-y-auto pr-3 flex-1">
           <p class="leading-relaxed text-left text-sm md:text-base text-gray-700 font-normal">
-            我们满怀敬意地基于优秀的开源项目 <a href="https://github.com/baoyudu/paper-burner" target="_blank" class="text-blue-600 hover:text-blue-700 font-semibold underline">Paper Burner (原始版本)</a> 进行构建。
-            致力于将该分支项目，全面升级为一个功能强大且用户友好的 <span class="font-semibold text-blue-600">一站式AI文献阅读与智能分析平台</span>，专注于以下核心增强：
+            Paper Burner X 专注于浏览器端的一站式文献处理，整合 OCR、翻译、术语表、阅读、批注与 AI 分析能力，确保在本地即可完成从原文到知识沉淀的流程。
           </p>
           <div>
             <h3 class="text-base md:text-lg font-bold text-blue-700 mb-3 md:mb-4 flex items-center">
               <iconify-icon icon="carbon:list-checked" class="mr-2 text-blue-500" width="20"></iconify-icon>
-              本分支的主要特性：
+              核心能力亮点：
             </h3>
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-x-5 gap-y-3 text-xs md:text-sm">
-              <div class="flex items-start p-3 bg-slate-50 rounded-lg shadow-sm border-2 border-dashed border-blue-200">
-                <iconify-icon icon="carbon:settings-adjust" class="text-blue-500 mr-3 mt-0.5 flex-shrink-0" width="26"></iconify-icon>
-                <div>
-                  <h4 class="font-semibold text-gray-800 text-base mb-1">模型与API Key管理</h4>
-                  <p class="text-xs md:text-sm text-gray-500 font-normal leading-snug">支持配置的导入导出，多Key轮询与基本检测功能，以及对自定义翻译源的兼容。</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+              <article class="feature-card-modern text-left">
+                <div class="feature-card-inner">
+                  <div class="feature-icon-ring text-orange-500">
+                    <iconify-icon icon="carbon:flash" width="22"></iconify-icon>
+                  </div>
+                  <div>
+                    <h4 class="text-base md:text-lg font-semibold text-gray-800">极速并发翻译</h4>
+                    <ul class="mt-1.5 text-xs md:text-sm text-gray-600 leading-relaxed space-y-1">
+                      <li>多文件并发 + 自定义并发数，长篇论文亦能快速出译文。</li>
+                      <li>提示词池健康监测，配合 Key 轮转保障稳定产出。</li>
+                    </ul>
+                    <div class="feature-meta">
+                      <span class="bg-orange-100/80 text-orange-600">多文件</span>
+                      <span class="bg-orange-50 text-orange-500 border border-orange-200/70">提示词池</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div class="flex items-start p-3 bg-slate-50 rounded-lg shadow-sm border-2 border-dashed border-blue-200">
-                <iconify-icon icon="carbon:text-long-paragraph" class="text-blue-500 mr-3 mt-0.5 flex-shrink-0" width="26"></iconify-icon>
-                <div>
-                  <h4 class="font-semibold text-gray-800 text-base mb-1">多模式文献阅读</h4>
-                  <p class="text-xs md:text-sm text-gray-500 font-normal leading-snug">提供多种方式查看，支持Markdown渲染，并可进行对照阅读。</p>
+              </article>
+              <article class="feature-card-modern text-left">
+                <div class="feature-card-inner">
+                  <div class="feature-icon-ring text-blue-600">
+                    <iconify-icon icon="carbon:settings-adjust" width="22"></iconify-icon>
+                  </div>
+                  <div>
+                    <h4 class="text-base md:text-lg font-semibold text-gray-800">灵活配置中心</h4>
+                    <ul class="mt-1.5 text-xs md:text-sm text-gray-600 leading-relaxed space-y-1">
+                      <li>Base URL、模型自动检测、多 Key 轮询统一在一处配置。</li>
+                      <li>术语表、提示词池与预设 prompt 联动，满足客制化翻译。</li>
+                    </ul>
+                    <div class="feature-meta">
+                      <span class="bg-blue-100/80 text-blue-600">术语表</span>
+                      <span class="bg-blue-50 text-blue-500 border border-blue-200/70">多源 Key</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div class="flex items-start p-3 bg-slate-50 rounded-lg shadow-sm border-2 border-dashed border-blue-200">
-                <iconify-icon icon="carbon:tool-box" class="text-blue-500 mr-3 mt-0.5 flex-shrink-0" width="26"></iconify-icon>
-                <div>
-                  <h4 class="font-semibold text-gray-800 text-base mb-1">阅读辅助工具集</h4>
-                  <p class="text-xs md:text-sm text-gray-500 font-normal leading-snug">包含高亮与标注、目录生成、基础信息展示等功能，方便处理和导航较长文献。</p>
+              </article>
+              <article class="feature-card-modern text-left">
+                <div class="feature-card-inner">
+                  <div class="feature-icon-ring text-indigo-500">
+                    <iconify-icon icon="carbon:notebook" width="22"></iconify-icon>
+                  </div>
+                  <div>
+                    <h4 class="text-base md:text-lg font-semibold text-gray-800">沉浸式阅读体验</h4>
+                    <ul class="mt-1.5 text-xs md:text-sm text-gray-600 leading-relaxed space-y-1">
+                      <li>历史记录、原译对照、智能对齐与 TOC 导航协同校对。</li>
+                      <li>沉浸模式 + 多彩标注，让重点整理更专注。</li>
+                    </ul>
+                    <div class="feature-meta">
+                      <span class="bg-indigo-100/80 text-indigo-600">历史记录</span>
+                      <span class="bg-indigo-50 text-indigo-500 border border-indigo-200/70">沉浸模式</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div class="flex items-start p-3 bg-slate-50 rounded-lg shadow-sm border-2 border-dashed border-blue-200">
-                <iconify-icon icon="carbon:chip" class="text-blue-500 mr-3 mt-0.5 flex-shrink-0" width="26"></iconify-icon>
-                <div>
-                  <h4 class="font-semibold text-gray-800 text-base mb-1">AI智能分析引擎</h4>
-                  <p class="text-xs md:text-sm text-gray-500 font-normal leading-snug">赋能图表生成、图像识别、精准内容提问、长文本深度解析与智能总结。</p>
+              </article>
+              <article class="feature-card-modern text-left">
+                <div class="feature-card-inner">
+                  <div class="feature-icon-ring text-purple-600">
+                    <iconify-icon icon="carbon:ai-status" width="22"></iconify-icon>
+                  </div>
+                  <div>
+                    <h4 class="text-base md:text-lg font-semibold text-gray-800">智能分析与导出</h4>
+                    <ul class="mt-1.5 text-xs md:text-sm text-gray-600 leading-relaxed space-y-1">
+                      <li>内置聊天助手与快捷指令，支持深度问答、流式输出。</li>
+                      <li>思维导图、流程图与 HTML/PDF/DOCX/MD 多格式导出即用。</li>
+                    </ul>
+                    <div class="feature-meta">
+                      <span class="bg-purple-100/80 text-purple-600">LLM 助手</span>
+                      <span class="bg-purple-50 text-purple-500 border border-purple-200/70">多格式导出</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              </article>
             </div>
           </div>
-          <p class="leading-relaxed text-left text-sm md:text-base text-gray-700 font-normal">
-            我们希望本分支能成为一款便捷的浏览器端文献处理工具，保持轻量易用的特点，能高效进行文献处理与阅读，方便用户快速上手。
-          </p>
           <div>
             <h3 class="text-base md:text-lg font-bold text-blue-700 mb-2 flex items-center">
-              <iconify-icon icon="carbon:next-outline" class="mr-2 text-blue-500" width="20"></iconify-icon>
-              后续计划：
+              <iconify-icon icon="carbon:road" class="mr-2 text-blue-500" width="20"></iconify-icon>
+              近期路线：
             </h3>
-            <p class="text-sm md:text-base text-gray-600 font-normal leading-relaxed text-left">
-              我们将持续探索与集成更多前沿功能，如自定义术语库增强翻译准确性、本地内容持久化与同步、以及更深度的AI协作特性，敬请期待！
-            </p>
+            <ul class="list-disc pl-5 text-sm md:text-base text-gray-600 space-y-2">
+              <li>拓展更多 OCR 引擎与结构化解析，增强复杂出版物的还原能力。</li>
+              <li>强化术语表协同、批注数据同步与团队共享机制。</li>
+              <li>优化界面布局，探索多窗口沉浸式工作流与更多可视化能力。</li>
+            </ul>
           </div>
           <div class="border-t-2 border-dashed border-blue-200 pt-5 mt-5 text-center space-y-3">
             <p class="text-sm md:text-base text-gray-600 font-normal">探索本分支的更多细节或贡献您的智慧：</p>
@@ -950,6 +1113,9 @@
             </a>
             <p class="text-xs text-gray-400 font-normal pt-1">
               您的每一个建议对我们都至关重要！欢迎前往新分支的 <a href="https://github.com/Feather-2/paper-burner/issues" target="_blank" class="text-blue-600 hover:text-blue-700 underline font-semibold">Issue 区</a> 分享您的想法或参与讨论。
+            </p>
+            <p class="text-xs text-gray-400 italic">
+              致敬 <a href="https://github.com/baoyudu/paper-burner" target="_blank" class="text-blue-500 hover:text-blue-600 underline">Paper Burner</a> 开源项目，Paper Burner X 在社区基础上持续扩展与迭代。
             </p>
           </div>
         </div>
