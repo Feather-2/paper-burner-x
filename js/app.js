@@ -115,6 +115,18 @@ let batchModeFormats = ['original', 'markdown'];
  * @description 批量导出时是否强制打包为 ZIP。
  */
 let batchModeZipEnabled = false;
+
+/**
+ * @type {boolean}
+ * @description 批量配置面板是否折叠。
+ */
+let batchConfigCollapsed = true;
+
+/**
+ * @type {Set<string>}
+ * @description 被排除的文件扩展名集合。
+ */
+const excludedExtensions = new Set();
 /**
  * @type {{id:string,total:number,template:string,formats:string[],outputLanguage:string,startedAt:string,counter:number}|null}
  * @description 当前批量处理的上下文信息，在一次处理流程内存在。
@@ -274,6 +286,8 @@ document.addEventListener('DOMContentLoaded', () => {
     updateFileListUI(pdfFiles, isProcessing, handleRemoveFile);
     updateProcessButtonState(pdfFiles, isProcessing);
     updateTranslationUIVisibility(isProcessing);
+    refreshFormatFilters();
+    refreshFormatFilters();
 
     // 5. 绑定所有事件
     setupEventListeners();
@@ -309,7 +323,7 @@ function applySettingsToUI(settings) {
         enableGlossary: enableGlossaryVal,
         batchModeEnabled: batchEnabledVal = false,
         batchModeTemplate: batchTemplateVal = DEFAULT_BATCH_TEMPLATE,
-        batchModeFormats: batchFormatsVal = ['markdown'],
+        batchModeFormats: batchFormatsVal = ['original', 'markdown'],
         batchModeZipEnabled: batchZipVal = false
     } = settings;
 
@@ -321,6 +335,7 @@ function applySettingsToUI(settings) {
         ? Array.from(new Set(['original', ...batchFormatsVal]))
         : ['original', 'markdown'];
     batchModeZipEnabled = !!batchZipVal;
+    batchConfigCollapsed = true;
 
     // 应用到各 DOM 元素
     const maxTokensSlider = document.getElementById('maxTokensPerChunk');
@@ -435,6 +450,7 @@ function applySettingsToUI(settings) {
     if (typeof syncBatchModeControls === 'function') {
         syncBatchModeControls(pdfFiles.length);
     }
+    updateBatchConfigCollapse();
 }
 
 // =====================
@@ -483,10 +499,12 @@ function setupEventListeners() {
     const clearBtn = document.getElementById('clearFilesBtn');
     const processBtn = document.getElementById('processBtn');
     const downloadBtn = document.getElementById('downloadAllBtn');
+    const formatFilterContainer = document.getElementById('fileFormatFilters');
     const batchToggle = document.getElementById('batchModeToggle');
     const batchTemplateInput = document.getElementById('batchModeTemplate');
     const batchFormatInputs = document.querySelectorAll('[data-batch-format]');
     const batchZipCheckbox = document.querySelector('[data-batch-zip]');
+    const batchConfigToggle = document.getElementById('batchModeConfigToggle');
     const targetLanguageSelect = document.getElementById('targetLanguage'); 
     const customTargetLanguageInput = document.getElementById('customTargetLanguageInput');
     const defaultSystemPromptTextarea = document.getElementById('defaultSystemPrompt');
@@ -613,6 +631,18 @@ function setupEventListeners() {
         batchZipCheckbox.addEventListener('change', () => {
             batchModeZipEnabled = batchZipCheckbox.checked;
             saveCurrentSettings();
+        });
+    }
+
+    if (formatFilterContainer) {
+        formatFilterContainer.addEventListener('change', handleFormatFilterChange);
+        formatFilterContainer.addEventListener('click', handleFormatFilterClick);
+    }
+
+    if (batchConfigToggle) {
+        batchConfigToggle.addEventListener('click', () => {
+            batchConfigCollapsed = !batchConfigCollapsed;
+            updateBatchConfigCollapse();
         });
     }
 
@@ -762,6 +792,7 @@ function handleClearFiles() {
     window.data = {};
     updateFileListUI(pdfFiles, isProcessing, handleRemoveFile);
     updateProcessButtonState(pdfFiles, isProcessing);
+    refreshFormatFilters();
 }
 
 /**
@@ -773,6 +804,7 @@ function syncBatchModeControls(fileCount) {
     const wrapper = document.getElementById('batchModeToggleWrapper');
     const toggle = document.getElementById('batchModeToggle');
     const configPanel = document.getElementById('batchModeConfig');
+    const configBody = document.getElementById('batchModeConfigBody');
 
     const available = fileCount >= 2;
     if (wrapper) {
@@ -785,6 +817,13 @@ function syncBatchModeControls(fileCount) {
     if (configPanel) {
         const shouldShowConfig = available && batchModeEnabled;
         configPanel.classList.toggle('hidden', !shouldShowConfig);
+        if (!shouldShowConfig) {
+            batchConfigCollapsed = true;
+        }
+    }
+
+    if (configPanel && configBody) {
+        updateBatchConfigCollapse();
     }
 }
 
@@ -806,6 +845,7 @@ function handleRemoveFile(indexToRemove) {
     }
     updateFileListUI(pdfFiles, isProcessing, handleRemoveFile);
     updateProcessButtonState(pdfFiles, isProcessing);
+    refreshFormatFilters();
 }
 
 /**
@@ -863,6 +903,7 @@ async function addFilesToList(selectedFiles) {
         updateFileListUI(pdfFiles, isProcessing, handleRemoveFile);
         updateProcessButtonState(pdfFiles, isProcessing);
         syncBatchModeControls(pdfFiles.length);
+        refreshFormatFilters();
     }
 }
 
@@ -873,6 +914,12 @@ function deriveExtension(name) {
     if (parts.length <= 1) return '';
     return parts.pop().trim().toLowerCase();
 }
+
+function isExtensionExcluded(ext) {
+    return excludedExtensions.has((ext || '').toLowerCase());
+}
+
+window.isExtensionExcluded = isExtensionExcluded;
 
 function isSupportedFileExtension(ext) {
     return SUPPORTED_FILE_EXTENSIONS.includes((ext || '').toLowerCase());
@@ -991,6 +1038,96 @@ async function extractFilesFromDataTransfer(dataTransfer) {
     const fallbackFiles = Array.from(dataTransfer.files || []);
     fallbackFiles.forEach(file => annotateFileMetadata(file));
     return fallbackFiles;
+}
+
+function refreshFormatFilters() {
+    const container = document.getElementById('fileFormatFilters');
+    if (!container) return;
+    const counts = new Map();
+    pdfFiles.forEach(file => {
+        const ext = deriveExtension(file.name || '') || '';
+        counts.set(ext, (counts.get(ext) || 0) + 1);
+    });
+    // 清理不存在的扩展
+    Array.from(excludedExtensions).forEach(ext => {
+        if (!counts.has(ext)) {
+            excludedExtensions.delete(ext);
+        }
+    });
+
+    if (counts.size === 0) {
+        container.innerHTML = '<span class="text-gray-500">暂无文件</span>';
+        return;
+    }
+
+    const fragments = [];
+    const entries = Array.from(counts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    entries.forEach(([ext, count]) => {
+        const checked = !isExtensionExcluded(ext) ? 'checked' : '';
+        const label = ext ? ext.toUpperCase() : '未知';
+        fragments.push(`
+            <label class="flex items-center space-x-1 bg-white border border-gray-200 rounded px-2 py-1 shadow-sm">
+                <input type="checkbox" class="format-filter-checkbox" data-ext="${ext}" ${checked}>
+                <span>${label} <span class="text-gray-400">(${count})</span></span>
+            </label>
+        `);
+    });
+
+    fragments.push('<div class="flex-grow"></div><button type="button" id="resetFormatFilters" class="text-xs text-blue-600">重置</button>');
+    container.innerHTML = `<div class="flex flex-wrap gap-2 items-center">${fragments.join('')}</div>`;
+}
+
+function getActiveFiles() {
+    return pdfFiles.filter(file => {
+        const ext = deriveExtension(file.name || '');
+        return !isExtensionExcluded(ext);
+    });
+}
+
+window.getActiveFiles = getActiveFiles;
+
+function updateBatchConfigCollapse() {
+    const body = document.getElementById('batchModeConfigBody');
+    const toggleLabel = document.getElementById('batchModeConfigToggleLabel');
+    const toggleIcon = document.getElementById('batchModeConfigToggleIcon');
+    if (!body || !toggleLabel || !toggleIcon) return;
+
+    if (batchConfigCollapsed) {
+        body.classList.add('hidden');
+        toggleLabel.textContent = '展开设置';
+        toggleIcon.setAttribute('icon', 'carbon:chevron-down');
+    } else {
+        body.classList.remove('hidden');
+        toggleLabel.textContent = '收起设置';
+        toggleIcon.setAttribute('icon', 'carbon:chevron-up');
+    }
+}
+
+function handleFormatFilterChange(event) {
+    const target = event.target;
+    if (!target || !target.classList.contains('format-filter-checkbox')) return;
+    const ext = target.getAttribute('data-ext');
+    if (!ext) return;
+    if (target.checked) {
+        excludedExtensions.delete(ext);
+    } else {
+        excludedExtensions.add(ext);
+    }
+    updateFileListUI(pdfFiles, isProcessing, handleRemoveFile);
+    refreshFormatFilters();
+    updateProcessButtonState(pdfFiles, isProcessing);
+    syncBatchModeControls(pdfFiles.length);
+}
+
+function handleFormatFilterClick(event) {
+    const target = event.target;
+    if (target && target.id === 'resetFormatFilters') {
+        excludedExtensions.clear();
+        updateFileListUI(pdfFiles, isProcessing, handleRemoveFile);
+        refreshFormatFilters();
+        updateProcessButtonState(pdfFiles, isProcessing);
+        syncBatchModeControls(pdfFiles.length);
+    }
 }
 
 function traverseFileSystemEntry(entry, path = '') {
@@ -1118,7 +1255,6 @@ async function fetchGithubTree(owner, repo, ref, pathPrefix) {
     }
 
     const prefix = pathPrefix ? pathPrefix.replace(/\\/g, '/').replace(/^\//, '').replace(/\/$/, '') : '';
-    const prefixSegments = prefix ? prefix.split('/') : [];
     const matched = data.tree.filter(item => {
         if (!item || item.type !== 'blob') return false;
         if (!prefix) return true;
@@ -1165,9 +1301,13 @@ async function downloadGithubFiles(owner, repo, ref, treeEntries, pathPrefix) {
                     type: blob.type || 'application/octet-stream',
                     lastModified: Date.now()
                 });
-                const annotatedPath = (prefixSegments.length > 1)
-                    ? [prefixSegments.slice(-1)[0], relativePath].join('/').replace(/^\//, '')
-                    : relativePath;
+                const pathSegments = [repo];
+                if (prefix) pathSegments.push(prefix);
+                pathSegments.push(relativePath);
+                const annotatedPath = pathSegments
+                    .filter(Boolean)
+                    .join('/')
+                    .replace(/\/+/g, '/');
                 annotateFileMetadata(file, annotatedPath);
                 try {
                     file.virtualSource = 'github';
@@ -1271,6 +1411,9 @@ function saveCurrentSettings() {
         batchModeFormats: Array.from(new Set(batchModeFormats)),
         batchModeZipEnabled: batchModeZipEnabled
     };
+    if (!settingsData.batchModeFormats.includes('original')) {
+        settingsData.batchModeFormats.unshift('original');
+    }
     // 调用 storage.js 中的保存函数
     saveSettings(settingsData);
 
@@ -1407,8 +1550,8 @@ async function handleProcessClick() {
         addProgressLog('未选择翻译模型，跳过翻译步骤。');
     }
 
-    if (pdfFiles.length === 0) {
-        showNotification('请选择至少一个文件', 'error');
+    if (filesToProcess.length === 0) {
+        showNotification('请选择至少一个可处理的文件（检查格式筛选是否排除全部文件）', 'error');
         return;
     }
 
@@ -1419,7 +1562,7 @@ async function handleProcessClick() {
     }
     activeProcessingCount = 0;
     retryAttempts.clear();
-    allResults = new Array(pdfFiles.length);
+    allResults = new Array(filesToProcess.length);
     updateProcessButtonState(pdfFiles, isProcessing);
     showProgressSection();
     addProgressLog('=== 开始批量处理 ===');
@@ -1466,7 +1609,7 @@ async function handleProcessClick() {
     let skippedCount = 0;
     let errorCount = 0;
     const pendingIndices = new Set();
-    const filesToProcess = pdfFiles.slice();
+    const filesToProcess = getActiveFiles();
 
     for (let i = 0; i < filesToProcess.length; i++) {
         const file = filesToProcess[i];

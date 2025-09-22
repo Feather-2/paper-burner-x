@@ -787,6 +787,7 @@ function updateFileListUI(pdfFiles, isProcessing, onRemoveFile) {
             const ext = (extSource.split('.').pop() || '').toLowerCase();
             const icon = ext === 'pdf' ? 'carbon:document-pdf' : 'carbon:document'
             const iconColor = ext === 'pdf' ? 'text-red-500' : 'text-gray-500';
+            const isExcluded = typeof window.isExtensionExcluded === 'function' ? window.isExtensionExcluded(ext) : false;
 
             listItem.innerHTML = `
                 <div class="flex items-center overflow-hidden mr-2">
@@ -796,12 +797,16 @@ function updateFileListUI(pdfFiles, isProcessing, onRemoveFile) {
                         ${displayPath && displayPath !== displayName ? `<span class="text-[11px] text-gray-500 truncate" title="${displayPath}">${displayPath}</span>` : ''}
                     </span>
                     ${virtualBadge}
+                    ${isExcluded ? '<span class="ml-2 inline-block text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 flex-shrink-0">已排除</span>' : ''}
                     <span class="text-xs text-gray-500 ml-2 flex-shrink-0">(${formatFileSize(file.size)})</span>
                 </div>
                 <button data-index="${index}" class="remove-file-btn text-gray-400 hover:text-red-600 flex-shrink-0" title="移除">
                     <iconify-icon icon="carbon:close" width="16"></iconify-icon>
                 </button>
             `;
+            if (isExcluded) {
+                listItem.classList.add('opacity-60');
+            }
             fileList.appendChild(listItem);
         });
 
@@ -855,8 +860,10 @@ function updateFileListUI(pdfFiles, isProcessing, onRemoveFile) {
  * @param {boolean} isProcessing - 指示当前是否正在进行文件处理。
  */
 function updateProcessButtonState(pdfFiles, isProcessing) {
+    const getActiveFiles = typeof window.getActiveFiles === 'function' ? window.getActiveFiles : null;
+    const effectiveFiles = getActiveFiles ? getActiveFiles() : pdfFiles;
     let mistralKeysAvailable = true; // 默认Key可用，除非检测到需要但没有
-    const hasPdfFiles = pdfFiles.some(file => file.name.toLowerCase().endsWith('.pdf'));
+    const hasPdfFiles = effectiveFiles.some(file => file.name.toLowerCase().endsWith('.pdf'));
 
     if (hasPdfFiles) {
         // 检查 Mistral keys 是否配置 (假设 loadModelKeys 全局可用或已导入)
@@ -872,7 +879,7 @@ function updateProcessButtonState(pdfFiles, isProcessing) {
         }
     }
 
-    processBtn.disabled = pdfFiles.length === 0 || isProcessing || (hasPdfFiles && !mistralKeysAvailable);
+    processBtn.disabled = effectiveFiles.length === 0 || isProcessing || (hasPdfFiles && !mistralKeysAvailable);
 
     // 按处理状态切换按钮内容
     if (isProcessing) {
