@@ -37,7 +37,7 @@ function appendQueryParamToUrl(urlString, param, value) {
     }
 }
 
-function normalizeOpenAIModelsUrl(baseUrlInput) {
+function normalizeOpenAIModelsUrl(baseUrlInput, endpointMode = 'auto') {
     if (!baseUrlInput || typeof baseUrlInput !== 'string') {
         throw new Error('API Base URL 不能为空');
     }
@@ -46,15 +46,46 @@ function normalizeOpenAIModelsUrl(baseUrlInput) {
         throw new Error('API Base URL 不能为空');
     }
     base = base.replace(/\/+$/, '');
-    const lower = base.toLowerCase();
+    let lower = base.toLowerCase();
 
-    if (lower.endsWith('/v1/models') || lower.endsWith('/models')) {
+    let mode = endpointMode || 'auto';
+    const normalizedSegment = 'models';
+    const v1Segment = `v1/${normalizedSegment}`;
+
+    if (mode === 'manual') {
+        const stripped = base
+            .replace(/\/(?:v\d+\/)?chat\/completions$/i, '')
+            .replace(/\/(?:v\d+\/)?messages$/i, '')
+            .replace(/\/(?:v\d+\/)?completions$/i, '');
+        if (stripped !== base) {
+            base = stripped.replace(/\/+$/, '');
+            lower = base.toLowerCase();
+            mode = 'auto';
+        } else {
+            return base;
+        }
+    }
+
+    const terminalPaths = [
+        normalizedSegment,
+        `/${normalizedSegment}`,
+        v1Segment,
+        `/${v1Segment}`
+    ];
+
+    if (terminalPaths.some(path => lower.endsWith(path))) {
         return base;
     }
-    if (lower.endsWith('/v1')) {
-        return `${base}/models`;
+
+    if (mode === 'chat') {
+        return `${base}/${normalizedSegment}`;
     }
-    return `${base}/v1/models`;
+
+    if (lower.endsWith('/v1')) {
+        return `${base}/${normalizedSegment}`;
+    }
+
+    return `${base}/${v1Segment}`;
 }
 
 function normalizeGeminiModelsUrl(baseUrlInput) {
@@ -121,7 +152,7 @@ function isGeminiFormat(requestFormat, baseUrl) {
     return false;
 }
 
-async function performModelDetection(baseUrlInput, apiKey, requestFormat = 'openai') {
+async function performModelDetection(baseUrlInput, apiKey, requestFormat = 'openai', endpointMode = 'auto') {
     if (!baseUrlInput || typeof baseUrlInput !== 'string') {
         throw new Error('进行模型检测需要有效的 API Base URL。');
     }
@@ -133,7 +164,7 @@ async function performModelDetection(baseUrlInput, apiKey, requestFormat = 'open
 
     const normalizedUrl = treatAsGemini
         ? normalizeGeminiModelsUrl(baseUrlInput)
-        : normalizeOpenAIModelsUrl(baseUrlInput);
+        : normalizeOpenAIModelsUrl(baseUrlInput, endpointMode);
 
     const requestUrl = treatAsGemini
         ? appendQueryParamToUrl(normalizedUrl, 'key', apiKey)
@@ -600,7 +631,7 @@ document.addEventListener('DOMContentLoaded', function() {
  * @returns {Promise<Array<Object>>} 返回一个承诺，解析为检测到的模型对象数组 (每个对象包含 `id` 和 `name`)。
  * @throws {Error} 如果检测过程中发生任何错误 (如网络问题、API错误、数据格式错误)。
  */
-async function detectModelsForModal(baseUrl, apiKey, requestFormat = 'openai') {
+async function detectModelsForModal(baseUrl, apiKey, requestFormat = 'openai', endpointMode = 'auto') {
     if (!baseUrl) {
         throw new Error('进行模型检测需要有效的 API Base URL。');
     }
@@ -609,7 +640,7 @@ async function detectModelsForModal(baseUrl, apiKey, requestFormat = 'openai') {
     }
 
     try {
-        return await performModelDetection(baseUrl, apiKey, requestFormat);
+        return await performModelDetection(baseUrl, apiKey, requestFormat, endpointMode);
     } catch (error) {
         console.error('模型检测 (弹窗内) 失败:', error);
         throw error;
@@ -666,9 +697,9 @@ window.modelDetector = {
      * @returns {Promise<Array<Object>>} 返回一个承诺，解析为经过 `processModelsResponse` 处理后的模型对象数组。
      * @throws {Error} 如果 API 请求失败或发生其他错误。
      */
-    async function detectModels(apiEndpoint, apiKey, requestFormat = 'openai') {
+    async function detectModels(apiEndpoint, apiKey, requestFormat = 'openai', endpointMode = 'auto') {
         try {
-            return await performModelDetection(apiEndpoint, apiKey, requestFormat);
+            return await performModelDetection(apiEndpoint, apiKey, requestFormat, endpointMode);
         } catch (error) {
             console.error('检测模型时出错:', error);
             throw error;
@@ -744,9 +775,9 @@ window.modelDetector = {
      * @returns {Promise<Array<Object>>} 返回一个承诺，解析为模型对象数组。
      * @throws {Error} 如果模型检测失败。
      */
-    async function detectModelsForModal(apiEndpoint, apiKey, requestFormat = 'openai') {
+    async function detectModelsForModal(apiEndpoint, apiKey, requestFormat = 'openai', endpointMode = 'auto') {
         try {
-            return await detectModels(apiEndpoint, apiKey, requestFormat);
+            return await detectModels(apiEndpoint, apiKey, requestFormat, endpointMode);
         } catch (error) {
             console.error('通过模态框检测模型失败:', error);
             throw error;
@@ -764,9 +795,9 @@ window.modelDetector = {
      * @returns {Promise<Array<Object>>} 返回一个承诺，解析为模型对象数组。
      * @throws {Error} 如果模型检测失败。
      */
-    async function detectModelsForSite(apiEndpoint, apiKey, requestFormat = 'openai') {
+    async function detectModelsForSite(apiEndpoint, apiKey, requestFormat = 'openai', endpointMode = 'auto') {
         try {
-            return await detectModels(apiEndpoint, apiKey, requestFormat);
+            return await detectModels(apiEndpoint, apiKey, requestFormat, endpointMode);
         } catch (error) {
             console.error('为源站点检测模型失败:', error);
             throw error;

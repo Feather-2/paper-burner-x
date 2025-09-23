@@ -39,7 +39,10 @@
         modelId || site.modelId,
         site.requestFormat || 'openai',
         site.temperature !== undefined ? site.temperature : 0.5,
-        site.max_tokens !== undefined ? site.max_tokens : 8000
+        site.max_tokens !== undefined ? site.max_tokens : 8000,
+        {
+          endpointMode: site.endpointMode || 'auto'
+        }
       );
     }
 
@@ -93,4 +96,3 @@
     window.buildPromptPoolGenerationConfig = buildPromptPoolGenerationConfig;
   }
 })();
-

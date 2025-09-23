@@ -385,21 +385,36 @@
     }
   }
 
+  function resolveExportImages(data) {
+    if (data && Array.isArray(data.images) && data.images.length > 0) {
+      return data.images;
+    }
+    if (Array.isArray(window.currentImagesData) && window.currentImagesData.length > 0) {
+      return window.currentImagesData;
+    }
+    if (data && data.data && Array.isArray(data.data.images) && data.data.images.length > 0) {
+      return data.data.images;
+    }
+    return [];
+  }
+
   function buildExportPayload(tab, data) {
     const modeLabel = MODE_LABELS[tab] || '未知模式';
     const exportTime = new Date();
     const fileNameBase = sanitizeFileName(data && data.name ? data.name.replace(/\s+/g, ' ').trim() : '历史记录');
+    const images = resolveExportImages(data);
 
     if (tab === 'ocr') {
       const markdown = getOcrMarkdown(data);
       if (!markdown.trim()) return null;
-      const html = buildMarkdownSectionHtml(modeLabel, markdown, data.images);
+      const html = buildMarkdownSectionHtml(modeLabel, markdown, images);
       return {
         tab,
         modeLabel,
         exportTime,
         fileNameBase,
         data,
+        images,
         bodyMarkdown: markdown,
         bodyHtml: html
       };
@@ -408,13 +423,14 @@
     if (tab === 'translation') {
       const markdown = getTranslationMarkdown(data);
       if (!markdown.trim()) return null;
-      const html = buildMarkdownSectionHtml(modeLabel, markdown, data.images);
+      const html = buildMarkdownSectionHtml(modeLabel, markdown, images);
       return {
         tab,
         modeLabel,
         exportTime,
         fileNameBase,
         data,
+        images,
         bodyMarkdown: markdown,
         bodyHtml: html
       };
@@ -423,7 +439,7 @@
     if (tab === 'chunk-compare') {
       const pairs = buildChunkPairs(data);
       if (!pairs.length) return null;
-      const html = buildChunkCompareHtml(modeLabel, pairs, data.images);
+      const html = buildChunkCompareHtml(modeLabel, pairs, images);
       const markdown = buildChunkCompareMarkdown(pairs);
       return {
         tab,
@@ -431,6 +447,7 @@
         exportTime,
         fileNameBase,
         data,
+        images,
         bodyMarkdown: markdown,
         bodyHtml: html
       };
@@ -1277,6 +1294,15 @@ body.history-export-print-mode .history-export-root .export-section {
     return `<pre>${escapeHtml(source)}</pre>`;
   }
 
+  function safeDecodeURIComponent(value) {
+    if (typeof value !== 'string') return value;
+    try {
+      return decodeURIComponent(value);
+    } catch (_) {
+      return value;
+    }
+  }
+
   function formatMarkdownTableCell(content) {
     if (!content || !content.trim()) return '（无内容）';
     const sanitized = content
@@ -1309,11 +1335,117 @@ body.history-export-print-mode .history-export-root .export-section {
       this.drawingCounter = 1;
       this.mathConverter = new MathMlToOmmlConverter();
       this.footerInfo = null;
+      const initialImages = Array.isArray(payload && payload.images)
+        ? payload.images
+        : (payload && payload.data && Array.isArray(payload.data.images) ? payload.data.images : []);
+      this.imageLookup = this.buildImageLookup(initialImages);
 
       const parser = new DOMParser();
       const wrapped = `<div>${payload.bodyHtml || ''}</div>`;
       this.dom = parser.parseFromString(wrapped, 'text/html');
       this.stripTableFormulas();
+    }
+
+    buildImageLookup(images = []) {
+      const map = new Map();
+      images.forEach((img, idx) => {
+        if (!img || !img.data) return;
+        const rawMime = img.mimeType || img.type || 'image/png';
+        const safeMime = /^image\//i.test(rawMime) ? rawMime : `image/${String(rawMime || 'png').replace(/^image\//i, '')}`;
+        const dataUri = img.data.startsWith('data:') ? img.data : `data:${safeMime};base64,${img.data}`;
+
+        const baseKeys = new Set();
+        if (img.name) baseKeys.add(String(img.name));
+        if (img.id) baseKeys.add(String(img.id));
+        if (img.originalName) baseKeys.add(String(img.originalName));
+        if (img.fileName) baseKeys.add(String(img.fileName));
+        if (img.path) baseKeys.add(String(img.path));
+        baseKeys.add(`img-${idx}.jpeg.png`);
+        baseKeys.add(`img-${idx + 1}.jpeg.png`);
+
+        const variants = new Set();
+        baseKeys.forEach(key => {
+          if (!key) return;
+          const trimmed = key.trim();
+          if (!trimmed) return;
+          variants.add(trimmed);
+          variants.add(trimmed.replace(/^\.\/?/, '')); // remove leading ./
+          variants.add(trimmed.replace(/^\.?\//, ''));
+          variants.add(trimmed.replace(/^images\//i, ''));
+          variants.add(trimmed.replace(/^\.\/images\//i, ''));
+          variants.add(trimmed.replace(/^[.\/]+/, ''));
+          const decoded = safeDecodeURIComponent(trimmed);
+          if (decoded && decoded !== trimmed) {
+            variants.add(decoded);
+            variants.add(decoded.replace(/^images\//i, ''));
+          }
+          const lastSegment = trimmed.split(/[\\\/]/).pop();
+          if (lastSegment) variants.add(lastSegment);
+          variants.add(trimmed.toLowerCase());
+          variants.add(trimmed.toUpperCase());
+          variants.add(`images/${trimmed}`);
+        });
+
+        Array.from(variants).forEach(key => {
+          if (!key) return;
+          let normalized = key.trim();
+          if (!normalized) return;
+          if (!/\.(png|jpe?g|gif|webp)$/i.test(normalized)) {
+            variants.add(`${normalized}.png`);
+            variants.add(`${normalized}.jpg`);
+            variants.add(`${normalized}.jpeg`);
+          }
+        });
+
+        variants.forEach(key => {
+          if (!key) return;
+          const normalized = this.normalizeImageKey(key);
+          if (!normalized) return;
+          if (!map.has(normalized)) {
+            map.set(normalized, dataUri);
+          }
+        });
+      });
+      return map;
+    }
+
+    normalizeImageKey(key) {
+      if (!key) return '';
+      const cleaned = String(key).trim();
+      if (!cleaned) return '';
+      const withoutQuery = cleaned.split('#')[0].split('?')[0];
+      return withoutQuery.replace(/^\.\/?/, '').replace(/^\.\/images\//i, '').replace(/^images\//i, '').toLowerCase();
+    }
+
+    resolveImageData(src) {
+      if (!src) return null;
+      const trimmed = String(src).trim();
+      if (!trimmed) return null;
+      if (trimmed.startsWith('data:image')) {
+        return trimmed;
+      }
+      const candidates = new Set();
+      const decoded = safeDecodeURIComponent(trimmed);
+      candidates.add(trimmed);
+      if (decoded && decoded !== trimmed) candidates.add(decoded);
+
+      const stripProtocols = value => value.replace(/^https?:\/\//i, '').replace(/^file:\/\//i, '');
+      Array.from(candidates).forEach(value => {
+        if (!value) return;
+        const withoutProtocol = stripProtocols(value);
+        candidates.add(withoutProtocol);
+        candidates.add(withoutProtocol.replace(/^\.\/?/, ''));
+        const last = withoutProtocol.split(/[\\\/]/).pop();
+        if (last) candidates.add(last);
+      });
+
+      for (const candidate of candidates) {
+        const normalized = this.normalizeImageKey(candidate);
+        if (normalized && this.imageLookup.has(normalized)) {
+          return this.imageLookup.get(normalized);
+        }
+      }
+      return null;
     }
 
     build() {
@@ -2120,11 +2252,12 @@ ${footerParagraph}
     }
 
     createImageRun(imgEl, context = {}) {
-      const src = imgEl.getAttribute('src');
-      if (!src || !src.startsWith('data:image')) {
+      const rawSrc = imgEl.getAttribute('src');
+      const resolvedSrc = this.resolveImageData(rawSrc);
+      if (!resolvedSrc || !resolvedSrc.startsWith('data:image')) {
         return this.createTextRun('[图片]', {});
       }
-      const match = src.match(/^data:(image\/([a-zA-Z0-9]+));base64,(.*)$/);
+      const match = resolvedSrc.match(/^data:(image\/([a-zA-Z0-9.+\-]+));base64,(.*)$/);
       if (!match) {
         return this.createTextRun('[图片]', {});
       }
@@ -2142,7 +2275,7 @@ ${footerParagraph}
       const relId = this.createRelationship('http://schemas.openxmlformats.org/officeDocument/2006/relationships/image', `media/${fileName}`);
       this.mediaFiles.push({ fileName, data: base64Data });
 
-      const dimensions = this.extractImageDimensions(imgEl, context);
+      const dimensions = this.extractImageDimensions(imgEl, context, resolvedSrc);
       const cx = Math.max(1, Math.round(dimensions.width * 9525));
       const cy = Math.max(1, Math.round(dimensions.height * 9525));
 
@@ -2184,15 +2317,16 @@ ${footerParagraph}
       </w:r>`;
     }
 
-    extractImageDimensions(imgEl, context = {}) {
+    extractImageDimensions(imgEl, context = {}, dataUriOverride = null) {
       const widthAttr = imgEl.getAttribute('width');
       const heightAttr = imgEl.getAttribute('height');
       const style = imgEl.getAttribute('style') || '';
       let width = this.parsePixelValue(widthAttr) || this.parseStyleDimension(style, 'width');
       let height = this.parsePixelValue(heightAttr) || this.parseStyleDimension(style, 'height');
 
-      if ((!width || !height) && imgEl.getAttribute('src')) {
-        const base64Match = imgEl.getAttribute('src').match(/^data:image\/([a-zA-Z0-9]+);base64,(.*)$/);
+      const candidateSrc = dataUriOverride || (imgEl && imgEl.getAttribute('src')) || '';
+      if ((!width || !height) && candidateSrc) {
+        const base64Match = candidateSrc.match(/^data:image\/([a-zA-Z0-9]+);base64,(.*)$/);
         if (base64Match) {
           const ext = base64Match[1].toLowerCase();
           const base64 = base64Match[2];

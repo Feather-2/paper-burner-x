@@ -226,7 +226,10 @@ ${referenceUserPrompt}
                     modelId || site.modelId,
                     site.requestFormat || 'openai',
                     site.temperature !== undefined ? site.temperature : 0.5,
-                    site.max_tokens !== undefined ? site.max_tokens : 8000
+                    site.max_tokens !== undefined ? site.max_tokens : 8000,
+                    {
+                        endpointMode: site.endpointMode || 'auto'
+                    }
                 );
             } else {
                 throw new Error('未能构建预设模型的配置，请检查脚本加载顺序');

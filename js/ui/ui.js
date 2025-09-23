@@ -1597,6 +1597,24 @@ document.addEventListener('DOMContentLoaded', function() {
         form.appendChild(createConfigInput(`sourceDisplayName_${siteIdForForm}`, '显示名称 *', isEditing ? siteData.displayName : '', 'text', '例如: 我的备用 OpenAI', () => {}));
         form.appendChild(createConfigInput(`sourceApiBaseUrl_${siteIdForForm}`, 'API Base URL *', isEditing ? siteData.apiBaseUrl : '', 'url', '例如: https://api.openai.com', () => {}));
 
+        const endpointModeOptions = [
+            { value: 'auto', text: '自动补全（必要时追加 /v1/...）' },
+            { value: 'chat', text: '仅追加 /chat/completions' },
+            { value: 'manual', text: '已是完整端点（不追加）' }
+        ];
+        const endpointModeField = createConfigSelect(
+            `sourceEndpointMode_${siteIdForForm}`,
+            '端点补全方式',
+            isEditing ? (siteData.endpointMode || 'auto') : 'auto',
+            endpointModeOptions,
+            () => {}
+        );
+        const endpointModeHint = document.createElement('p');
+        endpointModeHint.className = 'mt-1 text-[11px] text-gray-500 leading-4';
+        endpointModeHint.textContent = '若第三方已提供完整的 /chat/completions 或 /messages 地址，请选择“已是完整端点”。';
+        endpointModeField.appendChild(endpointModeHint);
+        form.appendChild(endpointModeField);
+
         // --- Enhanced Model ID Input with Detection ---
         const modelIdGroup = document.createElement('div');
         modelIdGroup.className = 'mb-3';
@@ -1666,8 +1684,13 @@ document.addEventListener('DOMContentLoaded', function() {
             detectModelsButton.disabled = true;
             detectModelsButton.innerHTML = '<iconify-icon icon="carbon:circle-dash" class="animate-spin mr-1"></iconify-icon>检测中...';
 
+            const endpointModeSelect = document.getElementById(`sourceEndpointMode_${siteIdForForm}`);
+            const requestFormatSelect = document.getElementById(`sourceRequestFormat_${siteIdForForm}`);
+            const endpointModeValue = endpointModeSelect ? endpointModeSelect.value : 'auto';
+            const requestFormatValue = requestFormatSelect ? requestFormatSelect.value : 'openai';
+
             try {
-                const detectedModels = await window.modelDetector.detectModelsForModal(baseUrl, tempApiKey);
+                const detectedModels = await window.modelDetector.detectModelsForModal(baseUrl, tempApiKey, requestFormatValue, endpointModeValue);
                 if (usedStoredKey) {
                     showNotification && showNotification('已使用已保存的 Key 进行模型检测。', 'info');
                 }
@@ -1776,7 +1799,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 requestFormat: document.getElementById(`sourceRequestFormat_${siteIdForForm}`).value,
                 temperature: parseFloat(document.getElementById(`sourceTemperature_${siteIdForForm}`).value),
                 max_tokens: parseInt(document.getElementById(`sourceMaxTokens_${siteIdForForm}`).value),
-                availableModels: isEditing && siteData.availableModels ? siteData.availableModels : []
+                availableModels: isEditing && siteData.availableModels ? siteData.availableModels : [],
+                endpointMode: document.getElementById(`sourceEndpointMode_${siteIdForForm}`).value
             };
 
             if (!newSiteData.displayName || !newSiteData.apiBaseUrl || !newSiteData.modelId) {
@@ -2144,12 +2168,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 const customSourceKeysCount = typeof loadModelKeys === 'function' ?
                     (loadModelKeys(`custom_source_${siteId}`) || []).filter(k => k.status !== 'invalid').length : 0;
 
+                const endpointModeLabels = {
+                    auto: '自动补全 /v1/... (默认)',
+                    chat: '仅追加 /chat/completions',
+                    manual: '完整端点（不自动追加）'
+                };
+                const endpointModeLabel = endpointModeLabels[site.endpointMode] || endpointModeLabels.auto;
+
                 // 构建HTML以展示站点信息
                 let infoHtml = `
                     <div class="p-3">
                         <h3 class="font-bold text-gray-800 text-xl mt-1 mb-2">${site.displayName || '未命名源站点'}</h3>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
                             <div><span class="font-medium">API Base URL:</span> <span class="text-gray-600">${site.apiBaseUrl || '未设置'}</span></div>
+                            <div><span class="font-medium">端点补全:</span> <span class="text-gray-600">${endpointModeLabel}</span></div>
                             <div><span class="font-medium">当前模型:</span> <span id="currentModelPreview_${siteId}" class="text-gray-600">${site.modelId || '未设置'}</span></div>
                             <div><span class="font-medium">请求格式:</span> <span class="text-gray-600">${site.requestFormat || 'openai'}</span></div>
                             <div><span class="font-medium">温度:</span> <span class="text-gray-600">${site.temperature || '0.5'}</span></div>

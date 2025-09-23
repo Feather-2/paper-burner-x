@@ -80,26 +80,87 @@ const convertOpenAIToAnthropicContent = (userContent) => {
   return [{ type: 'text', text: userContent }]; // 假设为字符串
 };
 
-function buildCustomApiConfig(key, customApiEndpoint, customModelId, customRequestFormat, temperature, max_tokens) {
+const appendPathSegment = (base, segment) => {
+  if (!base) return segment || '';
+  if (!segment) return base;
+  const hasTrailingSlash = base.endsWith('/');
+  const hasLeadingSlash = segment.startsWith('/');
+  if (hasTrailingSlash && hasLeadingSlash) {
+    return base + segment.slice(1);
+  }
+  if (!hasTrailingSlash && !hasLeadingSlash) {
+    return `${base}/${segment}`;
+  }
+  return base + segment;
+};
+
+const normalizeOpenAIEndpointForChatbot = (baseApiUrlInput, format, endpointMode = 'auto', targetSegment) => {
+  if (!baseApiUrlInput || typeof baseApiUrlInput !== 'string') {
+    throw new Error('自定义模型需要提供 API Base URL');
+  }
+
+  const trimmed = baseApiUrlInput.trim();
+  if (!trimmed) {
+    throw new Error('自定义模型需要提供 API Base URL');
+  }
+
+  const mode = endpointMode || 'auto';
+  const normalizedSegment = (targetSegment
+    ? targetSegment
+    : ((format || '').toLowerCase() === 'anthropic' ? 'messages' : 'chat/completions'))
+    .replace(/^\/+/, '');
+
+  const lower = trimmed.toLowerCase();
+  const base = trimmed.replace(/\/+$/, '');
+  const v1Segment = normalizedSegment.startsWith('v1/') ? normalizedSegment : `v1/${normalizedSegment}`;
+
+  const terminalPaths = [
+    normalizedSegment,
+    `/${normalizedSegment}`,
+    v1Segment,
+    `/${v1Segment}`
+  ];
+
+  if (terminalPaths.some(path => lower.endsWith(path))) {
+    return base;
+  }
+
+  if (mode === 'manual') {
+    return base;
+  }
+
+  if (mode === 'chat') {
+    return appendPathSegment(base, normalizedSegment);
+  }
+
+  if (/\/v1$/.test(lower)) {
+    return appendPathSegment(base, normalizedSegment);
+  }
+
+  return appendPathSegment(base, v1Segment);
+};
+
+function buildCustomApiConfig(key, customApiEndpoint, customModelId, customRequestFormat, temperature, max_tokens, options = {}) {
   let apiEndpoint = customApiEndpoint;
   let modelId = customModelId;
+  const endpointMode = options.endpointMode || 'auto';
+  let resolvedRequestFormat = customRequestFormat;
 
   // 检查是否有模型检测模块，如果有则使用其提供的完整端点
-  if (typeof window.modelDetector !== 'undefined') {
+  if (typeof window.modelDetector !== 'undefined' && typeof window.modelDetector.getFullApiEndpoint === 'function') {
     const fullEndpoint = window.modelDetector.getFullApiEndpoint();
     if (fullEndpoint) {
       apiEndpoint = fullEndpoint;
+    } else {
+      apiEndpoint = normalizeOpenAIEndpointForChatbot(apiEndpoint, resolvedRequestFormat, endpointMode);
     }
   } else {
-    if (apiEndpoint && !apiEndpoint.includes('/v1/') && !apiEndpoint.endsWith('/v1')) {
-      const cleanBaseUrl = apiEndpoint.endsWith('/') ? apiEndpoint.slice(0, -1) : apiEndpoint;
-      apiEndpoint = `${cleanBaseUrl}/v1/chat/completions`;
-    }
+    apiEndpoint = normalizeOpenAIEndpointForChatbot(apiEndpoint, resolvedRequestFormat, endpointMode);
   }
 
   // 新增：如果 customRequestFormat 为空且 endpoint 以 /v1/chat/completions 结尾，则自动设为 openai
-  if ((!customRequestFormat || customRequestFormat === '') && apiEndpoint && apiEndpoint.endsWith('/v1/chat/completions')) {
-    customRequestFormat = 'openai';
+  if ((!resolvedRequestFormat || resolvedRequestFormat === '') && apiEndpoint && apiEndpoint.endsWith('/v1/chat/completions')) {
+    resolvedRequestFormat = 'openai';
   }
 
   // 获取当前选择的模型ID（如果有模型检测模块）
@@ -120,7 +181,9 @@ function buildCustomApiConfig(key, customApiEndpoint, customModelId, customReque
     streamBodyBuilder: null // 流式请求构建器
   };
 
-  switch (customRequestFormat) {
+  const normalizedFormat = (resolvedRequestFormat || 'openai').toLowerCase();
+
+  switch (normalizedFormat) {
     case 'openai':
     case 'openai-vision': // Add a specific format for vision-enabled OpenAI
       config.headers['Authorization'] = `Bearer ${key}`;
@@ -175,7 +238,8 @@ function buildCustomApiConfig(key, customApiEndpoint, customModelId, customReque
       let baseUrl = config.endpoint.split('?')[0];
       config.endpoint = `${baseUrl}?key=${key}`;
       config.streamEndpoint = `${baseUrl}?key=${key}&alt=sse`;
-      const geminiModelIdToUse = modelId || (customRequestFormat === 'gemini-preview' ? 'gemini-1.5-flash-latest' : 'gemini-pro'); // Updated default for preview
+      const geminiModelIdToUse = modelId || (normalizedFormat === 'gemini-preview' ? 'gemini-1.5-flash-latest' : 'gemini-pro'); // Updated default for preview
+      config.modelName = geminiModelIdToUse;
 
       config.bodyBuilder = (sys_prompt, user_content) => ({
         contents: [{ role: "user", parts: convertOpenAIToGeminiParts(user_content) }],
@@ -195,7 +259,7 @@ function buildCustomApiConfig(key, customApiEndpoint, customModelId, customReque
           generationConfig: {
             temperature: temperature ?? 0.5,
             maxOutputTokens: max_tokens ?? 8192,
-            ...(customRequestFormat === 'gemini-preview' && { responseModalities: ["TEXT"], responseMimeType: "text/plain" })
+            ...(normalizedFormat === 'gemini-preview' && { responseModalities: ["TEXT"], responseMimeType: "text/plain" })
           },
           ...(sys && { systemInstruction: { parts: [{ text: sys }] }})
         };
@@ -266,10 +330,10 @@ function buildCustomApiConfig(key, customApiEndpoint, customModelId, customReque
       });
       config.responseExtractor = (data) => data?.choices?.[0]?.message?.content;
       config.streamSupport = true;
-      console.warn(`Custom request format "${customRequestFormat}" is not explicitly handled for multimodal input. Defaulting to text-only for user messages if images are provided.`);
+      console.warn(`Custom request format "${resolvedRequestFormat}" is not explicitly handled for multimodal input. Defaulting to text-only for user messages if images are provided.`);
   }
   console.log('buildCustomApiConfig:', {
-    customRequestFormat,
+    customRequestFormat: resolvedRequestFormat,
     endpoint: apiEndpoint,
     modelId,
     streamSupport: config.streamSupport,
@@ -662,7 +726,10 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
       selectedModelId,
       config.cms.requestFormat,
       config.cms.temperature,
-      config.cms.max_tokens
+      config.cms.max_tokens,
+      {
+        endpointMode: (config.cms && config.cms.endpointMode) || 'auto'
+      }
     );
     useStreamApi = apiConfig.streamSupport && apiConfig.streamBodyBuilder;
     console.log('最终模型ID:', selectedModelId);
@@ -1198,7 +1265,10 @@ async function singleChunkSummary(sysPrompt, userInput, config, apiKey) {
       config.cms.modelId,
       config.cms.requestFormat,
       config.cms.temperature,
-      config.cms.max_tokens
+      config.cms.max_tokens,
+      {
+        endpointMode: (config.cms && config.cms.endpointMode) || 'auto'
+      }
     );
   } else {
     const predefinedConfigs = {

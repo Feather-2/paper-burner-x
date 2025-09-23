@@ -12,6 +12,8 @@
  *  - 为"清空历史记录"按钮绑定点击事件，并在用户确认后清空所有历史数据并刷新列表。
  */
 document.addEventListener('DOMContentLoaded', function() {
+    const REQUIRED_CLEAR_PHRASE = '确定删除';
+
     // 显示历史面板并渲染历史列表
     document.getElementById('showHistoryBtn').onclick = async function() {
         document.getElementById('historyPanel').classList.remove('hidden');
@@ -21,13 +23,262 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('closeHistoryPanel').onclick = function() {
         document.getElementById('historyPanel').classList.add('hidden');
     };
-    // 清空所有历史记录
-    document.getElementById('clearHistoryBtn').onclick = async function() {
-        if (confirm('确定要清空所有历史记录吗？')) {
-            await clearAllResultsFromDB();
-            await renderHistoryList();
+    const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+
+    const historyClearModal = document.getElementById('historyClearConfirmModal');
+    const historyClearStep1 = document.getElementById('historyClearStep1');
+    const historyClearStep1Message = document.getElementById('historyClearStep1Message');
+    const historyClearStep2 = document.getElementById('historyClearStep2');
+    const historyClearStep3 = document.getElementById('historyClearStep3');
+    const historyClearFinalMessage = document.getElementById('historyClearFinalMessage');
+    const historyClearPhraseInput = document.getElementById('historyClearPhraseInput');
+    const historyClearCancelBtn = document.getElementById('historyClearCancelBtn');
+    const historyClearCloseBtn = document.getElementById('historyClearCloseBtn');
+    const historyClearStep1Next = document.getElementById('historyClearStep1Next');
+    const historyClearStep2Next = document.getElementById('historyClearStep2Next');
+    const historyClearStep2Back = document.getElementById('historyClearStep2Back');
+    const historyClearStep3Back = document.getElementById('historyClearStep3Back');
+    const historyClearExecute = document.getElementById('historyClearExecute');
+
+    let currentClearStep = 1;
+    let historyClearMode = 'all';
+    let pendingDeleteRecordId = null;
+    let pendingDeleteRecordName = '';
+
+    function updateHistoryClearContent() {
+        if (historyClearStep1Message) {
+            if (historyClearMode === 'record') {
+                const displayName = pendingDeleteRecordName || '选中的记录';
+                historyClearStep1Message.textContent = `即将删除历史记录“${displayName}”。请确认是否继续。`;
+            } else {
+                historyClearStep1Message.textContent = '即将永久删除所有历史记录（包括所有批次、译文、文件夹分配）。请确认是否继续。';
+            }
         }
+        if (historyClearFinalMessage) {
+            historyClearFinalMessage.textContent = historyClearMode === 'record'
+                ? '历史记录删除后将无法恢复。请确保已备份需要的数据。'
+                : '历史记录一旦清空，将无法恢复。请确保已备份需要的数据。';
+        }
+        if (historyClearExecute) {
+            historyClearExecute.textContent = historyClearMode === 'record' ? '删除记录' : '永久删除';
+        }
+    }
+
+    function setHistoryClearStep(step) {
+        currentClearStep = step;
+        const stepMap = { 1: historyClearStep1, 2: historyClearStep2, 3: historyClearStep3 };
+        Object.entries(stepMap).forEach(([key, el]) => {
+            if (!el) return;
+            const isActive = Number(key) === step;
+            if (isActive) {
+                el.classList.remove('hidden');
+                el.removeAttribute('hidden');
+            } else {
+                el.classList.add('hidden');
+                el.setAttribute('hidden', '');
+            }
+            el.setAttribute('aria-hidden', String(!isActive));
+        });
+
+        if (step === 1) {
+            resetStep2State();
+        }
+        if (step === 2 && historyClearPhraseInput) {
+            setTimeout(() => historyClearPhraseInput.focus(), 0);
+        }
+    }
+
+    function resetStep2State() {
+        if (historyClearPhraseInput) {
+            historyClearPhraseInput.value = '';
+        }
+        if (historyClearStep2Next) {
+            historyClearStep2Next.disabled = true;
+            historyClearStep2Next.classList.add('opacity-60', 'cursor-not-allowed');
+        }
+    }
+
+    function openHistoryClearModal(mode = 'all', { recordId = null, recordName = '' } = {}) {
+        historyClearMode = mode === 'record' ? 'record' : 'all';
+        pendingDeleteRecordId = historyClearMode === 'record' ? recordId : null;
+        pendingDeleteRecordName = historyClearMode === 'record' ? (recordName || '') : '';
+        updateHistoryClearContent();
+        if (!historyClearModal) {
+            const targetLabel = pendingDeleteRecordName || '选中的记录';
+            const fallbackConfirm = historyClearMode === 'record'
+                ? `确定要删除历史记录“${targetLabel}”吗？此操作无法恢复。`
+                : '确定要清空所有历史记录吗？此操作无法恢复。';
+            const confirmed = confirm(fallbackConfirm);
+            if (!confirmed) return;
+            performClearHistory();
+            return;
+        }
+        resetStep2State();
+        setHistoryClearStep(1);
+        historyClearModal.classList.remove('hidden');
+        historyClearModal.classList.add('flex');
+    }
+
+    function closeHistoryClearModal() {
+        if (!historyClearModal) return;
+        historyClearModal.classList.add('hidden');
+        historyClearModal.classList.remove('flex');
+        resetStep2State();
+        setHistoryClearStep(1);
+        historyClearMode = 'all';
+        pendingDeleteRecordId = null;
+        pendingDeleteRecordName = '';
+    }
+
+    async function performClearHistory() {
+        if (historyClearMode === 'record') {
+            if (pendingDeleteRecordId) {
+                removeFolderAssignmentForRecord(pendingDeleteRecordId);
+                await deleteResultFromDB(pendingDeleteRecordId);
+                await renderHistoryList();
+                if (typeof showNotification === 'function') {
+                    showNotification('历史记录已删除。', 'success');
+                }
+            }
+        } else {
+            await clearAllResultsFromDB();
+            clearFolderAssignments();
+            historyUIState.activeFolder = 'all';
+            historyUIState.searchQuery = '';
+            historyUIState.batchSearch = {};
+            historyUIState.batchSearchDraft = {};
+            await renderHistoryList();
+            if (typeof showNotification === 'function') {
+                showNotification('历史记录已全部清空。', 'success');
+            }
+        }
+        historyClearMode = 'all';
+        pendingDeleteRecordId = null;
+        pendingDeleteRecordName = '';
+    }
+
+    if (clearHistoryBtn) {
+        clearHistoryBtn.onclick = function() {
+            openHistoryClearModal('all');
+        };
+    }
+
+    if (historyClearModal) {
+        historyClearModal.addEventListener('click', function(event) {
+            if (event.target === historyClearModal) {
+                closeHistoryClearModal();
+            }
+        });
+    }
+
+    if (historyClearCancelBtn) {
+        historyClearCancelBtn.addEventListener('click', function() {
+            closeHistoryClearModal();
+        });
+    }
+    if (historyClearCloseBtn) {
+        historyClearCloseBtn.addEventListener('click', function() {
+            closeHistoryClearModal();
+        });
+    }
+    if (historyClearStep1Next) {
+        historyClearStep1Next.addEventListener('click', function() {
+            setHistoryClearStep(2);
+        });
+    }
+    if (historyClearStep2Back) {
+        historyClearStep2Back.addEventListener('click', function() {
+            setHistoryClearStep(1);
+        });
+    }
+    if (historyClearStep3Back) {
+        historyClearStep3Back.addEventListener('click', function() {
+            setHistoryClearStep(2);
+        });
+    }
+    if (historyClearStep2Next) {
+        historyClearStep2Next.addEventListener('click', function() {
+            if (historyClearStep2Next.disabled) return;
+            setHistoryClearStep(3);
+        });
+    }
+    if (historyClearPhraseInput) {
+        historyClearPhraseInput.addEventListener('input', function(event) {
+            if (!historyClearStep2Next) return;
+            const matches = (event.target.value || '').trim() === REQUIRED_CLEAR_PHRASE;
+            historyClearStep2Next.disabled = !matches;
+            historyClearStep2Next.classList.toggle('opacity-60', !matches);
+            historyClearStep2Next.classList.toggle('cursor-not-allowed', !matches);
+        });
+    }
+    if (historyClearExecute) {
+        historyClearExecute.addEventListener('click', async function() {
+            historyClearExecute.disabled = true;
+            historyClearExecute.classList.add('opacity-70');
+            try {
+                await performClearHistory();
+                closeHistoryClearModal();
+            } finally {
+                historyClearExecute.disabled = false;
+                historyClearExecute.classList.remove('opacity-70');
+            }
+        });
+    }
+
+    const HISTORY_FOLDER_STORAGE_KEY = 'pbxHistoryFolders';
+    const HISTORY_FOLDER_ASSIGNMENT_KEY = 'pbxHistoryFolderAssignments';
+    const MAX_HISTORY_FOLDER_NAME = 40;
+    const historyUIState = {
+        activeFolder: 'all',
+        searchQuery: '',
+        batchSearch: {},
+        batchSearchDraft: {}
     };
+
+    let currentFolderAssignments = {};
+    let currentFolderOptions = [];
+    let currentUserFolderMap = new Map();
+
+    const historySearchInput = document.getElementById('historySearchInput');
+    if (historySearchInput) {
+        historySearchInput.addEventListener('input', function(event) {
+            historyUIState.searchQuery = event.target.value || '';
+            renderHistoryList();
+        });
+    }
+
+    const historyFolderListElement = document.getElementById('historyFolderList');
+    if (historyFolderListElement) {
+        historyFolderListElement.addEventListener('click', handleHistoryFolderAction);
+    }
+
+    const historyAddFolderBtn = document.getElementById('historyAddFolderBtn');
+    if (historyAddFolderBtn) {
+        historyAddFolderBtn.addEventListener('click', function() {
+            const name = prompt('请输入新的文件夹名称');
+            if (name == null) return;
+            const trimmed = name.trim();
+            if (!trimmed) {
+                showNotification && showNotification('文件夹名称不能为空。', 'warning');
+                return;
+            }
+            if (trimmed.length > MAX_HISTORY_FOLDER_NAME) {
+                showNotification && showNotification(`文件夹名称请控制在 ${MAX_HISTORY_FOLDER_NAME} 个字符以内。`, 'warning');
+                return;
+            }
+            const userFolders = loadUserFolders();
+            if (userFolders.some(f => f.name.toLowerCase() === trimmed.toLowerCase())) {
+                showNotification && showNotification('已存在同名文件夹。', 'warning');
+                return;
+            }
+            const folderId = generateFolderId();
+            userFolders.push({ id: folderId, name: trimmed, createdAt: Date.now() });
+            saveUserFolders(userFolders);
+            historyUIState.activeFolder = folderId;
+            renderHistoryList();
+            showNotification && showNotification(`已创建文件夹“${trimmed}”`, 'success');
+        });
+    }
 
     // ---------------------
     // 历史记录列表渲染
@@ -53,22 +304,77 @@ document.addEventListener('DOMContentLoaded', function() {
         const listDiv = document.getElementById('historyList');
         if (!listDiv) return;
 
+        const previousOpenBatchIds = new Set();
+        if (listDiv) {
+            listDiv.querySelectorAll('details[data-batch-id]').forEach(detailEl => {
+                if (detailEl && detailEl.open) {
+                    const batchId = detailEl.getAttribute('data-batch-id');
+                    if (batchId) {
+                        previousOpenBatchIds.add(batchId);
+                    }
+                }
+            });
+        }
+
+        if (historySearchInput && historySearchInput.value !== historyUIState.searchQuery) {
+            historySearchInput.value = historyUIState.searchQuery;
+        }
+
         const results = await getAllResultsFromDB();
+        const assignments = loadFolderAssignments();
+        const userFolders = loadUserFolders();
+
+        currentFolderAssignments = assignments;
+        currentUserFolderMap = new Map(userFolders.map(folder => [folder.id, folder]));
+        currentFolderOptions = buildAssignableFolderOptions(currentUserFolderMap);
+
+        renderHistoryFolders(Array.isArray(results) ? results : [], assignments, userFolders);
+
         if (!results || results.length === 0) {
             listDiv.innerHTML = '<div class="text-gray-400 text-center py-8">暂无历史记录</div>';
             window.__historyRecordCache = {};
             window.__historyBatchCache = {};
+            historyUIState.batchSearch = {};
+            historyUIState.batchSearchDraft = {};
             return;
         }
 
         results.sort((a, b) => new Date(b.time) - new Date(a.time));
 
+        if (!folderExists(historyUIState.activeFolder)) {
+            historyUIState.activeFolder = 'all';
+        }
+
+        const searchTerm = (historyUIState.searchQuery || '').trim().toLowerCase();
         const recordCache = {};
         const batchMap = new Map();
+        const fullBatchMap = new Map();
         const singleRecords = [];
 
         results.forEach(record => {
+            if (!record || !record.id) return;
+            if (record.batchId) {
+                if (!fullBatchMap.has(record.batchId)) {
+                    fullBatchMap.set(record.batchId, []);
+                }
+                fullBatchMap.get(record.batchId).push(record);
+            }
+
+            const folderId = resolveRecordFolder(record.id, assignments);
+
+            if (historyUIState.activeFolder === 'uncategorized' && folderId !== 'uncategorized') return;
+            if (historyUIState.activeFolder !== 'all' && historyUIState.activeFolder !== 'uncategorized' && folderId !== historyUIState.activeFolder) return;
+
+            if (searchTerm && !recordMatchesQuery(record, searchTerm)) return;
+
+            let batchQueryLower = '';
+            if (record.batchId && historyUIState.batchSearch[record.batchId]) {
+                batchQueryLower = historyUIState.batchSearch[record.batchId].trim().toLowerCase();
+                if (batchQueryLower && !recordMatchesQuery(record, batchQueryLower)) return;
+            }
+
             recordCache[record.id] = record;
+
             if (record.batchId) {
                 if (!batchMap.has(record.batchId)) {
                     batchMap.set(record.batchId, []);
@@ -80,81 +386,516 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         const fragments = [];
+        const visibleBatchIds = new Set();
 
         batchMap.forEach((group, batchId) => {
+            if (!group || group.length === 0) return;
             group.sort((a, b) => {
                 const orderA = typeof a.batchOrder === 'number' ? a.batchOrder : (typeof a.batchOriginalIndex === 'number' ? a.batchOriginalIndex + 1 : 0);
                 const orderB = typeof b.batchOrder === 'number' ? b.batchOrder : (typeof b.batchOriginalIndex === 'number' ? b.batchOriginalIndex + 1 : 0);
                 if (orderA !== orderB) return orderA - orderB;
                 return new Date(a.time) - new Date(b.time);
             });
-            fragments.push(renderBatchGroupItem(batchId, group));
+            visibleBatchIds.add(batchId);
+            fragments.push(renderBatchGroupItem(batchId, group, {
+                searchValue: historyUIState.batchSearch[batchId] || '',
+                folderIds: group.map(item => resolveRecordFolder(item.id, assignments)),
+                isOpen: previousOpenBatchIds.has(batchId)
+            }));
+        });
+
+        Object.keys(historyUIState.batchSearch).forEach(batchId => {
+            if (!visibleBatchIds.has(batchId)) {
+                delete historyUIState.batchSearch[batchId];
+            }
+        });
+        Object.keys(historyUIState.batchSearchDraft).forEach(batchId => {
+            if (!visibleBatchIds.has(batchId)) {
+                delete historyUIState.batchSearchDraft[batchId];
+            }
         });
 
         singleRecords.forEach(record => {
             fragments.push(renderHistoryRecordItem(record));
         });
 
-        listDiv.innerHTML = fragments.join('') || '<div class="text-gray-400 text-center py-8">暂无历史记录</div>';
+        listDiv.innerHTML = fragments.length > 0
+            ? fragments.join('')
+            : '<div class="text-gray-400 text-center py-8">未匹配到符合条件的历史记录</div>';
 
         window.__historyRecordCache = recordCache;
         const batchCache = {};
-        batchMap.forEach((group, batchId) => {
+        fullBatchMap.forEach((group, batchId) => {
+            if (Array.isArray(group)) {
+                group.sort((a, b) => {
+                    const orderA = typeof a.batchOrder === 'number' ? a.batchOrder : (typeof a.batchOriginalIndex === 'number' ? a.batchOriginalIndex + 1 : 0);
+                    const orderB = typeof b.batchOrder === 'number' ? b.batchOrder : (typeof b.batchOriginalIndex === 'number' ? b.batchOriginalIndex + 1 : 0);
+                    if (orderA !== orderB) return orderA - orderB;
+                    return new Date(a.time) - new Date(b.time);
+                });
+            }
             batchCache[batchId] = group;
         });
         window.__historyBatchCache = batchCache;
     }
 
+    function loadUserFolders() {
+        try {
+            const raw = localStorage.getItem(HISTORY_FOLDER_STORAGE_KEY);
+            if (!raw) return [];
+            const parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) return [];
+            return parsed.filter(folder => folder && typeof folder.id === 'string' && typeof folder.name === 'string');
+        } catch (error) {
+            console.warn('加载历史文件夹失败:', error);
+            return [];
+        }
+    }
+
+    function saveUserFolders(folders) {
+        try {
+            const compact = Array.isArray(folders) ? folders.slice() : [];
+            localStorage.setItem(HISTORY_FOLDER_STORAGE_KEY, JSON.stringify(compact));
+        } catch (error) {
+            console.warn('保存历史文件夹失败:', error);
+        }
+    }
+
+    function loadFolderAssignments() {
+        try {
+            const raw = localStorage.getItem(HISTORY_FOLDER_ASSIGNMENT_KEY);
+            if (!raw) return {};
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') {
+                return parsed;
+            }
+        } catch (error) {
+            console.warn('加载历史文件夹分配失败:', error);
+        }
+        return {};
+    }
+
+    function saveFolderAssignments(assignments) {
+        try {
+            localStorage.setItem(HISTORY_FOLDER_ASSIGNMENT_KEY, JSON.stringify(assignments || {}));
+        } catch (error) {
+            console.warn('保存历史文件夹分配失败:', error);
+        }
+    }
+
+    function clearFolderAssignments() {
+        try {
+            localStorage.removeItem(HISTORY_FOLDER_ASSIGNMENT_KEY);
+        } catch (error) {
+            console.warn('清除历史文件夹分配失败:', error);
+        }
+    }
+
+    function generateFolderId() {
+        return 'folder-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
+    }
+
+    function buildAssignableFolderOptions(folderMap) {
+        const options = [{ id: 'uncategorized', name: '未分组' }];
+        if (folderMap && typeof folderMap.forEach === 'function') {
+            folderMap.forEach(folder => {
+                if (folder && typeof folder.id === 'string' && typeof folder.name === 'string') {
+                    options.push({ id: folder.id, name: folder.name });
+                }
+            });
+        }
+        return options;
+    }
+
+    function resolveRecordFolder(recordId, assignmentsOverride) {
+        if (!recordId) return 'uncategorized';
+        const assignments = assignmentsOverride || currentFolderAssignments || {};
+        const assigned = assignments[recordId];
+        if (!assigned || assigned === 'uncategorized') {
+            return 'uncategorized';
+        }
+        return folderExists(assigned) ? assigned : 'uncategorized';
+    }
+
+    function folderExists(folderId) {
+        if (!folderId) return false;
+        if (folderId === 'all' || folderId === 'uncategorized') return true;
+        if (currentUserFolderMap && currentUserFolderMap.has(folderId)) return true;
+        const userFolders = loadUserFolders();
+        return userFolders.some(folder => folder && folder.id === folderId);
+    }
+
+    function recordMatchesQuery(record, queryLower) {
+        if (!queryLower) return true;
+        const safeQuery = String(queryLower).toLowerCase();
+        if (!safeQuery) return true;
+        const pool = [];
+        if (record.name) pool.push(record.name);
+        if (record.relativePath) pool.push(record.relativePath);
+        if (record.batchId) pool.push(record.batchId);
+        if (record.batchTemplate) pool.push(record.batchTemplate);
+        if (record.batchOutputLanguage || record.targetLanguage) pool.push(record.batchOutputLanguage || record.targetLanguage);
+        if (record.ocr) pool.push(record.ocr);
+        if (record.translation) pool.push(record.translation);
+        if (record.file && record.file.pbxRelativePath) pool.push(record.file.pbxRelativePath);
+        for (let i = 0; i < pool.length; i++) {
+            const value = pool[i];
+            if (typeof value === 'string' && value.toLowerCase().includes(safeQuery)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function renderFolderSelect({ scope, ownerId, selectedId, isMixed }) {
+        const options = currentFolderOptions || [];
+        const normalizedScope = scope === 'batch' ? 'batch' : 'record';
+        const normalizedOwner = ownerId || '';
+        const ariaLabel = normalizedScope === 'batch' ? '选择批量任务文件夹' : '选择历史记录文件夹';
+        const effectiveSelected = selectedId && folderExists(selectedId) ? selectedId : 'uncategorized';
+        const selectClasses = 'min-w-[120px] rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300';
+        const optionHtml = options.map(folder => {
+            const value = escapeAttr(folder.id);
+            const isSelected = !isMixed && effectiveSelected === folder.id;
+            return `<option value="${value}" ${isSelected ? 'selected' : ''}>${escapeHtml(folder.name)}</option>`;
+        }).join('');
+        const mixedOption = isMixed ? '<option value="" selected>（多个文件夹）</option>' : '';
+        return `
+            <select class="${selectClasses}" data-history-folder-select="${escapeAttr(normalizedScope)}" data-owner-id="${escapeAttr(normalizedOwner)}" aria-label="${escapeAttr(ariaLabel)}">
+                ${mixedOption}
+                ${optionHtml}
+            </select>
+        `;
+    }
+
+    function renderHistoryFolders(allRecords, assignments, userFolders) {
+        const listEl = document.getElementById('historyFolderList');
+        if (!listEl) return;
+        const records = Array.isArray(allRecords) ? allRecords : [];
+        const counts = new Map();
+        counts.set('all', records.length);
+
+        const validFolderIds = new Set((userFolders || []).map(folder => folder.id));
+        let uncategorizedCount = 0;
+
+        records.forEach(record => {
+            if (!record || !record.id) return;
+            const folderId = resolveRecordFolder(record.id, assignments);
+            if (!folderId || folderId === 'uncategorized' || !validFolderIds.has(folderId)) {
+                uncategorizedCount++;
+                return;
+            }
+            counts.set(folderId, (counts.get(folderId) || 0) + 1);
+        });
+
+        counts.set('uncategorized', uncategorizedCount);
+
+        const fragments = [];
+        fragments.push(renderFolderListItem({ id: 'all', name: '全部记录', count: counts.get('all') || 0, system: true }));
+        fragments.push(renderFolderListItem({ id: 'uncategorized', name: '未分组', count: counts.get('uncategorized') || 0, system: true }));
+
+        const sortedUserFolders = (userFolders || []).slice().sort((a, b) => {
+            return (a.name || '').localeCompare(b.name || '', 'zh-Hans-CN');
+        });
+
+        sortedUserFolders.forEach(folder => {
+            fragments.push(renderFolderListItem({
+                id: folder.id,
+                name: folder.name,
+                count: counts.get(folder.id) || 0,
+                system: false
+            }));
+        });
+
+        listEl.innerHTML = fragments.join('') || '<div class="text-xs text-gray-400 py-4 text-center">暂无文件夹</div>';
+    }
+
+    function renderFolderListItem({ id, name, count, system }) {
+        const isActive = historyUIState.activeFolder === id;
+        const baseClasses = 'group flex items-center justify-between px-2 py-1.5 rounded-lg border transition-colors';
+        const activeClasses = isActive ? 'border-blue-200 bg-blue-50 text-blue-600' : 'border-transparent hover:bg-gray-100 text-gray-700';
+        const title = escapeAttr(name || '未命名');
+        const countBadge = `<span class="ml-2 inline-flex min-w-[1.5rem] justify-center rounded-full bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-500">${typeof count === 'number' ? count : 0}</span>`;
+        const selectButton = `
+            <button type="button" class="flex-1 text-left text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:ring-offset-1" data-folder-action="select" data-folder-id="${escapeAttr(id)}" title="查看${title}">
+                <span>${escapeHtml(name || '未命名')}</span>
+                ${countBadge}
+            </button>`;
+        const actionButtons = system ? '' : `
+            <div class="ml-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                <button type="button" class="rounded p-1 text-gray-400 hover:text-blue-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" data-folder-action="rename" data-folder-id="${escapeAttr(id)}" title="重命名">
+                    <iconify-icon icon="carbon:edit" width="14"></iconify-icon>
+                </button>
+                <button type="button" class="rounded p-1 text-gray-400 hover:text-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300" data-folder-action="delete" data-folder-id="${escapeAttr(id)}" title="删除">
+                    <iconify-icon icon="carbon:trash-can" width="14"></iconify-icon>
+                </button>
+            </div>`;
+        return `<div class="${baseClasses} ${activeClasses}">${selectButton}${actionButtons}</div>`;
+    }
+
+    function handleHistoryFolderAction(event) {
+        const actionEl = event.target.closest('[data-folder-action]');
+        if (!actionEl) return;
+        const action = actionEl.getAttribute('data-folder-action');
+        const folderId = actionEl.getAttribute('data-folder-id');
+        if (!action || !folderId) return;
+        event.preventDefault();
+
+        if (action === 'select') {
+            if (historyUIState.activeFolder !== folderId) {
+                historyUIState.activeFolder = folderId;
+                renderHistoryList();
+            }
+            return;
+        }
+
+        if (folderId === 'all' || folderId === 'uncategorized') {
+            showNotification && showNotification('系统文件夹无法执行该操作。', 'info');
+            return;
+        }
+
+        const userFolders = loadUserFolders();
+        const target = userFolders.find(folder => folder.id === folderId);
+        if (!target) {
+            showNotification && showNotification('未找到目标文件夹。', 'warning');
+            return;
+        }
+
+        if (action === 'rename') {
+            const newName = prompt('修改文件夹名称', target.name || '');
+            if (newName == null) return;
+            const trimmed = newName.trim();
+            if (!trimmed) {
+                showNotification && showNotification('文件夹名称不能为空。', 'warning');
+                return;
+            }
+            if (trimmed.length > MAX_HISTORY_FOLDER_NAME) {
+                showNotification && showNotification(`文件夹名称请控制在 ${MAX_HISTORY_FOLDER_NAME} 个字符以内。`, 'warning');
+                return;
+            }
+            const duplicate = userFolders.some(folder => folder.id !== folderId && folder.name.toLowerCase() === trimmed.toLowerCase());
+            if (duplicate) {
+                showNotification && showNotification('已存在同名文件夹。', 'warning');
+                return;
+            }
+            target.name = trimmed;
+            saveUserFolders(userFolders);
+            showNotification && showNotification('文件夹名称已更新。', 'success');
+            renderHistoryList();
+            return;
+        }
+
+    
+        if (action === 'delete') {
+            if (!confirm(`确定要删除文件夹“${target.name}”吗？文件夹内的记录将回到“未分组”。`)) {
+                return;
+            }
+            const updatedFolders = userFolders.filter(folder => folder.id !== folderId);
+            saveUserFolders(updatedFolders);
+            const assignments = loadFolderAssignments();
+            let modified = false;
+            Object.keys(assignments).forEach(recordId => {
+                if (assignments[recordId] === folderId) {
+                    delete assignments[recordId];
+                    modified = true;
+                }
+            });
+            if (modified) {
+                saveFolderAssignments(assignments);
+            }
+            if (historyUIState.activeFolder === folderId) {
+                historyUIState.activeFolder = 'all';
+            }
+            showNotification && showNotification('文件夹已删除。', 'info');
+            renderHistoryList();
+        }
+    }
+
+    function assignRecordToFolder(recordId, folderId) {
+        if (!recordId) return;
+        const assignments = loadFolderAssignments();
+        const normalized = folderExists(folderId) && folderId !== 'all' ? folderId : 'uncategorized';
+        if (normalized === 'uncategorized') {
+            if (assignments[recordId]) {
+                delete assignments[recordId];
+                saveFolderAssignments(assignments);
+            }
+        } else {
+            assignments[recordId] = normalized;
+            saveFolderAssignments(assignments);
+        }
+    }
+
+    function assignBatchToFolder(batchId, folderId) {
+        if (!batchId) return;
+        const cache = window.__historyBatchCache || {};
+        const records = cache[batchId] || [];
+        if (!records.length) return;
+        const assignments = loadFolderAssignments();
+        const normalized = folderExists(folderId) && folderId !== 'all' ? folderId : 'uncategorized';
+        let modified = false;
+        records.forEach(record => {
+            if (!record || !record.id) return;
+            if (normalized === 'uncategorized') {
+                if (assignments[record.id]) {
+                    delete assignments[record.id];
+                    modified = true;
+                }
+            } else if (assignments[record.id] !== normalized) {
+                assignments[record.id] = normalized;
+                modified = true;
+            }
+        });
+        if (modified) {
+            saveFolderAssignments(assignments);
+        }
+    }
+
+    function removeFolderAssignmentForRecord(recordId) {
+        if (!recordId) return;
+        const assignments = loadFolderAssignments();
+        if (assignments && assignments[recordId]) {
+            delete assignments[recordId];
+            saveFolderAssignments(assignments);
+        }
+    }
+
+    function handleHistoryListInput(event) {
+        const target = event.target;
+        if (!target) return;
+        if (target.hasAttribute('data-history-batch-search-input')) {
+            const batchId = target.getAttribute('data-batch-id');
+            if (!batchId) return;
+            historyUIState.batchSearchDraft[batchId] = target.value || '';
+        }
+    }
+
+    function handleHistoryListKeydown(event) {
+        if (event.key !== 'Enter') return;
+        const target = event.target;
+        if (!target || !target.hasAttribute('data-history-batch-search-input')) return;
+        event.preventDefault();
+        const batchId = target.getAttribute('data-batch-id');
+        if (!batchId) return;
+        const value = target.value || '';
+        historyUIState.batchSearchDraft[batchId] = value;
+        const normalized = value.trim();
+        if (normalized) {
+            historyUIState.batchSearch[batchId] = normalized;
+            historyUIState.batchSearchDraft[batchId] = normalized;
+        } else {
+            delete historyUIState.batchSearch[batchId];
+            delete historyUIState.batchSearchDraft[batchId];
+        }
+        renderHistoryList();
+    }
+
     const DEFAULT_EXPORT_TEMPLATE = '{original_name}_{output_language}_{processing_time:YYYYMMDD-HHmmss}.{original_type}';
     const DEFAULT_EXPORT_FORMATS = ['original', 'markdown'];
-    const SUPPORTED_EXPORT_FORMATS = ['original', 'markdown', 'html', 'docx', 'pdf'];
+    const SUPPORTED_EXPORT_FORMATS = ['original', 'markdown', 'html', 'docx'];
     const TEXTUAL_ORIGINAL_EXTENSIONS = new Set(['txt', 'md', 'markdown', 'yaml', 'yml', 'json', 'csv', 'ini', 'cfg', 'log', 'tex', 'html', 'htm']);
     const PACKAGING_OPTIONS = {
         preserve: 'preserve',
         flat: 'flat'
     };
+    const ICON_BUTTON_CLASS = 'inline-flex items-center justify-center w-9 h-9 rounded-full border border-slate-200 bg-white text-gray-500 hover:text-blue-600 hover:border-blue-200 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-1';
+    const ICON_BUTTON_DANGER_EXTRA = 'hover:text-red-500 hover:border-red-200 focus:ring-red-300';
+    const ICON_BUTTON_SUCCESS_EXTRA = 'hover:text-emerald-500 hover:border-emerald-200 focus:ring-emerald-300';
 
     const historyListElement = document.getElementById('historyList');
     if (historyListElement) {
         historyListElement.addEventListener('click', handleHistoryListAction);
         historyListElement.addEventListener('change', handleHistoryListChange);
+        historyListElement.addEventListener('input', handleHistoryListInput);
+        historyListElement.addEventListener('keydown', handleHistoryListKeydown);
     }
 
-    function renderBatchGroupItem(batchId, records) {
+    function renderBatchGroupItem(batchId, records, options = {}) {
         const safeBatchId = sanitizeId(batchId || 'batch');
         const representative = records[0] || {};
         const summaryName = representative.name || batchId || '批量任务';
         const timeLabel = formatDisplayTime(representative.time);
         const targetLang = representative.batchOutputLanguage || representative.targetLanguage || '';
         const template = representative.batchTemplate || DEFAULT_EXPORT_TEMPLATE;
-        const formats = Array.isArray(representative.batchFormats) && representative.batchFormats.length > 0
+        const rawBatchFormats = Array.isArray(representative.batchFormats) && representative.batchFormats.length > 0
             ? Array.from(new Set(['original', ...representative.batchFormats]))
             : DEFAULT_EXPORT_FORMATS;
+        let formats = rawBatchFormats.filter(fmt => SUPPORTED_EXPORT_FORMATS.includes(fmt));
+        if (formats.length === 0) {
+            formats = [...DEFAULT_EXPORT_FORMATS];
+        }
         const zipEnabled = typeof representative.batchZip === 'boolean' ? representative.batchZip : false;
         const structure = representative.batchZipStructure || PACKAGING_OPTIONS.preserve;
 
         const childrenHtml = records.map(record => renderHistoryRecordItem(record, { withinBatch: true, batchId })).join('');
         const configId = `batch-export-config-${safeBatchId}`;
+        const activeSearchValue = typeof options.searchValue === 'string' ? options.searchValue : '';
+        const hasDraftValue = Object.prototype.hasOwnProperty.call(historyUIState.batchSearchDraft, batchId);
+        const draftValueRaw = hasDraftValue ? historyUIState.batchSearchDraft[batchId] : activeSearchValue;
+        const draftValue = typeof draftValueRaw === 'string' ? draftValueRaw : '';
+        const folderIds = Array.isArray(options.folderIds) ? options.folderIds.filter(Boolean) : [];
+        const firstFolderId = folderIds.length > 0 ? folderIds[0] : resolveRecordFolder(representative.id, currentFolderAssignments);
+        const isMixedFolder = folderIds.length > 0 ? !folderIds.every(id => id === firstFolderId) : false;
+        const folderSelectHtml = renderFolderSelect({
+            scope: 'batch',
+            ownerId: batchId,
+            selectedId: isMixedFolder ? null : firstFolderId,
+            isMixed: isMixedFolder
+        });
+        const isOpen = !!options.isOpen;
+        const openAttr = isOpen ? ' open' : '';
+        const batchSearchInput = `
+            <div class="relative w-full max-w-xs">
+                <iconify-icon icon="carbon:search" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" width="16"></iconify-icon>
+                <input type="search" value="${escapeAttr(draftValue)}" placeholder="搜索此批量任务" data-history-batch-search-input data-batch-id="${escapeAttr(batchId)}" class="w-full rounded-md border border-gray-200 bg-white pl-8 pr-3 py-1.5 text-xs text-gray-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300" autocomplete="off">
+            </div>`;
+        const batchExportBtn = `
+            <button type="button" class="${ICON_BUTTON_CLASS}" data-history-action="open-batch-export" data-batch-id="${escapeAttr(batchId)}" data-target="${configId}" aria-label="配置导出" title="配置导出">
+                <iconify-icon icon="carbon:share" width="18"></iconify-icon>
+            </button>`;
+        const batchDeleteBtn = `
+            <button type="button" class="${ICON_BUTTON_CLASS} ${ICON_BUTTON_DANGER_EXTRA}" data-history-action="delete-batch" data-batch-id="${escapeAttr(batchId)}" aria-label="删除批量任务" title="删除批量任务">
+                <iconify-icon icon="carbon:trash-can" width="18"></iconify-icon>
+            </button>`;
+        const batchSearchApplyBtn = `
+            <button type="button" class="${ICON_BUTTON_CLASS}" data-history-action="apply-batch-search" data-batch-id="${escapeAttr(batchId)}" aria-label="应用搜索" title="应用搜索">
+                <iconify-icon icon="carbon:search" width="18"></iconify-icon>
+            </button>`;
+        const batchSearchControls = `
+            <div class="flex items-center gap-2">
+                ${batchSearchInput}
+                ${batchSearchApplyBtn}
+            </div>`;
+        const batchHeaderTools = `
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-3">
+                <div class="flex items-center gap-2 text-xs text-gray-600">
+                    <span class="font-medium text-gray-600">文件夹</span>
+                    ${folderSelectHtml}
+                </div>
+                ${batchSearchControls}
+            </div>`;
+        const batchChildrenHtml = childrenHtml || (activeSearchValue.trim()
+            ? '<div class="text-xs text-gray-500">未找到符合搜索条件的记录。</div>'
+            : '<div class="text-xs text-gray-500">暂无记录</div>');
 
         return `
-        <details class="history-batch-group border border-blue-200 bg-blue-50/60 rounded-lg mb-3" data-batch-id="${escapeAttr(batchId)}">
-            <summary class="cursor-pointer select-none px-3 py-2">
-                <div class="flex flex-col gap-1">
-                    <div class="flex justify-between items-center">
-                        <span class="text-sm font-semibold text-gray-800 flex items-center gap-2">
-                            <span>批量任务</span>
-                            <span class="text-blue-600">${escapeHtml(summaryName)}</span>
-                            <span class="text-[11px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">${records.length} 个文件</span>
-                        </span>
-                        <span class="text-xs text-gray-500">${timeLabel}${targetLang ? ` · 语言：${escapeHtml(targetLang)}` : ''}</span>
-                    </div>
-                    <div class="flex flex-wrap gap-2 text-xs text-gray-600">
-                        <button type="button" class="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600" data-history-action="open-batch-export" data-batch-id="${escapeAttr(batchId)}" data-target="${configId}">导出</button>
-                        <button type="button" class="px-2 py-1 border border-gray-300 rounded hover:bg-gray-100 text-gray-600" data-history-action="delete-batch" data-batch-id="${escapeAttr(batchId)}">删除</button>
-                    </div>
+        <details class="history-batch-group border border-slate-200 bg-white rounded-xl shadow-sm mb-4 overflow-hidden hover:border-blue-200 hover:shadow-md transition" data-batch-id="${escapeAttr(batchId)}"${openAttr}>
+            <summary class="cursor-pointer select-none px-4 py-3 bg-slate-50">
+                <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <span class="text-sm font-semibold text-gray-800 flex flex-wrap items-center gap-2">
+                        <span>批量任务</span>
+                        <span class="text-blue-600">${escapeHtml(summaryName)}</span>
+                        <span class="text-[11px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">${records.length} 个文件</span>
+                    </span>
+                    <span class="text-xs text-gray-500">${timeLabel}${targetLang ? ` · 语言：${escapeHtml(targetLang)}` : ''}</span>
+                </div>
+                <div class="mt-2 flex flex-wrap gap-2 text-xs text-gray-600 md:text-sm">
+                    ${batchExportBtn}
+                    ${batchDeleteBtn}
                 </div>
             </summary>
-            <div class="px-3 pb-3 space-y-2">
+            <div class="px-4 pb-4 space-y-3 bg-white">
+                ${batchHeaderTools}
                 ${renderExportConfigPanel({
                     id: configId,
                     scope: 'batch',
@@ -165,7 +906,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     structure,
                     withinBatch: true
                 })}
-                ${childrenHtml || '<div class="text-xs text-gray-500">暂无记录</div>'}
+                ${batchChildrenHtml}
             </div>
         </details>
         `;
@@ -182,36 +923,71 @@ document.addEventListener('DOMContentLoaded', function() {
         const targetLang = record.batchOutputLanguage || record.targetLanguage || '';
         const relativePathLabel = buildRelativePathLabel(record);
         const template = record.batchTemplate || DEFAULT_EXPORT_TEMPLATE;
-        const formats = Array.isArray(record.batchFormats) && record.batchFormats.length > 0
+        const rawFormats = Array.isArray(record.batchFormats) && record.batchFormats.length > 0
             ? Array.from(new Set(['original', ...record.batchFormats]))
             : DEFAULT_EXPORT_FORMATS;
+        let formats = rawFormats.filter(fmt => SUPPORTED_EXPORT_FORMATS.includes(fmt));
+        if (formats.length === 0) {
+            formats = [...DEFAULT_EXPORT_FORMATS];
+        }
         const zipEnabled = typeof record.batchZip === 'boolean' ? record.batchZip : false;
         const structure = record.batchZipStructure || PACKAGING_OPTIONS.preserve;
         const configId = `record-export-config-${safeId}${options.batchId ? `-${sanitizeId(options.batchId)}` : ''}`;
         const retryDisabled = status.failed === 0 ? 'disabled opacity-50 cursor-not-allowed' : '';
+        const folderId = resolveRecordFolder(record.id, currentFolderAssignments);
+        const folderSelectHtml = renderFolderSelect({
+            scope: 'record',
+            ownerId: record.id,
+            selectedId: folderId,
+            isMixed: false
+        });
+        const escapedRecordId = escapeAttr(record.id || '');
+        const exportBtnHtml = `
+            <button type="button" class="${ICON_BUTTON_CLASS}" data-history-action="open-record-export" data-record-id="${escapeAttr(record.id)}" data-target="${configId}" aria-label="配置导出" title="配置导出">
+                <iconify-icon icon="carbon:share" width="18"></iconify-icon>
+            </button>`;
+        const downloadBtnHtml = `
+            <button type="button" class="${ICON_BUTTON_CLASS} ${ICON_BUTTON_SUCCESS_EXTRA}" onclick="downloadHistoryRecord('${escapedRecordId}')" aria-label="下载记录" title="下载记录">
+                <iconify-icon icon="carbon:download" width="18"></iconify-icon>
+            </button>`;
+        const recordDisplayName = record.name || relativePathLabel || record.id || '历史记录';
+        const escapedRecordNameAttr = escapeAttr(recordDisplayName);
+        const deleteBtnHtml = withinBatch ? '' : `
+            <button type="button" class="${ICON_BUTTON_CLASS} ${ICON_BUTTON_DANGER_EXTRA}" data-history-action="delete-record" data-record-id="${escapedRecordId}" data-record-name="${escapedRecordNameAttr}" aria-label="删除记录" title="删除记录">
+                <iconify-icon icon="carbon:trash-can" width="18"></iconify-icon>
+            </button>`;
+        const startReadingBtnHtml = `
+            <button type="button" class="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1" onclick="showHistoryDetail('${escapedRecordId}')">
+                <iconify-icon icon="carbon:document-view" width="18"></iconify-icon>
+                <span>开始阅读</span>
+            </button>`;
 
         const containerClasses = withinBatch
-            ? 'border border-gray-200 rounded-lg p-3 bg-white'
-            : 'border border-gray-200 rounded-lg p-4 bg-white shadow-sm';
+            ? 'border border-slate-200 rounded-xl p-3 bg-white shadow-sm hover:border-blue-200 transition'
+            : 'border border-slate-200 rounded-xl p-4 bg-white shadow-sm hover:border-blue-200 hover:shadow-md transition';
 
         return `
         <div class="${containerClasses}" id="history-item-${safeId}" data-record-id="${escapeAttr(record.id)}">
             <div class="flex flex-col gap-1">
-                <div class="flex justify-between items-start gap-2">
+                <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-4">
                     <div class="min-w-0">
-                        <div class="text-sm font-semibold text-gray-800 flex items-center gap-2 break-all">
-                            ${escapeHtml(record.name || '未命名')} ${statusBadge}
+                        <div class="text-sm font-semibold text-gray-800 flex flex-wrap items-center gap-2 break-all">
+                            <span>${escapeHtml(record.name || '未命名')}</span> ${statusBadge}
                         </div>
                         <div class="text-xs text-gray-500 mt-1">
                             ${timeLabel}${targetLang ? ` · 语言：${escapeHtml(targetLang)}` : ''}
                             ${relativePathLabel ? ` · <span title="${escapeAttr(relativePathLabel)}">${escapeHtml(relativePathLabel)}</span>` : ''}
                         </div>
+                        <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                            <span class="font-medium text-gray-600">文件夹</span>
+                            ${folderSelectHtml}
+                        </div>
                     </div>
-                    <div class="flex flex-wrap gap-2 text-xs text-gray-600 justify-end">
-                        <button type="button" class="px-2 py-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100" data-history-action="open-record-export" data-record-id="${escapeAttr(record.id)}" data-target="${configId}">导出</button>
-                        <button type="button" class="px-2 py-1 border border-gray-200 rounded hover:bg-gray-100" onclick="showHistoryDetail('${record.id}')">详情</button>
-                        <button type="button" class="px-2 py-1 border border-gray-200 rounded hover:bg-gray-100 text-green-600" onclick="downloadHistoryRecord('${record.id}')">下载</button>
-                        ${withinBatch ? '' : `<button type="button" class="px-2 py-1 border border-gray-200 rounded hover:bg-gray-100 text-red-500" onclick="deleteHistoryRecord('${record.id}')">删除</button>`}
+                    <div class="flex flex-wrap gap-2 text-xs text-gray-600 justify-end md:text-sm items-center">
+                        ${exportBtnHtml}
+                        ${startReadingBtnHtml}
+                        ${downloadBtnHtml}
+                        ${deleteBtnHtml}
                     </div>
                 </div>
                 <div class="text-xs text-gray-600 break-words">OCR：${ocrSnippet}</div>
@@ -240,7 +1016,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const formatOptions = SUPPORTED_EXPORT_FORMATS.map(fmt => {
             const checked = formats.includes(fmt) ? 'checked' : '';
             const label = fmt === 'original' ? '原格式' : fmt.toUpperCase();
-            return `<label class="flex items-center space-x-2"><input type="checkbox" value="${fmt}" ${checked} data-config-format="${fmt}" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"><span>${label}</span></label>`;
+            return `<label class="inline-flex items-center gap-2 px-3 py-1.5 border border-slate-200 rounded-full bg-white shadow-sm"><input type="checkbox" value="${fmt}" ${checked} data-config-format="${fmt}" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"><span>${label}</span></label>`;
         }).join('');
 
         const sectionClasses = withinBatch ? 'mt-2 hidden border border-dashed border-blue-200 bg-white rounded-lg p-3' : 'mt-3 hidden border border-dashed border-gray-200 bg-gray-50 rounded-lg p-3';
@@ -257,24 +1033,25 @@ document.addEventListener('DOMContentLoaded', function() {
                 命名模板
                 <input type="text" class="mt-1 w-full border border-gray-200 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-blue-400 focus:border-blue-400" value="${escapeAttr(template || DEFAULT_EXPORT_TEMPLATE)}" data-config-template>
             </label>
-            <div class="flex flex-col gap-2 text-xs text-gray-700" data-config-formats>
+            <div class="flex flex-wrap items-center gap-3 text-xs text-gray-700" data-config-formats>
                 ${formatOptions}
             </div>
-            <div class="mt-3 text-xs text-gray-600" data-config-structure-group>
-                <span class="block mb-1">ZIP 结构</span>
-                <label class="flex items-center space-x-2">
+            <div class="mt-3 flex flex-wrap items-center gap-3 text-xs text-gray-600" data-config-structure-group>
+                <span class="font-medium text-gray-600">ZIP 结构</span>
+                <label class="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-gray-200 bg-white">
                     <input type="radio" name="pack-structure-${id}" value="preserve" ${preserveChecked} data-config-structure>
                     <span>保留原始目录结构</span>
                 </label>
-                <label class="flex items-center space-x-2">
+                <label class="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-gray-200 bg-white">
                     <input type="radio" name="pack-structure-${id}" value="flat" ${flatChecked} data-config-structure>
                     <span>原文/译文分组，不保留目录</span>
                 </label>
+                <span class="hidden h-4 w-px bg-gray-200 sm:block"></span>
+                <label class="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-gray-200 bg-white ${zipDisabledAttr ? 'opacity-60 cursor-not-allowed' : ''}">
+                    <input type="checkbox" ${zipCheckedAttr} ${zipDisabledAttr} data-config-zip class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                    <span>导出为 ZIP（某些结构将自动启用）</span>
+                </label>
             </div>
-            <label class="mt-3 flex items-center space-x-2 text-xs text-gray-600">
-                <input type="checkbox" ${zipCheckedAttr} ${zipDisabledAttr} data-config-zip class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
-                <span>导出为 ZIP（某些结构将自动启用）</span>
-            </label>
             <div class="mt-3 flex items-center gap-2">
                 <button type="button" class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700" data-history-action="confirm-${scope}-export" data-owner-id="${escapeAttr(ownerId)}" data-target="${id}">确认导出</button>
                 <button type="button" class="px-3 py-1 border border-gray-200 rounded text-gray-600 hover:bg-gray-100" data-history-action="cancel-config" data-target="${id}">取消</button>
@@ -375,6 +1152,30 @@ document.addEventListener('DOMContentLoaded', function() {
                     togglePanelVisibility(panel);
                     break;
                 }
+                case 'delete-record': {
+                    const recordId = actionButton.getAttribute('data-record-id');
+                    if (!recordId) break;
+                    const recordName = actionButton.getAttribute('data-record-name') || '';
+                    openHistoryClearModal('record', { recordId, recordName });
+                    break;
+                }
+                case 'apply-batch-search': {
+                    const batchId = actionButton.getAttribute('data-batch-id');
+                    if (!batchId) break;
+                    const draftValue = Object.prototype.hasOwnProperty.call(historyUIState.batchSearchDraft, batchId)
+                        ? historyUIState.batchSearchDraft[batchId]
+                        : (historyUIState.batchSearch[batchId] || '');
+                    const normalized = (draftValue || '').trim();
+                    if (normalized) {
+                        historyUIState.batchSearch[batchId] = normalized;
+                        historyUIState.batchSearchDraft[batchId] = normalized;
+                    } else {
+                        delete historyUIState.batchSearch[batchId];
+                        delete historyUIState.batchSearchDraft[batchId];
+                    }
+                    renderHistoryList();
+                    break;
+                }
                 case 'cancel-config': {
                     const panel = targetId ? document.getElementById(targetId) : null;
                     if (panel) {
@@ -443,6 +1244,21 @@ document.addEventListener('DOMContentLoaded', function() {
     function handleHistoryListChange(event) {
         const target = event.target;
         if (!target) return;
+
+        if (target.hasAttribute('data-history-folder-select')) {
+            const scope = target.getAttribute('data-history-folder-select');
+            const selectedFolder = target.value || 'uncategorized';
+            if (scope === 'record') {
+                const recordId = target.getAttribute('data-owner-id');
+                assignRecordToFolder(recordId, selectedFolder);
+                renderHistoryList();
+            } else if (scope === 'batch') {
+                const batchId = target.getAttribute('data-owner-id');
+                assignBatchToFolder(batchId, selectedFolder);
+                renderHistoryList();
+            }
+            return;
+        }
 
         if (target.hasAttribute('data-config-structure')) {
             const panel = target.closest('[data-config-scope]');
@@ -958,6 +1774,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!records || !records.length) return;
         for (const record of records) {
             await deleteResultFromDB(record.id);
+            removeFolderAssignmentForRecord(record.id);
         }
     }
 
@@ -969,9 +1786,8 @@ document.addEventListener('DOMContentLoaded', function() {
      * @param {string} id - 要删除的历史记录的唯一 ID (通常是 `result.id`)。
      * @returns {Promise<void>} 当删除和列表刷新完成后解决。
      */
-    window.deleteHistoryRecord = async function(id) {
-        await deleteResultFromDB(id);
-        await renderHistoryList();
+    window.deleteHistoryRecord = function(id, name) {
+        openHistoryClearModal('record', { recordId: id, recordName: name || '' });
     };
 
     /**

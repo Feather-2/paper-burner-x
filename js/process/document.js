@@ -296,10 +296,43 @@ async function translateLongDocument(
             modelConfig.modelId,        // 使用传入的 modelConfig
             modelConfig.requestFormat,  // 使用传入的 modelConfig
             modelConfig.temperature,
-            modelConfig.max_tokens
+            modelConfig.max_tokens,
+            {
+                endpointMode: modelConfig.endpointMode || 'auto'
+            }
         );
     } else {
         // 预设模型
+        const settingsForModels = typeof loadSettings === 'function' ? loadSettings() : {};
+        const customModelSettings = settingsForModels && settingsForModels.customModelSettings ? settingsForModels.customModelSettings : {};
+        let temperature = 0.5;
+        if (customModelSettings.temperature !== undefined && customModelSettings.temperature !== null && customModelSettings.temperature !== '') {
+            const parsedTemp = parseFloat(customModelSettings.temperature);
+            if (!Number.isNaN(parsedTemp)) {
+                temperature = parsedTemp;
+            }
+        }
+        let maxTokens = 8000;
+        if (customModelSettings.max_tokens !== undefined && customModelSettings.max_tokens !== null && customModelSettings.max_tokens !== '') {
+            const parsedMax = parseInt(customModelSettings.max_tokens, 10);
+            if (!Number.isNaN(parsedMax) && parsedMax > 0) {
+                maxTokens = parsedMax;
+            }
+        }
+
+        let geminiEndpointDynamic = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+        try {
+            if (typeof loadModelConfig === 'function') {
+                const gcfg = loadModelConfig('gemini');
+                const preferred = gcfg && (gcfg.preferredModelId || gcfg.modelId);
+                if (preferred && typeof preferred === 'string' && preferred.trim()) {
+                    geminiEndpointDynamic = `https://generativelanguage.googleapis.com/v1beta/models/${preferred.trim()}:generateContent`;
+                }
+            }
+        } catch (e) {
+            console.warn('加载 Gemini 配置失败，将在长文档翻译中使用默认模型。', e);
+        }
+
         let deeplxEndpointTemplate = 'https://api.deeplx.org/<api-key>/translate';
         try {
             if (typeof loadModelConfig === 'function') {
@@ -331,8 +364,124 @@ async function translateLongDocument(
                     messages: [
                         { role: "system", content: sys },
                         { role: "user", content: user }
-                    ]
+                    ],
+                    temperature: temperature,
+                    max_tokens: maxTokens
                 }),
+                responseExtractor: (data) => data?.choices?.[0]?.message?.content
+            },
+            "deepseek": {
+                endpoint: "https://api.deepseek.com/v1/chat/completions",
+                modelName: "DeepSeek",
+                headers: { "Content-Type": "application/json" },
+                bodyBuilder: (sys, user) => {
+                    let modelId = 'deepseek-chat';
+                    try { const cfg = loadModelConfig && loadModelConfig('deepseek'); if (cfg && (cfg.preferredModelId || cfg.modelId)) modelId = cfg.preferredModelId || cfg.modelId; } catch (_) {}
+                    return {
+                        model: modelId,
+                        messages: [
+                            { role: "system", content: sys },
+                            { role: "user", content: user }
+                        ],
+                        temperature: temperature,
+                        max_tokens: maxTokens
+                    };
+                },
+                responseExtractor: (data) => data?.choices?.[0]?.message?.content
+            },
+            "gemini": {
+                endpoint: geminiEndpointDynamic,
+                modelName: "Google Gemini",
+                headers: { "Content-Type": "application/json" },
+                bodyBuilder: (sys, user) => ({
+                    contents: [
+                        {
+                            role: "user",
+                            parts: [{ text: `${sys}\n\n${user}` }]
+                        }
+                    ],
+                    generationConfig: {
+                        temperature: temperature,
+                        maxOutputTokens: maxTokens
+                    }
+                }),
+                responseExtractor: (data) => {
+                    if (data?.candidates && data.candidates.length > 0 && data.candidates[0].content) {
+                        const parts = data.candidates[0].content.parts;
+                        return parts && parts.length > 0 ? parts[0].text : '';
+                    }
+                    return '';
+                }
+            },
+            "gemini-preview": {
+                endpoint: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent",
+                modelName: "Google gemini-2.5-flash-preview-05-20",
+                headers: { "Content-Type": "application/json" },
+                bodyBuilder: (sys, user) => ({
+                    contents: [
+                        {
+                            role: "user",
+                            parts: [{ text: `${sys}\n\n${user}` }]
+                        }
+                    ],
+                    generationConfig: {
+                        temperature: temperature,
+                        maxOutputTokens: maxTokens,
+                        responseModalities: ["TEXT"],
+                        responseMimeType: "text/plain"
+                    }
+                }),
+                responseExtractor: (data) => {
+                    if (data?.candidates && data.candidates.length > 0 && data.candidates[0].content) {
+                        const parts = data.candidates[0].content.parts;
+                        return parts && parts.length > 0 ? parts[0].text : '';
+                    }
+                    return '';
+                }
+            },
+            "tongyi": {
+                endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+                modelName: "通义百炼",
+                headers: { "Content-Type": "application/json" },
+                bodyBuilder: (sys, user) => {
+                    let modelId = 'qwen-turbo-latest';
+                    try { const cfg = loadModelConfig && loadModelConfig('tongyi'); if (cfg && (cfg.preferredModelId || cfg.modelId)) modelId = cfg.preferredModelId || cfg.modelId; } catch (_) {}
+                    const isQwenMT = typeof modelId === 'string' && modelId.toLowerCase().includes('qwen-mt');
+                    const mergedContent = isQwenMT ? `${sys}\n\n${user}`.trim() : null;
+                    return {
+                        model: modelId,
+                        messages: isQwenMT
+                            ? [
+                                { role: "user", content: mergedContent }
+                            ]
+                            : [
+                                { role: "system", content: sys },
+                                { role: "user", content: user }
+                            ],
+                        temperature: temperature,
+                        max_tokens: maxTokens,
+                        enable_thinking: false
+                    };
+                },
+                responseExtractor: (data) => data?.choices?.[0]?.message?.content
+            },
+            "volcano": {
+                endpoint: "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+                modelName: "火山引擎",
+                headers: { "Content-Type": "application/json" },
+                bodyBuilder: (sys, user) => {
+                    let modelId = 'doubao-1-5-pro-32k-250115';
+                    try { const cfg = loadModelConfig && loadModelConfig('volcano'); if (cfg && (cfg.preferredModelId || cfg.modelId)) modelId = cfg.preferredModelId || cfg.modelId; } catch (_) {}
+                    return {
+                        model: modelId,
+                        messages: [
+                            { role: "system", content: sys },
+                            { role: "user", content: user }
+                        ],
+                        temperature: temperature,
+                        max_tokens: Math.min(maxTokens, 16384)
+                    };
+                },
                 responseExtractor: (data) => data?.choices?.[0]?.message?.content
             },
             "deeplx": {
@@ -379,8 +528,8 @@ async function translateLongDocument(
                     return null;
                 }
             }
-            // 其他模型配置可补充...
         };
+
         if (!predefinedConfigs[model]) {
             throw new Error(`暂不支持模型 ${model} 的长文档处理。`);
         }

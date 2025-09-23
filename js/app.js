@@ -1023,21 +1023,33 @@ async function extractFilesFromZip(zipFile, options = {}) {
 
 async function extractFilesFromDataTransfer(dataTransfer) {
     if (!dataTransfer) return [];
-    const items = dataTransfer.items;
-    if (items && items.length > 0 && items[0].webkitGetAsEntry) {
-        const promises = [];
-        for (let i = 0; i < items.length; i++) {
-            const entry = items[i].webkitGetAsEntry && items[i].webkitGetAsEntry();
-            if (entry) {
-                promises.push(traverseFileSystemEntry(entry));
-            }
+    const itemsSnapshot = dataTransfer.items ? Array.from(dataTransfer.items) : [];
+    const fallbackSnapshot = dataTransfer.files ? Array.from(dataTransfer.files) : [];
+    const firstItem = itemsSnapshot.length > 0 ? itemsSnapshot[0] : null;
+    const hasEntryApi = firstItem && typeof firstItem.webkitGetAsEntry === 'function';
+
+    if (hasEntryApi) {
+        const entryPromises = [];
+        for (let i = 0; i < itemsSnapshot.length; i++) {
+            const item = itemsSnapshot[i];
+            if (!item || typeof item.webkitGetAsEntry !== 'function') continue;
+            const entry = item.webkitGetAsEntry();
+            if (!entry) continue; // In insecure contexts Chrome returns null – fall back later
+            entryPromises.push(traverseFileSystemEntry(entry));
         }
-        const results = await Promise.all(promises);
-        return results.flat();
+
+        if (entryPromises.length > 0) {
+            const results = await Promise.all(entryPromises);
+            const flattened = results.flat().filter(Boolean);
+            if (flattened.length > 0) {
+                return flattened;
+            }
+            console.warn('extractFilesFromDataTransfer: FileSystemEntry API returned no files, using fallback.');
+        }
     }
-    const fallbackFiles = Array.from(dataTransfer.files || []);
-    fallbackFiles.forEach(file => annotateFileMetadata(file));
-    return fallbackFiles;
+
+    fallbackSnapshot.forEach(file => annotateFileMetadata(file));
+    return fallbackSnapshot;
 }
 
 function refreshFormatFilters() {

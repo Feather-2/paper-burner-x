@@ -763,6 +763,7 @@ async function migrateLegacyCustomConfig() {
             requestFormat: oldCustomConfig.requestFormat || "openai",
             temperature: oldCustomConfig.temperature !== undefined ? oldCustomConfig.temperature : 0.5,
             max_tokens: oldCustomConfig.max_tokens !== undefined ? oldCustomConfig.max_tokens : 8000,
+            endpointMode: 'auto'
         };
 
         // 1. 保存新的源站配置 (通过调用 saveCustomSourceSite 来确保统一处理)

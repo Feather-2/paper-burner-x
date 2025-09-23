@@ -169,7 +169,7 @@ function normalizeGeminiEndpoint(baseUrlInput, modelIdInput, requestFormat) {
     };
 }
 
-function normalizeOpenAIEndpoint(baseApiUrlInput, format) {
+function normalizeOpenAIEndpoint(baseApiUrlInput, format, endpointMode = 'auto', targetSegment) {
     if (!baseApiUrlInput || typeof baseApiUrlInput !== 'string') {
         throw new Error('自定义模型需要提供 API Base URL');
     }
@@ -179,29 +179,40 @@ function normalizeOpenAIEndpoint(baseApiUrlInput, format) {
         throw new Error('自定义模型需要提供 API Base URL');
     }
 
+    const mode = endpointMode || 'auto';
+    const normalizedSegment = (targetSegment
+        ? targetSegment
+        : (format === 'anthropic' ? 'messages' : 'chat/completions'))
+        .replace(/^\/+/, '');
+
     const lower = trimmed.toLowerCase();
     const base = trimmed.replace(/\/+$/, '');
+    const v1Segment = normalizedSegment.startsWith('v1/') ? normalizedSegment : `v1/${normalizedSegment}`;
 
-    if (format === 'anthropic') {
-        if (/\/v1\/messages$/.test(lower) || /\/messages$/.test(lower)) {
-            return base;
-        }
-        if (/\/v1$/.test(lower)) {
-            return joinUrlSegments(base, 'messages');
-        }
-        return joinUrlSegments(base, 'v1/messages');
-    }
+    const terminalPaths = [
+        normalizedSegment,
+        `/${normalizedSegment}`,
+        v1Segment,
+        `/${v1Segment}`
+    ];
 
-    const terminalPaths = ['/chat/completions', '/v1/chat/completions', '/completions', '/v1/completions'];
     if (terminalPaths.some(path => lower.endsWith(path))) {
         return base;
     }
 
-    if (/\/v1$/.test(lower)) {
-        return joinUrlSegments(base, 'chat/completions');
+    if (mode === 'manual') {
+        return base;
     }
 
-    return joinUrlSegments(base, 'v1/chat/completions');
+    if (mode === 'chat') {
+        return joinUrlSegments(base, normalizedSegment);
+    }
+
+    if (/\/v1$/.test(lower)) {
+        return joinUrlSegments(base, normalizedSegment);
+    }
+
+    return joinUrlSegments(base, v1Segment);
 }
 
 
@@ -311,9 +322,10 @@ if (typeof window !== 'undefined') {
  * @param {number} [max_tokens] - (可选) 模型生成的最大 token 数。
  * @returns {Object} 构建好的 API 配置对象，包含 `endpoint`, `modelName`, `headers`, `bodyBuilder`, `responseExtractor`。
  */
-function buildCustomApiConfig(key, baseApiUrlInput, customModelId, customRequestFormat, temperature, max_tokens) {
+function buildCustomApiConfig(key, baseApiUrlInput, customModelId, customRequestFormat, temperature, max_tokens, options = {}) {
     const format = (customRequestFormat || 'openai').toLowerCase();
     let effectiveModelId = (customModelId && customModelId.trim()) || '';
+    const endpointMode = options.endpointMode || 'auto';
 
     let finalApiEndpoint;
     if (format === 'gemini' || format === 'gemini-preview') {
@@ -322,7 +334,7 @@ function buildCustomApiConfig(key, baseApiUrlInput, customModelId, customRequest
         effectiveModelId = geminiInfo.modelName;
     }
     else {
-        finalApiEndpoint = normalizeOpenAIEndpoint(baseApiUrlInput, format);
+        finalApiEndpoint = normalizeOpenAIEndpoint(baseApiUrlInput, format, endpointMode);
     }
 
     const config = {
@@ -624,7 +636,10 @@ async function translateMarkdown(
             modelConfigForCustom.modelId,
             modelConfigForCustom.requestFormat || 'openai',
             modelConfigForCustom.temperature !== undefined ? modelConfigForCustom.temperature : 0.5,
-            modelConfigForCustom.max_tokens !== undefined ? modelConfigForCustom.max_tokens : 8000
+            modelConfigForCustom.max_tokens !== undefined ? modelConfigForCustom.max_tokens : 8000,
+            {
+                endpointMode: modelConfigForCustom.endpointMode || 'auto'
+            }
         );
     } else {
         // 预设模型
@@ -781,14 +796,21 @@ async function translateMarkdown(
                 bodyBuilder: (sys, user) => {
                     let modelId = 'qwen-turbo-latest';
                     try { const cfg = loadModelConfig && loadModelConfig('tongyi'); if (cfg && (cfg.preferredModelId||cfg.modelId)) modelId = cfg.preferredModelId||cfg.modelId; } catch {}
+                    const isQwenMT = typeof modelId === 'string' && modelId.toLowerCase().includes('qwen-mt');
+                    const mergedContent = isQwenMT ? `${sys}\n\n${user}`.trim() : null;
                     return ({
                     model: modelId,
-                    messages: [
-                        { role: "system", content: sys },
-                        { role: "user", content: user }
-                    ],
+                    messages: isQwenMT
+                        ? [
+                            { role: "user", content: mergedContent }
+                        ]
+                        : [
+                            { role: "system", content: sys },
+                            { role: "user", content: user }
+                        ],
                     temperature: temperature,
-                    max_tokens: maxTokens
+                    max_tokens: maxTokens,
+                    enable_thinking: false
                 }); },
                 responseExtractor: (data) => data?.choices?.[0]?.message?.content
             },
