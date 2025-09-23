@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Pure-JavaScript-yellow.svg" alt="JavaScript">
 </div>
 
-![落地页](https://github.com/user-attachments/assets/d18d5b3f-fba7-4ab1-84d8-2fa651209c57)
+<img width="1876" height="864" alt="865ae494-79bb-462c-8ac3-7d819434113e" src="https://github.com/user-attachments/assets/248e9140-d68e-4e8b-9673-e8df00b7a504" />
 
 [落地页](https://paperburner.viwoplus.site/views/landing/landing-page.html)
 
