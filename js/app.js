@@ -1450,6 +1450,7 @@ async function handleProcessClick() {
     const selectedTranslationModelName = settings.selectedTranslationModel;
 
     const requiresMistralKey = pdfFiles.some(file => file.name.toLowerCase().endsWith('.pdf'));
+    const filesToProcess = getActiveFiles();
 
     // 2. 初始化 Key Providers
     let mistralKeyProvider = null;
@@ -1609,7 +1610,6 @@ async function handleProcessClick() {
     let skippedCount = 0;
     let errorCount = 0;
     const pendingIndices = new Set();
-    const filesToProcess = getActiveFiles();
 
     for (let i = 0; i < filesToProcess.length; i++) {
         const file = filesToProcess[i];

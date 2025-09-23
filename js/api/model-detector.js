@@ -25,6 +25,159 @@
  * 前者可能是旧版或过渡版本。在维护时需注意它们之间的功能重叠和最终应该使用的版本。
  */
 
+function appendQueryParamToUrl(urlString, param, value) {
+    try {
+        const url = new URL(urlString);
+        url.searchParams.set(param, value);
+        return url.toString();
+    } catch (error) {
+        const sanitized = urlString.replace(new RegExp(`([?&])${param}=[^&]*`, 'i'), '$1').replace(/[?&]$/, '');
+        const separator = sanitized.includes('?') ? '&' : '?';
+        return `${sanitized}${separator}${encodeURIComponent(param)}=${encodeURIComponent(value)}`;
+    }
+}
+
+function normalizeOpenAIModelsUrl(baseUrlInput) {
+    if (!baseUrlInput || typeof baseUrlInput !== 'string') {
+        throw new Error('API Base URL 不能为空');
+    }
+    let base = baseUrlInput.trim();
+    if (!base) {
+        throw new Error('API Base URL 不能为空');
+    }
+    base = base.replace(/\/+$/, '');
+    const lower = base.toLowerCase();
+
+    if (lower.endsWith('/v1/models') || lower.endsWith('/models')) {
+        return base;
+    }
+    if (lower.endsWith('/v1')) {
+        return `${base}/models`;
+    }
+    return `${base}/v1/models`;
+}
+
+function normalizeGeminiModelsUrl(baseUrlInput) {
+    if (!baseUrlInput || typeof baseUrlInput !== 'string') {
+        throw new Error('Gemini API Base URL 不能为空');
+    }
+    let url;
+    try {
+        url = new URL(baseUrlInput.trim());
+    } catch (error) {
+        try {
+            url = new URL(`https://${baseUrlInput.trim()}`);
+        } catch (_) {
+            throw new Error('Gemini API Base URL 必须包含协议（例如 https://generativelanguage.googleapis.com）');
+        }
+    }
+
+    url.searchParams.delete('key');
+
+    let path = url.pathname || '';
+    if (path.length > 1 && path.endsWith('/')) {
+        path = path.slice(0, -1);
+    }
+
+    if (!path || path === '/') {
+        path = '/v1beta/models';
+    } else if (/\/models\/[^/]+$/i.test(path)) {
+        path = path.replace(/\/models\/[^/]+$/i, '/models');
+    } else if (!/\/models$/i.test(path)) {
+        if (/\/v1beta$/i.test(path) || /\/v1$/i.test(path)) {
+            path = `${path}/models`;
+        } else {
+            path = `${path}/v1beta/models`;
+        }
+    }
+
+    url.pathname = path;
+    url.search = '';
+    return url.toString();
+}
+
+function mapGeminiModelsResponse(modelsArray) {
+    if (!Array.isArray(modelsArray)) return [];
+    return modelsArray
+        .map(model => {
+            if (!model) return null;
+            const fullName = model.name || model.id || '';
+            const id = fullName.includes('/') ? fullName.split('/').pop() : fullName;
+            if (!id) return null;
+            const displayName = model.displayName || model.description || id;
+            return { id, name: displayName };
+        })
+        .filter(Boolean);
+}
+
+function isGeminiFormat(requestFormat, baseUrl) {
+    const formatLower = (requestFormat || '').toLowerCase();
+    if (formatLower === 'gemini' || formatLower === 'gemini-preview') {
+        return true;
+    }
+    if (typeof baseUrl === 'string' && /generativelanguage\.googleapis\.com/i.test(baseUrl)) {
+        return true;
+    }
+    return false;
+}
+
+async function performModelDetection(baseUrlInput, apiKey, requestFormat = 'openai') {
+    if (!baseUrlInput || typeof baseUrlInput !== 'string') {
+        throw new Error('进行模型检测需要有效的 API Base URL。');
+    }
+    if (!apiKey) {
+        throw new Error('进行模型检测需要一个 API Key。');
+    }
+
+    const treatAsGemini = isGeminiFormat(requestFormat, baseUrlInput);
+
+    const normalizedUrl = treatAsGemini
+        ? normalizeGeminiModelsUrl(baseUrlInput)
+        : normalizeOpenAIModelsUrl(baseUrlInput);
+
+    const requestUrl = treatAsGemini
+        ? appendQueryParamToUrl(normalizedUrl, 'key', apiKey)
+        : normalizedUrl;
+
+    const headers = treatAsGemini
+        ? { 'Content-Type': 'application/json' }
+        : { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
+
+    const response = await fetch(requestUrl, {
+        method: 'GET',
+        headers
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API 错误 (${response.status}): ${response.statusText}. ${errorText ? 'Details: ' + errorText.substring(0, 200) : ''}`);
+    }
+
+    const data = await response.json();
+
+    if (treatAsGemini) {
+        const mapped = mapGeminiModelsResponse(data.models);
+        mapped.sort((a, b) => a.name.localeCompare(b.name));
+        return mapped;
+    }
+
+    if (!data || !Array.isArray(data.data)) {
+        throw new Error('API返回格式不符合预期');
+    }
+
+    const popularModels = ['gpt-4', 'gpt-3.5-turbo', 'grok-', 'claude-'];
+    return data.data
+        .filter(model => model && model.id)
+        .sort((a, b) => {
+            const aPriority = popularModels.some(m => a.id.includes(m));
+            const bPriority = popularModels.some(m => b.id.includes(m));
+            if (aPriority && !bPriority) return -1;
+            if (!aPriority && bPriority) return 1;
+            return a.id.localeCompare(b.id);
+        })
+        .map(model => ({ id: model.id, name: model.id, created: model.created }));
+}
+
 let availableModels = []; // 存储通过旧版 detectAvailableModels 函数检测到的可用模型列表。
 let lastSelectedModel = ''; // 保存用户在旧版模型选择器中上次选择或输入的模型ID。
 
@@ -174,50 +327,11 @@ async function detectAvailableModels() {
     }
 
     try {
-        // 构建请求URL，确保URL格式正确
-        let baseUrl = customApiEndpoint.value.trim();
-        if (baseUrl.endsWith('/')) {
-            baseUrl = baseUrl.slice(0, -1);
-        }
+        const requestFormatSelect = document.getElementById('customRequestFormat');
+        const requestFormat = requestFormatSelect ? requestFormatSelect.value : 'openai';
 
-        const modelsUrl = `${baseUrl}/v1/models`;
-
-        // 发送请求
-        const response = await fetch(modelsUrl, {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error(`API错误: ${response.status} ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        if (!data.data || !Array.isArray(data.data)) {
-            throw new Error('API返回格式不符合预期');
-        }
-
-        // 处理响应数据，提取模型ID
-        availableModels = data.data
-            .filter(model => model.id) // 确保有ID
-            .sort((a, b) => {
-                // 优先显示常用模型，否则按字母顺序排序
-                const popularModels = ['gpt-4', 'gpt-3.5-turbo', 'grok-', 'claude-'];
-                const aIsPriority = popularModels.some(m => a.id.includes(m));
-                const bIsPriority = popularModels.some(m => b.id.includes(m));
-
-                if (aIsPriority && !bIsPriority) return -1;
-                if (!aIsPriority && bIsPriority) return 1;
-                return a.id.localeCompare(b.id);
-            })
-            .map(model => ({
-                id: model.id,
-                created: model.created,
-                name: model.id
-            }));
+        const detectedModels = await performModelDetection(customApiEndpoint.value.trim(), apiKey, requestFormat);
+        availableModels = detectedModels.map(model => ({ ...model }));
 
         // 更新UI
         updateModelSelector(availableModels);
@@ -486,7 +600,7 @@ document.addEventListener('DOMContentLoaded', function() {
  * @returns {Promise<Array<Object>>} 返回一个承诺，解析为检测到的模型对象数组 (每个对象包含 `id` 和 `name`)。
  * @throws {Error} 如果检测过程中发生任何错误 (如网络问题、API错误、数据格式错误)。
  */
-async function detectModelsForModal(baseUrl, apiKey) {
+async function detectModelsForModal(baseUrl, apiKey, requestFormat = 'openai') {
     if (!baseUrl) {
         throw new Error('进行模型检测需要有效的 API Base URL。');
     }
@@ -495,48 +609,10 @@ async function detectModelsForModal(baseUrl, apiKey) {
     }
 
     try {
-        let cleanBaseUrl = baseUrl.trim();
-        if (cleanBaseUrl.endsWith('/')) {
-            cleanBaseUrl = cleanBaseUrl.slice(0, -1);
-        }
-        const modelsUrl = `${cleanBaseUrl}/v1/models`;
-
-        const response = await fetch(modelsUrl, {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        if (!response.ok) {
-            const errorData = await response.text(); // 尝试获取更详细的错误信息
-            console.error('API Error during model detection for modal:', response.status, errorData);
-            throw new Error(`API 错误 (${response.status}): ${response.statusText}. ${errorData ? 'Details: ' + errorData.substring(0,100) : ''}`);
-        }
-
-        const data = await response.json();
-        if (!data.data || !Array.isArray(data.data)) {
-            throw new Error('API 返回的模型列表格式不符合预期。');
-        }
-
-        const detectedModels = data.data
-            .filter(model => model.id)
-            .sort((a, b) => {
-                const popularModels = ['gpt-4', 'gpt-3.5-turbo', 'grok-', 'claude-'];
-                const aIsPriority = popularModels.some(m => a.id.includes(m));
-                const bIsPriority = popularModels.some(m => b.id.includes(m));
-                if (aIsPriority && !bIsPriority) return -1;
-                if (!aIsPriority && bIsPriority) return 1;
-                return a.id.localeCompare(b.id);
-            })
-            .map(model => ({ id: model.id, name: model.id })); // 简化为id和name
-
-        return detectedModels; // 返回模型对象数组
-
+        return await performModelDetection(baseUrl, apiKey, requestFormat);
     } catch (error) {
         console.error('模型检测 (弹窗内) 失败:', error);
-        throw error; // 将错误向上抛出，以便调用方处理
+        throw error;
     }
 }
 
@@ -590,39 +666,9 @@ window.modelDetector = {
      * @returns {Promise<Array<Object>>} 返回一个承诺，解析为经过 `processModelsResponse` 处理后的模型对象数组。
      * @throws {Error} 如果 API 请求失败或发生其他错误。
      */
-    async function detectModels(apiEndpoint, apiKey) {
-        // 确保apiEndpoint以"/"结尾
-        if (!apiEndpoint.endsWith('/')) {
-            apiEndpoint += '/';
-        }
-
-        // 去除多余的v1或v1/，将统一添加
-        if (apiEndpoint.endsWith('v1/')) {
-            apiEndpoint = apiEndpoint.substring(0, apiEndpoint.length - 3);
-        }
-        if (apiEndpoint.endsWith('v1')) {
-            apiEndpoint = apiEndpoint.substring(0, apiEndpoint.length - 2);
-        }
-
-        // 构建模型列表API URL
-        const modelsUrl = `${apiEndpoint}v1/models`;
-
+    async function detectModels(apiEndpoint, apiKey, requestFormat = 'openai') {
         try {
-            const response = await fetch(modelsUrl, {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${apiKey}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`API请求失败 (${response.status}): ${errorText}`);
-            }
-
-            const data = await response.json();
-            return processModelsResponse(data);
+            return await performModelDetection(apiEndpoint, apiKey, requestFormat);
         } catch (error) {
             console.error('检测模型时出错:', error);
             throw error;
@@ -698,9 +744,9 @@ window.modelDetector = {
      * @returns {Promise<Array<Object>>} 返回一个承诺，解析为模型对象数组。
      * @throws {Error} 如果模型检测失败。
      */
-    async function detectModelsForModal(apiEndpoint, apiKey) {
+    async function detectModelsForModal(apiEndpoint, apiKey, requestFormat = 'openai') {
         try {
-            return await detectModels(apiEndpoint, apiKey);
+            return await detectModels(apiEndpoint, apiKey, requestFormat);
         } catch (error) {
             console.error('通过模态框检测模型失败:', error);
             throw error;
@@ -718,9 +764,9 @@ window.modelDetector = {
      * @returns {Promise<Array<Object>>} 返回一个承诺，解析为模型对象数组。
      * @throws {Error} 如果模型检测失败。
      */
-    async function detectModelsForSite(apiEndpoint, apiKey) {
+    async function detectModelsForSite(apiEndpoint, apiKey, requestFormat = 'openai') {
         try {
-            return await detectModels(apiEndpoint, apiKey);
+            return await detectModels(apiEndpoint, apiKey, requestFormat);
         } catch (error) {
             console.error('为源站点检测模型失败:', error);
             throw error;

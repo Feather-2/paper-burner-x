@@ -75,6 +75,136 @@ function stripInstructionBlocks(text) {
 }
 
 
+function joinUrlSegments(base, segment) {
+    if (!base) return segment || '';
+    if (!segment) return base;
+    const hasTrailingSlash = base.endsWith('/');
+    const hasLeadingSlash = segment.startsWith('/');
+    if (hasTrailingSlash && hasLeadingSlash) {
+        return base + segment.slice(1);
+    }
+    if (!hasTrailingSlash && !hasLeadingSlash) {
+        return `${base}/${segment}`;
+    }
+    return base + segment;
+}
+
+function appendQueryParam(urlString, param, value) {
+    try {
+        const url = new URL(urlString);
+        url.searchParams.set(param, value);
+        return url.toString();
+    } catch (error) {
+        const sanitized = urlString.replace(new RegExp(`([?&])${param}=[^&]*`, 'i'), '$1').replace(/[?&]$/, '');
+        const separator = sanitized.includes('?') ? '&' : '?';
+        return `${sanitized}${separator}${encodeURIComponent(param)}=${encodeURIComponent(value)}`;
+    }
+}
+
+function extractGeminiModelId(pathname) {
+    if (typeof pathname !== 'string') return null;
+    const match = pathname.match(/\/models\/([^/:]+)(?::generatecontent)?$/i);
+    return match ? match[1] : null;
+}
+
+function normalizeGeminiEndpoint(baseUrlInput, modelIdInput, requestFormat) {
+    if (!baseUrlInput || typeof baseUrlInput !== 'string') {
+        throw new Error('自定义 Gemini 模型需要提供有效的 API 地址');
+    }
+
+    let url;
+    try {
+        url = new URL(baseUrlInput.trim());
+    } catch (error) {
+        try {
+            url = new URL(`https://${baseUrlInput.trim()}`);
+        } catch (_) {
+            throw new Error('Gemini API Base URL 必须包含协议，例如 https://generativelanguage.googleapis.com');
+        }
+    }
+
+    url.searchParams.delete('key');
+
+    let path = url.pathname || '';
+    if (path.length > 1 && path.endsWith('/')) {
+        path = path.slice(0, -1);
+    }
+
+    const defaultModelId = requestFormat === 'gemini-preview'
+        ? 'gemini-2.5-flash-preview-05-20'
+        : 'gemini-2.0-flash';
+
+    const inferredModelId = extractGeminiModelId(path);
+    const resolvedModelId = (modelIdInput && modelIdInput.trim()) || inferredModelId || defaultModelId;
+    const lowerPath = (path || '').toLowerCase();
+    const endsWithGenerate = /:generatecontent$/i.test(lowerPath);
+
+    if (!path || path === '/') {
+        path = `/v1beta/models/${resolvedModelId}:generateContent`;
+    } else if (/\/models\/$/i.test(path)) {
+        path = `${path}${resolvedModelId}:generateContent`;
+    } else if (/\/models$/i.test(path)) {
+        path = `${path}/${resolvedModelId}:generateContent`;
+    } else if (/\/models\/[^/]+$/i.test(path)) {
+        path = path.replace(/\/models\/[^/]+$/i, `/models/${resolvedModelId}`);
+        if (!endsWithGenerate) {
+            path = `${path}:generateContent`;
+        }
+    } else if (/\/v1beta$/i.test(path) || /\/v1$/i.test(path)) {
+        path = `${path}/models/${resolvedModelId}:generateContent`;
+    } else if (!endsWithGenerate) {
+        path = `${path}/v1beta/models/${resolvedModelId}:generateContent`;
+    }
+
+    if (!/:generatecontent$/i.test(path)) {
+        path = `${path}:generateContent`;
+    }
+
+    url.pathname = path;
+    url.search = '';
+
+    return {
+        endpoint: url.toString(),
+        modelName: resolvedModelId
+    };
+}
+
+function normalizeOpenAIEndpoint(baseApiUrlInput, format) {
+    if (!baseApiUrlInput || typeof baseApiUrlInput !== 'string') {
+        throw new Error('自定义模型需要提供 API Base URL');
+    }
+
+    const trimmed = baseApiUrlInput.trim();
+    if (!trimmed) {
+        throw new Error('自定义模型需要提供 API Base URL');
+    }
+
+    const lower = trimmed.toLowerCase();
+    const base = trimmed.replace(/\/+$/, '');
+
+    if (format === 'anthropic') {
+        if (/\/v1\/messages$/.test(lower) || /\/messages$/.test(lower)) {
+            return base;
+        }
+        if (/\/v1$/.test(lower)) {
+            return joinUrlSegments(base, 'messages');
+        }
+        return joinUrlSegments(base, 'v1/messages');
+    }
+
+    const terminalPaths = ['/chat/completions', '/v1/chat/completions', '/completions', '/v1/completions'];
+    if (terminalPaths.some(path => lower.endsWith(path))) {
+        return base;
+    }
+
+    if (/\/v1$/.test(lower)) {
+        return joinUrlSegments(base, 'chat/completions');
+    }
+
+    return joinUrlSegments(base, 'v1/chat/completions');
+}
+
+
 const DEEPLX_LANG_CODE_MAP = {
     'bulgarian': 'BG', 'bg': 'BG', 'български': 'BG', '保加利亚语': 'BG',
     'chinese': 'ZH', 'zh': 'ZH', 'zh-cn': 'ZH', 'zh_cn': 'ZH', '中文': 'ZH', '中文(简体)': 'ZH', '简体中文': 'ZH', 'traditional chinese': 'ZH', 'zh-tw': 'ZH', 'zh_tw': 'ZH', '中文(繁体)': 'ZH', '繁体中文': 'ZH',
@@ -160,21 +290,18 @@ if (typeof window !== 'undefined') {
  * 生成一个完整的、可用于调用自定义翻译 API 的配置对象。
  *
  * 主要逻辑：
- * 1. **基础 URL 处理**：
- *    - 移除 `baseApiUrlInput` 末尾可能存在的斜杠 `/`。
- * 2. **端点构建**：
- *    - `finalApiEndpoint` 初始化为处理后的 `baseApiUrl`。
- *    - 定义一个常见的 OpenAI 兼容路径后缀 `commonPathSuffix` (即 `/v1/chat/completions`)。
- *    - **特殊处理 Gemini**：如果 `customRequestFormat` 是 'gemini' 或 'gemini-preview'，则不追加通用后缀，因为 Gemini 的端点结构不同，通常由用户提供更完整的路径，并且 API 密钥会作为查询参数添加。
- *    - **通用后缀追加**：对于非 Gemini 格式，如果 `baseApiUrl` 尚未包含 `/v1/chat/completions` 或 `/v1/messages` (针对 Anthropic 类接口的简单检查)，则将 `commonPathSuffix` 追加到 `baseApiUrl`。
- * 3. **初始化配置对象**：创建包含 `endpoint`, `modelName`, `headers` (默认 `Content-Type: application/json`), `bodyBuilder`, 和 `responseExtractor` 的 `config` 对象。
- * 4. **根据 `customRequestFormat` 配置特定部分**：
- *    - **'openai'**：设置 `Authorization: Bearer {key}` 头部；定义 `bodyBuilder` 以构建 OpenAI 格式的消息体；定义 `responseExtractor` 以从响应中提取 `choices[0].message.content`。
- *    - **'anthropic'**：设置 `x-api-key: {key}` 和 `anthropic-version: 2023-06-01` 头部；定义 `bodyBuilder` 以构建 Anthropic 格式的消息体（包含 `system` prompt 和 `messages` 数组）；定义 `responseExtractor` 以提取 `content[0].text`。
- *      - *注意*：对于 Anthropic，如果用户提供的 `baseApiUrl` 比较基础（如 `https://api.anthropic.com`），并且未被自动追加 OpenAI 的后缀，则可能需要用户提供更完整的路径（如包含 `/v1/messages`）。
- *    - **'gemini' / 'gemini-preview'**：将 API 密钥作为查询参数 `?key={key}` 追加到 `finalApiEndpoint`；定义 `bodyBuilder` 以构建 Gemini 的 `contents` 结构 (将系统提示和用户提示合并到用户角色的 `parts` 中) 和 `generationConfig`；定义 `responseExtractor` 以提取 `candidates[0].content.parts[0].text`。
- *    - **default (回退)**：如果 `customRequestFormat` 不被显式支持，则默认按 OpenAI 兼容格式处理，并打印警告。设置 `Authorization` 头部，并使用 OpenAI 类似的 `bodyBuilder` 和 `responseExtractor`。
- * 5. **返回配置**：返回构建好的 `config` 对象。
+ * 1. **格式归一化**：根据 `customRequestFormat` 统一为小写格式，默认视为 `openai`。
+ * 2. **端点规范化**：
+ *    - 对于 OpenAI 兼容（含默认）与 Anthropic 格式，使用 `normalizeOpenAIEndpoint` 根据格式智能拼接 `/v1/chat/completions` 或 `/v1/messages` 等常用后缀，避免重复追加。
+ *    - 对于 Gemini (`gemini` / `gemini-preview`)，通过 `normalizeGeminiEndpoint` 解析或自动补全 `/v1beta/models/{modelId}:generateContent` 路径，并移除可能残留的 `key` 查询参数。
+ *    - Gemini 端点会在后续步骤中附加 `?key={API Key}` 查询参数。
+ * 3. **配置对象初始化**：创建包含 `endpoint`, `modelName`, `headers`, `bodyBuilder`, `responseExtractor` 的配置。
+ * 4. **按格式生成请求构造器与响应解析器**：
+ *    - `openai`：使用 Bearer Token 认证，构建传统聊天补全请求体，并从 `choices[0].message.content` 中提取结果。
+ *    - `anthropic`：设置 `x-api-key` 与 `anthropic-version` 头部，构建 Claude 兼容消息体，从 `content[0].text` 中提取结果。
+ *    - `gemini` / `gemini-preview`：将系统提示与用户提示合并到 Gemini `contents` 结构，配置 `generationConfig`，并从 `candidates[0].content.parts[0].text` 中提取结果（预览版本额外指定 `responseModalities`）。
+ *    - 其他未知格式：回退到 OpenAI 兼容请求结构并发出警告。
+ * 5. **返回配置**：最终返回可直接用于请求翻译 API 的配置对象。
  *
  * @param {string} key - API 密钥。
  * @param {string} baseApiUrlInput - 用户提供的 API 基础 URL (例如 `https://api.example.com` 或 `https://api.gemini.example/v1beta/models/gemini-pro:generateContent`)。
@@ -185,87 +312,76 @@ if (typeof window !== 'undefined') {
  * @returns {Object} 构建好的 API 配置对象，包含 `endpoint`, `modelName`, `headers`, `bodyBuilder`, `responseExtractor`。
  */
 function buildCustomApiConfig(key, baseApiUrlInput, customModelId, customRequestFormat, temperature, max_tokens) {
-    let baseApiUrl = baseApiUrlInput.trim();
-    if (baseApiUrl.endsWith('/')) {
-        baseApiUrl = baseApiUrl.slice(0, -1);
-    }
+    const format = (customRequestFormat || 'openai').toLowerCase();
+    let effectiveModelId = (customModelId && customModelId.trim()) || '';
 
-    let finalApiEndpoint = baseApiUrl;
-    let commonPathSuffix = '/v1/chat/completions'; // Default, common for OpenAI-like APIs
-
-    // For Gemini, the endpoint structure is different and usually includes the model and action.
-    // The key is also a query parameter, not usually part of a path suffix.
-    // So, if the format is Gemini, we assume baseApiUrl is already mostly complete or doesn't need this common suffix.
-    if (customRequestFormat !== 'gemini' && customRequestFormat !== 'gemini-preview') {
-        // Append common path suffix if not already present in a significant way
-        // This check is basic. If baseApiUrl is e.g. https://api.example.com/custom/path
-        // and pathSuffix is /v1/chat/completions, it will append.
-        // It won't append if baseApiUrl is https://api.example.com/v1/chat/completions already.
-        if (!baseApiUrl.endsWith(commonPathSuffix) && !baseApiUrl.includes('/v1/chat/completions') && !baseApiUrl.includes('/v1/messages') /* basic check for anthropic-like */) {
-            finalApiEndpoint = baseApiUrl + commonPathSuffix;
-        }
+    let finalApiEndpoint;
+    if (format === 'gemini' || format === 'gemini-preview') {
+        const geminiInfo = normalizeGeminiEndpoint(baseApiUrlInput, effectiveModelId, format);
+        finalApiEndpoint = appendQueryParam(geminiInfo.endpoint, 'key', key);
+        effectiveModelId = geminiInfo.modelName;
     }
-    // If customRequestFormat is gemini, finalApiEndpoint remains baseApiUrl, and the key will be added as a query param later.
+    else {
+        finalApiEndpoint = normalizeOpenAIEndpoint(baseApiUrlInput, format);
+    }
 
     const config = {
-        endpoint: finalApiEndpoint, // This is now the base path, or base + common suffix (excluding Gemini)
-        modelName: customModelId,
+        endpoint: finalApiEndpoint,
+        modelName: effectiveModelId,
         headers: { 'Content-Type': 'application/json' },
         bodyBuilder: null,
         responseExtractor: null
     };
 
-    switch (customRequestFormat) {
+    const temperatureValue = temperature ?? 0.5;
+    const maxTokensValue = max_tokens ?? 8000;
+    const modelToUse = effectiveModelId || customModelId;
+
+    switch (format) {
         case 'openai':
             config.headers['Authorization'] = `Bearer ${key}`;
             config.bodyBuilder = (sys_prompt, user_prompt) => ({
-                model: customModelId,
+                model: modelToUse,
                 messages: [{ role: "system", content: sys_prompt }, { role: "user", content: user_prompt }],
-                temperature: temperature ?? 0.5,
-                max_tokens: max_tokens ?? 8000
+                temperature: temperatureValue,
+                max_tokens: maxTokensValue
             });
             config.responseExtractor = (data) => data?.choices?.[0]?.message?.content;
             break;
         case 'anthropic':
-            // Anthropic might also use a specific path like /v1/messages. If baseApiUrl doesn't include it,
-            // the generic suffix logic might have added /v1/chat/completions. This might need refinement
-            // if a user provides just "https://api.anthropic.com" and expects /v1/messages.
-            // For now, assuming user provided a more complete base for Anthropic if not OpenAI-like.
-            if (!config.endpoint.endsWith('/v1/messages') && !config.endpoint.includes('/v1/messages')) {
-                 // If user provided just a base and we appended openai suffix, but format is anthropic, this could be an issue.
-                 // A better approach for anthropic would be to have its own specific suffix or expect fuller baseApiUrl.
-                 // Let's assume if format is anthropic and suffix wasn't auto-added, it implies baseApiUrl is complete or suffix is not standard.
-            }
             config.headers['x-api-key'] = key;
             config.headers['anthropic-version'] = '2023-06-01';
             config.bodyBuilder = (sys_prompt, user_prompt) => ({
-                model: customModelId,
+                model: modelToUse,
                 system: sys_prompt,
                 messages: [{ role: "user", content: user_prompt }],
-                temperature: temperature ?? 0.5,
-                max_tokens: max_tokens ?? 8000
+                temperature: temperatureValue,
+                max_tokens: maxTokensValue
             });
             config.responseExtractor = (data) => data?.content?.[0]?.text;
             break;
         case 'gemini':
-        case 'gemini-preview': // Fall-through for gemini-preview
-            // The finalApiEndpoint here is effectively the baseApiUrl provided by the user.
-            // It should be the path up to, e.g., ".../gemini-pro:generateContent"
-            config.endpoint = `${finalApiEndpoint}?key=${key}`; // API key as query parameter
+        case 'gemini-preview':
+            config.modelName = effectiveModelId;
+            config.headers = { 'Content-Type': 'application/json' };
+            const geminiMaxTokens = max_tokens ?? 8192;
             config.bodyBuilder = (sys_prompt, user_prompt) => ({
                 contents: [{ role: "user", parts: [{ text: `${sys_prompt}\n\n${user_prompt}` }] }],
-                generationConfig: { temperature: temperature ?? 0.5, maxOutputTokens: max_tokens ?? 8192 }
+                generationConfig: {
+                    temperature: temperatureValue,
+                    maxOutputTokens: geminiMaxTokens,
+                    ...(format === 'gemini-preview' ? { responseModalities: ["TEXT"], responseMimeType: 'text/plain' } : {})
+                }
             });
             config.responseExtractor = (data) => data?.candidates?.[0]?.content?.parts?.[0]?.text;
             break;
         default:
-            // Fallback for unknown formats, treat like OpenAI for endpoint construction if suffix was added.
             config.headers['Authorization'] = `Bearer ${key}`;
             config.bodyBuilder = (sys_prompt, user_prompt) => ({
-                model: customModelId,
+                model: modelToUse,
                 messages: [{ role: "system", content: sys_prompt }, { role: "user", content: user_prompt }],
-                temperature: temperature ?? 0.5,
-                max_tokens: max_tokens ?? 8000
+                temperature: temperatureValue,
+                max_tokens: maxTokensValue
             });
             config.responseExtractor = (data) => data?.choices?.[0]?.message?.content;
             console.warn(`Unsupported custom request format: ${customRequestFormat}. Defaulting to OpenAI-like structure.`);

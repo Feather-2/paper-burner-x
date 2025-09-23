@@ -2585,10 +2585,12 @@ document.addEventListener('DOMContentLoaded', function() {
             let modelsDetected = [];
             let successfulKey = null;
 
+            const requestFormat = site.requestFormat || 'openai';
+
             for (const key of validKeys) {
                 try {
                     showNotification(`正在尝试使用Key (${key.value.substring(0, 4)}...) 检测模型`, 'info');
-                    modelsDetected = await window.modelDetector.detectModelsForSite(site.apiBaseUrl, key.value);
+                    modelsDetected = await window.modelDetector.detectModelsForSite(site.apiBaseUrl, key.value, requestFormat);
 
                     if (modelsDetected && modelsDetected.length > 0) {
                         successfulKey = key;
