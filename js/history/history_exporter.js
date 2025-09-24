@@ -901,6 +901,44 @@ body.history-export-print-mode .history-export-root .export-section {
   min-height: 100vh;
   overflow-x: hidden;
 }
+.history-export-root .katex-block {
+  margin: 16px 0;
+  text-align: center;
+  overflow-x: auto;
+  padding: 12px 16px;
+  box-sizing: border-box;
+  position: relative;
+}
+.history-export-root .katex-block .katex-display {
+  display: inline-block;
+  margin: 0 auto;
+  text-align: left;
+  position: relative;
+  padding-right: 2.75em;
+}
+.history-export-root .katex-block .katex-display .katex-tag { right: 0; }
+.history-export-root .katex-inline { margin: 0 1px; }
+.history-export-root .katex-fallback {
+  background-color: #fff5f5;
+  border: 1px dashed #f56565;
+  border-radius: 6px;
+  color: #c53030;
+  font-family: 'Courier New', Consolas, monospace;
+}
+.history-export-root .katex-fallback.katex-block {
+  text-align: left;
+  padding: 12px 16px;
+  white-space: normal;
+}
+.history-export-root .katex-fallback.katex-inline {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+}
+.history-export-root .katex-fallback-source {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .history-export-root .export-wrapper {
   width: 100%;
   max-width: 860px;

@@ -101,11 +101,50 @@
     margin: 16px 0;
     text-align: center;
     overflow-x: auto;
-    padding: 8px;
+    padding: 12px 16px;
+    box-sizing: border-box;
+    position: relative;
+}
+
+.katex-block .katex-display {
+    display: inline-block;
+    margin: 0 auto;
+    text-align: left;
+    position: relative;
+    padding-right: 2.75em;
+}
+
+.katex-block .katex-display .katex-tag {
+    right: 0;
 }
 
 .katex-inline {
     margin: 0 1px;
+}
+
+.katex-fallback {
+    background-color: #fff5f5;
+    border: 1px dashed #f56565;
+    border-radius: 6px;
+    color: #c53030;
+    font-family: 'Courier New', Consolas, monospace;
+}
+
+.katex-fallback.katex-block {
+    text-align: left;
+    padding: 12px 16px;
+    white-space: normal;
+}
+
+.katex-fallback.katex-inline {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 6px;
+}
+
+.katex-fallback-source {
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
 /* Performance indicator styles */
@@ -144,14 +183,24 @@
 @media (max-width: 768px) {
     .katex-block {
         font-size: 0.9em;
-        padding: 4px;
+        padding: 8px 12px;
         margin: 12px 0;
+    }
+    
+    .katex-fallback.katex-block {
+        padding: 8px 12px;
+    }
+    
+    .katex-fallback.katex-inline {
+        max-width: 100%;
+        padding: 0 4px;
+        white-space: pre-wrap;
     }
     
     .katex-error.katex-block {
         padding: 6px 8px;
     }
-    
+
     .katex-error:hover::after {
         font-size: 10px;
         max-width: 200px;
@@ -167,12 +216,18 @@
         border-color: #e53e3e;
         color: #feb2b2;
     }
-    
+
     .katex-error.katex-block {
         background-color: #2d1212;
         border-left-color: #e53e3e;
     }
-    
+
+    .katex-fallback {
+        background-color: #3c1a1a;
+        border-color: #e53e3e;
+        color: #fed7d7;
+    }
+
     .missing-image {
         background-color: #2d3748;
         border-color: #4a5568;

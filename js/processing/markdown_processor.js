@@ -1,12 +1,23 @@
-// js/markdown_processor.js
+// js/processing/markdown_processor.js
 (function MarkdownProcessor(global) {
-    // 缓存已经渲染好的 HTML，避免重复运行 heavy marked.parse and KaTeX
+    // Shared cache for legacy fallbacks
     const renderCache = new Map();
+
+    const LEGACY_FORMULA_BLOCK_HINTS = [
+      /\r|\n/,
+      /\\\\/,
+      /\\tag\b/,
+      /\\label\b/,
+      /\\eqref\b/,
+      /\\display(?:style|limits)\b/,
+      /\\begin\{(?:align\*?|aligned|flalign\*?|gather\*?|multline\*?|split|cases|array|pmatrix|bmatrix|vmatrix|Vmatrix|matrix|smallmatrix)\}/,
+      /\\end\{(?:align\*?|aligned|flalign\*?|gather\*?|multline\*?|split|cases|array|pmatrix|bmatrix|vmatrix|Vmatrix|matrix|smallmatrix)\}/
+    ];
 
     /**
      * 将 Markdown 中的代码区段（包括 ``code``、```code``` 等）提取为占位符，避免后续公式解析破坏代码内容。
      * @param {string} md - Markdown 文本
-     * @returns {{ text: string, placeholders: string[] }} - 替换后的 Markdown 与对应占位符列表
+     * @returns {{ text: string, placeholders: Array<{ placeholder: string, segment: string }> }}
      */
     function protectMarkdownCodeSegments(md) {
       if (!md || typeof md !== 'string') {
@@ -14,8 +25,8 @@
       }
 
       const placeholders = [];
-      const basePlaceholder = '__MD_CODE_SEGMENT_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2) + '_';
-      const suffix = '__';
+      const basePlaceholder = 'PBTOKEN' + Date.now().toString(36) + Math.random().toString(36).slice(2) + 'Z';
+      const suffix = 'X';
       let result = '';
       let i = 0;
       const len = md.length;
@@ -73,7 +84,7 @@
     /**
      * 将之前提取的 Markdown 代码区段占位符恢复为原始内容。
      * @param {string} md - 包含占位符的 Markdown 文本
-     * @param {string[]} placeholders - 原始代码区段列表
+     * @param {Array<{ placeholder: string, segment: string }>} placeholders - 原始代码区段列表
      * @returns {string} 恢复后的 Markdown 文本
      */
     function restoreMarkdownCodeSegments(md, placeholders) {
@@ -90,16 +101,102 @@
     }
 
     /**
-     * 预处理 Markdown 文本，以安全地渲染图片、自定义语法（如上下标）并兼容 KaTeX。
-     * - 将 Markdown 中的本地图片引用 (e.g., `![alt](images/img-1.jpeg.png)`) 替换为 Base64 嵌入式图片。
-     * - 解析自定义的上下标语法 (e.g., `${base}^{sup}$`, `${base}_{sub}$`) 并转换为 HTML `<sup>` 和 `<sub>` 标签。
-     * - 其他如 `$formula$` 和 `$$block formula$$` 的 LaTeX 标记会保留，交由后续的 `renderWithKatexFailback` 处理。
-     *
-     * @param {string} md -输入的 Markdown 文本。
-     * @param {Array<Object>} images -一个包含图片对象的数组，每个对象应有 `name` 或 `id` (用于匹配) 和 `data` (Base64 图片数据或其前缀)。
-     * @returns {string} 处理后的 Markdown 文本，其中图片被替换，自定义语法被转换。
+     * Escape HTML entities for safe fallback rendering.
+     * @param {string} text
+     * @returns {string}
      */
-    function safeMarkdown(md, images) {
+    function escapeHtml(text) {
+      if (typeof text !== 'string') {
+        return '';
+      }
+
+      const htmlEscapes = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      };
+
+      return text.replace(/[&<>"']/g, function(match) {
+        return htmlEscapes[match];
+      });
+    }
+
+    function analyzeFormulaLayoutLegacy(content, displayHint) {
+      const normalized = typeof content === 'string' ? content.trim() : '';
+      if (!normalized) {
+        return {
+          text: '',
+          displayMode: !!displayHint
+        };
+      }
+
+      let displayMode = !!displayHint;
+      if (!displayMode) {
+        displayMode = LEGACY_FORMULA_BLOCK_HINTS.some(function(pattern) {
+          return pattern.test(normalized);
+        });
+      }
+
+      return {
+        text: normalized,
+        displayMode: displayMode
+      };
+    }
+
+    function buildKatexFallbackMarkup(content, displayMode, error) {
+      const sanitized = escapeHtml(content || '');
+      const message = error && error.message ? error.message : (typeof error === 'string' ? error : '');
+      const errorInfo = message
+        ? ` data-katex-error="${escapeHtml(message)}" title="Formula rendering failed: ${escapeHtml(message)}"`
+        : '';
+
+      if (displayMode) {
+        return `
+<div class="katex-fallback katex-block"${errorInfo}><pre class="katex-fallback-source">${sanitized}</pre></div>
+`;
+      }
+
+      return `<span class="katex-fallback katex-inline"${errorInfo}><span class="katex-fallback-source">${sanitized}</span></span>`;
+    }
+
+    function renderFormulaLegacy(content, displayHint) {
+      const analysis = analyzeFormulaLayoutLegacy(content, displayHint);
+
+      if (!analysis.text) {
+        return analysis.displayMode ? '<div class="katex-block"></div>' : '<span class="katex-inline"></span>';
+      }
+
+      try {
+        const rendered = katex.renderToString(analysis.text, {
+          displayMode: analysis.displayMode,
+          throwOnError: true,
+          strict: 'ignore',
+          output: 'html'
+        });
+
+        if (analysis.displayMode) {
+          return `
+<div class="katex-block" data-formula-display="block">${rendered}</div>
+`;
+        }
+
+        return `<span class="katex-inline" data-formula-display="inline">${rendered}</span>`;
+
+      } catch (error) {
+        console.warn('[MarkdownProcessor] KaTeX rendering failed (legacy):', error);
+        return buildKatexFallbackMarkup(analysis.text, analysis.displayMode, error);
+      }
+    }
+
+    /**
+     * Legacy safeMarkdown 实现，在未加载增强版处理器时使用。
+     * @param {string} md
+     * @param {Array<Object>} images
+     * @returns {string}
+     */
+    function legacySafeMarkdown(md, images) {
       performance.mark('safeMarkdown-start');
       if (!md) {
         performance.mark('safeMarkdown-end');
@@ -176,7 +273,6 @@
       md = md.replace(/\$\{\s*([^}]*)\s*\}\$/g, function(_, sup) {
         return `<sup>${sup.trim()}</sup>`;
       });
-      // 其余 $...$、$$...$$ 保留，交给 KaTeX 处理
       const __safeMdResult = md;
       performance.mark('safeMarkdown-end');
       performance.measure('safeMarkdown', 'safeMarkdown-start', 'safeMarkdown-end');
@@ -184,24 +280,14 @@
     }
 
     /**
-     * 使用 KaTeX 渲染 Markdown 文本中的数学公式，并提供降级处理。
-     * 支持延迟渲染选项以提升大文档的性能。
-     * 它会按以下顺序处理：
-     * 1. 将长度较短 (<=10字符) 的块级公式 `$$...$$` 转换为行内公式 `$...\$`。
-     * 2. 尝试使用 KaTeX 渲染行内公式 `$...\$`。如果渲染失败，则将公式内容包裹在 `<code>` 标签中显示。
-     * 3. 尝试使用 KaTeX 渲染剩余的（通常是多行的）块级公式 `$$...$$`。如果渲染失败，则同样包裹在 `<code>` 标签中。
-     * 4. 对处理完公式的文本，使用 `marked.parse()` 将其余 Markdown 内容转换为 HTML。
-     *
-     * @param {string} md - 经过 `safeMarkdown` 处理的 Markdown 文本。
-     * @param {Function} customRenderer - 自定义的 Markdown 渲染器函数，用于处理特殊内容。
-     * @param {boolean} lazyRender - 是否启用延迟渲染模式，适用于大文档性能优化。
-     * @returns {string} 包含渲染后公式和其余 Markdown 内容的 HTML 字符串。
+     * Legacy KaTeX 渲染函数，在未加载增强版处理器时使用。
+     * @param {string} md
+     * @param {Function} customRenderer
+     * @returns {string}
      */
-    function renderWithKatexFailback(md, customRenderer) {
+    function legacyRenderWithKatexFailback(md, customRenderer) {
       performance.mark('renderKatex-start');
-      // 在处理前保留原始 Markdown 作为缓存键
       const rawMd = md;
-      // 如果缓存中已有结果，则直接返回
       if (renderCache.has(rawMd)) {
         performance.mark('renderKatex-end');
         performance.measure('renderWithKatex (cache)', 'renderKatex-start', 'renderKatex-end');
@@ -210,52 +296,71 @@
 
       const protectedSegments = protectMarkdownCodeSegments(md);
       md = protectedSegments.text;
-      // 1. 先把短的 $$...$$ 转为 $...$
-      md = md.replace(/\$\$([^\n]+?)\$\$/g, function(_, content) {
-        if (content.trim().length <= 10) {
-          // 短内容（≤10字符），无论有没有等号，都转为行内公式
-          return `$${content}$`;
-        } else {
-          // 块级公式
-          try {
-            return katex.renderToString(content, { displayMode: true, throwOnError: true });
-          } catch (e) {
-            return `<code>$$${content}$$</code>`;
-          }
-        }
+
+      md = md.replace(/\$\$([\s\S]*?)\$\$/g, function(_, content) {
+        return renderFormulaLegacy(content, true);
       });
-      // 2. 行内公式
+
+      md = md.replace(/\\\[([\s\S]*?)\\\]/g, function(_, content) {
+        return renderFormulaLegacy(content, true);
+      });
+
       md = md.replace(/\$([^$\n]+?)\$/g, function(_, content) {
-        try {
-          return katex.renderToString(content, { displayMode: false, throwOnError: true });
-        } catch (e) {
-          return `<code>$${content}$</code>`;
-        }
+        return renderFormulaLegacy(content, false);
       });
-      // 3. 剩下的块级公式（多行的）
-      md = md.replace(/\$\$([\s\S]+?)\$\$/g, function(_, content) {
-        try {
-          return katex.renderToString(content, { displayMode: true, throwOnError: true });
-        } catch (e) {
-          return `<code>$$${content}$$</code>`;
-        }
+
+      md = md.replace(/\\\(([^)]*?)\\\)/g, function(_, content) {
+        return renderFormulaLegacy(content, false);
       });
+
       md = restoreMarkdownCodeSegments(md, protectedSegments.placeholders);
-      // 4. 其它 markdown
-      // 使用传入的渲染器（如果提供），否则使用默认的 marked.parse
       const markedOptions = customRenderer ? { renderer: customRenderer } : {};
       const __rpResult = marked.parse(md, markedOptions);
-      // 缓存渲染结果
       renderCache.set(rawMd, __rpResult);
       performance.mark('renderKatex-end');
       performance.measure('renderWithKatex', 'renderKatex-start', 'renderKatex-end');
       return __rpResult;
     }
 
-    // Expose public interface
+    const legacyImpl = {
+      safeMarkdown: legacySafeMarkdown,
+      renderWithKatexFailback: legacyRenderWithKatexFailback
+    };
+
+    function getActiveProcessor() {
+      const enhanced = global.MarkdownProcessorEnhanced;
+      if (enhanced && typeof enhanced.safeMarkdown === 'function' && typeof enhanced.renderWithKatexFailback === 'function') {
+        return enhanced;
+      }
+      return legacyImpl;
+    }
+
+    function safeMarkdown(md, images) {
+      const impl = getActiveProcessor();
+      if (impl === legacyImpl) {
+        return legacySafeMarkdown(md, images);
+      }
+      return impl.safeMarkdown(md, images);
+    }
+
+    function renderWithKatexFailback(md, customRenderer) {
+      const impl = getActiveProcessor();
+      if (impl === legacyImpl) {
+        return legacyRenderWithKatexFailback(md, customRenderer);
+      }
+      return impl.renderWithKatexFailback(md, customRenderer);
+    }
+
     global.MarkdownProcessor = {
         safeMarkdown: safeMarkdown,
-        renderWithKatexFailback: renderWithKatexFailback
+        renderWithKatexFailback: renderWithKatexFailback,
+        legacy: {
+          safeMarkdown: legacySafeMarkdown,
+          renderWithKatexFailback: legacyRenderWithKatexFailback,
+          protectMarkdownCodeSegments: protectMarkdownCodeSegments,
+          restoreMarkdownCodeSegments: restoreMarkdownCodeSegments,
+          renderCache: renderCache
+        }
     };
 
 })(window);

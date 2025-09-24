@@ -42,6 +42,7 @@
         throwOnError: false,
         errorColor: '#cc0000',
         strict: 'ignore',
+        output: 'html',
         trust: false,
         fleqn: false,
         leqno: false,
@@ -97,14 +98,19 @@
         } catch (error) {
             console.warn('[MathFix] KaTeX rendering failed:', error.message);
             
-            // 改进的错误回退
             const escapedContent = escapeHtml(content);
-            const errorClass = displayMode ? 'math-error-block' : 'math-error-inline';
             const errorTitle = `数学公式渲染失败: ${error.message}`;
-            
+            const ariaLabel = escapeHtml(errorTitle);
+            const containerTag = displayMode ? 'div' : 'span';
+            const innerTag = displayMode ? 'pre' : 'span';
+            const containerClass = displayMode ? 'katex-fallback katex-block math-error-block' : 'katex-fallback katex-inline math-error-inline';
+            const dataAttr = ` data-katex-error="${escapeHtml(error.message)}" title="${ariaLabel}"`;
+
             return displayMode
-                ? `<div class="${errorClass}" title="${escapeHtml(errorTitle)}"><code>$$${escapedContent}$$</code></div>`
-                : `<span class="${errorClass}" title="${escapeHtml(errorTitle)}"><code>$${escapedContent}$</code></span>`;
+                ? `
+<${containerTag} class="${containerClass}"${dataAttr}><${innerTag} class="katex-fallback-source">${escapedContent}</${innerTag}></${containerTag}>
+`
+                : `<${containerTag} class="${containerClass}"${dataAttr}><${innerTag} class="katex-fallback-source">${escapedContent}</${innerTag}></${containerTag}>`;
         }
     }
 

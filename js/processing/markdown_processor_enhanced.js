@@ -16,6 +16,17 @@
         formulaSuccesses: 0
     };
 
+    const FORMULA_BLOCK_HINTS = [
+        /\r|\n/, // explicit line breaks
+        /\\\\/, // LaTeX newline command
+        /\\tag\b/, // equation tags
+        /\\label\b/,
+        /\\eqref\b/,
+        /\\display(?:style|limits)\b/,
+        /\\begin\{(?:align\*?|aligned|flalign\*?|gather\*?|multline\*?|split|cases|array|pmatrix|bmatrix|vmatrix|Vmatrix|matrix|smallmatrix)\}/,
+        /\\end\{(?:align\*?|aligned|flalign\*?|gather\*?|multline\*?|split|cases|array|pmatrix|bmatrix|vmatrix|Vmatrix|matrix|smallmatrix)\}/
+    ];
+
     /**
      * Enhanced markdown preprocessing with robust formula and image handling
      * @param {string} md - Input markdown text
@@ -198,25 +209,32 @@
      * @returns {string} Markdown with protected content replaced by placeholders
      */
     function protectContent(md, protectedContent, counter) {
-        // Protect fenced code blocks
+        // Protect fenced code blocks (``` ... ```)
         md = md.replace(/```[\s\S]*?```/g, (match) => {
-            const placeholder = `__PROTECTED_${counter++}__`;
+            const placeholder = `PBTOKEN${counter++}Z`;
             protectedContent.set(placeholder, match);
             return placeholder;
         });
 
-        // Protect inline code
+        // Protect inline code (`...`)
         md = md.replace(/`[^`\n]+?`/g, (match) => {
-            const placeholder = `__PROTECTED_${counter++}__`;
+            const placeholder = `PBTOKEN${counter++}Z`;
             protectedContent.set(placeholder, match);
             return placeholder;
         });
 
-        // Protect existing HTML tags
-        md = md.replace(/<[^>]+>/g, (match) => {
-            const placeholder = `__PROTECTED_${counter++}__`;
-            protectedContent.set(placeholder, match);
-            return placeholder;
+        // Protect only real HTML constructs to avoid eating math comparators like "<="
+        const htmlPatterns = [
+            /<!--[\s\S]*?-->/g,                                     // HTML comments
+            /<!DOCTYPE[^>]*?>/gi,                                     // DOCTYPE
+            /<\/?[A-Za-z][A-Za-z0-9-]*(\s+[^<>]*?)?>/g              // opening/closing/self-closing tags
+        ];
+        htmlPatterns.forEach((re) => {
+            md = md.replace(re, (match) => {
+                const placeholder = `PBTOKEN${counter++}Z`;
+                protectedContent.set(placeholder, match);
+                return placeholder;
+            });
         });
 
         return md;
@@ -252,22 +270,83 @@
     }
 
     /**
+     * Analyze formula structure to determine appropriate display mode.
+     * @param {string} content - Raw formula content.
+     * @param {boolean} displayHint - Preferred display mode from the matcher.
+     * @returns {{ text: string, displayMode: boolean, forcedByHint: boolean, forcedByStructure: boolean }}
+     */
+    function analyzeFormulaLayout(content, displayHint) {
+        const normalized = typeof content === 'string' ? content.trim() : '';
+        if (!normalized) {
+            return {
+                text: '',
+                displayMode: !!displayHint,
+                forcedByHint: !!displayHint,
+                forcedByStructure: false
+            };
+        }
+
+        let displayMode = !!displayHint;
+        let forcedByStructure = false;
+
+        if (!displayMode) {
+            forcedByStructure = FORMULA_BLOCK_HINTS.some(pattern => pattern.test(normalized));
+            if (forcedByStructure) {
+                displayMode = true;
+            }
+        }
+
+        return {
+            text: normalized,
+            displayMode,
+            forcedByHint: !!displayHint,
+            forcedByStructure
+        };
+    }
+
+    /**
+     * Build an accessible fallback block when KaTeX rendering fails.
+     * @param {string} content - Formula content.
+     * @param {boolean} displayMode - Final display mode.
+     * @param {Error|string} error - Rendering error.
+     * @returns {string} HTML fallback snippet.
+     */
+    function buildKatexFallback(content, displayMode, error) {
+        const sanitized = escapeHtml(content || '');
+        const message = error && error.message ? error.message : (typeof error === 'string' ? error : '');
+        const errorInfo = message 
+            ? ` data-katex-error="${escapeHtml(message)}" title="Formula rendering failed: ${escapeHtml(message)}"`
+            : '';
+
+        if (displayMode) {
+            return `
+<div class="katex-fallback katex-block"${errorInfo}><pre class="katex-fallback-source">${sanitized}</pre></div>
+`;
+        }
+
+        return `<span class="katex-fallback katex-inline"${errorInfo}><span class="katex-fallback-source">${sanitized}</span></span>`;
+    }
+
+    /**
      * Render individual formula with enhanced error handling
      * @param {string} content - Formula content
-     * @param {boolean} displayMode - Whether to use display mode
+     * @param {boolean} displayModeHint - Whether to use display mode
      * @param {string} originalMatch - Original matched text for fallback
      * @returns {string} Rendered formula or fallback
      */
-    function renderFormula(content, displayMode, originalMatch) {
-        if (!content) {
-            return displayMode ? '<div class="katex-block"></div>' : '<span class="katex-inline"></span>';
+    function renderFormula(content, displayModeHint, originalMatch) {
+        const analysis = analyzeFormulaLayout(content, displayModeHint);
+
+        if (!analysis.text) {
+            return analysis.displayMode ? '<div class="katex-block"></div>' : '<span class="katex-inline"></span>';
         }
 
         try {
             const options = {
-                displayMode: displayMode,
+                displayMode: analysis.displayMode,
                 throwOnError: true,
                 strict: 'ignore', // Allow some non-standard LaTeX
+                output: 'html', // Avoid duplicate MathML branch
                 macros: {
                     // Common macros for robustness
                     "\\RR": "\\mathbb{R}",
@@ -278,25 +357,22 @@
                 }
             };
 
-            const rendered = katex.renderToString(content, options);
+            const rendered = katex.renderToString(analysis.text, options);
             metrics.formulaSuccesses++;
-            
-            const className = displayMode ? 'katex-block' : 'katex-inline';
-            return displayMode ? 
-                `<div class="${className}">${rendered}</div>` : 
-                `<span class="${className}">${rendered}</span>`;
-                
+
+            const className = analysis.displayMode ? 'katex-block' : 'katex-inline';
+            const wrapper = analysis.displayMode
+                ? `
+<div class="${className}" data-formula-display="block">${rendered}</div>
+`
+                : `<span class="${className}" data-formula-display="inline">${rendered}</span>`;
+
+            return wrapper;
+
         } catch (error) {
             metrics.formulaErrors++;
-            console.warn(`[MarkdownProcessorEnhanced] KaTeX rendering failed for: "${content}"`, error);
-            
-            // Enhanced fallback with better formatting
-            const fallbackContent = escapeHtml(content);
-            const errorInfo = `data-katex-error="${escapeHtml(error.message)}" title="Formula rendering failed: ${escapeHtml(error.message)}"`;
-            
-            return displayMode ? 
-                `<div class="katex-error katex-block" ${errorInfo}><code>$$${fallbackContent}$$</code></div>` :
-                `<span class="katex-error katex-inline" ${errorInfo}><code>$${fallbackContent}$</code></span>`;
+            console.warn(`[MarkdownProcessorEnhanced] KaTeX rendering failed for: "${analysis.text}"`, error);
+            return buildKatexFallback(analysis.text, analysis.displayMode, error);
         }
     }
 
