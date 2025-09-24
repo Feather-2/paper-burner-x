@@ -4,6 +4,92 @@
     const renderCache = new Map();
 
     /**
+     * 将 Markdown 中的代码区段（包括 ``code``、```code``` 等）提取为占位符，避免后续公式解析破坏代码内容。
+     * @param {string} md - Markdown 文本
+     * @returns {{ text: string, placeholders: string[] }} - 替换后的 Markdown 与对应占位符列表
+     */
+    function protectMarkdownCodeSegments(md) {
+      if (!md || typeof md !== 'string') {
+        return { text: md, placeholders: [] };
+      }
+
+      const placeholders = [];
+      const basePlaceholder = '__MD_CODE_SEGMENT_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2) + '_';
+      const suffix = '__';
+      let result = '';
+      let i = 0;
+      const len = md.length;
+
+      while (i < len) {
+        const char = md[i];
+        if (char === '`' && (i === 0 || md[i - 1] !== '\\')) {
+          const start = i;
+          let j = i;
+          while (j < len && md[j] === '`') {
+            j++;
+          }
+          const fenceLen = j - start;
+          const fence = '`'.repeat(fenceLen);
+          let searchIndex = j;
+          let closingIndex = -1;
+
+          while (searchIndex < len) {
+            const idx = md.indexOf(fence, searchIndex);
+            if (idx === -1) {
+              break;
+            }
+            const prevChar = idx > 0 ? md[idx - 1] : '';
+            const nextChar = md[idx + fenceLen];
+            if (prevChar === '\\') {
+              searchIndex = idx + fenceLen;
+              continue;
+            }
+            if (nextChar === '`') {
+              searchIndex = idx + 1;
+              continue;
+            }
+            closingIndex = idx;
+            break;
+          }
+
+          if (closingIndex !== -1) {
+            const end = closingIndex + fenceLen;
+            const segment = md.slice(start, end);
+            const placeholder = basePlaceholder + placeholders.length + suffix;
+            placeholders.push({ placeholder: placeholder, segment: segment });
+            result += placeholder;
+            i = end;
+            continue;
+          }
+        }
+
+        result += char;
+        i++;
+      }
+
+      return { text: result, placeholders: placeholders };
+    }
+
+    /**
+     * 将之前提取的 Markdown 代码区段占位符恢复为原始内容。
+     * @param {string} md - 包含占位符的 Markdown 文本
+     * @param {string[]} placeholders - 原始代码区段列表
+     * @returns {string} 恢复后的 Markdown 文本
+     */
+    function restoreMarkdownCodeSegments(md, placeholders) {
+      if (!placeholders || placeholders.length === 0 || typeof md !== 'string') {
+        return md;
+      }
+      let restored = md;
+      placeholders.forEach(function(item) {
+        restored = restored.replace(item.placeholder, function() {
+          return item.segment;
+        });
+      });
+      return restored;
+    }
+
+    /**
      * 预处理 Markdown 文本，以安全地渲染图片、自定义语法（如上下标）并兼容 KaTeX。
      * - 将 Markdown 中的本地图片引用 (e.g., `![alt](images/img-1.jpeg.png)`) 替换为 Base64 嵌入式图片。
      * - 解析自定义的上下标语法 (e.g., `${base}^{sup}$`, `${base}_{sub}$`) 并转换为 HTML `<sup>` 和 `<sub>` 标签。
@@ -121,6 +207,9 @@
         performance.measure('renderWithKatex (cache)', 'renderKatex-start', 'renderKatex-end');
         return renderCache.get(rawMd);
       }
+
+      const protectedSegments = protectMarkdownCodeSegments(md);
+      md = protectedSegments.text;
       // 1. 先把短的 $$...$$ 转为 $...$
       md = md.replace(/\$\$([^\n]+?)\$\$/g, function(_, content) {
         if (content.trim().length <= 10) {
@@ -151,6 +240,7 @@
           return `<code>$$${content}$$</code>`;
         }
       });
+      md = restoreMarkdownCodeSegments(md, protectedSegments.placeholders);
       // 4. 其它 markdown
       // 使用传入的渲染器（如果提供），否则使用默认的 marked.parse
       const markedOptions = customRenderer ? { renderer: customRenderer } : {};
