@@ -122,7 +122,7 @@ function showTab(tab) {
 
     // ========== 超长文本降级策略开关 ==========
     (function computeLargeDocFlag(){
-      const LARGE_TEXT_THRESHOLD = 80000; // 8万字阈值
+      const LARGE_TEXT_THRESHOLD = 120000; // 8万字阈值
       let totalLen = 0;
       try {
         if (Array.isArray(data.ocrChunks)) {
@@ -137,7 +137,7 @@ function showTab(tab) {
       // 记录用于后续清理的块数量
       try { window.__lastChunkCompareTotalBlocks = (Array.isArray(data.ocrChunks) ? data.ocrChunks.length : 0); } catch(e) { window.__lastChunkCompareTotalBlocks = 0; }
     })();
-    
+
     // window.globalCurrentContentIdentifier = ''; // 已在函数开头正确设置
     document.getElementById('tab-chunk-compare').classList.add('active');
     if (data.ocrChunks && data.ocrChunks.length > 0 && data.translatedChunks && data.translatedChunks.length === data.ocrChunks.length) {
@@ -145,8 +145,8 @@ function showTab(tab) {
         if (false && window.ChunkCompareOptimizer && window.ChunkCompareOptimizer.instance) {
             console.log('[性能] 使用优化后的分块对比渲染器');
             html = window.ChunkCompareOptimizer.instance.optimizeChunkComparison(
-                data.ocrChunks, 
-                data.translatedChunks, 
+                data.ocrChunks,
+                data.translatedChunks,
                 {
                     images: data.images,
                     isOriginalFirst: window.isOriginalFirstInChunkCompare !== false
@@ -250,23 +250,23 @@ function showTab(tab) {
             const transBlocks = cachedResult.transBlocks;
             const aligned = cachedResult.aligned;
             let showMode = window[`showMode_block_${blockIndex}`] || 'both';
-            
+
             // 使用缓存的解析结果渲染HTML
             return renderAlignedHTML(ocrBlocks, transBlocks, aligned, images, blockIndex, totalBlocks, showMode);
           }
-          
+
           const ocrBlocks = parseMarkdownBlocks(ocrChunk);
           const transBlocks = parseMarkdownBlocks(translatedChunk);
           const aligned = alignBlocks(ocrBlocks, transBlocks);
-          
+
           // 缓存解析结果
           if (!window.chunkParseCache) window.chunkParseCache = {};
           window.chunkParseCache[cacheKey] = { ocrBlocks, transBlocks, aligned };
-          
+
           let showMode = window[`showMode_block_${blockIndex}`] || 'both';
           return renderAlignedHTML(ocrBlocks, transBlocks, aligned, images, blockIndex, totalBlocks, showMode);
         }
-        
+
         /**
          * 渲染对齐后的HTML内容
          */
@@ -395,7 +395,7 @@ function showTab(tab) {
               </div>
             </div>
           `;
-          
+
           // 性能优化：批量构建HTML字符串（按序：先 hoisted，再对齐对，再fallback）
           const alignedHTML = [];
           // 先渲染抽出的媒体（图片单列）
@@ -539,14 +539,14 @@ function showTab(tab) {
               `);
             }
           }
-          
+
           html += alignedHTML.join('');
-          
+
           // 记录原始内容，供复制用
           window[`blockRawContent_${blockIndex}`] = aligned;
           return html;
         }
-        
+
         // 恢复原始渲染逻辑：渲染每个分块，增加唯一id
         for (let i = 0; i < data.ocrChunks.length; i++) {
             const ocrChunk = data.ocrChunks[i] || '';
@@ -639,7 +639,7 @@ function showTab(tab) {
           const blockCopyButtons = document.querySelectorAll('.block-copy-btn');
           const blockStructCopyButtons = document.querySelectorAll('.block-struct-copy-btn');
           const blockNavButtons = document.querySelectorAll('.block-nav-btn');
-          
+
           // 性能优化：使用事件委托减少事件监听器数量
           const chunkCompareContainer = document.querySelector('.chunk-compare-container');
           if (chunkCompareContainer && !chunkCompareContainer.dataset.delegateSet) {
@@ -746,12 +746,12 @@ function showTab(tab) {
                 const blockIndex = btn.dataset.block;
                 const rawBlockContent = window[`blockRawContent_${blockIndex}`];
                 const currentMode = window[`showMode_block_${blockIndex}`] || 'both';
-                
+
                 // 复制逻辑保持原样...
                 if (rawBlockContent && Array.isArray(rawBlockContent)) {
                   let textToCopy = "";
                   let alertMessage = "";
-                  
+
                   if (currentMode === 'ocr') {
                     rawBlockContent.forEach(pair => {
                       const ocrText = isOriginalFirstInChunkCompare ? (pair && pair[0]) : (pair && pair[1]);
@@ -776,7 +776,7 @@ function showTab(tab) {
                     textToCopy = textToCopy.trim();
                     alertMessage = `第 ${parseInt(blockIndex) + 1} 块的 原文和译文 已复制!`;
                   }
-                  
+
                   if (textToCopy) {
                     navigator.clipboard.writeText(textToCopy)
                       .then(() => alert(alertMessage))
@@ -792,10 +792,10 @@ function showTab(tab) {
                 }
               }
             });
-            
+
             chunkCompareContainer.dataset.delegateSet = 'true';
           }
-          
+
           // 保留原有的独立事件绑定（为了兼容性）
           blockModeButtons.forEach(btn => {
             btn.onclick = function() {
@@ -1293,10 +1293,10 @@ function showTab(tab) {
             };
           });
 
-          // 性能监控：记录分块对比渲染时间  
+          // 性能监控：记录分块对比渲染时间
           const renderEndTime = performance.now();
           console.log(`[性能] 分块对比渲染完成，总块数: ${data.ocrChunks.length}，耗时: ${(renderEndTime - window.chunkCompareStartTime || 0).toFixed(2)}ms`);
-          
+
           // 内存优化：清理旧的缓存（如果太多的话）
           if (window.chunkParseCache && Object.keys(window.chunkParseCache).length > 100) {
             console.log('[性能] 清理部分解析缓存以释放内存');

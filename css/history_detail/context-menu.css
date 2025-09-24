@@ -1,0 +1,186 @@
+/* ==========================
+ * 自定义上下文菜单样式
+ * ========================== */
+#custom-context-menu {
+  position: absolute;
+  z-index: 10000;
+  background-color: #fff;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
+  padding: 5px 0;
+  min-width: 180px;
+  display: none; /* Initially hidden */
+}
+
+#custom-context-menu ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+#custom-context-menu ul li {
+  padding: 8px 15px;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+#custom-context-menu ul li:hover {
+  background-color: #f0f0f0;
+}
+
+/* 取消高亮选项的特殊样式 */
+#custom-context-menu ul li[data-action="remove-highlight"] {
+  color: #dc3545;
+  border-top: 1px solid #eee;
+}
+
+#custom-context-menu ul li[data-action="remove-highlight"]:hover {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+/* 添加批注选项的特殊样式 */
+#custom-context-menu ul li[data-action="add-note"] {
+  color: #28a745;
+  border-top: 1px solid #eee;
+}
+
+#custom-context-menu ul li[data-action="add-note"]:hover {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+/* 编辑批注选项的特殊样式 */
+#custom-context-menu ul li[data-action="edit-note"] {
+  color: #17a2b8;
+  border-top: 1px solid #eee;
+}
+
+#custom-context-menu ul li[data-action="edit-note"]:hover {
+  background-color: #d1ecf1;
+  color: #0c5460;
+}
+
+#custom-context-menu ul li .color-palette {
+  display: flex;
+  gap: 5px;
+  padding-top: 5px;
+}
+
+#custom-context-menu ul li .color-option {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid #eee;
+  cursor: pointer;
+}
+
+#custom-context-menu ul li .color-option:hover {
+  border-color: #999;
+}
+
+.color-yellow {
+  background-color: rgba(255, 255, 0, 0.75);
+}
+
+.color-pink {
+  background-color: rgba(253, 170, 200, 0.75);
+}
+
+.color-lightblue {
+  background-color: rgba(95, 211, 250, 0.75);
+}
+
+.color-lightgreen {
+  background-color: rgba(178, 253, 178, 0.75);
+}
+
+.color-purple {
+  background-color: rgba(221, 160, 221, 0.75);
+}
+
+.color-orange {
+  background-color: rgba(255, 165, 0, 0.75);
+}
+
+.highlight-yellow {
+  background-color: rgba(255, 255, 0, 0.75);
+}
+
+.highlight-pink {
+  background-color: rgba(253, 170, 200, 0.75);
+}
+
+.highlight-lightblue {
+  background-color: rgba(95, 211, 250, 0.75);
+}
+
+.highlight-lightgreen {
+  background-color: rgba(178, 253, 178, 0.75);
+}
+
+.highlight-purple {
+  background-color: rgba(221, 160, 221, 0.75);
+}
+
+.highlight-orange {
+  background-color: rgba(255, 165, 0, 0.75);
+}
+
+/* 高亮文本悬停效果 */
+.annotation-highlight:hover {
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  transform: translateY(-1px); /* 轻微上移效果 */
+}
+
+/* 高亮文本右上角的小符号 */
+.annotation-highlight::after {
+  content: "📝"; /* 使用笔记本emoji作为符号 */
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #ccc;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none; /* 不阻止点击事件 */
+  z-index: 10;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+/* 鼠标悬停时显示小符号 */
+.annotation-highlight:hover::after {
+  opacity: 1;
+}
+
+/* 有批注的高亮文本显示不同的符号 */
+.annotation-highlight.has-note::after {
+  content: "💬"; /* 使用对话框emoji表示有批注 */
+  opacity: 0.8; /* 有批注的始终显示，但透明度较低 */
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.annotation-highlight.has-note:hover::after {
+  opacity: 1;
+}
+
+/* 移动设备上始终显示小符号 */
+@media (max-width: 768px) {
+  .annotation-highlight::after {
+    opacity: 0.6;
+  }
+
+  .annotation-highlight.has-note::after {
+    opacity: 0.9;
+  }
+}
+

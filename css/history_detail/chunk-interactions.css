@@ -1,0 +1,252 @@
+/* ==========================
+ * 分块对比 Flex 样式
+ * ========================== */
+.align-flex {
+  display: flex;
+  gap: 0;
+  margin-bottom: 1em;
+  position: relative;
+  align-items: stretch;
+}
+
+.align-block {
+  min-width: 0;
+  overflow-x: auto;
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  padding: 12px;
+  box-sizing: border-box;
+  box-shadow: 0 1px 4px 0 rgba(0,0,0,0.03);
+  transition: flex-basis 0.2s;
+}
+
+.splitter {
+  width: 4px;
+  min-width: 4px;
+  max-width: 12px;
+  background: transparent;
+  cursor: col-resize;
+  position: relative;
+  z-index: 2;
+  margin: 0 0.5em;
+  border: none;
+  border-radius: 2px;
+  transition: background 0.2s;
+}
+
+.splitter:hover,
+.splitter.active {
+  background: rgba(37,99,235,0.08);
+  border-left: 2px dashed #2563eb;
+  border-right: 2px dashed #2563eb;
+  border-radius: 3px;
+}
+
+.align-title {
+  font-size: 0.98em;
+  color: #64748b;
+  margin-bottom: 6px;
+  font-weight: 500;
+  border-bottom: 1px dashed #e2e8f0;
+  padding-bottom: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.align-title .align-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.block-icon-btn {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.block-icon-btn:hover { background: #e0e7ff; border-color: #c7d2fe; }
+.block-icon-btn svg { width: 14px; height: 14px; stroke: #64748b; }
+.block-icon-btn:hover svg { stroke: #2563eb; }
+
+.align-content {
+  word-break: break-all;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+.align-content pre {
+  max-width: 100%;
+  overflow-x: auto;
+  display: block;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+/* ==========================
+ * 分块工具栏样式
+ * ========================== */
+.block-toolbar {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.block-toolbar-left {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.block-toolbar-right {
+  display: flex;
+  gap: 4px;
+}
+
+.block-toolbar-left .block-mode-btn {
+  font-size: 12px;
+  color: #64748b;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+  user-select: none;
+}
+
+.block-toolbar-left .block-mode-btn.active {
+  background: #e0e7ff;
+  color: #2563eb;
+  font-weight: bold;
+}
+
+.block-toolbar-left .block-mode-btn:hover:not(.active) {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+
+.block-toolbar-left .block-copy-btn {
+  font-size: 12px;
+  color: #64748b;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 2px 8px;
+  margin-left: 8px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.block-toolbar-left .block-copy-btn:hover {
+  background: #e0e7ff;
+  color: #2563eb;
+}
+
+.block-struct-copy-btn {
+  font-size: 11px;
+  color: #64748b;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-left: 8px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.block-struct-copy-btn:hover {
+  background: #e0e7ff;
+  color: #2563eb;
+}
+
+/* ==========================
+ * 分块高亮样式
+ * ========================== */
+.block-outer.block-highlight {
+  box-shadow: 0 0 0 3px #2563eb44;
+  transition: box-shadow 0.3s;
+}
+
+.block-toolbar .block-toggle-btn.active {
+  background: #e0e7ff;
+  color: #2563eb;
+  border-radius: 5px;
+}
+
+.block-toolbar .block-toggle-btn,
+.block-toolbar .block-nav-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 0; /* 隐藏原来的 ↑/↓ 文本 */
+  padding: 0;
+  width: 22px;
+  height: 18px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.block-toolbar .block-nav-btn::before {
+  content: '';
+  display: inline-block;
+  width: 0;
+  height: 0;
+  /* 短粗三角：底宽更大，高度相对较小 */
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+}
+
+.block-toolbar .block-nav-btn[data-dir="prev"]::before {
+  border-bottom: 7px solid #9ca3af; /* 灰色，向上 */
+}
+
+.block-toolbar .block-nav-btn[data-dir="next"]::before {
+  border-top: 7px solid #9ca3af; /* 灰色，向下 */
+}
+
+.block-toolbar .block-toggle-btn:hover,
+.block-toolbar .block-nav-btn:hover {
+  background: #f1f5f9;
+}
+
+/* ==========================
+ * 批注高亮样式
+ * ========================== */
+.annotation-highlight {
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.annotation-highlight.bg-yellow {
+  background-color: rgba(255, 255, 0, 0.75);
+}
+
+.annotation-highlight.bg-pink {
+  background-color: rgba(253, 170, 200, 0.75);
+}
+
+.annotation-highlight.bg-lightblue {
+  background-color: rgba(95, 211, 250, 0.75);
+}
+
+.annotation-highlight.bg-lightgreen {
+  background-color: rgba(178, 253, 178, 0.75);
+}
+
+.annotation-highlight.bg-purple {
+  background-color: rgba(221, 160, 221, 0.75);
+}
+
+.annotation-highlight.bg-orange {
+  background-color: rgba(255, 165, 0, 0.75);
+}
+

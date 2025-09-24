@@ -1,0 +1,109 @@
+/* ====================
+ * 页面基础与布局样式
+ * ==================== */
+body {
+  font-family: sans-serif;
+  background: #f7f7fa;
+  margin: 0;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 40px auto;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: 32px;
+}
+
+/* ====================
+ * 标签页导航样式
+ * ==================== */
+.tabs-container {
+  border-bottom: 2px solid #e2e8f0;
+  margin-bottom: 16px;
+  display: flex;
+}
+
+.tab-btn {
+  padding: 8px 24px;
+  background: transparent;
+  margin-right: 4px;
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+  font-size: 1rem;
+  border: 2px solid transparent;
+  border-bottom: none;
+  position: relative;
+  bottom: -2px;
+  transition: all 0.2s ease;
+  white-space: nowrap; /* 防止文本换行 */
+  overflow: hidden;
+  text-overflow: ellipsis; /* 文本溢出时显示省略号 */
+  min-width: 80px; /* 确保最小宽度 */
+  text-align: center; /* 文本居中 */
+}
+
+/* 适应较小屏幕的标签页按钮 */
+@media (max-width: 768px) {
+  .tab-btn {
+    padding: 8px 12px;
+    font-size: 0.9rem;
+    min-width: 60px;
+  }
+}
+
+.tab-btn:hover:not(.active) {
+  background: #f1f5f9;
+}
+
+.tab-btn.active {
+  background: #fff;
+  color: #2563eb;
+  border-color: #e2e8f0;
+  border-bottom: 2px solid #fff;
+  font-weight: 500;
+}
+
+/* ====================
+ * 标签页内容区域样式
+ * ==================== */
+.tab-content {
+  background: #fff;
+  border-radius: 8px;
+  padding: 24px;
+  min-height: 300px;
+  margin-top: -2px;
+}
+
+/* ====================
+ * Markdown 表格样式
+ * ==================== */
+.markdown-body table {
+  border-collapse: collapse;
+  width: auto;
+  margin: 16px auto;
+  font-size: 0.95em;
+  display: table;
+}
+
+.markdown-body table th,
+.markdown-body table td {
+  border: 1px solid #ddd;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.markdown-body table th {
+  background-color: #f2f2f2;
+  font-weight: 600;
+}
+
+.markdown-body table tr:nth-child(even) {
+  background-color: #f8f8f8;
+}
+
+.markdown-body table tr:hover {
+  background-color: #f1f5f9;
+}
+

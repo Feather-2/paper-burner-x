@@ -1,0 +1,213 @@
+/* ==========================
+ * Modal (Pop-up) Styles
+ * ========================== */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex; /* Use flexbox for centering */
+  align-items: center; /* Vertical center */
+  justify-content: center; /* Horizontal center */
+  z-index: 10000; /* Ensure it's on top */
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.modal-overlay.visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.modal-content {
+  background-color: #fff;
+  padding: 25px 30px;
+  border-radius: 10px;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+  width: auto;
+  max-width: 500px; /* Max width of the modal */
+  min-width: 350px; /* Min width of the modal */
+  z-index: 10001;
+  transform: translateY(-20px);
+  transition: transform 0.3s ease;
+  position: relative; /* Added for absolute positioning of close button */
+}
+
+.modal-overlay.visible .modal-content {
+  transform: translateY(0);
+}
+
+/* Dock Settings Modal Specific Adjustments - Placed after generic modal styles */
+.dock-settings-modal-content .checkbox-container { /* Targetting specific container in dock settings */
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start; /* Align items to the start, or space-around for more spread */
+  gap: 10px 15px; /* Row gap and column gap for checkboxes */
+  margin-bottom: 20px; /* Space before the button area */
+}
+
+.dock-settings-modal-content .checkbox-group {
+  display: inline-flex; /* Align checkbox and label nicely in a line */
+  align-items: center;
+  /* flex-basis: calc(50% - 10px); */ /* Example: for 2 items per row if using space-between/around */
+  /* No fixed margin-right or margin-bottom, rely on gap from container */
+}
+
+.dock-settings-modal-content .checkbox-group label {
+  margin-left: 6px; /* Space between checkbox and its label text */
+  font-size: 0.9em;
+  color: #495057;
+  white-space: nowrap; /* Prevent label text from wrapping if possible */
+  cursor: pointer;
+}
+
+.dock-settings-modal-content .checkbox-group input[type="checkbox"] {
+  margin-right: 0; /* Override default if any, spacing handled by label */
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+/* Close button for Dock Settings Modal - specific styling */
+.dock-settings-modal-content .dock-settings-modal-close-btn {
+  position: absolute; /* Position relative to modal-content */
+  top: 10px;  /* Adjust as needed */
+  right: 15px; /* Adjust as needed */
+  background: none;
+  border: none;
+  font-size: 1.7em; /* Slightly smaller if preferred */
+  color: #6c757d;
+  cursor: pointer;
+  padding: 5px; /* Easier to click */
+  line-height: 1;
+}
+.dock-settings-modal-content .dock-settings-modal-close-btn:hover {
+  color: #343a40;
+}
+
+/* Title for Dock Settings Modal */
+.dock-settings-modal-content h2 {
+  margin-top: 0; /* Reset top margin */
+  margin-bottom: 20px; /* Space after title before checkboxes */
+  font-size: 1.3em; /* Slightly smaller if preferred over generic modal-header h3 */
+  color: #343a40;
+  text-align: center;
+  font-weight: 600;
+}
+
+/* Button container in Dock Settings Modal - acting as a footer */
+.dock-settings-modal-content .dock-settings-modal-buttons {
+  border-top: 1px dashed #ced4da; /* Dashed divider */
+  padding-top: 15px; /* Space above buttons */
+  margin-top: 15px;  /* Additional space if checkboxes are many and wrap */
+  display: flex;
+  justify-content: flex-end; /* Align buttons to the right */
+  gap: 10px; /* Space between buttons */
+}
+
+/* The following generic .modal-body styles are KEPT for other modals,
+   but Dock Settings Modal uses more specific styling above for its checkbox area. */
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #e9ecef;
+  padding-bottom: 15px;
+  margin-bottom: 20px;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.4em;
+  color: #343a40;
+}
+
+.modal-close-btn { /* Generic close button - Dock settings uses a more specific one */
+  background: none;
+  border: none;
+  font-size: 1.8em;
+  color: #6c757d;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+.modal-close-btn:hover {
+  color: #343a40;
+}
+
+.modal-body p {
+  font-size: 0.95em;
+  color: #495057;
+  margin-bottom: 15px;
+}
+
+/* Generic checkbox group styling for OTHER modals, if any */
+.modal-body .checkbox-group {
+  display: flex;
+  flex-direction: column; /* STACKED by default for generic modals */
+  gap: 10px; /* Space between checkbox lines */
+}
+
+.modal-body .checkbox-group label {
+  display: flex;
+  align-items: center;
+  font-size: 0.9em;
+  color: #495057;
+  cursor: pointer;
+}
+
+.modal-body .checkbox-group input[type="checkbox"] {
+  margin-right: 10px;
+  width: 16px; /* Custom size for checkbox */
+  height: 16px; /* Custom size for checkbox */
+  cursor: pointer;
+}
+
+.modal-footer {
+  border-top: 1px solid #e9ecef; /* Solid for generic, Dock settings will override if its .dock-settings-modal-buttons is effectively a footer */
+  padding-top: 20px;
+  margin-top: 25px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.btn {
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-size: 0.9em;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.btn-primary {
+  background-color: #007bff;
+  border-color: #007bff;
+  color: white;
+}
+.btn-primary:hover {
+  background-color: #0056b3;
+  border-color: #0056b3;
+}
+
+.btn-secondary {
+  background-color: #6c757d;
+  border-color: #6c757d;
+  color: white;
+}
+.btn-secondary:hover {
+  background-color: #545b62;
+  border-color: #545b62;
+}
+
+/* Ensure this doesn't conflict if modal is initially display:none in HTML */
+#dock-settings-modal.modal-overlay {
+    /* If using inline style display:flex to show, these might need !important or be more specific */
+    /* For now, assuming JS handles display, so opacity/visibility are primary for transition */
+}
+

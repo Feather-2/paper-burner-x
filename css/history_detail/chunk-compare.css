@@ -1,0 +1,84 @@
+/* ====================
+ * 分块对比视图样式
+ * ==================== */
+/* 分块对比区域的标题栏，包含标题和切换按钮 */
+.chunk-compare-title-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1em; /* 调整标题和内容之间的间距 */
+}
+
+.chunk-compare-title-bar h3 {
+  margin: 0; /* 移除h3的默认外边距 */
+}
+
+/* 切换原文/译文位置按钮 */
+#swap-chunks-btn {
+  background: transparent;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 1.1em; /* 图标大小 */
+  line-height: 1;
+  color: #333;
+}
+
+#swap-chunks-btn:hover {
+  background-color: #f0f0f0;
+  border-color: #bbb;
+}
+
+/* 分块对比主容器，垂直排列块对 */
+.chunk-compare-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1em;
+}
+
+/* 单个原文/译文对比块对，水平排列 */
+.chunk-pair {
+  display: flex;
+  gap: 1em;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 1em;
+}
+
+.chunk-pair:last-child {
+  border-bottom: none;
+}
+
+/* 块对中的单个块（原文或译文） */
+.chunk-pair > div {
+  flex: 1;
+  min-width: 0;
+  background: #fdfdfd;
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid #eef;
+}
+
+/* 表格对比对：整体轻微蓝色提示 */
+.align-flex.table-pair .align-block {
+  background: #f0f9ff;
+  border-color: #bae6fd;
+}
+.align-flex.table-pair .align-title span {
+  color: #1e40af;
+}
+
+.chunk-pair h4 {
+  margin-top: 0;
+  font-size: 0.9em;
+  color: #555;
+  border-bottom: 1px dashed #ddd;
+  padding-bottom: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+/* 确保分块内容区域在内容过长时可以横向滚动 */
+.chunk-compare-container .markdown-body {
+  overflow-x: auto; /* 为分块内容区域添加横向滚动条 */
+}
+

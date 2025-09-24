@@ -1,0 +1,250 @@
+/* ==========================
+ * TOC 浮动按钮和弹窗样式
+ * ========================== */
+#toc-float-btn {
+  position: fixed !important; /* Ensure it's fixed */
+  left: 15px !important; /* Adjusted from 24px */
+  top: 15px !important;  /* Adjusted from 24px */
+  z-index: 20000 !important; /* Consistent high z-index */
+  /* Visual styles (width, height, background, border-radius, box-shadow, icon color/size)
+     will be handled by the .tiny-round-btn class added in HTML.
+     Remove conflicting properties here. */
+  cursor: pointer; /* Keep, though .tiny-round-btn also sets it */
+  display: flex; /* Keep, though .tiny-round-btn also sets it */
+  align-items: center; /* Keep, though .tiny-round-btn also sets it */
+  justify-content: center; /* Keep, though .tiny-round-btn also sets it */
+  transition: background 0.2s; /* Keep, .tiny-round-btn has similar */
+  /* Remove original:
+  width: 48px;
+  height: 48px;
+  background: #2563eb;
+  border-radius: 50%;
+  box-shadow: 0 3px 10px rgba(59, 130, 246, 0.25);
+  */
+}
+
+#toc-float-btn i {
+  /* Icon color and font-size will be handled by .tiny-round-btn > i */
+  /* Remove original:
+  color: #fff;
+  font-size: 22px;
+  */
+}
+
+#toc-popup {
+  display: none;
+  position: fixed;
+  left: 6px;
+  top: 80px;
+  z-index: 9999;
+  width: 220px;
+  max-width: 85vw;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+  transition: opacity 0.2s, transform 0.2s;
+  transform: translateY(-10px);
+  opacity: 0;
+}
+
+#toc-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+#toc-popup-header span {
+  font-weight: 600;
+  font-size: 0.95em;
+  color: #1e293b;
+}
+
+#toc-popup-header i {
+  margin-right: 8px;
+  color: #3b82f6;
+}
+
+#toc-popup-close-btn {
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #475569;
+  transition: background 0.15s, color 0.15s;
+}
+
+#toc-list {
+  list-style: none;
+  padding: 8px 0;
+  margin: 0;
+  font-size: 0.85em;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+#toc-list ul.toc-children {
+  list-style: none;
+  padding-left: 0; /* 移除默认缩进 */
+  margin: 0;
+  overflow: hidden; /* 确保折叠时内容被隐藏 */
+}
+
+/* 添加每级标题的默认缩进和字体样式 */
+#toc-list li.toc-h1 {
+  margin-top: 6px;
+}
+
+#toc-list li.toc-h2 {
+  margin-top: 4px;
+}
+
+#toc-list li.toc-h3,
+#toc-list li.toc-h4,
+#toc-list li.toc-h5,
+#toc-list li.toc-h6 {
+  margin-top: 2px;
+}
+
+/* 折叠按钮样式 */
+#toc-list .toc-toggle {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  text-align: center;
+  line-height: 16px;
+  margin-right: 2px;
+  font-size: 10px;
+  color: #666;
+  transition: transform 0.2s ease;
+  cursor: pointer;
+}
+
+#toc-list .toc-toggle.collapsed {
+  transform: rotate(-90deg);
+}
+
+/* 有子项的TOC项样式 */
+#toc-list li.has-children > a {
+  font-weight: 600;
+}
+
+/* 折叠状态下的子项容器 */
+#toc-list .toc-children.collapsed {
+  height: 0 !important;
+  margin: 0;
+  padding: 0;
+}
+
+/* 修复悬停状态与折叠状态的冲突 */
+#toc-list li a:hover .toc-toggle {
+  color: #3b82f6;
+}
+
+/* 为折叠按钮单独设置悬停样式 */
+#toc-list .toc-toggle:hover {
+  color: #3b82f6;
+  background-color: rgba(59, 130, 246, 0.1);
+  border-radius: 3px;
+}
+
+/* ==========================
+ * TOC 悬浮窗的特定样式
+ * ========================== */
+/* TOC弹窗滚动条样式 */
+#toc-popup::-webkit-scrollbar {
+  width: 5px;
+}
+
+#toc-popup::-webkit-scrollbar-track {
+  background: #f8fafc;
+}
+
+#toc-popup::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+#toc-popup::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* TOC列表项通用样式 */
+#toc-list li {
+  margin-bottom: 0;
+  line-height: 1.4;
+}
+
+/* 文件名占位符的特殊样式 */
+#toc-list li a[href^="#placeholder-"] {
+  font-weight: 600;
+  color: #2563eb;
+  border-left-color: #2563eb;
+  background-color: rgba(59, 130, 246, 0.1);
+  padding-left: 16px;
+}
+
+#toc-list li a[href^="#placeholder-"]::before {
+  content: "📄 ";
+  margin-right: 4px;
+}
+
+#toc-list li a {
+  display: block;
+  padding: 5px 16px;
+  color: #334155;
+  text-decoration: none;
+  font-weight: 500;
+  transition: background 0.15s, color 0.15s, border-left-color 0.15s;
+  border-left: 3px dashed #e2e8f0;
+  /* 添加多行支持 */
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.3;
+  padding-right: 8px;
+}
+
+#toc-list li a:hover {
+  background: #eef2ff;
+  color: #3b82f6;
+  border-left-color: #3b82f6;
+}
+
+/* 不同层级标题的缩进和字体大小 */
+#toc-list li.toc-h2 a {
+  padding-left: 16px;
+  font-size: 0.95em;
+}
+
+#toc-list li.toc-h3 a {
+  padding-left: 24px; /* 略微调整缩进 */
+  font-size: 0.88em;
+  color: #475569;
+}
+
+#toc-list li.toc-h3 a:hover {
+  color: #3b82f6;
+}
+
+/* TOC项中的英文翻译样式 */
+#toc-list span.toc-en-translation {
+  font-size: 0.85em;
+  color: #64748b;
+  margin-left: 4px;
+  font-weight: 400;
+}
+
+/* TOC浮动按钮和关闭按钮的悬停效果 */
+#toc-float-btn:hover {
+  background: #1d4ed8;
+}
+
+#toc-popup-close-btn:hover {
+  background: #eef2ff;
+  color: #3b82f6;
+}
+

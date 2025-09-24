@@ -1,0 +1,108 @@
+/* ==========================
+ * 动态状态管理CSS类
+ * ========================== */
+
+/* 分块对比显示模式 */
+.block-mode-ocr-only .align-block-trans,
+.block-mode-ocr-only .splitter {
+  display: none !important;
+}
+
+.block-mode-ocr-only .align-block-ocr {
+  flex-basis: 100% !important;
+  max-width: 100% !important;
+  width: 100% !important;
+}
+
+.block-mode-trans-only .align-block-ocr,
+.block-mode-trans-only .splitter {
+  display: none !important;
+}
+
+.block-mode-trans-only .align-block-trans {
+  flex-basis: 100% !important;
+  max-width: 100% !important;
+  width: 100% !important;
+}
+
+.block-mode-both .align-block-ocr,
+.block-mode-both .align-block-trans {
+  display: block !important;
+}
+
+.block-mode-both .splitter {
+  display: block !important;
+}
+
+/* Flex比例CSS变量支持 - 只在对比模式下生效 */
+.block-mode-both .align-block-ocr {
+  flex-basis: var(--ocr-ratio, 50%) !important;
+  max-width: var(--ocr-ratio, 50%) !important;
+}
+
+.block-mode-both .align-block-trans {
+  flex-basis: var(--trans-ratio, 50%) !important;
+  max-width: var(--trans-ratio, 50%) !important;
+}
+
+/* 拖拽状态 */
+.dragging-cursor {
+  cursor: col-resize !important;
+}
+
+/* 上下文菜单状态 */
+.context-menu-visible {
+  display: block !important;
+}
+
+.context-menu-hidden {
+  display: none !important;
+}
+
+/* TOC弹窗状态 */
+.toc-popup-visible {
+  display: block !important;
+  opacity: 1 !important;
+  transform: translateY(0) !important;
+}
+
+.toc-popup-hidden {
+  display: none !important;
+}
+
+.toc-popup-hiding {
+  opacity: 0 !important;
+  transform: translateY(-10px) !important;
+}
+
+/* 临时加载效果 */
+.loading-effect {
+  position: fixed !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  background: rgba(0, 0, 0, 0.75) !important;
+  color: white !important;
+  padding: 15px 25px !important;
+  border-radius: 8px !important;
+  z-index: 10001 !important;
+  font-size: 1.1em !important;
+  text-align: center !important;
+  opacity: 0 !important;
+  transition: opacity 0.3s ease-in-out !important;
+}
+
+.loading-effect-visible {
+  opacity: 1 !important;
+}
+
+.content-blurred {
+  filter: blur(4px) !important;
+  transition: filter 0.3s ease-in-out !important;
+}
+
+/* 动态高亮样式 */
+.dynamic-highlight {
+  cursor: pointer !important;
+}
+
