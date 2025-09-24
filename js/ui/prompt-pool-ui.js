@@ -654,7 +654,8 @@ ${userRef}
 
             // 处理自定义源站点的格式: "siteId:modelId"
             if (apiModel.includes(':')) {
-                const [siteId, modelId] = apiModel.split(':');
+                const separatorIndex = apiModel.indexOf(':');
+                const siteId = apiModel.slice(0, separatorIndex);
                 actualModelName = `custom_source_${siteId}`;
             }
 

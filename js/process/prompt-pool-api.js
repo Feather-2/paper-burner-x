@@ -27,7 +27,9 @@
     // 自定义源站点（格式：siteId:modelId）
     if (apiModel.includes(':')) {
       ensureBuilders();
-      const [siteId, modelId] = apiModel.split(':');
+      const separatorIndex = apiModel.indexOf(':');
+      const siteId = apiModel.slice(0, separatorIndex);
+      const modelId = apiModel.slice(separatorIndex + 1);
       const allSites = (typeof loadAllCustomSourceSites === 'function') ? loadAllCustomSourceSites() : {};
       const site = allSites[siteId];
       if (!site) throw new Error(`未找到源站点配置：${siteId}`);

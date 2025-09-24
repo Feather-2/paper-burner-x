@@ -77,7 +77,44 @@ class TranslationPromptPool {
     loadPromptPool() {
         try {
             const stored = localStorage.getItem(this.storageKey);
-            return stored ? JSON.parse(stored) : [];
+            if (!stored) return [];
+
+            const parsed = JSON.parse(stored);
+            if (!Array.isArray(parsed)) return [];
+
+            const dedupedMap = new Map();
+            parsed.forEach(item => {
+                if (!item || (!item.systemPrompt && !item.userPromptTemplate)) return;
+                const key = this.getVariationKey(item);
+                if (!key) return;
+
+                if (!dedupedMap.has(key)) {
+                    dedupedMap.set(key, item);
+                    return;
+                }
+
+                const existing = dedupedMap.get(key);
+                const existingUsage = existing?.usage_count || 0;
+                const candidateUsage = item?.usage_count || 0;
+                const existingRequests = existing?.healthStatus?.totalRequests || 0;
+                const candidateRequests = item?.healthStatus?.totalRequests || 0;
+
+                if (candidateUsage > existingUsage ||
+                    (candidateUsage === existingUsage && candidateRequests > existingRequests)) {
+                    dedupedMap.set(key, item);
+                }
+            });
+
+            const deduped = Array.from(dedupedMap.values());
+            if (deduped.length !== parsed.length) {
+                console.info('[PromptPool] 去重提示词条目:', parsed.length - deduped.length);
+                try {
+                    localStorage.setItem(this.storageKey, JSON.stringify(deduped));
+                } catch (persistError) {
+                    console.warn('[PromptPool] 去重结果写回失败:', persistError);
+                }
+            }
+            return deduped;
         } catch (error) {
             console.error('Failed to load prompt pool:', error);
             return [];
@@ -216,7 +253,9 @@ ${referenceUserPrompt}
         } else if (typeof processModule !== 'undefined' && typeof processModule.buildCustomApiConfig === 'function') {
             // 回退（自定义站点）：尽量使用 buildCustomApiConfig 补全端点
             if (apiModel.includes(':')) {
-                const [siteId, modelId] = apiModel.split(':');
+                const separatorIndex = apiModel.indexOf(':');
+                const siteId = apiModel.slice(0, separatorIndex);
+                const modelId = apiModel.slice(separatorIndex + 1);
                 const allSites = typeof loadAllCustomSourceSites === 'function' ? loadAllCustomSourceSites() : {};
                 const site = allSites[siteId];
                 if (!site) throw new Error(`未找到源站点配置：${siteId}`);
@@ -455,6 +494,17 @@ ${referenceUserPrompt}
         }
 
         return processedVariations;
+    }
+
+    /**
+     * 生成用于去重的提示词键
+     */
+    getVariationKey(prompt) {
+        if (!prompt) return '';
+        const system = typeof prompt.systemPrompt === 'string' ? prompt.systemPrompt.trim() : '';
+        const user = typeof prompt.userPromptTemplate === 'string' ? prompt.userPromptTemplate.trim() : '';
+        if (!system && !user) return '';
+        return `${system}||${user}`;
     }
 
     /**
@@ -808,7 +858,26 @@ ${referenceUserPrompt}
      * 批量添加变体到提示词池
      */
     addVariationsToPool(variations) {
-        this.promptPool.push(...variations);
+        if (!Array.isArray(variations) || variations.length === 0) {
+            return;
+        }
+
+        const existingKeys = new Set(this.promptPool.map(item => this.getVariationKey(item)).filter(Boolean));
+        const newItems = [];
+
+        for (const variation of variations) {
+            if (!variation) continue;
+            const key = this.getVariationKey(variation);
+            if (!key || existingKeys.has(key)) continue;
+            existingKeys.add(key);
+            newItems.push(variation);
+        }
+
+        if (newItems.length === 0) {
+            return;
+        }
+
+        this.promptPool.push(...newItems);
         this.savePromptPool();
     }
 

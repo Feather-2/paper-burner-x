@@ -72,6 +72,10 @@ EXPECTED_UI_MODULES.forEach(name => {
 function updateTranslationUIVisibility(showCustomUI) {
     // console.log(`UI::updateTranslationUIVisibility, showCustom: ${showCustomUI}`); // Original log
     console.log(`DEBUG index.js: updateTranslationUIVisibility CALLED with showCustom: ${showCustomUI}`);
+    if (typeof window.updateTranslationUIVisibility === 'function' && window.updateTranslationUIVisibility !== updateTranslationUIVisibility) {
+        window.updateTranslationUIVisibility(showCustomUI);
+        return;
+    }
     const customSourceSiteContainer = document.getElementById('customSourceSiteContainer');
     const customSourceSiteSelect = document.getElementById('customSourceSiteSelect');
     const customSourceSiteInfo = document.getElementById('customSourceSiteInfo');

@@ -129,16 +129,31 @@ function normalizeGeminiModelsUrl(baseUrlInput) {
 
 function mapGeminiModelsResponse(modelsArray) {
     if (!Array.isArray(modelsArray)) return [];
-    return modelsArray
+    const mapped = modelsArray
         .map(model => {
             if (!model) return null;
             const fullName = model.name || model.id || '';
-            const id = fullName.includes('/') ? fullName.split('/').pop() : fullName;
-            if (!id) return null;
-            const displayName = model.displayName || model.description || id;
-            return { id, name: displayName };
+            if (!fullName) return null;
+            const normalizedId = fullName.includes('/') ? fullName.split('/').pop() : fullName;
+            if (!normalizedId) return null;
+
+            return {
+                id: normalizedId,
+                name: normalizedId,
+                rawName: fullName,
+                rawDisplayName: model.displayName || ''
+            };
         })
         .filter(Boolean);
+
+    const uniqueById = new Map();
+    for (const item of mapped) {
+        if (!uniqueById.has(item.id)) {
+            uniqueById.set(item.id, item);
+        }
+    }
+
+    return Array.from(uniqueById.values());
 }
 
 function isGeminiFormat(requestFormat, baseUrl) {

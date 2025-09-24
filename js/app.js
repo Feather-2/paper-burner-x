@@ -663,7 +663,7 @@ function setupEventListeners() {
         // 输入验证
         let value = parseInt(concurrencyInput.value);
         if (isNaN(value) || value < 1) value = 1;
-        if (value > 10) value = 10; // Keep limit for file processing
+        if (value > 50) value = 50; // Allow higher concurrency for file processing
         concurrencyInput.value = value;
         saveCurrentSettings();
     });
