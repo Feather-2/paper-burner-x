@@ -83,17 +83,41 @@
         try {
             // 预处理公式内容
             let processedContent = content.trim();
+            // 清理零宽字符/组合下划线/误入的中文标点等边缘字符
+            processedContent = processedContent
+              .replace(/[\u200B-\u200D\uFEFF]/g, '')
+              .replace(/^[\u0300-\u036F]+|[\u0300-\u036F]+$/g, '')
+              .replace(/^[\s\u3000。，、；：：“”\(（\)）\[\]【】《》‘’'"–—-]+/, '')
+              .replace(/[\s\u3000。，、；：：“”\(（\)）\[\]【】《》‘’'"–—-]+$/, '')
+              .replace(/\s{2,}/g, ' ');
             
             // 修复常见的公式问题
+            if (/\\right\s*$/.test(processedContent)) {
+                let close = ')';
+                try {
+                    const re = /\\left\s*([\(\[\{])/g;
+                    let m;
+                    while ((m = re.exec(processedContent)) !== null) {
+                        const ch = m[1];
+                        close = ch === '(' ? ')' : ch === '[' ? ']' : '}';
+                    }
+                } catch(_) { /* ignore */ }
+                processedContent = processedContent.replace(/\\right\s*$/, `\\right${close}`);
+            }
+            // Degree unit normalization: \mathrm{ ^\circ C } or \mathrm{ \;^\circ C }
+            processedContent = processedContent.replace(/\\mathrm\{\s*(?:\\;|\s)*\^\s*\{?\s*\\?circ\s*\}?\s*([A-Za-z])\s*\}/g, '^{\\circ}\\mathrm{$1}');
+            // Unicode triangles
+            processedContent = processedContent.replace(/▲/g, '\\blacktriangle').replace(/△/g, '\\triangle');
             processedContent = processedContent.replace(/\\times/g, ' \\times ');
             processedContent = processedContent.replace(/([a-zA-Z])([0-9])/g, '$1_{$2}');
             
             const rendered = katex.renderToString(processedContent, options);
             const containerClass = displayMode ? 'katex-display-fixed' : 'katex-inline-fixed';
+            const originalAttr = ` data-original-text="${escapeHtml(processedContent)}"`;
             
             return displayMode 
-                ? `<div class="${containerClass}">${rendered}</div>`
-                : `<span class="${containerClass}">${rendered}</span>`;
+                ? `<div class="${containerClass}"${originalAttr}>${rendered}</div>`
+                : `<span class="${containerClass}"${originalAttr}>${rendered}</span>`;
                 
         } catch (error) {
             console.warn('[MathFix] KaTeX rendering failed:', error.message);

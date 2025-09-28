@@ -82,3 +82,73 @@
   overflow-x: auto; /* 为分块内容区域添加横向滚动条 */
 }
 
+/* 公式在对比模式下的专用修复：避免“挤成一团” */
+.chunk-compare-container .katex-display,
+.chunk-compare-container .katex-display-fixed {
+  /* 允许 KaTeX 自己决定换行/高度，而不是强行 nowrap */
+  white-space: normal !important;
+  display: block;
+  width: 100%;
+  text-align: center;
+  padding-right: 0 !important; /* 在对比模式下不预留右侧空间，改用“编号换行”方案 */
+  line-height: 1.5; /* 提高行高，避免窄屏时高度不足 */
+  /* 关键修复：允许纵向溢出显示，否则第二行会被 clip 掉 */
+  overflow-y: visible !important;
+  overflow-x: visible;
+}
+.chunk-compare-container .katex-display > .katex,
+.chunk-compare-container .katex-display-fixed > .katex {
+  max-width: 100% !important;
+}
+/* 防止 KaTeX 内层再发生裁剪 */
+.chunk-compare-container .katex { overflow: visible !important; }
+
+/* 对比模式下，将右侧编号（\tag、编号）放到下一行右对齐，避免与主体重叠 */
+.chunk-compare-container .katex-display .katex-tag,
+.chunk-compare-container .katex-display .tag,
+.chunk-compare-container .katex .katex-tag,
+.chunk-compare-container .katex .tag {
+  position: static !important;
+  display: block !important;
+  height: auto !important;
+  transform: none !important;
+  margin: 4px 0 0 0 !important;
+  text-align: right !important;
+  white-space: nowrap;
+}
+
+/* 在对比半栏中，适度缩小公式字号，提升适配性 */
+.chunk-compare-container .katex,
+.chunk-compare-container .katex-display,
+.chunk-compare-container .katex-display-fixed {
+  font-size: 0.96em;
+}
+
+@media (max-width: 1024px) {
+  .chunk-compare-container .katex,
+  .chunk-compare-container .katex-display,
+  .chunk-compare-container .katex-display-fixed {
+    font-size: 0.94em;
+  }
+}
+
+@media (max-width: 768px) {
+  .chunk-compare-container .katex-display,
+  .chunk-compare-container .katex-display-fixed {
+    margin: 10px 0;
+  }
+}
+
+/* 降低对比模式下公式失败的可视噪音（黄底提示，避免“红框”误报） */
+.chunk-compare-container .katex-fallback {
+  background-color: #fffbe6; /* 淡黄 */
+  border: 1px dashed #facc15; /* 金色 */
+  color: #7c5e00;
+}
+.chunk-compare-container .katex-error,
+.chunk-compare-container .katex-error.katex-block,
+.chunk-compare-container .katex-error.katex-inline {
+  background-color: #fffbe6;
+  border-color: #facc15;
+  color: #7c5e00;
+}

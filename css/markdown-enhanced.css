@@ -107,15 +107,47 @@
 }
 
 .katex-block .katex-display {
-    display: inline-block;
+    display: block;          /* 使用块级，保持 100% 宽度，便于右标绝对定位到最右侧 */
+    width: 100%;
     margin: 0 auto;
-    text-align: left;
+    text-align: center;      /* 保持 KaTeX 默认：使内部 .katex 居中 */
     position: relative;
-    padding-right: 2.75em;
+    /* 预留更充足的右侧空间给公式右标（如 \tag 或编号） */
+    padding-right: 4.25em;
 }
 
 .katex-block .katex-display .katex-tag {
     right: 0;
+}
+
+/* 在未包裹 .katex-block 的情况下，兜底为 .katex-display 也预留右侧空间，避免右标与公式内容挤在一起 */
+.katex-display {
+    display: block !important; /* 确保占满一行，右标定位到最右侧 */
+    width: 100%;
+    position: relative;
+    padding-right: 4.25em;
+    text-align: center; /* 与 KaTeX 默认一致，内部 .katex 居中 */
+}
+
+/* 兼容 KaTeX 默认的 ".tag" 类与本项目历史使用的 ".katex-tag" 类 */
+.katex-display .katex-tag,
+.katex-display .tag,
+.katex .katex-tag,
+.katex .tag {
+    position: absolute;
+    right: 0;
+    top: 0;
+    height: 100%;
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+    /* 给公式主体与右标之间留出一点视觉间距 */
+    margin-left: 0.5em;
+}
+
+/* 防止公式主体撑到与右标重叠：受限其最大宽度，给右侧预留的 4.25em 空间 */
+.katex-display > .katex {
+    max-width: calc(100% - 4.25em);
 }
 
 .katex-inline {
@@ -145,6 +177,19 @@
 .katex-fallback-source {
     white-space: pre-wrap;
     word-break: break-word;
+}
+
+/* 防止数学公式被段内换行算法拆分，尤其是翻译页/分块对比页的 markdown-body 全局换行规则 */
+.markdown-body .katex,
+.markdown-body .katex * {
+    word-break: normal !important;
+    overflow-wrap: normal !important;
+}
+
+/* 追加：确保 .katex-display 的 padding 不会导致容器溢出 */
+.katex-block .katex-display,
+.katex-display {
+    box-sizing: border-box;
 }
 
 /* Performance indicator styles */
@@ -206,6 +251,14 @@
         max-width: 200px;
         white-space: normal;
         text-align: center;
+    }
+
+    /* 移动端进一步缩小公式并减少右侧留白 */
+    .katex-display {
+        padding-right: 3.25em !important;
+    }
+    .katex-display > .katex {
+        max-width: calc(100% - 3.25em) !important;
     }
 }
 

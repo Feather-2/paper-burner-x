@@ -162,7 +162,36 @@
     }
 
     function renderFormulaLegacy(content, displayHint) {
-      const analysis = analyzeFormulaLayoutLegacy(content, displayHint);
+      function sanitizeTeX(src) {
+        let s = typeof src === 'string' ? src : '';
+        if (!s) return '';
+        s = s.replace(/[\u200B-\u200D\uFEFF]/g, '');
+        s = s.replace(/^[\u0300-\u036F]+|[\u0300-\u036F]+$/g, '');
+        s = s.replace(/^[\s\u3000。，、；：：“”\(（\)）\[\]【】《》‘’'"–—-]+/, '');
+        s = s.replace(/[\s\u3000。，、；：：“”\(（\)）\[\]【】《》‘’'"–—-]+$/, '');
+        s = s.replace(/\s{2,}/g, ' ');
+        // 如果末尾出现裸的 \\right ，补齐与最近的 \\left 匹配的右定界符
+        if (/\\right\s*$/.test(s)) {
+          let close = ')';
+          try {
+            const re = /\\left\s*([\(\[\{])/g;
+            let m;
+            while ((m = re.exec(s)) !== null) {
+              const ch = m[1];
+              close = ch === '(' ? ')' : ch === '[' ? ']' : '}';
+            }
+          } catch(_) { /* ignore */ }
+          s = s.replace(/\\right\s*$/, `\\right${close}`);
+        }
+        // Normalize degree unit: \mathrm{ ^\circ C } → ^{\circ}\mathrm{C}
+        s = s.replace(/\\mathrm\{\s*(?:\\;|\s)*\^\s*\{?\s*\\?circ\s*\}?\s*([A-Za-z])\s*\}/g, '^{\\circ}\\mathrm{$1}');
+        // Replace Unicode triangles
+        s = s.replace(/▲/g, '\\blacktriangle').replace(/△/g, '\\triangle');
+        return s.trim();
+      }
+
+      const cleaned = sanitizeTeX(content);
+      const analysis = analyzeFormulaLayoutLegacy(cleaned, displayHint);
 
       if (!analysis.text) {
         return analysis.displayMode ? '<div class="katex-block"></div>' : '<span class="katex-inline"></span>';
@@ -176,13 +205,14 @@
           output: 'html'
         });
 
+        const original = escapeHtml(analysis.text);
         if (analysis.displayMode) {
           return `
-<div class="katex-block" data-formula-display="block">${rendered}</div>
+<div class="katex-block" data-formula-display="block" data-original-text="${original}">${rendered}</div>
 `;
         }
 
-        return `<span class="katex-inline" data-formula-display="inline">${rendered}</span>`;
+        return `<span class="katex-inline" data-formula-display="inline" data-original-text="${original}">${rendered}</span>`;
 
       } catch (error) {
         console.warn('[MarkdownProcessor] KaTeX rendering failed (legacy):', error);

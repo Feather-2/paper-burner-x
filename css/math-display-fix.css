@@ -12,6 +12,36 @@
     line-height: 1.2;
 }
 
+/* 确保使用改进容器时，内部的 KaTeX display 元素也为右侧编号预留空间 */
+.katex-display-fixed .katex-display {
+    display: block;
+    width: 100%;
+    position: relative;
+    padding-right: 4.25em;
+    text-align: center;
+    box-sizing: border-box;
+}
+
+.katex-display-fixed .katex-display .katex-tag,
+.katex-display-fixed .katex-display .tag,
+.katex-display-fixed .katex .katex-tag,
+.katex-display-fixed .katex .tag {
+    position: absolute;
+    right: 0;
+    top: 0;
+    height: 100%;
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+    margin-left: 0.5em;
+}
+
+/* 防止在改进容器下主体公式仍然占满右侧空间 */
+.katex-display-fixed > .katex,
+.katex-display-fixed .katex-display > .katex {
+    max-width: calc(100% - 4.25em);
+}
+
 /* 修复行内数学公式显示 */
 .katex-inline-fixed {
     display: inline !important;
@@ -72,6 +102,13 @@ p {
     white-space: nowrap;
     overflow-x: auto;
     overflow-y: hidden;
+    /* 隐藏滚动条，但保留横向滚动能力 */
+    -ms-overflow-style: none;      /* IE/Edge */
+    scrollbar-width: none;         /* Firefox */
+}
+.katex-display::-webkit-scrollbar,
+.katex-display-fixed::-webkit-scrollbar {
+    display: none;                  /* Chrome/Safari */
 }
 
 /* 移动设备上的数学公式优化 */
@@ -94,6 +131,90 @@ p {
     .math-error-inline {
         font-size: 0.75em;
         padding: 1px 4px;
+    }
+
+    /* 移动端（OCR/翻译）：单行 + 横向滚动（更稳），避免换行过猛 */
+    .content-wrapper .katex-display,
+    .content-wrapper .katex-display-fixed {
+        padding-right: 3.25em !important;
+        font-size: 0.95em;
+        white-space: nowrap !important;
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+        line-height: 1.45 !important;
+        text-align: center;
+    }
+    .content-wrapper .katex-display > .katex,
+    .content-wrapper .katex-display-fixed > .katex {
+        display: inline-block;
+        white-space: nowrap !important;
+        line-height: 1.45 !important;
+    }
+    .content-wrapper .katex-display .katex-tag,
+    .content-wrapper .katex-display .tag,
+    .content-wrapper .katex .katex-tag,
+    .content-wrapper .katex .tag {
+        position: absolute !important;
+        right: 0 !important;
+        top: 50% !important;
+        transform: translateY(-50%);
+        white-space: nowrap;
+    }
+}
+
+/* OCR/翻译视图（content-wrapper）强制不裁剪多行公式（所有屏幕） */
+.content-wrapper .katex-display,
+.content-wrapper .katex-display-fixed {
+    overflow-y: visible !important;
+    white-space: normal !important;
+    height: auto !important;
+    line-height: 1.5 !important;
+    padding-bottom: 0.25em;
+}
+.content-wrapper .katex { overflow: visible !important; white-space: normal !important; }
+
+/* 超小屏（手机）布局：将右侧编号换到下一行右对齐，释放公式宽度 */
+@media (max-width: 640px) {
+    /* 释放右侧留白，主体公式可占满整行 */
+    .markdown-body .katex-display,
+    .align-content.markdown-body .katex-display,
+    .katex-block .katex-display,
+    .katex-display-fixed,
+    .katex-display {
+        padding-right: 0 !important;
+    }
+
+    .markdown-body .katex-display > .katex,
+    .align-content.markdown-body .katex-display > .katex,
+    .katex-block .katex-display > .katex,
+    .katex-display-fixed > .katex,
+    .katex-display > .katex {
+        max-width: 100% !important;
+    }
+
+    /* 将标签/编号移到公式下方，靠右对齐 */
+    .markdown-body .katex-display .tag,
+    .markdown-body .katex-display .katex-tag,
+    .align-content.markdown-body .katex-display .tag,
+    .align-content.markdown-body .katex-display .katex-tag,
+    .katex-block .katex-display .tag,
+    .katex-block .katex-display .katex-tag,
+    .katex-display-fixed .tag,
+    .katex-display-fixed .katex-tag,
+    .katex-display .tag,
+    .katex-display .katex-tag {
+        position: static !important;
+        display: block !important;
+        transform: none !important;
+        height: auto !important;
+        margin: 6px 0 0 0 !important;
+        text-align: right !important;
+    }
+
+    /* 手机端适度放大以提升可读性 */
+    .katex-display,
+    .katex-display-fixed {
+        font-size: 1.05em;
     }
 }
 
@@ -202,4 +323,44 @@ p {
 
 .align-content.markdown-body p .katex-inline-fixed {
     vertical-align: middle;
+}
+
+/* ===== 最终覆盖：强制行间公式为块级并为右标留足空间 ===== */
+.markdown-body .katex-display,
+.align-content.markdown-body .katex-display,
+.katex-block .katex-display,
+.katex-display-fixed,
+.katex-display {
+    display: block !important;
+    width: 100% !important;
+    position: relative !important;
+    text-align: center !important;
+    padding-right: 5em !important; /* 为右侧编号预留空间 */
+    box-sizing: border-box !important;
+}
+
+.markdown-body .katex-display > .katex,
+.align-content.markdown-body .katex-display > .katex,
+.katex-block .katex-display > .katex,
+.katex-display-fixed > .katex,
+.katex-display > .katex {
+    max-width: calc(100% - 5em) !important; /* 防止主体覆盖右标 */
+}
+
+.markdown-body .katex-display .tag,
+.markdown-body .katex-display .katex-tag,
+.align-content.markdown-body .katex-display .tag,
+.align-content.markdown-body .katex-display .katex-tag,
+.katex-block .katex-display .tag,
+.katex-block .katex-display .katex-tag,
+.katex-display-fixed .tag,
+.katex-display-fixed .katex-tag,
+.katex-display .tag,
+.katex-display .katex-tag {
+    position: absolute !important;
+    right: 0 !important;
+    top: 50% !important;
+    transform: translateY(-50%);
+    white-space: nowrap;
+    margin-left: 0.5em;
 }

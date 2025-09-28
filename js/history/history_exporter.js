@@ -34,6 +34,12 @@
   };
   let currentFormat = null;
 
+  const PDF_PAPER_DIMENSIONS = {
+    A4: { width: 210, height: 297 },
+    A3: { width: 297, height: 420 },
+    A2: { width: 420, height: 594 }
+  };
+
   document.addEventListener('DOMContentLoaded', function() {
     const controls = document.getElementById('history-export-controls');
     const trigger = document.getElementById('exportTrigger');
@@ -601,6 +607,16 @@
     return module.exportAsDocx(payload, options, helpers);
   }
 
+  function getPaperDimensions(paper) {
+    if (!paper) return null;
+    const key = paper.toString().trim().toUpperCase();
+    return PDF_PAPER_DIMENSIONS[key] || null;
+  }
+
+  function mmToPx(mm) {
+    return mm * 3.7795275591;
+  }
+
   function exportAsPdf(payload, options = {}) {
     const existing = document.querySelector('.history-export-print-root');
     if (existing) existing.remove();
@@ -622,10 +638,27 @@
 
     const rootElement = container.querySelector('.history-export-root');
     if (rootElement && options.pdfScalePercent) {
-      const clamped = Math.max(50, Math.min(200, options.pdfScalePercent));
+      const clamped = Math.max(10, Math.min(400, options.pdfScalePercent));
       rootElement.style.fontSize = clamped + '%';
       rootElement.style.transform = '';
       rootElement.style.width = '';
+    }
+
+    if (rootElement) {
+      const wrapperElement = rootElement.querySelector('.export-wrapper');
+      const paperDimensions = getPaperDimensions(options.pdfPaper);
+      const margins = Object.assign({ left: 15, right: 15 }, options.pdfMargins || {});
+      if (wrapperElement && paperDimensions) {
+        const safeLeft = Number.isFinite(margins.left) ? margins.left : 15;
+        const safeRight = Number.isFinite(margins.right) ? margins.right : 15;
+        const printableWidthMm = Math.max(60, paperDimensions.width - safeLeft - safeRight);
+        const printableWidthPx = mmToPx(printableWidthMm);
+        wrapperElement.style.maxWidth = printableWidthPx + 'px';
+        wrapperElement.style.width = printableWidthPx + 'px';
+      } else if (wrapperElement) {
+        wrapperElement.style.maxWidth = '';
+        wrapperElement.style.width = '';
+      }
     }
 
     // 尝试在打印前对表格内的公式做一次自适应缩放，避免拥挤/遮挡
@@ -684,7 +717,9 @@
   }
 
   function buildPrintStyles(options = {}) {
-    const paper = (options.pdfPaper || 'A4').toString().toUpperCase();
+    const paperKey = (options.pdfPaper || 'A4').toString().trim().toUpperCase();
+    const paperDimensions = getPaperDimensions(paperKey);
+    const pageSizeValue = paperDimensions ? `${paperDimensions.width}mm ${paperDimensions.height}mm` : `${paperKey} portrait`;
     const margins = Object.assign({ top: 20, bottom: 20, left: 15, right: 15 }, options.pdfMargins || {});
     const safeMargin = function(value, fallback) {
       return Number.isFinite(value) && value >= 0 ? value : fallback;
@@ -695,7 +730,7 @@
     const marginRight = safeMargin(margins.right, 15);
     return `
 @page {
-  size: ${paper} portrait;
+  size: ${pageSizeValue};
   margin: ${marginTop}mm ${marginRight}mm ${marginBottom}mm ${marginLeft}mm;
 }
 body.history-export-print-mode {
@@ -878,7 +913,29 @@ body.history-export-print-mode .history-export-root .export-section {
   margin: 0 auto;
   text-align: left;
   position: relative;
-  padding-right: 2.75em;
+  /* 预留更充足的右侧空间给公式右标（如 \tag 或编号） */
+  padding-right: 4.25em;
+}
+.history-export-root .katex-display {
+  position: relative;
+  padding-right: 4.25em;
+  box-sizing: border-box;
+}
+.history-export-root .katex-display .katex-tag,
+.history-export-root .katex-display .tag,
+.history-export-root .katex .katex-tag,
+.history-export-root .katex .tag {
+  position: absolute;
+  right: 0;
+  top: 0;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  margin-left: 0.5em;
+}
+.history-export-root .katex-display > .katex {
+  max-width: calc(100% - 4.25em);
 }
 .history-export-root .katex-block .katex-display .katex-tag { right: 0; }
 .history-export-root .katex-inline { margin: 0 1px; }
@@ -902,6 +959,13 @@ body.history-export-print-mode .history-export-root .export-section {
 .history-export-root .katex-fallback-source {
   white-space: pre-wrap;
   word-break: break-word;
+}
+/* 覆盖 display 方式：使用块级，使右侧编号在容器最右侧定位，避免与公式主体重叠 */
+.history-export-root .katex-display,
+.history-export-root .katex-block .katex-display {
+  display: block;
+  width: 100%;
+  text-align: center;
 }
 .history-export-root .katex-block { page-break-inside: avoid; }
 .history-export-root .export-wrapper {
@@ -1034,7 +1098,10 @@ body.history-export-print-mode .history-export-root .export-section {
 }
 .history-export-root .katex-display {
   overflow-x: auto;
+  -ms-overflow-style: none; /* IE/Edge */
+  scrollbar-width: none;    /* Firefox */
 }
+.history-export-root .katex-display::-webkit-scrollbar { display: none; }
 .history-export-root .chunk-section {
   margin-bottom: 24px;
 }

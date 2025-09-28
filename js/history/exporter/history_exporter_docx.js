@@ -417,7 +417,7 @@ ${footerParagraph}
         return blocks;
       }
 
-      if (classList.contains('katex-display')) {
+      if (classList.contains('katex-display') || classList.contains('katex-block')) {
         return [this.createBlockFormula(el, context)];
       }
 
@@ -1301,16 +1301,29 @@ ${footerParagraph}
 
     createInlineFormula(element, isDisplay, context = {}) {
       let mathEl = null;
-      try {
-        mathEl = element.querySelector('math');
-      } catch (error) {
-        mathEl = null;
-      }
+      try { mathEl = element.querySelector('math'); } catch (error) { mathEl = null; }
       const fallbackText = this.getFormulaFallbackText(element, mathEl);
       if (context.skipFormula) {
         return this.renderFormulaFallback(fallbackText, context);
       }
+      // 若 HTML 中没有 MathML，尝试用 KaTeX 将 TeX 转为 MathML 再导出
       if (!mathEl) {
+        const tex = element.getAttribute('data-original-text') || fallbackText || '';
+        if (tex && typeof katex !== 'undefined') {
+          try {
+            const mathmlStr = katex.renderToString(tex, { displayMode: !!isDisplay, throwOnError: true, strict: 'ignore', output: 'mathml' });
+            const parsed = new DOMParser().parseFromString(mathmlStr, 'text/html');
+            const built = parsed.querySelector('math');
+            if (built) {
+              const ommlFromBuilt = this.mathConverter.convert(built);
+              if (ommlFromBuilt) {
+                return `<w:r>${ommlFromBuilt}</w:r>`;
+              }
+            }
+          } catch (e) {
+            // fall through to textual fallback
+          }
+        }
         return this.renderFormulaFallback(fallbackText, context);
       }
       try {
@@ -1321,26 +1334,39 @@ ${footerParagraph}
       } catch (err) {
         return this.renderFormulaFallback(fallbackText, context);
       }
-      return this.renderFormulaFallback(fallbackText || mathEl.textContent || '', context);
+      return this.renderFormulaFallback(fallbackText || (mathEl && mathEl.textContent) || '', context);
     }
 
     createBlockFormula(element, context = {}) {
-      const mathEl = element.querySelector('math');
+      let mathEl = null;
+      try { mathEl = element.querySelector('math'); } catch (_) { mathEl = null; }
       const fallbackText = this.getFormulaFallbackText(element, mathEl);
       if (context.skipFormula) {
         return this.renderFormulaFallback(fallbackText, context, true);
       }
       if (!mathEl) {
+        const tex = element.getAttribute('data-original-text') || fallbackText || '';
+        if (tex && typeof katex !== 'undefined') {
+          try {
+            const mathmlStr = katex.renderToString(tex, { displayMode: true, throwOnError: true, strict: 'ignore', output: 'mathml' });
+            const parsed = new DOMParser().parseFromString(mathmlStr, 'text/html');
+            const built = parsed.querySelector('math');
+            if (built) {
+              const ommlBuilt = this.mathConverter.convert(built);
+              if (ommlBuilt) {
+                return `<w:p><w:pPr><w:spacing w:after="160"/></w:pPr><m:oMathPara>${ommlBuilt}</m:oMathPara></w:p>`;
+              }
+            }
+          } catch (e) {
+            // fall through
+          }
+        }
         return this.renderFormulaFallback(fallbackText, context, true);
       }
       let omml = '';
-      try {
-        omml = this.mathConverter.convert(mathEl);
-      } catch (err) {
-        omml = '';
-      }
+      try { omml = this.mathConverter.convert(mathEl); } catch (err) { omml = ''; }
       if (!omml) {
-        return this.renderFormulaFallback(fallbackText || mathEl.textContent || '', context, true);
+        return this.renderFormulaFallback(fallbackText || (mathEl && mathEl.textContent) || '', context, true);
       }
       return `<w:p><w:pPr><w:spacing w:after="160"/></w:pPr><m:oMathPara>${omml}</m:oMathPara></w:p>`;
     }

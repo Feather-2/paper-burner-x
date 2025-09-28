@@ -336,14 +336,66 @@ function showTab(tab) {
           // 判断是否包含表格语法（markdown 管道表格或已渲染 HTML 表格）
           function containsTableSyntax(src) {
             if (!src) return false;
-            if (/<table\b/i.test(src)) return true;
-            // 简单判断：含有表头分隔线 | --- |
-            const lines = src.split(/\n/);
-            for (let i = 0; i < lines.length - 1; i++) {
-              const a = lines[i], b = lines[i+1];
-              if (/\|/.test(a) && /\|\s*:?\-+\s*\|/.test(b)) return true;
+            if (/<table\b/i.test(src)) return true; // 已渲染 HTML 表格
+            // 仅当“块的起始位置”就是 Markdown 表格表头，才认为是表格
+            const lines = src.split(/\n/).map(l => (l || '').trim());
+            // 找到首个非空行
+            let i = 0; while (i < lines.length && lines[i] === '') i++;
+            if (i >= lines.length - 1) return false;
+            const a = lines[i];
+            // 找到表头后的首个非空行
+            let j = i + 1; while (j < lines.length && lines[j] === '') j++;
+            if (j >= lines.length) return false;
+            const b = lines[j];
+            const looksLikeHeader = /^\|.*\|$/.test(a);
+            const looksLikeDivider = /^\|\s*:?[-]{2,}.*\|$/.test(b);
+            return looksLikeHeader && looksLikeDivider;
+          }
+
+          // ========== 新增：对比模式“软换行” ===========
+          function softWrapLongFormulasInCompare(container) {
+            if (!container || !window.katex) return;
+            const blocks = container.querySelectorAll('.align-content .katex-block');
+            blocks.forEach(function(el){
+              try {
+                const parent = el.parentElement;
+                const cw = parent ? parent.clientWidth : 0;
+                const rect = el.getBoundingClientRect();
+                const w = rect.width || 0;
+                const tex = el.getAttribute('data-original-text') || '';
+                if (!tex || /\\begin\{|\\\\\\\n/.test(tex)) return; // 已有环境/显式换行不处理
+                if (cw > 0 && w > cw * 1.05) {
+                  const wrapped = buildWrappedTeX(tex, Math.max(48, Math.floor(cw / 7)));
+                  try {
+                    const html = katex.renderToString(wrapped, { displayMode: true, throwOnError: true, strict: 'ignore', output: 'html' });
+                    el.innerHTML = html;
+                  } catch (e) { /* ignore */ }
+                }
+              } catch (e) { /* ignore */ }
+            });
+          }
+
+          function buildWrappedTeX(tex, maxLen) {
+            const src = String(tex || '').replace(/\s+/g, ' ').trim();
+            if (/\\begin\{|\\end\{|aligned|matrix|cases|array/.test(src)) return src;
+            const hasEq = /=/.test(src);
+            const parts = [];
+            let buf = '';
+            let depthBrace = 0;
+            for (let i = 0; i < src.length; i++) {
+              const ch = src[i];
+              if (ch === '{') depthBrace++;
+              if (ch === '}') depthBrace = Math.max(0, depthBrace - 1);
+              buf += ch;
+              if (depthBrace === 0 && (ch === ',' || ch === ';' || ch === '+' || ch === '-' || ch === '=')) {
+                if (buf.length >= maxLen) { parts.push(buf.trim()); buf = ''; }
+              }
+              if (buf.length >= maxLen * 1.5) { parts.push(buf.trim()); buf = ''; }
             }
-            return false;
+            if (buf.trim()) parts.push(buf.trim());
+            if (parts.length <= 1) return src;
+            const lines = parts.map(function(line){ return hasEq ? line.replace(/=\s*/, '&= ') : line; });
+            return `\\begin{aligned} ${lines.join(' \\ ')} \\ \\end{aligned}`;
           }
 
           // 针对整块层级做一次媒体“拿出来”与对齐增强
@@ -632,6 +684,11 @@ function showTab(tab) {
             // 简化的一次性等高（无复验、无视口触发，避免抖动）
             try { equalizePairsOnce(); } catch {}
           }
+          // 渲染后为对比区域的大公式做软换行
+          try {
+            const container = document.querySelector('.chunk-compare-container');
+            softWrapLongFormulasInCompare(container);
+          } catch (e) { /* ignore */ }
 
           // 性能优化：缓存DOM查询结果
           const blockModeButtons = document.querySelectorAll('.block-mode-btn');
@@ -1728,9 +1785,21 @@ function showTab(tab) {
             console.log(`[showTab] 设置后检查: 预期=${scrollTopToSet}, 实际=${currentScrollTop}, 差值=${difference}`);
 
             // 如果差异大于阈值且尝试次数小于最大次数，则重试
-            if (difference > 5 && attemptCount < 3) {
-              console.warn(`[showTab] 警告: 滚动位置设置可能未生效! 将在200ms后重试...`);
-              setTimeout(attemptToSetScroll, 200);
+            if (difference > 5 && attemptCount < 8) {
+              console.warn(`[showTab] 警告: 滚动位置设置可能未生效! 将在300ms后重试...`);
+              // 等待布局稳定（scrollHeight 两次相等）后再重试
+              let checks = 0;
+              let lastHeight = scrollableElement.scrollHeight;
+              const interval = setInterval(() => {
+                const h = scrollableElement.scrollHeight;
+                if (h === lastHeight || checks > 5) {
+                  clearInterval(interval);
+                  requestAnimationFrame(() => setTimeout(attemptToSetScroll, 50));
+                } else {
+                  lastHeight = h;
+                  checks++;
+                }
+              }, 80);
             } else if (difference > 5) {
               console.warn(`[showTab] 警告: 滚动位置设置失败，已达到最大尝试次数`);
             } else {
@@ -1773,4 +1842,3 @@ function showTab(tab) {
   // 性能测试断点 - 总渲染结束
   console.timeEnd('[性能] showTab_总渲染');
 }
-

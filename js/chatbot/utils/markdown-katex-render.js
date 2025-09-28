@@ -70,7 +70,7 @@ window.renderWithKatexStreaming = function(md) {
     const analysis = analyzeFormula(tex, true);
     try {
       return `
-<div class="katex-block" data-formula-display="block">${katex.renderToString(analysis.text, { displayMode: true, output: 'html' })}</div>
+<div class="katex-block" data-formula-display="block" data-original-text="${escapeHtml(analysis.text)}">${katex.renderToString(analysis.text, { displayMode: true, output: 'html' })}</div>
 `;
     } catch (e) {
       return buildFallback(analysis.text, true, e);
@@ -80,7 +80,7 @@ window.renderWithKatexStreaming = function(md) {
     const analysis = analyzeFormula(tex, true);
     try {
       return `
-<div class="katex-block" data-formula-display="block">${katex.renderToString(analysis.text, { displayMode: true, output: 'html' })}</div>
+<div class="katex-block" data-formula-display="block" data-original-text="${escapeHtml(analysis.text)}">${katex.renderToString(analysis.text, { displayMode: true, output: 'html' })}</div>
 `;
     } catch (e) {
       return buildFallback(analysis.text, true, e);
@@ -91,10 +91,10 @@ window.renderWithKatexStreaming = function(md) {
     try {
       if (analysis.displayMode) {
         return `
-<div class="katex-block" data-formula-display="block">${katex.renderToString(analysis.text, { displayMode: true, output: 'html' })}</div>
+<div class="katex-block" data-formula-display="block" data-original-text="${escapeHtml(analysis.text)}">${katex.renderToString(analysis.text, { displayMode: true, output: 'html' })}</div>
 `;
       }
-      return `<span class="katex-inline" data-formula-display="inline">${katex.renderToString(analysis.text, { displayMode: false, output: 'html' })}</span>`;
+      return `<span class="katex-inline" data-formula-display="inline" data-original-text="${escapeHtml(analysis.text)}">${katex.renderToString(analysis.text, { displayMode: false, output: 'html' })}</span>`;
     } catch (e) {
       return buildFallback(analysis.text, analysis.displayMode, e);
     }
@@ -104,10 +104,10 @@ window.renderWithKatexStreaming = function(md) {
     try {
       if (analysis.displayMode) {
         return `
-<div class="katex-block" data-formula-display="block">${katex.renderToString(analysis.text, { displayMode: true, output: 'html' })}</div>
+<div class="katex-block" data-formula-display="block" data-original-text="${escapeHtml(analysis.text)}">${katex.renderToString(analysis.text, { displayMode: true, output: 'html' })}</div>
 `;
       }
-      return `<span class="katex-inline" data-formula-display="inline">${katex.renderToString(analysis.text, { displayMode: false, output: 'html' })}</span>`;
+      return `<span class="katex-inline" data-formula-display="inline" data-original-text="${escapeHtml(analysis.text)}">${katex.renderToString(analysis.text, { displayMode: false, output: 'html' })}</span>`;
     } catch (e) {
       return buildFallback(analysis.text, analysis.displayMode, e);
     }

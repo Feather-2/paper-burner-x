@@ -335,7 +335,41 @@
      * @returns {string} Rendered formula or fallback
      */
     function renderFormula(content, displayModeHint, originalMatch) {
-        const analysis = analyzeFormulaLayout(content, displayModeHint);
+        // Sanitize TeX: remove stray punctuation at edges, zero-width chars, combining marks that often leak from text
+        function sanitizeTeX(src) {
+            let s = typeof src === 'string' ? src : '';
+            if (!s) return '';
+            // remove zero-width & BOM
+            s = s.replace(/[\u200B-\u200D\uFEFF]/g, '');
+            // remove common combining underline (U+0332) and other combining marks at edges
+            s = s.replace(/^[\u0300-\u036F]+|[\u0300-\u036F]+$/g, '');
+            // trim leading/trailing CJK punctuation and quotes that accidentally wrapped TeX
+            s = s.replace(/^[\s\u3000。，、；：：“”\(（\)）\[\]【】《》‘’'"–—-]+/, '');
+            s = s.replace(/[\s\u3000。，、；：：“”\(（\)）\[\]【】《》‘’'"–—-]+$/, '');
+            // collapse excessive inner spaces
+            s = s.replace(/\s{2,}/g, ' ');
+            // If trailing delimiter for \right was stripped by cleanup, add default ')'
+            if (/\\right\s*$/.test(s)) {
+                let close = ')';
+                try {
+                    const re = /\\left\s*([\(\[\{])/g;
+                    let m;
+                    while ((m = re.exec(s)) !== null) {
+                        const ch = m[1];
+                        close = ch === '(' ? ')' : ch === '[' ? ']' : '}';
+                    }
+                } catch (_) { /* ignore */ }
+                s = s.replace(/\\right\s*$/, `\\right${close}`);
+            }
+            // Normalize degree with unit inside \mathrm{...}: \mathrm{ ^\circ C } → ^{\circ}\mathrm{C}
+            s = s.replace(/\\mathrm\{\s*(?:\\;|\s)*\^\s*\{?\s*\\?circ\s*\}?\s*([A-Za-z])\s*\}/g, '^{\\circ}\\mathrm{$1}');
+            // Replace unsupported Unicode triangles with math macros
+            s = s.replace(/▲/g, '\\blacktriangle').replace(/△/g, '\\triangle');
+            return s.trim();
+        }
+
+        const cleaned = sanitizeTeX(content);
+        const analysis = analyzeFormulaLayout(cleaned, displayModeHint);
 
         if (!analysis.text) {
             return analysis.displayMode ? '<div class="katex-block"></div>' : '<span class="katex-inline"></span>';
@@ -361,11 +395,12 @@
             metrics.formulaSuccesses++;
 
             const className = analysis.displayMode ? 'katex-block' : 'katex-inline';
+            const original = escapeHtml(analysis.text);
             const wrapper = analysis.displayMode
                 ? `
-<div class="${className}" data-formula-display="block">${rendered}</div>
+<div class="${className}" data-formula-display="block" data-original-text="${original}">${rendered}</div>
 `
-                : `<span class="${className}" data-formula-display="inline">${rendered}</span>`;
+                : `<span class="${className}" data-formula-display="inline" data-original-text="${original}">${rendered}</span>`;
 
             return wrapper;
 
