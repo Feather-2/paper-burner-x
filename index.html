@@ -1115,29 +1115,33 @@
             <iconify-icon icon="carbon:close" width="20"></iconify-icon>
           </button>
         </div>
-        <div class="px-4 sm:px-5 py-4 flex flex-col gap-4 flex-1">
-          <input id="modelSearchInput" type="search" class="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" placeholder="搜索模型..." autocomplete="off" />
-          <div id="modelSearchList" class="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[70vh] sm:max-h-[55vh]">
-            <!-- 动态填充模型列表 -->
+        <div class="px-4 sm:px-5 py-4 grid sm:flex sm:flex-col grid-rows-[3fr_7fr] gap-3 sm:gap-4 flex-1 min-h-0">
+          <div class="min-h-0">
+            <input id="modelSearchInput" type="search" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" placeholder="搜索模型..." autocomplete="off" />
           </div>
-          <div id="modelSearchEmpty" class="hidden text-sm text-gray-500 text-center py-6 border border-dashed border-gray-200 rounded-lg">暂无可选项</div>
+          <div class="min-h-0 overflow-hidden">
+            <div id="modelSearchList" class="h-full overflow-y-auto space-y-2 pr-1 sm:max-h-[55vh]">
+              <!-- 动态填充模型列表 -->
+            </div>
+            <div id="modelSearchEmpty" class="hidden text-sm text-gray-500 text-center py-6 border border-dashed border-gray-200 rounded-lg mt-3">暂无可选项</div>
+          </div>
         </div>
       </div>
     </div>
 
     <!-- 模型与Key管理弹窗 -->
     <!-- ===================== -->
-    <div id="modelKeyManagerModal" class="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center hidden">
-      <div class="bg-white rounded-xl shadow-2xl w-[95vw] max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
+    <div id="modelKeyManagerModal" class="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center hidden p-4">
+      <div class="bg-white rounded-xl shadow-2xl w-full md:w-[95vw] max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
         <!-- 弹窗头部 -->
         <div class="flex justify-between items-center p-4 border-b sticky top-0 bg-white z-10">
           <span class="font-bold text-lg">模型与 Key 管理</span>
           <button id="closeModelKeyManager" class="text-gray-400 hover:text-red-500"><iconify-icon icon="carbon:close" width="20"></iconify-icon></button>
         </div>
         <!-- 主体内容区 - 左右布局 -->
-        <div class="flex flex-1 overflow-hidden">
+        <div class="flex flex-1 overflow-hidden flex-col md:flex-row">
           <!-- 左侧模型/源站点列表 -->
-          <div id="modelListColumn" class="w-1/4 min-w-[180px] max-w-[240px] bg-gray-50 border-r overflow-y-auto p-3 space-y-1">
+          <div id="modelListColumn" class="w-full md:w-1/4 md:min-w-[220px] md:max-w-[260px] bg-gray-50 md:border-r border-b md:border-b-0 overflow-y-auto p-3 space-y-1 max-h-[40vh] md:max-h-none">
             <!-- 模型/源站点列表将由 JS 动态填充 -->
           </div>
           <!-- 右侧配置项与Key池管理 -->
