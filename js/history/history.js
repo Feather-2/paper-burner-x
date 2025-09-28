@@ -240,9 +240,17 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentUserFolderMap = new Map();
 
     const historySearchInput = document.getElementById('historySearchInput');
+    const historyFolderSelectMobile = document.getElementById('historyFolderSelectMobile');
     if (historySearchInput) {
         historySearchInput.addEventListener('input', function(event) {
             historyUIState.searchQuery = event.target.value || '';
+            renderHistoryList();
+        });
+    }
+    if (historyFolderSelectMobile) {
+        historyFolderSelectMobile.addEventListener('change', function(event) {
+            const nextFolder = (event.target.value || 'all');
+            historyUIState.activeFolder = nextFolder;
             renderHistoryList();
         });
     }
@@ -253,30 +261,62 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     const historyAddFolderBtn = document.getElementById('historyAddFolderBtn');
+    const historyAddFolderBtnMobile = document.getElementById('historyAddFolderBtnMobile');
+
+    function handleCreateFolder() {
+        const name = prompt('请输入新的文件夹名称');
+        if (name == null) return;
+        const trimmed = name.trim();
+        if (!trimmed) {
+            showNotification && showNotification('文件夹名称不能为空。', 'warning');
+            return;
+        }
+        if (trimmed.length > MAX_HISTORY_FOLDER_NAME) {
+            showNotification && showNotification(`文件夹名称请控制在 ${MAX_HISTORY_FOLDER_NAME} 个字符以内。`, 'warning');
+            return;
+        }
+        const userFolders = loadUserFolders();
+        if (userFolders.some(f => (f.name || '').toLowerCase() === trimmed.toLowerCase())) {
+            showNotification && showNotification('已存在同名文件夹。', 'warning');
+            return;
+        }
+        const folderId = generateFolderId();
+        userFolders.push({ id: folderId, name: trimmed, createdAt: Date.now() });
+        saveUserFolders(userFolders);
+        historyUIState.activeFolder = folderId;
+        renderHistoryList();
+        showNotification && showNotification(`已创建文件夹“${trimmed}”`, 'success');
+    }
+
     if (historyAddFolderBtn) {
-        historyAddFolderBtn.addEventListener('click', function() {
-            const name = prompt('请输入新的文件夹名称');
-            if (name == null) return;
-            const trimmed = name.trim();
-            if (!trimmed) {
-                showNotification && showNotification('文件夹名称不能为空。', 'warning');
+        historyAddFolderBtn.addEventListener('click', handleCreateFolder);
+    }
+    if (historyAddFolderBtnMobile) {
+        historyAddFolderBtnMobile.addEventListener('click', handleCreateFolder);
+    }
+
+    const historyRenameFolderBtnMobile = document.getElementById('historyRenameFolderBtnMobile');
+    const historyDeleteFolderBtnMobile = document.getElementById('historyDeleteFolderBtnMobile');
+    if (historyRenameFolderBtnMobile) {
+        historyRenameFolderBtnMobile.addEventListener('click', function() {
+            const select = document.getElementById('historyFolderSelectMobile');
+            const current = select ? (select.value || 'all') : historyUIState.activeFolder;
+            if (current === 'all' || current === 'uncategorized') {
+                showNotification && showNotification('系统文件夹无法执行该操作。', 'info');
                 return;
             }
-            if (trimmed.length > MAX_HISTORY_FOLDER_NAME) {
-                showNotification && showNotification(`文件夹名称请控制在 ${MAX_HISTORY_FOLDER_NAME} 个字符以内。`, 'warning');
+            renameUserFolder(current);
+        });
+    }
+    if (historyDeleteFolderBtnMobile) {
+        historyDeleteFolderBtnMobile.addEventListener('click', function() {
+            const select = document.getElementById('historyFolderSelectMobile');
+            const current = select ? (select.value || 'all') : historyUIState.activeFolder;
+            if (current === 'all' || current === 'uncategorized') {
+                showNotification && showNotification('系统文件夹无法执行该操作。', 'info');
                 return;
             }
-            const userFolders = loadUserFolders();
-            if (userFolders.some(f => f.name.toLowerCase() === trimmed.toLowerCase())) {
-                showNotification && showNotification('已存在同名文件夹。', 'warning');
-                return;
-            }
-            const folderId = generateFolderId();
-            userFolders.push({ id: folderId, name: trimmed, createdAt: Date.now() });
-            saveUserFolders(userFolders);
-            historyUIState.activeFolder = folderId;
-            renderHistoryList();
-            showNotification && showNotification(`已创建文件夹“${trimmed}”`, 'success');
+            deleteUserFolder(current);
         });
     }
 
@@ -570,7 +610,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function renderHistoryFolders(allRecords, assignments, userFolders) {
         const listEl = document.getElementById('historyFolderList');
-        if (!listEl) return;
+        const mobileSelect = document.getElementById('historyFolderSelectMobile');
+        if (!listEl && !mobileSelect) return;
         const records = Array.isArray(allRecords) ? allRecords : [];
         const counts = new Map();
         counts.set('all', records.length);
@@ -607,7 +648,27 @@ document.addEventListener('DOMContentLoaded', function() {
             }));
         });
 
-        listEl.innerHTML = fragments.join('') || '<div class="text-xs text-gray-400 py-4 text-center">暂无文件夹</div>';
+        if (listEl) {
+            listEl.innerHTML = fragments.join('') || '<div class="text-xs text-gray-400 py-4 text-center">暂无文件夹</div>';
+        }
+
+        if (mobileSelect) {
+            const opts = [];
+            // 系统选项
+            opts.push({ id: 'all', name: '全部记录', count: counts.get('all') || 0 });
+            opts.push({ id: 'uncategorized', name: '未分组', count: counts.get('uncategorized') || 0 });
+            // 用户文件夹（按名称排序）
+            const sortedUserFolders = (userFolders || []).slice().sort((a, b) => {
+                return (a.name || '').localeCompare(b.name || '', 'zh-Hans-CN');
+            });
+            sortedUserFolders.forEach(folder => {
+                opts.push({ id: folder.id, name: folder.name, count: counts.get(folder.id) || 0 });
+            });
+            mobileSelect.innerHTML = opts.map(opt => {
+                const selected = historyUIState.activeFolder === opt.id ? 'selected' : '';
+                return `<option value="${escapeAttr(opt.id)}" ${selected}>${escapeHtml(opt.name)} (${opt.count})</option>`;
+            }).join('');
+        }
     }
 
     function renderFolderListItem({ id, name, count, system }) {
@@ -653,62 +714,81 @@ document.addEventListener('DOMContentLoaded', function() {
             showNotification && showNotification('系统文件夹无法执行该操作。', 'info');
             return;
         }
+        if (action === 'rename') {
+            renameUserFolder(folderId);
+            return;
+        }
+        if (action === 'delete') {
+            deleteUserFolder(folderId);
+            return;
+        }
+    }
 
+    function renameUserFolder(folderId) {
+        if (!folderId || folderId === 'all' || folderId === 'uncategorized') {
+            showNotification && showNotification('系统文件夹无法执行该操作。', 'info');
+            return;
+        }
         const userFolders = loadUserFolders();
         const target = userFolders.find(folder => folder.id === folderId);
         if (!target) {
             showNotification && showNotification('未找到目标文件夹。', 'warning');
             return;
         }
-
-        if (action === 'rename') {
-            const newName = prompt('修改文件夹名称', target.name || '');
-            if (newName == null) return;
-            const trimmed = newName.trim();
-            if (!trimmed) {
-                showNotification && showNotification('文件夹名称不能为空。', 'warning');
-                return;
-            }
-            if (trimmed.length > MAX_HISTORY_FOLDER_NAME) {
-                showNotification && showNotification(`文件夹名称请控制在 ${MAX_HISTORY_FOLDER_NAME} 个字符以内。`, 'warning');
-                return;
-            }
-            const duplicate = userFolders.some(folder => folder.id !== folderId && folder.name.toLowerCase() === trimmed.toLowerCase());
-            if (duplicate) {
-                showNotification && showNotification('已存在同名文件夹。', 'warning');
-                return;
-            }
-            target.name = trimmed;
-            saveUserFolders(userFolders);
-            showNotification && showNotification('文件夹名称已更新。', 'success');
-            renderHistoryList();
+        const newName = prompt('修改文件夹名称', target.name || '');
+        if (newName == null) return;
+        const trimmed = newName.trim();
+        if (!trimmed) {
+            showNotification && showNotification('文件夹名称不能为空。', 'warning');
             return;
         }
-
-    
-        if (action === 'delete') {
-            if (!confirm(`确定要删除文件夹“${target.name}”吗？文件夹内的记录将回到“未分组”。`)) {
-                return;
-            }
-            const updatedFolders = userFolders.filter(folder => folder.id !== folderId);
-            saveUserFolders(updatedFolders);
-            const assignments = loadFolderAssignments();
-            let modified = false;
-            Object.keys(assignments).forEach(recordId => {
-                if (assignments[recordId] === folderId) {
-                    delete assignments[recordId];
-                    modified = true;
-                }
-            });
-            if (modified) {
-                saveFolderAssignments(assignments);
-            }
-            if (historyUIState.activeFolder === folderId) {
-                historyUIState.activeFolder = 'all';
-            }
-            showNotification && showNotification('文件夹已删除。', 'info');
-            renderHistoryList();
+        if (trimmed.length > MAX_HISTORY_FOLDER_NAME) {
+            showNotification && showNotification(`文件夹名称请控制在 ${MAX_HISTORY_FOLDER_NAME} 个字符以内。`, 'warning');
+            return;
         }
+        const duplicate = userFolders.some(folder => folder.id !== folderId && (folder.name || '').toLowerCase() === trimmed.toLowerCase());
+        if (duplicate) {
+            showNotification && showNotification('已存在同名文件夹。', 'warning');
+            return;
+        }
+        target.name = trimmed;
+        saveUserFolders(userFolders);
+        showNotification && showNotification('文件夹名称已更新。', 'success');
+        renderHistoryList();
+    }
+
+    function deleteUserFolder(folderId) {
+        if (!folderId || folderId === 'all' || folderId === 'uncategorized') {
+            showNotification && showNotification('系统文件夹无法执行该操作。', 'info');
+            return;
+        }
+        const userFolders = loadUserFolders();
+        const target = userFolders.find(folder => folder.id === folderId);
+        if (!target) {
+            showNotification && showNotification('未找到目标文件夹。', 'warning');
+            return;
+        }
+        if (!confirm(`确定要删除文件夹“${target.name}”吗？文件夹内的记录将回到“未分组”。`)) {
+            return;
+        }
+        const updatedFolders = userFolders.filter(folder => folder.id !== folderId);
+        saveUserFolders(updatedFolders);
+        const assignments = loadFolderAssignments();
+        let modified = false;
+        Object.keys(assignments).forEach(recordId => {
+            if (assignments[recordId] === folderId) {
+                delete assignments[recordId];
+                modified = true;
+            }
+        });
+        if (modified) {
+            saveFolderAssignments(assignments);
+        }
+        if (historyUIState.activeFolder === folderId) {
+            historyUIState.activeFolder = 'all';
+        }
+        showNotification && showNotification('文件夹已删除。', 'info');
+        renderHistoryList();
     }
 
     function assignRecordToFolder(recordId, folderId) {
@@ -983,12 +1063,26 @@ document.addEventListener('DOMContentLoaded', function() {
                             ${folderSelectHtml}
                         </div>
                     </div>
-                    <div class="flex flex-wrap gap-2 text-xs text-gray-600 justify-end md:text-sm items-center">
+                    <div class="hidden md:flex flex-wrap gap-2 text-xs text-gray-600 justify-end md:text-sm items-center">
                         ${exportBtnHtml}
                         ${startReadingBtnHtml}
                         ${downloadBtnHtml}
                         ${deleteBtnHtml}
                     </div>
+                </div>
+                <div class="mt-2 md:hidden">
+                    <details class="group">
+                        <summary class="inline-flex items-center gap-2 px-3 py-1.5 border border-slate-200 rounded-md bg-white text-gray-700 cursor-pointer select-none">
+                            <iconify-icon icon="carbon:overflow-menu-horizontal" width="18"></iconify-icon>
+                            <span class="text-sm">操作</span>
+                        </summary>
+                        <div class="mt-2 flex flex-wrap gap-2 text-xs text-gray-600">
+                            ${exportBtnHtml}
+                            ${startReadingBtnHtml}
+                            ${downloadBtnHtml}
+                            ${deleteBtnHtml}
+                        </div>
+                    </details>
                 </div>
                 <div class="text-xs text-gray-600 break-words">OCR：${ocrSnippet}</div>
                 <div class="text-xs text-gray-600 break-words">翻译：${translationSnippet}</div>
