@@ -4,15 +4,15 @@
   <meta charset="UTF-8">
   <title>思维导图 - Markmap</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  
+
   <!-- Markmap 依赖 -->
-  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-  <script src="https://cdn.jsdelivr.net/npm/markmap-lib"></script>
-  <script src="https://cdn.jsdelivr.net/npm/markmap-view"></script>
+  <script src="https://gcore.jsdelivr.net/npm/d3@7"></script>
+  <script src="https://gcore.jsdelivr.net/npm/markmap-lib"></script>
+  <script src="https://gcore.jsdelivr.net/npm/markmap-view"></script>
   <!-- Monaco Editor CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs/loader.js"></script>
+  <script src="https://gcore.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs/loader.js"></script>
   <!-- 导出PNG需要的库 -->
-  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://gcore.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <style>
     /* 谷歌字体 Nunito */
     @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700&display=swap');
@@ -571,7 +571,7 @@
       ({ loadCSS, loadJS, Markmap } = window.markmap);
       transformer = new window.markmap.Transformer();
 
-      require.config({ paths: { 'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs' } });
+      require.config({ paths: { 'vs': 'https://gcore.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs' } });
       require(['vs/editor/editor.main'], function() {
         editor = monaco.editor.create(document.getElementById('monaco-container'), {
           value: md,
@@ -607,7 +607,7 @@
 
     // 初始化界面交互和可调节面板
     function initUI() {
-      
+
       document.getElementById('toggle-editor-btn').addEventListener('click', function() {
         const container = document.getElementById('main-container');
         const isHidden = container.classList.toggle('hide-editor');

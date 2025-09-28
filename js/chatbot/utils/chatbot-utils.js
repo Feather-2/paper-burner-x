@@ -75,7 +75,7 @@ function exportMessageAsPng(messageIndex) {
   if (typeof html2canvas === 'undefined') {
     showToast('正在加载图片导出组件...');
     const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+    script.src = 'https://gcore.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
     script.onload = function() {
       showToast('组件加载完成，正在生成图片...');
       doExportAsPng(messageIndex);

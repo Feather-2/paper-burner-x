@@ -1,5 +1,5 @@
 (function(window, document) {
-  const KATEX_CDN = 'https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css';
+  const KATEX_CDN = 'https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css';
 
   const EXPORT_LABELS = {
     original: '原格式',

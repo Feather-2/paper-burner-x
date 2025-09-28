@@ -2,7 +2,7 @@
   if (typeof window.mermaidLoaded === 'undefined') {
     window.mermaidLoaded = false;
     const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js';
+    script.src = 'https://gcore.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js';
     script.onload = function() {
       window.mermaidLoaded = true;
       if (window.mermaid) {
