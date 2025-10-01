@@ -289,6 +289,12 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshFormatFilters();
     refreshFormatFilters();
 
+    // 暴露刷新验证状态的全局函数
+    window.refreshValidationState = function() {
+        console.log('[Validation] Refreshing validation state');
+        updateProcessButtonState(pdfFiles, isProcessing);
+    };
+
     // 5. 绑定所有事件
     setupEventListeners();
 

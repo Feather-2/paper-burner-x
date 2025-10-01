@@ -211,7 +211,7 @@ function loadSettings() {
         skipProcessedFiles: false,
         selectedTranslationModel: 'none',
         concurrencyLevel: '1',
-        translationConcurrencyLevel: '2',
+        translationConcurrencyLevel: '15',
         targetLanguage: 'chinese',
         customTargetLanguageName: '',
         customModelSettings: {

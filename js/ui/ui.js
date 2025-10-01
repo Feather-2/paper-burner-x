@@ -142,6 +142,15 @@ document.addEventListener('DOMContentLoaded', function() {
         closeModelKeyManager.addEventListener('click', function() {
             modelKeyManagerModal.classList.add('hidden');
             currentSelectedSourceSiteId = null; // 重置选中源站
+
+            // 提示用户是否刷新验证状态
+            setTimeout(() => {
+                if (confirm('已关闭模型与Key管理。是否刷新验证状态以更新配置检查？')) {
+                    if (typeof window.refreshValidationState === 'function') {
+                        window.refreshValidationState();
+                    }
+                }
+            }, 100);
         });
     }
 

@@ -397,6 +397,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const selectedValue = this.value;
             console.log(`DEBUG index.js: Translation model changed to: ${selectedValue}`);
 
+            // 先保存设置
+            if (typeof saveCurrentSettings === 'function') {
+                saveCurrentSettings();
+                console.log("DEBUG index.js: Settings saved after translation model change.");
+            } else {
+                console.warn("DEBUG index.js: saveCurrentSettings function not found.");
+            }
+
             // 调用 handleCustomModelSelection 来处理UI联动，它内部会调用 updateTranslationUIVisibility
             if (typeof window.ui.handleCustomModelSelection === 'function') {
                 window.ui.handleCustomModelSelection();
@@ -410,12 +418,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
-            // 保存设置 (app.js 中也有类似逻辑，确保一致或协调)
-            if (typeof saveCurrentSettings === 'function') { // saveCurrentSettings is in app.js
-                 // saveCurrentSettings(); // Let app.js handle this to avoid conflicts, or ensure it's safe
-                 console.log("DEBUG index.js: Translation model changed, saveCurrentSettings (if available in app.js) should handle saving.");
+            // 触发验证状态更新（在设置保存后）- 直接调用全局刷新函数
+            if (typeof window.refreshValidationState === 'function') {
+                setTimeout(() => {
+                    console.log('[DEBUG] Triggering refreshValidationState after settings save');
+                    window.refreshValidationState();
+                }, 100);
             } else {
-                console.warn("DEBUG index.js: saveCurrentSettings function not found (expected in app.js). Settings may not save on model change from here.");
+                console.warn('[DEBUG] window.refreshValidationState not available');
             }
         });
 

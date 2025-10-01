@@ -17,6 +17,21 @@
     const progressBar = document.getElementById('progressBar');
     const progressLog = document.getElementById('progressLog');
 
+    // 使用事件委托绑定验证刷新按钮
+    document.addEventListener('click', (e) => {
+        const refreshBtn = e.target.closest('#validationRefreshBtn');
+        if (refreshBtn) {
+            console.log('[Validation] Refresh button clicked');
+            e.preventDefault();
+            e.stopPropagation();
+            if (typeof window.refreshValidationState === 'function') {
+                window.refreshValidationState();
+            } else {
+                console.warn('[Validation] window.refreshValidationState not available');
+            }
+        }
+    });
+
     function updateFileListUI(pdfFiles, isProcessing, onRemoveFile) {
         if (!fileList || !fileListContainer) return;
         fileList.innerHTML = '';
@@ -96,27 +111,211 @@
         const getActiveFiles = typeof global.getActiveFiles === 'function' ? global.getActiveFiles : null;
         const effectiveFiles = getActiveFiles ? getActiveFiles() : pdfFiles;
         let mistralKeysAvailable = true;
+        let translationKeysAvailable = true;
         const hasPdfFiles = effectiveFiles.some(file => file.name.toLowerCase().endsWith('.pdf'));
 
+        // 检查 Mistral Keys（用于 PDF OCR）
         if (hasPdfFiles) {
-            try {
-                const mistralKeys = typeof global.loadModelKeys === 'function' ? global.loadModelKeys('mistral') : [];
-                const usableMistralKeys = mistralKeys.filter(key => key.status === 'valid' || key.status === 'untested');
-                if (usableMistralKeys.length === 0) {
-                    mistralKeysAvailable = false;
+            const mistralKeyProvider = new KeyProvider('mistral');
+            mistralKeysAvailable = mistralKeyProvider.hasAvailableKeys();
+        }
+
+        // 检查翻译 Keys（如果需要翻译）- 直接使用 app.js 的逻辑
+        const settings = typeof global.loadSettings === 'function' ? global.loadSettings() : {};
+        const selectedTranslationModelName = settings.selectedTranslationModel || 'none';
+        let translationModelDisplayName = selectedTranslationModelName;
+        let currentTranslationModelForProvider = null;
+        let translationModelConfigForProcess = null;
+
+        if (selectedTranslationModelName !== 'none') {
+            if (selectedTranslationModelName === 'custom') {
+                const selectedCustomSourceId = settings.selectedCustomSourceSiteId;
+                if (!selectedCustomSourceId) {
+                    translationKeysAvailable = false;
+                } else {
+                    const allSourceSites = typeof global.loadAllCustomSourceSites === 'function' ? global.loadAllCustomSourceSites() : {};
+                    const siteConfig = allSourceSites[selectedCustomSourceId];
+                    if (!siteConfig) {
+                        translationKeysAvailable = false;
+                    } else {
+                        currentTranslationModelForProvider = `custom_source_${selectedCustomSourceId}`;
+                        translationModelConfigForProcess = siteConfig;
+                        translationModelDisplayName = siteConfig.displayName || siteConfig.name || selectedCustomSourceId;
+                    }
                 }
-            } catch (e) {
-                console.warn('Error checking Mistral keys in updateProcessButtonState:', e);
-                mistralKeysAvailable = false;
+            } else {
+                // 预设模型
+                currentTranslationModelForProvider = selectedTranslationModelName;
+                translationModelConfigForProcess = typeof global.loadModelConfig === 'function' ? global.loadModelConfig(selectedTranslationModelName) : {};
+                translationModelDisplayName = translationModelConfigForProcess?.displayName || selectedTranslationModelName;
+            }
+
+            // 使用 KeyProvider 检查
+            if (currentTranslationModelForProvider) {
+                const translationKeyProvider = new KeyProvider(currentTranslationModelForProvider);
+                translationKeysAvailable = translationKeyProvider.hasAvailableKeys();
             }
         }
 
-        processBtn.disabled = effectiveFiles.length === 0 || isProcessing || (hasPdfFiles && !mistralKeysAvailable);
+        // 更新按钮禁用状态和验证提示
+        const hasValidationIssues = (hasPdfFiles && !mistralKeysAvailable) || (!translationKeysAvailable && selectedTranslationModelName !== 'none');
+        processBtn.disabled = effectiveFiles.length === 0 || isProcessing || hasValidationIssues;
+
+        // 更新验证状态提示
+        updateValidationAlert(effectiveFiles, hasPdfFiles, mistralKeysAvailable, translationKeysAvailable, selectedTranslationModelName, translationModelDisplayName, isProcessing);
 
         if (isProcessing) {
             processBtn.innerHTML = `<iconify-icon icon="carbon:hourglass" class="mr-1 animate-spin"></iconify-icon>处理中...`;
         } else {
             processBtn.innerHTML = `<iconify-icon icon="carbon:play" class="mr-1"></iconify-icon>开始处理`;
+        }
+    }
+
+    function updateValidationAlert(effectiveFiles, hasPdfFiles, mistralKeysAvailable, translationKeysAvailable, selectedTranslationModel, translationModelDisplayName, isProcessing) {
+        const validationAlert = document.getElementById('validationAlert');
+        const validationIcon = document.getElementById('validationIcon');
+        const validationTitle = document.getElementById('validationTitle');
+        const validationMessage = document.getElementById('validationMessage');
+        const validationActions = document.getElementById('validationActions');
+
+        if (!validationAlert || !validationIcon || !validationTitle || !validationMessage || !validationActions) return;
+
+        // 如果正在处理或没有文件，隐藏提示
+        if (isProcessing || effectiveFiles.length === 0) {
+            validationAlert.classList.add('hidden');
+            return;
+        }
+
+        // 检查各种验证条件
+        const issues = [];
+
+        if (hasPdfFiles && !mistralKeysAvailable) {
+            issues.push({
+                type: 'no-mistral-key',
+                title: '缺少 Mistral API Key',
+                message: '您上传了 PDF 文件，需要配置 Mistral API Key 才能进行 OCR 识别。配置后可点击右上角刷新按钮更新状态。',
+                icon: 'carbon:warning-alt',
+                color: 'amber',
+                actions: [
+                    { text: '去配置 Key', link: '#', onClick: () => {
+                        const keyManagerBtn = document.getElementById('modelKeyManagerBtn');
+                        if (keyManagerBtn) keyManagerBtn.click();
+                    }}
+                ]
+            });
+        }
+
+        if (selectedTranslationModel && selectedTranslationModel !== 'none' && !translationKeysAvailable) {
+            const isCustomSource = selectedTranslationModel === 'custom';
+            let message = '';
+            let actions = [];
+
+            if (isCustomSource) {
+                message = `源站 "${translationModelDisplayName}" 没有可用的 API Key。请添加 Key 后再处理，配置后可点击右上角刷新按钮更新状态。`;
+                actions = [
+                    { text: '去配置该源站 Key', link: '#', onClick: () => {
+                        const keyManagerBtn = document.getElementById('modelKeyManagerBtn');
+                        if (keyManagerBtn) keyManagerBtn.click();
+                    }},
+                    { text: '关闭翻译', link: '#', onClick: () => {
+                        const translationModelSelect = document.getElementById('translationModel');
+                        if (translationModelSelect) {
+                            translationModelSelect.value = 'none';
+                            translationModelSelect.dispatchEvent(new Event('change'));
+                        }
+                    }}
+                ];
+            } else {
+                message = `模型 "${translationModelDisplayName}" 没有可用的 API Key。请添加 Key 后再处理，配置后可点击右上角刷新按钮更新状态。`;
+                actions = [
+                    { text: '去配置 Key', link: '#', onClick: () => {
+                        const keyManagerBtn = document.getElementById('modelKeyManagerBtn');
+                        if (keyManagerBtn) keyManagerBtn.click();
+                    }},
+                    { text: '关闭翻译', link: '#', onClick: () => {
+                        const translationModelSelect = document.getElementById('translationModel');
+                        if (translationModelSelect) {
+                            translationModelSelect.value = 'none';
+                            translationModelSelect.dispatchEvent(new Event('change'));
+                        }
+                    }}
+                ];
+            }
+
+            issues.push({
+                type: 'no-translation-key',
+                title: '缺少翻译配置',
+                message: message,
+                icon: 'carbon:warning-alt',
+                color: 'amber',
+                actions: actions
+            });
+        }
+
+        // 如果没有问题，隐藏提示
+        if (issues.length === 0) {
+            validationAlert.classList.add('hidden');
+            return;
+        }
+
+        // 显示所有问题
+        if (issues.length > 0) {
+            // 如果有多个问题，合并显示
+            if (issues.length > 1) {
+                validationIcon.setAttribute('icon', 'carbon:warning-alt');
+                validationTitle.textContent = '配置检查';
+
+                // 合并所有问题的消息
+                const messages = issues.map(issue => `• ${issue.message}`).join('\n');
+                validationMessage.innerHTML = messages.replace(/\n/g, '<br>');
+
+                // 合并所有操作按钮
+                validationActions.innerHTML = '';
+                const addedButtons = new Set(); // 避免重复按钮
+                issues.forEach(issue => {
+                    issue.actions.forEach(action => {
+                        if (!addedButtons.has(action.text)) {
+                            addedButtons.add(action.text);
+                            const btn = document.createElement('button');
+                            btn.className = 'text-xs px-3 py-1.5 bg-white/80 hover:bg-white border border-current/20 hover:border-current/40 rounded-md transition-all font-medium shadow-sm';
+                            btn.textContent = action.text;
+                            if (action.onClick) {
+                                btn.onclick = action.onClick;
+                            }
+                            validationActions.appendChild(btn);
+                        }
+                    });
+                });
+            } else {
+                // 只有一个问题，正常显示
+                const issue = issues[0];
+                validationIcon.setAttribute('icon', issue.icon);
+                validationTitle.textContent = issue.title;
+                validationMessage.textContent = issue.message;
+
+                validationActions.innerHTML = '';
+                issue.actions.forEach(action => {
+                    const btn = document.createElement('button');
+                    btn.className = 'text-xs px-3 py-1.5 bg-white/80 hover:bg-white border border-current/20 hover:border-current/40 rounded-md transition-all font-medium shadow-sm';
+                    btn.textContent = action.text;
+                    if (action.onClick) {
+                        btn.onclick = action.onClick;
+                    }
+                    validationActions.appendChild(btn);
+                });
+            }
+
+            // 设置颜色主题 - 简洁优雅的样式
+            const colorMap = {
+                'amber': 'border-amber-400 bg-amber-50/50 text-amber-900',
+                'red': 'border-red-400 bg-red-50/50 text-red-900',
+                'blue': 'border-blue-400 bg-blue-50/50 text-blue-900'
+            };
+            validationAlert.className = `mt-6 mb-4 p-3.5 rounded-lg border transition-all shadow-sm ${colorMap['amber']}`;
+
+            validationAlert.classList.remove('hidden');
+        } else {
+            validationAlert.classList.add('hidden');
         }
     }
 
