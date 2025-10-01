@@ -254,6 +254,23 @@
         return false;
     }
 
+    // ===== 新增：将整个块包装为单一子块（保留内部 DOM，不破坏 KaTeX） =====
+    function wrapAsSingleSubBlock(blockElement, parentBlockIndex) {
+        // 若已经是单一子块则跳过
+        const existing = blockElement.querySelectorAll(':scope > .sub-block');
+        if (existing.length === 1 && existing[0].dataset && existing[0].dataset.isOnlySubBlock === 'true') {
+            return;
+        }
+        const span = document.createElement('span');
+        span.className = 'sub-block';
+        span.dataset.subBlockId = `${parentBlockIndex}.0`;
+        span.dataset.isOnlySubBlock = 'true';
+        while (blockElement.firstChild) {
+            span.appendChild(blockElement.firstChild);
+        }
+        blockElement.appendChild(span);
+    }
+
     // ===== 新增：公式感知的分割函数 =====
     function segmentFormulaAwareBlock(blockElement, parentBlockIndex, rawText, debug) {
         if (debug) {
@@ -262,20 +279,24 @@
 
         // 检测公式位置和类型
         const formulaInfo = analyzeFormulas(blockElement, rawText);
-        
-        if (formulaInfo.hasBlockFormula) {
-            // 包含块级公式：按公式边界分割
-            return segmentByFormulaBreaks(blockElement, parentBlockIndex, formulaInfo, debug);
-        } else if (formulaInfo.hasInlineFormula) {
-            // 只有行内公式：使用保守分割策略
-            return segmentWithInlineFormulaProtection(blockElement, parentBlockIndex, debug);
-        } else {
-            // 可能是已渲染的公式：跳过分割
+
+        // 为了避免切断 KaTeX 或将 $$...$$ 拆分为多个子块，
+        // 对包含公式的块统一包装为一个原子子块。
+        if (formulaInfo.hasBlockFormula || formulaInfo.renderedFormulas.length > 0) {
             if (debug) {
-                console.log(`[SubBlockSegmenter] 块 #${parentBlockIndex} 包含已渲染公式，跳过分割`);
+                console.log(`[SubBlockSegmenter] 块 #${parentBlockIndex} 含块级/已渲染公式，包装为单一子块（原子）。`);
             }
+            wrapAsSingleSubBlock(blockElement, parentBlockIndex);
             return;
         }
+
+        if (formulaInfo.hasInlineFormula) {
+            // 只有行内公式：使用保守分割策略，仅按句号分割且保留 DOM
+            return segmentWithInlineFormulaProtection(blockElement, parentBlockIndex, debug);
+        }
+
+        // 没有检测到公式，交由普通分割逻辑（由调用方继续执行）
+        return;
     }
 
     // ===== 新增：分析公式信息 =====

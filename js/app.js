@@ -1787,6 +1787,17 @@ async function handleProcessClick() {
                             successCount++;
                             retryAttempts.delete(fileIdentifier);
 
+                            // 单文件模式：更新 window.data
+                            if (filesToProcess.length === 1 && result.markdown !== undefined) {
+                                window.data = {
+                                    name: currentFile.name,
+                                    ocr: result.markdown || '',
+                                    translation: result.translation || '',
+                                    images: result.images || [],
+                                    summaries: {}
+                                };
+                            }
+
                             if (mistralKeyObject) {
                                 recordLastSuccessfulKey('mistral', mistralKeyObject.id);
                             }

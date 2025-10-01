@@ -246,6 +246,21 @@
      * @returns {string} Processed markdown with formulas rendered
      */
     function processFormulasEnhanced(md) {
+        // Normalize math delimiters to avoid regex mismatches and nested '$' leakage
+        function normalizeMathDelimiters(text) {
+            if (typeof text !== 'string' || !text) return text;
+            let s = text;
+            // Convert encoded dollars to literal '$'
+            s = s.replace(/&(?:#0*36|dollar);/gi, '$');
+            // Normalize fullwidth dollar to ASCII
+            s = s.replace(/\uFF04/g, '$');
+            // Remove zero-width and combining marks immediately around '$' so `$̲` → `$`
+            s = s.replace(/\$[\u200B-\u200D\uFEFF\u0300-\u036F]+/g, '$');
+            s = s.replace(/[\u200B-\u200D\uFEFF\u0300-\u036F]+\$/g, '$');
+            return s;
+        }
+
+        md = normalizeMathDelimiters(md);
         // Process block formulas first ($$...$$)
         md = md.replace(/\$\$([\s\S]*?)\$\$/g, (match, content) => {
             return renderFormula(content.trim(), true, match);
@@ -335,14 +350,44 @@
      * @returns {string} Rendered formula or fallback
      */
     function renderFormula(content, displayModeHint, originalMatch) {
-        // Sanitize TeX: remove stray punctuation at edges, zero-width chars, combining marks that often leak from text
+        // Decode a limited set of HTML entities that may leak into TeX inputs
+        function htmlUnescape(text) {
+            if (typeof text !== 'string' || text.length === 0) return '';
+            let s = text;
+            // Fix corrupted entities like "&̲#39;" (ampersand followed by combining marks)
+            s = s.replace(/&[\u0300-\u036F]+#/g, '&#');
+            // Named entities
+            s = s.replace(/&amp;/g, '&')
+                 .replace(/&lt;/g, '<')
+                 .replace(/&gt;/g, '>')
+                 .replace(/&quot;/g, '"')
+                 .replace(/&apos;/g, "'")
+                 .replace(/&#39;/g, "'")
+                 .replace(/&nbsp;/g, ' ');
+            // Numeric entities (decimal and hex)
+            s = s.replace(/&#(\d+);/g, (_, dec) => {
+                const code = parseInt(dec, 10);
+                return Number.isFinite(code) ? String.fromCharCode(code) : _;
+            });
+            s = s.replace(/&#x([0-9A-Fa-f]+);/g, (_, hex) => {
+                const code = parseInt(hex, 16);
+                return Number.isFinite(code) ? String.fromCharCode(code) : _;
+            });
+            return s;
+        }
+
+        // Sanitize TeX: remove stray punctuation at edges, zero-width/combining chars, normalize common unicode symbols
         function sanitizeTeX(src) {
             let s = typeof src === 'string' ? src : '';
             if (!s) return '';
-            // remove zero-width & BOM
-            s = s.replace(/[\u200B-\u200D\uFEFF]/g, '');
-            // remove common combining underline (U+0332) and other combining marks at edges
-            s = s.replace(/^[\u0300-\u036F]+|[\u0300-\u036F]+$/g, '');
+            // Decode HTML entities first, e.g. &#39; → ', &amp; → &
+            s = htmlUnescape(s);
+            // remove zero-width, BOM and combining marks anywhere
+            s = s.replace(/[\u200B-\u200D\uFEFF\u0300-\u036F]/g, '');
+            // strip private-use glyphs sometimes appearing as unknown symbols (e.g. '')
+            s = s.replace(/[\uE000-\uF8FF]/g, '');
+            // also normalize stray combining marks immediately after '&' that break entities
+            s = s.replace(/&[\u0300-\u036F]+/g, '&');
             // trim leading/trailing CJK punctuation and quotes that accidentally wrapped TeX
             s = s.replace(/^[\s\u3000。，、；：：“”\(（\)）\[\]【】《》‘’'"–—-]+/, '');
             s = s.replace(/[\s\u3000。，、；：：“”\(（\)）\[\]【】《》‘’'"–—-]+$/, '');
@@ -365,15 +410,46 @@
             s = s.replace(/\\mathrm\{\s*(?:\\;|\s)*\^\s*\{?\s*\\?circ\s*\}?\s*([A-Za-z])\s*\}/g, '^{\\circ}\\mathrm{$1}');
             // Replace unsupported Unicode triangles with math macros
             s = s.replace(/▲/g, '\\blacktriangle').replace(/△/g, '\\triangle');
+            // Normalize some common unicode math symbols to TeX
+            s = s.replace(/≠/g, '\\ne');
+            s = s.replace(/±/g, '\\pm');
+            s = s.replace(/∞/g, '\\infty');
             return s.trim();
         }
 
         const cleaned = sanitizeTeX(content);
         const analysis = analyzeFormulaLayout(cleaned, displayModeHint);
+        let tex = analysis.text;
 
-        if (!analysis.text) {
+        if (!tex) {
             return analysis.displayMode ? '<div class="katex-block"></div>' : '<span class="katex-inline"></span>';
         }
+
+        // Guard against obviously incomplete or non-TeX inputs
+        try {
+            // Incomplete \begin{...} without matching \end{...}
+            const beginMatch = tex.match(/\\begin\{([a-zA-Z*]+)\}/);
+            if (beginMatch) {
+                const env = beginMatch[1];
+                const endRe = new RegExp('\\\\end\\{' + env.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&') + '\\}');
+                if (!endRe.test(tex)) {
+                    // Do not attempt to render; return accessible fallback
+                    return buildKatexFallback(tex, true, 'Incomplete environment: \\begin{' + env + '} ...');
+                }
+            }
+            // Lone \end{...} without a preceding \begin{...}
+            if (/^\s*\\end\{[a-zA-Z*]+\}\s*$/.test(tex)) {
+                return buildKatexFallback(tex, analysis.displayMode, 'Orphaned \\end{...}');
+            }
+            // Strings that look like prior KaTeX error messages or HTML entities only
+            if (/^&#?\w/.test(tex) && / in math mode /.test(tex)) {
+                return buildKatexFallback(tex, analysis.displayMode, 'Skipped non-TeX error text');
+            }
+            // If the supposed TeX contains HTML tags, skip rendering (likely mis-detected)
+            if (/[<>]\s*\w|<\/|class=|style=/.test(tex)) {
+                return buildKatexFallback(tex, analysis.displayMode, 'HTML detected in TeX input');
+            }
+        } catch (_) { /* ignore guard errors */ }
 
         try {
             const options = {
@@ -391,11 +467,11 @@
                 }
             };
 
-            const rendered = katex.renderToString(analysis.text, options);
+            const rendered = katex.renderToString(tex, options);
             metrics.formulaSuccesses++;
 
             const className = analysis.displayMode ? 'katex-block' : 'katex-inline';
-            const original = escapeHtml(analysis.text);
+            const original = escapeHtml(tex);
             const wrapper = analysis.displayMode
                 ? `
 <div class="${className}" data-formula-display="block" data-original-text="${original}">${rendered}</div>
@@ -406,8 +482,8 @@
 
         } catch (error) {
             metrics.formulaErrors++;
-            console.warn(`[MarkdownProcessorEnhanced] KaTeX rendering failed for: "${analysis.text}"`, error);
-            return buildKatexFallback(analysis.text, analysis.displayMode, error);
+            console.warn(`[MarkdownProcessorEnhanced] KaTeX rendering failed for: "${tex}"`, error);
+            return buildKatexFallback(tex, analysis.displayMode, error);
         }
     }
 
