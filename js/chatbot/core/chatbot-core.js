@@ -500,7 +500,7 @@ function getChatbotConfig(externalConfig = null) {
  * 该函数从全局 `window.data` 对象中提取 OCR 文本、翻译文本、图片列表和文档名称。
  * 这些信息将用于构建聊天机器人的上下文。
  *
- * @returns {object} 包含 `ocr`, `translation`, `images`, `name` 的文档内容对象。
+ * @returns {object} 包含 `ocr`, `translation`, `images`, `name`, `semanticGroups` 的文档内容对象。
  *                   如果 `window.data` 不存在或内容为空，则返回相应的空值。
  */
 function getCurrentDocContent() {
@@ -509,10 +509,14 @@ function getCurrentDocContent() {
       ocr: window.data.ocr || '',
       translation: window.data.translation || '',
       images: window.data.images || [],
-      name: window.data.name || ''
+      name: window.data.name || '',
+      // 新增：传递意群数据
+      semanticGroups: window.data.semanticGroups || null,
+      ocrChunks: window.data.ocrChunks || null,
+      translatedChunks: window.data.translatedChunks || null
     };
   }
-  return { ocr: '', translation: '', images: [], name: '' };
+  return { ocr: '', translation: '', images: [], name: '', semanticGroups: null, ocrChunks: null, translatedChunks: null };
 }
 
 // 组装对话消息格式
@@ -588,6 +592,46 @@ function getCurrentDocId() {
   return `${doc.name || 'unknown'}_${(doc.images||[]).length}_${(doc.ocr||'').length}_${(doc.translation||'').length}`;
 }
 
+/**
+ * 确保向量索引和BM25索引已建立
+ * @param {Array} chunks - enrichedChunks数组
+ * @param {Array} groups - 意群数组
+ * @param {string} docId - 文档ID
+ */
+async function ensureIndexesBuilt(chunks, groups, docId) {
+  if (!chunks || !Array.isArray(chunks) || chunks.length === 0) {
+    return;
+  }
+
+  // 自动建立向量索引（如果启用了向量搜索）
+  try {
+    if (window.EmbeddingClient?.config?.enabled && window.SemanticVectorSearch) {
+      console.log(`[ChatbotCore] 检测到向量搜索已启用，开始为 ${chunks.length} 个chunks建立索引...`);
+      await window.SemanticVectorSearch.indexChunks(chunks, docId, {
+        showProgress: true,
+        forceRebuild: false
+      });
+      // 更新UI显示
+      if (window.ChatbotFloatingOptionsUI?.updateDisplay) {
+        window.ChatbotFloatingOptionsUI.updateDisplay();
+      }
+    }
+  } catch (vectorErr) {
+    console.warn('[ChatbotCore] 建立向量索引失败（不影响意群功能）:', vectorErr);
+  }
+
+  // 始终建立BM25索引（轻量级，无需API）
+  try {
+    if (window.SemanticBM25Search) {
+      console.log('[ChatbotCore] 为chunks建立BM25索引...');
+      window.SemanticBM25Search.indexChunks(chunks, docId);
+      console.log('[ChatbotCore] BM25索引建立完成');
+    }
+  } catch (bm25Err) {
+    console.warn('[ChatbotCore] 建立BM25索引失败:', bm25Err);
+  }
+}
+
 // 发送消息到大模型（支持思维导图请求）
 /**
  * 发送消息到大语言模型并处理响应，支持思维导图生成请求。
@@ -633,7 +677,65 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
 
   const isMindMapRequest = plainTextInput.includes('思维导图') || plainTextInput.includes('脑图');
   const config = getChatbotConfig(externalConfig);
-  const docContentInfo = getCurrentDocContent(); // <--- 获取当前文档的实际内容
+  let docContentInfo = getCurrentDocContent(); // <--- 获取当前文档的实际内容（初次）
+
+  // ===== 新增：智能分段预处理 =====
+  // 在首次对话时，检测是否需要生成意群
+  await ensureSemanticGroupsReady(docContentInfo);
+  // 重要：生成后重新获取文档内容以拿到 semanticGroups（避免使用旧的 docContentInfo 快照）
+  docContentInfo = getCurrentDocContent();
+
+  // 如果启用多轮取材，先让模型选择意群并附加上下文
+  try {
+    const multiHop = !!(window.chatbotActiveOptions && window.chatbotActiveOptions.multiHopRetrieval);
+    const segmented = ((window.chatbotActiveOptions && window.chatbotActiveOptions.contentLengthStrategy) === 'segmented');
+    const longDoc = ((docContentInfo.translation || docContentInfo.ocr || '').length >= 50000);
+    const useStreaming = !!(window.chatbotActiveOptions && window.chatbotActiveOptions.streamingRetrieval);
+
+    if (multiHop && segmented && longDoc && Array.isArray(docContentInfo.semanticGroups) && docContentInfo.semanticGroups.length > 0) {
+      const userSet = window.semanticGroupsSettings || {};
+
+      // 使用流式多轮取材（如果启用）
+      if (useStreaming && typeof window.streamingMultiHopRetrieve === 'function') {
+        console.log('[ChatbotCore] 使用流式多轮取材');
+
+        const stream = window.streamingMultiHopRetrieve(plainTextInput, docContentInfo, config, { maxRounds: userSet.maxRounds || 3 });
+
+        let selection = null;
+        for await (const event of stream) {
+          // 实时更新UI
+          if (window.ChatbotToolTraceUI?.handleStreamEvent) {
+            window.ChatbotToolTraceUI.handleStreamEvent(event);
+          }
+
+          // 保存最终结果
+          if (event.type === 'complete' || (event.type === 'fallback' && event.context)) {
+            selection = event.type === 'complete'
+              ? { context: event.context, groups: event.summary.groups, detail: event.summary.detail }
+              : event;
+          }
+        }
+
+        if (selection && selection.context) {
+          docContentInfo = Object.assign({}, docContentInfo, {
+            selectedGroupContext: selection.context,
+            selectedGroupsMeta: selection
+          });
+          console.log('[ChatbotCore] 流式多轮取材完成，组数', (selection.detail||selection.groups||[]).length);
+        }
+      } else {
+        // 使用传统多轮取材（同步）
+        const selection = await multiHopRetrieve(plainTextInput, docContentInfo, config, { maxRounds: userSet.maxRounds || 3 });
+        if (selection) {
+          // 将 selection.context 直接作为选中上下文注入
+          docContentInfo = Object.assign({}, docContentInfo, { selectedGroupContext: selection.context, selectedGroupsMeta: selection });
+          console.log('[ChatbotCore] 多轮取材：已聚合上下文，组数', (selection.detail||[]).length);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[ChatbotCore] 多轮取材选择失败：', e);
+  }
 
   // 使用新的 PromptConstructor 来构建 systemPrompt
   let systemPrompt = '';
@@ -1258,11 +1360,31 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
 async function singleChunkSummary(sysPrompt, userInput, config, apiKey) {
   // 只做单轮整理，不带历史
   let apiConfig;
-  if (config.model === 'custom') {
+  if (
+    config.model === 'custom' ||
+    (typeof config.model === 'string' && config.model.startsWith('custom_source_'))
+  ) {
+    // 与 sendChatbotMessage 对齐：选择模型ID优先顺序
+    let selectedModelId = '';
+    try {
+      if (config.settings && config.settings.selectedCustomModelId) {
+        selectedModelId = config.settings.selectedCustomModelId;
+      }
+      if (!selectedModelId) {
+        selectedModelId = localStorage.getItem('lastSelectedCustomModel') || '';
+      }
+    } catch (e) {}
+    if (!selectedModelId && config.cms && config.cms.modelId) {
+      selectedModelId = config.cms.modelId;
+    }
+    if (!selectedModelId && Array.isArray(config.siteSpecificAvailableModels) && config.siteSpecificAvailableModels.length > 0) {
+      selectedModelId = typeof config.siteSpecificAvailableModels[0] === 'object' ? config.siteSpecificAvailableModels[0].id : config.siteSpecificAvailableModels[0];
+    }
+
     apiConfig = buildCustomApiConfig(
       apiKey,
-      config.cms.apiEndpoint,
-      config.cms.modelId,
+      (config.cms.apiEndpoint || config.cms.apiBaseUrl),
+      selectedModelId,
       config.cms.requestFormat,
       config.cms.temperature,
       config.cms.max_tokens,
@@ -1458,12 +1580,43 @@ async function singleChunkSummary(sysPrompt, userInput, config, apiKey) {
         apiConfig.streamEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelPath}:streamGenerateContent?key=${apiKey}&alt=sse`;
     }
   }
-  const requestBody = apiConfig.bodyBuilder(sysPrompt, [], userInput);
-  const response = await fetch(apiConfig.endpoint, {
-    method: 'POST',
-    headers: apiConfig.headers,
-    body: JSON.stringify(requestBody)
-  });
+  // 兼容不同 bodyBuilder 签名：自定义(2参) vs 预置(3参)
+  let requestBody;
+  try {
+    if (typeof apiConfig.bodyBuilder === 'function') {
+      if (apiConfig.bodyBuilder.length <= 2) {
+        requestBody = apiConfig.bodyBuilder(sysPrompt, userInput);
+      } else {
+        requestBody = apiConfig.bodyBuilder(sysPrompt, [], userInput);
+      }
+    } else {
+      throw new Error('apiConfig.bodyBuilder 未定义');
+    }
+  } catch (e) {
+    console.error('[singleChunkSummary] 构建请求体失败:', e);
+    throw e;
+  }
+  try { console.log('[singleChunkSummary] POST', apiConfig.endpoint, apiConfig.headers); } catch(_) {}
+
+  let response;
+  try {
+    response = await fetch(apiConfig.endpoint, {
+      method: 'POST',
+      headers: apiConfig.headers,
+      body: JSON.stringify(requestBody)
+    });
+  } catch (networkErr) {
+    if (isCustomLike && apiConfig.bodyBuilder && apiConfig.bodyBuilder.length > 2) {
+      const retryBody = apiConfig.bodyBuilder(sysPrompt, [], userInput);
+      response = await fetch(apiConfig.endpoint, {
+        method: 'POST',
+        headers: apiConfig.headers,
+        body: JSON.stringify(retryBody)
+      });
+    } else {
+      throw networkErr;
+    }
+  }
   if (!response.ok) {
     const errText = await response.text();
     throw new Error(`API 错误 (${response.status}): ${errText}`);
@@ -1472,6 +1625,523 @@ async function singleChunkSummary(sysPrompt, userInput, config, apiKey) {
   const answer = apiConfig.responseExtractor(data);
   if (!answer) throw new Error('API 响应解析失败，未能提取内容');
   return answer;
+}
+
+// ===== 新增：意群自动生成函数 =====
+/**
+ * 确保意群数据已准备好
+ * 根据文档大小和用户设置，决定是否需要生成意群
+ * @param {Object} docContentInfo - 文档内容信息
+ */
+async function ensureSemanticGroupsReady(docContentInfo) {
+  // 检查 SemanticGrouper 是否加载
+  if (!window.SemanticGrouper || typeof window.SemanticGrouper.aggregate !== 'function') {
+    console.warn('[ChatbotCore] SemanticGrouper 未加载，跳过意群生成');
+    return;
+  }
+
+  // 检查 window.data 是否存在
+  if (!window.data) {
+    return;
+  }
+
+  // 如果已经有意群数据，直接返回
+  if (window.data.semanticGroups && window.data.semanticGroups.length > 0) {
+    console.log('[ChatbotCore] 意群数据已存在，跳过生成');
+    return;
+  }
+
+  // 获取文档内容和策略
+  const translationText = docContentInfo.translation || '';
+  const ocrText = docContentInfo.ocr || '';
+  const chunkCandidates = [];
+  if (Array.isArray(docContentInfo.translatedChunks)) {
+    chunkCandidates.push(...docContentInfo.translatedChunks);
+  }
+  if (Array.isArray(docContentInfo.ocrChunks)) {
+    chunkCandidates.push(...docContentInfo.ocrChunks);
+  }
+
+  let contentLength = Math.max(translationText.length, ocrText.length);
+  if (contentLength < 50000 && chunkCandidates.length > 0) {
+    const chunkLength = chunkCandidates.reduce((sum, chunk) => sum + (typeof chunk === 'string' ? chunk.length : 0), 0);
+    contentLength = Math.max(contentLength, chunkLength);
+  }
+
+  let content = translationText || ocrText;
+  if (!content && chunkCandidates.length > 0) {
+    content = chunkCandidates.slice(0, 60).join('\n\n');
+  }
+
+  const contentStrategy = (window.chatbotActiveOptions && window.chatbotActiveOptions.contentLengthStrategy) || 'default';
+  const strategySegmented = contentStrategy === 'segmented';
+
+  if (!strategySegmented) {
+    console.log('[ChatbotCore] 当前策略非智能分段，跳过意群生成');
+    return;
+  }
+
+  // 优先尝试从 IndexedDB 读取缓存
+  try {
+    const docId = getCurrentDocId();
+    if (typeof window.loadSemanticGroupsFromDB === 'function') {
+      const cached = await window.loadSemanticGroupsFromDB(docId);
+      if (cached && Array.isArray(cached.groups) && cached.groups.length > 0) {
+        window.data.semanticGroups = cached.groups;
+        if (cached.docGist) window.data.semanticDocGist = cached.docGist;
+        console.log(`[ChatbotCore] 已从缓存读取意群，共 ${cached.groups.length} 个意群`);
+
+        // 检查并建立索引（向量索引和BM25索引）
+        await ensureIndexesBuilt(cached.groups, docId);
+        return;
+      }
+    }
+  } catch (e) {
+    console.warn('[ChatbotCore] 读取意群缓存失败，继续生成:', e);
+  }
+
+  // 检查是否有现成的分段数据
+  const chunks = docContentInfo.translatedChunks || docContentInfo.ocrChunks;
+
+  if (!chunks || !Array.isArray(chunks) || chunks.length === 0) {
+    console.warn('[ChatbotCore] 没有可用的分段数据（ocrChunks/translatedChunks），无法生成意群');
+    return;
+  }
+
+  if (contentLength < 50000) {
+    console.log(`[ChatbotCore] 文档估算字数 ${contentLength} < 50000，但已启用智能分段，继续生成意群`);
+  }
+
+  console.log(`[ChatbotCore] 开始生成意群，估算字数: ${contentLength}，分段数: ${chunks.length}`);
+
+  try {
+    // 显示加载提示
+    if (window.ChatbotUtils && typeof window.ChatbotUtils.showToast === 'function') {
+      window.ChatbotUtils.showToast('正在生成文档意群，请稍候...', 'info', 3000);
+    }
+
+    // 先生成文档总览（前2万字），作为后续分组摘要的背景信息
+    try {
+      const preview = content.slice(0, 20000);
+      const cfg = getChatbotConfig();
+      if (!window.data.semanticDocGist && cfg && cfg.apiKey && typeof singleChunkSummary === 'function') {
+        const gistPrompt = `你是学术文档分析助手。请基于提供的文档开头部分，生成一段不超过400字的中文总览，涵盖：主题/研究问题、对象/范围、方法/框架、主要结论或结构。尽量客观、概括，不引用无关细节。`;
+        const gist = await singleChunkSummary(gistPrompt, preview, cfg, cfg.apiKey);
+        window.data.semanticDocGist = (gist || '').trim();
+        console.log('[ChatbotCore] 文档总览（前2万字）已生成');
+      }
+    } catch (e) {
+      console.warn('[ChatbotCore] 文档总览生成失败，将跳过：', e);
+      if (!window.data.semanticDocGist) {
+        window.data.semanticDocGist = content.slice(0, 400);
+      }
+    }
+
+    // 生成意群（可由用户设置覆盖默认值）
+    const s = (window.semanticGroupsSettings || {});
+    const result = await window.SemanticGrouper.aggregate(chunks, {
+      targetChars: Number(s.targetChars) > 0 ? Number(s.targetChars) : 5000,
+      minChars: Number(s.minChars) > 0 ? Number(s.minChars) : 2500,
+      maxChars: Number(s.maxChars) > 0 ? Number(s.maxChars) : 6000,
+      concurrency: Number(s.concurrency) > 0 ? Number(s.concurrency) : 20,
+      docContext: window.data.semanticDocGist || ''
+    });
+
+    const semanticGroups = result.groups || [];
+    const enrichedChunks = result.enrichedChunks || [];
+
+    // 保存到 window.data
+    window.data.semanticGroups = semanticGroups;
+    window.data.enrichedChunks = enrichedChunks; // 保存带元数据的chunks
+
+    console.log(`[ChatbotCore] 意群生成完成，共 ${semanticGroups.length} 个意群，${enrichedChunks.length} 个chunks`);
+
+    // 获取docId（后续索引构建也需要）
+    const docId = getCurrentDocId();
+
+    // 持久化到 IndexedDB
+    try {
+      if (typeof window.saveSemanticGroupsToDB === 'function') {
+        await window.saveSemanticGroupsToDB(docId, semanticGroups, {
+          version: 3, // 版本号升级
+          docGist: window.data.semanticDocGist || '',
+          enrichedChunks: enrichedChunks
+        });
+        console.log('[ChatbotCore] 意群和chunks已写入缓存');
+      }
+    } catch (e) {
+      console.warn('[ChatbotCore] 写入缓存失败:', e);
+    }
+
+    // 更新浮动选项栏的显示（出现"意群"按钮）
+    try {
+      if (window.ChatbotFloatingOptionsUI && typeof window.ChatbotFloatingOptionsUI.updateDisplay === 'function') {
+        window.ChatbotFloatingOptionsUI.updateDisplay();
+      }
+      if (window.SemanticGroupsUI && typeof window.SemanticGroupsUI.update === 'function') {
+        window.SemanticGroupsUI.update();
+      }
+    } catch (_) {}
+
+    // 显示成功提示
+    if (window.ChatbotUtils && typeof window.ChatbotUtils.showToast === 'function') {
+      window.ChatbotUtils.showToast(`文档已分析完成，生成 ${semanticGroups.length} 个意群`, 'success', 2000);
+    }
+
+    // 建立索引（现在索引chunks而不是意群）
+    await ensureIndexesBuilt(enrichedChunks, semanticGroups, docId);
+  } catch (error) {
+    console.error('[ChatbotCore] 生成意群失败:', error);
+
+    // 显示错误提示
+    if (window.ChatbotUtils && typeof window.ChatbotUtils.showToast === 'function') {
+      window.ChatbotUtils.showToast('意群生成失败，将使用全文模式', 'error', 3000);
+    }
+  }
+}
+
+// 将选中的意群上下文附加到 docContentInfo
+function attachSelectedContextToDoc(docContentInfo, selection) {
+  if (!selection) return docContentInfo;
+  const ids = Array.isArray(selection.groups) ? selection.groups : [];
+  const granularity = selection.granularity || 'digest';
+  const byId = new Map((docContentInfo.semanticGroups || []).map(g => [g.groupId, g]));
+  const parts = [];
+  ids.forEach((id, idx) => {
+    const g = byId.get(id);
+    if (!g) return;
+    const gran = (selection.detail && selection.detail.find(d => d.groupId===id)?.granularity) || granularity;
+    const body = gran === 'full' ? (g.fullText || '').slice(0, 6000)
+               : gran === 'digest' ? (g.digest || '').slice(0, 3000)
+               : (g.summary || '').slice(0, 800);
+    parts.push(`【意群${idx+1} - ${id}】\n关键词: ${(g.keywords||[]).join('、')}\n内容(${gran}):\n${body}`);
+  });
+  const ctx = parts.join('\n\n');
+  return Object.assign({}, docContentInfo, { selectedGroupContext: ctx, selectedGroupsMeta: selection });
+}
+
+// 多轮工具式取材
+async function multiHopRetrieve(userQuestion, docContentInfo, config, options = {}) {
+  const userSet = window.semanticGroupsSettings || {};
+  const maxRounds = Number(options.maxRounds ?? userSet.maxRounds) > 0 ? Number(options.maxRounds ?? userSet.maxRounds) : 3;
+  try {
+    const groups = Array.isArray(docContentInfo.semanticGroups) ? docContentInfo.semanticGroups : [];
+    if (groups.length === 0) return null;
+
+    const candidates = groups; // 展示所有意群作为全局地图
+    try {
+      // 优先使用向量搜索
+      if (window.SemanticVectorSearch && window.EmbeddingClient?.config?.enabled) {
+        const matched = await window.SemanticVectorSearch.search(String(userQuestion || ''), groups, {
+          topK: 12,
+          threshold: 0.3,
+          useHybrid: true
+        });
+        if (matched && matched.length > 0) {
+          candidates = matched;
+          console.log('[multiHopRetrieve] 使用向量搜索获取候选意群');
+        }
+      } else if (window.SemanticGrouper && typeof window.SemanticGrouper.quickMatch === 'function') {
+        const matched = window.SemanticGrouper.quickMatch(String(userQuestion || ''), groups);
+        if (matched && matched.length > 0) {
+          candidates = matched.slice(0, 12);
+          console.log('[multiHopRetrieve] 使用关键词匹配获取候选意群');
+        }
+      }
+    } catch (e) {
+      console.warn('[multiHopRetrieve] 候选意群匹配失败，使用前12个:', e);
+    }
+
+    const fetched = new Map(); // groupId -> {granularity, text}
+    const detail = [];
+    let contextParts = [];
+    const gist = (window.data && window.data.semanticDocGist) ? window.data.semanticDocGist : '';
+
+    for (let round = 0; round < maxRounds; round++) {
+      const listText = candidates.map(g => {
+        const struct = g.structure || {};
+        const parts = [`【${g.groupId}】 ${g.charCount || 0}字`];
+        if (g.keywords && g.keywords.length > 0) parts.push(`关键词: ${g.keywords.join('、')}`);
+        if (struct.figures && struct.figures.length > 0) parts.push(`包含图: ${struct.figures.join('; ')}`);
+        if (struct.tables && struct.tables.length > 0) parts.push(`包含表: ${struct.tables.join('; ')}`);
+        if (struct.sections && struct.sections.length > 0) parts.push(`章节: ${struct.sections.join('; ')}`);
+        if (struct.keyPoints && struct.keyPoints.length > 0) parts.push(`要点: ${struct.keyPoints.join('; ')}`);
+        if (g.summary) parts.push(`摘要: ${g.summary}`);
+        return parts.join('\\n');
+      }).join('\\n\\n');
+      const fetchedList = Array.from(fetched.keys()).join(', ') || '无';
+      const sys = `你是检索规划助手。你可以调用以下工具，按需多轮取材：
+
+工具定义(JSON)：
+- {"tool":"vector_search","args":{"query":"...","limit":5}} -> 向量语义搜索，在文档的所有原始chunks中搜索，返回最相关的chunks（每个chunk 1500-3000字）
+- {"tool":"keyword_search","args":{"keywords":["关键词1","关键词2"],"limit":3}} -> 关键词精确匹配，在所有chunks中搜索，返回包含这些关键词的chunks
+- {"tool":"fetch_group","args":{"groupId":"group-1","granularity":"summary|digest|full"}} -> 获取指定意群的内容（意群是多个chunks的聚合，5000字）
+
+重要说明：
+1. 【候选意群列表】提供了文档的完整结构地图，包括每个意群的摘要、图表、章节信息，帮助你建立全局视角。
+2. 【务必使用vector_search或keyword_search】来精确定位相关内容，不要依赖意群摘要判断。
+3. vector_search和keyword_search返回的是原始chunks（1500-3000字），比意群更精确。
+4. 如果需要更完整的上下文，可以根据chunk的belongsToGroup字段，使用fetch_group获取完整意群。
+
+规划规则：
+1. 第一轮必须使用vector_search或keyword_search进行搜索，不能直接fetch_group。
+2. vector_search用于语义相似搜索，keyword_search用于精确术语匹配。
+3. 根据问题性质选择合适的检索工具，也可以同时使用多个工具。
+4. 只有在你已经获取到足够的上下文后，才设置 "final": true。
+
+返回格式(JSON-only)：
+{"operations":[{"tool":"vector_search", "args":{...}}, {"tool":"keyword_search", "args":{...}}, {"tool":"fetch_group", "args":{...}}], "final": false}
+不要输出解释文字。`;
+      const content = `文档总览:\n${gist}\n\n用户问题:\n${String(userQuestion || '')}\n\n候选意群:\n${listText}\n\n已获取意群: ${fetchedList}`;
+      const apiKey = config.apiKey;
+      const out = await singleChunkSummary(sys, content, config, apiKey);
+      let plan;
+      try {
+      const cleaned = out
+        .replace(/```jsonc?|```tool|```/gi,'')
+        .replace(/[\u0000-\u001f]/g, ' ')
+        .trim();
+      if (!cleaned) {
+        console.warn('[multiHopRetrieve] 规划输出为空，结束多轮');
+        break;
+      }
+      try {
+        plan = JSON.parse(cleaned);
+      } catch (parseErr) {
+        let normalized = cleaned;
+        normalized = normalized
+          .replace(/"\s+([\w-]+)"\s*:/g, '"$1":')
+          .replace(/"\s+final"/gi, '"final"')
+          .replace(/"operations"\s*"/i, '"operations":')
+          .replace(/"\s+([\w-]+)"\s+"/g, '"$1":')
+          .replace(/,\s*}/g, '}')
+          .replace(/,\s*]/g, ']')
+          .replace(/\s+/g, ' ')
+          .trim();
+        plan = JSON.parse(normalized);
+      }
+      try {
+        console.log('[multiHopRetrieve] plan', plan);
+        window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.log({
+          tool: 'planner',
+          args: { operations: plan.operations || [], final: plan.final },
+          result: '已解析'
+        });
+      } catch(_) {}
+      } catch (e) {
+        console.warn('[multiHopRetrieve] 解析计划失败，将使用后备策略:', e, out);
+        const fallback = buildFallbackSemanticContext(userQuestion, groups);
+        if (fallback) {
+          try {
+            console.log('[multiHopRetrieve] fallbackContext', fallback);
+            window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.log({
+              tool: 'fallback',
+              args: { reason: 'parse-error' },
+              result: fallback.context
+            });
+          } catch(_) {}
+          return fallback;
+        }
+        break;
+      }
+      const ops = Array.isArray(plan.operations) ? plan.operations : [];
+      if (ops.length === 0) {
+        console.warn('[multiHopRetrieve] 规划无操作，使用后备策略');
+        const fallback = buildFallbackSemanticContext(userQuestion, groups);
+        if (fallback) {
+          try {
+            console.log('[multiHopRetrieve] fallbackContext', fallback);
+            window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.log({
+              tool: 'fallback',
+              args: { reason: 'empty-ops' },
+              result: fallback.context
+            });
+          } catch(_) {}
+          return fallback;
+        }
+        break;
+      }
+
+      // 执行工具
+      for (const op of ops) {
+        try {
+          if (op.tool === 'vector_search' && op.args) {
+            // 向量语义搜索chunks
+            const query = String(op.args.query || userQuestion);
+            const limit = Math.min(Number(op.args.limit) || 5, 12);
+
+            if (window.SemanticVectorSearch && window.EmbeddingClient?.config?.enabled) {
+              window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.log({ tool: 'vector_search', args: op.args, result: '执行中…' });
+              const chunks = window.data?.enrichedChunks || [];
+              const res = await window.SemanticVectorSearch.search(query, chunks, {
+                topK: limit,
+                threshold: 0.3
+              });
+
+              if (Array.isArray(res) && res.length) {
+                // 将完整chunk文本加入上下文
+                res.forEach(r => {
+                  const chunkKey = r.chunkId;
+                  if (!fetched.has(chunkKey)) {
+                    fetched.set(chunkKey, { granularity: 'chunk', text: r.text });
+                    detail.push({ chunkId: r.chunkId, belongsToGroup: r.belongsToGroup });
+                    contextParts.push(`【${r.chunkId} (属于${r.belongsToGroup})】\n${r.text}`);
+                  }
+                });
+                window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.updateLastResult(JSON.stringify(res.slice(0,3).map(r => ({
+                  chunkId: r.chunkId,
+                  belongsToGroup: r.belongsToGroup,
+                  score: r.score,
+                  preview: r.text.substring(0, 100)
+                })), null, 2));
+              }
+            }
+          } else if (op.tool === 'keyword_search' && op.args) {
+            // 关键词精确匹配
+            const keywords = Array.isArray(op.args.keywords) ? op.args.keywords : [String(op.args.keywords || '')];
+            const limit = Math.min(Number(op.args.limit) || 3, 12);
+
+            if (window.SemanticBM25Search) {
+              window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.log({ tool: 'keyword_search', args: op.args, result: '执行中…' });
+              const chunks = window.data?.enrichedChunks || [];
+              const query = keywords.join(' ');
+              const res = window.SemanticBM25Search.searchChunks(query, chunks, {
+                topK: limit,
+                threshold: 0.1
+              });
+
+              if (Array.isArray(res) && res.length) {
+                res.forEach(r => {
+                  const chunkKey = r.chunkId;
+                  if (!fetched.has(chunkKey)) {
+                    fetched.set(chunkKey, { granularity: 'chunk', text: r.text });
+                    detail.push({ chunkId: r.chunkId, belongsToGroup: r.belongsToGroup });
+                    contextParts.push(`【${r.chunkId} (属于${r.belongsToGroup})】\n${r.text}`);
+                  }
+                });
+                window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.updateLastResult(JSON.stringify(res.slice(0,3).map(r => ({
+                  chunkId: r.chunkId,
+                  belongsToGroup: r.belongsToGroup,
+                  preview: r.text.substring(0, 100),
+                  matchedKeywords: keywords.filter(kw => r.text.includes(kw))
+                })), null, 2));
+              }
+            }
+          } else if (op.tool === 'search_groups' && op.args && typeof window.SemanticTools?.searchGroups === 'function') {
+            window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.log({ tool: 'search_groups', args: op.args, result: '执行中…' });
+            const res = window.SemanticTools.searchGroups(String(op.args.query || userQuestion), Math.min(Number(op.args.limit)||5, 12));
+            if (Array.isArray(res) && res.length) {
+              const idSet = new Set(res.map(r => r.groupId));
+              const map = new Map(groups.map(g => [g.groupId, g]));
+              // 重排候选：先把命中放前面，再拼其他
+              const hit = res.map(r => map.get(r.groupId)).filter(Boolean);
+              const others = groups.filter(g => !idSet.has(g.groupId));
+              candidates = [...hit, ...others].slice(0, 12);
+              window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.updateLastResult(JSON.stringify(res.slice(0,3), null, 2));
+            }
+          } else if (op.tool === 'find' && op.args && typeof window.SemanticTools?.findInGroups === 'function') {
+            window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.log({ tool: 'find', args: op.args, result: '执行中…' });
+            const res = window.SemanticTools.findInGroups(String(op.args.query || userQuestion), String(op.args.scope || 'digest'), Math.min(Number(op.args.limit)||5, 12));
+            if (Array.isArray(res) && res.length) {
+              const idSet = new Set(res.map(r => r.groupId));
+              const map = new Map(groups.map(g => [g.groupId, g]));
+              const hit = res.map(r => map.get(r.groupId)).filter(Boolean);
+              const others = groups.filter(g => !idSet.has(g.groupId));
+              candidates = [...hit, ...others].slice(0, 12);
+              // 将片段加入上下文（snippet）
+              window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.updateLastResult(JSON.stringify(res.slice(0,3), null, 2));
+              res.forEach(r => {
+                if (r.snippet && !fetched.has(r.groupId)) {
+                  // 仅作为提示，不计入 detail 的 granularity
+                  contextParts.push(`【${r.groupId} - snippet(${r.scope})】\n${r.snippet.slice(0, 400)}`);
+                }
+              });
+            }
+          } else if (op.tool === 'fetch_group' && op.args && typeof window.SemanticTools?.fetchGroupText === 'function') {
+            const id = op.args.groupId;
+            const gran = (op.args.granularity || 'digest');
+            if (!fetched.has(id)) {
+              window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.log({ tool: 'fetch_group', args: op.args, result: '执行中…' });
+              const res = window.SemanticTools.fetchGroupText(id, gran);
+              if (res && res.text) {
+                fetched.set(id, { granularity: res.granularity, text: res.text });
+                detail.push({ groupId: id, granularity: res.granularity });
+                contextParts.push(`【${id} - ${res.granularity}】\n${res.text}`);
+                window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.updateLastResult(res.text);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[multiHopRetrieve] 执行工具失败:', op, e);
+        }
+      }
+
+      if (plan.final === true) break;
+    }
+
+    if (contextParts.length === 0) {
+      const fallback = buildFallbackSemanticContext(userQuestion, groups);
+      if (fallback) {
+        try {
+          console.log('[multiHopRetrieve] fallbackContext', fallback);
+          window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.log({
+            tool: 'fallback',
+            args: { reason: 'empty-context' },
+            result: fallback.context
+          });
+        } catch(_) {}
+      }
+      return fallback;
+    }
+    const selectedContext = contextParts.join('\n\n');
+    window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.log({
+      tool: 'context',
+      args: { groups: detail.map(d => d.groupId) },
+      result: selectedContext
+    });
+    return { groups: detail.map(d => d.groupId), granularity: 'mixed', detail, context: selectedContext };
+  } catch (e) {
+    console.warn('[ChatbotCore] multiHopRetrieve 失败：', e);
+    return null;
+  }
+}
+
+function buildFallbackSemanticContext(userQuestion, groups) {
+  try {
+    if (!Array.isArray(groups) || groups.length === 0) return null;
+    let picks = [];
+    try {
+      if (window.SemanticGrouper && typeof window.SemanticGrouper.quickMatch === 'function') {
+        picks = window.SemanticGrouper.quickMatch(String(userQuestion || ''), groups) || [];
+      }
+    } catch (_) {}
+    if (!picks || picks.length === 0) {
+      picks = groups.slice(0, Math.min(3, groups.length));
+    }
+    const unique = new Set();
+    const detail = [];
+    const parts = [];
+    picks.forEach(g => {
+      if (!g || unique.size >= 3 || unique.has(g.groupId)) return;
+      unique.add(g.groupId);
+      let fetched = null;
+      try {
+        if (window.SemanticTools && typeof window.SemanticTools.fetchGroupText === 'function') {
+          fetched = window.SemanticTools.fetchGroupText(g.groupId, 'digest');
+        }
+      } catch (_) {}
+      const text = (fetched && fetched.text) || g.digest || g.summary || g.fullText || '';
+      if (!text) return;
+      const gran = (fetched && fetched.granularity) || 'digest';
+      parts.push(`【${g.groupId}】\n关键词: ${(g.keywords || []).join('、')}\n内容(${gran}):\n${text}`);
+      detail.push({ groupId: g.groupId, granularity: gran });
+    });
+    if (parts.length === 0) return null;
+    return { groups: Array.from(unique), granularity: 'mixed', detail, context: parts.join('\n\n') };
+  } catch (e) {
+    console.warn('[buildFallbackSemanticContext] 失败:', e);
+    return null;
+  }
 }
 
 // 导出核心对象
@@ -1488,5 +2158,32 @@ window.ChatbotCore = {
   clearCurrentDocChatHistory, // <-- 导出
   deleteMessageFromHistory, // <-- 导出新函数
   getCurrentDocId,
-  reloadChatHistoryAndUpdateUI
+  reloadChatHistoryAndUpdateUI,
+  // 导出给意群聚合模块使用的单轮摘要工具
+  singleChunkSummary,
+  // 重新生成意群（清空缓存并根据设置重新生成）
+  regenerateSemanticGroups: async function(newSettings) {
+    try {
+      if (newSettings && typeof newSettings === 'object') {
+        window.semanticGroupsSettings = Object.assign({}, window.semanticGroupsSettings || {}, newSettings);
+      }
+      const docId = getCurrentDocId();
+      if (typeof window.deleteSemanticGroupsFromDB === 'function') {
+        await window.deleteSemanticGroupsFromDB(docId);
+      }
+      if (window.data) {
+        delete window.data.semanticGroups;
+      }
+      const docContentInfo = getCurrentDocContent();
+      await ensureSemanticGroupsReady(docContentInfo);
+      if (window.ChatbotFloatingOptionsUI && typeof window.ChatbotFloatingOptionsUI.updateDisplay === 'function') {
+        window.ChatbotFloatingOptionsUI.updateDisplay();
+      }
+      if (window.SemanticGroupsUI && typeof window.SemanticGroupsUI.update === 'function') {
+        window.SemanticGroupsUI.update();
+      }
+    } catch (e) {
+      console.error('[ChatbotCore] regenerateSemanticGroups 失败:', e);
+    }
+  }
 };

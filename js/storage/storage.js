@@ -93,7 +93,12 @@ const ANNOTATIONS_STORE_NAME = 'annotations';
  * @const {number} DB_VERSION
  * @description IndexedDB 数据库的版本号。更改此版本号会触发 `onupgradeneeded` 事件。
  */
-const DB_VERSION = 2;
+const DB_VERSION = 3;
+/**
+ * @const {string} SEMANTIC_GROUPS_STORE_NAME
+ * @description IndexedDB 中用于存储意群数据的对象存储区名称。
+ */
+const SEMANTIC_GROUPS_STORE_NAME = 'semantic_groups';
 
 // =====================
 // 本地存储相关工具函数
@@ -300,6 +305,10 @@ function openDB() {
                 const annotationsStore = db.createObjectStore(ANNOTATIONS_STORE_NAME, { keyPath: 'id' });
                 annotationsStore.createIndex('docId', 'docId', { unique: false });
             }
+            // 新增：创建 semantic_groups 对象存储区（按 docId 存取）
+            if (!db.objectStoreNames.contains(SEMANTIC_GROUPS_STORE_NAME)) {
+                db.createObjectStore(SEMANTIC_GROUPS_STORE_NAME, { keyPath: 'docId' });
+            }
         };
         req.onsuccess = function() { resolve(req.result); };
         req.onerror = function() { reject(req.error); };
@@ -359,6 +368,76 @@ async function clearAllResultsFromDB() {
 }
 
 // ========== 新增：多模型配置与Key存取 ==========
+
+// --------- 新增：意群数据持久化（IndexedDB） ---------
+/**
+ * 将意群数据保存到 IndexedDB。
+ * @param {string} docId 文档唯一ID。
+ * @param {Array<Object>} groups 意群数组。
+ * @param {Object} [extra] 额外信息，例如版本、来源等。
+ */
+async function saveSemanticGroupsToDB(docId, groups, extra = {}) {
+    const db = await openDB();
+    return new Promise(function(resolve, reject) {
+        try {
+            const tx = db.transaction(SEMANTIC_GROUPS_STORE_NAME, 'readwrite');
+            const store = tx.objectStore(SEMANTIC_GROUPS_STORE_NAME);
+            store.put({ docId, groups, updatedAt: Date.now(), ...extra });
+            tx.oncomplete = function() { resolve(); };
+            tx.onerror = function() { reject(tx.error); };
+        } catch (e) {
+            reject(e);
+        }
+    });
+}
+
+/**
+ * 从 IndexedDB 加载意群数据。
+ * @param {string} docId 文档唯一ID。
+ * @returns {Promise<{docId: string, groups: Array<Object>, updatedAt: number} | undefined>}
+ */
+async function loadSemanticGroupsFromDB(docId) {
+    const db = await openDB();
+    return new Promise(function(resolve, reject) {
+        try {
+            const tx = db.transaction(SEMANTIC_GROUPS_STORE_NAME, 'readonly');
+            const store = tx.objectStore(SEMANTIC_GROUPS_STORE_NAME);
+            const req = store.get(docId);
+            req.onsuccess = function() { resolve(req.result); };
+            req.onerror = function() { reject(req.error); };
+        } catch (e) {
+            reject(e);
+        }
+    });
+}
+
+/**
+ * 删除指定文档的意群数据。
+ * @param {string} docId 文档唯一ID。
+ */
+async function deleteSemanticGroupsFromDB(docId) {
+    const db = await openDB();
+    return new Promise(function(resolve, reject) {
+        try {
+            const tx = db.transaction(SEMANTIC_GROUPS_STORE_NAME, 'readwrite');
+            const store = tx.objectStore(SEMANTIC_GROUPS_STORE_NAME);
+            store.delete(docId);
+            tx.oncomplete = function() { resolve(); };
+            tx.onerror = function() { reject(tx.error); };
+        } catch (e) {
+            reject(e);
+        }
+    });
+}
+
+// 暴露到全局（页面通过 <script> 引入非模块脚本时，确保可从 window 访问）
+try {
+    window.saveSemanticGroupsToDB = saveSemanticGroupsToDB;
+    window.loadSemanticGroupsFromDB = loadSemanticGroupsFromDB;
+    window.deleteSemanticGroupsFromDB = deleteSemanticGroupsFromDB;
+} catch (e) {
+    // 忽略：某些环境下 window 可能不可用（例如测试）
+}
 
 /**
  * 生成一个简单的 UUID

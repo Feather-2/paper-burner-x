@@ -12,9 +12,12 @@ if (typeof window.ChatbotFloatingOptionsScriptLoaded === 'undefined') {
    * - 在主 UI 更新时，调用 ChatbotFloatingOptionsUI.updateDisplay() 来刷新选项栏的状态。
    */
   const _chatbotOptionsConfig = [
+    { key: 'semanticGroups', texts: ['意群'], title: '查看/搜索意群', activeStyleColor: '#059669', isAction: true },
     { key: 'useContext', texts: ['上下文:关', '上下文:开'], values: [false, true], title: '切换是否使用对话历史', activeStyleColor: '#1d4ed8' },
+    { key: 'multiHopRetrieval', texts: ['取材:单轮', '取材:多轮'], values: [false, true], defaultKey: false, title: '自动多轮取材：先选片段再回答', activeStyleColor: '#059669' },
+    { key: 'streamingRetrieval', texts: ['流式:关', '流式:开'], values: [false, true], defaultKey: false, title: '实时显示取材过程', activeStyleColor: '#8b5cf6', dependsOn: 'multiHopRetrieval', dependsValue: true },
     { key: 'summarySource', texts: ['提供全文:OCR', '提供全文:无', '提供全文:翻译'], values: ['ocr', 'none', 'translation'], defaultKey: 'ocr', title: '切换总结时使用的文本源 (OCR/不使用文档内容/翻译)', activeStyleColor: '#1d4ed8' },
-    { key: 'contentLengthStrategy', texts: ['全文策略:默认', '全文策略:分段'], values: ['default', 'segmented'], defaultKey: 'default', activeStyleColor: '#1d4ed8', dependsOn: 'summarySource', dependsValueNot: 'none', title: '切换全文处理策略 (分段待实现)' },
+    { key: 'contentLengthStrategy', texts: ['全文策略:全文', '全文策略:智能分段'], values: ['default', 'segmented'], defaultKey: 'default', activeStyleColor: '#1d4ed8', dependsOn: 'summarySource', dependsValueNot: 'none', title: '切换全文处理策略：全文传递 vs 智能分段（<5万字默认全文，≥5万字推荐分段）' },
     { key: 'interestPointsActive', texts: ['兴趣点'], activeStyleColor: '#059669', isPlaceholder: true, title: '兴趣点功能 (待实现)' },
     { key: 'memoryManagementActive', texts: ['记忆管理'], activeStyleColor: '#059669', isPlaceholder: true, title: '记忆管理功能 (待实现)' }
   ];
@@ -65,12 +68,24 @@ if (typeof window.ChatbotFloatingOptionsScriptLoaded === 'undefined') {
           } else {
             alert(`${optConf.texts[0]} 功能正在开发中。`);
           }
+        } else if (optConf.isAction && optConf.key === 'semanticGroups') {
+          if (window.SemanticGroupsUI && typeof window.SemanticGroupsUI.toggle === 'function') {
+            window.SemanticGroupsUI.toggle();
+          } else if (typeof ChatbotUtils !== 'undefined' && ChatbotUtils.showToast) {
+            ChatbotUtils.showToast('意群面板未就绪', 'warning', 2000);
+          } else {
+            alert('意群面板未就绪');
+          }
         } else {
           const currentValue = window.chatbotActiveOptions[optConf.key];
           if (optConf.key === 'useContext') {
             window.chatbotActiveOptions.useContext = !currentValue;
           } else if (optConf.key === 'contentLengthStrategy') {
             window.chatbotActiveOptions.contentLengthStrategy = currentValue === optConf.values[0] ? optConf.values[1] : optConf.values[0];
+          } else if (optConf.key === 'multiHopRetrieval') {
+            window.chatbotActiveOptions.multiHopRetrieval = !currentValue;
+          } else if (optConf.key === 'streamingRetrieval') {
+            window.chatbotActiveOptions.streamingRetrieval = !currentValue;
           } else if (optConf.key === 'summarySource') {
             const currentIndex = optConf.values.indexOf(currentValue);
             const nextIndex = (currentIndex + 1) % optConf.values.length;
@@ -147,6 +162,12 @@ if (typeof window.ChatbotFloatingOptionsScriptLoaded === 'undefined') {
           }
         }
 
+        // 语义分组按钮：仅当已有意群数据时显示
+        if (optConf.key === 'semanticGroups') {
+          const hasGroups = !!(window.data && Array.isArray(window.data.semanticGroups) && window.data.semanticGroups.length > 0);
+          shouldBeVisible = hasGroups;
+        }
+
         button.style.display = shouldBeVisible ? '' : 'none';
 
         // 更新分隔符的显示状态
@@ -171,7 +192,12 @@ if (typeof window.ChatbotFloatingOptionsScriptLoaded === 'undefined') {
         let fontWeight = 'normal';
         let isActiveStyle = false;
 
-        if (optConf.isPlaceholder) {
+        if (optConf.isAction && optConf.key === 'semanticGroups') {
+          const count = (window.data && Array.isArray(window.data.semanticGroups)) ? window.data.semanticGroups.length : 0;
+          currentText = count > 0 ? `意群(${count})` : '意群';
+          // 显示为激活风格以便更醒目（当有意群时）
+          if (count > 0) { color = optConf.activeStyleColor; fontWeight = '600'; isActiveStyle = true; }
+        } else if (optConf.isPlaceholder) {
           currentText = optConf.texts[0];
         } else if (optConf.key === 'useContext') {
           currentText = currentOptionValue ? optConf.texts[1] : optConf.texts[0];
@@ -181,6 +207,12 @@ if (typeof window.ChatbotFloatingOptionsScriptLoaded === 'undefined') {
           if (currentOptionValue !== optConf.defaultKey) {
              color = optConf.activeStyleColor; fontWeight = '600'; isActiveStyle = true;
           }
+        } else if (optConf.key === 'multiHopRetrieval') {
+          currentText = currentOptionValue ? optConf.texts[1] : optConf.texts[0];
+          if (currentOptionValue) { color = optConf.activeStyleColor; fontWeight = '600'; isActiveStyle = true; }
+        } else if (optConf.key === 'streamingRetrieval') {
+          currentText = currentOptionValue ? optConf.texts[1] : optConf.texts[0];
+          if (currentOptionValue) { color = optConf.activeStyleColor; fontWeight = '600'; isActiveStyle = true; }
         } else if (optConf.key === 'summarySource') {
           const currentIndex = optConf.values.indexOf(currentOptionValue);
           currentText = optConf.texts[currentIndex] || optConf.texts[0];

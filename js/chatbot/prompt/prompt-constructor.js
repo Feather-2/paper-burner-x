@@ -65,13 +65,48 @@ window.PromptConstructor = (function() {
       // console.log('[PromptConstructor] Content source is NONE. No document content will be used.');
     }
 
-    if (content.length > 50000) {
-      content = content.slice(0, 50000);
+    // ===== 新增：智能分段策略 =====
+    // 检查是否启用智能分段模式（contentLengthStrategy === 'segmented'）
+    const contentStrategy = (window.chatbotActiveOptions && window.chatbotActiveOptions.contentLengthStrategy) || 'default';
+
+    if (contentStrategy === 'segmented' && content.length >= 50000) {
+      // 智能分段模式：使用意群摘要
+      console.log('[PromptConstructor] 文档较长且启用智能分段，使用意群模式');
+
+      if (docContentInfo.semanticGroups && docContentInfo.semanticGroups.length > 0) {
+        // 已有意群，构建意群摘要
+        const docGist = (docContentInfo.semanticDocGist && typeof docContentInfo.semanticDocGist === 'string')
+          ? `文档总览：${docContentInfo.semanticDocGist}\n\n` : '';
+        if (docContentInfo.selectedGroupContext) {
+          // 多轮取材：已选择意群上下文，优先提供所选上下文
+          content = `${docGist}已根据用户问题聚焦以下意群上下文：\n\n${docContentInfo.selectedGroupContext}\n\n如需更多细节，可继续请求深入具体意群。`;
+          console.log('[PromptConstructor] 使用已选择意群上下文模式');
+        } else {
+          const groupSummaries = docContentInfo.semanticGroups.map((group, idx) => {
+            return `【意群${idx + 1}】${group.summary}\n关键词: ${(group.keywords || []).join(', ')}`;
+          }).join('\n\n');
+          content = `${docGist}文档已分为 ${docContentInfo.semanticGroups.length} 个意群，以下是各意群概要：\n\n${groupSummaries}\n\n如需深入了解某个意群，请明确指出。`;
+          console.log('[PromptConstructor] 使用意群摘要模式，共', docContentInfo.semanticGroups.length, '个意群');
+        }
+      } else {
+        // 未生成意群，降级到截断
+        console.warn('[PromptConstructor] 启用了分段模式但未找到意群数据，降级到截断模式');
+        if (content.length > 50000) {
+          content = content.slice(0, 50000) + '\n\n[文档过长，已截断]';
+        }
+      }
+    } else {
+      // 全文模式：传统截断
+      if (content.length > 50000) {
+        content = content.slice(0, 50000);
+      }
     }
 
     if (content) { // Only add "文档内容" section if content is not empty
       systemPrompt += `\n\n文档内容：\n${content}`;
     }
+    // 追加回答行为规范，避免模型输出“没有外部工具”等无关免责声明
+    systemPrompt += `\n\n回答规则补充：\n- 不要声明你是否具备外部工具/联网等能力，也不要输出与回答无关的免责声明。\n- 优先依据文档内容回答；若文档信息不足，请基于常识给出概览性解答并明确不确定之处。`;
     // console.log('[PromptConstructor.buildSystemPrompt] Final systemPrompt:', systemPrompt);
     return systemPrompt;
   }

@@ -123,7 +123,8 @@ document.addEventListener('DOMContentLoaded', function() {
         { key: 'tongyi', name: '通义百炼', group: 'translation' },
         { key: 'volcano', name: '火山引擎', group: 'translation' },
         { key: 'deeplx', name: 'DeepLX (DeepL 接口)', group: 'translation' },
-        { key: 'custom', name: '自定义翻译模型', group: 'translation' }
+        { key: 'custom', name: '自定义翻译模型', group: 'translation' },
+        { key: 'embedding', name: '向量搜索 (Embedding)', group: 'search' }
     ];
 
     if (modelKeyManagerBtn && modelKeyManagerModal && closeModelKeyManager && modelListColumn && modelConfigColumn && keyManagerColumn) {
@@ -166,7 +167,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
 
-            if (model.key === 'custom') {
+            if (model.key === 'embedding') {
+                // embedding使用EmbeddingClient配置，检查是否已配置
+                modelHasValidKey[model.key] = !!(window.EmbeddingClient?.config?.enabled && window.EmbeddingClient?.config?.apiKey);
+            } else if (model.key === 'custom') {
                 let anyCustomKey = false;
                 const sites = typeof loadAllCustomSourceSites === 'function' ? loadAllCustomSourceSites() : {};
                 Object.keys(sites || {}).forEach(siteId => {
@@ -242,7 +246,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const sections = [
             { title: '所有 OCR 方式', group: 'ocr', className: 'mt-4 mb-2' },
-            { title: '翻译和分析 API', group: 'translation', className: 'mt-5 mb-2' }
+            { title: '翻译和分析 API', group: 'translation', className: 'mt-5 mb-2' },
+            { title: '搜索和检索', group: 'search', className: 'mt-5 mb-2' }
         ];
 
         sections.forEach((section, idx) => {
@@ -284,7 +289,10 @@ document.addEventListener('DOMContentLoaded', function() {
         renderModelList();
         renderModelConfigSection(modelKey);
 
-        if (modelKey !== 'custom') {
+        if (modelKey === 'embedding') {
+            // embedding使用独立的配置界面，不需要key管理器
+            keyManagerColumn.innerHTML = '';
+        } else if (modelKey !== 'custom') {
             renderKeyManagerForModel(modelKey);
         } else {
             // 对于 'custom', renderSourceSitesList (由 renderModelConfigSection 调用)
@@ -333,9 +341,259 @@ document.addEventListener('DOMContentLoaded', function() {
                 keyManagerColumn.innerHTML = '<p class="text-sm text-gray-500">请从上方列表选择一个源站以管理其 API Keys。</p>';
             }
 
+        } else if (modelKey === 'embedding') {
+            title.textContent = `向量搜索 (Embedding) - 配置`;
+            renderEmbeddingConfig();
         } else {
             title.textContent = `${modelDefinition.name} - 配置`;
         }
+    }
+
+    function renderEmbeddingConfig() {
+        // 从localStorage加载配置
+        const config = window.EmbeddingClient?.config || {};
+        const PRESETS = {
+            openai: { name: 'OpenAI', endpoint: 'https://api.openai.com/v1' },
+            jina: { name: 'Jina AI', endpoint: 'https://api.jina.ai/v1' },
+            custom: { name: '自定义', endpoint: '' }
+        };
+
+        const container = document.createElement('div');
+        container.className = 'space-y-4';
+
+        // 启用开关
+        const enabledDiv = document.createElement('div');
+        enabledDiv.className = 'flex items-center gap-2';
+        enabledDiv.innerHTML = `
+            <input type="checkbox" id="emb-enabled-km" ${config.enabled ? 'checked' : ''} class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+            <label for="emb-enabled-km" class="text-sm font-medium text-gray-700">启用向量搜索</label>
+        `;
+        container.appendChild(enabledDiv);
+
+        // 服务商选择
+        const providerDiv = document.createElement('div');
+        providerDiv.innerHTML = `
+            <label class="block text-sm font-medium text-gray-700 mb-1">服务商</label>
+            <select id="emb-provider-km" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <option value="openai" ${config.provider === 'openai' ? 'selected' : ''}>OpenAI</option>
+                <option value="jina" ${config.provider === 'jina' ? 'selected' : ''}>Jina AI (多语言优化)</option>
+                <option value="custom" ${config.provider === 'custom' ? 'selected' : ''}>自定义 (兼容OpenAI格式)</option>
+            </select>
+        `;
+        container.appendChild(providerDiv);
+
+        // API Key
+        const keyDiv = document.createElement('div');
+        keyDiv.innerHTML = `
+            <label class="block text-sm font-medium text-gray-700 mb-1">API Key</label>
+            <input type="password" id="emb-api-key-km" value="${config.apiKey || ''}" placeholder="sk-..." class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+        `;
+        container.appendChild(keyDiv);
+
+        // Base URL
+        const urlDiv = document.createElement('div');
+        // 显示时去掉 /embeddings 后缀
+        const displayUrl = (config.endpoint || '').replace(/\/embeddings\/?$/, '');
+        urlDiv.innerHTML = `
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+                Base URL
+                <span class="text-xs text-gray-500">(如 https://api.openai.com/v1)</span>
+            </label>
+            <input type="text" id="emb-endpoint-km" value="${displayUrl}" placeholder="https://api.openai.com/v1" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+        `;
+        container.appendChild(urlDiv);
+
+        // 模型选择
+        const modelDiv = document.createElement('div');
+        modelDiv.innerHTML = `
+            <div class="flex justify-between items-center mb-1">
+                <label class="block text-sm font-medium text-gray-700">模型</label>
+                <button id="emb-fetch-models-km" class="px-2 py-1 text-xs border border-gray-300 rounded-md text-gray-600 hover:text-blue-600 hover:border-blue-400">获取模型列表</button>
+            </div>
+            <select id="emb-model-km" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <option value="">请先获取模型列表或手动输入</option>
+                ${config.model ? `<option value="${config.model}" selected>${config.model}</option>` : ''}
+            </select>
+            <p id="emb-model-loading-km" class="mt-1 text-xs text-gray-500" style="display:none;">正在获取模型列表...</p>
+        `;
+        container.appendChild(modelDiv);
+
+        // 向量维度 (OpenAI可选)
+        const dimsDiv = document.createElement('div');
+        dimsDiv.id = 'emb-dims-wrap-km';
+        dimsDiv.innerHTML = `
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+                向量维度
+                <span class="text-xs text-gray-500">(可选，留空使用默认)</span>
+            </label>
+            <input type="number" id="emb-dimensions-km" value="${config.dimensions || ''}" placeholder="1536" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+            <p class="mt-1 text-xs text-gray-500">降低维度可减少存储和计算，但可能影响精度</p>
+        `;
+        container.appendChild(dimsDiv);
+
+        // 并发数配置
+        const concurrencyDiv = document.createElement('div');
+        concurrencyDiv.innerHTML = `
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+                并发请求数
+                <span class="text-xs text-gray-500">(建议 5-20，最大50)</span>
+            </label>
+            <input type="number" id="emb-concurrency-km" value="${config.concurrency || 5}" min="1" max="50" placeholder="5" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+            <p class="mt-1 text-xs text-gray-500">提高并发数可加快索引构建速度，但注意API速率限制</p>
+        `;
+        container.appendChild(concurrencyDiv);
+
+        // 测试和保存按钮
+        const buttonsDiv = document.createElement('div');
+        buttonsDiv.className = 'flex gap-3 pt-2';
+        buttonsDiv.innerHTML = `
+            <button id="emb-test-km" class="flex-1 px-4 py-2 border border-gray-300 bg-white text-gray-700 rounded-md hover:bg-gray-50">测试连接</button>
+            <button id="emb-save-km" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">保存配置</button>
+        `;
+        container.appendChild(buttonsDiv);
+
+        // 测试结果
+        const resultDiv = document.createElement('div');
+        resultDiv.id = 'emb-test-result-km';
+        resultDiv.className = 'text-sm mt-2';
+        resultDiv.style.display = 'none';
+        container.appendChild(resultDiv);
+
+        modelConfigColumn.appendChild(container);
+
+        // 事件绑定
+        const $= (id) => document.getElementById(id);
+
+        // 获取模型列表
+        $('emb-fetch-models-km').onclick = async () => {
+            const btn = $('emb-fetch-models-km');
+            const loading = $('emb-model-loading-km');
+            const modelSelect = $('emb-model-km');
+            const baseUrl = $('emb-endpoint-km').value.trim();
+            const apiKey = $('emb-api-key-km').value.trim();
+
+            if (!baseUrl || !apiKey) {
+                alert('请先输入Base URL和API Key');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = '获取中...';
+            loading.style.display = 'block';
+
+            try {
+                const modelsUrl = baseUrl.replace(/\/+$/, '') + '/models';
+                const response = await fetch(modelsUrl, {
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                const data = await response.json();
+                const models = data.data?.filter(m => {
+                    const id = m.id || m.model || '';
+                    return id.includes('embed') || id.includes('bge') || id.includes('rerank');
+                }) || [];
+
+                if (models.length > 0) {
+                    // 清空并填充下拉菜单
+                    modelSelect.innerHTML = models.map(m => {
+                        const modelId = m.id || m.model;
+                        return `<option value="${modelId}">${modelId}</option>`;
+                    }).join('');
+
+                    loading.textContent = `✅ 找到 ${models.length} 个模型`;
+                    loading.style.color = '#059669';
+                } else {
+                    throw new Error('未找到embedding相关模型');
+                }
+
+                setTimeout(() => { loading.style.display = 'none'; }, 3000);
+            } catch (error) {
+                loading.textContent = `❌ 获取失败: ${error.message}`;
+                loading.style.color = '#dc2626';
+                setTimeout(() => { loading.style.display = 'none'; }, 5000);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '获取模型列表';
+            }
+        };
+
+        // 测试连接
+        $('emb-test-km').onclick = async () => {
+            const btn = $('emb-test-km');
+            const result = $('emb-test-result-km');
+
+            let baseUrl = $('emb-endpoint-km').value.trim();
+            // 自动补全 /embeddings 路径
+            if (baseUrl && !baseUrl.endsWith('/embeddings')) {
+                baseUrl = baseUrl.replace(/\/+$/, '') + '/embeddings';
+            }
+
+            const testConfig = {
+                provider: $('emb-provider-km').value,
+                apiKey: $('emb-api-key-km').value,
+                endpoint: baseUrl,
+                model: $('emb-model-km').value,
+                dimensions: parseInt($('emb-dimensions-km').value) || null
+            };
+
+            if (!testConfig.apiKey || !testConfig.endpoint || !testConfig.model) {
+                result.style.display = 'block';
+                result.style.color = '#dc2626';
+                result.textContent = '❌ 请填写完整配置';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = '测试中...';
+            result.style.display = 'none';
+
+            try {
+                window.EmbeddingClient.saveConfig({ ...testConfig, enabled: true });
+                const vector = await window.EmbeddingClient.embed('测试文本');
+
+                result.style.display = 'block';
+                result.style.color = '#059669';
+                result.textContent = `✅ 连接成功！向量维度: ${vector.length}`;
+            } catch (error) {
+                result.style.display = 'block';
+                result.style.color = '#dc2626';
+                result.textContent = `❌ 连接失败: ${error.message}`;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '测试连接';
+            }
+        };
+
+        // 保存配置
+        $('emb-save-km').onclick = () => {
+            let baseUrl = $('emb-endpoint-km').value.trim();
+            // 自动补全 /embeddings 路径
+            if (baseUrl && !baseUrl.endsWith('/embeddings')) {
+                baseUrl = baseUrl.replace(/\/+$/, '') + '/embeddings';
+            }
+
+            const newConfig = {
+                enabled: $('emb-enabled-km').checked,
+                provider: $('emb-provider-km').value,
+                apiKey: $('emb-api-key-km').value,
+                endpoint: baseUrl,
+                model: $('emb-model-km').value,
+                dimensions: parseInt($('emb-dimensions-km').value) || null,
+                concurrency: Math.max(1, Math.min(parseInt($('emb-concurrency-km').value) || 5, 50))
+            };
+
+            window.EmbeddingClient.saveConfig(newConfig);
+            if (typeof showNotification === 'function') {
+                showNotification('向量搜索配置已保存', 'success');
+            } else {
+                alert('配置已保存');
+            }
+        };
     }
 
     function renderSourceSitesList() {
