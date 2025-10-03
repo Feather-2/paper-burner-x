@@ -7,9 +7,10 @@
   <img src="https://img.shields.io/badge/Pure-JavaScript-yellow.svg" alt="JavaScript">
 </div>
 
+[落地页](https://paperburner.viwoplus.site/views/landing/landing-page.html)
+
 <img width="3302" height="1575" alt="Paper burner x" src="https://github.com/user-attachments/assets/112731a2-e477-4330-84da-3a843f40ea06" />
 
-[落地页](https://paperburner.viwoplus.site/views/landing/landing-page.html)
 
 ## ✨ 特性概览 (截至25/9/20)
 
