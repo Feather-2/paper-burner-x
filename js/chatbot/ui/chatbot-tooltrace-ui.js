@@ -277,6 +277,12 @@
     // 替换status class
     lastHtml = lastHtml.replace(/class="tool-step (running|done|error)"/, 'class="tool-step ' + status + '"');
 
+    // 如果有tokens信息，更新标题添加token统计
+    if (result && result._tokens && status === 'done') {
+      var tokenStr = ' (' + result._tokens + ' tokens)';
+      lastHtml = lastHtml.replace(/(<span class="tool-step-title">[^<]+)(<\/span>)/, '$1' + tokenStr + '$2');
+    }
+
     // 更新detail
     if (result) {
       var detail = formatDetail(result);
@@ -441,7 +447,21 @@
           batchTimer = null;
         }
         flushBatchBuffer();
-        updateLastStepStatus('done', event.result);
+        // 保存tokens信息供标题使用
+        var resultData = event.result || {};
+        if (event.tokens) {
+          resultData._tokens = event.tokens;
+        }
+        updateLastStepStatus('done', resultData);
+        break;
+
+      case 'token_usage':
+        // 展示规划器token使用
+        addStepHtml({
+          tool: 'planning',
+          customTitle: `AI规划器 (输入: ${event.tokens.input}tok, 输出: ${event.tokens.output}tok, 共: ${event.tokens.total}tok)`,
+          args: {}
+        }, 'done');
         break;
 
       case 'tool_error':
@@ -467,6 +487,14 @@
       case 'complete':
         flushBatchBuffer();
         isFinished = true;
+        // 展示最终token统计
+        if (event.summary && event.summary.stats && event.summary.stats.finalContextTokens) {
+          addStepHtml({
+            tool: 'info',
+            customTitle: `✓ 最终上下文 (共 ${event.summary.stats.finalContextTokens} tokens)`,
+            args: {}
+          }, 'done');
+        }
         break;
 
       case 'info':
@@ -558,16 +586,21 @@
     if (value === undefined || value === null) return '';
     if (typeof value === 'string') return value.trim();
 
+    // 提取并移除tokens信息（已在标题中显示）
+    var tokens = value._tokens;
+    var cleanValue = Object.assign({}, value);
+    delete cleanValue._tokens;
+
     // 特殊处理：空数组
-    if (Array.isArray(value) && value.length === 0) {
+    if (Array.isArray(cleanValue) && cleanValue.length === 0) {
       return '无结果';
     }
 
     // 特殊处理：向量搜索结果
-    if (Array.isArray(value) && value.length > 0 && value[0].chunkId && value[0].score !== undefined) {
-      var summary = value.length + ' 个结果';
+    if (Array.isArray(cleanValue) && cleanValue.length > 0 && cleanValue[0].chunkId && cleanValue[0].score !== undefined) {
+      var summary = cleanValue.length + ' 个结果';
       var topGroups = {};
-      value.forEach(function(item) {
+      cleanValue.forEach(function(item) {
         if (item.belongsToGroup) {
           topGroups[item.belongsToGroup] = true;
         }
@@ -576,12 +609,12 @@
       if (groupCount > 0) {
         summary += '，涉及 ' + groupCount + ' 个意群';
       }
-      summary += '，最高分: ' + value[0].score.toFixed(3);
+      summary += '，最高分: ' + cleanValue[0].score.toFixed(3);
 
       // 添加前3个结果的预览
-      if (value.length > 0) {
-        summary += '\n\n【前' + Math.min(3, value.length) + '个结果预览】\n';
-        value.slice(0, 3).forEach(function(item, idx) {
+      if (cleanValue.length > 0) {
+        summary += '\n\n【前' + Math.min(3, cleanValue.length) + '个结果预览】\n';
+        cleanValue.slice(0, 3).forEach(function(item, idx) {
           var preview = item.preview || '';
           if (preview.length > 150) preview = preview.substring(0, 150) + '...';
           summary += (idx + 1) + '. ' + item.belongsToGroup + ' (分数:' + item.score.toFixed(3) + ')\n   ' + preview + '\n';
@@ -592,12 +625,12 @@
     }
 
     // 特殊处理：关键词搜索结果
-    if (Array.isArray(value) && value.length > 0 && value[0].preview !== undefined && value[0].matchedKeywords) {
-      var summary = value.length + ' 个匹配片段';
+    if (Array.isArray(cleanValue) && cleanValue.length > 0 && cleanValue[0].preview !== undefined && cleanValue[0].matchedKeywords) {
+      var summary = cleanValue.length + ' 个匹配片段';
 
       // 统计所有匹配的关键词
       var allMatched = {};
-      value.forEach(function(item) {
+      cleanValue.forEach(function(item) {
         if (item.matchedKeywords && Array.isArray(item.matchedKeywords)) {
           item.matchedKeywords.forEach(function(kw) {
             allMatched[kw] = (allMatched[kw] || 0) + 1;
@@ -611,9 +644,9 @@
       }
 
       // 添加前3个结果的预览
-      if (value.length > 0) {
-        summary += '\n\n【前' + Math.min(3, value.length) + '个结果预览】\n';
-        value.slice(0, 3).forEach(function(item, idx) {
+      if (cleanValue.length > 0) {
+        summary += '\n\n【前' + Math.min(3, cleanValue.length) + '个结果预览】\n';
+        cleanValue.slice(0, 3).forEach(function(item, idx) {
           var preview = item.preview || '';
           if (preview.length > 150) preview = preview.substring(0, 150) + '...';
           var matched = item.matchedKeywords ? ' [' + item.matchedKeywords.join(',') + ']' : '';
@@ -625,12 +658,12 @@
     }
 
     // 特殊处理：grep搜索结果
-    if (Array.isArray(value) && value.length > 0 && value[0].preview !== undefined && value[0].matchedKeyword !== undefined) {
-      var summary = value.length + ' 个匹配片段';
+    if (Array.isArray(cleanValue) && cleanValue.length > 0 && cleanValue[0].preview !== undefined && cleanValue[0].matchedKeyword !== undefined) {
+      var summary = cleanValue.length + ' 个匹配片段';
 
       // 统计匹配的关键词
       var keywordCounts = {};
-      value.forEach(function(item) {
+      cleanValue.forEach(function(item) {
         if (item.matchedKeyword) {
           keywordCounts[item.matchedKeyword] = (keywordCounts[item.matchedKeyword] || 0) + 1;
         }
@@ -645,7 +678,7 @@
       }
 
       var topGroups = {};
-      value.forEach(function(item) {
+      cleanValue.forEach(function(item) {
         if (item.belongsToGroup) {
           topGroups[item.belongsToGroup] = true;
         }
@@ -656,9 +689,9 @@
       }
 
       // 添加前3个结果的预览
-      if (value.length > 0) {
-        summary += '\n\n【前' + Math.min(3, value.length) + '个结果预览】\n';
-        value.slice(0, 3).forEach(function(item, idx) {
+      if (cleanValue.length > 0) {
+        summary += '\n\n【前' + Math.min(3, cleanValue.length) + '个结果预览】\n';
+        cleanValue.slice(0, 3).forEach(function(item, idx) {
           var preview = item.preview || '';
           if (preview.length > 150) preview = preview.substring(0, 150) + '...';
           var src = item.belongsToGroup ? item.belongsToGroup : '全文';
@@ -671,11 +704,11 @@
     }
 
     // 特殊处理：其他grep搜索结果（无matchedKeyword字段）
-    if (Array.isArray(value) && value.length > 0 && value[0].preview !== undefined) {
-      var summary = value.length + ' 个匹配片段';
+    if (Array.isArray(cleanValue) && cleanValue.length > 0 && cleanValue[0].preview !== undefined) {
+      var summary = cleanValue.length + ' 个匹配片段';
 
       var topGroups = {};
-      value.forEach(function(item) {
+      cleanValue.forEach(function(item) {
         if (item.belongsToGroup) {
           topGroups[item.belongsToGroup] = true;
         }
@@ -686,9 +719,9 @@
       }
 
       // 添加前3个结果的预览
-      if (value.length > 0) {
-        summary += '\n\n【前' + Math.min(3, value.length) + '个结果预览】\n';
-        value.slice(0, 3).forEach(function(item, idx) {
+      if (cleanValue.length > 0) {
+        summary += '\n\n【前' + Math.min(3, cleanValue.length) + '个结果预览】\n';
+        cleanValue.slice(0, 3).forEach(function(item, idx) {
           var preview = item.preview || '';
           if (preview.length > 150) preview = preview.substring(0, 150) + '...';
           var src = item.belongsToGroup ? item.belongsToGroup : '全文';
@@ -700,19 +733,19 @@
     }
 
     // 特殊处理：简单对象
-    if (typeof value === 'object' && !Array.isArray(value)) {
-      var keys = Object.keys(value);
+    if (typeof cleanValue === 'object' && !Array.isArray(cleanValue)) {
+      var keys = Object.keys(cleanValue);
       if (keys.length === 0) return '无数据';
-      if (keys.length === 1 && value.message) return value.message;
-      if (keys.length === 2 && value.operations && value.final !== undefined) {
-        return value.operations + (value.final ? ' (最后一轮)' : '');
+      if (keys.length === 1 && cleanValue.message) return cleanValue.message;
+      if (keys.length === 2 && cleanValue.operations && cleanValue.final !== undefined) {
+        return cleanValue.operations + (cleanValue.final ? ' (最后一轮)' : '');
       }
 
       // 其他对象，简化显示
       var parts = [];
-      for (var key in value) {
-        if (value.hasOwnProperty(key)) {
-          var val = value[key];
+      for (var key in cleanValue) {
+        if (cleanValue.hasOwnProperty(key)) {
+          var val = cleanValue[key];
           if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
             parts.push(key + ': ' + val);
           } else if (Array.isArray(val)) {
@@ -720,13 +753,13 @@
           }
         }
       }
-      return parts.length > 0 ? parts.join(', ') : JSON.stringify(value, null, 2);
+      return parts.length > 0 ? parts.join(', ') : JSON.stringify(cleanValue, null, 2);
     }
 
     try {
-      return JSON.stringify(value, null, 2);
+      return JSON.stringify(cleanValue, null, 2);
     } catch (_) {
-      return String(value);
+      return String(cleanValue);
     }
   }
 

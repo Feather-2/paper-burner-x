@@ -4,6 +4,29 @@
   'use strict';
 
   /**
+   * 估算文本的token数量（简化版）
+   * @param {string} text - 要估算的文本
+   * @returns {number} 估算的token数
+   */
+  function estimateTokens(text) {
+    if (!text || typeof text !== 'string') return 0;
+
+    // 中文字符：平均1.5字符 = 1 token
+    const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+    const chineseTokens = Math.ceil(chineseChars / 1.5);
+
+    // 英文单词：平均1个单词 = 0.75 token
+    const englishWords = (text.match(/[a-zA-Z]+/g) || []).length;
+    const englishTokens = Math.ceil(englishWords * 0.75);
+
+    // 数字和符号：粗略估算
+    const otherChars = text.length - chineseChars - text.match(/[a-zA-Z\s]/g)?.length || 0;
+    const otherTokens = Math.ceil(otherChars / 4);
+
+    return chineseTokens + englishTokens + otherTokens;
+  }
+
+  /**
    * 流式多轮取材
    * 使用 Generator 函数实现流式输出，每个步骤都实时反馈给UI
    *
@@ -177,21 +200,34 @@
 ## 工具定义（JSON格式）
 
 ### 搜索工具（返回chunk内容，由你决定是否需要完整意群）
+
+**推荐优先使用：**
+- {"tool":"vector_search","args":{"query":"语义描述","limit":15}}
+  用途：**智能语义搜索**（理解同义词、相关概念、隐含关系）
+  返回：语义最相关的chunks（每个1500-3000字）
+  **优势**：
+    * 理解问题的深层含义，不局限于字面匹配
+    * 能找到换了说法但意思相同的内容
+    * 适合概念性、开放性、探索性问题
+    * 召回率高，不会因为换词而漏掉相关内容
+  **你可以调整limit**：概念性问题可用limit=10-15，精确查找可用limit=5
+
+**精确匹配场景使用：**
 - {"tool":"grep","args":{"query":"具体短语","limit":20,"context":2000,"caseInsensitive":true}}
-  用途：精确文本搜索（最快、最准）
+  用途：字面文本搜索（适合已知精确关键词）
   返回：包含该短语的原文片段（前后2000字上下文）
+  **适用场景**：
+    * 搜索专有名词、特定数字、固定术语
+    * 用户问题中明确提到某个词，需要找原文
+    * 你已经知道文档中的确切表达方式
   **支持OR逻辑**：query可用 | 分隔多个关键词，如 "方程|公式|equation"
   **你可以调整limit**：需要更多结果就增大limit，只需少量结果就减小limit
 
-- {"tool":"vector_search","args":{"query":"语义描述","limit":15}}
-  用途：语义相似搜索（理解同义、相关概念）
-  返回：语义最相关的chunks（每个1500-3000字）
-  **你可以调整limit**：概念性问题可用limit=10-15，精确查找可用limit=5
-  前提：需要向量模型已启用
-
+**后备方案：**
 - {"tool":"keyword_search","args":{"keywords":["词1","词2"],"limit":8}}
-  用途：多关键词加权搜索（向量未启用时的后备）
-  返回：包含关键词的chunks（BM25评分）
+  用途：多关键词加权搜索（BM25算法）
+  返回：包含关键词的chunks（按相关度评分）
+  **使用时机**：vector_search失败时的降级方案
   **你可以调整limit**：关键词明确可用limit=5，模糊查找可用limit=10
 
 ### 获取详细内容工具
@@ -207,18 +243,58 @@ ${preloadedNotice}
 
 ## 智能决策流程
 
-**第一步：分析问题，选择合适的搜索工具和limit**
-1. 具体实体（人名/公司名/术语/数字）？
-   → grep，limit根据预期结果数调整（通常5-10）
-   示例："雷曼公司的破产时间" → grep("雷曼公司", limit=5)
+**第一步：分析问题复杂度，选择工具组合策略**
 
-2. 概念性/语义问题？
-   → vector_search，limit=10-15
-   示例："次贷危机的成因" → vector_search("次贷危机 原因", limit=10)
+**简单问题（单工具足够）：**
+1. 精确实体查找
+   - 示例："雷曼公司何时破产？"
+   → grep("雷曼|Lehman", limit=5)
 
-3. 宏观浏览？
-   → map获取结构，再根据需要fetch相关意群
-   示例："这篇论文的主要内容" → map → fetch [相关意群]
+2. 单一概念解释
+   - 示例："什么是注意力机制？"
+   → vector_search("注意力机制 原理", limit=8)
+
+**复杂问题（建议多工具并用）：**
+1. 综合性分析（如"研究背景与意义"）
+   - 策略：**并发使用多个工具，全方位检索**
+   - 示例："研究背景与意义？"
+   → 第1轮并发（推荐加入map获取整体结构）：
+     {"operations":[
+       {"tool":"vector_search","args":{"query":"研究背景 意义 动机","limit":10}},
+       {"tool":"grep","args":{"query":"背景|意义|动机|研究目的","limit":8}},
+       {"tool":"map","args":{"limit":30}}
+     ],"final":false}
+   → 第2轮根据结果决定是否需要fetch关键意群
+
+2. 多维度对比（如"CNN和RNN的区别"）
+   - 策略：**搜索两个主体 + 对比关系**
+   - 示例："CNN和RNN的区别"
+   → {"operations":[
+       {"tool":"vector_search","args":{"query":"CNN RNN 区别 对比","limit":12}},
+       {"tool":"grep","args":{"query":"CNN|RNN","limit":10}}
+     ],"final":false}
+
+3. 历史/因果关系（如"金融危机的原因和影响"）
+   - 策略：**语义搜索 + 关键词 + 可能需要map**
+   - 示例："金融危机的原因和影响"
+   → {"operations":[
+       {"tool":"vector_search","args":{"query":"金融危机 原因 影响","limit":12}},
+       {"tool":"grep","args":{"query":"危机|原因|影响|导致","limit":8}},
+       {"tool":"map","args":{"limit":30}}
+     ],"final":false}
+
+4. 整体理解类（如"文档的主要内容"）
+   - 策略：**先map看结构，再fetch关键部分**
+   - 示例："文档讲了什么？"
+   → 第1轮：{"operations":[{"tool":"map","args":{"limit":50}}],"final":false}
+   → 第2轮：根据地图fetch重要意群
+
+**工具组合原则：**
+- **复杂问题优先多工具并用**（同一轮并发执行）
+- vector_search（语义）+ grep（精确）= 更高召回率和准确率
+- **综合性分析问题（如"研究背景与意义"）强烈建议使用map**：map提供文档整体结构，有助于理解背景脉络
+- 多维度问题建议3个工具：vector + grep + map
+- 简单问题可以单工具，但不确定时宁可多用
 
 **第二步：判断是否需要fetch意群完整内容**
 - 搜索工具会返回：chunk内容 + suggestedGroups（所属意群列表）
@@ -233,10 +309,11 @@ ${preloadedNotice}
 - 【已获取内容】为空时，**绝不能**返回空操作，必须至少执行一次检索
 
 **第三步：控制结果数量，避免噪音**
-- 优先用**小limit**（5-8个），如果结果不足再增加
-- 精确问题：grep limit=5, vector limit=5-8
-- 概念问题：vector limit=10-15, keyword limit=8-10
+- **优先用vector_search**，概念性问题用limit=10-15，精确查找用limit=5-8
+- grep仅用于精确匹配场景，limit=5-10即可
+- keyword_search作为降级方案，limit=8-10
 - 避免一次性返回过多结果造成token浪费
+- 如果第一次搜索结果不足，可以增加limit或换工具
 
 **第四步：地图信息的智能使用**
 - 【候选意群地图】提供了文档结构概览（如果执行过map工具）
@@ -257,28 +334,47 @@ ${preloadedNotice}
 
 ## 示例决策
 
-示例1（精确查找，chunk足够）：
+示例1（复杂综合问题，多工具并用）：
+问题："研究背景与意义？"
+→ {"operations":[
+     {"tool":"vector_search","args":{"query":"研究背景 意义 动机","limit":10}},
+     {"tool":"grep","args":{"query":"背景|意义|动机|研究目的","limit":8}}
+   ],"final":false}
+→ 返回vector: 8个语义相关chunk + grep: 5个精确匹配chunk
+→ 两者互补，语义覆盖+精确补充
+→ {"operations":[{"tool":"fetch","args":{"groupId":"group-1"}}],"final":true}
+
+示例2（对比分析，多工具）：
+问题："CNN和RNN的区别"
+→ {"operations":[
+     {"tool":"vector_search","args":{"query":"CNN RNN 区别 对比","limit":12}},
+     {"tool":"grep","args":{"query":"CNN|RNN","limit":10}}
+   ],"final":false}
+→ vector找语义关系，grep确保两个主体都覆盖
+→ chunk足够，{"operations":[],"final":true}
+
+示例3（简单精确查找，单工具足够）：
 问题："雷曼公司何时破产"
-→ {"operations":[{"tool":"grep","args":{"query":"雷曼","limit":5}}],"final":true}
+→ {"operations":[{"tool":"grep","args":{"query":"雷曼|Lehman","limit":5}}],"final":true}
 → 返回3个chunk，包含"2008年9月15日申请破产"
-→ chunk内容已足够，无需fetch意群
+→ 单工具足够
 
-示例2（需要完整上下文）：
-问题："详细说明公式7的推导过程"
-→ {"operations":[{"tool":"grep","args":{"query":"公式7","limit":5}}],"final":false}
-→ 返回2个chunk，suggestedGroups=[group-5, group-8]
-→ chunk只有公式片段，缺少完整推导
-→ {"operations":[{"tool":"fetch","args":{"groupId":"group-5"}}],"final":true}
-
-示例3（宏观理解）：
-问题："生成思维导图"或"文档讲了什么"或"总结主要内容"
-→ {"operations":[{"tool":"map","args":{"limit":50,"includeStructure":true}}],"final":false}
-→ 获取意群地图，查看结构
-→ {"operations":[{"tool":"fetch","args":{"groupId":"group-1"}},{"tool":"fetch","args":{"groupId":"group-5"}}...],"final":true}
-→ fetch主要意群的完整内容
+示例4（宏观理解，map+fetch）：
+问题："生成思维导图"
+→ {"operations":[{"tool":"map","args":{"limit":50}}],"final":false}
+→ 获取意群地图
+→ {"operations":[
+     {"tool":"fetch","args":{"groupId":"group-1"}},
+     {"tool":"fetch","args":{"groupId":"group-5"}},
+     {"tool":"fetch","args":{"groupId":"group-10"}}
+   ],"final":true,"includeMapInFinalContext":true}
+→ fetch关键意群 + 包含地图
 
 ## 限制与原则
 - 每轮最多5个操作
+- **复杂问题优先多工具并用**（在同一轮operations数组中并发执行）
+- vector_search擅长语义理解，grep擅长精确匹配，**两者结合效果最佳**
+- 简单精确查找可以只用grep，但综合性/分析性问题**必须多工具**
 - 搜索limit不要超过20（避免噪音）
 - 只fetch真正需要的意群（2-5个为宜）
 - 优先chunk片段，确实不足才fetch意群
@@ -322,6 +418,22 @@ ${preloadedNotice}
 
         const apiKey = config.apiKey;
         const plannerOutput = await window.ChatbotCore.singleChunkSummary(sys, content, config, apiKey);
+
+        // 统计规划器token使用
+        const plannerInputTokens = estimateTokens(sys) + estimateTokens(content);
+        const plannerOutputTokens = estimateTokens(plannerOutput);
+        const plannerTotalTokens = plannerInputTokens + plannerOutputTokens;
+
+        yield {
+          type: 'token_usage',
+          phase: 'planner',
+          round,
+          tokens: {
+            input: plannerInputTokens,
+            output: plannerOutputTokens,
+            total: plannerTotalTokens
+          }
+        };
 
         // 解析计划
         let plan;
@@ -532,6 +644,10 @@ ${preloadedNotice}
 
                   console.log(`[StreamingMultiHop] 向量搜索命中 ${resultCount} 个chunks，所属意群: [${Array.from(groupIds).join(', ')}]`);
 
+                  // 计算返回内容的token数
+                  const returnedText = res.map(r => r.text).join('\n');
+                  const contentTokens = estimateTokens(returnedText);
+
                   yield {
                     type: 'tool_result',
                     round,
@@ -543,7 +659,8 @@ ${preloadedNotice}
                       score: r.score,
                       preview: r.text.substring(0, 500)
                     })),
-                    suggestedGroups: Array.from(groupIds) // 提示AI可以fetch这些意群
+                    suggestedGroups: Array.from(groupIds), // 提示AI可以fetch这些意群
+                    tokens: contentTokens // 返回内容的token数
                   };
                 } else {
                   // 明确返回空结果，便于UI闭环
@@ -595,6 +712,10 @@ ${preloadedNotice}
 
                   console.log(`[StreamingMultiHop] 关键词搜索命中 ${resultCount} 个chunks，所属意群: [${Array.from(groupIds).join(', ')}]`);
 
+                  // 计算返回内容的token数
+                  const returnedText = res.map(r => r.text).join('\n');
+                  const contentTokens = estimateTokens(returnedText);
+
                   yield {
                     type: 'tool_result',
                     round,
@@ -606,7 +727,8 @@ ${preloadedNotice}
                       preview: r.text.substring(0, 500),
                       matchedKeywords: keywords.filter(kw => r.text.includes(kw))
                     })),
-                    suggestedGroups: Array.from(groupIds) // 提示AI可以fetch这些意群
+                    suggestedGroups: Array.from(groupIds), // 提示AI可以fetch这些意群
+                    tokens: contentTokens
                   };
                 } else {
                   // 明确返回空结果，便于UI闭环
@@ -662,7 +784,8 @@ ${preloadedNotice}
                         granularity: res.granularity,
                         preview: res.text.slice(0, 200),
                         action: 'upgraded'
-                      }
+                      },
+                      tokens: estimateTokens(res.text)
                     };
                   }
                 } else {
@@ -700,7 +823,8 @@ ${preloadedNotice}
                       groupId: id,
                       granularity: res.granularity,
                       preview: res.text.slice(0, 200)
-                    }
+                    },
+                    tokens: estimateTokens(res.text)
                   };
                 }
               }
@@ -746,7 +870,8 @@ ${preloadedNotice}
                 round,
                 opIndex,
                 tool: 'map',
-                result: { count: items.length }
+                result: { count: items.length },
+                tokens: estimateTokens(mapText)
               };
             } else if (op.tool === 'grep' && op.args) {
               // 传统文本搜索，支持多关键词OR查询（用|分隔）
@@ -854,6 +979,10 @@ ${preloadedNotice}
               const groupIds = new Set();
               hits.forEach(h => { if (h.belongsToGroup) groupIds.add(h.belongsToGroup); });
 
+              // 计算返回内容的token数
+              const returnedText = hits.map(h => h.preview).join('\n');
+              const contentTokens = estimateTokens(returnedText);
+
               yield {
                 type: 'tool_result',
                 round,
@@ -864,7 +993,8 @@ ${preloadedNotice}
                   belongsToGroup: h.belongsToGroup,
                   chunkId: h.chunkId
                 })),
-                suggestedGroups: Array.from(groupIds) // 提示AI可以fetch这些意群
+                suggestedGroups: Array.from(groupIds), // 提示AI可以fetch这些意群
+                tokens: contentTokens
               };
             }
 
@@ -1045,13 +1175,17 @@ ${preloadedNotice}
 
       selectedContext = layers.join('\n\n---\n\n');
 
+      // 统计最终给AI的总token数
+      const finalContextTokens = estimateTokens(selectedContext);
+
       const stats = {
         totalGroups: detail.length,
         searchFragments: searchFragments.length,
         focusGroups: detailParts.length,
         backgroundGroups: summaryParts.length,
         hasMap: aiRequestedMapInFinalContext,
-        hasGroupList: aiRequestedGroupListInFinalContext
+        hasGroupList: aiRequestedGroupListInFinalContext,
+        finalContextTokens  // 最终上下文的token数
       };
 
       if (searchFragments.length > 0 || detailParts.length > 0) {

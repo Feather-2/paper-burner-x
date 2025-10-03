@@ -119,6 +119,11 @@ window.PromptConstructor = (function() {
   * 例如用户问"有什么公式"时，应直接展示公式的完整表达式，而不是说"文档提到了公式7但未给出"。
   * 如果检索到的内容包含公式、数据表、关键数值，务必完整引用，保留原文格式。
   * 对于数学公式，优先使用LaTeX格式展示（$$公式$$或$公式$）。`;
+
+    // 如果使用了多轮检索结果，添加简要说明
+    if (docContentInfo.selectedGroupContext) {
+      systemPrompt += `\n\n注：上述内容通过智能检索系统（语义搜索、关键词匹配、文档地图等）多轮获取。请充分利用所有材料，进行深入分析和综合，提供全面准确的回答。`;
+    }
     // console.log('[PromptConstructor.buildSystemPrompt] Final systemPrompt:', systemPrompt);
     return systemPrompt;
   }
