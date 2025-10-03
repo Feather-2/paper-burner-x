@@ -309,6 +309,13 @@
   <!-- 新增：BM25检索模块（独立工具） -->
   <script src="../../js/chatbot/agents/bm25-search.js"></script>
   <script src="../../js/chatbot/core/streaming-multi-hop.js"></script>
+  <!-- Chatbot Core 模块化组件（必须在 chatbot-core.js 之前加载） -->
+  <script src="../../js/chatbot/core/api-config-builder.js"></script>
+  <script src="../../js/chatbot/core/chat-history-manager.js"></script>
+  <script src="../../js/chatbot/core/content-processor.js"></script>
+  <script src="../../js/chatbot/core/semantic-groups-manager.js"></script>
+  <script src="../../js/chatbot/core/message-sender.js"></script>
+  <!-- Chatbot Core 主入口（依赖上述所有模块） -->
   <script src="../../js/chatbot/core/chatbot-core.js"></script>
   <script src="../../js/chatbot/renderers/chatbot-mermaid-renderer.js"></script>
   <script src="../../js/chatbot/renderers/chatbot-mindmap-renderer.js"></script>
