@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Pure-JavaScript-yellow.svg" alt="JavaScript">
 </div>
 
-<img width="1876" height="864" alt="865ae494-79bb-462c-8ac3-7d819434113e" src="https://github.com/user-attachments/assets/248e9140-d68e-4e8b-9673-e8df00b7a504" />
+<img width="3302" height="1575" alt="Paper burner x" src="https://github.com/user-attachments/assets/112731a2-e477-4330-84da-3a843f40ea06" />
 
 [落地页](https://paperburner.viwoplus.site/views/landing/landing-page.html)
 
