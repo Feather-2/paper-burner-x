@@ -83,9 +83,44 @@
             font-size: 1.25rem;
         }
 
-        /* New Top-Blue to Bottom-White Gradient for Landing Page Background */
+        /* Premium Commercial Gradient Background */
         .ocean-gradient-bg {
-          background: linear-gradient(to bottom, #93C5FD 0%, #FFFFFF 100%); /* Tailwind blue-300 to white */
+          background:
+            radial-gradient(circle at 20% 10%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+            radial-gradient(circle at 80% 80%, rgba(59, 130, 246, 0.06) 0%, transparent 50%),
+            linear-gradient(135deg, #FAFBFC 0%, #F8FAFC 50%, #FFFFFF 100%);
+        }
+
+        /* Hero Premium Card */
+        .hero-premium-card {
+          background: rgba(255, 255, 255, 0.7);
+          backdrop-filter: blur(20px) saturate(180%);
+          border: 1px solid rgba(255, 255, 255, 0.8);
+          box-shadow:
+            0 20px 60px -12px rgba(50, 50, 93, 0.15),
+            0 8px 24px -8px rgba(0, 0, 0, 0.08),
+            inset 0 1px 0 rgba(255, 255, 255, 0.9);
+        }
+
+        /* Stats Badge Enhanced */
+        .stats-badge {
+          background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(147, 197, 253, 0.12));
+          border: 1px solid rgba(59, 130, 246, 0.2);
+          backdrop-filter: blur(10px);
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          cursor: default;
+        }
+        .stats-badge:hover {
+          background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(147, 197, 253, 0.2));
+          border-color: rgba(59, 130, 246, 0.35);
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+        }
+        .stats-badge iconify-icon {
+          transition: transform 0.3s ease;
+        }
+        .stats-badge:hover iconify-icon {
+          transform: scale(1.1);
         }
 
         .select-anim {
@@ -95,16 +130,17 @@
           position: relative;
           display: inline-block;
           z-index: 1;
-          color: #222;
           font-weight: bold;
         }
         .select-anim-bg::before {
           content: '';
           position: absolute;
-          left: 0; top: 0; bottom: 0;
+          left: 0;
+          top: 0;
+          bottom: 0;
           width: 100%;
-          background: linear-gradient(90deg, #2563eb 0%, #fef9c3 100%);
-          opacity: 0.7;
+          background: linear-gradient(90deg, #2563eb 0%, #06b6d4 100%);
+          opacity: 0.2;
           z-index: -1;
           border-radius: 4px;
           transition: none;
@@ -118,31 +154,51 @@
         .feature-card-modern {
             position: relative;
             overflow: hidden;
-            border-radius: 24px;
-            padding: clamp(20px, 2.6vw, 32px);
-            background: linear-gradient(145deg, rgba(87,130,243,0.08), rgba(255,255,255,0.98));
-            border: 1px solid rgba(87,130,243,0.18);
-            box-shadow: 0 16px 40px rgba(71, 97, 170, 0.16);
-            transition: transform 0.35s ease, box-shadow 0.35s ease;
+            border-radius: 16px;
+            padding: clamp(24px, 3vw, 36px);
+            background: linear-gradient(135deg, #FFFFFF 0%, #F8FAFB 100%);
+            border: 1px solid rgba(226, 232, 240, 0.8);
+            box-shadow:
+              0 1px 2px 0 rgba(0, 0, 0, 0.05),
+              0 20px 40px -12px rgba(50, 50, 93, 0.08);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            min-height: 240px;
+            min-height: 280px;
         }
         .feature-card-modern::before {
             content: '';
             position: absolute;
             inset: 0;
-            background: linear-gradient(140deg, rgba(255,255,255,0.35), rgba(87,130,243,0.18));
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.03), rgba(59, 130, 246, 0.05));
             opacity: 0;
-            transition: opacity 0.35s ease;
+            transition: opacity 0.3s ease;
+        }
+        .feature-card-modern::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #6366F1, #3B82F6, #06B6D4);
+            transform: scaleX(0);
+            transform-origin: left;
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .feature-card-modern:hover {
-            transform: translateY(-6px);
-            box-shadow: 0 24px 56px rgba(71, 97, 170, 0.22);
+            transform: translateY(-4px);
+            box-shadow:
+              0 1px 2px 0 rgba(0, 0, 0, 0.05),
+              0 32px 64px -16px rgba(50, 50, 93, 0.15);
+            border-color: rgba(99, 102, 241, 0.2);
         }
         .feature-card-modern:hover::before {
             opacity: 1;
+        }
+        .feature-card-modern:hover::after {
+            transform: scaleX(1);
         }
         .feature-card-modern > * {
             position: relative;
@@ -152,11 +208,14 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            width: clamp(48px, 4vw, 60px);
-            height: clamp(48px, 4vw, 60px);
-            border-radius: 18px;
-            background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(87,130,243,0.22));
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
+            width: clamp(56px, 4.5vw, 68px);
+            height: clamp(56px, 4.5vw, 68px);
+            border-radius: 16px;
+            background: linear-gradient(135deg, #FFFFFF, #F8FAFB);
+            box-shadow:
+              0 2px 8px -2px rgba(0, 0, 0, 0.08),
+              inset 0 1px 0 rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(226, 232, 240, 0.6);
         }
         .feature-meta {
             display: flex;
@@ -177,16 +236,16 @@
         .vision-card {
             position: relative;
             padding: clamp(20px, 2.4vw, 32px);
-            border-radius: 28px;
-            background: linear-gradient(160deg, rgba(243,246,250,0.85), rgba(255,255,255,0.96));
-            border: 1px solid rgba(87,130,243,0.14);
-            box-shadow: 0 12px 30px rgba(87,130,243,0.18);
-            transition: transform 0.35s ease, box-shadow 0.35s ease;
+            border-radius: 20px;
+            background: linear-gradient(130deg, rgba(243,246,250,0.85), rgba(255,255,255,0.96));
+            border: 1px solid rgba(87,130,243,0.12);
+            box-shadow: 0 10px 24px rgba(87,130,243,0.14);
+            transition: transform 0.25s ease, box-shadow 0.25s ease;
             height: 100%;
         }
         .vision-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 18px 38px rgba(87,130,243,0.22);
+            transform: translateY(-3px);
+            box-shadow: 0 14px 28px rgba(87,130,243,0.18);
         }
         .vision-card h3 {
             font-weight: 600;
@@ -287,98 +346,155 @@
             <!-- Hero Section -->
             <section class="hero-section pt-12 md:pt-16 min-h-[85vh] flex flex-col justify-center">
                 <div class="mb-6 md:mb-8 animate-float">
-                    <iconify-icon icon="carbon:rocket" class="text-7xl sm:text-8xl md:text-9xl text-[#5782F3] mx-auto"></iconify-icon>
+                    <iconify-icon icon="carbon:rocket" class="text-7xl sm:text-8xl md:text-9xl text-[#6366F1] mx-auto drop-shadow-lg"></iconify-icon>
                 </div>
-                <h1 class="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-800 mb-5 md:mb-7 leading-tight hero-title">
-                    还在文献海洋迷失方向？<br class="hidden sm:block">
-                    <span class="select-anim-bg">Paper Burner X 点燃你的阅读力！</span>
+                <h1 class="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 mb-5 md:mb-7 leading-tight hero-title">
+                    告别低效文献处理<br class="hidden sm:block">
+                    <span class="select-anim-bg">Paper Burner X 让智能 Agent 为您增效</span>
                 </h1>
-                <p class="text-lg md:text-xl text-gray-600 mb-10 md:mb-12 max-w-3xl mx-auto hero-subtitle">
-                    Paper Burner X 聚合 OCR、翻译、阅读与智能分析能力，覆盖极速并发翻译、灵活配置中心、术语表协同与沉浸式阅读体验，帮助你快速提炼长文档的关键信息。
+                <p class="text-lg md:text-xl text-gray-600 mb-8 max-w-3xl mx-auto hero-subtitle leading-relaxed">
+                    纯浏览器端 AI 文献分析平台，集成多轮 Agent 对话与长文本检索引擎
                 </p>
 
-                <a href="../../index.html" id="enterAppButton" class="px-10 py-3.5 md:px-12 md:py-4 bg-[#5782F3] text-white rounded-lg hover:bg-blue-700 transition-all focus:outline-none focus:ring-4 focus:ring-blue-500/50 text-lg md:text-xl font-semibold flex items-center mx-auto shadow-xl hover:shadow-2xl transform hover:scale-105 hero-cta">
-                    <iconify-icon icon="carbon:launch" class="mr-2 md:mr-3" width="24"></iconify-icon>
-                    立即体验高效阅读
-                </a>
+                <!-- Feature Badges -->
+                <div class="flex flex-wrap items-center justify-center gap-2.5 mb-12 max-w-4xl mx-auto px-4">
+                    <div class="stats-badge px-4 py-2.5 rounded-full text-xs md:text-sm font-semibold text-blue-700 whitespace-nowrap">
+                        <iconify-icon icon="carbon:bot" class="inline-block mr-1.5" width="16"></iconify-icon>
+                        多轮 Agent 对话
+                    </div>
+                    <div class="stats-badge px-4 py-2.5 rounded-full text-xs md:text-sm font-semibold text-blue-700 whitespace-nowrap">
+                        <iconify-icon icon="carbon:search-advanced" class="inline-block mr-1.5" width="16"></iconify-icon>
+                        长文本检索
+                    </div>
+                    <div class="stats-badge px-4 py-2.5 rounded-full text-xs md:text-sm font-semibold text-blue-700 whitespace-nowrap">
+                        <iconify-icon icon="carbon:flash" class="inline-block mr-1.5" width="16"></iconify-icon>
+                        并发翻译
+                    </div>
+                    <div class="stats-badge px-4 py-2.5 rounded-full text-xs md:text-sm font-semibold text-blue-700 whitespace-nowrap">
+                        <iconify-icon icon="carbon:book" class="inline-block mr-1.5" width="16"></iconify-icon>
+                        术语库
+                    </div>
+                    <div class="stats-badge px-4 py-2.5 rounded-full text-xs md:text-sm font-semibold text-blue-700 whitespace-nowrap">
+                        <iconify-icon icon="carbon:api" class="inline-block mr-1.5" width="16"></iconify-icon>
+                        自定义端点
+                    </div>
+                    <div class="stats-badge px-4 py-2.5 rounded-full text-xs md:text-sm font-semibold text-blue-700 whitespace-nowrap">
+                        <iconify-icon icon="carbon:document-multiple-02" class="inline-block mr-1.5" width="16"></iconify-icon>
+                        多格式
+                    </div>
+                </div>
+
+                <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-10">
+                    <a href="../../index.html" id="enterAppButton" class="group relative px-10 py-4 md:px-12 md:py-5 bg-gradient-to-r from-[#6366F1] to-[#3B82F6] text-white rounded-xl hover:from-[#4F46E5] hover:to-[#2563EB] transition-all duration-300 focus:outline-none focus:ring-4 focus:ring-blue-500/50 text-lg md:text-xl font-bold flex items-center shadow-2xl hover:shadow-blue-500/30 transform hover:scale-105 hero-cta">
+                        <iconify-icon icon="carbon:launch" class="mr-3 group-hover:translate-x-1 transition-transform" width="28"></iconify-icon>
+                        立即免费体验
+                        <span class="ml-2 text-sm font-normal opacity-90">→</span>
+                    </a>
+                    <a href="#features" class="px-8 py-4 bg-white/90 backdrop-blur-sm text-gray-700 border-2 border-gray-200 rounded-xl hover:bg-white hover:border-blue-300 hover:text-blue-600 transition-all text-lg font-semibold flex items-center shadow-md hover:shadow-lg">
+                        <iconify-icon icon="carbon:list-checked" class="mr-2" width="24"></iconify-icon>
+                        了解更多功能
+                    </a>
+                </div>
+
+                <!-- Social Proof / Stats -->
+                <div class="mt-16 grid grid-cols-3 gap-8 max-w-3xl mx-auto">
+                    <div class="text-center group">
+                        <div class="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-600 to-blue-500 bg-clip-text text-transparent mb-2 transition-transform group-hover:scale-110">Agent</div>
+                        <div class="text-sm text-gray-600 font-medium">智能对话检索</div>
+                    </div>
+                    <div class="text-center group">
+                        <div class="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-600 to-blue-500 bg-clip-text text-transparent mb-2 transition-transform group-hover:scale-110">10x</div>
+                        <div class="text-sm text-gray-600 font-medium">并发翻译提速</div>
+                    </div>
+                    <div class="text-center group">
+                        <div class="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-600 to-blue-500 bg-clip-text text-transparent mb-2 transition-transform group-hover:scale-110">多格式</div>
+                        <div class="text-sm text-gray-600 font-medium">导入导出支持</div>
+                    </div>
+                </div>
+
                 <!-- Moved and Restyled Tip Paragraph -->
                 <p class="text-xs text-gray-500 mt-16 max-w-2xl mx-auto">
-                    提示：目前OCR功能主要依赖Mistral API，我们预计在未来适配更多AI模型以提供更广泛的选择。
+                    💡 完全运行在浏览器端，无需安装或配置后端服务，保护您的数据隐私
                 </p>
             </section>
 
             <!-- Features Section - Updated -->
-            <section class="features-section py-12 md:py-16 bg-white/70 backdrop-blur-md shadow-2xl rounded-3xl p-6 md:p-12">
-                <h2 class="text-3xl md:text-4xl font-semibold text-gray-700 mb-10 md:mb-12 text-center flex items-center justify-center features-title">
-                    <iconify-icon icon="carbon:list-checked" class="mr-3 text-blue-600" width="36"></iconify-icon>
-                    本分支主要特性
-                </h2>
+            <section id="features" class="features-section py-16 md:py-20 bg-white/70 backdrop-blur-md shadow-2xl rounded-3xl p-8 md:p-14">
+                <div class="text-center mb-14">
+                    <span class="inline-block px-5 py-2.5 bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700 rounded-full text-sm font-bold mb-5 border border-blue-100">核心功能</span>
+                    <h2 class="text-3xl md:text-5xl font-bold text-gray-900 mb-5 features-title">
+                        强大的 AI 工具链，提升研究效率
+                    </h2>
+                    <p class="text-base md:text-lg text-gray-600 max-w-2xl mx-auto leading-relaxed">
+                        从智能对话到并发翻译，全方位解决文献处理难题
+                    </p>
+                </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
                     <article class="feature-card-modern text-left h-full">
-                        <div class="feature-icon-ring mb-5 text-orange-500">
-                            <iconify-icon icon="carbon:flash" width="28"></iconify-icon>
+                        <div class="feature-icon-ring mb-5 text-purple-600">
+                            <iconify-icon icon="carbon:bot" width="32"></iconify-icon>
                         </div>
-                        <h3 class="text-xl font-semibold text-gray-800 mb-2">极速并发翻译</h3>
-                        <p class="text-sm md:text-base text-gray-600 leading-relaxed">
-                            支持多文件高速并发，结合提示词池健康管理与任务队列，让长篇论文在数十秒内完成译文生成。
+                        <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">多轮 Agent 智能对话</h3>
+                        <p class="text-sm md:text-base text-gray-600 leading-relaxed mb-4">
+                            纯浏览器端实现的多轮对话 Agent，内置长文本检索引擎和 Embedding 嵌入模块。支持上下文记忆、智能问答和知识抽取，无需后端即可完成深度文献分析。
                         </p>
                         <div class="feature-meta">
-                            <span class="bg-orange-100/80 text-orange-600">多文件任务</span>
-                            <span class="bg-orange-100/80 text-orange-600">自定义并发</span>
-                            <span class="bg-orange-50 text-orange-500 border border-orange-200/70">提示词池监控</span>
+                            <span class="bg-purple-50 text-purple-700 border border-purple-200">多轮对话</span>
+                            <span class="bg-purple-50 text-purple-700 border border-purple-200">长文本检索</span>
+                            <span class="bg-purple-50 text-purple-700 border border-purple-200">Embedding 嵌入</span>
+                        </div>
+                    </article>
+
+                    <article class="feature-card-modern text-left h-full">
+                        <div class="feature-icon-ring mb-5 text-orange-600">
+                            <iconify-icon icon="carbon:flash" width="32"></iconify-icon>
+                        </div>
+                        <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">高速并发翻译引擎</h3>
+                        <p class="text-sm md:text-base text-gray-600 leading-relaxed mb-4">
+                            工业级任务队列与智能负载均衡，支持多文件并发处理。内置提示词池健康监测系统，配合术语库协同，确保长篇论文在数十秒内完成高质量译文生成。
+                        </p>
+                        <div class="feature-meta">
+                            <span class="bg-orange-50 text-orange-700 border border-orange-200">多文件并发</span>
+                            <span class="bg-orange-50 text-orange-700 border border-orange-200">智能队列</span>
+                            <span class="bg-orange-50 text-orange-700 border border-orange-200">健康监控</span>
                         </div>
                     </article>
 
                     <article class="feature-card-modern text-left h-full">
                         <div class="feature-icon-ring mb-5 text-blue-600">
-                            <iconify-icon icon="carbon:settings-adjust" width="28"></iconify-icon>
+                            <iconify-icon icon="carbon:settings-adjust" width="32"></iconify-icon>
                         </div>
-                        <h3 class="text-xl font-semibold text-gray-800 mb-2">灵活配置中心</h3>
-                        <p class="text-sm md:text-base text-gray-600 leading-relaxed">
-                            通过 Base URL、模型自动检测、多 Key 轮询与术语表协同，构建可扩展的模型与提示词管理工作台。
+                        <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">灵活配置与术语库</h3>
+                        <p class="text-sm md:text-base text-gray-600 leading-relaxed mb-4">
+                            自定义模型端点、多 API Key 轮询、术语库协同管理。支持提示词池变体配置，让您自由切换不同 AI 服务商，打造专属翻译工作流。
                         </p>
                         <div class="feature-meta">
-                            <span class="bg-blue-100/80 text-blue-600">术语表</span>
-                            <span class="bg-blue-100/80 text-blue-600">提示词池变体</span>
-                            <span class="bg-blue-50 text-blue-500 border border-blue-200/70">多源 Key 轮询</span>
+                            <span class="bg-blue-50 text-blue-700 border border-blue-200">术语库协同</span>
+                            <span class="bg-blue-50 text-blue-700 border border-blue-200">自定义端点</span>
+                            <span class="bg-blue-50 text-blue-700 border border-blue-200">多源轮询</span>
                         </div>
                     </article>
 
                     <article class="feature-card-modern text-left h-full">
-                        <div class="feature-icon-ring mb-5 text-indigo-500">
-                            <iconify-icon icon="carbon:notebook" width="28"></iconify-icon>
+                        <div class="feature-icon-ring mb-5 text-indigo-600">
+                            <iconify-icon icon="carbon:document-multiple-02" width="32"></iconify-icon>
                         </div>
-                        <h3 class="text-xl font-semibold text-gray-800 mb-2">沉浸式阅读体验</h3>
-                        <p class="text-sm md:text-base text-gray-600 leading-relaxed">
-                            历史记录、原译对照、智能对齐、TOC 导航与多彩标注联动，让校对流程与长文档阅读更加顺滑。
+                        <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">多格式支持与导出</h3>
+                        <p class="text-sm md:text-base text-gray-600 leading-relaxed mb-4">
+                            支持 PDF、HTML、DOCX、Markdown 等多种格式导入导出。配合历史记录、原译对齐、TOC 导航与多彩标注，让文献阅读与知识整理更高效。
                         </p>
                         <div class="feature-meta">
-                            <span class="bg-indigo-100/80 text-indigo-600">历史记录</span>
-                            <span class="bg-indigo-100/80 text-indigo-600">原译对照</span>
-                            <span class="bg-indigo-50 text-indigo-500 border border-indigo-200/70">沉浸模式</span>
-                        </div>
-                    </article>
-
-                    <article class="feature-card-modern text-left h-full">
-                        <div class="feature-icon-ring mb-5 text-purple-600">
-                            <iconify-icon icon="carbon:ai-status" width="28"></iconify-icon>
-                        </div>
-                        <h3 class="text-xl font-semibold text-gray-800 mb-2">智能分析与导出</h3>
-                        <p class="text-sm md:text-base text-gray-600 leading-relaxed">
-                            内置聊天助手、快捷指令、思维导图与流程图生成，支持 HTML、PDF、DOCX、MD 等多格式导入导出与图片快速分享。
-                        </p>
-                        <div class="feature-meta">
-                            <span class="bg-purple-100/80 text-purple-600">LLM 助手</span>
-                            <span class="bg-purple-100/80 text-purple-600">思维导图</span>
-                            <span class="bg-purple-50 text-purple-500 border border-purple-200/70">多格式导出</span>
+                            <span class="bg-indigo-50 text-indigo-700 border border-indigo-200">多格式支持</span>
+                            <span class="bg-indigo-50 text-indigo-700 border border-indigo-200">智能对齐</span>
+                            <span class="bg-indigo-50 text-indigo-700 border border-indigo-200">版本记录</span>
                         </div>
                     </article>
                 </div>
                 <!-- Button for Features Section -->
                 <div class="mt-10 text-center">
-                    <a href="../../index.html" id="enterOcrFeaturesBtn" class="px-6 py-3 bg-[#5782F3] text-white rounded-lg hover:bg-blue-700 transition-all focus:outline-none focus:ring-4 focus:ring-blue-500/50 text-md font-semibold inline-flex items-center mx-auto shadow-lg hover:shadow-xl transform hover:scale-105">
-                        <iconify-icon icon="carbon:scan" class="mr-2" width="20"></iconify-icon>
-                        进入OCR流程
+                    <a href="../../index.html" id="enterOcrFeaturesBtn" class="px-6 py-3 bg-gradient-to-r from-[#2563eb] to-[#38bdf8] text-white rounded-xl hover:from-[#1d4ed8] hover:to-[#0ea5e9] transition-all focus:outline-none focus:ring-4 focus:ring-blue-500/50 text-md font-semibold inline-flex items-center mx-auto shadow-lg hover:shadow-xl transform hover:scale-105">
+                        <iconify-icon icon="carbon:rocket" class="mr-2" width="20"></iconify-icon>
+                        开始使用 Paper Burner X
                     </a>
                 </div>
             </section>
@@ -397,16 +513,17 @@
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
-                        <article class="vision-card vision-card--mission">
+                        <article class="vision-card vision-card--mission md:col-span-2">
                             <h3 class="text-xl md:text-2xl text-gray-700 mb-3 flex items-center">
                                 <iconify-icon icon="carbon:earth" class="mr-2 text-[#5782F3]" width="24"></iconify-icon>
                                 核心使命
                             </h3>
                             <p class="text-gray-600 text-sm md:text-base leading-relaxed">
-                                打造一款集 OCR、翻译、术语表、阅读、批注与 AI 助手为一体的轻量化工作台——无需安装与后端，即可在浏览器完成从原文到知识沉淀的全流程。
+                                打造一款集智能 Agent、翻译、术语表、阅读、批注与 AI 助手为一体的轻量化工作台——无需安装与后端，即可在浏览器完成从原文到知识沉淀的全流程。
                             </p>
                             <div class="vision-meta">
                                 <span>纯前端</span>
+                                <span>Agent 对话</span>
                                 <span>术语协同</span>
                                 <span>批注增强</span>
                             </div>
@@ -415,63 +532,6 @@
                                 <a href="https://github.com/baoyudu/paper-burner" target="_blank" class="text-[#5782F3] hover:text-blue-600 underline">Paper Burner</a>
                                 ，我们在此基础上持续拓展、迭代并保持向开源项目的致敬。
                             </p>
-                        </article>
-
-                        <article class="vision-card vision-card--upgrade">
-                            <h3 class="text-xl md:text-2xl text-gray-700 mb-3 flex items-center">
-                                <iconify-icon icon="carbon:road" class="mr-2 text-[#5782F3]" width="24"></iconify-icon>
-                                规划中的升级
-                            </h3>
-                            <div class="upgrade-grid">
-                                <div class="upgrade-item">
-                                    <span class="upgrade-icon">
-                                        <iconify-icon icon="carbon:scan-alt" width="22"></iconify-icon>
-                                    </span>
-                                    <div>
-                                        <h4>多引擎 OCR 与结构解析</h4>
-                                        <p>引入更多 OCR 能力并增强版面结构识别，确保复杂公式、图表与表格都能精准还原。</p>
-                                    </div>
-                                </div>
-                                <div class="upgrade-item">
-                                    <span class="upgrade-icon">
-                                        <iconify-icon icon="carbon:collaborate" width="22"></iconify-icon>
-                                    </span>
-                                    <div>
-                                        <h4>术语与批注协同</h4>
-                                        <p>将术语表、批注与历史记录打通，支持团队共享、同步与细粒度的可信追踪。</p>
-                                    </div>
-                                </div>
-                                <div class="upgrade-item">
-                                    <span class="upgrade-icon">
-                                        <iconify-icon icon="carbon:dashboard" width="22"></iconify-icon>
-                                    </span>
-                                    <div>
-                                        <h4>沉浸式工作流重构</h4>
-                                        <p>打造可拆分的多窗口界面与可视化看板，让长文档校对、对话与导出更顺畅。</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </article>
-
-                        <article class="vision-card md:col-span-2">
-                            <h3 class="text-xl md:text-2xl text-gray-700 mb-3 flex items-center">
-                                <iconify-icon icon="carbon:time" class="mr-2 text-[#5782F3]" width="24"></iconify-icon>
-                                近期节奏
-                            </h3>
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm md:text-base text-gray-600 leading-relaxed">
-                                <div class="bg-white/70 rounded-2xl p-4 shadow-sm border border-blue-100/60">
-                                    <p class="font-semibold text-blue-700 mb-1">Q1 更新</p>
-                                    <p>术语表批量导入导出、提示词池健康监测可视化。</p>
-                                </div>
-                                <div class="bg-white/70 rounded-2xl p-4 shadow-sm border border-blue-100/60">
-                                    <p class="font-semibold text-blue-700 mb-1">Q2 目标</p>
-                                    <p>多 OCR 引擎接入、复杂表格版面识别提升。</p>
-                                </div>
-                                <div class="bg-white/70 rounded-2xl p-4 shadow-sm border border-blue-100/60">
-                                    <p class="font-semibold text-blue-700 mb-1">Q3 展望</p>
-                                    <p>多窗口沉浸式工作流与团队共享工作台原型。</p>
-                                </div>
-                            </div>
                         </article>
                     </div>
                 </div>
