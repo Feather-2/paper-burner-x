@@ -7,6 +7,32 @@
   'use strict';
 
   /**
+   * 带重试的LLM调用包装器
+   * @param {Function} fn - 要执行的异步函数
+   * @param {number} maxRetries - 最大重试次数
+   * @param {number} delayMs - 重试延迟（毫秒）
+   * @returns {Promise} 函数执行结果
+   */
+  async function retryWithBackoff(fn, maxRetries = 2, delayMs = 1000) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        // 如果是最后一次尝试，或者不是5xx错误，直接抛出
+        const is5xxError = error.message && /50\d/.test(error.message);
+        if (attempt === maxRetries || !is5xxError) {
+          throw error;
+        }
+
+        // 等待后重试，使用指数退避
+        const delay = delayMs * Math.pow(2, attempt);
+        console.warn(`[SemanticGrouper] API调用失败，${delay}ms后重试 (${attempt + 1}/${maxRetries})...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  /**
    * 将分段数组聚合成意群
    * @param {Array<string>} chunks - 原始分段数组（ocrChunks 或 translatedChunks）
    * @param {Object} options - 配置选项
@@ -20,7 +46,7 @@
       targetChars = 5000,
       minChars = 2500,
       maxChars = 6000,
-      concurrency = 20,
+      concurrency = 20,  // 恢复默认并发数
       docContext = (window.data && window.data.semanticDocGist) ? window.data.semanticDocGist : ''
     } = options;
 
@@ -164,6 +190,12 @@
     async function runNext() {
       const i = nextIndex++;
       if (i >= candidates.length) return;
+
+      // 添加随机延迟，避免同时发起大量请求
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 300));
+      }
+
       results[i] = await finalizeGroup(candidates[i], i, docContext);
       return runNext();
     }
@@ -211,12 +243,15 @@ ${inputText}
 2. ${maxLength <= 100 ? '极度精简' : '突出重点'}
 3. 不要添加"本段讲述"等描述性前缀`;
 
-      const summary = await window.ChatbotCore.singleChunkSummary(
-        prompt,
-        inputText,
-        config,
-        apiKey
-      );
+      // 使用重试包装器
+      const summary = await retryWithBackoff(async () => {
+        return await window.ChatbotCore.singleChunkSummary(
+          prompt,
+          inputText,
+          config,
+          apiKey
+        );
+      });
 
       return summary.trim();
     } catch (error) {
@@ -248,17 +283,29 @@ ${inputText}
       const inputText = text.length > 3000 ? text.substring(0, 3000) + '...' : text;
 
       const ctx = (docContext || '').slice(0, 500);
-      const prompt = `${ctx ? `背景（整篇文档总览）：\n${ctx}\n\n` : ''}请从以下内容中提取3-5个最重要的关键词或关键短语，用逗号分隔。
-只返回关键词，不要解释：
+      const prompt = `${ctx ? `背景（整篇文档总览）：\n${ctx}\n\n` : ''}请从以下内容中提取4-6个最重要的关键词，优先提取：
+1. 专有名词（公司名、人名、产品名、机构名、地名）
+2. 核心概念（重要术语、技术名称）
+3. 主题词（核心话题）
 
+要求：
+- **优先级**：实体 > 专业术语 > 概念词
+- **具体性**：优先提取具体名称（如"雷曼公司"而非"公司"）
+- **完整性**：保留实体的完整表达（如"雷曼兄弟公司"而非拆分）
+- 用逗号分隔，只返回关键词列表，不要解释
+
+文档内容：
 ${inputText}`;
 
-      const result = await window.ChatbotCore.singleChunkSummary(
-        prompt,
-        inputText,
-        config,
-        apiKey
-      );
+      // 使用重试包装器
+      const result = await retryWithBackoff(async () => {
+        return await window.ChatbotCore.singleChunkSummary(
+          prompt,
+          inputText,
+          config,
+          apiKey
+        );
+      });
 
       // 解析关键词
       const keywords = result
@@ -282,6 +329,8 @@ ${inputText}`;
    */
   async function extractStructure(text, docContext = '') {
     const structure = {
+      orderedElements: [],  // 按文档顺序的结构化元素
+      // 保留旧格式用于兼容
       figures: [],
       tables: [],
       sections: [],
@@ -289,59 +338,95 @@ ${inputText}`;
     };
 
     try {
-      // 1. 提取图表引用（使用正则）
-      const figureRegex = /(?:图|Figure|Fig\.?)\s*(\d+)[：:：]?\s*([^\n]{0,50})/gi;
-      const tableRegex = /(?:表|Table)\s*(\d+)[：:：]?\s*([^\n]{0,50})/gi;
-
-      let match;
-      while ((match = figureRegex.exec(text)) !== null) {
-        structure.figures.push(`Figure ${match[1]}: ${match[2].trim()}`);
-      }
-      while ((match = tableRegex.exec(text)) !== null) {
-        structure.tables.push(`Table ${match[1]}: ${match[2].trim()}`);
-      }
-
-      // 去重
-      structure.figures = [...new Set(structure.figures)].slice(0, 5);
-      structure.tables = [...new Set(structure.tables)].slice(0, 5);
-
-      // 2. 提取章节标题（使用正则匹配常见模式）
-      const sectionRegex = /^(?:#+\s*)?(\d+(?:\.\d+)*)\s+([^\n]{3,60})$/gm;
-      while ((match = sectionRegex.exec(text)) !== null) {
-        structure.sections.push(`${match[1]} ${match[2].trim()}`);
-      }
-      structure.sections = structure.sections.slice(0, 5);
-
-      // 3. 使用LLM提取核心要点
+      // 使用LLM提取有序的结构化信息
       if (window.ChatbotCore && typeof window.ChatbotCore.singleChunkSummary === 'function') {
         const config = window.ChatbotCore.getChatbotConfig();
         const apiKey = config.apiKey;
 
         if (apiKey) {
-          const inputText = text.length > 3000 ? text.substring(0, 3000) + '...' : text;
+          const inputText = text.length > 4000 ? text.substring(0, 4000) + '...' : text;
           const ctx = (docContext || '').slice(0, 500);
-          const prompt = `${ctx ? `背景：\n${ctx}\n\n` : ''}请从以下内容中提取3-5个核心要点或主要论点，每个要点用一句话概括（不超过30字）。
-只返回要点列表，每行一个，不要编号：
+          const prompt = `${ctx ? `背景（文档总览）：\n${ctx}\n\n` : ''}请按照文档顺序，提取以下结构化信息（每行一个，保持原文档顺序）：
 
+1. 大标题（章节主标题，如"第三章 XXX"）- 标记为 [TITLE]
+2. 小节标题（如"3.1 XXX"）- 标记为 [SECTION]
+3. 核心要点（重要论点或观点，不超过30字）- 标记为 [POINT]
+4. 图片标题（如"图3.1: XXX"）- 标记为 [FIGURE]
+5. 表格标题（如"表3.1: XXX"）- 标记为 [TABLE]
+6. 公式标题/说明（如"公式3.1: XXX"或"E=mc²"）- 标记为 [FORMULA]
+
+格式示例：
+[TITLE] 第三章 理想投资的判断标准
+[SECTION] 3.1 风险与收益的平衡
+[POINT] 投资需要在风险与收益之间寻找最优平衡点
+[FIGURE] 图3.1: 风险收益曲线
+[FORMULA] 公式3.1: 夏普比率 = (Rp - Rf) / σp
+[TABLE] 表3.1: 不同资产类别的历史表现
+
+要求：
+- **严格保持原文表达**：标题、图表名称、公式等必须完全引用原文，不要改写或概括，这对后续关键词搜索至关重要
+- 严格按照内容在文档中的出现顺序提取
+- 每个元素不超过50字
+- 只提取最重要的10-15个元素
+- 如果没有某类元素，跳过即可
+
+文档内容：
 ${inputText}`;
 
           try {
-            const result = await window.ChatbotCore.singleChunkSummary(
-              prompt,
-              inputText,
-              config,
-              apiKey
-            );
+            // 使用重试包装器
+            const result = await retryWithBackoff(async () => {
+              return await window.ChatbotCore.singleChunkSummary(
+                prompt,
+                inputText,
+                config,
+                apiKey
+              );
+            });
 
-            structure.keyPoints = result
-              .split('\n')
-              .map(p => p.replace(/^[-*\d\.]+\s*/, '').trim())
-              .filter(p => p.length > 5 && p.length < 100)
-              .slice(0, 5);
+            // 解析结果
+            const lines = result.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+            for (const line of lines) {
+              if (line.startsWith('[TITLE]')) {
+                const content = line.replace('[TITLE]', '').trim();
+                structure.orderedElements.push({ type: 'title', content });
+                structure.sections.push(content); // 兼容
+              } else if (line.startsWith('[SECTION]')) {
+                const content = line.replace('[SECTION]', '').trim();
+                structure.orderedElements.push({ type: 'section', content });
+                structure.sections.push(content); // 兼容
+              } else if (line.startsWith('[POINT]')) {
+                const content = line.replace('[POINT]', '').trim();
+                structure.orderedElements.push({ type: 'keypoint', content });
+                structure.keyPoints.push(content); // 兼容
+              } else if (line.startsWith('[FIGURE]')) {
+                const content = line.replace('[FIGURE]', '').trim();
+                structure.orderedElements.push({ type: 'figure', content });
+                structure.figures.push(content); // 兼容
+              } else if (line.startsWith('[TABLE]')) {
+                const content = line.replace('[TABLE]', '').trim();
+                structure.orderedElements.push({ type: 'table', content });
+                structure.tables.push(content); // 兼容
+              } else if (line.startsWith('[FORMULA]')) {
+                const content = line.replace('[FORMULA]', '').trim();
+                structure.orderedElements.push({ type: 'formula', content });
+              }
+            }
+
+            console.log(`[SemanticGrouper] 提取了 ${structure.orderedElements.length} 个有序结构元素`);
           } catch (e) {
-            console.warn('[SemanticGrouper] LLM提取要点失败:', e.message);
+            console.warn('[SemanticGrouper] LLM提取结构失败，使用正则降级:', e.message);
+            // 降级到正则提取（无顺序）
+            fallbackRegexExtraction(text, structure);
           }
+        } else {
+          // 无API Key，使用正则降级
+          fallbackRegexExtraction(text, structure);
         }
+      } else {
+        // 无ChatbotCore，使用正则降级
+        fallbackRegexExtraction(text, structure);
       }
 
       return structure;
@@ -349,6 +434,42 @@ ${inputText}`;
       console.error('[SemanticGrouper] 提取结构化信息失败:', error);
       return structure;
     }
+  }
+
+  /**
+   * 降级方案：使用正则提取（不保证顺序）
+   */
+  function fallbackRegexExtraction(text, structure) {
+    const figureRegex = /(?:图|Figure|Fig\.?)\s*(\d+)[：:：]?\s*([^\n]{0,50})/gi;
+    const tableRegex = /(?:表|Table)\s*(\d+)[：:：]?\s*([^\n]{0,50})/gi;
+    const formulaRegex = /(?:公式|Formula|Equation)\s*(\d+)[：:：]?\s*([^\n]{0,50})/gi;
+    const sectionRegex = /^(?:#+\s*)?(\d+(?:\.\d+)*)\s+([^\n]{3,60})$/gm;
+
+    let match;
+    while ((match = figureRegex.exec(text)) !== null) {
+      const content = `图${match[1]}: ${match[2].trim()}`;
+      structure.figures.push(content);
+      structure.orderedElements.push({ type: 'figure', content });
+    }
+    while ((match = tableRegex.exec(text)) !== null) {
+      const content = `表${match[1]}: ${match[2].trim()}`;
+      structure.tables.push(content);
+      structure.orderedElements.push({ type: 'table', content });
+    }
+    while ((match = formulaRegex.exec(text)) !== null) {
+      const content = `公式${match[1]}: ${match[2].trim()}`;
+      structure.orderedElements.push({ type: 'formula', content });
+    }
+    while ((match = sectionRegex.exec(text)) !== null) {
+      const content = `${match[1]} ${match[2].trim()}`;
+      structure.sections.push(content);
+      structure.orderedElements.push({ type: 'section', content });
+    }
+
+    // 去重
+    structure.figures = [...new Set(structure.figures)].slice(0, 5);
+    structure.tables = [...new Set(structure.tables)].slice(0, 5);
+    structure.sections = structure.sections.slice(0, 5);
   }
 
   /**

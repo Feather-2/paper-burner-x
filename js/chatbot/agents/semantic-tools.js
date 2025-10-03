@@ -58,6 +58,25 @@
     return { groupId, granularity: gran, text };
   }
 
+  // 详细版：返回全文与结构等附加信息（用于 fetch 工具）
+  function fetchGroupDetailed(groupId) {
+    const groups = ensureGroups();
+    const g = groups.find(x => x.groupId === groupId);
+    if (!g) return { groupId, granularity: 'full', text: '', structure: {}, keywords: [], summary: '', digest: '' };
+    const text = g.fullText || g.digest || g.summary || '';
+    const structure = g.structure || {};
+    return {
+      groupId,
+      granularity: 'full',
+      text: text && text.length > 8000 ? text.slice(0, 8000) : text,
+      structure,
+      keywords: Array.isArray(g.keywords) ? g.keywords : [],
+      summary: g.summary || '',
+      digest: g.digest || '',
+      charCount: g.charCount || (text ? text.length : 0)
+    };
+  }
+
   function findInGroups(query, scope = 'digest', limit = 10) {
     const groups = ensureGroups();
     if (!query || !groups.length) return [];
@@ -97,7 +116,8 @@
     listGroups,
     searchGroups,
     fetchGroupText,
-    findInGroups
+    findInGroups,
+    fetchGroupDetailed
   };
 
   console.log('[SemanticTools] 工具模块已加载');

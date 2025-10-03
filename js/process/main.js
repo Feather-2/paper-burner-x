@@ -557,8 +557,22 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
             }
         } else {
             if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 不需要翻译`);
-            ocrChunks = [currentMarkdownContent];
-            translatedChunks = [''];
+            // 即使不翻译，也需要检查是否需要分块（用于向量搜索等后续功能）
+            const estimatedTokens = typeof estimateTokenCount === 'function'
+                ? estimateTokenCount(currentMarkdownContent)
+                : currentMarkdownContent.length / 4; // 简单估算
+            const tokenLimit = parseInt(maxTokensPerChunkValue, 10) || 2000; // 与翻译流程保持一致
+
+            if (estimatedTokens > tokenLimit * 1.1 && typeof splitMarkdownIntoChunks === 'function') {
+                if (typeof addProgressLog === "function") {
+                    addProgressLog(`${logPrefix} 文档较大 (~${Math.round(estimatedTokens/1000)}K tokens), 进行分块处理以支持向量搜索`);
+                }
+                ocrChunks = splitMarkdownIntoChunks(currentMarkdownContent, tokenLimit, logPrefix);
+                translatedChunks = ocrChunks.map(() => ''); // 翻译块为空
+            } else {
+                ocrChunks = [currentMarkdownContent];
+                translatedChunks = [''];
+            }
         }
 
         const processedAt = new Date().toISOString();

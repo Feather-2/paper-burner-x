@@ -96,8 +96,14 @@ window.PromptConstructor = (function() {
         }
       }
     } else {
-      // 全文模式：传统截断
-      if (content.length > 50000) {
+      // 全文模式：但如果有多轮搜索的结果，优先使用搜索结果
+      if (docContentInfo.selectedGroupContext) {
+        const docGist = (docContentInfo.semanticDocGist && typeof docContentInfo.semanticDocGist === 'string')
+          ? `文档总览：${docContentInfo.semanticDocGist}\n\n` : '';
+        content = `${docGist}已根据用户问题检索到以下相关内容：\n\n${docContentInfo.selectedGroupContext}`;
+        console.log('[PromptConstructor] 全文模式下使用多轮搜索结果');
+      } else if (content.length > 50000) {
+        // 没有搜索结果，使用传统截断
         content = content.slice(0, 50000);
       }
     }
@@ -105,8 +111,14 @@ window.PromptConstructor = (function() {
     if (content) { // Only add "文档内容" section if content is not empty
       systemPrompt += `\n\n文档内容：\n${content}`;
     }
-    // 追加回答行为规范，避免模型输出“没有外部工具”等无关免责声明
-    systemPrompt += `\n\n回答规则补充：\n- 不要声明你是否具备外部工具/联网等能力，也不要输出与回答无关的免责声明。\n- 优先依据文档内容回答；若文档信息不足，请基于常识给出概览性解答并明确不确定之处。`;
+    // 追加回答行为规范，避免模型输出"没有外部工具"等无关免责声明
+    systemPrompt += `\n\n回答规则补充：
+- 不要声明你是否具备外部工具/联网等能力，也不要输出与回答无关的免责声明。
+- 优先依据文档内容回答；若文档信息不足，请基于常识给出概览性解答并明确不确定之处。
+- **遇到公式、数据、图表等关键信息时，必须直接引用原文展示完整内容，不要仅概括描述**。
+  * 例如用户问"有什么公式"时，应直接展示公式的完整表达式，而不是说"文档提到了公式7但未给出"。
+  * 如果检索到的内容包含公式、数据表、关键数值，务必完整引用，保留原文格式。
+  * 对于数学公式，优先使用LaTeX格式展示（$$公式$$或$公式$）。`;
     // console.log('[PromptConstructor.buildSystemPrompt] Final systemPrompt:', systemPrompt);
     return systemPrompt;
   }

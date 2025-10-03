@@ -688,9 +688,11 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
   // 如果启用多轮取材，先让模型选择意群并附加上下文
   try {
     const multiHop = !!(window.chatbotActiveOptions && window.chatbotActiveOptions.multiHopRetrieval);
-    const segmented = ((window.chatbotActiveOptions && window.chatbotActiveOptions.contentLengthStrategy) === 'segmented');
+    // 智能检索开启时，自动启用智能分段和流式显示
+    const segmented = multiHop ? true : ((window.chatbotActiveOptions && window.chatbotActiveOptions.contentLengthStrategy) === 'segmented');
     const longDoc = ((docContentInfo.translation || docContentInfo.ocr || '').length >= 50000);
-    const useStreaming = !!(window.chatbotActiveOptions && window.chatbotActiveOptions.streamingRetrieval);
+    // 智能检索开启时，自动启用流式显示
+    const useStreaming = multiHop ? true : ((window.chatbotActiveOptions && typeof window.chatbotActiveOptions.streamingRetrieval === 'boolean') ? window.chatbotActiveOptions.streamingRetrieval : true);
 
     if (multiHop && segmented && longDoc && Array.isArray(docContentInfo.semanticGroups) && docContentInfo.semanticGroups.length > 0) {
       const userSet = window.semanticGroupsSettings || {};
@@ -699,6 +701,16 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
       if (useStreaming && typeof window.streamingMultiHopRetrieve === 'function') {
         console.log('[ChatbotCore] 使用流式多轮取材');
 
+        // 提前创建助手消息占位符
+        chatHistory.push({ role: 'assistant', content: '正在检索相关内容...' });
+        const earlyAssistantMsgIndex = chatHistory.length - 1;
+        if (typeof updateChatbotUI === 'function') updateChatbotUI();
+
+        // 开始新的工具调用会话
+        if (window.ChatbotToolTraceUI?.startSession) {
+          window.ChatbotToolTraceUI.startSession();
+        }
+
         const stream = window.streamingMultiHopRetrieve(plainTextInput, docContentInfo, config, { maxRounds: userSet.maxRounds || 3 });
 
         let selection = null;
@@ -706,6 +718,18 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
           // 实时更新UI
           if (window.ChatbotToolTraceUI?.handleStreamEvent) {
             window.ChatbotToolTraceUI.handleStreamEvent(event);
+
+            // 每次事件后实时更新HTML到消息对象
+            if (window.ChatbotToolTraceUI?.generateBlockHtml) {
+              const toolCallHtml = window.ChatbotToolTraceUI.generateBlockHtml();
+              chatHistory[earlyAssistantMsgIndex].toolCallHtml = toolCallHtml;
+              chatHistory[earlyAssistantMsgIndex].content = ''; // 清空占位文本
+
+              // 触发UI刷新
+              if (typeof updateChatbotUI === 'function') {
+                updateChatbotUI();
+              }
+            }
           }
 
           // 保存最终结果
@@ -723,14 +747,9 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
           });
           console.log('[ChatbotCore] 流式多轮取材完成，组数', (selection.detail||selection.groups||[]).length);
         }
-      } else {
-        // 使用传统多轮取材（同步）
-        const selection = await multiHopRetrieve(plainTextInput, docContentInfo, config, { maxRounds: userSet.maxRounds || 3 });
-        if (selection) {
-          // 将 selection.context 直接作为选中上下文注入
-          docContentInfo = Object.assign({}, docContentInfo, { selectedGroupContext: selection.context, selectedGroupsMeta: selection });
-          console.log('[ChatbotCore] 多轮取材：已聚合上下文，组数', (selection.detail||[]).length);
-        }
+
+        // 标记这个消息索引，后续使用
+        window._earlyAssistantMsgIndex = earlyAssistantMsgIndex;
       }
     }
   } catch (e) {
@@ -1026,8 +1045,18 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
 
   const formattedHistory = conversationHistory; // Already in the right {role, content: rich_content} format
 
-  chatHistory.push({ role: 'assistant', content: '' });
-  const assistantMsgIndex = chatHistory.length - 1;
+  // 检查是否已经提前创建了助手消息（在工具调用时）
+  let assistantMsgIndex = window._earlyAssistantMsgIndex;
+
+  if (assistantMsgIndex !== undefined && assistantMsgIndex >= 0 && chatHistory[assistantMsgIndex]) {
+    // 使用已创建的消息
+    console.log('[ChatbotCore] 使用已创建的助手消息，索引:', assistantMsgIndex);
+    window._earlyAssistantMsgIndex = undefined; // 清除标记
+  } else {
+    // 正常创建助手消息
+    chatHistory.push({ role: 'assistant', content: '' });
+    assistantMsgIndex = chatHistory.length - 1;
+  }
 
   try {
     if (typeof updateChatbotUI === 'function') updateChatbotUI();
@@ -1298,7 +1327,10 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
       } else {
         errorMessage += ': ' + e.message;
       }
-      chatHistory[assistantMsgIndex].content = errorMessage;
+      // 确保assistantMsgIndex有效
+      if (chatHistory[assistantMsgIndex]) {
+        chatHistory[assistantMsgIndex].content = errorMessage;
+      }
     }
   } finally {
     isChatbotLoading = false;
@@ -1674,10 +1706,12 @@ async function ensureSemanticGroupsReady(docContentInfo) {
   }
 
   const contentStrategy = (window.chatbotActiveOptions && window.chatbotActiveOptions.contentLengthStrategy) || 'default';
-  const strategySegmented = contentStrategy === 'segmented';
+  const multiHopEnabled = !!(window.chatbotActiveOptions && window.chatbotActiveOptions.multiHopRetrieval);
+  // 智能检索开启时，自动视为智能分段模式
+  const strategySegmented = contentStrategy === 'segmented' || multiHopEnabled;
 
   if (!strategySegmented) {
-    console.log('[ChatbotCore] 当前策略非智能分段，跳过意群生成');
+    console.log('[ChatbotCore] 当前策略非智能分段且未开启智能检索，跳过意群生成');
     return;
   }
 
@@ -1689,11 +1723,102 @@ async function ensureSemanticGroupsReady(docContentInfo) {
       if (cached && Array.isArray(cached.groups) && cached.groups.length > 0) {
         window.data.semanticGroups = cached.groups;
         if (cached.docGist) window.data.semanticDocGist = cached.docGist;
-        console.log(`[ChatbotCore] 已从缓存读取意群，共 ${cached.groups.length} 个意群`);
 
-        // 检查并建立索引（向量索引和BM25索引）
-        await ensureIndexesBuilt(cached.groups, docId);
-        return;
+        // 恢复enrichedChunks，如果缓存中没有则从原始chunks重建
+        let enrichedChunks = cached.enrichedChunks || [];
+
+        // 兼容旧数据：如果缓存中没有enrichedChunks，从ocrChunks/translatedChunks重建
+        if (!enrichedChunks || enrichedChunks.length === 0) {
+          // 根据用户设置的 summarySource 选项决定使用哪个chunks
+          const summarySource = (window.chatbotActiveOptions && window.chatbotActiveOptions.summarySource) || 'ocr';
+          let rawChunks = [];
+
+          if (summarySource === 'translation') {
+            // 优先使用translatedChunks，但如果全是空字符串则降级到ocrChunks
+            rawChunks = docContentInfo.translatedChunks || [];
+            const hasValidTranslation = rawChunks.some(chunk => chunk && typeof chunk === 'string' && chunk.trim().length > 0);
+            if (!hasValidTranslation) {
+              rawChunks = docContentInfo.ocrChunks || [];
+            }
+          } else if (summarySource === 'ocr') {
+            // 优先使用ocrChunks，如果没有则使用translatedChunks
+            rawChunks = docContentInfo.ocrChunks || docContentInfo.translatedChunks || [];
+          } else if (summarySource === 'none') {
+            // 明确不使用文档内容
+            rawChunks = [];
+          }
+
+          if (rawChunks.length > 0) {
+            enrichedChunks = rawChunks
+              .filter(text => text && typeof text === 'string' && text.trim().length > 0)  // 过滤无效chunk
+              .map((text, index) => ({
+                chunkId: `chunk-${index}`,
+                text: text,
+                belongsToGroup: null,
+                position: index,
+                charCount: text.length
+              }));
+            console.log(`[ChatbotCore] 从原始chunks(${summarySource})重建了 ${enrichedChunks.length} 个enrichedChunks`);
+          }
+        } else {
+          // 验证enrichedChunks的有效性
+          enrichedChunks = enrichedChunks.filter(chunk =>
+            chunk && typeof chunk.text === 'string' && chunk.text.trim().length > 0
+          );
+          if (enrichedChunks.length === 0) {
+            console.warn('[ChatbotCore] 缓存的enrichedChunks无效，尝试从原始chunks重建');
+            // 根据用户设置的 summarySource 选项决定使用哪个chunks
+            const summarySource = (window.chatbotActiveOptions && window.chatbotActiveOptions.summarySource) || 'ocr';
+            let rawChunks = [];
+
+            if (summarySource === 'translation') {
+              rawChunks = docContentInfo.translatedChunks || [];
+              const hasValidTranslation = rawChunks.some(chunk => chunk && typeof chunk === 'string' && chunk.trim().length > 0);
+              if (!hasValidTranslation) {
+                rawChunks = docContentInfo.ocrChunks || [];
+              }
+            } else if (summarySource === 'ocr') {
+              rawChunks = docContentInfo.ocrChunks || docContentInfo.translatedChunks || [];
+            }
+
+            if (rawChunks.length > 0) {
+              enrichedChunks = rawChunks
+                .filter(text => text && typeof text === 'string' && text.trim().length > 0)
+                .map((text, index) => ({
+                  chunkId: `chunk-${index}`,
+                  text: text,
+                  belongsToGroup: null,
+                  position: index,
+                  charCount: text.length
+                }));
+              console.log(`[ChatbotCore] 重建了 ${enrichedChunks.length} 个enrichedChunks(${summarySource})`);
+            }
+          }
+        }
+
+        window.data.enrichedChunks = enrichedChunks;
+
+        console.log(`[ChatbotCore] 已从缓存读取意群，共 ${cached.groups.length} 个意群，${enrichedChunks.length} 个chunks`);
+
+        // 检测意群-chunks不匹配：比较缓存中的chunks数量和当前实际chunks数量
+        const cachedChunkCount = (cached.enrichedChunks && cached.enrichedChunks.length) || 0;
+        const isOutdated = cachedChunkCount > 0 && enrichedChunks.length > 0 &&
+                          Math.abs(cachedChunkCount - enrichedChunks.length) > Math.max(cachedChunkCount, enrichedChunks.length) * 0.1;
+
+        if (isOutdated) {
+          console.warn(`[ChatbotCore] 检测到意群缓存与chunks不匹配（缓存${cachedChunkCount}个chunk，实际${enrichedChunks.length}个），清除缓存并重新生成`);
+          // 删除旧缓存
+          if (typeof window.deleteSemanticGroupsFromDB === 'function') {
+            await window.deleteSemanticGroupsFromDB(docId);
+          }
+          delete window.data.semanticGroups;
+          delete window.data.enrichedChunks;
+          // 不要return，继续走下面的重新生成流程
+        } else {
+          // 检查并建立索引（向量索引和BM25索引），参数顺序：chunks, groups, docId
+          await ensureIndexesBuilt(enrichedChunks, cached.groups, docId);
+          return;
+        }
       }
     }
   } catch (e) {
@@ -1701,7 +1826,21 @@ async function ensureSemanticGroupsReady(docContentInfo) {
   }
 
   // 检查是否有现成的分段数据
-  const chunks = docContentInfo.translatedChunks || docContentInfo.ocrChunks;
+  // 根据用户设置的 summarySource 选项决定使用哪个chunks
+  const summarySource = (window.chatbotActiveOptions && window.chatbotActiveOptions.summarySource) || 'ocr';
+  let chunks = [];
+
+  if (summarySource === 'translation') {
+    chunks = docContentInfo.translatedChunks || [];
+    const hasValidTranslation = chunks.some(chunk => chunk && typeof chunk === 'string' && chunk.trim().length > 0);
+    if (!hasValidTranslation) {
+      chunks = docContentInfo.ocrChunks || [];
+    }
+  } else if (summarySource === 'ocr') {
+    chunks = docContentInfo.ocrChunks || docContentInfo.translatedChunks || [];
+  } else if (summarySource === 'none') {
+    chunks = [];
+  }
 
   if (!chunks || !Array.isArray(chunks) || chunks.length === 0) {
     console.warn('[ChatbotCore] 没有可用的分段数据（ocrChunks/translatedChunks），无法生成意群');
@@ -1743,7 +1882,7 @@ async function ensureSemanticGroupsReady(docContentInfo) {
       targetChars: Number(s.targetChars) > 0 ? Number(s.targetChars) : 5000,
       minChars: Number(s.minChars) > 0 ? Number(s.minChars) : 2500,
       maxChars: Number(s.maxChars) > 0 ? Number(s.maxChars) : 6000,
-      concurrency: Number(s.concurrency) > 0 ? Number(s.concurrency) : 20,
+      concurrency: Number(s.concurrency) > 0 ? Number(s.concurrency) : 20,  // 恢复默认并发数
       docContext: window.data.semanticDocGist || ''
     });
 
@@ -1821,291 +1960,6 @@ function attachSelectedContextToDoc(docContentInfo, selection) {
 }
 
 // 多轮工具式取材
-async function multiHopRetrieve(userQuestion, docContentInfo, config, options = {}) {
-  const userSet = window.semanticGroupsSettings || {};
-  const maxRounds = Number(options.maxRounds ?? userSet.maxRounds) > 0 ? Number(options.maxRounds ?? userSet.maxRounds) : 3;
-  try {
-    const groups = Array.isArray(docContentInfo.semanticGroups) ? docContentInfo.semanticGroups : [];
-    if (groups.length === 0) return null;
-
-    const candidates = groups; // 展示所有意群作为全局地图
-    try {
-      // 优先使用向量搜索
-      if (window.SemanticVectorSearch && window.EmbeddingClient?.config?.enabled) {
-        const matched = await window.SemanticVectorSearch.search(String(userQuestion || ''), groups, {
-          topK: 12,
-          threshold: 0.3,
-          useHybrid: true
-        });
-        if (matched && matched.length > 0) {
-          candidates = matched;
-          console.log('[multiHopRetrieve] 使用向量搜索获取候选意群');
-        }
-      } else if (window.SemanticGrouper && typeof window.SemanticGrouper.quickMatch === 'function') {
-        const matched = window.SemanticGrouper.quickMatch(String(userQuestion || ''), groups);
-        if (matched && matched.length > 0) {
-          candidates = matched.slice(0, 12);
-          console.log('[multiHopRetrieve] 使用关键词匹配获取候选意群');
-        }
-      }
-    } catch (e) {
-      console.warn('[multiHopRetrieve] 候选意群匹配失败，使用前12个:', e);
-    }
-
-    const fetched = new Map(); // groupId -> {granularity, text}
-    const detail = [];
-    let contextParts = [];
-    const gist = (window.data && window.data.semanticDocGist) ? window.data.semanticDocGist : '';
-
-    for (let round = 0; round < maxRounds; round++) {
-      const listText = candidates.map(g => {
-        const struct = g.structure || {};
-        const parts = [`【${g.groupId}】 ${g.charCount || 0}字`];
-        if (g.keywords && g.keywords.length > 0) parts.push(`关键词: ${g.keywords.join('、')}`);
-        if (struct.figures && struct.figures.length > 0) parts.push(`包含图: ${struct.figures.join('; ')}`);
-        if (struct.tables && struct.tables.length > 0) parts.push(`包含表: ${struct.tables.join('; ')}`);
-        if (struct.sections && struct.sections.length > 0) parts.push(`章节: ${struct.sections.join('; ')}`);
-        if (struct.keyPoints && struct.keyPoints.length > 0) parts.push(`要点: ${struct.keyPoints.join('; ')}`);
-        if (g.summary) parts.push(`摘要: ${g.summary}`);
-        return parts.join('\\n');
-      }).join('\\n\\n');
-      const fetchedList = Array.from(fetched.keys()).join(', ') || '无';
-      const sys = `你是检索规划助手。你可以调用以下工具，按需多轮取材：
-
-工具定义(JSON)：
-- {"tool":"vector_search","args":{"query":"...","limit":5}} -> 向量语义搜索，在文档的所有原始chunks中搜索，返回最相关的chunks（每个chunk 1500-3000字）
-- {"tool":"keyword_search","args":{"keywords":["关键词1","关键词2"],"limit":3}} -> 关键词精确匹配，在所有chunks中搜索，返回包含这些关键词的chunks
-- {"tool":"fetch_group","args":{"groupId":"group-1","granularity":"summary|digest|full"}} -> 获取指定意群的内容（意群是多个chunks的聚合，5000字）
-
-重要说明：
-1. 【候选意群列表】提供了文档的完整结构地图，包括每个意群的摘要、图表、章节信息，帮助你建立全局视角。
-2. 【务必使用vector_search或keyword_search】来精确定位相关内容，不要依赖意群摘要判断。
-3. vector_search和keyword_search返回的是原始chunks（1500-3000字），比意群更精确。
-4. 如果需要更完整的上下文，可以根据chunk的belongsToGroup字段，使用fetch_group获取完整意群。
-
-规划规则：
-1. 第一轮必须使用vector_search或keyword_search进行搜索，不能直接fetch_group。
-2. vector_search用于语义相似搜索，keyword_search用于精确术语匹配。
-3. 根据问题性质选择合适的检索工具，也可以同时使用多个工具。
-4. 只有在你已经获取到足够的上下文后，才设置 "final": true。
-
-返回格式(JSON-only)：
-{"operations":[{"tool":"vector_search", "args":{...}}, {"tool":"keyword_search", "args":{...}}, {"tool":"fetch_group", "args":{...}}], "final": false}
-不要输出解释文字。`;
-      const content = `文档总览:\n${gist}\n\n用户问题:\n${String(userQuestion || '')}\n\n候选意群:\n${listText}\n\n已获取意群: ${fetchedList}`;
-      const apiKey = config.apiKey;
-      const out = await singleChunkSummary(sys, content, config, apiKey);
-      let plan;
-      try {
-      const cleaned = out
-        .replace(/```jsonc?|```tool|```/gi,'')
-        .replace(/[\u0000-\u001f]/g, ' ')
-        .trim();
-      if (!cleaned) {
-        console.warn('[multiHopRetrieve] 规划输出为空，结束多轮');
-        break;
-      }
-      try {
-        plan = JSON.parse(cleaned);
-      } catch (parseErr) {
-        let normalized = cleaned;
-        normalized = normalized
-          .replace(/"\s+([\w-]+)"\s*:/g, '"$1":')
-          .replace(/"\s+final"/gi, '"final"')
-          .replace(/"operations"\s*"/i, '"operations":')
-          .replace(/"\s+([\w-]+)"\s+"/g, '"$1":')
-          .replace(/,\s*}/g, '}')
-          .replace(/,\s*]/g, ']')
-          .replace(/\s+/g, ' ')
-          .trim();
-        plan = JSON.parse(normalized);
-      }
-      try {
-        console.log('[multiHopRetrieve] plan', plan);
-        window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.log({
-          tool: 'planner',
-          args: { operations: plan.operations || [], final: plan.final },
-          result: '已解析'
-        });
-      } catch(_) {}
-      } catch (e) {
-        console.warn('[multiHopRetrieve] 解析计划失败，将使用后备策略:', e, out);
-        const fallback = buildFallbackSemanticContext(userQuestion, groups);
-        if (fallback) {
-          try {
-            console.log('[multiHopRetrieve] fallbackContext', fallback);
-            window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.log({
-              tool: 'fallback',
-              args: { reason: 'parse-error' },
-              result: fallback.context
-            });
-          } catch(_) {}
-          return fallback;
-        }
-        break;
-      }
-      const ops = Array.isArray(plan.operations) ? plan.operations : [];
-      if (ops.length === 0) {
-        console.warn('[multiHopRetrieve] 规划无操作，使用后备策略');
-        const fallback = buildFallbackSemanticContext(userQuestion, groups);
-        if (fallback) {
-          try {
-            console.log('[multiHopRetrieve] fallbackContext', fallback);
-            window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.log({
-              tool: 'fallback',
-              args: { reason: 'empty-ops' },
-              result: fallback.context
-            });
-          } catch(_) {}
-          return fallback;
-        }
-        break;
-      }
-
-      // 执行工具
-      for (const op of ops) {
-        try {
-          if (op.tool === 'vector_search' && op.args) {
-            // 向量语义搜索chunks
-            const query = String(op.args.query || userQuestion);
-            const limit = Math.min(Number(op.args.limit) || 5, 12);
-
-            if (window.SemanticVectorSearch && window.EmbeddingClient?.config?.enabled) {
-              window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.log({ tool: 'vector_search', args: op.args, result: '执行中…' });
-              const chunks = window.data?.enrichedChunks || [];
-              const res = await window.SemanticVectorSearch.search(query, chunks, {
-                topK: limit,
-                threshold: 0.3
-              });
-
-              if (Array.isArray(res) && res.length) {
-                // 将完整chunk文本加入上下文
-                res.forEach(r => {
-                  const chunkKey = r.chunkId;
-                  if (!fetched.has(chunkKey)) {
-                    fetched.set(chunkKey, { granularity: 'chunk', text: r.text });
-                    detail.push({ chunkId: r.chunkId, belongsToGroup: r.belongsToGroup });
-                    contextParts.push(`【${r.chunkId} (属于${r.belongsToGroup})】\n${r.text}`);
-                  }
-                });
-                window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.updateLastResult(JSON.stringify(res.slice(0,3).map(r => ({
-                  chunkId: r.chunkId,
-                  belongsToGroup: r.belongsToGroup,
-                  score: r.score,
-                  preview: r.text.substring(0, 100)
-                })), null, 2));
-              }
-            }
-          } else if (op.tool === 'keyword_search' && op.args) {
-            // 关键词精确匹配
-            const keywords = Array.isArray(op.args.keywords) ? op.args.keywords : [String(op.args.keywords || '')];
-            const limit = Math.min(Number(op.args.limit) || 3, 12);
-
-            if (window.SemanticBM25Search) {
-              window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.log({ tool: 'keyword_search', args: op.args, result: '执行中…' });
-              const chunks = window.data?.enrichedChunks || [];
-              const query = keywords.join(' ');
-              const res = window.SemanticBM25Search.searchChunks(query, chunks, {
-                topK: limit,
-                threshold: 0.1
-              });
-
-              if (Array.isArray(res) && res.length) {
-                res.forEach(r => {
-                  const chunkKey = r.chunkId;
-                  if (!fetched.has(chunkKey)) {
-                    fetched.set(chunkKey, { granularity: 'chunk', text: r.text });
-                    detail.push({ chunkId: r.chunkId, belongsToGroup: r.belongsToGroup });
-                    contextParts.push(`【${r.chunkId} (属于${r.belongsToGroup})】\n${r.text}`);
-                  }
-                });
-                window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.updateLastResult(JSON.stringify(res.slice(0,3).map(r => ({
-                  chunkId: r.chunkId,
-                  belongsToGroup: r.belongsToGroup,
-                  preview: r.text.substring(0, 100),
-                  matchedKeywords: keywords.filter(kw => r.text.includes(kw))
-                })), null, 2));
-              }
-            }
-          } else if (op.tool === 'search_groups' && op.args && typeof window.SemanticTools?.searchGroups === 'function') {
-            window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.log({ tool: 'search_groups', args: op.args, result: '执行中…' });
-            const res = window.SemanticTools.searchGroups(String(op.args.query || userQuestion), Math.min(Number(op.args.limit)||5, 12));
-            if (Array.isArray(res) && res.length) {
-              const idSet = new Set(res.map(r => r.groupId));
-              const map = new Map(groups.map(g => [g.groupId, g]));
-              // 重排候选：先把命中放前面，再拼其他
-              const hit = res.map(r => map.get(r.groupId)).filter(Boolean);
-              const others = groups.filter(g => !idSet.has(g.groupId));
-              candidates = [...hit, ...others].slice(0, 12);
-              window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.updateLastResult(JSON.stringify(res.slice(0,3), null, 2));
-            }
-          } else if (op.tool === 'find' && op.args && typeof window.SemanticTools?.findInGroups === 'function') {
-            window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.log({ tool: 'find', args: op.args, result: '执行中…' });
-            const res = window.SemanticTools.findInGroups(String(op.args.query || userQuestion), String(op.args.scope || 'digest'), Math.min(Number(op.args.limit)||5, 12));
-            if (Array.isArray(res) && res.length) {
-              const idSet = new Set(res.map(r => r.groupId));
-              const map = new Map(groups.map(g => [g.groupId, g]));
-              const hit = res.map(r => map.get(r.groupId)).filter(Boolean);
-              const others = groups.filter(g => !idSet.has(g.groupId));
-              candidates = [...hit, ...others].slice(0, 12);
-              // 将片段加入上下文（snippet）
-              window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.updateLastResult(JSON.stringify(res.slice(0,3), null, 2));
-              res.forEach(r => {
-                if (r.snippet && !fetched.has(r.groupId)) {
-                  // 仅作为提示，不计入 detail 的 granularity
-                  contextParts.push(`【${r.groupId} - snippet(${r.scope})】\n${r.snippet.slice(0, 400)}`);
-                }
-              });
-            }
-          } else if (op.tool === 'fetch_group' && op.args && typeof window.SemanticTools?.fetchGroupText === 'function') {
-            const id = op.args.groupId;
-            const gran = (op.args.granularity || 'digest');
-            if (!fetched.has(id)) {
-              window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.log({ tool: 'fetch_group', args: op.args, result: '执行中…' });
-              const res = window.SemanticTools.fetchGroupText(id, gran);
-              if (res && res.text) {
-                fetched.set(id, { granularity: res.granularity, text: res.text });
-                detail.push({ groupId: id, granularity: res.granularity });
-                contextParts.push(`【${id} - ${res.granularity}】\n${res.text}`);
-                window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.updateLastResult(res.text);
-              }
-            }
-          }
-        } catch (e) {
-          console.warn('[multiHopRetrieve] 执行工具失败:', op, e);
-        }
-      }
-
-      if (plan.final === true) break;
-    }
-
-    if (contextParts.length === 0) {
-      const fallback = buildFallbackSemanticContext(userQuestion, groups);
-      if (fallback) {
-        try {
-          console.log('[multiHopRetrieve] fallbackContext', fallback);
-          window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.log({
-            tool: 'fallback',
-            args: { reason: 'empty-context' },
-            result: fallback.context
-          });
-        } catch(_) {}
-      }
-      return fallback;
-    }
-    const selectedContext = contextParts.join('\n\n');
-    window.ChatbotToolTraceUI && window.ChatbotToolTraceUI.log({
-      tool: 'context',
-      args: { groups: detail.map(d => d.groupId) },
-      result: selectedContext
-    });
-    return { groups: detail.map(d => d.groupId), granularity: 'mixed', detail, context: selectedContext };
-  } catch (e) {
-    console.warn('[ChatbotCore] multiHopRetrieve 失败：', e);
-    return null;
-  }
-}
-
 function buildFallbackSemanticContext(userQuestion, groups) {
   try {
     if (!Array.isArray(groups) || groups.length === 0) return null;

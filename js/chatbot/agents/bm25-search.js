@@ -20,7 +20,7 @@
     }
 
     /**
-     * 中文分词（简单实现）
+     * 中文分词（n-gram + 完整词保留）
      * @param {string} text - 待分词文本
      * @returns {Array<string>} 词语数组
      */
@@ -30,15 +30,23 @@
       // 移除标点符号
       const cleaned = text.replace(/[，。！？；：、""''（）《》【】\s]+/g, ' ');
 
-      // 中文按字符分词，英文按单词分词
       const tokens = [];
 
-      // 提取中文字符（2-gram，提升召回率）
+      // 处理中文：生成2-gram, 3-gram, 和单字
       const chineseChars = cleaned.match(/[\u4e00-\u9fa5]/g) || [];
+
+      // 2-gram（如"雷曼"）
       for (let i = 0; i < chineseChars.length - 1; i++) {
-        tokens.push(chineseChars[i] + chineseChars[i + 1]); // 2-gram
+        tokens.push(chineseChars[i] + chineseChars[i + 1]);
       }
-      tokens.push(...chineseChars); // 单字也保留
+
+      // 3-gram（如"雷曼公"、"曼公司"）
+      for (let i = 0; i < chineseChars.length - 2; i++) {
+        tokens.push(chineseChars[i] + chineseChars[i + 1] + chineseChars[i + 2]);
+      }
+
+      // 单字（兜底）
+      tokens.push(...chineseChars);
 
       // 提取英文单词（转小写）
       const englishWords = cleaned.match(/[a-zA-Z]+/g) || [];
@@ -48,8 +56,9 @@
       const numbers = cleaned.match(/\d+/g) || [];
       tokens.push(...numbers);
 
-      // 去重
-      return [...new Set(tokens)];
+      // 不去重：保留重复以反映真实词频（TF）
+      // 若需限制内存，可在此处做频次上限截断（例如每词最多计数 N 次）
+      return tokens;
     }
 
     /**
@@ -109,6 +118,14 @@
       // digest（权重正常）
       if (group.digest) {
         parts.push(group.digest.slice(0, 1000)); // 取前1000字
+      }
+
+      // 正文兜底：优先使用 text，其次 fullText（较低权重，单次加入）
+      // 在 chunks 索引中，text 即为 chunk 正文；在意群中 fullText 为整段内容
+      if (group.text && typeof group.text === 'string' && group.text.length > 0) {
+        parts.push(group.text.slice(0, 1200));
+      } else if (group.fullText && typeof group.fullText === 'string' && group.fullText.length > 0) {
+        parts.push(group.fullText.slice(0, 1200));
       }
 
       return parts.join(' ');
@@ -225,6 +242,112 @@
     }
 
     /**
+     * 关键词精确搜索（使用n-gram分词+短语匹配加权）
+     * @param {Array<string>} keywords - 关键词数组
+     * @param {number} topK - 返回结果数
+     * @param {number} threshold - 最低分数阈值
+     * @returns {Array<{id: string, score: number, metadata: Object}>}
+     */
+    searchKeywords(keywords, topK = 5, threshold = 0) {
+      if (!this.index || this.documents.length === 0) {
+        console.warn('[BM25Search] 索引未构建');
+        return [];
+      }
+
+      if (!Array.isArray(keywords) || keywords.length === 0) {
+        console.warn('[BM25Search] 关键词为空');
+        return [];
+      }
+
+      const originalKeywords = keywords.filter(kw => kw && typeof kw === 'string' && kw.trim());
+
+      // 对每个关键词生成n-gram查询词
+      const queryTerms = keywords.flatMap(kw => {
+        if (!kw || typeof kw !== 'string') return [];
+        const cleaned = kw.trim();
+        if (!cleaned) return [];
+
+        const terms = [];
+
+        // 提取中文部分，生成2-gram和3-gram
+        const chineseChars = cleaned.match(/[\u4e00-\u9fa5]/g) || [];
+
+        if (chineseChars.length > 0) {
+          // 2-gram
+          for (let i = 0; i < chineseChars.length - 1; i++) {
+            terms.push(chineseChars[i] + chineseChars[i + 1]);
+          }
+
+          // 3-gram
+          for (let i = 0; i < chineseChars.length - 2; i++) {
+            terms.push(chineseChars[i] + chineseChars[i + 1] + chineseChars[i + 2]);
+          }
+
+          // 单字
+          terms.push(...chineseChars);
+        }
+
+        // 提取英文部分（转小写）
+        const englishMatches = cleaned.match(/[a-zA-Z]+/g) || [];
+        terms.push(...englishMatches.map(w => w.toLowerCase()));
+
+        // 提取数字部分
+        const numberMatches = cleaned.match(/\d+/g) || [];
+        terms.push(...numberMatches);
+
+        return terms;
+      });
+
+      if (queryTerms.length === 0) {
+        console.warn('[BM25Search] 关键词处理后为空');
+        return [];
+      }
+
+      console.log(`[BM25Search-Keywords] 原始关键词: ${originalKeywords.join(', ')}`);
+      console.log(`[BM25Search-Keywords] 分词后查询词(前10个): ${[...new Set(queryTerms)].slice(0, 10).join(', ')}${queryTerms.length > 10 ? '...' : ''}`);
+
+      // 计算所有文档的BM25分数
+      const scores = this.documents.map((doc, docIndex) => {
+        const bm25Score = this.calculateBM25Score(docIndex, queryTerms);
+
+        // 短语匹配加权：检查原文是否包含完整关键词
+        let phraseBoost = 1.0;
+        for (const keyword of originalKeywords) {
+          if (doc.text.includes(keyword)) {
+            phraseBoost *= 3.0; // 包含完整短语，分数×3.0
+          }
+        }
+
+        return {
+          id: doc.id,
+          score: bm25Score * phraseBoost,
+          metadata: doc.metadata,
+          _phraseBoost: phraseBoost // 用于debug
+        };
+      });
+
+      // 过滤低分结果
+      const filtered = scores.filter(s => s.score > threshold);
+
+      // 排序并返回topK
+      filtered.sort((a, b) => b.score - a.score);
+
+      const results = filtered.slice(0, topK);
+
+      if (results.length > 0) {
+        const boostedCount = results.filter(r => r._phraseBoost > 1).length;
+        console.log(`[BM25Search-Keywords] 返回 ${results.length} 个结果，分数范围: ${results[0]?.score.toFixed(3)} - ${results[results.length - 1]?.score.toFixed(3)}${boostedCount > 0 ? ` (${boostedCount}个短语加权)` : ''}`);
+      } else {
+        console.log(`[BM25Search-Keywords] 未找到匹配结果`);
+      }
+
+      // 移除debug字段
+      results.forEach(r => delete r._phraseBoost);
+
+      return results;
+    }
+
+    /**
      * 获取索引统计信息
      */
     getStats() {
@@ -322,6 +445,76 @@
             return {
               ...chunk,
               score: r.score
+            };
+          }
+          return null;
+        })
+        .filter(Boolean);
+
+      return matchedChunks;
+    }
+
+    /**
+     * 关键词精确搜索chunks（返回完整chunk对象，不做n-gram拆分）
+     */
+    searchChunksKeywords(keywords, chunks, options = {}) {
+      const { topK = 10, threshold = 0.0 } = options; // 放宽阈值，尽量召回
+
+      // 即时短语优先匹配（无需索引）：直接在 chunk 文本里找完整关键词
+      const normalizedKeywords = (Array.isArray(keywords) ? keywords : [String(keywords || '')])
+        .map(k => (k || '').trim())
+        .filter(Boolean);
+
+      const phraseHits = [];
+      if (normalizedKeywords.length > 0 && Array.isArray(chunks)) {
+        for (const chunk of chunks) {
+          const text = String(chunk.text || '');
+          if (!text) continue;
+          const matched = normalizedKeywords.filter(kw => kw && text.includes(kw));
+          if (matched.length > 0) {
+            // 简单打分：完整短语优先，按匹配个数和最早出现位置加权
+            const firstPos = Math.min(...matched.map(kw => Math.max(0, text.indexOf(kw))));
+            const score = 1000 + matched.length * 10 - Math.floor(firstPos / 50);
+            phraseHits.push({
+              ...chunk,
+              score,
+              _matchedKeywords: matched
+            });
+          }
+        }
+
+        phraseHits.sort((a, b) => b.score - a.score);
+      }
+
+      // 若短语命中已有足量结果，优先返回
+      if (phraseHits.length > 0) {
+        return phraseHits.slice(0, topK).map(hit => ({
+          ...hit,
+          matchedKeywords: hit._matchedKeywords
+        }));
+      }
+
+      // 短语无命中则走 BM25（需要索引）
+      if (!this.bm25.index || this.bm25.documents.length === 0) {
+        console.warn('[SemanticBM25Search] 索引未建立，现在建立...');
+        const docId = this.getCurrentDocId();
+        this.indexChunks(chunks, docId);
+      }
+
+      const results = this.bm25.searchKeywords(normalizedKeywords, topK, threshold);
+
+      const chunkMap = new Map(chunks.map(c => [c.chunkId, c]));
+      const matchedChunks = results
+        .map(r => {
+          const chunk = chunkMap.get(r.id);
+          if (chunk) {
+            // 标注匹配关键词（便于UI展示）
+            const text = String(chunk.text || '');
+            const matched = normalizedKeywords.filter(kw => kw && text.includes(kw));
+            return {
+              ...chunk,
+              score: r.score,
+              matchedKeywords: matched
             };
           }
           return null;

@@ -24,69 +24,69 @@ window.currentVisibleTabId = null; // 将变量挂载到 window 对象上，使�
 
 // NEW FUNCTION DEFINITION
 function getCurrentScrollableElementForHistoryDetail() {
-    console.log(`[getCurrentScrollableElementForHistoryDetail] 开始查找可滚动元素, 沉浸模式=${window.ImmersiveLayout && window.ImmersiveLayout.isActive() ? '是' : '否'}`);
+    // console.log(`[getCurrentScrollableElementForHistoryDetail] 开始查找可滚动元素, 沉浸模式=${window.ImmersiveLayout && window.ImmersiveLayout.isActive() ? '是' : '否'}`);
 
     if (window.ImmersiveLayout && window.ImmersiveLayout.isActive()) {
         const immersiveMainArea = document.getElementById('immersive-main-content-area');
-        console.log(`[getCurrentScrollableElementForHistoryDetail] 找到immersiveMainArea:`, immersiveMainArea ? true : false);
+        // console.log(`[getCurrentScrollableElementForHistoryDetail] 找到immersiveMainArea:`, immersiveMainArea ? true : false);
 
         if (immersiveMainArea) {
             // Try to find the specific, scrollable tab content area first
             const tabContentScroller = immersiveMainArea.querySelector('.tab-content[style*="overflow-y: auto"], .tab-content[style*="overflow: auto"]');
-            console.log(`[getCurrentScrollableElementForHistoryDetail] 尝试查找tabContentScroller:`, tabContentScroller ? {
-                id: tabContentScroller.id || '无ID',
-                className: tabContentScroller.className || '无类名',
-                overflowY: tabContentScroller.style.overflowY,
-                overflow: tabContentScroller.style.overflow,
-                computedOverflowY: window.getComputedStyle(tabContentScroller).overflowY
-            } : '未找到');
+            // console.log(`[getCurrentScrollableElementForHistoryDetail] 尝试查找tabContentScroller:`, tabContentScroller ? {
+            //     id: tabContentScroller.id || '无ID',
+            //     className: tabContentScroller.className || '无类名',
+            //     overflowY: tabContentScroller.style.overflowY,
+            //     overflow: tabContentScroller.style.overflow,
+            //     computedOverflowY: window.getComputedStyle(tabContentScroller).overflowY
+            // } : '未找到');
 
             if (tabContentScroller) return tabContentScroller;
 
             // Fallback: look for a .content-wrapper or .chunk-compare-container within .tab-content
             const activeTabContentBlock = immersiveMainArea.querySelector('.tab-content .content-wrapper, .tab-content .chunk-compare-container');
-            console.log(`[getCurrentScrollableElementForHistoryDetail] 尝试查找activeTabContentBlock:`, activeTabContentBlock ? {
-                id: activeTabContentBlock.id || '无ID',
-                className: activeTabContentBlock.className || '无类名'
-            } : '未找到');
+            // console.log(`[getCurrentScrollableElementForHistoryDetail] 尝试查找activeTabContentBlock:`, activeTabContentBlock ? {
+            //     id: activeTabContentBlock.id || '无ID',
+            //     className: activeTabContentBlock.className || '无类名'
+            // } : '未找到');
 
             if (activeTabContentBlock) {
                 // It might be that the .tab-content itself is the designated scroller
                 const parentTabContent = activeTabContentBlock.closest('.tab-content');
-                console.log(`[getCurrentScrollableElementForHistoryDetail] 尝试查找parentTabContent:`, parentTabContent ? {
-                    id: parentTabContent.id || '无ID',
-                    className: parentTabContent.className || '无类名',
-                    overflowY: parentTabContent.style.overflowY,
-                    overflow: parentTabContent.style.overflow,
-                    computedOverflowY: window.getComputedStyle(parentTabContent).overflowY
-                } : '未找到');
+                // console.log(`[getCurrentScrollableElementForHistoryDetail] 尝试查找parentTabContent:`, parentTabContent ? {
+                //     id: parentTabContent.id || '无ID',
+                //     className: parentTabContent.className || '无类名',
+                //     overflowY: parentTabContent.style.overflowY,
+                //     overflow: parentTabContent.style.overflow,
+                //     computedOverflowY: window.getComputedStyle(parentTabContent).overflowY
+                // } : '未找到');
 
                 if (parentTabContent && (parentTabContent.style.overflowY === 'auto' || parentTabContent.style.overflow === 'auto' ||
                                        window.getComputedStyle(parentTabContent).overflowY === 'auto')) {
-                    console.log(`[getCurrentScrollableElementForHistoryDetail] 返回parentTabContent作为滚动元素`);
+                    // console.log(`[getCurrentScrollableElementForHistoryDetail] 返回parentTabContent作为滚动元素`);
                     return parentTabContent;
                 }
-                console.log(`[getCurrentScrollableElementForHistoryDetail] 返回activeTabContentBlock作为滚动元素`);
+                // console.log(`[getCurrentScrollableElementForHistoryDetail] 返回activeTabContentBlock作为滚动元素`);
                 return activeTabContentBlock; // Fallback to the content wrapper itself if .tab-content isn't the scroller
             }
             // Fallback to the general .container if present inside immersive main area
             const containerInImmersive = immersiveMainArea.querySelector('.container');
-            console.log(`[getCurrentScrollableElementForHistoryDetail] 尝试查找containerInImmersive:`, containerInImmersive ? {
-                id: containerInImmersive.id || '无ID',
-                className: containerInImmersive.className || '无类名'
-            } : '未找到');
+            // console.log(`[getCurrentScrollableElementForHistoryDetail] 尝试查找containerInImmersive:`, containerInImmersive ? {
+            //     id: containerInImmersive.id || '无ID',
+            //     className: containerInImmersive.className || '无类名'
+            // } : '未找到');
 
             if(containerInImmersive) {
-                console.log(`[getCurrentScrollableElementForHistoryDetail] 返回containerInImmersive作为滚动元素`);
+                // console.log(`[getCurrentScrollableElementForHistoryDetail] 返回containerInImmersive作为滚动元素`);
                 return containerInImmersive;
             }
 
-            console.log(`[getCurrentScrollableElementForHistoryDetail] 返回immersiveMainArea作为滚动元素`);
+            // console.log(`[getCurrentScrollableElementForHistoryDetail] 返回immersiveMainArea作为滚动元素`);
             return immersiveMainArea; // Last fallback for immersive mode
         }
     }
     // Default to document.documentElement when not in immersive mode or if specific elements aren't found
-    console.log(`[getCurrentScrollableElementForHistoryDetail] 返回document.documentElement作为滚动元素`);
+    // console.log(`[getCurrentScrollableElementForHistoryDetail] 返回document.documentElement作为滚动元素`);
     return document.documentElement;
 }
 
@@ -216,25 +216,25 @@ function saveScrollPosition() {
     if (bestAnchorId) {
         const anchorKey = `scrollAnchorId_${modePrefix}${docIdForLocalStorage}_${currentVisibleTabId}`;
         localStorage.setItem(anchorKey, bestAnchorId);
-        console.log(`[saveScrollPosition] 保存滚动锚点: ${anchorKey} = ${bestAnchorId}`);
+        // console.log(`[saveScrollPosition] 保存滚动锚点: ${anchorKey} = ${bestAnchorId}`);
     } else {
         const anchorKey = `scrollAnchorId_${modePrefix}${docIdForLocalStorage}_${currentVisibleTabId}`;
         localStorage.removeItem(anchorKey); // 如果没有合适的锚点，清除旧的
-        console.log(`[saveScrollPosition] 未找到合适锚点，清除旧锚点 (如有): ${anchorKey}`);
+        // console.log(`[saveScrollPosition] 未找到合适锚点，清除旧锚点 (如有): ${anchorKey}`);
     }
 
-    console.log(`[saveScrollPosition] 保存滚动位置: ${scrollKey} = ${scrollableElement.scrollTop}, 元素: ${scrollableElement.tagName}, 模式: ${isImmersive ? '沉浸式' : '普通'}`, {
-      元素ID: scrollableElement.id || '无ID',
-      元素类名: scrollableElement.className || '无类名',
-      元素标签: scrollableElement.tagName,
-      scrollTop: scrollableElement.scrollTop,
-      scrollHeight: scrollableElement.scrollHeight,
-      clientHeight: scrollableElement.clientHeight,
-      maxScrollTop: scrollableElement.scrollHeight - scrollableElement.clientHeight,
-      scrollPercent: ((scrollableElement.scrollTop / (scrollableElement.scrollHeight - scrollableElement.clientHeight)) * 100).toFixed(2) + '%',
-      路径: getElementPath(scrollableElement),
-      锚点ID: bestAnchorId
-    });
+    // console.log(`[saveScrollPosition] 保存滚动位置: ${scrollKey} = ${scrollableElement.scrollTop}, 元素: ${scrollableElement.tagName}, 模式: ${isImmersive ? '沉浸式' : '普通'}`, {
+    //   元素ID: scrollableElement.id || '无ID',
+    //   元素类名: scrollableElement.className || '无类名',
+    //   元素标签: scrollableElement.tagName,
+    //   scrollTop: scrollableElement.scrollTop,
+    //   scrollHeight: scrollableElement.scrollHeight,
+    //   clientHeight: scrollableElement.clientHeight,
+    //   maxScrollTop: scrollableElement.scrollHeight - scrollableElement.clientHeight,
+    //   scrollPercent: ((scrollableElement.scrollTop / (scrollableElement.scrollHeight - scrollableElement.clientHeight)) * 100).toFixed(2) + '%',
+    //   路径: getElementPath(scrollableElement),
+    //   锚点ID: bestAnchorId
+    // });
   } else {
     console.warn(`[saveScrollPosition] 未找到可滚动元素，无法保存滚动位置`);
   }

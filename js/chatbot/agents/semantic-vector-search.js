@@ -134,16 +134,39 @@
         throw new Error('向量搜索未初始化');
       }
 
-      // 检查是否已索引
-      if (this.indexedDocs.has(docId) && !forceRebuild) {
-        console.log(`[SemanticVectorSearch] 文档 ${docId} 已建立索引，跳过`);
-        return;
-      }
-
       // 创建或获取VectorStore
       if (!this.vectorStore || this.vectorStore.namespace !== docId) {
         this.vectorStore = new window.VectorStore(docId);
         await this.vectorStore.init();
+      }
+
+      // 检查IndexedDB中是否已有向量（而不是仅检查内存）
+      if (!forceRebuild) {
+        try {
+          await this.vectorStore.loadMemoryIndex();
+          const existingCount = this.vectorStore.memoryIndex?.length || 0;
+
+          // 如果向量数量匹配，说明已索引，直接使用
+          if (existingCount === chunks.length) {
+            console.log(`[SemanticVectorSearch] 文档 ${docId} 已有 ${existingCount} 个向量缓存，直接使用`);
+            this.indexedDocs.add(docId);
+
+            if (window.data) {
+              window.data.vectorIndexReady = true;
+              window.data.vectorIndexTimestamp = Date.now();
+            }
+
+            if (showProgress && window.ChatbotUtils?.showToast) {
+              window.ChatbotUtils.showToast('向量索引已就绪（从缓存加载）', 'success', 2000);
+            }
+
+            return;
+          } else if (existingCount > 0) {
+            console.warn(`[SemanticVectorSearch] 向量数量不匹配（缓存${existingCount}个，当前${chunks.length}个），重新生成`);
+          }
+        } catch (err) {
+          console.warn('[SemanticVectorSearch] 加载向量缓存失败，将重新生成:', err);
+        }
       }
 
       if (showProgress && window.ChatbotUtils?.showToast) {

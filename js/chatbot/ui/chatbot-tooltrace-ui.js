@@ -1,228 +1,728 @@
 // js/chatbot/ui/chatbot-tooltrace-ui.js
+// 工具调用UI - 生成HTML嵌入到AI消息中
 (function(window, document) {
   'use strict';
 
   if (window.ChatbotToolTraceUIScriptLoaded) return;
 
-  var containerId = 'chatbot-tool-trace';
   var stylesInjected = false;
-  var pendingLogs = [];
-  var pendingUpdates = [];
-  var retryTimer = null;
-
-  var STATUS_TEXT = {
-    granularity: { running: '分析问题类型…', done: '粒度策略已确定' },
-    planner: { running: '生成调用指令中…', done: '调用指令生成完成' },
-    'search_groups': { running: '检索候选意群…', done: '已获取候选意群' },
-    find: { running: '获取匹配片段…', done: '匹配片段已返回' },
-    'fetch_group': { running: '提取意群详情…', done: '意群摘要已加入上下文' },
-    fallback: { running: '回退策略执行中…', done: '已生成备用上下文' },
-    context: { running: '汇总上下文…', done: '上下文准备完成' }
-  };
+  var currentStepsHtml = []; // 存储步骤HTML字符串
+  var batchBuffer = null;
+  var batchTimer = null;
+  var isFinished = false;
 
   function injectStyles() {
     if (stylesInjected) return;
     var style = document.createElement('style');
     style.textContent = `
-      .tool-trace-panel {background:rgba(255,255,255,0.94);border:1px solid #e5e7eb;border-radius:16px;box-shadow:0 16px 30px rgba(15,23,42,0.08);margin-bottom:14px;overflow:hidden;backdrop-filter:blur(8px);}
-      .tool-trace-header {display:flex;align-items:center;justify-content:space-between;padding:10px 16px 6px 16px;border-bottom:1px solid rgba(226,232,240,0.6);}
-      .tool-trace-header-title {display:flex;align-items:center;gap:8px;font-weight:600;color:#111827;font-size:13px;letter-spacing:0.01em;}
-      .tool-trace-dot {width:8px;height:8px;border-radius:999px;background:linear-gradient(135deg,#3b82f6,#2563eb);box-shadow:0 0 0 4px rgba(37,99,235,0.18);display:inline-block;}
-      .tool-trace-actions {display:flex;align-items:center;gap:6px;}
-      .tool-trace-actions button {border:none;background:none;color:#2563eb;font-size:12px;font-weight:500;cursor:pointer;padding:4px 8px;border-radius:6px;transition:all 0.2s;}
-      .tool-trace-actions button:hover {background:rgba(37,99,235,0.12);}
-      .tool-trace-actions button[data-role="collapse"] span {display:inline-block;transition:transform 0.2s ease;}
-      .tool-trace-panel.collapsed .tool-trace-actions button[data-role="collapse"] span {transform:rotate(180deg);}
-      .tool-trace-panel.collapsed .tool-trace-body {display:none;}
-      .tool-trace-body {padding:12px 14px 16px 16px;display:flex;flex-direction:column;gap:10px;max-height:220px;overflow-y:auto;}
-      .tool-trace-body::-webkit-scrollbar {width:6px;}
-      .tool-trace-body::-webkit-scrollbar-thumb {background:rgba(148,163,184,0.5);border-radius:999px;}
-      .tool-trace-status {border-radius:12px;border:1px solid rgba(226,232,240,0.9);background:rgba(248,250,252,0.9);box-shadow:0 4px 10px rgba(15,23,42,0.05);padding:10px 12px;transition:background 0.2s ease,border 0.2s ease;}
-      .tool-trace-status.running {border-left:3px solid #3b82f6;}
-      .tool-trace-status.done {border-left:3px solid #10b981;background:rgba(240,253,244,0.9);}
-      .tool-trace-status-head {display:flex;align-items:center;justify-content:space-between;gap:8px;}
-      .tool-trace-badge {display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:#0f172a;}
-      .tool-trace-badge .dot {width:6px;height:6px;border-radius:999px;background:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,0.18);display:inline-block;}
-      .tool-trace-status.done .tool-trace-badge .dot {background:#10b981;box-shadow:0 0 0 3px rgba(16,185,129,0.2);}
-      .tool-trace-toggle {border:none;background:none;color:#2563eb;font-size:11px;cursor:pointer;padding:2px 6px;border-radius:6px;transition:background 0.2s;}
-      .tool-trace-toggle:hover {background:rgba(37,99,235,0.12);}
-      .tool-trace-detail {margin-top:6px;border-radius:8px;background:#f1f5f9;padding:8px;font-size:11px;color:#0f172a;white-space:pre-wrap;word-break:break-word;border:1px solid rgba(226,232,240,0.9);display:none;}
-      .tool-trace-status.open .tool-trace-detail {display:block;}
+      /* 工具调用思考块 - 匹配AI消息风格 */
+      .tool-thinking-block {
+        background: linear-gradient(90deg, #f8fafc 80%, #f1f5f9 100%);
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        margin-bottom: 14px;
+        margin-top: 24px;
+        overflow: hidden;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+        transition: all 0.2s;
+      }
+
+      .tool-thinking-block.collapsed .tool-thinking-body {
+        display: none;
+      }
+
+      /* 头部 */
+      .tool-thinking-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        cursor: pointer;
+        user-select: none;
+        transition: background 0.2s;
+      }
+
+      .tool-thinking-header:hover {
+        background: rgba(226, 232, 240, 0.5);
+      }
+
+      .tool-thinking-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        color: #64748b;
+      }
+
+      .tool-thinking-icon {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #10b981;
+        box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+      }
+
+      .tool-thinking-icon.running {
+        background: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+        animation: pulse-icon 2s ease-in-out infinite;
+      }
+
+      @keyframes pulse-icon {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+
+      .tool-thinking-toggle {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        color: #94a3b8;
+      }
+
+      .tool-thinking-toggle .toggle-arrow {
+        transition: transform 0.2s;
+        display: inline-block;
+      }
+
+      .tool-thinking-block.collapsed .tool-thinking-toggle .toggle-arrow {
+        transform: rotate(-90deg);
+      }
+
+      /* 内容区 */
+      .tool-thinking-body {
+        padding: 0 16px 12px 16px;
+        max-height: 300px;
+        overflow-y: auto;
+      }
+
+      .tool-thinking-body::-webkit-scrollbar {
+        width: 5px;
+      }
+
+      .tool-thinking-body::-webkit-scrollbar-thumb {
+        background: rgba(148, 163, 184, 0.3);
+        border-radius: 3px;
+      }
+
+      /* 步骤项 */
+      .tool-step {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 8px;
+        padding: 8px 10px;
+        background: white;
+        border-radius: 6px;
+        border-left: 2px solid transparent;
+        transition: all 0.15s;
+        font-size: 12px;
+      }
+
+      .tool-step:hover {
+        background: #fafafa;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      }
+
+      .tool-step.running {
+        border-left-color: #3b82f6;
+        background: rgba(239, 246, 255, 0.4);
+      }
+
+      .tool-step.done {
+        border-left-color: #10b981;
+        background: rgba(240, 253, 244, 0.3);
+      }
+
+      .tool-step.error {
+        border-left-color: #ef4444;
+        background: rgba(254, 242, 242, 0.3);
+      }
+
+      .tool-step-indicator {
+        flex-shrink: 0;
+        width: 18px;
+        height: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #64748b;
+      }
+
+      .tool-step.running .tool-step-indicator {
+        color: #3b82f6;
+      }
+
+      .tool-step.done .tool-step-indicator {
+        color: #10b981;
+      }
+
+      .tool-step.error .tool-step-indicator {
+        color: #ef4444;
+      }
+
+      .tool-step-indicator svg {
+        width: 13px;
+        height: 13px;
+      }
+
+      .tool-step-content {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .tool-step-main {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .tool-step-title {
+        flex: 1;
+        font-weight: 500;
+        color: #334155;
+        font-size: 12px;
+        word-break: break-word;
+        line-height: 1.4;
+      }
+
+      .tool-step-detail-toggle {
+        background: none;
+        border: none;
+        font-size: 10px;
+        color: #94a3b8;
+        cursor: pointer;
+        padding: 2px 5px;
+        border-radius: 3px;
+        transition: all 0.15s;
+      }
+
+      .tool-step-detail-toggle:hover {
+        background: rgba(148, 163, 184, 0.1);
+        color: #64748b;
+      }
+
+      .tool-step-detail {
+        display: none;
+        margin-top: 6px;
+        padding: 6px 8px;
+        background: #f8fafc;
+        border-radius: 4px;
+        font-size: 10px;
+        color: #64748b;
+        white-space: pre-wrap;
+        word-break: break-word;
+        border: 1px solid #e2e8f0;
+      }
+
+      .tool-step.detail-open .tool-step-detail {
+        display: block;
+      }
     `;
     document.head.appendChild(style);
     stylesInjected = true;
   }
 
-  function requestFlush() {
-    if (retryTimer) return;
-    retryTimer = setInterval(function() {
-      var list = ensureContainer();
-      if (!list) return;
-      clearInterval(retryTimer);
-      retryTimer = null;
-      flushPending();
-    }, 400);
-  }
-
-  function ensureContainer() {
-    var listContainer = document.querySelector('#' + containerId + ' .tool-trace-body');
-    if (listContainer) return listContainer;
-
-    var chatArea = document.getElementById('chatbot-main-content-area');
-    if (!chatArea) {
-      requestFlush();
-      return null;
-    }
-
+  /**
+   * 开始新的工具调用会话
+   */
+  function startSession() {
+    // console.log('[ToolTraceUI] startSession 调用');
     injectStyles();
-
-    var panel = document.createElement('div');
-    panel.id = containerId;
-    panel.className = 'tool-trace-panel';
-
-    var header = document.createElement('div');
-    header.className = 'tool-trace-header';
-
-    var titleWrap = document.createElement('div');
-    titleWrap.className = 'tool-trace-header-title';
-    titleWrap.innerHTML = '<span class="tool-trace-dot"></span><span>工具调用</span>';
-
-    var actions = document.createElement('div');
-    actions.className = 'tool-trace-actions';
-
-    var collapseBtn = document.createElement('button');
-    collapseBtn.type = 'button';
-    collapseBtn.dataset.role = 'collapse';
-    collapseBtn.innerHTML = '<span>▼</span>';
-    collapseBtn.addEventListener('click', function() {
-      panel.classList.toggle('collapsed');
-    });
-
-    var clearBtn = document.createElement('button');
-    clearBtn.type = 'button';
-    clearBtn.textContent = '清空';
-    clearBtn.addEventListener('click', clear);
-
-    actions.appendChild(collapseBtn);
-    actions.appendChild(clearBtn);
-
-    header.appendChild(titleWrap);
-    header.appendChild(actions);
-
-    var body = document.createElement('div');
-    body.className = 'tool-trace-body';
-
-    panel.appendChild(header);
-    panel.appendChild(body);
-    chatArea.insertBefore(panel, chatArea.firstChild);
-    return body;
-  }
-
-  function flushPending() {
-    var list = ensureContainer();
-    if (!list) return;
-    if (pendingLogs.length) {
-      var logs = pendingLogs.slice();
-      pendingLogs = [];
-      logs.forEach(function(info) { appendItem(info); });
-    }
-    if (pendingUpdates.length) {
-      var updates = pendingUpdates.slice();
-      pendingUpdates = [];
-      updates.forEach(function(val) { setLastResult(val); });
+    currentStepsHtml = [];
+    isFinished = false;
+    batchBuffer = null;
+    if (batchTimer) {
+      clearTimeout(batchTimer);
+      batchTimer = null;
     }
   }
 
-  function appendItem(info) {
-    info = info || {};
-    info._traceId = info._traceId || ('trace-' + Date.now() + '-' + Math.random().toString(16).slice(2));
+  /**
+   * 添加步骤HTML
+   */
+  function addStepHtml(stepInfo, status) {
+    status = status || 'running';
+    var icon = getStepIcon(stepInfo.tool);
+    var title = getStepTitle(stepInfo);
+    var detail = formatDetail(stepInfo.args || {});
 
-    var list = ensureContainer();
-    if (!list) {
-      pendingLogs.push(info);
-      requestFlush();
-      return;
+    var stepHtml = `
+      <div class="tool-step ${status}">
+        <div class="tool-step-indicator">${icon}</div>
+        <div class="tool-step-content">
+          <div class="tool-step-main">
+            <span class="tool-step-title">${title}</span>
+            <button class="tool-step-detail-toggle" onclick="this.closest('.tool-step').classList.toggle('detail-open')">详情</button>
+          </div>
+          <div class="tool-step-detail">${escapeHtml(detail)}</div>
+        </div>
+      </div>
+    `;
+
+    currentStepsHtml.push(stepHtml);
+  }
+
+  /**
+   * 更新最后一个步骤的状态
+   */
+  function updateLastStepStatus(status, result) {
+    if (currentStepsHtml.length === 0) return;
+
+    var lastIdx = currentStepsHtml.length - 1;
+    var lastHtml = currentStepsHtml[lastIdx];
+
+    // 替换status class
+    lastHtml = lastHtml.replace(/class="tool-step (running|done|error)"/, 'class="tool-step ' + status + '"');
+
+    // 更新detail
+    if (result) {
+      var detail = formatDetail(result);
+      lastHtml = lastHtml.replace(/<div class="tool-step-detail">[\s\S]*?<\/div>\s*<\/div>\s*<\/div>/,
+        '<div class="tool-step-detail">' + escapeHtml(detail) + '</div></div></div>');
     }
 
-    var status = document.createElement('div');
-    status.className = 'tool-trace-status running';
-    status.dataset.traceId = info._traceId;
-    status.dataset.tool = info.tool || '';
-
-    var head = document.createElement('div');
-    head.className = 'tool-trace-status-head';
-
-    var badge = document.createElement('div');
-    badge.className = 'tool-trace-badge';
-    var dot = document.createElement('span');
-    dot.className = 'dot';
-    var text = document.createElement('span');
-    text.className = 'text';
-    text.textContent = getStatusText(info.tool, 'running');
-    badge.appendChild(dot);
-    badge.appendChild(text);
-
-    var toggle = document.createElement('button');
-    toggle.type = 'button';
-    toggle.className = 'tool-trace-toggle';
-    toggle.textContent = '详情';
-    toggle.addEventListener('click', function() {
-      status.classList.toggle('open');
-    });
-
-    head.appendChild(badge);
-    head.appendChild(toggle);
-
-    var detail = document.createElement('pre');
-    detail.className = 'tool-trace-detail';
-    detail.textContent = formatDetail(info.args);
-
-    status.appendChild(head);
-    status.appendChild(detail);
-
-    list.appendChild(status);
-    list.scrollTop = list.scrollHeight;
+    currentStepsHtml[lastIdx] = lastHtml;
   }
 
-  function updateLastResult(result) {
-    if (setLastResult(result)) return;
-    pendingUpdates.push(result);
-    requestFlush();
+  /**
+   * 生成完整的thinking块HTML
+   */
+  function generateBlockHtml() {
+    var stepCount = currentStepsHtml.length;
+    var iconClass = isFinished ? '' : 'running';
+    var title = isFinished ? '上下文检索完成' : '正在检索上下文...';
+
+    // console.log('[ToolTraceUI] generateBlockHtml 调用：', {
+    //   stepCount: stepCount,
+    //   isFinished: isFinished,
+    //   hasSteps: currentStepsHtml.length > 0
+    // });
+
+    if (currentStepsHtml.length === 0) {
+      console.warn('[ToolTraceUI] currentStepsHtml 为空，返回空字符串');
+      return '';
+    }
+
+    var html = `
+      <div class="tool-thinking-block collapsed">
+        <div class="tool-thinking-header" onclick="event.stopPropagation(); this.closest('.tool-thinking-block').classList.toggle('collapsed');">
+          <div class="tool-thinking-title">
+            <span class="tool-thinking-icon ${iconClass}"></span>
+            <span>${title}</span>
+          </div>
+          <div class="tool-thinking-toggle">
+            <span>${stepCount}步</span>
+            <span class="toggle-arrow">▼</span>
+          </div>
+        </div>
+        <div class="tool-thinking-body">
+          ${currentStepsHtml.join('')}
+        </div>
+      </div>
+    `;
+
+    // console.log('[ToolTraceUI] 生成HTML长度:', html.length);
+    return html;
   }
 
-  function setLastResult(result) {
-    var panel = document.getElementById(containerId);
-    if (!panel) return false;
-    var running = panel.querySelectorAll('.tool-trace-status.running');
-    if (!running.length) return false;
-    var current = running[running.length - 1];
-    current.classList.remove('running');
-    current.classList.add('done');
-    var tool = current.dataset.tool || '';
-    var text = current.querySelector('.tool-trace-badge .text');
-    if (text) text.textContent = getStatusText(tool, 'done');
-    var detail = current.querySelector('.tool-trace-detail');
-    if (detail) detail.textContent = formatDetail(result);
-    return true;
+  /**
+   * 刷新批量缓冲区
+   */
+  function flushBatchBuffer() {
+    if (!batchBuffer) return;
+
+    var items = batchBuffer.items;
+    var tool = batchBuffer.tool;
+
+    if (tool === 'fetch_group') {
+      var groupIds = items.map(function(item) { return item.groupId; });
+
+      // 优化显示：如果groupId太多，只显示前3个和总数
+      var displayText;
+      if (groupIds.length > 5) {
+        displayText = '获取意群详情: ' + groupIds.slice(0, 3).join(', ') + ' 等' + groupIds.length + '个';
+      } else {
+        displayText = '获取意群详情: ' + groupIds.join(', ');
+      }
+
+      var detail = formatDetail({
+        tool: tool,
+        count: items.length,
+        groups: groupIds
+      });
+
+      addStepHtml({
+        tool: tool,
+        customTitle: displayText,
+        args: { count: items.length, groups: groupIds }
+      }, 'done');
+    }
+
+    batchBuffer = null;
   }
 
-  function clear() {
-    var panel = document.getElementById(containerId);
-    if (!panel) return;
-    var body = panel.querySelector('.tool-trace-body');
-    if (body) body.innerHTML = '';
-    pendingLogs = [];
-    pendingUpdates = [];
+  /**
+   * 处理流式事件
+   */
+  function handleStreamEvent(event) {
+    // console.log('[ToolTraceUI] handleStreamEvent:', event.type, event);
+
+    switch (event.type) {
+      case 'status':
+        if (event.phase === 'preload' || event.phase === 'planning') {
+          flushBatchBuffer();
+          addStepHtml({
+            tool: event.phase,
+            message: event.message,
+            args: {}
+          }, 'running');
+        }
+        break;
+
+      case 'round_start':
+        flushBatchBuffer();
+        addStepHtml({
+          tool: 'round',
+          round: event.round,
+          args: { round: event.round + 1 }
+        }, 'running');
+        updateLastStepStatus('done', { message: '开始取材...' });
+        break;
+
+      case 'plan':
+        flushBatchBuffer();
+        if (currentStepsHtml.length > 0) {
+          updateLastStepStatus('done', {
+            operations: event.data.operations.length + ' 个操作',
+            final: event.data.final
+          });
+        }
+        break;
+
+      case 'tool_start':
+        if (batchTimer) {
+          clearTimeout(batchTimer);
+          batchTimer = null;
+        }
+
+        // 批量合并fetch_group
+        if (event.tool === 'fetch_group' && event.args && event.args.groupId) {
+          if (batchBuffer && batchBuffer.tool === 'fetch_group') {
+            batchBuffer.items.push({
+              groupId: event.args.groupId,
+              granularity: event.args.granularity
+            });
+          } else {
+            flushBatchBuffer();
+            batchBuffer = {
+              tool: 'fetch_group',
+              items: [{
+                groupId: event.args.groupId,
+                granularity: event.args.granularity
+              }]
+            };
+          }
+          batchTimer = setTimeout(flushBatchBuffer, 100);
+        } else {
+          flushBatchBuffer();
+          addStepHtml({
+            tool: event.tool,
+            args: event.args
+          }, 'running');
+        }
+        break;
+
+      case 'tool_result':
+        if (batchTimer) {
+          clearTimeout(batchTimer);
+          batchTimer = null;
+        }
+        flushBatchBuffer();
+        updateLastStepStatus('done', event.result);
+        break;
+
+      case 'tool_error':
+        flushBatchBuffer();
+        updateLastStepStatus('error', { error: event.error });
+        break;
+
+      case 'tool_skip':
+        // 静默处理，不显示
+        break;
+
+      case 'round_end':
+        flushBatchBuffer();
+        if (currentStepsHtml.length > 0) {
+          if (event.final) {
+            updateLastStepStatus('done', { message: '✓ 取材完成' });
+          } else {
+            updateLastStepStatus('done', { message: '→ 继续下一轮' });
+          }
+        }
+        break;
+
+      case 'complete':
+        flushBatchBuffer();
+        isFinished = true;
+        break;
+
+      case 'info':
+        flushBatchBuffer();
+        addStepHtml({
+          tool: 'info',
+          message: event.message,
+          args: {}
+        }, 'running');
+        updateLastStepStatus('done', { message: event.message });
+        break;
+
+      case 'error':
+      case 'warning':
+        flushBatchBuffer();
+        addStepHtml({
+          tool: event.type,
+          message: event.message,
+          args: {}
+        }, 'running');
+        updateLastStepStatus('error', { error: event.message });
+        break;
+    }
   }
 
-  function getStatusText(tool, phase) {
-    var map = STATUS_TEXT[(tool || '').toLowerCase()] || { running: '执行中…', done: '已完成' };
-    return phase === 'done' ? map.done : map.running;
+  /**
+   * 获取步骤图标（SVG）
+   */
+  function getStepIcon(tool) {
+    var icons = {
+      'vector_search': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path></svg>',
+      'keyword_search': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h6"/><path d="M3 17h6"/><path d="m15 6 6 6-6 6"/></svg>',
+      'fetch_group': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>',
+      'fetch': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>',
+      'map': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 9 2 15 6 23 2 23 18 15 22 9 18 1 22 1 6"/></svg>',
+      'grep': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>',
+      'preload': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+      'planning': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
+      'round': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>',
+      'info': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>'
+    };
+    return icons[tool] || '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
   }
 
+  /**
+   * 获取步骤标题
+   */
+  function getStepTitle(stepInfo) {
+    if (stepInfo.customTitle) return stepInfo.customTitle;
+
+    var titles = {
+      'vector_search': '向量搜索',
+      'keyword_search': '关键词搜索',
+      'fetch_group': '获取意群详情',
+      'fetch': '获取意群详情',
+      'map': '获取意群地图',
+      'grep': '全文短语搜索',
+      'preload': '预加载意群',
+      'planning': 'AI规划工具调用',
+      'round': '第' + ((stepInfo.round || 0) + 1) + '轮取材',
+      'info': '信息'
+    };
+
+    var title = titles[stepInfo.tool || stepInfo.phase] || stepInfo.message || '执行中';
+
+    // 添加参数信息
+    if (stepInfo.tool === 'vector_search' && stepInfo.args && stepInfo.args.query) {
+      var query = stepInfo.args.query.substring(0, 30);
+      if (stepInfo.args.query.length > 30) query += '...';
+      title += ': ' + query;
+    } else if (stepInfo.tool === 'grep' && stepInfo.args && stepInfo.args.query) {
+      var gq = stepInfo.args.query.substring(0, 30);
+      if (stepInfo.args.query.length > 30) gq += '...';
+      title += ': ' + gq;
+    } else if (stepInfo.tool === 'keyword_search' && stepInfo.args && stepInfo.args.keywords) {
+      var keywords = stepInfo.args.keywords || [];
+      title += ': ' + (Array.isArray(keywords) ? keywords.join(', ') : keywords);
+    } else if ((stepInfo.tool === 'fetch_group' || stepInfo.tool === 'fetch') && stepInfo.args && stepInfo.args.groupId) {
+      title += ': ' + stepInfo.args.groupId;
+    }
+
+    return title;
+  }
+
+  /**
+   * 格式化详情
+   */
   function formatDetail(value) {
     if (value === undefined || value === null) return '';
     if (typeof value === 'string') return value.trim();
+
+    // 特殊处理：空数组
+    if (Array.isArray(value) && value.length === 0) {
+      return '无结果';
+    }
+
+    // 特殊处理：向量搜索结果
+    if (Array.isArray(value) && value.length > 0 && value[0].chunkId && value[0].score !== undefined) {
+      var summary = value.length + ' 个结果';
+      var topGroups = {};
+      value.forEach(function(item) {
+        if (item.belongsToGroup) {
+          topGroups[item.belongsToGroup] = true;
+        }
+      });
+      var groupCount = Object.keys(topGroups).length;
+      if (groupCount > 0) {
+        summary += '，涉及 ' + groupCount + ' 个意群';
+      }
+      summary += '，最高分: ' + value[0].score.toFixed(3);
+
+      // 添加前3个结果的预览
+      if (value.length > 0) {
+        summary += '\n\n【前' + Math.min(3, value.length) + '个结果预览】\n';
+        value.slice(0, 3).forEach(function(item, idx) {
+          var preview = item.preview || '';
+          if (preview.length > 150) preview = preview.substring(0, 150) + '...';
+          summary += (idx + 1) + '. ' + item.belongsToGroup + ' (分数:' + item.score.toFixed(3) + ')\n   ' + preview + '\n';
+        });
+      }
+
+      return summary;
+    }
+
+    // 特殊处理：关键词搜索结果
+    if (Array.isArray(value) && value.length > 0 && value[0].preview !== undefined && value[0].matchedKeywords) {
+      var summary = value.length + ' 个匹配片段';
+
+      // 统计所有匹配的关键词
+      var allMatched = {};
+      value.forEach(function(item) {
+        if (item.matchedKeywords && Array.isArray(item.matchedKeywords)) {
+          item.matchedKeywords.forEach(function(kw) {
+            allMatched[kw] = (allMatched[kw] || 0) + 1;
+          });
+        }
+      });
+
+      var matchedList = Object.keys(allMatched);
+      if (matchedList.length > 0) {
+        summary += '，匹配: ' + matchedList.join(', ');
+      }
+
+      // 添加前3个结果的预览
+      if (value.length > 0) {
+        summary += '\n\n【前' + Math.min(3, value.length) + '个结果预览】\n';
+        value.slice(0, 3).forEach(function(item, idx) {
+          var preview = item.preview || '';
+          if (preview.length > 150) preview = preview.substring(0, 150) + '...';
+          var matched = item.matchedKeywords ? ' [' + item.matchedKeywords.join(',') + ']' : '';
+          summary += (idx + 1) + '. ' + (item.belongsToGroup || '全文') + matched + '\n   ' + preview + '\n';
+        });
+      }
+
+      return summary;
+    }
+
+    // 特殊处理：grep搜索结果
+    if (Array.isArray(value) && value.length > 0 && value[0].preview !== undefined && value[0].matchedKeyword !== undefined) {
+      var summary = value.length + ' 个匹配片段';
+
+      // 统计匹配的关键词
+      var keywordCounts = {};
+      value.forEach(function(item) {
+        if (item.matchedKeyword) {
+          keywordCounts[item.matchedKeyword] = (keywordCounts[item.matchedKeyword] || 0) + 1;
+        }
+      });
+
+      var keywords = Object.keys(keywordCounts);
+      if (keywords.length > 0) {
+        var keywordList = keywords.map(function(kw) {
+          return kw + '(' + keywordCounts[kw] + ')';
+        }).join(', ');
+        summary += '，匹配: ' + keywordList;
+      }
+
+      var topGroups = {};
+      value.forEach(function(item) {
+        if (item.belongsToGroup) {
+          topGroups[item.belongsToGroup] = true;
+        }
+      });
+      var groupCount = Object.keys(topGroups).length;
+      if (groupCount > 0) {
+        summary += '，涉及 ' + groupCount + ' 个意群';
+      }
+
+      // 添加前3个结果的预览
+      if (value.length > 0) {
+        summary += '\n\n【前' + Math.min(3, value.length) + '个结果预览】\n';
+        value.slice(0, 3).forEach(function(item, idx) {
+          var preview = item.preview || '';
+          if (preview.length > 150) preview = preview.substring(0, 150) + '...';
+          var src = item.belongsToGroup ? item.belongsToGroup : '全文';
+          var matched = item.matchedKeyword ? ' [' + item.matchedKeyword + ']' : '';
+          summary += (idx + 1) + '. ' + src + matched + '\n   ' + preview + '\n';
+        });
+      }
+
+      return summary;
+    }
+
+    // 特殊处理：其他grep搜索结果（无matchedKeyword字段）
+    if (Array.isArray(value) && value.length > 0 && value[0].preview !== undefined) {
+      var summary = value.length + ' 个匹配片段';
+
+      var topGroups = {};
+      value.forEach(function(item) {
+        if (item.belongsToGroup) {
+          topGroups[item.belongsToGroup] = true;
+        }
+      });
+      var groupCount = Object.keys(topGroups).length;
+      if (groupCount > 0) {
+        summary += '，涉及 ' + groupCount + ' 个意群';
+      }
+
+      // 添加前3个结果的预览
+      if (value.length > 0) {
+        summary += '\n\n【前' + Math.min(3, value.length) + '个结果预览】\n';
+        value.slice(0, 3).forEach(function(item, idx) {
+          var preview = item.preview || '';
+          if (preview.length > 150) preview = preview.substring(0, 150) + '...';
+          var src = item.belongsToGroup ? item.belongsToGroup : '全文';
+          summary += (idx + 1) + '. ' + src + '\n   ' + preview + '\n';
+        });
+      }
+
+      return summary;
+    }
+
+    // 特殊处理：简单对象
+    if (typeof value === 'object' && !Array.isArray(value)) {
+      var keys = Object.keys(value);
+      if (keys.length === 0) return '无数据';
+      if (keys.length === 1 && value.message) return value.message;
+      if (keys.length === 2 && value.operations && value.final !== undefined) {
+        return value.operations + (value.final ? ' (最后一轮)' : '');
+      }
+
+      // 其他对象，简化显示
+      var parts = [];
+      for (var key in value) {
+        if (value.hasOwnProperty(key)) {
+          var val = value[key];
+          if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
+            parts.push(key + ': ' + val);
+          } else if (Array.isArray(val)) {
+            parts.push(key + ': ' + val.length + ' 项');
+          }
+        }
+      }
+      return parts.length > 0 ? parts.join(', ') : JSON.stringify(value, null, 2);
+    }
+
     try {
       return JSON.stringify(value, null, 2);
     } catch (_) {
@@ -231,147 +731,27 @@
   }
 
   /**
-   * 处理流式事件
-   * @param {Object} event - 流式事件对象
+   * HTML转义
    */
-  function handleStreamEvent(event) {
-    var list = ensureContainer();
-    if (!list) {
-      console.warn('[ChatbotToolTraceUI] Container not ready for stream event:', event.type);
-      return;
-    }
-
-    switch (event.type) {
-      case 'granularity_analysis':
-        // 粒度分析结果
-        appendItem({
-          tool: 'granularity',
-          args: event.strategy,
-          _traceId: 'granularity-' + Date.now()
-        });
-        updateLastResult({
-          queryType: event.strategy.queryType,
-          granularity: event.strategy.granularity,
-          maxGroups: event.strategy.maxGroups,
-          estimatedTokens: event.strategy.estimatedTokens
-        });
-        break;
-
-      case 'status':
-        // 状态更新：分析问题、向量搜索等
-        appendItem({
-          tool: event.phase,
-          args: { message: event.message },
-          _traceId: 'stream-' + event.phase + '-' + Date.now()
-        });
-        break;
-
-      case 'candidates':
-        // 候选意群
-        updateLastResult({
-          method: event.phase,
-          candidates: event.data,
-          total: event.total
-        });
-        break;
-
-      case 'round_start':
-        // 轮次开始
-        appendItem({
-          tool: 'round-' + event.round,
-          args: { round: event.round + 1, maxRounds: event.maxRounds },
-          _traceId: 'round-' + event.round
-        });
-        break;
-
-      case 'plan':
-        // 规划结果
-        updateLastResult({
-          operations: event.data.operations,
-          final: event.data.final
-        });
-        break;
-
-      case 'tool_start':
-        // 工具开始执行
-        appendItem({
-          tool: event.tool,
-          args: event.args,
-          _traceId: 'tool-' + event.round + '-' + event.opIndex
-        });
-        break;
-
-      case 'tool_result':
-        // 工具执行结果
-        updateLastResult(event.result);
-        break;
-
-      case 'tool_error':
-        // 工具错误
-        updateLastResult({ error: event.error });
-        break;
-
-      case 'tool_skip':
-        // 工具跳过
-        updateLastResult({ skipped: true, reason: event.reason });
-        break;
-
-      case 'round_end':
-        // 轮次结束
-        if (event.final) {
-          updateLastResult({ message: '✓ 取材完成' });
-        } else {
-          updateLastResult({ message: '→ 继续下一轮...' });
-        }
-        break;
-
-      case 'complete':
-        // 全部完成
-        appendItem({
-          tool: 'context',
-          args: event.summary,
-          _traceId: 'complete-' + Date.now()
-        });
-        updateLastResult({
-          contextLength: event.summary.contextLength,
-          groups: event.summary.groups
-        });
-        break;
-
-      case 'fallback':
-        // 降级策略
-        appendItem({
-          tool: 'fallback',
-          args: { reason: event.reason },
-          _traceId: 'fallback-' + Date.now()
-        });
-        updateLastResult({ context: event.context.slice(0, 200) + '...' });
-        break;
-
-      case 'error':
-      case 'warning':
-        // 错误或警告
-        appendItem({
-          tool: event.type,
-          args: { message: event.message },
-          _traceId: event.type + '-' + Date.now()
-        });
-        break;
-
-      default:
-        console.log('[ChatbotToolTraceUI] Unknown stream event:', event.type);
-    }
-
-    // 自动滚动到底部
-    list.scrollTop = list.scrollHeight;
+  function escapeHtml(text) {
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   window.ChatbotToolTraceUI = {
-    log: appendItem,
-    updateLastResult: updateLastResult,
-    clear: clear,
-    handleStreamEvent: handleStreamEvent  // 新增流式事件处理
+    startSession: startSession,
+    handleStreamEvent: handleStreamEvent,
+    generateBlockHtml: generateBlockHtml,
+    ensureStyles: injectStyles  // 导出以便外部调用
   };
+
+  // 页面加载时立即注入样式，确保刷新后样式可用
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', injectStyles);
+  } else {
+    injectStyles();
+  }
 
   window.ChatbotToolTraceUIScriptLoaded = true;
 })(window, document);

@@ -14,10 +14,8 @@ if (typeof window.ChatbotFloatingOptionsScriptLoaded === 'undefined') {
   const _chatbotOptionsConfig = [
     { key: 'semanticGroups', texts: ['意群'], title: '查看/搜索意群', activeStyleColor: '#059669', isAction: true },
     { key: 'useContext', texts: ['上下文:关', '上下文:开'], values: [false, true], title: '切换是否使用对话历史', activeStyleColor: '#1d4ed8' },
-    { key: 'multiHopRetrieval', texts: ['取材:单轮', '取材:多轮'], values: [false, true], defaultKey: false, title: '自动多轮取材：先选片段再回答', activeStyleColor: '#059669' },
-    { key: 'streamingRetrieval', texts: ['流式:关', '流式:开'], values: [false, true], defaultKey: false, title: '实时显示取材过程', activeStyleColor: '#8b5cf6', dependsOn: 'multiHopRetrieval', dependsValue: true },
+    { key: 'multiHopRetrieval', texts: ['智能检索:关', '智能检索:开'], values: [false, true], defaultKey: false, title: '开启后自动启用：多轮取材+流式显示+智能分段', activeStyleColor: '#059669' },
     { key: 'summarySource', texts: ['提供全文:OCR', '提供全文:无', '提供全文:翻译'], values: ['ocr', 'none', 'translation'], defaultKey: 'ocr', title: '切换总结时使用的文本源 (OCR/不使用文档内容/翻译)', activeStyleColor: '#1d4ed8' },
-    { key: 'contentLengthStrategy', texts: ['全文策略:全文', '全文策略:智能分段'], values: ['default', 'segmented'], defaultKey: 'default', activeStyleColor: '#1d4ed8', dependsOn: 'summarySource', dependsValueNot: 'none', title: '切换全文处理策略：全文传递 vs 智能分段（<5万字默认全文，≥5万字推荐分段）' },
     { key: 'interestPointsActive', texts: ['兴趣点'], activeStyleColor: '#059669', isPlaceholder: true, title: '兴趣点功能 (待实现)' },
     { key: 'memoryManagementActive', texts: ['记忆管理'], activeStyleColor: '#059669', isPlaceholder: true, title: '记忆管理功能 (待实现)' }
   ];
