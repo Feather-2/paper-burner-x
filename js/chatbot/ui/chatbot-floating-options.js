@@ -14,7 +14,7 @@ if (typeof window.ChatbotFloatingOptionsScriptLoaded === 'undefined') {
   const _chatbotOptionsConfig = [
     { key: 'semanticGroups', texts: ['意群'], title: '查看/搜索意群', activeStyleColor: '#059669', isAction: true },
     { key: 'useContext', texts: ['上下文:关', '上下文:开'], values: [false, true], title: '切换是否使用对话历史', activeStyleColor: '#1d4ed8' },
-    { key: 'multiHopRetrieval', texts: ['多轮智能检索:关', '多轮智能检索:开'], values: [false, true], defaultKey: false, title: '开启后自动启用：多轮取材+流式显示+意群分析+向量搜索', activeStyleColor: '#059669' },
+    { key: 'multiHopRetrieval', texts: ['检索Agent:关', '检索Agent:开'], values: [false, true], defaultKey: false, title: '开启后自动启用：多轮取材+流式显示+意群分析+向量搜索', activeStyleColor: '#059669' },
     { key: 'summarySource', texts: ['提供全文:OCR', '提供全文:无', '提供全文:翻译'], values: ['ocr', 'none', 'translation'], defaultKey: 'ocr', title: '切换总结时使用的文本源 (OCR/不使用文档内容/翻译)', activeStyleColor: '#1d4ed8' },
     { key: 'interestPointsActive', texts: ['兴趣点'], activeStyleColor: '#059669', isPlaceholder: true, title: '兴趣点功能 (待实现)' },
     { key: 'memoryManagementActive', texts: ['记忆管理'], activeStyleColor: '#059669', isPlaceholder: true, title: '记忆管理功能 (待实现)' }

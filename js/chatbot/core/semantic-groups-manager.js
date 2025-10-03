@@ -37,9 +37,9 @@
     `;
 
     dialog.innerHTML = `
-      <h3 style="margin: 0 0 16px 0; font-size: 18px; color: #1f2937;">多轮智能检索配置</h3>
+      <h3 style="margin: 0 0 16px 0; font-size: 18px; color: #1f2937;">检索Agent配置</h3>
       <p style="margin: 0 0 20px 0; font-size: 14px; color: #6b7280; line-height: 1.6;">
-        这是您首次在此文档使用多轮智能检索。请选择启用的功能：
+        这是您首次在此文档使用检索Agent。请选择启用的功能：
       </p>
 
       <div style="margin-bottom: 16px;">
