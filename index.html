@@ -219,18 +219,11 @@
 </head>
 <body class="gradient-bg min-h-screen">
     <script>
-        // Redirect to landing page once per day
-        var urlParams = new URLSearchParams(window.location.search);
-        var fromLanding = urlParams.get('from') === 'landing';
-        var currentPath = window.location.pathname;
-
-        if (!fromLanding && currentPath.indexOf('landing-page.html') === -1) {
-            var today = new Date().toDateString();
-            var lastShownDate = localStorage.getItem('paperBurnerLandingLastShown');
-
-            if (lastShownDate !== today) {
-                // First visit today, redirect to landing page
-                localStorage.setItem('paperBurnerLandingLastShown', today);
+        // Redirect to landing page on first visit only
+        if (!localStorage.getItem('paperBurnerLandingPageShown')) {
+            var currentPath = window.location.pathname;
+            if (currentPath.indexOf('landing-page.html') === -1) {
+                localStorage.setItem('paperBurnerLandingPageShown', 'true');
                 var basePath = currentPath.substring(0, currentPath.lastIndexOf('/') + 1);
                 window.location.href = basePath + 'views/landing/landing-page.html';
             }
