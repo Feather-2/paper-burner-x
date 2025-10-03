@@ -702,11 +702,12 @@ KeyManagerUI.importAllModelKeys = function(saveKeysFunc, refreshUIFunc) {
 };
 
 KeyManagerUI.exportAllModelData = function() {
-    // 仅导出新版规范字段，保持“干净”
+    // 仅导出新版规范字段，保持"干净"
     const translationModelKeys = JSON.parse(localStorage.getItem('translationModelKeys') || '{}');
     const translationModelConfigs = JSON.parse(localStorage.getItem('translationModelConfigs') || '{}');
     const paperBurnerCustomSourceSites = JSON.parse(localStorage.getItem('paperBurnerCustomSourceSites') || '{}');
-    const data = { translationModelKeys, translationModelConfigs, paperBurnerCustomSourceSites };
+    const embeddingConfig = JSON.parse(localStorage.getItem('embeddingConfig') || 'null');
+    const data = { translationModelKeys, translationModelConfigs, paperBurnerCustomSourceSites, embeddingConfig };
     const dataStr = JSON.stringify(data, null, 2);
     const blob = new Blob([dataStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -737,21 +738,22 @@ KeyManagerUI.importAllModelData = function(refreshUIFunc) {
                 const imported = JSON.parse(e.target.result);
 
                 // 1) 容错提取不同历史字段名
-                let importedModelKeys = imported.modelKeys 
-                    || imported.translationModelKeys 
-                    || imported.keys 
-                    || imported.keyStore 
+                let importedModelKeys = imported.modelKeys
+                    || imported.translationModelKeys
+                    || imported.keys
+                    || imported.keyStore
                     || {};
-                let importedModelConfigs = imported.modelConfigs 
-                    || imported.translationModelConfigs 
-                    || imported.configs 
-                    || imported.modelConfig 
+                let importedModelConfigs = imported.modelConfigs
+                    || imported.translationModelConfigs
+                    || imported.configs
+                    || imported.modelConfig
                     || {};
-                let importedCustomSourceSites = imported.customSourceSites 
-                    || imported.paperBurnerCustomSourceSites 
-                    || imported.customSites 
-                    || imported.sourceSites 
+                let importedCustomSourceSites = imported.customSourceSites
+                    || imported.paperBurnerCustomSourceSites
+                    || imported.customSites
+                    || imported.sourceSites
                     || {};
+                let importedEmbeddingConfig = imported.embeddingConfig || null;
 
                 // 2) 归一化 modelKeys（数组项可为字符串或对象）
                 const genUUID = (function(){
@@ -828,6 +830,14 @@ KeyManagerUI.importAllModelData = function(refreshUIFunc) {
                 localStorage.setItem('paperBurnerCustomSourceSites', JSON.stringify(normalizedCustomSourceSites));
                 if (lastSuccessful && typeof lastSuccessful === 'object') {
                     localStorage.setItem('paperBurnerLastSuccessfulKeys', JSON.stringify(lastSuccessful));
+                }
+                // 导入向量搜索配置（如果存在）
+                if (importedEmbeddingConfig && typeof importedEmbeddingConfig === 'object') {
+                    localStorage.setItem('embeddingConfig', JSON.stringify(importedEmbeddingConfig));
+                    // 更新 EmbeddingClient 配置
+                    if (window.EmbeddingClient && typeof window.EmbeddingClient.saveConfig === 'function') {
+                        window.EmbeddingClient.saveConfig(importedEmbeddingConfig);
+                    }
                 }
 
                 if (typeof refreshUIFunc === 'function') refreshUIFunc();
