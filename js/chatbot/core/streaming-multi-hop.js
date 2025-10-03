@@ -43,17 +43,20 @@
 
     try {
       const groups = Array.isArray(docContentInfo.semanticGroups) ? docContentInfo.semanticGroups : [];
-      if (groups.length === 0) {
-        yield { type: 'error', message: '意群数据为空' };
-        return null;
+      const hasGroups = groups.length > 0;
+
+      if (!hasGroups) {
+        console.log('[StreamingMultiHop] 没有意群数据，将只使用grep工具进行检索');
       }
 
-      // 1. 分析问题，获取候选意群
-      yield {
-        type: 'status',
-        phase: 'analyze',
-        message: '正在分析问题...'
-      };
+      // 1. 分析问题，获取候选意群（如果有的话）
+      if (hasGroups) {
+        yield {
+          type: 'status',
+          phase: 'analyze',
+          message: '正在分析问题...'
+        };
+      }
 
       const candidates = groups;
 
@@ -131,7 +134,7 @@
       let aiRequestedMapInFinalContext = false; // AI决定是否在最终上下文中包含地图
       let aiRequestedGroupListInFinalContext = false; // AI决定是否在最终上下文中包含意群简要列表
 
-      if (userSet && userSet.preloadFirstRound === true && groups.length <= 50) {
+      if (hasGroups && userSet && userSet.preloadFirstRound === true && groups.length <= 50) {
         yield {
           type: 'status',
           phase: 'preload',
@@ -195,13 +198,14 @@
 
 提示：已缓存 ${fetched.size} 个意群摘要在【已获取内容】中；若需整体地图，请调用 map 工具。` : '';
 
-        const sys = `你是检索规划助手。根据用户问题选择最合适的工具组合，目标是用最少的操作获取最精确的内容。
+        // 检查文档配置
+        const docId = (window.data && window.data.currentPdfName) || 'unknown';
+        const docConfig = window.data?.multiHopConfig?.[docId];
+        const useSemanticGroups = docConfig?.useSemanticGroups !== false; // 默认true
+        const useVectorSearch = docConfig?.useVectorSearch !== false; // 默认true
 
-## 工具定义（JSON格式）
-
-### 搜索工具（返回chunk内容，由你决定是否需要完整意群）
-
-**推荐优先使用：**
+        // 根据配置动态构建工具列表说明
+        const vectorSearchTool = useVectorSearch ? `**推荐优先使用：**
 - {"tool":"vector_search","args":{"query":"语义描述","limit":15}}
   用途：**智能语义搜索**（理解同义词、相关概念、隐含关系）
   返回：语义最相关的chunks（每个1500-3000字）
@@ -212,24 +216,18 @@
     * 召回率高，不会因为换词而漏掉相关内容
   **你可以调整limit**：概念性问题可用limit=10-15，精确查找可用limit=5
 
-**精确匹配场景使用：**
-- {"tool":"grep","args":{"query":"具体短语","limit":20,"context":2000,"caseInsensitive":true}}
-  用途：字面文本搜索（适合已知精确关键词）
-  返回：包含该短语的原文片段（前后2000字上下文）
-  **适用场景**：
-    * 搜索专有名词、特定数字、固定术语
-    * 用户问题中明确提到某个词，需要找原文
-    * 你已经知道文档中的确切表达方式
-  **支持OR逻辑**：query可用 | 分隔多个关键词，如 "方程|公式|equation"
-  **你可以调整limit**：需要更多结果就增大limit，只需少量结果就减小limit
+` : '';
 
-**后备方案：**
+        // BM25搜索：无论是否有意群都可用（基于chunks）
+        const keywordSearchTool = `
 - {"tool":"keyword_search","args":{"keywords":["词1","词2"],"limit":8}}
   用途：多关键词加权搜索（BM25算法）
-  返回：包含关键词的chunks（按相关度评分）
-  **使用时机**：vector_search失败时的降级方案
+  返回：包含关键词的文档片段（按相关度评分）
+  **使用时机**：精确查找特定关键词组合${!useVectorSearch ? '（主要搜索工具）' : '，或vector_search失败时的降级方案'}
   **你可以调整limit**：关键词明确可用limit=5，模糊查找可用limit=10
+`;
 
+        const mapFetchTools = useSemanticGroups ? `
 ### 获取详细内容工具
 - {"tool":"fetch","args":{"groupId":"group-1"}}
   用途：获取指定意群详细内容（包含完整论述、公式、数据、图表）
@@ -240,6 +238,28 @@
   用途：获取文档整体结构
   返回：意群地图（ID、字数、关键词、摘要、章节/图表/公式）
 ${preloadedNotice}
+` : `${preloadedNotice}
+`;
+
+        const sys = `你是检索规划助手。根据用户问题选择最合适的工具组合，目标是用最少的操作获取最精确的内容。
+
+## 工具定义（JSON格式）
+
+### 搜索工具（返回chunk内容，由你决定是否需要完整意群）
+
+${vectorSearchTool}**精确匹配场景使用：**
+- {"tool":"grep","args":{"query":"具体短语","limit":20,"context":2000,"caseInsensitive":true}}
+  用途：字面文本搜索（适合已知精确关键词）
+  返回：包含该短语的原文片段（前后2000字上下文）
+  **适用场景**：
+    * 搜索专有名词、特定数字、固定术语
+    * 用户问题中明确提到某个词，需要找原文
+    * 你已经知道文档中的确切表达方式
+  **支持OR逻辑**：query可用 | 分隔多个关键词，如 "方程|公式|equation"
+  **你可以调整limit**：需要更多结果就增大limit，只需少量结果就减小limit
+
+${keywordSearchTool}
+${mapFetchTools}
 
 ## 智能决策流程
 
@@ -250,12 +270,12 @@ ${preloadedNotice}
    - 示例："雷曼公司何时破产？"
    → grep("雷曼|Lehman", limit=5)
 
-2. 单一概念解释
+${useVectorSearch ? `2. 单一概念解释
    - 示例："什么是注意力机制？"
    → vector_search("注意力机制 原理", limit=8)
 
-**复杂问题（建议多工具并用）：**
-1. 综合性分析（如"研究背景与意义"）
+` : ''}**复杂问题（建议多工具并用）：**
+${useVectorSearch && useSemanticGroups ? `1. 综合性分析（如"研究背景与意义"）
    - 策略：**并发使用多个工具，全方位检索**
    - 示例："研究背景与意义？"
    → 第1轮并发（推荐加入map获取整体结构）：
@@ -289,33 +309,50 @@ ${preloadedNotice}
    → 第1轮：{"operations":[{"tool":"map","args":{"limit":50}}],"final":false}
    → 第2轮：根据地图fetch重要意群
 
-**工具组合原则：**
-- **复杂问题优先多工具并用**（同一轮并发执行）
-- vector_search（语义）+ grep（精确）= 更高召回率和准确率
-- **综合性分析问题（如"研究背景与意义"）强烈建议使用map**：map提供文档整体结构，有助于理解背景脉络
-- 多维度问题建议3个工具：vector + grep + map
-- 简单问题可以单工具，但不确定时宁可多用
+` : `1. 多关键词搜索
+   - 策略：**使用grep进行关键词检索**
+   - 示例："研究背景与意义？"
+   → {"operations":[
+       {"tool":"grep","args":{"query":"背景|意义|动机|研究目的","limit":15}}
+     ],"final":false}
 
-**第二步：判断是否需要fetch意群完整内容**
+2. 特定概念搜索
+   - 策略：**使用keyword_search进行BM25搜索**
+   - 示例："什么是注意力机制？"
+   → {"operations":[
+       {"tool":"keyword_search","args":{"keywords":["注意力","机制","attention"],"limit":10}}
+     ],"final":false}
+
+`}**工具组合原则：**
+- **复杂问题优先多工具并用**（同一轮并发执行）
+${useVectorSearch ? `- vector_search（语义）+ grep（精确）= 更高召回率和准确率
+${useSemanticGroups ? `- **综合性分析问题（如"研究背景与意义"）强烈建议使用map**：map提供文档整体结构，有助于理解背景脉络
+- 多维度问题建议3个工具：vector + grep + map
+` : ''}` : `- grep（精确）+ keyword_search（BM25）= 提高召回率
+- 多个关键词组合使用，提高搜索准确性
+`}- 简单问题可以单工具，但不确定时宁可多用
+
+${useSemanticGroups ? `**第二步：判断是否需要fetch意群完整内容**
 - 搜索工具会返回：chunk内容 + suggestedGroups（所属意群列表）
 - 如果chunk片段**已包含足够信息**回答问题 → 不需要fetch，直接final=true
 - 如果chunk片段**信息不足**（如缺少公式细节、数据表、完整论述） → fetch相关意群
 - **优先精准而非全面**：只fetch真正需要的意群，不要全部fetch
 
-**核心原则：提供充分、详细、准确的上下文**
+` : ''}**核心原则：提供充分、详细、准确的上下文**
 - 你的目标是为最终AI提供**足够回答用户问题的完整上下文**
 - 不要因为担心token浪费而过早结束检索
 - 宁可多获取一些内容，也不要让最终AI因为信息不足而无法回答
 - 【已获取内容】为空时，**绝不能**返回空操作，必须至少执行一次检索
 
 **第三步：控制结果数量，避免噪音**
-- **优先用vector_search**，概念性问题用limit=10-15，精确查找用limit=5-8
+${useVectorSearch ? `- **优先用vector_search**，概念性问题用limit=10-15，精确查找用limit=5-8
 - grep仅用于精确匹配场景，limit=5-10即可
-- keyword_search作为降级方案，limit=8-10
+` : `- **优先用grep**，精确匹配场景用limit=10-15
+`}- keyword_search作为降级方案，limit=8-10
 - 避免一次性返回过多结果造成token浪费
 - 如果第一次搜索结果不足，可以增加limit或换工具
 
-**第四步：地图信息的智能使用**
+${useSemanticGroups ? `**第四步：地图信息的智能使用**
 - 【候选意群地图】提供了文档结构概览（如果执行过map工具）
 - **你可以根据任务类型自主决定是否需要地图信息辅助回答**：
   * 宏观任务（如"总结主要内容"、"思维导图"）：地图很有用，可直接引用地图结构
@@ -326,6 +363,8 @@ ${preloadedNotice}
   * 如果地图无关紧要，只需确保检索到的chunks/groups足够即可
 
 **第五步：并发与结束**
+` : `**第四步：并发与结束**
+`}
 - 可以在同一轮并发执行多个操作
 - 获取到足够内容后立即final=true
 - 检查【搜索历史】避免重复搜索
@@ -406,9 +445,9 @@ ${preloadedNotice}
 - 示例3（完成，需要地图+列表）：{"operations":[],"final":true,"includeMapInFinalContext":true,"includeGroupListInFinalContext":true}
 - 示例4（完成，仅需意群列表背景）：{"operations":[],"final":true,"includeGroupListInFinalContext":true}`;
 
-        const content = `文档总览:\n${gist}\n\n用户问题:\n${String(userQuestion || '')}${searchHistoryText}\n\n${listText ? '【候选意群地图】：\n' + listText + '\n\n' : ''}【已获取内容】：\n${fetchedSummary}`;
+        let content = `文档总览:\n${gist}\n\n用户问题:\n${String(userQuestion || '')}${searchHistoryText}\n\n${listText ? '【候选意群地图】：\n' + listText + '\n\n' : ''}【已获取内容】：\n${fetchedSummary}`;
 
-        // 调用LLM规划
+        // 调用LLM规划（支持重试）
         yield {
           type: 'status',
           phase: 'planning',
@@ -417,27 +456,41 @@ ${preloadedNotice}
         };
 
         const apiKey = config.apiKey;
-        const plannerOutput = await window.ChatbotCore.singleChunkSummary(sys, content, config, apiKey);
+        let plannerOutput = null;
+        let retryCount = 0;
+        const maxRetries = 2; // 最多重试2次
+        let parseSuccess = false;
+        let plan = null;
 
-        // 统计规划器token使用
-        const plannerInputTokens = estimateTokens(sys) + estimateTokens(content);
-        const plannerOutputTokens = estimateTokens(plannerOutput);
-        const plannerTotalTokens = plannerInputTokens + plannerOutputTokens;
-
-        yield {
-          type: 'token_usage',
-          phase: 'planner',
-          round,
-          tokens: {
-            input: plannerInputTokens,
-            output: plannerOutputTokens,
-            total: plannerTotalTokens
+        // 重试循环：如果JSON解析失败，给AI反馈并重试
+        while (!parseSuccess && retryCount <= maxRetries) {
+          if (retryCount > 0) {
+            yield {
+              type: 'info',
+              message: `JSON格式错误，正在重试 (${retryCount}/${maxRetries})...`
+            };
           }
-        };
 
-        // 解析计划
-        let plan;
-        try {
+          plannerOutput = await window.ChatbotCore.singleChunkSummary(sys, content, config, apiKey);
+
+          // 统计规划器token使用
+          const plannerInputTokens = estimateTokens(sys) + estimateTokens(content);
+          const plannerOutputTokens = estimateTokens(plannerOutput);
+          const plannerTotalTokens = plannerInputTokens + plannerOutputTokens;
+
+          yield {
+            type: 'token_usage',
+            phase: 'planner',
+            round,
+            tokens: {
+              input: plannerInputTokens,
+              output: plannerOutputTokens,
+              total: plannerTotalTokens
+            }
+          };
+
+          // 尝试解析计划
+          try {
           let cleaned = plannerOutput
             .replace(/```jsonc?|```tool|```/gi,'')
             .replace(/[\u0000-\u001f]/g, ' ')
@@ -537,37 +590,55 @@ ${preloadedNotice}
             console.log('[StreamingMultiHop] AI请求在最终上下文中包含意群简要列表');
           }
 
+          parseSuccess = true; // 成功解析，退出重试循环
         } catch (e) {
           console.error('[streamingMultiHop] 解析计划失败:', e.message);
           console.error('[streamingMultiHop] LLM原始输出:', plannerOutput);
 
-          yield {
-            type: 'error',
-            phase: 'parse_plan',
-            message: `解析计划失败: ${e.message}`,
-            raw: plannerOutput
-          };
+          retryCount++;
 
-          // 如果已经获取到内容，直接使用，不要丢弃
-          if (fetched.size > 0) {
+          if (retryCount <= maxRetries) {
+            // 还有重试机会，构造错误提示
+            const errorFeedback = `\n\n【上次输出解析失败】\n错误信息: ${e.message}\n你的输出: ${plannerOutput.substring(0, 300)}\n\n请注意：\n1. 必须输出严格的JSON格式\n2. 字符串中的特殊字符需要转义（如 $ 应写成 \\$ 或避免使用）\n3. 不要在JSON字符串值中使用 | $ \\ 等特殊字符，或使用中文替代\n4. 示例正确格式：{"operations":[{"tool":"grep","args":{"query":"公式 模型 回归","limit":10}}],"final":false}\n\n请重新输出正确的JSON：`;
+            content = content + errorFeedback;
+            console.log(`[streamingMultiHop] 准备第 ${retryCount} 次重试，已添加错误提示`);
+          } else {
+            // 重试耗尽，执行原有的fallback逻辑
             yield {
-              type: 'warning',
-              message: `第 ${round + 1} 轮规划失败，但已获取 ${fetched.size} 个意群，使用已有内容`
+              type: 'error',
+              phase: 'parse_plan',
+              message: `解析计划失败（已重试${maxRetries}次）: ${e.message}`,
+              raw: plannerOutput
             };
-            break; // 结束循环，使用已fetch的内容
-          }
 
-          // 只有在完全没有内容时才使用后备策略
-          const fallback = buildFallbackSemanticContext(userQuestion, groups);
-          if (fallback) {
-            yield {
-              type: 'fallback',
-              reason: 'parse-error',
-              context: fallback.context
-            };
-            return fallback;
+            // 如果已经获取到内容，直接使用，不要丢弃
+            if (fetched.size > 0) {
+              yield {
+                type: 'warning',
+                message: `第 ${round + 1} 轮规划失败，但已获取 ${fetched.size} 个意群，使用已有内容`
+              };
+              break; // 结束for循环，使用已fetch的内容
+            }
+
+            // 只有在完全没有内容时才使用后备策略
+            const fallback = buildFallbackSemanticContext(userQuestion, groups);
+            if (fallback) {
+              yield {
+                type: 'fallback',
+                reason: 'parse-error',
+                context: fallback.context
+              };
+              return fallback;
+            }
+            break; // 结束for循环
           }
-          break;
+        }
+        } // 结束重试while循环
+
+        // 如果重试循环结束但没有成功解析，跳过这一轮
+        if (!parseSuccess) {
+          console.log('[streamingMultiHop] 解析失败且已耗尽重试次数，跳过本轮');
+          continue; // 继续下一轮round
         }
 
         const ops = Array.isArray(plan.operations) ? plan.operations : [];
@@ -607,7 +678,17 @@ ${preloadedNotice}
           };
 
           try {
+            // 检查文档配置
+            const docId = (window.data && window.data.currentPdfName) || 'unknown';
+            const docConfig = window.data?.multiHopConfig?.[docId];
+            const useSemanticGroups = docConfig?.useSemanticGroups !== false;
+            const useVectorSearch = docConfig?.useVectorSearch !== false;
+
             if (op.tool === 'vector_search' && op.args) {
+              if (!useVectorSearch) {
+                throw new Error('向量搜索功能已禁用，vector_search不可用');
+              }
+
               // 向量语义搜索chunks
               const query = String(op.args.query || userQuestion);
               const limit = Math.min(Number(op.args.limit) || 15, 30);
@@ -743,6 +824,10 @@ ${preloadedNotice}
               }
 
             } else if ((op.tool === 'fetch' || op.tool === 'fetch_group') && op.args) {
+              if (!useSemanticGroups) {
+                throw new Error('意群功能已禁用，fetch不可用');
+              }
+
               const id = op.args.groupId;
               const gran = (op.args.granularity || (op.tool === 'fetch' ? 'full' : 'digest'));
 
@@ -829,6 +914,10 @@ ${preloadedNotice}
                 }
               }
             } else if (op.tool === 'map') {
+              if (!useSemanticGroups) {
+                throw new Error('意群功能已禁用，map不可用');
+              }
+
               // 生成候选意群地图（结构+摘要）
               const limit = Math.min(Number(op.args?.limit) || 50, candidates.length);
               const includeStructure = op.args?.includeStructure !== false;

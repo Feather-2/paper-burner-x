@@ -597,30 +597,50 @@ function getCurrentDocId() {
  * @param {Array} chunks - enrichedChunks数组
  * @param {Array} groups - 意群数组
  * @param {string} docId - 文档ID
+ * @param {boolean} async - 是否异步建立索引（不阻塞）
  */
-async function ensureIndexesBuilt(chunks, groups, docId) {
+async function ensureIndexesBuilt(chunks, groups, docId, async = false) {
   if (!chunks || !Array.isArray(chunks) || chunks.length === 0) {
     return;
   }
 
-  // 自动建立向量索引（如果启用了向量搜索）
-  try {
-    if (window.EmbeddingClient?.config?.enabled && window.SemanticVectorSearch) {
-      console.log(`[ChatbotCore] 检测到向量搜索已启用，开始为 ${chunks.length} 个chunks建立索引...`);
-      await window.SemanticVectorSearch.indexChunks(chunks, docId, {
-        showProgress: true,
-        forceRebuild: false
-      });
-      // 更新UI显示
-      if (window.ChatbotFloatingOptionsUI?.updateDisplay) {
-        window.ChatbotFloatingOptionsUI.updateDisplay();
-      }
-    }
-  } catch (vectorErr) {
-    console.warn('[ChatbotCore] 建立向量索引失败（不影响意群功能）:', vectorErr);
-  }
+  // 检查是否启用多轮检索
+  const multiHopEnabled = (window.chatbotActiveOptions && window.chatbotActiveOptions.multiHopRetrieval === true);
 
-  // 始终建立BM25索引（轻量级，无需API）
+  // 读取文档配置
+  const docConfig = window.data?.multiHopConfig?.[docId];
+  const useVectorSearch = docConfig?.useVectorSearch !== false; // 默认true
+
+  // 异步建立向量索引（仅在启用多轮检索、用户配置允许且启用了向量搜索时）
+  const buildVectorIndex = async () => {
+    try {
+      if (!multiHopEnabled) {
+        console.log('[ChatbotCore] 多轮检索未启用，跳过向量索引生成');
+        return;
+      }
+
+      if (!useVectorSearch) {
+        console.log('[ChatbotCore] 用户选择不使用向量搜索，跳过向量索引生成');
+        return;
+      }
+
+      if (window.EmbeddingClient?.config?.enabled && window.SemanticVectorSearch) {
+        console.log(`[ChatbotCore] 检测到向量搜索已启用，开始为 ${chunks.length} 个chunks建立索引...`);
+        await window.SemanticVectorSearch.indexChunks(chunks, docId, {
+          showProgress: true,
+          forceRebuild: false
+        });
+        // 更新UI显示
+        if (window.ChatbotFloatingOptionsUI?.updateDisplay) {
+          window.ChatbotFloatingOptionsUI.updateDisplay();
+        }
+      }
+    } catch (vectorErr) {
+      console.warn('[ChatbotCore] 建立向量索引失败（不影响意群功能）:', vectorErr);
+    }
+  };
+
+  // 始终建立BM25索引（轻量级，无需API，作为fallback）
   try {
     if (window.SemanticBM25Search) {
       console.log('[ChatbotCore] 为chunks建立BM25索引...');
@@ -629,6 +649,16 @@ async function ensureIndexesBuilt(chunks, groups, docId) {
     }
   } catch (bm25Err) {
     console.warn('[ChatbotCore] 建立BM25索引失败:', bm25Err);
+  }
+
+  // 如果是异步模式，向量索引在后台进行
+  if (async) {
+    buildVectorIndex(); // 不await，让它在后台运行
+    if (multiHopEnabled && useVectorSearch) {
+      console.log('[ChatbotCore] 向量索引将在后台生成，不阻塞当前流程');
+    }
+  } else {
+    await buildVectorIndex(); // 同步等待完成
   }
 }
 
@@ -690,11 +720,32 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
     const multiHop = !!(window.chatbotActiveOptions && window.chatbotActiveOptions.multiHopRetrieval);
     // 智能检索开启时，自动启用智能分段和流式显示
     const segmented = multiHop ? true : ((window.chatbotActiveOptions && window.chatbotActiveOptions.contentLengthStrategy) === 'segmented');
-    const longDoc = ((docContentInfo.translation || docContentInfo.ocr || '').length >= 50000);
+
+    // 计算文档长度（与ensureSemanticGroupsReady保持一致）
+    const translationText = docContentInfo.translation || '';
+    const ocrText = docContentInfo.ocr || '';
+    const chunkCandidates = [];
+    if (Array.isArray(docContentInfo.translatedChunks)) {
+      chunkCandidates.push(...docContentInfo.translatedChunks);
+    }
+    if (Array.isArray(docContentInfo.ocrChunks)) {
+      chunkCandidates.push(...docContentInfo.ocrChunks);
+    }
+    let contentLength = Math.max(translationText.length, ocrText.length);
+    if (contentLength < 50000 && chunkCandidates.length > 0) {
+      const chunkLength = chunkCandidates.reduce((sum, chunk) => sum + (typeof chunk === 'string' ? chunk.length : 0), 0);
+      contentLength = Math.max(contentLength, chunkLength);
+    }
+    const longDoc = contentLength >= 50000;
+
+    console.log(`[ChatbotCore] 多轮检索条件检查: multiHop=${multiHop}, segmented=${segmented}, longDoc=${longDoc} (contentLength=${contentLength}), hasGroups=${Array.isArray(docContentInfo.semanticGroups) && docContentInfo.semanticGroups.length > 0}`);
+
     // 智能检索开启时，自动启用流式显示
     const useStreaming = multiHop ? true : ((window.chatbotActiveOptions && typeof window.chatbotActiveOptions.streamingRetrieval === 'boolean') ? window.chatbotActiveOptions.streamingRetrieval : true);
 
-    if (multiHop && segmented && longDoc && Array.isArray(docContentInfo.semanticGroups) && docContentInfo.semanticGroups.length > 0) {
+    // 多轮检索条件：启用了多轮检索 && 文档足够长
+    // 注意：即使没有意群数据，仍然可以使用grep工具进行多轮检索
+    if (multiHop && longDoc) {
       const userSet = window.semanticGroupsSettings || {};
 
       // 使用流式多轮取材（如果启用）
@@ -1660,12 +1711,209 @@ async function singleChunkSummary(sysPrompt, userInput, config, apiKey) {
 }
 
 // ===== 新增：意群自动生成函数 =====
+
+/**
+ * 显示多轮检索功能选择对话框
+ * @param {string} docId - 文档ID
+ * @returns {Promise<Object>} 用户选择 {useSemanticGroups: boolean, useVectorSearch: boolean}
+ */
+async function showMultiHopConfigDialog(docId) {
+  return new Promise((resolve) => {
+    // 创建遮罩层
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 100003;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    `;
+
+    // 创建对话框
+    const dialog = document.createElement('div');
+    dialog.style.cssText = `
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 480px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    `;
+
+    dialog.innerHTML = `
+      <h3 style="margin: 0 0 16px 0; font-size: 18px; color: #1f2937;">多轮智能检索配置</h3>
+      <p style="margin: 0 0 20px 0; font-size: 14px; color: #6b7280; line-height: 1.6;">
+        这是您首次在此文档使用多轮智能检索。请选择启用的功能：
+      </p>
+
+      <div style="margin-bottom: 16px;">
+        <label style="display: flex; align-items: flex-start; cursor: pointer; padding: 12px; border-radius: 8px; transition: background 0.2s;"
+               onmouseover="this.style.background='#f3f4f6'"
+               onmouseout="this.style.background='transparent'">
+          <input type="checkbox" id="use-semantic-groups" checked style="margin-top: 2px; margin-right: 12px; cursor: pointer;">
+          <div>
+            <div style="font-weight: 500; color: #1f2937; margin-bottom: 4px;">意群分析</div>
+            <div style="font-size: 13px; color: #6b7280;">将文档智能分割为语义单元，提高检索准确性</div>
+          </div>
+        </label>
+      </div>
+
+      <div style="margin-bottom: 24px;">
+        <label style="display: flex; align-items: flex-start; cursor: pointer; padding: 12px; border-radius: 8px; transition: background 0.2s;"
+               onmouseover="this.style.background='#f3f4f6'"
+               onmouseout="this.style.background='transparent'">
+          <input type="checkbox" id="use-vector-search" checked style="margin-top: 2px; margin-right: 12px; cursor: pointer;">
+          <div>
+            <div style="font-weight: 500; color: #1f2937; margin-bottom: 4px;">向量搜索</div>
+            <div style="font-size: 13px; color: #6b7280;">使用AI理解语义进行智能搜索（需消耗API token）</div>
+          </div>
+        </label>
+      </div>
+
+      <div style="display: flex; gap: 12px; justify-content: flex-end;">
+        <button id="dialog-cancel" style="
+          padding: 8px 16px;
+          border: 1px solid #d1d5db;
+          background: white;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 14px;
+          color: #374151;
+          transition: all 0.2s;
+        " onmouseover="this.style.background='#f9fafb'"
+           onmouseout="this.style.background='white'">取消</button>
+        <button id="dialog-confirm" style="
+          padding: 8px 16px;
+          border: none;
+          background: #059669;
+          color: white;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 14px;
+          transition: all 0.2s;
+        " onmouseover="this.style.background='#047857'"
+           onmouseout="this.style.background='#059669'">确认</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    // 绑定事件
+    const confirmBtn = dialog.querySelector('#dialog-confirm');
+    const cancelBtn = dialog.querySelector('#dialog-cancel');
+    const semanticGroupsCheckbox = dialog.querySelector('#use-semantic-groups');
+    const vectorSearchCheckbox = dialog.querySelector('#use-vector-search');
+
+    const closeDialog = (result) => {
+      document.body.removeChild(overlay);
+      resolve(result);
+    };
+
+    confirmBtn.onclick = () => {
+      const config = {
+        useSemanticGroups: semanticGroupsCheckbox.checked,
+        useVectorSearch: vectorSearchCheckbox.checked
+      };
+      closeDialog(config);
+    };
+
+    cancelBtn.onclick = () => {
+      closeDialog(null); // 取消返回null
+    };
+  });
+}
+
 /**
  * 确保意群数据已准备好
  * 根据文档大小和用户设置，决定是否需要生成意群
  * @param {Object} docContentInfo - 文档内容信息
  */
 async function ensureSemanticGroupsReady(docContentInfo) {
+  // 检查是否启用多轮检索（只有启用多轮检索时才需要意群和向量索引）
+  const multiHopEnabled = (window.chatbotActiveOptions && window.chatbotActiveOptions.multiHopRetrieval === true);
+  if (!multiHopEnabled) {
+    console.log('[ChatbotCore] 多轮检索未启用，跳过意群生成');
+    return;
+  }
+
+  // 检查 window.data 是否存在
+  if (!window.data) {
+    return;
+  }
+
+  const docId = window.data.currentPdfName || 'unknown';
+
+  // 检查是否已经配置过（针对当前文档）
+  if (!window.data.multiHopConfig) {
+    window.data.multiHopConfig = {};
+  }
+
+  // 如果当前文档未配置过，显示选择对话框
+  if (!window.data.multiHopConfig[docId]) {
+    console.log('[ChatbotCore] 首次使用多轮检索，显示配置对话框');
+
+    const config = await showMultiHopConfigDialog(docId);
+
+    if (!config) {
+      // 用户取消了
+      console.log('[ChatbotCore] 用户取消了多轮检索配置');
+      window.chatbotActiveOptions.multiHopRetrieval = false; // 关闭多轮检索
+      if (window.ChatbotFloatingOptionsUI?.updateDisplay) {
+        window.ChatbotFloatingOptionsUI.updateDisplay();
+      }
+      return;
+    }
+
+    // 保存配置
+    window.data.multiHopConfig[docId] = config;
+    console.log('[ChatbotCore] 保存多轮检索配置:', config);
+  }
+
+  // 读取文档配置
+  const docConfig = window.data.multiHopConfig[docId];
+  console.log('[ChatbotCore] 当前文档多轮检索配置:', docConfig);
+
+  // 如果不使用意群，创建简单的enrichedChunks（不分组）然后返回
+  if (!docConfig.useSemanticGroups) {
+    console.log('[ChatbotCore] 用户选择不使用意群分析，创建简单chunks用于BM25搜索');
+
+    // 获取原始chunks
+    const translationText = docContentInfo.translation || '';
+    const ocrText = docContentInfo.ocr || '';
+    const chunkCandidates = [];
+    if (Array.isArray(docContentInfo.translatedChunks)) {
+      chunkCandidates.push(...docContentInfo.translatedChunks);
+    }
+    if (Array.isArray(docContentInfo.ocrChunks)) {
+      chunkCandidates.push(...docContentInfo.ocrChunks);
+    }
+
+    // 创建简单的enrichedChunks（不带意群分组信息）
+    if (chunkCandidates.length > 0) {
+      const simpleEnrichedChunks = chunkCandidates.map((text, idx) => ({
+        chunkId: `chunk-${idx}`,
+        text: typeof text === 'string' ? text : '',
+        position: idx,
+        charCount: typeof text === 'string' ? text.length : 0,
+        belongsToGroup: null  // 不属于任何意群
+      })).filter(c => c.text);
+
+      window.data.enrichedChunks = simpleEnrichedChunks;
+      console.log(`[ChatbotCore] 创建了 ${simpleEnrichedChunks.length} 个简单chunks（无意群分组）`);
+
+      // 建立BM25索引（轻量级，不需要API）
+      const docId = getCurrentDocId();
+      await ensureIndexesBuilt(simpleEnrichedChunks, [], docId, false);
+    }
+
+    return;
+  }
+
   // 检查 SemanticGrouper 是否加载
   if (!window.SemanticGrouper || typeof window.SemanticGrouper.aggregate !== 'function') {
     console.warn('[ChatbotCore] SemanticGrouper 未加载，跳过意群生成');
@@ -1706,9 +1954,14 @@ async function ensureSemanticGroupsReady(docContentInfo) {
   }
 
   const contentStrategy = (window.chatbotActiveOptions && window.chatbotActiveOptions.contentLengthStrategy) || 'default';
-  const multiHopEnabled = !!(window.chatbotActiveOptions && window.chatbotActiveOptions.multiHopRetrieval);
   // 智能检索开启时，自动视为智能分段模式
   const strategySegmented = contentStrategy === 'segmented' || multiHopEnabled;
+
+  // 短文档检查：如果文档长度 < 50000 且未明确开启智能分段，跳过意群生成
+  if (contentLength < 50000 && contentStrategy !== 'segmented') {
+    console.log(`[ChatbotCore] 文档长度 ${contentLength} < 50000 且未明确开启智能分段，跳过意群生成`);
+    return;
+  }
 
   if (!strategySegmented) {
     console.log('[ChatbotCore] 当前策略非智能分段且未开启智能检索，跳过意群生成');
@@ -1878,13 +2131,32 @@ async function ensureSemanticGroupsReady(docContentInfo) {
 
     // 生成意群（可由用户设置覆盖默认值）
     const s = (window.semanticGroupsSettings || {});
+
+    // 创建进度显示UI元素
+    let progressToast = null;
+    if (window.ChatbotUtils && typeof window.ChatbotUtils.showProgressToast === 'function') {
+      progressToast = window.ChatbotUtils.showProgressToast('生成意群中...', 0);
+    }
+
     const result = await window.SemanticGrouper.aggregate(chunks, {
       targetChars: Number(s.targetChars) > 0 ? Number(s.targetChars) : 5000,
       minChars: Number(s.minChars) > 0 ? Number(s.minChars) : 2500,
       maxChars: Number(s.maxChars) > 0 ? Number(s.maxChars) : 6000,
       concurrency: Number(s.concurrency) > 0 ? Number(s.concurrency) : 20,  // 恢复默认并发数
-      docContext: window.data.semanticDocGist || ''
+      docContext: window.data.semanticDocGist || '',
+      onProgress: (current, total, message) => {
+        const percent = Math.round((current / total) * 100);
+        if (progressToast && typeof progressToast.update === 'function') {
+          progressToast.update(`${message} (${percent}%)`, percent);
+        }
+        console.log(`[ChatbotCore] 意群生成进度: ${current}/${total} (${percent}%)`);
+      }
     });
+
+    // 关闭进度提示
+    if (progressToast && typeof progressToast.close === 'function') {
+      progressToast.close();
+    }
 
     const semanticGroups = result.groups || [];
     const enrichedChunks = result.enrichedChunks || [];
@@ -1928,7 +2200,15 @@ async function ensureSemanticGroupsReady(docContentInfo) {
     }
 
     // 建立索引（现在索引chunks而不是意群）
-    await ensureIndexesBuilt(enrichedChunks, semanticGroups, docId);
+    // 如果启用了多轮检索，需要同步等待向量索引建立完成（否则第一轮检索时索引为空）
+    // 其他情况下，embedding可以在后台异步生成，不阻塞用户操作
+    const shouldWaitForIndex = multiHopEnabled;
+
+    if (shouldWaitForIndex) {
+      console.log('[ChatbotCore] 多轮检索已启用，同步等待向量索引建立完成');
+    }
+
+    await ensureIndexesBuilt(enrichedChunks, semanticGroups, docId, !shouldWaitForIndex);
   } catch (error) {
     console.error('[ChatbotCore] 生成意群失败:', error);
 

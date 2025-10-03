@@ -404,9 +404,83 @@ async function compressImage(base64Src, targetSizeBytes, maxDimension, initialQu
   });
 }
 
+/**
+ * 显示带进度条的Toast提示
+ * @param {string} message 初始消息
+ * @param {number} percent 初始进度 (0-100)
+ * @returns {object} 包含update和close方法的对象
+ */
+function showProgressToast(message, percent = 0) {
+  let toast = document.getElementById('chatbot-progress-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'chatbot-progress-toast';
+    toast.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      min-width: 300px;
+      background: white;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      padding: 16px;
+      z-index: 100002;
+      font-family: system-ui, -apple-system, sans-serif;
+    `;
+
+    const messageEl = document.createElement('div');
+    messageEl.id = 'progress-toast-message';
+    messageEl.style.cssText = 'font-size: 14px; color: #374151; margin-bottom: 8px;';
+
+    const progressBg = document.createElement('div');
+    progressBg.style.cssText = 'width: 100%; height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden;';
+
+    const progressBar = document.createElement('div');
+    progressBar.id = 'progress-toast-bar';
+    progressBar.style.cssText = 'height: 100%; background: linear-gradient(90deg, #3b82f6, #2563eb); transition: width 0.3s ease; width: 0%;';
+
+    const percentEl = document.createElement('div');
+    percentEl.id = 'progress-toast-percent';
+    percentEl.style.cssText = 'font-size: 12px; color: #6b7280; margin-top: 4px; text-align: right;';
+
+    progressBg.appendChild(progressBar);
+    toast.appendChild(messageEl);
+    toast.appendChild(progressBg);
+    toast.appendChild(percentEl);
+    document.body.appendChild(toast);
+  }
+
+  const messageEl = document.getElementById('progress-toast-message');
+  const progressBar = document.getElementById('progress-toast-bar');
+  const percentEl = document.getElementById('progress-toast-percent');
+
+  messageEl.textContent = message;
+  progressBar.style.width = percent + '%';
+  percentEl.textContent = percent + '%';
+
+  return {
+    update: function(newMessage, newPercent) {
+      if (messageEl) messageEl.textContent = newMessage;
+      if (progressBar) progressBar.style.width = newPercent + '%';
+      if (percentEl) percentEl.textContent = newPercent + '%';
+    },
+    close: function() {
+      if (toast && toast.parentNode) {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s';
+        setTimeout(() => {
+          if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }, 300);
+      }
+    }
+  };
+}
+
 window.ChatbotUtils = {
   escapeHtml,
   showToast,
+  showProgressToast,
   copyAssistantMessage,
   exportMessageAsPng,
   doExportAsPng,

@@ -254,7 +254,7 @@
         <div class="tool-step-indicator">${icon}</div>
         <div class="tool-step-content">
           <div class="tool-step-main">
-            <span class="tool-step-title">${title}</span>
+            <span class="tool-step-title">${escapeHtml(title)}</span>
             <button class="tool-step-detail-toggle" onclick="this.closest('.tool-step').classList.toggle('detail-open')">详情</button>
           </div>
           <div class="tool-step-detail">${escapeHtml(detail)}</div>
@@ -615,7 +615,7 @@
       if (cleanValue.length > 0) {
         summary += '\n\n【前' + Math.min(3, cleanValue.length) + '个结果预览】\n';
         cleanValue.slice(0, 3).forEach(function(item, idx) {
-          var preview = item.preview || '';
+          var preview = sanitizeText(item.preview || '');
           if (preview.length > 150) preview = preview.substring(0, 150) + '...';
           summary += (idx + 1) + '. ' + item.belongsToGroup + ' (分数:' + item.score.toFixed(3) + ')\n   ' + preview + '\n';
         });
@@ -647,7 +647,7 @@
       if (cleanValue.length > 0) {
         summary += '\n\n【前' + Math.min(3, cleanValue.length) + '个结果预览】\n';
         cleanValue.slice(0, 3).forEach(function(item, idx) {
-          var preview = item.preview || '';
+          var preview = sanitizeText(item.preview || '');
           if (preview.length > 150) preview = preview.substring(0, 150) + '...';
           var matched = item.matchedKeywords ? ' [' + item.matchedKeywords.join(',') + ']' : '';
           summary += (idx + 1) + '. ' + (item.belongsToGroup || '全文') + matched + '\n   ' + preview + '\n';
@@ -692,7 +692,7 @@
       if (cleanValue.length > 0) {
         summary += '\n\n【前' + Math.min(3, cleanValue.length) + '个结果预览】\n';
         cleanValue.slice(0, 3).forEach(function(item, idx) {
-          var preview = item.preview || '';
+          var preview = sanitizeText(item.preview || '');
           if (preview.length > 150) preview = preview.substring(0, 150) + '...';
           var src = item.belongsToGroup ? item.belongsToGroup : '全文';
           var matched = item.matchedKeyword ? ' [' + item.matchedKeyword + ']' : '';
@@ -722,7 +722,7 @@
       if (cleanValue.length > 0) {
         summary += '\n\n【前' + Math.min(3, cleanValue.length) + '个结果预览】\n';
         cleanValue.slice(0, 3).forEach(function(item, idx) {
-          var preview = item.preview || '';
+          var preview = sanitizeText(item.preview || '');
           if (preview.length > 150) preview = preview.substring(0, 150) + '...';
           var src = item.belongsToGroup ? item.belongsToGroup : '全文';
           summary += (idx + 1) + '. ' + src + '\n   ' + preview + '\n';
@@ -761,6 +761,29 @@
     } catch (_) {
       return String(cleanValue);
     }
+  }
+
+  /**
+   * 清理文本内容，移除潜在的危险字符和HTML标签
+   * @param {string} text - 待清理的文本
+   * @returns {string} - 清理后的文本
+   */
+  function sanitizeText(text) {
+    if (!text || typeof text !== 'string') return '';
+
+    // 1. 移除HTML标签
+    text = text.replace(/<[^>]*>/g, '');
+
+    // 2. 移除控制字符（保留常用的空白字符）
+    text = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '');
+
+    // 3. 规范化空白字符
+    text = text.replace(/\s+/g, ' ').trim();
+
+    // 4. 移除不完整的Unicode代理对
+    text = text.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF]/g, '');
+
+    return text;
   }
 
   /**

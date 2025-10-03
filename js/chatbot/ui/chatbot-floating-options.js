@@ -14,7 +14,7 @@ if (typeof window.ChatbotFloatingOptionsScriptLoaded === 'undefined') {
   const _chatbotOptionsConfig = [
     { key: 'semanticGroups', texts: ['意群'], title: '查看/搜索意群', activeStyleColor: '#059669', isAction: true },
     { key: 'useContext', texts: ['上下文:关', '上下文:开'], values: [false, true], title: '切换是否使用对话历史', activeStyleColor: '#1d4ed8' },
-    { key: 'multiHopRetrieval', texts: ['智能检索:关', '智能检索:开'], values: [false, true], defaultKey: false, title: '开启后自动启用：多轮取材+流式显示+智能分段', activeStyleColor: '#059669' },
+    { key: 'multiHopRetrieval', texts: ['多轮智能检索:关', '多轮智能检索:开'], values: [false, true], defaultKey: false, title: '开启后自动启用：多轮取材+流式显示+意群分析+向量搜索', activeStyleColor: '#059669' },
     { key: 'summarySource', texts: ['提供全文:OCR', '提供全文:无', '提供全文:翻译'], values: ['ocr', 'none', 'translation'], defaultKey: 'ocr', title: '切换总结时使用的文本源 (OCR/不使用文档内容/翻译)', activeStyleColor: '#1d4ed8' },
     { key: 'interestPointsActive', texts: ['兴趣点'], activeStyleColor: '#059669', isPlaceholder: true, title: '兴趣点功能 (待实现)' },
     { key: 'memoryManagementActive', texts: ['记忆管理'], activeStyleColor: '#059669', isPlaceholder: true, title: '记忆管理功能 (待实现)' }
@@ -166,68 +166,109 @@ if (typeof window.ChatbotFloatingOptionsScriptLoaded === 'undefined') {
           shouldBeVisible = hasGroups;
         }
 
-        button.style.display = shouldBeVisible ? '' : 'none';
+        // 智能检索按钮：仅当文档足够长时显示
+        if (optConf.key === 'multiHopRetrieval') {
+          let contentLength = 0;
+          if (window.ChatbotCore && typeof window.ChatbotCore.getCurrentDocContent === 'function') {
+            const docContentInfo = window.ChatbotCore.getCurrentDocContent();
+            if (docContentInfo) {
+              const translationText = docContentInfo.translation || '';
+              const ocrText = docContentInfo.ocr || '';
+              const chunkCandidates = [];
+              if (Array.isArray(docContentInfo.translatedChunks)) {
+                chunkCandidates.push(...docContentInfo.translatedChunks);
+              }
+              if (Array.isArray(docContentInfo.ocrChunks)) {
+                chunkCandidates.push(...docContentInfo.ocrChunks);
+              }
 
-        // 更新分隔符的显示状态
-        // 一个分隔符的显示与否，取决于它左边的按钮是否显示。
-        // _chatbotOptionsConfig 中每个分隔符的ID是基于其 *右侧* 按钮的key
-        const currentButtonIndex = _chatbotOptionsConfig.findIndex(c => c.key === optConf.key);
-        const nextButtonConf = _chatbotOptionsConfig[currentButtonIndex + 1];
-
-        if (nextButtonConf) { // 如果有下一个按钮 (即当前按钮不是最后一个)
-            const separatorForThisButton = document.getElementById(`chatbot-separator-${nextButtonConf.key}`);
-            if (separatorForThisButton) {
-                separatorForThisButton.style.display = shouldBeVisible ? '' : 'none';
+              contentLength = Math.max(translationText.length, ocrText.length);
+              if (contentLength < 50000 && chunkCandidates.length > 0) {
+                const chunkLength = chunkCandidates.reduce((sum, chunk) => sum + (typeof chunk === 'string' ? chunk.length : 0), 0);
+                contentLength = Math.max(contentLength, chunkLength);
+              }
             }
-        }
-
-        // 如果按钮本身不可见，则跳过后续的文本和样式更新
-        if (!shouldBeVisible) return; // 使用 return 来跳过 forEach 的当前迭代
-
-        const currentOptionValue = window.chatbotActiveOptions[optConf.key];
-        let currentText = '';
-        let color = '#4b5563';
-        let fontWeight = 'normal';
-        let isActiveStyle = false;
-
-        if (optConf.isAction && optConf.key === 'semanticGroups') {
-          const count = (window.data && Array.isArray(window.data.semanticGroups)) ? window.data.semanticGroups.length : 0;
-          currentText = count > 0 ? `意群(${count})` : '意群';
-          // 显示为激活风格以便更醒目（当有意群时）
-          if (count > 0) { color = optConf.activeStyleColor; fontWeight = '600'; isActiveStyle = true; }
-        } else if (optConf.isPlaceholder) {
-          currentText = optConf.texts[0];
-        } else if (optConf.key === 'useContext') {
-          currentText = currentOptionValue ? optConf.texts[1] : optConf.texts[0];
-          if (currentOptionValue) { color = optConf.activeStyleColor; fontWeight = '600'; isActiveStyle = true; }
-        } else if (optConf.key === 'contentLengthStrategy') {
-          currentText = currentOptionValue === optConf.defaultKey ? optConf.texts[0] : optConf.texts[1];
-          if (currentOptionValue !== optConf.defaultKey) {
-             color = optConf.activeStyleColor; fontWeight = '600'; isActiveStyle = true;
           }
-        } else if (optConf.key === 'multiHopRetrieval') {
-          currentText = currentOptionValue ? optConf.texts[1] : optConf.texts[0];
-          if (currentOptionValue) { color = optConf.activeStyleColor; fontWeight = '600'; isActiveStyle = true; }
-        } else if (optConf.key === 'streamingRetrieval') {
-          currentText = currentOptionValue ? optConf.texts[1] : optConf.texts[0];
-          if (currentOptionValue) { color = optConf.activeStyleColor; fontWeight = '600'; isActiveStyle = true; }
-        } else if (optConf.key === 'summarySource') {
-          const currentIndex = optConf.values.indexOf(currentOptionValue);
-          currentText = optConf.texts[currentIndex] || optConf.texts[0];
-          // 对于 summarySource, 'ocr' (index 0) 是默认状态，'none' (index 1) 和 'translation' (index 2) 算作激活状态
-          if (currentOptionValue !== optConf.defaultKey) {
-              color = optConf.activeStyleColor; fontWeight = '600'; isActiveStyle = true;
+
+          // 如果文档长度小于50000，则隐藏智能检索按钮
+          if (contentLength < 50000) {
+            shouldBeVisible = false;
           }
         }
-        button.textContent = currentText;
-        button.style.color = color;
-        button.style.fontWeight = fontWeight;
 
-        if (isActiveStyle) {
-            button.style.backgroundColor = 'rgba(59, 130, 246, 0.1)'; // 淡蓝色背景表示激活
-        } else {
-            button.style.backgroundColor = 'transparent';
+        button.style.display = shouldBeVisible ? '' : 'none';
+      }
+    });
+
+    // 第二遍：更新所有分隔符的显示状态
+    // 分隔符只在两个连续可见按钮之间显示
+    _chatbotOptionsConfig.forEach((optConf, index) => {
+      if (index < _chatbotOptionsConfig.length - 1) {
+        const currentButton = document.getElementById(`chatbot-option-${optConf.key}`);
+        const nextOptConf = _chatbotOptionsConfig[index + 1];
+        const nextButton = document.getElementById(`chatbot-option-${nextOptConf.key}`);
+        const separator = document.getElementById(`chatbot-separator-${nextOptConf.key}`);
+
+        if (separator) {
+          // 只有当前按钮和下一个按钮都可见时，才显示分隔符
+          const currentVisible = currentButton && currentButton.style.display !== 'none';
+          const nextVisible = nextButton && nextButton.style.display !== 'none';
+          separator.style.display = (currentVisible && nextVisible) ? '' : 'none';
         }
+      }
+    });
+
+    // 第三遍：更新按钮文本和样式
+    _chatbotOptionsConfig.forEach(optConf => {
+      const button = document.getElementById(`chatbot-option-${optConf.key}`);
+
+      if (!button || button.style.display === 'none') {
+        return; // 跳过不可见的按钮
+      }
+
+      const currentOptionValue = window.chatbotActiveOptions[optConf.key];
+      let currentText = '';
+      let color = '#4b5563';
+      let fontWeight = 'normal';
+      let isActiveStyle = false;
+
+      if (optConf.isAction && optConf.key === 'semanticGroups') {
+        const count = (window.data && Array.isArray(window.data.semanticGroups)) ? window.data.semanticGroups.length : 0;
+        currentText = count > 0 ? `意群(${count})` : '意群';
+        // 显示为激活风格以便更醒目（当有意群时）
+        if (count > 0) { color = optConf.activeStyleColor; fontWeight = '600'; isActiveStyle = true; }
+      } else if (optConf.isPlaceholder) {
+        currentText = optConf.texts[0];
+      } else if (optConf.key === 'useContext') {
+        currentText = currentOptionValue ? optConf.texts[1] : optConf.texts[0];
+        if (currentOptionValue) { color = optConf.activeStyleColor; fontWeight = '600'; isActiveStyle = true; }
+      } else if (optConf.key === 'contentLengthStrategy') {
+        currentText = currentOptionValue === optConf.defaultKey ? optConf.texts[0] : optConf.texts[1];
+        if (currentOptionValue !== optConf.defaultKey) {
+           color = optConf.activeStyleColor; fontWeight = '600'; isActiveStyle = true;
+        }
+      } else if (optConf.key === 'multiHopRetrieval') {
+        currentText = currentOptionValue ? optConf.texts[1] : optConf.texts[0];
+        if (currentOptionValue) { color = optConf.activeStyleColor; fontWeight = '600'; isActiveStyle = true; }
+      } else if (optConf.key === 'streamingRetrieval') {
+        currentText = currentOptionValue ? optConf.texts[1] : optConf.texts[0];
+        if (currentOptionValue) { color = optConf.activeStyleColor; fontWeight = '600'; isActiveStyle = true; }
+      } else if (optConf.key === 'summarySource') {
+        const currentIndex = optConf.values.indexOf(currentOptionValue);
+        currentText = optConf.texts[currentIndex] || optConf.texts[0];
+        // 对于 summarySource, 'ocr' (index 0) 是默认状态，'none' (index 1) 和 'translation' (index 2) 算作激活状态
+        if (currentOptionValue !== optConf.defaultKey) {
+            color = optConf.activeStyleColor; fontWeight = '600'; isActiveStyle = true;
+        }
+      }
+      button.textContent = currentText;
+      button.style.color = color;
+      button.style.fontWeight = fontWeight;
+
+      if (isActiveStyle) {
+          button.style.backgroundColor = 'rgba(59, 130, 246, 0.1)'; // 淡蓝色背景表示激活
+      } else {
+          button.style.backgroundColor = 'transparent';
       }
     });
   }

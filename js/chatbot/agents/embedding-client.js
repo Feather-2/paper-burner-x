@@ -142,9 +142,13 @@
     /**
      * 批量生成向量（自动分批 + 并发处理）
      * @param {string[]} texts - 文本数组
+     * @param {Object} options - 选项
+     * @param {Function} options.onProgress - 进度回调 (current, total, message)
      * @returns {Promise<number[][]>} 向量数组
      */
-    async batchEmbed(texts) {
+    async batchEmbed(texts, options = {}) {
+      const { onProgress = null } = options;
+
       const batches = [];
       let currentBatch = [];
       let currentTokens = 0;
@@ -173,6 +177,7 @@
       // 并发处理批次
       const results = new Array(batches.length);
       let nextIndex = 0;
+      let completedCount = 0;
 
       async function processNext(self) {
         const i = nextIndex++;
@@ -180,6 +185,11 @@
 
         console.log(`[EmbeddingClient] 处理批次 ${i + 1}/${batches.length}`);
         results[i] = await self.embed(batches[i]);
+
+        completedCount++;
+        if (onProgress && typeof onProgress === 'function') {
+          onProgress(completedCount, batches.length, `正在生成向量 ${completedCount}/${batches.length}`);
+        }
 
         return processNext(self);
       }

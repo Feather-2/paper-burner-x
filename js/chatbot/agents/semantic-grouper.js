@@ -39,6 +39,7 @@
    * @param {number} options.targetChars - 目标字数（默认 5000）
    * @param {number} options.minChars - 最小字数（默认 2500）
    * @param {number} options.maxChars - 最大字数（默认 6000）
+   * @param {Function} options.onProgress - 进度回调函数 (current, total, message)
    * @returns {Promise<Object>} 返回 {groups: 意群数组, enrichedChunks: 带元数据的chunks}
    */
   async function aggregateIntoSemanticGroups(chunks, options = {}) {
@@ -47,7 +48,8 @@
       minChars = 2500,
       maxChars = 6000,
       concurrency = 20,  // 恢复默认并发数
-      docContext = (window.data && window.data.semanticDocGist) ? window.data.semanticDocGist : ''
+      docContext = (window.data && window.data.semanticDocGist) ? window.data.semanticDocGist : '',
+      onProgress = null
     } = options;
 
     if (!chunks || !Array.isArray(chunks) || chunks.length === 0) {
@@ -110,7 +112,12 @@
 
     console.log(`[SemanticGrouper] 初步分组完成，共 ${candidates.length} 个候选意群。开始并发处理，最大并发: ${concurrency}`);
 
-    const groups = await finalizeGroupsInParallel(candidates, concurrency, docContext);
+    // 调用进度回调：开始处理
+    if (onProgress && typeof onProgress === 'function') {
+      onProgress(0, candidates.length, '开始生成意群摘要和关键词...');
+    }
+
+    const groups = await finalizeGroupsInParallel(candidates, concurrency, docContext, onProgress);
 
     // 更新enrichedChunks的belongsToGroup字段
     groups.forEach(group => {
@@ -183,9 +190,11 @@
     }
   }
 
-  async function finalizeGroupsInParallel(candidates, concurrency, docContext) {
+  async function finalizeGroupsInParallel(candidates, concurrency, docContext, onProgress) {
     const results = new Array(candidates.length);
     let nextIndex = 0;
+    let completedCount = 0;
+    const total = candidates.length;
 
     async function runNext() {
       const i = nextIndex++;
@@ -197,6 +206,13 @@
       }
 
       results[i] = await finalizeGroup(candidates[i], i, docContext);
+
+      // 更新进度
+      completedCount++;
+      if (onProgress && typeof onProgress === 'function') {
+        onProgress(completedCount, total, `正在处理意群 ${completedCount}/${total}`);
+      }
+
       return runNext();
     }
 

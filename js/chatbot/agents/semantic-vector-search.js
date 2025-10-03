@@ -169,8 +169,10 @@
         }
       }
 
-      if (showProgress && window.ChatbotUtils?.showToast) {
-        window.ChatbotUtils.showToast(`正在为 ${chunks.length} 个chunks建立向量索引...`, 'info', 3000);
+      // 创建进度toast
+      let progressToast = null;
+      if (showProgress && window.ChatbotUtils && typeof window.ChatbotUtils.showProgressToast === 'function') {
+        progressToast = window.ChatbotUtils.showProgressToast('开始生成向量索引...', 0);
       }
 
       try {
@@ -179,8 +181,16 @@
 
         console.log(`[SemanticVectorSearch] 开始生成 ${texts.length} 个chunk向量...`);
 
-        // 批量生成向量
-        const vectors = await window.EmbeddingClient.batchEmbed(texts);
+        // 批量生成向量（带进度回调）
+        const vectors = await window.EmbeddingClient.batchEmbed(texts, {
+          onProgress: (current, total, message) => {
+            const percent = Math.round((current / total) * 100);
+            if (progressToast && typeof progressToast.update === 'function') {
+              progressToast.update(`${message} (${percent}%)`, percent);
+            }
+            console.log(`[SemanticVectorSearch] 向量生成进度: ${current}/${total} (${percent}%)`);
+          }
+        });
 
         // 批量存储
         const items = chunks.map((chunk, idx) => ({
@@ -205,6 +215,10 @@
 
         console.log(`[SemanticVectorSearch] 向量索引建立完成，共 ${vectors.length} 个chunks`);
 
+        // 关闭进度toast，显示成功提示
+        if (progressToast && typeof progressToast.close === 'function') {
+          progressToast.close();
+        }
         if (showProgress && window.ChatbotUtils?.showToast) {
           window.ChatbotUtils.showToast('向量索引建立完成', 'success', 2000);
         }
@@ -217,6 +231,12 @@
 
       } catch (error) {
         console.error('[SemanticVectorSearch] 建立索引失败:', error);
+
+        // 关闭进度toast
+        if (progressToast && typeof progressToast.close === 'function') {
+          progressToast.close();
+        }
+
         if (showProgress && window.ChatbotUtils?.showToast) {
           window.ChatbotUtils.showToast('向量索引建立失败', 'error', 3000);
         }
