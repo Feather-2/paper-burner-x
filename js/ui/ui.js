@@ -689,11 +689,37 @@ document.addEventListener('DOMContentLoaded', function() {
         noticeDiv.innerHTML = `
             <p class="font-semibold mb-1">📝 Mistral OCR Keys 管理</p>
             <ul class="list-disc list-inside space-y-1 text-xs">
-                <li>请在下方“Key 管理器”中添加/测试 Mistral API Keys（每个 Key 独立管理）。</li>
+                <li>请在下方"Key 管理器"中添加/测试 Mistral API Keys（每个 Key 独立管理）。</li>
                 <li>系统会在 OCR 时按顺序轮询可用 Key，实现负载均衡与容错。</li>
             </ul>
         `;
         container.appendChild(noticeDiv);
+
+        // Base URL 配置
+        const baseUrlDiv = document.createElement('div');
+        const currentBaseUrl = localStorage.getItem('ocrMistralBaseUrl') || 'https://api.mistral.ai';
+        baseUrlDiv.innerHTML = `
+            <label class="block text-sm font-medium text-gray-700 mb-1">API Base URL</label>
+            <input type="text" id="mistral-base-url-km" value="${currentBaseUrl}" placeholder="https://api.mistral.ai" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+            <p class="mt-1 text-xs text-gray-500">默认: https://api.mistral.ai，如需使用第三方代理可在此修改</p>
+        `;
+        container.appendChild(baseUrlDiv);
+
+        // 保存按钮
+        const saveBtn = document.createElement('button');
+        saveBtn.textContent = '保存配置';
+        saveBtn.className = 'px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-md transition-colors';
+        saveBtn.addEventListener('click', () => {
+            const baseUrlInput = document.getElementById('mistral-base-url-km');
+            if (baseUrlInput) {
+                const newBaseUrl = baseUrlInput.value.trim() || 'https://api.mistral.ai';
+                localStorage.setItem('ocrMistralBaseUrl', newBaseUrl);
+                if (typeof showNotification === 'function') {
+                    showNotification('Mistral OCR 配置已保存', 'success');
+                }
+            }
+        });
+        container.appendChild(saveBtn);
 
         modelConfigColumn.appendChild(container);
     }

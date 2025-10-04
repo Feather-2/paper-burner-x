@@ -10,6 +10,7 @@ class MistralOcrAdapter extends OcrAdapter {
     super(config);
     this.keys = config.keys || [];
     this.currentKeyIndex = 0;
+    this.baseUrl = (config.baseUrl || 'https://api.mistral.ai').replace(/\/+$/, ''); // 移除尾部斜杠
   }
 
   /**
@@ -66,7 +67,7 @@ class MistralOcrAdapter extends OcrAdapter {
 
       // 2. 等待文件处理完成
       onProgress?.(30, 100, '等待文件处理...');
-      await this.delay(1000);
+      await this.sleep(1000);
 
       // 3. 获取签名 URL
       onProgress?.(40, 100, '获取签名 URL...');
@@ -110,7 +111,7 @@ class MistralOcrAdapter extends OcrAdapter {
     formData.append('file', file);
     formData.append('purpose', 'ocr');
 
-    const response = await fetch('https://api.mistral.ai/v1/files', {
+    const response = await fetch(`${this.baseUrl}/v1/files`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`
@@ -138,7 +139,7 @@ class MistralOcrAdapter extends OcrAdapter {
    * @returns {Promise<string>} signed_url
    */
   async getMistralSignedUrl(fileId, apiKey) {
-    const response = await fetch(`https://api.mistral.ai/v1/files/${fileId}/url`, {
+    const response = await fetch(`${this.baseUrl}/v1/files/${fileId}/url`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${apiKey}`
@@ -165,7 +166,7 @@ class MistralOcrAdapter extends OcrAdapter {
    * @returns {Promise<Object>} OCR 数据
    */
   async callOcrApi(signedUrl, apiKey) {
-    const response = await fetch('https://api.mistral.ai/v1/ocr', {
+    const response = await fetch(`${this.baseUrl}/v1/ocr`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -202,7 +203,7 @@ class MistralOcrAdapter extends OcrAdapter {
     if (!fileId || !apiKey) return;
 
     try {
-      const response = await fetch(`https://api.mistral.ai/v1/files/${fileId}`, {
+      const response = await fetch(`${this.baseUrl}/v1/files/${fileId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${apiKey}`

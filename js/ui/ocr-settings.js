@@ -19,6 +19,7 @@ class OcrSettingsManager {
       workerAuthKey: 'ocrWorkerAuthKey',
       // Mistral OCR
       mistralKeys: 'ocrMistralKeys',
+      mistralBaseUrl: 'ocrMistralBaseUrl',
       // MinerU
       mineruToken: 'ocrMinerUToken',
       mineruWorkerUrl: 'ocrMinerUWorkerUrl',
@@ -74,6 +75,7 @@ class OcrSettingsManager {
 
     // Mistral OCR
     this.elements.mistralOcrKeys = document.getElementById('mistralOcrKeys');
+    this.elements.mistralBaseUrl = document.getElementById('mistralBaseUrl');
     this.elements.mistralOcrConfig = document.getElementById('mistralOcrConfig');
 
     // MinerU
@@ -107,6 +109,9 @@ class OcrSettingsManager {
       // Mistral OCR
       if (this.elements.mistralOcrKeys) {
         this.elements.mistralOcrKeys.value = localStorage.getItem(this.keys.mistralKeys) || '';
+      }
+      if (this.elements.mistralBaseUrl) {
+        this.elements.mistralBaseUrl.value = localStorage.getItem(this.keys.mistralBaseUrl) || 'https://api.mistral.ai';
       }
 
       // MinerU
@@ -160,6 +165,9 @@ class OcrSettingsManager {
       if (this.elements.mistralOcrKeys) {
         localStorage.setItem(this.keys.mistralKeys, this.elements.mistralOcrKeys.value);
       }
+      if (this.elements.mistralBaseUrl) {
+        localStorage.setItem(this.keys.mistralBaseUrl, this.elements.mistralBaseUrl.value);
+      }
 
       // MinerU
       if (this.elements.mineruToken) {
@@ -212,7 +220,7 @@ class OcrSettingsManager {
 
     // 所有输入框自动保存
     const inputIds = [
-      'mistralOcrKeys',
+      'mistralOcrKeys', 'mistralBaseUrl',
       'mineruToken', 'mineruWorkerUrl',
       'mineruEnableOcr', 'mineruEnableFormula', 'mineruEnableTable',
       'doc2xToken', 'doc2xWorkerUrl',
@@ -342,14 +350,16 @@ class OcrSettingsManager {
             .map(k => k.trim())
             .filter(Boolean);
           const merged = (keysFromManager && keysFromManager.length > 0) ? keysFromManager : legacy;
-          return { engine: 'mistral', keys: merged };
+          const baseUrl = localStorage.getItem(this.keys.mistralBaseUrl) || 'https://api.mistral.ai';
+          return { engine: 'mistral', keys: merged, baseUrl };
         } catch (e) {
           console.warn('[OCR Settings] 读取 Mistral Keys 失败，回退 legacy。', e);
           const legacy = (localStorage.getItem(this.keys.mistralKeys) || '')
             .split('\n')
             .map(k => k.trim())
             .filter(Boolean);
-          return { engine: 'mistral', keys: legacy };
+          const baseUrl = localStorage.getItem(this.keys.mistralBaseUrl) || 'https://api.mistral.ai';
+          return { engine: 'mistral', keys: legacy, baseUrl };
         }
 
       case 'mineru':
