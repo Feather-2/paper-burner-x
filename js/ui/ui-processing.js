@@ -110,27 +110,36 @@
         if (!processBtn) return;
         const getActiveFiles = typeof global.getActiveFiles === 'function' ? global.getActiveFiles : null;
         const effectiveFiles = getActiveFiles ? getActiveFiles() : pdfFiles;
-        let mistralKeysAvailable = true;
+        let ocrConfigAvailable = true;  // 重命名：更清晰地表示 OCR 配置是否可用
         let translationKeysAvailable = true;
         const hasPdfFiles = effectiveFiles.some(file => file.name.toLowerCase().endsWith('.pdf'));
 
         // 检查 OCR 引擎与所需配置
         let ocrEngine = 'mistral';
+        let ocrConfigValid = true;
+        let ocrConfigMessage = '';
         try {
             if (window.ocrSettingsManager && typeof window.ocrSettingsManager.getCurrentConfig === 'function') {
                 ocrEngine = window.ocrSettingsManager.getCurrentConfig().engine || (localStorage.getItem('ocrEngine') || 'mistral');
+                // 使用 validateConfig 检查配置是否完整
+                const validation = window.ocrSettingsManager.validateConfig();
+                ocrConfigValid = validation.valid;
+                ocrConfigMessage = validation.message;
             } else {
                 ocrEngine = localStorage.getItem('ocrEngine') || 'mistral';
             }
         } catch {}
 
         if (hasPdfFiles) {
-            if (ocrEngine === 'mistral') {
-                const mistralKeyProvider = new KeyProvider('mistral');
-                mistralKeysAvailable = mistralKeyProvider.hasAvailableKeys();
+            if (ocrEngine === 'none') {
+                // 选择了"不需要 OCR"但有 PDF 文件，标记为无效
+                ocrConfigAvailable = false;
+            } else if (!ocrConfigValid) {
+                // 当前选择的 OCR 引擎配置不完整
+                ocrConfigAvailable = false;
             } else {
-                // 非 Mistral OCR，不强制要求 Mistral Keys
-                mistralKeysAvailable = true;
+                // OCR 配置有效
+                ocrConfigAvailable = true;
             }
         }
 
@@ -172,11 +181,11 @@
         }
 
         // 更新按钮禁用状态和验证提示
-        const hasValidationIssues = (hasPdfFiles && !mistralKeysAvailable) || (!translationKeysAvailable && selectedTranslationModelName !== 'none');
+        const hasValidationIssues = (hasPdfFiles && !ocrConfigAvailable) || (!translationKeysAvailable && selectedTranslationModelName !== 'none');
         processBtn.disabled = effectiveFiles.length === 0 || isProcessing || hasValidationIssues;
 
-        // 更新验证状态提示
-        updateValidationAlert(effectiveFiles, hasPdfFiles, mistralKeysAvailable, translationKeysAvailable, selectedTranslationModelName, translationModelDisplayName, isProcessing);
+        // 更新验证状态提示（传递 OCR 配置信息）
+        updateValidationAlert(effectiveFiles, hasPdfFiles, ocrConfigAvailable, translationKeysAvailable, selectedTranslationModelName, translationModelDisplayName, isProcessing, ocrEngine, ocrConfigValid, ocrConfigMessage);
 
         if (isProcessing) {
             processBtn.innerHTML = `<iconify-icon icon="carbon:hourglass" class="mr-1 animate-spin"></iconify-icon>处理中...`;
@@ -185,7 +194,8 @@
         }
     }
 
-    function updateValidationAlert(effectiveFiles, hasPdfFiles, mistralKeysAvailable, translationKeysAvailable, selectedTranslationModel, translationModelDisplayName, isProcessing) {
+
+    function updateValidationAlert(effectiveFiles, hasPdfFiles, ocrConfigAvailable, translationKeysAvailable, selectedTranslationModel, translationModelDisplayName, isProcessing, ocrEngine, ocrConfigValid, ocrConfigMessage) {
         const validationAlert = document.getElementById('validationAlert');
         const validationIcon = document.getElementById('validationIcon');
         const validationTitle = document.getElementById('validationTitle');
@@ -203,66 +213,57 @@
         // 检查各种验证条件
         const issues = [];
 
-        if (hasPdfFiles && !mistralKeysAvailable && ocrEngine === 'mistral') {
-            issues.push({
-                type: 'no-mistral-key',
-                title: '缺少 Mistral API Key',
-                message: '您上传了 PDF 文件，需要配置 Mistral API Key 才能进行 OCR 识别。配置后可点击右上角刷新按钮更新状态。',
-                icon: 'carbon:warning-alt',
-                color: 'amber',
-                actions: [
-                    { text: '去配置 Key', link: '#', onClick: () => {
-                        const keyManagerBtn = document.getElementById('modelKeyManagerBtn');
-                        if (keyManagerBtn) keyManagerBtn.click();
-                    }}
-                ]
-            });
+        if (hasPdfFiles && !ocrConfigAvailable) {
+            if (ocrEngine === 'none') {
+                issues.push({
+                    type: 'ocr-none-with-pdf',
+                    title: 'PDF 文件需要 OCR 引擎',
+                    message: '您上传了 PDF 文件，但当前选择了"不需要 OCR"。请在上方 OCR 设置中选择 Mistral OCR、MinerU 或 Doc2X。',
+                    icon: 'carbon:warning-alt',
+                    actions: []
+                });
+            } else if (!ocrConfigValid) {
+                const engineNames = { mistral: 'Mistral OCR', mineru: 'MinerU', doc2x: 'Doc2X' };
+                const engineName = engineNames[ocrEngine] || ocrEngine;
+                issues.push({
+                    type: 'ocr-config-incomplete',
+                    title: `${engineName} 配置不完整`,
+                    message: ocrConfigMessage || `请完成 ${engineName} 的配置。`,
+                    icon: 'carbon:warning-alt',
+                    actions: [
+                        { text: '去配置', onClick: () => {
+                            const btn = document.getElementById('modelKeyManagerBtn');
+                            if (btn) btn.click();
+                        }}
+                    ]
+                });
+            }
         }
 
         if (selectedTranslationModel && selectedTranslationModel !== 'none' && !translationKeysAvailable) {
             const isCustomSource = selectedTranslationModel === 'custom';
-            let message = '';
-            let actions = [];
-
-            if (isCustomSource) {
-                message = `源站 "${translationModelDisplayName}" 没有可用的 API Key。请添加 Key 后再处理，配置后可点击右上角刷新按钮更新状态。`;
-                actions = [
-                    { text: '去配置该源站 Key', link: '#', onClick: () => {
-                        const keyManagerBtn = document.getElementById('modelKeyManagerBtn');
-                        if (keyManagerBtn) keyManagerBtn.click();
-                    }},
-                    { text: '关闭翻译', link: '#', onClick: () => {
-                        const translationModelSelect = document.getElementById('translationModel');
-                        if (translationModelSelect) {
-                            translationModelSelect.value = 'none';
-                            translationModelSelect.dispatchEvent(new Event('change'));
-                        }
-                    }}
-                ];
-            } else {
-                message = `模型 "${translationModelDisplayName}" 没有可用的 API Key。请添加 Key 后再处理，配置后可点击右上角刷新按钮更新状态。`;
-                actions = [
-                    { text: '去配置 Key', link: '#', onClick: () => {
-                        const keyManagerBtn = document.getElementById('modelKeyManagerBtn');
-                        if (keyManagerBtn) keyManagerBtn.click();
-                    }},
-                    { text: '关闭翻译', link: '#', onClick: () => {
-                        const translationModelSelect = document.getElementById('translationModel');
-                        if (translationModelSelect) {
-                            translationModelSelect.value = 'none';
-                            translationModelSelect.dispatchEvent(new Event('change'));
-                        }
-                    }}
-                ];
-            }
+            const message = isCustomSource
+                ? `源站 "${translationModelDisplayName}" 没有可用的 API Key。请添加 Key 后再处理，配置后可点击右上角刷新按钮更新状态。`
+                : `模型 "${translationModelDisplayName}" 没有可用的 API Key。请添加 Key 后再处理，配置后可点击右上角刷新按钮更新状态。`;
 
             issues.push({
-                type: 'no-translation-key',
-                title: '缺少翻译配置',
+                type: isCustomSource ? 'no-custom-translation-key' : 'no-translation-key',
+                title: isCustomSource ? `缺少源站 Key` : `缺少翻译模型 Key`,
                 message: message,
                 icon: 'carbon:warning-alt',
-                color: 'amber',
-                actions: actions
+                actions: [
+                    { text: isCustomSource ? '去配置该源站 Key' : '去配置 Key', onClick: () => {
+                        const btn = document.getElementById('modelKeyManagerBtn');
+                        if (btn) btn.click();
+                    }},
+                    { text: '关闭翻译', onClick: () => {
+                        const select = document.getElementById('translationModel');
+                        if (select) {
+                            select.value = 'none';
+                            select.dispatchEvent(new Event('change'));
+                        }
+                    }}
+                ]
             });
         }
 
@@ -272,65 +273,47 @@
             return;
         }
 
-        // 显示所有问题
-        if (issues.length > 0) {
-            // 如果有多个问题，合并显示
-            if (issues.length > 1) {
-                validationIcon.setAttribute('icon', 'carbon:warning-alt');
-                validationTitle.textContent = '配置检查';
+        // 显示问题
+        if (issues.length > 1) {
+            // 多个问题：合并显示
+            validationIcon.setAttribute('icon', 'carbon:warning-alt');
+            validationTitle.textContent = '配置检查';
+            validationMessage.innerHTML = issues.map(issue => `• ${issue.message}`).join('<br>');
 
-                // 合并所有问题的消息
-                const messages = issues.map(issue => `• ${issue.message}`).join('\n');
-                validationMessage.innerHTML = messages.replace(/\n/g, '<br>');
-
-                // 合并所有操作按钮
-                validationActions.innerHTML = '';
-                const addedButtons = new Set(); // 避免重复按钮
-                issues.forEach(issue => {
-                    issue.actions.forEach(action => {
-                        if (!addedButtons.has(action.text)) {
-                            addedButtons.add(action.text);
-                            const btn = document.createElement('button');
-                            btn.className = 'text-xs px-3 py-1.5 bg-white/80 hover:bg-white border border-current/20 hover:border-current/40 rounded-md transition-all font-medium shadow-sm';
-                            btn.textContent = action.text;
-                            if (action.onClick) {
-                                btn.onclick = action.onClick;
-                            }
-                            validationActions.appendChild(btn);
-                        }
-                    });
-                });
-            } else {
-                // 只有一个问题，正常显示
-                const issue = issues[0];
-                validationIcon.setAttribute('icon', issue.icon);
-                validationTitle.textContent = issue.title;
-                validationMessage.textContent = issue.message;
-
-                validationActions.innerHTML = '';
+            validationActions.innerHTML = '';
+            const addedButtons = new Set();
+            issues.forEach(issue => {
                 issue.actions.forEach(action => {
-                    const btn = document.createElement('button');
-                    btn.className = 'text-xs px-3 py-1.5 bg-white/80 hover:bg-white border border-current/20 hover:border-current/40 rounded-md transition-all font-medium shadow-sm';
-                    btn.textContent = action.text;
-                    if (action.onClick) {
-                        btn.onclick = action.onClick;
+                    if (!addedButtons.has(action.text)) {
+                        addedButtons.add(action.text);
+                        const btn = document.createElement('button');
+                        btn.className = 'text-xs px-3 py-1.5 bg-white/80 hover:bg-white border border-current/20 hover:border-current/40 rounded-md transition-all font-medium shadow-sm';
+                        btn.textContent = action.text;
+                        if (action.onClick) btn.onclick = action.onClick;
+                        validationActions.appendChild(btn);
                     }
-                    validationActions.appendChild(btn);
                 });
-            }
-
-            // 设置颜色主题 - 简洁优雅的样式
-            const colorMap = {
-                'amber': 'border-amber-400 bg-amber-50/50 text-amber-900',
-                'red': 'border-red-400 bg-red-50/50 text-red-900',
-                'blue': 'border-blue-400 bg-blue-50/50 text-blue-900'
-            };
-            validationAlert.className = `mt-6 mb-4 p-3.5 rounded-lg border transition-all shadow-sm ${colorMap['amber']}`;
-
-            validationAlert.classList.remove('hidden');
+            });
         } else {
-            validationAlert.classList.add('hidden');
+            // 单个问题：正常显示
+            const issue = issues[0];
+            validationIcon.setAttribute('icon', issue.icon);
+            validationTitle.textContent = issue.title;
+            validationMessage.textContent = issue.message;
+
+            validationActions.innerHTML = '';
+            issue.actions.forEach(action => {
+                const btn = document.createElement('button');
+                btn.className = 'text-xs px-3 py-1.5 bg-white/80 hover:bg-white border border-current/20 hover:border-current/40 rounded-md transition-all font-medium shadow-sm';
+                btn.textContent = action.text;
+                if (action.onClick) btn.onclick = action.onClick;
+                validationActions.appendChild(btn);
+            });
         }
+
+        // 设置样式
+        validationAlert.className = 'mt-6 mb-4 p-3.5 rounded-lg border transition-all shadow-sm border-amber-400 bg-amber-50/50 text-amber-900';
+        validationAlert.classList.remove('hidden');
     }
 
     function showResultsSection(successCount, skippedCount, errorCount, pdfFilesLength) {

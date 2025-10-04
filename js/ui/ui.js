@@ -117,6 +117,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentSelectedSourceSiteId = null; // 新增: 当前选中的自定义源站ID
 
     const supportedModelsForKeyManager = [
+        // local 不需要配置，从列表中移除
         { key: 'mistral', name: 'Mistral OCR', group: 'ocr' },
         { key: 'mineru', name: 'MinerU OCR', group: 'ocr' },
         { key: 'doc2x', name: 'Doc2X OCR', group: 'ocr' },
@@ -186,7 +187,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // OCR 引擎的配置检查
             if (model.group === 'ocr') {
-                if (model.key === 'mistral') {
+                if (model.key === 'local') {
+                    // 本地解析不需要配置
+                    modelHasValidKey[model.key] = true;
+                } else if (model.key === 'mistral') {
                     if (typeof loadModelKeys === 'function') {
                         const keys = loadModelKeys('mistral') || [];
                         modelHasValidKey[model.key] = hasUsableKey(keys);
@@ -221,6 +225,36 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         const hasMistralKey = !!modelHasValidKey['mistral'];
+        const hasLocalConfig = !!modelHasValidKey['local'];
+        const hasMinerUConfig = !!modelHasValidKey['mineru'];
+        const hasDoc2XConfig = !!modelHasValidKey['doc2x'];
+
+        // 检查当前选择的 OCR 引擎是否配置完整
+        let currentOcrEngine = 'mistral';
+        let currentOcrConfigured = false;
+        try {
+            if (window.ocrSettingsManager && typeof window.ocrSettingsManager.getCurrentConfig === 'function') {
+                currentOcrEngine = window.ocrSettingsManager.getCurrentConfig().engine || (localStorage.getItem('ocrEngine') || 'mistral');
+            } else {
+                currentOcrEngine = localStorage.getItem('ocrEngine') || 'mistral';
+            }
+
+            // 检查当前引擎是否配置完整
+            if (currentOcrEngine === 'none') {
+                currentOcrConfigured = true; // "不需要 OCR" 始终配置完整
+            } else if (currentOcrEngine === 'local') {
+                currentOcrConfigured = true; // "本地解析" 不需要配置
+            } else if (currentOcrEngine === 'mistral') {
+                currentOcrConfigured = hasMistralKey;
+            } else if (currentOcrEngine === 'mineru') {
+                currentOcrConfigured = hasMinerUConfig;
+            } else if (currentOcrEngine === 'doc2x') {
+                currentOcrConfigured = hasDoc2XConfig;
+            }
+        } catch (e) {
+            console.warn('[UI] Failed to check OCR config:', e);
+        }
+
         const translationHasKey = supportedModelsForKeyManager
             .filter(m => m.group === 'translation')
             .some(m => modelHasValidKey[m.key]);
@@ -266,10 +300,12 @@ document.addEventListener('DOMContentLoaded', function() {
         divider.className = 'border-t border-dashed border-slate-200 my-3';
         modelListColumn.appendChild(divider);
 
-        if (!hasMistralKey) {
+        if (!currentOcrConfigured && currentOcrEngine !== 'none' && currentOcrEngine !== 'local') {
             const ocrWarning = document.createElement('div');
             ocrWarning.className = 'mb-3 text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2 flex items-start gap-2';
-            ocrWarning.innerHTML = '<iconify-icon icon="carbon:warning" width="14"></iconify-icon><span>当前未提供 OCR Key，无法进行 PDF 的 OCR 操作。</span>';
+            const engineNames = { mistral: 'Mistral OCR', mineru: 'MinerU', doc2x: 'Doc2X' };
+            const engineName = engineNames[currentOcrEngine] || currentOcrEngine;
+            ocrWarning.innerHTML = `<iconify-icon icon="carbon:warning" width="14"></iconify-icon><span>当前 OCR 引擎（${engineName}）未配置完成，无法进行 PDF 的 OCR 操作。</span>`;
             modelListColumn.appendChild(ocrWarning);
         }
 

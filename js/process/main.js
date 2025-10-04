@@ -149,6 +149,11 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
             addProgressLog(`${logPrefix} 开始处理 (类型: ${fileType}, OCR 引擎: ${ocrEngineForLog})`);
         }
 
+        // 检查：如果选择了"不需要 OCR"但文件是 PDF，报错
+        if (ocrEngineForLog === 'none' && fileType === 'pdf') {
+            throw new Error('处理 PDF 文件需要选择 OCR 引擎，当前选择了"不需要 OCR"。请在设置中选择 Mistral OCR、MinerU 或 Doc2X。');
+        }
+
         if (fileType === 'pdf') {
             // 使用 OCR Manager 进行多引擎 OCR 处理
             try {

@@ -1467,19 +1467,38 @@ async function handleProcessClick() {
     // const selectedTranslationModelName = document.getElementById('translationModel').value; // 旧的直接读取方式
     const selectedTranslationModelName = settings.selectedTranslationModel;
 
-    const requiresMistralKey = pdfFiles.some(file => file.name.toLowerCase().endsWith('.pdf'));
+    const hasPdfFiles = pdfFiles.some(file => file.name.toLowerCase().endsWith('.pdf'));
     const filesToProcess = getActiveFiles();
 
-    // 2. 初始化 Key Providers
-    let mistralKeyProvider = null;
-    if (requiresMistralKey) {
-        mistralKeyProvider = new KeyProvider('mistral');
-        if (!mistralKeyProvider.hasAvailableKeys()) {
-            showNotification('检测到 PDF 文件，但没有可用的 Mistral API Key (请在Key管理中添加并确保状态为有效或未测试)', 'error');
+    // 2. 检查 OCR 配置（如果有 PDF 文件）
+    if (hasPdfFiles) {
+        let ocrEngine = 'mistral';
+        try {
+            if (window.ocrSettingsManager && typeof window.ocrSettingsManager.getCurrentConfig === 'function') {
+                ocrEngine = window.ocrSettingsManager.getCurrentConfig().engine || 'mistral';
+                const validation = window.ocrSettingsManager.validateConfig();
+                if (!validation.valid) {
+                    const engineNames = { mistral: 'Mistral OCR', mineru: 'MinerU', doc2x: 'Doc2X', none: '不需要 OCR' };
+                    const engineName = engineNames[ocrEngine] || ocrEngine;
+                    showNotification(`OCR 引擎（${engineName}）配置不完整：${validation.message}`, 'error');
+                    return;
+                }
+            } else {
+                // 回退逻辑：检查 Mistral Keys
+                const mistralKeyProvider = new KeyProvider('mistral');
+                if (!mistralKeyProvider.hasAvailableKeys()) {
+                    showNotification('检测到 PDF 文件，但没有可用的 Mistral API Key (请在Key管理中添加并确保状态为有效或未测试)', 'error');
+                    return;
+                }
+            }
+        } catch (e) {
+            console.error('[OCR Check] Failed:', e);
+            showNotification('OCR 配置检查失败，请刷新页面重试', 'error');
             return;
         }
     }
 
+    // 初始化翻译 Key Provider
     let translationKeyProvider = null;
     /** @type {string|null}  用于 KeyProvider 的模型名 (例如 'gemini', 'custom_source_xxx') */
     let currentTranslationModelForProvider = null;
@@ -1665,30 +1684,7 @@ async function handleProcessClick() {
                 const retryText = currentRetry > 0 ? ` (重试 ${currentRetry}/${MAX_RETRIES})` : '';
                 addProgressLog(`--- [${successCount + skippedCount + errorCount + 1}/${filesToProcess.length}] 开始处理: ${currentFile.name}${retryText} ---`);
 
-                let mistralKeyObject = null;
-                if (mistralKeyProvider) {
-                    if (!mistralKeyProvider.hasAvailableKeys()) {
-                        addProgressLog(`[${currentFile.name}] 错误: Mistral模型无可用Key，文件处理失败。`);
-                        allResults[currentFileIndex] = { file: currentFile, error: 'Mistral模型无可用Key' };
-                        errorCount++;
-                        activeProcessingCount--;
-                        updateConcurrentProgress(activeProcessingCount);
-                        updateOverallProgress(successCount, skippedCount, errorCount, filesToProcess.length);
-                        retryAttempts.delete(fileIdentifier);
-                        continue;
-                    }
-                    mistralKeyObject = mistralKeyProvider.getNextKey();
-                    if (!mistralKeyObject) {
-                         addProgressLog(`[${currentFile.name}] 警告: Mistral Key Provider 返回 null Key。`);
-                        allResults[currentFileIndex] = { file: currentFile, error: 'Mistral Key Provider 异常' };
-                        errorCount++;
-                        activeProcessingCount--;
-                        updateConcurrentProgress(activeProcessingCount);
-                        updateOverallProgress(successCount, skippedCount, errorCount, filesToProcess.length);
-                        retryAttempts.delete(fileIdentifier);
-                        continue;
-                    }
-                }
+                // OCR Key 管理现在由 OcrManager 和各个适配器内部处理，不再需要在这里检查
 
                 let translationKeyObject = null;
                 // 使用 currentTranslationModelForProvider 来决定是否需要翻译以及获取Key
@@ -1741,7 +1737,7 @@ async function handleProcessClick() {
 
                 processSinglePdf(
                     currentFile,
-                    mistralKeyObject,
+                    null, // mistralKeyObject - OCR Key 现在由 OcrManager 内部管理
                     translationKeyObject,
                     selectedTranslationModelName, // 'custom' or preset model name
                     translationModelConfigForProcess, // Specific site config or preset model config
@@ -1760,31 +1756,36 @@ async function handleProcessClick() {
                     .then(async result => {
                         if (result && result.keyInvalid) {
                             const { type, keyIdToInvalidate, modelName: invalidModelNameFromCallback } = result.keyInvalid;
-                            const affectedKeyProvider = type === 'mistral' ? mistralKeyProvider : translationKeyProvider;
-                            // 使用 currentTranslationModelForProvider (如 custom_source_id) 或 invalidModelNameFromCallback
-                            const modelNameToLog = type === 'mistral' ? 'Mistral' :
-                                (currentTranslationModelForProvider && currentTranslationModelForProvider.startsWith('custom_source_') ?
-                                 (translationModelConfigForProcess?.displayName || currentTranslationModelForProvider) :
-                                 (invalidModelNameFromCallback || selectedTranslationModelName));
+                            // OCR Key 失效由 OcrManager 内部处理，这里只处理翻译 Key 失效
+                            if (type === 'mistral') {
+                                addProgressLog(`[${currentFile.name}] Mistral OCR Key 失效，由 OCR Manager 处理。`);
+                                // 不需要额外处理，OcrManager 会自动切换到下一个 Key
+                            } else {
+                                const affectedKeyProvider = translationKeyProvider;
+                                // 使用 currentTranslationModelForProvider (如 custom_source_id) 或 invalidModelNameFromCallback
+                                const modelNameToLog = (currentTranslationModelForProvider && currentTranslationModelForProvider.startsWith('custom_source_') ?
+                                     (translationModelConfigForProcess?.displayName || currentTranslationModelForProvider) :
+                                     (invalidModelNameFromCallback || selectedTranslationModelName));
 
-                            if (affectedKeyProvider && keyIdToInvalidate) {
-                                addProgressLog(`[${currentFile.name}] 检测到 ${modelNameToLog} API Key (ID: ${keyIdToInvalidate.slice(0,8)}...) 失效。`);
-                                await affectedKeyProvider.markKeyAsInvalid(keyIdToInvalidate);
+                                if (affectedKeyProvider && keyIdToInvalidate) {
+                                    addProgressLog(`[${currentFile.name}] 检测到 ${modelNameToLog} API Key (ID: ${keyIdToInvalidate.slice(0,8)}...) 失效。`);
+                                    await affectedKeyProvider.markKeyAsInvalid(keyIdToInvalidate);
 
-                                if (affectedKeyProvider.hasAvailableKeys()) {
-                                    pendingIndices.add(currentFileIndex);
-                                    addProgressLog(`[${currentFile.name}] 将使用下一个可用的 ${modelNameToLog} Key 重试文件。`);
+                                    if (affectedKeyProvider.hasAvailableKeys()) {
+                                        pendingIndices.add(currentFileIndex);
+                                        addProgressLog(`[${currentFile.name}] 将使用下一个可用的 ${modelNameToLog} Key 重试文件。`);
+                                    } else {
+                                        addProgressLog(`[${currentFile.name}] ${modelNameToLog} 模型已无可用Key，文件处理失败。`);
+                                        allResults[currentFileIndex] = { file: currentFile, error: `${modelNameToLog} 模型已无可用Key` };
+                                        errorCount++;
+                                        retryAttempts.delete(fileIdentifier);
+                                    }
                                 } else {
-                                    addProgressLog(`[${currentFile.name}] ${modelNameToLog} 模型已无可用Key，文件处理失败。`);
-                                    allResults[currentFileIndex] = { file: currentFile, error: `${modelNameToLog} 模型已无可用Key` };
+                                    addProgressLog(`[${currentFile.name}] Key失效报告不完整，无法标记。文件可能处理失败。`);
+                                    allResults[currentFileIndex] = { file: currentFile, error: result.error || 'Key失效报告不完整' };
                                     errorCount++;
                                     retryAttempts.delete(fileIdentifier);
                                 }
-                            } else {
-                                addProgressLog(`[${currentFile.name}] Key失效报告不完整，无法标记。文件可能处理失败。`);
-                                allResults[currentFileIndex] = { file: currentFile, error: result.error || 'Key失效报告不完整' };
-                                errorCount++;
-                                retryAttempts.delete(fileIdentifier);
                             }
                         } else if (result && !result.error) {
                             allResults[currentFileIndex] = result;
@@ -1804,9 +1805,8 @@ async function handleProcessClick() {
                                 };
                             }
 
-                            if (mistralKeyObject) {
-                                recordLastSuccessfulKey('mistral', mistralKeyObject.id);
-                            }
+                            // OCR Key 成功记录现在由 OcrManager 内部处理
+                            // 仅记录翻译 Key 的成功使用
                             // 当翻译成功时，使用 currentTranslationModelForProvider 记录Key
                             if (translationKeyObject && currentTranslationModelForProvider && currentTranslationModelForProvider !== 'none') {
                                 recordLastSuccessfulKey(currentTranslationModelForProvider, translationKeyObject.id);

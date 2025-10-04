@@ -36,6 +36,10 @@ class OcrManager {
     const engine = localStorage.getItem('ocrEngine') || 'mistral';
 
     switch (engine) {
+      case 'local':
+        // 本地解析不需要任何配置
+        return { engine: 'local' };
+
       case 'mistral':
         // 使用 KeyManager 的统一 Key 池来管理 Mistral OCR 的 Keys
         // 读取 KeyManager；若为空则回退到 ocrMistralKeys（兼容旧配置）
@@ -112,6 +116,12 @@ class OcrManager {
    */
   createAdapter(config) {
     switch (config.engine) {
+      case 'local':
+        if (typeof LocalPdfAdapter === 'undefined') {
+          throw new Error('LocalPdfAdapter not loaded');
+        }
+        return new LocalPdfAdapter();
+
       case 'mistral':
         if (typeof MistralOcrAdapter === 'undefined') {
           throw new Error('MistralOcrAdapter not loaded');
@@ -148,6 +158,10 @@ class OcrManager {
     const config = this.getConfig();
 
     switch (config.engine) {
+      case 'local':
+        // 本地解析不需要配置，总是有效
+        return { valid: true, message: '' };
+
       case 'mistral':
         if (!config.keys || config.keys.length === 0) {
           return { valid: false, message: '请配置 Mistral OCR API Keys' };

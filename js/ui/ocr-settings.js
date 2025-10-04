@@ -236,7 +236,7 @@ class OcrSettingsManager {
 
   /**
    * 切换 OCR 引擎（显示/隐藏对应配置面板）
-   * @param {string} engine - 引擎名称: 'mistral' | 'mineru' | 'doc2x'
+   * @param {string} engine - 引擎名称: 'none' | 'local' | 'mistral' | 'mineru' | 'doc2x'
    */
   switchEngine(engine) {
     // 隐藏所有配置面板
@@ -252,6 +252,10 @@ class OcrSettingsManager {
 
     // 显示选中的配置面板
     switch (engine) {
+      case 'none':
+      case 'local':
+        // 不需要 OCR 或本地解析，不显示任何配置面板
+        break;
       case 'mistral':
         if (this.elements.mistralOcrConfig) {
           this.elements.mistralOcrConfig.classList.remove('hidden');
@@ -314,6 +318,12 @@ class OcrSettingsManager {
     const engine = localStorage.getItem(this.keys.engine) || 'mistral';
 
     switch (engine) {
+      case 'none':
+        return { engine: 'none' };
+
+      case 'local':
+        return { engine: 'local' };
+
       case 'mistral':
         // 优先从 Key 管理器读取 Mistral Keys，若为空则回退到 legacy 文本框存储（ocrMistralKeys）
         try {
@@ -378,6 +388,11 @@ class OcrSettingsManager {
     const config = this.getCurrentConfig();
 
     switch (config.engine) {
+      case 'none':
+      case 'local':
+        // 不需要 OCR 或本地解析，配置总是有效的
+        return { valid: true, message: '' };
+
       case 'mistral':
         // 支持 Key 管理器 + legacy 两种来源（由 getCurrentConfig 聚合）
         if (!config.keys || config.keys.length === 0) {

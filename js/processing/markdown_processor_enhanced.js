@@ -65,13 +65,42 @@
         }
 
         // Enhanced image replacement with better error handling
-        md = md.replace(/!\[([^\]]*)\]\((?:images\/)?(img-\d+\.jpeg\.png)\)/gi, (match, alt, fname) => {
-            if (imgMap.has(fname)) {
-                return `![${alt || ''}](${imgMap.get(fname)})`;
-            } else {
-                console.warn(`[MarkdownProcessorEnhanced] Image not found: ${fname}`);
-                return `<span class="missing-image" title="Missing: ${fname}">[图片: ${alt || fname}]</span>`;
+        // 支持多种格式：
+        // - images/page3_img1.png (Local PDF)
+        // - images/img-1.jpeg.png (旧格式)
+        // - page3_img1 (不带扩展名)
+        // - 任意相对路径
+        md = md.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, path) => {
+            // 跳过外部链接和已经是 base64 的图片
+            const p = String(path).trim();
+            if (/^(https?:|data:|\/\/)/i.test(p)) {
+                return match;
             }
+
+            // 去除查询参数和锚点
+            const clean = p.split('?')[0].split('#')[0];
+
+            // 尝试多种可能的 key
+            const candidates = [
+                clean,                              // 原始路径
+                clean.replace(/^images\//, ''),     // 去掉 images/ 前缀
+                clean.replace(/\.png$/i, ''),       // 去掉 .png 后缀
+                clean.replace(/^images\//, '').replace(/\.png$/i, ''), // 两者都去掉
+                'images/' + clean,                  // 添加 images/ 前缀
+                clean.split('/').pop(),             // 只取文件名
+                'images/' + clean.split('/').pop()  // 文件名 + images/ 前缀
+            ];
+
+            // 尝试所有候选 key
+            for (const key of candidates) {
+                if (imgMap.has(key)) {
+                    return `![${alt || ''}](${imgMap.get(key)})`;
+                }
+            }
+
+            // 未找到图片，输出警告
+            console.warn(`[MarkdownProcessorEnhanced] Image not found: ${path}, tried:`, candidates.slice(0, 5));
+            return match; // 保持原样
         });
 
         // Enhanced custom syntax processing with better error handling

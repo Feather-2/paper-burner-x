@@ -287,10 +287,14 @@
                 <!-- OCR 设置 -->
                 <!-- ===================== -->
                 <div class="mb-6">
-                    <h2 class="text-xl font-semibold text-gray-800 mb-4">
+                    <h2 class="text-xl font-semibold text-gray-800 mb-4 flex justify-between items-center">
                         <span class="flex items-center">
                             <iconify-icon icon="carbon:document-tasks" class="mr-2 text-purple-500" width="24"></iconify-icon>
                             OCR 设置
+                        </span>
+                        <span class="flex items-center">
+                            <span id="flashConfigTip" class="flash-tip-anim text-base text-blue-600 font-semibold mr-1">配置模型与Key管理</span>
+                            <iconify-icon id="modelKeyManagerBtn" icon="carbon:settings" width="22" class="text-gray-400 hover:text-blue-600 cursor-pointer transition-colors" title="模型与Key管理"></iconify-icon>
                         </span>
                     </h2>
 
@@ -298,13 +302,15 @@
                     <div>
                         <label for="ocrEngine" class="block text-sm font-medium text-gray-700 mb-1">OCR 引擎</label>
                         <select id="ocrEngine" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
+                            <option value="none">不需要 OCR（仅文本）</option>
+                            <option value="local">本地解析（仅文本 PDF）</option>
                             <option value="mistral">Mistral OCR</option>
                             <option value="mineru">MinerU</option>
                             <option value="doc2x">Doc2X</option>
                         </select>
-                            <div class="text-xs text-gray-500 mt-1">
-                            提示：点击下方“翻译设置”右侧的齿轮图标，在“模型与Key管理”中配置 OCR 引擎
-                            </div>
+                        <div class="text-xs text-gray-500 mt-1">
+                            <strong>本地解析</strong>：适用于文字型 PDF（非扫描件），免费且快速，但不支持图片和复杂排版的识别
+                        </div>
                     </div>
                 </div>
 
@@ -312,14 +318,10 @@
                 <!-- 翻译设置 -->
                 <!-- ===================== -->
                 <div class="mb-6">
-                    <h2 class="text-xl font-semibold text-gray-800 mb-4 flex justify-between items-center">
+                    <h2 class="text-xl font-semibold text-gray-800 mb-4">
                         <span class="flex items-center">
                             <iconify-icon icon="carbon:translate" class="mr-2 text-blue-500" width="24"></iconify-icon>
                             翻译设置
-                        </span>
-                        <span class="flex items-center">
-                            <span id="flashConfigTip" class="flash-tip-anim text-base text-blue-600 font-semibold mr-1">配置模型与Key管理</span>
-                            <iconify-icon id="modelKeyManagerBtn" icon="carbon:settings" width="22" class="text-gray-400 hover:text-blue-600 cursor-pointer transition-colors" title="模型与Key管理"></iconify-icon>
                         </span>
                     </h2>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1005,11 +1007,21 @@
     <script src="js/chatbot/agents/semantic-vector-search.js"></script>
     <script src="js/ui/ui.js"></script>
     <script src="js/ui/ocr-settings.js"></script> <!-- OCR 配置管理 -->
+    <!-- PDF.js 库（用于本地解析 PDF） -->
+    <script src="https://gcore.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+    <script>
+        // 配置 PDF.js worker
+        if (typeof pdfjsLib !== 'undefined') {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://gcore.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+        }
+    </script>
     <!-- OCR 处理模块 -->
-    <script src="js/process/ocr-manager.js"></script> <!-- OCR 管理器与基类 -->
+    <script src="js/process/ocr-adapters/base-adapter.js"></script> <!-- 基类 -->
     <script src="js/process/ocr-adapters/mistral-adapter.js"></script>
     <script src="js/process/ocr-adapters/mineru-adapter.js"></script>
     <script src="js/process/ocr-adapters/doc2x-adapter.js"></script>
+    <script src="js/process/ocr-adapters/local-adapter.js"></script> <!-- 本地 PDF 解析 -->
+    <script src="js/process/ocr-manager.js"></script> <!-- OCR 管理器 -->
     <script src="js/ui/glossary-ui.js"></script>
     <!-- 子块分割器（支持中英文标点分割），用于高亮与批注的精确定位 -->
     <script src="js/processing/sub_block_segmenter.js"></script>
