@@ -194,12 +194,15 @@
         // Protected content extraction (code blocks, existing HTML)
         const protectedContent = new Map();
         let protectedCounter = 0;
-        
-        // Protect existing HTML and code blocks
-        md = protectContent(md, protectedContent, protectedCounter);
 
-        // Enhanced formula processing with better analysis
-        md = processFormulasEnhanced(md);
+        // **IMPORTANT: Process formulas BEFORE protecting code blocks**
+        // This prevents code protection from interfering with formula delimiters
+        const formulaProtectedCounter = { value: 0 };
+        md = processFormulasEnhanced(md, protectedContent, formulaProtectedCounter);
+
+        // Now protect code blocks and HTML (using updated counter)
+        protectedCounter = formulaProtectedCounter.value;
+        md = protectContent(md, protectedContent, protectedCounter);
 
         // Render remaining markdown
         let result;
@@ -272,9 +275,11 @@
     /**
      * Enhanced formula processing with better error handling and context analysis
      * @param {string} md - Markdown text
-     * @returns {string} Processed markdown with formulas rendered
+     * @param {Map} protectedContent - Map to store protected content
+     * @param {Object} counterObj - Counter object with 'value' property
+     * @returns {string} Processed markdown with formulas rendered and protected
      */
-    function processFormulasEnhanced(md) {
+    function processFormulasEnhanced(md, protectedContent, counterObj) {
         // Normalize math delimiters to avoid regex mismatches and nested '$' leakage
         function normalizeMathDelimiters(text) {
             if (typeof text !== 'string' || !text) return text;
@@ -286,28 +291,71 @@
             // Remove zero-width and combining marks immediately around '$' so `$̲` → `$`
             s = s.replace(/\$[\u200B-\u200D\uFEFF\u0300-\u036F]+/g, '$');
             s = s.replace(/[\u200B-\u200D\uFEFF\u0300-\u036F]+\$/g, '$');
+
+            // **NEW: 修复 OCR 错误转义的 $ 符号**
+            // 1. $\$ ... \$ ，$ → $ ... $ ，（移除尾部的 ，$）
+            s = s.replace(/\$\\\$\s*([^\$]+?)\s*\\\$\s*，\s*\$/g, '$$$1$$ ，');
+
+            // 2. $\$ ... \$$ → $ ... $ (处理末尾多余的 $$，先处理这个避免被后面的规则误处理)
+            s = s.replace(/\$\\\$\s*([^\$]+?)\s*\\\$\$/g, '$$$1$$');
+
+            // 3. $\$ ... \$ → $ ... $
+            s = s.replace(/\$\\\$\s*([^\$]+?)\s*\\\$/g, '$$$1$$');
+
+            // 4. \$...\$ → $...$ (完全转义的内联公式)
+            s = s.replace(/\\\$([^\$\n]+?)\\\$/g, '$$$1$$');
+
             return s;
         }
 
         md = normalizeMathDelimiters(md);
+
+        // Helper function to protect rendered formulas
+        function protectRenderedFormula(renderedHtml) {
+            if (!renderedHtml || typeof renderedHtml !== 'string') return renderedHtml;
+            // 如果渲染结果包含 HTML 标签，保护它
+            if (renderedHtml.includes('<')) {
+                const placeholder = `PBTOKEN${counterObj.value++}Z`;
+                protectedContent.set(placeholder, renderedHtml);
+                return placeholder;
+            }
+            return renderedHtml;
+        }
+
         // Process block formulas first ($$...$$)
         md = md.replace(/\$\$([\s\S]*?)\$\$/g, (match, content) => {
-            return renderFormula(content.trim(), true, match);
+            const rendered = renderFormula(content.trim(), true, match);
+            return protectRenderedFormula(rendered);
         });
 
         // Process LaTeX-style block formulas (\[...\])
         md = md.replace(/\\\[([\s\S]*?)\\\]/g, (match, content) => {
-            return renderFormula(content.trim(), true, match);
+            const rendered = renderFormula(content.trim(), true, match);
+            return protectRenderedFormula(rendered);
         });
 
         // Process inline formulas ($...$)
-        md = md.replace(/\$([^$\n]+?)\$/g, (match, content) => {
-            return renderFormula(content.trim(), false, match);
+        // 支持多行公式，但限制长度防止误匹配
+        md = md.replace(/\$([^\$]{1,2000}?)\$/g, (match, content) => {
+            // 快速检查：如果内容是纯中文（没有任何数学符号），直接跳过
+            const trimmed = content.trim();
+            if (trimmed && /^[\u4e00-\u9fa5，、。；：！？""''（）【】《》\s]+$/.test(trimmed)) {
+                console.log(`[MarkdownProcessorEnhanced] Skipping pure Chinese inline: "${trimmed}"`);
+                return match; // 保留原始 $...$
+            }
+            // 如果包含多个段落（连续两个换行），可能是误匹配，跳过
+            if (/\n\s*\n/.test(content)) {
+                console.log(`[MarkdownProcessorEnhanced] Skipping multi-paragraph match: "${trimmed.substring(0, 50)}..."`);
+                return match;
+            }
+            const rendered = renderFormula(content.trim(), false, match);
+            return protectRenderedFormula(rendered);
         });
 
         // Process LaTeX-style inline formulas (\(...\))
         md = md.replace(/\\\(([^)]*?)\\\)/g, (match, content) => {
-            return renderFormula(content.trim(), false, match);
+            const rendered = renderFormula(content.trim(), false, match);
+            return protectRenderedFormula(rendered);
         });
 
         return md;
@@ -418,8 +466,42 @@
             // also normalize stray combining marks immediately after '&' that break entities
             s = s.replace(/&[\u0300-\u036F]+/g, '&');
             // trim leading/trailing CJK punctuation and quotes that accidentally wrapped TeX
-            s = s.replace(/^[\s\u3000。，、；：：“”\(（\)）\[\]【】《》‘’'"–—-]+/, '');
-            s = s.replace(/[\s\u3000。，、；：：“”\(（\)）\[\]【】《》‘’'"–—-]+$/, '');
+            s = s.replace(/^[\s\u3000。，、；：：""\(（\)）\[\]【】《》'''"–—-]+/, '');
+            s = s.replace(/[\s\u3000。，、；：：""\(（\)）\[\]【】《》'''"–—-]+$/, '');
+
+            // **NEW: Remove trailing orphaned backslashes** (孤立的尾部反斜杠)
+            // 移除末尾的单个反斜杠，除非它是有效的 LaTeX 命令的一部分
+            // 注意：\backslash 后面跟的反斜杠也要清理
+            s = s.replace(/\\backslash\s+\\\s*$/, '\\backslash'); // \backslash \ → \backslash
+            s = s.replace(/\\\s*$/, ''); // 其他孤立的尾部反斜杠
+
+            // **NEW: Remove standalone backslashes not part of commands**
+            // 如果整个字符串就是一个反斜杠，清空它
+            if (s === '\\' || /^\\+$/.test(s)) {
+                return '';
+            }
+
+            // **NEW: Clean up invalid patterns that can't be LaTeX**
+            // 移除纯中文后跟反斜杠的无效模式（中文不应该出现在数学公式中，除非在 \text{} 里）
+            // 注意：只清理纯中文的，不要清理包含有效 LaTeX 命令的
+            if (/^[\u4e00-\u9fa5，、。；：\s]+$/.test(s)) {
+                return ''; // 纯中文，不是有效的数学公式
+            }
+
+            // **NEW: 修复常见的 OCR 错误**
+            // \backslash \operatorname{vec} → \vec
+            s = s.replace(/\\backslash\s+\\operatorname\{vec\}/g, '\\vec');
+            // \backslash \operatorname{sum} → \sum
+            s = s.replace(/\\backslash\s+\\operatorname\{sum\}/g, '\\sum');
+            // \backslash \operatorname{prod} → \prod
+            s = s.replace(/\\backslash\s+\\operatorname\{prod\}/g, '\\prod');
+
+            // 修复下标中的空格: x \_1 → x_1, x \_n → x_n
+            s = s.replace(/\s+\\_/g, '_');
+            // 修复下标中的 {-} 错误: x_{-} i → x_i
+            s = s.replace(/\{-\}\s*/g, '');
+            s = s.replace(/_\{-\s+([^\}]+)\}/g, '_{$1}');
+
             // collapse excessive inner spaces
             s = s.replace(/\s{2,}/g, ' ');
             // If trailing delimiter for \right was stripped by cleanup, add default ')'
@@ -450,12 +532,21 @@
         const analysis = analyzeFormulaLayout(cleaned, displayModeHint);
         let tex = analysis.text;
 
+        // 如果清理后内容为空，说明这不是有效的数学公式
+        // 返回原始匹配文本（不渲染），避免吞掉内容
         if (!tex) {
-            return analysis.displayMode ? '<div class="katex-block"></div>' : '<span class="katex-inline"></span>';
+            console.log(`[MarkdownProcessorEnhanced] Skipping invalid formula: "${content}" (cleaned to empty)`);
+            return originalMatch || '';
         }
 
         // Guard against obviously incomplete or non-TeX inputs
         try {
+            // **NEW: 检测只包含 \begin{...} 或只包含 \end{...} 的空环境**
+            if (/^\s*\\begin\{[a-zA-Z*]+\}\s*$/.test(tex) || /^\s*\\end\{[a-zA-Z*]+\}\s*$/.test(tex)) {
+                console.log(`[MarkdownProcessorEnhanced] Skipping empty environment: "${tex}"`);
+                return ''; // 返回空字符串，不显示
+            }
+
             // Incomplete \begin{...} without matching \end{...}
             const beginMatch = tex.match(/\\begin\{([a-zA-Z*]+)\}/);
             if (beginMatch) {
@@ -475,7 +566,9 @@
                 return buildKatexFallback(tex, analysis.displayMode, 'Skipped non-TeX error text');
             }
             // If the supposed TeX contains HTML tags, skip rendering (likely mis-detected)
-            if (/[<>]\s*\w|<\/|class=|style=/.test(tex)) {
+            // 但允许数学比较符号 < 和 > (如 <0.001, x>5)
+            // 只检测明显的 HTML 模式：<tag、</、class=、style=
+            if (/<[a-zA-Z]|<\/|class=|style=/.test(tex)) {
                 return buildKatexFallback(tex, analysis.displayMode, 'HTML detected in TeX input');
             }
         } catch (_) { /* ignore guard errors */ }
