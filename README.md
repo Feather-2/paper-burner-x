@@ -49,19 +49,6 @@
 5.  **多种格式导入导出:**
     *   支持：PDF / MD / TXT / DOCX / PPTX / HTML / EPUB 文件格式 的导入。
     *   支持：HTML / PDF / DOCX / MD (图片嵌入或不嵌入) 文件格式 的导出。
-   
-## 📚 该分支支持的翻译大模型
-
-  - DeepSeek v3
-  - Gemini
-  - 阿里云百炼
-  - 火山引擎
-  - Mistral
-  - 其他基于openai等常见格式的自定义模型
-
-
-### 简易使用教程
-![paperburner简易使用教程](https://github.com/user-attachments/assets/14576277-a301-4d95-9e32-3f6e489afaac)
 
 ---
 
