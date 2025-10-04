@@ -1,0 +1,1247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OCR Worker 测试工具 - MinerU & Doc2X</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      padding: 40px 20px;
+      max-width: 1000px;
+      margin: 0 auto;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+    }
+    .container {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      overflow: hidden;
+    }
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 30px;
+      text-align: center;
+    }
+    .header h1 {
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+    .header p {
+      opacity: 0.9;
+      font-size: 14px;
+    }
+    .tabs {
+      display: flex;
+      background: #f8f9fa;
+      border-bottom: 2px solid #e0e0e0;
+    }
+    .tab {
+      flex: 1;
+      padding: 15px;
+      text-align: center;
+      cursor: pointer;
+      font-weight: 600;
+      color: #666;
+      transition: all 0.3s;
+      border-bottom: 3px solid transparent;
+    }
+    .tab:hover {
+      background: #e8ecff;
+      color: #667eea;
+    }
+    .tab.active {
+      color: #667eea;
+      background: white;
+      border-bottom-color: #667eea;
+    }
+    .content {
+      padding: 30px;
+    }
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    .section {
+      margin-bottom: 25px;
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 8px;
+    }
+    .section h3 {
+      color: #333;
+      margin-bottom: 15px;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    label {
+      display: block;
+      color: #555;
+      font-size: 14px;
+      margin-bottom: 5px;
+      font-weight: 500;
+    }
+    input[type="text"],
+    input[type="password"],
+    select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+      transition: border-color 0.3s;
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+    .hint {
+      font-size: 12px;
+      color: #666;
+      margin-top: 5px;
+    }
+    .radio-group {
+      display: flex;
+      gap: 20px;
+      margin: 15px 0;
+    }
+    .radio-option {
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+    }
+    .radio-option input[type="radio"] {
+      margin-right: 8px;
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+    .service-select {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    .service-btn {
+      flex: 1;
+      padding: 15px;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.3s;
+      background: white;
+    }
+    .service-btn:hover {
+      border-color: #667eea;
+      background: #f0f4ff;
+    }
+    .service-btn.active {
+      border-color: #667eea;
+      background: #e8ecff;
+      font-weight: 600;
+      color: #667eea;
+    }
+    .service-btn .emoji {
+      font-size: 24px;
+      display: block;
+      margin-bottom: 5px;
+    }
+    .upload-area {
+      border: 2px dashed #ddd;
+      border-radius: 8px;
+      padding: 40px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s;
+      background: #fafafa;
+    }
+    .upload-area:hover {
+      border-color: #667eea;
+      background: #f0f0ff;
+    }
+    .upload-area.dragover {
+      border-color: #667eea;
+      background: #e8ecff;
+      transform: scale(1.02);
+    }
+    .upload-icon {
+      font-size: 48px;
+      margin-bottom: 10px;
+    }
+    input[type="file"] {
+      display: none;
+    }
+    .selected-file {
+      margin-top: 15px;
+      padding: 12px;
+      background: #e8ecff;
+      border-radius: 6px;
+      display: none;
+      font-size: 14px;
+      color: #333;
+    }
+    .selected-file.active {
+      display: block;
+    }
+    .options {
+      margin: 20px 0;
+      padding: 15px;
+      background: white;
+      border-radius: 8px;
+    }
+    .option {
+      margin: 10px 0;
+    }
+    .option label {
+      display: inline-flex;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+      font-weight: normal;
+    }
+    input[type="checkbox"] {
+      margin-right: 8px;
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+    button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 14px 28px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 600;
+      width: 100%;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    button:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .btn-secondary {
+      background: #28a745;
+      margin-top: 10px;
+    }
+    .btn-secondary:hover:not(:disabled) {
+      box-shadow: 0 4px 12px rgba(40, 167, 69, 0.4);
+    }
+    .progress-section {
+      margin-top: 20px;
+      padding: 20px;
+      background: #f0f4ff;
+      border-radius: 8px;
+      display: none;
+    }
+    .progress-section.active {
+      display: block;
+    }
+    .progress-text {
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+    .progress-bar {
+      height: 10px;
+      background: #e0e0e0;
+      border-radius: 5px;
+      overflow: hidden;
+      margin: 10px 0;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+      transition: width 0.3s;
+      width: 0%;
+    }
+    .result-section {
+      margin-top: 20px;
+      padding: 20px;
+      border-radius: 8px;
+      display: none;
+    }
+    .result-section.success {
+      background: #d4edda;
+      border: 1px solid #c3e6cb;
+      display: block;
+    }
+    .result-section.error {
+      background: #f8d7da;
+      border: 1px solid #f5c6cb;
+      display: block;
+    }
+    .result-section h4 {
+      margin-bottom: 10px;
+    }
+    .result-section a {
+      color: #667eea;
+      word-break: break-all;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .result-section pre {
+      background: #f5f5f5;
+      padding: 15px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 12px;
+      margin-top: 10px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .log-section {
+      margin-top: 20px;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 8px;
+      max-height: 200px;
+      overflow-y: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+    }
+    .log-item {
+      margin: 5px 0;
+      color: #555;
+    }
+    .log-item.error {
+      color: #d32f2f;
+    }
+    .log-item.success {
+      color: #2e7d32;
+    }
+    .token-mode-hint {
+      background: #fff3cd;
+      border: 1px solid #ffc107;
+      padding: 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      margin-top: 10px;
+      color: #856404;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🔬 OCR Worker 测试工具</h1>
+      <p>支持 MinerU 和 Doc2X 双引擎 OCR 服务</p>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('upload')">📤 上传测试</div>
+      <div class="tab" onclick="switchTab('query')">🔍 查询结果</div>
+    </div>
+
+    <div class="content">
+      <!-- 上传测试标签页 -->
+      <div class="tab-content active" id="uploadTab">
+        <!-- Worker 配置 -->
+        <div class="section">
+          <h3>⚙️ Worker 配置</h3>
+          <div class="form-group">
+            <label for="workerUrl">Worker URL</label>
+            <input type="text" id="workerUrl" placeholder="https://your-worker.workers.dev">
+            <div class="hint">你的 Cloudflare Worker 地址</div>
+          </div>
+          <div class="form-group">
+            <label for="authKey">AUTH_SECRET（可选）</label>
+            <input type="password" id="authKey" placeholder="如果 Worker 启用了 ENABLE_AUTH，填写这里">
+            <div class="hint">在 Worker 环境变量中配置的 AUTH_SECRET（如果启用了访问控制）</div>
+          </div>
+        </div>
+
+        <!-- 选择服务 -->
+        <div class="section">
+          <h3>🎯 选择 OCR 服务</h3>
+          <div class="service-select">
+            <div class="service-btn active" id="mineruBtn" onclick="selectService('mineru')">
+              <span class="emoji">⛏️</span>
+              <div>MinerU</div>
+              <div style="font-size: 12px; color: #999; margin-top: 5px;">ZIP打包下载</div>
+            </div>
+            <div class="service-btn" id="doc2xBtn" onclick="selectService('doc2x')">
+              <span class="emoji">📝</span>
+              <div>Doc2X</div>
+              <div style="font-size: 12px; color: #999; margin-top: 5px;">快速Markdown</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- OCR Token 配置 -->
+        <div class="section">
+          <h3>🔑 OCR Token 配置</h3>
+
+          <div class="radio-group">
+            <label class="radio-option">
+              <input type="radio" name="tokenMode" value="frontend" checked onchange="updateTokenMode()">
+              <span>前端透传 Token（推荐）</span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="tokenMode" value="worker" onchange="updateTokenMode()">
+              <span>使用 Worker 环境变量</span>
+            </label>
+          </div>
+
+          <div id="frontendTokenSection">
+            <div class="form-group" id="mineruTokenGroup">
+              <label for="mineruToken">MinerU Token</label>
+              <input type="password" id="mineruToken" placeholder="eyJ0eXBlIjoiSldUIi...">
+              <div class="hint">从 https://mineru.net 获取，格式：JWT（eyJ 开头）</div>
+            </div>
+            <div class="form-group" id="doc2xTokenGroup" style="display: none;">
+              <label for="doc2xToken">Doc2X Token</label>
+              <input type="password" id="doc2xToken" placeholder="sk-xxx...">
+              <div class="hint">从 https://open.noedgeai.com 获取，格式：sk- 开头</div>
+            </div>
+            <div class="token-mode-hint">
+              💡 <strong>前端透传模式</strong>：通过请求头（X-MinerU-Key / X-Doc2X-Key）传递 Token，Worker 无需配置
+            </div>
+          </div>
+
+          <div id="workerTokenSection" style="display: none;">
+            <div class="token-mode-hint">
+              💡 <strong>Worker 配置模式</strong>：OCR Token 存储在 Worker 环境变量中（MINERU_API_TOKEN 或 DOC2X_API_TOKEN），前端不需要提供
+            </div>
+          </div>
+        </div>
+
+        <!-- 上传区 -->
+        <div class="section">
+          <h3>📁 上传文件</h3>
+          <div class="upload-area" id="uploadArea">
+            <div class="upload-icon">📁</div>
+            <div style="font-size: 16px; margin-bottom: 8px;">点击选择文件或拖拽到此处</div>
+            <div style="color: #999; font-size: 14px;">
+              支持: PDF, DOC, DOCX, PPT, PPTX, PNG, JPG, JPEG
+            </div>
+            <div style="color: #999; font-size: 12px; margin-top: 5px;">
+              MinerU: 最大200MB, 600页 | Doc2X: 最大1GB, 1000页
+            </div>
+            <input type="file" id="fileInput" accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg">
+          </div>
+          <div class="selected-file" id="selectedFile"></div>
+
+          <!-- MinerU 选项 -->
+          <div class="options" id="mineruOptions">
+            <div class="option">
+              <label>
+                <input type="checkbox" id="isOcr" checked>
+                启用 OCR 识别
+              </label>
+            </div>
+            <div class="option">
+              <label>
+                <input type="checkbox" id="enableFormula" checked>
+                识别公式
+              </label>
+            </div>
+            <div class="option">
+              <label>
+                <input type="checkbox" id="enableTable" checked>
+                识别表格
+              </label>
+            </div>
+          </div>
+
+          <!-- Doc2X 选项 -->
+          <div class="options" id="doc2xOptions" style="display: none;">
+            <div class="form-group">
+              <label for="formulaMode">公式格式</label>
+              <select id="formulaMode">
+                <option value="dollar">Dollar 模式（$ 和 $$ 包裹公式）</option>
+                <option value="normal">Normal 模式（LaTeX 格式）</option>
+              </select>
+              <div class="hint">Dollar 模式适合大多数 Markdown 编辑器，推荐使用</div>
+            </div>
+
+            <div class="form-group">
+              <label for="exportFormat">导出格式（可选）</label>
+              <select id="exportFormat">
+                <option value="">仅获取 Markdown（不导出文件，内容永久有效）</option>
+                <option value="md">Markdown 文件 (.md) - ⚠️ 链接5分钟有效</option>
+                <option value="tex">LaTeX 文件 (.tex) - ⚠️ 链接5分钟有效</option>
+                <option value="docx">Word 文档 (.docx) - ⚠️ 链接5分钟有效</option>
+              </select>
+              <div class="hint">导出文件的下载链接只有5分钟有效期，超时可点击"刷新链接"按钮</div>
+            </div>
+          </div>
+
+          <button id="uploadBtn" disabled onclick="handleUpload()">开始处理</button>
+        </div>
+
+        <!-- 进度区 -->
+        <div class="progress-section" id="progressSection">
+          <div class="progress-text" id="progressText">准备中...</div>
+          <div class="progress-bar">
+            <div class="progress-bar-fill" id="progressBar"></div>
+          </div>
+        </div>
+
+        <!-- 结果区 -->
+        <div class="result-section" id="resultSection"></div>
+
+        <!-- 日志区 -->
+        <div class="log-section" id="logSection"></div>
+      </div>
+
+      <!-- 查询结果标签页 -->
+      <div class="tab-content" id="queryTab">
+        <div class="section">
+          <h3>⚙️ Worker 配置</h3>
+          <div class="form-group">
+            <label for="queryWorkerUrl">Worker URL</label>
+            <input type="text" id="queryWorkerUrl" placeholder="https://your-worker.workers.dev">
+          </div>
+          <div class="form-group">
+            <label for="queryAuthKey">AUTH_SECRET（可选）</label>
+            <input type="password" id="queryAuthKey" placeholder="如果 Worker 启用了 ENABLE_AUTH，填写这里">
+            <div class="hint">在 Worker 环境变量中配置的 AUTH_SECRET</div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h3>🎯 选择服务</h3>
+          <div class="service-select">
+            <div class="service-btn active" id="queryMineruBtn" onclick="selectQueryService('mineru')">
+              <span class="emoji">⛏️</span>
+              <div>MinerU</div>
+            </div>
+            <div class="service-btn" id="queryDoc2xBtn" onclick="selectQueryService('doc2x')">
+              <span class="emoji">📝</span>
+              <div>Doc2X</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h3>🔑 OCR Token 配置</h3>
+
+          <div class="radio-group">
+            <label class="radio-option">
+              <input type="radio" name="queryTokenMode" value="frontend" checked onchange="updateQueryTokenMode()">
+              <span>前端透传 Token</span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="queryTokenMode" value="worker" onchange="updateQueryTokenMode()">
+              <span>使用 Worker 环境变量</span>
+            </label>
+          </div>
+
+          <div id="queryFrontendTokenSection">
+            <div class="form-group" id="queryMineruTokenGroup">
+              <label for="queryMineruToken">MinerU Token</label>
+              <input type="password" id="queryMineruToken" placeholder="eyJ0eXBlIjoiSldUIi...">
+            </div>
+            <div class="form-group" id="queryDoc2xTokenGroup" style="display: none;">
+              <label for="queryDoc2xToken">Doc2X Token</label>
+              <input type="password" id="queryDoc2xToken" placeholder="sk-xxx...">
+            </div>
+          </div>
+
+          <div id="queryWorkerTokenSection" style="display: none;">
+            <div class="token-mode-hint">
+              💡 OCR Token 存储在 Worker 环境变量中，前端不需要提供
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h3>🔍 查询参数</h3>
+          <div class="form-group" id="batchIdGroup">
+            <label for="batchId">Batch ID (MinerU)</label>
+            <input type="text" id="batchId" placeholder="4b886bc5-6dd1-42ed-a670-ced0f1c6af8a">
+            <div class="hint">上传文件时返回的 batch_id</div>
+          </div>
+          <div class="form-group" id="uidGroup" style="display: none;">
+            <label for="uid">UID (Doc2X)</label>
+            <input type="text" id="uid" placeholder="xxx-xxx-xxx">
+            <div class="hint">上传文件时返回的 uid</div>
+          </div>
+          <button onclick="handleQuery()">查询结果</button>
+        </div>
+
+        <div class="result-section" id="queryResultSection"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ===== 全局变量 =====
+    let selectedFile = null;
+    let currentService = 'mineru';
+    let currentQueryService = 'mineru';
+
+    // ===== 初始化 =====
+    window.onload = () => {
+      // 加载配置
+      document.getElementById('workerUrl').value = localStorage.getItem('workerUrl') || '';
+      document.getElementById('mineruToken').value = localStorage.getItem('mineruToken') || '';
+      document.getElementById('doc2xToken').value = localStorage.getItem('doc2xToken') || '';
+      document.getElementById('authKey').value = localStorage.getItem('authKey') || '';
+
+      document.getElementById('queryWorkerUrl').value = localStorage.getItem('workerUrl') || '';
+      document.getElementById('queryMineruToken').value = localStorage.getItem('mineruToken') || '';
+      document.getElementById('queryDoc2xToken').value = localStorage.getItem('doc2xToken') || '';
+      document.getElementById('queryAuthKey').value = localStorage.getItem('authKey') || '';
+
+      // 保存配置
+      ['workerUrl', 'mineruToken', 'doc2xToken', 'authKey'].forEach(id => {
+        document.getElementById(id)?.addEventListener('change', (e) => {
+          localStorage.setItem(id, e.target.value);
+          // 同步到查询标签页
+          if (id === 'workerUrl') {
+            document.getElementById('queryWorkerUrl').value = e.target.value;
+          } else if (id === 'authKey') {
+            document.getElementById('queryAuthKey').value = e.target.value;
+          }
+        });
+      });
+
+      // 查询标签页的配置也要同步
+      ['queryWorkerUrl', 'queryAuthKey'].forEach(id => {
+        document.getElementById(id)?.addEventListener('change', (e) => {
+          const mainId = id.replace('query', '').toLowerCase();
+          const mappedId = mainId === 'workerurl' ? 'workerUrl' : 'authKey';
+          localStorage.setItem(mappedId, e.target.value);
+          document.getElementById(mappedId).value = e.target.value;
+        });
+      });
+
+      log('页面加载完成，等待配置...', 'info');
+    };
+
+    // ===== 标签页切换 =====
+    function switchTab(tab) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+      if (tab === 'upload') {
+        document.querySelectorAll('.tab')[0].classList.add('active');
+        document.getElementById('uploadTab').classList.add('active');
+      } else {
+        document.querySelectorAll('.tab')[1].classList.add('active');
+        document.getElementById('queryTab').classList.add('active');
+      }
+    }
+
+    // ===== 服务选择 =====
+    function selectService(service) {
+      currentService = service;
+
+      document.getElementById('mineruBtn').classList.toggle('active', service === 'mineru');
+      document.getElementById('doc2xBtn').classList.toggle('active', service === 'doc2x');
+
+      document.getElementById('mineruTokenGroup').style.display = service === 'mineru' ? 'block' : 'none';
+      document.getElementById('doc2xTokenGroup').style.display = service === 'doc2x' ? 'block' : 'none';
+
+      document.getElementById('mineruOptions').style.display = service === 'mineru' ? 'block' : 'none';
+      document.getElementById('doc2xOptions').style.display = service === 'doc2x' ? 'block' : 'none';
+
+      log(`切换到 ${service === 'mineru' ? 'MinerU' : 'Doc2X'} 服务`, 'info');
+    }
+
+    function selectQueryService(service) {
+      currentQueryService = service;
+
+      document.getElementById('queryMineruBtn').classList.toggle('active', service === 'mineru');
+      document.getElementById('queryDoc2xBtn').classList.toggle('active', service === 'doc2x');
+
+      document.getElementById('queryMineruTokenGroup').style.display = service === 'mineru' ? 'block' : 'none';
+      document.getElementById('queryDoc2xTokenGroup').style.display = service === 'doc2x' ? 'block' : 'none';
+
+      document.getElementById('batchIdGroup').style.display = service === 'mineru' ? 'block' : 'none';
+      document.getElementById('uidGroup').style.display = service === 'doc2x' ? 'block' : 'none';
+    }
+
+    // ===== Token 模式切换 =====
+    function updateTokenMode() {
+      const mode = document.querySelector('input[name="tokenMode"]:checked').value;
+      document.getElementById('frontendTokenSection').style.display = mode === 'frontend' ? 'block' : 'none';
+      document.getElementById('workerTokenSection').style.display = mode === 'worker' ? 'block' : 'none';
+    }
+
+    function updateQueryTokenMode() {
+      const mode = document.querySelector('input[name="queryTokenMode"]:checked').value;
+      document.getElementById('queryFrontendTokenSection').style.display = mode === 'frontend' ? 'block' : 'none';
+      document.getElementById('queryWorkerTokenSection').style.display = mode === 'worker' ? 'block' : 'none';
+    }
+
+    // ===== 文件选择 =====
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+
+    uploadArea.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files[0]) handleFileSelect(e.target.files[0]);
+    });
+
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.classList.add('dragover');
+    });
+    uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+      if (e.dataTransfer.files[0]) handleFileSelect(e.dataTransfer.files[0]);
+    });
+
+    function handleFileSelect(file) {
+      selectedFile = file;
+      document.getElementById('selectedFile').textContent = `已选择: ${file.name} (${formatSize(file.size)})`;
+      document.getElementById('selectedFile').classList.add('active');
+      document.getElementById('uploadBtn').disabled = false;
+      document.getElementById('resultSection').style.display = 'none';
+      log(`选择文件: ${file.name}`, 'info');
+    }
+
+    // ===== 上传处理 =====
+    async function handleUpload() {
+      const workerUrl = document.getElementById('workerUrl').value.trim();
+      const tokenMode = document.querySelector('input[name="tokenMode"]:checked').value;
+
+      if (!workerUrl) {
+        alert('请填写 Worker URL');
+        return;
+      }
+
+      if (!selectedFile) {
+        alert('请选择文件');
+        return;
+      }
+
+      // 构建请求头
+      let headers = {};
+
+      // 1. AUTH_SECRET（Worker 访问控制，总是尝试添加）
+      const authKey = document.getElementById('authKey').value.trim();
+      if (authKey) {
+        headers['X-Auth-Key'] = authKey;
+      }
+
+      // 2. OCR Token
+      if (tokenMode === 'frontend') {
+        const token = currentService === 'mineru'
+          ? document.getElementById('mineruToken').value.trim()
+          : document.getElementById('doc2xToken').value.trim();
+
+        if (!token) {
+          alert(`请填写 ${currentService === 'mineru' ? 'MinerU' : 'Doc2X'} Token`);
+          return;
+        }
+
+        headers[currentService === 'mineru' ? 'X-MinerU-Key' : 'X-Doc2X-Key'] = token;
+      }
+      // Worker 模式下，Token 从环境变量获取，不需要在请求头中提供
+
+      document.getElementById('uploadBtn').disabled = true;
+      document.getElementById('progressSection').classList.add('active');
+      document.getElementById('resultSection').style.display = 'none';
+
+      try {
+        if (currentService === 'mineru') {
+          await handleMinerUUpload(workerUrl, headers);
+        } else {
+          await handleDoc2XUpload(workerUrl, headers);
+        }
+      } catch (error) {
+        log(`错误: ${error.message}`, 'error');
+        showResult(false, `<h4>❌ 错误</h4><p>${error.message}</p>`);
+      } finally {
+        document.getElementById('uploadBtn').disabled = false;
+        document.getElementById('progressSection').classList.remove('active');
+      }
+    }
+
+    async function handleMinerUUpload(workerUrl, headers) {
+      log('开始上传到 MinerU...', 'info');
+      updateProgress('正在上传文件...', 10);
+
+      const isOcr = document.getElementById('isOcr').checked;
+      const enableFormula = document.getElementById('enableFormula').checked;
+      const enableTable = document.getElementById('enableTable').checked;
+
+      log(`参数: OCR=${isOcr}, 公式=${enableFormula}, 表格=${enableTable}`, 'info');
+
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('is_ocr', isOcr.toString());
+      formData.append('enable_formula', enableFormula.toString());
+      formData.append('enable_table', enableTable.toString());
+
+      const uploadRes = await fetch(`${workerUrl}/mineru/upload`, {
+        method: 'POST',
+        headers,
+        body: formData
+      });
+
+      if (!uploadRes.ok) {
+        const error = await uploadRes.json().catch(() => ({ error: uploadRes.statusText }));
+        throw new Error(error.error || '上传失败');
+      }
+
+      const { batch_id } = await uploadRes.json();
+      log(`上传成功，batch_id: ${batch_id}`, 'success');
+
+      // 轮询结果
+      updateProgress('文件上传成功，正在处理...', 20);
+      const result = await pollMinerUResult(workerUrl, headers, batch_id);
+
+      if (result.state === 'done') {
+        updateProgress('处理完成！', 100);
+        log('处理完成！', 'success');
+
+        const downloadUrl = result.full_zip_url || result.fullZipUrl;
+
+        if (downloadUrl) {
+          log(`下载地址: ${downloadUrl}`, 'success');
+          showResult(true, `
+            <h4>✅ 处理成功!</h4>
+            <p><strong>文件名:</strong> ${result.file_name || selectedFile.name}</p>
+            <p><strong>Batch ID:</strong> ${batch_id}</p>
+            <div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 12px; border-radius: 6px; margin: 10px 0; color: #155724;">
+              ✅ <strong>文件已处理完成</strong>：MinerU 下载链接有效期 24 小时
+            </div>
+            <p><strong>下载文件:</strong></p>
+            <div style="margin-top: 10px;">
+              <a href="${downloadUrl}" target="_blank" style="display: inline-block; padding: 10px 20px; background: #28a745; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">
+                📥 下载 ZIP 压缩包
+              </a>
+            </div>
+            <div style="margin-top: 8px; font-size: 12px; color: #666; word-break: break-all;">
+              ${downloadUrl}
+            </div>
+          `);
+
+          // 自动打开下载链接
+          setTimeout(() => {
+            window.open(downloadUrl, '_blank');
+          }, 500);
+        } else {
+          log(`警告: 未找到下载链接，完整结果: ${JSON.stringify(result)}`, 'error');
+          showResult(true, `
+            <h4>⚠️ 处理完成，但未找到下载链接</h4>
+            <p><strong>Batch ID:</strong> ${batch_id}</p>
+            <p>完整响应数据：</p>
+            <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto;">${JSON.stringify(result, null, 2)}</pre>
+          `);
+        }
+      } else {
+        throw new Error(result.err_msg || '处理失败');
+      }
+    }
+
+    async function handleDoc2XUpload(workerUrl, headers) {
+      log('开始上传到 Doc2X...', 'info');
+      updateProgress('正在上传文件...', 10);
+
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+
+      const uploadRes = await fetch(`${workerUrl}/doc2x/upload`, {
+        method: 'POST',
+        headers,
+        body: formData
+      });
+
+      if (!uploadRes.ok) {
+        const error = await uploadRes.json().catch(() => ({ error: uploadRes.statusText }));
+        throw new Error(error.error || '上传失败');
+      }
+
+      const { uid } = await uploadRes.json();
+      log(`上传成功，uid: ${uid}`, 'success');
+
+      // 轮询状态
+      updateProgress('文件上传成功，正在处理...', 20);
+      const result = await pollDoc2XStatus(workerUrl, headers, uid);
+
+      if (result.status === 'success') {
+        updateProgress('处理完成！', 100);
+        log('处理完成！', 'success');
+
+        let resultHtml = `
+          <h4>✅ 处理成功!</h4>
+          <p><strong>文件名:</strong> ${selectedFile.name}</p>
+          <p><strong>UID:</strong> ${uid}</p>
+          <p><strong>进度:</strong> ${result.progress}%</p>
+        `;
+
+        // 如果有 Markdown 结果
+        if (result.result?.pages) {
+          const pageCount = result.result.pages.length;
+          let markdownText = '';
+
+          // 提取纯文本 Markdown
+          result.result.pages.forEach((page, index) => {
+            if (page.md) {
+              markdownText += `\n\n--- 第 ${index + 1} 页 ---\n\n${page.md}`;
+            }
+          });
+
+          resultHtml += `
+            <div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 12px; border-radius: 6px; margin: 10px 0; color: #155724;">
+              ✅ <strong>Markdown 内容已获取</strong>：永久有效，可随时复制使用
+            </div>
+            <p><strong>Markdown 内容:</strong> 共 ${pageCount} 页</p>
+            <div style="margin-top: 10px;">
+              <button onclick="copyMarkdown()" style="width: auto; padding: 8px 16px; font-size: 14px;">📋 复制全部 Markdown</button>
+            </div>
+            <pre id="markdownContent" style="max-height: 200px;">${escapeHtml(markdownText.substring(0, 2000))}${markdownText.length > 2000 ? '\n\n... (内容过长，请使用导出功能或复制按钮)' : ''}</pre>
+          `;
+
+          // 保存完整 Markdown 到全局变量
+          window.fullMarkdownContent = markdownText;
+        }
+
+        // 如果需要导出
+        const exportFormat = document.getElementById('exportFormat').value;
+        if (exportFormat) {
+          const formulaMode = document.getElementById('formulaMode').value;
+          log(`请求导出为 ${exportFormat}（公式格式：${formulaMode}）...`, 'info');
+          const exportUrl = await requestDoc2XExport(workerUrl, headers, uid, exportFormat, formulaMode);
+          log(`导出成功，链接5分钟内有效`, 'success');
+
+          resultHtml += `
+            <p><strong>导出文件:</strong></p>
+            <div style="background: #fff3cd; border: 1px solid #ffc107; padding: 12px; border-radius: 6px; margin: 10px 0; color: #856404;">
+              ⚠️ <strong>注意：</strong>下载链接有效期为 5 分钟，请立即下载！
+            </div>
+            <div style="margin-top: 10px;">
+              <a href="${exportUrl}" download target="_blank" id="exportDownloadLink" style="display: inline-block; padding: 10px 20px; background: #28a745; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">
+                📥 下载 ${exportFormat.toUpperCase()} 文件
+              </a>
+              <button onclick="refreshExportLink('${uid}', '${exportFormat}', '${formulaMode}')" style="display: inline-block; padding: 10px 20px; margin-left: 10px; background: #007bff; width: auto; font-size: 14px;">
+                🔄 刷新下载链接
+              </button>
+            </div>
+            <div style="margin-top: 8px; font-size: 12px; color: #666; word-break: break-all;">
+              ${exportUrl}
+            </div>
+          `;
+
+          // 自动触发下载
+          setTimeout(() => {
+            window.open(exportUrl, '_blank');
+          }, 500);
+        }
+
+        showResult(true, resultHtml);
+      } else {
+        throw new Error('处理失败');
+      }
+    }
+
+    async function pollMinerUResult(workerUrl, headers, batchId, maxAttempts = 100) {
+      for (let i = 0; i < maxAttempts; i++) {
+        const res = await fetch(`${workerUrl}/mineru/result/${batchId}`, { headers });
+        if (!res.ok) throw new Error('查询失败');
+
+        const data = await res.json();
+        const result = data.extract_result[0];
+
+        if (result.state === 'running' && result.extract_progress) {
+          const { extracted_pages, total_pages } = result.extract_progress;
+          const percent = Math.floor((extracted_pages / total_pages) * 70) + 20;
+          updateProgress(`正在处理: ${extracted_pages}/${total_pages} 页`, percent);
+          log(`处理进度: ${extracted_pages}/${total_pages} 页`, 'info');
+        }
+
+        if (result.state === 'done' || result.state === 'failed') {
+          return result;
+        }
+
+        await sleep(3000);
+      }
+      throw new Error('处理超时');
+    }
+
+    async function pollDoc2XStatus(workerUrl, headers, uid, maxAttempts = 100) {
+      for (let i = 0; i < maxAttempts; i++) {
+        const res = await fetch(`${workerUrl}/doc2x/status/${uid}`, { headers });
+        if (!res.ok) throw new Error('查询失败');
+
+        const data = await res.json();
+
+        if (data.progress) {
+          updateProgress(`正在处理: ${data.progress}%`, Math.min(20 + data.progress * 0.7, 90));
+          log(`处理进度: ${data.progress}%`, 'info');
+        }
+
+        if (data.status === 'success' || data.status === 'failed') {
+          return data;
+        }
+
+        await sleep(3000);
+      }
+      throw new Error('处理超时');
+    }
+
+    async function requestDoc2XExport(workerUrl, headers, uid, format, formulaMode = 'dollar') {
+      const res = await fetch(`${workerUrl}/doc2x/convert`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid,
+          to: format,
+          formula_mode: formulaMode
+        })
+      });
+
+      if (!res.ok) throw new Error('导出请求失败');
+
+      // 轮询导出结果
+      for (let i = 0; i < 50; i++) {
+        await sleep(2000);
+        const resultRes = await fetch(`${workerUrl}/doc2x/convert/result/${uid}`, { headers });
+        if (!resultRes.ok) continue;
+
+        const data = await resultRes.json();
+        if (data.status === 'success' && data.url) {
+          log(`导出成功: ${data.url}`, 'success');
+          return data.url;
+        }
+      }
+
+      throw new Error('导出超时');
+    }
+
+    // ===== 查询结果 =====
+    async function handleQuery() {
+      const workerUrl = document.getElementById('queryWorkerUrl').value.trim();
+      const tokenMode = document.querySelector('input[name="queryTokenMode"]:checked').value;
+
+      if (!workerUrl) {
+        alert('请填写 Worker URL');
+        return;
+      }
+
+      // 构建请求头
+      let headers = {};
+
+      // 1. AUTH_SECRET（Worker 访问控制，总是尝试添加）
+      const authKey = document.getElementById('queryAuthKey').value.trim();
+      if (authKey) {
+        headers['X-Auth-Key'] = authKey;
+      }
+
+      // 2. OCR Token
+      if (tokenMode === 'frontend') {
+        const token = currentQueryService === 'mineru'
+          ? document.getElementById('queryMineruToken').value.trim()
+          : document.getElementById('queryDoc2xToken').value.trim();
+
+        if (!token) {
+          alert(`请填写 ${currentQueryService === 'mineru' ? 'MinerU' : 'Doc2X'} Token`);
+          return;
+        }
+
+        headers[currentQueryService === 'mineru' ? 'X-MinerU-Key' : 'X-Doc2X-Key'] = token;
+      }
+      // Worker 模式下，Token 从环境变量获取，不需要在请求头中提供
+
+      try {
+        if (currentQueryService === 'mineru') {
+          const batchId = document.getElementById('batchId').value.trim();
+          if (!batchId) {
+            alert('请填写 Batch ID');
+            return;
+          }
+
+          const res = await fetch(`${workerUrl}/mineru/result/${batchId}`, { headers });
+          if (!res.ok) throw new Error('查询失败');
+
+          const data = await res.json();
+          const result = data.extract_result[0];
+
+          if (result.state === 'done') {
+            showQueryResult(true, `
+              <h4>✅ 处理完成</h4>
+              <p><strong>状态:</strong> ${result.state}</p>
+              <p><strong>下载:</strong> <a href="${result.full_zip_url}" target="_blank">${result.full_zip_url}</a></p>
+              <pre>${JSON.stringify(result, null, 2)}</pre>
+            `);
+          } else if (result.state === 'running') {
+            const { extracted_pages, total_pages } = result.extract_progress || {};
+            showQueryResult(true, `
+              <h4>⏳ 处理中...</h4>
+              <p><strong>进度:</strong> ${extracted_pages}/${total_pages} 页</p>
+            `);
+          } else {
+            showQueryResult(true, `<pre>${JSON.stringify(result, null, 2)}</pre>`);
+          }
+        } else {
+          const uid = document.getElementById('uid').value.trim();
+          if (!uid) {
+            alert('请填写 UID');
+            return;
+          }
+
+          const res = await fetch(`${workerUrl}/doc2x/status/${uid}`, { headers });
+          if (!res.ok) throw new Error('查询失败');
+
+          const data = await res.json();
+
+          if (data.status === 'success') {
+            let resultHtml = `
+              <h4>✅ 处理完成</h4>
+              <p><strong>进度:</strong> ${data.progress}%</p>
+            `;
+
+            // 如果有 Markdown 结果
+            if (data.result?.pages) {
+              const pageCount = data.result.pages.length;
+              let markdownText = '';
+
+              // 提取纯文本 Markdown
+              data.result.pages.forEach((page, index) => {
+                if (page.md) {
+                  markdownText += `\n\n--- 第 ${index + 1} 页 ---\n\n${page.md}`;
+                }
+              });
+
+              resultHtml += `
+                <p><strong>Markdown 内容:</strong> 共 ${pageCount} 页</p>
+                <div style="margin-top: 10px;">
+                  <button onclick="copyMarkdown()" style="width: auto; padding: 8px 16px; font-size: 14px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 6px; cursor: pointer;">📋 复制全部 Markdown</button>
+                </div>
+                <pre style="max-height: 200px; overflow-y: auto; background: #f5f5f5; padding: 15px; border-radius: 6px; margin-top: 10px;">${escapeHtml(markdownText.substring(0, 2000))}${markdownText.length > 2000 ? '\n\n... (内容过长，请使用复制按钮)' : ''}</pre>
+              `;
+
+              // 保存完整 Markdown 到全局变量
+              window.fullMarkdownContent = markdownText;
+            }
+
+            showQueryResult(true, resultHtml);
+          } else {
+            showQueryResult(true, `
+              <h4>⏳ 处理中...</h4>
+              <p><strong>状态:</strong> ${data.status}</p>
+              <p><strong>进度:</strong> ${data.progress || 0}%</p>
+            `);
+          }
+        }
+      } catch (error) {
+        showQueryResult(false, `<h4>❌ 错误</h4><p>${error.message}</p>`);
+      }
+    }
+
+    // ===== 工具函数 =====
+    function updateProgress(text, percent) {
+      document.getElementById('progressText').textContent = text;
+      document.getElementById('progressBar').style.width = `${percent}%`;
+    }
+
+    function showResult(success, html) {
+      const section = document.getElementById('resultSection');
+      section.className = `result-section ${success ? 'success' : 'error'}`;
+      section.innerHTML = html;
+    }
+
+    function showQueryResult(success, html) {
+      const section = document.getElementById('queryResultSection');
+      section.className = `result-section ${success ? 'success' : 'error'}`;
+      section.innerHTML = html;
+    }
+
+    function log(message, type = 'info') {
+      const logItem = document.createElement('div');
+      logItem.className = `log-item ${type}`;
+      logItem.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      document.getElementById('logSection').appendChild(logItem);
+      document.getElementById('logSection').scrollTop = document.getElementById('logSection').scrollHeight;
+    }
+
+    function formatSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+    }
+
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function copyMarkdown() {
+      const content = window.fullMarkdownContent || '';
+      if (!content) {
+        alert('没有可复制的内容');
+        return;
+      }
+
+      navigator.clipboard.writeText(content).then(() => {
+        alert('✅ Markdown 已复制到剪贴板！');
+        log('Markdown 已复制到剪贴板', 'success');
+      }).catch(err => {
+        alert('复制失败: ' + err.message);
+        log('复制失败: ' + err.message, 'error');
+      });
+    }
+
+    async function refreshExportLink(uid, format, formulaMode = 'dollar') {
+      try {
+        log('正在刷新下载链接...', 'info');
+
+        const workerUrl = document.getElementById('workerUrl').value.trim();
+        const tokenMode = document.querySelector('input[name="tokenMode"]:checked').value;
+
+        // 构建请求头
+        let headers = {};
+        const authKey = document.getElementById('authKey').value.trim();
+        if (authKey) {
+          headers['X-Auth-Key'] = authKey;
+        }
+
+        if (tokenMode === 'frontend') {
+          const token = document.getElementById('doc2xToken').value.trim();
+          if (token) {
+            headers['X-Doc2X-Key'] = token;
+          }
+        }
+
+        // 重新请求导出链接
+        const newUrl = await requestDoc2XExport(workerUrl, headers, uid, format, formulaMode);
+
+        // 更新页面上的链接
+        const linkElement = document.getElementById('exportDownloadLink');
+        if (linkElement) {
+          linkElement.href = newUrl;
+        }
+
+        log('下载链接已刷新（5分钟有效）', 'success');
+        alert('✅ 下载链接已刷新！有效期5分钟');
+
+        // 自动打开新链接
+        window.open(newUrl, '_blank');
+
+      } catch (error) {
+        log('刷新失败: ' + error.message, 'error');
+        alert('刷新失败: ' + error.message);
+      }
+    }
+  </script>
+</body>
+</html>

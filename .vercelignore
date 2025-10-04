@@ -1,0 +1,19 @@
+# Workers 目录（独立部署到 Cloudflare）
+workers/
+
+# 测试相关
+**/__tests__/**
+**/*.test.ts
+**/*.test.tsx
+**/*.test.js
+**/*.spec.ts
+**/*.spec.tsx
+**/*.spec.js
+
+# 文档
+*.md
+!README.md
+
+# 开发文件
+.vscode/
+.idea/
