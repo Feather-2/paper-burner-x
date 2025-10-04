@@ -253,10 +253,17 @@
             expanded.add('images/' + k + '.png');
           });
 
-          let src = img.data.startsWith('data:') ? img.data : 'data:image/png;base64,' + img.data;
+          let src = (img.data && img.data.startsWith && img.data.startsWith('data:')) ? img.data : ('data:image/png;base64,' + (img.data || ''));
           expanded.forEach(k => imgMap[k] = src);
         });
       }
+      // Debug: 打印映射样本
+      try {
+        if (localStorage.getItem('pbx_debug_images') === 'true') {
+          const keys = Object.keys(imgMap);
+          console.log('[PBX Debug] Image map size:', keys.length, 'sample:', keys.slice(0, 20));
+        }
+      } catch(_){}
       // 替换Markdown中的本地图片引用为base64（泛化匹配）
       md = md.replace(/!\[[^\]]*\]\(([^)]+)\)/g, function(match, path) {
         // 仅处理相对路径（避免 http/https/data 等外链）
@@ -272,7 +279,30 @@
         const noDot = clean.replace(/^\.\//, '');
         if (imgMap[noDot]) return `![](${imgMap[noDot]})`;
 
+        // 再尝试仅按文件名匹配（兼容某些导出路径包含子目录的情况）
+        const nameOnly = noDot.split('/').pop();
+        if (imgMap[nameOnly]) return `![](${imgMap[nameOnly]})`;
+        if (imgMap['images/' + nameOnly]) return `![](${imgMap['images/' + nameOnly]})`;
+
         // 保留原样（可能是外部相对路径，或稍后由打包器处理）
+        try { if (localStorage.getItem('pbx_debug_images') === 'true') console.warn('[PBX Debug] No image map for', { path, clean, noDot, nameOnly }); } catch(_){}
+        return match;
+      });
+
+      // 替换HTML <img> 标签中的相对路径为base64
+      md = md.replace(/<img\b([^>]*?)src=["']([^"']+)["']([^>]*)>/gi, function(match, pre, src, post) {
+        try {
+          const p = String(src).trim();
+          if (/^(https?:|data:|\/\/)/i.test(p)) return match;
+          const clean = p.split('?')[0].split('#')[0].replace(/^\.\//, '');
+          if (imgMap[clean]) return `<img${pre}src="${imgMap[clean]}"${post}>`;
+          // 尝试只用文件名匹配
+          const nameOnly = clean.split('/').pop();
+          if (imgMap[nameOnly]) return `<img${pre}src="${imgMap[nameOnly]}"${post}>`;
+          // 尝试 images/ 前缀匹配
+          if (imgMap['images/' + nameOnly]) return `<img${pre}src="${imgMap['images/' + nameOnly]}"${post}>`;
+        } catch (e) { /* ignore */ }
+        try { if (localStorage.getItem('pbx_debug_images') === 'true') console.warn('[PBX Debug] No image map for <img>', src); } catch(_){}
         return match;
       });
       // 处理上标、下标等自定义语法

@@ -707,7 +707,30 @@ KeyManagerUI.exportAllModelData = function() {
     const translationModelConfigs = JSON.parse(localStorage.getItem('translationModelConfigs') || '{}');
     const paperBurnerCustomSourceSites = JSON.parse(localStorage.getItem('paperBurnerCustomSourceSites') || '{}');
     const embeddingConfig = JSON.parse(localStorage.getItem('embeddingConfig') || 'null');
-    const data = { translationModelKeys, translationModelConfigs, paperBurnerCustomSourceSites, embeddingConfig };
+
+    // 添加 OCR 配置导出
+    const ocrConfig = {
+        engine: localStorage.getItem('ocrEngine') || 'mistral',
+        mistralKeys: localStorage.getItem('ocrMistralKeys') || '',
+        workerAuthKey: localStorage.getItem('ocrWorkerAuthKey') || '',
+        mineruToken: localStorage.getItem('ocrMinerUToken') || '',
+        mineruWorkerUrl: localStorage.getItem('ocrMinerUWorkerUrl') || '',
+        mineruTokenMode: localStorage.getItem('ocrMinerUTokenMode') || 'frontend',
+        mineruEnableOcr: localStorage.getItem('ocrMinerUEnableOcr') || 'true',
+        mineruEnableFormula: localStorage.getItem('ocrMinerUEnableFormula') || 'true',
+        mineruEnableTable: localStorage.getItem('ocrMinerUEnableTable') || 'true',
+        doc2xToken: localStorage.getItem('ocrDoc2XToken') || '',
+        doc2xWorkerUrl: localStorage.getItem('ocrDoc2XWorkerUrl') || '',
+        doc2xTokenMode: localStorage.getItem('ocrDoc2XTokenMode') || 'frontend'
+    };
+
+    const data = {
+        translationModelKeys,
+        translationModelConfigs,
+        paperBurnerCustomSourceSites,
+        embeddingConfig,
+        ocrConfig  // 新增 OCR 配置
+    };
     const dataStr = JSON.stringify(data, null, 2);
     const blob = new Blob([dataStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -837,6 +860,28 @@ KeyManagerUI.importAllModelData = function(refreshUIFunc) {
                     // 更新 EmbeddingClient 配置
                     if (window.EmbeddingClient && typeof window.EmbeddingClient.saveConfig === 'function') {
                         window.EmbeddingClient.saveConfig(importedEmbeddingConfig);
+                    }
+                }
+
+                // 导入 OCR 配置（如果存在）
+                const importedOcrConfig = imported.ocrConfig || {};
+                if (importedOcrConfig && typeof importedOcrConfig === 'object') {
+                    if (importedOcrConfig.engine) localStorage.setItem('ocrEngine', importedOcrConfig.engine);
+                    if (importedOcrConfig.mistralKeys !== undefined) localStorage.setItem('ocrMistralKeys', importedOcrConfig.mistralKeys);
+                    if (importedOcrConfig.workerAuthKey !== undefined) localStorage.setItem('ocrWorkerAuthKey', importedOcrConfig.workerAuthKey);
+                    if (importedOcrConfig.mineruToken !== undefined) localStorage.setItem('ocrMinerUToken', importedOcrConfig.mineruToken);
+                    if (importedOcrConfig.mineruWorkerUrl !== undefined) localStorage.setItem('ocrMinerUWorkerUrl', importedOcrConfig.mineruWorkerUrl);
+                    if (importedOcrConfig.mineruTokenMode !== undefined) localStorage.setItem('ocrMinerUTokenMode', importedOcrConfig.mineruTokenMode);
+                    if (importedOcrConfig.mineruEnableOcr !== undefined) localStorage.setItem('ocrMinerUEnableOcr', importedOcrConfig.mineruEnableOcr);
+                    if (importedOcrConfig.mineruEnableFormula !== undefined) localStorage.setItem('ocrMinerUEnableFormula', importedOcrConfig.mineruEnableFormula);
+                    if (importedOcrConfig.mineruEnableTable !== undefined) localStorage.setItem('ocrMinerUEnableTable', importedOcrConfig.mineruEnableTable);
+                    if (importedOcrConfig.doc2xToken !== undefined) localStorage.setItem('ocrDoc2XToken', importedOcrConfig.doc2xToken);
+                    if (importedOcrConfig.doc2xWorkerUrl !== undefined) localStorage.setItem('ocrDoc2XWorkerUrl', importedOcrConfig.doc2xWorkerUrl);
+                    if (importedOcrConfig.doc2xTokenMode !== undefined) localStorage.setItem('ocrDoc2XTokenMode', importedOcrConfig.doc2xTokenMode);
+
+                    // 更新 OCR 设置管理器
+                    if (window.ocrSettingsManager && typeof window.ocrSettingsManager.loadSettings === 'function') {
+                        window.ocrSettingsManager.loadSettings();
                     }
                 }
 

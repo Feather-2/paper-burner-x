@@ -1415,7 +1415,7 @@ function showTab(tab) {
         runBatch();
     }
 
-    function renderBatch(startIdx, onDoneAllBatchesCallback) { // Added onDoneAllBatchesCallback parameter
+  function renderBatch(startIdx, onDoneAllBatchesCallback) { // Added onDoneAllBatchesCallback parameter
       const fragment = document.createDocumentFragment();
       for(let i=startIdx;i<Math.min(tokens.length, startIdx+batchSize);i++){
         const htmlStr = MarkdownProcessor.renderWithKatexFailback(MarkdownProcessor.safeMarkdown(tokens[i].raw || '', data.images), customRenderer);
@@ -1437,6 +1437,41 @@ function showTab(tab) {
           const currentTabContentWrapper = document.getElementById(contentContainerId);
           if (currentTabContentWrapper) {
               adjustLongHeadingsToParagraphs(currentTabContentWrapper);
+              // 兜底修复：将相对图片 src 替换为 data URL（若前置替换未命中）
+              try {
+                const imgs = (window.data && Array.isArray(window.data.images)) ? window.data.images : [];
+                if (imgs && imgs.length > 0) {
+                  const map = new Map();
+                  imgs.forEach((im, idx) => {
+                    const id = (im.id || '').toString();
+                    const name = (im.name || id || `img-${idx+1}.jpg`).toString();
+                    const base = id || name;
+                    const keys = [
+                      base,
+                      name,
+                      `images/${base}`,
+                      `images/${name}`,
+                      base.replace(/\.[^.]+$/, ''),
+                      name.replace(/\.[^.]+$/, '')
+                    ];
+                    const dataUri = (im.data && im.data.startsWith && im.data.startsWith('data:')) ? im.data : `data:image/jpeg;base64,${im.data || ''}`;
+                    keys.forEach(k => { if (k) map.set(k, dataUri); });
+                  });
+                  currentTabContentWrapper.querySelectorAll('img').forEach(imgEl => {
+                    const src = imgEl.getAttribute('src') || '';
+                    if (!src || /^data:|^https?:|^\/\//i.test(src)) return;
+                    const clean = src.split('?')[0].split('#')[0].replace(/^\.\//, '');
+                    const nameOnly = clean.split('/').pop();
+                    const candidates = [clean, nameOnly, `images/${nameOnly}`];
+                    for (const key of candidates) {
+                      if (map.has(key)) {
+                        imgEl.setAttribute('src', map.get(key));
+                        break;
+                      }
+                    }
+                  });
+                }
+              } catch (e) { console.warn('[showTab] fix images fallback failed:', e); }
           }
 
           // Now, call segmentInBatches on the fully rendered content

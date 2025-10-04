@@ -133,45 +133,79 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
     console.log('processSinglePdf: translationKeyObject', translationKeyObject);
 
     try {
-        const mistralKeyValue = mistralKeyObject ? mistralKeyObject.value : null;
+        let usedOcrEngine = null;
+        let usedOcrSource = null;
+        // 更合理的开始日志：显示 OCR 引擎而不是固定显示 Mistral Key
+        let ocrEngineForLog = 'mistral';
+        try {
+            if (typeof window !== 'undefined' && window.ocrSettingsManager && typeof window.ocrSettingsManager.getCurrentConfig === 'function') {
+                const cfg = window.ocrSettingsManager.getCurrentConfig();
+                if (cfg && cfg.engine) ocrEngineForLog = cfg.engine;
+            } else {
+                ocrEngineForLog = localStorage.getItem('ocrEngine') || 'mistral';
+            }
+        } catch {}
         if (typeof addProgressLog === "function") {
-            addProgressLog(`${logPrefix} 开始处理 (类型: ${fileType}, Mistral Key: ...${mistralKeyValue ? mistralKeyValue.slice(-4) : 'N/A'})`);
+            addProgressLog(`${logPrefix} 开始处理 (类型: ${fileType}, OCR 引擎: ${ocrEngineForLog})`);
         }
 
         if (fileType === 'pdf') {
-            if (!mistralKeyValue) {
-                throw new Error('处理 PDF 文件需要 Mistral API Key，但未提供。');
-            }
+            // 使用 OCR Manager 进行多引擎 OCR 处理
             try {
-                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 上传到 Mistral...`);
-                mistralFileId = await uploadToMistral(fileToProcess, mistralKeyValue);
-                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 上传成功, File ID: ${mistralFileId}`);
-                await new Promise(resolve => setTimeout(resolve, 1000)); // 短暂等待，确保文件在Mistral端准备好
-                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 获取签名 URL...`);
-                const signedUrl = await getMistralSignedUrl(mistralFileId, mistralKeyValue);
-                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 成功获取 URL，开始 OCR 处理...`);
-                const ocrData = await callMistralOcr(signedUrl, mistralKeyValue);
-                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} OCR 完成，处理 OCR 结果...`);
+                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 开始 OCR 处理...`);
 
-                if (typeof processOcrResults !== 'function') {
-                    throw new Error('processOcrResults函数未定义，无法处理OCR结果');
+                // 创建 OcrManager 实例
+                if (typeof OcrManager === 'undefined') {
+                    throw new Error('OcrManager 未加载，无法处理 PDF');
                 }
-                const processedOcr = processOcrResults(ocrData);
-                currentMarkdownContent = processedOcr.markdown;
-                currentImagesData = processedOcr.images;
-                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} Markdown 生成完成`);
+
+                const ocrManager = new OcrManager();
+
+                // 创建进度回调包装器
+                const onProgress = (current, total, message) => {
+                    if (typeof addProgressLog === "function") {
+                        addProgressLog(`${logPrefix} ${message}`);
+                    }
+                };
+
+                // 调用 OCR Manager 处理文件
+                const ocrResult = await ocrManager.processFile(fileToProcess, onProgress);
+
+                // 提取结果
+                currentMarkdownContent = ocrResult.markdown;
+                currentImagesData = ocrResult.images;
+                usedOcrEngine = ocrResult && ocrResult.metadata && ocrResult.metadata.engine ? ocrResult.metadata.engine : null;
+                usedOcrSource = ocrResult && ocrResult.metadata && ocrResult.metadata.source ? ocrResult.metadata.source : null;
+
+                if (typeof addProgressLog === "function") {
+                    addProgressLog(`${logPrefix} OCR 完成 (引擎: ${ocrResult.metadata.engine})`);
+                }
+
             } catch (error) {
-                // 判断是否为 Mistral Key 失效错误
-                if (error.message && (error.message.includes('无效') || error.message.includes('未授权') || error.message.includes('401') || error.message.toLowerCase().includes('invalid api key') || error.message.toLowerCase().includes('unauthorized'))) {
-                    if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} Mistral API Key (...${mistralKeyValue.slice(-4)}) 可能已失效: ${error.message}`);
-                    return {
-                        file: fileToProcess,
-                        keyInvalid: {
-                            type: 'mistral',
-                            keyIdToInvalidate: mistralKeyObject.id
-                        },
-                        error: `Mistral Key 失效: ${error.message}`
-                    };
+                // 判断是否为 API Key 失效错误（兼容 Mistral 旧逻辑）
+                if (error.message && (
+                    error.message.includes('无效') ||
+                    error.message.includes('未授权') ||
+                    error.message.includes('401') ||
+                    error.message.toLowerCase().includes('invalid api key') ||
+                    error.message.toLowerCase().includes('unauthorized') ||
+                    error.message.includes('可能已失效')
+                )) {
+                    // 如果是 Mistral 引擎且有 Key 对象，返回 Key 失效信息
+                    if (mistralKeyObject && error.message.includes('Mistral')) {
+                        if (typeof addProgressLog === "function") {
+                            const mistralKeyValue = mistralKeyObject.value;
+                            addProgressLog(`${logPrefix} Mistral API Key (...${mistralKeyValue.slice(-4)}) 可能已失效: ${error.message}`);
+                        }
+                        return {
+                            file: fileToProcess,
+                            keyInvalid: {
+                                type: 'mistral',
+                                keyIdToInvalidate: mistralKeyObject.id
+                            },
+                            error: `Mistral Key 失效: ${error.message}`
+                        };
+                    }
                 }
                 throw error; // 其他类型的OCR错误，向上抛出由 app.js 的常规重试处理
             }
@@ -595,6 +629,12 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
                 originalEncoding: originalEncoding,
                 originalBinary: originalEncoding && originalEncoding !== 'text' && originalBinary ? arrayBufferToBase64(originalBinary) : null,
                 originalExtension: originalExtension,
+                // 新增：模型元信息（OCR/翻译）
+                ocrEngine: usedOcrEngine || ocrEngineForLog || (typeof window !== 'undefined' ? (window.ocrSettingsManager?.getCurrentConfig()?.engine || null) : null),
+                ocrSource: usedOcrSource || null,
+                translationModelName: selectedTranslationModelName || 'none',
+                translationModelCustomName: (selectedTranslationModelName === 'custom' && translationModelConfig && (translationModelConfig.displayName || translationModelConfig.name)) ? (translationModelConfig.displayName || translationModelConfig.name) : null,
+                translationModelId: (selectedTranslationModelName === 'custom' && translationModelConfig && translationModelConfig.modelId) ? translationModelConfig.modelId : null,
                 batchId: batchContext ? batchContext.id : null,
                 batchOrder: batchContext ? batchContext.order : null,
                 batchTotal: batchContext ? batchContext.total : null,
@@ -628,6 +668,12 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
             originalEncoding,
             originalBinary: originalEncoding && originalEncoding !== 'text' && originalBinary ? arrayBufferToBase64(originalBinary) : null,
             originalExtension,
+            // 回传一份模型元数据，便于上层使用
+            ocrEngine: usedOcrEngine || ocrEngineForLog || (typeof window !== 'undefined' ? (window.ocrSettingsManager?.getCurrentConfig()?.engine || null) : null),
+            ocrSource: usedOcrSource || null,
+            translationModelName: selectedTranslationModelName || 'none',
+            translationModelCustomName: (selectedTranslationModelName === 'custom' && translationModelConfig && (translationModelConfig.displayName || translationModelConfig.name)) ? (translationModelConfig.displayName || translationModelConfig.name) : null,
+            translationModelId: (selectedTranslationModelName === 'custom' && translationModelConfig && translationModelConfig.modelId) ? translationModelConfig.modelId : null,
             batchId: batchContext ? batchContext.id : null,
             batchOrder: batchContext ? batchContext.order : null,
             batchTotal: batchContext ? batchContext.total : null,

@@ -114,10 +114,24 @@
         let translationKeysAvailable = true;
         const hasPdfFiles = effectiveFiles.some(file => file.name.toLowerCase().endsWith('.pdf'));
 
-        // 检查 Mistral Keys（用于 PDF OCR）
+        // 检查 OCR 引擎与所需配置
+        let ocrEngine = 'mistral';
+        try {
+            if (window.ocrSettingsManager && typeof window.ocrSettingsManager.getCurrentConfig === 'function') {
+                ocrEngine = window.ocrSettingsManager.getCurrentConfig().engine || (localStorage.getItem('ocrEngine') || 'mistral');
+            } else {
+                ocrEngine = localStorage.getItem('ocrEngine') || 'mistral';
+            }
+        } catch {}
+
         if (hasPdfFiles) {
-            const mistralKeyProvider = new KeyProvider('mistral');
-            mistralKeysAvailable = mistralKeyProvider.hasAvailableKeys();
+            if (ocrEngine === 'mistral') {
+                const mistralKeyProvider = new KeyProvider('mistral');
+                mistralKeysAvailable = mistralKeyProvider.hasAvailableKeys();
+            } else {
+                // 非 Mistral OCR，不强制要求 Mistral Keys
+                mistralKeysAvailable = true;
+            }
         }
 
         // 检查翻译 Keys（如果需要翻译）- 直接使用 app.js 的逻辑
@@ -189,7 +203,7 @@
         // 检查各种验证条件
         const issues = [];
 
-        if (hasPdfFiles && !mistralKeysAvailable) {
+        if (hasPdfFiles && !mistralKeysAvailable && ocrEngine === 'mistral') {
             issues.push({
                 type: 'no-mistral-key',
                 title: '缺少 Mistral API Key',

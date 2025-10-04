@@ -103,17 +103,32 @@ async function downloadAllResults(allResultsData) {
 
         if (result.images && result.images.length > 0) {
             const imagesFolder = folder.folder('images');
-            for (const img of result.images) {
+            for (let i = 0; i < result.images.length; i++) {
+                const img = result.images[i];
                 try {
-                    const base64Data = img.data.includes(',') ? img.data.split(',')[1] : img.data;
-                    if (base64Data) {
-                        imagesFolder.file(`${img.id}.png`, base64Data, { base64: true });
-                    } else {
+                    const raw = img.data || '';
+                    const base64Data = raw.includes(',') ? raw.split(',')[1] : raw;
+                    if (!base64Data) {
                         console.warn(`Skipping image ${img.id} in ${folderPath} due to missing data.`);
                         if (typeof addProgressLog === "function") {
                             addProgressLog(`警告: 跳过图片 ${img.id} (文件: ${folderPath})，数据缺失。`);
                         }
+                        continue;
                     }
+                    let filename = (img.name || img.id || `img-${i+1}.jpg`).toString();
+                    // 确保有扩展名
+                    if (!/\.[a-z0-9]+$/i.test(filename)) {
+                        // 从 data URI 推断
+                        const mime = (raw.split(';')[0] || '').replace(/^data:/, '').toLowerCase();
+                        let ext = 'jpg';
+                        if (mime.includes('png')) ext = 'png';
+                        else if (mime.includes('gif')) ext = 'gif';
+                        else if (mime.includes('webp')) ext = 'webp';
+                        else if (mime.includes('bmp')) ext = 'bmp';
+                        else if (mime.includes('svg')) ext = 'svg';
+                        filename = `${filename}.${ext}`;
+                    }
+                    imagesFolder.file(filename, base64Data, { base64: true });
                 } catch (imgError) {
                     console.error(`Error adding image ${img.id} to zip for ${folderPath}:`, imgError);
                     if (typeof addProgressLog === "function") {

@@ -1000,6 +1000,23 @@ document.addEventListener('DOMContentLoaded', function() {
         const ocrSnippet = buildSnippetText(record.ocr);
         const translationSnippet = buildSnippetText(record.translation);
         const timeLabel = formatDisplayTime(record.time);
+        // 新增：模型信息（兼容旧记录无该字段情况）
+        const ocrEngine = (record.ocrEngine || '').toLowerCase();
+        const ocrLabel = ocrEngine === 'mistral' ? 'Mistral OCR' : ocrEngine === 'mineru' ? 'MinerU OCR' : ocrEngine === 'doc2x' ? 'Doc2X OCR' : '';
+        const transName = record.translationModelName || 'none';
+        let transLabel = '';
+        if (transName === 'none') {
+            transLabel = '未翻译';
+        } else if (transName === 'custom') {
+            // 显示自定义源站配置的“模型ID”（优先），若缺失则退回显示名称/自定义
+            transLabel = record.translationModelId
+                ? escapeHtml(record.translationModelId)
+                : (record.translationModelCustomName ? escapeHtml(record.translationModelCustomName) : '自定义');
+        } else {
+            // 预设模型
+            const mapping = { deepseek: 'DeepSeek', gemini: 'Gemini', tongyi: '通义百炼', volcano: '火山引擎', deeplx: 'DeepLX' };
+            transLabel = mapping[transName] || transName;
+        }
         const targetLang = record.batchOutputLanguage || record.targetLanguage || '';
         const relativePathLabel = buildRelativePathLabel(record);
         const template = record.batchTemplate || DEFAULT_EXPORT_TEMPLATE;
@@ -1056,8 +1073,14 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
                         <div class="text-xs text-gray-500 mt-1">
                             ${timeLabel}${targetLang ? ` · 语言：${escapeHtml(targetLang)}` : ''}
-                            ${relativePathLabel ? ` · <span title="${escapeAttr(relativePathLabel)}">${escapeHtml(relativePathLabel)}</span>` : ''}
                         </div>
+                        ${(ocrLabel || (transLabel && transLabel !== '未翻译')) ? `
+                        <div class="text-xs text-gray-500">
+                            ${ocrLabel ? `OCR：${ocrLabel}` : ''}
+                            ${(ocrLabel && (transLabel && transLabel !== '未翻译')) ? ' · ' : ''}
+                            ${(transLabel && transLabel !== '未翻译') ? `翻译：${escapeHtml(transLabel)}` : ''}
+                        </div>
+                        ` : ''}
                         <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600">
                             <span class="font-medium text-gray-600">文件夹</span>
                             ${folderSelectHtml}
@@ -1176,9 +1199,15 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!status || status.total === 0) {
             return '<span class="ml-2 inline-block text-[11px] px-2 py-0.5 rounded bg-gray-100 text-gray-500">未分块</span>';
         }
+        // 若没有任何成功块（0/total），改为“预览中，无翻译块”
+        if (status.success === 0) {
+            return '<span class="ml-2 inline-block text-[11px] px-2 py-0.5 rounded bg-gray-100 text-gray-600">预览中，无翻译块</span>';
+        }
+        // 有成功也有失败 → 部分失败
         if (status.failed > 0) {
             return `<span class="ml-2 inline-block text-[11px] px-2 py-0.5 rounded bg-amber-100 text-amber-700">部分失败 ${status.success}/${status.total}</span>`;
         }
+        // 全部成功
         return `<span class="ml-2 inline-block text-[11px] px-2 py-0.5 rounded bg-green-100 text-green-700">完成 ${status.success}/${status.total}</span>`;
     }
 
