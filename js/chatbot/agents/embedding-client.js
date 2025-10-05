@@ -83,14 +83,27 @@
       // 调用API
       const requestBody = {
         model: this.config.model,
-        input: uncachedTexts,
-        encoding_format: 'float'
+        input: uncachedTexts
       };
 
-      // 对于支持降维的模型（如 OpenAI text-embedding-3-*）
-      if (this.config.dimensions && this.config.dimensions < 1536) {
-        requestBody.dimensions = this.config.dimensions;
+      // 根据服务商添加特定参数
+      const provider = this.config.provider || 'openai';
+      
+      if (provider === 'openai') {
+        // OpenAI 支持 encoding_format 和 dimensions
+        requestBody.encoding_format = 'float';
+        
+        // 对于支持降维的模型（如 OpenAI text-embedding-3-*）
+        if (this.config.dimensions && this.config.dimensions < 1536) {
+          requestBody.dimensions = this.config.dimensions;
+        }
+      } else if (provider === 'alibaba') {
+        // 阿里云百炼支持 dimensions
+        if (this.config.dimensions) {
+          requestBody.dimensions = this.config.dimensions;
+        }
       }
+      // Jina AI 和其他服务商不需要额外参数
 
       try {
         const response = await fetch(this.config.endpoint, {
