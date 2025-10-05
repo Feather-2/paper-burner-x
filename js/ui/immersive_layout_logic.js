@@ -564,10 +564,7 @@
         document.body.classList.add('immersive-dragging');
         document.body.style.userSelect = 'none';
         document.body.style.cursor = 'col-resize';
-        
-        // 添加视觉反馈
-        activeHandle.style.background = 'linear-gradient(to bottom, rgba(59, 130, 246, 0.2) 10%, rgba(59, 130, 246, 0.4) 50%, rgba(59, 130, 246, 0.2) 90%)';
-        
+
         e.preventDefault();
       });
     });
@@ -598,19 +595,18 @@
     document.addEventListener('mouseup', function() {
       if (activeHandle) {
         savePanelSizes();
-        
+
         // 恢复样式
         document.body.classList.remove('immersive-dragging');
         document.body.style.userSelect = '';
         document.body.style.cursor = '';
-        activeHandle.style.background = '';
-        
+
         // 恢复过渡动画
         const prevPanel = document.getElementById(activeHandle.dataset.targetPrev);
         const nextPanel = document.getElementById(activeHandle.dataset.targetNext);
         if (prevPanel) prevPanel.style.transition = '';
         if (nextPanel) nextPanel.style.transition = '';
-        
+
         activeHandle = null;
       }
     });

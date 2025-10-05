@@ -1589,9 +1589,11 @@ class PDFCompareView {
       // 恢复浮动图标
       this.showFloatingIcons();
 
-      // 切换回其他标签（默认切换到翻译标签）
+      // 切换回其他标签（优先切换到 OCR 标签，避免没有翻译内容时报错）
       if (typeof window.showTab === 'function') {
-        window.showTab('translation');
+        // 如果有翻译内容，切换到翻译标签；否则切换到 OCR 标签
+        const hasTranslation = window.data && window.data.translation && window.data.translation.trim() !== '';
+        window.showTab(hasTranslation ? 'translation' : 'ocr');
       }
     });
 
