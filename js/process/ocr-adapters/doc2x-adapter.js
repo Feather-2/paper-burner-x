@@ -158,7 +158,7 @@ class Doc2XOcrAdapter extends OcrAdapter {
         throw new Error(data.error || 'Doc2X 处理失败');
       }
 
-      await this.delay(pollInterval);
+      await this.sleep(pollInterval);
     }
 
     throw new Error('Doc2X 处理超时');
@@ -194,7 +194,7 @@ class Doc2XOcrAdapter extends OcrAdapter {
         }
 
         // 等待一下再重试
-        await this.delay(2000);
+        await this.sleep(2000);
       }
     }
   }
@@ -222,7 +222,7 @@ class Doc2XOcrAdapter extends OcrAdapter {
     const headers = this.buildHeaders();
     const base = this.workerUrl.replace(/\/+$/, '');
     for (let i = 0; i < 50; i++) {
-      await this.delay(2000);
+      await this.sleep(2000);
       const res = await fetch(`${base}/doc2x/convert/result/${uid}`, { headers });
       if (!res.ok) continue;
       const data = await res.json();

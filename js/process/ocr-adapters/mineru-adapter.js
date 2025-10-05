@@ -141,7 +141,7 @@ class MinerUOcrAdapter extends OcrAdapter {
         throw new Error(result.err_msg || 'MinerU 处理失败');
       }
 
-      await this.delay(pollInterval);
+      await this.sleep(pollInterval);
     }
 
     throw new Error('MinerU 处理超时');
