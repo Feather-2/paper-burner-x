@@ -727,6 +727,9 @@ class PDFCompareView {
       };
     });
 
+    // 记录已绘制的文本块（用于自适应碰撞检测）
+    const drawnTextBoxes = [];
+
     // 绘制每个文本 bbox 的背景色和翻译文字
     pageItems.forEach((item, idx) => {
       const originalIdx = this.contentListJson.indexOf(item);
@@ -740,21 +743,41 @@ class PDFCompareView {
       const w = (bbox[2] - bbox[0]) * scaleX;
       const h = (bbox[3] - bbox[1]) * scaleY;
 
-      // 尝试扩展 bbox 以容纳更大字号
+      // 智能扩展 bbox（针对小标题和短段落特殊处理）
+      const text = translatedItem.text || '';
+      const isShortText = text.length < 30; // 短文本（可能是标题，增加到30字符）
+      const isVerySmallBox = w < 200 || h < 40; // 较小的 bbox（增加阈值）
+
       const expandedBox = this.expandBboxIfPossible(
         { x, y, w, h },
         canvasBboxes,
         idx,
         this.translationOverlay.width,
-        this.translationOverlay.height
+        this.translationOverlay.height,
+        isShortText || isVerySmallBox // 传递标记，允许更大扩展
       );
 
       // 绘制白色/米色背景（覆盖原文）
       ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
       ctx.fillRect(expandedBox.x, expandedBox.y, expandedBox.w, expandedBox.h);
 
-      // 绘制翻译文字（使用扩展后的区域）
-      this.drawTextInBox(ctx, translatedItem.text, expandedBox.x, expandedBox.y, expandedBox.w, expandedBox.h, pageNum);
+      // 自适应绘制文字（检测并避免与已绘制文本块重叠）
+      const actualBox = this.drawTextInBoxAdaptive(
+        ctx,
+        text,
+        expandedBox.x,
+        expandedBox.y,
+        expandedBox.w,
+        expandedBox.h,
+        pageNum,
+        drawnTextBoxes, // 传入已绘制的文本块
+        isShortText
+      );
+
+      // 记录已绘制的区域
+      if (actualBox) {
+        drawnTextBoxes.push(actualBox);
+      }
     });
 
     console.log('[renderTranslationOverlay] 翻译层渲染完成');
@@ -762,9 +785,9 @@ class PDFCompareView {
 
   /**
    * 智能扩展 bbox 区域（不与其他文本冲突）
-   * 优先保持在原 bbox 内，只在必要时轻微扩展
+   * 针对小标题和短段落特殊处理，允许更大扩展
    */
-  expandBboxIfPossible(currentBox, allBboxes, currentIndex, canvasWidth, canvasHeight) {
+  expandBboxIfPossible(currentBox, allBboxes, currentIndex, canvasWidth, canvasHeight, allowLargeExpansion = false) {
     const { x, y, w, h } = currentBox;
 
     // 检测四个方向的可用空间
@@ -775,24 +798,43 @@ class PDFCompareView {
       right: canvasWidth - (x + w)
     };
 
-    // 克制的扩展策略，只在必要时小幅扩展
     const expansions = [];
 
-    // 优先使用原始 bbox（不扩展）
-    expansions.push({ x, y, w, h });
-
-    // 只向下轻微扩展
-    for (let dh of [5, 10]) {
-      if (dh <= availableSpace.bottom) {
-        expansions.push({ x, y, w, h: h + dh });
+    if (allowLargeExpansion) {
+      // 小标题或短段落：允许大幅扩展，尽量一行显示
+      // 优先向右扩展（横向扩展）
+      const maxRightExpand = Math.min(availableSpace.right, canvasWidth * 0.5 - w); // 增加到50%
+      for (let dw of [50, 100, 150, 200, 250, 300, 350, 400]) { // 增加更多扩展选项
+        if (dw <= maxRightExpand) {
+          expansions.push({ x, y, w: w + dw, h });
+          // 也可以同时向下扩展一点
+          expansions.push({ x, y, w: w + dw, h: h + 20 }); // 增加到20px
+          expansions.push({ x, y, w: w + dw, h: h + 30 }); // 增加到30px
+        }
       }
+
+      // 也尝试向下扩展
+      for (let dh of [20, 30, 40, 50, 60]) { // 增加更多选项
+        if (dh <= availableSpace.bottom) {
+          expansions.push({ x, y, w, h: h + dh });
+        }
+      }
+
+      // 尝试双向扩展
+      const dw = Math.min(150, maxRightExpand); // 增加到150
+      const dh = Math.min(30, availableSpace.bottom); // 增加到30
+      if (dw > 0 && dh > 0) {
+        expansions.push({ x, y, w: w + dw, h: h + dh });
+      }
+    } else {
+      // 常规段落（多行）：严格保持在 bbox 内，不扩展
+      // 只使用原始 bbox
+      expansions.push({ x, y, w, h });
     }
 
-    // 只向右轻微扩展
-    for (let dw of [5, 10]) {
-      if (dw <= availableSpace.right) {
-        expansions.push({ x, y, w: w + dw, h });
-      }
+    // 始终包含原始 bbox 作为后备选项
+    if (expansions.length === 0) {
+      expansions.push({ x, y, w, h });
     }
 
     // 找到最大的不冲突扩展
@@ -800,13 +842,23 @@ class PDFCompareView {
     let maxArea = w * h;
 
     for (let expanded of expansions) {
-      // 检查是否与其他 bbox 冲突
+      // 检查是否与其他 bbox 冲突（增加边距检查，防止贴得太近）
       let hasCollision = false;
+      const margin = allowLargeExpansion ? 5 : 2; // 小标题需要更大边距
+
       for (let i = 0; i < allBboxes.length; i++) {
         if (i === currentIndex) continue;
 
         const other = allBboxes[i];
-        if (this.checkBboxCollision(expanded, other)) {
+        // 添加边距检查
+        const expandedWithMargin = {
+          x: expanded.x - margin,
+          y: expanded.y - margin,
+          w: expanded.w + margin * 2,
+          h: expanded.h + margin * 2
+        };
+
+        if (this.checkBboxCollision(expandedWithMargin, other)) {
           hasCollision = true;
           break;
         }
@@ -835,10 +887,161 @@ class PDFCompareView {
   }
 
   /**
+   * 自适应绘制文字（检测并避免与已绘制文本块重叠）
+   * @returns {Object|null} 返回实际绘制的区域 { x, y, w, h }
+   */
+  drawTextInBoxAdaptive(ctx, text, x, y, width, height, pageNum, drawnTextBoxes, isShortText) {
+    if (!text) return null;
+
+    // 检查是否包含公式
+    const hasBlockFormula = /\$\$[\s\S]+?\$\$/.test(text);
+    const hasInlineFormula = /\$[^$]*[\\^_{}a-zA-Z][\s\S]*?\$/.test(text);
+    const hasFormula = hasBlockFormula || hasInlineFormula;
+
+    // 如果包含公式，使用 HTML 渲染（也需要参与碰撞检测）
+    if (hasFormula) {
+      // 根据 bbox 高度和已绘制文本自适应选择字号
+      const heightCss = height / this.dpr;
+      let bestFormulaFontSize;
+
+      // 字号候选列表（从大到小）
+      const fontSizeCandidates = isShortText
+        ? [18, 16, 14, 12, 10, 8, 6]
+        : [13, 11, 10, 9, 8, 7, 6, 5, 4];
+
+      for (let fs of fontSizeCandidates) {
+        const lineHeight = 1.5;
+        const estimatedHeight = fs * lineHeight * 2.2; // 公式可能占2-3行高度
+
+        if (estimatedHeight <= heightCss) {
+          // 检查是否与已绘制文本重叠
+          const testBox = { x, y, w: width, h: estimatedHeight * this.dpr };
+          let hasCollision = false;
+
+          for (const drawn of drawnTextBoxes) {
+            if (this.checkBboxCollision(testBox, drawn)) {
+              hasCollision = true;
+              break;
+            }
+          }
+
+          if (!hasCollision) {
+            bestFormulaFontSize = fs;
+            break;
+          }
+        }
+      }
+
+      // 如果都不行，使用最小字号
+      if (!bestFormulaFontSize) {
+        bestFormulaFontSize = isShortText ? 6 : 4;
+      }
+
+      this.drawTextWithFormulaInBoxAdaptive(text, x, y, width, height, pageNum, null, isShortText, bestFormulaFontSize);
+
+      // 返回保守的高度估计（公式可能占用更多空间）
+      const actualHeight = Math.min(height, bestFormulaFontSize * 1.5 * 2.2 * this.dpr);
+      return { x, y, w: width, h: actualHeight };
+    }
+
+    // 纯文本：尝试不同字号，找到最大的不重叠字号
+    const maxFontSize = isShortText ? Math.max(width / 10, height / 3, 18) : Math.min(width / 10, height / 3);
+    const minFontSize = 3; // 允许缩到 3px（除了单行小标题）
+
+    let bestFontSize = minFontSize;
+    let bestLines = [];
+    let bestActualHeight = 0;
+
+    // 从大到小尝试字号
+    for (let fontSize = maxFontSize; fontSize >= minFontSize; fontSize -= 0.5) {
+      ctx.font = `${fontSize}px sans-serif`;
+      const lines = this.wrapText(ctx, text, width - 4);
+      const lineHeight = fontSize * 1.5; // 行间距 1.5
+
+      // 正确计算总高度：前 n-1 行用 lineHeight，最后一行用 fontSize + 下方空间
+      const actualHeight = lines.length > 1
+        ? (lines.length - 1) * lineHeight + fontSize * 1.3 + 8 // 最后一行留足空间 + 上下边距
+        : fontSize * 1.3 + 8; // 单行也留足空间
+
+      // 检查1：是否在 bbox 内
+      if (actualHeight > height) {
+        continue; // 超出 bbox，尝试更小字号
+      }
+
+      // 检查2：是否与已绘制的文本块重叠
+      const textBox = { x, y, w: width, h: actualHeight };
+      let hasCollision = false;
+
+      for (const drawn of drawnTextBoxes) {
+        if (this.checkBboxCollision(textBox, drawn)) {
+          hasCollision = true;
+          break;
+        }
+      }
+
+      if (!hasCollision) {
+        // 找到了不重叠的字号
+        bestFontSize = fontSize;
+        bestLines = lines;
+        bestActualHeight = actualHeight;
+        break;
+      }
+    }
+
+    // 如果所有字号都重叠，继续降低字号直到 3px（强制绘制）
+    if (bestLines.length === 0) {
+      bestFontSize = 3;
+      ctx.font = `${bestFontSize}px sans-serif`;
+      bestLines = this.wrapText(ctx, text, width - 4);
+      const lineHeight = bestFontSize * 1.5;
+
+      // 正确计算总高度
+      const totalHeight = bestLines.length > 1
+        ? (bestLines.length - 1) * lineHeight + bestFontSize * 1.3 + 8
+        : bestFontSize * 1.3 + 8;
+
+      // 如果还是放不下，裁剪行数
+      if (totalHeight > height) {
+        const availableHeight = height - 8;
+        const maxLines = Math.max(1, Math.floor(availableHeight / lineHeight));
+        bestLines = bestLines.slice(0, maxLines);
+        bestActualHeight = bestLines.length * lineHeight + 8;
+      } else {
+        bestActualHeight = totalHeight;
+      }
+    }
+
+    // 单行小标题最小字号限制（仅限单行）
+    if (isShortText && bestLines.length === 1 && bestFontSize < 14) {
+      bestFontSize = 14;
+      ctx.font = `${bestFontSize}px sans-serif`;
+      bestLines = this.wrapText(ctx, text, width - 4);
+      bestActualHeight = bestFontSize * 1.3 + 8;
+    }
+
+    // 绘制文字
+    ctx.fillStyle = '#000';
+    ctx.textBaseline = 'top';
+    ctx.font = `${bestFontSize}px sans-serif`;
+    const lineHeight = bestFontSize * 1.5; // 行间距 1.5
+
+    bestLines.forEach((line, i) => {
+      const lineY = y + 4 + i * lineHeight; // 上边距 4px
+      ctx.fillText(line, x + 2, lineY);
+    });
+
+    // 返回实际绘制的区域
+    return { x, y, w: width, h: bestActualHeight };
+  }
+
+  /**
    * 在指定区域内绘制自适应大小的文字
    */
   drawTextInBox(ctx, text, x, y, width, height, pageNum = null, wrapperEl = null) {
     if (!text) return;
+
+    // 检查是否为短文本/小标题（与 bbox 扩展判断保持一致）
+    const isShortText = text.length < 30;
 
     // 检查是否包含公式（更严格的检测）
     // 1. $$ 包围的块公式
@@ -848,63 +1051,103 @@ class PDFCompareView {
     const hasFormula = hasBlockFormula || hasInlineFormula;
 
     if (hasFormula) {
-      console.log('[drawTextInBox] 检测到公式:', text.substring(0, 100));
-      // 包含公式，使用 HTML 渲染
-      this.drawTextWithFormulaInBox(text, x, y, width, height, pageNum, wrapperEl);
+      // 包含公式，使用 HTML 渲染（移除日志以提升性能）
+      this.drawTextWithFormulaInBox(text, x, y, width, height, pageNum, wrapperEl, isShortText);
     } else {
-      // 纯文本，使用 Canvas 渲染
-      this.drawPlainTextInBox(ctx, text, x, y, width, height);
+      // 纯文本，使用 Canvas 渲染（传递是否为短文本标记）
+      this.drawPlainTextInBox(ctx, text, x, y, width, height, isShortText);
     }
   }
 
   /**
    * 绘制纯文本（Canvas）
+   * @param {boolean} isShortText - 是否为短文本/小标题（会使用更大的最小字号）
    */
-  drawPlainTextInBox(ctx, text, x, y, width, height) {
-    let bestFontSize = 6;
+  drawPlainTextInBox(ctx, text, x, y, width, height, isShortText = false) {
+    let bestFontSize = 8;
     let bestLines = [];
 
     // 从较大字号开始尝试，允许多行显示
-    let maxFontSize = Math.min(width / 8, height / 2.5);
+    // 多行文本使用更保守的最大字号
+    let maxFontSize = Math.min(width / 10, height / 3); // 调小，从 width/8, height/2.5 改为 width/10, height/3
 
-    // 直接尝试多行显示，从大字号开始
-    for (let fontSize = maxFontSize; fontSize >= 6; fontSize -= 0.5) {
+    // 小标题优先使用更大的字号
+    if (isShortText) {
+      maxFontSize = Math.max(maxFontSize, 18); // 小标题至少尝试 18px（提高可读性）
+    }
+
+    // 先尝试找到能完整放下所有文本的最大字号（从大到小）
+    let foundPerfectFit = false;
+    for (let fontSize = maxFontSize; fontSize >= 3; fontSize -= 0.5) { // 降到 3px
       ctx.font = `${fontSize}px sans-serif`;
       const lines = this.wrapText(ctx, text, width - 4);
-      const totalHeight = lines.length * fontSize * 1.2;
+      const lineHeight = fontSize * 1.5; // 行间距 1.5
 
-      if (totalHeight <= height - 4) {
+      // 正确计算总高度：前 n-1 行用 lineHeight，最后一行用 fontSize + 下方空间
+      const totalHeight = lines.length > 1
+        ? (lines.length - 1) * lineHeight + fontSize * 1.3 + 8 // 最后一行留足空间 + 边距
+        : fontSize * 1.3 + 8; // 单行也留足空间
+
+      // 确保所有行都能完整显示（含行高）+ 额外留出缓冲空间
+      if (totalHeight <= height) { // 直接比较，不再减去缓冲（已包含在计算中）
         bestFontSize = fontSize;
         bestLines = lines;
+        foundPerfectFit = true;
         break;
       }
     }
 
-    // 如果放不下，使用最小字号
-    if (bestLines.length === 0) {
-      bestFontSize = 6;
+    // 如果仍然找不到（极端情况），使用3px并裁剪行数
+    if (!foundPerfectFit) {
+      bestFontSize = 3;
+      ctx.font = `${bestFontSize}px sans-serif`;
+      const allLines = this.wrapText(ctx, text, width - 4);
+      const lineHeight = bestFontSize * 1.5;
+
+      // 正确计算总高度
+      const totalHeight = allLines.length > 1
+        ? (allLines.length - 1) * lineHeight + bestFontSize * 1.3 + 8
+        : bestFontSize * 1.3 + 8;
+
+      // 如果还是放不下，裁剪行数
+      if (totalHeight > height) {
+        const availableHeight = height - 8;
+        const maxLines = Math.max(1, Math.floor(availableHeight / lineHeight));
+        bestLines = allLines.slice(0, maxLines);
+      } else {
+        bestLines = allLines;
+      }
+    }
+
+    // 应用小标题的最小字号限制（仅限单行情况）
+    if (isShortText && bestLines.length === 1 && bestFontSize < 14) {
+      // 单行小标题：强制使用至少 14px
+      bestFontSize = 14;
       ctx.font = `${bestFontSize}px sans-serif`;
       bestLines = this.wrapText(ctx, text, width - 4);
     }
 
-    // 绘制文字
+    // 绘制文字（确保不超出 bbox 高度）
     ctx.fillStyle = '#000';
     ctx.textBaseline = 'top';
     ctx.font = `${bestFontSize}px sans-serif`;
 
+    const lineHeight = bestFontSize * 1.5; // 行间距 1.5
+
     bestLines.forEach((line, i) => {
-      const lineY = y + 2 + i * bestFontSize * 1.2;
-      // 只绘制在可见区域内的行
-      if (lineY + bestFontSize * 1.2 <= y + height) {
-        ctx.fillText(line, x + 2, lineY);
-      }
+      const lineY = y + 4 + i * lineHeight; // 上边距 4px
+
+      // 所有已经过裁剪的行都应该绘制
+      // 因为 bestLines 已经在上面被裁剪到只包含能完整显示的行
+      ctx.fillText(line, x + 2, lineY);
     });
   }
 
   /**
-   * 绘制包含公式的文本（HTML + KaTeX）
+   * 绘制包含公式的文本（HTML + KaTeX）- 自适应字号版本
+   * @param {number} fontSize - 动态计算的字号
    */
-  drawTextWithFormulaInBox(text, x, y, width, height, pageNum = null, wrapperEl = null) {
+  drawTextWithFormulaInBoxAdaptive(text, x, y, width, height, pageNum = null, wrapperEl = null, isShortText = false, fontSize = 12) {
     // 创建临时 DOM 元素来渲染公式
     const tempDiv = document.createElement('div');
     tempDiv.style.position = 'absolute';
@@ -912,11 +1155,19 @@ class PDFCompareView {
     tempDiv.style.left = `${x / this.dpr}px`;
     tempDiv.style.top = `${y / this.dpr}px`;
     tempDiv.style.width = `${width / this.dpr}px`;
+    // 设置高度限制
+    tempDiv.style.height = `${height / this.dpr}px`;
     tempDiv.style.maxHeight = `${height / this.dpr}px`;
-    tempDiv.style.overflow = 'hidden';
-    tempDiv.style.fontSize = '12px';
-    tempDiv.style.lineHeight = '1.3';
-    tempDiv.style.padding = '2px';
+    tempDiv.style.overflow = 'hidden'; // 隐藏超出部分
+    tempDiv.style.wordWrap = 'break-word';
+    tempDiv.style.overflowWrap = 'break-word';
+
+    // 使用传入的自适应字号
+    tempDiv.style.fontSize = `${fontSize}px`;
+    tempDiv.style.lineHeight = '1.5'; // 行间距 1.5（与 Canvas 一致）
+    tempDiv.style.padding = '4px 2px'; // 上下4px，左右2px
+    tempDiv.style.paddingBottom = '4px'; // 确保底部也有足够空间
+    tempDiv.style.boxSizing = 'border-box';
     tempDiv.style.pointerEvents = 'none';
     tempDiv.style.color = '#000';
     tempDiv.style.zIndex = '10';
@@ -932,6 +1183,26 @@ class PDFCompareView {
     // 添加到传入的段 wrapper（相对定位的容器）
     const targetWrapper = wrapperEl || this.translationSegmentsContainer || document.getElementById('pdf-translation-segments') || this.translationCanvas?.parentElement;
     if (targetWrapper) targetWrapper.appendChild(tempDiv);
+  }
+
+  /**
+   * 绘制包含公式的文本（HTML + KaTeX）- 兼容旧接口
+   * @param {boolean} isShortText - 是否为短文本/小标题（会使用更大的字号）
+   */
+  drawTextWithFormulaInBox(text, x, y, width, height, pageNum = null, wrapperEl = null, isShortText = false) {
+    // 根据 bbox 高度自适应字号（避免压住下一行）
+    const heightCss = height / this.dpr;
+    let fontSize;
+    if (isShortText) {
+      // 小标题：根据高度自适应，但最小 14px
+      fontSize = Math.max(Math.min(heightCss / 2.5, 18), 14); // 14-18px，更保守的计算
+    } else {
+      // 常规文本：根据高度自适应，最小 6px
+      fontSize = Math.max(Math.min(heightCss / 3.5, 13), 6); // 6-13px，更保守的计算
+    }
+
+    // 调用自适应版本
+    this.drawTextWithFormulaInBoxAdaptive(text, x, y, width, height, pageNum, wrapperEl, isShortText, fontSize);
   }
 
   /**
@@ -962,10 +1233,17 @@ class PDFCompareView {
   }
 
   /**
-   * 渲染文本中的公式
+   * 渲染文本中的公式（优化版：缓存 + 减少日志）
    */
   renderFormulasInText(text) {
-    console.log('[renderFormulasInText] 开始渲染公式，KaTeX 可用:', typeof window.renderMathInElement !== 'undefined');
+    // 使用缓存避免重复渲染
+    if (!this._formulaCache) {
+      this._formulaCache = new Map();
+    }
+
+    if (this._formulaCache.has(text)) {
+      return this._formulaCache.get(text);
+    }
 
     if (typeof window.renderMathInElement === 'function') {
       const tempContainer = document.createElement('div');
@@ -980,14 +1258,28 @@ class PDFCompareView {
           throwOnError: false,
           strict: false
         });
-        console.log('[renderFormulasInText] KaTeX 渲染成功');
-        return tempContainer.innerHTML;
+        const result = tempContainer.innerHTML;
+
+        // 缓存结果（最多缓存 500 条）
+        if (this._formulaCache.size < 500) {
+          this._formulaCache.set(text, result);
+        }
+
+        return result;
       } catch (e) {
-        console.warn('[PDFCompareView] KaTeX 渲染失败:', e);
+        // 只在首次失败时打印日志
+        if (!this._katexWarned) {
+          console.warn('[PDFCompareView] KaTeX 渲染失败:', e);
+          this._katexWarned = true;
+        }
         return text;
       }
     } else {
-      console.warn('[renderFormulasInText] renderMathInElement 不可用，直接返回原文本');
+      // 只警告一次
+      if (!this._katexUnavailableWarned) {
+        console.warn('[renderFormulasInText] renderMathInElement 不可用');
+        this._katexUnavailableWarned = true;
+      }
       return text;
     }
   }
@@ -1237,35 +1529,42 @@ class PDFCompareView {
     if (!originalScroll || !translationScroll) return;
 
     let isSyncing = false;
+    let scrollSyncRaf = null;
+    let renderDebounceTimer = null;
 
-    // 滚动联动
-    originalScroll.addEventListener('scroll', () => {
+    // 使用 requestAnimationFrame + 防抖优化滚动性能
+    const syncScroll = (source, target) => {
       if (isSyncing) return;
-      isSyncing = true;
-      translationScroll.scrollTop = originalScroll.scrollTop;
-      translationScroll.scrollLeft = originalScroll.scrollLeft;
 
-      // 连续模式下：触发分段懒加载
-      if (this.mode === 'continuous') {
-        this.renderVisibleSegments(originalScroll);
+      if (scrollSyncRaf) {
+        cancelAnimationFrame(scrollSyncRaf);
       }
 
-      setTimeout(() => { isSyncing = false; }, 10);
-    });
+      scrollSyncRaf = requestAnimationFrame(() => {
+        isSyncing = true;
+        target.scrollTop = source.scrollTop;
+        target.scrollLeft = source.scrollLeft;
 
-    translationScroll.addEventListener('scroll', () => {
-      if (isSyncing) return;
-      isSyncing = true;
-      originalScroll.scrollTop = translationScroll.scrollTop;
-      originalScroll.scrollLeft = translationScroll.scrollLeft;
+        // 立即取消同步标志
+        requestAnimationFrame(() => {
+          isSyncing = false;
+        });
+      });
 
-      // 连续模式下：触发分段懒加载
+      // 延迟渲染可见段（防抖优化，150ms内只触发一次）
       if (this.mode === 'continuous') {
-        this.renderVisibleSegments(translationScroll);
+        if (renderDebounceTimer) {
+          clearTimeout(renderDebounceTimer);
+        }
+        renderDebounceTimer = setTimeout(() => {
+          this.renderVisibleSegments(source);
+        }, 150);
       }
+    };
 
-      setTimeout(() => { isSyncing = false; }, 10);
-    });
+    // 滚动联动（使用 passive 优化）
+    originalScroll.addEventListener('scroll', () => syncScroll(originalScroll, translationScroll), { passive: true });
+    translationScroll.addEventListener('scroll', () => syncScroll(translationScroll, originalScroll), { passive: true });
   }
 
   /**
