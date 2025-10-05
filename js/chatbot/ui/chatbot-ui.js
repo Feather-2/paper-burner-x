@@ -42,6 +42,20 @@ window.chatbotActiveOptions = {
 };
 
 /**
+ * 处理暂停对话按钮的点击事件。
+ *
+ * 主要逻辑：
+ * 1. 调用中止控制器来停止正在进行的请求。
+ * 2. 更新UI状态。
+ */
+function handleChatbotStop() {
+  if (window.chatbotAbortController) {
+    window.chatbotAbortController.abort();
+    console.log('[Chatbot] 用户中止了对话');
+  }
+}
+
+/**
  * 处理聊天机器人发送按钮的点击事件。
  *
  * 主要逻辑：
@@ -516,15 +530,18 @@ function updateChatbotUI() {
 
   const input = document.getElementById('chatbot-input');
   const sendBtn = document.getElementById('chatbot-send-btn');
+  const stopBtn = document.getElementById('chatbot-stop-btn');
+
   if (input && sendBtn) {
     input.disabled = window.ChatbotCore.isChatbotLoading;
     sendBtn.disabled = window.ChatbotCore.isChatbotLoading;
+
     if (window.ChatbotCore.isChatbotLoading) {
-      sendBtn.style.opacity = '0.6';
-      sendBtn.style.cursor = 'not-allowed';
+      sendBtn.style.display = 'none';
+      if (stopBtn) stopBtn.style.display = 'flex';
     } else {
-      sendBtn.style.opacity = '1';
-      sendBtn.style.cursor = 'pointer';
+      sendBtn.style.display = 'flex';
+      if (stopBtn) stopBtn.style.display = 'none';
     }
   }
 
@@ -713,6 +730,20 @@ function initChatbotUI() {
                 <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
               </svg>
             </button>
+            <!-- 暂停按钮 -->
+            <button id="chatbot-stop-btn"
+              style="background:linear-gradient(135deg,#f97316,#ea580c);color:white;border:2px solid #ea580c;height:44px;min-width:44px;border-radius:22px;display:none;align-items:center;justify-content:center;cursor:pointer;transition:all 0.3s cubic-bezier(0.4, 0, 0.2, 1);flex-shrink:0;box-shadow:0 4px 12px rgba(249,115,22,0.4);position:relative;overflow:hidden;"
+              onmouseover="this.style.transform='translateY(-2px) scale(1.05)';this.style.boxShadow='0 6px 20px rgba(249,115,22,0.5)';"
+              onmouseout="this.style.transform='translateY(0) scale(1)';this.style.boxShadow='0 4px 12px rgba(249,115,22,0.4)';"
+              onclick="window.handleChatbotStop()"
+              title="停止对话"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="position:relative;z-index:1;">
+                <circle cx="12" cy="12" r="10"></circle>
+                <rect x="9" y="9" width="6" height="6" fill="currentColor"></rect>
+              </svg>
+              <span style="position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(135deg,rgba(255,255,255,0.2),transparent);pointer-events:none;"></span>
+            </button>
           </div>
           <!-- 免责声明 -->
           <div style="margin-top:10px;text-align:center;font-size:11px;color:#6b7280;padding:0 10px;">
@@ -726,7 +757,7 @@ function initChatbotUI() {
         #chatbot-body::-webkit-scrollbar {width:6px;background:transparent;}
         #chatbot-body::-webkit-scrollbar-thumb {background:rgba(0,0,0,0.1);border-radius:6px;}
         #chatbot-body::-webkit-scrollbar-thumb:hover {background:rgba(0,0,0,0.15);}
-        
+
         /* 拖拽调整大小句柄样式 */
         .chatbot-resize-handles {
           position: absolute;
@@ -748,18 +779,18 @@ function initChatbotUI() {
         .chatbot-window.floating-mode .chatbot-draggable-header {
           cursor: move;
         }
-        
+
         .chatbot-resize-handle {
           position: absolute;
           pointer-events: auto;
           background: transparent;
           transition: background-color 0.2s ease;
         }
-        
+
         .chatbot-resize-handle:hover {
           background-color: rgba(59, 130, 246, 0.2);
         }
-        
+
         /* 上下边缘 */
         .chatbot-resize-n, .chatbot-resize-s {
           left: 8px;
@@ -769,7 +800,7 @@ function initChatbotUI() {
         }
         .chatbot-resize-n { top: 0; }
         .chatbot-resize-s { bottom: 0; }
-        
+
         /* 左右边缘 */
         .chatbot-resize-w, .chatbot-resize-e {
           top: 8px;
@@ -779,7 +810,7 @@ function initChatbotUI() {
         }
         .chatbot-resize-w { left: 0; }
         .chatbot-resize-e { right: 0; }
-        
+
         /* 四个角 */
         .chatbot-resize-nw, .chatbot-resize-ne, .chatbot-resize-sw, .chatbot-resize-se {
           width: 16px;
@@ -789,17 +820,17 @@ function initChatbotUI() {
         .chatbot-resize-ne { top: 0; right: 0; cursor: ne-resize; }
         .chatbot-resize-sw { bottom: 0; left: 0; cursor: sw-resize; }
         .chatbot-resize-se { bottom: 0; right: 0; cursor: se-resize; }
-        
+
         /* 拖拽移动时的样式 */
         .chatbot-dragging {
           user-select: none;
           pointer-events: none;
         }
-        
+
         .chatbot-dragging .chatbot-window {
           pointer-events: auto;
         }
-        
+
         /* 响应式：小屏幕下窗口占满底部 */
         @media (max-width:600px) {
           .chatbot-window {
@@ -825,6 +856,24 @@ function initChatbotUI() {
         body.dark #chatbot-preset button {background:linear-gradient(to bottom, rgba(30,41,59,0.9), rgba(15,23,42,0.9)) !important;color:#7dd3fc !important;border-color:rgba(14,165,233,0.2) !important;}
         body.dark .message-actions button {background:rgba(255,255,255,0.1) !important;color:#aaa !important;}
         body.dark #chatbot-toast {background:rgba(30,41,59,0.9) !important;}
+
+        /* 暂停按钮脉动动画 */
+        @keyframes chatbot-stop-pulse {
+          0%, 100% {
+            box-shadow: 0 4px 12px rgba(249,115,22,0.4), 0 0 0 0 rgba(249,115,22,0.7);
+          }
+          50% {
+            box-shadow: 0 4px 12px rgba(249,115,22,0.4), 0 0 0 8px rgba(249,115,22,0);
+          }
+        }
+
+        #chatbot-stop-btn {
+          animation: chatbot-stop-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        #chatbot-stop-btn:hover {
+          animation: none;
+        }
       </style>
     `;
     document.body.appendChild(modal);
@@ -845,7 +894,7 @@ function initChatbotUI() {
     }
     window.isChatbotFloating = !window.isChatbotFloating;
     localStorage.setItem('chatbotFloating', String(window.isChatbotFloating));
-    
+
     if (window.isChatbotFloating) {
       // 切换到浮动模式时，记录当前位置和大小
       const chatbotWindow = modal.querySelector('.chatbot-window');
@@ -907,14 +956,14 @@ function initChatbotDragAndResize() {
   // 拖拽移动功能 (仅在浮动模式下生效)
   function handleDragStart(e) {
     if (!window.isChatbotFloating || window.isChatbotFullscreen) return;
-    
+
     const chatbotWindow = modal.querySelector('.chatbot-window');
     if (!chatbotWindow) return;
 
     isDragging = true;
     dragStartX = e.clientX;
     dragStartY = e.clientY;
-    
+
     const rect = chatbotWindow.getBoundingClientRect();
     initialX = rect.left;
     initialY = rect.top;
@@ -928,13 +977,13 @@ function initChatbotDragAndResize() {
 
     const deltaX = e.clientX - dragStartX;
     const deltaY = e.clientY - dragStartY;
-    
+
     const newX = Math.max(0, Math.min(window.innerWidth - 320, initialX + deltaX));
     const newY = Math.max(0, Math.min(window.innerHeight - 200, initialY + deltaY));
 
     window.chatbotFloatingPosition = { x: newX, y: newY };
     localStorage.setItem('chatbotFloatingPosition', JSON.stringify(window.chatbotFloatingPosition));
-    
+
     const chatbotWindow = modal.querySelector('.chatbot-window');
     if (chatbotWindow) {
       chatbotWindow.style.left = newX + 'px';
@@ -952,7 +1001,7 @@ function initChatbotDragAndResize() {
   // 调整大小功能
   function handleResizeStart(e) {
     if (window.isChatbotFullscreen || !window.isChatbotFloating) return;
-    
+
     const chatbotWindow = modal.querySelector('.chatbot-window');
     if (!chatbotWindow) return;
 
@@ -960,7 +1009,7 @@ function initChatbotDragAndResize() {
     resizeDirection = e.target.dataset.direction;
     dragStartX = e.clientX;
     dragStartY = e.clientY;
-    
+
     const rect = chatbotWindow.getBoundingClientRect();
     initialX = rect.left;
     initialY = rect.top;
@@ -977,7 +1026,7 @@ function initChatbotDragAndResize() {
 
     const deltaX = e.clientX - dragStartX;
     const deltaY = e.clientY - dragStartY;
-    
+
     let newX = initialX;
     let newY = initialY;
     let newWidth = initialWidth;
@@ -1057,6 +1106,7 @@ function initChatbotDragAndResize() {
 
 // 将核心函数挂载到 window 对象和 ChatbotUI 命名空间下，便于外部调用
 window.handleChatbotSend = handleChatbotSend;
+window.handleChatbotStop = handleChatbotStop;
 window.handlePresetQuestion = handlePresetQuestion;
 window.ChatbotUI = {
   updateChatbotUI,
