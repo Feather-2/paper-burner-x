@@ -1,3 +1,4 @@
+
 /**
  * history_pdf_compare.js
  * MinerU 结构化翻译的 PDF 对照视图（左右对照 + 长画布 + 懒加载）
@@ -898,8 +899,8 @@ class PDFCompareView {
     const hasInlineFormula = /\$[^$]*[\\^_{}a-zA-Z][\s\S]*?\$/.test(text);
     const hasFormula = hasBlockFormula || hasInlineFormula;
 
-    // 如果包含公式，使用 HTML 渲染（也需要参与碰撞检测）
-    if (hasFormula) {
+    // 暂时禁用公式渲染（用于测试）
+    if (false && hasFormula) {
       // 根据 bbox 高度和已绘制文本自适应选择字号
       const heightCss = height / this.dpr;
       let bestFormulaFontSize;
@@ -1043,20 +1044,9 @@ class PDFCompareView {
     // 检查是否为短文本/小标题（与 bbox 扩展判断保持一致）
     const isShortText = text.length < 30;
 
-    // 检查是否包含公式（更严格的检测）
-    // 1. $$ 包围的块公式
-    // 2. $ 包围且包含数学符号的行内公式（不是简单的 $数字$）
-    const hasBlockFormula = /\$\$[\s\S]+?\$\$/.test(text);
-    const hasInlineFormula = /\$[^$]*[\\^_{}a-zA-Z][\s\S]*?\$/.test(text); // 必须包含 \、^、_、{、}、字母等数学符号
-    const hasFormula = hasBlockFormula || hasInlineFormula;
-
-    if (hasFormula) {
-      // 包含公式，使用 HTML 渲染（移除日志以提升性能）
-      this.drawTextWithFormulaInBox(text, x, y, width, height, pageNum, wrapperEl, isShortText);
-    } else {
-      // 纯文本，使用 Canvas 渲染（传递是否为短文本标记）
-      this.drawPlainTextInBox(ctx, text, x, y, width, height, isShortText);
-    }
+    // 暂时禁用公式渲染（用于测试）
+    // 所有文本都用 Canvas 渲染
+    this.drawPlainTextInBox(ctx, text, x, y, width, height, isShortText);
   }
 
   /**
