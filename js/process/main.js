@@ -227,6 +227,7 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
                 try {
                     const refMatch = currentMarkdownContent.match(/^<!--\s*PBX-HISTORY-REF:([^>]+)\s*-->\s*/m);
                     const isRetryFailed = /<!--\s*PBX-MODE:retry-failed\s*-->/.test(currentMarkdownContent);
+                    const isRetryStructuredFailed = /<!--\s*PBX-MODE:retry-structured-failed\s*-->/.test(currentMarkdownContent);
                     if (refMatch && typeof getResultFromDB === 'function') {
                         const refId = refMatch[1].trim();
                         const refRecord = await getResultFromDB(refId);
@@ -237,7 +238,159 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
                             currentImagesData = [];
                         }
 
-                        // ============ 特殊模式：失败片段重试，直接写回原历史 ============
+                        // ============ 特殊模式：结构化翻译失败片段重试，直接写回原历史 ============
+                        if (isRetryStructuredFailed) {
+                            if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 检测到结构化翻译失败片段重试模式`);
+
+                            // 解析失败片段索引
+                            const failedIndicesMatch = currentMarkdownContent.match(/<!--\s*PBX-FAILED-INDICES:([^>]+)\s*-->/);
+                            if (!failedIndicesMatch) {
+                                throw new Error('未找到失败片段索引标记。');
+                            }
+                            const failedIndices = failedIndicesMatch[1].split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+
+                            if (failedIndices.length === 0) {
+                                throw new Error('未找到可重试的失败片段索引。');
+                            }
+
+                            if (!refRecord || !refRecord.metadata) {
+                                throw new Error('未找到原历史记录或缺少元数据。');
+                            }
+
+                            const meta = refRecord.metadata;
+                            if (!meta.contentListJson || !Array.isArray(meta.translatedContentList)) {
+                                throw new Error('缺少结构化翻译数据，无法重试。');
+                            }
+
+                            if (typeof window.MinerUStructuredTranslation !== 'function') {
+                                throw new Error('缺少结构化翻译模块。');
+                            }
+
+                            if (typeof addProgressLog === "function") {
+                                addProgressLog(`${logPrefix} 准备重试 ${failedIndices.length} 个失败片段...`);
+                            }
+
+                            // 组装待翻译子集
+                            const translator = new window.MinerUStructuredTranslation();
+                            const fullTranslatable = translator.extractTranslatableContent(meta.contentListJson);
+                            const subset = [];
+                            const indexMap = [];
+
+                            failedIndices.forEach(idx => {
+                                if (idx >= 0 && idx < fullTranslatable.length) {
+                                    subset.push(fullTranslatable[idx]);
+                                    indexMap.push(idx);
+                                }
+                            });
+
+                            if (subset.length === 0) {
+                                throw new Error('没有有效的失败片段可重试。');
+                            }
+
+                            // 分批并翻译
+                            const batches = translator.splitIntoBatches(subset);
+                            const targetLang = targetLanguageValue;
+                            const modelName = selectedTranslationModelName;
+                            const apiKeyVal = translationKeyObject ? translationKeyObject.value : null;
+
+                            if (!apiKeyVal) {
+                                throw new Error('缺少翻译 API Key，无法执行失败片段重试。');
+                            }
+
+                            let translationOptions = {};
+                            if (modelName === 'custom') {
+                                translationOptions.modelConfig = translationModelConfig;
+                            }
+
+                            const translatedSubset = await translator.translateBatches(
+                                batches,
+                                targetLang,
+                                modelName,
+                                apiKeyVal,
+                                translationOptions,
+                                (progress) => {
+                                    if (typeof addProgressLog === 'function') {
+                                        addProgressLog(`${logPrefix} 翻译进度: ${progress.percentage}% (${progress.message})`);
+                                    }
+                                },
+                                acquireSlot,
+                                releaseSlot
+                            );
+
+                            // 写回对应索引
+                            const tlist = meta.translatedContentList.slice();
+                            translatedSubset.forEach((item, i) => {
+                                const origIdx = indexMap[i];
+                                tlist[origIdx] = item;
+                            });
+
+                            // 重新计算失败项
+                            const newFailed = [];
+                            const _norm = (v) => {
+                                if (v == null) return '';
+                                try {
+                                    if (Array.isArray(v)) return v.join(' ').trim();
+                                    if (typeof v === 'string') return v.trim();
+                                    return String(v).trim();
+                                } catch(_) { return ''; }
+                            };
+
+                            for (let i = 0; i < tlist.length; i++) {
+                                const o = meta.contentListJson[i] || {};
+                                const t = tlist[i] || {};
+                                let failed = !!t.failed;
+                                if (!failed) {
+                                    if (o.type === 'text') {
+                                        const a = _norm(o.text);
+                                        const b = _norm(t.text);
+                                        failed = a && (!b || a === b);
+                                    } else if (o.type === 'image') {
+                                        const a = _norm(o.image_caption);
+                                        const b = _norm(t.image_caption);
+                                        failed = a && (!b || a === b);
+                                    } else if (o.type === 'table') {
+                                        const a = _norm(o.table_caption);
+                                        const b = _norm(t.table_caption);
+                                        failed = a && (!b || a === b);
+                                    }
+                                }
+                                if (failed) {
+                                    const baseText = (o.type === 'text') ? (o.text || '')
+                                                    : (o.type === 'image') ? (Array.isArray(o.image_caption) ? o.image_caption.join(' ') : o.image_caption)
+                                                    : (o.type === 'table') ? (o.table_caption || '')
+                                                    : '';
+                                    const norm = _norm(baseText);
+                                    if (norm) newFailed.push({ index: i, type: o.type, page_idx: o.page_idx || 0, text: norm });
+                                }
+                            }
+
+                            // 更新并保存记录
+                            refRecord.metadata.translatedContentList = tlist;
+                            refRecord.metadata.failedStructuredItems = newFailed;
+                            refRecord.metadata.structuredFailedCount = newFailed.length;
+                            refRecord.time = new Date().toISOString();
+                            await saveResultToDB(refRecord);
+
+                            if (typeof addProgressLog === "function") {
+                                addProgressLog(`${logPrefix} 已将 ${translatedSubset.length} 个片段写回历史记录 ${refId}，剩余失败 ${newFailed.length} 个`);
+                            }
+
+                            // 准备返回对象并跳过后续的常规保存逻辑
+                            return {
+                                file: fileToProcess,
+                                markdown: refRecord.ocr || '',
+                                translation: '',
+                                images: refRecord.images || [],
+                                ocrChunks: refRecord.ocrChunks || [],
+                                translatedChunks: refRecord.translatedChunks || [],
+                                metadata: refRecord.metadata,
+                                error: null,
+                                isRetryStructuredFailed: true,
+                                refId: refId
+                            };
+                        }
+
+                        // ============ 特殊模式：标准分块失败片段重试，直接写回原历史 ============
                         if (isRetryFailed) {
                             if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 检测到失败片段重试模式，准备逐段翻译并写回历史记录 ${refId}`);
 

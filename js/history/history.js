@@ -2271,9 +2271,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     return;
                 }
 
-                // 结构化路径：直接调用结构化翻译并写回原记录
+                // 结构化路径：创建虚拟文件加入上传列表（与标准分块路径保持一致，有UI进度反馈）
                 const meta = record && record.metadata ? record.metadata : {};
                 let failedItems = Array.isArray(meta.failedStructuredItems) ? meta.failedStructuredItems.slice() : [];
+
                 // 回退：若缺少 failedStructuredItems，则从 translatedContentList 中推断
                 if (failedItems.length === 0 && Array.isArray(meta.translatedContentList)) {
                     const _norm = (v) => {
@@ -2318,110 +2319,45 @@ document.addEventListener('DOMContentLoaded', function() {
                         }
                     }
                 }
+
                 if (failedItems.length === 0) {
                     showNotification && showNotification('没有需要重试的片段。', 'info');
                     return;
                 }
-                // 若无法获取必要数据，退回旧逻辑
-                if (typeof window.MinerUStructuredTranslation !== 'function' || !meta.contentListJson || !Array.isArray(meta.translatedContentList)) {
-                    showNotification && showNotification('缺少结构化翻译模块或数据，无法直接写回。请使用“重新翻译全部”。', 'warning');
-                    return;
-                }
 
-                // 组装待翻译子集（保持原索引映射）
-                const translator = new window.MinerUStructuredTranslation();
-                const fullTranslatable = translator.extractTranslatableContent(meta.contentListJson);
-                const subset = [];
-                const indexMap = [];
-                failedItems.forEach(fi => {
-                    const idx = fi.index;
-                    if (idx >= 0 && idx < fullTranslatable.length) {
-                        subset.push(fullTranslatable[idx]);
-                        indexMap.push(idx);
-                    }
-                });
-                if (subset.length === 0) {
-                    showNotification && showNotification('没有需要重试的片段。', 'info');
-                    return;
-                }
-                _setBusy(id, true, `重试结构化片段 ${subset.length} 个...`);
+                // 构建失败片段的虚拟文件（加入上传列表，在主界面显示进度）
+                // 使用特殊标记告诉 main.js 这是结构化翻译的失败重试
+                const header = `<!-- PBX-HISTORY-REF:${record.id} -->\n<!-- PBX-MODE:retry-structured-failed -->\n<!-- PBX-FAILED-COUNT:${failedItems.length} -->\n`;
+                const failedIndices = failedItems.map(fi => fi.index).join(',');
+                const mdText = header + `<!-- PBX-FAILED-INDICES:${failedIndices} -->\n\n结构化翻译失败片段重试（${failedItems.length} 个）`;
+                const baseName = (record.name || 'document').replace(/\.pdf$/i, '');
+                const uniqueSuffix = Math.random().toString(36).slice(2,6);
+                const fileName = `${baseName}-retry-structured-${uniqueSuffix}.md`;
+
                 try {
-                    const batches = translator.splitIntoBatches(subset);
-                    const settings = typeof loadSettings === 'function' ? loadSettings() : {};
-                    const targetLang = _getEffectiveTargetLanguage(settings);
-                    const modelName = settings.selectedTranslationModel || 'none';
-                    if (modelName === 'none') throw new Error('未选择翻译模型');
-                    let apiKeyValue = null;
-                    let translationOptions = {};
-                    if (modelName === 'custom') {
-                        const siteId = settings.selectedCustomSourceSiteId;
-                        const allSites = typeof loadAllCustomSourceSites === 'function' ? loadAllCustomSourceSites() : {};
-                        const siteCfg = allSites[siteId];
-                        if (!siteCfg) throw new Error('未找到自定义源站点配置');
-                        translationOptions.modelConfig = siteCfg;
-                        const keys = loadModelKeys(`custom_source_${siteId}`) || [];
-                        const pick = (keys || []).find(k => k && k.value && k.status !== 'invalid');
-                        if (!pick) throw new Error('源站点缺少可用 Key');
-                        apiKeyValue = pick.value;
+                    const virtualFile = new File([mdText], fileName, { type: 'text/markdown' });
+                    try { virtualFile.virtualType = 'retry-structured-failed'; } catch(_) {}
+
+                    if (typeof addFilesToList === 'function') {
+                        addFilesToList([virtualFile]);
+                        showNotification && showNotification(`已将"${fileName}"加入待处理列表（${failedItems.length} 个失败片段），请点击"开始处理"。`, 'success');
+                        try { document.getElementById('historyPanel')?.classList.add('hidden'); } catch(_) {}
+                    } else if (typeof window !== 'undefined' && Array.isArray(window.pdfFiles)) {
+                        window.pdfFiles.push(virtualFile);
+                        if (typeof updateFileListUI === 'function' && typeof updateProcessButtonState === 'function' && typeof handleRemoveFile === 'function') {
+                            updateFileListUI(window.pdfFiles, window.isProcessing || false, handleRemoveFile);
+                            updateProcessButtonState(window.pdfFiles, window.isProcessing || false);
+                        }
+                        showNotification && showNotification(`已将"${fileName}"加入待处理列表（${failedItems.length} 个失败片段），请点击"开始处理"。`, 'success');
+                        try { document.getElementById('historyPanel')?.classList.add('hidden'); } catch(_) {}
                     } else {
-                        const keys = loadModelKeys(modelName) || [];
-                        const pick = (keys || []).find(k => k && k.value && k.status !== 'invalid');
-                        if (!pick) throw new Error('所选模型缺少可用 Key');
-                        apiKeyValue = pick.value;
+                        showNotification && showNotification('无法加入待处理列表：缺少文件列表接口。', 'error');
                     }
-
-                    const translatedSubset = await translator.translateBatches(
-                        batches,
-                        targetLang,
-                        modelName,
-                        apiKeyValue,
-                        translationOptions
-                    );
-
-                    // 写回对应索引
-                    const tlist = meta.translatedContentList.slice();
-                    translatedSubset.forEach((item, i) => {
-                        const origIdx = indexMap[i];
-                        tlist[origIdx] = item;
-                    });
-
-                    // 重新计算失败项
-                    const newFailed = [];
-                    const _norm = (v) => {
-                        if (v == null) return '';
-                        try { if (Array.isArray(v)) return v.join(' ').trim(); if (typeof v === 'string') return v.trim(); return String(v).trim(); } catch(_) { return ''; }
-                    };
-                    for (let i = 0; i < tlist.length; i++) {
-                        const o = meta.contentListJson[i] || {};
-                        const t = tlist[i] || {};
-                        let failed = !!t.failed;
-                        if (!failed) {
-                            if (o.type === 'text') {
-                                const a = _norm(o.text); const b = _norm(t.text); failed = a && (!b || a === b);
-                            } else if (o.type === 'image') {
-                                const a = _norm(o.image_caption); const b = _norm(t.image_caption); failed = a && (!b || a === b);
-                            } else if (o.type === 'table') {
-                                const a = _norm(o.table_caption); const b = _norm(t.table_caption); failed = a && (!b || a === b);
-                            }
-                        }
-                        if (failed) {
-                            const baseText = (o.type === 'text') ? (o.text || '') : (o.type === 'image') ? (Array.isArray(o.image_caption) ? o.image_caption.join(' ') : o.image_caption) : (o.type === 'table') ? (o.table_caption || '') : '';
-                            const norm = _norm(baseText);
-                            if (norm) newFailed.push({ index: i, type: o.type, page_idx: o.page_idx || 0, text: norm });
-                        }
-                    }
-
-                    record.metadata.translatedContentList = tlist;
-                    record.metadata.failedStructuredItems = newFailed;
-                    record.metadata.structuredFailedCount = newFailed.length;
-                    await saveResultToDB(record);
-                    showNotification && showNotification(`已写回 ${translatedSubset.length} 个片段。剩余失败 ${newFailed.length} 个。`, 'success');
                 } catch (e) {
-                    console.error('结构化失败段重试写回错误:', e);
-                    showNotification && showNotification(`结构化失败段重试失败：${e && e.message ? e.message : String(e)}`, 'error');
-                } finally {
-                    _setBusy(id, false, '');
+                    console.error('创建虚拟文件失败:', e);
+                    showNotification && showNotification('创建虚拟文件失败，无法加入待处理列表。', 'error');
                 }
+                return;
             }
 
             // 刷新列表显示状态

@@ -520,7 +520,7 @@ async function translateMarkdown(
     // 检查是否应该使用提示词池（支持外部绑定覆盖）
     let usePromptPool = false;
     let promptFromPool = null;
-    
+
     // 尝试从提示词池UI获取提示词（如果可用）
     if (!options.boundPrompt && typeof window !== 'undefined' && window.promptPoolUI) {
         const poolPrompt = window.promptPoolUI.getPromptForTranslation();
@@ -1107,4 +1107,6 @@ if (typeof processModule !== 'undefined') {
     processModule.buildPredefinedApiConfig = buildPredefinedApiConfig;
     processModule.buildCustomApiConfig = buildCustomApiConfig;
     processModule.translateMarkdown = translateMarkdown;
+    processModule.stripInstructionBlocks = stripInstructionBlocks;
+    processModule.buildInstructionBlock = buildInstructionBlock;
 }

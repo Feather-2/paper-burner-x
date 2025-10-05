@@ -228,6 +228,8 @@ ${jsonContent}
     // 并发翻译所有批次
     const translateBatch = async (batch, batchIndex) => {
       const logContext = `[批次 ${batchIndex + 1}/${totalBatches}]`;
+      let boundPrompt = null; // 移到外层，以便 catch 块可以访问
+      let apiStartTime = 0; // 移到外层，以便 catch 块可以访问
 
       // 获取并发槽位
       if (typeof acquireSlot === 'function') {
@@ -241,10 +243,22 @@ ${jsonContent}
 
         if (typeof window !== 'undefined' && window.promptPoolUI) {
           const poolPrompt = window.promptPoolUI.getPromptForTranslation();
-          if (poolPrompt && poolPrompt.systemPrompt && poolPrompt.userPromptTemplate) {
+          if (poolPrompt && poolPrompt.id && poolPrompt.systemPrompt && poolPrompt.userPromptTemplate) {
             baseSystemPrompt = poolPrompt.systemPrompt;
             baseUserPromptTemplate = poolPrompt.userPromptTemplate;
-            console.log(`${logContext} 使用提示词池的提示词`);
+            boundPrompt = poolPrompt;
+
+            // 记录到提示词池（用于统计和监控）
+            if (typeof window.translationPromptPool !== 'undefined' && typeof window.translationPromptPool.enqueueRequest === 'function') {
+              const requestId = `req_structured_${Date.now()}_${Math.random().toString(36).slice(2,8)}_b${batchIndex}`;
+              window.translationPromptPool.enqueueRequest(poolPrompt.id, { requestId, model: model });
+            }
+
+            // 界面日志显示
+            if (typeof addProgressLog === 'function') {
+              addProgressLog(`${logContext} 使用提示词池: ${poolPrompt.name || poolPrompt.id}`);
+            }
+            console.log(`${logContext} 使用提示词池的提示词:`, poolPrompt.id);
           }
         }
 
@@ -305,6 +319,8 @@ ${jsonContent}
         let translatedItems = null;
         const maxRetries = options.maxRetries != null ? options.maxRetries : this.MAX_RETRIES;
         const baseDelay = options.retryDelay != null ? options.retryDelay : this.RETRY_BASE_DELAY;
+        apiStartTime = Date.now(); // 更新开始时间
+
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
           try {
             const translatedJson = await this.callTranslationAPI(
@@ -319,6 +335,18 @@ ${jsonContent}
               throw new Error('翻译结果结构不匹配');
             }
             translatedItems = parsed;
+
+            // 记录提示词池使用成功
+            if (boundPrompt && typeof window.translationPromptPool !== 'undefined' && typeof window.translationPromptPool.recordPromptUsage === 'function') {
+              window.translationPromptPool.recordPromptUsage(
+                boundPrompt.id,
+                true,
+                Date.now() - apiStartTime,
+                null,
+                { model: model, endpoint: 'structured-translation' }
+              );
+            }
+
             break; // 成功
           } catch (e) {
             lastErr = e;
@@ -339,6 +367,18 @@ ${jsonContent}
             this.failedItems.push({ index: globalIdx, type: it.type, page_idx: it.page_idx || 0, text: this.extractItemText(it) });
             return clone;
           });
+
+          // 记录提示词池使用失败
+          if (boundPrompt && typeof window.translationPromptPool !== 'undefined' && typeof window.translationPromptPool.recordPromptUsage === 'function') {
+            window.translationPromptPool.recordPromptUsage(
+              boundPrompt.id,
+              false,
+              Date.now() - apiStartTime,
+              lastErr?.message || '未知错误',
+              { model: model, endpoint: 'structured-translation' }
+            );
+          }
+
           if (typeof addProgressLog === 'function') {
             addProgressLog(`${logContext} 翻译失败：${lastErr?.message || '未知错误'}（已达最大重试次数）`);
           }
@@ -393,6 +433,19 @@ ${jsonContent}
 
       } catch (error) {
         console.error(`${logContext} 翻译失败:`, error);
+
+        // 记录提示词池使用失败（捕获未预期的异常）
+        if (boundPrompt && typeof window.translationPromptPool !== 'undefined' && typeof window.translationPromptPool.recordPromptUsage === 'function') {
+          const duration = apiStartTime > 0 ? (Date.now() - apiStartTime) : 0;
+          window.translationPromptPool.recordPromptUsage(
+            boundPrompt.id,
+            false,
+            duration,
+            error?.message || String(error),
+            { model: model, endpoint: 'structured-translation' }
+          );
+        }
+
         if (typeof addProgressLog === 'function') {
           addProgressLog(`${logContext} 翻译失败: ${error.message}，将使用原文`);
         }
@@ -544,7 +597,20 @@ ${jsonContent}
         };
 
     // 调用API
-    const result = await callTranslationApi(apiConfig, requestBody);
+    let result = await callTranslationApi(apiConfig, requestBody);
+
+    // 清理指令块（防止系统提示词泄露到翻译结果中）
+    if (typeof stripInstructionBlocks === 'function') {
+      result = stripInstructionBlocks(result);
+    } else if (typeof processModule !== 'undefined' && typeof processModule.stripInstructionBlocks === 'function') {
+      result = processModule.stripInstructionBlocks(result);
+    } else {
+      // 回退：手动清理
+      if (typeof result === 'string') {
+        result = result.replace(/\s*\[\[PBX_INSTR_START\]\][\s\S]*?\[\[PBX_INSTR_END\]\]\s*/gi, '').trim();
+      }
+    }
+
     return result;
   }
 
