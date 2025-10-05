@@ -116,6 +116,7 @@
       <button class="tab-btn" id="tab-translation">仅翻译</button>
       <!-- <button class="tab-btn" id="tab-compare">对比</button> -->
       <button class="tab-btn" id="tab-chunk-compare">分块对比</button>
+      <button class="tab-btn" id="tab-pdf-compare" style="display: none;">PDF对照</button>
     </div>
     <div class="history-export-controls" id="history-export-controls">
       <div class="export-panel-backdrop" id="exportPanelBackdrop"></div>
@@ -287,9 +288,18 @@
   <script src="../../js/ui/toc_logic.js"></script>
   <script src="https://gcore.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
   <script src="https://gcore.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <script src="https://gcore.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://gcore.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+
+  <!-- PDF.js for structured translation PDF comparison -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    if (typeof pdfjsLib !== 'undefined') {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+  </script>
 
   <script src="../../js/chatbot/utils/mermaid-loader.js"></script>
   <script src="../../js/chatbot/utils/markdown-katex-render.js"></script>
@@ -338,6 +348,7 @@
   <script src="../../js/annotations/annotations_summary_modal.js"></script> <!-- ADDED -->
   <script src="../../js/history/exporter/history_exporter_docx.js"></script>
   <script src="../../js/history/history_exporter.js"></script>
+  <script src="../../js/history/history_pdf_compare.js"></script>
 
   <!-- ===================== -->
   <!-- 页面核心逻辑脚本 -->

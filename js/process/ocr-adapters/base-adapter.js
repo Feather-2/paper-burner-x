@@ -49,6 +49,15 @@ class BaseOcrAdapter {
   sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
+
+  /**
+   * 延迟函数（别名，兼容性）
+   * @param {number} ms - 毫秒
+   * @returns {Promise<void>}
+   */
+  delay(ms) {
+    return this.sleep(ms);
+  }
 }
 
 // 导出到全局（向后兼容 OcrAdapter 名称）

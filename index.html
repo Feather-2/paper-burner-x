@@ -312,6 +312,40 @@
                             <strong>本地解析</strong>：适用于文字型 PDF（非扫描件），免费且快速，但不支持图片和复杂排版的识别
                         </div>
                     </div>
+
+                    <!-- MinerU 翻译模式配置（仅当选择 MinerU 时显示） -->
+                    <div id="mineruTranslationModeConfig" class="hidden mt-4">
+                        <div class="border border-blue-200 rounded-lg bg-blue-50 p-4">
+                            <div class="flex items-center justify-between mb-3">
+                                <label class="text-sm font-medium text-gray-700">MinerU 翻译模式</label>
+                                <iconify-icon icon="carbon:information" class="text-blue-500" width="18" title="MinerU 支持两种翻译模式"></iconify-icon>
+                            </div>
+                            <div class="space-y-2">
+                                <label class="flex items-start p-3 border border-gray-300 rounded-lg hover:border-blue-400 transition-colors cursor-pointer">
+                                    <input type="radio" name="mineruTranslationMode" value="standard" checked class="mt-1 mr-3">
+                                    <div class="flex-1">
+                                        <div class="font-medium text-gray-800">标准翻译模式</div>
+                                        <div class="text-xs text-gray-600 mt-1">将 MinerU 输出的 Markdown 按段落翻译（常规方式）</div>
+                                    </div>
+                                </label>
+                                <label class="flex items-start p-3 border border-gray-300 rounded-lg hover:border-blue-400 transition-colors cursor-pointer">
+                                    <input type="radio" name="mineruTranslationMode" value="structured" class="mt-1 mr-3">
+                                    <div class="flex-1">
+                                        <div class="font-medium text-gray-800">结构化翻译模式 ✨</div>
+                                        <div class="text-xs text-gray-600 mt-1">
+                                            基于 content_list.json 批量翻译（10个片段/批次），保留完整格式元数据、位置信息，支持精确对照显示
+                                        </div>
+                                        <div class="text-xs text-blue-600 mt-1 font-medium">
+                                            • 自动兼容术语库和提示词池 • 保持上下文连贯性
+                                        </div>
+                                    </div>
+                                </label>
+                            </div>
+                            <div class="mt-3 text-xs text-gray-500">
+                                <strong>提示</strong>：结构化模式更适合需要保留原文档格式和位置信息的场景（如学术论文）
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- ===================== -->
@@ -1029,6 +1063,7 @@
     <script src="js/process/index.js"></script>
     <script src="js/process/prompt-pool-api.js"></script>
     <script src="js/process/prompt-pool.js"></script>
+    <script src="js/process/mineru-structured-translation.js"></script> <!-- MinerU 结构化翻译 -->
     <script src="js/ui/prompt-pool-ui.js"></script>
     <script src="js/api/model-detector.js"></script>
     <script src="js/app.js"></script>

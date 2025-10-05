@@ -10,7 +10,7 @@
  */
 class OcrSettingsManager {
   constructor() {
-    this.BATCH_SIZE = 10; // MinerU V2 批量翻译的批次大小（预留）
+    this.BATCH_SIZE = 10; // MinerU V2 批量翻译的批次大小
 
     // localStorage keys（所有以 'ocr' 开头，与翻译配置隔离）
     this.keys = {
@@ -27,6 +27,7 @@ class OcrSettingsManager {
       mineruEnableOcr: 'ocrMinerUEnableOcr',
       mineruEnableFormula: 'ocrMinerUEnableFormula',
       mineruEnableTable: 'ocrMinerUEnableTable',
+      mineruTranslationMode: 'ocrMinerUTranslationMode', // 新增：翻译模式
       // Doc2X
       doc2xToken: 'ocrDoc2XToken',
       doc2xWorkerUrl: 'ocrDoc2XWorkerUrl',
@@ -85,6 +86,8 @@ class OcrSettingsManager {
     this.elements.mineruEnableFormula = document.getElementById('mineruEnableFormula');
     this.elements.mineruEnableTable = document.getElementById('mineruEnableTable');
     this.elements.mineruOcrConfig = document.getElementById('mineruOcrConfig');
+    this.elements.mineruTranslationModeConfig = document.getElementById('mineruTranslationModeConfig'); // 新增
+    this.elements.mineruTranslationModeRadios = document.getElementsByName('mineruTranslationMode'); // 新增
 
     // Doc2X
     this.elements.doc2xToken = document.getElementById('doc2xToken');
@@ -129,6 +132,15 @@ class OcrSettingsManager {
       }
       if (this.elements.mineruEnableTable) {
         this.elements.mineruEnableTable.checked = localStorage.getItem(this.keys.mineruEnableTable) !== 'false';
+      }
+      // 加载翻译模式
+      if (this.elements.mineruTranslationModeRadios.length > 0) {
+        const savedMode = localStorage.getItem(this.keys.mineruTranslationMode) || 'standard';
+        Array.from(this.elements.mineruTranslationModeRadios).forEach(radio => {
+          if (radio.value === savedMode) {
+            radio.checked = true;
+          }
+        });
       }
 
       // Doc2X
@@ -185,6 +197,13 @@ class OcrSettingsManager {
       if (this.elements.mineruEnableTable) {
         localStorage.setItem(this.keys.mineruEnableTable, this.elements.mineruEnableTable.checked);
       }
+      // 保存翻译模式
+      if (this.elements.mineruTranslationModeRadios.length > 0) {
+        const checkedRadio = Array.from(this.elements.mineruTranslationModeRadios).find(r => r.checked);
+        if (checkedRadio) {
+          localStorage.setItem(this.keys.mineruTranslationMode, checkedRadio.value);
+        }
+      }
 
       // Doc2X
       if (this.elements.doc2xToken) {
@@ -215,6 +234,13 @@ class OcrSettingsManager {
       this.elements.ocrEngine.addEventListener('change', (e) => {
         this.switchEngine(e.target.value);
         this.saveSettings();
+      });
+    }
+
+    // MinerU 翻译模式改变时自动保存
+    if (this.elements.mineruTranslationModeRadios.length > 0) {
+      Array.from(this.elements.mineruTranslationModeRadios).forEach(radio => {
+        radio.addEventListener('change', () => this.saveSettings());
       });
     }
 
@@ -258,6 +284,11 @@ class OcrSettingsManager {
       this.elements.doc2xOcrConfig.classList.add('hidden');
     }
 
+    // 隐藏 MinerU 翻译模式配置
+    if (this.elements.mineruTranslationModeConfig) {
+      this.elements.mineruTranslationModeConfig.classList.add('hidden');
+    }
+
     // 显示选中的配置面板
     switch (engine) {
       case 'none':
@@ -272,6 +303,10 @@ class OcrSettingsManager {
       case 'mineru':
         if (this.elements.mineruOcrConfig) {
           this.elements.mineruOcrConfig.classList.remove('hidden');
+        }
+        // 显示 MinerU 翻译模式配置
+        if (this.elements.mineruTranslationModeConfig) {
+          this.elements.mineruTranslationModeConfig.classList.remove('hidden');
         }
         break;
       case 'doc2x':
@@ -371,7 +406,8 @@ class OcrSettingsManager {
           tokenMode: localStorage.getItem(this.keys.mineruTokenMode) || 'frontend',
           enableOcr: localStorage.getItem(this.keys.mineruEnableOcr) !== 'false',
           enableFormula: localStorage.getItem(this.keys.mineruEnableFormula) !== 'false',
-          enableTable: localStorage.getItem(this.keys.mineruEnableTable) !== 'false'
+          enableTable: localStorage.getItem(this.keys.mineruEnableTable) !== 'false',
+          translationMode: localStorage.getItem(this.keys.mineruTranslationMode) || 'standard' // 新增
         };
 
       case 'doc2x':

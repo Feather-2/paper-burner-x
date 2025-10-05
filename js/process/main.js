@@ -128,6 +128,7 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
     let originalBinary = null;
     let originalEncoding = null;
     let originalExtension = fileType || '';
+    let ocrResult = null; // 保存 OCR 结果以便后续判断是否使用结构化翻译
     // 移除旧的内部重试和key切换逻辑，这些将由 app.js 处理
 
     console.log('processSinglePdf: translationKeyObject', translationKeyObject);
@@ -174,7 +175,7 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
                 };
 
                 // 调用 OCR Manager 处理文件
-                const ocrResult = await ocrManager.processFile(fileToProcess, onProgress);
+                ocrResult = await ocrManager.processFile(fileToProcess, onProgress);
 
                 // 提取结果
                 currentMarkdownContent = ocrResult.markdown;
@@ -463,11 +464,119 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
             } else {
                 if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 开始翻译 (${selectedTranslationModelName}, Key: ...${translationKeyValue.slice(-4)})`);
 
-                if (typeof estimateTokenCount !== 'function') throw new Error('estimateTokenCount函数未定义');
-                const estimatedTokens = estimateTokenCount(currentMarkdownContent);
-                const tokenLimit = parseInt(maxTokensPerChunkValue) || 2000;
+                // ===== MinerU 结构化翻译检测 =====
+                let shouldUseStructuredTranslation = false;
+                if (ocrResult && ocrResult.metadata) {
+                    try {
+                        const ocrConfig = (typeof window !== 'undefined' && window.ocrSettingsManager)
+                            ? window.ocrSettingsManager.getCurrentConfig()
+                            : null;
 
-                try {
+                        if (ocrConfig && ocrConfig.engine === 'mineru' && ocrConfig.translationMode === 'structured') {
+                            // 检查是否支持结构化翻译
+                            if (typeof MinerUStructuredTranslation !== 'undefined') {
+                                const structuredTranslator = new MinerUStructuredTranslation();
+                                shouldUseStructuredTranslation = structuredTranslator.supportsStructuredTranslation(ocrResult);
+
+                                if (shouldUseStructuredTranslation) {
+                                    if (typeof addProgressLog === "function") {
+                                        addProgressLog(`${logPrefix} 检测到 MinerU 结构化翻译模式`);
+                                    }
+                                } else if (typeof addProgressLog === "function") {
+                                    addProgressLog(`${logPrefix} MinerU 结构化翻译模式已启用，但 content_list.json 不可用，将使用标准翻译`);
+                                }
+                            } else if (typeof addProgressLog === "function") {
+                                addProgressLog(`${logPrefix} 警告：MinerU 结构化翻译模块未加载，使用标准翻译`);
+                            }
+                        }
+                    } catch (e) {
+                        console.warn(`${logPrefix} 检测 MinerU 结构化翻译时出错:`, e);
+                    }
+                }
+
+                // ===== 执行结构化翻译或标准翻译 =====
+                if (shouldUseStructuredTranslation) {
+                    // MinerU 结构化翻译路径
+                    try {
+                        if (typeof addProgressLog === "function") {
+                            addProgressLog(`${logPrefix} 使用 MinerU 结构化翻译 (基于 content_list.json)`);
+                        }
+
+                        const structuredTranslator = new MinerUStructuredTranslation();
+
+                        // 1. 提取可翻译内容
+                        const translatableContent = structuredTranslator.extractTranslatableContent(
+                            ocrResult.metadata.contentListJson
+                        );
+
+                        // 2. 分批
+                        const batches = structuredTranslator.splitIntoBatches(translatableContent);
+
+                        if (typeof addProgressLog === "function") {
+                            addProgressLog(`${logPrefix} 提取 ${translatableContent.length} 个片段，分为 ${batches.length} 批`);
+                        }
+
+                        // 3. 准备翻译选项
+                        const translationOptions = selectedTranslationModelName === 'custom'
+                            ? { modelConfig: translationModelConfig }
+                            : {};
+
+                        console.log('[MinerU Structured] 翻译选项:', {
+                            selectedTranslationModelName,
+                            hasModelConfig: !!translationModelConfig,
+                            translationOptions
+                        });
+
+                        // 4. 执行批量翻译
+                        const translatedContentList = await structuredTranslator.translateBatches(
+                            batches,
+                            targetLanguageValue,
+                            selectedTranslationModelName,
+                            translationKeyValue,
+                            translationOptions,
+                            (progress) => {
+                                if (typeof addProgressLog === "function") {
+                                    addProgressLog(`${logPrefix} 翻译进度: ${progress.percentage}% (${progress.message})`);
+                                }
+                            },
+                            acquireSlot,  // 传递并发槽位管理函数
+                            releaseSlot   // 传递并发槽位管理函数
+                        );
+
+                        // 5. 保存结果
+                        // 当前仍使用原始 Markdown（未来可以基于翻译后的 JSON 重建）
+                        currentTranslationContent = currentMarkdownContent; // 暂时保持不变
+
+                        // 将翻译后的 JSON 保存在元数据中供未来使用
+                        if (!ocrResult.metadata.translatedContentList) {
+                            ocrResult.metadata.translatedContentList = translatedContentList;
+                        }
+
+                        // 设置分块信息（简化为整文档作为一块）
+                        ocrChunks = [currentMarkdownContent];
+                        translatedChunks = [currentTranslationContent];
+
+                        if (typeof addProgressLog === "function") {
+                            addProgressLog(`${logPrefix} MinerU 结构化翻译完成`);
+                        }
+
+                    } catch (error) {
+                        // 结构化翻译失败，回退到标准翻译
+                        if (typeof addProgressLog === "function") {
+                            addProgressLog(`${logPrefix} 结构化翻译失败，回退到标准翻译: ${error.message}`);
+                        }
+                        console.error(`${logPrefix} MinerU 结构化翻译错误:`, error);
+                        shouldUseStructuredTranslation = false; // 触发标准翻译逻辑
+                    }
+                }
+
+                // ===== 标准翻译路径（原有逻辑） =====
+                if (!shouldUseStructuredTranslation) {
+                    if (typeof estimateTokenCount !== 'function') throw new Error('estimateTokenCount函数未定义');
+                    const estimatedTokens = estimateTokenCount(currentMarkdownContent);
+                    const tokenLimit = parseInt(maxTokensPerChunkValue) || 2000;
+
+                    try {
                     if (estimatedTokens > tokenLimit * 1.1) {
                         if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 文档较大 (~${Math.round(estimatedTokens/1000)}K tokens), 分段翻译`);
                         if (typeof translateLongDocument !== 'function') throw new Error('translateLongDocument函数未定义');
@@ -571,30 +680,31 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
                         }
                     }
                     if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 翻译完成`);
-                } catch (error) {
-                    // 判断是否为翻译 Key 失效错误
-                    // 这里的判断条件可能需要根据实际API的错误响应来调整
-                    if (error.message && (error.message.includes('无效') || error.message.includes('未授权') || error.message.includes('401') || error.message.toLowerCase().includes('invalid api key') || error.message.toLowerCase().includes('unauthorized') || error.message.includes('API key not valid') || error.message.includes('forbidden'))) {
-                        if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 翻译 API Key (...${translationKeyValue.slice(-4)}) 可能已失效 (${selectedTranslationModelName}): ${error.message}`);
-                        return {
-                            file: fileToProcess,
-                            keyInvalid: {
-                                type: 'translation',
-                                modelName: selectedTranslationModelName,
-                                keyIdToInvalidate: translationKeyObject.id
-                            },
-                            error: `翻译 Key 失效: ${error.message}`
-                        };
+                    } catch (error) {
+                        // 判断是否为翻译 Key 失效错误
+                        // 这里的判断条件可能需要根据实际API的错误响应来调整
+                        if (error.message && (error.message.includes('无效') || error.message.includes('未授权') || error.message.includes('401') || error.message.toLowerCase().includes('invalid api key') || error.message.toLowerCase().includes('unauthorized') || error.message.includes('API key not valid') || error.message.includes('forbidden'))) {
+                            if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 翻译 API Key (...${translationKeyValue.slice(-4)}) 可能已失效 (${selectedTranslationModelName}): ${error.message}`);
+                            return {
+                                file: fileToProcess,
+                                keyInvalid: {
+                                    type: 'translation',
+                                    modelName: selectedTranslationModelName,
+                                    keyIdToInvalidate: translationKeyObject.id
+                                },
+                                error: `翻译 Key 失效: ${error.message}`
+                            };
+                        }
+                        // 其他翻译错误，标记为翻译失败，但OCR结果可能仍有效
+                        if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 翻译失败: ${error.message}。将使用原文并标记错误。`);
+                        currentTranslationContent = `[翻译失败: ${error.message}] ${currentMarkdownContent}`;
+                        ocrChunks = [currentMarkdownContent];
+                        translatedChunks = [currentTranslationContent];
+                        // 不向上抛出，允许OCR成功但翻译失败的情况，在最终结果中体现
                     }
-                    // 其他翻译错误，标记为翻译失败，但OCR结果可能仍有效
-                    if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 翻译失败: ${error.message}。将使用原文并标记错误。`);
-                    currentTranslationContent = `[翻译失败: ${error.message}] ${currentMarkdownContent}`;
-                    ocrChunks = [currentMarkdownContent];
-                    translatedChunks = [currentTranslationContent];
-                    // 不向上抛出，允许OCR成功但翻译失败的情况，在最终结果中体现
-                }
-            }
-        } else {
+                } // 结束 if (!shouldUseStructuredTranslation)
+            } // 结束 else (translationKeyValue 有效)
+        } else { // 结束 if (selectedTranslationModelName !== 'none')
             if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 不需要翻译`);
             // 即使不翻译，也需要检查是否需要分块（用于向量搜索等后续功能）
             const estimatedTokens = typeof estimateTokenCount === 'function'
@@ -616,6 +726,39 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
 
         const processedAt = new Date().toISOString();
         if (typeof saveResultToDB === "function") {
+            // 准备元数据
+            const metadataToSave = {};
+
+            // 如果是 MinerU 结构化翻译，保存额外的元数据
+            if (ocrResult && ocrResult.metadata) {
+                // 保存 layoutJson 和 contentListJson
+                if (ocrResult.metadata.layoutJson) {
+                    metadataToSave.layoutJson = ocrResult.metadata.layoutJson;
+                }
+                if (ocrResult.metadata.contentListJson) {
+                    metadataToSave.contentListJson = ocrResult.metadata.contentListJson;
+                }
+                // 保存翻译后的结构化内容
+                if (ocrResult.metadata.translatedContentList) {
+                    metadataToSave.translatedContentList = ocrResult.metadata.translatedContentList;
+                }
+                // 保存原始 PDF（转为 base64）
+                if (ocrResult.metadata.originalPdf) {
+                    try {
+                        const pdfBlob = ocrResult.metadata.originalPdf;
+                        const pdfArrayBuffer = await pdfBlob.arrayBuffer();
+                        metadataToSave.originalPdfBase64 = arrayBufferToBase64(pdfArrayBuffer);
+                        if (typeof addProgressLog === "function") {
+                            addProgressLog(`${logPrefix} 已保存原始 PDF (${Math.round(pdfBlob.size / 1024)} KB)`);
+                        }
+                    } catch (e) {
+                        console.warn(`${logPrefix} 保存原始 PDF 失败:`, e);
+                    }
+                }
+                // 标记支持结构化翻译
+                metadataToSave.supportsStructuredTranslation = ocrResult.metadata.supportsStructuredTranslation;
+            }
+
             await saveResultToDB({
                 id: `${fileToProcess.name}_${fileToProcess.size}`,
                 name: fileToProcess.name,
@@ -649,7 +792,9 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
                 batchOutputLanguage: batchContext ? batchContext.outputLanguage : null,
                 batchOriginalIndex: batchContext ? batchContext.originalIndex : null,
                 batchAttempt: batchContext ? batchContext.attempt : null,
-                batchZip: batchContext ? batchContext.zipOutput : null
+                batchZip: batchContext ? batchContext.zipOutput : null,
+                // 新增：MinerU 结构化翻译元数据
+                metadata: Object.keys(metadataToSave).length > 0 ? metadataToSave : null
             });
         }
 
