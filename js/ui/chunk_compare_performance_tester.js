@@ -467,8 +467,8 @@ class ChunkComparePerformanceTester {
                         ${this.generateResultsHTML(results.tests)}
                     </div>
                     <div class="report-actions">
-                        <button onclick="this.parentElement.parentElement.parentElement.remove()">关闭</button>
-                        <button onclick="window.ChunkComparePerformanceTester.exportReport()">导出报告</button>
+                        <button id="close-performance-report">关闭</button>
+                        <button id="export-performance-report">导出报告</button>
                     </div>
                 </div>
             </div>
@@ -476,6 +476,7 @@ class ChunkComparePerformanceTester {
         
         // 添加样式
         const style = document.createElement('style');
+        style.id = 'performance-report-style'; // 添加ID以便后续清理
         style.textContent = `
             .performance-report-modal {
                 position: fixed;
@@ -549,6 +550,53 @@ class ChunkComparePerformanceTester {
         
         document.head.appendChild(style);
         document.body.appendChild(reportEl);
+        
+        // 添加事件监听器
+        const closeBtn = document.getElementById('close-performance-report');
+        const exportBtn = document.getElementById('export-performance-report');
+        const overlay = reportEl.querySelector('.report-overlay');
+        
+        // 关闭按钮事件
+        closeBtn.addEventListener('click', () => {
+            this.closeReport();
+        });
+        
+        // 导出按钮事件
+        exportBtn.addEventListener('click', () => {
+            this.exportReport();
+        });
+        
+        // 点击遮罩层关闭
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                this.closeReport();
+            }
+        });
+        
+        // ESC键关闭
+        const escHandler = (e) => {
+            if (e.key === 'Escape') {
+                this.closeReport();
+                document.removeEventListener('keydown', escHandler);
+            }
+        };
+        document.addEventListener('keydown', escHandler);
+    }
+    
+    /**
+     * 关闭性能报告
+     */
+    closeReport() {
+        const reportEl = document.querySelector('.performance-report-modal');
+        const styleEl = document.getElementById('performance-report-style');
+        
+        if (reportEl) {
+            reportEl.remove();
+        }
+        
+        if (styleEl) {
+            styleEl.remove();
+        }
     }
 
     /**
