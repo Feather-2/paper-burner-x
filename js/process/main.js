@@ -533,7 +533,12 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
                             targetLanguageValue,
                             selectedTranslationModelName,
                             translationKeyValue,
-                            translationOptions,
+                            {
+                                ...translationOptions,
+                                // 允许从设置自定义重试，若无则用默认
+                                maxRetries: (typeof loadSettings === 'function' ? (loadSettings().structuredMaxRetries || undefined) : undefined),
+                                retryDelay: (typeof loadSettings === 'function' ? (loadSettings().structuredRetryDelayMs || undefined) : undefined)
+                            },
                             (progress) => {
                                 if (typeof addProgressLog === "function") {
                                     addProgressLog(`${logPrefix} 翻译进度: ${progress.percentage}% (${progress.message})`);
@@ -544,17 +549,39 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
                         );
 
                         // 5. 保存结果
-                        // 当前仍使用原始 Markdown（未来可以基于翻译后的 JSON 重建）
-                        currentTranslationContent = currentMarkdownContent; // 暂时保持不变
+                        // 结构化翻译完成后：不生成常规译文，以免展示译文/分块对比标签
+                        currentTranslationContent = '';
 
                         // 将翻译后的 JSON 保存在元数据中供未来使用
                         if (!ocrResult.metadata.translatedContentList) {
                             ocrResult.metadata.translatedContentList = translatedContentList;
                         }
+                        // 标记失败项（供后续“重试失败段”使用）
+                        try {
+                            const failedItems = Array.isArray(structuredTranslator.failedItems) ? structuredTranslator.failedItems.slice() : [];
+                            // 兜底：也从 translatedContentList 中筛选 failed 标记
+                            (translatedContentList || []).forEach((it, idx) => {
+                                if (it && it.failed === true) {
+                                    failedItems.push({ index: idx, type: it.type, page_idx: it.page_idx || 0, text: structuredTranslator.extractItemText ? structuredTranslator.extractItemText(it) : (it.text || '') });
+                                }
+                            });
+                            // 去重
+                            const seen = new Set();
+                            const uniqFailed = failedItems.filter(x => {
+                                const key = `${x.index}`;
+                                if (seen.has(key)) return false;
+                                seen.add(key);
+                                return true;
+                            });
+                            ocrResult.metadata.failedStructuredItems = uniqFailed;
+                            ocrResult.metadata.structuredFailedCount = uniqFailed.length;
+                        } catch (e) {
+                            console.warn(`${logPrefix} 收集结构化失败项时出错(忽略):`, e);
+                        }
 
-                        // 设置分块信息（简化为整文档作为一块）
-                        ocrChunks = [currentMarkdownContent];
-                        translatedChunks = [currentTranslationContent];
+                        // 不设置对比分块，避免显示“分块对比”标签
+                        ocrChunks = [];
+                        translatedChunks = [];
 
                         if (typeof addProgressLog === "function") {
                             addProgressLog(`${logPrefix} MinerU 结构化翻译完成`);
@@ -757,6 +784,13 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
                 }
                 // 标记支持结构化翻译
                 metadataToSave.supportsStructuredTranslation = ocrResult.metadata.supportsStructuredTranslation;
+                // 持久化结构化失败项统计（如存在）
+                if (Array.isArray(ocrResult.metadata.failedStructuredItems)) {
+                    metadataToSave.failedStructuredItems = ocrResult.metadata.failedStructuredItems;
+                }
+                if (typeof ocrResult.metadata.structuredFailedCount === 'number') {
+                    metadataToSave.structuredFailedCount = ocrResult.metadata.structuredFailedCount;
+                }
             }
 
             await saveResultToDB({

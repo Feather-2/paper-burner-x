@@ -11,6 +11,9 @@
 class MinerUStructuredTranslation {
   constructor() {
     this.BATCH_SIZE = 10; // 每批处理的片段数量
+    this.MAX_RETRIES = 2; // 批次调用最大重试次数（指数退避）
+    this.RETRY_BASE_DELAY = 800; // 初始重试延迟(ms)
+    this.failedItems = []; // 全局失败项（全局索引）
   }
 
   /**
@@ -216,6 +219,7 @@ ${jsonContent}
   async translateBatches(batches, targetLang, model, apiKey, options = {}, onProgress, acquireSlot, releaseSlot) {
     const totalBatches = batches.length;
     let completedCount = 0;
+    this.failedItems = [];
 
     if (typeof addProgressLog === 'function') {
       addProgressLog(`[结构化翻译] 开始翻译 ${totalBatches} 个批次（共 ${batches.reduce((sum, b) => sum + b.items.length, 0)} 个片段）`);
@@ -292,25 +296,85 @@ ${jsonContent}
           console.warn(`${logContext} 术语库注入失败:`, e);
         }
 
-        // 4. 调用翻译 API
+        // 4. 调用翻译 API（带重试机制）
         if (typeof addProgressLog === 'function') {
           addProgressLog(`${logContext} 正在翻译 ${batch.items.length} 个片段...`);
         }
 
-        const translatedJson = await this.callTranslationAPI(
-          finalSystemPrompt,
-          userPrompt,
-          model,
-          apiKey,
-          options
-        );
-
-        // 5. 解析并验证翻译结果
-        const translatedItems = this.parseTranslationResponse(translatedJson);
-
-        if (!this.validateTranslation(batch.items, translatedItems)) {
-          throw new Error('翻译结果结构不匹配');
+        let lastErr = null;
+        let translatedItems = null;
+        const maxRetries = options.maxRetries != null ? options.maxRetries : this.MAX_RETRIES;
+        const baseDelay = options.retryDelay != null ? options.retryDelay : this.RETRY_BASE_DELAY;
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+          try {
+            const translatedJson = await this.callTranslationAPI(
+              finalSystemPrompt,
+              userPrompt,
+              model,
+              apiKey,
+              options
+            );
+            const parsed = this.parseTranslationResponse(translatedJson);
+            if (!this.validateTranslation(batch.items, parsed)) {
+              throw new Error('翻译结果结构不匹配');
+            }
+            translatedItems = parsed;
+            break; // 成功
+          } catch (e) {
+            lastErr = e;
+            if (attempt < maxRetries) {
+              const delay = Math.min(baseDelay * Math.pow(2, attempt), 10000);
+              console.warn(`${logContext} 翻译失败（第 ${attempt + 1}/${maxRetries + 1} 次），${delay}ms 后重试:`, e?.message || e);
+              await this.delay(delay);
+              continue;
+            }
+          }
         }
+
+        if (!translatedItems) {
+          // 全批失败：标记该批所有项失败并返回原文
+          const failed = batch.items.map((it, idx) => {
+            const clone = { ...it, failed: true };
+            const globalIdx = batch.startIndex + idx;
+            this.failedItems.push({ index: globalIdx, type: it.type, page_idx: it.page_idx || 0, text: this.extractItemText(it) });
+            return clone;
+          });
+          if (typeof addProgressLog === 'function') {
+            addProgressLog(`${logContext} 翻译失败：${lastErr?.message || '未知错误'}（已达最大重试次数）`);
+          }
+          return { batchIndex, items: failed };
+        }
+
+        // 5. 细粒度失败标记（逐项检测是否实际发生翻译）
+        const markedItems = translatedItems.map((it, idx) => {
+          const orig = batch.items[idx];
+          let isFailed = false;
+          if (orig && it) {
+            if (orig.type === 'text') {
+              const a = this._normalizeText(orig.text);
+              const b = this._normalizeText(it.text);
+              isFailed = !b || b === a;
+            } else if (orig.type === 'image') {
+              const a = this._normalizeText(Array.isArray(orig.image_caption) ? orig.image_caption.join(' ') : orig.image_caption);
+              const b = this._normalizeText(Array.isArray(it.image_caption) ? it.image_caption.join(' ') : it.image_caption);
+              isFailed = !!a && (!b || b === a);
+            } else if (orig.type === 'table') {
+              const a = this._normalizeText(orig.table_caption);
+              const b = this._normalizeText(it.table_caption);
+              // 表格数据不翻译，仅检测标题
+              isFailed = !!a && (!b || b === a);
+            } else if (orig.type === 'formula') {
+              isFailed = false; // 公式不需要翻译
+            }
+          }
+          const out = { ...it };
+          if (isFailed) {
+            out.failed = true;
+            const globalIdx = batch.startIndex + idx;
+            this.failedItems.push({ index: globalIdx, type: orig?.type, page_idx: orig?.page_idx || 0, text: this.extractItemText(orig) });
+          }
+          return out;
+        });
 
         // 6. 更新进度
         completedCount++;
@@ -325,15 +389,21 @@ ${jsonContent}
           addProgressLog(`${logContext} 翻译完成`);
         }
 
-        return { batchIndex, items: translatedItems };
+        return { batchIndex, items: markedItems };
 
       } catch (error) {
         console.error(`${logContext} 翻译失败:`, error);
         if (typeof addProgressLog === 'function') {
           addProgressLog(`${logContext} 翻译失败: ${error.message}，将使用原文`);
         }
-        // 回退：使用原文
-        return { batchIndex, items: batch.items };
+        // 回退：使用原文并标记失败
+        const failed = batch.items.map((it, idx) => {
+          const clone = { ...it, failed: true };
+          const globalIdx = batch.startIndex + idx;
+          this.failedItems.push({ index: globalIdx, type: it.type, page_idx: it.page_idx || 0, text: this.extractItemText(it) });
+          return clone;
+        });
+        return { batchIndex, items: failed };
       } finally {
         // 释放并发槽位
         if (typeof releaseSlot === 'function') {
@@ -488,21 +558,37 @@ ${jsonContent}
       throw new Error('翻译响应为空或不是文本');
     }
 
-    // 尝试提取 JSON 代码块
-    const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/);
-    if (jsonMatch) {
-      try {
-        return JSON.parse(jsonMatch[1]);
-      } catch (e) {
-        console.error('JSON 解析失败（代码块内容）:', e);
-      }
-    }
+    // 1) 优先提取代码块（兼容 ```json / ``` JSON / ``` 任意）
+    let raw = null;
+    let m = response.match(/```\s*json\s*([\s\S]*?)\s*```/i);
+    if (!m) m = response.match(/```\s*([\s\S]*?)\s*```/);
+    if (m) raw = m[1]; else raw = response;
 
-    // 尝试直接解析
+    // 2) 去掉前后噪声，裁剪到 {..} 或 [..]
+    const startObj = raw.indexOf('{');
+    const startArr = raw.indexOf('[');
+    let start = -1;
+    if (startObj === -1 && startArr === -1) start = -1;
+    else if (startObj === -1) start = startArr; else if (startArr === -1) start = startObj; else start = Math.min(startObj, startArr);
+    if (start > 0) raw = raw.slice(start);
+    const endObj = raw.lastIndexOf('}');
+    const endArr = raw.lastIndexOf(']');
+    let end = Math.max(endObj, endArr);
+    if (end >= 0) raw = raw.slice(0, end + 1);
+
+    // 3) 规范化：替换花引号、清理无效转义、移除尾随逗号
+    let cleaned = raw
+      .replace(/[“”]/g, '"')
+      .replace(/,\s*([}\]])/g, '$1');
+    // 无效转义（如 \_ 或 \alpha）统一转义为 \\ 保证 JSON 解析
+    cleaned = cleaned.replace(/\\(?!["\\\/bfnrtu])/g, '\\\\');
+
+    // 4) 尝试解析
     try {
-      return JSON.parse(response);
-    } catch (e) {
-      console.error('JSON 解析失败（直接解析）:', e);
+      return JSON.parse(cleaned);
+    } catch (e1) {
+      console.error('JSON 解析失败（清理后）:', e1);
+      // 最后尝试：如果还是失败，抛出交给上层重试/降级
       throw new Error('无法解析翻译结果为 JSON 格式');
     }
   }
@@ -546,6 +632,26 @@ ${jsonContent}
     }
 
     return true;
+  }
+
+  /**
+   * 提取用于重试展示的文本
+   */
+  extractItemText(item) {
+    if (!item) return '';
+    if (item.type === 'text') return item.text || '';
+    if (item.type === 'image') return Array.isArray(item.image_caption) ? item.image_caption.join(' ') : '';
+    if (item.type === 'table') return item.table_caption || '';
+    return '';
+  }
+
+  _normalizeText(v) {
+    if (v == null) return '';
+    try {
+      if (Array.isArray(v)) return v.join(' ').trim();
+      if (typeof v === 'string') return v.trim();
+      return String(v).trim();
+    } catch (_) { return ''; }
   }
 
   /**
