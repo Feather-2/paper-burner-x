@@ -227,6 +227,28 @@
   **你可以调整limit**：关键词明确可用limit=5，模糊查找可用limit=10
 `;
 
+        const advancedSearchTools = `
+**高级匹配工具（特殊场景使用）：**
+- {"tool":"regex_search","args":{"pattern":"\\\\d{4}年\\\\d{1,2}月","limit":10,"context":1500}}
+  用途：正则表达式搜索（匹配特定格式）
+  返回：符合正则模式的文本片段
+  **适用场景**：
+    * 搜索特定格式（日期"2023年5月"、编号"公式3.2"、"Fig. 1"）
+    * 匹配复杂模式（电话、邮箱、特殊符号组合）
+    * 数学公式编号、图表引用等
+    * OCR错误的容错匹配（如"注[意愈]力"可用"注.力"匹配）
+  **注意**：pattern需要转义特殊字符（\\\\d 表示数字，\\\\. 表示点号）
+
+- {"tool":"boolean_search","args":{"query":"(CNN OR RNN) AND 对比 NOT 图像","limit":10,"context":1500}}
+  用途：布尔逻辑搜索（AND/OR/NOT组合）
+  返回：同时满足多个条件的文本片段
+  **适用场景**：
+    * 复杂逻辑查询（必须包含A和B，但不包含C）
+    * 多概念精确组合（比grep的OR更强大）
+    * 排除干扰信息（NOT关键词）
+  **语法**：支持 AND, OR, NOT 和括号，如 "(词1 OR 词2) AND 词3 NOT 词4"
+`;
+
         const mapFetchTools = useSemanticGroups ? `
 ### 获取详细内容工具
 - {"tool":"fetch","args":{"groupId":"group-1"}}
@@ -259,6 +281,7 @@ ${vectorSearchTool}**精确匹配场景使用：**
   **你可以调整limit**：需要更多结果就增大limit，只需少量结果就减小limit
 
 ${keywordSearchTool}
+${advancedSearchTools}
 ${mapFetchTools}
 
 ## 智能决策流程
@@ -274,7 +297,17 @@ ${useVectorSearch ? `2. 单一概念解释
    - 示例："什么是注意力机制？"
    → vector_search("注意力机制 原理", limit=8)
 
-` : ''}**复杂问题（建议多工具并用）：**
+` : ''}3. 特定格式查找（编号、日期）
+   - 示例："找出公式3.2的内容"
+   → regex_search("公式\\\\s*3\\\\.2|式\\\\s*\\\\(3\\\\.2\\\\)", limit=5)
+   - 示例："2023年的相关研究"
+   → regex_search("2023年", limit=10)
+
+4. 复杂逻辑排除
+   - 示例："讨论模型但不涉及训练的内容"
+   → boolean_search("模型 NOT (训练 OR train)", limit=8)
+
+**复杂问题（建议多工具并用）：**
 ${useVectorSearch && useSemanticGroups ? `1. 综合性分析（如"研究背景与意义"）
    - 策略：**并发使用多个工具，全方位检索**
    - 示例："研究背景与意义？"
@@ -331,6 +364,12 @@ ${useSemanticGroups ? `- **综合性分析问题（如"研究背景与意义"）
 ` : ''}` : `- grep（精确）+ keyword_search（BM25）= 提高召回率
 - 多个关键词组合使用，提高搜索准确性
 `}- 简单问题可以单工具，但不确定时宁可多用
+- **优先级判断**：
+  * 有明确格式（日期、编号、公式）→ 首选 regex_search
+  * 需要排除干扰词（NOT逻辑）→ 首选 boolean_search
+  * 普通精确词匹配 → 使用 grep
+  * 语义理解、同义词 → 使用 vector_search
+- regex和boolean是**特殊场景工具**，不要过度使用，普通查询用grep/vector即可
 
 ${useSemanticGroups ? `**第二步：判断是否需要fetch意群完整内容**
 - 搜索工具会返回：chunk内容 + suggestedGroups（所属意群列表）
@@ -398,7 +437,27 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
 → 返回3个chunk，包含"2008年9月15日申请破产"
 → 单工具足够
 
-示例4（宏观理解，map+fetch）：
+示例4（查找特定格式内容，使用正则）：
+问题："找出文中所有的公式编号"
+→ {"operations":[{"tool":"regex_search","args":{"pattern":"公式\\\\s*\\\\d+\\\\.\\\\d+|式\\\\s*\\\\(\\\\d+\\\\)","limit":20}}],"final":true}
+→ 正则匹配"公式3.2"、"式(15)"等格式
+→ 比grep更精确，避免误匹配
+
+示例5（复杂逻辑查询，使用布尔搜索）：
+问题："提到CNN但不涉及图像的内容"
+→ {"operations":[{"tool":"boolean_search","args":{"query":"CNN AND (网络 OR 模型) NOT (图像 OR 视觉)","limit":10}}],"final":false}
+→ 找到讨论CNN网络结构但不涉及图像应用的段落
+→ 比单独用grep的OR更精确
+
+示例6（查找日期或时间信息，用正则）：
+问题："论文发表时间"
+→ {"operations":[
+     {"tool":"regex_search","args":{"pattern":"\\\\d{4}年|\\\\d{4}-\\\\d{2}|20\\\\d{2}","limit":10}},
+     {"tool":"grep","args":{"query":"发表|出版|published","limit":5}}
+   ],"final":true}
+→ 正则找日期格式 + grep找相关词汇
+
+示例7（宏观理解，map+fetch）：
 问题："生成思维导图"
 → {"operations":[{"tool":"map","args":{"limit":50}}],"final":false}
 → 获取意群地图
@@ -1085,6 +1144,161 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
                 suggestedGroups: Array.from(groupIds), // 提示AI可以fetch这些意群
                 tokens: contentTokens
               };
+            } else if (op.tool === 'regex_search' && op.args) {
+              // 正则表达式搜索
+              if (!window.AdvancedSearchTools) {
+                throw new Error('AdvancedSearchTools 模块未加载');
+              }
+
+              const pattern = String(op.args.pattern || '');
+              const limit = Math.min(Number(op.args.limit) || 10, 50);
+              const ctxChars = Math.min(Number(op.args.context) || 1500, 4000);
+              const caseInsensitive = op.args.caseInsensitive !== false;
+
+              const docText = String(docContentInfo.translation || docContentInfo.ocr || '');
+              const chunks = window.data?.enrichedChunks || [];
+
+              if (!docText && chunks.length === 0) {
+                throw new Error('没有可搜索的文本内容');
+              }
+
+              try {
+                const results = window.AdvancedSearchTools.regexSearch(
+                  pattern,
+                  docText,
+                  { limit, context: ctxChars, caseInsensitive }
+                );
+
+                if (results.length > 0) {
+                  // 添加正则搜索结果到上下文
+                  results.forEach((r, idx) => {
+                    contextParts.push(`【正则搜索片段${idx + 1}】(匹配: "${r.match}")\n${r.preview}`);
+                  });
+
+                  // 尝试关联到chunks和意群
+                  const groupIds = new Set();
+                  results.forEach(r => {
+                    // 查找包含此匹配的chunk
+                    const matchingChunk = chunks.find(chunk =>
+                      chunk.text && chunk.text.includes(r.match)
+                    );
+                    if (matchingChunk?.belongsToGroup) {
+                      groupIds.add(matchingChunk.belongsToGroup);
+                      interestedGroups.add(matchingChunk.belongsToGroup);
+                    }
+                  });
+
+                  console.log(`[StreamingMultiHop] 正则搜索命中 ${results.length} 个片段`);
+
+                  const returnedText = results.map(r => r.preview).join('\n');
+                  const contentTokens = estimateTokens(returnedText);
+
+                  yield {
+                    type: 'tool_result',
+                    round,
+                    opIndex,
+                    tool: 'regex_search',
+                    result: results.map(r => ({
+                      match: r.match,
+                      preview: r.preview.substring(0, 500),
+                      groups: r.groups
+                    })),
+                    suggestedGroups: Array.from(groupIds),
+                    tokens: contentTokens
+                  };
+                } else {
+                  yield {
+                    type: 'tool_result',
+                    round,
+                    opIndex,
+                    tool: 'regex_search',
+                    result: []
+                  };
+                }
+              } catch (regexError) {
+                throw new Error(`正则表达式错误: ${regexError.message}`);
+              }
+
+              // 记录搜索历史
+              searchHistory.push({ tool: 'regex_search', query: pattern, resultCount: results.length || 0 });
+
+            } else if (op.tool === 'boolean_search' && op.args) {
+              // 布尔逻辑搜索
+              if (!window.AdvancedSearchTools) {
+                throw new Error('AdvancedSearchTools 模块未加载');
+              }
+
+              const query = String(op.args.query || '');
+              const limit = Math.min(Number(op.args.limit) || 10, 50);
+              const ctxChars = Math.min(Number(op.args.context) || 1500, 4000);
+              const caseInsensitive = op.args.caseInsensitive !== false;
+
+              const docText = String(docContentInfo.translation || docContentInfo.ocr || '');
+              const chunks = window.data?.enrichedChunks || [];
+
+              if (!docText && chunks.length === 0) {
+                throw new Error('没有可搜索的文本内容');
+              }
+
+              try {
+                const results = window.AdvancedSearchTools.booleanSearch(
+                  query,
+                  docText,
+                  { limit, context: ctxChars, caseInsensitive }
+                );
+
+                if (results.length > 0) {
+                  // 添加布尔搜索结果到上下文
+                  results.forEach((r, idx) => {
+                    const terms = r.matchedTerms.join(', ');
+                    contextParts.push(`【布尔搜索片段${idx + 1}】(匹配词: ${terms}, 相关度: ${r.relevanceScore})\n${r.preview}`);
+                  });
+
+                  // 尝试关联到chunks和意群
+                  const groupIds = new Set();
+                  results.forEach(r => {
+                    const matchingChunk = chunks.find(chunk =>
+                      chunk.text && r.matchedTerms.some(term => chunk.text.includes(term))
+                    );
+                    if (matchingChunk?.belongsToGroup) {
+                      groupIds.add(matchingChunk.belongsToGroup);
+                      interestedGroups.add(matchingChunk.belongsToGroup);
+                    }
+                  });
+
+                  console.log(`[StreamingMultiHop] 布尔搜索命中 ${results.length} 个片段`);
+
+                  const returnedText = results.map(r => r.preview).join('\n');
+                  const contentTokens = estimateTokens(returnedText);
+
+                  yield {
+                    type: 'tool_result',
+                    round,
+                    opIndex,
+                    tool: 'boolean_search',
+                    result: results.map(r => ({
+                      preview: r.preview.substring(0, 500),
+                      matchedTerms: r.matchedTerms,
+                      relevanceScore: r.relevanceScore
+                    })),
+                    suggestedGroups: Array.from(groupIds),
+                    tokens: contentTokens
+                  };
+                } else {
+                  yield {
+                    type: 'tool_result',
+                    round,
+                    opIndex,
+                    tool: 'boolean_search',
+                    result: []
+                  };
+                }
+              } catch (boolError) {
+                throw new Error(`布尔查询错误: ${boolError.message}`);
+              }
+
+              // 记录搜索历史
+              searchHistory.push({ tool: 'boolean_search', query, resultCount: results.length || 0 });
             }
 
           } catch (toolError) {
@@ -1121,7 +1335,11 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
           // 清理contextParts：只保留搜索片段和AI感兴趣的意群
           const filteredContextParts = contextParts.filter(part => {
             // 保留搜索片段
-            if (part.startsWith('【向量搜索片段') || part.startsWith('【关键词搜索片段') || part.startsWith('【GREP片段')) {
+            if (part.startsWith('【向量搜索片段') ||
+                part.startsWith('【关键词搜索片段') ||
+                part.startsWith('【GREP片段') ||
+                part.startsWith('【正则搜索片段') ||
+                part.startsWith('【布尔搜索片段')) {
               return true;
             }
             // 保留AI感兴趣的意群
@@ -1213,7 +1431,11 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
 
       // 分类contextParts
       contextParts.forEach(part => {
-        if (part.startsWith('【向量搜索片段') || part.startsWith('【关键词搜索片段') || part.startsWith('【GREP片段')) {
+        if (part.startsWith('【向量搜索片段') ||
+            part.startsWith('【关键词搜索片段') ||
+            part.startsWith('【GREP片段') ||
+            part.startsWith('【正则搜索片段') ||
+            part.startsWith('【布尔搜索片段')) {
           searchFragments.push(part);
         }
       });

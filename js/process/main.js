@@ -709,16 +709,21 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
                         if (!ocrResult.metadata.translatedContentList) {
                             ocrResult.metadata.translatedContentList = translatedContentList;
                         }
-                        // 标记失败项（供后续“重试失败段”使用）
+                        // 标记失败项（供后续"重试失败段"使用）
+                        // 修复：统一从 translatedContentList 收集失败项，避免重试成功后仍显示失败
                         try {
-                            const failedItems = Array.isArray(structuredTranslator.failedItems) ? structuredTranslator.failedItems.slice() : [];
-                            // 兜底：也从 translatedContentList 中筛选 failed 标记
+                            const failedItems = [];
                             (translatedContentList || []).forEach((it, idx) => {
                                 if (it && it.failed === true) {
-                                    failedItems.push({ index: idx, type: it.type, page_idx: it.page_idx || 0, text: structuredTranslator.extractItemText ? structuredTranslator.extractItemText(it) : (it.text || '') });
+                                    failedItems.push({
+                                        index: idx,
+                                        type: it.type,
+                                        page_idx: it.page_idx || 0,
+                                        text: structuredTranslator.extractItemText ? structuredTranslator.extractItemText(it) : (it.text || '')
+                                    });
                                 }
                             });
-                            // 去重
+                            // 去重（虽然现在不应该有重复，但保留容错）
                             const seen = new Set();
                             const uniqFailed = failedItems.filter(x => {
                                 const key = `${x.index}`;
@@ -728,6 +733,10 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
                             });
                             ocrResult.metadata.failedStructuredItems = uniqFailed;
                             ocrResult.metadata.structuredFailedCount = uniqFailed.length;
+
+                            if (typeof addProgressLog === 'function' && uniqFailed.length > 0) {
+                                addProgressLog(`${logPrefix} 有 ${uniqFailed.length} 个片段未能成功翻译`);
+                            }
                         } catch (e) {
                             console.warn(`${logPrefix} 收集结构化失败项时出错(忽略):`, e);
                         }

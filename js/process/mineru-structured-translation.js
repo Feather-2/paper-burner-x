@@ -13,7 +13,7 @@ class MinerUStructuredTranslation {
     this.BATCH_SIZE = 10; // 每批处理的片段数量
     this.MAX_RETRIES = 2; // 批次调用最大重试次数（指数退避）
     this.RETRY_BASE_DELAY = 800; // 初始重试延迟(ms)
-    this.failedItems = []; // 全局失败项（全局索引）
+    // 注意：不再使用 failedItems 数组，失败项由 main.js 从 translatedContentList 统一收集
   }
 
   /**
@@ -147,9 +147,19 @@ class MinerUStructuredTranslation {
 5. 上下文连贯：
    - 考虑上文内容（如有），确保术语和表述一致
    - 保持段落间逻辑关系
-6. **输出格式**：
+6. **JSON 格式要求（极其重要）**：
+   - 字符串中的特殊字符必须正确转义：
+     * 双引号：使用 \\"
+     * 反斜杠：使用 \\\\
+     * 换行符：使用 \\n
+     * 制表符：使用 \\t
+   - LaTeX 公式中的反斜杠保持原样（如 \\alpha、\\beta）
+   - 路径中的反斜杠必须双写（如 "path\\\\to\\\\file"）
+   - 不要使用无效的转义序列（如 \\a、\\x、\\_）
+7. **输出格式**：
    返回翻译后的完整 JSON 数组，结构与输入完全一致
-   使用 JSON 代码块包裹：\`\`\`json\n...\n\`\`\``;
+   使用 JSON 代码块包裹：\`\`\`json\n...\n\`\`\`
+   确保输出是**合法的 JSON 格式**，可以被 JSON.parse() 解析`;
 
     // 3. 合并系统提示词
     const systemPrompt = (baseSystemPrompt || '你是一位专业的文档翻译助手。') +
@@ -219,7 +229,6 @@ ${jsonContent}
   async translateBatches(batches, targetLang, model, apiKey, options = {}, onProgress, acquireSlot, releaseSlot) {
     const totalBatches = batches.length;
     let completedCount = 0;
-    this.failedItems = [];
 
     if (typeof addProgressLog === 'function') {
       addProgressLog(`[结构化翻译] 开始翻译 ${totalBatches} 个批次（共 ${batches.reduce((sum, b) => sum + b.items.length, 0)} 个片段）`);
@@ -363,8 +372,7 @@ ${jsonContent}
           // 全批失败：标记该批所有项失败并返回原文
           const failed = batch.items.map((it, idx) => {
             const clone = { ...it, failed: true };
-            const globalIdx = batch.startIndex + idx;
-            this.failedItems.push({ index: globalIdx, type: it.type, page_idx: it.page_idx || 0, text: this.extractItemText(it) });
+            // 不在这里添加到 failedItems，让 main.js 统一收集
             return clone;
           });
 
@@ -410,8 +418,10 @@ ${jsonContent}
           const out = { ...it };
           if (isFailed) {
             out.failed = true;
-            const globalIdx = batch.startIndex + idx;
-            this.failedItems.push({ index: globalIdx, type: orig?.type, page_idx: orig?.page_idx || 0, text: this.extractItemText(orig) });
+            // 不在这里添加到 failedItems，让 main.js 统一收集
+          } else {
+            // 翻译成功：明确移除 failed 标记（如果原来有的话）
+            delete out.failed;
           }
           return out;
         });
@@ -452,8 +462,7 @@ ${jsonContent}
         // 回退：使用原文并标记失败
         const failed = batch.items.map((it, idx) => {
           const clone = { ...it, failed: true };
-          const globalIdx = batch.startIndex + idx;
-          this.failedItems.push({ index: globalIdx, type: it.type, page_idx: it.page_idx || 0, text: this.extractItemText(it) });
+          // 不在这里添加到 failedItems，让 main.js 统一收集
           return clone;
         });
         return { batchIndex, items: failed };
@@ -644,18 +653,39 @@ ${jsonContent}
 
     // 3) 规范化：替换花引号、清理无效转义、移除尾随逗号
     let cleaned = raw
-      .replace(/[“”]/g, '"')
-      .replace(/,\s*([}\]])/g, '$1');
-    // 无效转义（如 \_ 或 \alpha）统一转义为 \\ 保证 JSON 解析
-    cleaned = cleaned.replace(/\\(?!["\\\/bfnrtu])/g, '\\\\');
+      .replace(/[""]/g, '"')  // 中文引号
+      .replace(/,\s*([}\]])/g, '$1')  // 尾随逗号
+      .replace(/\r\n/g, '\n')  // 统一换行符
+      .replace(/\r/g, '\n');
 
-    // 4) 尝试解析
+    // 4) 修复常见的无效转义（但保留合法的转义序列）
+    // 合法的 JSON 转义：\" \\ \/ \b \f \n \r \t \uXXXX
+    // 先处理已经双反斜杠的情况（避免重复转义）
+    const placeholder = '\u0000ESCAPED_BACKSLASH\u0000';
+    cleaned = cleaned.replace(/\\\\/g, placeholder);
+
+    // 然后处理无效的单反斜杠转义（除了合法的 JSON 转义）
+    cleaned = cleaned.replace(/\\(?!["\\\/bfnrtu]|u[0-9a-fA-F]{4})/g, '\\\\');
+
+    // 恢复占位符
+    cleaned = cleaned.replace(new RegExp(placeholder, 'g'), '\\\\');
+
+    // 5) 尝试解析
     try {
       return JSON.parse(cleaned);
     } catch (e1) {
       console.error('JSON 解析失败（清理后）:', e1);
-      // 最后尝试：如果还是失败，抛出交给上层重试/降级
-      throw new Error('无法解析翻译结果为 JSON 格式');
+      console.error('清理后的内容（前500字符）:', cleaned.substring(0, 500));
+
+      // 最后尝试：更激进的修复
+      try {
+        // 把所有单反斜杠都转义（可能会破坏一些内容，但至少能解析）
+        const aggressive = cleaned.replace(/\\/g, '\\\\');
+        return JSON.parse(aggressive);
+      } catch (e2) {
+        console.error('激进清理也失败:', e2);
+        throw new Error('无法解析翻译结果为 JSON 格式');
+      }
     }
   }
 
