@@ -348,6 +348,11 @@ async function renderAllMermaidBlocksInternal(chatBodyElement) {
         let cleanLabel = labelContent.replace(/\n+/g, ' ');
         // 压缩多余空格
         cleanLabel = cleanLabel.replace(/\s+/g, ' ').trim();
+        // **替换特殊符号为全角（避免 Mermaid 解析错误）**
+        cleanLabel = cleanLabel
+          .replace(/\(/g, '（')
+          .replace(/\)/g, '）')
+          .replace(/\|/g, '｜');
         // 限制标签长度（最多80字符）
         if (cleanLabel.length > 80) {
           cleanLabel = cleanLabel.substring(0, 77) + '...';
@@ -360,7 +365,11 @@ async function renderAllMermaidBlocksInternal(chatBodyElement) {
       rawCode = rawCode.replace(/--\s+>/g, '-->');
       rawCode = rawCode.replace(/<\s+--/g, '<--');
 
-      // 8.2 修正节点定义后多余的节点名（A[text]A --> B 改为 A[text] --> B）
+      // 8.2 修正节点定义后缺少空格的问题（]D --> ] D 或 ] --> D）
+      rawCode = rawCode.replace(/\]([A-Za-z0-9_]+)(\s+-->)/g, ']\n$1$2');
+      rawCode = rawCode.replace(/\]([A-Za-z0-9_]+)(\s*$)/gm, ']\n$1');
+
+      // 8.3 修正节点定义后多余的节点名（A[text]A --> B 改为 A[text] --> B）
       rawCode = rawCode.replace(/([A-Za-z0-9_]+)\[([^\]]+)\]\1(\s*[-<])/g, '$1[$2]$3');
 
       // 8.3 移除空的 graph 声明
@@ -453,21 +462,25 @@ async function renderAllMermaidBlocksInternal(chatBodyElement) {
 
         // 增强的修正函数集合（从最保守到最激进）
         const mermaidFixers = [
-          // 修正0: **最优先** - 处理节点标签内的多行文本（核心问题）
+          // 修正0: 处理节点标签中的括号和管道符（最常见问题）
           code => {
-            return code.replace(/([A-Za-z0-9_]+)\[([^\]]+)\]/g, (match, nodeId, labelContent) => {
-              // 确保标签内没有换行
+            return code.replace(/\[([^\]]+)\]/g, (match, labelContent) => {
+              let cleanLabel = labelContent
+                .replace(/\(/g, '（')
+                .replace(/\)/g, '）')
+                .replace(/\|/g, '｜');
+              return `[${cleanLabel}]`;
+            });
+          },
+          // 修正1: 处理多行文本和长度限制
+          code => {
+            return code.replace(/\[([^\]]+)\]/g, (match, labelContent) => {
               let cleanLabel = labelContent.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
-              // 限制长度
               if (cleanLabel.length > 60) {
                 cleanLabel = cleanLabel.substring(0, 57) + '...';
               }
-              return `${nodeId}[${cleanLabel}]`;
+              return `[${cleanLabel}]`;
             });
-          },
-          // 修正1: 处理节点标签中的括号内容
-          code => {
-            return code.replace(/\[([^\]]*)\([^\)]*\)([^\]]*)\]/g, '[$1$2]');
           },
           // 修正2: 修正常见的引号问题
           code => {
@@ -481,14 +494,23 @@ async function renderAllMermaidBlocksInternal(chatBodyElement) {
           code => {
             return code.replace(/\[([^\]]*)\]/g, match => match.replace(/[:\-]/g, ''));
           },
-          // 修正5: 将所有括号替换为全角
+          // 修正5: 将所有特殊符号替换为全角或空格
           code => {
-            return code.replace(/\(/g, '（').replace(/\)/g, '）');
+            return code.replace(/\[([^\]]*)\]/g, match => {
+              return match
+                .replace(/\(/g, '（')
+                .replace(/\)/g, '）')
+                .replace(/\|/g, '｜')
+                .replace(/</g, '＜')
+                .replace(/>/g, '＞')
+                .replace(/\{/g, '｛')
+                .replace(/\}/g, '｝');
+            });
           },
           // 修正6: 极端修正 - 只保留节点内的中英文、数字和常见符号
           code => {
             return code.replace(/\[([^\]]*)\]/g, match => {
-              return match.replace(/[^\u4e00-\u9fa5a-zA-Z0-9\[\]\s]/g, '');
+              return match.replace(/[^\u4e00-\u9fa5a-zA-Z0-9\[\]\s\.]/g, '');
             });
           },
           // 修正7: 最激进 - 简化所有节点名称为纯文本
@@ -512,6 +534,13 @@ async function renderAllMermaidBlocksInternal(chatBodyElement) {
             // 重新设置 mermaid div 内容
             mermaidDiv.textContent = fixedCode;
             await window.mermaid.init(undefined, '#' + uniqueId);
+
+            // 验证 SVG 是否真正生成
+            const svgElement = mermaidDiv.querySelector('svg');
+            if (!svgElement) {
+              console.warn(`修正器 ${i + 1} 执行完成但未生成 SVG`);
+              continue; // 未生成 SVG，尝试下一个修正器
+            }
 
             // 修正成功！
             fixSuccess = true;

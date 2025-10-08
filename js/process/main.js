@@ -496,10 +496,104 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
                 const arrayBuffer = await fileToProcess.arrayBuffer();
                 originalBinary = arrayBuffer;
                 originalEncoding = 'arraybuffer';
-                const result = await mammoth.convertToHtml({ arrayBuffer });
+
+                // 用于存储提取的图片数据
+                const docxImages = [];
+                let imageCounter = 0;
+
+                // 配置 mammoth，提取图片数据并使用简洁的引用
+                // 这样可以避免巨大的 base64 字符串导致 token 估算错误（每张图片可能几十万字符）
+                const result = await mammoth.convertToHtml({
+                    arrayBuffer,
+                    convertImage: mammoth.images.imgElement(function(image) {
+                        return image.read("base64").then(function(imageBuffer) {
+                            // 生成图片 ID
+                            imageCounter++;
+                            const imgId = `docx_img_${imageCounter}`;
+                            const imgPath = `images/${imgId}.png`;
+
+                            // 存储图片数据（格式与 OCR 保持一致）
+                            docxImages.push({
+                                id: imgId,
+                                data: imageBuffer  // base64 字符串
+                            });
+
+                            // 在 HTML 中使用简洁的路径引用，而不是完整的 base64
+                            return {
+                                src: imgPath
+                            };
+                        });
+                    })
+                });
+
                 const html = result && result.value ? result.value : '';
                 currentMarkdownContent = convertHtmlToMarkdown(html);
-                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} DOCX 文本转换完成`);
+
+                // 将提取的图片数据保存到 currentImagesData
+                currentImagesData = docxImages;
+
+                // 提取并清理可能残留的 base64 图片数据（防止导出再导入的文档中有残留）
+                // 这些 base64 字符串可能有几十万字符，会严重影响 token 估算
+                const beforeClean = currentMarkdownContent.length;
+                let extractedImageCount = 0;
+
+                // 提取 Markdown 格式的 base64 图片：![...](data:image/...;base64,...)
+                currentMarkdownContent = currentMarkdownContent.replace(/!\[([^\]]*)\]\(data:image\/([^;]+);base64,([A-Za-z0-9+/=]+)\)/g,
+                    (match, altText, mimeType, base64Data) => {
+                        extractedImageCount++;
+                        const imgId = `docx_extracted_${extractedImageCount}`;
+                        const imgPath = `images/${imgId}.png`;
+
+                        // 保存提取的图片数据
+                        currentImagesData.push({
+                            id: imgId,
+                            data: base64Data
+                        });
+
+                        // 替换为简洁的引用
+                        return `![${altText || '图片'}](${imgPath})`;
+                    });
+
+                // 提取纯 base64 字符串（可能是文本中的残留）
+                // 匹配至少 100 个字符的 base64 字符串
+                currentMarkdownContent = currentMarkdownContent.replace(/data:image\/([^;]+);base64,([A-Za-z0-9+/=]{100,})/g,
+                    (match, mimeType, base64Data) => {
+                        extractedImageCount++;
+                        const imgId = `docx_extracted_${extractedImageCount}`;
+
+                        // 保存提取的图片数据
+                        currentImagesData.push({
+                            id: imgId,
+                            data: base64Data
+                        });
+
+                        return `[图片${extractedImageCount}]`;
+                    });
+
+                const afterClean = currentMarkdownContent.length;
+                const removedChars = beforeClean - afterClean;
+
+                if (removedChars > 0 && typeof addProgressLog === "function") {
+                    addProgressLog(`${logPrefix} 从文本中提取了 ${extractedImageCount} 张图片 (清理了 ${Math.round(removedChars / 1024)} KB base64 数据)`);
+                }
+
+                if (typeof addProgressLog === "function") {
+                    const charCount = currentMarkdownContent.length;
+                    const estimatedTokens = typeof estimateTokenCount === 'function' ? estimateTokenCount(currentMarkdownContent) : 0;
+                    const totalImages = docxImages.length + extractedImageCount;
+                    addProgressLog(`${logPrefix} DOCX 文本转换完成，共提取 ${totalImages} 张图片 (标准: ${docxImages.length}, 嵌入: ${extractedImageCount}) (字符数: ${charCount}, 估算 tokens: ${estimatedTokens})`);
+                }
+
+                // 调试：如果字符数与估算 tokens 差距过大，输出前 500 字符到控制台
+                if (currentMarkdownContent.length > 0 && typeof estimateTokenCount === 'function') {
+                    const estimatedTokens = estimateTokenCount(currentMarkdownContent);
+                    const ratio = estimatedTokens / currentMarkdownContent.length;
+                    if (ratio > 10) { // 如果 token/字符 比例 > 10，说明有异常
+                        console.warn(`${logPrefix} ⚠️ Token 估算异常！字符数: ${currentMarkdownContent.length}, 估算 tokens: ${estimatedTokens}, 比例: ${ratio.toFixed(2)}`);
+                        console.log(`${logPrefix} Markdown 前 500 字符:`, currentMarkdownContent.substring(0, 500));
+                        console.log(`${logPrefix} Markdown 后 500 字符:`, currentMarkdownContent.substring(currentMarkdownContent.length - 500));
+                    }
+                }
             } catch (error) {
                 console.error('DOCX 解析失败:', error);
                 throw new Error(`DOCX 解析失败: ${error.message || error}`);
