@@ -197,7 +197,14 @@
           const recentSearches = searchHistory.slice(-5); // 最近5次
           searchHistoryText = '\n\n【搜索历史】(避免重复搜索这些查询):\n' + recentSearches.map(s => {
             const status = s.resultCount > 0 ? `✓ ${s.resultCount}个结果` : '✗ 无结果';
-            return `- ${s.tool === 'keyword_search' ? '关键词' : '向量'}搜索 "${s.query}" → ${status}`;
+            const toolName = {
+              'vector_search': '向量',
+              'keyword_search': '关键词',
+              'grep': 'GREP',
+              'regex_search': '正则',
+              'boolean_search': '布尔'
+            }[s.tool] || s.tool;
+            return `- ${toolName}搜索 "${s.query}" → ${status}`;
           }).join('\n');
         }
 
@@ -425,7 +432,10 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
 `}
 - 可以在同一轮并发执行多个操作
 - 获取到足够内容后立即final=true
-- 检查【搜索历史】避免重复搜索
+- **严格检查【搜索历史】避免重复搜索**：
+  * ⚠️ 如果【搜索历史】中已有完全相同的查询（query相同），**绝对不要**再次执行
+  * ⚠️ 如果【搜索历史】中显示某个查询"✗ 无结果"，不要换工具重试相同查询（大概率还是无结果）
+  * ✓ 应该换用不同的关键词、或使用不同策略（如用map看整体结构）
 - **只有当【已获取内容】真正充足时**，才返回{"operations":[],"final":true}
 - **如果【已获取内容】为空或不足**，必须继续检索，不能直接final=true
 
@@ -446,6 +456,7 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
 
 - **completed**: 已完成的检索任务（附工具和结果数）
   * 示例："✓ 已获取研究动机(vector_search, 3个chunks)"
+  * **重要**：记录已搜索的query，避免下一轮重复执行
   * 作用：避免重复检索，展示进度
 
 - **current**: 当前正在执行的任务
@@ -545,6 +556,19 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
      {"tool":"fetch","args":{"groupId":"group-10"}}
    ],"final":true,"includeMapInFinalContext":true}
 → fetch关键意群 + 包含地图
+
+示例8（❌ 错误：重复搜索）：
+问题："找电影《猜火车》的引用"
+第1轮：{"operations":[{"tool":"grep","args":{"query":"TRAINSPOTTING|猜火车","limit":20}}],"final":false}
+→ 搜索历史显示：GREP搜索 "TRAINSPOTTING|猜火车" → ✓ 4个结果
+
+❌ 第2轮错误做法：{"operations":[{"tool":"grep","args":{"query":"TRAINSPOTTING|猜火车","limit":20}}],"final":true}
+（完全相同的query，禁止重复！）
+
+✓ 第2轮正确做法：
+- 如果4个结果已足够 → {"operations":[],"final":true}
+- 如果需要更多上下文 → {"operations":[{"tool":"fetch","args":{"groupId":"group-2"}}],"final":true}
+  （fetch包含这些结果的意群，获取完整上下文）
 
 ## 限制与原则
 - 每轮最多5个操作
