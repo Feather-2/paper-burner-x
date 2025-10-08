@@ -158,85 +158,120 @@ async function renderAllMermaidBlocksInternal(chatBodyElement) {
                 const iconExternalLink = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>';
                 const iconPhoto = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.158 0L10.5 9.75M16.5 12L18 10.5m-1.5 1.5l-1.5-1.5m0 0L13.5 9.75M12 12.75l1.5-1.5" /></svg>';
 
-                // Export PNG Button
-                const exportPngBtn = createPopupActionButton('导出PNG', iconPhoto + 'PNG', function() {
+                // Export PNG Button (使用 html2canvas)
+                const exportPngBtn = createPopupActionButton('导出PNG', iconPhoto + 'PNG', async function() {
                   try {
-                    const svgElementForExport = svgClone;
-                    const svgRect = svgElementForExport.getBoundingClientRect();
-                    let width = svgRect.width;
-                    let height = svgRect.height;
-                    if (width === 0 && height === 0) {
-                      const viewBox = svgElementForExport.getAttribute('viewBox');
-                      if (viewBox) {
-                        const parts = viewBox.split(' ');
-                        width = parseFloat(parts[2]);
-                        height = parseFloat(parts[3]);
-                      }
-                      if (!width || !height) {
-                        width = 800; height = 600;
-                      }
+                    exportPngBtn.innerHTML = iconPhoto + '导出中...';
+                    exportPngBtn.disabled = true;
+
+                    // 检查 html2canvas 是否可用
+                    if (typeof html2canvas === 'undefined') {
+                      throw new Error('html2canvas 库未加载');
                     }
 
-                    if (svgElementForExport.innerHTML.includes('<foreignObject')) {
-                      alert('当前图表包含 HTML 元素，PNG 导出不被浏览器支持，请先导出 SVG 再用专业工具转换为 PNG。');
-                      return;
-                    }
+                    // 创建一个临时容器来包裹 SVG
+                    const tempContainer = document.createElement('div');
+                    tempContainer.style.cssText = 'position: absolute; left: -9999px; top: 0; background: white; padding: 20px;';
+                    const svgForExport = svgClone.cloneNode(true);
 
-                    const scale = 3;
-                    const scaledWidth = Math.round(width * scale);
-                    const scaledHeight = Math.round(height * scale);
-                    const canvas = document.createElement('canvas');
-                    canvas.width = scaledWidth;
-                    canvas.height = scaledHeight;
-                    const ctx = canvas.getContext('2d');
-                    ctx.fillStyle = 'white';
-                    ctx.fillRect(0, 0, scaledWidth, scaledHeight);
-                    const serializer = new XMLSerializer();
-                    let svgString = serializer.serializeToString(svgElementForExport);
-                    svgString = '<?xml version="1.0" standalone="no"?>\n' + svgString;
-                    svgString = svgString.replace(/<svg/g, '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"');
-                    const svgBase64 = btoa(unescape(encodeURIComponent(svgString)));
-                    const imgSrc = `data:image/svg+xml;base64,${svgBase64}`;
-                    const img = new Image();
-                    img.onload = function() {
-                      ctx.clearRect(0, 0, scaledWidth, scaledHeight);
-                      ctx.fillStyle = 'white';
-                      ctx.fillRect(0, 0, scaledWidth, scaledHeight);
-                      ctx.scale(scale, scale);
-                      ctx.drawImage(img, 0, 0, width, height);
-                      const pngUrl = canvas.toDataURL('image/png');
-                      if (pngUrl.length <= 22) throw new Error('图像生成失败');
-                      const downloadLink = document.createElement('a');
-                      downloadLink.href = pngUrl;
-                      downloadLink.download = 'mermaid-diagram-hd.png';
-                      document.body.appendChild(downloadLink);
-                      downloadLink.click();
-                      document.body.removeChild(downloadLink);
-                    };
-                    img.onerror = function(e) {
-                      console.error('图片导出失败: 图像处理错误', e);
-                      alert('图片导出失败: 图像处理错误');
-                    };
-                    img.src = imgSrc;
+                    // 获取 SVG 的原始尺寸
+                    const svgRect = svgClone.getBoundingClientRect();
+                    const originalWidth = svgRect.width || 800;
+                    const originalHeight = svgRect.height || 600;
+
+                    // 放大 SVG 以提高清晰度
+                    const scaleFactor = 4; // 4倍放大
+                    svgForExport.setAttribute('width', originalWidth * scaleFactor);
+                    svgForExport.setAttribute('height', originalHeight * scaleFactor);
+                    svgForExport.style.display = 'block';
+                    svgForExport.style.width = (originalWidth * scaleFactor) + 'px';
+                    svgForExport.style.height = (originalHeight * scaleFactor) + 'px';
+
+                    tempContainer.appendChild(svgForExport);
+                    document.body.appendChild(tempContainer);
+
+                    // 使用 html2canvas 截图容器（高分辨率）
+                    const canvas = await html2canvas(tempContainer, {
+                      backgroundColor: '#ffffff',
+                      scale: 1, // SVG 已经放大了，这里用 1 即可
+                      logging: false,
+                      useCORS: true,
+                      allowTaint: true,
+                      width: originalWidth * scaleFactor + 40, // 加上 padding
+                      height: originalHeight * scaleFactor + 40
+                    });
+
+                    // 清理临时容器
+                    document.body.removeChild(tempContainer);
+
+                    // 下载 PNG
+                    canvas.toBlob(function(blob) {
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = 'mermaid-diagram.png';
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                      URL.revokeObjectURL(url);
+
+                      exportPngBtn.innerHTML = iconPhoto + '导出PNG';
+                      exportPngBtn.disabled = false;
+                    }, 'image/png');
+
                   } catch (e) {
-                    alert('导出图片失败: ' + (e.message || e));
+                    console.error('PNG 导出失败:', e);
+                    alert('PNG 导出失败: ' + (e.message || e) + '\n\n建议：先导出 SVG，然后使用在线工具转换。');
+                    exportPngBtn.innerHTML = iconPhoto + '导出PNG';
+                    exportPngBtn.disabled = false;
                   }
                 });
                 exportPngBtn.innerHTML = iconPhoto + '导出PNG';
 
                 // Export SVG Button
                 const exportSvgBtn = createPopupActionButton('导出SVG', iconDownload + 'SVG', function() {
-                  const serializer = new XMLSerializer();
-                  let svgString = serializer.serializeToString(svgClone);
-                  const blob = new Blob([svgString], {type: 'image/svg+xml'});
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = 'mermaid-diagram.svg';
-                  document.body.appendChild(a);
-                  a.click();
-                  document.body.removeChild(a);
-                  URL.revokeObjectURL(url);
+                  try {
+                    // 克隆 SVG 用于导出
+                    const svgCloneForExport = svgClone.cloneNode(true);
+
+                    // 复制所有计算后的样式到内联样式
+                    const copyComputedStyles = (source, target) => {
+                      const sourceElements = source.querySelectorAll('*');
+                      const targetElements = target.querySelectorAll('*');
+                      for (let i = 0; i < sourceElements.length && i < targetElements.length; i++) {
+                        const computedStyle = window.getComputedStyle(sourceElements[i]);
+                        const cssText = computedStyle.cssText;
+                        if (cssText) {
+                          targetElements[i].setAttribute('style', cssText);
+                        }
+                      }
+                    };
+                    copyComputedStyles(svgClone, svgCloneForExport);
+
+                    const serializer = new XMLSerializer();
+                    let svgString = serializer.serializeToString(svgCloneForExport);
+
+                    // 添加 XML 声明
+                    svgString = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n' + svgString;
+
+                    // 确保有正确的命名空间
+                    if (!svgString.includes('xmlns="http://www.w3.org/2000/svg"')) {
+                      svgString = svgString.replace(/<svg/, '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"');
+                    }
+
+                    const blob = new Blob([svgString], {type: 'image/svg+xml;charset=utf-8'});
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'mermaid-diagram.svg';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    setTimeout(() => URL.revokeObjectURL(url), 100);
+                  } catch (e) {
+                    console.error('SVG 导出失败:', e);
+                    alert('SVG 导出失败: ' + (e.message || e));
+                  }
                 });
                 exportSvgBtn.innerHTML = iconDownload + '导出SVG';
 
@@ -372,7 +407,17 @@ async function renderAllMermaidBlocksInternal(chatBodyElement) {
       // 8.3 修正节点定义后多余的节点名（A[text]A --> B 改为 A[text] --> B）
       rawCode = rawCode.replace(/([A-Za-z0-9_]+)\[([^\]]+)\]\1(\s*[-<])/g, '$1[$2]$3');
 
-      // 8.3 移除空的 graph 声明
+      // 8.4 修复缺少箭头的节点连接
+      // 修复菱形节点缺少结束花括号的情况（如 J{文本 K[...] 改为 J{文本} --> K[...]）
+      rawCode = rawCode.replace(/\{([^}]*?)\s{2,}([A-Z][A-Za-z0-9_]*)\[/g, '{$1} --> $2[');
+      // 修复 }  [  或 }[  的情况（菱形节点后缺少箭头）
+      rawCode = rawCode.replace(/\}(\s{2,}|\s*)\[/g, '} --> [');
+      // 修复 ]  [  的情况（方括号节点后缺少箭头，至少2个空格）
+      rawCode = rawCode.replace(/\](\s{2,})\[/g, '] --> [');
+      // 修复 )  [  的情况（圆括号节点后缺少箭头）
+      rawCode = rawCode.replace(/\)(\s{2,})\[/g, ') --> [');
+
+      // 8.5 移除空的 graph 声明
       rawCode = rawCode.replace(/^\s*graph\s*$/gim, '');
 
       // 9. 修正 subgraph 语法
@@ -462,7 +507,19 @@ async function renderAllMermaidBlocksInternal(chatBodyElement) {
 
         // 增强的修正函数集合（从最保守到最激进）
         const mermaidFixers = [
-          // 修正0: 处理节点标签中的括号和管道符（最常见问题）
+          // 修正0a: 修复缺少箭头的节点连接（如 J{text}  K[text] 改为 J{text} --> K[text]）
+          code => {
+            // 修复菱形节点缺少结束花括号的情况
+            code = code.replace(/\{([^}]*?)\s{2,}([A-Z][A-Za-z0-9_]*)\[/g, '{$1} --> $2[');
+            // 修复 }  [  或 }[  的情况（菱形节点后缺少箭头）
+            code = code.replace(/\}(\s{2,}|\s*)\[/g, '} --> [');
+            // 修复 ]  [  的情况（方括号节点后缺少箭头）
+            code = code.replace(/\](\s{2,})\[/g, '] --> [');
+            // 修复 )  [  的情况（圆括号节点后缺少箭头）
+            code = code.replace(/\)(\s{2,})\[/g, ') --> [');
+            return code;
+          },
+          // 修正0b: 处理节点标签中的括号和管道符（最常见问题）
           code => {
             return code.replace(/\[([^\]]+)\]/g, (match, labelContent) => {
               let cleanLabel = labelContent
