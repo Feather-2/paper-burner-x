@@ -245,7 +245,13 @@
    */
   function addStepHtml(stepInfo, status) {
     status = status || 'running';
-    var icon = getStepIcon(stepInfo.tool);
+    // 动态选择tool名称（如果是带重排的向量搜索，使用特殊tool名）
+    var toolName = stepInfo.tool;
+    if (stepInfo.tool === 'vector_search' && stepInfo.result && Array.isArray(stepInfo.result) &&
+        stepInfo.result.length > 0 && stepInfo.result[0].rerankScore !== undefined) {
+      toolName = 'vector_search_rerank';
+    }
+    var icon = getStepIcon(toolName);
     var title = getStepTitle(stepInfo);
     var detail = formatDetail(stepInfo.args || {});
 
@@ -556,6 +562,7 @@
   function getStepIcon(tool) {
     var icons = {
       'vector_search': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path></svg>',
+      'vector_search_rerank': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path><path d="M7 13l3-3 3 3" stroke="#059669"></path></svg>',
       'keyword_search': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h6"/><path d="M3 17h6"/><path d="m15 6 6 6-6 6"/></svg>',
       'fetch_group': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>',
       'fetch': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>',
@@ -578,6 +585,7 @@
 
     var titles = {
       'vector_search': '向量搜索',
+      'vector_search_rerank': '向量搜索+重排',
       'keyword_search': '关键词搜索',
       'fetch_group': '获取意群详情',
       'fetch': '获取意群详情',
@@ -594,6 +602,10 @@
 
     // 添加参数信息
     if (stepInfo.tool === 'vector_search' && stepInfo.args && stepInfo.args.query) {
+      // 检查是否使用了重排（通过result判断）
+      if (stepInfo.result && Array.isArray(stepInfo.result) && stepInfo.result.length > 0 && stepInfo.result[0].rerankScore !== undefined) {
+        title = '向量搜索+重排';
+      }
       var query = stepInfo.args.query.substring(0, 30);
       if (stepInfo.args.query.length > 30) query += '...';
       title += ': ' + query;
@@ -630,7 +642,14 @@
 
     // 特殊处理：向量搜索结果
     if (Array.isArray(cleanValue) && cleanValue.length > 0 && cleanValue[0].chunkId && cleanValue[0].score !== undefined) {
+      // 检查是否使用了重排
+      var hasRerank = cleanValue[0].rerankScore !== undefined;
+
       var summary = cleanValue.length + ' 个结果';
+      if (hasRerank) {
+        summary += ' (已重排)';
+      }
+
       var topGroups = {};
       cleanValue.forEach(function(item) {
         if (item.belongsToGroup) {
@@ -641,7 +660,13 @@
       if (groupCount > 0) {
         summary += '，涉及 ' + groupCount + ' 个意群';
       }
-      summary += '，最高分: ' + cleanValue[0].score.toFixed(3);
+
+      if (hasRerank) {
+        summary += '，最高重排分: ' + cleanValue[0].rerankScore.toFixed(3);
+        summary += ' (原始分: ' + (cleanValue[0].originalScore || cleanValue[0].score).toFixed(3) + ')';
+      } else {
+        summary += '，最高分: ' + cleanValue[0].score.toFixed(3);
+      }
 
       // 添加前3个结果的预览
       if (cleanValue.length > 0) {
@@ -649,7 +674,10 @@
         cleanValue.slice(0, 3).forEach(function(item, idx) {
           var preview = sanitizeText(item.preview || '');
           if (preview.length > 150) preview = preview.substring(0, 150) + '...';
-          summary += (idx + 1) + '. ' + item.belongsToGroup + ' (分数:' + item.score.toFixed(3) + ')\n   ' + preview + '\n';
+          var scoreInfo = hasRerank
+            ? '重排分:' + item.rerankScore.toFixed(3) + ' | 原始:' + (item.originalScore || item.score).toFixed(3)
+            : '分数:' + item.score.toFixed(3);
+          summary += (idx + 1) + '. ' + item.belongsToGroup + ' (' + scoreInfo + ')\n   ' + preview + '\n';
         });
       }
 

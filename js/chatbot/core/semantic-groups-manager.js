@@ -60,8 +60,8 @@
                onmouseout="this.style.background='transparent'">
           <input type="checkbox" id="use-vector-search" checked style="margin-top: 2px; margin-right: 12px; cursor: pointer;">
           <div>
-            <div style="font-weight: 500; color: #1f2937; margin-bottom: 4px;">向量搜索</div>
-            <div style="font-size: 13px; color: #6b7280;">使用AI理解语义进行智能搜索（需消耗API token）</div>
+            <div style="font-weight: 500; color: #1f2937; margin-bottom: 4px;">向量搜索与重排</div>
+            <div style="font-size: 13px; color: #6b7280;">使用AI理解语义进行智能搜索，结果可选重排优化（需消耗API token）</div>
           </div>
         </label>
       </div>

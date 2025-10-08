@@ -50,12 +50,25 @@
     modal.innerHTML = `
       <div style="padding: 20px 24px; border-bottom: 1px solid #e5e7eb;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-          <h3 style="margin: 0; font-size: 18px; font-weight: 600; color: #111827;">向量搜索配置</h3>
+          <h3 style="margin: 0; font-size: 18px; font-weight: 600; color: #111827;">向量搜索与重排配置</h3>
           <button id="emb-close-btn" style="border: none; background: none; font-size: 24px; color: #6b7280; cursor: pointer;">&times;</button>
         </div>
       </div>
 
-      <div style="padding: 24px; max-height: calc(80vh - 70px); overflow-y: auto;">
+      <!-- Tabs -->
+      <div style="display: flex; border-bottom: 1px solid #e5e7eb; background: #f9fafb;">
+        <button id="emb-tab-vector" class="emb-tab active" style="flex: 1; padding: 12px 16px; border: none; background: none; font-size: 14px; font-weight: 600; color: #3b82f6; cursor: pointer; border-bottom: 2px solid #3b82f6; transition: all 0.2s;">
+          向量搜索
+        </button>
+        <button id="emb-tab-rerank" class="emb-tab" style="flex: 1; padding: 12px 16px; border: none; background: none; font-size: 14px; font-weight: 500; color: #6b7280; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s;">
+          重排 (Rerank)
+        </button>
+      </div>
+
+      <!-- Tab Content Container -->
+      <div style="padding: 24px; max-height: calc(80vh - 130px); overflow-y: auto;">
+        <!-- 向量搜索 Tab -->
+        <div id="emb-vector-content" class="emb-tab-content">
         <!-- 启用开关 -->
         <div style="margin-bottom: 20px;">
           <label style="display: flex; align-items: center; cursor: pointer;">
@@ -148,6 +161,104 @@
             </button>
           </div>
         </div>
+        </div>
+
+        <!-- 重排 Tab -->
+        <div id="emb-rerank-content" class="emb-tab-content" style="display: none;">
+          <!-- 启用开关 -->
+          <div style="margin-bottom: 20px;">
+            <label style="display: flex; align-items: center; cursor: pointer;">
+              <input type="checkbox" id="rerank-enabled" style="width: 18px; height: 18px; margin-right: 10px; cursor: pointer;">
+              <span style="font-weight: 600; color: #111827;">启用重排</span>
+            </label>
+            <p style="margin: 8px 0 0 28px; font-size: 13px; color: #6b7280;">启用后将对搜索结果进行二次排序，提升相关性</p>
+          </div>
+
+          <!-- 应用范围选择 -->
+          <div id="rerank-scope-wrap" style="margin-bottom: 20px;">
+            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151;">应用范围</label>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <label style="display: flex; align-items: center; cursor: pointer;">
+                <input type="radio" name="rerank-scope" value="vector-only" style="width: 16px; height: 16px; margin-right: 8px; cursor: pointer;">
+                <span style="font-size: 14px; color: #374151;">仅向量搜索使用重排</span>
+              </label>
+              <label style="display: flex; align-items: center; cursor: pointer;">
+                <input type="radio" name="rerank-scope" value="all" style="width: 16px; height: 16px; margin-right: 8px; cursor: pointer;">
+                <span style="font-size: 14px; color: #374151;">所有搜索都使用重排（包括BM25等）</span>
+              </label>
+            </div>
+            <p style="margin-top: 6px; font-size: 12px; color: #6b7280;">选择重排功能的应用范围，失败时自动降级为原始排序</p>
+          </div>
+
+          <!-- 服务商选择 -->
+          <div style="margin-bottom: 20px;">
+            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151;">服务商</label>
+            <select id="rerank-provider" style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; background: #fff;">
+              <option value="jina">Jina AI Reranker</option>
+              <option value="cohere">Cohere Rerank</option>
+              <option value="openai">OpenAI格式</option>
+            </select>
+          </div>
+
+          <!-- API Key -->
+          <div style="margin-bottom: 20px;">
+            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151;">API Key</label>
+            <input type="password" id="rerank-api-key" placeholder="jina_..." style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; box-sizing: border-box;">
+          </div>
+
+          <!-- API端点 -->
+          <div id="rerank-endpoint-wrap" style="margin-bottom: 20px;">
+            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151;">
+              Base URL
+              <span style="font-weight: normal; color: #6b7280; font-size: 12px;">(可选)</span>
+            </label>
+            <input type="text" id="rerank-endpoint" placeholder="https://api.jina.ai/v1/rerank" style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; box-sizing: border-box;">
+          </div>
+
+          <!-- 模型选择 -->
+          <div style="margin-bottom: 20px;">
+            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151;">模型ID</label>
+            <input type="text" id="rerank-model" placeholder="jina-reranker-v2-base-multilingual" style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; box-sizing: border-box;">
+            <p id="rerank-model-hint" style="margin-top: 6px; font-size: 12px; color: #6b7280;">
+              请输入服务商支持的重排模型ID
+            </p>
+          </div>
+
+          <!-- Top N -->
+          <div style="margin-bottom: 20px;">
+            <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151;">
+              Top N
+              <span style="font-weight: normal; color: #6b7280; font-size: 12px;">(返回前N个结果)</span>
+            </label>
+            <input type="number" id="rerank-top-n" placeholder="10" value="10" min="1" max="50" style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; box-sizing: border-box;">
+            <p style="margin: 6px 0 0 0; font-size: 12px; color: #6b7280;">建议 5-20，根据实际需求调整</p>
+          </div>
+
+          <!-- 测试按钮 -->
+          <div style="margin-bottom: 20px;">
+            <button id="rerank-test-btn" style="width: 100%; padding: 10px; border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s;">
+              测试连接
+            </button>
+            <div id="rerank-test-result" style="margin-top: 8px; font-size: 13px; display: none;"></div>
+          </div>
+
+          <!-- 保存按钮 -->
+          <div style="display: flex; gap: 12px;">
+            <button id="rerank-save-btn" style="flex: 1; padding: 12px; border: none; background: linear-gradient(135deg, #3b82f6, #2563eb); color: #fff; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s;">
+              保存配置
+            </button>
+            <button id="rerank-cancel-btn" style="flex: 1; padding: 12px; border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s;">
+              取消
+            </button>
+          </div>
+
+          <!-- 说明 -->
+          <div style="margin-top: 24px; padding: 12px; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px;">
+            <p style="margin: 0; font-size: 13px; color: #0c4a6e;">
+              💡 <strong>重排工作原理</strong>：对向量搜索的结果进行二次排序，使用更精确的模型计算相关性分数，提升最终结果的准确度。
+            </p>
+          </div>
+        </div>
       </div>
     `;
 
@@ -171,9 +282,40 @@
   function bindEvents(modal, overlay) {
     const $ = (id) => document.getElementById(id);
 
+    // Tab切换
+    const tabs = document.querySelectorAll('.emb-tab');
+    const tabContents = document.querySelectorAll('.emb-tab-content');
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        // 更新tab样式
+        tabs.forEach(t => {
+          t.classList.remove('active');
+          t.style.color = '#6b7280';
+          t.style.fontWeight = '500';
+          t.style.borderBottomColor = 'transparent';
+        });
+        tab.classList.add('active');
+        tab.style.color = '#3b82f6';
+        tab.style.fontWeight = '600';
+        tab.style.borderBottomColor = '#3b82f6';
+
+        // 切换内容
+        const targetId = tab.id.replace('-tab-', '-') + '-content';
+        tabContents.forEach(content => {
+          content.style.display = 'none';
+        });
+        const targetContent = document.getElementById(targetId);
+        if (targetContent) {
+          targetContent.style.display = 'block';
+        }
+      });
+    });
+
     // 关闭
     $('emb-close-btn').onclick = () => close();
     $('emb-cancel-btn').onclick = () => close();
+    $('rerank-cancel-btn').onclick = () => close();
     overlay.onclick = () => close();
 
     // 服务商切换
@@ -207,6 +349,17 @@
       if (confirm('重建索引将删除现有索引，确定继续吗?')) {
         await buildIndex(true);
       }
+    };
+
+    // 重排tab事件
+    // 测试连接
+    $('rerank-test-btn').onclick = async () => {
+      await testRerankConnection();
+    };
+
+    // 保存配置
+    $('rerank-save-btn').onclick = () => {
+      saveRerankConfig();
     };
   }
 
@@ -492,6 +645,95 @@
     close();
   }
 
+  // 重排相关函数
+  async function testRerankConnection() {
+    const $ = (id) => document.getElementById(id);
+    const resultDiv = $('rerank-test-result');
+    const btn = $('rerank-test-btn');
+
+    const config = {
+      provider: $('rerank-provider').value,
+      apiKey: $('rerank-api-key').value,
+      endpoint: $('rerank-endpoint').value,
+      model: $('rerank-model').value,
+      topN: parseInt($('rerank-top-n').value) || 10
+    };
+
+    if (!config.apiKey) {
+      resultDiv.style.display = 'block';
+      resultDiv.style.color = '#dc2626';
+      resultDiv.textContent = '❌ 请输入API Key';
+      return;
+    }
+
+    btn.textContent = '测试中...';
+    btn.disabled = true;
+    resultDiv.style.display = 'none';
+
+    try {
+      // 临时保存配置并测试
+      if (!window.RerankClient) {
+        throw new Error('RerankClient 未加载');
+      }
+
+      window.RerankClient.saveConfig({ ...config, enabled: true });
+
+      // 测试调用
+      const testQuery = '测试查询';
+      const testDocs = ['文档1内容', '文档2内容', '文档3内容'];
+      const results = await window.RerankClient.rerank(testQuery, testDocs);
+
+      resultDiv.style.display = 'block';
+      resultDiv.style.color = '#059669';
+      resultDiv.textContent = `✅ 连接成功！返回 ${results.length} 个结果`;
+
+    } catch (error) {
+      resultDiv.style.display = 'block';
+      resultDiv.style.color = '#dc2626';
+      resultDiv.textContent = `❌ 连接失败: ${error.message}`;
+    } finally {
+      btn.textContent = '测试连接';
+      btn.disabled = false;
+    }
+  }
+
+  function saveRerankConfig() {
+    const $ = (id) => document.getElementById(id);
+
+    // 获取选中的scope
+    const scopeRadios = document.getElementsByName('rerank-scope');
+    let scope = 'vector-only';
+    for (const radio of scopeRadios) {
+      if (radio.checked) {
+        scope = radio.value;
+        break;
+      }
+    }
+
+    const config = {
+      enabled: $('rerank-enabled').checked,
+      scope: scope,
+      provider: $('rerank-provider').value,
+      apiKey: $('rerank-api-key').value,
+      endpoint: $('rerank-endpoint').value,
+      model: $('rerank-model').value,
+      topN: parseInt($('rerank-top-n').value) || 10
+    };
+
+    if (!window.RerankClient) {
+      alert('RerankClient 未加载');
+      return;
+    }
+
+    window.RerankClient.saveConfig(config);
+
+    if (window.ChatbotUtils?.showToast) {
+      window.ChatbotUtils.showToast('重排配置已保存', 'success', 2000);
+    }
+
+    close();
+  }
+
   async function buildIndex(forceRebuild) {
     const groups = window.data?.semanticGroups;
     if (!groups || groups.length === 0) {
@@ -545,7 +787,7 @@
     const overlay = document.getElementById('embedding-config-overlay');
     const $ = (id) => document.getElementById(id);
 
-    // 加载配置
+    // 加载向量搜索配置
     const config = window.EmbeddingClient?.config || {};
     $('emb-enabled').checked = config.enabled || false;
     $('emb-provider').value = config.provider || 'openai';
@@ -555,6 +797,25 @@
 
     updateProviderUI(config.provider || 'openai');
     updateIndexStatus();
+
+    // 加载重排配置
+    const rerankConfig = window.RerankClient?.config || {};
+    $('rerank-enabled').checked = rerankConfig.enabled || false;
+    $('rerank-provider').value = rerankConfig.provider || 'jina';
+    $('rerank-api-key').value = rerankConfig.apiKey || '';
+    $('rerank-endpoint').value = rerankConfig.endpoint || '';
+    $('rerank-model').value = rerankConfig.model || 'jina-reranker-v2-base-multilingual';
+    $('rerank-top-n').value = rerankConfig.topN || 10;
+
+    // 设置scope单选按钮
+    const scope = rerankConfig.scope || 'vector-only';
+    const scopeRadios = document.getElementsByName('rerank-scope');
+    for (const radio of scopeRadios) {
+      if (radio.value === scope) {
+        radio.checked = true;
+        break;
+      }
+    }
 
     overlay.style.display = 'block';
     modal.style.display = 'block';

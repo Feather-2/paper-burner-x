@@ -972,6 +972,8 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
                       chunkId: r.chunkId,
                       belongsToGroup: r.belongsToGroup,
                       score: r.score,
+                      rerankScore: r.rerankScore, // 重排分数（如果有）
+                      originalScore: r.originalScore, // 原始向量分数（如果有）
                       preview: r.text.substring(0, 500)
                     })),
                     suggestedGroups: Array.from(groupIds), // 提示AI可以fetch这些意群

@@ -302,6 +302,37 @@
           .filter(Boolean)
           .slice(0, topK);
 
+        // 尝试使用重排（如果启用）
+        if (window.RerankClient && window.RerankClient.shouldRerank('vector')) {
+          try {
+            console.log(`[SemanticVectorSearch] 对 ${matchedChunks.length} 个结果进行重排...`);
+
+            // 准备文档文本
+            const docs = matchedChunks.map(c => c.text || '');
+
+            // 调用重排
+            const rerankResults = await window.RerankClient.rerank(query, docs, {
+              topN: topK,
+              searchType: 'vector'
+            });
+
+            // 根据重排结果重新排序
+            const rerankedChunks = rerankResults.map(r => ({
+              ...matchedChunks[r.index],
+              rerankScore: r.relevance_score,
+              originalScore: matchedChunks[r.index].score,
+              score: r.relevance_score // 使用重排分数作为最终分数
+            }));
+
+            console.log(`[SemanticVectorSearch] 重排完成，返回 ${rerankedChunks.length} 个结果`);
+            return rerankedChunks;
+          } catch (error) {
+            console.warn('[SemanticVectorSearch] 重排失败，使用原始结果:', error);
+            // 失败时返回原始结果
+            return matchedChunks;
+          }
+        }
+
         return matchedChunks;
 
       } catch (error) {

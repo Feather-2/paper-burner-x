@@ -127,7 +127,7 @@ document.addEventListener('DOMContentLoaded', function() {
         { key: 'volcano', name: '火山引擎', group: 'translation' },
         { key: 'deeplx', name: 'DeepLX (DeepL 接口)', group: 'translation' },
         { key: 'custom', name: '自定义翻译模型', group: 'translation' },
-        { key: 'embedding', name: '向量搜索 (Embedding)', group: 'search' }
+        { key: 'embedding', name: '向量搜索与重排', group: 'search' }
     ];
 
     if (modelKeyManagerBtn && modelKeyManagerModal && closeModelKeyManager && modelListColumn && modelConfigColumn && keyManagerColumn) {
@@ -417,7 +417,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
         } else if (modelKey === 'embedding') {
-            title.textContent = `向量搜索 (Embedding) - 配置`;
+            title.textContent = `向量搜索与重排 - 配置`;
             renderEmbeddingConfig();
         } else if (modelKey === 'mistral') {
             title.textContent = `${modelDefinition.name} - 配置`;
@@ -508,6 +508,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function renderEmbeddingConfig() {
         // 从localStorage加载配置
         const config = window.EmbeddingClient?.config || {};
+        const rerankConfig = window.RerankClient?.config || {};
         const PRESETS = {
             openai: { name: 'OpenAI格式', endpoint: 'https://api.openai.com/v1/embeddings' },
             jina: { name: 'Jina AI', endpoint: 'https://api.jina.ai/v1/embeddings' },
@@ -523,8 +524,25 @@ document.addEventListener('DOMContentLoaded', function() {
             'text-embedding-v4': { name: 'text-embedding-v4 (多语言，支持2048维)', dims: 2048 }
         };
 
-        const container = document.createElement('div');
-        container.className = 'space-y-4';
+        const mainContainer = document.createElement('div');
+
+        // Tabs
+        const tabsDiv = document.createElement('div');
+        tabsDiv.className = 'flex border-b border-gray-200 mb-4';
+        tabsDiv.innerHTML = `
+            <button id="emb-km-tab-vector" class="emb-km-tab flex-1 px-4 py-2 text-sm font-semibold text-blue-600 border-b-2 border-blue-600 transition-colors">
+                向量搜索
+            </button>
+            <button id="emb-km-tab-rerank" class="emb-km-tab flex-1 px-4 py-2 text-sm font-medium text-gray-500 border-b-2 border-transparent hover:text-gray-700 transition-colors">
+                重排 (Rerank)
+            </button>
+        `;
+        mainContainer.appendChild(tabsDiv);
+
+        // 向量搜索Tab内容
+        const vectorContainer = document.createElement('div');
+        vectorContainer.id = 'emb-km-vector-content';
+        vectorContainer.className = 'emb-km-tab-content space-y-4';
 
         // 启用开关
         const enabledDiv = document.createElement('div');
@@ -533,7 +551,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <input type="checkbox" id="emb-enabled-km" ${config.enabled ? 'checked' : ''} class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
             <label for="emb-enabled-km" class="text-sm font-medium text-gray-700">启用向量搜索</label>
         `;
-        container.appendChild(enabledDiv);
+        vectorContainer.appendChild(enabledDiv);
 
         // 服务商选择
         const providerDiv = document.createElement('div');
@@ -546,7 +564,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <option value="alibaba" ${config.provider === 'alibaba' ? 'selected' : ''}>阿里云百炼</option>
             </select>
         `;
-        container.appendChild(providerDiv);
+        vectorContainer.appendChild(providerDiv);
 
         // API Key
         const keyDiv = document.createElement('div');
@@ -554,7 +572,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <label class="block text-sm font-medium text-gray-700 mb-1">API Key</label>
             <input type="password" id="emb-api-key-km" value="${config.apiKey || ''}" placeholder="sk-..." class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
         `;
-        container.appendChild(keyDiv);
+        vectorContainer.appendChild(keyDiv);
 
         // Base URL
         const urlDiv = document.createElement('div');
@@ -567,7 +585,7 @@ document.addEventListener('DOMContentLoaded', function() {
             </label>
             <input type="text" id="emb-endpoint-km" value="${displayUrl}" placeholder="https://api.openai.com/v1" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
         `;
-        container.appendChild(urlDiv);
+        vectorContainer.appendChild(urlDiv);
 
         // 模型选择
         const modelDiv = document.createElement('div');
@@ -581,7 +599,7 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
             <p id="emb-model-hint-km" class="mt-1 text-xs text-gray-500">请输入服务商支持的嵌入模型ID</p>
         `;
-        container.appendChild(modelDiv);
+        vectorContainer.appendChild(modelDiv);
 
         // 向量维度 (OpenAI可选)
         const dimsDiv = document.createElement('div');
@@ -594,7 +612,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <input type="number" id="emb-dimensions-km" value="${config.dimensions || ''}" placeholder="1536" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
             <p class="mt-1 text-xs text-gray-500">降低维度可减少存储和计算，但可能影响精度</p>
         `;
-        container.appendChild(dimsDiv);
+        vectorContainer.appendChild(dimsDiv);
 
         // 并发数配置
         const concurrencyDiv = document.createElement('div');
@@ -606,7 +624,7 @@ document.addEventListener('DOMContentLoaded', function() {
             <input type="number" id="emb-concurrency-km" value="${config.concurrency || 5}" min="1" max="50" placeholder="5" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
             <p class="mt-1 text-xs text-gray-500">提高并发数可加快索引构建速度，但注意API速率限制</p>
         `;
-        container.appendChild(concurrencyDiv);
+        vectorContainer.appendChild(concurrencyDiv);
 
         // 测试和保存按钮
         const buttonsDiv = document.createElement('div');
@@ -615,19 +633,157 @@ document.addEventListener('DOMContentLoaded', function() {
             <button id="emb-test-km" class="flex-1 px-4 py-2 border border-gray-300 bg-white text-gray-700 rounded-md hover:bg-gray-50">测试连接</button>
             <button id="emb-save-km" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">保存配置</button>
         `;
-        container.appendChild(buttonsDiv);
+        vectorContainer.appendChild(buttonsDiv);
 
         // 测试结果
         const resultDiv = document.createElement('div');
         resultDiv.id = 'emb-test-result-km';
         resultDiv.className = 'text-sm mt-2';
         resultDiv.style.display = 'none';
-        container.appendChild(resultDiv);
+        vectorContainer.appendChild(resultDiv);
 
-        modelConfigColumn.appendChild(container);
+        mainContainer.appendChild(vectorContainer);
+
+        // 重排Tab内容
+        const rerankContainer = document.createElement('div');
+        rerankContainer.id = 'emb-km-rerank-content';
+        rerankContainer.className = 'emb-km-tab-content space-y-4 hidden';
+
+        // 重排启用开关
+        const rerankEnabledDiv = document.createElement('div');
+        rerankEnabledDiv.className = 'flex items-center gap-2';
+        rerankEnabledDiv.innerHTML = `
+            <input type="checkbox" id="rerank-enabled-km" ${rerankConfig.enabled ? 'checked' : ''} class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+            <label for="rerank-enabled-km" class="text-sm font-medium text-gray-700">启用重排</label>
+        `;
+        rerankContainer.appendChild(rerankEnabledDiv);
+
+        // 应用范围
+        const rerankScopeDiv = document.createElement('div');
+        const scope = rerankConfig.scope || 'vector-only';
+        rerankScopeDiv.innerHTML = `
+            <label class="block text-sm font-medium text-gray-700 mb-2">应用范围</label>
+            <div class="space-y-2">
+                <label class="flex items-center cursor-pointer">
+                    <input type="radio" name="rerank-scope-km" value="vector-only" ${scope === 'vector-only' ? 'checked' : ''} class="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500">
+                    <span class="ml-2 text-sm text-gray-700">仅向量搜索使用重排</span>
+                </label>
+                <label class="flex items-center cursor-pointer">
+                    <input type="radio" name="rerank-scope-km" value="all" ${scope === 'all' ? 'checked' : ''} class="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500">
+                    <span class="ml-2 text-sm text-gray-700">所有搜索都使用重排（包括BM25等）</span>
+                </label>
+            </div>
+            <p class="mt-1 text-xs text-gray-500">选择重排功能的应用范围，失败时自动降级为原始排序</p>
+        `;
+        rerankContainer.appendChild(rerankScopeDiv);
+
+        // 服务商选择
+        const rerankProviderDiv = document.createElement('div');
+        rerankProviderDiv.innerHTML = `
+            <label class="block text-sm font-medium text-gray-700 mb-1">服务商</label>
+            <select id="rerank-provider-km" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <option value="jina" ${rerankConfig.provider === 'jina' ? 'selected' : ''}>Jina AI Reranker</option>
+                <option value="cohere" ${rerankConfig.provider === 'cohere' ? 'selected' : ''}>Cohere Rerank</option>
+                <option value="openai" ${rerankConfig.provider === 'openai' ? 'selected' : ''}>OpenAI格式</option>
+            </select>
+        `;
+        rerankContainer.appendChild(rerankProviderDiv);
+
+        // API Key
+        const rerankKeyDiv = document.createElement('div');
+        rerankKeyDiv.innerHTML = `
+            <label class="block text-sm font-medium text-gray-700 mb-1">API Key</label>
+            <input type="password" id="rerank-api-key-km" value="${rerankConfig.apiKey || ''}" placeholder="jina_..." class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+        `;
+        rerankContainer.appendChild(rerankKeyDiv);
+
+        // Base URL
+        const rerankUrlDiv = document.createElement('div');
+        rerankUrlDiv.innerHTML = `
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+                Base URL
+                <span class="text-xs text-gray-500">(可选)</span>
+            </label>
+            <input type="text" id="rerank-endpoint-km" value="${rerankConfig.endpoint || ''}" placeholder="https://api.jina.ai/v1/rerank" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+        `;
+        rerankContainer.appendChild(rerankUrlDiv);
+
+        // 模型ID
+        const rerankModelDiv = document.createElement('div');
+        rerankModelDiv.innerHTML = `
+            <label class="block text-sm font-medium text-gray-700 mb-1">模型ID</label>
+            <input type="text" id="rerank-model-km" value="${rerankConfig.model || 'jina-reranker-v2-base-multilingual'}" placeholder="jina-reranker-v2-base-multilingual" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+            <p class="mt-1 text-xs text-gray-500">请输入服务商支持的重排模型ID</p>
+        `;
+        rerankContainer.appendChild(rerankModelDiv);
+
+        // Top N
+        const rerankTopNDiv = document.createElement('div');
+        rerankTopNDiv.innerHTML = `
+            <label class="block text-sm font-medium text-gray-700 mb-1">
+                Top N
+                <span class="text-xs text-gray-500">(返回前N个结果)</span>
+            </label>
+            <input type="number" id="rerank-top-n-km" value="${rerankConfig.topN || 10}" min="1" max="50" placeholder="10" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+            <p class="mt-1 text-xs text-gray-500">建议 5-20，根据实际需求调整</p>
+        `;
+        rerankContainer.appendChild(rerankTopNDiv);
+
+        // 重排测试和保存按钮
+        const rerankButtonsDiv = document.createElement('div');
+        rerankButtonsDiv.className = 'flex gap-3 pt-2';
+        rerankButtonsDiv.innerHTML = `
+            <button id="rerank-test-km" class="flex-1 px-4 py-2 border border-gray-300 bg-white text-gray-700 rounded-md hover:bg-gray-50">测试连接</button>
+            <button id="rerank-save-km" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">保存配置</button>
+        `;
+        rerankContainer.appendChild(rerankButtonsDiv);
+
+        // 重排测试结果
+        const rerankResultDiv = document.createElement('div');
+        rerankResultDiv.id = 'rerank-test-result-km';
+        rerankResultDiv.className = 'text-sm mt-2';
+        rerankResultDiv.style.display = 'none';
+        rerankContainer.appendChild(rerankResultDiv);
+
+        // 说明
+        const rerankNoticeDiv = document.createElement('div');
+        rerankNoticeDiv.className = 'mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md';
+        rerankNoticeDiv.innerHTML = `
+            <p class="text-xs text-blue-900">💡 <strong>重排工作原理</strong>：对搜索结果进行二次排序，使用更精确的模型计算相关性分数，提升最终结果的准确度。</p>
+        `;
+        rerankContainer.appendChild(rerankNoticeDiv);
+
+        mainContainer.appendChild(rerankContainer);
+
+        modelConfigColumn.appendChild(mainContainer);
 
         // 事件绑定
         const $= (id) => document.getElementById(id);
+
+        // Tabs切换事件
+        const kmTabs = document.querySelectorAll('.emb-km-tab');
+        const kmTabContents = document.querySelectorAll('.emb-km-tab-content');
+        kmTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                // 更新tab样式
+                kmTabs.forEach(t => {
+                    t.classList.remove('text-blue-600', 'font-semibold', 'border-blue-600');
+                    t.classList.add('text-gray-500', 'font-medium', 'border-transparent');
+                });
+                tab.classList.remove('text-gray-500', 'font-medium', 'border-transparent');
+                tab.classList.add('text-blue-600', 'font-semibold', 'border-blue-600');
+
+                // 切换内容
+                const targetId = tab.id.replace('-tab-', '-') + '-content';
+                kmTabContents.forEach(content => {
+                    content.classList.add('hidden');
+                });
+                const targetContent = document.getElementById(targetId);
+                if (targetContent) {
+                    targetContent.classList.remove('hidden');
+                }
+            });
+        });
 
         // 服务商切换
         $('emb-provider-km').onchange = function() {
@@ -841,6 +997,88 @@ document.addEventListener('DOMContentLoaded', function() {
             window.EmbeddingClient.saveConfig(newConfig);
             if (typeof showNotification === 'function') {
                 showNotification('向量搜索配置已保存', 'success');
+            } else {
+                alert('配置已保存');
+            }
+        };
+
+        // 重排测试连接
+        $('rerank-test-km').onclick = async () => {
+            const btn = $('rerank-test-km');
+            const result = $('rerank-test-result-km');
+
+            const testConfig = {
+                provider: $('rerank-provider-km').value,
+                apiKey: $('rerank-api-key-km').value,
+                endpoint: $('rerank-endpoint-km').value,
+                model: $('rerank-model-km').value,
+                topN: parseInt($('rerank-top-n-km').value) || 10
+            };
+
+            if (!testConfig.apiKey || !testConfig.model) {
+                result.style.display = 'block';
+                result.style.color = '#dc2626';
+                result.textContent = '❌ 请填写完整配置';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = '测试中...';
+            result.style.display = 'none';
+
+            try {
+                if (!window.RerankClient) {
+                    throw new Error('RerankClient 未加载');
+                }
+
+                window.RerankClient.saveConfig({ ...testConfig, enabled: true });
+                const testQuery = '测试查询';
+                const testDocs = ['文档1内容', '文档2内容', '文档3内容'];
+                const results = await window.RerankClient.rerank(testQuery, testDocs);
+
+                result.style.display = 'block';
+                result.style.color = '#059669';
+                result.textContent = `✅ 连接成功！返回 ${results.length} 个结果`;
+            } catch (error) {
+                result.style.display = 'block';
+                result.style.color = '#dc2626';
+                result.textContent = `❌ 连接失败: ${error.message}`;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '测试连接';
+            }
+        };
+
+        // 重排保存配置
+        $('rerank-save-km').onclick = () => {
+            // 获取选中的scope
+            const scopeRadios = document.getElementsByName('rerank-scope-km');
+            let scope = 'vector-only';
+            for (const radio of scopeRadios) {
+                if (radio.checked) {
+                    scope = radio.value;
+                    break;
+                }
+            }
+
+            const newConfig = {
+                enabled: $('rerank-enabled-km').checked,
+                scope: scope,
+                provider: $('rerank-provider-km').value,
+                apiKey: $('rerank-api-key-km').value,
+                endpoint: $('rerank-endpoint-km').value,
+                model: $('rerank-model-km').value,
+                topN: parseInt($('rerank-top-n-km').value) || 10
+            };
+
+            if (!window.RerankClient) {
+                alert('RerankClient 未加载');
+                return;
+            }
+
+            window.RerankClient.saveConfig(newConfig);
+            if (typeof showNotification === 'function') {
+                showNotification('重排配置已保存', 'success');
             } else {
                 alert('配置已保存');
             }
