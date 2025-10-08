@@ -402,12 +402,15 @@ async function renderAllMermaidBlocksInternal(chatBodyElement) {
       rawCode = rawCode.replace(/--\s+>/g, '-->');
       rawCode = rawCode.replace(/<\s+--/g, '<--');
 
-      // 8.2 修正节点定义后缺少空格的问题（]D --> ] D 或 ] --> D）
+      // 8.2 修正节点定义后多余的节点名（A[text]A --> B 改为 A[text] --> B）
+      // 必须在 8.3 之前执行，避免误判
+      // 匹配：节点ID + [ + 内容(可能包含全角］) + ] + 重复的节点ID
+      rawCode = rawCode.replace(/([A-Za-z0-9_]+)\[([^\]]*(?:］[^\]]*)*)\]\1(?=\s|$)/g, '$1[$2]');
+
+      // 8.3 修正节点定义后缺少空格的问题（]D --> 改为 ]\nD -->）
+      // 只处理半角右括号后紧跟字母的情况
       rawCode = rawCode.replace(/\]([A-Za-z0-9_]+)(\s+-->)/g, ']\n$1$2');
       rawCode = rawCode.replace(/\]([A-Za-z0-9_]+)(\s*$)/gm, ']\n$1');
-
-      // 8.3 修正节点定义后多余的节点名（A[text]A --> B 改为 A[text] --> B）
-      rawCode = rawCode.replace(/([A-Za-z0-9_]+)\[([^\]]+)\]\1(\s*[-<])/g, '$1[$2]$3');
 
       // 8.4 修复缺少箭头的节点连接
       // 修复菱形节点缺少结束花括号的情况（如 J{文本 K[...] 改为 J{文本} --> K[...]）
