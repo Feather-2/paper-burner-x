@@ -561,7 +561,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const dimsInput = $('emb-dimensions-km');
                 const dimsHint = dimsInput.nextElementSibling;
                 const modelInput = $('emb-model-km');
-                
+
                 // 根据当前模型更新默认维度
                 const updateDimensionsForModel = () => {
                     const modelId = modelInput.value.trim();
@@ -571,10 +571,10 @@ document.addEventListener('DOMContentLoaded', function() {
                         dimsHint.textContent = `默认维度: ${modelInfo.dims}。可输入1-${modelInfo.dims}之间的整数，留空使用默认。`;
                     }
                 };
-                
+
                 // 初始化时更新一次
                 updateDimensionsForModel();
-                
+
                 // 模型改变时更新
                 modelInput.addEventListener('change', updateDimensionsForModel);
             }
@@ -723,12 +723,12 @@ document.addEventListener('DOMContentLoaded', function() {
             <label class="block text-sm font-medium text-gray-700 mb-1">Worker Auth Key（可选）</label>
             <div class="flex items-center gap-2">
                 <input type="password" id="mineru-auth-key-km" value="${authKey}" placeholder="如果 Worker 启用了访问控制，填写这里" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
-                <button type="button" id="mineru-auth-key-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors">
+                <button type="button" id="mineru-auth-key-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors flex items-center gap-1">
                     <iconify-icon icon="carbon:view" width="16"></iconify-icon>
-                    显示
+                    <span>显示</span>
                 </button>
             </div>
-            <p class="mt-1 text-xs text-gray-500">对应 Worker 环境变量 AUTH_SECRET（如果启用了 ENABLE_AUTH）</p>
+            <p class="mt-1 text-xs text-gray-500">对应 Worker 环境变量 <code class="bg-gray-100 px-1 rounded">AUTH_SECRET</code>（如果启用了 <code class="bg-gray-100 px-1 rounded">ENABLE_AUTH</code>）</p>
         `;
         container.appendChild(authKeyDiv);
 
@@ -737,7 +737,7 @@ document.addEventListener('DOMContentLoaded', function() {
         tokenModeDiv.className = 'border-t pt-4';
         tokenModeDiv.innerHTML = `
             <label class="block text-sm font-medium text-gray-700 mb-2">MinerU Token 配置模式</label>
-            <div class="space-y-2">
+            <div class="flex items-center gap-6">
                 <label class="flex items-center cursor-pointer">
                     <input type="radio" name="mineru-token-mode" value="frontend" ${tokenMode === 'frontend' ? 'checked' : ''} class="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500">
                     <span class="ml-2 text-sm text-gray-700">前端透传模式（推荐）</span>
@@ -758,14 +758,14 @@ document.addEventListener('DOMContentLoaded', function() {
             <label class="block text-sm font-medium text-gray-700 mb-1">MinerU Token</label>
             <div class="flex items-center gap-2">
                 <input type="password" id="mineru-token-km" value="${token}" placeholder="eyJ0eXBlIjoiSldUIi..." class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
-                <button type="button" id="mineru-token-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors">
+                <button type="button" id="mineru-token-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors flex items-center gap-1">
                     <iconify-icon icon="carbon:view" width="16"></iconify-icon>
-                    显示
+                    <span>显示</span>
                 </button>
             </div>
             <p class="mt-1 text-xs text-gray-500">从 https://mineru.net 获取，格式：JWT（eyJ 开头）</p>
             <div class="mt-2 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded p-2">
-                💡 <strong>前端透传模式</strong>：通过请求头（X-MinerU-Key）传递 Token，Worker 无需配置
+                💡 <strong>前端透传模式</strong>：通过请求头（<code class="bg-blue-100 px-1 rounded">X-MinerU-Key</code>）传递 Token，Worker 无需配置 <code class="bg-blue-100 px-1 rounded">MINERU_API_TOKEN</code>
             </div>
         `;
         container.appendChild(frontendTokenDiv);
@@ -787,20 +787,22 @@ document.addEventListener('DOMContentLoaded', function() {
         const enableTable = localStorage.getItem('ocrMinerUEnableTable') !== 'false';
 
         const optionsDiv = document.createElement('div');
-        optionsDiv.className = 'space-y-2 border-t pt-4';
+        optionsDiv.className = 'border-t pt-4';
         optionsDiv.innerHTML = `
             <label class="block text-sm font-medium text-gray-700 mb-2">OCR 选项</label>
-            <div class="flex items-center gap-2">
-                <input type="checkbox" id="mineru-enable-ocr-km" ${enableOcr ? 'checked' : ''} class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
-                <label for="mineru-enable-ocr-km" class="text-sm text-gray-700">启用 OCR</label>
-            </div>
-            <div class="flex items-center gap-2">
-                <input type="checkbox" id="mineru-enable-formula-km" ${enableFormula ? 'checked' : ''} class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
-                <label for="mineru-enable-formula-km" class="text-sm text-gray-700">启用公式识别</label>
-            </div>
-            <div class="flex items-center gap-2">
-                <input type="checkbox" id="mineru-enable-table-km" ${enableTable ? 'checked' : ''} class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
-                <label for="mineru-enable-table-km" class="text-sm text-gray-700">启用表格识别</label>
+            <div class="flex items-center gap-6">
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" id="mineru-enable-ocr-km" ${enableOcr ? 'checked' : ''} class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                    <label for="mineru-enable-ocr-km" class="text-sm text-gray-700">启用 OCR</label>
+                </div>
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" id="mineru-enable-formula-km" ${enableFormula ? 'checked' : ''} class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                    <label for="mineru-enable-formula-km" class="text-sm text-gray-700">启用公式识别</label>
+                </div>
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" id="mineru-enable-table-km" ${enableTable ? 'checked' : ''} class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                    <label for="mineru-enable-table-km" class="text-sm text-gray-700">启用表格识别</label>
+                </div>
             </div>
         `;
         container.appendChild(optionsDiv);
@@ -896,44 +898,44 @@ document.addEventListener('DOMContentLoaded', function() {
             btn.disabled = true; btn.textContent = '测试中...';
             try {
                 if (!wurl) throw new Error('请先填写 Worker URL');
-                
+
                 const base = wurl.replace(/\/+$/, '');
-                
+
                 // 第一步：测试Worker可达性
                 result.style.display = 'block';
                 result.style.color = '#3b82f6';
                 result.textContent = '🔄 正在测试Worker可达性...';
-                
+
                 const healthResp = await fetch(base + '/health', {
                     headers: akey ? { 'X-Auth-Key': akey } : {}
                 });
-                
+
                 if (!healthResp.ok) {
                     throw new Error(`Worker不可达: ${healthResp.status} ${healthResp.statusText}`);
                 }
-                
+
                 // 第二步：测试Token有效性（如果是前端模式）
                 if (selectedMode === 'frontend') {
                     if (!token) {
                         throw new Error('前端模式下必须提供MinerU Token');
                     }
-                    
+
                     result.style.color = '#3b82f6';
                     result.textContent = '🔄 正在验证Token有效性...';
-                    
+
                     const tokenTestResp = await fetch(base + '/mineru/result/__health__', {
                         headers: {
                             'X-Auth-Key': akey || '',
                             'X-MinerU-Key': token
                         }
                     });
-                    
+
                     const tokenTestData = await tokenTestResp.json();
-                    
+
                     if (!tokenTestResp.ok || !tokenTestData.success) {
                         throw new Error(`Token无效: ${tokenTestData.message || tokenTestData.error || '未知错误'}`);
                     }
-                    
+
                     result.style.color = '#059669';
                     result.textContent = '✅ Worker可达且Token有效';
                 } else {
@@ -989,9 +991,9 @@ document.addEventListener('DOMContentLoaded', function() {
             <label class="block text-sm font-medium text-gray-700 mb-1">Worker Auth Key（可选）</label>
             <div class="flex items-center gap-2">
                 <input type="password" id="doc2x-auth-key-km" value="${authKey}" placeholder="如果 Worker 启用了访问控制，填写这里" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
-                <button type="button" id="doc2x-auth-key-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors">
+                <button type="button" id="doc2x-auth-key-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors flex items-center gap-1">
                     <iconify-icon icon="carbon:view" width="16"></iconify-icon>
-                    显示
+                    <span>显示</span>
                 </button>
             </div>
             <p class="mt-1 text-xs text-gray-500">对应 Worker 环境变量 <code class="bg-gray-100 px-1 rounded">AUTH_SECRET</code>（如果启用了 <code class="bg-gray-100 px-1 rounded">ENABLE_AUTH</code>）</p>
@@ -1000,16 +1002,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Token 配置模式选择
         const tokenModeDiv = document.createElement('div');
+        tokenModeDiv.className = 'border-t pt-4';
         tokenModeDiv.innerHTML = `
             <label class="block text-sm font-medium text-gray-700 mb-2">Doc2X Token 配置模式</label>
-            <div class="space-y-2">
+            <div class="flex items-center gap-6">
                 <label class="flex items-center cursor-pointer">
-                    <input type="radio" name="doc2x-token-mode" value="frontend" ${tokenMode === 'frontend' ? 'checked' : ''} class="mr-2">
-                    <span class="text-sm text-gray-700">前端透传模式（推荐）</span>
+                    <input type="radio" name="doc2x-token-mode" value="frontend" ${tokenMode === 'frontend' ? 'checked' : ''} class="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500">
+                    <span class="ml-2 text-sm text-gray-700">前端透传模式（推荐）</span>
                 </label>
                 <label class="flex items-center cursor-pointer">
-                    <input type="radio" name="doc2x-token-mode" value="worker" ${tokenMode === 'worker' ? 'checked' : ''} class="mr-2">
-                    <span class="text-sm text-gray-700">Worker 配置模式</span>
+                    <input type="radio" name="doc2x-token-mode" value="worker" ${tokenMode === 'worker' ? 'checked' : ''} class="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500">
+                    <span class="ml-2 text-sm text-gray-700">Worker 配置模式</span>
                 </label>
             </div>
         `;
@@ -1023,9 +1026,9 @@ document.addEventListener('DOMContentLoaded', function() {
             <label class="block text-sm font-medium text-gray-700 mb-1">Doc2X Token</label>
             <div class="flex items-center gap-2">
                 <input type="password" id="doc2x-token-km" value="${token}" placeholder="your-doc2x-token" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
-                <button type="button" id="doc2x-token-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors">
+                <button type="button" id="doc2x-token-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors flex items-center gap-1">
                     <iconify-icon icon="carbon:view" width="16"></iconify-icon>
-                    显示
+                    <span>显示</span>
                 </button>
             </div>
             <div class="mt-2 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded p-2">
@@ -1049,13 +1052,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const noticeDiv = document.createElement('div');
         noticeDiv.className = 'bg-blue-50 border border-blue-200 rounded-md p-3 text-sm text-gray-700';
         noticeDiv.innerHTML = `
-            <p class="font-semibold mb-1">📝 Doc2X OCR 特性：</p>
-            <ul class="list-disc list-inside space-y-1 text-xs">
-                <li>使用 Status 端点获取永久 Markdown</li>
-                <li>尝试导出带图片版本（最多3次重试）</li>
-                <li>导出失败后自动降级到 CDN 图床</li>
-                <li>公式模式固定为 Dollar 格式</li>
-            </ul>
+            <p class="text-xs">📝 <strong>Doc2X OCR 特性</strong>：支持图片和复杂排版识别，公式使用 Dollar 格式 ($...$)</p>
         `;
         container.appendChild(noticeDiv);
 
@@ -1146,44 +1143,44 @@ document.addEventListener('DOMContentLoaded', function() {
             btn.disabled = true; btn.textContent = '测试中...';
             try {
                 if (!wurl) throw new Error('请先填写 Worker URL');
-                
+
                 const base = wurl.replace(/\/+$/, '');
-                
+
                 // 第一步：测试Worker可达性
                 result.style.display = 'block';
                 result.style.color = '#3b82f6';
                 result.textContent = '🔄 正在测试Worker可达性...';
-                
+
                 const healthResp = await fetch(base + '/health', {
                     headers: akey ? { 'X-Auth-Key': akey } : {}
                 });
-                
+
                 if (!healthResp.ok) {
                     throw new Error(`Worker不可达: ${healthResp.status} ${healthResp.statusText}`);
                 }
-                
+
                 // 第二步：测试Token有效性（如果是前端模式）
                 if (selectedMode === 'frontend') {
                     if (!token) {
                         throw new Error('前端模式下必须提供Doc2X Token');
                     }
-                    
+
                     result.style.color = '#3b82f6';
                     result.textContent = '🔄 正在验证Token有效性...';
-                    
+
                     const tokenTestResp = await fetch(base + '/doc2x/status/__health__', {
                         headers: {
                             'X-Auth-Key': akey || '',
                             'X-Doc2X-Key': token
                         }
                     });
-                    
+
                     const tokenTestData = await tokenTestResp.json();
-                    
+
                     if (!tokenTestResp.ok || !tokenTestData.success) {
                         throw new Error(`Token无效: ${tokenTestData.message || tokenTestData.error || '未知错误'}`);
                     }
-                    
+
                     result.style.color = '#059669';
                     result.textContent = '✅ Worker可达且Token有效';
                 } else {

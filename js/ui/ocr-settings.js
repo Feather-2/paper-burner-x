@@ -73,6 +73,7 @@ class OcrSettingsManager {
   cacheElements() {
     // OCR 引擎选择
     this.elements.ocrEngine = document.getElementById('ocrEngine');
+    this.elements.localOcrHint = document.getElementById('localOcrHint');
 
     // Mistral OCR
     this.elements.mistralOcrKeys = document.getElementById('mistralOcrKeys');
@@ -289,11 +290,21 @@ class OcrSettingsManager {
       this.elements.mineruTranslationModeConfig.classList.add('hidden');
     }
 
+    // 隐藏本地解析提示
+    if (this.elements.localOcrHint) {
+      this.elements.localOcrHint.classList.add('hidden');
+    }
+
     // 显示选中的配置面板
     switch (engine) {
       case 'none':
+        // 不需要 OCR，不显示任何配置面板
+        break;
       case 'local':
-        // 不需要 OCR 或本地解析，不显示任何配置面板
+        // 显示本地解析提示
+        if (this.elements.localOcrHint) {
+          this.elements.localOcrHint.classList.remove('hidden');
+        }
         break;
       case 'mistral':
         if (this.elements.mistralOcrConfig) {
