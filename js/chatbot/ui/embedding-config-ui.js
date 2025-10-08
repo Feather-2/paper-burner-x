@@ -8,26 +8,32 @@
   const PRESETS = {
     openai: {
       name: 'OpenAI',
-      endpoint: 'https://api.openai.com/v1/embeddings',
-      models: [
-        { id: 'text-embedding-3-small', name: 'text-embedding-3-small (推荐)', dims: 1536 },
-        { id: 'text-embedding-3-large', name: 'text-embedding-3-large (高精度)', dims: 3072 },
-        { id: 'text-embedding-ada-002', name: 'text-embedding-ada-002 (旧版)', dims: 1536 }
-      ]
+      endpoint: 'https://api.openai.com/v1/embeddings'
     },
     jina: {
       name: 'Jina AI',
-      endpoint: 'https://api.jina.ai/v1/embeddings',
-      models: [
-        { id: 'jina-embeddings-v2-base-zh', name: 'jina-v2-base-zh (中文优化)', dims: 768 },
-        { id: 'jina-embeddings-v2-base-en', name: 'jina-v2-base-en (英文)', dims: 768 }
-      ]
+      endpoint: 'https://api.jina.ai/v1/embeddings'
+    },
+    zhipu: {
+      name: '智谱AI',
+      endpoint: 'https://open.bigmodel.cn/api/paas/v4/embeddings'
+    },
+    alibaba: {
+      name: '阿里云百炼',
+      endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings'
     },
     custom: {
       name: '自定义',
-      endpoint: '',
-      models: [{ id: '', name: '自定义模型', dims: 1536 }]
+      endpoint: ''
     }
+  };
+
+  // 阿里云百炼支持的模型和维度
+  const ALIBABA_MODELS = {
+    'text-embedding-v1': { name: 'text-embedding-v1 (中文)', dims: 1536 },
+    'text-embedding-v2': { name: 'text-embedding-v2 (多语言)', dims: 1536 },
+    'text-embedding-v3': { name: 'text-embedding-v3 (高性能)', dims: 1024 },
+    'text-embedding-v4': { name: 'text-embedding-v4 (多语言，支持2048维)', dims: 2048 }
   };
 
   function createModal() {
@@ -69,6 +75,8 @@
           <select id="emb-provider" style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; background: #fff;">
             <option value="openai">OpenAI</option>
             <option value="jina">Jina AI (多语言优化)</option>
+            <option value="zhipu">智谱AI (GLM)</option>
+            <option value="alibaba">阿里云百炼</option>
             <option value="custom">自定义 (兼容OpenAI格式)</option>
           </select>
         </div>
@@ -90,18 +98,11 @@
 
         <!-- 模型选择 -->
         <div style="margin-bottom: 20px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <label style="font-weight: 600; color: #374151;">模型</label>
-            <button id="emb-fetch-models-btn" style="padding: 4px 12px; border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 6px; font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.2s; display: none;">
-              获取模型列表
-            </button>
-          </div>
-          <select id="emb-model" style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; background: #fff;">
-            <!-- 动态填充 -->
-          </select>
-          <div id="emb-model-loading" style="margin-top: 6px; font-size: 12px; color: #6b7280; display: none;">
-            正在获取模型列表...
-          </div>
+          <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151;">模型ID</label>
+          <input type="text" id="emb-model" placeholder="请输入模型ID，如: text-embedding-3-small" style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; box-sizing: border-box;">
+          <p style="margin-top: 6px; font-size: 12px; color: #6b7280;">
+            请输入服务商支持的嵌入模型ID
+          </p>
         </div>
 
         <!-- 向量维度 (OpenAI可选) -->
@@ -181,10 +182,7 @@
       updateProviderUI(provider);
     };
 
-    // 获取模型列表
-    $('emb-fetch-models-btn').onclick = async () => {
-      await fetchModels();
-    };
+    // 移除获取模型列表功能，统一使用预设模型
 
     // 测试连接
     $('emb-test-btn').onclick = async () => {
@@ -219,98 +217,42 @@
       `<option value="${m.id}">${m.name}</option>`
     ).join('');
 
-    // 更新端点和获取模型按钮
-    const fetchBtn = $('emb-fetch-models-btn');
+    // 更新端点
     if (provider === 'custom') {
       $('emb-endpoint-wrap').style.display = 'block';
       $('emb-endpoint').value = window.EmbeddingClient?.config.endpoint || '';
-      fetchBtn.style.display = 'inline-block';
     } else {
       $('emb-endpoint-wrap').style.display = 'block';  // 预设也显示，允许修改
       $('emb-endpoint').value = preset.endpoint;
-      fetchBtn.style.display = 'inline-block';
     }
 
-    // OpenAI支持自定义维度
-    $('emb-dims-wrap').style.display = provider === 'openai' ? 'block' : 'none';
-  }
-
-  async function fetchModels() {
-    const $ = (id) => document.getElementById(id);
-    const btn = $('emb-fetch-models-btn');
-    const loadingDiv = $('emb-model-loading');
-    const modelSelect = $('emb-model');
-
-    const baseUrl = $('emb-endpoint').value?.trim();
-    const apiKey = $('emb-api-key').value?.trim();
-
-    if (!baseUrl) {
-      alert('请先输入Base URL');
-      return;
-    }
-
-    if (!apiKey) {
-      alert('请先输入API Key');
-      return;
-    }
-
-    btn.disabled = true;
-    btn.textContent = '获取中...';
-    loadingDiv.style.display = 'block';
-
-    try {
-      // 构建 /models 端点
-      let modelsUrl = baseUrl.replace(/\/+$/, '') + '/models';
-
-      const response = await fetch(modelsUrl, {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
+    // OpenAI和阿里云百炼支持自定义维度
+    $('emb-dims-wrap').style.display = (provider === 'openai' || provider === 'alibaba') ? 'block' : 'none';
+    
+    // 当选择阿里云百炼时，更新维度提示
+    if (provider === 'alibaba') {
+      const dimsInput = $('emb-dimensions');
+      const dimsHint = dimsInput.nextElementSibling;
+      const modelInput = $('emb-model');
+      
+      // 根据当前模型更新默认维度
+      const updateDimensionsForModel = () => {
+        const modelId = modelInput.value.trim();
+        const modelInfo = ALIBABA_MODELS[modelId];
+        if (modelInfo) {
+          dimsInput.placeholder = `默认: ${modelInfo.dims}`;
+          dimsHint.textContent = `默认维度: ${modelInfo.dims}。可输入1-${modelInfo.dims}之间的整数，留空使用默认。`;
         }
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-
-      // 过滤出embedding相关模型
-      let models = [];
-      if (data.data && Array.isArray(data.data)) {
-        models = data.data.filter(m => {
-          const id = m.id || m.model || '';
-          return id.includes('embed') || id.includes('bge') || id.includes('rerank');
-        }).map(m => ({
-          id: m.id || m.model,
-          name: m.id || m.model
-        }));
-      }
-
-      if (models.length === 0) {
-        throw new Error('未找到embedding或rerank相关模型');
-      }
-
-      // 更新模型选择框
-      modelSelect.innerHTML = models.map(m =>
-        `<option value="${m.id}">${m.name}</option>`
-      ).join('');
-
-      loadingDiv.style.display = 'none';
-      loadingDiv.style.color = '#059669';
-      loadingDiv.textContent = `✅ 成功获取 ${models.length} 个模型`;
-      setTimeout(() => { loadingDiv.style.display = 'none'; }, 3000);
-
-    } catch (error) {
-      console.error('[EmbeddingConfigUI] 获取模型失败:', error);
-      loadingDiv.style.color = '#dc2626';
-      loadingDiv.textContent = `❌ 获取失败: ${error.message}`;
-      setTimeout(() => { loadingDiv.style.display = 'none'; }, 5000);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '获取模型列表';
+      };
+      
+      // 初始化时更新一次
+      updateDimensionsForModel();
+      
+      // 模型改变时更新
+      modelInput.addEventListener('change', updateDimensionsForModel);
     }
   }
+
 
   async function testConnection() {
     const $ = (id) => document.getElementById(id);

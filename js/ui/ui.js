@@ -437,9 +437,19 @@ document.addEventListener('DOMContentLoaded', function() {
         // 从localStorage加载配置
         const config = window.EmbeddingClient?.config || {};
         const PRESETS = {
-            openai: { name: 'OpenAI', endpoint: 'https://api.openai.com/v1' },
-            jina: { name: 'Jina AI', endpoint: 'https://api.jina.ai/v1' },
+            openai: { name: 'OpenAI', endpoint: 'https://api.openai.com/v1/embeddings' },
+            jina: { name: 'Jina AI', endpoint: 'https://api.jina.ai/v1/embeddings' },
+            zhipu: { name: '智谱AI', endpoint: 'https://open.bigmodel.cn/api/paas/v4/embeddings' },
+            alibaba: { name: '阿里云百炼', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings' },
             custom: { name: '自定义', endpoint: '' }
+        };
+
+        // 阿里云百炼支持的模型和维度
+        const ALIBABA_MODELS = {
+            'text-embedding-v1': { name: 'text-embedding-v1 (中文)', dims: 1536 },
+            'text-embedding-v2': { name: 'text-embedding-v2 (多语言)', dims: 1536 },
+            'text-embedding-v3': { name: 'text-embedding-v3 (高性能)', dims: 1024 },
+            'text-embedding-v4': { name: 'text-embedding-v4 (多语言，支持2048维)', dims: 2048 }
         };
 
         const container = document.createElement('div');
@@ -461,6 +471,8 @@ document.addEventListener('DOMContentLoaded', function() {
             <select id="emb-provider-km" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
                 <option value="openai" ${config.provider === 'openai' ? 'selected' : ''}>OpenAI</option>
                 <option value="jina" ${config.provider === 'jina' ? 'selected' : ''}>Jina AI (多语言优化)</option>
+                <option value="zhipu" ${config.provider === 'zhipu' ? 'selected' : ''}>智谱AI (GLM)</option>
+                <option value="alibaba" ${config.provider === 'alibaba' ? 'selected' : ''}>阿里云百炼</option>
                 <option value="custom" ${config.provider === 'custom' ? 'selected' : ''}>自定义 (兼容OpenAI格式)</option>
             </select>
         `;
@@ -490,15 +502,9 @@ document.addEventListener('DOMContentLoaded', function() {
         // 模型选择
         const modelDiv = document.createElement('div');
         modelDiv.innerHTML = `
-            <div class="flex justify-between items-center mb-1">
-                <label class="block text-sm font-medium text-gray-700">模型</label>
-                <button id="emb-fetch-models-km" class="px-2 py-1 text-xs border border-gray-300 rounded-md text-gray-600 hover:text-blue-600 hover:border-blue-400">获取模型列表</button>
-            </div>
-            <select id="emb-model-km" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
-                <option value="">请先获取模型列表或手动输入</option>
-                ${config.model ? `<option value="${config.model}" selected>${config.model}</option>` : ''}
-            </select>
-            <p id="emb-model-loading-km" class="mt-1 text-xs text-gray-500" style="display:none;">正在获取模型列表...</p>
+            <label class="block text-sm font-medium text-gray-700 mb-1">模型ID</label>
+            <input type="text" id="emb-model-km" value="${config.model || ''}" placeholder="请输入模型ID，如: text-embedding-3-small" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+            <p class="mt-1 text-xs text-gray-500">请输入服务商支持的嵌入模型ID</p>
         `;
         container.appendChild(modelDiv);
 
@@ -548,61 +554,29 @@ document.addEventListener('DOMContentLoaded', function() {
         // 事件绑定
         const $= (id) => document.getElementById(id);
 
-        // 获取模型列表
-        $('emb-fetch-models-km').onclick = async () => {
-            const btn = $('emb-fetch-models-km');
-            const loading = $('emb-model-loading-km');
-            const modelSelect = $('emb-model-km');
-            const baseUrl = $('emb-endpoint-km').value.trim();
-            const apiKey = $('emb-api-key-km').value.trim();
-
-            if (!baseUrl || !apiKey) {
-                alert('请先输入Base URL和API Key');
-                return;
-            }
-
-            btn.disabled = true;
-            btn.textContent = '获取中...';
-            loading.style.display = 'block';
-
-            try {
-                const modelsUrl = baseUrl.replace(/\/+$/, '') + '/models';
-                const response = await fetch(modelsUrl, {
-                    headers: {
-                        'Authorization': `Bearer ${apiKey}`,
-                        'Content-Type': 'application/json'
+        // 当选择阿里云百炼时，更新维度提示
+        $('emb-provider-km').onchange = function() {
+            const provider = this.value;
+            if (provider === 'alibaba') {
+                const dimsInput = $('emb-dimensions-km');
+                const dimsHint = dimsInput.nextElementSibling;
+                const modelInput = $('emb-model-km');
+                
+                // 根据当前模型更新默认维度
+                const updateDimensionsForModel = () => {
+                    const modelId = modelInput.value.trim();
+                    const modelInfo = ALIBABA_MODELS[modelId];
+                    if (modelInfo) {
+                        dimsInput.placeholder = `默认: ${modelInfo.dims}`;
+                        dimsHint.textContent = `默认维度: ${modelInfo.dims}。可输入1-${modelInfo.dims}之间的整数，留空使用默认。`;
                     }
-                });
-
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-                const data = await response.json();
-                const models = data.data?.filter(m => {
-                    const id = m.id || m.model || '';
-                    return id.includes('embed') || id.includes('bge') || id.includes('rerank');
-                }) || [];
-
-                if (models.length > 0) {
-                    // 清空并填充下拉菜单
-                    modelSelect.innerHTML = models.map(m => {
-                        const modelId = m.id || m.model;
-                        return `<option value="${modelId}">${modelId}</option>`;
-                    }).join('');
-
-                    loading.textContent = `✅ 找到 ${models.length} 个模型`;
-                    loading.style.color = '#059669';
-                } else {
-                    throw new Error('未找到embedding相关模型');
-                }
-
-                setTimeout(() => { loading.style.display = 'none'; }, 3000);
-            } catch (error) {
-                loading.textContent = `❌ 获取失败: ${error.message}`;
-                loading.style.color = '#dc2626';
-                setTimeout(() => { loading.style.display = 'none'; }, 5000);
-            } finally {
-                btn.disabled = false;
-                btn.textContent = '获取模型列表';
+                };
+                
+                // 初始化时更新一次
+                updateDimensionsForModel();
+                
+                // 模型改变时更新
+                modelInput.addEventListener('change', updateDimensionsForModel);
             }
         };
 
@@ -747,7 +721,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const authKeyDiv = document.createElement('div');
         authKeyDiv.innerHTML = `
             <label class="block text-sm font-medium text-gray-700 mb-1">Worker Auth Key（可选）</label>
-            <input type="password" id="mineru-auth-key-km" value="${authKey}" placeholder="如果 Worker 启用了访问控制，填写这里" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+            <div class="flex items-center gap-2">
+                <input type="password" id="mineru-auth-key-km" value="${authKey}" placeholder="如果 Worker 启用了访问控制，填写这里" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <button type="button" id="mineru-auth-key-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors">
+                    <iconify-icon icon="carbon:view" width="16"></iconify-icon>
+                    显示
+                </button>
+            </div>
             <p class="mt-1 text-xs text-gray-500">对应 Worker 环境变量 AUTH_SECRET（如果启用了 ENABLE_AUTH）</p>
         `;
         container.appendChild(authKeyDiv);
@@ -776,7 +756,13 @@ document.addEventListener('DOMContentLoaded', function() {
         frontendTokenDiv.style.display = tokenMode === 'frontend' ? 'block' : 'none';
         frontendTokenDiv.innerHTML = `
             <label class="block text-sm font-medium text-gray-700 mb-1">MinerU Token</label>
-            <input type="password" id="mineru-token-km" value="${token}" placeholder="eyJ0eXBlIjoiSldUIi..." class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+            <div class="flex items-center gap-2">
+                <input type="password" id="mineru-token-km" value="${token}" placeholder="eyJ0eXBlIjoiSldUIi..." class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <button type="button" id="mineru-token-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors">
+                    <iconify-icon icon="carbon:view" width="16"></iconify-icon>
+                    显示
+                </button>
+            </div>
             <p class="mt-1 text-xs text-gray-500">从 https://mineru.net 获取，格式：JWT（eyJ 开头）</p>
             <div class="mt-2 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded p-2">
                 💡 <strong>前端透传模式</strong>：通过请求头（X-MinerU-Key）传递 Token，Worker 无需配置
@@ -847,6 +833,32 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
 
+        // Auth Key 显示/隐藏切换
+        const authKeyToggle = document.getElementById('mineru-auth-key-toggle');
+        const authKeyInput = document.getElementById('mineru-auth-key-km');
+        if (authKeyToggle && authKeyInput) {
+            authKeyToggle.addEventListener('click', () => {
+                const isPassword = authKeyInput.type === 'password';
+                authKeyInput.type = isPassword ? 'text' : 'password';
+                authKeyToggle.innerHTML = isPassword ?
+                    '<iconify-icon icon="carbon:view-off" width="16"></iconify-icon>隐藏' :
+                    '<iconify-icon icon="carbon:view" width="16"></iconify-icon>显示';
+            });
+        }
+
+        // Token 显示/隐藏切换
+        const tokenToggle = document.getElementById('mineru-token-toggle');
+        const tokenInput = document.getElementById('mineru-token-km');
+        if (tokenToggle && tokenInput) {
+            tokenToggle.addEventListener('click', () => {
+                const isPassword = tokenInput.type === 'password';
+                tokenInput.type = isPassword ? 'text' : 'password';
+                tokenToggle.innerHTML = isPassword ?
+                    '<iconify-icon icon="carbon:view-off" width="16"></iconify-icon>隐藏' :
+                    '<iconify-icon icon="carbon:view" width="16"></iconify-icon>显示';
+            });
+        }
+
         // 保存配置
         document.getElementById('mineru-save-km').onclick = () => {
             const selectedMode = document.querySelector('input[name="mineru-token-mode"]:checked').value;
@@ -877,17 +889,58 @@ document.addEventListener('DOMContentLoaded', function() {
             const result = document.getElementById('mineru-test-result-km');
             const wurl = document.getElementById('mineru-worker-url-km').value.trim();
             const akey = document.getElementById('mineru-auth-key-km').value.trim();
+            const selectedMode = document.querySelector('input[name="mineru-token-mode"]:checked').value;
+            const token = selectedMode === 'frontend' ? document.getElementById('mineru-token-km').value.trim() : '';
 
             result.style.display = 'none';
             btn.disabled = true; btn.textContent = '测试中...';
             try {
                 if (!wurl) throw new Error('请先填写 Worker URL');
+                
                 const base = wurl.replace(/\/+$/, '');
-                const hResp = await fetch(base + '/health', { headers: akey ? { 'X-Auth-Key': akey } : {} });
-                const hOk = hResp.ok;
+                
+                // 第一步：测试Worker可达性
                 result.style.display = 'block';
-                result.style.color = hOk ? '#059669' : '#dc2626';
-                result.textContent = hOk ? '✅ Worker 可达' : '❌ Worker 不可达';
+                result.style.color = '#3b82f6';
+                result.textContent = '🔄 正在测试Worker可达性...';
+                
+                const healthResp = await fetch(base + '/health', {
+                    headers: akey ? { 'X-Auth-Key': akey } : {}
+                });
+                
+                if (!healthResp.ok) {
+                    throw new Error(`Worker不可达: ${healthResp.status} ${healthResp.statusText}`);
+                }
+                
+                // 第二步：测试Token有效性（如果是前端模式）
+                if (selectedMode === 'frontend') {
+                    if (!token) {
+                        throw new Error('前端模式下必须提供MinerU Token');
+                    }
+                    
+                    result.style.color = '#3b82f6';
+                    result.textContent = '🔄 正在验证Token有效性...';
+                    
+                    const tokenTestResp = await fetch(base + '/mineru/result/__health__', {
+                        headers: {
+                            'X-Auth-Key': akey || '',
+                            'X-MinerU-Key': token
+                        }
+                    });
+                    
+                    const tokenTestData = await tokenTestResp.json();
+                    
+                    if (!tokenTestResp.ok || !tokenTestData.success) {
+                        throw new Error(`Token无效: ${tokenTestData.message || tokenTestData.error || '未知错误'}`);
+                    }
+                    
+                    result.style.color = '#059669';
+                    result.textContent = '✅ Worker可达且Token有效';
+                } else {
+                    // Worker模式：只需要验证Worker可达性
+                    result.style.color = '#059669';
+                    result.textContent = '✅ Worker可达（Worker模式，Token由Worker配置）';
+                }
             } catch (e) {
                 result.style.display = 'block';
                 result.style.color = '#dc2626';
@@ -934,7 +987,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const authKeyDiv = document.createElement('div');
         authKeyDiv.innerHTML = `
             <label class="block text-sm font-medium text-gray-700 mb-1">Worker Auth Key（可选）</label>
-            <input type="password" id="doc2x-auth-key-km" value="${authKey}" placeholder="如果 Worker 启用了访问控制，填写这里" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+            <div class="flex items-center gap-2">
+                <input type="password" id="doc2x-auth-key-km" value="${authKey}" placeholder="如果 Worker 启用了访问控制，填写这里" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <button type="button" id="doc2x-auth-key-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors">
+                    <iconify-icon icon="carbon:view" width="16"></iconify-icon>
+                    显示
+                </button>
+            </div>
             <p class="mt-1 text-xs text-gray-500">对应 Worker 环境变量 <code class="bg-gray-100 px-1 rounded">AUTH_SECRET</code>（如果启用了 <code class="bg-gray-100 px-1 rounded">ENABLE_AUTH</code>）</p>
         `;
         container.appendChild(authKeyDiv);
@@ -962,7 +1021,13 @@ document.addEventListener('DOMContentLoaded', function() {
         frontendTokenDiv.style.display = tokenMode === 'frontend' ? 'block' : 'none';
         frontendTokenDiv.innerHTML = `
             <label class="block text-sm font-medium text-gray-700 mb-1">Doc2X Token</label>
-            <input type="password" id="doc2x-token-km" value="${token}" placeholder="your-doc2x-token" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+            <div class="flex items-center gap-2">
+                <input type="password" id="doc2x-token-km" value="${token}" placeholder="your-doc2x-token" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <button type="button" id="doc2x-token-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors">
+                    <iconify-icon icon="carbon:view" width="16"></iconify-icon>
+                    显示
+                </button>
+            </div>
             <div class="mt-2 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded p-2">
                 💡 <strong>前端透传模式</strong>：通过请求头（<code class="bg-blue-100 px-1 rounded">X-Doc2X-Key</code>）传递 Token，Worker 无需配置 <code class="bg-blue-100 px-1 rounded">DOC2X_API_TOKEN</code>
             </div>
@@ -1022,6 +1087,32 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
 
+        // Auth Key 显示/隐藏切换
+        const authKeyToggle = document.getElementById('doc2x-auth-key-toggle');
+        const authKeyInput = document.getElementById('doc2x-auth-key-km');
+        if (authKeyToggle && authKeyInput) {
+            authKeyToggle.addEventListener('click', () => {
+                const isPassword = authKeyInput.type === 'password';
+                authKeyInput.type = isPassword ? 'text' : 'password';
+                authKeyToggle.innerHTML = isPassword ?
+                    '<iconify-icon icon="carbon:view-off" width="16"></iconify-icon>隐藏' :
+                    '<iconify-icon icon="carbon:view" width="16"></iconify-icon>显示';
+            });
+        }
+
+        // Token 显示/隐藏切换
+        const tokenToggle = document.getElementById('doc2x-token-toggle');
+        const tokenInput = document.getElementById('doc2x-token-km');
+        if (tokenToggle && tokenInput) {
+            tokenToggle.addEventListener('click', () => {
+                const isPassword = tokenInput.type === 'password';
+                tokenInput.type = isPassword ? 'text' : 'password';
+                tokenToggle.innerHTML = isPassword ?
+                    '<iconify-icon icon="carbon:view-off" width="16"></iconify-icon>隐藏' :
+                    '<iconify-icon icon="carbon:view" width="16"></iconify-icon>显示';
+            });
+        }
+
         // 保存配置
         document.getElementById('doc2x-save-km').onclick = () => {
             const selectedMode = document.querySelector('input[name="doc2x-token-mode"]:checked').value;
@@ -1048,17 +1139,58 @@ document.addEventListener('DOMContentLoaded', function() {
             const result = document.getElementById('doc2x-test-result-km');
             const wurl = document.getElementById('doc2x-worker-url-km').value.trim();
             const akey = document.getElementById('doc2x-auth-key-km').value.trim();
+            const selectedMode = document.querySelector('input[name="doc2x-token-mode"]:checked').value;
+            const token = selectedMode === 'frontend' ? document.getElementById('doc2x-token-km').value.trim() : '';
 
             result.style.display = 'none';
             btn.disabled = true; btn.textContent = '测试中...';
             try {
                 if (!wurl) throw new Error('请先填写 Worker URL');
+                
                 const base = wurl.replace(/\/+$/, '');
-                const hResp = await fetch(base + '/health', { headers: akey ? { 'X-Auth-Key': akey } : {} });
-                const hOk = hResp.ok;
+                
+                // 第一步：测试Worker可达性
                 result.style.display = 'block';
-                result.style.color = hOk ? '#059669' : '#dc2626';
-                result.textContent = hOk ? '✅ Worker 可达' : '❌ Worker 不可达';
+                result.style.color = '#3b82f6';
+                result.textContent = '🔄 正在测试Worker可达性...';
+                
+                const healthResp = await fetch(base + '/health', {
+                    headers: akey ? { 'X-Auth-Key': akey } : {}
+                });
+                
+                if (!healthResp.ok) {
+                    throw new Error(`Worker不可达: ${healthResp.status} ${healthResp.statusText}`);
+                }
+                
+                // 第二步：测试Token有效性（如果是前端模式）
+                if (selectedMode === 'frontend') {
+                    if (!token) {
+                        throw new Error('前端模式下必须提供Doc2X Token');
+                    }
+                    
+                    result.style.color = '#3b82f6';
+                    result.textContent = '🔄 正在验证Token有效性...';
+                    
+                    const tokenTestResp = await fetch(base + '/doc2x/status/__health__', {
+                        headers: {
+                            'X-Auth-Key': akey || '',
+                            'X-Doc2X-Key': token
+                        }
+                    });
+                    
+                    const tokenTestData = await tokenTestResp.json();
+                    
+                    if (!tokenTestResp.ok || !tokenTestData.success) {
+                        throw new Error(`Token无效: ${tokenTestData.message || tokenTestData.error || '未知错误'}`);
+                    }
+                    
+                    result.style.color = '#059669';
+                    result.textContent = '✅ Worker可达且Token有效';
+                } else {
+                    // Worker模式：只需要验证Worker可达性
+                    result.style.color = '#059669';
+                    result.textContent = '✅ Worker可达（Worker模式，Token由Worker配置）';
+                }
             } catch (e) {
                 result.style.display = 'block';
                 result.style.color = '#dc2626';
