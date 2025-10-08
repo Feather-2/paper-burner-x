@@ -82,6 +82,16 @@ class Doc2XOcrAdapter extends OcrAdapter {
     // Doc2X Token (仅在前端透传模式)
     if (this.tokenMode === 'frontend' && this.token) {
       headers['X-Doc2X-Key'] = this.token;
+      const tokenPreview = this.token.length > 12
+        ? `${this.token.substring(0, 6)}...${this.token.substring(this.token.length - 6)}`
+        : this.token;
+      console.log(`[Doc2X OCR] Authorization: Using frontend mode with token (${tokenPreview})`);
+    } else if (this.tokenMode === 'frontend' && !this.token) {
+      console.warn('[Doc2X OCR] Authorization: Frontend mode selected but no token provided');
+    } else if (this.tokenMode === 'worker') {
+      console.log('[Doc2X OCR] Authorization: Using worker mode (token from environment)');
+    } else {
+      console.warn('[Doc2X OCR] Authorization: Unknown token mode:', this.tokenMode);
     }
 
     // JSON Content-Type

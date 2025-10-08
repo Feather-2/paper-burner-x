@@ -73,6 +73,16 @@ class MinerUOcrAdapter extends OcrAdapter {
     // MinerU Token (仅在前端透传模式)
     if (this.tokenMode === 'frontend' && this.token) {
       headers['X-MinerU-Key'] = this.token;
+      const tokenPreview = this.token.length > 12
+        ? `${this.token.substring(0, 6)}...${this.token.substring(this.token.length - 6)}`
+        : this.token;
+      console.log(`[MinerU OCR] Authorization: Using frontend mode with token (${tokenPreview})`);
+    } else if (this.tokenMode === 'frontend' && !this.token) {
+      console.warn('[MinerU OCR] Authorization: Frontend mode selected but no token provided');
+    } else if (this.tokenMode === 'worker') {
+      console.log('[MinerU OCR] Authorization: Using worker mode (token from environment)');
+    } else {
+      console.warn('[MinerU OCR] Authorization: Unknown token mode:', this.tokenMode);
     }
 
     return headers;
