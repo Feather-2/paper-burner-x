@@ -7,7 +7,7 @@
 
   const PRESETS = {
     openai: {
-      name: 'OpenAI',
+      name: 'OpenAI格式',
       endpoint: 'https://api.openai.com/v1/embeddings'
     },
     jina: {
@@ -21,10 +21,6 @@
     alibaba: {
       name: '阿里云百炼',
       endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings'
-    },
-    custom: {
-      name: '自定义',
-      endpoint: ''
     }
   };
 
@@ -73,11 +69,10 @@
         <div style="margin-bottom: 20px;">
           <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151;">服务商</label>
           <select id="emb-provider" style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; background: #fff;">
-            <option value="openai">OpenAI</option>
+            <option value="openai">OpenAI格式</option>
             <option value="jina">Jina AI (多语言优化)</option>
             <option value="zhipu">智谱AI (GLM)</option>
             <option value="alibaba">阿里云百炼</option>
-            <option value="custom">自定义 (兼容OpenAI格式)</option>
           </select>
         </div>
 
@@ -99,8 +94,13 @@
         <!-- 模型选择 -->
         <div style="margin-bottom: 20px;">
           <label style="display: block; margin-bottom: 8px; font-weight: 600; color: #374151;">模型ID</label>
-          <input type="text" id="emb-model" placeholder="请输入模型ID，如: text-embedding-3-small" style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; box-sizing: border-box;">
-          <p style="margin-top: 6px; font-size: 12px; color: #6b7280;">
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="emb-model" placeholder="请输入模型ID，如: text-embedding-3-small" style="flex: 1; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; box-sizing: border-box;">
+            <button id="emb-fetch-models-btn" style="display: none; padding: 10px 12px; border: 1px solid #d1d5db; background: #fff; color: #374151; border-radius: 8px; font-size: 13px; cursor: pointer; white-space: nowrap; transition: all 0.2s;">
+              获取列表
+            </button>
+          </div>
+          <p id="emb-model-hint" style="margin-top: 6px; font-size: 12px; color: #6b7280;">
             请输入服务商支持的嵌入模型ID
           </p>
         </div>
@@ -182,7 +182,10 @@
       updateProviderUI(provider);
     };
 
-    // 移除获取模型列表功能，统一使用预设模型
+    // 获取模型列表（仅 OpenAI格式）
+    $('emb-fetch-models-btn').onclick = async () => {
+      await fetchModels();
+    };
 
     // 测试连接
     $('emb-test-btn').onclick = async () => {
@@ -211,30 +214,30 @@
     const $ = (id) => document.getElementById(id);
     const preset = PRESETS[provider];
 
-    // 更新模型列表
-    const modelSelect = $('emb-model');
-    modelSelect.innerHTML = preset.models.map(m =>
-      `<option value="${m.id}">${m.name}</option>`
-    ).join('');
-
-    // 更新端点
-    if (provider === 'custom') {
-      $('emb-endpoint-wrap').style.display = 'block';
-      $('emb-endpoint').value = window.EmbeddingClient?.config.endpoint || '';
+    // 显示/隐藏获取模型列表按钮（仅 OpenAI格式支持）
+    const fetchBtn = $('emb-fetch-models-btn');
+    const modelHint = $('emb-model-hint');
+    if (provider === 'openai') {
+      fetchBtn.style.display = 'block';
+      modelHint.textContent = '可手动输入模型ID，或点击"获取列表"从服务器获取';
     } else {
-      $('emb-endpoint-wrap').style.display = 'block';  // 预设也显示，允许修改
-      $('emb-endpoint').value = preset.endpoint;
+      fetchBtn.style.display = 'none';
+      modelHint.textContent = '请输入服务商支持的嵌入模型ID';
     }
+
+    // 更新端点（所有服务商都显示，允许修改）
+    $('emb-endpoint-wrap').style.display = 'block';
+    $('emb-endpoint').value = preset?.endpoint || window.EmbeddingClient?.config.endpoint || '';
 
     // OpenAI和阿里云百炼支持自定义维度
     $('emb-dims-wrap').style.display = (provider === 'openai' || provider === 'alibaba') ? 'block' : 'none';
-    
+
     // 当选择阿里云百炼时，更新维度提示
     if (provider === 'alibaba') {
       const dimsInput = $('emb-dimensions');
       const dimsHint = dimsInput.nextElementSibling;
       const modelInput = $('emb-model');
-      
+
       // 根据当前模型更新默认维度
       const updateDimensionsForModel = () => {
         const modelId = modelInput.value.trim();
@@ -244,15 +247,183 @@
           dimsHint.textContent = `默认维度: ${modelInfo.dims}。可输入1-${modelInfo.dims}之间的整数，留空使用默认。`;
         }
       };
-      
+
       // 初始化时更新一次
       updateDimensionsForModel();
-      
+
       // 模型改变时更新
       modelInput.addEventListener('change', updateDimensionsForModel);
     }
   }
 
+
+  async function fetchModels() {
+    const $ = (id) => document.getElementById(id);
+    const btn = $('emb-fetch-models-btn');
+    const modelInput = $('emb-model');
+    const modelHint = $('emb-model-hint');
+
+    const provider = $('emb-provider').value;
+    const apiKey = $('emb-api-key').value;
+    let endpoint = $('emb-endpoint').value;
+
+    if (!apiKey) {
+      modelHint.style.color = '#dc2626';
+      modelHint.textContent = '❌ 请先输入 API Key';
+      setTimeout(() => {
+        modelHint.style.color = '#6b7280';
+        modelHint.textContent = '可手动输入模型ID，或点击"获取列表"从服务器获取';
+      }, 3000);
+      return;
+    }
+
+    if (!endpoint) {
+      endpoint = PRESETS[provider]?.endpoint || '';
+    }
+
+    // 构建 models 端点
+    let modelsEndpoint = endpoint;
+    if (modelsEndpoint.endsWith('/embeddings')) {
+      modelsEndpoint = modelsEndpoint.replace('/embeddings', '/models');
+    } else if (modelsEndpoint.endsWith('/v1')) {
+      modelsEndpoint = modelsEndpoint + '/models';
+    } else if (!modelsEndpoint.endsWith('/models')) {
+      modelsEndpoint = modelsEndpoint.replace(/\/$/, '') + '/v1/models';
+    }
+
+    btn.textContent = '获取中...';
+    btn.disabled = true;
+    modelHint.style.color = '#6b7280';
+    modelHint.textContent = '正在获取模型列表...';
+
+    try {
+      const response = await fetch(modelsEndpoint, {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const models = data.data || [];
+
+      // 过滤出嵌入模型（支持多种命名模式）
+      const embeddingModels = models.filter(m => {
+        const id = (m.id || '').toLowerCase();
+        return id.includes('embedding') ||
+               id.includes('embed') ||
+               id.includes('bge') ||
+               id.includes('text-similarity') ||
+               id.includes('sentence') ||
+               id.includes('vector');
+      });
+
+      if (embeddingModels.length === 0) {
+        modelHint.style.color = '#f59e0b';
+        modelHint.textContent = `⚠️ 未找到嵌入模型（共 ${models.length} 个模型）`;
+        setTimeout(() => {
+          modelHint.style.color = '#6b7280';
+          modelHint.textContent = '可手动输入模型ID，或点击"获取列表"从服务器获取';
+        }, 3000);
+        return;
+      }
+
+      // 创建选择对话框
+      showModelSelector(embeddingModels, modelInput);
+      modelHint.style.color = '#059669';
+      modelHint.textContent = `✅ 找到 ${embeddingModels.length} 个嵌入模型`;
+      setTimeout(() => {
+        modelHint.style.color = '#6b7280';
+        modelHint.textContent = '可手动输入模型ID，或点击"获取列表"从服务器获取';
+      }, 3000);
+
+    } catch (error) {
+      modelHint.style.color = '#dc2626';
+      modelHint.textContent = `❌ 获取失败: ${error.message}`;
+      setTimeout(() => {
+        modelHint.style.color = '#6b7280';
+        modelHint.textContent = '可手动输入模型ID，或点击"获取列表"从服务器获取';
+      }, 3000);
+    } finally {
+      btn.textContent = '获取列表';
+      btn.disabled = false;
+    }
+  }
+
+  function showModelSelector(models, targetInput) {
+    // 创建一个简单的选择对话框
+    const container = document.createElement('div');
+    container.style.cssText = `
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      width: 400px; max-width: 90vw; max-height: 60vh;
+      background: #fff; border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+      z-index: 100002; padding: 0; overflow: hidden;
+    `;
+
+    const header = document.createElement('div');
+    header.style.cssText = 'padding: 16px 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;';
+    header.innerHTML = `
+      <h4 style="margin: 0; font-size: 16px; font-weight: 600; color: #111827;">选择嵌入模型</h4>
+      <button id="model-selector-close" style="border: none; background: none; font-size: 24px; color: #6b7280; cursor: pointer; line-height: 1;">&times;</button>
+    `;
+
+    const list = document.createElement('div');
+    list.style.cssText = 'max-height: 400px; overflow-y: auto; padding: 8px;';
+
+    models.forEach(model => {
+      const item = document.createElement('div');
+      item.style.cssText = `
+        padding: 12px 16px; margin: 4px 0; border-radius: 8px;
+        cursor: pointer; transition: all 0.2s;
+        border: 1px solid #e5e7eb;
+      `;
+      item.innerHTML = `
+        <div style="font-weight: 500; color: #111827;">${model.id}</div>
+        ${model.owned_by ? `<div style="font-size: 12px; color: #6b7280; margin-top: 2px;">by ${model.owned_by}</div>` : ''}
+      `;
+
+      item.onmouseover = () => {
+        item.style.background = '#f3f4f6';
+        item.style.borderColor = '#3b82f6';
+      };
+      item.onmouseout = () => {
+        item.style.background = '#fff';
+        item.style.borderColor = '#e5e7eb';
+      };
+      item.onclick = () => {
+        targetInput.value = model.id;
+        document.body.removeChild(overlay);
+        document.body.removeChild(container);
+      };
+
+      list.appendChild(item);
+    });
+
+    container.appendChild(header);
+    container.appendChild(list);
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.5); z-index: 100001;
+    `;
+
+    const closeHandler = () => {
+      document.body.removeChild(overlay);
+      document.body.removeChild(container);
+    };
+
+    overlay.onclick = closeHandler;
+    header.querySelector('#model-selector-close').onclick = closeHandler;
+
+    document.body.appendChild(overlay);
+    document.body.appendChild(container);
+  }
 
   async function testConnection() {
     const $ = (id) => document.getElementById(id);
