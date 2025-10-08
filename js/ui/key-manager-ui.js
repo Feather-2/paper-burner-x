@@ -707,6 +707,7 @@ KeyManagerUI.exportAllModelData = function() {
     const translationModelConfigs = JSON.parse(localStorage.getItem('translationModelConfigs') || '{}');
     const paperBurnerCustomSourceSites = JSON.parse(localStorage.getItem('paperBurnerCustomSourceSites') || '{}');
     const embeddingConfig = JSON.parse(localStorage.getItem('embeddingConfig') || 'null');
+    const rerankConfig = JSON.parse(localStorage.getItem('rerankConfig') || 'null');
 
     // 添加 OCR 配置导出
     const ocrConfig = {
@@ -729,6 +730,7 @@ KeyManagerUI.exportAllModelData = function() {
         translationModelConfigs,
         paperBurnerCustomSourceSites,
         embeddingConfig,
+        rerankConfig,
         ocrConfig  // 新增 OCR 配置
     };
     const dataStr = JSON.stringify(data, null, 2);
@@ -777,6 +779,7 @@ KeyManagerUI.importAllModelData = function(refreshUIFunc) {
                     || imported.sourceSites
                     || {};
                 let importedEmbeddingConfig = imported.embeddingConfig || null;
+                let importedRerankConfig = imported.rerankConfig || imported.rerank || null;
 
                 // 2) 归一化 modelKeys（数组项可为字符串或对象）
                 const genUUID = (function(){
@@ -860,6 +863,14 @@ KeyManagerUI.importAllModelData = function(refreshUIFunc) {
                     // 更新 EmbeddingClient 配置
                     if (window.EmbeddingClient && typeof window.EmbeddingClient.saveConfig === 'function') {
                         window.EmbeddingClient.saveConfig(importedEmbeddingConfig);
+                    }
+                }
+
+                // 导入重排配置（如果存在）
+                if (importedRerankConfig && typeof importedRerankConfig === 'object') {
+                    localStorage.setItem('rerankConfig', JSON.stringify(importedRerankConfig));
+                    if (window.RerankClient && typeof window.RerankClient.saveConfig === 'function') {
+                        window.RerankClient.saveConfig(importedRerankConfig);
                     }
                 }
 

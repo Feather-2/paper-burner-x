@@ -526,11 +526,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const mainContainer = document.createElement('div');
 
-        // Tabs
+        // Tabs（样式更内敛）
         const tabsDiv = document.createElement('div');
         tabsDiv.className = 'flex border-b border-gray-200 mb-4';
         tabsDiv.innerHTML = `
-            <button id="emb-km-tab-vector" class="emb-km-tab flex-1 px-4 py-2 text-sm font-semibold text-blue-600 border-b-2 border-blue-600 transition-colors">
+            <button id="emb-km-tab-vector" class="emb-km-tab flex-1 px-4 py-2 text-sm font-medium text-gray-800 border-b-2 border-gray-300 transition-colors">
                 向量搜索
             </button>
             <button id="emb-km-tab-rerank" class="emb-km-tab flex-1 px-4 py-2 text-sm font-medium text-gray-500 border-b-2 border-transparent hover:text-gray-700 transition-colors">
@@ -566,11 +566,16 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
         vectorContainer.appendChild(providerDiv);
 
-        // API Key
+        // API Key（带显示/隐藏按钮）
         const keyDiv = document.createElement('div');
         keyDiv.innerHTML = `
             <label class="block text-sm font-medium text-gray-700 mb-1">API Key</label>
-            <input type="password" id="emb-api-key-km" value="${config.apiKey || ''}" placeholder="sk-..." class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+            <div class="flex items-center gap-2">
+                <input type="password" id="emb-api-key-km" value="${config.apiKey || ''}" placeholder="sk-..." class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <button type="button" id="emb-api-key-toggle-km" class="px-2.5 py-2 border border-gray-300 rounded-md text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-1">
+                    <iconify-icon icon="carbon:view" width="16"></iconify-icon>显示
+                </button>
+            </div>
         `;
         vectorContainer.appendChild(keyDiv);
 
@@ -689,31 +694,41 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
         rerankContainer.appendChild(rerankProviderDiv);
 
-        // API Key
+        // API Key（带显示/隐藏按钮）
         const rerankKeyDiv = document.createElement('div');
         rerankKeyDiv.innerHTML = `
             <label class="block text-sm font-medium text-gray-700 mb-1">API Key</label>
-            <input type="password" id="rerank-api-key-km" value="${rerankConfig.apiKey || ''}" placeholder="jina_..." class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+            <div class="flex items-center gap-2">
+                <input type="password" id="rerank-api-key-km" value="${rerankConfig.apiKey || ''}" placeholder="jina_..." class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <button type="button" id="rerank-api-key-toggle-km" class="px-2.5 py-2 border border-gray-300 rounded-md text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-1">
+                    <iconify-icon icon="carbon:view" width="16"></iconify-icon>显示
+                </button>
+            </div>
         `;
         rerankContainer.appendChild(rerankKeyDiv);
 
-        // Base URL
+        // Base URL（显示时去掉 /rerank 后缀）
         const rerankUrlDiv = document.createElement('div');
+        const displayRerankBaseUrl = (rerankConfig.endpoint || '').replace(/\/rerank\/?$/, '');
         rerankUrlDiv.innerHTML = `
             <label class="block text-sm font-medium text-gray-700 mb-1">
                 Base URL
-                <span class="text-xs text-gray-500">(可选)</span>
+                <span class="text-xs text-gray-500">(如 https://api.jina.ai/v1 或 https://api.openai.com/v1)</span>
             </label>
-            <input type="text" id="rerank-endpoint-km" value="${rerankConfig.endpoint || ''}" placeholder="https://api.jina.ai/v1/rerank" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+            <input type="text" id="rerank-endpoint-km" value="${displayRerankBaseUrl}" placeholder="https://api.jina.ai/v1" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
         `;
         rerankContainer.appendChild(rerankUrlDiv);
 
-        // 模型ID
+        // 模型ID（支持 OpenAI 格式获取列表与模型检测）
         const rerankModelDiv = document.createElement('div');
         rerankModelDiv.innerHTML = `
             <label class="block text-sm font-medium text-gray-700 mb-1">模型ID</label>
-            <input type="text" id="rerank-model-km" value="${rerankConfig.model || 'jina-reranker-v2-base-multilingual'}" placeholder="jina-reranker-v2-base-multilingual" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
-            <p class="mt-1 text-xs text-gray-500">请输入服务商支持的重排模型ID</p>
+            <div class="flex gap-2">
+                <input type="text" id="rerank-model-km" value="${rerankConfig.model || 'jina-reranker-v2-base-multilingual'}" placeholder="例如: jina-reranker-v2-base-multilingual 或 cohere/rerank-multilingual-v3.0" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <button type="button" id="rerank-fetch-models-km" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors whitespace-nowrap" style="display: none;">获取列表</button>
+                <button type="button" id="rerank-check-model-km" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors whitespace-nowrap">检测模型</button>
+            </div>
+            <p id="rerank-model-hint-km" class="mt-1 text-xs text-gray-500">请输入服务商支持的重排模型ID；OpenAI格式可点击“获取列表”</p>
         `;
         rerankContainer.appendChild(rerankModelDiv);
 
@@ -760,18 +775,48 @@ document.addEventListener('DOMContentLoaded', function() {
         // 事件绑定
         const $= (id) => document.getElementById(id);
 
-        // Tabs切换事件
+        // API Key 显示/隐藏切换（Embedding）
+        (function() {
+            const toggleBtn = $('emb-api-key-toggle-km');
+            const input = $('emb-api-key-km');
+            if (toggleBtn && input) {
+                toggleBtn.addEventListener('click', () => {
+                    const isPassword = input.type === 'password';
+                    input.type = isPassword ? 'text' : 'password';
+                    toggleBtn.innerHTML = isPassword
+                        ? '<iconify-icon icon="carbon:view-off" width="16"></iconify-icon>隐藏'
+                        : '<iconify-icon icon="carbon:view" width="16"></iconify-icon>显示';
+                });
+            }
+        })();
+
+        // API Key 显示/隐藏切换（Rerank）
+        (function() {
+            const toggleBtn = $('rerank-api-key-toggle-km');
+            const input = $('rerank-api-key-km');
+            if (toggleBtn && input) {
+                toggleBtn.addEventListener('click', () => {
+                    const isPassword = input.type === 'password';
+                    input.type = isPassword ? 'text' : 'password';
+                    toggleBtn.innerHTML = isPassword
+                        ? '<iconify-icon icon="carbon:view-off" width="16"></iconify-icon>隐藏'
+                        : '<iconify-icon icon="carbon:view" width="16"></iconify-icon>显示';
+                });
+            }
+        })();
+
+        // Tabs切换事件（中性灰）
         const kmTabs = document.querySelectorAll('.emb-km-tab');
         const kmTabContents = document.querySelectorAll('.emb-km-tab-content');
         kmTabs.forEach(tab => {
             tab.addEventListener('click', () => {
                 // 更新tab样式
                 kmTabs.forEach(t => {
-                    t.classList.remove('text-blue-600', 'font-semibold', 'border-blue-600');
-                    t.classList.add('text-gray-500', 'font-medium', 'border-transparent');
+                    t.classList.remove('text-gray-800', 'border-gray-300');
+                    t.classList.add('text-gray-500', 'border-transparent');
                 });
-                tab.classList.remove('text-gray-500', 'font-medium', 'border-transparent');
-                tab.classList.add('text-blue-600', 'font-semibold', 'border-blue-600');
+                tab.classList.remove('text-gray-500', 'border-transparent');
+                tab.classList.add('text-gray-800', 'border-gray-300');
 
                 // 切换内容
                 const targetId = tab.id.replace('-tab-', '-') + '-content';
@@ -1002,15 +1047,179 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         };
 
+        // Rerank: 服务商切换（仅 OpenAI 格式显示“获取列表”）
+        $('rerank-provider-km').onchange = function() {
+            const provider = this.value;
+            const fetchBtn = $('rerank-fetch-models-km');
+            const hint = $('rerank-model-hint-km');
+            const endpointInput = $('rerank-endpoint-km');
+
+            if (provider === 'openai') {
+                fetchBtn.style.display = 'block';
+                hint.textContent = '可手动输入模型ID，或点击"获取列表"从服务器获取';
+                if (!endpointInput.value.trim()) endpointInput.placeholder = 'https://api.openai.com/v1';
+            } else {
+                fetchBtn.style.display = 'none';
+                hint.textContent = '请输入服务商支持的重排模型ID';
+                if (!endpointInput.value.trim()) {
+                    endpointInput.placeholder = provider === 'jina' ? 'https://api.jina.ai/v1' : 'https://api.cohere.ai/v1';
+                }
+            }
+        };
+
+        // 初始化 Rerank 提示与按钮显示
+        (function() {
+            const provider = ($('rerank-provider-km')?.value) || 'jina';
+            const fetchBtn = $('rerank-fetch-models-km');
+            const hint = $('rerank-model-hint-km');
+            const endpointInput = $('rerank-endpoint-km');
+            if (provider === 'openai') {
+                fetchBtn.style.display = 'block';
+                hint.textContent = '可手动输入模型ID，或点击"获取列表"从服务器获取';
+                if (!endpointInput.value.trim()) endpointInput.placeholder = 'https://api.openai.com/v1';
+            } else {
+                fetchBtn.style.display = 'none';
+                hint.textContent = '请输入服务商支持的重排模型ID';
+            }
+        })();
+
+        // Rerank: 获取模型列表（OpenAI 格式）
+        $('rerank-fetch-models-km').onclick = async () => {
+            const btn = $('rerank-fetch-models-km');
+            const modelInput = $('rerank-model-km');
+            const hint = $('rerank-model-hint-km');
+            const apiKey = $('rerank-api-key-km').value;
+            let baseUrl = $('rerank-endpoint-km').value.trim();
+
+            if (!apiKey) {
+                hint.style.color = '#dc2626';
+                hint.textContent = '❌ 请先输入 API Key';
+                setTimeout(() => { hint.style.color = '#6b7280'; hint.textContent = '可手动输入模型ID，或点击"获取列表"从服务器获取'; }, 3000);
+                return;
+            }
+
+            if (!baseUrl) {
+                baseUrl = 'https://api.openai.com/v1';
+            }
+
+            const modelsEndpoint = baseUrl.replace(/\/+$/, '') + '/models';
+
+            btn.textContent = '获取中...';
+            btn.disabled = true;
+            hint.style.color = '#6b7280';
+            hint.textContent = '正在获取模型列表...';
+
+            try {
+                const response = await fetch(modelsEndpoint, { headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' } });
+                if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                const data = await response.json();
+                const models = data.data || [];
+                const rerankModels = models.filter(m => {
+                    const id = (m.id || '').toLowerCase();
+                    return id.includes('rerank') || id.includes('rank') || id.includes('relevance') || id.includes('search');
+                });
+                const list = rerankModels.length > 0 ? rerankModels : models;
+                if (list.length === 0) {
+                    hint.style.color = '#f59e0b';
+                    hint.textContent = '⚠️ 未从服务端获取到模型列表';
+                    setTimeout(() => { hint.style.color = '#6b7280'; hint.textContent = '可手动输入模型ID，或点击"获取列表"从服务器获取'; }, 3000);
+                    return;
+                }
+                showRerankModelSelector(list, modelInput);
+                hint.style.color = '#059669';
+                hint.textContent = `✅ 找到 ${list.length} 个模型`;
+                setTimeout(() => { hint.style.color = '#6b7280'; hint.textContent = '可手动输入模型ID，或点击"获取列表"从服务器获取'; }, 3000);
+            } catch (error) {
+                hint.style.color = '#dc2626';
+                hint.textContent = `❌ 获取失败: ${error.message}`;
+                setTimeout(() => { hint.style.color = '#6b7280'; hint.textContent = '可手动输入模型ID，或点击"获取列表"从服务器获取'; }, 3000);
+            } finally {
+                btn.textContent = '获取列表';
+                btn.disabled = false;
+            }
+        };
+
+        // Rerank: 模型检测
+        $('rerank-check-model-km').onclick = async () => {
+            const btn = $('rerank-check-model-km');
+            const modelId = $('rerank-model-km').value.trim();
+            const provider = $('rerank-provider-km').value;
+            const apiKey = $('rerank-api-key-km').value;
+            let baseUrl = $('rerank-endpoint-km').value.trim();
+            const hint = $('rerank-model-hint-km');
+
+            if (!modelId) {
+                hint.style.color = '#dc2626';
+                hint.textContent = '❌ 请输入模型ID';
+                setTimeout(() => { hint.style.color = '#6b7280'; hint.textContent = '请输入服务商支持的重排模型ID；OpenAI格式可点击“获取列表”'; }, 2500);
+                return;
+            }
+            if (!apiKey) {
+                hint.style.color = '#dc2626';
+                hint.textContent = '❌ 请输入 API Key';
+                setTimeout(() => { hint.style.color = '#6b7280'; hint.textContent = '请输入服务商支持的重排模型ID；OpenAI格式可点击“获取列表”'; }, 2500);
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = '检测中...';
+            hint.style.color = '#6b7280';
+            hint.textContent = '正在检测模型...';
+
+            try {
+                if (provider === 'openai') {
+                    if (!baseUrl) baseUrl = 'https://api.openai.com/v1';
+                    const modelsEndpoint = baseUrl.replace(/\/+$/, '') + '/models';
+                    const resp = await fetch(modelsEndpoint, { headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' } });
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+                    const data = await resp.json();
+                    const models = (data.data || []).map(m => m.id);
+                    if (models.includes(modelId)) {
+                        hint.style.color = '#059669';
+                        hint.textContent = '✅ 模型可用';
+                    } else {
+                        hint.style.color = '#f59e0b';
+                        hint.textContent = '⚠️ 未在列表中找到该模型（可能仍可用）';
+                    }
+                } else {
+                    const endpoint = (baseUrl || (provider === 'jina' ? 'https://api.jina.ai/v1' : 'https://api.cohere.ai/v1')).replace(/\/+$/, '') + '/rerank';
+                    const resp = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ model: modelId, query: 'ping', documents: ['pong'], top_n: 1 })
+                    });
+                    if (resp.ok) {
+                        hint.style.color = '#059669';
+                        hint.textContent = '✅ 模型可用';
+                    } else {
+                        const text = await resp.text();
+                        throw new Error(`${resp.status} ${text}`);
+                    }
+                }
+            } catch (error) {
+                hint.style.color = '#dc2626';
+                hint.textContent = `❌ 检测失败: ${error.message}`;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '检测模型';
+            }
+        };
+
         // 重排测试连接
         $('rerank-test-km').onclick = async () => {
             const btn = $('rerank-test-km');
             const result = $('rerank-test-result-km');
 
+            // 自动补全 /rerank 路径
+            let rerankBase = $('rerank-endpoint-km').value.trim();
+            if (rerankBase && !/\/rerank\/?$/.test(rerankBase)) {
+                rerankBase = rerankBase.replace(/\/+$/, '') + '/rerank';
+            }
+
             const testConfig = {
                 provider: $('rerank-provider-km').value,
                 apiKey: $('rerank-api-key-km').value,
-                endpoint: $('rerank-endpoint-km').value,
+                endpoint: rerankBase,
                 model: $('rerank-model-km').value,
                 topN: parseInt($('rerank-top-n-km').value) || 10
             };
@@ -1049,7 +1258,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         };
 
-        // 重排保存配置
+        // 重排保存配置（补全 /rerank）
         $('rerank-save-km').onclick = () => {
             // 获取选中的scope
             const scopeRadios = document.getElementsByName('rerank-scope-km');
@@ -1061,12 +1270,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
 
+            // 自动补全 /rerank 路径
+            let rerankBase = $('rerank-endpoint-km').value.trim();
+            if (rerankBase && !/\/rerank\/?$/.test(rerankBase)) {
+                rerankBase = rerankBase.replace(/\/+$/, '') + '/rerank';
+            }
+
             const newConfig = {
                 enabled: $('rerank-enabled-km').checked,
                 scope: scope,
                 provider: $('rerank-provider-km').value,
                 apiKey: $('rerank-api-key-km').value,
-                endpoint: $('rerank-endpoint-km').value,
+                endpoint: rerankBase,
                 model: $('rerank-model-km').value,
                 topN: parseInt($('rerank-top-n-km').value) || 10
             };
@@ -1083,6 +1298,64 @@ document.addEventListener('DOMContentLoaded', function() {
                 alert('配置已保存');
             }
         };
+    }
+
+    // Rerank 模型选择器（与嵌入选择器风格一致）
+    function showRerankModelSelector(models, targetInput) {
+        const container = document.createElement('div');
+        container.style.cssText = `
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 420px; max-width: 92vw; max-height: 60vh;
+            background: #fff; border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+            z-index: 100002; padding: 0; overflow: hidden;
+        `;
+
+        const header = document.createElement('div');
+        header.style.cssText = 'padding: 16px 20px; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;';
+        header.innerHTML = `
+            <h4 style="margin: 0; font-size: 16px; font-weight: 600; color: #111827;">选择重排模型</h4>
+            <button class="model-selector-close" style="border: none; background: none; font-size: 24px; color: #6b7280; cursor: pointer; line-height: 1;">&times;</button>
+        `;
+
+        const list = document.createElement('div');
+        list.style.cssText = 'max-height: 400px; overflow-y: auto; padding: 8px;';
+
+        (models || []).forEach(model => {
+            const item = document.createElement('div');
+            item.style.cssText = `
+                padding: 12px 16px; margin: 4px 0; border-radius: 8px;
+                cursor: pointer; transition: all 0.2s;
+                border: 1px solid #e5e7eb;
+            `;
+            const id = model.id || model.name || '';
+            item.innerHTML = `
+                <div style="font-weight: 500; color: #111827;">${id}</div>
+                ${model.owned_by ? `<div style=\"font-size: 12px; color: #6b7280; margin-top: 2px;\">by ${model.owned_by}</div>` : ''}
+            `;
+            item.onmouseover = () => { item.style.background = '#f3f4f6'; item.style.borderColor = '#737373'; };
+            item.onmouseout = () => { item.style.background = '#fff'; item.style.borderColor = '#e5e7eb'; };
+            item.onclick = () => {
+                if (id) targetInput.value = id;
+                document.body.removeChild(overlay);
+                document.body.removeChild(container);
+            };
+            list.appendChild(item);
+        });
+
+        container.appendChild(header);
+        container.appendChild(list);
+
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.5); z-index: 100001;
+        `;
+        const closeHandler = () => { document.body.removeChild(overlay); document.body.removeChild(container); };
+        overlay.onclick = closeHandler;
+        header.querySelector('.model-selector-close').onclick = closeHandler;
+        document.body.appendChild(overlay);
+        document.body.appendChild(container);
     }
 
     function renderMistralOcrConfig() {

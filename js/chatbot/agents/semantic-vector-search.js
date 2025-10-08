@@ -12,6 +12,7 @@
       this.vectorStore = null;
       this.initialized = false;
       this.indexedDocs = new Set(); // 已建立索引的文档ID
+      this._rerankLoading = null; // 懒加载 RerankClient
     }
 
     /**
@@ -303,6 +304,27 @@
           .slice(0, topK);
 
         // 尝试使用重排（如果启用）
+        // 若尚未加载 RerankClient，尝试懒加载一次
+        if (!window.RerankClient) {
+          await this._ensureRerankClientLoaded();
+        }
+        // 诊断日志：打印是否加载、触发条件与精简配置
+        (function(){
+          try {
+            const hasRerank = !!window.RerankClient;
+            const should = hasRerank ? window.RerankClient.shouldRerank('vector') : false;
+            const cfg = hasRerank ? window.RerankClient.config || {} : {};
+            console.log('[SemanticVectorSearch][diag] Rerank loaded:', hasRerank, '| shouldRerank(vector):', should, '| cfg:', {
+              enabled: cfg.enabled,
+              scope: cfg.scope,
+              provider: cfg.provider,
+              endpoint: cfg.endpoint,
+              model: cfg.model,
+              topN: cfg.topN
+            });
+          } catch (e) { /* ignore diag errors */ }
+        })();
+
         if (window.RerankClient && window.RerankClient.shouldRerank('vector')) {
           try {
             console.log(`[SemanticVectorSearch] 对 ${matchedChunks.length} 个结果进行重排...`);
@@ -331,7 +353,9 @@
             // 失败时返回原始结果
             return matchedChunks;
           }
-        }
+          } else {
+            console.log('[SemanticVectorSearch] 跳过重排（shouldRerank=false 或 RerankClient 未加载）');
+          }
 
         return matchedChunks;
 
@@ -339,6 +363,77 @@
         console.error('[SemanticVectorSearch] 检索失败:', error);
         return [];
       }
+    }
+
+    /**
+     * 懒加载 RerankClient 脚本（避免某些页面未引入导致无法重排）
+     */
+    async _ensureRerankClientLoaded() {
+      if (window.RerankClient) return true;
+      if (this._rerankLoading) return this._rerankLoading;
+
+      const pickCandidates = () => {
+        const candidates = [];
+        const scripts = Array.from(document.getElementsByTagName('script'));
+        // 1) 与当前 semantic-vector-search.js 同目录
+        const sem = scripts.find(s => (s.src || '').includes('semantic-vector-search.js'));
+        if (sem && sem.src) {
+          try { candidates.push(sem.src.replace('semantic-vector-search.js', 'rerank-client.js')); } catch {}
+        }
+        // 2) 与已加载的 embedding-client.js 同目录
+        const emb = scripts.find(s => (s.src || '').includes('embedding-client.js'));
+        if (emb && emb.src) {
+          try { candidates.push(emb.src.replace('embedding-client.js', 'rerank-client.js')); } catch {}
+        }
+        // 3) 文档相对路径（可能不适配 views/history 场景，但作为兜底）
+        try { candidates.push(new URL('js/chatbot/agents/rerank-client.js', document.baseURI).toString()); } catch {}
+        // 4) 去重
+        return Array.from(new Set(candidates.filter(Boolean)));
+      };
+
+      const candidates = pickCandidates();
+      console.log('[SemanticVectorSearch][diag] 试图动态加载 RerankClient，候选URL:', candidates);
+
+      this._rerankLoading = new Promise((resolve) => {
+        try {
+          // 若已有任意 rerank-client 脚本标签，等待就绪
+          const existingTag = Array.from(document.getElementsByTagName('script')).find(s => (s.src || '').includes('rerank-client.js'));
+          if (existingTag) {
+            setTimeout(() => resolve(!!window.RerankClient), 150);
+            return;
+          }
+
+          const tryLoad = (idx) => {
+            if (idx >= candidates.length) {
+              console.warn('[SemanticVectorSearch][diag] 动态加载 RerankClient 失败（无可用URL）');
+              resolve(false);
+              return;
+            }
+            const url = candidates[idx];
+            const s = document.createElement('script');
+            s.src = url;
+            s.async = true;
+            s.onload = () => {
+              console.log('[SemanticVectorSearch][diag] 动态加载 RerankClient 成功:', url);
+              resolve(!!window.RerankClient);
+            };
+            s.onerror = () => {
+              console.warn('[SemanticVectorSearch][diag] 加载失败，尝试下一个URL:', url);
+              // 尝试下一个候选
+              tryLoad(idx + 1);
+            };
+            document.head.appendChild(s);
+          };
+
+          tryLoad(0);
+        } catch (e) {
+          console.warn('[SemanticVectorSearch][diag] 懒加载 RerankClient 异常:', e);
+          resolve(false);
+        }
+      });
+      const ok = await this._rerankLoading;
+      this._rerankLoading = null;
+      return ok;
     }
 
     /**
