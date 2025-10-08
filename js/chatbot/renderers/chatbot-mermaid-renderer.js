@@ -385,6 +385,8 @@ async function renderAllMermaidBlocksInternal(chatBodyElement) {
         cleanLabel = cleanLabel.replace(/\s+/g, ' ').trim();
         // **替换特殊符号为全角（避免 Mermaid 解析错误）**
         cleanLabel = cleanLabel
+          .replace(/\[/g, '［')  // 方括号左
+          .replace(/\]/g, '］')  // 方括号右
           .replace(/\(/g, '（')
           .replace(/\)/g, '）')
           .replace(/\|/g, '｜');
@@ -519,10 +521,12 @@ async function renderAllMermaidBlocksInternal(chatBodyElement) {
             code = code.replace(/\)(\s{2,})\[/g, ') --> [');
             return code;
           },
-          // 修正0b: 处理节点标签中的括号和管道符（最常见问题）
+          // 修正0b: 处理节点标签中的括号、方括号和管道符（最常见问题）
           code => {
             return code.replace(/\[([^\]]+)\]/g, (match, labelContent) => {
               let cleanLabel = labelContent
+                .replace(/\[/g, '［')  // 方括号左
+                .replace(/\]/g, '］')  // 方括号右
                 .replace(/\(/g, '（')
                 .replace(/\)/g, '）')
                 .replace(/\|/g, '｜');
