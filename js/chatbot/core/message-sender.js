@@ -78,6 +78,9 @@
  * @returns {Promise<void>} 无明确返回值，主要通过回调更新 UI 和内部状态。
  */
 async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = null, displayUserInput = null, chatHistory, isChatbotLoadingRef, getCurrentDocId, getCurrentDocContent, saveChatHistory, ensureSemanticGroupsReady) {
+  // 创建中止控制器
+  window.chatbotAbortController = new AbortController();
+
   // 辅助函数需要从外部引入
   const extractTextFromUserContent = window.ApiConfigBuilder ?
     ((userContent) => {
@@ -552,7 +555,8 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
       const response = await fetch(requestEndpoint, {
         method: 'POST',
         headers: apiConfig.headers,
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(requestBody),
+        signal: window.chatbotAbortController?.signal
       });
       if (!response.ok) {
         if (response.status === 400 || response.status === 404 || response.status === 501) {
@@ -690,7 +694,8 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
       const response = await fetch(apiConfig.endpoint, {
         method: 'POST',
         headers: apiConfig.headers,
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(requestBody),
+        signal: window.chatbotAbortController?.signal
       });
       if (!response.ok) {
         const errText = await response.text();
@@ -750,6 +755,15 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
       }
     }
   } catch (e) {
+    // 处理用户中止的情况
+    if (e.name === 'AbortError') {
+      chatHistory[assistantMsgIndex].content = '对话已被用户中止。';
+      isChatbotLoadingRef.value = false;
+      if (typeof updateChatbotUI === 'function') updateChatbotUI();
+      saveChatHistory(docIdForThisMessage, chatHistory);
+      return;
+    }
+
     if (e.message === "stream_not_supported" && (
           config.model === 'custom' ||
           (typeof config.model === 'string' && (
@@ -794,6 +808,9 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
       }
     }
   } finally {
+    // 清理中止控制器
+    window.chatbotAbortController = null;
+
     isChatbotLoadingRef.value = false;
     if (typeof updateChatbotUI === 'function') updateChatbotUI();
     if (isMindMapRequest && chatHistory[assistantMsgIndex].hasMindMap) {

@@ -56,6 +56,24 @@ async function renderDetail() {
     document.getElementById('tab-translation').style.display = 'none';
     document.getElementById('tab-chunk-compare').style.display = 'none';
   }
+
+  // === 新增：检测 MinerU 结构化翻译数据，显示 PDF 对照按钮 ===
+  const hasMinerUStructuredData =
+    data.metadata &&
+    data.metadata.originalPdfBase64 &&
+    data.metadata.contentListJson &&
+    data.metadata.translatedContentList &&
+    data.metadata.supportsStructuredTranslation === true;
+
+  const pdfCompareTab = document.getElementById('tab-pdf-compare');
+  if (hasMinerUStructuredData && pdfCompareTab) {
+    pdfCompareTab.style.display = 'inline-block';
+    console.log('[renderDetail] MinerU 结构化翻译数据检测成功，显示 PDF 对照按钮');
+  } else if (pdfCompareTab) {
+    pdfCompareTab.style.display = 'none';
+  }
+  // ========================================================
+
   document.getElementById('fileName').textContent = data.name;
   if (fileMetaTimeEl) {
     fileMetaTimeEl.textContent = `时间: ${new Date(data.time).toLocaleString()}`;
@@ -114,7 +132,7 @@ async function renderDetail() {
     const savedTab = localStorage.getItem(savedTabKey);
     if (
       savedTab &&
-      ['ocr', 'translation', 'chunk-compare'].includes(savedTab) &&
+      ['ocr', 'translation', 'chunk-compare', 'pdf-compare'].includes(savedTab) &&
       !(savedTab !== 'ocr' && (!data.translation || data.translation.trim() === ""))
     ) {
       initialTab = savedTab;

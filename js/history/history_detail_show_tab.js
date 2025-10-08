@@ -71,6 +71,16 @@ function showTab(tab) {
   document.getElementById('tab-translation').classList.remove('active');
   // document.getElementById('tab-compare').classList.remove('active'); // 对应按钮已注释，此行也可注释
   document.getElementById('tab-chunk-compare').classList.remove('active');
+  const pdfCompareTabBtn = document.getElementById('tab-pdf-compare');
+  if (pdfCompareTabBtn) pdfCompareTabBtn.classList.remove('active');
+
+  // 恢复顶部区域显示（退出 PDF 对照模式时）
+  const titleElement = document.getElementById('fileName');
+  const metaElement = document.getElementById('fileMeta');
+  const tabsContainer = document.querySelector('.tabs-container');
+  if (titleElement) titleElement.style.display = '';
+  if (metaElement) metaElement.style.display = '';
+  if (tabsContainer) tabsContainer.style.display = '';
 
   let html = '';
   let contentContainerId = ''; // 用于 applyAnnotationsToContent
@@ -115,6 +125,71 @@ function showTab(tab) {
     contentContainerId = 'translation-content-wrapper';
     html = `<h3>翻译内容</h3><div id="${contentContainerId}" class="markdown-body content-wrapper"></div>`;
     console.time('[性能] 翻译分批渲染');
+  } else if (tab === 'pdf-compare') {
+    // ========== MinerU PDF 对照视图 ==========
+    if (pdfCompareTabBtn) pdfCompareTabBtn.classList.add('active');
+
+    // 隐藏顶部区域以获得更大空间
+    const titleElement = document.getElementById('fileName');
+    const metaElement = document.getElementById('fileMeta');
+    const tabsContainer = document.querySelector('.tabs-container');
+    if (titleElement) titleElement.style.display = 'none';
+    if (metaElement) metaElement.style.display = 'none';
+    if (tabsContainer) tabsContainer.style.display = 'none';
+
+    // 验证必要数据
+    if (!data.metadata || !data.metadata.originalPdfBase64 || !data.metadata.contentListJson || !data.metadata.translatedContentList) {
+      const warn = `<div class="warning-box" style="padding:12px;border:1px solid #fbbf24;background:#fffbeb;color:#92400e;border-radius:8px;">`
+                 + `无法进入"PDF对照"：缺少必要的 MinerU 结构化翻译数据。`
+                 + `</div>`;
+      document.getElementById('tabContent').innerHTML = warn;
+      if (typeof window.refreshTocList === 'function') window.refreshTocList();
+      renderingTab = null;
+      console.timeEnd && console.timeEnd('[性能] showTab_总渲染');
+      return;
+    }
+
+    // 设置 HTML 容器
+    document.getElementById('tabContent').innerHTML = '<div id="pdf-compare-container"></div>';
+
+    // 创建并初始化 PDF 对照视图
+    (async () => {
+      try {
+        // 清理之前的实例
+        if (window.pdfCompareViewInstance) {
+          window.pdfCompareViewInstance.destroy();
+        }
+
+        // 创建新实例
+        const pdfCompareView = new PDFCompareView();
+        window.pdfCompareViewInstance = pdfCompareView;
+
+        console.log('[PDFCompareView] 开始初始化 PDF 对照视图');
+        await pdfCompareView.initialize(
+          data.metadata.originalPdfBase64,
+          data.metadata.contentListJson,
+          data.metadata.translatedContentList,
+          data.metadata.layoutJson  // 传入 layoutJson
+        );
+
+        await pdfCompareView.render('pdf-compare-container');
+        console.log('[PDFCompareView] PDF 对照视图渲染完成');
+      } catch (error) {
+        console.error('[PDFCompareView] 渲染失败:', error);
+        document.getElementById('pdf-compare-container').innerHTML = `
+          <div class="error-box" style="padding:12px;border:1px solid #ef4444;background:#fef2f2;color:#991b1b;border-radius:8px;">
+            PDF 对照视图加载失败: ${error.message}
+          </div>
+        `;
+      } finally {
+        renderingTab = null;
+        console.timeEnd && console.timeEnd('[性能] showTab_总渲染');
+      }
+    })();
+
+    // 提前返回，因为是异步渲染
+    if (typeof window.refreshTocList === 'function') window.refreshTocList();
+    return;
   } else if (tab === 'chunk-compare') {
     // 性能监控：记录分块对比开始时间
     window.chunkCompareStartTime = performance.now();

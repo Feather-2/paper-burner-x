@@ -68,6 +68,13 @@
       const gist = (window.data && window.data.semanticDocGist) ? window.data.semanticDocGist : '';
       const searchHistory = []; // 记录搜索历史
 
+      // 任务追踪状态
+      let taskStatusHistory = {
+        completed: [],
+        current: '',
+        pending: []
+      };
+
       /**
        * 升级或获取意群内容
        * @param {Set<string>} groupIds - 意群ID集合
@@ -190,7 +197,14 @@
           const recentSearches = searchHistory.slice(-5); // 最近5次
           searchHistoryText = '\n\n【搜索历史】(避免重复搜索这些查询):\n' + recentSearches.map(s => {
             const status = s.resultCount > 0 ? `✓ ${s.resultCount}个结果` : '✗ 无结果';
-            return `- ${s.tool === 'keyword_search' ? '关键词' : '向量'}搜索 "${s.query}" → ${status}`;
+            const toolName = {
+              'vector_search': '向量',
+              'keyword_search': '关键词',
+              'grep': 'GREP',
+              'regex_search': '正则',
+              'boolean_search': '布尔'
+            }[s.tool] || s.tool;
+            return `- ${toolName}搜索 "${s.query}" → ${status}`;
           }).join('\n');
         }
 
@@ -227,6 +241,28 @@
   **你可以调整limit**：关键词明确可用limit=5，模糊查找可用limit=10
 `;
 
+        const advancedSearchTools = `
+**高级匹配工具（特殊场景使用）：**
+- {"tool":"regex_search","args":{"pattern":"\\\\d{4}年\\\\d{1,2}月","limit":10,"context":1500}}
+  用途：正则表达式搜索（匹配特定格式）
+  返回：符合正则模式的文本片段
+  **适用场景**：
+    * 搜索特定格式（日期"2023年5月"、编号"公式3.2"、"Fig. 1"）
+    * 匹配复杂模式（电话、邮箱、特殊符号组合）
+    * 数学公式编号、图表引用等
+    * OCR错误的容错匹配（如"注[意愈]力"可用"注.力"匹配）
+  **注意**：pattern需要转义特殊字符（\\\\d 表示数字，\\\\. 表示点号）
+
+- {"tool":"boolean_search","args":{"query":"(CNN OR RNN) AND 对比 NOT 图像","limit":10,"context":1500}}
+  用途：布尔逻辑搜索（AND/OR/NOT组合）
+  返回：同时满足多个条件的文本片段
+  **适用场景**：
+    * 复杂逻辑查询（必须包含A和B，但不包含C）
+    * 多概念精确组合（比grep的OR更强大）
+    * 排除干扰信息（NOT关键词）
+  **语法**：支持 AND, OR, NOT 和括号，如 "(词1 OR 词2) AND 词3 NOT 词4"
+`;
+
         const mapFetchTools = useSemanticGroups ? `
 ### 获取详细内容工具
 - {"tool":"fetch","args":{"groupId":"group-1"}}
@@ -241,7 +277,19 @@ ${preloadedNotice}
 ` : `${preloadedNotice}
 `;
 
-        const sys = `你是检索规划助手。根据用户问题选择最合适的工具组合，目标是用最少的操作获取最精确的内容。
+        const sys = `你是检索规划助手，专门负责规划如何从文档中检索相关内容。
+
+**重要：你的角色定位**
+- ⚠️ **你不负责回答用户问题**，你只负责规划如何检索文档内容
+- ⚠️ **不要生成mermaid图表、思维导图或任何最终答案**
+- ✓ 你的任务：分析用户问题 → 规划使用哪些工具检索文档 → 输出JSON格式的检索计划
+- ✓ 检索到的内容会交给另一个AI来回答用户问题
+
+**你的工作流程**
+1. 分析用户问题，判断需要什么类型的信息
+2. 选择合适的检索工具组合
+3. **规划任务清单**：将复杂问题拆解为多个检索子任务
+4. 输出JSON格式的检索计划（不是答案！）
 
 ## 工具定义（JSON格式）
 
@@ -259,6 +307,7 @@ ${vectorSearchTool}**精确匹配场景使用：**
   **你可以调整limit**：需要更多结果就增大limit，只需少量结果就减小limit
 
 ${keywordSearchTool}
+${advancedSearchTools}
 ${mapFetchTools}
 
 ## 智能决策流程
@@ -274,7 +323,17 @@ ${useVectorSearch ? `2. 单一概念解释
    - 示例："什么是注意力机制？"
    → vector_search("注意力机制 原理", limit=8)
 
-` : ''}**复杂问题（建议多工具并用）：**
+` : ''}3. 特定格式查找（编号、日期）
+   - 示例："找出公式3.2的内容"
+   → regex_search("公式\\\\s*3\\\\.2|式\\\\s*\\\\(3\\\\.2\\\\)", limit=5)
+   - 示例："2023年的相关研究"
+   → regex_search("2023年", limit=10)
+
+4. 复杂逻辑排除
+   - 示例："讨论模型但不涉及训练的内容"
+   → boolean_search("模型 NOT (训练 OR train)", limit=8)
+
+**复杂问题（建议多工具并用）：**
 ${useVectorSearch && useSemanticGroups ? `1. 综合性分析（如"研究背景与意义"）
    - 策略：**并发使用多个工具，全方位检索**
    - 示例："研究背景与意义？"
@@ -331,6 +390,12 @@ ${useSemanticGroups ? `- **综合性分析问题（如"研究背景与意义"）
 ` : ''}` : `- grep（精确）+ keyword_search（BM25）= 提高召回率
 - 多个关键词组合使用，提高搜索准确性
 `}- 简单问题可以单工具，但不确定时宁可多用
+- **优先级判断**：
+  * 有明确格式（日期、编号、公式）→ 首选 regex_search
+  * 需要排除干扰词（NOT逻辑）→ 首选 boolean_search
+  * 普通精确词匹配 → 使用 grep
+  * 语义理解、同义词 → 使用 vector_search
+- regex和boolean是**特殊场景工具**，不要过度使用，普通查询用grep/vector即可
 
 ${useSemanticGroups ? `**第二步：判断是否需要fetch意群完整内容**
 - 搜索工具会返回：chunk内容 + suggestedGroups（所属意群列表）
@@ -367,11 +432,74 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
 `}
 - 可以在同一轮并发执行多个操作
 - 获取到足够内容后立即final=true
-- 检查【搜索历史】避免重复搜索
+- **严格检查【搜索历史】避免重复搜索**：
+  * ⚠️ 如果【搜索历史】中已有完全相同的查询（query相同），**绝对不要**再次执行
+  * ⚠️ 如果【搜索历史】中显示某个查询"✗ 无结果"，不要换工具重试相同查询（大概率还是无结果）
+  * ✓ 应该换用不同的关键词、或使用不同策略（如用map看整体结构）
 - **只有当【已获取内容】真正充足时**，才返回{"operations":[],"final":true}
 - **如果【已获取内容】为空或不足**，必须继续检索，不能直接final=true
 
+## 任务追踪机制（Task Status Tracking）
+
+**多轮检索时使用taskStatus追踪进度**，帮助你在复杂问题中保持目标清晰：
+
+**taskStatus字段说明**（可选，但复杂问题强烈推荐）：
+{
+  "operations": [...],
+  "final": false,
+  "taskStatus": {
+    "completed": ["✓ 已获取研究背景(vector_search+grep, 找到18个chunks)"],
+    "current": "→ 正在获取方法论详细描述",
+    "pending": ["待检索实验设计", "待检索结论和展望"]
+  }
+}
+
+- **completed**: 已完成的检索任务（附工具和结果数）
+  * 示例："✓ 已获取研究动机(vector_search, 3个chunks)"
+  * **重要**：记录已搜索的query，避免下一轮重复执行
+  * 作用：避免重复检索，展示进度
+
+- **current**: 当前正在执行的任务
+  * 示例："→ 正在查找公式推导过程"
+  * 作用：明确本轮目标
+
+- **pending**: 后续待完成的任务列表
+  * 示例：["待补充图表说明", "待验证时间线"]
+  * 作用：规划下一步，防止遗漏
+
+**使用场景**：
+- **简单问题**（1轮完成）：可省略taskStatus
+- **复杂问题**（需多轮）：必须使用taskStatus
+  * 第1轮：分解任务到pending，设置current
+  * 中间轮：更新completed，调整current和pending
+  * 最终轮：所有任务在completed，pending为空
+
+**完整示例：复杂问题的追踪**
+问题："分析论文的背景、方法、实验和结论"
+
+第1轮规划：
+{"operations":[{"tool":"vector_search","args":{"query":"研究背景 动机","limit":10}}],"final":false,"taskStatus":{"completed":[],"current":"→ 检索研究背景和动机","pending":["待检索方法论","待检索实验","待检索结论"]}}
+
+第2轮规划：
+{"operations":[{"tool":"fetch","args":{"groupId":"group-5"}}],"final":false,"taskStatus":{"completed":["✓ 已获取研究背景(vector+grep, 18个chunks)"],"current":"→ 获取方法论详细内容","pending":["待检索实验","待检索结论"]}}
+
+第3轮（完成）：
+{"operations":[],"final":true,"taskStatus":{"completed":["✓ 研究背景","✓ 方法论","✓ 实验结果","✓ 结论"],"current":"→ 检索完成","pending":[]}}
+
 ## 示例决策
+
+⚠️ **输出示例对比**：
+问题："生成思维导图"
+
+❌ 错误输出（直接生成mermaid代码块）：禁止！那是回答问题，不是规划检索。
+
+✓ 正确输出（规划检索+简短说明）：
+需要获取文档结构和主要内容，使用map工具。
+{"operations":[{"tool":"map","args":{"limit":50}}],"final":false,"includeMapInFinalContext":true}
+
+说明：你只规划"如何检索"，不生成"最终答案"。另一个AI会用检索结果生成mermaid。
+
+---
 
 示例1（复杂综合问题，多工具并用）：
 问题："研究背景与意义？"
@@ -398,7 +526,27 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
 → 返回3个chunk，包含"2008年9月15日申请破产"
 → 单工具足够
 
-示例4（宏观理解，map+fetch）：
+示例4（查找特定格式内容，使用正则）：
+问题："找出文中所有的公式编号"
+→ {"operations":[{"tool":"regex_search","args":{"pattern":"公式\\\\s*\\\\d+\\\\.\\\\d+|式\\\\s*\\\\(\\\\d+\\\\)","limit":20}}],"final":true}
+→ 正则匹配"公式3.2"、"式(15)"等格式
+→ 比grep更精确，避免误匹配
+
+示例5（复杂逻辑查询，使用布尔搜索）：
+问题："提到CNN但不涉及图像的内容"
+→ {"operations":[{"tool":"boolean_search","args":{"query":"CNN AND (网络 OR 模型) NOT (图像 OR 视觉)","limit":10}}],"final":false}
+→ 找到讨论CNN网络结构但不涉及图像应用的段落
+→ 比单独用grep的OR更精确
+
+示例6（查找日期或时间信息，用正则）：
+问题："论文发表时间"
+→ {"operations":[
+     {"tool":"regex_search","args":{"pattern":"\\\\d{4}年|\\\\d{4}-\\\\d{2}|20\\\\d{2}","limit":10}},
+     {"tool":"grep","args":{"query":"发表|出版|published","limit":5}}
+   ],"final":true}
+→ 正则找日期格式 + grep找相关词汇
+
+示例7（宏观理解，map+fetch）：
 问题："生成思维导图"
 → {"operations":[{"tool":"map","args":{"limit":50}}],"final":false}
 → 获取意群地图
@@ -409,6 +557,19 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
    ],"final":true,"includeMapInFinalContext":true}
 → fetch关键意群 + 包含地图
 
+示例8（❌ 错误：重复搜索）：
+问题："找电影《猜火车》的引用"
+第1轮：{"operations":[{"tool":"grep","args":{"query":"TRAINSPOTTING|猜火车","limit":20}}],"final":false}
+→ 搜索历史显示：GREP搜索 "TRAINSPOTTING|猜火车" → ✓ 4个结果
+
+❌ 第2轮错误做法：{"operations":[{"tool":"grep","args":{"query":"TRAINSPOTTING|猜火车","limit":20}}],"final":true}
+（完全相同的query，禁止重复！）
+
+✓ 第2轮正确做法：
+- 如果4个结果已足够 → {"operations":[],"final":true}
+- 如果需要更多上下文 → {"operations":[{"tool":"fetch","args":{"groupId":"group-2"}}],"final":true}
+  （fetch包含这些结果的意群，获取完整上下文）
+
 ## 限制与原则
 - 每轮最多5个操作
 - **复杂问题优先多工具并用**（在同一轮operations数组中并发执行）
@@ -418,10 +579,33 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
 - 只fetch真正需要的意群（2-5个为宜）
 - 优先chunk片段，确实不足才fetch意群
 
-返回格式要求：
-- **必须**严格返回JSON格式，不要输出任何解释文字
-- **禁止**输出中文解释、思考过程、或任何非JSON内容
-- 格式：{"operations":[...], "final": true/false, "includeMapInFinalContext": true/false, "includeGroupListInFinalContext": true/false}
+## 返回格式要求（严格遵守）
+
+⚠️ **你只能返回JSON格式的检索计划，但可以在JSON前后添加简短说明**
+
+**允许的输出格式**：
+1. 纯JSON（推荐）
+2. 简短说明 + JSON（可选，用于解释检索策略）
+   例如："需要获取研究背景信息，使用向量搜索和关键词检索。\n{...JSON...}"
+
+**禁止输出的内容**：
+  * ❌ mermaid图表、思维导图代码
+  * ❌ 对用户问题的直接回答（如"该研究的背景是..."）
+  * ❌ 详细的论述或分析
+  * ✓ 可以：简短的检索策略说明（1-2句话）
+
+**正确格式**：
+{
+  "operations": [...],
+  "final": true/false,
+  "taskStatus": {  // 可选，复杂问题建议使用
+    "completed": ["已完成的任务..."],
+    "current": "当前任务",
+    "pending": ["待做任务..."]
+  },
+  "includeMapInFinalContext": true/false,
+  "includeGroupListInFinalContext": true/false
+}
 
 **给最终AI的上下文自主控制**（可选字段，默认false）：
 - **includeMapInFinalContext**: 是否包含完整地图结构
@@ -440,12 +624,34 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
 - 混合任务："分析影响因素" → 搜索 + fetch若干意群 + includeGroupListInFinalContext:true（提供背景）
 
 示例JSON：
-- 示例1（继续检索）：{"operations":[{"tool":"fetch","args":{"groupId":"group-1"}}],"final":false}
-- 示例2（完成，仅fetch内容）：{"operations":[],"final":true}
-- 示例3（完成，需要地图+列表）：{"operations":[],"final":true,"includeMapInFinalContext":true,"includeGroupListInFinalContext":true}
-- 示例4（完成，仅需意群列表背景）：{"operations":[],"final":true,"includeGroupListInFinalContext":true}`;
+- 示例1（继续检索，带任务追踪）：
+  {"operations":[{"tool":"fetch","args":{"groupId":"group-1"}}],"final":false,"taskStatus":{"completed":["✓ 已搜索背景"],"current":"→ 获取方法论","pending":["待查实验"]}}
+- 示例2（完成，仅fetch内容）：
+  {"operations":[],"final":true}
+- 示例3（完成，需要地图+列表）：
+  {"operations":[],"final":true,"includeMapInFinalContext":true,"includeGroupListInFinalContext":true}
+- 示例4（完成，带任务总结）：
+  {"operations":[],"final":true,"taskStatus":{"completed":["✓ 背景","✓ 方法","✓ 实验","✓ 结论"],"current":"→ 完成","pending":[]}}
 
-        let content = `文档总览:\n${gist}\n\n用户问题:\n${String(userQuestion || '')}${searchHistoryText}\n\n${listText ? '【候选意群地图】：\n' + listText + '\n\n' : ''}【已获取内容】：\n${fetchedSummary}`;
+**taskStatus字段说明**（详见上方"任务追踪机制"章节）`;
+
+        // 构建任务状态提示文本
+        let taskStatusText = '';
+        if (round > 0 && (taskStatusHistory.completed.length > 0 || taskStatusHistory.current || taskStatusHistory.pending.length > 0)) {
+          const parts = [];
+          if (taskStatusHistory.completed.length > 0) {
+            parts.push(`已完成: ${taskStatusHistory.completed.join('; ')}`);
+          }
+          if (taskStatusHistory.current) {
+            parts.push(`上轮任务: ${taskStatusHistory.current}`);
+          }
+          if (taskStatusHistory.pending.length > 0) {
+            parts.push(`待完成: ${taskStatusHistory.pending.join('; ')}`);
+          }
+          taskStatusText = '\n\n【任务追踪状态】\n' + parts.join('\n');
+        }
+
+        let content = `文档总览:\n${gist}\n\n用户问题:\n${String(userQuestion || '')}${searchHistoryText}${taskStatusText}\n\n${listText ? '【候选意群地图】：\n' + listText + '\n\n' : ''}【已获取内容】：\n${fetchedSummary}`;
 
         // 调用LLM规划（支持重试）
         yield {
@@ -574,9 +780,37 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
             round,
             data: {
               operations: plan.operations || [],
-              final: plan.final
+              final: plan.final,
+              taskStatus: plan.taskStatus || null  // 传递任务状态
             }
           };
+
+          // 捕获AI的任务状态更新
+          if (plan.taskStatus) {
+            // 更新任务追踪历史
+            if (Array.isArray(plan.taskStatus.completed)) {
+              taskStatusHistory.completed = plan.taskStatus.completed;
+            }
+            if (typeof plan.taskStatus.current === 'string') {
+              taskStatusHistory.current = plan.taskStatus.current;
+            }
+            if (Array.isArray(plan.taskStatus.pending)) {
+              taskStatusHistory.pending = plan.taskStatus.pending;
+            }
+
+            // 输出任务状态到UI
+            yield {
+              type: 'task_status',
+              round,
+              status: {
+                completed: taskStatusHistory.completed,
+                current: taskStatusHistory.current,
+                pending: taskStatusHistory.pending
+              }
+            };
+
+            console.log('[StreamingMultiHop] 任务状态更新:', taskStatusHistory);
+          }
 
           // 捕获AI关于地图包含的决策
           if (plan.includeMapInFinalContext === true) {
@@ -1085,6 +1319,161 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
                 suggestedGroups: Array.from(groupIds), // 提示AI可以fetch这些意群
                 tokens: contentTokens
               };
+            } else if (op.tool === 'regex_search' && op.args) {
+              // 正则表达式搜索
+              if (!window.AdvancedSearchTools) {
+                throw new Error('AdvancedSearchTools 模块未加载');
+              }
+
+              const pattern = String(op.args.pattern || '');
+              const limit = Math.min(Number(op.args.limit) || 10, 50);
+              const ctxChars = Math.min(Number(op.args.context) || 1500, 4000);
+              const caseInsensitive = op.args.caseInsensitive !== false;
+
+              const docText = String(docContentInfo.translation || docContentInfo.ocr || '');
+              const chunks = window.data?.enrichedChunks || [];
+
+              if (!docText && chunks.length === 0) {
+                throw new Error('没有可搜索的文本内容');
+              }
+
+              try {
+                const results = window.AdvancedSearchTools.regexSearch(
+                  pattern,
+                  docText,
+                  { limit, context: ctxChars, caseInsensitive }
+                );
+
+                if (results.length > 0) {
+                  // 添加正则搜索结果到上下文
+                  results.forEach((r, idx) => {
+                    contextParts.push(`【正则搜索片段${idx + 1}】(匹配: "${r.match}")\n${r.preview}`);
+                  });
+
+                  // 尝试关联到chunks和意群
+                  const groupIds = new Set();
+                  results.forEach(r => {
+                    // 查找包含此匹配的chunk
+                    const matchingChunk = chunks.find(chunk =>
+                      chunk.text && chunk.text.includes(r.match)
+                    );
+                    if (matchingChunk?.belongsToGroup) {
+                      groupIds.add(matchingChunk.belongsToGroup);
+                      interestedGroups.add(matchingChunk.belongsToGroup);
+                    }
+                  });
+
+                  console.log(`[StreamingMultiHop] 正则搜索命中 ${results.length} 个片段`);
+
+                  const returnedText = results.map(r => r.preview).join('\n');
+                  const contentTokens = estimateTokens(returnedText);
+
+                  yield {
+                    type: 'tool_result',
+                    round,
+                    opIndex,
+                    tool: 'regex_search',
+                    result: results.map(r => ({
+                      match: r.match,
+                      preview: r.preview.substring(0, 500),
+                      groups: r.groups
+                    })),
+                    suggestedGroups: Array.from(groupIds),
+                    tokens: contentTokens
+                  };
+                } else {
+                  yield {
+                    type: 'tool_result',
+                    round,
+                    opIndex,
+                    tool: 'regex_search',
+                    result: []
+                  };
+                }
+              } catch (regexError) {
+                throw new Error(`正则表达式错误: ${regexError.message}`);
+              }
+
+              // 记录搜索历史
+              searchHistory.push({ tool: 'regex_search', query: pattern, resultCount: results.length || 0 });
+
+            } else if (op.tool === 'boolean_search' && op.args) {
+              // 布尔逻辑搜索
+              if (!window.AdvancedSearchTools) {
+                throw new Error('AdvancedSearchTools 模块未加载');
+              }
+
+              const query = String(op.args.query || '');
+              const limit = Math.min(Number(op.args.limit) || 10, 50);
+              const ctxChars = Math.min(Number(op.args.context) || 1500, 4000);
+              const caseInsensitive = op.args.caseInsensitive !== false;
+
+              const docText = String(docContentInfo.translation || docContentInfo.ocr || '');
+              const chunks = window.data?.enrichedChunks || [];
+
+              if (!docText && chunks.length === 0) {
+                throw new Error('没有可搜索的文本内容');
+              }
+
+              try {
+                const results = window.AdvancedSearchTools.booleanSearch(
+                  query,
+                  docText,
+                  { limit, context: ctxChars, caseInsensitive }
+                );
+
+                if (results.length > 0) {
+                  // 添加布尔搜索结果到上下文
+                  results.forEach((r, idx) => {
+                    const terms = r.matchedTerms.join(', ');
+                    contextParts.push(`【布尔搜索片段${idx + 1}】(匹配词: ${terms}, 相关度: ${r.relevanceScore})\n${r.preview}`);
+                  });
+
+                  // 尝试关联到chunks和意群
+                  const groupIds = new Set();
+                  results.forEach(r => {
+                    const matchingChunk = chunks.find(chunk =>
+                      chunk.text && r.matchedTerms.some(term => chunk.text.includes(term))
+                    );
+                    if (matchingChunk?.belongsToGroup) {
+                      groupIds.add(matchingChunk.belongsToGroup);
+                      interestedGroups.add(matchingChunk.belongsToGroup);
+                    }
+                  });
+
+                  console.log(`[StreamingMultiHop] 布尔搜索命中 ${results.length} 个片段`);
+
+                  const returnedText = results.map(r => r.preview).join('\n');
+                  const contentTokens = estimateTokens(returnedText);
+
+                  yield {
+                    type: 'tool_result',
+                    round,
+                    opIndex,
+                    tool: 'boolean_search',
+                    result: results.map(r => ({
+                      preview: r.preview.substring(0, 500),
+                      matchedTerms: r.matchedTerms,
+                      relevanceScore: r.relevanceScore
+                    })),
+                    suggestedGroups: Array.from(groupIds),
+                    tokens: contentTokens
+                  };
+                } else {
+                  yield {
+                    type: 'tool_result',
+                    round,
+                    opIndex,
+                    tool: 'boolean_search',
+                    result: []
+                  };
+                }
+              } catch (boolError) {
+                throw new Error(`布尔查询错误: ${boolError.message}`);
+              }
+
+              // 记录搜索历史
+              searchHistory.push({ tool: 'boolean_search', query, resultCount: results.length || 0 });
             }
 
           } catch (toolError) {
@@ -1121,7 +1510,11 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
           // 清理contextParts：只保留搜索片段和AI感兴趣的意群
           const filteredContextParts = contextParts.filter(part => {
             // 保留搜索片段
-            if (part.startsWith('【向量搜索片段') || part.startsWith('【关键词搜索片段') || part.startsWith('【GREP片段')) {
+            if (part.startsWith('【向量搜索片段') ||
+                part.startsWith('【关键词搜索片段') ||
+                part.startsWith('【GREP片段') ||
+                part.startsWith('【正则搜索片段') ||
+                part.startsWith('【布尔搜索片段')) {
               return true;
             }
             // 保留AI感兴趣的意群
@@ -1144,26 +1537,39 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
           }
         }
 
-        // 检查是否final：若本轮已得到可用上下文（搜索片段或已fetch的意群），且规划未声明final，也可直接结束
+        // 检查是否final：优先尊重AI的final判断
         const hadContextThisRound = contextParts.length > 0 || detail.length > 0;
         console.log(`[StreamingMultiHop] 第${round + 1}轮结束检查：contextParts=${contextParts.length}, detail=${detail.length}, final=${plan.final}`);
 
-        if (plan.final === true || hadContextThisRound) {
+        // 优先判断：AI明确说final=true，直接结束
+        if (plan.final === true) {
           yield {
             type: 'round_end',
             round,
             final: true,
-            message: '取材完成'
+            message: 'AI判断内容已充分，取材完成'
           };
           break;
-        } else {
+        }
+
+        // 次要判断：AI说final=false，但已经到最后一轮了，强制结束
+        if (round === maxRounds - 1 && hadContextThisRound) {
           yield {
             type: 'round_end',
             round,
-            final: false,
-            message: '继续下一轮取材...'
+            final: true,
+            message: '已达最大轮次，使用已获取内容'
           };
+          break;
         }
+
+        // 继续下一轮
+        yield {
+          type: 'round_end',
+          round,
+          final: false,
+          message: '继续下一轮取材...'
+        };
       }
 
       // 4. 汇总上下文 - 智能分层策略
@@ -1213,7 +1619,11 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
 
       // 分类contextParts
       contextParts.forEach(part => {
-        if (part.startsWith('【向量搜索片段') || part.startsWith('【关键词搜索片段') || part.startsWith('【GREP片段')) {
+        if (part.startsWith('【向量搜索片段') ||
+            part.startsWith('【关键词搜索片段') ||
+            part.startsWith('【GREP片段') ||
+            part.startsWith('【正则搜索片段') ||
+            part.startsWith('【布尔搜索片段')) {
           searchFragments.push(part);
         }
       });

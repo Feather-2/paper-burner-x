@@ -76,6 +76,9 @@ document.addEventListener('DOMContentLoaded', function() {
   if (document.getElementById('tab-chunk-compare')) {
     document.getElementById('tab-chunk-compare').onclick = function() { showTab('chunk-compare'); };
   }
+  if (document.getElementById('tab-pdf-compare')) {
+    document.getElementById('tab-pdf-compare').onclick = function() { showTab('pdf-compare'); };
+  }
 
   // 页面加载后渲染详情
   if (typeof renderDetail === 'function') {

@@ -296,7 +296,7 @@ if (typeof window !== 'undefined') {
 
 // 辅助函数：构建自定义 API 配置
 /**
- * 为用户自定义的翻译模型构建 API 请求配置。
+ * 为用户自定义的翻译模型构建 API 请求配置（翻译模块专用，避免与聊天模块冲突）。
  * 此函数根据用户提供的基础 URL、模型 ID、请求格式、密钥以及可选的温度和最大 token 数，
  * 生成一个完整的、可用于调用自定义翻译 API 的配置对象。
  *
@@ -322,7 +322,7 @@ if (typeof window !== 'undefined') {
  * @param {number} [max_tokens] - (可选) 模型生成的最大 token 数。
  * @returns {Object} 构建好的 API 配置对象，包含 `endpoint`, `modelName`, `headers`, `bodyBuilder`, `responseExtractor`。
  */
-function buildCustomApiConfig(key, baseApiUrlInput, customModelId, customRequestFormat, temperature, max_tokens, options = {}) {
+const buildCustomApiConfigForTranslation = function(key, baseApiUrlInput, customModelId, customRequestFormat, temperature, max_tokens, options = {}) {
     const format = (customRequestFormat || 'openai').toLowerCase();
     let effectiveModelId = (customModelId && customModelId.trim()) || '';
     const endpointMode = options.endpointMode || 'auto';
@@ -520,7 +520,7 @@ async function translateMarkdown(
     // 检查是否应该使用提示词池（支持外部绑定覆盖）
     let usePromptPool = false;
     let promptFromPool = null;
-    
+
     // 尝试从提示词池UI获取提示词（如果可用）
     if (!options.boundPrompt && typeof window !== 'undefined' && window.promptPoolUI) {
         const poolPrompt = window.promptPoolUI.getPromptForTranslation();
@@ -630,7 +630,7 @@ async function translateMarkdown(
             throw new Error('Custom model configuration is incomplete. API Endpoint (或 apiBaseUrl) and Model ID are required.');
         }
         //console.log('translateMarkdown activeModelConfig:', modelConfigForCustom);
-        apiConfig = buildCustomApiConfig(
+        apiConfig = buildCustomApiConfigForTranslation(
             apiKey,
             modelConfigForCustom.apiEndpoint || modelConfigForCustom.apiBaseUrl,
             modelConfigForCustom.modelId,
@@ -1105,6 +1105,8 @@ ${tableContent}
 // 将函数添加到processModule对象
 if (typeof processModule !== 'undefined') {
     processModule.buildPredefinedApiConfig = buildPredefinedApiConfig;
-    processModule.buildCustomApiConfig = buildCustomApiConfig;
+    processModule.buildCustomApiConfig = buildCustomApiConfigForTranslation; // 使用重命名后的函数
     processModule.translateMarkdown = translateMarkdown;
+    processModule.stripInstructionBlocks = stripInstructionBlocks;
+    processModule.buildInstructionBlock = buildInstructionBlock;
 }

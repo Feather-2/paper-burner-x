@@ -1178,21 +1178,62 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function analyzeRecordStatus(record) {
+        // 标准分块统计
         const ocrChunks = Array.isArray(record.ocrChunks) ? record.ocrChunks : [];
         const translatedChunks = Array.isArray(record.translatedChunks) ? record.translatedChunks : [];
-        const total = ocrChunks.length;
-        if (total === 0) {
-            return { total: 0, success: 0, failed: 0 };
-        }
-        let failed = 0;
-        for (let i = 0; i < total; i++) {
-            const text = translatedChunks[i] || '';
-            if (_isChunkFailed(text)) {
-                failed++;
+        if (ocrChunks.length > 0) {
+            const total = ocrChunks.length;
+            let failed = 0;
+            for (let i = 0; i < total; i++) {
+                const text = translatedChunks[i] || '';
+                if (_isChunkFailed(text)) failed++;
             }
+            const success = total - failed;
+            return { total, success, failed, isStructured: false };
         }
-        const success = total - failed;
-        return { total, success, failed };
+
+        // 结构化翻译统计（无常规分块时）
+        const meta = record && record.metadata ? record.metadata : {};
+        const transList = Array.isArray(meta.translatedContentList) ? meta.translatedContentList : [];
+        const supportsStructured = !!meta.supportsStructuredTranslation;
+        if (supportsStructured && transList.length > 0) {
+            const total = transList.length;
+            let failed = 0;
+            for (let i = 0; i < total; i++) {
+                const it = transList[i];
+                if (it && it.failed === true) failed++;
+            }
+            // 若元数据提供了失败项，优先使用
+            if (Array.isArray(meta.failedStructuredItems) && meta.failedStructuredItems.length > 0) {
+                failed = meta.failedStructuredItems.length;
+            }
+            // 回退：若未统计到失败但可对比原始内容，则尝试检测未变更的文本（仅 text/image/table）
+            if (failed === 0 && Array.isArray(meta.contentListJson)) {
+                const origList = meta.contentListJson;
+                const minLen = Math.min(origList.length, transList.length);
+                for (let i = 0; i < minLen; i++) {
+                    const o = origList[i] || {};
+                    const t = transList[i] || {};
+                    if (o.type === 'text') {
+                        const a = (o.text || '').trim();
+                        const b = (t.text || '').trim();
+                        if (a && (!b || a === b)) failed++;
+                    } else if (o.type === 'image') {
+                        const a = Array.isArray(o.image_caption) ? o.image_caption.join(' ').trim() : '';
+                        const b = Array.isArray(t.image_caption) ? t.image_caption.join(' ').trim() : '';
+                        if (a && (!b || a === b)) failed++;
+                    } else if (o.type === 'table') {
+                        const a = (o.table_caption || '').trim();
+                        const b = (t.table_caption || '').trim();
+                        if (a && (!b || a === b)) failed++;
+                    }
+                }
+            }
+            const success = Math.max(0, total - failed);
+            return { total, success, failed, isStructured: true };
+        }
+
+        return { total: 0, success: 0, failed: 0, isStructured: !!supportsStructured };
     }
 
     function buildStatusBadge(status) {
@@ -1201,6 +1242,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         // 若没有任何成功块（0/total），改为“预览中，无翻译块”
         if (status.success === 0) {
+            // 结构化翻译下，将提示文案替换为“PDF对照”
+            if (status.isStructured) {
+                return '<span class="ml-2 inline-block text-[11px] px-2 py-0.5 rounded bg-blue-100 text-blue-700">PDF对照</span>';
+            }
             return '<span class="ml-2 inline-block text-[11px] px-2 py-0.5 rounded bg-gray-100 text-gray-600">预览中，无翻译块</span>';
         }
         // 有成功也有失败 → 部分失败
@@ -2178,41 +2223,124 @@ document.addEventListener('DOMContentLoaded', function() {
                     showNotification && showNotification('创建虚拟文件失败，无法加入待处理列表。', 'error');
                 }
             } else {
-                // 仅重试失败段 -> 改为加入待处理列表（仅包含失败片段的 OCR 文本）
+                // 仅重试失败段
                 const total = Array.isArray(record.ocrChunks) ? record.ocrChunks.length : 0;
-                if (total === 0) {
-                    showNotification && showNotification('此记录缺少分块信息，无法筛选失败片段。', 'warning');
+
+                // 标准分块路径
+                if (total > 0 && Array.isArray(record.translatedChunks)) {
+                    const pieces = [];
+                    for (let i = 0; i < total; i++) {
+                        if (_isChunkFailed(record.translatedChunks[i])) {
+                            const ocrText = record.ocrChunks[i] || '';
+                            if (ocrText.trim()) {
+                                pieces.push(`<!-- PBX-CHUNK-INDEX:${i} -->\n\n${ocrText}`);
+                            }
+                        }
+                    }
+                    if (pieces.length === 0) {
+                        showNotification && showNotification('没有需要重试的片段。', 'info');
+                        return;
+                    }
+                    const header = `<!-- PBX-HISTORY-REF:${record.id} -->\n<!-- PBX-MODE:retry-failed -->\n`;
+                    const mdText = header + pieces.join('\n\n\n');
+                    const baseName = (record.name || 'document').replace(/\.pdf$/i, '');
+                    const uniqueSuffix = Math.random().toString(36).slice(2,6);
+                    const fileName = `${baseName}-retry-failed-${uniqueSuffix}.md`;
+                    try {
+                        const virtualFile = new File([mdText], fileName, { type: 'text/markdown' });
+                        try { virtualFile.virtualType = 'retry-failed'; } catch(_) {}
+                        if (typeof addFilesToList === 'function') {
+                            addFilesToList([virtualFile]);
+                            showNotification && showNotification(`已将“${fileName}”加入待处理列表（失败片段），请点击“开始处理”。`, 'success');
+                            try { document.getElementById('historyPanel')?.classList.add('hidden'); } catch(_) {}
+                        } else if (typeof window !== 'undefined' && Array.isArray(window.pdfFiles)) {
+                            window.pdfFiles.push(virtualFile);
+                            if (typeof updateFileListUI === 'function' && typeof updateProcessButtonState === 'function' && typeof handleRemoveFile === 'function') {
+                                updateFileListUI(window.pdfFiles, window.isProcessing || false, handleRemoveFile);
+                                updateProcessButtonState(window.pdfFiles, window.isProcessing || false);
+                            }
+                            showNotification && showNotification(`已将“${fileName}”加入待处理列表（失败片段），请点击“开始处理”。`, 'success');
+                            try { document.getElementById('historyPanel')?.classList.add('hidden'); } catch(_) {}
+                        } else {
+                            showNotification && showNotification('无法加入待处理列表：缺少文件列表接口。', 'error');
+                        }
+                    } catch (e) {
+                        console.error('创建虚拟文件失败:', e);
+                        showNotification && showNotification('创建虚拟文件失败，无法加入待处理列表。', 'error');
+                    }
                     return;
                 }
-                if (!Array.isArray(record.translatedChunks)) {
-                    showNotification && showNotification('此记录缺少译文分块信息，无法识别失败片段。', 'warning');
-                    return;
-                }
-                const pieces = [];
-                for (let i = 0; i < total; i++) {
-                    if (_isChunkFailed(record.translatedChunks[i])) {
-                        const ocrText = record.ocrChunks[i] || '';
-                        if (ocrText.trim()) {
-                            // 添加可解析的原始分块索引标记
-                            pieces.push(`<!-- PBX-CHUNK-INDEX:${i} -->\n\n${ocrText}`);
+
+                // 结构化路径：创建虚拟文件加入上传列表（与标准分块路径保持一致，有UI进度反馈）
+                const meta = record && record.metadata ? record.metadata : {};
+                let failedItems = Array.isArray(meta.failedStructuredItems) ? meta.failedStructuredItems.slice() : [];
+
+                // 回退：若缺少 failedStructuredItems，则从 translatedContentList 中推断
+                if (failedItems.length === 0 && Array.isArray(meta.translatedContentList)) {
+                    const _norm = (v) => {
+                        if (v == null) return '';
+                        try {
+                            if (Array.isArray(v)) return v.join(' ').trim();
+                            if (typeof v === 'string') return v.trim();
+                            return String(v).trim();
+                        } catch(_) { return ''; }
+                    };
+                    const tlist = meta.translatedContentList;
+                    const olist = Array.isArray(meta.contentListJson) ? meta.contentListJson : [];
+                    const minLen = Math.min(tlist.length, olist.length);
+                    for (let i = 0; i < minLen; i++) {
+                        const t = tlist[i] || {};
+                        const o = olist[i] || {};
+                        let isFailed = !!t.failed;
+                        if (!isFailed) {
+                            if (o.type === 'text') {
+                                const a = _norm(o.text);
+                                const b = _norm(t.text);
+                                isFailed = a && (!b || a === b);
+                            } else if (o.type === 'image') {
+                                const a = _norm(o.image_caption);
+                                const b = _norm(t.image_caption);
+                                isFailed = a && (!b || a === b);
+                            } else if (o.type === 'table') {
+                                const a = _norm(o.table_caption);
+                                const b = _norm(t.table_caption);
+                                isFailed = a && (!b || a === b);
+                            }
+                        }
+                        if (isFailed) {
+                            const rawText = (o.type === 'text') ? (o.text || '')
+                                            : (o.type === 'image') ? (Array.isArray(o.image_caption) ? o.image_caption.join(' ') : o.image_caption)
+                                            : (o.type === 'table') ? (o.table_caption || '')
+                                            : '';
+                            const normText = _norm(rawText);
+                            if (normText) {
+                                failedItems.push({ index: i, type: o.type, page_idx: o.page_idx || 0, text: normText });
+                            }
                         }
                     }
                 }
-                if (pieces.length === 0) {
+
+                if (failedItems.length === 0) {
                     showNotification && showNotification('没有需要重试的片段。', 'info');
                     return;
                 }
-                const header = `<!-- PBX-HISTORY-REF:${record.id} -->\n<!-- PBX-MODE:retry-failed -->\n`;
-                const mdText = header + pieces.join('\n\n\n');
+
+                // 构建失败片段的虚拟文件（加入上传列表，在主界面显示进度）
+                // 使用特殊标记告诉 main.js 这是结构化翻译的失败重试
+                const header = `<!-- PBX-HISTORY-REF:${record.id} -->\n<!-- PBX-MODE:retry-structured-failed -->\n<!-- PBX-FAILED-COUNT:${failedItems.length} -->\n`;
+                const failedIndices = failedItems.map(fi => fi.index).join(',');
+                const mdText = header + `<!-- PBX-FAILED-INDICES:${failedIndices} -->\n\n结构化翻译失败片段重试（${failedItems.length} 个）`;
                 const baseName = (record.name || 'document').replace(/\.pdf$/i, '');
                 const uniqueSuffix = Math.random().toString(36).slice(2,6);
-                const fileName = `${baseName}-retry-failed-${uniqueSuffix}.md`;
+                const fileName = `${baseName}-retry-structured-${uniqueSuffix}.md`;
+
                 try {
                     const virtualFile = new File([mdText], fileName, { type: 'text/markdown' });
-                    try { virtualFile.virtualType = 'retry-failed'; } catch(_) {}
+                    try { virtualFile.virtualType = 'retry-structured-failed'; } catch(_) {}
+
                     if (typeof addFilesToList === 'function') {
                         addFilesToList([virtualFile]);
-                        showNotification && showNotification(`已将“${fileName}”加入待处理列表（失败片段），请点击“开始处理”。`, 'success');
+                        showNotification && showNotification(`已将"${fileName}"加入待处理列表（${failedItems.length} 个失败片段），请点击"开始处理"。`, 'success');
                         try { document.getElementById('historyPanel')?.classList.add('hidden'); } catch(_) {}
                     } else if (typeof window !== 'undefined' && Array.isArray(window.pdfFiles)) {
                         window.pdfFiles.push(virtualFile);
@@ -2220,7 +2348,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             updateFileListUI(window.pdfFiles, window.isProcessing || false, handleRemoveFile);
                             updateProcessButtonState(window.pdfFiles, window.isProcessing || false);
                         }
-                        showNotification && showNotification(`已将“${fileName}”加入待处理列表（失败片段），请点击“开始处理”。`, 'success');
+                        showNotification && showNotification(`已将"${fileName}"加入待处理列表（${failedItems.length} 个失败片段），请点击"开始处理"。`, 'success');
                         try { document.getElementById('historyPanel')?.classList.add('hidden'); } catch(_) {}
                     } else {
                         showNotification && showNotification('无法加入待处理列表：缺少文件列表接口。', 'error');
@@ -2229,6 +2357,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     console.error('创建虚拟文件失败:', e);
                     showNotification && showNotification('创建虚拟文件失败，无法加入待处理列表。', 'error');
                 }
+                return;
             }
 
             // 刷新列表显示状态

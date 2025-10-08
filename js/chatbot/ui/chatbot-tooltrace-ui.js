@@ -401,10 +401,40 @@
       case 'plan':
         flushBatchBuffer();
         if (currentStepsHtml.length > 0) {
-          updateLastStepStatus('done', {
+          const planInfo = {
             operations: event.data.operations.length + ' 个操作',
             final: event.data.final
-          });
+          };
+          // 如果有taskStatus，追加到显示信息中
+          if (event.data.taskStatus && event.data.taskStatus.current) {
+            planInfo.task = event.data.taskStatus.current;
+          }
+          updateLastStepStatus('done', planInfo);
+        }
+        break;
+
+      case 'task_status':
+        // 展示任务追踪状态
+        flushBatchBuffer();
+        const taskStatus = event.status || {};
+        const taskParts = [];
+
+        if (Array.isArray(taskStatus.completed) && taskStatus.completed.length > 0) {
+          taskParts.push('已完成: ' + taskStatus.completed.join('; '));
+        }
+        if (taskStatus.current) {
+          taskParts.push('当前: ' + taskStatus.current);
+        }
+        if (Array.isArray(taskStatus.pending) && taskStatus.pending.length > 0) {
+          taskParts.push('待办: ' + taskStatus.pending.join('; '));
+        }
+
+        if (taskParts.length > 0) {
+          addStepHtml({
+            tool: 'task_status',
+            message: '任务追踪',
+            args: { status: taskParts.join(' | ') }
+          }, 'done');
         }
         break;
 
@@ -534,6 +564,7 @@
       'preload': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
       'planning': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
       'round': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>',
+      'task_status': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
       'info': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>'
     };
     return icons[tool] || '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
@@ -555,6 +586,7 @@
       'preload': '预加载意群',
       'planning': 'AI规划工具调用',
       'round': '第' + ((stepInfo.round || 0) + 1) + '轮取材',
+      'task_status': '任务追踪',
       'info': '信息'
     };
 

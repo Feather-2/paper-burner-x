@@ -128,6 +128,7 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
     let originalBinary = null;
     let originalEncoding = null;
     let originalExtension = fileType || '';
+    let ocrResult = null; // 保存 OCR 结果以便后续判断是否使用结构化翻译
     // 移除旧的内部重试和key切换逻辑，这些将由 app.js 处理
 
     console.log('processSinglePdf: translationKeyObject', translationKeyObject);
@@ -174,7 +175,7 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
                 };
 
                 // 调用 OCR Manager 处理文件
-                const ocrResult = await ocrManager.processFile(fileToProcess, onProgress);
+                ocrResult = await ocrManager.processFile(fileToProcess, onProgress);
 
                 // 提取结果
                 currentMarkdownContent = ocrResult.markdown;
@@ -226,6 +227,7 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
                 try {
                     const refMatch = currentMarkdownContent.match(/^<!--\s*PBX-HISTORY-REF:([^>]+)\s*-->\s*/m);
                     const isRetryFailed = /<!--\s*PBX-MODE:retry-failed\s*-->/.test(currentMarkdownContent);
+                    const isRetryStructuredFailed = /<!--\s*PBX-MODE:retry-structured-failed\s*-->/.test(currentMarkdownContent);
                     if (refMatch && typeof getResultFromDB === 'function') {
                         const refId = refMatch[1].trim();
                         const refRecord = await getResultFromDB(refId);
@@ -236,7 +238,159 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
                             currentImagesData = [];
                         }
 
-                        // ============ 特殊模式：失败片段重试，直接写回原历史 ============
+                        // ============ 特殊模式：结构化翻译失败片段重试，直接写回原历史 ============
+                        if (isRetryStructuredFailed) {
+                            if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 检测到结构化翻译失败片段重试模式`);
+
+                            // 解析失败片段索引
+                            const failedIndicesMatch = currentMarkdownContent.match(/<!--\s*PBX-FAILED-INDICES:([^>]+)\s*-->/);
+                            if (!failedIndicesMatch) {
+                                throw new Error('未找到失败片段索引标记。');
+                            }
+                            const failedIndices = failedIndicesMatch[1].split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+
+                            if (failedIndices.length === 0) {
+                                throw new Error('未找到可重试的失败片段索引。');
+                            }
+
+                            if (!refRecord || !refRecord.metadata) {
+                                throw new Error('未找到原历史记录或缺少元数据。');
+                            }
+
+                            const meta = refRecord.metadata;
+                            if (!meta.contentListJson || !Array.isArray(meta.translatedContentList)) {
+                                throw new Error('缺少结构化翻译数据，无法重试。');
+                            }
+
+                            if (typeof window.MinerUStructuredTranslation !== 'function') {
+                                throw new Error('缺少结构化翻译模块。');
+                            }
+
+                            if (typeof addProgressLog === "function") {
+                                addProgressLog(`${logPrefix} 准备重试 ${failedIndices.length} 个失败片段...`);
+                            }
+
+                            // 组装待翻译子集
+                            const translator = new window.MinerUStructuredTranslation();
+                            const fullTranslatable = translator.extractTranslatableContent(meta.contentListJson);
+                            const subset = [];
+                            const indexMap = [];
+
+                            failedIndices.forEach(idx => {
+                                if (idx >= 0 && idx < fullTranslatable.length) {
+                                    subset.push(fullTranslatable[idx]);
+                                    indexMap.push(idx);
+                                }
+                            });
+
+                            if (subset.length === 0) {
+                                throw new Error('没有有效的失败片段可重试。');
+                            }
+
+                            // 分批并翻译
+                            const batches = translator.splitIntoBatches(subset);
+                            const targetLang = targetLanguageValue;
+                            const modelName = selectedTranslationModelName;
+                            const apiKeyVal = translationKeyObject ? translationKeyObject.value : null;
+
+                            if (!apiKeyVal) {
+                                throw new Error('缺少翻译 API Key，无法执行失败片段重试。');
+                            }
+
+                            let translationOptions = {};
+                            if (modelName === 'custom') {
+                                translationOptions.modelConfig = translationModelConfig;
+                            }
+
+                            const translatedSubset = await translator.translateBatches(
+                                batches,
+                                targetLang,
+                                modelName,
+                                apiKeyVal,
+                                translationOptions,
+                                (progress) => {
+                                    if (typeof addProgressLog === 'function') {
+                                        addProgressLog(`${logPrefix} 翻译进度: ${progress.percentage}% (${progress.message})`);
+                                    }
+                                },
+                                acquireSlot,
+                                releaseSlot
+                            );
+
+                            // 写回对应索引
+                            const tlist = meta.translatedContentList.slice();
+                            translatedSubset.forEach((item, i) => {
+                                const origIdx = indexMap[i];
+                                tlist[origIdx] = item;
+                            });
+
+                            // 重新计算失败项
+                            const newFailed = [];
+                            const _norm = (v) => {
+                                if (v == null) return '';
+                                try {
+                                    if (Array.isArray(v)) return v.join(' ').trim();
+                                    if (typeof v === 'string') return v.trim();
+                                    return String(v).trim();
+                                } catch(_) { return ''; }
+                            };
+
+                            for (let i = 0; i < tlist.length; i++) {
+                                const o = meta.contentListJson[i] || {};
+                                const t = tlist[i] || {};
+                                let failed = !!t.failed;
+                                if (!failed) {
+                                    if (o.type === 'text') {
+                                        const a = _norm(o.text);
+                                        const b = _norm(t.text);
+                                        failed = a && (!b || a === b);
+                                    } else if (o.type === 'image') {
+                                        const a = _norm(o.image_caption);
+                                        const b = _norm(t.image_caption);
+                                        failed = a && (!b || a === b);
+                                    } else if (o.type === 'table') {
+                                        const a = _norm(o.table_caption);
+                                        const b = _norm(t.table_caption);
+                                        failed = a && (!b || a === b);
+                                    }
+                                }
+                                if (failed) {
+                                    const baseText = (o.type === 'text') ? (o.text || '')
+                                                    : (o.type === 'image') ? (Array.isArray(o.image_caption) ? o.image_caption.join(' ') : o.image_caption)
+                                                    : (o.type === 'table') ? (o.table_caption || '')
+                                                    : '';
+                                    const norm = _norm(baseText);
+                                    if (norm) newFailed.push({ index: i, type: o.type, page_idx: o.page_idx || 0, text: norm });
+                                }
+                            }
+
+                            // 更新并保存记录
+                            refRecord.metadata.translatedContentList = tlist;
+                            refRecord.metadata.failedStructuredItems = newFailed;
+                            refRecord.metadata.structuredFailedCount = newFailed.length;
+                            refRecord.time = new Date().toISOString();
+                            await saveResultToDB(refRecord);
+
+                            if (typeof addProgressLog === "function") {
+                                addProgressLog(`${logPrefix} 已将 ${translatedSubset.length} 个片段写回历史记录 ${refId}，剩余失败 ${newFailed.length} 个`);
+                            }
+
+                            // 准备返回对象并跳过后续的常规保存逻辑
+                            return {
+                                file: fileToProcess,
+                                markdown: refRecord.ocr || '',
+                                translation: '',
+                                images: refRecord.images || [],
+                                ocrChunks: refRecord.ocrChunks || [],
+                                translatedChunks: refRecord.translatedChunks || [],
+                                metadata: refRecord.metadata,
+                                error: null,
+                                isRetryStructuredFailed: true,
+                                refId: refId
+                            };
+                        }
+
+                        // ============ 特殊模式：标准分块失败片段重试，直接写回原历史 ============
                         if (isRetryFailed) {
                             if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 检测到失败片段重试模式，准备逐段翻译并写回历史记录 ${refId}`);
 
@@ -342,10 +496,104 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
                 const arrayBuffer = await fileToProcess.arrayBuffer();
                 originalBinary = arrayBuffer;
                 originalEncoding = 'arraybuffer';
-                const result = await mammoth.convertToHtml({ arrayBuffer });
+
+                // 用于存储提取的图片数据
+                const docxImages = [];
+                let imageCounter = 0;
+
+                // 配置 mammoth，提取图片数据并使用简洁的引用
+                // 这样可以避免巨大的 base64 字符串导致 token 估算错误（每张图片可能几十万字符）
+                const result = await mammoth.convertToHtml({
+                    arrayBuffer,
+                    convertImage: mammoth.images.imgElement(function(image) {
+                        return image.read("base64").then(function(imageBuffer) {
+                            // 生成图片 ID
+                            imageCounter++;
+                            const imgId = `docx_img_${imageCounter}`;
+                            const imgPath = `images/${imgId}.png`;
+
+                            // 存储图片数据（格式与 OCR 保持一致）
+                            docxImages.push({
+                                id: imgId,
+                                data: imageBuffer  // base64 字符串
+                            });
+
+                            // 在 HTML 中使用简洁的路径引用，而不是完整的 base64
+                            return {
+                                src: imgPath
+                            };
+                        });
+                    })
+                });
+
                 const html = result && result.value ? result.value : '';
                 currentMarkdownContent = convertHtmlToMarkdown(html);
-                if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} DOCX 文本转换完成`);
+
+                // 将提取的图片数据保存到 currentImagesData
+                currentImagesData = docxImages;
+
+                // 提取并清理可能残留的 base64 图片数据（防止导出再导入的文档中有残留）
+                // 这些 base64 字符串可能有几十万字符，会严重影响 token 估算
+                const beforeClean = currentMarkdownContent.length;
+                let extractedImageCount = 0;
+
+                // 提取 Markdown 格式的 base64 图片：![...](data:image/...;base64,...)
+                currentMarkdownContent = currentMarkdownContent.replace(/!\[([^\]]*)\]\(data:image\/([^;]+);base64,([A-Za-z0-9+/=]+)\)/g,
+                    (match, altText, mimeType, base64Data) => {
+                        extractedImageCount++;
+                        const imgId = `docx_extracted_${extractedImageCount}`;
+                        const imgPath = `images/${imgId}.png`;
+
+                        // 保存提取的图片数据
+                        currentImagesData.push({
+                            id: imgId,
+                            data: base64Data
+                        });
+
+                        // 替换为简洁的引用
+                        return `![${altText || '图片'}](${imgPath})`;
+                    });
+
+                // 提取纯 base64 字符串（可能是文本中的残留）
+                // 匹配至少 100 个字符的 base64 字符串
+                currentMarkdownContent = currentMarkdownContent.replace(/data:image\/([^;]+);base64,([A-Za-z0-9+/=]{100,})/g,
+                    (match, mimeType, base64Data) => {
+                        extractedImageCount++;
+                        const imgId = `docx_extracted_${extractedImageCount}`;
+
+                        // 保存提取的图片数据
+                        currentImagesData.push({
+                            id: imgId,
+                            data: base64Data
+                        });
+
+                        return `[图片${extractedImageCount}]`;
+                    });
+
+                const afterClean = currentMarkdownContent.length;
+                const removedChars = beforeClean - afterClean;
+
+                if (removedChars > 0 && typeof addProgressLog === "function") {
+                    addProgressLog(`${logPrefix} 从文本中提取了 ${extractedImageCount} 张图片 (清理了 ${Math.round(removedChars / 1024)} KB base64 数据)`);
+                }
+
+                if (typeof addProgressLog === "function") {
+                    const charCount = currentMarkdownContent.length;
+                    const estimatedTokens = typeof estimateTokenCount === 'function' ? estimateTokenCount(currentMarkdownContent) : 0;
+                    const totalImages = docxImages.length + extractedImageCount;
+                    addProgressLog(`${logPrefix} DOCX 文本转换完成，共提取 ${totalImages} 张图片 (标准: ${docxImages.length}, 嵌入: ${extractedImageCount}) (字符数: ${charCount}, 估算 tokens: ${estimatedTokens})`);
+                }
+
+                // 调试：如果字符数与估算 tokens 差距过大，输出前 500 字符到控制台
+                if (currentMarkdownContent.length > 0 && typeof estimateTokenCount === 'function') {
+                    const estimatedTokens = estimateTokenCount(currentMarkdownContent);
+                    const ratio = estimatedTokens / currentMarkdownContent.length;
+                    if (ratio > 10) { // 如果 token/字符 比例 > 10，说明有异常
+                        console.warn(`${logPrefix} ⚠️ Token 估算异常！字符数: ${currentMarkdownContent.length}, 估算 tokens: ${estimatedTokens}, 比例: ${ratio.toFixed(2)}`);
+                        console.log(`${logPrefix} Markdown 前 500 字符:`, currentMarkdownContent.substring(0, 500));
+                        console.log(`${logPrefix} Markdown 后 500 字符:`, currentMarkdownContent.substring(currentMarkdownContent.length - 500));
+                    }
+                }
             } catch (error) {
                 console.error('DOCX 解析失败:', error);
                 throw new Error(`DOCX 解析失败: ${error.message || error}`);
@@ -463,11 +711,155 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
             } else {
                 if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 开始翻译 (${selectedTranslationModelName}, Key: ...${translationKeyValue.slice(-4)})`);
 
-                if (typeof estimateTokenCount !== 'function') throw new Error('estimateTokenCount函数未定义');
-                const estimatedTokens = estimateTokenCount(currentMarkdownContent);
-                const tokenLimit = parseInt(maxTokensPerChunkValue) || 2000;
+                // ===== MinerU 结构化翻译检测 =====
+                let shouldUseStructuredTranslation = false;
+                if (ocrResult && ocrResult.metadata) {
+                    try {
+                        const ocrConfig = (typeof window !== 'undefined' && window.ocrSettingsManager)
+                            ? window.ocrSettingsManager.getCurrentConfig()
+                            : null;
 
-                try {
+                        if (ocrConfig && ocrConfig.engine === 'mineru' && ocrConfig.translationMode === 'structured') {
+                            // 检查是否支持结构化翻译
+                            if (typeof MinerUStructuredTranslation !== 'undefined') {
+                                const structuredTranslator = new MinerUStructuredTranslation();
+                                shouldUseStructuredTranslation = structuredTranslator.supportsStructuredTranslation(ocrResult);
+
+                                if (shouldUseStructuredTranslation) {
+                                    if (typeof addProgressLog === "function") {
+                                        addProgressLog(`${logPrefix} 检测到 MinerU 结构化翻译模式`);
+                                    }
+                                } else if (typeof addProgressLog === "function") {
+                                    addProgressLog(`${logPrefix} MinerU 结构化翻译模式已启用，但 content_list.json 不可用，将使用标准翻译`);
+                                }
+                            } else if (typeof addProgressLog === "function") {
+                                addProgressLog(`${logPrefix} 警告：MinerU 结构化翻译模块未加载，使用标准翻译`);
+                            }
+                        }
+                    } catch (e) {
+                        console.warn(`${logPrefix} 检测 MinerU 结构化翻译时出错:`, e);
+                    }
+                }
+
+                // ===== 执行结构化翻译或标准翻译 =====
+                if (shouldUseStructuredTranslation) {
+                    // MinerU 结构化翻译路径
+                    try {
+                        if (typeof addProgressLog === "function") {
+                            addProgressLog(`${logPrefix} 使用 MinerU 结构化翻译 (基于 content_list.json)`);
+                        }
+
+                        const structuredTranslator = new MinerUStructuredTranslation();
+
+                        // 1. 提取可翻译内容
+                        const translatableContent = structuredTranslator.extractTranslatableContent(
+                            ocrResult.metadata.contentListJson
+                        );
+
+                        // 2. 分批
+                        const batches = structuredTranslator.splitIntoBatches(translatableContent);
+
+                        if (typeof addProgressLog === "function") {
+                            addProgressLog(`${logPrefix} 提取 ${translatableContent.length} 个片段，分为 ${batches.length} 批`);
+                        }
+
+                        // 3. 准备翻译选项
+                        const translationOptions = selectedTranslationModelName === 'custom'
+                            ? { modelConfig: translationModelConfig }
+                            : {};
+
+                        console.log('[MinerU Structured] 翻译选项:', {
+                            selectedTranslationModelName,
+                            hasModelConfig: !!translationModelConfig,
+                            translationOptions
+                        });
+
+                        // 4. 执行批量翻译
+                        const translatedContentList = await structuredTranslator.translateBatches(
+                            batches,
+                            targetLanguageValue,
+                            selectedTranslationModelName,
+                            translationKeyValue,
+                            {
+                                ...translationOptions,
+                                // 允许从设置自定义重试，若无则用默认
+                                maxRetries: (typeof loadSettings === 'function' ? (loadSettings().structuredMaxRetries || undefined) : undefined),
+                                retryDelay: (typeof loadSettings === 'function' ? (loadSettings().structuredRetryDelayMs || undefined) : undefined)
+                            },
+                            (progress) => {
+                                if (typeof addProgressLog === "function") {
+                                    addProgressLog(`${logPrefix} 翻译进度: ${progress.percentage}% (${progress.message})`);
+                                }
+                            },
+                            acquireSlot,  // 传递并发槽位管理函数
+                            releaseSlot   // 传递并发槽位管理函数
+                        );
+
+                        // 5. 保存结果
+                        // 结构化翻译完成后：不生成常规译文，以免展示译文/分块对比标签
+                        currentTranslationContent = '';
+
+                        // 将翻译后的 JSON 保存在元数据中供未来使用
+                        if (!ocrResult.metadata.translatedContentList) {
+                            ocrResult.metadata.translatedContentList = translatedContentList;
+                        }
+                        // 标记失败项（供后续"重试失败段"使用）
+                        // 修复：统一从 translatedContentList 收集失败项，避免重试成功后仍显示失败
+                        try {
+                            const failedItems = [];
+                            (translatedContentList || []).forEach((it, idx) => {
+                                if (it && it.failed === true) {
+                                    failedItems.push({
+                                        index: idx,
+                                        type: it.type,
+                                        page_idx: it.page_idx || 0,
+                                        text: structuredTranslator.extractItemText ? structuredTranslator.extractItemText(it) : (it.text || '')
+                                    });
+                                }
+                            });
+                            // 去重（虽然现在不应该有重复，但保留容错）
+                            const seen = new Set();
+                            const uniqFailed = failedItems.filter(x => {
+                                const key = `${x.index}`;
+                                if (seen.has(key)) return false;
+                                seen.add(key);
+                                return true;
+                            });
+                            ocrResult.metadata.failedStructuredItems = uniqFailed;
+                            ocrResult.metadata.structuredFailedCount = uniqFailed.length;
+
+                            if (typeof addProgressLog === 'function' && uniqFailed.length > 0) {
+                                addProgressLog(`${logPrefix} 有 ${uniqFailed.length} 个片段未能成功翻译`);
+                            }
+                        } catch (e) {
+                            console.warn(`${logPrefix} 收集结构化失败项时出错(忽略):`, e);
+                        }
+
+                        // 不设置对比分块，避免显示“分块对比”标签
+                        ocrChunks = [];
+                        translatedChunks = [];
+
+                        if (typeof addProgressLog === "function") {
+                            addProgressLog(`${logPrefix} MinerU 结构化翻译完成`);
+                        }
+
+                    } catch (error) {
+                        // 结构化翻译失败，回退到标准翻译
+                        if (typeof addProgressLog === "function") {
+                            addProgressLog(`${logPrefix} 结构化翻译失败，回退到标准翻译: ${error.message}`);
+                        }
+                        console.error(`${logPrefix} MinerU 结构化翻译错误:`, error);
+                        shouldUseStructuredTranslation = false; // 触发标准翻译逻辑
+                    }
+                }
+
+                // ===== 标准翻译路径（原有逻辑） =====
+                if (!shouldUseStructuredTranslation) {
+                    if (typeof estimateTokenCount !== 'function') throw new Error('estimateTokenCount函数未定义');
+                    const estimatedTokens = estimateTokenCount(currentMarkdownContent);
+                    const tokenLimit = parseInt(maxTokensPerChunkValue) || 2000;
+
+                    try {
                     if (estimatedTokens > tokenLimit * 1.1) {
                         if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 文档较大 (~${Math.round(estimatedTokens/1000)}K tokens), 分段翻译`);
                         if (typeof translateLongDocument !== 'function') throw new Error('translateLongDocument函数未定义');
@@ -571,30 +963,31 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
                         }
                     }
                     if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 翻译完成`);
-                } catch (error) {
-                    // 判断是否为翻译 Key 失效错误
-                    // 这里的判断条件可能需要根据实际API的错误响应来调整
-                    if (error.message && (error.message.includes('无效') || error.message.includes('未授权') || error.message.includes('401') || error.message.toLowerCase().includes('invalid api key') || error.message.toLowerCase().includes('unauthorized') || error.message.includes('API key not valid') || error.message.includes('forbidden'))) {
-                        if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 翻译 API Key (...${translationKeyValue.slice(-4)}) 可能已失效 (${selectedTranslationModelName}): ${error.message}`);
-                        return {
-                            file: fileToProcess,
-                            keyInvalid: {
-                                type: 'translation',
-                                modelName: selectedTranslationModelName,
-                                keyIdToInvalidate: translationKeyObject.id
-                            },
-                            error: `翻译 Key 失效: ${error.message}`
-                        };
+                    } catch (error) {
+                        // 判断是否为翻译 Key 失效错误
+                        // 这里的判断条件可能需要根据实际API的错误响应来调整
+                        if (error.message && (error.message.includes('无效') || error.message.includes('未授权') || error.message.includes('401') || error.message.toLowerCase().includes('invalid api key') || error.message.toLowerCase().includes('unauthorized') || error.message.includes('API key not valid') || error.message.includes('forbidden'))) {
+                            if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 翻译 API Key (...${translationKeyValue.slice(-4)}) 可能已失效 (${selectedTranslationModelName}): ${error.message}`);
+                            return {
+                                file: fileToProcess,
+                                keyInvalid: {
+                                    type: 'translation',
+                                    modelName: selectedTranslationModelName,
+                                    keyIdToInvalidate: translationKeyObject.id
+                                },
+                                error: `翻译 Key 失效: ${error.message}`
+                            };
+                        }
+                        // 其他翻译错误，标记为翻译失败，但OCR结果可能仍有效
+                        if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 翻译失败: ${error.message}。将使用原文并标记错误。`);
+                        currentTranslationContent = `[翻译失败: ${error.message}] ${currentMarkdownContent}`;
+                        ocrChunks = [currentMarkdownContent];
+                        translatedChunks = [currentTranslationContent];
+                        // 不向上抛出，允许OCR成功但翻译失败的情况，在最终结果中体现
                     }
-                    // 其他翻译错误，标记为翻译失败，但OCR结果可能仍有效
-                    if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 翻译失败: ${error.message}。将使用原文并标记错误。`);
-                    currentTranslationContent = `[翻译失败: ${error.message}] ${currentMarkdownContent}`;
-                    ocrChunks = [currentMarkdownContent];
-                    translatedChunks = [currentTranslationContent];
-                    // 不向上抛出，允许OCR成功但翻译失败的情况，在最终结果中体现
-                }
-            }
-        } else {
+                } // 结束 if (!shouldUseStructuredTranslation)
+            } // 结束 else (translationKeyValue 有效)
+        } else { // 结束 if (selectedTranslationModelName !== 'none')
             if (typeof addProgressLog === "function") addProgressLog(`${logPrefix} 不需要翻译`);
             // 即使不翻译，也需要检查是否需要分块（用于向量搜索等后续功能）
             const estimatedTokens = typeof estimateTokenCount === 'function'
@@ -616,6 +1009,46 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
 
         const processedAt = new Date().toISOString();
         if (typeof saveResultToDB === "function") {
+            // 准备元数据
+            const metadataToSave = {};
+
+            // 如果是 MinerU 结构化翻译，保存额外的元数据
+            if (ocrResult && ocrResult.metadata) {
+                // 保存 layoutJson 和 contentListJson
+                if (ocrResult.metadata.layoutJson) {
+                    metadataToSave.layoutJson = ocrResult.metadata.layoutJson;
+                }
+                if (ocrResult.metadata.contentListJson) {
+                    metadataToSave.contentListJson = ocrResult.metadata.contentListJson;
+                }
+                // 保存翻译后的结构化内容
+                if (ocrResult.metadata.translatedContentList) {
+                    metadataToSave.translatedContentList = ocrResult.metadata.translatedContentList;
+                }
+                // 保存原始 PDF（转为 base64）
+                if (ocrResult.metadata.originalPdf) {
+                    try {
+                        const pdfBlob = ocrResult.metadata.originalPdf;
+                        const pdfArrayBuffer = await pdfBlob.arrayBuffer();
+                        metadataToSave.originalPdfBase64 = arrayBufferToBase64(pdfArrayBuffer);
+                        if (typeof addProgressLog === "function") {
+                            addProgressLog(`${logPrefix} 已保存原始 PDF (${Math.round(pdfBlob.size / 1024)} KB)`);
+                        }
+                    } catch (e) {
+                        console.warn(`${logPrefix} 保存原始 PDF 失败:`, e);
+                    }
+                }
+                // 标记支持结构化翻译
+                metadataToSave.supportsStructuredTranslation = ocrResult.metadata.supportsStructuredTranslation;
+                // 持久化结构化失败项统计（如存在）
+                if (Array.isArray(ocrResult.metadata.failedStructuredItems)) {
+                    metadataToSave.failedStructuredItems = ocrResult.metadata.failedStructuredItems;
+                }
+                if (typeof ocrResult.metadata.structuredFailedCount === 'number') {
+                    metadataToSave.structuredFailedCount = ocrResult.metadata.structuredFailedCount;
+                }
+            }
+
             await saveResultToDB({
                 id: `${fileToProcess.name}_${fileToProcess.size}`,
                 name: fileToProcess.name,
@@ -649,7 +1082,9 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
                 batchOutputLanguage: batchContext ? batchContext.outputLanguage : null,
                 batchOriginalIndex: batchContext ? batchContext.originalIndex : null,
                 batchAttempt: batchContext ? batchContext.attempt : null,
-                batchZip: batchContext ? batchContext.zipOutput : null
+                batchZip: batchContext ? batchContext.zipOutput : null,
+                // 新增：MinerU 结构化翻译元数据
+                metadata: Object.keys(metadataToSave).length > 0 ? metadataToSave : null
             });
         }
 

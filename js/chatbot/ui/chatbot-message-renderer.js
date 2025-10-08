@@ -30,7 +30,9 @@ window.ChatbotMessageRenderer = {
       <button class="msg-action-btn delete-msg-btn"
               onclick="window.ChatbotActions.deleteMessage(${index})"
               title="删除消息"
-              style="background:rgba(0,0,0,0.05);border:none;width:22px;height:22px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;margin-left:4px;box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+              style="background:rgba(0,0,0,0.05);border:none;width:22px;height:22px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;margin-left:4px;box-shadow: 0 1px 3px rgba(0,0,0,0.1);transition:all 0.2s;"
+              onmouseover="this.style.background='rgba(239,68,68,0.1)';this.style.transform='scale(1.1)'"
+              onmouseout="this.style.background='rgba(0,0,0,0.05)';this.style.transform='scale(1)'">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="3 6 5 6 21 6"></polyline>
           <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -46,7 +48,9 @@ window.ChatbotMessageRenderer = {
         <button class="msg-action-btn resend-msg-btn"
                 onclick="window.ChatbotActions.resendUserMessage(${index})"
                 title="重新发送"
-                style="background:rgba(0,0,0,0.05);border:none;width:22px;height:22px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                style="background:rgba(0,0,0,0.05);border:none;width:22px;height:22px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;box-shadow: 0 1px 3px rgba(0,0,0,0.1);transition:all 0.2s;"
+                onmouseover="this.style.background='rgba(59,130,246,0.1)';this.style.transform='scale(1.1)'"
+                onmouseout="this.style.background='rgba(0,0,0,0.05)';this.style.transform='scale(1)'">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="23 4 23 10 17 10"></polyline>
             <polyline points="1 20 1 14 7 14"></polyline>
@@ -56,14 +60,16 @@ window.ChatbotMessageRenderer = {
       ` + buttons;
     }
 
-    // 按消息类型调整按钮位置
+    // 按消息类型调整按钮位置，添加padding区域以便鼠标移入
     const positionStyle = messageType === 'user'
-      ? 'position:absolute;top:-24px;right:8px;display:none;gap:5px;z-index:3;'
-      : 'position:absolute;top:-24px;left:8px;display:none;gap:5px;z-index:3;';
+      ? 'position:absolute;top:-28px;right:8px;display:none;gap:5px;z-index:3;padding:4px;'
+      : 'position:absolute;top:-28px;left:8px;display:none;gap:5px;z-index:3;padding:4px;';
 
     return `
       <div class="message-actions action-buttons-container"
-           style="${positionStyle}">
+           style="${positionStyle}"
+           onmouseenter="this.style.display='flex'"
+           onmouseleave="this.style.display='none'">
         ${buttons}
       </div>
     `;
@@ -105,9 +111,9 @@ window.ChatbotMessageRenderer = {
     const actionButtons = this._createActionButtonsHTML('user', index);
 
     return `
-      <div class="message-container user-message-container" style="display:flex;justify-content:flex-end;margin-bottom:16px;padding-left:20%;position:relative; margin-top: 25px;"
-           onmouseover="this.querySelector('.action-buttons-container').style.display='flex'"
-           onmouseout="this.querySelector('.action-buttons-container').style.display='none'">
+      <div class="message-container user-message-container" style="display:flex;justify-content:flex-end;margin-bottom:16px;padding-left:20%;position:relative; margin-top: 30px;"
+           onmouseenter="this.querySelector('.action-buttons-container').style.display='flex'"
+           onmouseleave="var container=this.querySelector('.action-buttons-container'); if(!container.matches(':hover')){container.style.display='none'}">
         ${actionButtons}
         <div style="background:linear-gradient(135deg, #3b82f6, #2563eb);color:white;padding:12px 16px;border-radius:18px 4px 18px 18px;font-size:15px;line-height:1.5;border:2px solid #3b82f6; max-width: 80%;">
           ${userMessageHtml}
@@ -236,9 +242,9 @@ window.ChatbotMessageRenderer = {
     `;
 
     return `
-      <div class="message-container assistant-message-container" style="display:flex;justify-content:flex-start;margin-bottom:16px;padding-right:20%;position:relative; margin-top: 25px;"
-           onmouseover="this.querySelector('.action-buttons-container').style.display='flex'"
-           onmouseout="this.querySelector('.action-buttons-container').style.display='none'">
+      <div class="message-container assistant-message-container" style="display:flex;justify-content:flex-start;margin-bottom:16px;padding-right:20%;position:relative; margin-top: 30px;"
+           onmouseenter="this.querySelector('.action-buttons-container').style.display='flex'"
+           onmouseleave="var container=this.querySelector('.action-buttons-container'); if(!container.matches(':hover')){container.style.display='none'}">
         ${actionButtons}
         <div style="background:linear-gradient(to bottom, #f9fafb, #f3f4f6);color:#111827;padding:12px 16px;border-radius:4px 18px 18px 18px;font-size:15px;line-height:1.5;box-shadow:0 2px 8px rgba(0,0,0,0.08);border:1px solid rgba(0,0,0,0.03);position:relative;">
           ${existingActions}

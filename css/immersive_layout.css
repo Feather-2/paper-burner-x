@@ -1,24 +1,25 @@
 /* css/immersive_layout.css */
 
 :root {
-  --immersive-separator-color: #e0e5eb;
-  --immersive-handle-width: 6px;
-  --immersive-handle-color: #f0f2f5;
-  --immersive-handle-hover-color: #e1e7ed;
-  --immersive-panel-min-width: 80px; /* 优化最小宽度 */
-  --dock-height-in-immersive: 60px;
-  --immersive-transition-duration: 0.25s;
-  --immersive-shadow-light: 0 2px 8px rgba(0,0,0,0.06);
-  --immersive-shadow-medium: 0 4px 16px rgba(0,0,0,0.08);
-  --immersive-border-radius: 8px;
+  --immersive-separator-color: rgba(0, 0, 0, 0.04);
+  --immersive-handle-width: 1px;
+  --immersive-handle-color: transparent;
+  --immersive-handle-hover-color: rgba(59, 130, 246, 0.1);
+  --immersive-panel-min-width: 80px;
+  --dock-height-in-immersive: 45px;
+  --immersive-transition-duration: 0.2s;
+  --immersive-shadow-light: 0 1px 3px rgba(0,0,0,0.03);
+  --immersive-shadow-medium: 0 1px 4px rgba(0,0,0,0.04);
+  --immersive-border-radius: 0;
   --immersive-surface-bg: #ffffff;
-  --immersive-surface-bg-alt: #fafbfc;
+  --immersive-surface-bg-alt: #ffffff;
+  --immersive-gap: 2px;
 }
 
 /* 确保沉浸式布局容器在需要时可以显示为 flex */
 #immersive-layout-container {
   /* display: flex; */ /* JS会控制这个 */
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  background: #fafafa;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
@@ -30,8 +31,8 @@
 }
 
 .immersive-panel {
-  overflow: hidden; /* 优化滚动控制 */
-  padding: 12px 12px 0 12px; /* 移除底部padding */
+  overflow: hidden;
+  padding: 4px 6px 0 6px;
   box-sizing: border-box;
   position: relative;
   min-width: var(--immersive-panel-min-width);
@@ -39,10 +40,11 @@
   flex-direction: column;
   height: 100%;
   background: var(--immersive-surface-bg);
-  border-radius: var(--immersive-border-radius);
-  box-shadow: var(--immersive-shadow-light);
+  border-radius: 0;
+  box-shadow: none;
   transition: all var(--immersive-transition-duration) ease;
-  margin: 4px 4px 0 4px; /* 移除底部margin */
+  margin: 0;
+  border-right: 1px solid var(--immersive-separator-color);
 }
 
 /* 主内容区域在沉浸模式下可能需要特殊处理其内部的 .container 样式 */
@@ -50,18 +52,44 @@
   width: 100% !important;
   max-width: 100% !important;
   margin: 0 !important;
-  padding: 20px 24px 20px 24px !important; /* 恢复底部padding但保持平衡 */
-  box-shadow: var(--immersive-shadow-medium);
+  padding: 8px 16px !important;
+  box-shadow: none;
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  background: linear-gradient(to bottom, #ffffff 0%, #fafbfc 100%);
-  border-radius: var(--immersive-border-radius); /* 使用统一的圆角 */
-  border: 1px solid #e8eef5;
+  gap: 6px;
+  background: #ffffff;
+  border-radius: 0;
+  border: none;
   position: relative;
   overflow: hidden;
-  box-sizing: border-box; /* 确保padding包含在height内 */
+  box-sizing: border-box;
+}
+
+/* 将标题和 meta 信息合并到一行 */
+#immersive-main-content-area .container > h2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0;
+  padding: 0;
+  gap: 12px;
+}
+
+#immersive-main-content-area .container > .meta {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* tabs 和 fileName/meta 在同一行区域 */
+#immersive-main-content-area .container > .tabs-container {
+  order: 0;
+  margin-top: 0;
 }
 
 #immersive-main-content-area .container .tabs-container {
@@ -119,55 +147,40 @@
 }
 
 
-/* TOC特定样式调整 */
+/* TOC - 极简美观 */
 #immersive-toc-area #toc-popup {
   position: static;
   display: flex !important;
   flex-direction: column;
   width: 100% !important;
-  flex-grow: 10;
-  flex-basis: 0;
-  min-height: 50px;
-  max-height: none !important;
+  flex-grow: 1;
   border: none !important;
   box-shadow: none !important;
   transform: none !important;
   visibility: visible !important;
   opacity: 1 !important;
-  transition: all var(--immersive-transition-duration) ease !important;
-  border-radius: var(--immersive-border-radius);
   padding: 0;
   margin: 0;
-  background: var(--immersive-surface-bg-alt);
+  background: transparent;
   overflow: hidden;
 }
 
 #immersive-toc-area #toc-popup #toc-popup-header {
-  background: linear-gradient(to right, rgba(59, 130, 246, 0.05), rgba(79, 70, 229, 0.05));
-  padding: 12px 16px;
-  border-bottom: 2px solid var(--immersive-separator-color);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-weight: 600;
-  font-size: 0.9rem;
-  color: #374151;
-  backdrop-filter: blur(10px);
-  border-radius: var(--immersive-border-radius) var(--immersive-border-radius) 0 0;
+  display: none;
 }
 
 #immersive-toc-area #toc-popup #toc-list {
   overflow-y: auto;
   flex-grow: 1;
-  padding: 8px 12px;
+  padding: 8px 0;
   background: transparent;
   max-height: none !important;
   scrollbar-width: thin;
-  scrollbar-color: rgba(59, 130, 246, 0.3) transparent;
+  scrollbar-color: rgba(0, 0, 0, 0.06) transparent;
 }
 
 #immersive-toc-area #toc-popup #toc-list::-webkit-scrollbar {
-  width: 4px;
+  width: 2px;
 }
 
 #immersive-toc-area #toc-popup #toc-list::-webkit-scrollbar-track {
@@ -175,32 +188,91 @@
 }
 
 #immersive-toc-area #toc-popup #toc-list::-webkit-scrollbar-thumb {
-  background: rgba(59, 130, 246, 0.3);
-  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 1px;
 }
 
-#immersive-toc-area #toc-popup #toc-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(59, 130, 246, 0.5);
+#immersive-toc-area #toc-list li {
+  margin: 0 !important;
+}
+
+#immersive-toc-area #toc-list li a {
+  padding: 5px 10px !important;
+  font-size: 0.72em !important;
+  font-weight: 400 !important;
+  color: #9ca3af !important;
+  border: none !important;
+  border-left: 2px solid transparent !important;
+  background: transparent !important;
+  transition: all 0.15s ease !important;
+  line-height: 1.4 !important;
+}
+
+#immersive-toc-area #toc-list li a:hover {
+  color: #6b7280 !important;
+  background: rgba(0, 0, 0, 0.02) !important;
+  border-left-color: #d1d5db !important;
+}
+
+#immersive-toc-area #toc-list li.toc-h1 a {
+  font-weight: 500 !important;
+  color: #6b7280 !important;
+  padding-left: 10px !important;
+  margin-top: 4px !important;
+}
+
+#immersive-toc-area #toc-list li.toc-h1 a:hover {
+  color: #374151 !important;
+  border-left-color: #9ca3af !important;
+}
+
+#immersive-toc-area #toc-list li.toc-h2 a {
+  padding-left: 18px !important;
+  font-size: 0.7em !important;
+}
+
+#immersive-toc-area #toc-list li.toc-h3 a {
+  padding-left: 26px !important;
+  font-size: 0.68em !important;
+  color: #b5bac1 !important;
+}
+
+#immersive-toc-area #toc-list .toc-toggle {
+  display: none !important;
 }
 
 #immersive-toc-area #toc-popup #toc-popup-close-btn {
-  display: none; /* 在沉浸式TOC区域中不需要关闭按钮 */
+  display: none;
 }
 
 #immersive-toc-area #toc-popup .toc-controls {
-  padding: 5px;
-  background-color: transparent;
-  border-top: 1px solid var(--immersive-separator-color, #ccc);
+  display: none;
 }
 
-#immersive-toc-area #toc-popup #toc-mode-selector {
-  margin-left: auto; /* 将模式选择器推到右侧 */
+/* 移除 TOC 中的文件名图标，保持极简 */
+#immersive-toc-area #toc-list li a[href^="#placeholder-"] {
+  font-weight: 500 !important;
+  color: #6b7280 !important;
+  background: transparent !important;
+  border: none !important;
+  border-left: 2px solid transparent !important;
+  padding-left: 10px !important;
+}
+
+#immersive-toc-area #toc-list li a[href^="#placeholder-"]::before {
+  display: none !important;
+}
+
+#immersive-toc-area #toc-list li a[href^="#placeholder-"]:hover {
+  color: #374151 !important;
+  background: rgba(0, 0, 0, 0.02) !important;
+  border-left-color: #9ca3af !important;
 }
 
 /* Chatbot特定样式调整 */
 #immersive-chatbot-area #chatbot-modal {
-  position: static !important; /* 覆盖 fixed 定位 */
-  display: flex !important; /* 强制显示 */
+  position: static !important;
+  display: flex !important;
   width: 100% !important;
   height: 100% !important;
   pointer-events: auto !important;
@@ -217,14 +289,14 @@
   min-width: 0 !important;
   max-height: none !important;
   min-height: 0 !important;
-  border-radius: var(--immersive-border-radius) !important;
-  box-shadow: var(--immersive-shadow-medium) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
   resize: none !important;
   overflow: hidden !important;
   display: flex;
   flex-direction: column;
   background: var(--immersive-surface-bg) !important;
-  border: 1px solid #e8eef5 !important;
+  border: none !important;
   transition: all var(--immersive-transition-duration) ease !important;
 }
 
@@ -242,7 +314,7 @@
 
 .immersive-resize-handle {
   width: var(--immersive-handle-width);
-  background: linear-gradient(to bottom, transparent 20%, rgba(59, 130, 246, 0.1) 50%, transparent 80%);
+  background: var(--immersive-separator-color);
   cursor: col-resize;
   flex-shrink: 0;
   position: relative;
@@ -250,39 +322,32 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all var(--immersive-transition-duration) ease;
-  margin: 0 2px;
-  border-radius: 3px;
+  transition: background 0.2s ease;
+  margin: 0;
+  border-radius: 0;
 }
 
-/* 在拖动条中间加一条细线，使其更易见 */
+/* 移除拖动条中间的细线 */
 .immersive-resize-handle::before {
-  content: '';
-  position: absolute;
-  left: calc(50% - 1px);
-  top: 10%;
-  bottom: 10%;
-  width: 2px;
-  background: linear-gradient(to bottom, transparent, var(--immersive-separator-color) 20%, var(--immersive-separator-color) 80%, transparent);
-  border-radius: 1px;
-  transition: all var(--immersive-transition-duration) ease;
+  display: none;
 }
 
 .immersive-resize-handle:hover {
-  background: linear-gradient(to bottom, rgba(59, 130, 246, 0.1) 10%, rgba(59, 130, 246, 0.2) 50%, rgba(59, 130, 246, 0.1) 90%);
-  transform: scaleX(1.2);
+  background: var(--immersive-handle-hover-color);
+  transform: none;
 }
 
 .immersive-resize-handle:hover::before {
-  background: linear-gradient(to bottom, transparent, #3b82f6 20%, #3b82f6 80%, transparent);
-  width: 3px;
-  left: calc(50% - 1.5px);
-  box-shadow: 0 0 8px rgba(59, 130, 246, 0.3);
+  display: none;
 }
 
-/* 拖动时的样式 (如果需要) */
+/* 拖动时的样式 */
+.immersive-dragging .immersive-resize-handle {
+  background: rgba(59, 130, 246, 0.2);
+}
+
 .immersive-dragging .immersive-resize-handle::before {
-  background-color: var(--main-accent-color-dark, #0056b3);
+  display: none;
 }
 
 /* 当body上应用了 no-scroll 类时（例如沉浸模式下），禁用滚动 */
@@ -359,33 +424,32 @@ body.immersive-active #custom-context-menu {
 /* Base style for the immersive toggle button - 使用统一尺寸系统 */
 #toggle-immersive-btn {
   position: fixed !important;
-  top: 20px !important;
-  right: 20px !important;
+  top: 16px !important;
+  right: 16px !important;
   z-index: 20000 !important;
-  width: var(--btn-large-size, 40px) !important;
-  height: var(--btn-large-size, 40px) !important;
+  width: 36px !important;
+  height: 36px !important;
   border: none !important;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 12px !important;
-  background: linear-gradient(135deg, #3b82f6, #1d4ed8) !important;
-  color: white !important;
-  font-size: var(--btn-icon-large, 18px) !important;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
-  transition: all var(--immersive-transition-duration) ease !important;
-  backdrop-filter: blur(10px);
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  color: #374151 !important;
+  font-size: 16px !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.05) !important;
+  transition: all 0.2s ease !important;
 }
 
 #toggle-immersive-btn:hover {
-  transform: translateY(-2px) scale(1.05) !important;
-  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4) !important;
-  background: linear-gradient(135deg, #2563eb, #1e40af) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15), 0 0 0 1px rgba(0,0,0,0.05) !important;
+  background: #f9fafb !important;
 }
 
 #toggle-immersive-btn:active {
-  transform: translateY(0) scale(0.98) !important;
+  transform: translateY(0) !important;
   transition: all 0.1s ease !important;
 }
 
@@ -403,49 +467,67 @@ body.immersive-active #custom-context-menu {
 /* } */
 
 
-/* New Dock placeholder inside TOC area */
+/* TOC 底部 dock - 极简设计 */
 #immersive-toc-area #toc-dock-placeholder {
   flex-shrink: 0;
-  flex-grow: 1;
-  flex-basis: 60px;
-  min-height: 60px;
-  border-top: 2px solid var(--immersive-separator-color);
-  border-bottom: 2px solid var(--immersive-separator-color);
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.03), rgba(99, 102, 241, 0.03));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  margin: 8px 0;
-  border-radius: var(--immersive-border-radius);
-  transition: all var(--immersive-transition-duration) ease;
+  border-top: 1px solid rgba(0, 0, 0, 0.04);
+  background: transparent;
+  padding: 8px 6px;
 }
 
 #immersive-toc-area #toc-dock-placeholder #bottom-left-dock {
   position: static !important;
   width: 100% !important;
-  height: 100% !important;
-  bottom: auto !important;
-  left: auto !important;
-  right: auto !important;
+  height: auto !important;
+  background: transparent !important;
+  border: none !important;
   box-shadow: none !important;
-  border-radius: 0 !important;
+  padding: 0 !important;
   display: flex !important;
-  align-items: center;
-  justify-content: center; /* Changed to center */
-  gap: 8px; /* Added gap */
-  padding: 0 5px;
-  visibility: visible !important;
-  opacity: 1 !important;
-  background-color: transparent;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 4px !important;
+  font-size: 0.7em !important;
+}
+
+/* 隐藏详细统计信息 */
+#immersive-toc-area #bottom-left-dock.dock-collapsed #dock-info-stack,
+#immersive-toc-area #bottom-left-dock #dock-info-stack {
+  display: none !important;
+}
+
+/* 始终显示进度 */
+#immersive-toc-area #bottom-left-dock.dock-collapsed #dock-collapsed-progress-display,
+#immersive-toc-area #bottom-left-dock #dock-collapsed-progress-display {
+  display: block !important;
+  color: #6b7280 !important;
+  font-weight: 400 !important;
+  margin: 0 !important;
+}
+
+/* 按钮行 */
+#immersive-toc-area #bottom-left-dock #settings-link,
+#immersive-toc-area #bottom-left-dock #dock-toggle-btn,
+#immersive-toc-area #bottom-left-dock.dock-collapsed #settings-link,
+#immersive-toc-area #bottom-left-dock.dock-collapsed #dock-toggle-btn {
+  display: inline-block !important;
+  color: #9ca3af !important;
+  font-size: 1em !important;
+  padding: 2px 4px !important;
+  margin: 0 2px !important;
+}
+
+#immersive-toc-area #bottom-left-dock #settings-link:hover,
+#immersive-toc-area #bottom-left-dock #dock-toggle-btn:hover {
+  color: #6b7280 !important;
 }
 
 /* Removed old #immersive-dock-placeholder styles */
 
 /* Horizontal Resize Handle for TOC vs Dock adjustment */
 #toc-vs-dock-resize-handle {
-  height: 8px;
-  background: linear-gradient(to right, transparent 10%, rgba(59, 130, 246, 0.1) 50%, transparent 90%);
+  height: 1px;
+  background: var(--immersive-separator-color);
   cursor: ns-resize;
   flex-shrink: 0;
   position: relative;
@@ -453,118 +535,311 @@ body.immersive-active #custom-context-menu {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 4px 8px;
-  border-radius: 4px;
-  transition: all var(--immersive-transition-duration) ease;
+  margin: 0;
+  border-radius: 0;
+  transition: background 0.2s ease;
 }
 
 #toc-vs-dock-resize-handle::before {
-  content: '';
-  position: absolute;
-  top: calc(50% - 1px);
-  left: 20%;
-  right: 20%;
-  height: 2px;
-  background: linear-gradient(to right, transparent, var(--immersive-separator-color) 20%, var(--immersive-separator-color) 80%, transparent);
-  border-radius: 1px;
-  transition: all var(--immersive-transition-duration) ease;
+  display: none;
 }
 
 #toc-vs-dock-resize-handle:hover {
-  background: linear-gradient(to right, rgba(59, 130, 246, 0.1) 5%, rgba(59, 130, 246, 0.2) 50%, rgba(59, 130, 246, 0.1) 95%);
-  transform: scaleY(1.5);
+  background: var(--immersive-handle-hover-color);
+  transform: none;
 }
 
 #toc-vs-dock-resize-handle:hover::before {
-  background: linear-gradient(to right, transparent, #3b82f6 10%, #3b82f6 90%, transparent);
-  height: 3px;
-  top: calc(50% - 1.5px);
-  left: 10%;
-  right: 10%;
-  box-shadow: 0 0 8px rgba(59, 130, 246, 0.3);
+  display: none;
 }
 
 /* Optional: Style when dragging */
+body.toc-dock-resizing #toc-vs-dock-resize-handle {
+  background: rgba(59, 130, 246, 0.2);
+}
+
 body.toc-dock-resizing #toc-vs-dock-resize-handle::before {
-  background-color: var(--main-accent-color-dark, #0056b3); /* Darker when actively dragging */
+  display: none;
+}
+
+/* 优化的拖拽状态 */
+.immersive-dragging .immersive-resize-handle {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.immersive-dragging .immersive-resize-handle::before {
+  display: none;
+}
+
+.immersive-dragging #toc-vs-dock-resize-handle {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.immersive-dragging #toc-vs-dock-resize-handle::before {
+  display: none;
+}
+
+/* Ensure other panels like TOC and Chatbot still use the default .immersive-panel padding or have their own */
+#immersive-toc-area.immersive-panel {
+    padding: 4px 6px 0 6px !important;
+    border-right: 1px solid var(--immersive-separator-color);
+}
+
+#immersive-chatbot-area.immersive-panel {
+    padding: 4px 6px 0 6px !important;
+    border-right: none;
+}
+
+#immersive-main-content-area.immersive-panel {
+    border-right: 1px solid var(--immersive-separator-color);
 }
 
 /* Immersive Mode: Main Content Area Header Styling - REFINED */
 
 /* Grouping fileName and fileMeta - no new div, control via flex item properties if .container is flex column */
 #immersive-main-content-area #fileName {
-  font-size: 1.2em; /* Title font size */
-  font-weight: 600; /* Semibold for emphasis */
-  color: #2c3e50; /* Dark, slightly desaturated blue/grey */
-  line-height: 1.4;
-  margin-bottom: 0; /* Remove bottom margin, rely on parent's gap */
+  font-size: 0.75em;
+  font-weight: 500;
+  color: #6b7280;
+  line-height: 1;
+  margin: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  display: block;
+  display: inline-block;
+  max-width: 180px;
 }
 
 #immersive-main-content-area #fileMeta {
-  font-size: 0.8em;
-  color: #7f8c8d; /* Mid-grey for secondary info */
-  line-height: 1.3;
-  text-align: left; /* Left-aligned under the title */
-  margin-top: -2px; /* Slightly pull up towards the title if gap is too large */
+  font-size: 0.7em;
+  color: #9ca3af;
+  line-height: 1;
+  margin: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
-#immersive-main-content-area .tabs-container {
-  padding-bottom: 0; /* Remove any bottom padding if using border for separation */
-  border-bottom: 2px solid #e0e0e0; /* Clearer separator */
+#immersive-main-content-area #fileMeta .meta-separator {
+  margin: 0 2px;
+}
+
+/* 将标题、meta 和 tabs 整合到紧凑的两行顶栏 */
+#immersive-main-content-area .container {
+  padding: 0 !important;
+  gap: 0 !important;
+  display: grid !important;
+  grid-template-rows: 24px 32px 1fr !important;
+  grid-template-columns: 1fr !important;
+  flex-direction: unset !important;
+}
+
+/* 第一行：h2 和 meta 在同一行 - 极简设计 */
+#immersive-main-content-area .container > h2 {
+  grid-row: 1;
+  grid-column: 1;
+  height: 24px;
   display: flex;
-  gap: 0; /* No gap, buttons will manage their own spacing/borders */
-  margin-bottom: 0; /* Rely on parent's gap */
-  position: relative; /* For ::after pseudo-element if needed for active tab indicator */
+  align-items: center;
+  margin: 0;
+  padding: 0 16px;
+  font-size: 0.7em;
+  font-weight: 400;
+  color: #9ca3af;
+  background: transparent;
+  border: none;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 50%;
+}
+
+/* meta 与 h2 重叠在同一行 */
+#immersive-main-content-area .container > .meta {
+  grid-row: 1;
+  grid-column: 1;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin: 0;
+  padding: 0 16px;
+  gap: 12px;
+  background: transparent;
+  pointer-events: none;
+  z-index: 1;
+}
+
+#immersive-main-content-area .container > .meta * {
+  pointer-events: auto;
+}
+
+#immersive-main-content-area .meta-info {
+  gap: 8px;
+  display: flex;
+  align-items: center;
+  color: #9ca3af;
+  font-size: 0.7em;
+}
+
+#immersive-main-content-area .meta-separator {
+  color: #d1d5db;
+}
+
+#immersive-main-content-area .meta-export-trigger {
+  padding: 2px 8px;
+  font-size: 0.7em;
+  gap: 3px;
+  border-radius: 4px;
+  height: auto;
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  font-weight: 400;
+  transition: all 0.15s ease;
+}
+
+#immersive-main-content-area .meta-export-trigger:hover {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+#immersive-main-content-area .meta-export-trigger i {
+  font-size: 0.85em;
+}
+
+/* 第二行：tabs - 更现代简洁的设计 */
+#immersive-main-content-area .container > .tabs-container {
+  grid-row: 2;
+  grid-column: 1;
+  padding: 0 16px;
+  border: none;
+  display: flex;
+  gap: 2px;
+  margin: 0;
+  height: 32px;
+  justify-content: flex-start;
+  align-items: center;
+  background: transparent;
+  border-bottom: 1px solid #f0f0f0;
 }
 
 #immersive-main-content-area .tabs-container .tab-btn {
-  padding: 8px 14px; /* Comfortable padding */
-  font-size: 0.9em;
+  padding: 0 14px;
+  font-size: 0.7em;
   font-weight: 500;
-  border-radius: 5px 5px 0 0; /* Top rounded corners for tab look */
+  border-radius: 0;
   background-color: transparent;
-  border: 1px solid transparent; /* Initially transparent border */
-  border-bottom: none; /* No bottom border on the button itself */
-  color: #34495e; /* Tab text color */
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #9ca3af;
   cursor: pointer;
-  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
-  position: relative; /* For z-index and precise alignment */
-  margin-right: 2px; /* Small gap between tabs */
-  margin-bottom: -2px; /* Pull button down to overlap/align with container's border-bottom */
+  transition: all 0.15s ease;
+  margin: 0;
+  height: 32px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
 }
 
 #immersive-main-content-area .tabs-container .tab-btn:hover {
-  background-color: #f0f2f5; /* Light hover state */
-  color: #2c3e50;
+  color: #6b7280;
+  border-bottom-color: #e5e7eb;
 }
 
 #immersive-main-content-area .tabs-container .tab-btn.active {
-  background-color: var(--body-bg-color, white); /* Match page background to appear connected to content */
-  color: var(--main-accent-color, #007bff);
-  border-left-color: #e0e0e0;
-  border-right-color: #e0e0e0;
-  border-top-color: #e0e0e0;
-  /* The bottom border of the button is effectively made by the container's border-bottom NOT showing through */
-  /* or by setting its own bottom border to the background color if it needs to sit on top */
+  background-color: transparent;
+  color: #3b82f6;
+  border-bottom-color: #3b82f6;
   font-weight: 600;
-  z-index: 1; /* Ensure active tab is above the container's border */
 }
 
-#immersive-main-content-area .tab-content {
-  padding-top: 12px; /* Space between tabs and content body */
-  /* font-family: 'YourPreferredFont', sans-serif; */ /* Example: consider a clean font */
+/* 第三行：tab-content */
+#immersive-main-content-area .container > .tab-content {
+  grid-row: 3;
+  grid-column: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 16px;
+  background: #ffffff;
 }
 
+/* 沉浸模式下隐藏 PDF 对照按钮 */
+body.immersive-active #tab-pdf-compare {
+  display: none !important;
+}
+
+/* 导出控制面板 */
+#immersive-main-content-area .container > .history-export-controls {
+  grid-row: 3;
+  grid-column: 1;
+  z-index: 10;
+  pointer-events: none;
+}
+
+#immersive-main-content-area .container > .history-export-controls.active {
+  pointer-events: auto;
+}
+
+/* 隐藏 tab-content 内的 h3 标题 */
 #immersive-main-content-area .tab-content > h3 {
-  margin-top: 0;
-  font-size: 1.05em;
-  color: #333;
-  margin-bottom: 10px; /* Space below h3 in tab content */
-  font-weight: 600;
+  display: none;
+}
+
+/* 压缩顶部 meta 区域 - 已整合到顶栏中 */
+#immersive-main-content-area .meta {
+  margin: 0;
+  gap: 8px;
+  font-size: 0.7em;
+  min-height: auto;
+  position: absolute;
+  top: 0;
+  right: 12px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  padding: 0;
+  z-index: 3;
+  background: transparent;
+}
+
+#immersive-main-content-area .meta-info {
+  gap: 6px;
+  display: flex;
+  align-items: center;
+  color: #9ca3af;
+}
+
+#immersive-main-content-area .meta-info span {
+  line-height: 1;
+}
+
+#immersive-main-content-area .meta-separator {
+  color: #d1d5db;
+  margin: 0 2px;
+}
+
+#immersive-main-content-area .meta-export-trigger {
+  padding: 4px 10px;
+  font-size: 0.7em;
+  gap: 4px;
+  border-radius: 4px;
+  height: auto;
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  background: transparent;
+  color: #3b82f6;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+#immersive-main-content-area .meta-export-trigger:hover {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.25);
+}
+
+#immersive-main-content-area .meta-export-trigger i {
+  font-size: 0.85em;
 }
 
 /* Specific fix for the duplicate padding issue if .container is inside .immersive-panel with padding */
@@ -609,20 +884,26 @@ body.immersive-active #immersive-main-content-area .container {
 /* This might be too broad, an alternative is to ensure specific panels like #immersive-main-content-area */
 /* have their padding managed correctly. For now, let's adjust #immersive-main-content-area.immersive-panel directly. */
 
-/* Ensure other panels like TOC and Chatbot still use the default .immersive-panel padding or have their own */
-#immersive-toc-area.immersive-panel {
-    padding: 10px 15px 0 15px !important; /* 移除底部padding */
-    /* width: 19%; */ /* Example: Original was 20%, adjust as needed or use flex-basis */
-    /* flex-basis: 19%; */
-}
-
-#immersive-chatbot-area.immersive-panel {
-    padding: 10px 15px 0 15px !important; /* 移除底部padding */
-    /* width: 23.5%; */ /* Example: Original was 25%, adjust as needed or use flex-basis */
-    /* flex-basis: 23.5%; */
-}
-
 /* Additional optimizations for immersive mode UI */
+
+/* 沉浸模式下移除所有虚线，统一使用实线或无边框 */
+body.immersive-active .markdown-body img,
+body.immersive-active pre,
+body.immersive-active .chunk-pair,
+body.immersive-active .chunk-divider,
+body.immersive-active .chunk-compare-header,
+body.immersive-active .chunk-ocr.active,
+body.immersive-active .chunk-translation.active {
+  border-style: solid !important;
+}
+
+body.immersive-active #bottom-left-dock {
+  border-style: solid !important;
+}
+
+body.immersive-active .toc-info {
+  border-left-style: solid !important;
+}
 
 /* 改进的动画和过渡效果 */
 body.immersive-entering {
@@ -650,8 +931,8 @@ body.immersive-dragging .immersive-resize-handle {
 
 /* 改进的面板间距 */
 #immersive-content-area {
-  gap: 4px;
-  padding: 8px 8px 0 8px; /* 移除底部padding */
+  gap: 0;
+  padding: 0;
 }
 
 /* 更好的滚动条样式 */
@@ -676,47 +957,42 @@ body.immersive-dragging .immersive-resize-handle {
 
 /* 改进的面板标题样式 */
 .immersive-panel-header {
-  background: linear-gradient(to right, rgba(59, 130, 246, 0.05), rgba(79, 70, 229, 0.05));
-  border-bottom: 1px solid var(--immersive-separator-color);
-  padding: 12px 16px;
-  font-weight: 600;
-  font-size: 0.9rem;
+  background: transparent;
+  border-bottom: none;
+  padding: 8px 12px;
+  font-weight: 500;
+  font-size: 0.85rem;
   color: #374151;
-  border-radius: var(--immersive-border-radius) var(--immersive-border-radius) 0 0;
-  backdrop-filter: blur(10px);
+  border-radius: 0;
 }
 
 /* 优化的拖拽状态 */
 .immersive-dragging .immersive-resize-handle::before {
-  background: linear-gradient(to bottom, transparent, #3b82f6 20%, #3b82f6 80%, transparent) !important;
-  width: 4px !important;
-  left: calc(50% - 2px) !important;
-  box-shadow: 0 0 12px rgba(59, 130, 246, 0.5) !important;
+  background: #3b82f6 !important;
+  width: 3px !important;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4) !important;
 }
 
 .immersive-dragging #toc-vs-dock-resize-handle::before {
-  background: linear-gradient(to right, transparent, #3b82f6 10%, #3b82f6 90%, transparent) !important;
-  height: 4px !important;
-  top: calc(50% - 2px) !important;
-  left: 5% !important;
-  right: 5% !important;
-  box-shadow: 0 0 12px rgba(59, 130, 246, 0.5) !important;
+  background: #3b82f6 !important;
+  height: 3px !important;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4) !important;
 }
 
 /* 响应式优化 */
 @media (max-width: 1200px) {
   .immersive-panel {
-    padding: 8px 8px 0 8px; /* 移除底部padding */
+    padding: 6px 8px 0 8px;
   }
-  
+
   #immersive-main-content-area .container {
-    padding: 16px 20px 16px 20px !important; /* 保持底部padding平衡 */
+    padding: 12px 16px !important;
   }
-  
+
   #immersive-toc-area {
     min-width: 200px;
   }
-  
+
   #immersive-chatbot-area {
     min-width: 250px;
   }
@@ -788,23 +1064,32 @@ body.immersive-dragging .immersive-resize-handle {
 @media (prefers-color-scheme: dark) {
   :root {
     --immersive-surface-bg: #1a1d23;
-    --immersive-surface-bg-alt: #242831;
-    --immersive-separator-color: #3d4451;
+    --immersive-surface-bg-alt: #1a1d23;
+    --immersive-separator-color: #374151;
   }
-  
+
   #immersive-layout-container {
-    background: linear-gradient(135deg, #1a1d23 0%, #242831 100%);
+    background: #111827;
   }
-  
+
   .immersive-panel {
-    border-color: #3d4451;
+    border-color: #374151;
     color: #e5e7eb;
   }
-  
+
   #immersive-main-content-area .container {
-    background: linear-gradient(to bottom, #1a1d23 0%, #242831 100%);
-    border-color: #3d4451;
+    background: #1a1d23;
     color: #e5e7eb;
+  }
+
+  #toggle-immersive-btn {
+    background: #1f2937 !important;
+    color: #e5e7eb !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.05) !important;
+  }
+
+  #toggle-immersive-btn:hover {
+    background: #374151 !important;
   }
 }
 
