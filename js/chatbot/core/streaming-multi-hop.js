@@ -68,6 +68,13 @@
       const gist = (window.data && window.data.semanticDocGist) ? window.data.semanticDocGist : '';
       const searchHistory = []; // 记录搜索历史
 
+      // 任务追踪状态
+      let taskStatusHistory = {
+        completed: [],
+        current: '',
+        pending: []
+      };
+
       /**
        * 升级或获取意群内容
        * @param {Set<string>} groupIds - 意群ID集合
@@ -274,7 +281,8 @@ ${preloadedNotice}
 **你的工作流程**
 1. 分析用户问题，判断需要什么类型的信息
 2. 选择合适的检索工具组合
-3. 输出JSON格式的检索计划（不是答案！）
+3. **规划任务清单**：将复杂问题拆解为多个检索子任务
+4. 输出JSON格式的检索计划（不是答案！）
 
 ## 工具定义（JSON格式）
 
@@ -421,6 +429,52 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
 - **只有当【已获取内容】真正充足时**，才返回{"operations":[],"final":true}
 - **如果【已获取内容】为空或不足**，必须继续检索，不能直接final=true
 
+## 任务追踪机制（Task Status Tracking）
+
+**多轮检索时使用taskStatus追踪进度**，帮助你在复杂问题中保持目标清晰：
+
+**taskStatus字段说明**（可选，但复杂问题强烈推荐）：
+{
+  "operations": [...],
+  "final": false,
+  "taskStatus": {
+    "completed": ["✓ 已获取研究背景(vector_search+grep, 找到18个chunks)"],
+    "current": "→ 正在获取方法论详细描述",
+    "pending": ["待检索实验设计", "待检索结论和展望"]
+  }
+}
+
+- **completed**: 已完成的检索任务（附工具和结果数）
+  * 示例："✓ 已获取研究动机(vector_search, 3个chunks)"
+  * 作用：避免重复检索，展示进度
+
+- **current**: 当前正在执行的任务
+  * 示例："→ 正在查找公式推导过程"
+  * 作用：明确本轮目标
+
+- **pending**: 后续待完成的任务列表
+  * 示例：["待补充图表说明", "待验证时间线"]
+  * 作用：规划下一步，防止遗漏
+
+**使用场景**：
+- **简单问题**（1轮完成）：可省略taskStatus
+- **复杂问题**（需多轮）：必须使用taskStatus
+  * 第1轮：分解任务到pending，设置current
+  * 中间轮：更新completed，调整current和pending
+  * 最终轮：所有任务在completed，pending为空
+
+**完整示例：复杂问题的追踪**
+问题："分析论文的背景、方法、实验和结论"
+
+第1轮规划：
+{"operations":[{"tool":"vector_search","args":{"query":"研究背景 动机","limit":10}}],"final":false,"taskStatus":{"completed":[],"current":"→ 检索研究背景和动机","pending":["待检索方法论","待检索实验","待检索结论"]}}
+
+第2轮规划：
+{"operations":[{"tool":"fetch","args":{"groupId":"group-5"}}],"final":false,"taskStatus":{"completed":["✓ 已获取研究背景(vector+grep, 18个chunks)"],"current":"→ 获取方法论详细内容","pending":["待检索实验","待检索结论"]}}
+
+第3轮（完成）：
+{"operations":[],"final":true,"taskStatus":{"completed":["✓ 研究背景","✓ 方法论","✓ 实验结果","✓ 结论"],"current":"→ 检索完成","pending":[]}}
+
 ## 示例决策
 
 ⚠️ **输出示例对比**：
@@ -516,7 +570,18 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
   * ❌ 详细的论述或分析
   * ✓ 可以：简短的检索策略说明（1-2句话）
 
-**正确格式**：{"operations":[...], "final": true/false, "includeMapInFinalContext": true/false, "includeGroupListInFinalContext": true/false}
+**正确格式**：
+{
+  "operations": [...],
+  "final": true/false,
+  "taskStatus": {  // 可选，复杂问题建议使用
+    "completed": ["已完成的任务..."],
+    "current": "当前任务",
+    "pending": ["待做任务..."]
+  },
+  "includeMapInFinalContext": true/false,
+  "includeGroupListInFinalContext": true/false
+}
 
 **给最终AI的上下文自主控制**（可选字段，默认false）：
 - **includeMapInFinalContext**: 是否包含完整地图结构
@@ -535,12 +600,34 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
 - 混合任务："分析影响因素" → 搜索 + fetch若干意群 + includeGroupListInFinalContext:true（提供背景）
 
 示例JSON：
-- 示例1（继续检索）：{"operations":[{"tool":"fetch","args":{"groupId":"group-1"}}],"final":false}
-- 示例2（完成，仅fetch内容）：{"operations":[],"final":true}
-- 示例3（完成，需要地图+列表）：{"operations":[],"final":true,"includeMapInFinalContext":true,"includeGroupListInFinalContext":true}
-- 示例4（完成，仅需意群列表背景）：{"operations":[],"final":true,"includeGroupListInFinalContext":true}`;
+- 示例1（继续检索，带任务追踪）：
+  {"operations":[{"tool":"fetch","args":{"groupId":"group-1"}}],"final":false,"taskStatus":{"completed":["✓ 已搜索背景"],"current":"→ 获取方法论","pending":["待查实验"]}}
+- 示例2（完成，仅fetch内容）：
+  {"operations":[],"final":true}
+- 示例3（完成，需要地图+列表）：
+  {"operations":[],"final":true,"includeMapInFinalContext":true,"includeGroupListInFinalContext":true}
+- 示例4（完成，带任务总结）：
+  {"operations":[],"final":true,"taskStatus":{"completed":["✓ 背景","✓ 方法","✓ 实验","✓ 结论"],"current":"→ 完成","pending":[]}}
 
-        let content = `文档总览:\n${gist}\n\n用户问题:\n${String(userQuestion || '')}${searchHistoryText}\n\n${listText ? '【候选意群地图】：\n' + listText + '\n\n' : ''}【已获取内容】：\n${fetchedSummary}`;
+**taskStatus字段说明**（详见上方"任务追踪机制"章节）`;
+
+        // 构建任务状态提示文本
+        let taskStatusText = '';
+        if (round > 0 && (taskStatusHistory.completed.length > 0 || taskStatusHistory.current || taskStatusHistory.pending.length > 0)) {
+          const parts = [];
+          if (taskStatusHistory.completed.length > 0) {
+            parts.push(`已完成: ${taskStatusHistory.completed.join('; ')}`);
+          }
+          if (taskStatusHistory.current) {
+            parts.push(`上轮任务: ${taskStatusHistory.current}`);
+          }
+          if (taskStatusHistory.pending.length > 0) {
+            parts.push(`待完成: ${taskStatusHistory.pending.join('; ')}`);
+          }
+          taskStatusText = '\n\n【任务追踪状态】\n' + parts.join('\n');
+        }
+
+        let content = `文档总览:\n${gist}\n\n用户问题:\n${String(userQuestion || '')}${searchHistoryText}${taskStatusText}\n\n${listText ? '【候选意群地图】：\n' + listText + '\n\n' : ''}【已获取内容】：\n${fetchedSummary}`;
 
         // 调用LLM规划（支持重试）
         yield {
@@ -669,9 +756,37 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
             round,
             data: {
               operations: plan.operations || [],
-              final: plan.final
+              final: plan.final,
+              taskStatus: plan.taskStatus || null  // 传递任务状态
             }
           };
+
+          // 捕获AI的任务状态更新
+          if (plan.taskStatus) {
+            // 更新任务追踪历史
+            if (Array.isArray(plan.taskStatus.completed)) {
+              taskStatusHistory.completed = plan.taskStatus.completed;
+            }
+            if (typeof plan.taskStatus.current === 'string') {
+              taskStatusHistory.current = plan.taskStatus.current;
+            }
+            if (Array.isArray(plan.taskStatus.pending)) {
+              taskStatusHistory.pending = plan.taskStatus.pending;
+            }
+
+            // 输出任务状态到UI
+            yield {
+              type: 'task_status',
+              round,
+              status: {
+                completed: taskStatusHistory.completed,
+                current: taskStatusHistory.current,
+                pending: taskStatusHistory.pending
+              }
+            };
+
+            console.log('[StreamingMultiHop] 任务状态更新:', taskStatusHistory);
+          }
 
           // 捕获AI关于地图包含的决策
           if (plan.includeMapInFinalContext === true) {
@@ -1398,26 +1513,39 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
           }
         }
 
-        // 检查是否final：若本轮已得到可用上下文（搜索片段或已fetch的意群），且规划未声明final，也可直接结束
+        // 检查是否final：优先尊重AI的final判断
         const hadContextThisRound = contextParts.length > 0 || detail.length > 0;
         console.log(`[StreamingMultiHop] 第${round + 1}轮结束检查：contextParts=${contextParts.length}, detail=${detail.length}, final=${plan.final}`);
 
-        if (plan.final === true || hadContextThisRound) {
+        // 优先判断：AI明确说final=true，直接结束
+        if (plan.final === true) {
           yield {
             type: 'round_end',
             round,
             final: true,
-            message: '取材完成'
+            message: 'AI判断内容已充分，取材完成'
           };
           break;
-        } else {
+        }
+
+        // 次要判断：AI说final=false，但已经到最后一轮了，强制结束
+        if (round === maxRounds - 1 && hadContextThisRound) {
           yield {
             type: 'round_end',
             round,
-            final: false,
-            message: '继续下一轮取材...'
+            final: true,
+            message: '已达最大轮次，使用已获取内容'
           };
+          break;
         }
+
+        // 继续下一轮
+        yield {
+          type: 'round_end',
+          round,
+          final: false,
+          message: '继续下一轮取材...'
+        };
       }
 
       // 4. 汇总上下文 - 智能分层策略
