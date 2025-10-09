@@ -127,7 +127,8 @@ document.addEventListener('DOMContentLoaded', function() {
         { key: 'volcano', name: '火山引擎', group: 'translation' },
         { key: 'deeplx', name: 'DeepLX (DeepL 接口)', group: 'translation' },
         { key: 'custom', name: '自定义翻译模型', group: 'translation' },
-        { key: 'embedding', name: '向量搜索与重排', group: 'search' }
+        { key: 'embedding', name: '向量搜索与重排', group: 'search' },
+        { key: 'academicSearch', name: '学术搜索代理', group: 'search' }
     ];
 
     if (modelKeyManagerBtn && modelKeyManagerModal && closeModelKeyManager && modelListColumn && modelConfigColumn && keyManagerColumn) {
@@ -168,6 +169,17 @@ document.addEventListener('DOMContentLoaded', function() {
             // Embedding: 使用 EmbeddingClient 配置
             if (model.key === 'embedding') {
                 modelHasValidKey[model.key] = !!(window.EmbeddingClient?.config?.enabled && window.EmbeddingClient?.config?.apiKey);
+                return;
+            }
+
+            // AcademicSearch: 检查代理配置
+            if (model.key === 'academicSearch') {
+                try {
+                    const config = JSON.parse(localStorage.getItem('academicSearchProxyConfig') || 'null');
+                    modelHasValidKey[model.key] = !!(config && config.enabled && config.baseUrl);
+                } catch (e) {
+                    modelHasValidKey[model.key] = false;
+                }
                 return;
             }
 
@@ -364,6 +376,9 @@ document.addEventListener('DOMContentLoaded', function() {
         if (modelKey === 'embedding') {
             // embedding使用独立的配置界面，不需要key管理器
             keyManagerColumn.innerHTML = '';
+        } else if (modelKey === 'academicSearch') {
+            // academicSearch使用独立的配置界面，不需要key管理器
+            keyManagerColumn.innerHTML = '';
         } else if (modelKey === 'mineru' || modelKey === 'doc2x') {
             // OCR 引擎（MinerU/Doc2X）不使用 Key 池管理
             keyManagerColumn.innerHTML = '';
@@ -419,6 +434,9 @@ document.addEventListener('DOMContentLoaded', function() {
         } else if (modelKey === 'embedding') {
             title.textContent = `向量搜索与重排 - 配置`;
             renderEmbeddingConfig();
+        } else if (modelKey === 'academicSearch') {
+            title.textContent = `学术搜索代理 - 配置`;
+            renderAcademicSearchConfig();
         } else if (modelKey === 'mistral') {
             title.textContent = `${modelDefinition.name} - 配置`;
             renderMistralOcrConfig();
@@ -1911,6 +1929,465 @@ document.addEventListener('DOMContentLoaded', function() {
                 showNotification && showNotification('已将 Doc2X 设为当前 OCR 引擎', 'success');
             } catch (e) {
                 alert('设为当前引擎失败');
+            }
+        };
+    }
+
+    function renderAcademicSearchConfig() {
+        // 从 localStorage 加载配置
+        const proxyConfig = JSON.parse(localStorage.getItem('academicSearchProxyConfig') || 'null') || {
+            enabled: false,
+            baseUrl: '',
+            semanticScholarApiKey: '',
+            pubmedApiKey: '',
+            authKey: ''
+        };
+
+        // 学术搜索源配置
+        const sourcesConfig = JSON.parse(localStorage.getItem('academicSearchSourcesConfig') || 'null') || {
+            sources: [
+                { key: 'crossref', name: 'CrossRef', enabled: true, order: 0 },
+                { key: 'openalex', name: 'OpenAlex', enabled: true, order: 1 },
+                { key: 'arxiv', name: 'arXiv', enabled: true, order: 2 },
+                { key: 'pubmed', name: 'PubMed', enabled: true, order: 3 },
+                { key: 'semanticscholar', name: 'Semantic Scholar', enabled: true, order: 4 }
+            ]
+        };
+
+        const container = document.createElement('div');
+        container.className = 'space-y-4';
+
+        // Tab 切换
+        const tabsDiv = document.createElement('div');
+        tabsDiv.className = 'border-b border-gray-200';
+        tabsDiv.innerHTML = `
+            <nav class="flex -mb-px space-x-4">
+                <button id="academic-tab-sources" class="academic-tab px-4 py-2 text-sm font-medium border-b-2 border-blue-600 text-blue-600">
+                    搜索源管理
+                </button>
+                <button id="academic-tab-proxy" class="academic-tab px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
+                    代理配置
+                </button>
+            </nav>
+        `;
+        container.appendChild(tabsDiv);
+
+        // Tab 1: 搜索源管理
+        const sourcesTab = document.createElement('div');
+        sourcesTab.id = 'academic-sources-tab-content';
+        sourcesTab.className = 'pt-4';
+        sourcesTab.innerHTML = `
+            <div class="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded p-2 mb-3 flex items-center gap-1">
+                <iconify-icon icon="carbon:information" width="14"></iconify-icon>
+                <span>拖动调整查询顺序，取消勾选可禁用某个源</span>
+            </div>
+            <div id="academic-sources-list" class="space-y-2"></div>
+        `;
+        container.appendChild(sourcesTab);
+
+        // Tab 2: 代理配置
+        const proxyTab = document.createElement('div');
+        proxyTab.id = 'academic-proxy-tab-content';
+        proxyTab.className = 'pt-4 hidden';
+        container.appendChild(proxyTab);
+
+        modelConfigColumn.appendChild(container);
+
+        // 渲染搜索源列表
+        renderAcademicSourcesList(sourcesConfig);
+
+        // 渲染代理配置
+        renderAcademicProxyConfig(proxyTab, proxyConfig);
+
+        // Tab 切换逻辑
+        document.querySelectorAll('.academic-tab').forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                const targetId = e.target.id;
+
+                // 更新 tab 样式
+                document.querySelectorAll('.academic-tab').forEach(t => {
+                    t.classList.remove('border-blue-600', 'text-blue-600');
+                    t.classList.add('border-transparent', 'text-gray-500');
+                });
+                e.target.classList.remove('border-transparent', 'text-gray-500');
+                e.target.classList.add('border-blue-600', 'text-blue-600');
+
+                // 切换内容
+                if (targetId === 'academic-tab-sources') {
+                    sourcesTab.classList.remove('hidden');
+                    proxyTab.classList.add('hidden');
+                } else {
+                    sourcesTab.classList.add('hidden');
+                    proxyTab.classList.remove('hidden');
+                }
+            });
+        });
+    }
+
+    function renderAcademicSourcesList(config) {
+        const listContainer = document.getElementById('academic-sources-list');
+        if (!listContainer) return;
+
+        listContainer.innerHTML = '';
+
+        // 按 order 排序
+        const sortedSources = [...config.sources].sort((a, b) => a.order - b.order);
+
+        sortedSources.forEach((source, index) => {
+            const item = document.createElement('div');
+            item.className = 'flex items-center gap-3 p-3 bg-white border border-gray-200 rounded-md hover:shadow-sm transition-shadow cursor-move';
+            item.draggable = true;
+            item.dataset.sourceKey = source.key;
+
+            item.innerHTML = `
+                <iconify-icon icon="carbon:draggable" width="16" class="text-gray-400"></iconify-icon>
+                <input type="checkbox" ${source.enabled ? 'checked' : ''} class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 source-enable-checkbox" data-key="${source.key}">
+                <span class="flex-grow text-sm text-gray-700 font-medium">${source.name}</span>
+                <span class="text-xs text-gray-400">${source.key}</span>
+            `;
+
+            listContainer.appendChild(item);
+
+            // 拖拽事件
+            item.addEventListener('dragstart', (e) => {
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', source.key);
+                item.classList.add('opacity-50');
+            });
+
+            item.addEventListener('dragend', () => {
+                item.classList.remove('opacity-50');
+            });
+
+            item.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                item.classList.add('border-blue-400', 'bg-blue-50');
+            });
+
+            item.addEventListener('dragleave', () => {
+                item.classList.remove('border-blue-400', 'bg-blue-50');
+            });
+
+            item.addEventListener('drop', (e) => {
+                e.preventDefault();
+                item.classList.remove('border-blue-400', 'bg-blue-50');
+
+                const draggedKey = e.dataTransfer.getData('text/plain');
+                const targetKey = source.key;
+
+                if (draggedKey !== targetKey) {
+                    // 重新排序
+                    const draggedIndex = config.sources.findIndex(s => s.key === draggedKey);
+                    const targetIndex = config.sources.findIndex(s => s.key === targetKey);
+
+                    const [draggedItem] = config.sources.splice(draggedIndex, 1);
+                    config.sources.splice(targetIndex, 0, draggedItem);
+
+                    // 更新 order
+                    config.sources.forEach((s, idx) => s.order = idx);
+
+                    // 保存并重新渲染
+                    localStorage.setItem('academicSearchSourcesConfig', JSON.stringify(config));
+                    renderAcademicSourcesList(config);
+                    showNotification && showNotification('搜索源顺序已更新', 'success', 2000);
+                }
+            });
+        });
+
+        // 启用/禁用切换
+        document.querySelectorAll('.source-enable-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', (e) => {
+                const key = e.target.dataset.key;
+                const source = config.sources.find(s => s.key === key);
+                if (source) {
+                    source.enabled = e.target.checked;
+                    localStorage.setItem('academicSearchSourcesConfig', JSON.stringify(config));
+                    showNotification && showNotification(`${source.name} 已${source.enabled ? '启用' : '禁用'}`, 'success', 2000);
+                }
+            });
+        });
+
+        // 保存按钮
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'w-full mt-3 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700';
+        saveBtn.textContent = '保存配置';
+        saveBtn.onclick = () => {
+            localStorage.setItem('academicSearchSourcesConfig', JSON.stringify(config));
+            showNotification && showNotification('搜索源配置已保存', 'success');
+        };
+        listContainer.appendChild(saveBtn);
+    }
+
+    function renderAcademicProxyConfig(container, config) {
+        // 不要覆盖 className，保留 hidden 类
+        container.classList.add('space-y-4');
+        if (!container.classList.contains('pt-4')) {
+            container.classList.add('pt-4');
+        }
+
+        // 启用开关
+        const enableDiv = document.createElement('div');
+        enableDiv.innerHTML = `
+            <label class="flex items-center cursor-pointer">
+                <input type="checkbox" id="academic-search-enabled" ${config.enabled ? 'checked' : ''} class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                <span class="ml-2 text-sm font-medium text-gray-700">启用学术搜索代理</span>
+            </label>
+            <p class="mt-1 text-xs text-gray-500 ml-6">开启后，PubMed、Semantic Scholar 和 arXiv 查询将通过代理服务器</p>
+        `;
+        container.appendChild(enableDiv);
+
+        // Worker URL
+        const urlDiv = document.createElement('div');
+        urlDiv.innerHTML = `
+            <label class="block text-sm font-medium text-gray-700 mb-1">Worker URL</label>
+            <input type="text" id="academic-search-base-url" value="${config.baseUrl}" placeholder="https://your-worker.workers.dev" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+            <p class="mt-1 text-xs text-gray-500">Cloudflare Worker 学术搜索代理地址</p>
+        `;
+        container.appendChild(urlDiv);
+
+        // 部署模式说明
+        const modeInfoDiv = document.createElement('div');
+        modeInfoDiv.className = 'border-t pt-4';
+        modeInfoDiv.innerHTML = `
+            <div class="text-xs bg-blue-50 border border-blue-200 rounded p-3 space-y-2">
+                <div class="font-semibold text-blue-800 flex items-center gap-1">
+                    <iconify-icon icon="carbon:information" width="14"></iconify-icon>
+                    <span>支持两种部署模式</span>
+                </div>
+                <div class="text-blue-700">
+                    <strong>方案一：透传模式（推荐）</strong><br>
+                    • 在下方填写 API Key，通过 <code class="bg-blue-100 px-1 rounded">X-Api-Key</code> 请求头透传给 Worker<br>
+                    • Worker 可以选择配置密钥作为备用，如果前端没有提供则使用 Worker 配置的密钥<br>
+                    • 适合个人使用或分享给他人
+                </div>
+                <div class="text-blue-700">
+                    <strong>方案二：共享密钥模式</strong><br>
+                    • API Key 存储在 Worker 环境变量中（必需）<br>
+                    • 需要在下方填写 Worker Auth Key（对应 Worker 的 <code class="bg-blue-100 px-1 rounded">AUTH_SECRET</code>）<br>
+                    • 适合团队共享，但需要保护好 Auth Key
+                </div>
+            </div>
+        `;
+        container.appendChild(modeInfoDiv);
+
+        // Semantic Scholar API Key（透传模式）
+        const s2KeyDiv = document.createElement('div');
+        s2KeyDiv.className = 'border-t pt-4';
+        s2KeyDiv.innerHTML = `
+            <label class="block text-sm font-medium text-gray-700 mb-1">Semantic Scholar API Key（可选，透传模式）</label>
+            <div class="flex items-center gap-2">
+                <input type="password" id="academic-search-s2-key" value="${config.semanticScholarApiKey || ''}" placeholder="留空则使用免费额度" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <button type="button" id="academic-search-s2-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors flex items-center gap-1">
+                    <iconify-icon icon="carbon:view" width="16"></iconify-icon>
+                    <span>显示</span>
+                </button>
+            </div>
+            <p class="mt-1 text-xs text-gray-500">从 <a href="https://www.semanticscholar.org/product/api" target="_blank" class="text-blue-600 hover:underline">Semantic Scholar</a> 获取，提高请求限额</p>
+        `;
+        container.appendChild(s2KeyDiv);
+
+        // PubMed API Key（透传模式）
+        const pubmedKeyDiv = document.createElement('div');
+        pubmedKeyDiv.innerHTML = `
+            <label class="block text-sm font-medium text-gray-700 mb-1">PubMed API Key（可选，透传模式）</label>
+            <div class="flex items-center gap-2">
+                <input type="password" id="academic-search-pubmed-key" value="${config.pubmedApiKey || ''}" placeholder="留空则使用免费额度" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <button type="button" id="academic-search-pubmed-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors flex items-center gap-1">
+                    <iconify-icon icon="carbon:view" width="16"></iconify-icon>
+                    <span>显示</span>
+                </button>
+            </div>
+            <p class="mt-1 text-xs text-gray-500">从 <a href="https://www.ncbi.nlm.nih.gov/account/" target="_blank" class="text-blue-600 hover:underline">NCBI</a> 获取，提高请求限额</p>
+        `;
+        container.appendChild(pubmedKeyDiv);
+
+        // Worker Auth Key（共享模式）
+        const authKeyDiv = document.createElement('div');
+        authKeyDiv.className = 'border-t pt-4';
+        authKeyDiv.innerHTML = `
+            <label class="block text-sm font-medium text-gray-700 mb-1">Worker Auth Key（共享模式）</label>
+            <div class="flex items-center gap-2">
+                <input type="password" id="academic-search-auth-key" value="${config.authKey || ''}" placeholder="如果 Worker 启用了 ENABLE_AUTH，填写这里" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+                <button type="button" id="academic-search-auth-toggle" class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md transition-colors flex items-center gap-1">
+                    <iconify-icon icon="carbon:view" width="16"></iconify-icon>
+                    <span>显示</span>
+                </button>
+            </div>
+            <p class="mt-1 text-xs text-gray-500">对应 Worker 环境变量 <code class="bg-gray-100 px-1 rounded">AUTH_SECRET</code>（仅在共享模式需要）</p>
+        `;
+        container.appendChild(authKeyDiv);
+
+        // 联系邮箱（可选，用于 CrossRef 和 OpenAlex 的 polite pool）
+        const emailDiv = document.createElement('div');
+        emailDiv.innerHTML = `
+            <label class="block text-sm font-medium text-gray-700 mb-1">联系邮箱（可选）</label>
+            <input type="email" id="academic-search-contact-email" value="${config.contactEmail || ''}" placeholder="your-email@example.com" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500">
+            <p class="mt-1 text-xs text-gray-500">
+                提供邮箱（<span class="font-semibold">Polite Pool</span>）可获得
+                <a href="https://www.crossref.org/documentation/retrieve-metadata/rest-api/tips-for-using-the-crossref-rest-api/#00831" target="_blank" class="font-semibold text-blue-600 hover:underline">CrossRef</a> 和
+                <a href="https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication#the-polite-pool" target="_blank" class="font-semibold text-blue-600 hover:underline">OpenAlex</a>
+                更高的速率限制（点击链接以了解更多）
+            </p>
+        `;
+        container.appendChild(emailDiv);
+
+        // 测试/保存按钮
+        const buttonsDiv = document.createElement('div');
+        buttonsDiv.className = 'pt-2 grid grid-cols-1 sm:grid-cols-2 gap-2';
+        buttonsDiv.innerHTML = `
+            <button id="academic-search-test" class="px-4 py-2 border border-gray-300 bg-white text-gray-700 rounded-md hover:bg-gray-50">测试连接</button>
+            <button id="academic-search-save" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">保存配置</button>
+        `;
+        container.appendChild(buttonsDiv);
+
+        // 测试结果显示
+        const resultDiv = document.createElement('div');
+        resultDiv.id = 'academic-search-test-result';
+        resultDiv.className = 'text-sm mt-2';
+        resultDiv.style.display = 'none';
+        container.appendChild(resultDiv);
+
+        modelConfigColumn.appendChild(container);
+
+        // 绑定显示/隐藏切换事件
+        const toggleButtons = [
+            { btnId: 'academic-search-s2-toggle', inputId: 'academic-search-s2-key' },
+            { btnId: 'academic-search-pubmed-toggle', inputId: 'academic-search-pubmed-key' },
+            { btnId: 'academic-search-auth-toggle', inputId: 'academic-search-auth-key' }
+        ];
+
+        toggleButtons.forEach(({ btnId, inputId }) => {
+            const btn = document.getElementById(btnId);
+            const input = document.getElementById(inputId);
+            if (btn && input) {
+                btn.addEventListener('click', () => {
+                    const isPassword = input.type === 'password';
+                    input.type = isPassword ? 'text' : 'password';
+                    btn.querySelector('span').textContent = isPassword ? '隐藏' : '显示';
+                    btn.querySelector('iconify-icon').setAttribute('icon', isPassword ? 'carbon:view-off' : 'carbon:view');
+                });
+            }
+        });
+
+        // 保存配置
+        document.getElementById('academic-search-save').onclick = () => {
+            try {
+                const newConfig = {
+                    enabled: document.getElementById('academic-search-enabled').checked,
+                    baseUrl: document.getElementById('academic-search-base-url').value.trim(),
+                    semanticScholarApiKey: document.getElementById('academic-search-s2-key').value.trim(),
+                    pubmedApiKey: document.getElementById('academic-search-pubmed-key').value.trim(),
+                    authKey: document.getElementById('academic-search-auth-key').value.trim(),
+                    contactEmail: document.getElementById('academic-search-contact-email').value.trim()
+                };
+
+                // 保留已有的 rateLimit 信息（从测试连接获取）
+                const existingConfig = JSON.parse(localStorage.getItem('academicSearchProxyConfig') || '{}');
+                if (existingConfig.rateLimit) {
+                    newConfig.rateLimit = existingConfig.rateLimit;
+                }
+
+                localStorage.setItem('academicSearchProxyConfig', JSON.stringify(newConfig));
+                showNotification && showNotification('学术搜索配置已保存', 'success');
+
+                // 通知学术搜索设置管理器重新加载（如果存在）
+                if (window.academicSearchSettingsManager && typeof window.academicSearchSettingsManager.loadSettings === 'function') {
+                    window.academicSearchSettingsManager.loadSettings();
+                }
+            } catch (e) {
+                alert('保存配置失败：' + e.message);
+            }
+        };
+
+        // 测试连接
+        document.getElementById('academic-search-test').onclick = async () => {
+            const baseUrl = document.getElementById('academic-search-base-url').value.trim();
+            const authKey = document.getElementById('academic-search-auth-key').value.trim();
+            const resultDiv = document.getElementById('academic-search-test-result');
+
+            if (!baseUrl) {
+                resultDiv.style.display = 'block';
+                resultDiv.className = 'text-sm mt-2 p-2 bg-red-50 border border-red-200 text-red-700 rounded';
+                resultDiv.textContent = '❌ 请填写 Worker URL';
+                return;
+            }
+
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'text-sm mt-2 p-2 bg-blue-50 border border-blue-200 text-blue-700 rounded';
+            resultDiv.textContent = '⏳ 正在测试连接...';
+
+            try {
+                const headers = {
+                    'Content-Type': 'application/json'
+                };
+
+                // 如果配置了 Auth Key，加入请求头
+                if (authKey) {
+                    headers['X-Auth-Key'] = authKey;
+                }
+
+                const response = await fetch(`${baseUrl}/health`, {
+                    method: 'GET',
+                    headers: headers
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+
+                    // 保存速率限制信息到配置中
+                    const currentConfig = JSON.parse(localStorage.getItem('academicSearchProxyConfig') || '{}');
+                    currentConfig.rateLimit = data.rateLimit || null;
+                    localStorage.setItem('academicSearchProxyConfig', JSON.stringify(currentConfig));
+
+                    // 格式化输出
+                    let servicesHtml = '';
+                    if (data.services) {
+                        servicesHtml = '<div class="mt-2"><strong>可用服务:</strong><ul class="list-disc list-inside text-xs mt-1">';
+                        for (const [service, info] of Object.entries(data.services)) {
+                            const status = info.enabled ? '✓' : '✗';
+                            const apiKeyStatus = info.hasApiKey !== undefined ? (info.hasApiKey ? ' (有密钥)' : ' (无密钥)') : '';
+                            servicesHtml += `<li>${status} ${service}${apiKeyStatus}</li>`;
+                        }
+                        servicesHtml += '</ul></div>';
+                    }
+
+                    let rateLimitHtml = '';
+                    if (data.rateLimit) {
+                        if (data.rateLimit.enabled) {
+                            rateLimitHtml = `<div class="mt-2 text-xs">
+                                <strong>速率限制:</strong> TPS: ${data.rateLimit.tps}, TPM: ${data.rateLimit.tpm}, 每IP TPS: ${data.rateLimit.perIpTps}, 每IP TPM: ${data.rateLimit.perIpTpm}`;
+
+                            // 显示服务级别速率限制
+                            if (data.rateLimit.services) {
+                                rateLimitHtml += '<div class="ml-4 mt-1 text-xs opacity-80">';
+                                if (data.rateLimit.services.pubmed) {
+                                    rateLimitHtml += `<div>• PubMed: TPS ${data.rateLimit.services.pubmed.tps}, TPM ${data.rateLimit.services.pubmed.tpm}</div>`;
+                                }
+                                if (data.rateLimit.services.semanticscholar) {
+                                    rateLimitHtml += `<div>• Semantic Scholar: TPS ${data.rateLimit.services.semanticscholar.tps}, TPM ${data.rateLimit.services.semanticscholar.tpm}</div>`;
+                                }
+                                rateLimitHtml += '</div>';
+                            }
+                            rateLimitHtml += '</div>';
+                        } else {
+                            rateLimitHtml = '<div class="mt-2 text-xs"><strong>速率限制:</strong> 未启用</div>';
+                        }
+                    }
+
+                    let authHtml = '';
+                    if (data.authentication) {
+                        authHtml = `<div class="mt-1 text-xs"><strong>认证:</strong> ${data.authentication.required ? '必需' : '不需要'}</div>`;
+                    }
+
+                    resultDiv.className = 'text-sm mt-2 p-2 bg-green-50 border border-green-200 text-green-700 rounded';
+                    resultDiv.innerHTML = `✅ 连接成功！速率限制配置已保存${servicesHtml}${rateLimitHtml}${authHtml}`;
+                } else {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+            } catch (error) {
+                resultDiv.className = 'text-sm mt-2 p-2 bg-red-50 border border-red-200 text-red-700 rounded';
+                resultDiv.textContent = `❌ 连接失败：${error.message}`;
             }
         };
     }
