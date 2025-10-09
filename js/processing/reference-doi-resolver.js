@@ -1,8 +1,117 @@
 // js/processing/reference-doi-resolver.js
-// 多源DOI解析器 - CrossRef + OpenAlex + PubMed
+// 多源DOI解析器 - CrossRef + OpenAlex + PubMed + arXiv + Semantic Scholar
 
 (function(global) {
     'use strict';
+
+    /**
+     * 代理配置 - 从 localStorage 读取
+     */
+    function getProxyConfig() {
+        try {
+            const config = JSON.parse(localStorage.getItem('academicSearchProxyConfig') || 'null');
+            if (!config) {
+                return {
+                    enabled: false,
+                    baseUrl: '',
+                    authKey: null,
+                    semanticScholarApiKey: null,
+                    pubmedApiKey: null,
+                    rateLimit: null
+                };
+            }
+            return {
+                enabled: config.enabled !== false,
+                baseUrl: config.baseUrl || '',
+                authKey: config.authKey || null,
+                semanticScholarApiKey: config.semanticScholarApiKey || null,
+                pubmedApiKey: config.pubmedApiKey || null,
+                rateLimit: config.rateLimit || null  // 从health检测获取的速率限制信息
+            };
+        } catch (error) {
+            console.warn('[DOIResolver] Failed to load proxy config:', error);
+            return {
+                enabled: false,
+                baseUrl: '',
+                authKey: null,
+                semanticScholarApiKey: null,
+                pubmedApiKey: null,
+                rateLimit: null
+            };
+        }
+    }
+
+    /**
+     * 获取学术搜索源配置
+     */
+    function getSourcesConfig() {
+        try {
+            const config = JSON.parse(localStorage.getItem('academicSearchSourcesConfig') || 'null');
+            if (!config || !config.sources) {
+                // 默认配置
+                return {
+                    sources: [
+                        { key: 'crossref', name: 'CrossRef', enabled: true, order: 0 },
+                        { key: 'openalex', name: 'OpenAlex', enabled: true, order: 1 },
+                        { key: 'arxiv', name: 'arXiv', enabled: true, order: 2 },
+                        { key: 'pubmed', name: 'PubMed', enabled: true, order: 3 },
+                        { key: 'semanticscholar', name: 'Semantic Scholar', enabled: true, order: 4 }
+                    ]
+                };
+            }
+            return config;
+        } catch (error) {
+            console.warn('[DOIResolver] Failed to load sources config:', error);
+            return {
+                sources: [
+                    { key: 'crossref', name: 'CrossRef', enabled: true, order: 0 },
+                    { key: 'openalex', name: 'OpenAlex', enabled: true, order: 1 },
+                    { key: 'arxiv', name: 'arXiv', enabled: true, order: 2 },
+                    { key: 'pubmed', name: 'PubMed', enabled: true, order: 3 },
+                    { key: 'semanticscholar', name: 'Semantic Scholar', enabled: true, order: 4 }
+                ]
+            };
+        }
+    }
+
+    /**
+     * 构建代理 URL（只对需要的服务使用代理）
+     */
+    function buildProxyUrl(service, path) {
+        const config = getProxyConfig();
+
+        // PubMed、Semantic Scholar 和 arXiv 需要代理
+        const needsProxy = ['pubmed', 'semanticscholar', 'arxiv'];
+
+        if (!config.enabled || !needsProxy.includes(service)) {
+            return null;
+        }
+
+        return `${config.baseUrl}/api/${service}/${path}`;
+    }
+
+    /**
+     * 添加代理认证头
+     * @param {string} service - 服务名称（用于选择正确的 API Key）
+     */
+    function getProxyHeaders(service) {
+        const config = getProxyConfig();
+        const headers = {};
+
+        // Auth Key（共享模式）
+        if (config.authKey) {
+            headers['X-Auth-Key'] = config.authKey;
+        }
+
+        // API Key 透传（透传模式）
+        if (service === 'semanticscholar' && config.semanticScholarApiKey) {
+            headers['X-Api-Key'] = config.semanticScholarApiKey;
+        } else if (service === 'pubmed' && config.pubmedApiKey) {
+            headers['X-Api-Key'] = config.pubmedApiKey;
+        }
+
+        return headers;
+    }
 
     /**
      * CrossRef API查询
@@ -11,7 +120,9 @@
     class CrossRefResolver {
         constructor() {
             this.baseUrl = 'https://api.crossref.org/works';
-            this.mailto = 'your-email@example.com'; // 建议设置邮箱以获得更好的API限额
+            // CrossRef建议提供邮箱可获得更高速率限制（polite pool）
+            const config = getProxyConfig();
+            this.mailto = config.contactEmail || null;
         }
 
         /**
@@ -29,23 +140,30 @@
                 // 构建查询URL
                 const params = new URLSearchParams({
                     'query.title': title,
-                    rows: 5, // 返回前5个结果
-                    mailto: this.mailto
+                    rows: 5 // 返回前5个结果
                 });
+
+                // 只在有邮箱时才添加mailto参数
+                if (this.mailto) {
+                    params.append('mailto', this.mailto);
+                }
 
                 // 如果有作者信息，添加到查询
                 if (metadata.authors && metadata.authors.length > 0) {
                     params.append('query.author', metadata.authors[0]);
                 }
 
+                // CrossRef 支持 CORS，不需要代理
                 const url = `${this.baseUrl}?${params.toString()}`;
                 console.log('[CrossRef] Querying:', title.substring(0, 50));
 
-                const response = await fetch(url, {
-                    headers: {
-                        'User-Agent': 'PaperBurner/1.0 (mailto:' + this.mailto + ')'
-                    }
-                });
+                const headers = {};
+                // 只在有邮箱时才设置User-Agent
+                if (this.mailto) {
+                    headers['User-Agent'] = `PaperBurner/1.0 (mailto:${this.mailto})`;
+                }
+
+                const response = await fetch(url, { headers });
 
                 if (!response.ok) {
                     console.warn('[CrossRef] API error:', response.status);
@@ -71,6 +189,39 @@
                 console.error('[CrossRef] Query failed:', error);
                 return null;
             }
+        }
+
+        /**
+         * 批量查询
+         * @param {Array} references - 文献列表
+         * @returns {Promise<Array>} 查询结果
+         */
+        async batchQuery(references) {
+            console.log(`[CrossRef] Batch querying ${references.length} references`);
+
+            const results = [];
+
+            for (let i = 0; i < references.length; i++) {
+                const ref = references[i];
+
+                const result = await this.queryByTitle(ref.title, {
+                    authors: ref.authors,
+                    year: ref.year
+                });
+
+                results.push({
+                    original: ref,
+                    resolved: result,
+                    success: !!result
+                });
+
+                // CrossRef 不限制但保持礼貌，较短延迟
+                if (i < references.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 400));
+                }
+            }
+
+            return results;
         }
 
         /**
@@ -188,7 +339,10 @@
     class OpenAlexResolver {
         constructor() {
             this.baseUrl = 'https://api.openalex.org/works';
-            this.email = 'your-email@example.com';
+            // OpenAlex建议提供邮箱可获得更高速率限制，但不强制
+            // 从配置读取，如果没有则不发送mailto参数
+            const config = getProxyConfig();
+            this.email = config.contactEmail || null;
         }
 
         async queryByTitle(title, metadata = {}) {
@@ -198,10 +352,15 @@
 
             try {
                 const params = new URLSearchParams({
-                    search: title,
-                    mailto: this.email
+                    search: title
                 });
 
+                // 只在有邮箱时才添加mailto参数
+                if (this.email) {
+                    params.append('mailto', this.email);
+                }
+
+                // OpenAlex 支持 CORS，不需要代理
                 const url = `${this.baseUrl}?${params.toString()}`;
                 console.log('[OpenAlex] Querying:', title.substring(0, 50));
 
@@ -289,6 +448,39 @@
                 return null;
             }
         }
+
+        /**
+         * 批量查询
+         * @param {Array} references - 文献列表
+         * @returns {Promise<Array>} 查询结果
+         */
+        async batchQuery(references) {
+            console.log(`[OpenAlex] Batch querying ${references.length} references`);
+
+            const results = [];
+
+            for (let i = 0; i < references.length; i++) {
+                const ref = references[i];
+
+                const result = await this.queryByTitle(ref.title, {
+                    authors: ref.authors,
+                    year: ref.year
+                });
+
+                results.push({
+                    original: ref,
+                    resolved: result,
+                    success: !!result
+                });
+
+                // OpenAlex Polite Pool: 10 req/s，留余量使用较短延迟
+                if (i < references.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                }
+            }
+
+            return results;
+        }
     }
 
     /**
@@ -313,10 +505,14 @@
                     fields: 'title,authors,year,venue,externalIds,url,citationCount,abstract'
                 });
 
-                const url = `${this.baseUrl}/paper/search?${params.toString()}`;
-                console.log('[SemanticScholar] Querying:', title.substring(0, 50));
+                // Semantic Scholar 需要通过代理
+                const proxyUrl = buildProxyUrl('semanticscholar', `graph/v1/paper/search?${params.toString()}`);
+                const url = proxyUrl || `${this.baseUrl}/paper/search?${params.toString()}`;
+                const headers = proxyUrl ? getProxyHeaders('semanticscholar') : {};
 
-                const response = await fetch(url);
+                console.log('[SemanticScholar] Querying:', title.substring(0, 50), proxyUrl ? '(via proxy)' : '(direct - may fail due to CORS)');
+
+                const response = await fetch(url, { headers });
 
                 if (!response.ok) {
                     console.warn('[SemanticScholar] API error:', response.status);
@@ -354,36 +550,38 @@
             try {
                 console.log(`[SemanticScholar] Batch querying ${references.length} references`);
 
+                // 从配置读取速率限制
+                const proxyConfig = getProxyConfig();
+                let delay = 1200; // 默认保守值
+
+                if (proxyConfig.rateLimit?.services?.semanticscholar?.tps) {
+                    const tps = proxyConfig.rateLimit.services.semanticscholar.tps;
+                    // 计算延迟 = (1000 / TPS) * 1.5 (留50%余量)
+                    delay = Math.ceil((1000 / tps) * 1.5);
+                    console.log(`[SemanticScholar] Using rate limit: ${tps} TPS, delay: ${delay}ms`);
+                }
+
                 const results = [];
 
-                // Semantic Scholar批量API有限制，每次最多处理500个
-                const batchSize = 100;
+                // 为了遵守速率限制，串行处理每个文献
+                for (let i = 0; i < references.length; i++) {
+                    const ref = references[i];
 
-                for (let i = 0; i < references.length; i += batchSize) {
-                    const batch = references.slice(i, i + batchSize);
-
-                    // 对每个文献进行查询
-                    const batchResults = await Promise.all(
-                        batch.map(async (ref) => {
-                            const result = await this.queryByTitle(ref.title, {
-                                authors: ref.authors,
-                                year: ref.year
-                            });
-
-                            return {
-                                original: ref,
-                                resolved: result,
-                                success: !!result
-                            };
-                        })
-                    );
-
-                    results.push(...batchResults);
-
-                    // 批次间延迟
-                    if (i + batchSize < references.length) {
-                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    // 在每个请求前延迟（除了第一个），确保严格遵守速率限制
+                    if (i > 0) {
+                        await new Promise(resolve => setTimeout(resolve, delay));
                     }
+
+                    const result = await this.queryByTitle(ref.title, {
+                        authors: ref.authors,
+                        year: ref.year
+                    });
+
+                    results.push({
+                        original: ref,
+                        resolved: result,
+                        success: !!result
+                    });
                 }
 
                 return results;
@@ -449,18 +647,28 @@
             }
 
             try {
+                // 截断过长的标题，避免URL过长或查询超时
+                // PubMed 搜索对长标题支持不好，取前200字符通常足够匹配
+                let searchTitle = title.length > 200 ? title.substring(0, 200) : title;
+
                 // Step 1: 搜索获取PMID
                 const searchParams = new URLSearchParams({
                     db: 'pubmed',
-                    term: title,
+                    term: searchTitle,
                     retmode: 'json',
                     retmax: 5
                 });
 
-                console.log('[PubMed] Searching:', title.substring(0, 50));
+                // PubMed 需要通过代理
+                const searchProxyUrl = buildProxyUrl('pubmed', `esearch.fcgi?${searchParams.toString()}`);
+                const searchUrl = searchProxyUrl || `${this.searchUrl}?${searchParams.toString()}`;
+                const headers = searchProxyUrl ? getProxyHeaders('pubmed') : {};
 
-                const searchResponse = await fetch(`${this.searchUrl}?${searchParams.toString()}`);
+                console.log('[PubMed] Searching:', searchTitle.substring(0, 50), searchProxyUrl ? '(via proxy)' : '(direct)');
+
+                const searchResponse = await fetch(searchUrl, { headers });
                 if (!searchResponse.ok) {
+                    console.warn('[PubMed] Search failed:', searchResponse.status);
                     return null;
                 }
 
@@ -478,7 +686,10 @@
                     retmode: 'xml'
                 });
 
-                const fetchResponse = await fetch(`${this.fetchUrl}?${fetchParams.toString()}`);
+                const fetchProxyUrl = buildProxyUrl('pubmed', `efetch.fcgi?${fetchParams.toString()}`);
+                const fetchUrl = fetchProxyUrl || `${this.fetchUrl}?${fetchParams.toString()}`;
+
+                const fetchResponse = await fetch(fetchUrl, { headers });
                 if (!fetchResponse.ok) {
                     return null;
                 }
@@ -579,6 +790,50 @@
             const t2 = title2.toLowerCase().trim();
             return t1.includes(t2) || t2.includes(t1);
         }
+
+        /**
+         * 批量查询
+         * @param {Array} references - 文献列表
+         * @returns {Promise<Array>} 查询结果
+         */
+        async batchQuery(references) {
+            console.log(`[PubMed] Batch querying ${references.length} references`);
+
+            // 从配置读取速率限制
+            const proxyConfig = getProxyConfig();
+            let delay = 1200; // 默认保守值
+
+            if (proxyConfig.rateLimit?.services?.pubmed?.tps) {
+                const tps = proxyConfig.rateLimit.services.pubmed.tps;
+                // 计算延迟 = (1000 / TPS) * 1.5 (留50%余量)
+                delay = Math.ceil((1000 / tps) * 1.5);
+                console.log(`[PubMed] Using rate limit: ${tps} TPS, delay: ${delay}ms`);
+            }
+
+            const results = [];
+
+            for (let i = 0; i < references.length; i++) {
+                const ref = references[i];
+
+                // 在每个请求前延迟（除了第一个）
+                if (i > 0) {
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+
+                const result = await this.queryByTitle(ref.title, {
+                    authors: ref.authors,
+                    year: ref.year
+                });
+
+                results.push({
+                    original: ref,
+                    resolved: result,
+                    success: !!result
+                });
+            }
+
+            return results;
+        }
     }
 
     /**
@@ -605,10 +860,14 @@
                     sortOrder: 'descending'
                 });
 
-                const url = `${this.baseUrl}?${params.toString()}`;
-                console.log('[arXiv] Querying:', title.substring(0, 50));
+                // arXiv 需要通过代理
+                const proxyUrl = buildProxyUrl('arxiv', `query?${params.toString()}`);
+                const url = proxyUrl || `${this.baseUrl}?${params.toString()}`;
+                const headers = proxyUrl ? getProxyHeaders('arxiv') : {};
 
-                const response = await fetch(url);
+                console.log('[arXiv] Querying:', title.substring(0, 50), proxyUrl ? '(via proxy)' : '(direct - may fail due to CORS)');
+
+                const response = await fetch(url, { headers });
 
                 if (!response.ok) {
                     console.warn('[arXiv] API error:', response.status);
@@ -713,6 +972,50 @@
             const t2 = title2.toLowerCase().trim();
             return t1.includes(t2) || t2.includes(t1);
         }
+
+        /**
+         * 批量查询
+         * @param {Array} references - 文献列表
+         * @returns {Promise<Array>} 查询结果
+         */
+        async batchQuery(references) {
+            console.log(`[arXiv] Batch querying ${references.length} references`);
+
+            // arXiv 使用全局速率限制（没有单独的服务级限制）
+            const proxyConfig = getProxyConfig();
+            let delay = 1000; // 默认值
+
+            if (proxyConfig.rateLimit?.perIpTps) {
+                const tps = proxyConfig.rateLimit.perIpTps;
+                // 计算延迟 = (1000 / TPS) * 1.5 (留50%余量)
+                delay = Math.ceil((1000 / tps) * 1.5);
+                console.log(`[arXiv] Using rate limit: ${tps} TPS (global), delay: ${delay}ms`);
+            }
+
+            const results = [];
+
+            for (let i = 0; i < references.length; i++) {
+                const ref = references[i];
+
+                // 在每个请求前延迟（除了第一个）
+                if (i > 0) {
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+
+                const result = await this.queryByTitle(ref.title, {
+                    authors: ref.authors,
+                    year: ref.year
+                });
+
+                results.push({
+                    original: ref,
+                    resolved: result,
+                    success: !!result
+                });
+            }
+
+            return results;
+        }
     }
 
     /**
@@ -726,14 +1029,27 @@
             this.arxiv = new ArXivResolver();
             this.semanticscholar = new SemanticScholarResolver();
 
+            // 从 localStorage 读取源配置
+            const sourcesConfig = getSourcesConfig();
+            const enabledSources = sourcesConfig.sources
+                .filter(s => s.enabled && s.key !== 'semanticscholar')  // semanticscholar 单独处理
+                .sort((a, b) => a.order - b.order)
+                .map(s => s.key);
+
             // 可配置查询顺序（不包括semanticscholar，它用于托底）
-            this.queryOrder = options.queryOrder || ['crossref', 'openalex', 'arxiv', 'pubmed'];
+            this.queryOrder = options.queryOrder || enabledSources;
 
             // 超时设置（毫秒）
-            this.timeout = options.timeout || 5000;
+            this.timeout = options.timeout || 8000;
 
-            // 是否启用Semantic Scholar托底
-            this.enableSemanticScholarFallback = options.enableSemanticScholarFallback !== false;
+            // 是否启用Semantic Scholar托底（从配置读取）
+            const s2Source = sourcesConfig.sources.find(s => s.key === 'semanticscholar');
+            this.enableSemanticScholarFallback = options.enableSemanticScholarFallback !== undefined
+                ? options.enableSemanticScholarFallback
+                : (s2Source ? s2Source.enabled : true);
+
+            console.log('[DOIResolver] Initialized with funnel strategy - source order:', this.queryOrder,
+                       'S2 fallback:', this.enableSemanticScholarFallback);
         }
 
         /**
@@ -785,7 +1101,7 @@
         }
 
         /**
-         * 批量解析（并发）
+         * 批量解析（漏斗形）
          * @param {Array} references - 文献列表
          * @param {Function} progressCallback - 进度回调
          * @returns {Promise<Array>} 解析结果
@@ -795,48 +1111,74 @@
                 return [];
             }
 
-            console.log(`[DOIResolver] Batch resolving ${references.length} references`);
+            console.log(`[DOIResolver] Batch resolving ${references.length} references using funnel strategy`);
 
-            const results = [];
+            // 初始化所有文献为待解析状态
+            const results = references.map(ref => ({
+                original: ref,
+                resolved: null,
+                success: false
+            }));
+
             let completed = 0;
 
-            // 并发限制（避免API限流）
-            const concurrency = 10;
-            const chunks = [];
+            // 漏斗形查询：按源顺序逐个尝试，只查询失败的文献
+            for (let sourceIndex = 0; sourceIndex < this.queryOrder.length; sourceIndex++) {
+                const source = this.queryOrder[sourceIndex];
 
-            for (let i = 0; i < references.length; i += concurrency) {
-                chunks.push(references.slice(i, i + concurrency));
-            }
+                // 收集还未成功的文献
+                const pending = results.filter(r => !r.success);
 
-            // 第一阶段：使用CrossRef、OpenAlex、PubMed并发查询
-            for (const chunk of chunks) {
-                const chunkResults = await Promise.all(
-                    chunk.map(async (ref) => {
-                        const result = await this.resolve(ref);
+                if (pending.length === 0) {
+                    console.log(`[DOIResolver] All references resolved, skipping remaining sources`);
+                    break;
+                }
 
-                        completed++;
-                        if (progressCallback) {
-                            progressCallback({
-                                completed,
-                                total: references.length,
-                                current: ref.title,
-                                phase: 'primary'
-                            });
+                console.log(`[DOIResolver] Round ${sourceIndex + 1}/${this.queryOrder.length}: ${source} - querying ${pending.length} pending references`);
+
+                try {
+                    const resolver = this._getResolver(source);
+                    if (!resolver || !resolver.batchQuery) {
+                        console.warn(`[DOIResolver] ${source} resolver not available or missing batchQuery`);
+                        continue;
+                    }
+
+                    // 批量查询当前源
+                    const sourceResults = await resolver.batchQuery(pending.map(r => r.original));
+
+                    // 更新成功的结果
+                    sourceResults.forEach(sourceResult => {
+                        if (sourceResult.success) {
+                            const index = results.findIndex(r => r.original === sourceResult.original);
+                            if (index !== -1) {
+                                results[index] = sourceResult;
+                                completed++;
+
+                                if (progressCallback) {
+                                    progressCallback({
+                                        completed,
+                                        total: references.length,
+                                        current: sourceResult.original.title,
+                                        phase: 'primary'
+                                    });
+                                }
+
+                                console.log(`[DOIResolver] ✓ Resolved via ${source}: "${sourceResult.original.title.substring(0, 60)}..."`);
+                            }
                         }
+                    });
 
-                        return {
-                            original: ref,
-                            resolved: result,
-                            success: !!result
-                        };
-                    })
-                );
+                    const successCount = results.filter(r => r.success).length;
+                    console.log(`[DOIResolver] ${source} round complete: ${successCount}/${references.length} total resolved`);
 
-                results.push(...chunkResults);
+                    // 源之间延迟，避免快速切换
+                    if (sourceIndex < this.queryOrder.length - 1 && pending.length > 0) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
 
-                // 每批之间延迟，避免API限流
-                if (chunks.indexOf(chunk) < chunks.length - 1) {
-                    await new Promise(resolve => setTimeout(resolve, 500));
+                } catch (error) {
+                    console.warn(`[DOIResolver] ${source} batch query failed:`, error.message);
+                    continue;
                 }
             }
 
@@ -871,6 +1213,7 @@
                             );
                             if (index !== -1) {
                                 results[index] = fallbackResult;
+                                console.log(`[DOIResolver] ✓ Resolved via S2 fallback: "${fallbackResult.original.title.substring(0, 60)}..."`);
                             }
                         }
                     });
@@ -880,7 +1223,28 @@
                 }
             }
 
-            console.log(`[DOIResolver] Batch complete: ${successCount}/${references.length} resolved`);
+            // 输出失败的文献，并为它们生成 Google 搜索链接
+            const finalFailed = results.filter(r => !r.success);
+            if (finalFailed.length > 0) {
+                console.log(`[DOIResolver] Failed to resolve ${finalFailed.length} references, generating Google search links:`);
+                finalFailed.forEach(f => {
+                    console.log(`  ✗ "${f.original.title.substring(0, 60)}..."`);
+
+                    // 为失败的文献生成 Google Scholar 搜索链接作为兜底
+                    const searchQuery = encodeURIComponent(f.original.title);
+                    f.resolved = {
+                        doi: null,
+                        title: f.original.title,
+                        url: `https://scholar.google.com/scholar?q=${searchQuery}`,
+                        fallback: true,
+                        source: 'google-scholar-search',
+                        message: '未找到DOI，请手动搜索'
+                    };
+                    f.success = true; // 标记为"成功"以便返回结果
+                });
+            }
+
+            console.log(`[DOIResolver] Batch complete: ${results.filter(r => r.resolved && !r.resolved.fallback).length}/${references.length} resolved, ${finalFailed.length} with fallback search`);
 
             return results;
         }
