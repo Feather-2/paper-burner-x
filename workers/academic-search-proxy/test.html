@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Academic Search Proxy - 测试页面</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .config-section {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 6px;
+            margin-bottom: 30px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .config-section h2 {
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .test-section {
+            margin-bottom: 30px;
+        }
+
+        .test-section h2 {
+            font-size: 18px;
+            margin-bottom: 15px;
+            color: #333;
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 8px;
+        }
+
+        .test-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .test-btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .test-btn:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+
+        .test-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-health {
+            background: #2196F3;
+            color: white;
+        }
+
+        .btn-crossref {
+            background: #FF9800;
+            color: white;
+        }
+
+        .btn-openalex {
+            background: #9C27B0;
+            color: white;
+        }
+
+        .btn-pubmed {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-semanticscholar {
+            background: #E91E63;
+            color: white;
+        }
+
+        .btn-arxiv {
+            background: #00BCD4;
+            color: white;
+        }
+
+        .btn-all {
+            background: #607D8B;
+            color: white;
+            grid-column: 1 / -1;
+        }
+
+        .result-box {
+            margin-top: 20px;
+            padding: 20px;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+            background: #fafafa;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .result-box h3 {
+            font-size: 14px;
+            margin-bottom: 10px;
+            color: #666;
+        }
+
+        .result-box pre {
+            background: white;
+            padding: 15px;
+            border-radius: 4px;
+            border: 1px solid #e0e0e0;
+            overflow-x: auto;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .status-success {
+            background: #4CAF50;
+        }
+
+        .status-error {
+            background: #f44336;
+        }
+
+        .status-loading {
+            background: #FF9800;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .info-box {
+            background: #E3F2FD;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+
+        .info-box h3 {
+            font-size: 14px;
+            margin-bottom: 8px;
+            color: #1976D2;
+        }
+
+        .info-box p {
+            font-size: 13px;
+            color: #555;
+            line-height: 1.6;
+        }
+
+        .info-box code {
+            background: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+            border: 1px solid #BBDEFB;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔬 Academic Search Proxy 测试</h1>
+        <p class="subtitle">测试 Cloudflare Worker 代理服务</p>
+
+        <!-- 配置区域 -->
+        <div class="config-section">
+            <h2>⚙️ 代理配置</h2>
+
+            <!-- Worker 地址 -->
+            <div class="form-group">
+                <label>Worker 地址 (Proxy URL)</label>
+                <input type="text" id="proxyUrl" placeholder="http://localhost:8787" value="http://localhost:8787">
+            </div>
+
+            <!-- 使用模式 -->
+            <div class="form-group">
+                <label>使用模式</label>
+                <select id="usageMode" onchange="toggleModeConfig()">
+                    <option value="passthrough">方案一：透传模式（推荐）</option>
+                    <option value="shared">方案二：共享密钥模式</option>
+                </select>
+            </div>
+
+            <!-- 方案一：透传模式配置 -->
+            <div id="passthroughConfig" style="display: block;">
+                <div class="form-group">
+                    <label>Semantic Scholar API Key（可选）</label>
+                    <input type="text" id="s2ApiKey" placeholder="你的 Semantic Scholar API Key">
+                    <small style="color: #666; font-size: 12px;">留空表示不使用 API Key（20次/分钟限制）</small>
+                </div>
+                <div class="form-group">
+                    <label>PubMed API Key（可选）</label>
+                    <input type="text" id="pubmedApiKey" placeholder="你的 PubMed API Key">
+                    <small style="color: #666; font-size: 12px;">留空表示不使用 API Key（3次/秒限制）</small>
+                </div>
+            </div>
+
+            <!-- 方案二：共享密钥模式配置 -->
+            <div id="sharedConfig" style="display: none;">
+                <div class="form-group">
+                    <label>Auth Key（必须）⚠️</label>
+                    <input type="password" id="authKey" placeholder="Worker 的 AUTH_SECRET">
+                    <small style="color: #666; font-size: 12px;">向 Worker 部署者获取此密钥</small>
+                </div>
+            </div>
+
+            <!-- 启用代理 -->
+            <div class="form-group checkbox-group">
+                <input type="checkbox" id="useProxy" checked>
+                <label for="useProxy" style="margin: 0;">启用代理（对 PubMed 和 Semantic Scholar）</label>
+            </div>
+        </div>
+
+        <!-- 使用说明 -->
+        <div class="info-box">
+            <h3>📖 使用说明</h3>
+            <p>
+                <strong>本地测试：</strong><br>
+                1. 启动 Worker：<code>cd workers/academic-search-proxy && npx wrangler dev</code><br>
+                2. 确认代理地址：<code>http://localhost:8787</code><br><br>
+                <strong>生产环境：</strong><br>
+                1. 部署 Worker 后，填入你的 Worker URL<br>
+                2. 选择使用模式（推荐方案一）<br>
+                3. 方案一：填入你自己的 API Key（可选）<br>
+                4. 方案二：填入 Worker 的 Auth Key（必须）<br><br>
+                <strong>测试范围：</strong><br>
+                - <strong>CrossRef、OpenAlex</strong>：直接访问（支持 CORS）<br>
+                - <strong>PubMed、Semantic Scholar、arXiv</strong>：通过代理访问（解决 CORS）
+            </p>
+        </div>
+
+        <!-- 健康检查 -->
+        <div class="test-section">
+            <h2>🏥 健康检查</h2>
+            <div class="test-grid">
+                <button class="test-btn btn-health" onclick="testHealth()">
+                    <span class="status-indicator" id="status-health"></span>
+                    测试 Worker 健康状态
+                </button>
+            </div>
+            <div class="result-box" id="result-health" style="display: none;">
+                <h3>结果：</h3>
+                <pre id="result-health-content"></pre>
+            </div>
+        </div>
+
+        <!-- API 测试 -->
+        <div class="test-section">
+            <h2>🔍 API 测试</h2>
+            <div class="test-grid">
+                <button class="test-btn btn-crossref" onclick="testCrossRef()">
+                    <span class="status-indicator" id="status-crossref"></span>
+                    CrossRef
+                </button>
+                <button class="test-btn btn-openalex" onclick="testOpenAlex()">
+                    <span class="status-indicator" id="status-openalex"></span>
+                    OpenAlex
+                </button>
+                <button class="test-btn btn-arxiv" onclick="testArXiv()">
+                    <span class="status-indicator" id="status-arxiv"></span>
+                    arXiv
+                </button>
+                <button class="test-btn btn-pubmed" onclick="testPubMed()">
+                    <span class="status-indicator" id="status-pubmed"></span>
+                    PubMed (需要代理)
+                </button>
+                <button class="test-btn btn-semanticscholar" onclick="testSemanticScholar()">
+                    <span class="status-indicator" id="status-semanticscholar"></span>
+                    Semantic Scholar (需要代理)
+                </button>
+                <button class="test-btn btn-all" onclick="testAll()">
+                    🚀 测试全部
+                </button>
+                <button class="test-btn btn-all" onclick="testRateLimit()" style="background: #FF5722;">
+                    ⚡ 测试速率限制
+                </button>
+            </div>
+            <div class="result-box" id="result-api" style="display: none;">
+                <h3>结果：</h3>
+                <pre id="result-api-content"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const testQuery = 'machine learning';
+
+        // 切换模式配置
+        function toggleModeConfig() {
+            const mode = document.getElementById('usageMode').value;
+            document.getElementById('passthroughConfig').style.display =
+                mode === 'passthrough' ? 'block' : 'none';
+            document.getElementById('sharedConfig').style.display =
+                mode === 'shared' ? 'block' : 'none';
+        }
+
+        function getProxyUrl() {
+            return document.getElementById('proxyUrl').value.trim();
+        }
+
+        function isProxyEnabled() {
+            return document.getElementById('useProxy').checked;
+        }
+
+        function getUsageMode() {
+            return document.getElementById('usageMode').value;
+        }
+
+        function getAuthKey() {
+            return document.getElementById('authKey').value.trim();
+        }
+
+        function getS2ApiKey() {
+            return document.getElementById('s2ApiKey').value.trim();
+        }
+
+        function getPubMedApiKey() {
+            return document.getElementById('pubmedApiKey').value.trim();
+        }
+
+        // 构建请求头
+        function buildHeaders() {
+            const headers = {};
+            const mode = getUsageMode();
+
+            if (mode === 'shared') {
+                // 方案二：共享密钥模式
+                const authKey = getAuthKey();
+                if (authKey) {
+                    headers['X-Auth-Key'] = authKey;
+                }
+            } else {
+                // 方案一：透传模式
+                // API Key 会在具体服务中添加
+            }
+
+            return headers;
+        }
+
+        function setStatus(id, status) {
+            const el = document.getElementById(`status-${id}`);
+            if (el) {
+                el.className = 'status-indicator';
+                if (status === 'loading') el.classList.add('status-loading');
+                else if (status === 'success') el.classList.add('status-success');
+                else if (status === 'error') el.classList.add('status-error');
+            }
+        }
+
+        function showResult(boxId, content) {
+            const box = document.getElementById(boxId);
+            const contentEl = document.getElementById(`${boxId}-content`);
+            box.style.display = 'block';
+            contentEl.textContent = JSON.stringify(content, null, 2);
+        }
+
+        async function testHealth() {
+            const proxyUrl = getProxyUrl();
+            if (!proxyUrl) {
+                alert('请输入 Worker 地址');
+                return;
+            }
+
+            setStatus('health', 'loading');
+
+            try {
+                const headers = buildHeaders();
+                const response = await fetch(`${proxyUrl}/health`, { headers });
+                const data = await response.json();
+
+                setStatus('health', 'success');
+                showResult('result-health', {
+                    status: response.status,
+                    data: data
+                });
+            } catch (error) {
+                setStatus('health', 'error');
+                showResult('result-health', {
+                    error: error.message,
+                    tip: getUsageMode() === 'shared' && !getAuthKey()
+                        ? '共享密钥模式需要 Auth Key'
+                        : '请确认 Worker 是否启动：npx wrangler dev'
+                });
+            }
+        }
+
+        async function testCrossRef() {
+            setStatus('crossref', 'loading');
+
+            try {
+                // CrossRef 支持 CORS，直接访问
+                const url = `https://api.crossref.org/works?query.title=${encodeURIComponent(testQuery)}&rows=1`;
+                const response = await fetch(url);
+                const data = await response.json();
+
+                setStatus('crossref', 'success');
+                showResult('result-api', {
+                    service: 'CrossRef',
+                    method: 'Direct (CORS supported)',
+                    status: response.status,
+                    found: data.message?.items?.length || 0,
+                    sample: data.message?.items?.[0] || null
+                });
+            } catch (error) {
+                setStatus('crossref', 'error');
+                showResult('result-api', {
+                    service: 'CrossRef',
+                    error: error.message
+                });
+            }
+        }
+
+        async function testOpenAlex() {
+            setStatus('openalex', 'loading');
+
+            try {
+                // OpenAlex 支持 CORS，直接访问
+                const url = `https://api.openalex.org/works?search=${encodeURIComponent(testQuery)}`;
+                const response = await fetch(url);
+                const data = await response.json();
+
+                setStatus('openalex', 'success');
+                showResult('result-api', {
+                    service: 'OpenAlex',
+                    method: 'Direct (CORS supported)',
+                    status: response.status,
+                    found: data.results?.length || 0,
+                    sample: data.results?.[0] || null
+                });
+            } catch (error) {
+                setStatus('openalex', 'error');
+                showResult('result-api', {
+                    service: 'OpenAlex',
+                    error: error.message
+                });
+            }
+        }
+
+        async function testArXiv() {
+            setStatus('arxiv', 'loading');
+
+            try {
+                const useProxy = getProxyUrl();
+                const mode = getUsageMode();
+
+                if (useProxy) {
+                    // 通过代理访问 arXiv
+                    const proxyUrl = `${getProxyUrl()}/api/arxiv/query?search_query=ti:${encodeURIComponent(testQuery)}&max_results=1`;
+                    const headers = buildHeaders();
+
+                    const response = await fetch(proxyUrl, { headers });
+                    const xmlText = await response.text();
+
+                    // 解析 XML 提取结果数量
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(xmlText, 'application/xml');
+                    const totalResults = xmlDoc.querySelector('totalResults')?.textContent || '0';
+                    const entries = xmlDoc.querySelectorAll('entry');
+
+                    let sampleData = { totalResults, found: entries.length };
+                    if (entries.length > 0) {
+                        const firstEntry = entries[0];
+                        sampleData.title = firstEntry.querySelector('title')?.textContent?.trim();
+                        sampleData.id = firstEntry.querySelector('id')?.textContent?.trim();
+                        sampleData.published = firstEntry.querySelector('published')?.textContent?.trim();
+                        sampleData.summary = firstEntry.querySelector('summary')?.textContent?.trim().substring(0, 200) + '...';
+                    }
+
+                    setStatus('arxiv', 'success');
+                    showResult('result-api', {
+                        service: 'arXiv',
+                        method: 'Via Proxy',
+                        mode: mode,
+                        status: response.status,
+                        contentType: response.headers.get('content-type'),
+                        found: totalResults,
+                        sample: sampleData
+                    });
+                } else {
+                    // 直接访问（会因 CORS 失败）
+                    const url = `http://export.arxiv.org/api/query?search_query=ti:${encodeURIComponent(testQuery)}&max_results=1`;
+                    const response = await fetch(url);
+                    const xmlText = await response.text();
+
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(xmlText, 'application/xml');
+                    const totalResults = xmlDoc.querySelector('totalResults')?.textContent || '0';
+                    const entries = xmlDoc.querySelectorAll('entry');
+
+                    let sampleData = { totalResults, found: entries.length };
+                    if (entries.length > 0) {
+                        const firstEntry = entries[0];
+                        sampleData.title = firstEntry.querySelector('title')?.textContent?.trim();
+                        sampleData.id = firstEntry.querySelector('id')?.textContent?.trim();
+                    }
+
+                    setStatus('arxiv', 'success');
+                    showResult('result-api', {
+                        service: 'arXiv',
+                        method: 'Direct (may fail due to CORS)',
+                        status: response.status,
+                        contentType: response.headers.get('content-type'),
+                        found: totalResults,
+                        sample: sampleData
+                    });
+                }
+            } catch (error) {
+                setStatus('arxiv', 'error');
+                showResult('result-api', {
+                    service: 'arXiv',
+                    error: error.message
+                });
+            }
+        }
+
+        async function testPubMed() {
+            setStatus('pubmed', 'loading');
+
+            const useProxy = isProxyEnabled();
+            const proxyUrl = getProxyUrl();
+
+            try {
+                // Step 1: esearch - 搜索获取 PMID
+                let searchUrl;
+                const headers = {};
+
+                if (useProxy) {
+                    searchUrl = `${proxyUrl}/api/pubmed/esearch.fcgi?db=pubmed&term=${encodeURIComponent(testQuery)}&retmode=json&retmax=1`;
+                    Object.assign(headers, buildHeaders());
+
+                    if (getUsageMode() === 'passthrough') {
+                        const apiKey = getPubMedApiKey();
+                        if (apiKey) {
+                            headers['X-Api-Key'] = apiKey;
+                        }
+                    }
+                } else {
+                    searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(testQuery)}&retmode=json&retmax=1`;
+                }
+
+                const searchResponse = await fetch(searchUrl, { headers });
+                const searchData = await searchResponse.json();
+                const pmids = searchData.esearchresult?.idlist || [];
+
+                if (pmids.length === 0) {
+                    setStatus('pubmed', 'success');
+                    showResult('result-api', {
+                        service: 'PubMed',
+                        method: useProxy ? 'Via Proxy (2-step)' : 'Direct',
+                        mode: getUsageMode(),
+                        status: searchResponse.status,
+                        found: searchData.esearchresult?.count || 0,
+                        message: 'No results found',
+                        searchResult: searchData
+                    });
+                    return;
+                }
+
+                // Step 2: efetch - 获取详细信息
+                let fetchUrl;
+                if (useProxy) {
+                    fetchUrl = `${proxyUrl}/api/pubmed/efetch.fcgi?db=pubmed&id=${pmids[0]}&retmode=xml`;
+                } else {
+                    fetchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=${pmids[0]}&retmode=xml`;
+                }
+
+                const fetchResponse = await fetch(fetchUrl, { headers });
+                const xmlText = await fetchResponse.text();
+
+                // 解析 XML
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlText, 'application/xml');
+
+                const article = xmlDoc.querySelector('PubmedArticle');
+                let paperData = { pmid: pmids[0] };
+
+                if (article) {
+                    // 提取标题
+                    const titleEl = article.querySelector('ArticleTitle');
+                    paperData.title = titleEl?.textContent?.trim();
+
+                    // 提取作者
+                    const authorEls = article.querySelectorAll('Author');
+                    paperData.authors = Array.from(authorEls).slice(0, 3).map(auth => {
+                        const lastName = auth.querySelector('LastName')?.textContent;
+                        const foreName = auth.querySelector('ForeName')?.textContent;
+                        return foreName && lastName ? `${foreName} ${lastName}` : (lastName || foreName);
+                    }).filter(Boolean);
+
+                    // 提取 DOI
+                    const articleIds = article.querySelectorAll('ArticleId');
+                    for (const id of articleIds) {
+                        if (id.getAttribute('IdType') === 'doi') {
+                            paperData.doi = id.textContent.trim();
+                            break;
+                        }
+                    }
+
+                    // 提取期刊
+                    const journalEl = article.querySelector('Journal Title');
+                    paperData.journal = journalEl?.textContent?.trim();
+
+                    // 提取年份
+                    const yearEl = article.querySelector('PubDate Year');
+                    paperData.year = yearEl?.textContent?.trim();
+
+                    // 提取摘要
+                    const abstractEl = article.querySelector('AbstractText');
+                    paperData.abstract = abstractEl?.textContent?.trim().substring(0, 300) + '...';
+                }
+
+                setStatus('pubmed', 'success');
+                showResult('result-api', {
+                    service: 'PubMed',
+                    method: useProxy ? 'Via Proxy (2-step: esearch + efetch)' : 'Direct',
+                    mode: getUsageMode(),
+                    status: fetchResponse.status,
+                    found: searchData.esearchresult?.count || 0,
+                    steps: {
+                        step1: 'esearch - found PMIDs',
+                        step2: 'efetch - fetched details'
+                    },
+                    sample: paperData
+                });
+            } catch (error) {
+                setStatus('pubmed', 'error');
+                showResult('result-api', {
+                    service: 'PubMed',
+                    method: useProxy ? 'Via Proxy' : 'Direct',
+                    error: error.message,
+                    tip: useProxy ? '请确认 Worker 已启动' : '请启用代理'
+                });
+            }
+        }
+
+        async function testSemanticScholar() {
+            setStatus('semanticscholar', 'loading');
+
+            const useProxy = isProxyEnabled();
+            const proxyUrl = getProxyUrl();
+
+            try {
+                let url;
+                const headers = {};
+
+                if (useProxy) {
+                    // 通过代理
+                    url = `${proxyUrl}/api/semanticscholar/graph/v1/paper/search?query=${encodeURIComponent(testQuery)}&limit=1`;
+                    Object.assign(headers, buildHeaders());
+
+                    // 方案一：透传 API Key
+                    if (getUsageMode() === 'passthrough') {
+                        const apiKey = getS2ApiKey();
+                        if (apiKey) {
+                            headers['X-Api-Key'] = apiKey;
+                        }
+                    }
+                } else {
+                    // 直接访问（会失败）
+                    url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(testQuery)}&limit=1`;
+                }
+
+                const response = await fetch(url, { headers });
+                const data = await response.json();
+
+                setStatus('semanticscholar', 'success');
+                showResult('result-api', {
+                    service: 'Semantic Scholar',
+                    method: useProxy ? 'Via Proxy' : 'Direct (will fail due to CORS)',
+                    mode: getUsageMode(),
+                    status: response.status,
+                    found: data.data?.length || 0,
+                    sample: data.data?.[0] || null
+                });
+            } catch (error) {
+                setStatus('semanticscholar', 'error');
+                showResult('result-api', {
+                    service: 'Semantic Scholar',
+                    method: useProxy ? 'Via Proxy' : 'Direct',
+                    error: error.message,
+                    tip: useProxy ? '请确认 Worker 已启动' : '请启用代理'
+                });
+            }
+        }
+
+        async function testRateLimit() {
+            const proxyUrl = getProxyUrl();
+            if (!proxyUrl) {
+                alert('请输入 Worker 地址');
+                return;
+            }
+
+            if (!confirm('将快速发送 20 个请求测试速率限制，是否继续？')) {
+                return;
+            }
+
+            showResult('result-api', {
+                message: '速率限制测试中...',
+                note: '发送 20 个请求，观察是否触发 429 错误'
+            });
+
+            const headers = buildHeaders();
+            const results = [];
+
+            for (let i = 0; i < 20; i++) {
+                try {
+                    const start = Date.now();
+                    const response = await fetch(`${proxyUrl}/health`, { headers });
+                    const duration = Date.now() - start;
+                    const data = await response.json();
+
+                    results.push({
+                        request: i + 1,
+                        status: response.status,
+                        duration: `${duration}ms`,
+                        rateLimitRemaining: response.headers.get('X-RateLimit-Remaining'),
+                        success: response.status === 200
+                    });
+
+                    if (response.status === 429) {
+                        const retryAfter = data.retryAfter || response.headers.get('Retry-After');
+                        results.push({
+                            message: `触发速率限制！需要等待 ${retryAfter} 秒`
+                        });
+                        break;
+                    }
+                } catch (error) {
+                    results.push({
+                        request: i + 1,
+                        error: error.message
+                    });
+                }
+
+                // 快速发送，不延迟
+            }
+
+            showResult('result-api', {
+                test: 'Rate Limit',
+                totalRequests: results.length,
+                results: results,
+                summary: results.some(r => r.status === 429)
+                    ? '✅ 速率限制正常工作'
+                    : '⚠️ 未触发速率限制（可能限制配置较宽松）'
+            });
+        }
+
+        async function testAll() {
+            await testHealth();
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            await testCrossRef();
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            await testOpenAlex();
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            await testArXiv();
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            await testPubMed();
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            await testSemanticScholar();
+        }
+    </script>
+</body>
+</html>
