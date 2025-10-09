@@ -174,6 +174,7 @@
                 url: item.URL || `https://doi.org/${item.DOI}`,
                 publisher: item.publisher || null,
                 type: item.type || null,
+                abstract: item.abstract || null,
                 source: 'crossref',
                 confidence: 0.9
             };
@@ -266,8 +267,168 @@
                 url: item.doi || item.id || null,
                 openAccessUrl: item.open_access?.oa_url || null,
                 citationCount: item.cited_by_count || 0,
+                abstract: item.abstract_inverted_index ? this._reconstructAbstract(item.abstract_inverted_index) : null,
                 source: 'openalex',
                 confidence: 0.85
+            };
+        }
+
+        /**
+         * 重建摘要（OpenAlex使用倒排索引存储摘要）
+         */
+        _reconstructAbstract(invertedIndex) {
+            try {
+                const words = [];
+                for (const [word, positions] of Object.entries(invertedIndex)) {
+                    positions.forEach(pos => {
+                        words[pos] = word;
+                    });
+                }
+                return words.join(' ');
+            } catch (error) {
+                return null;
+            }
+        }
+    }
+
+    /**
+     * Semantic Scholar API查询
+     * 学术搜索引擎，支持批量查询
+     */
+    class SemanticScholarResolver {
+        constructor() {
+            this.baseUrl = 'https://api.semanticscholar.org/graph/v1';
+            this.batchUrl = 'https://api.semanticscholar.org/graph/v1/paper/batch';
+        }
+
+        async queryByTitle(title, metadata = {}) {
+            if (!title || title.length < 10) {
+                return null;
+            }
+
+            try {
+                const params = new URLSearchParams({
+                    query: title,
+                    limit: 5,
+                    fields: 'title,authors,year,venue,externalIds,url,citationCount,abstract'
+                });
+
+                const url = `${this.baseUrl}/paper/search?${params.toString()}`;
+                console.log('[SemanticScholar] Querying:', title.substring(0, 50));
+
+                const response = await fetch(url);
+
+                if (!response.ok) {
+                    console.warn('[SemanticScholar] API error:', response.status);
+                    return null;
+                }
+
+                const data = await response.json();
+
+                if (!data.data || data.data.length === 0) {
+                    return null;
+                }
+
+                const bestMatch = this._findBestMatch(data.data, title, metadata);
+
+                if (bestMatch) {
+                    return this._formatResult(bestMatch);
+                }
+
+                return null;
+
+            } catch (error) {
+                console.error('[SemanticScholar] Query failed:', error);
+                return null;
+            }
+        }
+
+        /**
+         * 批量查询（一次性查询多个文献）
+         */
+        async batchQuery(references) {
+            if (!references || references.length === 0) {
+                return [];
+            }
+
+            try {
+                console.log(`[SemanticScholar] Batch querying ${references.length} references`);
+
+                const results = [];
+
+                // Semantic Scholar批量API有限制，每次最多处理500个
+                const batchSize = 100;
+
+                for (let i = 0; i < references.length; i += batchSize) {
+                    const batch = references.slice(i, i + batchSize);
+
+                    // 对每个文献进行查询
+                    const batchResults = await Promise.all(
+                        batch.map(async (ref) => {
+                            const result = await this.queryByTitle(ref.title, {
+                                authors: ref.authors,
+                                year: ref.year
+                            });
+
+                            return {
+                                original: ref,
+                                resolved: result,
+                                success: !!result
+                            };
+                        })
+                    );
+
+                    results.push(...batchResults);
+
+                    // 批次间延迟
+                    if (i + batchSize < references.length) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+                }
+
+                return results;
+
+            } catch (error) {
+                console.error('[SemanticScholar] Batch query failed:', error);
+                return [];
+            }
+        }
+
+        _findBestMatch(papers, queryTitle, metadata) {
+            const queryTitleLower = queryTitle.toLowerCase().trim();
+
+            for (const paper of papers) {
+                const paperTitle = (paper.title || '').toLowerCase().trim();
+
+                if (paperTitle.includes(queryTitleLower) || queryTitleLower.includes(paperTitle)) {
+                    if (metadata.year && paper.year) {
+                        if (Math.abs(paper.year - metadata.year) > 1) {
+                            continue;
+                        }
+                    }
+
+                    return paper;
+                }
+            }
+
+            return null;
+        }
+
+        _formatResult(paper) {
+            const authors = (paper.authors || []).map(a => a.name).filter(Boolean);
+
+            return {
+                doi: paper.externalIds?.DOI || null,
+                title: paper.title || null,
+                authors: authors.length > 0 ? authors : null,
+                year: paper.year || null,
+                journal: paper.venue || null,
+                url: paper.url || (paper.externalIds?.DOI ? `https://doi.org/${paper.externalIds.DOI}` : null),
+                citationCount: paper.citationCount || 0,
+                paperId: paper.paperId || null,
+                abstract: paper.abstract || null,
+                source: 'semanticscholar',
+                confidence: 0.8
             };
         }
     }
@@ -382,6 +543,15 @@
                     const journalElement = article.querySelector('Journal Title');
                     const journal = journalElement ? journalElement.textContent : null;
 
+                    // 提取摘要
+                    const abstractElements = article.querySelectorAll('AbstractText');
+                    let abstract = null;
+                    if (abstractElements.length > 0) {
+                        abstract = Array.from(abstractElements)
+                            .map(el => el.textContent)
+                            .join(' ');
+                    }
+
                     return {
                         doi: doi,
                         pmid: pmid,
@@ -389,6 +559,7 @@
                         authors: authors.length > 0 ? authors : null,
                         year: year,
                         journal: journal,
+                        abstract: abstract,
                         url: doi ? `https://doi.org/${doi}` : `https://pubmed.ncbi.nlm.nih.gov/${pmid}/`,
                         source: 'pubmed',
                         confidence: 0.9
@@ -411,6 +582,140 @@
     }
 
     /**
+     * arXiv API查询
+     * 免费预印本库，主要覆盖CS/物理/数学领域
+     */
+    class ArXivResolver {
+        constructor() {
+            this.baseUrl = 'http://export.arxiv.org/api/query';
+        }
+
+        async queryByTitle(title, metadata = {}) {
+            if (!title || title.length < 10) {
+                return null;
+            }
+
+            try {
+                // 构建查询
+                const params = new URLSearchParams({
+                    search_query: `ti:"${title}"`,
+                    start: 0,
+                    max_results: 5,
+                    sortBy: 'relevance',
+                    sortOrder: 'descending'
+                });
+
+                const url = `${this.baseUrl}?${params.toString()}`;
+                console.log('[arXiv] Querying:', title.substring(0, 50));
+
+                const response = await fetch(url);
+
+                if (!response.ok) {
+                    console.warn('[arXiv] API error:', response.status);
+                    return null;
+                }
+
+                const xmlText = await response.text();
+                const result = this._parseXML(xmlText, title, metadata);
+
+                return result;
+
+            } catch (error) {
+                console.error('[arXiv] Query failed:', error);
+                return null;
+            }
+        }
+
+        _parseXML(xmlText, queryTitle, metadata) {
+            try {
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlText, 'application/xml');
+
+                // arXiv 使用 Atom 格式
+                const entries = xmlDoc.getElementsByTagName('entry');
+
+                for (let i = 0; i < entries.length; i++) {
+                    const entry = entries[i];
+
+                    // 提取标题
+                    const titleElement = entry.querySelector('title');
+                    const entryTitle = titleElement ? titleElement.textContent.trim() : '';
+
+                    // 标题匹配
+                    if (!this._isTitleMatch(entryTitle, queryTitle)) {
+                        continue;
+                    }
+
+                    // 提取arXiv ID
+                    const idElement = entry.querySelector('id');
+                    const arxivId = idElement ? idElement.textContent.split('/').pop() : null;
+
+                    // 提取DOI（如果有）
+                    let doi = null;
+                    const doiElement = entry.querySelector('arxiv\\:doi, doi');
+                    if (doiElement) {
+                        doi = doiElement.textContent.trim();
+                    }
+
+                    // 提取作者
+                    const authorElements = entry.querySelectorAll('author name');
+                    const authors = Array.from(authorElements).map(el => el.textContent.trim()).filter(Boolean);
+
+                    // 提取年份
+                    const publishedElement = entry.querySelector('published');
+                    let year = null;
+                    if (publishedElement) {
+                        const dateStr = publishedElement.textContent;
+                        year = parseInt(dateStr.substring(0, 4));
+                    }
+
+                    // 提取摘要
+                    const summaryElement = entry.querySelector('summary');
+                    const abstract = summaryElement ? summaryElement.textContent.trim() : null;
+
+                    // 提取分类
+                    const categoryElements = entry.querySelectorAll('category');
+                    const categories = Array.from(categoryElements).map(el => el.getAttribute('term')).filter(Boolean);
+
+                    // 验证年份
+                    if (metadata.year && year) {
+                        if (Math.abs(year - metadata.year) > 1) {
+                            continue;
+                        }
+                    }
+
+                    return {
+                        doi: doi,
+                        arxivId: arxivId,
+                        title: entryTitle,
+                        authors: authors.length > 0 ? authors : null,
+                        year: year,
+                        journal: 'arXiv',
+                        categories: categories,
+                        abstract: abstract,
+                        url: doi ? `https://doi.org/${doi}` : `https://arxiv.org/abs/${arxivId}`,
+                        pdfUrl: `https://arxiv.org/pdf/${arxivId}.pdf`,
+                        source: 'arxiv',
+                        confidence: 0.85
+                    };
+                }
+
+                return null;
+
+            } catch (error) {
+                console.error('[arXiv] XML parsing failed:', error);
+                return null;
+            }
+        }
+
+        _isTitleMatch(title1, title2) {
+            const t1 = title1.toLowerCase().trim();
+            const t2 = title2.toLowerCase().trim();
+            return t1.includes(t2) || t2.includes(t1);
+        }
+    }
+
+    /**
      * 多源DOI解析器 - 统一接口
      */
     class MultiSourceDOIResolver {
@@ -418,12 +723,17 @@
             this.crossref = new CrossRefResolver();
             this.openalex = new OpenAlexResolver();
             this.pubmed = new PubMedResolver();
+            this.arxiv = new ArXivResolver();
+            this.semanticscholar = new SemanticScholarResolver();
 
-            // 可配置查询顺序
-            this.queryOrder = options.queryOrder || ['crossref', 'openalex', 'pubmed'];
+            // 可配置查询顺序（不包括semanticscholar，它用于托底）
+            this.queryOrder = options.queryOrder || ['crossref', 'openalex', 'arxiv', 'pubmed'];
 
             // 超时设置（毫秒）
             this.timeout = options.timeout || 5000;
+
+            // 是否启用Semantic Scholar托底
+            this.enableSemanticScholarFallback = options.enableSemanticScholarFallback !== false;
         }
 
         /**
@@ -491,13 +801,14 @@
             let completed = 0;
 
             // 并发限制（避免API限流）
-            const concurrency = 3;
+            const concurrency = 10;
             const chunks = [];
 
             for (let i = 0; i < references.length; i += concurrency) {
                 chunks.push(references.slice(i, i + concurrency));
             }
 
+            // 第一阶段：使用CrossRef、OpenAlex、PubMed并发查询
             for (const chunk of chunks) {
                 const chunkResults = await Promise.all(
                     chunk.map(async (ref) => {
@@ -508,7 +819,8 @@
                             progressCallback({
                                 completed,
                                 total: references.length,
-                                current: ref.title
+                                current: ref.title,
+                                phase: 'primary'
                             });
                         }
 
@@ -528,7 +840,46 @@
                 }
             }
 
-            const successCount = results.filter(r => r.success).length;
+            let successCount = results.filter(r => r.success).length;
+            console.log(`[DOIResolver] Primary phase complete: ${successCount}/${references.length} resolved`);
+
+            // 第二阶段：使用Semantic Scholar托底查询失败的文献
+            if (this.enableSemanticScholarFallback) {
+                const failed = results.filter(r => !r.success);
+
+                if (failed.length > 0) {
+                    console.log(`[DOIResolver] Fallback phase: using Semantic Scholar for ${failed.length} failed references`);
+
+                    if (progressCallback) {
+                        progressCallback({
+                            completed: completed,
+                            total: references.length,
+                            current: 'Semantic Scholar托底查询',
+                            phase: 'fallback'
+                        });
+                    }
+
+                    const fallbackResults = await this.semanticscholar.batchQuery(
+                        failed.map(r => r.original)
+                    );
+
+                    // 更新失败的结果
+                    fallbackResults.forEach(fallbackResult => {
+                        if (fallbackResult.success) {
+                            const index = results.findIndex(r =>
+                                r.original === fallbackResult.original
+                            );
+                            if (index !== -1) {
+                                results[index] = fallbackResult;
+                            }
+                        }
+                    });
+
+                    successCount = results.filter(r => r.success).length;
+                    console.log(`[DOIResolver] Fallback complete: ${successCount}/${references.length} total resolved`);
+                }
+            }
+
             console.log(`[DOIResolver] Batch complete: ${successCount}/${references.length} resolved`);
 
             return results;
@@ -541,7 +892,9 @@
             const resolvers = {
                 'crossref': this.crossref,
                 'openalex': this.openalex,
-                'pubmed': this.pubmed
+                'pubmed': this.pubmed,
+                'arxiv': this.arxiv,
+                'semanticscholar': this.semanticscholar
             };
             return resolvers[source] || null;
         }
@@ -561,13 +914,15 @@
         CrossRefResolver,
         OpenAlexResolver,
         PubMedResolver,
+        ArXivResolver,
+        SemanticScholarResolver,
 
         // 便捷方法
         create: (options) => new MultiSourceDOIResolver(options),
 
-        version: '1.0.0'
+        version: '1.2.0'
     };
 
-    console.log('[DOIResolver] Multi-source DOI resolver loaded (CrossRef + OpenAlex + PubMed).');
+    console.log('[DOIResolver] Multi-source DOI resolver loaded (CrossRef + OpenAlex + arXiv + PubMed + Semantic Scholar).');
 
 })(window);

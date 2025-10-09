@@ -75,7 +75,6 @@
                         <span>总计: <strong>0</strong></span>
                         <span>已验证: <strong>0</strong></span>
                         <span>有DOI: <strong>0</strong></span>
-                        <span>平均置信度: <strong>0%</strong></span>
                     </div>
 
                     <div class="reference-table-container">
@@ -212,6 +211,11 @@
             // 提取文献
             document.getElementById('ref-extract-btn')?.addEventListener('click', () => {
                 this.extractReferences();
+            });
+
+            // 查询DOI
+            document.getElementById('ref-enrich-doi-btn')?.addEventListener('click', () => {
+                this.enrichWithDOI();
             });
 
             // 添加文献
@@ -393,7 +397,7 @@
                 statsEl.innerHTML = `
                     <span>总计: <strong>${stats.total}</strong></span>
                     <span>已验证: <strong>${stats.withDOI}</strong></span>
-                    <span>平均置信度: <strong>${(stats.avgConfidence * 100).toFixed(0)}%</strong></span>
+                    <span>有DOI: <strong>${stats.withDOI}</strong></span>
                 `;
             }
         }
@@ -961,6 +965,61 @@
                 progress.remove();
             }
         }
+
+        async enrichWithDOI() {
+    if (!this.references || this.references.length === 0) {
+        alert('请先提取文献');
+        return;
+    }
+    if (!window.DOIResolver) {
+        alert('DOI解析器未加载');
+        return;
+    }
+    const needsDOI = this.references.filter(ref => !ref.doi && ref.title);
+    if (needsDOI.length === 0) {
+        alert('所有文献都已有DOI');
+        return;
+    }
+    const confirmed = confirm(`检测到 ${needsDOI.length} 条文献缺失DOI\n将通过 CrossRef、OpenAlex、arXiv、PubMed 并发查询\n失败的文献将使用 Semantic Scholar 托底\n\n是否继续？`);
+    if (!confirmed) return;
+    this.showProgress(`准备查询 ${needsDOI.length} 条文献的DOI...`);
+    try {
+        const resolver = window.DOIResolver.create({
+            queryOrder: ['crossref', 'openalex', 'arxiv', 'pubmed'],
+            timeout: 5000,
+            enableSemanticScholarFallback: true
+        });
+        const results = await resolver.batchResolve(needsDOI, (progress) => {
+            if (progress.phase === 'fallback') {
+                this.updateProgress(`Semantic Scholar 托底查询中...`);
+            } else {
+                this.updateProgress(`正在查询 DOI: ${progress.completed}/${progress.total}`);
+            }
+        });
+        this.hideProgress();
+        let successCount = 0;
+        results.forEach(result => {
+            if (result.success && result.resolved.doi) {
+                const originalRef = this.references.find(r => r === result.original);
+                if (originalRef) {
+                    originalRef.doi = result.resolved.doi;
+                    originalRef.url = result.resolved.url || originalRef.url;
+                    if (!originalRef.authors && result.resolved.authors) originalRef.authors = result.resolved.authors;
+                    if (!originalRef.year && result.resolved.year) originalRef.year = result.resolved.year;
+                    if (!originalRef.journal && result.resolved.journal) originalRef.journal = result.resolved.journal;
+                    successCount++;
+                }
+            }
+        });
+        await global.ReferenceStorage.saveReferences(this.currentDocumentId, this.references, { updatedAt: new Date().toISOString(), doiEnriched: true });
+        await this.loadReferences();
+        alert(`DOI查询完成\n\n成功: ${successCount}/${needsDOI.length}\n失败: ${needsDOI.length - successCount}`);
+    } catch (error) {
+        this.hideProgress();
+        alert('DOI查询失败: ' + error.message);
+        console.error('[ReferenceManagerUI] DOI enrichment failed:', error);
+    }
+}
     }
 
     // 创建全局实例
@@ -979,111 +1038,3 @@
     console.log('[ReferenceManagerUI] Reference manager UI loaded.');
 
 })(window);
-
-
-        /**
-         * 使用DOI解析器补充文献DOI信息
-         */
-        async enrichWithDOI() {
-            if (!this.references || this.references.length === 0) {
-                alert('请先提取文献');
-                return;
-            }
-
-            // 检查DOIResolver是否可用
-            if (!window.DOIResolver) {
-                alert('DOI解析器未加载');
-                return;
-            }
-
-            // 筛选出需要查询DOI的文献
-            const needsDOI = this.references.filter(ref => !ref.doi && ref.title);
-
-            if (needsDOI.length === 0) {
-                alert('所有文献都已有DOI');
-                return;
-            }
-
-            const confirmed = confirm(
-                `检测到 ${needsDOI.length} 条文献缺失DOI\n` +
-                `将通过 CrossRef、OpenAlex 和 PubMed 查询\n\n` +
-                `是否继续？`
-            );
-
-            if (!confirmed) return;
-
-            // 显示进度
-            this.showProgress(`准备查询 ${needsDOI.length} 条文献的DOI...`);
-
-            try {
-                // 创建DOI解析器
-                const resolver = window.DOIResolver.create({
-                    queryOrder: ['crossref', 'openalex', 'pubmed'],
-                    timeout: 5000
-                });
-
-                // 批量查询
-                const results = await resolver.batchResolve(needsDOI, (progress) => {
-                    this.updateProgress(
-                        `正在查询 DOI: ${progress.completed}/${progress.total}\n` +
-                        `当前: ${progress.current.substring(0, 40)}...`
-                    );
-                });
-
-                this.hideProgress();
-
-                // 合并结果回原始文献列表
-                let successCount = 0;
-                results.forEach(result => {
-                    if (result.success && result.resolved.doi) {
-                        const original = result.original;
-                        const originalRef = this.references.find(r => r === original);
-
-                        if (originalRef) {
-                            // 更新文献信息
-                            originalRef.doi = result.resolved.doi;
-                            originalRef.url = result.resolved.url || originalRef.url;
-                            originalRef.doiSource = result.resolved.source;
-                            originalRef.doiConfidence = result.resolved.confidence;
-
-                            // 补充缺失字段
-                            if (!originalRef.authors && result.resolved.authors) {
-                                originalRef.authors = result.resolved.authors;
-                            }
-                            if (!originalRef.year && result.resolved.year) {
-                                originalRef.year = result.resolved.year;
-                            }
-                            if (!originalRef.journal && result.resolved.journal) {
-                                originalRef.journal = result.resolved.journal;
-                            }
-
-                            successCount++;
-                        }
-                    }
-                });
-
-                // 保存更新后的文献列表
-                global.ReferenceStorage.saveReferences(
-                    this.currentDocumentId,
-                    this.references,
-                    {
-                        updatedAt: new Date().toISOString(),
-                        doiEnriched: true
-                    }
-                );
-
-                // 刷新显示
-                this.loadReferences();
-
-                alert(
-                    `DOI查询完成\n\n` +
-                    `成功: ${successCount}/${needsDOI.length}\n` +
-                    `失败: ${needsDOI.length - successCount}`
-                );
-
-            } catch (error) {
-                this.hideProgress();
-                alert('DOI查询失败: ' + error.message);
-                console.error('[ReferenceManagerUI] DOI enrichment failed:', error);
-            }
-        }
