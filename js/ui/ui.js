@@ -128,7 +128,7 @@ document.addEventListener('DOMContentLoaded', function() {
         { key: 'deeplx', name: 'DeepLX (DeepL 接口)', group: 'translation' },
         { key: 'custom', name: '自定义翻译模型', group: 'translation' },
         { key: 'embedding', name: '向量搜索与重排', group: 'search' },
-        { key: 'academicSearch', name: '学术搜索代理', group: 'search' }
+        { key: 'academicSearch', name: '学术搜索与代理', group: 'search' }
     ];
 
     if (modelKeyManagerBtn && modelKeyManagerModal && closeModelKeyManager && modelListColumn && modelConfigColumn && keyManagerColumn) {
@@ -435,7 +435,7 @@ document.addEventListener('DOMContentLoaded', function() {
             title.textContent = `向量搜索与重排 - 配置`;
             renderEmbeddingConfig();
         } else if (modelKey === 'academicSearch') {
-            title.textContent = `学术搜索代理 - 配置`;
+            title.textContent = `学术搜索与代理 - 配置`;
             renderAcademicSearchConfig();
         } else if (modelKey === 'mistral') {
             title.textContent = `${modelDefinition.name} - 配置`;

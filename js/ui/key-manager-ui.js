@@ -725,7 +725,7 @@ KeyManagerUI.exportAllModelData = function() {
         doc2xTokenMode: localStorage.getItem('ocrDoc2XTokenMode') || 'frontend'
     };
 
-    // 添加学术搜索代理配置导出
+    // 添加学术搜索与代理配置导出
     const academicSearchConfig = JSON.parse(localStorage.getItem('academicSearchProxyConfig') || 'null');
     const academicSearchSourcesConfig = JSON.parse(localStorage.getItem('academicSearchSourcesConfig') || 'null');
 
@@ -736,7 +736,7 @@ KeyManagerUI.exportAllModelData = function() {
         embeddingConfig,
         rerankConfig,
         ocrConfig,  // OCR 配置
-        academicSearchConfig,  // 学术搜索代理配置
+        academicSearchConfig,  // 学术搜索与代理配置
         academicSearchSourcesConfig  // 学术搜索源配置
     };
     const dataStr = JSON.stringify(data, null, 2);
@@ -851,9 +851,9 @@ KeyManagerUI.importAllModelData = function(refreshUIFunc) {
                 }
 
                 // 5) 可选导入 lastSuccessfulKeys（若存在）
-                const lastSuccessful = imported.lastSuccessfulKeys 
-                    || imported.paperBurnerLastSuccessfulKeys 
-                    || imported.lastSuccessful 
+                const lastSuccessful = imported.lastSuccessfulKeys
+                    || imported.paperBurnerLastSuccessfulKeys
+                    || imported.lastSuccessful
                     || null;
 
                 // 6) 写入 localStorage（允许任意子集存在，不再强制三者齐备）
