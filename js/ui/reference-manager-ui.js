@@ -336,7 +336,7 @@
                             ref.doiFallback ?
                                 `<div style="display: flex; align-items: center; gap: 4px; color: #f59e0b;">
                                     <span title="${ref.doiFallbackMessage || '未找到DOI'}">⚠️</span>
-                                    <a href="${ref.doiFallbackUrl}" target="_blank" style="color: #3b82f6; font-size: 0.9em;" title="在Google Scholar中搜索">🔍</a>
+                                    <a href="${ref.doiFallbackUrl}" target="_blank" style="color: #3b82f6; font-size: 0.9em;" title="在Google中搜索">🔍</a>
                                 </div>` :
                                 '-'}
                     </td>

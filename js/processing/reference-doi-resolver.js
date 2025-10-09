@@ -1230,14 +1230,14 @@
                 finalFailed.forEach(f => {
                     console.log(`  ✗ "${f.original.title.substring(0, 60)}..."`);
 
-                    // 为失败的文献生成 Google Scholar 搜索链接作为兜底
+                    // 为失败的文献生成 Google 搜索链接作为兜底
                     const searchQuery = encodeURIComponent(f.original.title);
                     f.resolved = {
                         doi: null,
                         title: f.original.title,
-                        url: `https://scholar.google.com/scholar?q=${searchQuery}`,
+                        url: `https://www.google.com/search?q=${searchQuery}`,
                         fallback: true,
-                        source: 'google-scholar-search',
+                        source: 'google-search',
                         message: '未找到DOI，请手动搜索'
                     };
                     f.success = true; // 标记为"成功"以便返回结果

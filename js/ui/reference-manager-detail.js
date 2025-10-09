@@ -182,7 +182,7 @@
                       ref.doiFallback ? `<div class="reference-doi reference-doi-fallback" style="color: #f59e0b;">
                         <span style="margin-right: 8px;">⚠️ ${ref.doiFallbackMessage || '未找到DOI，请手动搜索'}</span>
                         <a href="${ref.doiFallbackUrl}" target="_blank" style="color: #3b82f6; text-decoration: underline;">
-                          🔍 Google Scholar
+                          🔍 Google
                         </a>
                       </div>` : ''}
                     ${renderTags(ref.tags)}
