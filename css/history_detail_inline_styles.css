@@ -1,28 +1,34 @@
 /* history_detail_inline_styles.css - 从history_detail.html中提取的内联CSS样式 */
 
-/* NEW DOCK STYLES */
+/* 现代化 DOCK 样式 - 紧凑版 */
 #bottom-left-dock {
   position: fixed;
-  bottom: 15px;
-  left: 15px;
-  background-color: rgba(255, 255, 255, 0.95); /* UPDATED for more distinct white background */
-  border: 1px dashed #94a3b8; /* Keep this border, good for white background */
-  color: #334155; /* Keep this text color */
-  padding: 8px 12px;
-  border-radius: 8px;
+  bottom: 20px;
+  left: 20px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(248, 250, 252, 0.95));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #1e293b;
+  padding: 12px;
+  border-radius: 14px;
   font-size: 12px;
   font-weight: 500;
   z-index: 2000;
   opacity: 0;
-  transition: opacity 0.4s ease-in-out, transform 0.2s ease-out, padding 0.2s ease-out, min-width 0.2s ease-out, height 0.2s ease-out;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 10px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05); /* UPDATED */
-  transform: translateY(10px);
-  min-width: 30px;
-  height: auto;
+  box-shadow:
+    0 10px 25px -5px rgba(0, 0, 0, 0.1),
+    0 8px 10px -6px rgba(0, 0, 0, 0.1),
+    0 0 0 1px rgba(0, 0, 0, 0.05);
+  transform: translateY(10px) scale(0.95);
+  width: auto;
+  max-width: 180px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
 }
 
 /* TOC 模式选择器样式 */
@@ -129,26 +135,95 @@
 
 #bottom-left-dock.visible {
   opacity: 1;
-  transform: translateY(0);
+  transform: translateY(0) scale(1);
 }
 
-/* Updated styles for dock-info-stack and its new columns */
+#bottom-left-dock:hover {
+  box-shadow:
+    0 20px 35px -5px rgba(0, 0, 0, 0.12),
+    0 10px 15px -8px rgba(0, 0, 0, 0.1),
+    0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+/* Dock信息栈 - 两列布局 */
 #dock-info-stack {
-  display: flex;
-  flex-direction: row; /* Columns side-by-side */
-  gap: 2px; /* Further reduced gap between Label column and Value column */
-  align-items: flex-start; /* Align columns at their top */
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 8px;
+  background: rgba(248, 250, 252, 0.6);
+  border-radius: 12px;
+  font-size: 11px;
 }
 
 .dock-column {
   display: flex;
   flex-direction: column;
-  gap: 2px; /* Gap between lines within a column */
+  gap: 6px;
+}
+
+.dock-stat-item-wrapper-progress,
+.dock-stat-item-wrapper-highlight,
+.dock-stat-item-wrapper-annotation,
+.dock-stat-item-wrapper-img,
+.dock-stat-item-wrapper-tbl,
+.dock-stat-item-wrapper-formula,
+.dock-stat-item-wrapper-words {
+  display: flex;
+  align-items: center;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* 可点击项的样式 */
+.stat-item-clickable {
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: #475569;
+}
+
+.stat-item-clickable:hover {
+  background-color: rgba(59, 130, 246, 0.1);
+  color: #2563eb;
+}
+
+/* 底部控制栏 - 文献 + 设置 + 折叠 */
+.dock-control-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  background: rgba(248, 250, 252, 0.6);
+  border-radius: 10px;
+}
+
+.dock-control-bar .stat-item-clickable[data-stat-type="reference"] {
+  color: #1e40af;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.dock-control-bar .stat-item-clickable[data-stat-type="reference"]:hover {
+  background-color: rgba(59, 130, 246, 0.2);
+  color: #1e3a8a;
+  transform: scale(1.02);
 }
 
 .dock-values-column {
-  text-align: right; /* Right-align the values/percentages */
-  min-width: 40px; /* Slightly reduced min-width */
+  text-align: left;
+  font-weight: 600;
+  color: #1e293b;
 }
 .dock-values-column > div {
   justify-content: flex-end; /* Ensure content within value divs also aligns right if they are flex */
@@ -163,34 +238,39 @@
   color: #1d4ed8;
 }
 
-#bottom-left-dock > #dock-info-stack,
-#bottom-left-dock > a,
-#bottom-left-dock > #dock-collapsed-progress-display { /* Added new direct child */
-  display: flex;
-  align-items: center;
-}
-
+/* 这些规则已在上面重新定义，保留用于兼容性 */
 #dock-stats {
   display: flex;
-  gap: 8px; /* Space between highlight and annotation counts */
+  gap: 8px;
 }
 
-#bottom-left-dock a {
-  color: #3b82f6; /* Slightly softer blue for links/icons, can be adjusted */
+/* 控制栏按钮样式 */
+.dock-control-bar a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  color: #64748b;
   text-decoration: none;
-}
-#bottom-left-dock a:hover {
-  color: #2563eb; /* Darker blue on hover */
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  background: transparent;
 }
 
-#settings-link i.fa-cog { /* Styles for settings cog icon if it's not a round button */
-  font-size: 1.2em; /* Keep or adjust as needed */
-  padding: 3px; /* Keep or adjust as needed */
+.dock-control-bar a:hover {
+  color: #1e293b;
+  background: rgba(226, 232, 240, 0.8);
+  transform: scale(1.05);
+}
+
+#settings-link i.fa-cog {
+  font-size: 16px;
 }
 
 #dock-toggle-btn {
-    margin-left: auto; /* Pushes toggle button to the far right */
-    cursor: pointer;
+  cursor: pointer;
+  font-size: 14px;
 }
 
 /* Style for the standalone progress display in collapsed mode */
@@ -205,22 +285,54 @@
     font-weight: 500;
 }
 
-/* Collapsed state */
+/* 折叠状态 - 紧凑模式 */
 #bottom-left-dock.dock-collapsed {
-  padding: 6px 10px; /* Slightly adjust padding for collapsed state */
-  gap: 8px; /* Adjust gap for items in collapsed row */
-  /* min-width to allow content to show */
+  padding: 8px 12px;
+  gap: 10px;
+  flex-direction: row;
+  align-items: center;
+  width: auto;
+  max-width: none;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 /* Hide these elements when collapsed */
-#bottom-left-dock.dock-collapsed #dock-info-stack,
-#bottom-left-dock.dock-collapsed #settings-link {
+#bottom-left-dock.dock-collapsed #dock-info-stack {
   display: none;
 }
 
-/* Show and style the specific progress display for collapsed mode */
+#bottom-left-dock.dock-collapsed .dock-control-bar {
+  background: transparent;
+  padding: 0;
+}
+
+/* 折叠时隐藏文献徽章 */
+#bottom-left-dock.dock-collapsed .dock-control-bar .stat-item-clickable[data-stat-type="reference"] {
+  display: none;
+}
+
+/* 折叠状态下的进度显示 */
 #bottom-left-dock.dock-collapsed #dock-collapsed-progress-display {
-    display: inline; /* Show it */
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(37, 99, 235, 0.08));
+  border-radius: 8px;
+  color: #1e40af;
+  font-weight: 600;
+  font-size: 13px;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+#bottom-left-dock.dock-collapsed #dock-collapsed-progress-display::before {
+  content: "\f02d";
+  font-family: "Font Awesome 6 Free";
+  font-weight: 900;
+  font-size: 12px;
+  margin-right: 4px;
 }
 
 /* This rule is no longer needed as #dock-stats is inside #dock-info-stack which gets hidden */
@@ -243,12 +355,108 @@
 } */
 
 #bottom-left-dock.dock-collapsed #dock-toggle-btn {
-  margin-left: auto; /* Ensure toggle button is pushed to the right if other elements are minimal */
+  margin-left: auto;
+  background: rgba(248, 250, 252, 0.8);
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+#bottom-left-dock.dock-collapsed #dock-toggle-btn:hover {
+  background: rgba(226, 232, 240, 1);
+  transform: scale(1.05);
 }
 
 /* Style for the new sub-blocks, can be adjusted */
 .sub-block {
-    display: inline; /* Or inline-block if padding/margin is needed and wrap behavior is desired */
+    display: inline;
+}
+
+/* 阅读进度数值高亮 */
+#reading-progress-percentage-verbose,
+#reading-progress-percentage {
+  color: #2563eb;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* 深色模式支持 */
+@media (prefers-color-scheme: dark) {
+  #bottom-left-dock {
+    background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
+    color: #e2e8f0;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    box-shadow:
+      0 10px 25px -5px rgba(0, 0, 0, 0.3),
+      0 8px 10px -6px rgba(0, 0, 0, 0.2),
+      0 0 0 1px rgba(255, 255, 255, 0.05);
+  }
+
+  #dock-info-stack {
+    background: rgba(15, 23, 42, 0.6);
+  }
+
+  .dock-stat-item-wrapper-progress,
+  .dock-stat-item-wrapper-highlight,
+  .dock-stat-item-wrapper-annotation,
+  .dock-stat-item-wrapper-img,
+  .dock-stat-item-wrapper-tbl,
+  .dock-stat-item-wrapper-formula,
+  .dock-stat-item-wrapper-words {
+    color: #94a3b8;
+  }
+
+  .stat-item-clickable {
+    color: #cbd5e1;
+  }
+
+  .stat-item-clickable:hover {
+    background-color: rgba(59, 130, 246, 0.2);
+    color: #60a5fa;
+  }
+
+  .dock-control-bar {
+    background: rgba(15, 23, 42, 0.6);
+  }
+
+  .dock-control-bar .stat-item-clickable[data-stat-type="reference"] {
+    background: rgba(59, 130, 246, 0.2);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    color: #60a5fa;
+  }
+
+  .dock-control-bar .stat-item-clickable[data-stat-type="reference"]:hover {
+    background-color: rgba(59, 130, 246, 0.3);
+    color: #93c5fd;
+  }
+
+  .dock-control-bar a {
+    color: #94a3b8;
+  }
+
+  .dock-control-bar a:hover {
+    background: rgba(51, 65, 85, 0.8);
+    color: #e2e8f0;
+  }
+
+  #bottom-left-dock.dock-collapsed {
+    background: rgba(30, 41, 59, 0.9);
+  }
+
+  #bottom-left-dock.dock-collapsed #dock-collapsed-progress-display {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(37, 99, 235, 0.15));
+    color: #60a5fa;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+  }
+
+  #reading-progress-percentage-verbose,
+  #reading-progress-percentage {
+    color: #60a5fa;
+  }
 }
 
 /* NEW STYLES FOR CENTERING IMAGES AND TABLES from Markdown content */

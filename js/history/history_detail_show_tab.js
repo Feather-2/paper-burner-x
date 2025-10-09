@@ -172,6 +172,33 @@ function showTab(tab) {
           data.metadata.layoutJson  // 传入 layoutJson
         );
 
+        // 为多轮检索生成chunks（如果还没有的话）
+        if (!data.ocrChunks || data.ocrChunks.length === 0) {
+          console.log('[PDFCompareView] 检测到缺少chunks数据，尝试从contentListJson生成');
+
+          if (typeof generateChunksFromContentList === 'function') {
+            const chunks = generateChunksFromContentList(
+              data.metadata.contentListJson,
+              data.metadata.translatedContentList
+            );
+            window.data.ocrChunks = chunks.ocrChunks;
+            window.data.translatedChunks = chunks.translatedChunks;
+            console.log(`[PDFCompareView] 已生成 ${chunks.ocrChunks.length} 个chunks用于多轮检索`);
+          } else {
+            // 备用方案：从完整文本生成chunks
+            if (data.ocr && typeof generateChunksFromFullText === 'function') {
+              const chunks = generateChunksFromFullText(data.ocr, data.translation);
+              window.data.ocrChunks = chunks.ocrChunks;
+              window.data.translatedChunks = chunks.translatedChunks;
+              console.log(`[PDFCompareView] 使用备用方案从完整文本生成了 ${chunks.ocrChunks.length} 个chunks`);
+            } else {
+              console.warn('[PDFCompareView] 无法生成chunks，多轮检索功能将受限');
+            }
+          }
+        } else {
+          console.log(`[PDFCompareView] 使用现有的 ${data.ocrChunks.length} 个chunks`);
+        }
+
         await pdfCompareView.render('pdf-compare-container');
         console.log('[PDFCompareView] PDF 对照视图渲染完成');
       } catch (error) {

@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="../../css/immersive_layout.css"> <!-- 新增沉浸式布局CSS -->
   <link rel="stylesheet" href="../../css/unified-button-sizes.css"> <!-- 统一按钮尺寸系统 -->
   <link rel="stylesheet" href="../../css/chunk_compare_optimizer.css"> <!-- 分块对比优化样式 -->
+  <link rel="stylesheet" href="../../css/reference-manager.css"> <!-- 参考文献管理 -->
 
 </head>
 <body>
@@ -76,9 +77,15 @@
         <div class="dock-stat-item-wrapper-words">总字数: <span id="total-word-count">0</span></div>
       </div>
     </div>
-    <span id="dock-collapsed-progress-display"><span id="reading-progress-percentage">0</span>%</span>
-    <a href="#" id="settings-link" title="设置"><i class="fa fa-cog"></i></a>
-    <a href="#" id="dock-toggle-btn" title="折叠"><i class="fa fa-chevron-down"></i></a>
+    <!-- 底部控制栏：文献 + 设置 + 折叠 -->
+    <div class="dock-control-bar">
+      <span id="dock-collapsed-progress-display"><span id="reading-progress-percentage">0</span>%</span>
+      <span class="stat-item-clickable" data-stat-type="reference">
+        <i class="fa fa-book"></i> <span id="reference-count">0</span>
+      </span>
+      <a href="#" id="settings-link" title="设置"><i class="fa fa-cog"></i></a>
+      <a href="#" id="dock-toggle-btn" title="折叠"><i class="fa fa-chevron-down"></i></a>
+    </div>
   </div>
 
   <!-- ===================== -->
@@ -350,6 +357,7 @@
   <script src="../../js/processing/markdown_text_fix.js"></script>
   <script src="../../js/processing/markdown_processor.js"></script>
   <script src="../../js/processing/sub_block_segmenter.js"></script>
+  <script src="../../js/processing/content-list-to-chunks.js"></script>
   <script src="../../js/ui/dock/dock_settings_modal.js"></script> <!-- ADDED -->
   <script src="../../js/annotations/annotations_summary_modal.js"></script> <!-- ADDED -->
   <script src="../../js/history/exporter/history_exporter_docx.js"></script>
@@ -368,6 +376,15 @@
   <script src="../../js/ui/chunk_compare_optimizer.js"></script> <!-- 分块对比性能优化器 -->
   <script src="../../js/ui/chunk_compare_integration.js"></script> <!-- 分块对比优化器集成 -->
   <script src="../../js/ui/chunk_compare_performance_tester.js"></script> <!-- 分块对比性能测试器 -->
+
+  <!-- 参考文献管理模块 -->
+  <script src="../../js/processing/reference-detector.js"></script>
+  <script src="../../js/processing/reference-extractor.js"></script>
+  <script src="../../js/processing/reference-ai-processor.js"></script>
+  <script src="../../js/processing/reference-indexer.js"></script>
+  <script src="../../js/storage/reference-storage.js"></script>
+  <script src="../../js/ui/reference-manager-ui.js"></script>
+  <script src="../../js/ui/reference-manager-detail.js"></script> <!-- 详情页专用 -->
 
 </body>
 </html>

@@ -375,6 +375,9 @@
         dockToggleBtn = document.getElementById('dock-toggle-btn');
         settingsLink = document.getElementById('settings-link');
 
+        // 参考文献计数元素（可选）
+        const referenceCountElement = document.getElementById('reference-count');
+
         if (!dockElement || !progressPercentageSpan || !progressPercentageVerboseSpan ||
             !highlightCountElement || !annotationCountElement || !imageCountElement ||
             !tableCountElement || !formulaCountElement || !totalWordCountElement ||

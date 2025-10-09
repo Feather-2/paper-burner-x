@@ -1,0 +1,964 @@
+/* css/reference-manager.css */
+/* 参考文献管理器样式 */
+
+/* 模态框基础样式 */
+.reference-modal {
+    display: none;
+    position: fixed;
+    z-index: 10000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.reference-modal-content {
+    background-color: #fff;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 1400px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.reference-edit-content {
+    max-width: 800px;
+}
+
+/* 头部样式 */
+.reference-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 30px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.reference-modal-header h2 {
+    margin: 0;
+    font-size: 24px;
+    color: #333;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.reference-modal-close {
+    background: none;
+    border: none;
+    font-size: 28px;
+    cursor: pointer;
+    color: #666;
+    transition: color 0.2s;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+}
+
+.reference-modal-close:hover {
+    color: #333;
+    background-color: #f0f0f0;
+}
+
+/* 工具栏样式 */
+.reference-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 30px;
+    border-bottom: 1px solid #e0e0e0;
+    background-color: #f8f9fa;
+}
+
+.reference-toolbar-left,
+.reference-toolbar-right {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.ref-btn {
+    padding: 8px 16px;
+    border: 1px solid #ddd;
+    background-color: #fff;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.ref-btn:hover {
+    background-color: #f5f5f5;
+    border-color: #ccc;
+}
+
+.ref-btn-primary {
+    background-color: #3b82f6;
+    color: white;
+    border-color: #3b82f6;
+}
+
+.ref-btn-primary:hover {
+    background-color: #2563eb;
+}
+
+.ref-btn-danger {
+    background-color: #f44336;
+    color: white;
+    border-color: #f44336;
+}
+
+.ref-btn-danger:hover {
+    background-color: #da190b;
+}
+
+.ref-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+#ref-search-input {
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    width: 250px;
+    font-size: 14px;
+}
+
+#ref-filter-select {
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+/* 统计信息样式 */
+.reference-stats {
+    display: flex;
+    gap: 30px;
+    padding: 15px 30px;
+    background-color: #f0f4f8;
+    border-bottom: 1px solid #e0e0e0;
+    font-size: 14px;
+    color: #555;
+}
+
+.reference-stats strong {
+    color: #333;
+    font-weight: 600;
+}
+
+/* 表格容器样式 */
+.reference-table-container {
+    flex: 1;
+    overflow: auto;
+    padding: 0;
+}
+
+/* 表格样式 */
+.reference-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.reference-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: #fff;
+}
+
+.reference-table th {
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 600;
+    color: #333;
+    border-bottom: 2px solid #e0e0e0;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.reference-table th:hover {
+    background-color: #f5f5f5;
+}
+
+.reference-table th[data-sort]::after {
+    content: ' ⇅';
+    opacity: 0.3;
+}
+
+.reference-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid #f0f0f0;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.reference-table tbody tr:hover {
+    background-color: #f8f9fa;
+}
+
+.ref-empty-state {
+    text-align: center;
+    color: #999;
+    padding: 40px !important;
+    font-style: italic;
+}
+
+/* 表格特定列样式 */
+.ref-authors,
+.ref-title,
+.ref-journal {
+    max-width: 200px;
+}
+
+.ref-title {
+    font-weight: 500;
+}
+
+.ref-doi {
+    color: #2196F3;
+    text-decoration: none;
+}
+
+.ref-doi:hover {
+    text-decoration: underline;
+}
+
+.ref-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    background-color: #e3f2fd;
+    color: #1976d2;
+    border-radius: 12px;
+    font-size: 12px;
+    margin-right: 4px;
+}
+
+.ref-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.ref-action-btn {
+    background: none;
+    border: none;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.ref-action-btn:hover {
+    background-color: #e0e0e0;
+}
+
+/* 复选框样式 */
+.ref-checkbox {
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+}
+
+/* 底部样式 */
+.reference-modal-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 30px;
+    border-top: 1px solid #e0e0e0;
+    background-color: #f8f9fa;
+}
+
+.reference-footer-left {
+    font-size: 14px;
+    color: #666;
+}
+
+.reference-footer-right {
+    display: flex;
+    gap: 10px;
+}
+
+/* 编辑表单样式 */
+.reference-edit-form {
+    padding: 20px 30px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.ref-form-row {
+    margin-bottom: 20px;
+}
+
+.ref-form-row label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+    color: #333;
+    font-size: 14px;
+}
+
+.ref-form-row input,
+.ref-form-row select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    transition: border-color 0.2s;
+}
+
+.ref-form-row input:focus,
+.ref-form-row select:focus {
+    outline: none;
+    border-color: #3b82f6;
+}
+
+.ref-form-row-half {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+}
+
+/* 进度提示样式 */
+.ref-progress {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 10001;
+    background-color: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 20px 40px;
+    border-radius: 8px;
+    font-size: 16px;
+    text-align: center;
+}
+
+.ref-progress-content {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.ref-progress-content::before {
+    content: '';
+    width: 20px;
+    height: 20px;
+    border: 3px solid #fff;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* 侧栏菜单样式 */
+.ref-sidebar-menu {
+    padding: 8px 0;
+}
+
+.ref-sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    font-size: 14px;
+    color: #333;
+}
+
+.ref-sidebar-item:hover {
+    background-color: #f0f0f0;
+}
+
+.ref-sidebar-item.active {
+    background-color: #e3f2fd;
+    color: #1976d2;
+}
+
+/* 响应式设计 */
+@media (max-width: 1200px) {
+    .reference-modal-content {
+        width: 95%;
+    }
+
+    .reference-toolbar {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .reference-toolbar-left,
+    .reference-toolbar-right {
+        width: 100%;
+        justify-content: space-between;
+    }
+}
+
+@media (max-width: 768px) {
+    .reference-modal-content {
+        width: 100%;
+        height: 100%;
+        max-height: 100vh;
+        border-radius: 0;
+    }
+
+    .reference-table th,
+    .reference-table td {
+        padding: 8px 12px;
+        font-size: 12px;
+    }
+
+    .ref-authors,
+    .ref-title,
+    .ref-journal {
+        max-width: 150px;
+    }
+
+    .reference-stats {
+        flex-direction: column;
+        gap: 8px;
+    }
+}
+
+/* ============================================
+   详情页专用样式 - 文献区域和悬浮面板
+   ============================================ */
+
+/* 文档末尾的参考文献区域 */
+.reference-section {
+    margin-top: 60px;
+    padding: 30px;
+    background: linear-gradient(to bottom, #f8fafc, #ffffff);
+    border-top: 3px solid #3b82f6;
+    border-radius: 8px;
+}
+
+.reference-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 2px solid #e0e0e0;
+}
+
+.reference-section-header h2 {
+    margin: 0;
+    color: #333;
+    font-size: 28px;
+    font-weight: 600;
+}
+
+.reference-section-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.ref-manage-btn,
+.ref-extract-btn {
+    padding: 8px 16px;
+    border: 1px solid #ddd;
+    background-color: #fff;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.ref-manage-btn {
+    background-color: #3b82f6;
+    color: white;
+    border-color: #3b82f6;
+}
+
+.ref-manage-btn:hover {
+    background-color: #2563eb;
+}
+
+.ref-extract-btn:hover {
+    background-color: #f5f5f5;
+}
+
+/* 参考文献列表 */
+.reference-list {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.reference-item {
+    display: flex;
+    gap: 16px;
+    padding: 16px;
+    background-color: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    transition: all 0.2s;
+}
+
+.reference-item:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-color: #3b82f6;
+}
+
+.reference-number {
+    font-size: 18px;
+    font-weight: 600;
+    color: #3b82f6;
+    min-width: 40px;
+}
+
+.reference-content {
+    flex: 1;
+}
+
+.reference-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.ref-authors {
+    font-weight: 500;
+    color: #333;
+}
+
+.ref-year {
+    color: #666;
+}
+
+.reference-title {
+    font-size: 16px;
+    font-weight: 500;
+    color: #1976d2;
+    margin-bottom: 6px;
+    line-height: 1.4;
+}
+
+.reference-journal {
+    color: #666;
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.reference-details {
+    color: #888;
+    font-size: 13px;
+    margin-bottom: 4px;
+}
+
+.reference-doi {
+    font-size: 13px;
+    color: #666;
+    margin-top: 6px;
+}
+
+.reference-doi a {
+    color: #2196F3;
+    text-decoration: none;
+}
+
+.reference-doi a:hover {
+    text-decoration: underline;
+}
+
+.reference-tags {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.ref-tag-small {
+    display: inline-block;
+    padding: 2px 8px;
+    background-color: #e3f2fd;
+    color: #1976d2;
+    border-radius: 10px;
+    font-size: 11px;
+}
+
+.reference-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.ref-action-icon {
+    background: none;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 6px 10px;
+    cursor: pointer;
+    color: #666;
+    transition: all 0.2s;
+}
+
+.ref-action-icon:hover {
+    background-color: #f0f0f0;
+    color: #333;
+}
+
+/* TOC中的参考文献链接 */
+.toc-reference-link {
+    border-top: 1px solid #e0e0e0;
+    padding-top: 10px;
+    margin-top: 10px;
+}
+
+.toc-ref-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    color: #3b82f6 !important;
+    font-weight: 500;
+    transition: background-color 0.2s;
+}
+
+.toc-ref-link:hover {
+    background-color: #f0f0f0;
+    border-radius: 4px;
+}
+
+/* 悬浮面板（类似chatbot） */
+.reference-floating-panel {
+    position: fixed;
+    right: 30px;
+    bottom: 80px;
+    width: 400px;
+    max-height: 600px;
+    background-color: #fff;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+    display: flex;
+    flex-direction: column;
+    z-index: 9999;
+    animation: slideInRight 0.3s ease;
+}
+
+@keyframes slideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.reference-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: white;
+    border-radius: 12px 12px 0 0;
+    cursor: grab;
+}
+
+.reference-panel-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.reference-panel-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.ref-panel-minimize,
+.ref-panel-close {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.ref-panel-minimize:hover,
+.ref-panel-close:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+.reference-panel-toolbar {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.ref-toolbar-btn {
+    flex: 1;
+    padding: 6px 12px;
+    border: 1px solid #ddd;
+    background-color: #fff;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.ref-toolbar-btn:hover {
+    background-color: #3b82f6;
+    color: white;
+    border-color: #3b82f6;
+}
+
+.reference-panel-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+}
+
+.ref-panel-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    text-align: center;
+    color: #999;
+}
+
+.ref-panel-placeholder i {
+    margin-bottom: 16px;
+    color: #ddd;
+}
+
+.ref-panel-placeholder p {
+    margin: 16px 0;
+    font-size: 14px;
+}
+
+.ref-panel-placeholder button {
+    padding: 8px 20px;
+    background-color: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+}
+
+.ref-panel-placeholder button:hover {
+    background-color: #2563eb;
+}
+
+.ref-panel-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.ref-panel-item {
+    display: flex;
+    gap: 12px;
+    padding: 12px;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.ref-panel-item:hover {
+    background-color: #eff6ff;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.ref-panel-number {
+    font-size: 14px;
+    font-weight: 600;
+    color: #3b82f6;
+    min-width: 30px;
+}
+
+.ref-panel-info {
+    flex: 1;
+}
+
+.ref-panel-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: #333;
+    margin-bottom: 4px;
+    line-height: 1.3;
+}
+
+.ref-panel-authors {
+    font-size: 12px;
+    color: #666;
+}
+
+.ref-panel-year {
+    font-size: 12px;
+    color: #888;
+    margin-top: 2px;
+}
+
+/* Dock中的文献统计样式 */
+.dock-stat-item-wrapper-reference {
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.dock-stat-item-wrapper-reference:hover {
+    background-color: rgba(76, 175, 80, 0.1);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .reference-floating-panel {
+        right: 10px;
+        bottom: 70px;
+        width: calc(100% - 20px);
+        max-width: 400px;
+    }
+
+    .reference-section {
+        padding: 20px 16px;
+    }
+
+    .reference-item {
+        flex-direction: column;
+    }
+
+    .reference-actions {
+        flex-direction: row;
+    }
+}
+
+/* 深色模式支持 */
+@media (prefers-color-scheme: dark) {
+    .reference-modal {
+        background-color: rgba(0, 0, 0, 0.8);
+    }
+
+    .reference-modal-content {
+        background-color: #1e1e1e;
+        color: #e0e0e0;
+    }
+
+    .reference-modal-header,
+    .reference-toolbar,
+    .reference-modal-footer {
+        background-color: #2d2d2d;
+        border-color: #3d3d3d;
+    }
+
+    .reference-modal-header h2 {
+        color: #e0e0e0;
+    }
+
+    .reference-stats {
+        background-color: #252525;
+        border-color: #3d3d3d;
+        color: #aaa;
+    }
+
+    .reference-stats strong {
+        color: #e0e0e0;
+    }
+
+    .reference-table {
+        background-color: #1e1e1e;
+    }
+
+    .reference-table th {
+        background-color: #2d2d2d;
+        color: #e0e0e0;
+        border-color: #3d3d3d;
+    }
+
+    .reference-table td {
+        border-color: #2d2d2d;
+    }
+
+    .reference-table tbody tr:hover {
+        background-color: #252525;
+    }
+
+    .ref-btn {
+        background-color: #2d2d2d;
+        border-color: #3d3d3d;
+        color: #e0e0e0;
+    }
+
+    .ref-btn:hover {
+        background-color: #3d3d3d;
+    }
+
+    #ref-search-input,
+    #ref-filter-select,
+    .ref-form-row input,
+    .ref-form-row select {
+        background-color: #2d2d2d;
+        border-color: #3d3d3d;
+        color: #e0e0e0;
+    }
+
+    .ref-tag {
+        background-color: #1a3a52;
+        color: #64b5f6;
+    }
+}
+
