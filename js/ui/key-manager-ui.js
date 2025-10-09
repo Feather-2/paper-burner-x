@@ -725,13 +725,19 @@ KeyManagerUI.exportAllModelData = function() {
         doc2xTokenMode: localStorage.getItem('ocrDoc2XTokenMode') || 'frontend'
     };
 
+    // 添加学术搜索代理配置导出
+    const academicSearchConfig = JSON.parse(localStorage.getItem('academicSearchProxyConfig') || 'null');
+    const academicSearchSourcesConfig = JSON.parse(localStorage.getItem('academicSearchSourcesConfig') || 'null');
+
     const data = {
         translationModelKeys,
         translationModelConfigs,
         paperBurnerCustomSourceSites,
         embeddingConfig,
         rerankConfig,
-        ocrConfig  // 新增 OCR 配置
+        ocrConfig,  // OCR 配置
+        academicSearchConfig,  // 学术搜索代理配置
+        academicSearchSourcesConfig  // 学术搜索源配置
     };
     const dataStr = JSON.stringify(data, null, 2);
     const blob = new Blob([dataStr], { type: 'application/json' });
@@ -894,6 +900,22 @@ KeyManagerUI.importAllModelData = function(refreshUIFunc) {
                     if (window.ocrSettingsManager && typeof window.ocrSettingsManager.loadSettings === 'function') {
                         window.ocrSettingsManager.loadSettings();
                     }
+                }
+
+                // 导入学术搜索配置（如果存在）
+                const importedAcademicSearchConfig = imported.academicSearchConfig || null;
+                if (importedAcademicSearchConfig && typeof importedAcademicSearchConfig === 'object') {
+                    localStorage.setItem('academicSearchProxyConfig', JSON.stringify(importedAcademicSearchConfig));
+                }
+
+                const importedAcademicSearchSourcesConfig = imported.academicSearchSourcesConfig || null;
+                if (importedAcademicSearchSourcesConfig && typeof importedAcademicSearchSourcesConfig === 'object') {
+                    localStorage.setItem('academicSearchSourcesConfig', JSON.stringify(importedAcademicSearchSourcesConfig));
+                }
+
+                // 更新学术搜索设置管理器（如果存在）
+                if (window.academicSearchSettingsManager && typeof window.academicSearchSettingsManager.loadSettings === 'function') {
+                    window.academicSearchSettingsManager.loadSettings();
                 }
 
                 if (typeof refreshUIFunc === 'function') refreshUIFunc();
