@@ -204,9 +204,10 @@ ${references.map((ref, idx) => `[${idx}] ${ref}`).join('\n\n')}`
      * @param {Object} apiConfig - API配置
      * @param {string} sourceLang - 源语言
      * @param {Function} progressCallback - 进度回调
+     * @param {Object} options - 额外选项 {enrichWithDOI: boolean}
      * @returns {Promise<Array>} 处理结果
      */
-    async function smartProcessReferences(entries, apiConfig, sourceLang = 'auto', progressCallback = null) {
+    async function smartProcessReferences(entries, apiConfig, sourceLang = 'auto', progressCallback = null, options = {}) {
         if (!entries || !Array.isArray(entries)) {
             return [];
         }
@@ -233,7 +234,7 @@ ${references.map((ref, idx) => `[${idx}] ${ref}`).join('\n\n')}`
         );
 
         // 合并结果
-        const finalResults = [...alreadyExtracted];
+        let finalResults = [...alreadyExtracted];
 
         aiResults.forEach((aiResult, idx) => {
             const original = needsAI[idx];
@@ -248,7 +249,81 @@ ${references.map((ref, idx) => `[${idx}] ${ref}`).join('\n\n')}`
         // 按原始索引排序
         finalResults.sort((a, b) => (a.index || 0) - (b.index || 0));
 
+        // 可选：使用DOI解析器补充DOI信息
+        if (options.enrichWithDOI && typeof window.DOIResolver !== 'undefined') {
+            console.log('[ReferenceAIProcessor] Enriching with DOI information...');
+            finalResults = await enrichWithDOI(finalResults, progressCallback);
+        }
+
         return finalResults;
+    }
+
+    /**
+     * 使用DOI解析器补充文献的DOI信息
+     * @param {Array} references - 文献列表
+     * @param {Function} progressCallback - 进度回调
+     * @returns {Promise<Array>} 补充后的文献列表
+     */
+    async function enrichWithDOI(references, progressCallback = null) {
+        if (!window.DOIResolver) {
+            console.warn('[ReferenceAIProcessor] DOIResolver not available, skipping DOI enrichment');
+            return references;
+        }
+
+        // 筛选出需要查询DOI的文献（没有DOI或DOI不完整）
+        const needsDOI = references.filter(ref => !ref.doi && ref.title);
+
+        if (needsDOI.length === 0) {
+            console.log('[ReferenceAIProcessor] All references already have DOI');
+            return references;
+        }
+
+        console.log(`[ReferenceAIProcessor] Querying DOI for ${needsDOI.length} references`);
+
+        // 创建DOI解析器
+        const resolver = window.DOIResolver.create({
+            queryOrder: ['crossref', 'openalex', 'pubmed'],
+            timeout: 5000
+        });
+
+        // 批量解析
+        const doiResults = await resolver.batchResolve(needsDOI, (progress) => {
+            if (progressCallback) {
+                progressCallback({
+                    phase: 'doi-enrichment',
+                    completed: progress.completed,
+                    total: progress.total,
+                    current: progress.current
+                });
+            }
+        });
+
+        // 合并DOI信息回原始文献列表
+        const enrichedReferences = references.map(ref => {
+            if (ref.doi) return ref; // 已有DOI，跳过
+
+            const doiResult = doiResults.find(r => r.original === ref);
+            if (doiResult && doiResult.resolved) {
+                return {
+                    ...ref,
+                    doi: doiResult.resolved.doi,
+                    url: doiResult.resolved.url || ref.url,
+                    // 可选：用DOI查询结果补充缺失的字段
+                    authors: ref.authors || doiResult.resolved.authors,
+                    year: ref.year || doiResult.resolved.year,
+                    journal: ref.journal || doiResult.resolved.journal,
+                    doiSource: doiResult.resolved.source,
+                    doiConfidence: doiResult.resolved.confidence
+                };
+            }
+
+            return ref;
+        });
+
+        const successCount = enrichedReferences.filter(r => r.doi).length;
+        console.log(`[ReferenceAIProcessor] DOI enrichment complete: ${successCount}/${references.length} now have DOI`);
+
+        return enrichedReferences;
     }
 
     /**
@@ -331,10 +406,11 @@ ${references.map((ref, idx) => `[${idx}] ${ref}`).join('\n\n')}`
     global.ReferenceAIProcessor = {
         batchProcessReferences,
         smartProcessReferences,
+        enrichWithDOI,
         generateExtractionPrompt,
         buildAPIConfig,
         BATCH_SIZE,
-        version: '1.0.0'
+        version: '1.1.0'
     };
 
     console.log('[ReferenceAIProcessor] Reference AI processor loaded.');
