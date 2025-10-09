@@ -42,6 +42,38 @@
     }
 
     /**
+     * 标题规范化 - 去除特殊符号和格式
+     * @param {string} title - 原始标题
+     * @returns {string} 清理后的标题
+     */
+    function normalizeTitle(title) {
+        if (!title) return '';
+
+        let normalized = title;
+
+        // 1. 处理同位素标记：(18)F → 18F, [(11)C] → 11C, (99m)Tc → 99mTc
+        normalized = normalized.replace(/[\(\[](\d+m?)\)?\]?([A-Z][a-z]?)/g, '$1$2');
+
+        // 2. 处理化学式和数学符号：去除多余括号
+        normalized = normalized.replace(/\[([^\]]+)\]/g, '$1');
+        normalized = normalized.replace(/\(([^)]{1,3})\)/g, '$1'); // 只处理短括号内容（避免误删作者名等）
+
+        // 3. 去除多余的标点符号
+        normalized = normalized.replace(/\s+([,;:.!?])/g, '$1'); // 标点前的空格
+        normalized = normalized.replace(/([,;:.!?])\s*([,;:.!?])/g, '$1'); // 连续标点
+
+        // 4. 统一空格
+        normalized = normalized.replace(/\s+/g, ' ').trim();
+
+        // 5. 去除末尾的句号（如果存在）
+        normalized = normalized.replace(/\.$/, '');
+
+        console.log(`[TitleNormalize] "${title.substring(0, 60)}..." → "${normalized.substring(0, 60)}..."`);
+
+        return normalized;
+    }
+
+    /**
      * 获取学术搜索源配置
      */
     function getSourcesConfig() {
@@ -137,9 +169,12 @@
             }
 
             try {
+                // 标题规范化
+                const normalizedTitle = normalizeTitle(title);
+
                 // 构建查询URL
                 const params = new URLSearchParams({
-                    'query.title': title,
+                    'query.title': normalizedTitle,
                     rows: 5 // 返回前5个结果
                 });
 
@@ -351,8 +386,11 @@
             }
 
             try {
+                // 标题规范化
+                const normalizedTitle = normalizeTitle(title);
+
                 const params = new URLSearchParams({
-                    search: title
+                    search: normalizedTitle
                 });
 
                 // 只在有邮箱时才添加mailto参数
@@ -499,8 +537,11 @@
             }
 
             try {
+                // 标题规范化
+                const normalizedTitle = normalizeTitle(title);
+
                 const params = new URLSearchParams({
-                    query: title,
+                    query: normalizedTitle,
                     limit: 5,
                     fields: 'title,authors,year,venue,externalIds,url,citationCount,abstract'
                 });
@@ -647,9 +688,12 @@
             }
 
             try {
+                // 标题规范化
+                const normalizedTitle = normalizeTitle(title);
+
                 // 截断过长的标题，避免URL过长或查询超时
                 // PubMed 搜索对长标题支持不好，取前200字符通常足够匹配
-                let searchTitle = title.length > 200 ? title.substring(0, 200) : title;
+                let searchTitle = normalizedTitle.length > 200 ? normalizedTitle.substring(0, 200) : normalizedTitle;
 
                 // Step 1: 搜索获取PMID
                 const searchParams = new URLSearchParams({
@@ -851,9 +895,12 @@
             }
 
             try {
+                // 标题规范化
+                const normalizedTitle = normalizeTitle(title);
+
                 // 构建查询
                 const params = new URLSearchParams({
-                    search_query: `ti:"${title}"`,
+                    search_query: `ti:"${normalizedTitle}"`,
                     start: 0,
                     max_results: 5,
                     sortBy: 'relevance',
@@ -1231,7 +1278,8 @@
                     console.log(`  ✗ "${f.original.title.substring(0, 60)}..."`);
 
                     // 为失败的文献生成 Google 搜索链接作为兜底
-                    const searchQuery = encodeURIComponent(f.original.title);
+                    const normalizedTitle = normalizeTitle(f.original.title);
+                    const searchQuery = encodeURIComponent(normalizedTitle);
                     f.resolved = {
                         doi: null,
                         title: f.original.title,
