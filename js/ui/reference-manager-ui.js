@@ -88,13 +88,14 @@
                                     <th data-sort="year">年份</th>
                                     <th data-sort="journal">期刊/会议</th>
                                     <th data-sort="doi">DOI</th>
+                                    <th data-sort="abstract">摘要</th>
                                     <th data-sort="tags">标签</th>
                                     <th>操作</th>
                                 </tr>
                             </thead>
                             <tbody id="ref-table-body">
                                 <tr class="ref-empty-state">
-                                    <td colspan="9">暂无文献数据，请点击"提取文献"按钮开始</td>
+                                    <td colspan="10">暂无文献数据,请点击"提取文献"按钮开始</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -183,6 +184,10 @@
                         <div class="ref-form-row">
                             <label>标签</label>
                             <input type="text" id="edit-tags" placeholder="用逗号分隔标签" />
+                        </div>
+                        <div class="ref-form-row">
+                            <label>摘要</label>
+                            <textarea id="edit-abstract" placeholder="文献摘要" rows="4"></textarea>
                         </div>
                     </div>
 
@@ -305,7 +310,7 @@
             if (this.filteredReferences.length === 0) {
                 tbody.innerHTML = `
                     <tr class="ref-empty-state">
-                        <td colspan="9">暂无文献数据</td>
+                        <td colspan="10">暂无文献数据</td>
                     </tr>
                 `;
                 return;
@@ -326,7 +331,17 @@
                         ${ref.journal || '-'}
                     </td>
                     <td>
-                        ${ref.doi ? `<a href="https://doi.org/${ref.doi}" target="_blank" class="ref-doi">${ref.doi}</a>` : '-'}
+                        ${ref.doi ?
+                            `<a href="https://doi.org/${ref.doi}" target="_blank" class="ref-doi">${ref.doi}</a>` :
+                            ref.doiFallback ?
+                                `<div style="display: flex; align-items: center; gap: 4px; color: #f59e0b;">
+                                    <span title="${ref.doiFallbackMessage || '未找到DOI'}">⚠️</span>
+                                    <a href="${ref.doiFallbackUrl}" target="_blank" style="color: #3b82f6; font-size: 0.9em;" title="在Google Scholar中搜索">🔍</a>
+                                </div>` :
+                                '-'}
+                    </td>
+                    <td class="ref-abstract" title="${ref.abstract || ''}">
+                        ${this.formatAbstract(ref.abstract)}
                     </td>
                     <td>
                         ${this.renderTags(ref.tags)}
@@ -373,6 +388,21 @@
                 return authors[0];
             }
             return `${authors[0]} 等 ${authors.length} 人`;
+        }
+
+        /**
+         * 格式化摘要显示
+         */
+        formatAbstract(abstract) {
+            if (!abstract) {
+                return '-';
+            }
+            // 限制长度，显示前100个字符
+            const maxLength = 100;
+            if (abstract.length <= maxLength) {
+                return abstract;
+            }
+            return abstract.substring(0, maxLength) + '...';
         }
 
         /**
@@ -659,6 +689,7 @@
                 document.getElementById('edit-url').value = ref.url || '';
                 document.getElementById('edit-type').value = ref.type || 'journal';
                 document.getElementById('edit-tags').value = (ref.tags || []).join(', ');
+                document.getElementById('edit-abstract').value = ref.abstract || '';
             }
 
             modal.style.display = 'flex';
@@ -689,7 +720,8 @@
                 doi: document.getElementById('edit-doi').value,
                 url: document.getElementById('edit-url').value,
                 type: document.getElementById('edit-type').value,
-                tags: document.getElementById('edit-tags').value.split(',').map(s => s.trim()).filter(Boolean)
+                tags: document.getElementById('edit-tags').value.split(',').map(s => s.trim()).filter(Boolean),
+                abstract: document.getElementById('edit-abstract').value
             };
 
             if (originalRef) {
@@ -984,11 +1016,8 @@
     if (!confirmed) return;
     this.showProgress(`准备查询 ${needsDOI.length} 条文献的DOI...`);
     try {
-        const resolver = window.DOIResolver.create({
-            queryOrder: ['crossref', 'openalex', 'arxiv', 'pubmed'],
-            timeout: 5000,
-            enableSemanticScholarFallback: true
-        });
+        // 创建resolver，让它根据配置自动计算最优参数
+        const resolver = window.DOIResolver.create();
         const results = await resolver.batchResolve(needsDOI, (progress) => {
             if (progress.phase === 'fallback') {
                 this.updateProgress(`Semantic Scholar 托底查询中...`);
@@ -998,22 +1027,41 @@
         });
         this.hideProgress();
         let successCount = 0;
+        let fallbackCount = 0;
         results.forEach(result => {
-            if (result.success && result.resolved.doi) {
+            if (result.success && result.resolved) {
                 const originalRef = this.references.find(r => r === result.original);
                 if (originalRef) {
-                    originalRef.doi = result.resolved.doi;
-                    originalRef.url = result.resolved.url || originalRef.url;
-                    if (!originalRef.authors && result.resolved.authors) originalRef.authors = result.resolved.authors;
-                    if (!originalRef.year && result.resolved.year) originalRef.year = result.resolved.year;
-                    if (!originalRef.journal && result.resolved.journal) originalRef.journal = result.resolved.journal;
-                    successCount++;
+                    // 检查是否是fallback（Google搜索链接）
+                    if (result.resolved.fallback) {
+                        originalRef.doiFallback = true;
+                        originalRef.doiFallbackUrl = result.resolved.url;
+                        originalRef.doiFallbackMessage = result.resolved.message;
+                        fallbackCount++;
+                    } else if (result.resolved.doi) {
+                        originalRef.doi = result.resolved.doi;
+                        originalRef.url = result.resolved.url || originalRef.url;
+                        if (!originalRef.authors && result.resolved.authors) originalRef.authors = result.resolved.authors;
+                        if (!originalRef.year && result.resolved.year) originalRef.year = result.resolved.year;
+                        if (!originalRef.journal && result.resolved.journal) originalRef.journal = result.resolved.journal;
+                        if (!originalRef.abstract && result.resolved.abstract) originalRef.abstract = result.resolved.abstract;
+                        successCount++;
+                    }
                 }
             }
         });
         await global.ReferenceStorage.saveReferences(this.currentDocumentId, this.references, { updatedAt: new Date().toISOString(), doiEnriched: true });
         await this.loadReferences();
-        alert(`DOI查询完成\n\n成功: ${successCount}/${needsDOI.length}\n失败: ${needsDOI.length - successCount}`);
+
+        let message = `DOI查询完成\n\n成功: ${successCount}/${needsDOI.length}`;
+        if (fallbackCount > 0) {
+            message += `\n未找到: ${fallbackCount}（已生成搜索链接）`;
+        }
+        const failedCount = needsDOI.length - successCount - fallbackCount;
+        if (failedCount > 0) {
+            message += `\n失败: ${failedCount}`;
+        }
+        alert(message);
     } catch (error) {
         this.hideProgress();
         alert('DOI查询失败: ' + error.message);

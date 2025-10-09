@@ -32,6 +32,12 @@
         // 创建悬浮面板
         createFloatingPanel();
 
+        // 立即尝试加载（处理页面刷新的情况）
+        // 延迟执行以确保其他模块已加载
+        setTimeout(() => {
+            loadAndDisplayReferences();
+        }, 100);
+
         console.log('[ReferenceManagerDetail] Initialized for document:', currentDocumentId);
     }
 
@@ -171,7 +177,14 @@
                     ${ref.title ? `<div class="reference-title">${ref.title}</div>` : ''}
                     ${ref.journal ? `<div class="reference-journal"><em>${ref.journal}</em></div>` : ''}
                     ${renderDetails(ref)}
-                    ${ref.doi ? `<div class="reference-doi">DOI: <a href="https://doi.org/${ref.doi}" target="_blank">${ref.doi}</a></div>` : ''}
+                    ${ref.abstract ? `<div class="reference-abstract"><strong>摘要:</strong> ${ref.abstract}</div>` : ''}
+                    ${ref.doi ? `<div class="reference-doi">DOI: <a href="https://doi.org/${ref.doi}" target="_blank">${ref.doi}</a></div>` :
+                      ref.doiFallback ? `<div class="reference-doi reference-doi-fallback" style="color: #f59e0b;">
+                        <span style="margin-right: 8px;">⚠️ ${ref.doiFallbackMessage || '未找到DOI，请手动搜索'}</span>
+                        <a href="${ref.doiFallbackUrl}" target="_blank" style="color: #3b82f6; text-decoration: underline;">
+                          🔍 Google Scholar
+                        </a>
+                      </div>` : ''}
                     ${renderTags(ref.tags)}
                 </div>
                 <div class="reference-actions">
@@ -253,6 +266,15 @@
         const countEl = document.getElementById('reference-count');
         if (countEl) {
             countEl.textContent = count;
+        } else {
+            // 如果元素还不存在，延迟重试
+            console.warn('[ReferenceManagerDetail] reference-count element not found, retrying...');
+            setTimeout(() => {
+                const retryCountEl = document.getElementById('reference-count');
+                if (retryCountEl) {
+                    retryCountEl.textContent = count;
+                }
+            }, 500);
         }
     }
 
@@ -681,7 +703,7 @@
             ref.title || '',
             ref.year || '',
             ref.journal || '',
-            ref.doi || ''
+            ref.doi || (ref.doiFallback ? '(未找到)' : '')
         ]);
 
         const csv = [headers, ...rows].map(row =>
