@@ -7,6 +7,9 @@
     let currentDocumentId = null;
     let currentReferences = [];
     let isFloatingPanelOpen = false;
+    let citationLocations = {}; // 记录每个文献的引用位置 {refIndex: [citationElementIds]}
+    let activeTooltipLinkElement = null; // 记录当前激活tooltip的链接元素
+    let hideTooltipTimer = null; // 记录隐藏tooltip的定时器
 
     /**
      * 初始化参考文献管理器（详情页版本）
@@ -28,6 +31,17 @@
         document.addEventListener('contentRendered', () => {
             loadAndDisplayReferences();
         });
+
+        // 监听子块分割完成事件（如果存在）
+        document.addEventListener('subBlocksSegmented', () => {
+            console.log('[ReferenceManagerDetail] 子块分割完成，重新标记引用');
+            if (currentReferences.length > 0) {
+                appendReferencesToContent(currentReferences);
+            }
+        });
+
+        // 使用MutationObserver监听DOM变化，自动重新标记引用
+        setupDOMMutationObserver();
 
         // 创建悬浮面板
         createFloatingPanel();
@@ -119,124 +133,977 @@
     }
 
     /**
-     * 在内容末尾添加参考文献列表
+     * 在原文中标记引用（不插入参考文献列表）
      */
     function appendReferencesToContent(references) {
-        if (!references || references.length === 0) return;
+        console.log('[appendReferencesToContent] 开始标记引用，references.length:', references.length);
 
-        // 查找内容容器
-        const containers = ['#tab-ocr-content', '#tab-translation-content'];
+        if (!references || references.length === 0) {
+            console.warn('[appendReferencesToContent] 没有参考文献数据');
+            return;
+        }
+
+        // 查找内容容器（使用正确的ID）
+        const containers = ['#ocr-content-wrapper', '#translation-content-wrapper'];
+
+        containers.forEach(selector => {
+            const container = document.querySelector(selector);
+            if (!container) {
+                console.log('[appendReferencesToContent] 容器不存在:', selector);
+                return;
+            }
+
+            console.log('[appendReferencesToContent] 找到容器:', selector);
+
+            // 清除之前的标记（避免重复标记）
+            const existingCitations = container.querySelectorAll('.reference-citation');
+            console.log('[appendReferencesToContent] 清除现有引用:', existingCitations.length);
+            existingCitations.forEach(citation => {
+                // 将链接替换回原始文本
+                const text = document.createTextNode(citation.textContent);
+                citation.parentNode.replaceChild(text, citation);
+            });
+
+            // 标记原文中的引用（如[1], [2]）
+            markCitationsInContent(container, references.length);
+
+            // 使用事件委托，在容器级别监听引用链接的鼠标事件
+            setupCitationEventDelegation(container);
+
+            console.log('[appendReferencesToContent] 已标记原文中的引用，不插入文献列表');
+        });
+
+        // 更新悬浮面板内容
+        updatePanelContent();
+    }
+
+    /**
+     * 设置DOM变化监听器，自动重新标记引用
+     */
+    function setupDOMMutationObserver() {
+        const containers = ['#ocr-content-wrapper', '#translation-content-wrapper'];
+        let remarkerTimer = null;
 
         containers.forEach(selector => {
             const container = document.querySelector(selector);
             if (!container) return;
 
-            // 移除已存在的参考文献区域
-            const existing = container.querySelector('.reference-section');
-            if (existing) {
-                existing.remove();
-            }
+            const observer = new MutationObserver((mutations) => {
+                // 检查是否有子块被添加或修改
+                let needRemark = false;
+                for (const mutation of mutations) {
+                    if (mutation.type === 'childList' || mutation.type === 'subtree') {
+                        // 检查是否有新增的子块
+                        if (mutation.addedNodes.length > 0) {
+                            for (const node of mutation.addedNodes) {
+                                if (node.nodeType === Node.ELEMENT_NODE &&
+                                    (node.classList?.contains('sub-block') ||
+                                     node.querySelector?.('.sub-block'))) {
+                                    needRemark = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (needRemark) break;
+                }
 
-            // 创建参考文献区域
-            const refSection = document.createElement('div');
-            refSection.className = 'reference-section';
-            refSection.id = 'references-section';
-            refSection.innerHTML = `
-                <div class="reference-section-header">
-                    <h2>参考文献 (${references.length})</h2>
-                    <div class="reference-section-actions">
-                        <button class="ref-manage-btn" onclick="window.toggleReferencePanel()">
-                            <i class="fa fa-cog"></i> 管理
-                        </button>
-                        <button class="ref-extract-btn" onclick="window.extractReferencesFromContent()">
-                            <i class="fa fa-sync"></i> 重新提取
-                        </button>
-                    </div>
-                </div>
-                <div class="reference-list">
-                    ${renderReferenceList(references)}
-                </div>
-            `;
+                if (needRemark && currentReferences.length > 0) {
+                    // 防抖：延迟执行，避免频繁重新标记
+                    if (remarkerTimer) clearTimeout(remarkerTimer);
+                    remarkerTimer = setTimeout(() => {
+                        console.log('[MutationObserver] 检测到DOM变化，重新标记引用');
+                        appendReferencesToContent(currentReferences);
+                    }, 500);
+                }
+            });
 
-            container.appendChild(refSection);
+            observer.observe(container, {
+                childList: true,
+                subtree: true
+            });
+
+            console.log('[setupDOMMutationObserver] 已设置DOM监听器:', selector);
         });
     }
 
     /**
-     * 渲染参考文献列表
+     * 设置引用链接的事件委托
      */
-    function renderReferenceList(references) {
-        return references.map((ref, idx) => `
-            <div class="reference-item" data-ref-index="${idx}" data-ref-id="ref-${idx + 1}">
-                <div class="reference-number">[${idx + 1}]</div>
-                <div class="reference-content">
-                    <div class="reference-meta">
-                        ${renderAuthors(ref.authors)}
-                        ${ref.year ? `<span class="ref-year">(${ref.year})</span>` : ''}
-                    </div>
-                    ${ref.title ? `<div class="reference-title">${ref.title}</div>` : ''}
-                    ${ref.journal ? `<div class="reference-journal"><em>${ref.journal}</em></div>` : ''}
-                    ${renderDetails(ref)}
-                    ${ref.abstract ? `<div class="reference-abstract"><strong>摘要:</strong> ${ref.abstract}</div>` : ''}
-                    ${ref.doi ? `<div class="reference-doi">DOI: <a href="https://doi.org/${ref.doi}" target="_blank">${ref.doi}</a></div>` :
-                      ref.doiFallback ? `<div class="reference-doi reference-doi-fallback" style="color: #f59e0b;">
-                        <span style="margin-right: 8px;">⚠️ ${ref.doiFallbackMessage || '未找到DOI，请手动搜索'}</span>
-                        <a href="${ref.doiFallbackUrl}" target="_blank" style="color: #3b82f6; text-decoration: underline;">
-                          🔍 Google
-                        </a>
-                      </div>` : ''}
-                    ${renderTags(ref.tags)}
-                </div>
-                <div class="reference-actions">
-                    <button class="ref-action-icon" onclick="window.viewReferenceInText(${idx})" title="查看原文位置">
-                        <i class="fa fa-eye"></i>
-                    </button>
-                    <button class="ref-action-icon" onclick="window.editReference(${idx})" title="编辑">
-                        <i class="fa fa-edit"></i>
-                    </button>
-                </div>
-            </div>
-        `).join('');
+    function setupCitationEventDelegation(container) {
+        // 移除旧的事件监听器（如果存在）
+        if (container._citationEventSetup) {
+            return; // 已经设置过了
+        }
+        container._citationEventSetup = true;
+
+        // 使用事件委托监听mouseenter
+        container.addEventListener('mouseover', (e) => {
+            const target = e.target;
+            if (target.classList && target.classList.contains('reference-citation')) {
+                // 获取所有文献编号
+                const refNumbers = target.dataset.refNumbers;
+                if (refNumbers) {
+                    console.log('[delegation mouseenter] 触发悬停事件，refNumbers:', refNumbers);
+                    // 清除之前的隐藏定时器
+                    if (hideTooltipTimer) {
+                        clearTimeout(hideTooltipTimer);
+                        hideTooltipTimer = null;
+                    }
+                    showReferenceDetailTooltip(target, refNumbers);
+                }
+            }
+        });
+
+        // 使用事件委托监听mouseleave
+        container.addEventListener('mouseout', (e) => {
+            const target = e.target;
+            if (target.classList && target.classList.contains('reference-citation')) {
+                const refIndex = parseInt(target.dataset.refIndex, 10);
+                if (!isNaN(refIndex)) {
+                    console.log('[delegation mouseleave] 触发离开事件，refIndex:', refIndex, 'activeElement:', activeTooltipLinkElement === target);
+                    // 延迟隐藏，给用户时间移动到tooltip上
+                    hideTooltipTimer = setTimeout(() => {
+                        const tooltip = document.getElementById('reference-detail-tooltip');
+                        const tooltipHover = tooltip ? tooltip.matches(':hover') : false;
+                        const isActive = activeTooltipLinkElement === target;
+                        console.log('[delegation mouseleave timer] refIndex:', refIndex, 'tooltip hover:', tooltipHover, 'is active:', isActive);
+                        // 只有当鼠标既不在tooltip上且当前链接不再是活跃链接时才隐藏
+                        if (tooltip && !tooltipHover && !isActive) {
+                            hideReferenceDetailTooltip();
+                        }
+                    }, 100);
+                }
+            }
+        });
+
+        // 监听点击事件
+        container.addEventListener('click', (e) => {
+            const target = e.target;
+            if (target.classList && target.classList.contains('reference-citation')) {
+                e.preventDefault();
+                const refIndex = parseInt(target.dataset.refIndex, 10);
+                if (!isNaN(refIndex)) {
+                    window.scrollToReferenceItem(refIndex);
+                }
+            }
+        });
+
+        console.log('[setupCitationEventDelegation] 已设置事件委托');
     }
 
     /**
-     * 渲染作者
+     * 更新面板内容
      */
-    function renderAuthors(authors) {
-        if (!authors || authors.length === 0) return '<span class="ref-authors">作者未知</span>';
+    function updatePanelContent() {
+        const content = document.getElementById('reference-panel-content');
+        if (!content) return;
 
-        if (authors.length === 1) {
-            return `<span class="ref-authors">${authors[0]}</span>`;
+        if (currentReferences.length === 0) {
+            content.innerHTML = `
+                <div class="ref-panel-placeholder">
+                    <i class="fa fa-book fa-3x"></i>
+                    <p>暂无文献数据</p>
+                    <button onclick="window.extractReferencesFromContent()">提取文献</button>
+                </div>
+            `;
+        } else {
+            content.innerHTML = `
+                <div class="ref-panel-list">
+                    ${renderPanelList(currentReferences)}
+                </div>
+            `;
+        }
+    }
+
+    /**
+     * 渲染面板列表
+     */
+    function renderPanelList(references) {
+        return references.map((ref, idx) => {
+            const authors = ref.authors && ref.authors.length > 0
+                ? (ref.authors.length > 2
+                    ? `${ref.authors.slice(0, 2).join(', ')} 等`
+                    : ref.authors.join(', '))
+                : '作者未知';
+
+            const citationCount = citationLocations[idx] ? citationLocations[idx].length : 0;
+
+            return `
+                <div class="ref-panel-item">
+                    <div class="ref-panel-header">
+                        <div class="ref-panel-number">[${idx + 1}]</div>
+                        <div class="ref-panel-title">${ref.title || '未提取标题'}</div>
+                    </div>
+                    <div class="ref-panel-meta">
+                        <div class="ref-panel-authors">${authors}</div>
+                        ${ref.year ? `<span class="ref-panel-year">${ref.year}</span>` : ''}
+                        ${ref.journal ? `<span class="ref-panel-journal">${ref.journal}</span>` : ''}
+                    </div>
+                    ${citationCount > 0 ? `
+                        <div class="ref-panel-citations">
+                            <i class="fa fa-quote-left"></i> 引用 ${citationCount} 次
+                        </div>
+                    ` : ''}
+                    <div class="ref-panel-actions">
+                        <button class="ref-panel-action-btn" onclick="window.scrollToCitationInText(${idx})" title="跳转到原文">
+                            <i class="fa fa-arrow-up"></i> 原文
+                        </button>
+                        <button class="ref-panel-action-btn" onclick="window.scrollToReferenceItem(${idx})" title="查看详情">
+                            <i class="fa fa-eye"></i> 详情
+                        </button>
+                        ${ref.doi ? `
+                            <a href="https://doi.org/${ref.doi}" target="_blank" class="ref-panel-action-btn" title="打开DOI">
+                                <i class="fa fa-external-link"></i> DOI
+                            </a>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    /**
+     * 滚动到文献详情（原References区域的具体文献条目）
+     */
+    global.scrollToReferenceItem = function(index) {
+        // 查找原文中的References标题
+        const containers = ['#ocr-content-wrapper', '#translation-content-wrapper'];
+
+        for (const selector of containers) {
+            const container = document.querySelector(selector);
+            if (!container) continue;
+
+            const referenceHeading = findReferenceHeading(container);
+            if (referenceHeading) {
+                // 先滚动到References标题
+                referenceHeading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+                // 高亮整个References区域
+                setTimeout(() => {
+                    let currentElement = referenceHeading.nextElementSibling;
+                    let highlightElements = [];
+
+                    // 收集References区域的所有元素
+                    while (currentElement) {
+                        const isNextSection = currentElement.tagName && /^H[1-3]$/i.test(currentElement.tagName);
+                        if (isNextSection) {
+                            const headingText = currentElement.textContent.trim().toLowerCase();
+                            const sectionKeywords = ['acknowledgment', 'appendix', 'supplementary', '致谢', '附录'];
+                            const isNewSection = sectionKeywords.some(keyword => headingText.includes(keyword));
+                            if (isNewSection) break;
+                        }
+                        highlightElements.push(currentElement);
+                        currentElement = currentElement.nextElementSibling;
+                    }
+
+                    // 添加高亮
+                    highlightElements.forEach(el => {
+                        el.style.backgroundColor = '#fff3cd';
+                        el.style.transition = 'background-color 0.3s';
+                    });
+
+                    // 3秒后移除高亮
+                    setTimeout(() => {
+                        highlightElements.forEach(el => {
+                            el.style.backgroundColor = '';
+                        });
+                    }, 3000);
+                }, 500);
+
+                console.log('[scrollToReferenceItem] 已跳转到References区域并高亮文献', index + 1);
+                return;
+            }
         }
 
-        return `<span class="ref-authors">${authors[0]} 等 ${authors.length} 人</span>`;
-    }
+        alert('未找到References区域');
+    };
 
     /**
-     * 渲染详细信息
+     * 查找参考文献标题元素
      */
-    function renderDetails(ref) {
-        const parts = [];
-        if (ref.volume) parts.push(`Vol. ${ref.volume}`);
-        if (ref.issue) parts.push(`No. ${ref.issue}`);
-        if (ref.pages) parts.push(`pp. ${ref.pages}`);
+    function findReferenceHeading(container) {
+        if (!container) return null;
 
-        return parts.length > 0 ? `<div class="reference-details">${parts.join(', ')}</div>` : '';
+        // 参考文献标题的常见关键词
+        const keywords = [
+            'references', 'reference', 'bibliography', 'works cited',
+            'literature cited', 'citations',
+            '参考文献', '引用文献', '文献引用', '参考资料'
+        ];
+
+        // 查找所有标题元素
+        const headings = container.querySelectorAll('h1, h2, h3, h4, h5, h6');
+
+        for (const heading of headings) {
+            const text = heading.textContent.trim().toLowerCase();
+
+            // 检查是否包含参考文献关键词
+            for (const keyword of keywords) {
+                if (text === keyword || text === keyword + 's') {
+                    return heading;
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
-     * 渲染标签
+     * 在原文中标记引用并添加点击跳转功能
      */
-    function renderTags(tags) {
-        if (!tags || tags.length === 0) return '';
+    function markCitationsInContent(container, refCount) {
+        if (!container) return;
 
-        return `<div class="reference-tags">
-            ${tags.map(tag => `<span class="ref-tag-small">${tag}</span>`).join('')}
-        </div>`;
+        // 重置引用位置记录
+        citationLocations = {};
+        for (let i = 0; i < refCount; i++) {
+            citationLocations[i] = [];
+        }
+
+        // 使用TreeWalker遍历文本节点
+        const walker = document.createTreeWalker(
+            container,
+            NodeFilter.SHOW_TEXT,
+            {
+                acceptNode: function(node) {
+                    // 跳过参考文献区域本身
+                    if (node.parentElement.closest('.reference-section')) {
+                        return NodeFilter.FILTER_REJECT;
+                    }
+                    // 跳过已经处理过的引用链接
+                    if (node.parentElement.classList?.contains('reference-citation')) {
+                        return NodeFilter.FILTER_REJECT;
+                    }
+                    // 跳过注解系统创建的高亮span
+                    if (node.parentElement.classList?.contains('annotated-block') ||
+                        node.parentElement.classList?.contains('annotated-sub-block') ||
+                        node.parentElement.classList?.contains('partial-subblock-highlight')) {
+                        return NodeFilter.FILTER_REJECT;
+                    }
+                    // 跳过公式
+                    let p = node.parentElement;
+                    while (p) {
+                        if (p.classList && (p.classList.contains('katex') ||
+                            p.classList.contains('katex-display') ||
+                            p.classList.contains('katex-inline'))) {
+                            return NodeFilter.FILTER_REJECT;
+                        }
+                        p = p.parentElement;
+                    }
+                    return NodeFilter.FILTER_ACCEPT;
+                }
+            }
+        );
+
+        const textNodes = [];
+        let node;
+        while (node = walker.nextNode()) {
+            textNodes.push(node);
+        }
+
+        // 正则匹配引用标记：[1], [2,3], [1-5], [1~5] 等
+        // 支持的分隔符：逗号(,)、短横线(-)、en dash(–)、波浪号(~)
+        const citationPattern = /\[(\d+(?:\s*[-–,~]\s*\d+)*)\]/g;
+
+        textNodes.forEach(textNode => {
+            const text = textNode.textContent;
+            const matches = [];
+            let match;
+
+            // 收集所有匹配
+            while ((match = citationPattern.exec(text)) !== null) {
+                const numbers = parseReferenceNumbers(match[1]);
+                // 只处理有效的引用（编号在范围内）
+                const validNumbers = numbers.filter(num => num > 0 && num <= refCount);
+                if (validNumbers.length > 0) {
+                    matches.push({
+                        index: match.index,
+                        length: match[0].length,
+                        text: match[0],
+                        numbers: validNumbers
+                    });
+                }
+            }
+
+            // 如果有匹配，替换为链接
+            if (matches.length > 0) {
+                const parent = textNode.parentElement;
+                const fragment = document.createDocumentFragment();
+                let lastIndex = 0;
+
+                matches.forEach(m => {
+                    // 添加前面的文本
+                    if (m.index > lastIndex) {
+                        fragment.appendChild(document.createTextNode(text.substring(lastIndex, m.index)));
+                    }
+
+                    // 为整个引用创建一个链接（不管它包含多少个文献编号）
+                    const firstRefNum = m.numbers[0];
+                    const refIndex = firstRefNum - 1;
+                    const occurrenceIndex = citationLocations[refIndex] ? citationLocations[refIndex].length : 0;
+                    const citationId = `citation-source-${refIndex}-${occurrenceIndex}`;
+
+                    // 创建引用链接
+                    const link = document.createElement('a');
+                    link.href = `#ref-${firstRefNum}`;
+                    link.className = 'reference-citation';
+                    link.id = citationId;
+                    link.textContent = m.text;  // 显示完整的引用文本，如 [1] 或 [1,2,3]
+                    link.dataset.refIndex = refIndex;
+                    // 保存0-based索引（用于数组访问）
+                    link.dataset.refNumbers = m.numbers.map(num => num - 1).join(',');
+
+                    // 不在这里绑定事件，而是使用事件委托
+                    // 事件委托在setupCitationEventDelegation中设置
+
+                    fragment.appendChild(link);
+                    console.log('[markCitationsInContent] 创建链接:', citationId, '文本:', m.text, 'refIndex:', refIndex);
+
+                    // 记录所有引用的文献的位置
+                    m.numbers.forEach(num => {
+                        const idx = num - 1;
+                        if (!citationLocations[idx]) {
+                            citationLocations[idx] = [];
+                        }
+                        citationLocations[idx].push(citationId);
+                    });
+
+                    lastIndex = m.index + m.length;
+                });
+
+                // 添加剩余的文本
+                if (lastIndex < text.length) {
+                    fragment.appendChild(document.createTextNode(text.substring(lastIndex)));
+                }
+
+                // 替换原文本节点
+                parent.replaceChild(fragment, textNode);
+                console.log('[markCitationsInContent] 替换了', matches.length, '个引用链接');
+            }
+        });
+
+        console.log('[markCitationsInContent] 已标记原文中的引用', citationLocations);
+
+        // 验证链接是否真的在DOM中
+        setTimeout(() => {
+            const allLinks = container.querySelectorAll('.reference-citation');
+            console.log('[markCitationsInContent] DOM中的引用链接数量:', allLinks.length);
+            if (allLinks.length > 0) {
+                console.log('[markCitationsInContent] 第一个链接样例:', allLinks[0], '文本:', allLinks[0].textContent);
+                console.log('[markCitationsInContent] 第一个链接的计算样式 color:', window.getComputedStyle(allLinks[0]).color);
+                console.log('[markCitationsInContent] 第一个链接的计算样式 cursor:', window.getComputedStyle(allLinks[0]).cursor);
+            }
+        }, 100);
     }
 
     /**
-     * 添加到TOC
+     * 解析引用编号字符串
+     */
+    function parseReferenceNumbers(numbersStr) {
+        const result = [];
+        const parts = numbersStr.split(/\s*,\s*/);
+
+        parts.forEach(part => {
+            // 检查是否是范围（如 2-5, 2~5, 2–5）
+            const rangeMatch = part.match(/(\d+)\s*[-–~]\s*(\d+)/);
+            if (rangeMatch) {
+                const start = parseInt(rangeMatch[1]);
+                const end = parseInt(rangeMatch[2]);
+                for (let i = start; i <= end; i++) {
+                    result.push(i);
+                }
+            } else {
+                const num = parseInt(part);
+                if (!isNaN(num)) {
+                    result.push(num);
+                }
+            }
+        });
+
+        return result;
+    }
+
+    /**
+     * 滚动到指定的文献条目
+     */
+    function scrollToReferenceItem(index) {
+        const refItem = document.querySelector(`[data-ref-id="ref-${index + 1}"]`);
+        if (refItem) {
+            refItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+            // 添加高亮动画
+            refItem.classList.add('reference-item-highlight');
+            setTimeout(() => {
+                refItem.classList.remove('reference-item-highlight');
+            }, 3000);
+
+            console.log('[scrollToReferenceItem] 已定位到文献:', index + 1);
+        } else {
+            console.warn('[scrollToReferenceItem] 未找到文献:', index + 1);
+        }
+    }
+
+    /**
+     * 显示引用详细悬浮卡片（改进版，显示更多信息）
+     * @param {HTMLElement} linkElement - 引用链接元素
+     * @param {string} refNumbersStr - 文献编号字符串，如 "0,1,2" (0-based索引)
+     */
+    function showReferenceDetailTooltip(linkElement, refNumbersStr) {
+        // 解析文献编号
+        const refIndices = refNumbersStr.split(',').map(n => parseInt(n.trim(), 10)).filter(n => !isNaN(n));
+
+        console.log('[showReferenceDetailTooltip] 开始显示tooltip，refIndices:', refIndices, 'currentReferences.length:', currentReferences.length);
+
+        if (refIndices.length === 0) {
+            console.warn('[showReferenceDetailTooltip] 没有有效的文献编号');
+            return;
+        }
+
+        // 记录当前激活的链接
+        activeTooltipLinkElement = linkElement;
+
+        // 创建或获取tooltip元素
+        let tooltip = document.getElementById('reference-detail-tooltip');
+        if (!tooltip) {
+            tooltip = document.createElement('div');
+            tooltip.id = 'reference-detail-tooltip';
+            tooltip.className = 'reference-detail-tooltip';
+            document.body.appendChild(tooltip);
+
+            // 鼠标移出tooltip时隐藏
+            tooltip.addEventListener('mouseleave', () => {
+                console.log('[tooltip mouseleave] 触发');
+                hideTooltipTimer = setTimeout(() => {
+                    console.log('[tooltip mouseleave timer] 准备隐藏');
+                    hideReferenceDetailTooltip();
+                }, 100);
+            });
+
+            // 鼠标进入tooltip时取消隐藏
+            tooltip.addEventListener('mouseenter', () => {
+                console.log('[tooltip mouseenter] 取消隐藏定时器');
+                if (hideTooltipTimer) {
+                    clearTimeout(hideTooltipTimer);
+                    hideTooltipTimer = null;
+                }
+            });
+        }
+
+        // 构建多个文献的详细内容
+        let contentHTML = '';
+
+        if (refIndices.length === 1) {
+            // 单个文献，显示完整信息
+            const refIndex = refIndices[0];
+            const ref = currentReferences[refIndex];
+
+            if (!ref) {
+                console.warn('[showReferenceDetailTooltip] 未找到参考文献数据，refIndex:', refIndex);
+                return;
+            }
+
+            const authors = ref.authors && ref.authors.length > 0
+                ? ref.authors.join(', ')
+                : '作者未知';
+
+            const citationCount = citationLocations[refIndex] ? citationLocations[refIndex].length : 0;
+
+            contentHTML = `
+                <div class="tooltip-detail-header">
+                    <span class="tooltip-detail-number">[${refIndex + 1}]</span>
+                    <button class="tooltip-detail-close" onclick="document.getElementById('reference-detail-tooltip').classList.remove('show')">
+                        <i class="fa fa-times"></i>
+                    </button>
+                </div>
+                <div class="tooltip-detail-content">
+                    ${ref.title ? `<h4 class="tooltip-detail-title">${ref.title}</h4>` : '<h4 class="tooltip-detail-title">未提取标题</h4>'}
+
+                    <div class="tooltip-detail-authors">
+                        <i class="fa fa-user"></i> ${authors}
+                    </div>
+
+                    <div class="tooltip-detail-meta">
+                        ${ref.year ? `<span><i class="fa fa-calendar"></i> ${ref.year}</span>` : ''}
+                        ${ref.journal ? `<span><i class="fa fa-book"></i> ${ref.journal}</span>` : ''}
+                        ${ref.volume ? `<span>Vol. ${ref.volume}</span>` : ''}
+                    </div>
+
+                    ${ref.abstract ? `
+                        <div class="tooltip-detail-abstract">
+                            <strong>摘要：</strong>
+                            <p>${ref.abstract}</p>
+                        </div>
+                    ` : ''}
+
+                    ${ref.doi ? `
+                        <div class="tooltip-detail-doi">
+                            <strong>DOI:</strong>
+                            <a href="https://doi.org/${ref.doi}" target="_blank">${ref.doi} <i class="fa fa-external-link"></i></a>
+                        </div>
+                    ` : ''}
+
+                    ${citationCount > 0 ? `
+                        <div class="tooltip-detail-citations">
+                            <i class="fa fa-quote-left"></i> 本文引用 <strong>${citationCount}</strong> 次
+                        </div>
+                    ` : ''}
+                </div>
+                <div class="tooltip-detail-actions">
+                    <button class="tooltip-action-btn" onclick="window.scrollToCitationInText(${refIndex}); document.getElementById('reference-detail-tooltip').classList.remove('show');">
+                        <i class="fa fa-arrow-up"></i> 跳转引用
+                    </button>
+                    <button class="tooltip-action-btn" onclick="window.scrollToReferenceItem(${refIndex}); document.getElementById('reference-detail-tooltip').classList.remove('show');">
+                        <i class="fa fa-list"></i> 查看详情
+                    </button>
+                </div>
+            `;
+        } else {
+            // 多个文献，显示简化列表
+            const refNumbersDisplay = refIndices.map(i => i + 1).join(', ');
+
+            contentHTML = `
+                <div class="tooltip-detail-header">
+                    <span class="tooltip-detail-number">[${refNumbersDisplay}]</span>
+                    <button class="tooltip-detail-close" onclick="document.getElementById('reference-detail-tooltip').classList.remove('show')">
+                        <i class="fa fa-times"></i>
+                    </button>
+                </div>
+                <div class="tooltip-detail-content" style="padding: 12px 14px;">
+                    <div style="margin-bottom: 8px; color: #64748b; font-size: 12px;">
+                        <i class="fa fa-info-circle"></i> 共 ${refIndices.length} 篇文献，点击展开查看详情
+                    </div>
+                    <div class="tooltip-multiple-refs">
+                        ${refIndices.map(refIndex => {
+                            const ref = currentReferences[refIndex];
+                            if (!ref) return '';
+
+                            const authors = ref.authors && ref.authors.length > 0
+                                ? ref.authors.slice(0, 2).join(', ') + (ref.authors.length > 2 ? ' 等' : '')
+                                : '作者未知';
+
+                            const allAuthors = ref.authors && ref.authors.length > 0
+                                ? ref.authors.join(', ')
+                                : '作者未知';
+
+                            const citationCount = citationLocations[refIndex] ? citationLocations[refIndex].length : 0;
+
+                            return `
+                                <div class="tooltip-ref-item" data-ref-index="${refIndex}">
+                                    <div class="tooltip-ref-header" onclick="window.toggleReferenceDetail(${refIndex})">
+                                        <div class="tooltip-ref-number">[${refIndex + 1}]</div>
+                                        <div class="tooltip-ref-info">
+                                            <div class="tooltip-ref-title">${ref.title || '未提取标题'}</div>
+                                            <div class="tooltip-ref-authors">${authors}${ref.year ? ` · ${ref.year}` : ''}</div>
+                                        </div>
+                                        <i class="fa fa-chevron-down tooltip-ref-toggle"></i>
+                                    </div>
+                                    <div class="tooltip-ref-detail" style="display: none;">
+                                        <div class="tooltip-ref-detail-section">
+                                            <strong><i class="fa fa-user"></i> 作者：</strong>
+                                            <span>${allAuthors}</span>
+                                        </div>
+                                        ${ref.year ? `
+                                            <div class="tooltip-ref-detail-section">
+                                                <strong><i class="fa fa-calendar"></i> 年份：</strong>
+                                                <span>${ref.year}</span>
+                                            </div>
+                                        ` : ''}
+                                        ${ref.journal ? `
+                                            <div class="tooltip-ref-detail-section">
+                                                <strong><i class="fa fa-book"></i> 期刊：</strong>
+                                                <span>${ref.journal}${ref.volume ? ` Vol. ${ref.volume}` : ''}</span>
+                                            </div>
+                                        ` : ''}
+                                        ${ref.abstract ? `
+                                            <div class="tooltip-ref-detail-section">
+                                                <strong><i class="fa fa-file-text-o"></i> 摘要：</strong>
+                                                <p style="margin: 4px 0 0 0; line-height: 1.4; color: #475569;">${ref.abstract}</p>
+                                            </div>
+                                        ` : ''}
+                                        ${ref.doi ? `
+                                            <div class="tooltip-ref-detail-section">
+                                                <strong><i class="fa fa-link"></i> DOI：</strong>
+                                                <a href="https://doi.org/${ref.doi}" target="_blank" style="color: #3b82f6; text-decoration: none;">
+                                                    ${ref.doi} <i class="fa fa-external-link" style="font-size: 10px;"></i>
+                                                </a>
+                                            </div>
+                                        ` : ''}
+                                        ${citationCount > 0 ? `
+                                            <div class="tooltip-ref-detail-section">
+                                                <strong><i class="fa fa-quote-left"></i> 引用：</strong>
+                                                <span>本文引用 ${citationCount} 次</span>
+                                            </div>
+                                        ` : ''}
+                                        <div class="tooltip-ref-detail-actions">
+                                            <button onclick="window.scrollToCitationInText(${refIndex}); event.stopPropagation();" class="tooltip-ref-action-btn">
+                                                <i class="fa fa-arrow-up"></i> 跳转引用
+                                            </button>
+                                            <button onclick="window.scrollToReferenceItem(${refIndex}); document.getElementById('reference-detail-tooltip').classList.remove('show'); event.stopPropagation();" class="tooltip-ref-action-btn">
+                                                <i class="fa fa-list"></i> 查看原文
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        tooltip.innerHTML = contentHTML;
+
+        // 先移除show类（重置状态）
+        const wasVisible = tooltip.classList.contains('show');
+        tooltip.classList.remove('show');
+        console.log('[showReferenceDetailTooltip] 重置show类，之前是否可见:', wasVisible);
+
+        // 使用requestAnimationFrame确保布局完成后再定位
+        requestAnimationFrame(() => {
+            // 获取链接和tooltip的位置信息
+            const linkRect = linkElement.getBoundingClientRect();
+            const tooltipRect = tooltip.getBoundingClientRect();
+
+            // 默认显示在链接右侧
+            let top = linkRect.top + window.scrollY;
+            let left = linkRect.right + window.scrollX + 10;
+
+            // 如果右侧空间不足，显示在左侧
+            if (left + tooltipRect.width > window.innerWidth - 20) {
+                left = linkRect.left + window.scrollX - tooltipRect.width - 10;
+            }
+
+            // 如果左侧也不够，显示在下方
+            if (left < 20) {
+                left = linkRect.left + window.scrollX;
+                top = linkRect.bottom + window.scrollY + 10;
+            }
+
+            // 防止tooltip超出视口顶部
+            if (top < window.scrollY + 20) {
+                top = window.scrollY + 20;
+            }
+
+            // 防止tooltip超出视口底部
+            if (top + tooltipRect.height > window.scrollY + window.innerHeight - 20) {
+                top = window.scrollY + window.innerHeight - tooltipRect.height - 20;
+            }
+
+            // 设置位置
+            tooltip.style.top = top + 'px';
+            tooltip.style.left = left + 'px';
+
+            // 下一帧添加show类，触发过渡动画
+            requestAnimationFrame(() => {
+                tooltip.classList.add('show');
+            });
+
+            console.log('[showReferenceDetailTooltip] 显示详细tooltip:', refIndex + 1);
+        });
+    }
+
+    /**
+     * 隐藏详细悬浮卡片
+     */
+    function hideReferenceDetailTooltip() {
+        const tooltip = document.getElementById('reference-detail-tooltip');
+        if (tooltip) {
+            tooltip.classList.remove('show');
+            activeTooltipLinkElement = null;
+        }
+        if (hideTooltipTimer) {
+            clearTimeout(hideTooltipTimer);
+            hideTooltipTimer = null;
+        }
+        console.log('[hideReferenceDetailTooltip] 隐藏tooltip');
+    }
+
+    /**
+     * 切换文献详情的展开/收起状态
+     */
+    global.toggleReferenceDetail = function(refIndex) {
+        const item = document.querySelector(`.tooltip-ref-item[data-ref-index="${refIndex}"]`);
+        if (!item) return;
+
+        const detail = item.querySelector('.tooltip-ref-detail');
+        const toggle = item.querySelector('.tooltip-ref-toggle');
+
+        if (!detail || !toggle) return;
+
+        if (detail.style.display === 'none') {
+            // 展开
+            detail.style.display = 'block';
+            toggle.classList.add('expanded');
+            item.classList.add('expanded');
+
+            // 平滑滚动到该项
+            setTimeout(() => {
+                item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 100);
+        } else {
+            // 收起
+            detail.style.display = 'none';
+            toggle.classList.remove('expanded');
+            item.classList.remove('expanded');
+        }
+    };
+
+    /**
+     * 显示参考文献详细卡片（模态框）
+     */
+    function showReferenceDetailCard(refIndex) {
+        if (!currentReferences[refIndex]) return;
+
+        const ref = currentReferences[refIndex];
+
+        // 先隐藏tooltip
+        hideReferenceTooltip();
+
+        // 创建或获取模态框
+        let modal = document.getElementById('reference-detail-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'reference-detail-modal';
+            modal.className = 'reference-detail-modal';
+            document.body.appendChild(modal);
+
+            // 点击背景关闭
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.classList.remove('show');
+                }
+            });
+        }
+
+        // 构建详细内容
+        const authors = ref.authors && ref.authors.length > 0
+            ? ref.authors.join(', ')
+            : '作者未知';
+
+        const citationCount = citationLocations[refIndex] ? citationLocations[refIndex].length : 0;
+
+        modal.innerHTML = `
+            <div class="reference-detail-card">
+                <div class="reference-detail-header">
+                    <div class="reference-detail-number">[${refIndex + 1}]</div>
+                    <button class="reference-detail-close" onclick="document.getElementById('reference-detail-modal').classList.remove('show')">
+                        <i class="fa fa-times"></i>
+                    </button>
+                </div>
+                <div class="reference-detail-content">
+                    ${ref.title ? `<h3 class="reference-detail-title">${ref.title}</h3>` : '<h3 class="reference-detail-title">未提取标题</h3>'}
+
+                    <div class="reference-detail-meta">
+                        <div class="reference-detail-authors">
+                            <i class="fa fa-user"></i> ${authors}
+                        </div>
+                        ${ref.year ? `<div class="reference-detail-year"><i class="fa fa-calendar"></i> ${ref.year}</div>` : ''}
+                        ${ref.journal ? `<div class="reference-detail-journal"><i class="fa fa-book"></i> ${ref.journal}</div>` : ''}
+                    </div>
+
+                    ${ref.volume || ref.issue || ref.pages ? `
+                        <div class="reference-detail-publication">
+                            ${ref.volume ? `<span>Vol. ${ref.volume}</span>` : ''}
+                            ${ref.issue ? `<span>No. ${ref.issue}</span>` : ''}
+                            ${ref.pages ? `<span>pp. ${ref.pages}</span>` : ''}
+                        </div>
+                    ` : ''}
+
+                    ${ref.abstract ? `
+                        <div class="reference-detail-abstract">
+                            <h4><i class="fa fa-file-text"></i> 摘要</h4>
+                            <p>${ref.abstract}</p>
+                        </div>
+                    ` : ''}
+
+                    ${ref.doi ? `
+                        <div class="reference-detail-doi">
+                            <strong>DOI:</strong>
+                            <a href="https://doi.org/${ref.doi}" target="_blank">${ref.doi} <i class="fa fa-external-link"></i></a>
+                        </div>
+                    ` : ''}
+
+                    ${citationCount > 0 ? `
+                        <div class="reference-detail-citations">
+                            <i class="fa fa-quote-left"></i> 本文引用此文献 <strong>${citationCount}</strong> 次
+                        </div>
+                    ` : ''}
+                </div>
+                <div class="reference-detail-actions">
+                    <button class="ref-detail-btn" onclick="window.scrollToCitationInText(${refIndex})">
+                        <i class="fa fa-arrow-up"></i> 跳转到原文引用
+                    </button>
+                    <button class="ref-detail-btn" onclick="window.scrollToReferenceItem(${refIndex})">
+                        <i class="fa fa-list"></i> 查看References区域
+                    </button>
+                    ${ref.doi ? `
+                        <a href="https://doi.org/${ref.doi}" target="_blank" class="ref-detail-btn ref-detail-btn-primary">
+                            <i class="fa fa-external-link"></i> 打开DOI链接
+                        </a>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+
+        // 显示模态框
+        requestAnimationFrame(() => {
+            modal.classList.add('show');
+        });
+
+        console.log('[showReferenceDetailCard] 显示详细卡片:', refIndex + 1);
+    }
+
+    /**
+     * 隐藏引用悬浮卡片
+     */
+    function hideReferenceTooltip() {
+        const tooltip = document.getElementById('reference-citation-tooltip');
+        if (tooltip) {
+            tooltip.classList.remove('show');
+        }
+    }
+
+    /**
+     * 跳转到原文中的引用位置
+     */
+    function scrollToCitationInText(refIndex) {
+        const citationIds = citationLocations[refIndex];
+        if (!citationIds || citationIds.length === 0) {
+            console.warn('[scrollToCitationInText] 未找到引用位置:', refIndex);
+            alert('未找到该文献在原文中的引用位置');
+            return;
+        }
+
+        // 跳转到第一个引用位置
+        const firstCitationId = citationIds[0];
+        const citationElement = document.getElementById(firstCitationId);
+
+        if (citationElement) {
+            citationElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+            // 添加临时高亮
+            citationElement.style.backgroundColor = '#fff3cd';
+            citationElement.style.padding = '2px 4px';
+            citationElement.style.borderRadius = '3px';
+
+            setTimeout(() => {
+                citationElement.style.backgroundColor = '';
+                citationElement.style.padding = '';
+                citationElement.style.borderRadius = '';
+            }, 2000);
+
+            console.log('[scrollToCitationInText] 已跳转到引用位置:', firstCitationId);
+        } else {
+            console.warn('[scrollToCitationInText] 未找到引用元素:', firstCitationId);
+        }
+    }
+
+    // 暴露给全局，供HTML按钮调用
+    global.scrollToCitationInText = scrollToCitationInText;
+
+    /**
+     * 添加到TOC - 点击打开悬浮面板
      */
     function addToTOC() {
         const tocList = document.getElementById('toc-list');
@@ -248,11 +1115,11 @@
             existing.remove();
         }
 
-        // 添加新链接
+        // 添加新链接（点击打开悬浮面板）
         const li = document.createElement('li');
         li.className = 'toc-reference-link';
         li.innerHTML = `
-            <a href="#references-section" class="toc-ref-link">
+            <a href="#" class="toc-ref-link" onclick="window.toggleReferencePanel(); return false;">
                 <i class="fa fa-book"></i> 参考文献 (${currentReferences.length})
             </a>
         `;
@@ -336,6 +1203,16 @@
             if (e.target.closest('button')) return;
 
             isDragging = true;
+
+            // 在拖动开始前，将bottom定位转换为top定位
+            if (panel.style.bottom || getComputedStyle(panel).bottom !== 'auto') {
+                const rect = panel.getBoundingClientRect();
+                panel.style.top = rect.top + 'px';
+                panel.style.left = rect.left + 'px';
+                panel.style.bottom = 'auto';
+                panel.style.right = 'auto';
+            }
+
             initialX = e.clientX - panel.offsetLeft;
             initialY = e.clientY - panel.offsetTop;
             header.style.cursor = 'grabbing';
@@ -347,6 +1224,13 @@
             e.preventDefault();
             currentX = e.clientX - initialX;
             currentY = e.clientY - initialY;
+
+            // 限制面板在视口内
+            const maxX = window.innerWidth - panel.offsetWidth;
+            const maxY = window.innerHeight - panel.offsetHeight;
+
+            currentX = Math.max(0, Math.min(currentX, maxX));
+            currentY = Math.max(0, Math.min(currentY, maxY));
 
             panel.style.left = currentX + 'px';
             panel.style.top = currentY + 'px';
@@ -371,6 +1255,16 @@
         } else {
             panel.style.display = 'flex';
             isFloatingPanelOpen = true;
+
+            // 打开时重新加载数据（如果还没有加载）
+            if (currentReferences.length === 0) {
+                const data = global.ReferenceStorage?.loadReferences(currentDocumentId);
+                if (data && data.references) {
+                    currentReferences = data.references;
+                    console.log('[toggleFloatingPanel] 重新加载文献数据:', currentReferences.length);
+                }
+            }
+
             updatePanelContent();
         }
     }
@@ -397,22 +1291,6 @@
                 </div>
             `;
         }
-    }
-
-    /**
-     * 渲染面板列表
-     */
-    function renderPanelList(references) {
-        return references.map((ref, idx) => `
-            <div class="ref-panel-item" onclick="window.viewReferenceInText(${idx})">
-                <div class="ref-panel-number">[${idx + 1}]</div>
-                <div class="ref-panel-info">
-                    <div class="ref-panel-title">${ref.title || '未提取标题'}</div>
-                    <div class="ref-panel-authors">${renderAuthors(ref.authors)}</div>
-                    ${ref.year ? `<div class="ref-panel-year">${ref.year}</div>` : ''}
-                </div>
-            </div>
-        `).join('');
     }
 
     /**
@@ -628,15 +1506,6 @@
 
         alert(`成功提取 ${references.length} 条文献`);
     }
-
-    /**
-     * 全局函数：查看文献在原文中的位置
-     */
-    global.viewReferenceInText = function(index) {
-        if (global.ReferenceIndexer) {
-            global.ReferenceIndexer.scrollToReference(currentDocumentId, index);
-        }
-    };
 
     /**
      * 全局函数：编辑文献

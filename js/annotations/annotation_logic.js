@@ -890,7 +890,15 @@ function initAnnotationSystem() {
                                 const selRange = window.globalCurrentSelection.range;
                                 const isInFormula = (n) => {
                                     let p = n && (n.nodeType === Node.TEXT_NODE ? n.parentElement : n);
-                                    while (p) { if (p.classList && (p.classList.contains('katex') || p.classList.contains('katex-display') || p.classList.contains('katex-inline'))) return true; p = p.parentElement; }
+                                    while (p) {
+                                        if (p.classList && (
+                                            p.classList.contains('katex') ||
+                                            p.classList.contains('katex-display') ||
+                                            p.classList.contains('katex-inline') ||
+                                            p.classList.contains('reference-citation')  // 保护引用链接
+                                        )) return true;
+                                        p = p.parentElement;
+                                    }
                                     return false;
                                 };
                                 const fragTextLenExclFormula = (frag) => {
@@ -968,7 +976,15 @@ function initAnnotationSystem() {
                                 const selRange = window.globalCurrentSelection.range;
                                 const isInFormula = (n) => {
                                     let p = n && (n.nodeType === Node.TEXT_NODE ? n.parentElement : n);
-                                    while (p) { if (p.classList && (p.classList.contains('katex') || p.classList.contains('katex-display') || p.classList.contains('katex-inline'))) return true; p = p.parentElement; }
+                                    while (p) {
+                                        if (p.classList && (
+                                            p.classList.contains('katex') ||
+                                            p.classList.contains('katex-display') ||
+                                            p.classList.contains('katex-inline') ||
+                                            p.classList.contains('reference-citation')  // 保护引用链接
+                                        )) return true;
+                                        p = p.parentElement;
+                                    }
                                     return false;
                                 };
                                 const fragTextLenExclFormula = (frag) => {

@@ -206,8 +206,20 @@
          * 查找Markdown容器元素
          */
         findMarkdownContainer() {
-            // 尝试多种可能的容器ID
+            // 首先检查当前可见的标签页
+            const currentTab = window.currentVisibleTabId;
+            if (currentTab === 'ocr') {
+                const ocrContainer = document.getElementById('ocr-content-wrapper');
+                if (ocrContainer) return ocrContainer;
+            } else if (currentTab === 'translation') {
+                const transContainer = document.getElementById('translation-content-wrapper');
+                if (transContainer) return transContainer;
+            }
+
+            // 尝试多种可能的容器ID（包括实际使用的）
             const possibleIds = [
+                'ocr-content-wrapper',
+                'translation-content-wrapper',
                 'markdown-content',
                 'ocrResult',
                 'translation-result',
@@ -223,6 +235,7 @@
 
             // 尝试通过类名查找
             const possibleClasses = [
+                'content-wrapper',
                 'markdown-body',
                 'markdown-content',
                 'document-content'
