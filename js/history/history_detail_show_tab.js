@@ -587,7 +587,7 @@ function showTab(tab) {
                         <button class="block-struct-copy-btn block-icon-btn" data-block="${blockIndex}" data-type="ocr" data-idx="${i}" title="复制原文结构">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                         </button>
-                        <button class="block-edit-btn block-icon-btn" data-block="${blockIndex}" data-type="ocr" data-idx="${i}" title="编辑此段">
+                        <button class="block-edit-btn block-icon-btn" data-block="${blockIndex}" data-type="ocr" data-idx="${i}" title="编辑此段（仅供预览）">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
                         </button>
                         <button class="block-edit-reset-btn block-icon-btn" data-block="${blockIndex}" data-type="ocr" data-idx="${i}" title="重置为原文" style="display:none;">
@@ -612,7 +612,7 @@ function showTab(tab) {
                         <button class="block-struct-copy-btn block-icon-btn" data-block="${blockIndex}" data-type="trans" data-idx="${i}" title="复制译文结构">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                         </button>
-                        <button class="block-edit-btn block-icon-btn" data-block="${blockIndex}" data-type="trans" data-idx="${i}" title="编辑此段">
+                        <button class="block-edit-btn block-icon-btn" data-block="${blockIndex}" data-type="trans" data-idx="${i}" title="编辑此段（仅供预览）">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
                         </button>
                         <button class="block-edit-reset-btn block-icon-btn" data-block="${blockIndex}" data-type="trans" data-idx="${i}" title="重置为原文" style="display:none;">
@@ -647,7 +647,7 @@ function showTab(tab) {
                         <button class="block-struct-copy-btn block-icon-btn" data-block="${blockIndex}" data-type="ocr" data-idx="${i}" title="复制原文结构">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                         </button>
-                        <button class="block-edit-btn block-icon-btn" data-block="${blockIndex}" data-type="ocr" data-idx="${i}" title="编辑此段">
+                        <button class="block-edit-btn block-icon-btn" data-block="${blockIndex}" data-type="ocr" data-idx="${i}" title="编辑此段（仅供预览）">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
                         </button>
                         <button class="block-edit-reset-btn block-icon-btn" data-block="${blockIndex}" data-type="ocr" data-idx="${i}" title="重置为原文" style="display:none;">
@@ -672,7 +672,7 @@ function showTab(tab) {
                         <button class="block-struct-copy-btn block-icon-btn" data-block="${blockIndex}" data-type="trans" data-idx="${i}" title="复制译文结构">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                         </button>
-                        <button class="block-edit-btn block-icon-btn" data-block="${blockIndex}" data-type="trans" data-idx="${i}" title="编辑此段">
+                        <button class="block-edit-btn block-icon-btn" data-block="${blockIndex}" data-type="trans" data-idx="${i}" title="编辑此段（仅供预览）">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
                         </button>
                         <button class="block-edit-reset-btn block-icon-btn" data-block="${blockIndex}" data-type="trans" data-idx="${i}" title="重置为原文" style="display:none;">
