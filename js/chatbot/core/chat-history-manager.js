@@ -31,18 +31,25 @@
       const raw = localStorage.getItem('chatHistory_' + docId);
       if (raw) {
         const history = JSON.parse(raw);
-        // 清理可能包含未转义HTML的toolCallHtml（修复旧版本的兼容性问题）
+        // 清理可能包含未正确格式化的toolCallHtml（修复旧版本的兼容性问题）
         history.forEach(msg => {
           if (msg.toolCallHtml && typeof msg.toolCallHtml === 'string') {
-            // 检查是否包含可疑的未转义模式（如 ">0.001" 或 "}<" 等）
-            // 这些模式表明JSON数据被直接插入HTML而没有正确转义
-            if (msg.toolCallHtml.includes('">0.') ||
-                msg.toolCallHtml.includes('}>') ||
-                msg.toolCallHtml.includes('}<') ||
-                msg.toolCallHtml.includes('"<') ||
-                /\{\s*"[0-9]+"\s*:/.test(msg.toolCallHtml)) {
-              // 发现可疑模式，清除toolCallHtml以防止样式崩溃
-              console.warn('[loadChatHistory] 检测到可能有问题的toolCallHtml，已清除');
+            // 检查是否包含超大的未格式化JSON数据（可能导致显示问题）
+            // 如果toolCallHtml中包含大量JSON数据且没有被格式化为摘要，则清除
+            const hasLargeJsonData = msg.toolCallHtml.includes('tool-step-detail">{') &&
+                                     msg.toolCallHtml.length > 10000;
+
+            // 检查是否有HTML结构被破坏的迹象（如不匹配的div标签）
+            const openDivs = (msg.toolCallHtml.match(/<div/g) || []).length;
+            const closeDivs = (msg.toolCallHtml.match(/<\/div>/g) || []).length;
+            const structureBroken = Math.abs(openDivs - closeDivs) > 2;
+
+            if (hasLargeJsonData || structureBroken) {
+              console.warn('[loadChatHistory] 检测到有问题的toolCallHtml，已清除', {
+                hasLargeJsonData,
+                structureBroken,
+                length: msg.toolCallHtml.length
+              });
               delete msg.toolCallHtml;
             }
           }

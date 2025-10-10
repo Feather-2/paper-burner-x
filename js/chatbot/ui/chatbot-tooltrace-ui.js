@@ -641,17 +641,33 @@
     }
 
     // 特殊处理：向量搜索结果
+    // 支持数组格式和对象格式（如 {"0": {...}, "1": {...}}）
+    var searchResults = null;
     if (Array.isArray(cleanValue) && cleanValue.length > 0 && cleanValue[0].chunkId && cleanValue[0].score !== undefined) {
-      // 检查是否使用了重排
-      var hasRerank = cleanValue[0].rerankScore !== undefined;
+      searchResults = cleanValue;
+    } else if (typeof cleanValue === 'object' && !Array.isArray(cleanValue) && Object.keys(cleanValue).length > 0) {
+      // 检查是否是对象格式的搜索结果（键为数字字符串）
+      var firstKey = Object.keys(cleanValue)[0];
+      var firstItem = cleanValue[firstKey];
+      if (firstItem && firstItem.chunkId && firstItem.score !== undefined) {
+        // 转换为数组格式
+        searchResults = Object.keys(cleanValue).map(function(key) {
+          return cleanValue[key];
+        });
+      }
+    }
 
-      var summary = cleanValue.length + ' 个结果';
+    if (searchResults) {
+      // 检查是否使用了重排
+      var hasRerank = searchResults[0].rerankScore !== undefined;
+
+      var summary = searchResults.length + ' 个结果';
       if (hasRerank) {
         summary += ' (已重排)';
       }
 
       var topGroups = {};
-      cleanValue.forEach(function(item) {
+      searchResults.forEach(function(item) {
         if (item.belongsToGroup) {
           topGroups[item.belongsToGroup] = true;
         }
@@ -662,16 +678,16 @@
       }
 
       if (hasRerank) {
-        summary += '，最高重排分: ' + cleanValue[0].rerankScore.toFixed(3);
-        summary += ' (原始分: ' + (cleanValue[0].originalScore || cleanValue[0].score).toFixed(3) + ')';
+        summary += '，最高重排分: ' + searchResults[0].rerankScore.toFixed(3);
+        summary += ' (原始分: ' + (searchResults[0].originalScore || searchResults[0].score).toFixed(3) + ')';
       } else {
-        summary += '，最高分: ' + cleanValue[0].score.toFixed(3);
+        summary += '，最高分: ' + searchResults[0].score.toFixed(3);
       }
 
       // 添加前3个结果的预览
-      if (cleanValue.length > 0) {
-        summary += '\n\n【前' + Math.min(3, cleanValue.length) + '个结果预览】\n';
-        cleanValue.slice(0, 3).forEach(function(item, idx) {
+      if (searchResults.length > 0) {
+        summary += '\n\n【前' + Math.min(3, searchResults.length) + '个结果预览】\n';
+        searchResults.slice(0, 3).forEach(function(item, idx) {
           var preview = sanitizeText(item.preview || '');
           if (preview.length > 150) preview = preview.substring(0, 150) + '...';
           var scoreInfo = hasRerank
@@ -685,12 +701,25 @@
     }
 
     // 特殊处理：关键词搜索结果
+    var keywordResults = null;
     if (Array.isArray(cleanValue) && cleanValue.length > 0 && cleanValue[0].preview !== undefined && cleanValue[0].matchedKeywords) {
-      var summary = cleanValue.length + ' 个匹配片段';
+      keywordResults = cleanValue;
+    } else if (typeof cleanValue === 'object' && !Array.isArray(cleanValue) && Object.keys(cleanValue).length > 0) {
+      var firstKey = Object.keys(cleanValue)[0];
+      var firstItem = cleanValue[firstKey];
+      if (firstItem && firstItem.preview !== undefined && firstItem.matchedKeywords) {
+        keywordResults = Object.keys(cleanValue).map(function(key) {
+          return cleanValue[key];
+        });
+      }
+    }
+
+    if (keywordResults) {
+      var summary = keywordResults.length + ' 个匹配片段';
 
       // 统计所有匹配的关键词
       var allMatched = {};
-      cleanValue.forEach(function(item) {
+      keywordResults.forEach(function(item) {
         if (item.matchedKeywords && Array.isArray(item.matchedKeywords)) {
           item.matchedKeywords.forEach(function(kw) {
             allMatched[kw] = (allMatched[kw] || 0) + 1;
@@ -704,9 +733,9 @@
       }
 
       // 添加前3个结果的预览
-      if (cleanValue.length > 0) {
-        summary += '\n\n【前' + Math.min(3, cleanValue.length) + '个结果预览】\n';
-        cleanValue.slice(0, 3).forEach(function(item, idx) {
+      if (keywordResults.length > 0) {
+        summary += '\n\n【前' + Math.min(3, keywordResults.length) + '个结果预览】\n';
+        keywordResults.slice(0, 3).forEach(function(item, idx) {
           var preview = sanitizeText(item.preview || '');
           if (preview.length > 150) preview = preview.substring(0, 150) + '...';
           var matched = item.matchedKeywords ? ' [' + item.matchedKeywords.join(',') + ']' : '';
@@ -718,12 +747,25 @@
     }
 
     // 特殊处理：grep搜索结果
+    var grepResults = null;
     if (Array.isArray(cleanValue) && cleanValue.length > 0 && cleanValue[0].preview !== undefined && cleanValue[0].matchedKeyword !== undefined) {
-      var summary = cleanValue.length + ' 个匹配片段';
+      grepResults = cleanValue;
+    } else if (typeof cleanValue === 'object' && !Array.isArray(cleanValue) && Object.keys(cleanValue).length > 0) {
+      var firstKey = Object.keys(cleanValue)[0];
+      var firstItem = cleanValue[firstKey];
+      if (firstItem && firstItem.preview !== undefined && firstItem.matchedKeyword !== undefined) {
+        grepResults = Object.keys(cleanValue).map(function(key) {
+          return cleanValue[key];
+        });
+      }
+    }
+
+    if (grepResults) {
+      var summary = grepResults.length + ' 个匹配片段';
 
       // 统计匹配的关键词
       var keywordCounts = {};
-      cleanValue.forEach(function(item) {
+      grepResults.forEach(function(item) {
         if (item.matchedKeyword) {
           keywordCounts[item.matchedKeyword] = (keywordCounts[item.matchedKeyword] || 0) + 1;
         }
@@ -738,7 +780,7 @@
       }
 
       var topGroups = {};
-      cleanValue.forEach(function(item) {
+      grepResults.forEach(function(item) {
         if (item.belongsToGroup) {
           topGroups[item.belongsToGroup] = true;
         }
@@ -749,9 +791,9 @@
       }
 
       // 添加前3个结果的预览
-      if (cleanValue.length > 0) {
-        summary += '\n\n【前' + Math.min(3, cleanValue.length) + '个结果预览】\n';
-        cleanValue.slice(0, 3).forEach(function(item, idx) {
+      if (grepResults.length > 0) {
+        summary += '\n\n【前' + Math.min(3, grepResults.length) + '个结果预览】\n';
+        grepResults.slice(0, 3).forEach(function(item, idx) {
           var preview = sanitizeText(item.preview || '');
           if (preview.length > 150) preview = preview.substring(0, 150) + '...';
           var src = item.belongsToGroup ? item.belongsToGroup : '全文';
@@ -764,11 +806,24 @@
     }
 
     // 特殊处理：其他grep搜索结果（无matchedKeyword字段）
+    var otherResults = null;
     if (Array.isArray(cleanValue) && cleanValue.length > 0 && cleanValue[0].preview !== undefined) {
-      var summary = cleanValue.length + ' 个匹配片段';
+      otherResults = cleanValue;
+    } else if (typeof cleanValue === 'object' && !Array.isArray(cleanValue) && Object.keys(cleanValue).length > 0) {
+      var firstKey = Object.keys(cleanValue)[0];
+      var firstItem = cleanValue[firstKey];
+      if (firstItem && firstItem.preview !== undefined) {
+        otherResults = Object.keys(cleanValue).map(function(key) {
+          return cleanValue[key];
+        });
+      }
+    }
+
+    if (otherResults) {
+      var summary = otherResults.length + ' 个匹配片段';
 
       var topGroups = {};
-      cleanValue.forEach(function(item) {
+      otherResults.forEach(function(item) {
         if (item.belongsToGroup) {
           topGroups[item.belongsToGroup] = true;
         }
@@ -779,9 +834,9 @@
       }
 
       // 添加前3个结果的预览
-      if (cleanValue.length > 0) {
-        summary += '\n\n【前' + Math.min(3, cleanValue.length) + '个结果预览】\n';
-        cleanValue.slice(0, 3).forEach(function(item, idx) {
+      if (otherResults.length > 0) {
+        summary += '\n\n【前' + Math.min(3, otherResults.length) + '个结果预览】\n';
+        otherResults.slice(0, 3).forEach(function(item, idx) {
           var preview = sanitizeText(item.preview || '');
           if (preview.length > 150) preview = preview.substring(0, 150) + '...';
           var src = item.belongsToGroup ? item.belongsToGroup : '全文';
