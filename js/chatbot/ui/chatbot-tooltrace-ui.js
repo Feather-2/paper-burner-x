@@ -831,16 +831,20 @@
   function sanitizeText(text) {
     if (!text || typeof text !== 'string') return '';
 
-    // 1. 移除HTML标签
+    // 1. 移除HTML标签（包括不完整的标签）
     text = text.replace(/<[^>]*>/g, '');
 
-    // 2. 移除控制字符（保留常用的空白字符）
+    // 2. 移除剩余的尖括号（防止破坏DOM结构）
+    // 注意：这会影响数学表达式如 "<0.001"，但为了安全性这是必要的
+    text = text.replace(/[<>]/g, '');
+
+    // 3. 移除控制字符（保留常用的空白字符）
     text = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '');
 
-    // 3. 规范化空白字符
+    // 4. 规范化空白字符
     text = text.replace(/\s+/g, ' ').trim();
 
-    // 4. 移除不完整的Unicode代理对
+    // 5. 移除不完整的Unicode代理对
     text = text.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF]/g, '');
 
     return text;

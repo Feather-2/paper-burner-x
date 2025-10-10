@@ -29,8 +29,29 @@
   function loadChatHistory(docId) {
     try {
       const raw = localStorage.getItem('chatHistory_' + docId);
-      if (raw) return JSON.parse(raw);
-    } catch (e) {}
+      if (raw) {
+        const history = JSON.parse(raw);
+        // 清理可能包含未转义HTML的toolCallHtml（修复旧版本的兼容性问题）
+        history.forEach(msg => {
+          if (msg.toolCallHtml && typeof msg.toolCallHtml === 'string') {
+            // 检查是否包含可疑的未转义模式（如 ">0.001" 或 "}<" 等）
+            // 这些模式表明JSON数据被直接插入HTML而没有正确转义
+            if (msg.toolCallHtml.includes('">0.') ||
+                msg.toolCallHtml.includes('}>') ||
+                msg.toolCallHtml.includes('}<') ||
+                msg.toolCallHtml.includes('"<') ||
+                /\{\s*"[0-9]+"\s*:/.test(msg.toolCallHtml)) {
+              // 发现可疑模式，清除toolCallHtml以防止样式崩溃
+              console.warn('[loadChatHistory] 检测到可能有问题的toolCallHtml，已清除');
+              delete msg.toolCallHtml;
+            }
+          }
+        });
+        return history;
+      }
+    } catch (e) {
+      console.error('[loadChatHistory] Error loading chat history:', e);
+    }
     return [];
   }
 
