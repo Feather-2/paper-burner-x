@@ -524,16 +524,17 @@ async function ensureIndexesBuilt(chunks, groups, docId, async = false) {
   const docConfig = window.data?.multiHopConfig?.[docId];
   const useVectorSearch = docConfig?.useVectorSearch !== false; // 默认true
 
-  // 异步建立向量索引（仅在启用多轮检索、用户配置允许且启用了向量搜索时）
+  // 异步建立向量索引（仅在用户配置允许且启用了向量搜索时）
   const buildVectorIndex = async () => {
     try {
-      if (!multiHopEnabled) {
-        console.log('[ChatbotCore] 多轮检索未启用，跳过向量索引生成');
+      // 关键修复：无论multiHopEnabled状态如何，都要检查useVectorSearch配置
+      if (!useVectorSearch) {
+        console.log('[ChatbotCore] 用户选择不使用向量搜索，跳过向量索引生成');
         return;
       }
 
-      if (!useVectorSearch) {
-        console.log('[ChatbotCore] 用户选择不使用向量搜索，跳过向量索引生成');
+      if (!multiHopEnabled) {
+        console.log('[ChatbotCore] 多轮检索未启用，跳过向量索引生成');
         return;
       }
 
