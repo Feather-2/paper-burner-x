@@ -9,7 +9,7 @@
 
 [落地页](https://paperburner.viwoplus.site/views/landing/landing-page.html)
 
-<img width="3303" height="1576" alt="画板 7" src="https://github.com/user-attachments/assets/262fbb2d-4490-457b-bffa-8a4342d2ed47" />
+<img width="3303" height="1576" alt="画板 7" src="https://github.com/user-attachments/assets/cb769c1c-33e0-4c12-9174-f2237fb5929b" />
 
 
 ## ✨ 特性概览 (截至25/9/20)
