@@ -102,34 +102,114 @@
 
         console.log(`[ReferenceManagerDetail] Auto-detected ${section.entries.length} references`);
 
-        // 正则提取
+        // 显示提取方式选择对话框
+        showExtractionMethodDialog(section, markdown);
+    }
+
+    /**
+     * 显示提取方式选择对话框
+     */
+    function showExtractionMethodDialog(section, markdown) {
+        const message = `检测到 ${section.entries.length} 条文献\n\n` +
+                       `请选择提取方式：\n` +
+                       `1. 正则表达式（快速，适合标准格式）\n` +
+                       `2. AI智能提取（准确，适合任意格式）\n` +
+                       `3. 混合模式（推荐，先正则再AI）\n\n` +
+                       `请输入数字 1、2 或 3：`;
+
+        const choice = prompt(message);
+
+        if (!choice) return;
+
+        switch (choice.trim()) {
+            case '1':
+                extractWithRegex(section, markdown);
+                break;
+            case '2':
+                extractWithAI(section, markdown);
+                break;
+            case '3':
+                extractWithHybrid(section, markdown);
+                break;
+            default:
+                alert('无效的选择');
+        }
+    }
+
+    /**
+     * 使用正则表达式提取
+     */
+    function extractWithRegex(section, markdown) {
         const extracted = global.ReferenceExtractor?.batchExtract(section.entries) || section.entries;
 
         // 建立索引
+        let indexed = extracted;
         if (global.ReferenceIndexer) {
-            currentReferences = global.ReferenceIndexer.buildIndex(
+            indexed = global.ReferenceIndexer.buildIndex(
                 currentDocumentId,
                 markdown,
                 extracted
             );
-        } else {
-            currentReferences = extracted;
         }
 
         // 保存
         global.ReferenceStorage?.saveReferences(
             currentDocumentId,
-            currentReferences,
+            indexed,
             {
                 extractedAt: new Date().toISOString(),
-                method: 'auto'
+                method: 'regex'
             }
         );
 
         // 显示
-        updateReferenceCount(currentReferences.length);
-        appendReferencesToContent(currentReferences);
+        currentReferences = indexed;
+        updateReferenceCount(indexed.length);
+        appendReferencesToContent(indexed);
         addToTOC();
+
+        alert(`正则提取完成\n成功提取 ${indexed.length} 条文献`);
+    }
+
+    /**
+     * 使用AI提取
+     */
+    async function extractWithAI(section, markdown) {
+        const simpleEntries = section.entries.map((e, idx) => ({
+            index: idx,
+            rawText: e.rawText || e,
+            needsAIProcessing: true
+        }));
+
+        await processWithAI(simpleEntries, markdown);
+    }
+
+    /**
+     * 使用混合模式提取
+     */
+    async function extractWithHybrid(section, markdown) {
+        // 先用正则提取
+        const extracted = global.ReferenceExtractor?.batchExtract(section.entries) || section.entries;
+
+        // 找出需要AI处理的
+        const needsAI = extracted.filter(e => e.needsAIProcessing);
+
+        if (needsAI.length > 0) {
+            const message = `正则提取: ${extracted.length - needsAI.length}/${extracted.length} 成功\n` +
+                          `需要AI处理: ${needsAI.length} 条\n\n` +
+                          `是否继续使用AI处理剩余文献？`;
+
+            if (confirm(message)) {
+                await processWithAI(extracted, markdown);
+            } else {
+                // 只保存正则提取的结果
+                saveExtractedReferences(extracted, markdown);
+            }
+        } else {
+            // 全部正则提取成功
+            saveExtractedReferences(extracted, markdown);
+            alert(`提取完成\n全部 ${extracted.length} 条文献已通过正则成功提取`);
+        }
     }
 
     /**
@@ -259,15 +339,16 @@
         container.addEventListener('mouseout', (e) => {
             const target = e.target;
             if (target.classList && target.classList.contains('reference-citation')) {
-                const refIndex = parseInt(target.dataset.refIndex, 10);
-                if (!isNaN(refIndex)) {
-                    console.log('[delegation mouseleave] 触发离开事件，refIndex:', refIndex, 'activeElement:', activeTooltipLinkElement === target);
+                // 从 dataset 获取引用编号
+                const refNumbers = target.dataset.refNumbers;
+                if (refNumbers) {
+                    console.log('[delegation mouseleave] 触发离开事件，refNumbers:', refNumbers, 'activeElement:', activeTooltipLinkElement === target);
                     // 延迟隐藏，给用户时间移动到tooltip上
                     hideTooltipTimer = setTimeout(() => {
                         const tooltip = document.getElementById('reference-detail-tooltip');
                         const tooltipHover = tooltip ? tooltip.matches(':hover') : false;
                         const isActive = activeTooltipLinkElement === target;
-                        console.log('[delegation mouseleave timer] refIndex:', refIndex, 'tooltip hover:', tooltipHover, 'is active:', isActive);
+                        console.log('[delegation mouseleave timer] refNumbers:', refNumbers, 'tooltip hover:', tooltipHover, 'is active:', isActive);
                         // 只有当鼠标既不在tooltip上且当前链接不再是活跃链接时才隐藏
                         if (tooltip && !tooltipHover && !isActive) {
                             hideReferenceDetailTooltip();
@@ -899,7 +980,7 @@
                 tooltip.classList.add('show');
             });
 
-            console.log('[showReferenceDetailTooltip] 显示详细tooltip:', refIndex + 1);
+            console.log('[showReferenceDetailTooltip] 显示详细tooltip，文献编号:', refIndices.map(i => i + 1).join(','));
         });
     }
 
@@ -1348,33 +1429,46 @@
             return;
         }
 
-        // 显示处理选项
-        showExtractionDialog(section.entries);
+        // 使用统一的提取方式选择对话框
+        showExtractionMethodDialog(section, markdown);
     };
 
     /**
-     * 显示提取对话框
+     * 保存提取的文献
      */
-    function showExtractionDialog(entries) {
-        const message = `检测到 ${entries.length} 条文献\n\n` +
-                       `将使用AI批量提取完整信息\n` +
-                       `（每批10条，并发处理）\n\n` +
-                       `是否继续？`;
-
-        if (confirm(message)) {
-            // 直接使用AI处理全部文献
-            const simpleEntries = entries.map((e, idx) => ({
-                index: idx,
-                rawText: e.rawText || e
-            }));
-            processWithAI(simpleEntries);
+    function saveExtractedReferences(references, markdown) {
+        // 建立索引
+        let indexed = references;
+        if (markdown && global.ReferenceIndexer) {
+            indexed = global.ReferenceIndexer.buildIndex(
+                currentDocumentId,
+                markdown,
+                references
+            );
         }
+
+        // 保存
+        global.ReferenceStorage?.saveReferences(
+            currentDocumentId,
+            indexed,
+            {
+                extractedAt: new Date().toISOString(),
+                method: 'hybrid'
+            }
+        );
+
+        // 显示
+        currentReferences = indexed;
+        updateReferenceCount(indexed.length);
+        appendReferencesToContent(indexed);
+        addToTOC();
+        updatePanelContent();
     }
 
     /**
      * 使用AI处理文献
      */
-    async function processWithAI(extracted) {
+    async function processWithAI(extracted, markdown) {
         // 获取API配置（使用与Chatbot相同的方式）
         const apiConfig = await getAPIConfig();
         if (!apiConfig) {
@@ -1407,7 +1501,7 @@
                 confidence: 0.9
             }));
 
-            saveExtractedReferences(finalReferences);
+            saveExtractedReferences(finalReferences, markdown);
             alert(`AI处理完成\n共提取 ${finalReferences.length} 条文献`);
         } catch (error) {
             console.error('[ReferenceManagerDetail] AI处理失败:', error);
@@ -1471,40 +1565,6 @@
 
         alert('无法获取AI配置，请确保Chatbot模块已加载');
         return null;
-    }
-
-    /**
-     * 保存提取的文献
-     */
-    async function saveExtractedReferences(references) {
-        const markdown = await getCurrentMarkdownContent();
-
-        // 建立索引
-        if (markdown && global.ReferenceIndexer) {
-            references = global.ReferenceIndexer.buildIndex(
-                currentDocumentId,
-                markdown,
-                references
-            );
-        }
-
-        // 保存
-        global.ReferenceStorage?.saveReferences(
-            currentDocumentId,
-            references,
-            {
-                extractedAt: new Date().toISOString(),
-                method: 'auto'
-            }
-        );
-
-        currentReferences = references;
-        updateReferenceCount(references.length);
-        appendReferencesToContent(references);
-        addToTOC();
-        updatePanelContent();
-
-        alert(`成功提取 ${references.length} 条文献`);
     }
 
     /**
@@ -1602,7 +1662,7 @@
         initReferenceManagerForDetail();
     }
 
-    console.log('[ReferenceManagerDetail] Module loaded.');
+    console.log('[ReferenceManagerDetail] Module loaded. v1.0.1 - Fixed refIndex error');
 
 })(window);
 

@@ -170,21 +170,47 @@
 
         const entries = [];
         const lines = content.split('\n');
-        let currentEntry = null;
         let currentLines = [];
+        let lineStartIndex = 0;
+
+        // 检测是否是新条目的开始（必须有明确的编号）
+        const isNewEntryStart = (line) => {
+            const trimmed = line.trim();
+            if (!trimmed) return false;
+
+            // 必须以编号开头，且紧跟着是空格或内容
+            const numberPatterns = [
+                /^\[\d+\]\s+/,           // [1]
+                /^\d+\.\s+/,             // 1.
+                /^\(\d+\)\s+/,           // (1)
+                /^\d+\)\s+/              // 1)
+            ];
+
+            return numberPatterns.some(p => p.test(trimmed));
+        };
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
 
-            // 空行，可能是条目分隔符
+            // 空行：只在已有内容且下一行不是继续时才结束当前条目
             if (line === '') {
-                if (currentLines.length > 0) {
+                // 检查下一个非空行是否是新条目
+                let nextNonEmptyLine = null;
+                for (let j = i + 1; j < lines.length; j++) {
+                    if (lines[j].trim()) {
+                        nextNonEmptyLine = lines[j];
+                        break;
+                    }
+                }
+
+                // 如果下一个非空行是新条目，则保存当前条目
+                if (currentLines.length > 0 && nextNonEmptyLine && isNewEntryStart(nextNonEmptyLine)) {
                     const entryText = currentLines.join(' ');
-                    if (isLikelyReferenceEntry(entryText)) {
+                    if (entryText.trim()) {
                         entries.push({
                             index: entries.length,
-                            rawText: entryText,
-                            lineStart: i - currentLines.length,
+                            rawText: entryText.trim(),
+                            lineStart: lineStartIndex,
                             lineEnd: i - 1
                         });
                     }
@@ -193,34 +219,46 @@
                 continue;
             }
 
-            // 检测新条目的开始（有编号）
-            if (isLikelyReferenceEntry(line)) {
+            // 检测新条目的开始（必须有明确的编号）
+            if (isNewEntryStart(line)) {
                 // 保存之前的条目
                 if (currentLines.length > 0) {
                     const entryText = currentLines.join(' ');
-                    entries.push({
-                        index: entries.length,
-                        rawText: entryText,
-                        lineStart: i - currentLines.length,
-                        lineEnd: i - 1
-                    });
+                    if (entryText.trim()) {
+                        entries.push({
+                            index: entries.length,
+                            rawText: entryText.trim(),
+                            lineStart: lineStartIndex,
+                            lineEnd: i - 1
+                        });
+                    }
                 }
                 // 开始新条目
                 currentLines = [line];
+                lineStartIndex = i;
             } else {
-                // 继续当前条目
-                currentLines.push(line);
+                // 继续当前条目（换行内容）
+                if (currentLines.length === 0) {
+                    // 如果还没有开始条目，尝试作为新条目开始
+                    if (isLikelyReferenceEntry(line)) {
+                        currentLines = [line];
+                        lineStartIndex = i;
+                    }
+                } else {
+                    // 添加到当前条目
+                    currentLines.push(line);
+                }
             }
         }
 
         // 处理最后一个条目
         if (currentLines.length > 0) {
             const entryText = currentLines.join(' ');
-            if (isLikelyReferenceEntry(entryText)) {
+            if (entryText.trim()) {
                 entries.push({
                     index: entries.length,
-                    rawText: entryText,
-                    lineStart: lines.length - currentLines.length,
+                    rawText: entryText.trim(),
+                    lineStart: lineStartIndex,
                     lineEnd: lines.length - 1
                 });
             }

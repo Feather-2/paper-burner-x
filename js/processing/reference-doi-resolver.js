@@ -207,6 +207,12 @@
 
                 const data = await response.json();
 
+                // 只记录摘要信息，不打印完整的响应对象（数据量大）
+                console.log('[CrossRef] API 响应摘要:', {
+                    totalResults: data.message?.['total-results'] || 0,
+                    itemsReturned: data.message?.items?.length || 0
+                });
+
                 if (!data.message || !data.message.items || data.message.items.length === 0) {
                     return null;
                 }
@@ -344,9 +350,39 @@
          * 格式化结果
          */
         _formatResult(item) {
+            // 记录原始数据的关键字段，帮助调试
+            console.log('[CrossRef] 原始数据字段:', {
+                hasAbstract: !!item.abstract,
+                hasTitle: !!item.title,
+                hasAuthors: !!item.author,
+                hasDOI: !!item.DOI,
+                hasContainerTitle: !!item['container-title'],
+                abstractLength: item.abstract ? item.abstract.length : 0,
+                // 列出所有可用的字段
+                availableFields: Object.keys(item).filter(key => item[key] !== null && item[key] !== undefined)
+            });
+
             const authors = (item.author || []).map(a => {
                 return `${a.given || ''} ${a.family || ''}`.trim();
             });
+
+            // 处理 abstract：CrossRef 的 abstract 可能包含 HTML 标签或 JATS XML
+            let abstract = null;
+            if (item.abstract) {
+                // 移除 JATS XML 标签 <jats:p> 等
+                abstract = item.abstract
+                    .replace(/<jats:[^>]+>/g, '')
+                    .replace(/<\/jats:[^>]+>/g, '')
+                    .replace(/<[^>]+>/g, '') // 移除所有 HTML 标签
+                    .trim();
+
+                // 如果处理后为空，设为 null
+                if (!abstract) {
+                    abstract = null;
+                } else {
+                    console.log('[CrossRef] 提取到摘要，长度:', abstract.length);
+                }
+            }
 
             return {
                 doi: item.DOI,
@@ -360,7 +396,7 @@
                 url: item.URL || `https://doi.org/${item.DOI}`,
                 publisher: item.publisher || null,
                 type: item.type || null,
-                abstract: item.abstract || null,
+                abstract: abstract,
                 source: 'crossref',
                 confidence: 0.9
             };
@@ -455,6 +491,23 @@
         _formatResult(item) {
             const authors = (item.authorships || []).map(a => a.author?.display_name).filter(Boolean);
 
+            // 重建摘要
+            let abstract = null;
+            if (item.abstract_inverted_index) {
+                abstract = this._reconstructAbstract(item.abstract_inverted_index);
+                console.log('[OpenAlex] 从倒排索引重建摘要，长度:', abstract ? abstract.length : 0);
+            }
+
+            // 记录可用字段
+            console.log('[OpenAlex] 原始数据字段:', {
+                hasAbstract: !!abstract,
+                hasTitle: !!item.title,
+                hasAuthors: authors.length > 0,
+                hasDOI: !!item.doi,
+                hasJournal: !!item.primary_location?.source?.display_name,
+                abstractLength: abstract ? abstract.length : 0
+            });
+
             return {
                 doi: item.doi?.replace('https://doi.org/', '') || null,
                 title: item.title || null,
@@ -464,7 +517,7 @@
                 url: item.doi || item.id || null,
                 openAccessUrl: item.open_access?.oa_url || null,
                 citationCount: item.cited_by_count || 0,
-                abstract: item.abstract_inverted_index ? this._reconstructAbstract(item.abstract_inverted_index) : null,
+                abstract: abstract,
                 source: 'openalex',
                 confidence: 0.85
             };
@@ -475,14 +528,42 @@
          */
         _reconstructAbstract(invertedIndex) {
             try {
-                const words = [];
-                for (const [word, positions] of Object.entries(invertedIndex)) {
-                    positions.forEach(pos => {
-                        words[pos] = word;
-                    });
+                if (!invertedIndex || typeof invertedIndex !== 'object') {
+                    return null;
                 }
-                return words.join(' ');
+
+                // 找出最大位置，确定数组大小
+                let maxPos = 0;
+                for (const positions of Object.values(invertedIndex)) {
+                    if (Array.isArray(positions)) {
+                        for (const pos of positions) {
+                            if (pos > maxPos) maxPos = pos;
+                        }
+                    }
+                }
+
+                // 创建数组并填充单词
+                const words = new Array(maxPos + 1);
+                for (const [word, positions] of Object.entries(invertedIndex)) {
+                    if (Array.isArray(positions)) {
+                        positions.forEach(pos => {
+                            words[pos] = word;
+                        });
+                    }
+                }
+
+                // 过滤 undefined 并连接
+                const abstract = words.filter(w => w !== undefined).join(' ');
+
+                // 如果重建的摘要太短（可能有问题），返回 null
+                if (abstract.length < 50) {
+                    console.warn('[OpenAlex] 重建的摘要太短，可能有问题:', abstract.length);
+                    return null;
+                }
+
+                return abstract;
             } catch (error) {
+                console.error('[OpenAlex] Abstract reconstruction failed:', error);
                 return null;
             }
         }
@@ -655,6 +736,16 @@
 
         _formatResult(paper) {
             const authors = (paper.authors || []).map(a => a.name).filter(Boolean);
+
+            // 记录可用字段
+            console.log('[SemanticScholar] 原始数据字段:', {
+                hasAbstract: !!paper.abstract,
+                hasTitle: !!paper.title,
+                hasAuthors: authors.length > 0,
+                hasDOI: !!paper.externalIds?.DOI,
+                hasVenue: !!paper.venue,
+                abstractLength: paper.abstract ? paper.abstract.length : 0
+            });
 
             return {
                 doi: paper.externalIds?.DOI || null,
@@ -1231,6 +1322,70 @@
 
             let successCount = results.filter(r => r.success).length;
             console.log(`[DOIResolver] Primary phase complete: ${successCount}/${references.length} resolved`);
+
+            // === 新增：Abstract 补全阶段 ===
+            // 对于已经找到 DOI 但缺少 abstract 的文献，尝试从其他源补全
+            const needsAbstract = results.filter(r =>
+                r.success && r.resolved && !r.resolved.abstract && r.resolved.title
+            );
+
+            if (needsAbstract.length > 0) {
+                console.log(`[DOIResolver] Abstract补全阶段: ${needsAbstract.length} 篇文献缺少摘要，尝试补全`);
+
+                if (progressCallback) {
+                    progressCallback({
+                        completed: completed,
+                        total: references.length,
+                        current: `Abstract补全: ${needsAbstract.length} 篇缺少摘要`,
+                        phase: 'abstract-enrichment'
+                    });
+                }
+
+                // 优先使用 OpenAlex 和 Semantic Scholar（它们的 abstract 覆盖率更高）
+                const abstractSources = ['openalex', 'semanticscholar'];
+
+                for (const source of abstractSources) {
+                    const stillNeedsAbstract = needsAbstract.filter(r => !r.resolved.abstract);
+
+                    if (stillNeedsAbstract.length === 0) {
+                        console.log(`[DOIResolver] Abstract补全完成，所有文献都有摘要了`);
+                        break;
+                    }
+
+                    console.log(`[DOIResolver] 使用 ${source} 补全 ${stillNeedsAbstract.length} 篇文献的摘要`);
+
+                    try {
+                        const resolver = this._getResolver(source);
+                        if (!resolver || !resolver.batchQuery) continue;
+
+                        const abstractResults = await resolver.batchQuery(
+                            stillNeedsAbstract.map(r => r.original)
+                        );
+
+                        // 只更新 abstract 字段，保留原有的其他信息
+                        let enrichedCount = 0;
+                        abstractResults.forEach(result => {
+                            if (result.success && result.resolved?.abstract) {
+                                const targetIndex = results.findIndex(r => r.original === result.original);
+                                if (targetIndex !== -1 && results[targetIndex].resolved) {
+                                    results[targetIndex].resolved.abstract = result.resolved.abstract;
+                                    enrichedCount++;
+                                    console.log(`[DOIResolver] ✓ 补全摘要 via ${source}: "${result.original.title.substring(0, 40)}..." (长度: ${result.resolved.abstract.length})`);
+                                }
+                            }
+                        });
+
+                        console.log(`[DOIResolver] ${source} 补全了 ${enrichedCount}/${stillNeedsAbstract.length} 篇摘要`);
+
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    } catch (error) {
+                        console.warn(`[DOIResolver] ${source} abstract补全失败:`, error.message);
+                    }
+                }
+
+                const abstractCount = results.filter(r => r.success && r.resolved?.abstract).length;
+                console.log(`[DOIResolver] Abstract补全完成: ${abstractCount}/${successCount} 篇有摘要 (${Math.round(abstractCount/successCount*100)}%)`);
+            }
 
             // 第二阶段：使用Semantic Scholar托底查询失败的文献
             if (this.enableSemanticScholarFallback) {
