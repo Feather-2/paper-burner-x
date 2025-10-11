@@ -1,0 +1,164 @@
+/* css/reference-manager-enrichment.css */
+/* 参考文献管理器元数据丰富样式 - 配置模态框 */
+
+/* ============================================
+   元数据丰富配置模态框样式
+   ============================================ */
+
+.enrichment-config-section {
+    padding: 20px 30px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.enrichment-config-section h3 {
+    font-size: 18px;
+    font-weight: 600;
+    color: #333;
+    margin: 0 0 20px 0;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #e0e0e0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.enrichment-config-section h3 i {
+    color: #3b82f6;
+}
+
+.enrichment-field-config {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.field-config-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    background: linear-gradient(135deg, #f8f9fa, #ffffff);
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    transition: all 0.2s;
+}
+
+.field-config-item:hover {
+    background: linear-gradient(135deg, #eff6ff, #f8f9fa);
+    border-color: #3b82f6;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+}
+
+.field-desc {
+    flex: 1;
+    margin-right: 20px;
+}
+
+.field-desc strong {
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    display: block;
+    margin-bottom: 4px;
+}
+
+.field-desc span {
+    font-size: 12px;
+    color: #666;
+}
+
+.field-config-item select {
+    min-width: 160px;
+    padding: 8px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: white;
+    font-size: 13px;
+    font-weight: 500;
+    color: #374151;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.field-config-item select:hover {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.field-config-item select:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.enrichment-strategy-legend {
+    margin-top: 24px;
+    padding: 16px;
+    background: linear-gradient(to bottom, #fffbeb, #fef3c7);
+    border: 1px solid #fcd34d;
+    border-radius: 8px;
+}
+
+.enrichment-strategy-legend h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #92400e;
+    margin: 0 0 12px 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.enrichment-strategy-legend h4 i {
+    color: #d97706;
+}
+
+.enrichment-strategy-legend ul {
+    margin: 0;
+    padding-left: 20px;
+    list-style: none;
+}
+
+.enrichment-strategy-legend li {
+    font-size: 12px;
+    color: #78350f;
+    margin-bottom: 8px;
+    line-height: 1.5;
+    position: relative;
+}
+
+.enrichment-strategy-legend li:last-child {
+    margin-bottom: 0;
+}
+
+.enrichment-strategy-legend li::before {
+    content: '•';
+    position: absolute;
+    left: -12px;
+    color: #d97706;
+    font-weight: bold;
+}
+
+.enrichment-strategy-legend li strong {
+    color: #92400e;
+    font-weight: 600;
+}
+
+/* 美化配置模态框滚动条 */
+.enrichment-config-section::-webkit-scrollbar {
+    width: 6px;
+}
+
+.enrichment-config-section::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.enrichment-config-section::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+}
+
+.enrichment-config-section::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
