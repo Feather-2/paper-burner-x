@@ -250,7 +250,77 @@ class Doc2XOcrAdapter extends OcrAdapter {
    * @param {Object} statusData - 备用的状态数据
    * @returns {Promise<Object>} { markdown, images, metadata }
    */
+  /**
+   * 分片下载大文件
+   * @param {string} url - 文件 URL
+   * @param {Object} headers - 请求头
+   * @param {number} chunkSize - 每片大小（默认 10MB）
+   * @returns {Promise<Blob>} 完整文件 Blob
+   */
+  async downloadWithChunks(url, headers = {}, chunkSize = 10 * 1024 * 1024) {
+    console.log('[Doc2X OCR] Starting chunked download from:', url);
+
+    // 1. 获取文件大小
+    const headResponse = await fetch(url, { method: 'HEAD', headers });
+    if (!headResponse.ok) {
+      throw new Error(`HEAD request failed: ${headResponse.status}`);
+    }
+
+    const contentLength = parseInt(headResponse.headers.get('Content-Length') || '0');
+    if (!contentLength || contentLength === 0) {
+      throw new Error('Cannot get file size (Content-Length missing)');
+    }
+
+    console.log(`[Doc2X OCR] File size: ${(contentLength / 1024 / 1024).toFixed(2)} MB`);
+
+    // 如果文件小于 20MB，直接下载
+    if (contentLength < 20 * 1024 * 1024) {
+      console.log('[Doc2X OCR] File is small enough, using direct download');
+      const response = await fetch(url, { headers });
+      if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+      return await response.blob();
+    }
+
+    // 2. 计算分片数量
+    const numChunks = Math.ceil(contentLength / chunkSize);
+    console.log(`[Doc2X OCR] Splitting into ${numChunks} chunks of ~${(chunkSize / 1024 / 1024).toFixed(1)} MB each`);
+
+    // 3. 下载每个分片
+    const chunks = [];
+    for (let i = 0; i < numChunks; i++) {
+      const start = i * chunkSize;
+      const end = Math.min(start + chunkSize - 1, contentLength - 1);
+
+      console.log(`[Doc2X OCR] Downloading chunk ${i + 1}/${numChunks} (bytes ${start}-${end})`);
+
+      const rangeHeaders = {
+        ...headers,
+        'Range': `bytes=${start}-${end}`
+      };
+
+      const response = await fetch(url, { headers: rangeHeaders });
+
+      if (!response.ok && response.status !== 206) {
+        throw new Error(`Chunk ${i + 1} download failed: ${response.status}`);
+      }
+
+      const chunkBlob = await response.blob();
+      chunks.push(chunkBlob);
+
+      console.log(`[Doc2X OCR] Chunk ${i + 1}/${numChunks} completed: ${(chunkBlob.size / 1024 / 1024).toFixed(2)} MB`);
+    }
+
+    // 4. 合并所有分片
+    console.log('[Doc2X OCR] Merging chunks...');
+    const fullBlob = new Blob(chunks);
+    console.log(`[Doc2X OCR] Chunked download completed: ${(fullBlob.size / 1024 / 1024).toFixed(2)} MB`);
+
+    return fullBlob;
+  }
+
   async downloadAndExtractExport(zipUrl, statusData) {
+    console.log('[Doc2X OCR] Downloading ZIP from:', zipUrl);
+
     // 通过 Worker 代理下载 ZIP，避免浏览器直连跨域
     let finalUrl = zipUrl;
     try {
@@ -263,12 +333,21 @@ class Doc2XOcrAdapter extends OcrAdapter {
     const headers = {};
     if (this.authKey) headers['X-Auth-Key'] = this.authKey;
 
-    const zipResponse = await fetch(finalUrl, { headers });
-    if (!zipResponse.ok) {
-      throw new Error('下载导出 ZIP 失败');
+    // 尝试分片下载（解决大文件传输问题）
+    let zipBlob;
+    try {
+      zipBlob = await this.downloadWithChunks(finalUrl, headers);
+    } catch (chunkError) {
+      console.warn('[Doc2X OCR] Chunked download failed, trying direct download:', chunkError.message);
+      // 回退到直接下载
+      const zipResponse = await fetch(finalUrl, { headers });
+      if (!zipResponse.ok) {
+        throw new Error('下载导出 ZIP 失败');
+      }
+      zipBlob = await zipResponse.blob();
     }
 
-    const zipBlob = await zipResponse.blob();
+    console.log(`[Doc2X OCR] Downloaded ZIP size: ${(zipBlob.size / 1024 / 1024).toFixed(2)} MB`);
 
     // 解压（使用 JSZip）
     if (typeof JSZip === 'undefined') {

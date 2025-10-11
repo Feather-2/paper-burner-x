@@ -52,12 +52,12 @@ export default {
         return await handleDoc2XConvertResult(uid, env, request);
       }
 
-      // ===== 直通 ZIP 代理（解决浏览器跨域限制） =====
-      if (url.pathname === '/mineru/zip' && request.method === 'GET') {
+      // ===== 直通 ZIP 代理（解决浏览器跨域限制，支持 HEAD 和 Range 请求） =====
+      if (url.pathname === '/mineru/zip' && (request.method === 'GET' || request.method === 'HEAD')) {
         const zipUrl = url.searchParams.get('url');
         return await handleProxyZip(zipUrl, request, env);
       }
-      if (url.pathname === '/doc2x/zip' && request.method === 'GET') {
+      if (url.pathname === '/doc2x/zip' && (request.method === 'GET' || request.method === 'HEAD')) {
         const zipUrl = url.searchParams.get('url');
         return await handleProxyZip(zipUrl, request, env);
       }
@@ -656,8 +656,9 @@ function handleCORS(request, env) {
   return new Response(null, {
     headers: {
       'Access-Control-Allow-Origin': allowedOrigin,
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, X-Auth-Key, X-MinerU-Key, X-Doc2X-Key',
+      'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Range, X-Auth-Key, X-MinerU-Key, X-Doc2X-Key',
+      'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges',
       'Access-Control-Max-Age': '86400',
     },
   });
@@ -689,6 +690,7 @@ function jsonResponse(data, status, request, env) {
 
 /**
  * 代理下载远端 ZIP 并返回，附带 CORS 头部
+ * 支持 Range 请求以实现分片下载
  */
 async function handleProxyZip(zipUrl, request, env) {
   try {
@@ -696,8 +698,21 @@ async function handleProxyZip(zipUrl, request, env) {
       return jsonResponse({ error: 'url is required' }, 400, request, env);
     }
 
-    const resp = await fetch(zipUrl, { method: 'GET', redirect: 'follow' });
-    if (!resp.ok) {
+    // 构建上游请求头，透传 Range 头（支持分片下载）
+    const upstreamHeaders = {};
+    const rangeHeader = request.headers.get('Range');
+    if (rangeHeader) {
+      upstreamHeaders['Range'] = rangeHeader;
+      console.log('[Worker] Proxying Range request:', rangeHeader);
+    }
+
+    const resp = await fetch(zipUrl, {
+      method: request.method || 'GET',
+      headers: upstreamHeaders,
+      redirect: 'follow'
+    });
+
+    if (!resp.ok && resp.status !== 206) {
       return jsonResponse({ error: `Upstream fetch failed: ${resp.status} ${resp.statusText}` }, 502, request, env);
     }
 
@@ -713,17 +728,30 @@ async function handleProxyZip(zipUrl, request, env) {
       allowedOrigin = origin;
     }
 
-    const ct = resp.headers.get('Content-Type') || 'application/zip';
+    // 构建响应头
+    const responseHeaders = {
+      'Content-Type': resp.headers.get('Content-Type') || 'application/zip',
+      'Access-Control-Allow-Origin': allowedOrigin,
+      'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Range, X-Auth-Key, X-MinerU-Key, X-Doc2X-Key',
+      'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges',
+      'Cache-Control': 'no-store',
+    };
+
+    // 透传 Range 相关头部
+    if (resp.headers.has('Content-Length')) {
+      responseHeaders['Content-Length'] = resp.headers.get('Content-Length');
+    }
+    if (resp.headers.has('Content-Range')) {
+      responseHeaders['Content-Range'] = resp.headers.get('Content-Range');
+    }
+    if (resp.headers.has('Accept-Ranges')) {
+      responseHeaders['Accept-Ranges'] = resp.headers.get('Accept-Ranges');
+    }
+
     return new Response(resp.body, {
-      status: 200,
-      headers: {
-        'Content-Type': ct,
-        'Access-Control-Allow-Origin': allowedOrigin,
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, X-Auth-Key, X-MinerU-Key, X-Doc2X-Key',
-        // 可选：允许流式下载
-        'Cache-Control': 'no-store',
-      },
+      status: resp.status, // 保持原始状态码（200 或 206）
+      headers: responseHeaders,
     });
   } catch (e) {
     console.error('Proxy zip error:', e);
