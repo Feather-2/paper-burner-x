@@ -46,7 +46,10 @@
                                 <i class="fa fa-search"></i> 提取文献
                             </button>
                             <button id="ref-enrich-doi-btn" class="ref-btn ref-btn-success">
-                                <i class="fa fa-link"></i> 查询DOI
+                                <i class="fa fa-magic"></i> 丰富元数据
+                            </button>
+                            <button id="ref-enrich-config-btn" class="ref-btn" title="配置元数据更新策略">
+                                <i class="fa fa-cog"></i>
                             </button>
                             <button id="ref-add-btn" class="ref-btn">
                                 <i class="fa fa-plus"></i> 添加
@@ -218,9 +221,14 @@
                 this.extractReferences();
             });
 
-            // 查询DOI
+            // 丰富元数据
             document.getElementById('ref-enrich-doi-btn')?.addEventListener('click', () => {
-                this.enrichWithDOI();
+                this.enrichMetadata();
+            });
+
+            // 配置元数据更新策略
+            document.getElementById('ref-enrich-config-btn')?.addEventListener('click', () => {
+                this.showEnrichmentConfigModal();
             });
 
             // 添加文献
@@ -468,11 +476,189 @@
 
             console.log(`检测到 ${section.entries.length} 条文献`);
 
-            // 正则提取
-            const extracted = global.ReferenceExtractor.batchExtract(section.entries);
+            // 让用户选择提取方式
+            this.showExtractionMethodModal(section);
+        }
 
-            // 显示处理选项
-            this.showProcessingOptions(extracted);
+        /**
+         * 显示提取方式选择模态框
+         */
+        showExtractionMethodModal(section) {
+            // 创建模态框
+            const modal = document.createElement('div');
+            modal.className = 'reference-modal';
+            modal.style.display = 'flex';
+            modal.innerHTML = `
+                <div class="reference-modal-content reference-edit-content">
+                    <div class="reference-modal-header">
+                        <h2><i class="fa fa-search"></i> 选择提取方式</h2>
+                        <button class="reference-modal-close">&times;</button>
+                    </div>
+                    <div class="reference-edit-form">
+                        <div style="margin-bottom: 20px; padding: 15px; background: #f0f4f8; border-radius: 8px;">
+                            <p style="margin: 0 0 10px 0; color: #555;">
+                                <i class="fa fa-info-circle" style="color: #3b82f6;"></i>
+                                检测到 <strong>${section.entries.length}</strong> 条文献
+                            </p>
+                        </div>
+
+                        <div class="extraction-method-options">
+                            <div class="extraction-method-item" data-method="regex">
+                                <div class="method-icon">
+                                    <i class="fa fa-code"></i>
+                                </div>
+                                <div class="method-info">
+                                    <h3>正则表达式提取</h3>
+                                    <p>使用规则匹配，速度快，适合格式规范的文献</p>
+                                    <ul>
+                                        <li>✓ 速度快，无需API</li>
+                                        <li>✓ 支持标准格式（APA、IEEE等）</li>
+                                        <li>✗ 格式不规范时可能失败</li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <div class="extraction-method-item" data-method="ai">
+                                <div class="method-icon">
+                                    <i class="fa fa-magic"></i>
+                                </div>
+                                <div class="method-info">
+                                    <h3>AI智能提取</h3>
+                                    <p>使用AI理解文献内容，准确度高，适合任何格式</p>
+                                    <ul>
+                                        <li>✓ 支持任意格式</li>
+                                        <li>✓ 准确度高</li>
+                                        <li>✗ 需要API，速度较慢</li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <div class="extraction-method-item" data-method="hybrid">
+                                <div class="method-icon">
+                                    <i class="fa fa-bolt"></i>
+                                </div>
+                                <div class="method-info">
+                                    <h3>混合模式（推荐）</h3>
+                                    <p>先用正则提取，失败的文献再用AI处理</p>
+                                    <ul>
+                                        <li>✓ 兼顾速度和准确度</li>
+                                        <li>✓ 最大化成功率</li>
+                                        <li>✓ 节省API调用</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="reference-modal-footer">
+                        <div class="reference-footer-left"></div>
+                        <div class="reference-footer-right">
+                            <button id="extraction-cancel-btn" class="ref-btn">取消</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // 添加到页面
+            document.body.appendChild(modal);
+
+            // 绑定点击事件
+            modal.querySelectorAll('.extraction-method-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const method = item.dataset.method;
+                    document.body.removeChild(modal);
+                    this.startExtraction(section, method);
+                });
+            });
+
+            // 关闭按钮
+            modal.querySelector('.reference-modal-close').addEventListener('click', () => {
+                document.body.removeChild(modal);
+            });
+
+            modal.querySelector('#extraction-cancel-btn').addEventListener('click', () => {
+                document.body.removeChild(modal);
+            });
+
+            // 点击背景关闭
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    document.body.removeChild(modal);
+                }
+            });
+        }
+
+        /**
+         * 开始提取
+         */
+        async startExtraction(section, method) {
+            if (method === 'regex') {
+                // 纯正则提取
+                const extracted = global.ReferenceExtractor.batchExtract(section.entries);
+                this.saveExtractedReferences(extracted);
+            } else if (method === 'ai') {
+                // 纯AI提取
+                await this.extractWithAI(section.entries);
+            } else if (method === 'hybrid') {
+                // 混合模式
+                const extracted = global.ReferenceExtractor.batchExtract(section.entries);
+                const needsAI = extracted.filter(e => e.needsAIProcessing);
+
+                if (needsAI.length > 0) {
+                    const message = `正则成功提取: ${extracted.length - needsAI.length} 条\n` +
+                                  `需要AI处理: ${needsAI.length} 条\n\n` +
+                                  `是否继续使用AI处理剩余文献？`;
+
+                    if (confirm(message)) {
+                        await this.processWithAI(extracted);
+                    } else {
+                        this.saveExtractedReferences(extracted);
+                    }
+                } else {
+                    this.saveExtractedReferences(extracted);
+                }
+            }
+        }
+
+        /**
+         * 纯AI提取
+         */
+        async extractWithAI(entries) {
+            // 获取API配置
+            const apiConfig = await this.getAPIConfig();
+            if (!apiConfig) {
+                alert('请先配置AI模型');
+                return;
+            }
+
+            // 显示进度
+            this.showProgress('正在使用AI提取文献...');
+
+            try {
+                // 创建原始引用对象
+                const rawReferences = entries.map(entry => ({
+                    rawText: entry.text,
+                    lineStart: entry.lineStart,
+                    lineEnd: entry.lineEnd,
+                    needsAIProcessing: true
+                }));
+
+                const processed = await global.ReferenceAIProcessor.smartProcessReferences(
+                    rawReferences,
+                    apiConfig,
+                    'auto',
+                    (progress) => {
+                        this.updateProgress(
+                            `处理进度: ${progress.processed}/${progress.total} (${progress.batchIndex + 1}/${progress.totalBatches} 批)`
+                        );
+                    }
+                );
+
+                this.hideProgress();
+                this.saveExtractedReferences(processed);
+            } catch (error) {
+                this.hideProgress();
+                alert('AI处理失败: ' + error.message);
+            }
         }
 
         /**
@@ -998,76 +1184,383 @@
             }
         }
 
-        async enrichWithDOI() {
-    if (!this.references || this.references.length === 0) {
-        alert('请先提取文献');
-        return;
-    }
-    if (!window.DOIResolver) {
-        alert('DOI解析器未加载');
-        return;
-    }
-    const needsDOI = this.references.filter(ref => !ref.doi && ref.title);
-    if (needsDOI.length === 0) {
-        alert('所有文献都已有DOI');
-        return;
-    }
-    const confirmed = confirm(`检测到 ${needsDOI.length} 条文献缺失DOI\n将通过 CrossRef、OpenAlex、arXiv、PubMed 并发查询\n失败的文献将使用 Semantic Scholar 托底\n\n是否继续？`);
-    if (!confirmed) return;
-    this.showProgress(`准备查询 ${needsDOI.length} 条文献的DOI...`);
-    try {
-        // 创建resolver，让它根据配置自动计算最优参数
-        const resolver = window.DOIResolver.create();
-        const results = await resolver.batchResolve(needsDOI, (progress) => {
-            if (progress.phase === 'fallback') {
-                this.updateProgress(`Semantic Scholar 托底查询中...`);
-            } else {
-                this.updateProgress(`正在查询 DOI: ${progress.completed}/${progress.total}`);
-            }
-        });
-        this.hideProgress();
-        let successCount = 0;
-        let fallbackCount = 0;
-        results.forEach(result => {
-            if (result.success && result.resolved) {
-                const originalRef = this.references.find(r => r === result.original);
-                if (originalRef) {
-                    // 检查是否是fallback（Google搜索链接）
-                    if (result.resolved.fallback) {
-                        originalRef.doiFallback = true;
-                        originalRef.doiFallbackUrl = result.resolved.url;
-                        originalRef.doiFallbackMessage = result.resolved.message;
-                        fallbackCount++;
-                    } else if (result.resolved.doi) {
-                        originalRef.doi = result.resolved.doi;
-                        originalRef.url = result.resolved.url || originalRef.url;
-                        if (!originalRef.authors && result.resolved.authors) originalRef.authors = result.resolved.authors;
-                        if (!originalRef.year && result.resolved.year) originalRef.year = result.resolved.year;
-                        if (!originalRef.journal && result.resolved.journal) originalRef.journal = result.resolved.journal;
-                        if (!originalRef.abstract && result.resolved.abstract) originalRef.abstract = result.resolved.abstract;
-                        successCount++;
-                    }
-                }
-            }
-        });
-        await global.ReferenceStorage.saveReferences(this.currentDocumentId, this.references, { updatedAt: new Date().toISOString(), doiEnriched: true });
-        await this.loadReferences();
+        /**
+         * 显示元数据更新策略配置模态框
+         */
+        showEnrichmentConfigModal() {
+            const config = this.getEnrichmentConfig();
 
-        let message = `DOI查询完成\n\n成功: ${successCount}/${needsDOI.length}`;
-        if (fallbackCount > 0) {
-            message += `\n未找到: ${fallbackCount}（已生成搜索链接）`;
+            const modal = document.createElement('div');
+            modal.className = 'ref-modal';
+            modal.innerHTML = `
+                <div class="ref-modal-content" style="max-width: 600px;">
+                    <div class="ref-modal-header">
+                        <h3><i class="fa fa-cog"></i> 元数据更新策略配置</h3>
+                        <button class="ref-modal-close">&times;</button>
+                    </div>
+                    <div class="ref-modal-body">
+                        <div class="enrichment-config-section">
+                            <p class="enrichment-config-desc">
+                                <i class="fa fa-info-circle"></i>
+                                配置从外部数据源获取数据后，如何更新现有文献的各个字段
+                            </p>
+
+                            <div class="enrichment-field-config">
+                                <div class="field-config-item">
+                                    <label>
+                                        <strong><i class="fa fa-link"></i> DOI</strong>
+                                        <span class="field-desc">数字对象标识符</span>
+                                    </label>
+                                    <select id="config-doi" data-field="doi">
+                                        <option value="always" ${config.doi === 'always' ? 'selected' : ''}>总是更新</option>
+                                        <option value="if_empty" ${config.doi === 'if_empty' ? 'selected' : ''}>仅为空时更新</option>
+                                        <option value="keep_original" ${config.doi === 'keep_original' ? 'selected' : ''}>保持原数据</option>
+                                    </select>
+                                </div>
+
+                                <div class="field-config-item">
+                                    <label>
+                                        <strong><i class="fa fa-file-text-o"></i> 摘要</strong>
+                                        <span class="field-desc">文献摘要信息</span>
+                                    </label>
+                                    <select id="config-abstract" data-field="abstract">
+                                        <option value="always" ${config.abstract === 'always' ? 'selected' : ''}>总是更新</option>
+                                        <option value="if_empty" ${config.abstract === 'if_empty' ? 'selected' : ''}>仅为空时更新</option>
+                                        <option value="prefer_new" ${config.abstract === 'prefer_new' ? 'selected' : ''}>优先新数据</option>
+                                        <option value="keep_original" ${config.abstract === 'keep_original' ? 'selected' : ''}>保持原数据</option>
+                                    </select>
+                                </div>
+
+                                <div class="field-config-item">
+                                    <label>
+                                        <strong><i class="fa fa-user"></i> 作者</strong>
+                                        <span class="field-desc">文献作者列表</span>
+                                    </label>
+                                    <select id="config-authors" data-field="authors">
+                                        <option value="always" ${config.authors === 'always' ? 'selected' : ''}>总是更新</option>
+                                        <option value="if_empty" ${config.authors === 'if_empty' ? 'selected' : ''}>仅为空时更新</option>
+                                        <option value="prefer_new" ${config.authors === 'prefer_new' ? 'selected' : ''}>优先新数据</option>
+                                        <option value="keep_original" ${config.authors === 'keep_original' ? 'selected' : ''}>保持原数据</option>
+                                    </select>
+                                </div>
+
+                                <div class="field-config-item">
+                                    <label>
+                                        <strong><i class="fa fa-calendar"></i> 年份</strong>
+                                        <span class="field-desc">发表年份</span>
+                                    </label>
+                                    <select id="config-year" data-field="year">
+                                        <option value="always" ${config.year === 'always' ? 'selected' : ''}>总是更新</option>
+                                        <option value="if_empty" ${config.year === 'if_empty' ? 'selected' : ''}>仅为空时更新</option>
+                                        <option value="prefer_new" ${config.year === 'prefer_new' ? 'selected' : ''}>优先新数据</option>
+                                        <option value="keep_original" ${config.year === 'keep_original' ? 'selected' : ''}>保持原数据</option>
+                                    </select>
+                                </div>
+
+                                <div class="field-config-item">
+                                    <label>
+                                        <strong><i class="fa fa-book"></i> 期刊/会议</strong>
+                                        <span class="field-desc">发表期刊或会议名称</span>
+                                    </label>
+                                    <select id="config-journal" data-field="journal">
+                                        <option value="always" ${config.journal === 'always' ? 'selected' : ''}>总是更新</option>
+                                        <option value="if_empty" ${config.journal === 'if_empty' ? 'selected' : ''}>仅为空时更新</option>
+                                        <option value="prefer_new" ${config.journal === 'prefer_new' ? 'selected' : ''}>优先新数据</option>
+                                        <option value="keep_original" ${config.journal === 'keep_original' ? 'selected' : ''}>保持原数据</option>
+                                    </select>
+                                </div>
+
+                                <div class="field-config-item">
+                                    <label>
+                                        <strong><i class="fa fa-link"></i> URL</strong>
+                                        <span class="field-desc">文献访问链接</span>
+                                    </label>
+                                    <select id="config-url" data-field="url">
+                                        <option value="always" ${config.url === 'always' ? 'selected' : ''}>总是更新</option>
+                                        <option value="if_empty" ${config.url === 'if_empty' ? 'selected' : ''}>仅为空时更新</option>
+                                        <option value="prefer_new" ${config.url === 'prefer_new' ? 'selected' : ''}>优先新数据</option>
+                                        <option value="keep_original" ${config.url === 'keep_original' ? 'selected' : ''}>保持原数据</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="enrichment-strategy-legend">
+                                <h4>更新策略说明：</h4>
+                                <ul>
+                                    <li><strong>总是更新：</strong>用新数据覆盖现有数据（推荐用于DOI）</li>
+                                    <li><strong>仅为空时更新：</strong>只有字段为空时才填充（保守策略）</li>
+                                    <li><strong>优先新数据：</strong>新数据更完整时使用新数据（智能策略）</li>
+                                    <li><strong>保持原数据：</strong>不更新该字段（保护原始数据）</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="ref-modal-footer">
+                        <button class="ref-btn" id="enrichment-config-reset">
+                            <i class="fa fa-undo"></i> 恢复默认
+                        </button>
+                        <button class="ref-btn ref-btn-primary" id="enrichment-config-save">
+                            <i class="fa fa-save"></i> 保存配置
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            // 绑定事件
+            modal.querySelector('.ref-modal-close').addEventListener('click', () => modal.remove());
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) modal.remove();
+            });
+
+            // 恢复默认
+            document.getElementById('enrichment-config-reset').addEventListener('click', () => {
+                const defaultConfig = this.getDefaultEnrichmentConfig();
+                Object.keys(defaultConfig).forEach(field => {
+                    const select = modal.querySelector(`[data-field="${field}"]`);
+                    if (select) select.value = defaultConfig[field];
+                });
+            });
+
+            // 保存配置
+            document.getElementById('enrichment-config-save').addEventListener('click', () => {
+                const newConfig = {};
+                modal.querySelectorAll('[data-field]').forEach(select => {
+                    newConfig[select.dataset.field] = select.value;
+                });
+                this.saveEnrichmentConfig(newConfig);
+                alert('配置已保存');
+                modal.remove();
+            });
         }
-        const failedCount = needsDOI.length - successCount - fallbackCount;
-        if (failedCount > 0) {
-            message += `\n失败: ${failedCount}`;
+
+        /**
+         * 获取默认元数据更新策略
+         */
+        getDefaultEnrichmentConfig() {
+            return {
+                doi: 'always',          // DOI总是更新
+                abstract: 'if_empty',   // 摘要仅为空时更新
+                authors: 'if_empty',    // 作者仅为空时更新
+                year: 'if_empty',       // 年份仅为空时更新
+                journal: 'prefer_new',  // 期刊优先新数据
+                url: 'if_empty'         // URL仅为空时更新
+            };
         }
-        alert(message);
-    } catch (error) {
-        this.hideProgress();
-        alert('DOI查询失败: ' + error.message);
-        console.error('[ReferenceManagerUI] DOI enrichment failed:', error);
-    }
-}
+
+        /**
+         * 获取元数据更新策略配置
+         */
+        getEnrichmentConfig() {
+            try {
+                const saved = localStorage.getItem('referenceEnrichmentConfig');
+                return saved ? JSON.parse(saved) : this.getDefaultEnrichmentConfig();
+            } catch (error) {
+                console.warn('[ReferenceManagerUI] Failed to load enrichment config:', error);
+                return this.getDefaultEnrichmentConfig();
+            }
+        }
+
+        /**
+         * 保存元数据更新策略配置
+         */
+        saveEnrichmentConfig(config) {
+            try {
+                localStorage.setItem('referenceEnrichmentConfig', JSON.stringify(config));
+            } catch (error) {
+                console.error('[ReferenceManagerUI] Failed to save enrichment config:', error);
+            }
+        }
+
+        /**
+         * 丰富元数据（新版）
+         */
+        async enrichMetadata() {
+            if (!this.references || this.references.length === 0) {
+                alert('请先提取文献');
+                return;
+            }
+            if (!window.DOIResolver) {
+                alert('DOI解析器未加载');
+                return;
+            }
+
+            // 获取配置
+            const config = this.getEnrichmentConfig();
+
+            // 根据配置决定需要更新的文献
+            const needsEnrichment = this.references.filter(ref => {
+                if (!ref.title) return false;
+
+                // 检查是否有任何字段需要更新
+                return (
+                    (config.doi !== 'keep_original' && (!ref.doi || config.doi === 'always')) ||
+                    (config.abstract !== 'keep_original' && (!ref.abstract || config.abstract === 'always' || config.abstract === 'prefer_new')) ||
+                    (config.authors !== 'keep_original' && (!ref.authors || config.authors === 'always' || config.authors === 'prefer_new')) ||
+                    (config.year !== 'keep_original' && (!ref.year || config.year === 'always' || config.year === 'prefer_new')) ||
+                    (config.journal !== 'keep_original' && (!ref.journal || config.journal === 'always' || config.journal === 'prefer_new'))
+                );
+            });
+
+            if (needsEnrichment.length === 0) {
+                alert('根据当前配置，没有文献需要丰富元数据');
+                return;
+            }
+
+            // 构建确认消息
+            let strategyMsg = '更新策略：\n';
+            Object.keys(config).forEach(field => {
+                const label = {
+                    doi: 'DOI',
+                    abstract: '摘要',
+                    authors: '作者',
+                    year: '年份',
+                    journal: '期刊',
+                    url: 'URL'
+                }[field] || field;
+                const strategy = {
+                    always: '总是更新',
+                    if_empty: '仅为空时更新',
+                    prefer_new: '优先新数据',
+                    keep_original: '保持原数据'
+                }[config[field]] || config[field];
+                strategyMsg += `${label}: ${strategy}\n`;
+            });
+
+            const confirmed = confirm(
+                `检测到 ${needsEnrichment.length}/${this.references.length} 条文献需要丰富元数据\n\n` +
+                `${strategyMsg}\n` +
+                `将通过 CrossRef、OpenAlex、arXiv、PubMed 并发查询\n` +
+                `失败的文献将使用 Semantic Scholar 托底\n\n` +
+                `是否继续？`
+            );
+
+            if (!confirmed) return;
+
+            this.showProgress(`准备丰富 ${needsEnrichment.length} 条文献的元数据...`);
+
+            try {
+                // 创建resolver
+                const resolver = window.DOIResolver.create();
+                const results = await resolver.batchResolve(needsEnrichment, (progress) => {
+                    if (progress.phase === 'fallback') {
+                        this.updateProgress(`Semantic Scholar 托底查询中...`);
+                    } else {
+                        this.updateProgress(`正在丰富元数据: ${progress.completed}/${progress.total}`);
+                    }
+                });
+
+                this.hideProgress();
+
+                let successCount = 0;
+                let fallbackCount = 0;
+
+                // 应用更新策略
+                results.forEach(result => {
+                    if (result.success && result.resolved) {
+                        const originalRef = this.references.find(r => r === result.original);
+                        if (originalRef) {
+                            // 检查是否是fallback（Google搜索链接）
+                            if (result.resolved.fallback) {
+                                originalRef.doiFallback = true;
+                                originalRef.doiFallbackUrl = result.resolved.url;
+                                originalRef.doiFallbackMessage = result.resolved.message;
+                                fallbackCount++;
+                            } else {
+                                // 应用字段更新策略
+                                const resolved = result.resolved;
+
+                                // DOI
+                                if (resolved.doi && this.shouldUpdateField(originalRef, 'doi', resolved.doi, config.doi)) {
+                                    originalRef.doi = resolved.doi;
+                                    successCount++;
+                                }
+
+                                // 摘要
+                                if (resolved.abstract && this.shouldUpdateField(originalRef, 'abstract', resolved.abstract, config.abstract)) {
+                                    originalRef.abstract = resolved.abstract;
+                                }
+
+                                // 作者
+                                if (resolved.authors && this.shouldUpdateField(originalRef, 'authors', resolved.authors, config.authors)) {
+                                    originalRef.authors = resolved.authors;
+                                }
+
+                                // 年份
+                                if (resolved.year && this.shouldUpdateField(originalRef, 'year', resolved.year, config.year)) {
+                                    originalRef.year = resolved.year;
+                                }
+
+                                // 期刊
+                                if (resolved.journal && this.shouldUpdateField(originalRef, 'journal', resolved.journal, config.journal)) {
+                                    originalRef.journal = resolved.journal;
+                                }
+
+                                // URL
+                                if (resolved.url && this.shouldUpdateField(originalRef, 'url', resolved.url, config.url)) {
+                                    originalRef.url = resolved.url;
+                                }
+                            }
+                        }
+                    }
+                });
+
+                await global.ReferenceStorage.saveReferences(this.currentDocumentId, this.references, {
+                    updatedAt: new Date().toISOString(),
+                    metadataEnriched: true
+                });
+                await this.loadReferences();
+
+                let message = `元数据丰富完成\n\n成功: ${successCount}/${needsEnrichment.length}`;
+                if (fallbackCount > 0) {
+                    message += `\n未找到: ${fallbackCount}（已生成搜索链接）`;
+                }
+                const failedCount = needsEnrichment.length - successCount - fallbackCount;
+                if (failedCount > 0) {
+                    message += `\n失败: ${failedCount}`;
+                }
+                alert(message);
+            } catch (error) {
+                this.hideProgress();
+                alert('元数据丰富失败: ' + error.message);
+                console.error('[ReferenceManagerUI] Metadata enrichment failed:', error);
+            }
+        }
+
+        /**
+         * 判断是否应该更新字段
+         */
+        shouldUpdateField(originalRef, fieldName, newValue, strategy) {
+            const originalValue = originalRef[fieldName];
+
+            switch (strategy) {
+                case 'always':
+                    return true;
+
+                case 'if_empty':
+                    return !originalValue || (Array.isArray(originalValue) && originalValue.length === 0);
+
+                case 'prefer_new':
+                    // 如果原值为空，使用新值
+                    if (!originalValue || (Array.isArray(originalValue) && originalValue.length === 0)) {
+                        return true;
+                    }
+                    // 如果新值更完整（例如作者列表更长），使用新值
+                    if (Array.isArray(newValue) && Array.isArray(originalValue)) {
+                        return newValue.length > originalValue.length;
+                    }
+                    // 如果新值更长（例如摘要更详细），使用新值
+                    if (typeof newValue === 'string' && typeof originalValue === 'string') {
+                        return newValue.length > originalValue.length * 1.2; // 至少长20%才算更完整
+                    }
+                    return false;
+
+                case 'keep_original':
+                default:
+                    return false;
+            }
+        }
     }
 
     // 创建全局实例
