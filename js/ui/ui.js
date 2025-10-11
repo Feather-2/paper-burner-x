@@ -1587,7 +1587,9 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('mineru-save-km').onclick = () => {
             const selectedMode = document.querySelector('input[name="mineru-token-mode"]:checked').value;
 
-            localStorage.setItem('ocrMinerUWorkerUrl', document.getElementById('mineru-worker-url-km').value.trim());
+            // 去掉末尾斜杠
+            const workerUrl = document.getElementById('mineru-worker-url-km').value.trim().replace(/\/+$/, '');
+            localStorage.setItem('ocrMinerUWorkerUrl', workerUrl);
             localStorage.setItem('ocrWorkerAuthKey', document.getElementById('mineru-auth-key-km').value.trim());
             localStorage.setItem('ocrMinerUTokenMode', selectedMode);
 
@@ -1836,7 +1838,9 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('doc2x-save-km').onclick = () => {
             const selectedMode = document.querySelector('input[name="doc2x-token-mode"]:checked').value;
 
-            localStorage.setItem('ocrDoc2XWorkerUrl', document.getElementById('doc2x-worker-url-km').value.trim());
+            // 去掉末尾斜杠
+            const workerUrl = document.getElementById('doc2x-worker-url-km').value.trim().replace(/\/+$/, '');
+            localStorage.setItem('ocrDoc2XWorkerUrl', workerUrl);
             localStorage.setItem('ocrWorkerAuthKey', document.getElementById('doc2x-auth-key-km').value.trim());
             localStorage.setItem('ocrDoc2XTokenMode', selectedMode);
 

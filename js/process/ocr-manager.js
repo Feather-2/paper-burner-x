@@ -86,7 +86,7 @@ class OcrManager {
         return {
           engine: 'mineru',
           token: localStorage.getItem('ocrMinerUToken') || '',
-          workerUrl: localStorage.getItem('ocrMinerUWorkerUrl') || '',
+          workerUrl: (localStorage.getItem('ocrMinerUWorkerUrl') || '').replace(/\/+$/, ''), // 去掉末尾斜杠
           authKey: localStorage.getItem('ocrWorkerAuthKey') || '',
           tokenMode: localStorage.getItem('ocrMinerUTokenMode') || 'frontend',
           enableOcr: localStorage.getItem('ocrMinerUEnableOcr') !== 'false',
@@ -98,7 +98,7 @@ class OcrManager {
         return {
           engine: 'doc2x',
           token: localStorage.getItem('ocrDoc2XToken') || '',
-          workerUrl: localStorage.getItem('ocrDoc2XWorkerUrl') || '',
+          workerUrl: (localStorage.getItem('ocrDoc2XWorkerUrl') || '').replace(/\/+$/, ''), // 去掉末尾斜杠
           authKey: localStorage.getItem('ocrWorkerAuthKey') || '',
           tokenMode: localStorage.getItem('ocrDoc2XTokenMode') || 'frontend'
           // 注意：不再需要 exportFormat，因为我们总是导出 Markdown + 图片

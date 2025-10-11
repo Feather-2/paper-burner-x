@@ -412,7 +412,7 @@ class OcrSettingsManager {
         return {
           engine: 'mineru',
           token: localStorage.getItem(this.keys.mineruToken) || '',
-          workerUrl: localStorage.getItem(this.keys.mineruWorkerUrl) || '',
+          workerUrl: (localStorage.getItem(this.keys.mineruWorkerUrl) || '').replace(/\/+$/, ''), // 去掉末尾斜杠
           authKey: localStorage.getItem(this.keys.workerAuthKey) || '',
           tokenMode: localStorage.getItem(this.keys.mineruTokenMode) || 'frontend',
           enableOcr: localStorage.getItem(this.keys.mineruEnableOcr) !== 'false',
@@ -425,7 +425,7 @@ class OcrSettingsManager {
         return {
           engine: 'doc2x',
           token: localStorage.getItem(this.keys.doc2xToken) || '',
-          workerUrl: localStorage.getItem(this.keys.doc2xWorkerUrl) || '',
+          workerUrl: (localStorage.getItem(this.keys.doc2xWorkerUrl) || '').replace(/\/+$/, ''), // 去掉末尾斜杠
           authKey: localStorage.getItem(this.keys.workerAuthKey) || '',
           tokenMode: localStorage.getItem(this.keys.doc2xTokenMode) || 'frontend',
           formulaMode: localStorage.getItem(this.keys.doc2xFormulaMode) || 'dollar',
