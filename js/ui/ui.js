@@ -105,6 +105,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // ===== 模型管理器初始化 (使用新的模块化代码) =====
     const modelKeyManagerBtn = document.getElementById('modelKeyManagerBtn');
     const modelKeyManagerModal = document.getElementById('modelKeyManagerModal');
     const closeModelKeyManager = document.getElementById('closeModelKeyManager');
@@ -113,282 +114,38 @@ document.addEventListener('DOMContentLoaded', function() {
     const keyManagerColumn = document.getElementById('keyManagerColumn');
 
     let currentManagerUI = null;
-    let selectedModelForManager = null;
-    let currentSelectedSourceSiteId = null; // 新增: 当前选中的自定义源站ID
+    let currentSelectedSourceSiteId = null; // 用于自定义源站选择
 
-    const supportedModelsForKeyManager = [
-        // local 不需要配置，从列表中移除
-        { key: 'mistral', name: 'Mistral OCR', group: 'ocr' },
-        { key: 'mineru', name: 'MinerU OCR', group: 'ocr' },
-        { key: 'doc2x', name: 'Doc2X OCR', group: 'ocr' },
-        { key: 'deepseek', name: 'DeepSeek 翻译', group: 'translation' },
-        { key: 'gemini', name: 'Gemini 翻译', group: 'translation' },
-        { key: 'tongyi', name: '通义百炼', group: 'translation' },
-        { key: 'volcano', name: '火山引擎', group: 'translation' },
-        { key: 'deeplx', name: 'DeepLX (DeepL 接口)', group: 'translation' },
-        { key: 'custom', name: '自定义翻译模型', group: 'translation' },
-        { key: 'embedding', name: '向量搜索与重排', group: 'search' },
-        { key: 'academicSearch', name: '学术搜索与代理', group: 'search' }
-    ];
-
-    if (modelKeyManagerBtn && modelKeyManagerModal && closeModelKeyManager && modelListColumn && modelConfigColumn && keyManagerColumn) {
-        modelKeyManagerBtn.addEventListener('click', function() {
-            if (typeof migrateLegacyCustomConfig === 'function') { // 确保迁移已执行
-                migrateLegacyCustomConfig();
-            }
-            renderModelList();
-            if (!selectedModelForManager && supportedModelsForKeyManager.length > 0) {
-                selectModelForManager(supportedModelsForKeyManager[0].key);
-            } else if (selectedModelForManager) {
-                selectModelForManager(selectedModelForManager);
-            }
-            modelKeyManagerModal.classList.remove('hidden');
-        });
-        closeModelKeyManager.addEventListener('click', function() {
-            modelKeyManagerModal.classList.add('hidden');
-            currentSelectedSourceSiteId = null; // 重置选中源站
-
-            // 提示用户是否刷新验证状态
-            setTimeout(() => {
-                if (confirm('已关闭模型与Key管理。是否刷新验证状态以更新配置检查？')) {
-                    if (typeof window.refreshValidationState === 'function') {
-                        window.refreshValidationState();
-                    }
-                }
-            }, 100);
+    // 使用新的模型管理器模块
+    if (window.modelManager) {
+        window.modelManager.init({
+            modelKeyManagerBtn,
+            modelKeyManagerModal,
+            closeModelKeyManager,
+            modelListColumn,
+            modelConfigColumn,
+            keyManagerColumn
         });
     }
 
+    // 向后兼容：保留这些变量和函数供其他代码使用
+    let selectedModelForManager = window.modelManager ? window.modelManager.getSelectedModel() : null;
+    const supportedModelsForKeyManager = window.supportedModelsForKeyManager || [];
+
+    // 渲染模型列表 (委托给模块)
     function renderModelList() {
-        modelListColumn.innerHTML = '';
-
-        const modelHasValidKey = {};
-        const hasUsableKey = (keys = []) => keys.some(k => k && k.value && k.value.trim() && k.status !== 'invalid');
-
-        supportedModelsForKeyManager.forEach(model => {
-            // Embedding: 使用 EmbeddingClient 配置
-            if (model.key === 'embedding') {
-                modelHasValidKey[model.key] = !!(window.EmbeddingClient?.config?.enabled && window.EmbeddingClient?.config?.apiKey);
-                return;
-            }
-
-            // AcademicSearch: 检查代理配置
-            if (model.key === 'academicSearch') {
-                try {
-                    const config = JSON.parse(localStorage.getItem('academicSearchProxyConfig') || 'null');
-                    modelHasValidKey[model.key] = !!(config && config.enabled && config.baseUrl);
-                } catch (e) {
-                    modelHasValidKey[model.key] = false;
-                }
-                return;
-            }
-
-            // 自定义源站：任意源站有可用 Key 即视为配置完成
-            if (model.key === 'custom') {
-                let anyCustomKey = false;
-                const sites = typeof loadAllCustomSourceSites === 'function' ? loadAllCustomSourceSites() : {};
-                if (typeof loadModelKeys === 'function') {
-                    Object.keys(sites || {}).forEach(siteId => {
-                        const siteKeys = loadModelKeys(`custom_source_${siteId}`) || [];
-                        if (hasUsableKey(siteKeys)) anyCustomKey = true;
-                    });
-                }
-                modelHasValidKey[model.key] = anyCustomKey;
-                return;
-            }
-
-            // OCR 引擎的配置检查
-            if (model.group === 'ocr') {
-                if (model.key === 'local') {
-                    // 本地解析不需要配置
-                    modelHasValidKey[model.key] = true;
-                } else if (model.key === 'mistral') {
-                    if (typeof loadModelKeys === 'function') {
-                        const keys = loadModelKeys('mistral') || [];
-                        modelHasValidKey[model.key] = hasUsableKey(keys);
-                    } else {
-                        // 回退：旧版多行文本
-                        const legacy = (localStorage.getItem('ocrMistralKeys') || '').split('\n').map(s => s.trim()).filter(Boolean);
-                        modelHasValidKey[model.key] = legacy.length > 0;
-                    }
-                } else if (model.key === 'mineru') {
-                    const workerUrl = (localStorage.getItem('ocrMinerUWorkerUrl') || '').trim();
-                    const mode = localStorage.getItem('ocrMinerUTokenMode') || 'frontend';
-                    const token = (localStorage.getItem('ocrMinerUToken') || '').trim();
-                    modelHasValidKey[model.key] = !!workerUrl && (mode === 'worker' || !!token);
-                } else if (model.key === 'doc2x') {
-                    const workerUrl = (localStorage.getItem('ocrDoc2XWorkerUrl') || '').trim();
-                    const mode = localStorage.getItem('ocrDoc2XTokenMode') || 'frontend';
-                    const token = (localStorage.getItem('ocrDoc2XToken') || '').trim();
-                    modelHasValidKey[model.key] = !!workerUrl && (mode === 'worker' || !!token);
-                } else {
-                    modelHasValidKey[model.key] = false;
-                }
-                return;
-            }
-
-            // 其他预设翻译模型：使用 Key 池
-            if (typeof loadModelKeys === 'function') {
-                const keys = loadModelKeys(model.key) || [];
-                modelHasValidKey[model.key] = hasUsableKey(keys);
-            } else {
-                modelHasValidKey[model.key] = false;
-            }
-        });
-
-        const hasMistralKey = !!modelHasValidKey['mistral'];
-        const hasLocalConfig = !!modelHasValidKey['local'];
-        const hasMinerUConfig = !!modelHasValidKey['mineru'];
-        const hasDoc2XConfig = !!modelHasValidKey['doc2x'];
-
-        // 检查当前选择的 OCR 引擎是否配置完整
-        let currentOcrEngine = 'mistral';
-        let currentOcrConfigured = false;
-        try {
-            if (window.ocrSettingsManager && typeof window.ocrSettingsManager.getCurrentConfig === 'function') {
-                currentOcrEngine = window.ocrSettingsManager.getCurrentConfig().engine || (localStorage.getItem('ocrEngine') || 'mistral');
-            } else {
-                currentOcrEngine = localStorage.getItem('ocrEngine') || 'mistral';
-            }
-
-            // 检查当前引擎是否配置完整
-            if (currentOcrEngine === 'none') {
-                currentOcrConfigured = true; // "不需要 OCR" 始终配置完整
-            } else if (currentOcrEngine === 'local') {
-                currentOcrConfigured = true; // "本地解析" 不需要配置
-            } else if (currentOcrEngine === 'mistral') {
-                currentOcrConfigured = hasMistralKey;
-            } else if (currentOcrEngine === 'mineru') {
-                currentOcrConfigured = hasMinerUConfig;
-            } else if (currentOcrEngine === 'doc2x') {
-                currentOcrConfigured = hasDoc2XConfig;
-            }
-        } catch (e) {
-            console.warn('[UI] Failed to check OCR config:', e);
+        if (window.modelManager) {
+            window.modelManager.renderModelList();
         }
-
-        const translationHasKey = supportedModelsForKeyManager
-            .filter(m => m.group === 'translation')
-            .some(m => modelHasValidKey[m.key]);
-
-        const headerSection = document.createElement('div');
-        headerSection.className = 'mb-3 space-y-1';
-
-        const importExportRow = document.createElement('div');
-        importExportRow.className = 'flex items-center gap-2 px-1';
-
-        const exportIconBtn = document.createElement('button');
-        exportIconBtn.type = 'button';
-        exportIconBtn.innerHTML = '<iconify-icon icon="carbon:export" width="16"></iconify-icon><span class="ml-1">导出全部</span>';
-        exportIconBtn.className = 'px-2 py-1 text-xs rounded-md border border-slate-200 hover:border-blue-300 text-slate-600 transition-colors flex items-center';
-        exportIconBtn.addEventListener('click', () => {
-            KeyManagerUI.exportAllModelData();
-        });
-
-        const importIconBtn = document.createElement('button');
-        importIconBtn.type = 'button';
-        importIconBtn.innerHTML = '<iconify-icon icon="carbon:import-export" width="16"></iconify-icon><span class="ml-1">导入全部</span>';
-        importIconBtn.className = 'px-2 py-1 text-xs rounded-md border border-slate-200 hover:border-blue-300 text-slate-600 transition-colors flex items-center';
-        importIconBtn.addEventListener('click', () => {
-            KeyManagerUI.importAllModelData(() => {
-                if (typeof renderModelList === 'function') renderModelList();
-                if (typeof keyManagerColumn !== 'undefined' && typeof selectedModelForManager !== 'undefined') {
-                    renderKeyManagerForModel(selectedModelForManager);
-                }
-            });
-        });
-
-        importExportRow.appendChild(exportIconBtn);
-        importExportRow.appendChild(importIconBtn);
-        headerSection.appendChild(importExportRow);
-
-        const importExportHint = document.createElement('div');
-        importExportHint.className = 'text-[11px] text-slate-500 px-1';
-        importExportHint.textContent = '配置文件为 Paper Burner X 专用 JSON。';
-        headerSection.appendChild(importExportHint);
-        modelListColumn.appendChild(headerSection);
-
-        const divider = document.createElement('div');
-        divider.className = 'border-t border-dashed border-slate-200 my-3';
-        modelListColumn.appendChild(divider);
-
-        if (!currentOcrConfigured && currentOcrEngine !== 'none' && currentOcrEngine !== 'local') {
-            const ocrWarning = document.createElement('div');
-            ocrWarning.className = 'mb-3 text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2 flex items-start gap-2';
-            const engineNames = { mistral: 'Mistral OCR', mineru: 'MinerU', doc2x: 'Doc2X' };
-            const engineName = engineNames[currentOcrEngine] || currentOcrEngine;
-            ocrWarning.innerHTML = `<iconify-icon icon="carbon:warning" width="14"></iconify-icon><span>当前 OCR 引擎（${engineName}）未配置完成，无法进行 PDF 的 OCR 操作。</span>`;
-            modelListColumn.appendChild(ocrWarning);
-        }
-
-        if (!translationHasKey) {
-            const translationWarning = document.createElement('div');
-            translationWarning.className = 'mb-3 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-3 py-2 flex items-start gap-2';
-            translationWarning.innerHTML = '<iconify-icon icon="carbon:warning" width="14"></iconify-icon><span>当前无有效翻译 Key，无法进行翻译操作。</span>';
-            modelListColumn.appendChild(translationWarning);
-        }
-
-        const sections = [
-            { title: '所有 OCR 方式', group: 'ocr', className: 'mt-4 mb-2' },
-            { title: '翻译和分析 API', group: 'translation', className: 'mt-5 mb-2' },
-            { title: '搜索和检索', group: 'search', className: 'mt-5 mb-2' }
-        ];
-
-        sections.forEach((section, idx) => {
-            const header = document.createElement('div');
-            header.className = `text-xs font-semibold text-slate-500 uppercase tracking-wide px-1 ${section.className || ''}`;
-            header.textContent = section.title;
-            modelListColumn.appendChild(header);
-
-            supportedModelsForKeyManager
-                .filter(model => model.group === section.group)
-                .forEach(model => {
-                    const button = document.createElement('button');
-                    button.dataset.modelKey = model.key;
-                    button.className = 'w-full text-left px-3 py-2 text-sm rounded-md transition-colors ';
-                    const indicator = modelHasValidKey[model.key]
-                        ? '<span class="inline-block w-1.5 h-1.5 mr-2 rounded-full bg-emerald-500"></span>'
-                        : '<span class="inline-block w-1.5 h-1.5 mr-2 rounded-full bg-slate-300"></span>';
-                    button.innerHTML = indicator + model.name;
-                    if (model.key === selectedModelForManager) {
-                        button.classList.add('bg-blue-100', 'text-blue-700', 'font-semibold');
-                    } else {
-                        button.classList.add('hover:bg-gray-200', 'text-gray-700');
-                    }
-                    button.addEventListener('click', () => selectModelForManager(model.key));
-                    modelListColumn.appendChild(button);
-                });
-
-            if (idx !== sections.length - 1) {
-                const sectionDivider = document.createElement('div');
-                sectionDivider.className = 'border-t border-dashed border-slate-200 my-3';
-                modelListColumn.appendChild(sectionDivider);
-            }
-        });
     }
 
+    // 选择模型 (委托给模块)
     function selectModelForManager(modelKey) {
-        selectedModelForManager = modelKey;
-        currentSelectedSourceSiteId = null; //切换主模型类型时，重置自定义源站选择
-        renderModelList();
-        renderModelConfigSection(modelKey);
-
-        if (modelKey === 'embedding') {
-            // embedding使用独立的配置界面，不需要key管理器
-            keyManagerColumn.innerHTML = '';
-        } else if (modelKey === 'academicSearch') {
-            // academicSearch使用独立的配置界面，不需要key管理器
-            keyManagerColumn.innerHTML = '';
-        } else if (modelKey === 'mineru' || modelKey === 'doc2x') {
-            // OCR 引擎（MinerU/Doc2X）不使用 Key 池管理
-            keyManagerColumn.innerHTML = '';
-        } else if (modelKey !== 'custom') {
-            renderKeyManagerForModel(modelKey);
-        } else {
-            // 对于 'custom', renderSourceSitesList (由 renderModelConfigSection 调用)
-            // 将处理第一个源站的选择和其 Key 管理器的渲染
-            // 如果没有源站，keyManagerColumn 会显示提示
+        if (window.modelManager) {
+            window.modelManager.selectModel(modelKey);
+            selectedModelForManager = window.modelManager.getSelectedModel();
         }
+        currentSelectedSourceSiteId = null;
     }
 
     function renderModelConfigSection(modelKey) {
@@ -450,6 +207,9 @@ document.addEventListener('DOMContentLoaded', function() {
             title.textContent = `${modelDefinition.name} - 配置`;
         }
     }
+
+    // 导出到全局，供模块使用
+    window.renderModelConfigSection = renderModelConfigSection;
 
     // 显示嵌入模型选择器的辅助函数
     function showEmbeddingModelSelector(models, targetInput) {
