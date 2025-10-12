@@ -105,7 +105,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // ===== 模型管理器初始化 (使用新的模块化代码) =====
+    // ===== 模型管理器变量声明 =====
     const modelKeyManagerBtn = document.getElementById('modelKeyManagerBtn');
     const modelKeyManagerModal = document.getElementById('modelKeyManagerModal');
     const closeModelKeyManager = document.getElementById('closeModelKeyManager');
@@ -115,21 +115,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     let currentManagerUI = null;
     let currentSelectedSourceSiteId = null; // 用于自定义源站选择
-
-    // 使用新的模型管理器模块
-    if (window.modelManager) {
-        window.modelManager.init({
-            modelKeyManagerBtn,
-            modelKeyManagerModal,
-            closeModelKeyManager,
-            modelListColumn,
-            modelConfigColumn,
-            keyManagerColumn
-        });
-    }
-
-    // 向后兼容：保留这些变量和函数供其他代码使用
-    let selectedModelForManager = window.modelManager ? window.modelManager.getSelectedModel() : null;
+    let selectedModelForManager = null;
     const supportedModelsForKeyManager = window.supportedModelsForKeyManager || [];
 
     // 渲染模型列表 (委托给模块)
@@ -210,6 +196,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 导出到全局，供模块使用
     window.renderModelConfigSection = renderModelConfigSection;
+
+    // ===== 初始化模型管理器模块 (在函数定义之后) =====
+    if (window.modelManager) {
+        window.modelManager.init({
+            modelKeyManagerBtn,
+            modelKeyManagerModal,
+            closeModelKeyManager,
+            modelListColumn,
+            modelConfigColumn,
+            keyManagerColumn
+        });
+    }
 
     // 显示嵌入模型选择器的辅助函数
     function showEmbeddingModelSelector(models, targetInput) {
@@ -2917,6 +2915,9 @@ document.addEventListener('DOMContentLoaded', function() {
             setupDeeplxEndpointInput(inputEl, resetBtn);
         }
     }
+
+    // 导出到全局，供模块使用
+    window.renderKeyManagerForModel = renderKeyManagerForModel;
 
     async function handleTestKey(modelName, keyObject) {
         if (!currentManagerUI) return;
