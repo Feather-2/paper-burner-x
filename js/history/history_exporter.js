@@ -597,6 +597,24 @@
     if (!module || typeof module.exportAsDocx !== 'function') {
       throw new Error('DOCX 导出模块未加载');
     }
+
+    // 检查是否有调试参数（在 URL 中或 localStorage）
+    const urlParams = new URLSearchParams(window.location.search);
+    const enableDebug = urlParams.has('docx-debug') || localStorage.getItem('docx-debug') === 'true';
+
+    // 合并选项，如果启用调试则添加调试参数
+    const finalOptions = {
+      ...options,
+      debug: options.debug || enableDebug,
+      strictValidation: options.strictValidation || enableDebug,
+      validateXml: options.validateXml !== false // 默认启用
+    };
+
+    if (enableDebug) {
+      console.log('🐛 DOCX 调试模式已启用');
+      console.log('提示: 在控制台查看详细的导出日志');
+    }
+
     const helpers = {
       resolveFileName,
       getOcrMarkdown,
@@ -604,7 +622,8 @@
       formatDateTime,
       BRAND_LINK
     };
-    return module.exportAsDocx(payload, options, helpers);
+
+    return module.exportAsDocx(payload, finalOptions, helpers);
   }
 
   function getPaperDimensions(paper) {

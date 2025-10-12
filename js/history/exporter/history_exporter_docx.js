@@ -11,6 +11,41 @@ async function exportAsDocx(payload, options = {}, helpers = {}) {
     const builder = new DocxDocumentBuilder(payload, options, helpers);
     const docxResult = builder.build();
 
+    // 验证生成的 XML 是否有效
+    if (options.validateXml !== false) {
+      try {
+        validateXmlStructure(docxResult.documentXml);
+        console.log('✓ Document XML validation passed');
+
+        // 额外检查：搜索未转义的 &
+        const unescapedAmpMatch = docxResult.documentXml.match(/<w:t[^>]*>[^<]*&(?!amp;|lt;|gt;|quot;|apos;|#)[^<]*<\/w:t>/);
+        if (unescapedAmpMatch) {
+          console.error('❌ WARNING: Found unescaped & in final XML:', unescapedAmpMatch[0]);
+        } else {
+          console.log('✓ No unescaped & in final XML');
+        }
+      } catch (error) {
+        console.error('✗ Document XML validation failed:', error);
+        if (options.debug) {
+          // 在调试模式下，将有问题的 XML 保存到控制台
+          console.log('Generated XML (first 5000 chars):', docxResult.documentXml.substring(0, 5000));
+        }
+        // 不抛出错误，允许继续导出，但警告用户
+        console.warn('⚠ 继续导出，但文件可能无法正常打开');
+      }
+    }
+
+    // 额外验证其他 XML 文件
+    try {
+      const contentTypesXml = buildContentTypesXml(docxResult.mediaExtensions);
+      const relsXml = buildDocumentRelsXml(docxResult.relationships);
+      validateBasicXml(contentTypesXml, '[Content_Types].xml');
+      validateBasicXml(relsXml, 'document.xml.rels');
+      console.log('✓ All XML files validation passed');
+    } catch (error) {
+      console.error('✗ XML file validation failed:', error);
+    }
+
     const zip = new JSZipRef();
     const now = new Date();
     const iso = now.toISOString();
@@ -194,9 +229,41 @@ const HEADING_OUTLINE_LEVELS = {
       const bodyNodes = Array.from(this.dom.body.childNodes || []);
       const bodyParts = [];
       const rootContext = { maxWidthTwip: 9360 };
-      bodyNodes.forEach(node => {
-        bodyParts.push(...this.convertBlock(node, rootContext));
+
+      // 添加错误计数器用于调试
+      let conversionErrors = 0;
+      const maxErrors = 100; // 限制错误数量，防止过多错误
+
+      bodyNodes.forEach((node, index) => {
+        try {
+          const converted = this.convertBlock(node, rootContext);
+
+          // 检查转换结果是否包含非法字符
+          if (this.options.strictValidation) {
+            for (const part of converted) {
+              if (part && typeof part === 'string') {
+                const illegalMatch = part.match(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x84\x86-\x9F]/);
+                if (illegalMatch) {
+                  console.warn(`Illegal character found in block ${index}:`, illegalMatch[0].charCodeAt(0).toString(16));
+                }
+              }
+            }
+          }
+
+          bodyParts.push(...converted);
+        } catch (error) {
+          conversionErrors++;
+          if (conversionErrors <= maxErrors) {
+            console.warn(`Error converting block ${index}:`, error, node);
+          }
+          // 发生错误时，添加一个空段落占位
+          bodyParts.push('<w:p><w:pPr><w:spacing w:after="0"/></w:pPr></w:p>');
+        }
       });
+
+      if (conversionErrors > 0) {
+        console.warn(`Total conversion errors: ${conversionErrors}`);
+      }
 
       const footerInfo = this.ensureFooter();
       bodyParts.push(this.buildSectionProperties({ footerRelId: footerInfo && footerInfo.id }));
@@ -204,6 +271,13 @@ const HEADING_OUTLINE_LEVELS = {
       const introParagraphs = this.buildIntroCardParagraphs();
       const bodyXml = introParagraphs.join('') + bodyParts.join('');
       const documentXml = this.wrapDocument(bodyXml);
+
+      // 最终检查
+      if (this.options.debug) {
+        console.log(`Generated document size: ${documentXml.length} characters`);
+        console.log(`Media files: ${this.mediaFiles.length}`);
+        console.log(`Relationships: ${this.relationships.length}`);
+      }
 
       return {
         documentXml,
@@ -241,12 +315,88 @@ const HEADING_OUTLINE_LEVELS = {
     }
 
     wrapDocument(bodyXml) {
+      // 清理和验证 bodyXml
+      const cleanedBody = this.sanitizeXmlContent(bodyXml);
       return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
   <w:body>
-${bodyXml}
+${cleanedBody}
   </w:body>
 </w:document>`;
+    }
+
+    sanitizeXmlContent(xmlStr) {
+      if (!xmlStr) return '';
+
+      console.log('🔧 sanitizeXmlContent called, input length:', xmlStr.length);
+
+      let cleaned = String(xmlStr);
+
+      // 调试：检查输入
+      const hasUnescapedAmp = cleaned.match(/<w:t[^>]*>[^<]*&(?!amp;|lt;|gt;|quot;|apos;|#)[^<]*<\/w:t>/);
+      if (hasUnescapedAmp) {
+        console.warn('🔧 sanitizeXmlContent found unescaped & in <w:t>:', hasUnescapedAmp[0]);
+      } else {
+        console.log('✓ No unescaped & found in initial check');
+      }
+
+      // 移除 XML 非法控制字符
+      cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x84\x86-\x9F]/g, '');
+
+      // 首先，最重要的：修复所有未转义的 & 符号
+      // 使用临时占位符避免重复转义
+      const AMP_PLACEHOLDER = '\u0001AMP\u0001';  // 使用不可能出现的字符作为占位符
+      const LT_PLACEHOLDER = '\u0002LT\u0002';
+      const GT_PLACEHOLDER = '\u0003GT\u0003';
+      const QUOT_PLACEHOLDER = '\u0004QUOT\u0004';
+      const APOS_PLACEHOLDER = '\u0005APOS\u0005';
+
+      // 1. 保护已经正确转义的实体
+      cleaned = cleaned.replace(/&amp;/g, AMP_PLACEHOLDER);
+      cleaned = cleaned.replace(/&lt;/g, LT_PLACEHOLDER);
+      cleaned = cleaned.replace(/&gt;/g, GT_PLACEHOLDER);
+      cleaned = cleaned.replace(/&quot;/g, QUOT_PLACEHOLDER);
+      cleaned = cleaned.replace(/&apos;/g, APOS_PLACEHOLDER);
+      cleaned = cleaned.replace(/&#([0-9]+);/g, '\u0006NUM$1\u0006');
+      cleaned = cleaned.replace(/&#x([0-9a-fA-F]+);/g, '\u0007HEX$1\u0007');
+
+      // 2. 现在转义所有剩余的 & 符号（这些都是未转义的）
+      cleaned = cleaned.replace(/&/g, '&amp;');
+
+      // 3. 还原之前保护的实体
+      cleaned = cleaned.replace(new RegExp(AMP_PLACEHOLDER, 'g'), '&amp;');
+      cleaned = cleaned.replace(new RegExp(LT_PLACEHOLDER, 'g'), '&lt;');
+      cleaned = cleaned.replace(new RegExp(GT_PLACEHOLDER, 'g'), '&gt;');
+      cleaned = cleaned.replace(new RegExp(QUOT_PLACEHOLDER, 'g'), '&quot;');
+      cleaned = cleaned.replace(new RegExp(APOS_PLACEHOLDER, 'g'), '&apos;');
+      cleaned = cleaned.replace(/\u0006NUM([0-9]+)\u0006/g, '&#$1;');
+      cleaned = cleaned.replace(/\u0007HEX([0-9a-fA-F]+)\u0007/g, '&#x$1;');
+
+      // 调试：检查输出
+      if (this.options.debug && hasUnescapedAmp) {
+        const stillHasUnescaped = cleaned.match(/<w:t[^>]*>[^<]*&(?!amp;|lt;|gt;|quot;|apos;|#)[^<]*<\/w:t>/);
+        if (stillHasUnescaped) {
+          console.error('❌ sanitizeXmlContent FAILED to fix &:', stillHasUnescaped[0]);
+        } else {
+          console.log('✅ sanitizeXmlContent successfully fixed unescaped &');
+        }
+      }
+
+      // 4. 移除可能的空 OMML 标签对
+      cleaned = cleaned.replace(/<m:oMath>\s*<\/m:oMath>/g, '');
+      cleaned = cleaned.replace(/<m:oMathPara>\s*<\/m:oMathPara>/g, '');
+
+      // 5. 移除空的运行标签
+      cleaned = cleaned.replace(/<w:r>\s*<\/w:r>/g, '');
+      cleaned = cleaned.replace(/<w:r><w:rPr[^>]*\/><\/w:r>/g, '');
+
+      // 6. 移除空的文本标签
+      cleaned = cleaned.replace(/<w:t[^>]*>\s*<\/w:t>/g, '');
+
+      // 7. 移除完全空的段落中的空 run（但保留段落本身）
+      cleaned = cleaned.replace(/(<w:p[^>]*>)(<w:pPr[^>]*>.*?<\/w:pPr>)?<w:r><w:t[^>]*><\/w:t><\/w:r>(<\/w:p>)/g, '$1$2$3');
+
+      return cleaned;
     }
 
     buildIntroCardParagraphs() {
@@ -915,6 +1065,8 @@ ${footerParagraph}
     createTextRun(text, context = {}) {
       if (text == null) return '';
       let processed = String(text);
+      // 先移除 XML 非法控制字符
+      processed = processed.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x84\x86-\x9F]/g, '');
       processed = processed.replace(/\r\n/g, '\n');
       if (!context.code) {
         processed = processed.replace(/\s+/g, ' ');
@@ -963,7 +1115,12 @@ ${footerParagraph}
       const rPr = runProps.length ? `<w:rPr>${runProps.join('')}</w:rPr>` : '';
       const segments = processed.split(/\n/);
       const runs = segments.map((segment, index) => {
-        const textXml = `<w:t xml:space="preserve">${escapeXml(segment)}</w:t>`;
+        const escapedSegment = escapeXml(segment);
+        // 调试：检查是否有未转义的 &
+        if (this.options.debug && segment.includes('&') && !escapedSegment.includes('&amp;')) {
+          console.warn('⚠ escapeXml failed for:', segment, '→', escapedSegment);
+        }
+        const textXml = `<w:t xml:space="preserve">${escapedSegment}</w:t>`;
         if (index < segments.length - 1) {
           return `<w:r>${rPr}${textXml}</w:r><w:br/>`;
         }
@@ -1287,11 +1444,23 @@ ${footerParagraph}
     renderFormulaFallback(text, context = {}, wrapAsParagraph = false) {
       const clean = this.formatFormulaFallbackText(text);
       if (!clean) return '';
+
+      // 调试：检查公式降级文本
+      if (this.options.debug && clean && clean.includes('&')) {
+        console.log('📝 Formula fallback text:', text, '→', clean);
+      }
+
       const runContext = { formulaFallback: true };
       if (context.formulaCache) {
         runContext.formulaCache = context.formulaCache;
       }
       const run = this.createTextRun(clean, runContext);
+
+      // 调试：检查生成的 XML
+      if (this.options.debug && run && run.includes('&') && !run.includes('&amp;')) {
+        console.warn('⚠ Formula fallback XML contains unescaped &:', run);
+      }
+
       if (!run) return '';
       if (wrapAsParagraph) {
         return this.createParagraphFromRuns(run);
@@ -1316,11 +1485,12 @@ ${footerParagraph}
             const built = parsed.querySelector('math');
             if (built) {
               const ommlFromBuilt = this.mathConverter.convert(built);
-              if (ommlFromBuilt) {
+              if (ommlFromBuilt && ommlFromBuilt.trim()) {
                 return `<w:r>${ommlFromBuilt}</w:r>`;
               }
             }
           } catch (e) {
+            console.warn('KaTeX conversion failed for inline formula:', e);
             // fall through to textual fallback
           }
         }
@@ -1328,10 +1498,11 @@ ${footerParagraph}
       }
       try {
         const ommlCore = this.mathConverter.convert(mathEl);
-        if (ommlCore) {
+        if (ommlCore && ommlCore.trim()) {
           return `<w:r>${ommlCore}</w:r>`;
         }
       } catch (err) {
+        console.warn('MathML to OMML conversion failed for inline formula:', err);
         return this.renderFormulaFallback(fallbackText, context);
       }
       return this.renderFormulaFallback(fallbackText || (mathEl && mathEl.textContent) || '', context);
@@ -1353,19 +1524,23 @@ ${footerParagraph}
             const built = parsed.querySelector('math');
             if (built) {
               const ommlBuilt = this.mathConverter.convert(built);
-              if (ommlBuilt) {
+              if (ommlBuilt && ommlBuilt.trim()) {
                 return `<w:p><w:pPr><w:spacing w:after="160"/></w:pPr><m:oMathPara>${ommlBuilt}</m:oMathPara></w:p>`;
               }
             }
           } catch (e) {
+            console.warn('KaTeX conversion failed for block formula:', e);
             // fall through
           }
         }
         return this.renderFormulaFallback(fallbackText, context, true);
       }
       let omml = '';
-      try { omml = this.mathConverter.convert(mathEl); } catch (err) { omml = ''; }
-      if (!omml) {
+      try { omml = this.mathConverter.convert(mathEl); } catch (err) {
+        console.warn('MathML to OMML conversion failed for block formula:', err);
+        omml = '';
+      }
+      if (!omml || !omml.trim()) {
         return this.renderFormulaFallback(fallbackText || (mathEl && mathEl.textContent) || '', context, true);
       }
       return `<w:p><w:pPr><w:spacing w:after="160"/></w:pPr><m:oMathPara>${omml}</m:oMathPara></w:p>`;
@@ -1385,77 +1560,117 @@ ${footerParagraph}
   class MathMlToOmmlConverter {
     convert(mathEl) {
       if (!mathEl) return '';
-      const inner = this.convertChildren(mathEl.childNodes);
-      if (!inner) return '';
-      return `<m:oMath>${inner}</m:oMath>`;
+      try {
+        const inner = this.convertChildren(mathEl.childNodes);
+        if (!inner || !inner.trim()) return '';
+        // 验证生成的 OMML 不包含非法字符
+        const sanitized = this.sanitizeOmml(inner);
+        if (!sanitized) return '';
+        return `<m:oMath>${sanitized}</m:oMath>`;
+      } catch (error) {
+        console.warn('MathML to OMML conversion failed:', error);
+        return '';
+      }
+    }
+
+    sanitizeOmml(omml) {
+      if (!omml) return '';
+      // 移除控制字符，但保留换行符和制表符
+      return String(omml).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x84\x86-\x9F]/g, '');
     }
 
     convertChildren(nodeList) {
       let result = '';
-      Array.from(nodeList || []).forEach(node => {
-        result += this.convertNode(node);
-      });
+      try {
+        Array.from(nodeList || []).forEach(node => {
+          const converted = this.convertNode(node);
+          if (converted) result += converted;
+        });
+      } catch (error) {
+        console.warn('Error converting MathML children:', error);
+      }
       return result;
     }
 
     convertNode(node) {
       if (!node) return '';
-      if (node.nodeType === Node.TEXT_NODE) {
-        const text = node.textContent;
-        if (!text || !text.trim()) return '';
-        return this.createTextRun(text.trim());
-      }
-      if (node.nodeType !== Node.ELEMENT_NODE) {
-        return '';
-      }
-      const tag = node.tagName.toLowerCase();
-      const childNodes = node.childNodes;
-      switch (tag) {
-        case 'math':
-          return this.convertChildren(childNodes);
-        case 'mrow':
-        case 'semantics':
-          return this.convertChildren(childNodes);
-        case 'annotation':
+      try {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const text = node.textContent;
+          if (!text || !text.trim()) return '';
+          return this.createTextRun(text.trim());
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) {
           return '';
-        case 'mi':
-        case 'mn':
-        case 'mo':
-        case 'mtext':
-          return this.createTextRun(node.textContent || '');
-        case 'msup':
-          return `<m:sSup>${this.wrapWith('m:e', this.convertNode(childNodes[0]))}${this.wrapWith('m:sup', this.convertNode(childNodes[1]))}</m:sSup>`;
-        case 'msub':
-          return `<m:sSub>${this.wrapWith('m:e', this.convertNode(childNodes[0]))}${this.wrapWith('m:sub', this.convertNode(childNodes[1]))}</m:sSub>`;
-        case 'msubsup':
-          return `<m:sSubSup>${this.wrapWith('m:e', this.convertNode(childNodes[0]))}${this.wrapWith('m:sub', this.convertNode(childNodes[1]))}${this.wrapWith('m:sup', this.convertNode(childNodes[2]))}</m:sSubSup>`;
-        case 'mfrac':
-          return `<m:f>${this.wrapWith('m:num', this.convertNode(childNodes[0]))}${this.wrapWith('m:den', this.convertNode(childNodes[1]))}</m:f>`;
-        case 'msqrt':
-          return `<m:rad><m:deg><m:degHide/></m:deg>${this.wrapWith('m:e', this.convertChildren(childNodes))}</m:rad>`;
-        case 'mroot':
-          return `<m:rad>${this.wrapWith('m:deg', this.convertNode(childNodes[1]))}${this.wrapWith('m:e', this.convertNode(childNodes[0]))}</m:rad>`;
-        case 'mfenced':
-          return `${this.createTextRun('(')}${this.convertChildren(childNodes)}${this.createTextRun(')')}`;
-        case 'mover':
-          return `<m:sSup>${this.wrapWith('m:e', this.convertNode(childNodes[0]))}${this.wrapWith('m:sup', this.convertNode(childNodes[1]))}</m:sSup>`;
-        case 'munder':
-          return `<m:sSub>${this.wrapWith('m:e', this.convertNode(childNodes[0]))}${this.wrapWith('m:sub', this.convertNode(childNodes[1]))}</m:sSub>`;
-        case 'munderover':
-          return `<m:sSubSup>${this.wrapWith('m:e', this.convertNode(childNodes[0]))}${this.wrapWith('m:sub', this.convertNode(childNodes[1]))}${this.wrapWith('m:sup', this.convertNode(childNodes[2]))}</m:sSubSup>`;
-        default:
-          return this.convertChildren(childNodes);
+        }
+        const tag = node.tagName.toLowerCase();
+        const childNodes = node.childNodes;
+
+        // 为所有可能访问 childNodes 的情况添加边界检查
+        switch (tag) {
+          case 'math':
+            return this.convertChildren(childNodes);
+          case 'mrow':
+          case 'semantics':
+            return this.convertChildren(childNodes);
+          case 'annotation':
+            return '';
+          case 'mi':
+          case 'mn':
+          case 'mo':
+          case 'mtext':
+            return this.createTextRun(node.textContent || '');
+          case 'msup':
+            if (childNodes.length < 2) return this.convertChildren(childNodes);
+            return `<m:sSup>${this.wrapWith('m:e', this.convertNode(childNodes[0]))}${this.wrapWith('m:sup', this.convertNode(childNodes[1]))}</m:sSup>`;
+          case 'msub':
+            if (childNodes.length < 2) return this.convertChildren(childNodes);
+            return `<m:sSub>${this.wrapWith('m:e', this.convertNode(childNodes[0]))}${this.wrapWith('m:sub', this.convertNode(childNodes[1]))}</m:sSub>`;
+          case 'msubsup':
+            if (childNodes.length < 3) return this.convertChildren(childNodes);
+            return `<m:sSubSup>${this.wrapWith('m:e', this.convertNode(childNodes[0]))}${this.wrapWith('m:sub', this.convertNode(childNodes[1]))}${this.wrapWith('m:sup', this.convertNode(childNodes[2]))}</m:sSubSup>`;
+          case 'mfrac':
+            if (childNodes.length < 2) return this.convertChildren(childNodes);
+            return `<m:f>${this.wrapWith('m:num', this.convertNode(childNodes[0]))}${this.wrapWith('m:den', this.convertNode(childNodes[1]))}</m:f>`;
+          case 'msqrt':
+            return `<m:rad><m:deg><m:degHide/></m:deg>${this.wrapWith('m:e', this.convertChildren(childNodes))}</m:rad>`;
+          case 'mroot':
+            if (childNodes.length < 2) return this.convertChildren(childNodes);
+            return `<m:rad>${this.wrapWith('m:deg', this.convertNode(childNodes[1]))}${this.wrapWith('m:e', this.convertNode(childNodes[0]))}</m:rad>`;
+          case 'mfenced':
+            return `${this.createTextRun('(')}${this.convertChildren(childNodes)}${this.createTextRun(')')}`;
+          case 'mover':
+            if (childNodes.length < 2) return this.convertChildren(childNodes);
+            return `<m:sSup>${this.wrapWith('m:e', this.convertNode(childNodes[0]))}${this.wrapWith('m:sup', this.convertNode(childNodes[1]))}</m:sSup>`;
+          case 'munder':
+            if (childNodes.length < 2) return this.convertChildren(childNodes);
+            return `<m:sSub>${this.wrapWith('m:e', this.convertNode(childNodes[0]))}${this.wrapWith('m:sub', this.convertNode(childNodes[1]))}</m:sSub>`;
+          case 'munderover':
+            if (childNodes.length < 3) return this.convertChildren(childNodes);
+            return `<m:sSubSup>${this.wrapWith('m:e', this.convertNode(childNodes[0]))}${this.wrapWith('m:sub', this.convertNode(childNodes[1]))}${this.wrapWith('m:sup', this.convertNode(childNodes[2]))}</m:sSubSup>`;
+          default:
+            return this.convertChildren(childNodes);
+        }
+      } catch (error) {
+        console.warn('Error converting MathML node:', tag, error);
+        return '';
       }
     }
 
     wrapWith(tag, content) {
-      const inner = content && content.trim() ? content : this.createTextRun(' ');
-      return `<${tag}>${inner}</${tag}>`;
+      if (!content || !content.trim()) {
+        // 空内容时返回空格占位，防止生成空标签
+        return `<${tag}>${this.createTextRun(' ')}</${tag}>`;
+      }
+      return `<${tag}>${content}</${tag}>`;
     }
 
     createTextRun(text) {
-      const normalized = text.replace(/\s+/g, ' ');
-      if (!normalized) return '';
+      const normalized = text ? text.replace(/\s+/g, ' ').trim() : '';
+      if (!normalized) {
+        // 返回一个空格，而不是空字符串
+        return '<m:r><m:t xml:space="preserve"> </m:t></m:r>';
+      }
       return `<m:r><m:t xml:space="preserve">${escapeXml(normalized)}</m:t></m:r>`;
     }
   }
@@ -1888,7 +2103,13 @@ ${rels}
   }
 
   function escapeXml(str) {
-    return String(str).replace(/[&<>"']/g, function(ch) {
+    if (!str) return '';
+    let result = String(str);
+    // 先移除或替换 XML 非法控制字符
+    // XML 1.0 允许的字符: #x9 | #xA | #xD | [#x20-#xD7FF] | [#xE000-#xFFFD] | [#x10000-#x10FFFF]
+    result = result.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x84\x86-\x9F]/g, '');
+    // 转义 XML 特殊字符
+    return result.replace(/[&<>"']/g, function(ch) {
       switch (ch) {
         case '&': return '&amp;';
         case '<': return '&lt;';
@@ -1946,6 +2167,74 @@ function buildFileName(payload, ext) {
 
 function sanitizeFileName(name) {
     return (name || 'document').replace(/[\\/:*?"<>|]/g, '_');
+  }
+
+  // XML 结构验证函数
+  function validateXmlStructure(xmlString) {
+    if (!xmlString || typeof xmlString !== 'string') {
+      throw new Error('XML 内容为空或类型错误');
+    }
+
+    // 检查基本的 XML 声明
+    if (!xmlString.includes('<?xml')) {
+      throw new Error('缺少 XML 声明');
+    }
+
+    // 检查根元素
+    if (!xmlString.includes('<w:document') || !xmlString.includes('</w:document>')) {
+      throw new Error('缺少或未闭合的 document 根元素');
+    }
+
+    // 检查 body 元素
+    if (!xmlString.includes('<w:body>') || !xmlString.includes('</w:body>')) {
+      throw new Error('缺少或未闭合的 body 元素');
+    }
+
+    // 检查是否有未转义的特殊字符（可能破坏 XML）
+    const illegalCharsRegex = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x84\x86-\x9F]/;
+    if (illegalCharsRegex.test(xmlString)) {
+      const match = xmlString.match(illegalCharsRegex);
+      const charCode = match ? match[0].charCodeAt(0) : 'unknown';
+      throw new Error(`包含非法 XML 控制字符: 0x${charCode.toString(16)}`);
+    }
+
+    // 简单的标签平衡检查（检查关键标签）
+    const criticalTags = ['w:document', 'w:body'];
+    for (const tag of criticalTags) {
+      const openCount = (xmlString.match(new RegExp(`<${tag}[> ]`, 'g')) || []).length;
+      const closeCount = (xmlString.match(new RegExp(`</${tag}>`, 'g')) || []).length;
+
+      if (openCount !== closeCount) {
+        throw new Error(`标签 ${tag} 未正确闭合 (打开:${openCount}, 关闭:${closeCount})`);
+      }
+    }
+
+    // 检查是否有未闭合的尖括号
+    const openBrackets = (xmlString.match(/</g) || []).length;
+    const closeBrackets = (xmlString.match(/>/g) || []).length;
+    if (openBrackets !== closeBrackets) {
+      throw new Error(`尖括号不匹配 (<: ${openBrackets}, >: ${closeBrackets})`);
+    }
+
+    return true;
+  }
+
+  // 基础 XML 验证
+  function validateBasicXml(xmlString, fileName) {
+    if (!xmlString || typeof xmlString !== 'string') {
+      throw new Error(`${fileName}: XML 内容为空`);
+    }
+
+    if (!xmlString.includes('<?xml')) {
+      throw new Error(`${fileName}: 缺少 XML 声明`);
+    }
+
+    const illegalCharsRegex = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x84\x86-\x9F]/;
+    if (illegalCharsRegex.test(xmlString)) {
+      throw new Error(`${fileName}: 包含非法 XML 控制字符`);
+    }
+
+    return true;
   }
 
   function formatDateTime(date) {
