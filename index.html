@@ -13,6 +13,8 @@
     <script src="https://gcore.jsdelivr.net/npm/js-base64@3.7.5/base64.min.js"></script>
     <script src="https://gcore.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
     <script src="https://gcore.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <!-- docx-preview.js for Word preview -->
+    <script src="https://gcore.jsdelivr.net/npm/docx-preview@0.3.7/dist/docx-preview.min.js"></script>
     <link rel="stylesheet" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
     <link rel="stylesheet" href="css/markdown-enhanced.css">
     <link rel="stylesheet" href="css/math-display-fix.css">
@@ -215,6 +217,26 @@
         }
         .feature-card-inner h4 {
           margin-bottom: 0.35rem;
+        }
+
+        /* 文件预览模态框动画 */
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes fadeOut {
+          from { opacity: 1; }
+          to { opacity: 0; }
+        }
+        @keyframes slideUp {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
         }
     </style>
 </head>
@@ -846,6 +868,9 @@
                             </button>
                             <button id="browseFolderBtn" class="px-6 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
                                 上传文件夹
+                            </button>
+                            <button id="urlImportBtn" class="px-6 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-all focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2">
+                                URL 导入
                             </button>
                             <button id="githubImportBtn" class="px-6 py-2 bg-slate-500 text-white rounded-lg hover:bg-slate-600 transition-all focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2">
                                 GitHub 导入

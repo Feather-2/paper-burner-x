@@ -151,6 +151,12 @@ export default {
         return await proxyArXiv(path, url.searchParams, request, env);
       }
 
+      // ===== PDF 下载代理（支持 Range 请求，用于分片下载） =====
+      if (url.pathname === '/api/pdf/download' && (request.method === 'GET' || request.method === 'HEAD')) {
+        const pdfUrl = url.searchParams.get('url');
+        return await proxyPdfDownload(pdfUrl, request, env);
+      }
+
       // ===== 健康检查 =====
       if (url.pathname === '/health' && request.method === 'GET') {
         return jsonResponse({
@@ -482,6 +488,92 @@ async function proxyArXiv(path, searchParams, request, env) {
 }
 
 /**
+ * PDF 下载代理（支持 Range 请求，用于大文件分片下载）
+ * @param {string} pdfUrl - PDF 文件的远程 URL
+ * @param {Request} request - 请求对象
+ * @param {Object} env - 环境变量
+ * @returns {Response} - 响应对象
+ */
+async function proxyPdfDownload(pdfUrl, request, env) {
+  try {
+    if (!pdfUrl) {
+      return jsonResponse({ error: 'url parameter is required' }, 400, request, env);
+    }
+
+    // 验证 URL 格式
+    let targetUrl;
+    try {
+      targetUrl = new URL(pdfUrl);
+    } catch (e) {
+      return jsonResponse({ error: 'Invalid URL format' }, 400, request, env);
+    }
+
+    // 构建上游请求头，透传 Range 头（支持分片下载）
+    const upstreamHeaders = {
+      'User-Agent': 'Academic-Search-Proxy/1.0',
+    };
+
+    const rangeHeader = request.headers.get('Range');
+    if (rangeHeader) {
+      upstreamHeaders['Range'] = rangeHeader;
+      console.log('[PDF Download] Proxying Range request:', rangeHeader);
+    }
+
+    console.log(`[PDF Download] Fetching: ${request.method} ${pdfUrl}`);
+
+    const response = await fetch(pdfUrl, {
+      method: request.method || 'GET',
+      headers: upstreamHeaders,
+      redirect: 'follow'
+    });
+
+    if (!response.ok && response.status !== 206) {
+      console.error(`[PDF Download] Upstream fetch failed: ${response.status} ${response.statusText}`);
+      return jsonResponse({
+        error: `Upstream fetch failed: ${response.status} ${response.statusText}`
+      }, 502, request, env);
+    }
+
+    const upstreamContentType = response.headers.get('Content-Type');
+    console.log(`[PDF Download] Upstream Content-Type: ${upstreamContentType}, Status: ${response.status}`);
+
+    // 构建响应头
+    const responseHeaders = addCORSHeaders({
+      'Content-Type': upstreamContentType || 'application/pdf',
+      'Content-Disposition': response.headers.get('Content-Disposition') || 'attachment',
+      'Cache-Control': 'no-store',
+    }, request, env);
+
+    // 透传 Range 相关头部
+    if (response.headers.has('Content-Length')) {
+      responseHeaders['Content-Length'] = response.headers.get('Content-Length');
+    }
+    if (response.headers.has('Content-Range')) {
+      responseHeaders['Content-Range'] = response.headers.get('Content-Range');
+    }
+    if (response.headers.has('Accept-Ranges')) {
+      responseHeaders['Accept-Ranges'] = response.headers.get('Accept-Ranges');
+    }
+
+    // 暴露必要的头部给前端
+    responseHeaders['Access-Control-Expose-Headers'] = 'Content-Length, Content-Range, Accept-Ranges, Content-Disposition';
+
+    console.log(`[PDF Download] Proxying successful: ${response.status} ${response.statusText}`);
+
+    return new Response(response.body, {
+      status: response.status, // 保持原始状态码（200 或 206）
+      headers: responseHeaders,
+    });
+  } catch (error) {
+    console.error('[PDF Download] Proxy error:', error);
+    return jsonResponse({
+      error: 'PDF download proxy error',
+      message: error.message
+    }, 500, request, env);
+  }
+}
+
+/**
  * 处理 CORS 预检请求
  */
 function handleCORS(request, env) {
@@ -500,8 +592,8 @@ function addCORSHeaders(headers, request, env) {
   return {
     ...headers,
     'Access-Control-Allow-Origin': env.ALLOWED_ORIGINS ? origin : '*',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Auth-Key, X-Api-Key',
+    'Access-Control-Allow-Methods': 'GET, HEAD, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Range, X-Auth-Key, X-Api-Key',
     'Access-Control-Max-Age': '86400'
   };
 }

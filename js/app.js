@@ -501,6 +501,7 @@ function setupEventListeners() {
     const folderInput = document.getElementById('folderInput');
     const browseBtn = document.getElementById('browseFilesBtn');
     const browseFolderBtn = document.getElementById('browseFolderBtn');
+    const urlImportBtn = document.getElementById('urlImportBtn');
     const githubImportBtn = document.getElementById('githubImportBtn');
     const clearBtn = document.getElementById('clearFilesBtn');
     const processBtn = document.getElementById('processBtn');
@@ -693,6 +694,12 @@ function setupEventListeners() {
     }
     if (folderInput) {
         folderInput.addEventListener('change', handleFolderSelect);
+    }
+    if (urlImportBtn) {
+        urlImportBtn.addEventListener('click', async () => {
+            if (isProcessing) return;
+            await handleUrlImport();
+        });
     }
     if (githubImportBtn) {
         githubImportBtn.addEventListener('click', async () => {
@@ -1222,6 +1229,244 @@ async function handleGithubImport() {
         showNotification && showNotification(`GitHub 导入失败：${error.message || error}`, 'error');
     }
 }
+
+/**
+ * 处理 URL 导入（支持 arXiv 和任意 PDF 链接）
+ */
+async function handleUrlImport() {
+    const rawUrls = prompt('请输入 PDF URL（支持 arXiv 链接），多个链接请用换行分隔:\n\n例如:\nhttps://arxiv.org/abs/2301.12345\nhttps://example.com/paper.pdf');
+    if (!rawUrls) return;
+
+    const urls = rawUrls.trim().split('\n').map(u => u.trim()).filter(Boolean);
+    if (urls.length === 0) return;
+
+    try {
+        showNotification && showNotification(`正在下载 ${urls.length} 个 PDF 文件...`, 'info');
+        const downloadResults = await Promise.allSettled(
+            urls.map(url => downloadPdfFromUrl(url))
+        );
+
+        const successFiles = [];
+        const failedUrls = [];
+
+        downloadResults.forEach((result, index) => {
+            if (result.status === 'fulfilled' && result.value) {
+                successFiles.push(result.value);
+            } else {
+                failedUrls.push({ url: urls[index], error: result.reason?.message || '未知错误' });
+            }
+        });
+
+        if (successFiles.length > 0) {
+            await addFilesToList(successFiles);
+        }
+
+        if (failedUrls.length > 0) {
+            console.error('部分 URL 下载失败:', failedUrls);
+            const failedList = failedUrls.map(f => `${f.url}: ${f.error}`).join('\n');
+            showNotification && showNotification(
+                `成功导入 ${successFiles.length} 个文件，失败 ${failedUrls.length} 个\n\n失败列表:\n${failedList}`,
+                successFiles.length > 0 ? 'warning' : 'error'
+            );
+        } else {
+            showNotification && showNotification(`成功从 URL 导入 ${successFiles.length} 个文件`, 'success');
+        }
+    } catch (error) {
+        console.error('URL 导入失败:', error);
+        showNotification && showNotification(`URL 导入失败：${error.message || error}`, 'error');
+    }
+}
+
+/**
+ * 从 URL 下载 PDF（支持 arXiv 链接识别和 failback 机制）
+ * @param {string} url - PDF URL 或 arXiv 链接
+ * @returns {Promise<File>} - 下载的文件对象
+ */
+async function downloadPdfFromUrl(url) {
+    // 解析 URL，识别 arXiv 链接
+    const parsedUrl = parseArxivUrl(url);
+    const pdfUrl = parsedUrl.pdfUrl || url;
+    const filename = parsedUrl.filename || extractFilenameFromUrl(url);
+
+    console.log(`[URL Import] Downloading: ${pdfUrl}`);
+
+    try {
+        // 1. 先尝试直接下载
+        const file = await downloadPdfDirect(pdfUrl, filename);
+        console.log(`[URL Import] Direct download successful: ${filename}`);
+        return file;
+    } catch (directError) {
+        console.warn(`[URL Import] Direct download failed, trying proxy:`, directError.message);
+
+        try {
+            // 2. 失败后尝试通过代理下载
+            const file = await downloadPdfViaProxy(pdfUrl, filename);
+            console.log(`[URL Import] Proxy download successful: ${filename}`);
+            return file;
+        } catch (proxyError) {
+            console.error(`[URL Import] Both direct and proxy download failed:`, proxyError.message);
+            throw new Error(`下载失败: ${proxyError.message}`);
+        }
+    }
+}
+
+/**
+ * 解析 arXiv URL，提取 arXiv ID 并转换为 PDF 下载链接
+ * @param {string} url - 输入的 URL
+ * @returns {Object} - { pdfUrl, filename, arxivId }
+ */
+function parseArxivUrl(url) {
+    // 匹配 arXiv URL 格式
+    // 支持: https://arxiv.org/abs/2301.12345, https://arxiv.org/pdf/2301.12345.pdf
+    const arxivAbsPattern = /arxiv\.org\/abs\/([0-9.]+)/i;
+    const arxivPdfPattern = /arxiv\.org\/pdf\/([0-9.]+)/i;
+
+    let match = url.match(arxivAbsPattern) || url.match(arxivPdfPattern);
+    if (match) {
+        const arxivId = match[1];
+        return {
+            pdfUrl: `https://arxiv.org/pdf/${arxivId}.pdf`,
+            filename: `arxiv_${arxivId}.pdf`,
+            arxivId: arxivId
+        };
+    }
+
+    return { pdfUrl: null, filename: null, arxivId: null };
+}
+
+/**
+ * 从 URL 提取文件名
+ * @param {string} url - URL
+ * @returns {string} - 文件名
+ */
+function extractFilenameFromUrl(url) {
+    try {
+        const urlObj = new URL(url);
+        const pathname = urlObj.pathname;
+        const parts = pathname.split('/').filter(Boolean);
+        const lastPart = parts[parts.length - 1];
+
+        // 确保文件名有 .pdf 扩展名
+        if (lastPart && lastPart.endsWith('.pdf')) {
+            return lastPart;
+        } else if (lastPart) {
+            return `${lastPart}.pdf`;
+        }
+
+        // 使用时间戳作为默认文件名
+        return `downloaded_${Date.now()}.pdf`;
+    } catch (e) {
+        return `downloaded_${Date.now()}.pdf`;
+    }
+}
+
+/**
+ * 直接下载 PDF（不通过代理）
+ * @param {string} url - PDF URL
+ * @param {string} filename - 文件名
+ * @returns {Promise<File>} - 文件对象
+ */
+async function downloadPdfDirect(url, filename) {
+    const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+            'Accept': 'application/pdf'
+        }
+    });
+
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const contentType = response.headers.get('Content-Type');
+    if (!contentType || !contentType.includes('pdf')) {
+        throw new Error(`不是 PDF 文件 (Content-Type: ${contentType})`);
+    }
+
+    const blob = await response.blob();
+    return new File([blob], filename, { type: 'application/pdf' });
+}
+
+/**
+ * 通过 academic-search-proxy 代理下载 PDF（支持分片下载）
+ * @param {string} url - PDF URL
+ * @param {string} filename - 文件名
+ * @returns {Promise<File>} - 文件对象
+ */
+async function downloadPdfViaProxy(url, filename) {
+    // 获取代理配置
+    const proxyConfig = getAcademicSearchProxyConfig();
+    if (!proxyConfig.baseUrl) {
+        throw new Error('未配置 Academic Search Proxy');
+    }
+
+    const proxyUrl = `${proxyConfig.baseUrl}/api/pdf/download?url=${encodeURIComponent(url)}`;
+
+    const headers = {
+        'Accept': 'application/pdf'
+    };
+
+    // 添加认证头（如果配置了）
+    if (proxyConfig.authKey) {
+        headers['X-Auth-Key'] = proxyConfig.authKey;
+    }
+
+    console.log(`[URL Import] Using proxy: ${proxyUrl}`);
+
+    const response = await fetch(proxyUrl, {
+        method: 'GET',
+        headers: headers
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text().catch(() => response.statusText);
+        throw new Error(`代理下载失败 (HTTP ${response.status}): ${errorText}`);
+    }
+
+    const contentType = response.headers.get('Content-Type');
+    console.log(`[URL Import] Proxy response Content-Type: ${contentType}`);
+
+    // 检查 Content-Type（放宽检查，允许 octet-stream 或 HTML 但检查实际内容）
+    if (contentType && (contentType.includes('json') || contentType.includes('xml'))) {
+        // 如果是 JSON 或 XML，可能是错误响应
+        const text = await response.text();
+        console.error(`[URL Import] Proxy returned non-PDF content:`, text.substring(0, 500));
+        throw new Error(`代理返回的不是 PDF 文件 (Content-Type: ${contentType})`);
+    }
+
+    const blob = await response.blob();
+
+    // 验证 blob 大小（PDF 文件至少应该有一些内容）
+    if (blob.size < 100) {
+        throw new Error(`下载的文件过小 (${blob.size} bytes)，可能不是有效的 PDF`);
+    }
+
+    console.log(`[URL Import] Downloaded PDF blob: ${blob.size} bytes`);
+    return new File([blob], filename, { type: 'application/pdf' });
+}
+
+/**
+ * 获取 Academic Search Proxy 配置
+ * @returns {Object} - { baseUrl, authKey }
+ */
+function getAcademicSearchProxyConfig() {
+    // 从 localStorage 读取配置（与 reference-doi-resolver.js 保持一致）
+    const storedConfig = localStorage.getItem('academicSearchProxyConfig');
+    if (storedConfig) {
+        try {
+            const config = JSON.parse(storedConfig);
+            return {
+                baseUrl: config.baseUrl || '',
+                authKey: config.authKey || ''
+            };
+        } catch (e) {
+            console.error('[URL Import] Failed to parse proxy config:', e);
+        }
+    }
+
+    return { baseUrl: '', authKey: '' };
+}
+
 
 function parseGithubUrl(rawUrl) {
     try {

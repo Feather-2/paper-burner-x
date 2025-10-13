@@ -70,9 +70,14 @@
                     ${isExcluded ? '<span class="ml-2 inline-block text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 flex-shrink-0">已排除</span>' : ''}
                     <span class="text-xs text-gray-500 ml-2 flex-shrink-0">(${global.formatFileSize(file.size)})</span>
                 </div>
-                <button data-index="${index}" class="remove-file-btn text-gray-400 hover:text-red-600 flex-shrink-0" title="移除">
-                    <iconify-icon icon="carbon:close" width="16"></iconify-icon>
-                </button>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    <button data-index="${index}" class="preview-file-btn text-gray-400 hover:text-blue-600 flex-shrink-0" title="预览">
+                        <iconify-icon icon="carbon:search" width="16"></iconify-icon>
+                    </button>
+                    <button data-index="${index}" class="remove-file-btn text-gray-400 hover:text-red-600 flex-shrink-0" title="移除">
+                        <iconify-icon icon="carbon:close" width="16"></iconify-icon>
+                    </button>
+                </div>
             `;
                 if (isExcluded) {
                     listItem.classList.add('opacity-60');
@@ -85,6 +90,17 @@
                     if (isProcessing) return;
                     const indexToRemove = parseInt(e.currentTarget.getAttribute('data-index'));
                     onRemoveFile(indexToRemove);
+                });
+            });
+
+            // 添加预览按钮事件监听器
+            document.querySelectorAll('.preview-file-btn').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const fileIndex = parseInt(e.currentTarget.getAttribute('data-index'));
+                    const fileToPreview = pdfFiles[fileIndex];
+                    if (fileToPreview) {
+                        previewFile(fileToPreview);
+                    }
                 });
             });
 
@@ -390,6 +406,402 @@
         logLine.textContent = `[${timestamp}] ${text}`;
         progressLog.appendChild(logLine);
         progressLog.scrollTop = progressLog.scrollHeight;
+    }
+
+    /**
+     * 文件预览功能
+     * @param {File} file - 要预览的文件对象
+     */
+    function previewFile(file) {
+        const ext = file.name.split('.').pop().toLowerCase();
+
+        // 创建预览模态框
+        const modal = document.createElement('div');
+        modal.className = 'fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm';
+        modal.style.animation = 'fadeIn 0.2s ease-out';
+
+        const modalContent = document.createElement('div');
+        modalContent.className = 'relative bg-white rounded-lg shadow-2xl w-[90vw] h-[90vh] flex flex-col';
+        modalContent.style.animation = 'slideUp 0.3s ease-out';
+
+        // 头部
+        const header = document.createElement('div');
+        header.className = 'flex items-center justify-between px-6 py-4 border-b border-gray-200';
+        header.innerHTML = `
+            <div class="flex items-center gap-3">
+                <iconify-icon icon="carbon:view" class="text-blue-500" width="24"></iconify-icon>
+                <h3 class="text-lg font-semibold text-gray-800">文件预览</h3>
+            </div>
+            <button class="preview-close-btn text-gray-400 hover:text-gray-600 transition-colors">
+                <iconify-icon icon="carbon:close" width="24"></iconify-icon>
+            </button>
+        `;
+
+        // 文件信息和控件整合到一行（仅针对 PDF）
+        let fileInfoAndControls = null;
+        if (ext === 'pdf') {
+            fileInfoAndControls = document.createElement('div');
+            fileInfoAndControls.className = 'px-6 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100 flex items-center justify-between';
+            fileInfoAndControls.innerHTML = `
+                <div class="flex items-center gap-6 text-sm text-gray-700">
+                    <div class="flex items-center gap-2">
+                        <iconify-icon icon="carbon:document-pdf" class="text-red-500" width="18"></iconify-icon>
+                        <span class="font-medium">${file.name}</span>
+                    </div>
+                    <div class="flex items-center gap-1 text-gray-600">
+                        <iconify-icon icon="carbon:data-1" width="14"></iconify-icon>
+                        <span>${global.formatFileSize ? global.formatFileSize(file.size) : (file.size / 1024).toFixed(2) + ' KB'}</span>
+                    </div>
+                    <div class="flex items-center gap-1 text-gray-500 text-xs">
+                        <iconify-icon icon="carbon:information" width="14"></iconify-icon>
+                        <span>按住 Ctrl 滚动鼠标滚轮可缩放</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button class="pdf-prev-page px-3 py-1.5 bg-white hover:bg-blue-50 border border-gray-300 hover:border-blue-400 rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm" title="上一页">
+                        <iconify-icon icon="carbon:chevron-left" width="16"></iconify-icon>
+                    </button>
+                    <span class="text-sm text-gray-700 px-2">
+                        第 <span class="pdf-page-num font-semibold text-blue-600">1</span> / <span class="pdf-page-count font-semibold">-</span> 页
+                    </span>
+                    <button class="pdf-next-page px-3 py-1.5 bg-white hover:bg-blue-50 border border-gray-300 hover:border-blue-400 rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm" title="下一页">
+                        <iconify-icon icon="carbon:chevron-right" width="16"></iconify-icon>
+                    </button>
+                    <div class="w-px h-5 bg-gray-300 mx-1"></div>
+                    <button class="pdf-zoom-out px-3 py-1.5 bg-white hover:bg-blue-50 border border-gray-300 hover:border-blue-400 rounded transition-all shadow-sm" title="缩小">
+                        <iconify-icon icon="carbon:zoom-out" width="16"></iconify-icon>
+                    </button>
+                    <span class="pdf-zoom-level text-sm text-gray-700 font-semibold min-w-[50px] text-center">120%</span>
+                    <button class="pdf-zoom-in px-3 py-1.5 bg-white hover:bg-blue-50 border border-gray-300 hover:border-blue-400 rounded transition-all shadow-sm" title="放大">
+                        <iconify-icon icon="carbon:zoom-in" width="16"></iconify-icon>
+                    </button>
+                </div>
+            `;
+        } else {
+            // 非 PDF 文件，保持原有的文件信息显示
+            fileInfoAndControls = document.createElement('div');
+            fileInfoAndControls.className = 'px-6 py-3 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100';
+            fileInfoAndControls.innerHTML = `
+                <div class="flex items-center gap-6 text-sm text-gray-700">
+                    <div class="flex items-center gap-2">
+                        <iconify-icon icon="carbon:document" class="text-gray-500" width="18"></iconify-icon>
+                        <span class="font-medium">${file.name}</span>
+                    </div>
+                    <div class="flex items-center gap-1 text-gray-600">
+                        <iconify-icon icon="carbon:data-1" width="14"></iconify-icon>
+                        <span>${global.formatFileSize ? global.formatFileSize(file.size) : (file.size / 1024).toFixed(2) + ' KB'}</span>
+                    </div>
+                    <span class="text-gray-600">${ext.toUpperCase()}</span>
+                </div>
+            `;
+        }
+
+        // 内容区域
+        const contentArea = document.createElement('div');
+        contentArea.className = 'flex-1 overflow-auto p-6';
+
+        // 根据文件类型生成预览内容
+        if (ext === 'pdf') {
+            // PDF 预览 - 使用 PDF.js 渲染，添加左侧缩略图
+            contentArea.className = 'flex-1 flex overflow-hidden';
+            contentArea.innerHTML = `
+                <div class="w-48 bg-gray-50 border-r border-gray-200 overflow-y-auto p-3">
+                    <div class="text-xs font-semibold text-gray-600 mb-3 px-2">页面缩略图</div>
+                    <div class="pdf-thumbnails space-y-2"></div>
+                </div>
+                <div class="flex-1 overflow-auto bg-gray-100 flex items-start justify-center p-6">
+                    <canvas class="pdf-canvas shadow-2xl bg-white"></canvas>
+                </div>
+            `;
+
+            // 使用 PDF.js 渲染
+            const canvas = contentArea.querySelector('.pdf-canvas');
+            const ctx = canvas.getContext('2d', { willReadFrequently: false });
+            const thumbnailsContainer = contentArea.querySelector('.pdf-thumbnails');
+            const pageNumSpan = fileInfoAndControls.querySelector('.pdf-page-num');
+            const pageCountSpan = fileInfoAndControls.querySelector('.pdf-page-count');
+            const zoomLevelSpan = fileInfoAndControls.querySelector('.pdf-zoom-level');
+            const prevBtn = fileInfoAndControls.querySelector('.pdf-prev-page');
+            const nextBtn = fileInfoAndControls.querySelector('.pdf-next-page');
+            const zoomInBtn = fileInfoAndControls.querySelector('.pdf-zoom-in');
+            const zoomOutBtn = fileInfoAndControls.querySelector('.pdf-zoom-out');
+
+            let pdfDoc = null;
+            let currentPage = 1;
+            let currentScale = 1.2; // 调整为更合适的默认缩放比例
+
+            const renderPage = async (num) => {
+                const page = await pdfDoc.getPage(num);
+                const viewport = page.getViewport({ scale: currentScale });
+
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
+
+                await page.render({
+                    canvasContext: ctx,
+                    viewport: viewport
+                }).promise;
+
+                pageNumSpan.textContent = num;
+                prevBtn.disabled = num <= 1;
+                nextBtn.disabled = num >= pdfDoc.numPages;
+
+                // 更新缩略图高亮
+                document.querySelectorAll('.pdf-thumbnail').forEach((thumb, idx) => {
+                    if (idx + 1 === num) {
+                        thumb.classList.add('ring-2', 'ring-blue-500', 'bg-blue-50');
+                    } else {
+                        thumb.classList.remove('ring-2', 'ring-blue-500', 'bg-blue-50');
+                    }
+                });
+            };
+
+            // 渲染缩略图
+            const renderThumbnails = async () => {
+                for (let i = 1; i <= pdfDoc.numPages; i++) {
+                    const page = await pdfDoc.getPage(i);
+                    const viewport = page.getViewport({ scale: 0.2 }); // 缩略图小比例
+
+                    const thumbCanvas = document.createElement('canvas');
+                    thumbCanvas.width = viewport.width;
+                    thumbCanvas.height = viewport.height;
+                    const thumbCtx = thumbCanvas.getContext('2d', { willReadFrequently: false });
+
+                    await page.render({
+                        canvasContext: thumbCtx,
+                        viewport: viewport
+                    }).promise;
+
+                    const thumbDiv = document.createElement('div');
+                    thumbDiv.className = 'pdf-thumbnail cursor-pointer p-2 rounded border-2 border-transparent hover:border-blue-300 transition-all';
+                    thumbDiv.innerHTML = `
+                        <div class="relative">
+                            <img src="${thumbCanvas.toDataURL()}" class="w-full rounded shadow-sm" />
+                            <div class="text-center text-xs text-gray-600 mt-1">第 ${i} 页</div>
+                        </div>
+                    `;
+                    thumbDiv.addEventListener('click', async () => {
+                        currentPage = i;
+                        await renderPage(currentPage);
+                    });
+
+                    thumbnailsContainer.appendChild(thumbDiv);
+                }
+            };
+
+            // 加载 PDF
+            const fileReader = new FileReader();
+            fileReader.onload = async (e) => {
+                try {
+                    const typedArray = new Uint8Array(e.target.result);
+                    pdfDoc = await pdfjsLib.getDocument({ data: typedArray }).promise;
+                    pageCountSpan.textContent = pdfDoc.numPages;
+
+                    // 渲染第一页
+                    await renderPage(currentPage);
+
+                    // 渲染所有缩略图（异步进行，不阻塞）
+                    renderThumbnails();
+                } catch (error) {
+                    console.error('[PDF Preview] Error loading PDF:', error);
+                    contentArea.innerHTML = `
+                        <div class="flex flex-col items-center justify-center h-full text-gray-500">
+                            <iconify-icon icon="carbon:warning-alt" width="64" class="mb-4 text-red-500"></iconify-icon>
+                            <p class="text-lg">PDF 加载失败</p>
+                            <p class="text-sm mt-2">${error.message}</p>
+                        </div>
+                    `;
+                }
+            };
+            fileReader.readAsArrayBuffer(file);
+
+            // 翻页事件
+            prevBtn.addEventListener('click', async () => {
+                if (currentPage > 1) {
+                    currentPage--;
+                    await renderPage(currentPage);
+                }
+            });
+
+            nextBtn.addEventListener('click', async () => {
+                if (currentPage < pdfDoc.numPages) {
+                    currentPage++;
+                    await renderPage(currentPage);
+                }
+            });
+
+            // 缩放事件
+            zoomInBtn.addEventListener('click', async () => {
+                currentScale += 0.25;
+                zoomLevelSpan.textContent = Math.round(currentScale * 100) + '%';
+                await renderPage(currentPage);
+            });
+
+            zoomOutBtn.addEventListener('click', async () => {
+                if (currentScale > 0.5) {
+                    currentScale -= 0.25;
+                    zoomLevelSpan.textContent = Math.round(currentScale * 100) + '%';
+                    await renderPage(currentPage);
+                }
+            });
+
+            // 滚轮缩放功能（Ctrl/Cmd + 滚轮）
+            const pdfContainer = contentArea.querySelector('.flex-1.overflow-auto');
+            let zoomTimeout = null;
+
+            pdfContainer.addEventListener('wheel', async (e) => {
+                if (e.ctrlKey || e.metaKey) {
+                    e.preventDefault();
+
+                    const delta = e.deltaY;
+                    const zoomStep = 0.1; // 更细腻的缩放步进
+
+                    if (delta < 0) {
+                        // 向上滚动 - 放大
+                        currentScale = Math.min(currentScale + zoomStep, 5.0); // 最大 500%
+                    } else {
+                        // 向下滚动 - 缩小
+                        currentScale = Math.max(currentScale - zoomStep, 0.5); // 最小 50%
+                    }
+
+                    // 更新显示
+                    zoomLevelSpan.textContent = Math.round(currentScale * 100) + '%';
+
+                    // 防抖渲染：等待滚轮停止后再渲染
+                    clearTimeout(zoomTimeout);
+                    zoomTimeout = setTimeout(async () => {
+                        await renderPage(currentPage);
+                    }, 150);
+                }
+            }, { passive: false });
+        } else if (['docx', 'doc'].includes(ext)) {
+            // Word 文件预览 - 使用 docx-preview.js
+            contentArea.className = 'flex-1 overflow-auto bg-gray-50 p-6';
+            contentArea.innerHTML = `
+                <div class="docx-preview-container bg-white shadow-lg mx-auto" style="max-width: 21cm; min-height: 29.7cm;"></div>
+            `;
+
+            const docxContainer = contentArea.querySelector('.docx-preview-container');
+
+            // 检查 docx-preview 库是否加载
+            if (typeof docx === 'undefined') {
+                contentArea.innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-full text-gray-500">
+                        <iconify-icon icon="carbon:warning-alt" width="64" class="mb-4 text-red-500"></iconify-icon>
+                        <p class="text-lg">Word 预览库未加载</p>
+                        <p class="text-sm mt-2">请刷新页面重试</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // 使用 docx-preview 渲染
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    await docx.renderAsync(e.target.result, docxContainer, null, {
+                        className: "docx-preview",
+                        inWrapper: true,
+                        ignoreWidth: false,
+                        ignoreHeight: false,
+                        ignoreFonts: false,
+                        breakPages: true,
+                        ignoreLastRenderedPageBreak: true,
+                        experimental: false,
+                        trimXmlDeclaration: true,
+                        useBase64URL: false,
+                        useMathMLPolyfill: false,
+                        renderHeaders: true,
+                        renderFooters: true,
+                        renderFootnotes: true,
+                        renderEndnotes: true
+                    });
+                } catch (error) {
+                    console.error('[Word Preview] Error rendering Word:', error);
+                    contentArea.innerHTML = `
+                        <div class="flex flex-col items-center justify-center h-full text-gray-500">
+                            <iconify-icon icon="carbon:warning-alt" width="64" class="mb-4 text-red-500"></iconify-icon>
+                            <p class="text-lg">Word 文件加载失败</p>
+                            <p class="text-sm mt-2">${error.message}</p>
+                        </div>
+                    `;
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        } else if (['pptx', 'ppt'].includes(ext)) {
+            // PPT 文件预览
+            contentArea.className = 'flex-1 overflow-hidden bg-gray-100';
+
+            contentArea.innerHTML = `
+                <div class="flex flex-col items-center justify-center h-full text-gray-500 px-6">
+                    <iconify-icon icon="carbon:presentation-file" width="64" class="mb-4 text-orange-500"></iconify-icon>
+                    <p class="text-lg font-semibold mb-2">PowerPoint 文件预览</p>
+                    <p class="text-sm text-gray-600 text-center max-w-md">
+                        建议使用 Microsoft PowerPoint 或其他本地应用打开此文件。
+                    </p>
+                    <div class="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200 max-w-md">
+                        <p class="text-xs text-gray-600">
+                            <strong>文件信息：</strong><br>
+                            名称: ${file.name}<br>
+                            大小: ${global.formatFileSize ? global.formatFileSize(file.size) : (file.size / 1024).toFixed(2) + ' KB'}
+                        </p>
+                    </div>
+                </div>
+            `;
+        } else if (['txt', 'md', 'yaml', 'yml', 'html', 'htm'].includes(ext)) {
+            // 文本文件预览
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const text = e.target.result;
+                contentArea.innerHTML = `<pre class="text-sm text-gray-800 whitespace-pre-wrap break-words bg-gray-50 p-4 rounded-lg border border-gray-200 font-mono">${escapeHtml(text)}</pre>`;
+            };
+            reader.readAsText(file);
+        } else {
+            // 不支持的类型
+            contentArea.innerHTML = `
+                <div class="flex flex-col items-center justify-center h-full text-gray-500">
+                    <iconify-icon icon="carbon:document-unknown" width="64" class="mb-4"></iconify-icon>
+                    <p class="text-lg">暂不支持预览此文件类型</p>
+                    <p class="text-sm mt-2">支持的类型: PDF, Word (DOCX), TXT, MD, YAML, HTML</p>
+                </div>
+            `;
+        }
+
+        // 组装模态框
+        modalContent.appendChild(header);
+        modalContent.appendChild(fileInfoAndControls);
+        modalContent.appendChild(contentArea);
+        modal.appendChild(modalContent);
+        document.body.appendChild(modal);
+
+        // 关闭事件
+        const closeModal = () => {
+            modal.style.animation = 'fadeOut 0.2s ease-out';
+            setTimeout(() => modal.remove(), 200);
+        };
+
+        header.querySelector('.preview-close-btn').addEventListener('click', closeModal);
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) closeModal();
+        });
+
+        // ESC 键关闭
+        const handleEsc = (e) => {
+            if (e.key === 'Escape') {
+                closeModal();
+                document.removeEventListener('keydown', handleEsc);
+            }
+        };
+        document.addEventListener('keydown', handleEsc);
+    }
+
+    /**
+     * HTML 转义函数
+     */
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 
     global.updateFileListUI = updateFileListUI;
