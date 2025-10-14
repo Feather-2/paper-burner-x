@@ -1080,6 +1080,9 @@
     <script src="js/process/ocr-adapters/doc2x-adapter.js"></script>
     <script src="js/process/ocr-adapters/local-adapter.js"></script> <!-- 本地 PDF 解析 -->
     <script src="js/process/ocr-manager.js"></script> <!-- OCR 管理器 -->
+    <script src="js/process/glossary-matcher.js"></script> <!-- 高效术语匹配器 -->
+    <!-- glossary-core.js 由 index.js 动态加载，避免重复 -->
+    <script src="js/process/glossary-config.js"></script> <!-- 术语库性能配置 -->
     <script src="js/ui/glossary-ui.js"></script>
     <!-- 子块分割器（支持中英文标点分割），用于高亮与批注的精确定位 -->
     <script src="js/processing/sub_block_segmenter.js"></script>

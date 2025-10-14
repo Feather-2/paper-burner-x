@@ -20,6 +20,180 @@
     }).join('\n');
   }
 
+  function parseTMXFormat(xmlText) {
+    try {
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+      const parseError = xmlDoc.querySelector('parsererror');
+      if (parseError) throw new Error('XML 解析失败');
+
+      const tuNodes = xmlDoc.querySelectorAll('tu');
+      const entries = [];
+
+      tuNodes.forEach(tu => {
+        const tuvs = tu.querySelectorAll('tuv');
+        if (tuvs.length < 2) return;
+
+        let sourceTerm = '';
+        let targetTerm = '';
+
+        tuvs.forEach(tuv => {
+          const lang = tuv.getAttribute('xml:lang') || tuv.getAttribute('lang') || '';
+          const seg = tuv.querySelector('seg');
+          if (!seg) return;
+
+          const text = seg.textContent.trim();
+          if (!text) return;
+
+          if (lang.toLowerCase().startsWith('en') || lang.toLowerCase().startsWith('zh-hans') === false) {
+            if (!sourceTerm) sourceTerm = text;
+          } else {
+            targetTerm = text;
+          }
+        });
+
+        if (sourceTerm && targetTerm) {
+          entries.push({
+            id: generateUUID(),
+            term: sourceTerm,
+            translation: targetTerm,
+            caseSensitive: false,
+            wholeWord: false,
+            enabled: true
+          });
+        }
+      });
+
+      return { success: true, entries };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+
+  function parseTBXFormat(xmlText) {
+    try {
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+      const parseError = xmlDoc.querySelector('parsererror');
+      if (parseError) throw new Error('XML 解析失败');
+
+      // TBX (TermBase eXchange) 格式
+      // 结构: <martif> -> <body> -> <termEntry> -> <langSet> -> <tig> -> <term>
+      const termEntries = xmlDoc.querySelectorAll('termEntry');
+      const entries = [];
+
+      termEntries.forEach(termEntry => {
+        const langSets = termEntry.querySelectorAll('langSet');
+        if (langSets.length < 2) return;
+
+        let sourceTerm = '';
+        let targetTerm = '';
+
+        langSets.forEach(langSet => {
+          const lang = langSet.getAttribute('xml:lang') || '';
+          const term = langSet.querySelector('term, tig term, ntig term');
+          if (!term) return;
+
+          const text = term.textContent.trim();
+          if (!text) return;
+
+          // 简单的语言判断
+          if (lang.toLowerCase().startsWith('en') || !sourceTerm) {
+            sourceTerm = text;
+          } else {
+            targetTerm = text;
+          }
+        });
+
+        if (sourceTerm && targetTerm && sourceTerm !== targetTerm) {
+          entries.push({
+            id: generateUUID(),
+            term: sourceTerm,
+            translation: targetTerm,
+            caseSensitive: false,
+            wholeWord: false,
+            enabled: true
+          });
+        }
+      });
+
+      if (entries.length === 0) {
+        return { success: false, error: 'TBX 文件中未找到有效的术语条目' };
+      }
+
+      return { success: true, entries };
+    } catch (err) {
+      return { success: false, error: `TBX 解析失败: ${err.message}` };
+    }
+  }
+
+  function parseCSVFormat(text) {
+    // CSV 格式解析（兼容 SDLTB 导出的 CSV）
+    const lines = text.trim().split(/\r?\n/);
+    if (lines.length === 0) return { success: false, error: 'CSV 文件为空' };
+
+    const entries = [];
+    let headerSkipped = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      // 简单的 CSV 解析（支持引号包裹的字段）
+      const fields = [];
+      let field = '';
+      let inQuotes = false;
+
+      for (let j = 0; j < line.length; j++) {
+        const char = line[j];
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          fields.push(field.trim());
+          field = '';
+        } else {
+          field += char;
+        }
+      }
+      fields.push(field.trim());
+
+      // 移除引号
+      const cleanFields = fields.map(f => f.replace(/^"(.*)"$/, '$1'));
+
+      // 检测是否为表头（包含 "source" "target" "term" 等关键字）
+      if (!headerSkipped && cleanFields.some(f =>
+        /^(source|target|term|translation|原文|译文)$/i.test(f.toLowerCase())
+      )) {
+        headerSkipped = true;
+        continue;
+      }
+
+      // 至少需要两列
+      if (cleanFields.length < 2) continue;
+
+      const term = cleanFields[0] || '';
+      const translation = cleanFields[1] || '';
+
+      if (term && translation) {
+        entries.push({
+          id: generateUUID(),
+          term,
+          translation,
+          caseSensitive: false,
+          wholeWord: false,
+          enabled: true
+        });
+      }
+    }
+
+    if (entries.length === 0) {
+      return { success: false, error: 'CSV 文件中未找到有效的术语条目' };
+    }
+
+    return { success: true, entries };
+  }
+
   function parseSimpleGlossaryText(text) {
     const raw = String(text || '');
     const trimmed = raw.trim();
@@ -32,6 +206,25 @@
     };
 
     if (!trimmed) return result;
+
+    if (trimmed.startsWith('<?xml') || trimmed.includes('<tmx')) {
+      const tmxResult = parseTMXFormat(trimmed);
+      if (!tmxResult.success) {
+        result.errorMessage = 'TMX 解析失败：' + tmxResult.error;
+        return result;
+      }
+      const map = new Map();
+      const duplicates = [];
+      tmxResult.entries.forEach(item => {
+        const key = normalizeTermForMatch(item.term);
+        if (map.has(key)) duplicates.push(item.term);
+        map.set(key, item);
+      });
+      result.entries = Array.from(map.values());
+      result.rawLineCount = tmxResult.entries.length;
+      result.duplicates = duplicates;
+      return result;
+    }
 
     if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
       try {
@@ -55,6 +248,29 @@
         result.errorMessage = 'JSON 解析失败：' + (err && err.message ? err.message : String(err));
       }
       return result;
+    }
+
+    // 尝试检测是否为 CSV 格式（包含逗号分隔）
+    const firstLine = trimmed.split(/\r?\n/)[0];
+    const hasCommas = firstLine.includes(',');
+    const hasTabs = firstLine.includes('\t');
+
+    if (hasCommas && !hasTabs) {
+      // 很可能是 CSV 格式
+      const csvResult = parseCSVFormat(trimmed);
+      if (csvResult.success) {
+        const map = new Map();
+        const duplicates = [];
+        csvResult.entries.forEach(item => {
+          const key = normalizeTermForMatch(item.term);
+          if (map.has(key)) duplicates.push(item.term);
+          map.set(key, item);
+        });
+        result.entries = Array.from(map.values());
+        result.rawLineCount = csvResult.entries.length;
+        result.duplicates = duplicates;
+        return result;
+      }
     }
 
     const lines = raw.split(/\r?\n/);
@@ -268,13 +484,30 @@
     const intro = document.createElement('div');
     intro.className = 'text-sm text-slate-600 leading-relaxed space-y-2';
     intro.innerHTML = `
-      <p>支持两种格式：<strong>简易文本</strong>（每行“术语[TAB]译文”）或 <strong>JSON</strong>（数组/含 entries 字段）。导入前可预览冲突并逐条决定保留现有或采用新词条。</p>
-      <p class="text-xs text-slate-500">示例：<code class="px-1 py-0.5 bg-slate-100 border border-slate-200 rounded">GPU\t图形处理器\t0\t1\t1</code></p>`;
+      <p>支持五种格式：<strong>CSV</strong>（逗号分隔）、<strong>简易文本</strong>（TAB 分隔）、<strong>JSON</strong>、<strong>TMX</strong>（Translation Memory eXchange）、<strong>TBX</strong>（TermBase eXchange）。导入前可预览冲突并逐条决定保留现有或采用新词条。</p>
+      <p class="text-xs text-slate-500">提示：可直接粘贴文本/JSON/TMX/TBX/CSV，或上传文件</p>`;
+
+    // 添加文件上传区域
+    const fileUploadArea = document.createElement('div');
+    fileUploadArea.className = 'rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 p-4 text-center';
+    fileUploadArea.innerHTML = `
+      <div class="flex flex-col items-center gap-2">
+        <iconify-icon icon="carbon:document-import" width="32" class="text-slate-400"></iconify-icon>
+        <div class="text-sm text-slate-600">
+          <label class="cursor-pointer text-blue-600 hover:text-blue-700 font-medium">
+            点击上传文件
+            <input type="file" accept=".csv,.tmx,.tbx,.txt,.json,.xml" class="hidden" id="glossaryFileInput">
+          </label>
+          或拖拽文件到此处
+        </div>
+        <div class="text-xs text-slate-400">支持: .csv, .tmx, .tbx, .txt, .json, .xml</div>
+      </div>
+    `;
 
     const textarea = document.createElement('textarea');
     textarea.className = 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm leading-relaxed focus:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-200 transition';
-    textarea.rows = 10;
-    textarea.placeholder = '粘贴术语文本或 JSON ...';
+    textarea.rows = 8;
+    textarea.placeholder = '或直接粘贴术语文本、JSON、TMX 内容...';
 
     const actionRow = document.createElement('div');
     actionRow.className = 'flex flex-wrap items-center justify-between gap-3';
@@ -311,6 +544,7 @@
     previewArea.className = 'space-y-4';
 
     modal.body.appendChild(intro);
+    modal.body.appendChild(fileUploadArea);
     modal.body.appendChild(textarea);
     modal.body.appendChild(actionRow);
     modal.body.appendChild(previewArea);
@@ -324,6 +558,78 @@
       incomingCount: 0,
       originalEntries: existingEntries
     };
+
+    // 文件上传处理
+    const fileInput = modal.body.querySelector('#glossaryFileInput');
+    fileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const fileName = file.name.toLowerCase();
+      try {
+        if (fileName.endsWith('.tbx') || fileName.endsWith('.xml')) {
+          // 处理 TBX/XML 文件
+          const text = await file.text();
+          const result = parseTBXFormat(text);
+          if (!result.success) {
+            // 如果 TBX 解析失败，尝试作为普通 TMX/文本解析
+            textarea.value = text;
+            state.parseResult = parseSimpleGlossaryText(text);
+          } else {
+            state.parseResult = {
+              rawLineCount: result.entries.length,
+              entries: result.entries,
+              duplicates: [],
+              invalidLines: [],
+              errorMessage: ''
+            };
+          }
+        } else if (fileName.endsWith('.csv')) {
+          // 处理 CSV 文件
+          const text = await file.text();
+          const result = parseCSVFormat(text);
+          if (!result.success) {
+            showNotification && showNotification(result.error, 'error');
+            return;
+          }
+          state.parseResult = {
+            rawLineCount: result.entries.length,
+            entries: result.entries,
+            duplicates: [],
+            invalidLines: [],
+            errorMessage: ''
+          };
+        } else {
+          // TMX/TXT/JSON 文本文件
+          const text = await file.text();
+          textarea.value = text;
+          state.parseResult = parseSimpleGlossaryText(text);
+        }
+
+        // 自动触发预览
+        analyzeAndPreview();
+      } catch (err) {
+        showNotification && showNotification('文件读取失败: ' + err.message, 'error');
+      }
+    });
+
+    // 拖拽上传
+    fileUploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      fileUploadArea.classList.add('border-blue-400', 'bg-blue-50');
+    });
+    fileUploadArea.addEventListener('dragleave', () => {
+      fileUploadArea.classList.remove('border-blue-400', 'bg-blue-50');
+    });
+    fileUploadArea.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      fileUploadArea.classList.remove('border-blue-400', 'bg-blue-50');
+      const file = e.dataTransfer.files[0];
+      if (file) {
+        fileInput.files = e.dataTransfer.files;
+        fileInput.dispatchEvent(new Event('change'));
+      }
+    });
 
     function renderConflictPreview() {
       const pr = state.parseResult;
@@ -453,10 +759,13 @@
       }
     }
 
-    previewBtn.addEventListener('click', () => {
-      const text = textarea.value;
-      const parsed = parseSimpleGlossaryText(text);
-      state.parseResult = parsed;
+    function analyzeAndPreview() {
+      if (!state.parseResult) {
+        const text = textarea.value;
+        state.parseResult = parseSimpleGlossaryText(text);
+      }
+
+      const parsed = state.parseResult;
       state.incomingCount = parsed.entries.length;
 
       const currentMap = new Map(state.originalEntries.map(item => [normalizeTermForMatch(item.term), item]));
@@ -480,6 +789,11 @@
         applyBtn.innerHTML = '<iconify-icon icon="carbon:checkmark" width="16"></iconify-icon>确认导入';
       }
       renderConflictPreview();
+    }
+
+    previewBtn.addEventListener('click', () => {
+      state.parseResult = null; // 重置，强制重新解析
+      analyzeAndPreview();
     });
 
     applyBtn.addEventListener('click', () => {

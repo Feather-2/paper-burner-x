@@ -8,10 +8,38 @@
  * - 构建注入到系统提示词中的术语翻译指引
  */
 
+// 缓存编译好的正则表达式
+let _glossaryRegexCache = null;
+let _glossaryRegexVersion = 0;
+
 function _loadEnabledGlossaryEntries() {
   if (typeof loadGlossaryEntries !== 'function') return [];
   const all = loadGlossaryEntries();
   return all.filter(e => e && e.enabled && e.term && e.translation);
+}
+
+function _buildRegexMapForEntries(entries) {
+  const map = new Map();
+  for (const e of entries) {
+    const re = _buildRegexForEntry(e.term, !!e.wholeWord, !!e.caseSensitive);
+    if (re) {
+      map.set(e, re);
+    }
+  }
+  return map;
+}
+
+function _getOrBuildRegexMap() {
+  const entries = _loadEnabledGlossaryEntries();
+  const currentVersion = entries.length + entries.map(e => e.term).join('|');
+
+  if (_glossaryRegexCache && _glossaryRegexVersion === currentVersion) {
+    return _glossaryRegexCache;
+  }
+
+  _glossaryRegexCache = _buildRegexMapForEntries(entries);
+  _glossaryRegexVersion = currentVersion;
+  return _glossaryRegexCache;
 }
 
 function _buildRegexForEntry(term, wholeWord, caseSensitive) {
@@ -35,21 +63,28 @@ function _buildRegexForEntry(term, wholeWord, caseSensitive) {
 
 /**
  * 在文本中查找命中的术语条目。
+ * 使用高效的 Trie 树多模式匹配算法（O(L+m) 复杂度）
  * @param {string} text
  * @returns {Array<{term:string, translation:string}>}
  */
 function getGlossaryMatchesForText(text) {
   if (!text) return [];
-  const entries = _loadEnabledGlossaryEntries();
+
+  // 优先使用新的高效匹配器
+  if (typeof findGlossaryMatchesFast === 'function') {
+    return findGlossaryMatchesFast(text);
+  }
+
+  // 降级到正则表达式方案
+  const regexMap = _getOrBuildRegexMap();
   const matched = [];
   const seen = new Set();
-  for (const e of entries) {
-    const re = _buildRegexForEntry(e.term, !!e.wholeWord, !!e.caseSensitive);
-    if (!re) continue;
-    if (re.test(text)) {
-      const key = `${e.term}=>${e.translation}`;
+
+  for (const [entry, regex] of regexMap) {
+    if (regex.test(text)) {
+      const key = `${entry.term}=>${entry.translation}`;
       if (!seen.has(key)) {
-        matched.push({ term: e.term, translation: e.translation });
+        matched.push({ term: entry.term, translation: entry.translation });
         seen.add(key);
       }
     }

@@ -90,7 +90,7 @@ function loadProcessingScripts() {
         'js/process/utils.js',
         'js/process/ocr.js',
         'js/process/tables.js',
-        'js/process/glossary.js',
+        'js/process/glossary-core.js',
         'js/process/translation.js',
         'js/process/document.js',
         'js/process/download.js',
