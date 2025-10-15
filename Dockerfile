@@ -5,6 +5,9 @@ FROM node:20-alpine AS backend-builder
 
 WORKDIR /app/server
 
+# Install OpenSSL 1.1 compatibility for Prisma
+RUN apk add --no-cache openssl1.1-compat
+
 # Copy backend package files
 COPY server/package*.json ./
 
@@ -25,8 +28,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
+# Install dumb-init and OpenSSL 1.1 compatibility for Prisma
+RUN apk add --no-cache dumb-init openssl1.1-compat
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
