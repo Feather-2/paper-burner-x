@@ -1,54 +1,51 @@
 Paper Burner X - License Notice
 ================================
 
-## Dual Licensing Structure
+## Licensing Structure
 
-This project contains code under two licenses:
-
-1. **AGPL-3.0**: New code and substantial modifications (constituting ~93%+ of the codebase)
-2. **GPL-2.0**: Original Paper Burner code and its direct derivatives (constituting ~2% of the codebase)
+This project uses a clear licensing approach:
 
 **Primary License**: GNU Affero General Public License v3.0 (AGPL-3.0)
-**Legacy Code License**: GNU General Public License v2.0 (GPL-2.0)
+- Applies to all new code written by Feather-2 and contributors (~98% of current codebase)
+- Copyright (C) 2024-2025 Feather-2 and contributors
 
-Copyright (C) 2024-2025 Feather-2 and contributors
+**Historical Attribution**: GNU General Public License v2.0 (GPL-2.0)
+- Original Paper Burner code (pre-refactoring commits in git history)
+- See git history for the original app.js and index.html before major refactoring
+- Copyright (C) 2024 Baoyu (baoyudu)
+
+**Note**: The entire current codebase must be used under AGPL-3.0 terms. GPL-2.0 applies only to
+historical snapshots preserved in commit history before the major refactoring.
 
 ---
 
 ## Code Attribution and Licensing Details
 
-### GPL-2.0 Licensed Components (Original Work)
+### Original Paper Burner (GPL-2.0)
 
-The following components are conceptually derived from the original Paper Burner project
-and remain under GPL-2.0 out of respect for the foundational work:
-
-**Original Core Concepts (~2,000 lines, heavily refactored and rewritten):**
-- Basic PDF processing workflow concept
-- OCR integration approach (note: actual implementation is NEW)
-- Translation pipeline concept (note: actual implementation is NEW)
-- Basic UI structure concept
-
-**Important Clarifications:**
-- **Multiple file processing**: Paper Burner X's batch processing system is entirely NEW implementation
-- **Retry mechanism**: Completely NEW - original project did not have this feature
-- **Concurrent processing**: NEW implementation with our own queue management
-- **All actual code**: Has been rewritten, refactored, or newly implemented
-
-**Note**: While we started from the original project's architectural concepts,
-virtually all code has been rewritten. We maintain GPL-2.0 attribution for
-the foundational ideas out of respect for the original work.
+The foundational concepts and early code came from the original Paper Burner project:
 
 **Original Project Attribution:**
 - Author: Baoyu (baoyudu)
 - Repository: https://github.com/baoyudu/paper-burner
 - License: GPL-2.0
-- Original: Basic PDF OCR and translation tool (~6 files, ~2,000 lines)
+- Scope: Basic PDF OCR and translation tool (~6 files, ~2,000 lines)
 
-### AGPL-3.0 Licensed Components (New Work)
+**Historical Code Under GPL-2.0:**
+- Original code related to Mistral translation and partial UI (see git history before May 16, 2025)
+- Specific files: Original `app.js` and `index.html` before major refactoring
+- Basic PDF processing workflow concepts
+- Initial OCR integration approach
+- Basic translation pipeline structure
 
-The following represents new, original work under AGPL-3.0 (~140,000+ lines):
+**Important**: We deeply respect the original author's contribution. The GPL-2.0 portions
+remain available in the git history for anyone who wishes to use them under GPL-2.0 terms.
 
-**Complete Backend System (NEW):**
+### Paper Burner X - New Development (AGPL-3.0)
+
+All code in the current version has been rewritten, refactored, or newly created by Feather-2:
+
+**Complete Backend System (NEW - ~40,000 lines):**
 - Node.js + Express server architecture
 - PostgreSQL database integration
 - Prisma ORM implementation
@@ -90,14 +87,15 @@ The following represents new, original work under AGPL-3.0 (~140,000+ lines):
 
 ## Why AGPL-3.0 for New Code?
 
-The license upgrade to AGPL-3.0 for new contributions is justified and necessary for:
+### 1. Copyright and Legal Right
 
-### 1. Legal Compatibility
-- GPL-2.0 permits upgrading to later GPL versions (no "version 2 only" restriction)
-- AGPL-3.0 is compatible with GPL-2.0 code
-- Over 93% of the codebase is new work eligible for relicensing
+**As the author of ~98% of this codebase, I (Feather-2) hold the copyright and have the legal right
+to choose the license for my work.**
 
-### 2. Network Copyleft Protection
+The new code is my original creation, and I choose AGPL-3.0 to protect the open-source nature
+of this project while respecting the original GPL-2.0 contributions (which remain in git history).
+
+### 2. Preventing the "Cloud Service Loophole"
 The primary motivation for AGPL-3.0 is **closing the cloud service loophole**:
 
 **GPL-2.0 Limitation**: If someone deploys your GPL-2.0 software as a web service

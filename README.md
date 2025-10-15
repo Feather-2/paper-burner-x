@@ -24,6 +24,7 @@
 **Paper Burner X** 是为研究生和研究人员设计的 AI 驱动文献处理工具。支持 PDF/DOCX/PPTX/EPUB 等多种格式，能够进行 OCR 识别、高质量翻译、智能分析，完美保留公式、图表和格式。
 
 **核心优势：**
+
 - ⚡ **极速翻译** - 并发处理，长论文仅需数十秒
 - 🎨 **完美排版** - 保留公式、图表、格式
 - 🤖 **智能分析** - AI 助手、思维导图、流程图生成
@@ -41,6 +42,7 @@ Paper Burner X 提供**两种部署模式**，根据你的需求选择：
 ### 📱 模式 1：纯前端部署（推荐个人使用）
 
 **特点：**
+
 - ✅ 无需服务器，完全免费
 - ✅ 5 分钟快速部署到 Vercel
 - ✅ 数据存储在浏览器本地，隐私安全
@@ -68,6 +70,7 @@ Paper Burner X 提供**两种部署模式**，根据你的需求选择：
 ### 🐳 模式 2：Docker 完整部署（推荐团队使用）
 
 **特点：**
+
 - ✅ 包含后端服务器 + PostgreSQL 数据库
 - ✅ 支持多用户、用户认证、权限管理
 - ✅ 管理员面板，可管理用户和系统配置
@@ -143,9 +146,11 @@ docker pull feather2dev/paper-burner-x:latest
 ### 5. 📁 多格式支持
 
 **支持导入：**
+
 - PDF / Markdown / TXT / DOCX / PPTX / HTML / EPUB
 
 **支持导出：**
+
 - HTML / PDF / DOCX / Markdown（支持图片嵌入或链接）
 
 ---
@@ -157,10 +162,11 @@ docker pull feather2dev/paper-burner-x:latest
 需要在浏览器中配置以下 API 密钥（本地存储，不会上传）：
 
 1. **OCR 服务**（二选一）
+
    - [MinerU](https://github.com/opendatalab/MinerU) - 开源 OCR
    - [Doc2X](https://doc2x.noedgeai.com/) - 商业 OCR
-
 2. **翻译模型**（可选多个）
+
    - [DeepSeek](https://deepseek.com/)
    - [Google Gemini](https://makersuite.google.com/)
    - [Anthropic Claude](https://www.anthropic.com/)
@@ -207,22 +213,22 @@ CLAUDE_API_KEY=your_key
 
 ## 📊 性能对比
 
-| 模式 | 部署时间 | 适用场景 | 数据存储 | 性能 |
-|------|---------|---------|---------|------|
-| 纯前端（Vercel） | 5 分钟 | 个人使用 | 浏览器本地 | ⭐⭐⭐⭐⭐ |
-| Docker 完整版 | 15 分钟 | 团队协作 | PostgreSQL | ⭐⭐⭐⭐ |
+| 模式             | 部署时间 | 适用场景 | 数据存储   | 性能       |
+| ---------------- | -------- | -------- | ---------- | ---------- |
+| 纯前端（Vercel） | 5 分钟   | 个人使用 | 浏览器本地 | ⭐⭐⭐⭐⭐ |
+| Docker 完整版    | 15 分钟  | 团队协作 | PostgreSQL | ⭐⭐⭐⭐   |
 
 ---
 
 ## 🗺️ 路线图
 
-- [x] 纯前端模式
-- [x] Docker 部署支持
-- [x] 多用户系统
-- [x] 管理员面板
-- [ ] 更多 OCR 引擎支持
+- [X] 纯前端模式
+- [X] Docker 部署支持
+- [X] 多用户系统
+- [X] 管理员面板
+- [X] 更多 OCR 引擎支持
+- [X] 移动端适配优化
 - [ ] UI 界面重构
-- [ ] 移动端适配优化
 - [ ] 云端同步（可选）
 
 ---
@@ -232,6 +238,7 @@ CLAUDE_API_KEY=your_key
 欢迎为 Paper Burner X 做出贡献！
 
 **参与方式：**
+
 - 🐛 [报告 Bug](https://github.com/Feather-2/paper-burner-x/issues)
 - 💡 [提出新功能建议](https://github.com/Feather-2/paper-burner-x/issues)
 - 🔧 [提交 Pull Request](https://github.com/Feather-2/paper-burner-x/pulls)
@@ -264,27 +271,41 @@ CLAUDE_API_KEY=your_key
 ### 📋 关键要求
 
 如果你部署本项目作为网络服务（包括但不限于）：
+
 - 公开的 Web 服务
 - SaaS 平台
 - 内部企业服务
 
 **你必须**：
+
 1. 在用户界面显著位置提供"源代码"链接
 2. 用户可以通过该链接免费获取完整源代码
 3. 包括你所做的任何修改
 
-### 📜 许可证变更说明
+### 📜 许可证说明
 
-本项目基于 [Paper Burner](https://github.com/baoyu0/paper-burner) (GPL-2.0) 开发，已升级到 AGPL-3.0：
+本项目基于 [Paper Burner](https://github.com/baoyudu/paper-burner) (GPL-2.0) 的创意开发：
 
-- **原项目**: ~1,000 行代码 (GPL-2.0)
-- **当前项目**: ~150,000 行代码
-- **新增内容**: ~140,000+ 行 (93%+)，包括完整后端、Docker 部署、多用户系统等
+**当前版本 (Paper Burner X)**:
 
-**为什么升级到 AGPL-3.0？**
-- 原许可证允许升级到更高版本
-- 新代码占比超过 93%
-- AGPL-3.0 确保云服务部署也需要开源（防止"云服务漏洞"）
+- **许可证**: AGPL-3.0
+- **适用范围**: 所有当前代码（大部分为新开发内容）
+- **作者**: Feather-2 and contributors
+- **版权**: Copyright (C) 2024-2025 Feather-2 and contributors
+
+**历史归属 (Original Paper Burner)**:
+
+- **许可证**: GPL-2.0
+- **适用范围**: 重构前，与mistral翻译相关的原始代码和部分ui（见 git 历史记录 before May 16, 2025）
+- **作者**: Baoyu (baoyudu)
+- **仓库**: https://github.com/baoyudu/paper-burner
+
+**为什么使用 AGPL-3.0？**
+
+作为我所写这部分代码的版权持有人，我选择 AGPL-3.0 是为了：
+
+- ✅ 防止"云服务漏洞"（部署为 SaaS 必须开源）
+- ✅ 保护开源社区的利益（修改必须回馈）
 
 详见 [NOTICE](NOTICE) 文件和 [LICENSE](LICENSE) 文件。
 
