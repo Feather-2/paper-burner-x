@@ -15,17 +15,6 @@ Paper Burner X 现在支持两种部署模式：
 - **前端模式（Vercel）** - 纯静态部署，5 分钟快速上线 → [查看指南](QUICKSTART.md#-选项-1-vercel-部署5-分钟)
 - **后端模式（Docker）** - 完整服务端，支持数据库、多租户、管理面板 → [查看指南](QUICKSTART.md#-选项-2-docker-部署15-分钟)
 
-| 功能 | 前端模式 | 后端模式 |
-|------|---------|---------|
-| 部署难度 | ⭐ 简单 | ⭐⭐⭐ 中等 |
-| OCR 翻译 | ✅ | ✅ |
-| 数据持久化 | 浏览器本地 | 数据库 |
-| 用户登录 | ❌ | ✅ |
-| 多租户 | ❌ | ✅ |
-| 管理面板 | ❌ | ✅ |
-
-[📖 快速开始指南](QUICKSTART.md) | [🐳 Docker 部署](DEPLOYMENT.md)
-
 [落地页](https://paperburner.viwoplus.site/views/landing/landing-page.html)
 
 <img width="3303" height="1576" alt="画板 7" src="https://github.com/user-attachments/assets/cb769c1c-33e0-4c12-9174-f2237fb5929b" />
