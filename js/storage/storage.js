@@ -567,105 +567,371 @@ function importGlossary(jsonText) {
 }
 
 // ==== 多术语库集合 API ====
+// 注意：这些是兼容性包装函数，实际使用 IndexedDB 存储
+// 需要配合 glossary-storage.js 使用
+
+/**
+ * 加载所有术语库集合（同步接口 - 优先使用缓存）
+ * 推荐使用 loadGlossarySetsAsync
+ */
 function loadGlossarySets() {
+    // 尝试从缓存加载
+    if (window._glossarySetsCache) {
+        return window._glossarySetsCache;
+    }
+
+    // 触发异步加载并缓存结果
+    if (typeof window.glossaryStorage !== 'undefined') {
+        loadGlossarySetsAsync()
+            .then(sets => {
+                window._glossarySetsCache = sets;
+                // 触发事件通知 UI 更新
+                window.dispatchEvent(new CustomEvent('glossarySetsLoaded', { detail: sets }));
+            })
+            .catch(err => console.error('Failed to load glossary sets:', err));
+    }
+
+    // 返回空对象或缓存
+    return window._glossarySetsCache || {};
+}
+
+/**
+ * 加载所有术语库集合（推荐使用的异步版本）
+ */
+async function loadGlossarySetsAsync() {
     try {
-        const raw = localStorage.getItem(GLOSSARY_SETS_KEY);
-        let sets = raw ? JSON.parse(raw) : {};
-        if (!sets || typeof sets !== 'object') sets = {};
-        // 迁移：若无集合但存在旧的单库，则创建一个默认库
-        if (Object.keys(sets).length === 0) {
-            const legacy = (function(){ try { return JSON.parse(localStorage.getItem(GLOSSARY_KEY) || '[]'); } catch { return []; } })();
-            if (Array.isArray(legacy) && legacy.length > 0) {
-                const id = generateUUID();
-                sets[id] = {
-                    id,
-                    name: '默认术语库',
-                    enabled: true,
-                    entries: legacy.filter(Boolean).map(item => ({
-                        id: item.id || generateUUID(),
-                        term: String(item.term || '').trim(),
-                        translation: String(item.translation || '').trim(),
-                        caseSensitive: !!item.caseSensitive,
-                        wholeWord: !!item.wholeWord,
-                        enabled: item.enabled === undefined ? true : !!item.enabled
-                    }))
-                };
-                localStorage.setItem(GLOSSARY_SETS_KEY, JSON.stringify(sets));
-            }
+        if (typeof window.glossaryStorage === 'undefined') {
+            console.error('glossary-storage.js not loaded');
+            return {};
         }
-        return sets;
+
+        // 首先尝试迁移旧数据
+        await window.glossaryStorage.migrateFromLocalStorage();
+
+        // 从 IndexedDB/后端加载
+        return await window.glossaryStorage.loadGlossarySetsUnified();
     } catch (e) {
         console.error('Failed to load glossary sets:', e);
         return {};
     }
 }
 
-function saveGlossarySets(sets) {
+/**
+ * 保存术语库集合（异步版本）
+ * @param {Object} sets - 术语库集合对象
+ * @param {Function} onProgress - 可选的进度回调函数 (current, total, setId) => void
+ */
+async function saveGlossarySetsAsync(sets, onProgress) {
     try {
-        localStorage.setItem(GLOSSARY_SETS_KEY, JSON.stringify(sets || {}));
-    } catch (e) { console.error('Failed to save glossary sets:', e); }
+        if (typeof window.glossaryStorage === 'undefined') {
+            console.error('glossary-storage.js not loaded');
+            throw new Error('Storage module not available');
+        }
+
+        const setIds = Object.keys(sets);
+        const totalSets = setIds.length;
+
+        // 批量保存所有集合
+        for (let i = 0; i < totalSets; i++) {
+            const setId = setIds[i];
+            const set = sets[setId];
+            const entries = Array.isArray(set.entries) ? set.entries : [];
+
+            // 从集合中分离 entries
+            const setMeta = { ...set };
+            delete setMeta.entries;
+
+            // 保存单个集合，传递进度回调
+            await window.glossaryStorage.saveGlossarySetUnified(setMeta, entries, (current, total) => {
+                if (onProgress) {
+                    // 报告当前集合的进度
+                    onProgress(current, total, setId, i + 1, totalSets);
+                }
+            });
+        }
+
+        console.log('Glossary sets saved successfully');
+    } catch (e) {
+        console.error('Failed to save glossary sets:', e);
+        throw e;
+    }
+}
+
+/**
+ * 保存术语库集合（同步兼容接口）
+ */
+function saveGlossarySets(sets) {
+    // 立即更新缓存
+    window._glossarySetsCache = sets;
+
+    // 异步保存到 IndexedDB
+    if (typeof window.glossaryStorage !== 'undefined') {
+        saveGlossarySetsAsync(sets)
+            .then(() => {
+                console.log('Glossary sets saved successfully');
+                // 触发保存完成事件
+                window.dispatchEvent(new CustomEvent('glossarySetsSaved', { detail: sets }));
+            })
+            .catch(err => {
+                console.error('Failed to save glossary sets:', err);
+                if (typeof showNotification === 'function') {
+                    showNotification('保存术语库失败: ' + err.message, 'error');
+                }
+            });
+    } else {
+        console.error('glossary-storage.js not loaded, cannot save');
+        if (typeof showNotification === 'function') {
+            showNotification('术语库存储模块未加载', 'error');
+        }
+    }
+}
+
+// 创建术语库集合（异步版本）
+async function createGlossarySetAsync(name) {
+    const id = generateUUID();
+    const newSet = { id, name: name || ('术语库-' + id.slice(0,8)), enabled: true };
+
+    // 保存到 IndexedDB
+    await window.glossaryStorage.saveGlossarySetUnified(newSet, []);
+
+    // 更新缓存
+    if (!window._glossarySetsCache) window._glossarySetsCache = {};
+    window._glossarySetsCache[id] = { ...newSet, entries: [] };
+
+    return window._glossarySetsCache[id];
 }
 
 function createGlossarySet(name) {
-    const sets = loadGlossarySets();
     const id = generateUUID();
-    sets[id] = { id, name: name || ('术语库-' + id.slice(0,8)), enabled: true, entries: [] };
-    saveGlossarySets(sets);
-    return sets[id];
+    const newSet = { id, name: name || ('术语库-' + id.slice(0,8)), enabled: true, entries: [] };
+
+    // 立即更新缓存
+    if (!window._glossarySetsCache) window._glossarySetsCache = {};
+    window._glossarySetsCache[id] = newSet;
+
+    // 异步保存
+    createGlossarySetAsync(name)
+        .then(set => {
+            console.log('Glossary set created:', set.id);
+        })
+        .catch(err => console.error('Failed to create glossary set:', err));
+
+    return newSet;
+}
+
+// 删除术语库集合（异步版本）
+async function deleteGlossarySetAsync(id) {
+    await window.glossaryStorage.deleteGlossarySetUnified(id);
+
+    // 从缓存中删除
+    if (window._glossarySetsCache && window._glossarySetsCache[id]) {
+        delete window._glossarySetsCache[id];
+    }
 }
 
 function deleteGlossarySet(id) {
-    const sets = loadGlossarySets();
-    if (sets[id]) { delete sets[id]; saveGlossarySets(sets); }
+    // 立即从缓存中删除
+    if (window._glossarySetsCache && window._glossarySetsCache[id]) {
+        delete window._glossarySetsCache[id];
+    }
+
+    // 异步删除
+    deleteGlossarySetAsync(id)
+        .then(() => {
+            console.log('Glossary set deleted:', id);
+        })
+        .catch(err => console.error('Failed to delete glossary set:', err));
+}
+
+// 重命名术语库（异步版本）
+async function renameGlossarySetAsync(id, newName) {
+    if (!window._glossarySetsCache || !window._glossarySetsCache[id]) return;
+
+    const sets = window._glossarySetsCache;
+    sets[id].name = String(newName || '').trim() || sets[id].name;
+
+    const entries = sets[id].entries || [];
+    await window.glossaryStorage.saveGlossarySetUnified(sets[id], entries);
 }
 
 function renameGlossarySet(id, newName) {
-    const sets = loadGlossarySets();
-    if (sets[id]) { sets[id].name = String(newName || '').trim() || sets[id].name; saveGlossarySets(sets); }
+    // 立即更新缓存
+    if (window._glossarySetsCache && window._glossarySetsCache[id]) {
+        window._glossarySetsCache[id].name = String(newName || '').trim() || window._glossarySetsCache[id].name;
+    }
+
+    // 异步保存
+    renameGlossarySetAsync(id, newName)
+        .then(() => {
+            console.log('Glossary set renamed:', id);
+        })
+        .catch(err => console.error('Failed to rename glossary set:', err));
+}
+
+// 切换术语库启用状态（异步版本）
+async function toggleGlossarySetAsync(id, enabled) {
+    if (!window._glossarySetsCache || !window._glossarySetsCache[id]) return;
+
+    const sets = window._glossarySetsCache;
+    sets[id].enabled = !!enabled;
+
+    const entries = sets[id].entries || [];
+    await window.glossaryStorage.saveGlossarySetUnified(sets[id], entries);
 }
 
 function toggleGlossarySet(id, enabled) {
-    const sets = loadGlossarySets();
-    if (sets[id]) { sets[id].enabled = !!enabled; saveGlossarySets(sets); }
+    // 立即更新缓存
+    if (window._glossarySetsCache && window._glossarySetsCache[id]) {
+        window._glossarySetsCache[id].enabled = !!enabled;
+    }
+
+    // 异步保存
+    toggleGlossarySetAsync(id, enabled)
+        .then(() => {
+            console.log('Glossary set toggled:', id, enabled);
+        })
+        .catch(err => console.error('Failed to toggle glossary set:', err));
+}
+
+// 更新术语库条目（异步版本）
+async function updateGlossarySetEntriesAsync(id, entries, onProgress) {
+    if (!window._glossarySetsCache || !window._glossarySetsCache[id]) return;
+
+    const sets = window._glossarySetsCache;
+    sets[id].entries = Array.isArray(entries) ? entries : [];
+
+    await window.glossaryStorage.saveGlossarySetUnified(sets[id], entries, onProgress);
+}
+
+/**
+ * 保存单个术语库（异步版本）
+ * @param {string} setId - 术语库 ID
+ * @param {string} name - 术语库名称
+ * @param {boolean} enabled - 是否启用
+ * @param {Array} entries - 术语条目数组
+ * @param {Function} onProgress - 进度回调函数
+ */
+async function saveGlossarySetAsync(setId, name, enabled, entries, onProgress) {
+    if (!window.glossaryStorage) {
+        throw new Error('glossary-storage.js not loaded');
+    }
+
+    const setMeta = {
+        id: setId,
+        name: String(name || '').trim(),
+        enabled: !!enabled
+    };
+
+    const normalizedEntries = Array.isArray(entries) ? entries : [];
+
+    // 保存到 IndexedDB/后端
+    await window.glossaryStorage.saveGlossarySetUnified(setMeta, normalizedEntries, onProgress);
+
+    // 更新缓存
+    if (!window._glossarySetsCache) window._glossarySetsCache = {};
+    window._glossarySetsCache[setId] = { ...setMeta, entries: normalizedEntries };
 }
 
 function updateGlossarySetEntries(id, entries) {
-    const sets = loadGlossarySets();
-    if (sets[id]) { sets[id].entries = Array.isArray(entries) ? entries : []; saveGlossarySets(sets); }
+    // 立即更新缓存
+    if (window._glossarySetsCache && window._glossarySetsCache[id]) {
+        window._glossarySetsCache[id].entries = Array.isArray(entries) ? entries : [];
+    }
+
+    // 异步保存
+    updateGlossarySetEntriesAsync(id, entries)
+        .then(() => {
+            console.log('Glossary entries updated:', id);
+        })
+        .catch(err => console.error('Failed to update glossary entries:', err));
+}
+
+// 导出术语库（异步版本）
+async function exportGlossarySetAsync(id) {
+    const sets = await loadGlossarySetsAsync();
+    const s = sets[id];
+    if (!s) return '{}';
+
+    // 加载条目
+    const entries = await window.glossaryStorage.loadEntriesForSetUnified(id);
+    return JSON.stringify({ ...s, entries }, null, 2);
 }
 
 function exportGlossarySet(id) {
-    const sets = loadGlossarySets();
-    const s = sets[id];
-    if (!s) return '{}';
-    return JSON.stringify(s, null, 2);
+    // 返回空字符串，实际使用异步版本
+    exportGlossarySetAsync(id)
+        .then(data => {
+            window.dispatchEvent(new CustomEvent('glossarySetExported', { detail: { id, data } }));
+        })
+        .catch(err => console.error('Failed to export glossary set:', err));
+    return '{}';
+}
+
+// 导入术语库（异步版本，支持进度回调）
+async function importGlossarySetAsync(jsonText, onProgress) {
+    const obj = JSON.parse(jsonText);
+    if (!obj || typeof obj !== 'object' || !Array.isArray(obj.entries)) {
+        throw new Error('文件不是有效的术语库');
+    }
+
+    const id = generateUUID();
+    const newSet = {
+        id,
+        name: String(obj.name || ('导入库-' + id.slice(0,8))),
+        enabled: obj.enabled === undefined ? true : !!obj.enabled
+    };
+
+    const entries = obj.entries.filter(Boolean).map(item => ({
+        id: item.id || generateUUID(),
+        term: String(item.term || '').trim(),
+        translation: String(item.translation || '').trim(),
+        caseSensitive: !!item.caseSensitive,
+        wholeWord: !!item.wholeWord,
+        enabled: item.enabled === undefined ? true : !!item.enabled
+    }));
+
+    // 使用带进度的保存函数
+    await window.glossaryStorage.saveGlossarySetUnified(newSet, entries, onProgress);
+
+    // 更新缓存
+    if (!window._glossarySetsCache) window._glossarySetsCache = {};
+    window._glossarySetsCache[id] = { ...newSet, entries };
+
+    return { ...newSet, entries };
 }
 
 function importGlossarySet(jsonText) {
-    const obj = JSON.parse(jsonText);
-    if (!obj || typeof obj !== 'object' || !Array.isArray(obj.entries)) throw new Error('文件不是有效的术语库');
-    const sets = loadGlossarySets();
-    // 新建ID，避免覆盖
-    const id = generateUUID();
-    sets[id] = {
-        id,
-        name: String(obj.name || ('导入库-' + id.slice(0,8))),
-        enabled: obj.enabled === undefined ? true : !!obj.enabled,
-        entries: obj.entries.filter(Boolean).map(item => ({
-            id: item.id || generateUUID(),
-            term: String(item.term || '').trim(),
-            translation: String(item.translation || '').trim(),
-            caseSensitive: !!item.caseSensitive,
-            wholeWord: !!item.wholeWord,
-            enabled: item.enabled === undefined ? true : !!item.enabled
-        }))
-    };
-    saveGlossarySets(sets);
-    return sets[id];
+    importGlossarySetAsync(jsonText)
+        .then(set => {
+            window.dispatchEvent(new CustomEvent('glossarySetImported', { detail: set }));
+        })
+        .catch(err => {
+            console.error('Failed to import glossary set:', err);
+            throw err;
+        });
+    return { id: generateUUID(), name: '导入中...', enabled: true, entries: [] };
+}
+
+// 导出所有术语库（异步版本）
+async function exportAllGlossarySetsAsync() {
+    const sets = await loadGlossarySetsAsync();
+
+    // 加载所有条目
+    for (const setId in sets) {
+        const entries = await window.glossaryStorage.loadEntriesForSetUnified(setId);
+        sets[setId].entries = entries;
+    }
+
+    return JSON.stringify(sets, null, 2);
 }
 
 function exportAllGlossarySets() {
-    return JSON.stringify(loadGlossarySets(), null, 2);
+    exportAllGlossarySetsAsync()
+        .then(data => {
+            window.dispatchEvent(new CustomEvent('allGlossarySetsExported', { detail: data }));
+        })
+        .catch(err => console.error('Failed to export all glossary sets:', err));
+    return '{}';
 }
 
 /**

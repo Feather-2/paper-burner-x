@@ -796,11 +796,19 @@
       analyzeAndPreview();
     });
 
-    applyBtn.addEventListener('click', () => {
+    applyBtn.addEventListener('click', async () => {
       if (!state.parseResult || state.parseResult.entries.length === 0 || state.parseResult.errorMessage) return;
+
+      const entryCount = state.parseResult.entries.length;
       const setsLatest = loadGlossarySets();
       const targetLatest = setsLatest[setId];
-      if (!targetLatest) { showNotification && showNotification('术语库已被删除', 'error'); modal.close(); return; }
+      if (!targetLatest) {
+        showNotification && showNotification('术语库已被删除', 'error');
+        modal.close();
+        return;
+      }
+
+      // 准备合并数据
       const existing = Array.isArray(targetLatest.entries) ? targetLatest.entries : [];
       const result = [];
       const conflictMap = new Map(state.conflicts.map(conflict => [conflict.key, conflict]));
@@ -826,12 +834,49 @@
         result.push({ ...entry });
       });
 
-      targetLatest.entries = result;
-      saveGlossarySets(setsLatest);
-      renderEntriesTable(setId);
-      renderGlossarySetsTable();
-      modal.close();
-      showNotification && showNotification(`已导入 ${state.parseResult.entries.length} 条术语（新增 ${state.nonConflictEntries.length}，冲突 ${state.conflicts.length}）`, 'success');
+      // 对于大数据量显示进度条
+      if (entryCount > 1000 && typeof window.glossaryProgress !== 'undefined') {
+        try {
+          // 显示进度条
+          window.glossaryProgress.show(`正在导入 ${entryCount.toLocaleString()} 条术语到 "${escapeHtml(targetLatest.name)}"...`);
+          modal.close(); // 关闭模态框，显示进度条
+
+          // 使用异步保存并更新进度
+          targetLatest.entries = result;
+          await saveGlossarySetAsync(setId, targetLatest.name, targetLatest.enabled, result, (current, total) => {
+            window.glossaryProgress.update(current, total, `正在保存术语...`);
+          });
+
+          // 刷新增强编辑器（如果正在使用）
+          if (typeof window.glossaryEditorEnhanced !== 'undefined' &&
+              window.glossaryEditorEnhanced._currentSetId === setId) {
+            await window.glossaryEditorEnhanced.open(setId);
+          } else {
+            renderEntriesTable(setId);
+          }
+
+          renderGlossarySetsTable();
+          window.glossaryProgress.complete(`成功导入 ${entryCount.toLocaleString()} 条术语（新增 ${state.nonConflictEntries.length}，冲突 ${state.conflicts.length}）`, true);
+        } catch (err) {
+          window.glossaryProgress.complete(`导入失败: ${err.message}`, false);
+        }
+      } else {
+        // 小数据量直接保存
+        targetLatest.entries = result;
+        saveGlossarySets(setsLatest);
+
+        // 刷新增强编辑器（如果正在使用）
+        if (typeof window.glossaryEditorEnhanced !== 'undefined' &&
+            window.glossaryEditorEnhanced._currentSetId === setId) {
+          window.glossaryEditorEnhanced.open(setId);
+        } else {
+          renderEntriesTable(setId);
+        }
+
+        renderGlossarySetsTable();
+        modal.close();
+        showNotification && showNotification(`已导入 ${entryCount.toLocaleString()} 条术语（新增 ${state.nonConflictEntries.length}，冲突 ${state.conflicts.length}）`, 'success');
+      }
     });
   }
 
@@ -941,6 +986,13 @@
   }
 
   function openEditorForSet(setId) {
+    // 优先使用增强版编辑器（支持搜索、分页、批量操作）
+    if (typeof window.glossaryEditorEnhanced !== 'undefined') {
+      window.glossaryEditorEnhanced.open(setId);
+      return;
+    }
+
+    // 降级到旧版编辑器
     const panel = el('glossaryEditorPanel');
     if (!panel) return;
     panel.classList.remove('hidden');
@@ -1076,16 +1128,46 @@
     const importSetFile = el('importGlossarySetFile');
     if (importSetBtn && importSetFile) {
       importSetBtn.addEventListener('click', () => importSetFile.click());
-      importSetFile.addEventListener('change', (e) => {
+      importSetFile.addEventListener('change', async (e) => {
         const file = e.target.files && e.target.files[0];
         if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-          try { importGlossarySet(String(reader.result || '{}')); renderGlossarySetsTable(); showNotification && showNotification('术语库已导入', 'success'); }
-          catch (err) { showNotification && showNotification(`导入失败：${err.message}`, 'error'); }
-        };
-        reader.readAsText(file);
-        importSetFile.value = '';
+
+        try {
+          const text = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || '{}'));
+            reader.onerror = () => reject(reader.error);
+            reader.readAsText(file);
+          });
+
+          // 检查数据大小以决定是否显示进度条
+          const data = JSON.parse(text);
+          const entryCount = data.entries?.length || 0;
+
+          // 对于大于 1000 条的导入显示进度条
+          if (entryCount > 1000 && typeof window.glossaryProgress !== 'undefined') {
+            window.glossaryProgress.show(`正在导入 ${entryCount.toLocaleString()} 条术语...`);
+
+            await importGlossarySetAsync(text, (current, total) => {
+              window.glossaryProgress.update(current, total, `正在保存术语...`);
+            });
+
+            window.glossaryProgress.complete(`成功导入 ${entryCount.toLocaleString()} 条术语`, true);
+            renderGlossarySetsTable();
+          } else {
+            // 小量数据直接导入，不显示进度条
+            importGlossarySet(text);
+            renderGlossarySetsTable();
+            showNotification && showNotification('术语库已导入', 'success');
+          }
+        } catch (err) {
+          if (typeof window.glossaryProgress !== 'undefined') {
+            window.glossaryProgress.complete(`导入失败: ${err.message}`, false);
+          }
+          showNotification && showNotification(`导入失败：${err.message}`, 'error');
+        } finally {
+          importSetFile.value = '';
+        }
       });
     }
 
@@ -1101,5 +1183,37 @@
 
   window.glossaryUI = { renderGlossarySetsTable, openEditorForSet, renderEntriesTable };
 
-  document.addEventListener('DOMContentLoaded', function() { renderGlossarySetsTable(); bindTopControls(); });
+  // 暴露导入导出函数供增强编辑器使用
+  window.openGlossaryImportModal = openGlossaryImportModal;
+  window.openGlossaryExportModal = openGlossaryExportModal;
+
+  // 监听术语库加载完成事件
+  window.addEventListener('glossarySetsLoaded', function() {
+    console.log('[GlossaryUI] Glossary sets loaded, rendering...');
+    renderGlossarySetsTable();
+  });
+
+  document.addEventListener('DOMContentLoaded', function() {
+    console.log('[GlossaryUI] DOM loaded, initializing...');
+
+    // 绑定顶部控件
+    bindTopControls();
+
+    // 检查缓存是否已经准备好
+    if (window._glossarySetsCache && Object.keys(window._glossarySetsCache).length > 0) {
+      console.log('[GlossaryUI] Cache already ready, rendering immediately');
+      renderGlossarySetsTable();
+    } else {
+      console.log('[GlossaryUI] Waiting for glossary data to load...');
+      // 显示加载提示
+      const container = el('glossarySetsTable');
+      if (container) {
+        container.innerHTML = `
+          <div class="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-6 text-center text-sm text-slate-500">
+            <iconify-icon icon="carbon:hourglass" width="22" class="mx-auto mb-2 text-slate-400 animate-pulse"></iconify-icon>
+            <p>正在加载术语库...</p>
+          </div>`;
+      }
+    }
+  });
 })();

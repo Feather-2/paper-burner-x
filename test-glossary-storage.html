@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>术语库存储测试 - IndexedDB Migration</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 p-8">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold mb-6 text-gray-800">术语库存储迁移测试</h1>
+
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">1. 检查存储状态</h2>
+            <div class="space-y-2">
+                <button onclick="checkBackend()" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                    检查后端连接
+                </button>
+                <button onclick="checkMigration()" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
+                    检查迁移状态
+                </button>
+                <button onclick="checkLocalStorage()" class="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600">
+                    检查 localStorage
+                </button>
+            </div>
+            <pre id="statusOutput" class="mt-4 bg-gray-100 p-4 rounded text-sm overflow-x-auto"></pre>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">2. 测试数据迁移</h2>
+            <div class="space-y-2">
+                <button onclick="createTestData()" class="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600">
+                    创建测试数据（localStorage）
+                </button>
+                <button onclick="runMigration()" class="bg-indigo-500 text-white px-4 py-2 rounded hover:bg-indigo-600">
+                    执行迁移到 IndexedDB
+                </button>
+                <button onclick="verifyMigration()" class="bg-teal-500 text-white px-4 py-2 rounded hover:bg-teal-600">
+                    验证迁移结果
+                </button>
+            </div>
+            <pre id="migrationOutput" class="mt-4 bg-gray-100 p-4 rounded text-sm overflow-x-auto"></pre>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">3. 测试大数据保存</h2>
+            <div class="space-y-2">
+                <div class="flex gap-4 items-center">
+                    <label class="text-sm text-gray-600">条目数量:</label>
+                    <input type="number" id="entryCount" value="1000" min="100" max="100000"
+                           class="border rounded px-3 py-1 w-32">
+                </div>
+                <button onclick="testLargeDataset()" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">
+                    测试大数据保存（IndexedDB）
+                </button>
+                <button onclick="testLargeDatasetLocalStorage()" class="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600">
+                    测试大数据保存（localStorage - 会失败）
+                </button>
+            </div>
+            <pre id="largeDataOutput" class="mt-4 bg-gray-100 p-4 rounded text-sm overflow-x-auto"></pre>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold mb-4">4. 清理数据</h2>
+            <div class="space-y-2">
+                <button onclick="clearLocalStorage()" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600">
+                    清除 localStorage
+                </button>
+                <button onclick="clearIndexedDB()" class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700">
+                    清除 IndexedDB
+                </button>
+                <button onclick="resetMigrationFlag()" class="bg-gray-700 text-white px-4 py-2 rounded hover:bg-gray-800">
+                    重置迁移标记
+                </button>
+            </div>
+            <pre id="cleanupOutput" class="mt-4 bg-gray-100 p-4 rounded text-sm overflow-x-auto"></pre>
+        </div>
+    </div>
+
+    <!-- 引入脚本 -->
+    <script>
+        // 简化的 UUID 生成器
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        // 格式化输出
+        function log(elementId, message, type = 'info') {
+            const output = document.getElementById(elementId);
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === 'error' ? '❌' : type === 'success' ? '✅' : 'ℹ️';
+            output.textContent += `[${timestamp}] ${prefix} ${message}\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        // 检查后端连接
+        async function checkBackend() {
+            const output = 'statusOutput';
+            document.getElementById(output).textContent = '';
+            log(output, '检查后端连接...');
+
+            try {
+                const response = await fetch('/api/glossary/health');
+                if (response.ok) {
+                    const data = await response.json();
+                    log(output, `后端可用: ${data.service} (${data.timestamp})`, 'success');
+                } else {
+                    log(output, '后端不可用', 'error');
+                }
+            } catch (err) {
+                log(output, `后端连接失败: ${err.message}`, 'error');
+            }
+        }
+
+        // 检查迁移状态
+        function checkMigration() {
+            const output = 'statusOutput';
+            document.getElementById(output).textContent = '';
+
+            const migrated = localStorage.getItem('glossaryMigratedToIDB');
+            log(output, `迁移状态: ${migrated ? '已迁移' : '未迁移'}`);
+
+            const oldData = localStorage.getItem('translationGlossarySets');
+            if (oldData) {
+                try {
+                    const sets = JSON.parse(oldData);
+                    const count = Object.keys(sets).length;
+                    log(output, `localStorage 中有 ${count} 个术语库`);
+                } catch (err) {
+                    log(output, 'localStorage 数据格式错误', 'error');
+                }
+            } else {
+                log(output, 'localStorage 中无术语库数据');
+            }
+        }
+
+        // 检查 localStorage
+        function checkLocalStorage() {
+            const output = 'statusOutput';
+            document.getElementById(output).textContent = '';
+
+            let totalSize = 0;
+            for (let key in localStorage) {
+                if (localStorage.hasOwnProperty(key)) {
+                    totalSize += localStorage[key].length + key.length;
+                }
+            }
+
+            const sizeKB = (totalSize / 1024).toFixed(2);
+            const sizeMB = (totalSize / 1024 / 1024).toFixed(2);
+
+            log(output, `localStorage 使用: ${sizeKB} KB (${sizeMB} MB)`);
+            log(output, `通常配额: 5-10 MB`);
+        }
+
+        // 创建测试数据
+        function createTestData() {
+            const output = 'migrationOutput';
+            document.getElementById(output).textContent = '';
+            log(output, '创建测试数据...');
+
+            const testSets = {};
+            for (let i = 1; i <= 3; i++) {
+                const id = generateUUID();
+                testSets[id] = {
+                    id,
+                    name: `测试术语库 ${i}`,
+                    enabled: true,
+                    entries: []
+                };
+
+                // 每个库添加100条
+                for (let j = 1; j <= 100; j++) {
+                    testSets[id].entries.push({
+                        id: generateUUID(),
+                        term: `term-${i}-${j}`,
+                        translation: `译文-${i}-${j}`,
+                        caseSensitive: false,
+                        wholeWord: false,
+                        enabled: true
+                    });
+                }
+            }
+
+            try {
+                localStorage.setItem('translationGlossarySets', JSON.stringify(testSets));
+                log(output, '测试数据已创建到 localStorage', 'success');
+                log(output, `创建了 3 个术语库，共 300 条`);
+            } catch (err) {
+                log(output, `创建失败: ${err.message}`, 'error');
+            }
+        }
+
+        // 执行迁移
+        async function runMigration() {
+            const output = 'migrationOutput';
+            document.getElementById(output).textContent = '';
+            log(output, '开始迁移...');
+
+            if (!window.glossaryStorage) {
+                log(output, 'glossary-storage.js 未加载', 'error');
+                return;
+            }
+
+            try {
+                const result = await window.glossaryStorage.migrateFromLocalStorage();
+                if (result.success) {
+                    if (result.noData) {
+                        log(output, '无数据需要迁移', 'success');
+                    } else if (result.alreadyMigrated) {
+                        log(output, '数据已经迁移过了', 'success');
+                    } else {
+                        log(output, `迁移成功！`, 'success');
+                        log(output, `迁移了 ${result.migratedSets} 个术语库`);
+                        log(output, `共 ${result.migratedEntries} 条词条`);
+                    }
+                } else {
+                    log(output, `迁移失败: ${result.error}`, 'error');
+                }
+            } catch (err) {
+                log(output, `迁移出错: ${err.message}`, 'error');
+            }
+        }
+
+        // 验证迁移
+        async function verifyMigration() {
+            const output = 'migrationOutput';
+            document.getElementById(output).textContent = '';
+            log(output, '验证迁移结果...');
+
+            if (!window.glossaryStorage) {
+                log(output, 'glossary-storage.js 未加载', 'error');
+                return;
+            }
+
+            try {
+                const sets = await window.glossaryStorage.loadGlossarySetsUnified();
+                const setIds = Object.keys(sets);
+
+                log(output, `IndexedDB 中有 ${setIds.length} 个术语库`, 'success');
+
+                for (const id of setIds) {
+                    const set = sets[id];
+                    const entries = await window.glossaryStorage.loadEntriesForSetUnified(id);
+                    log(output, `- ${set.name}: ${entries.length} 条`);
+                }
+            } catch (err) {
+                log(output, `验证失败: ${err.message}`, 'error');
+            }
+        }
+
+        // 测试大数据（IndexedDB）
+        async function testLargeDataset() {
+            const output = 'largeDataOutput';
+            document.getElementById(output).textContent = '';
+
+            const count = parseInt(document.getElementById('entryCount').value);
+            log(output, `测试保存 ${count} 条词条到 IndexedDB...`);
+
+            if (!window.glossaryStorage) {
+                log(output, 'glossary-storage.js 未加载', 'error');
+                return;
+            }
+
+            const startTime = Date.now();
+
+            try {
+                const testSet = {
+                    id: 'large-test-' + generateUUID(),
+                    name: `大型测试术语库 (${count} 条)`,
+                    enabled: true
+                };
+
+                const entries = [];
+                for (let i = 0; i < count; i++) {
+                    entries.push({
+                        id: generateUUID(),
+                        term: `LargeTerm-${i}`,
+                        translation: `大量翻译数据 ${i} - 包含一些额外的文本来增加数据量`,
+                        caseSensitive: false,
+                        wholeWord: false,
+                        enabled: true
+                    });
+                }
+
+                await window.glossaryStorage.saveGlossarySetUnified(testSet, entries);
+
+                const elapsed = Date.now() - startTime;
+                log(output, `✅ 成功保存 ${count} 条到 IndexedDB!`, 'success');
+                log(output, `耗时: ${elapsed} ms`);
+                log(output, `平均: ${(elapsed / count).toFixed(2)} ms/条`);
+            } catch (err) {
+                log(output, `保存失败: ${err.message}`, 'error');
+            }
+        }
+
+        // 测试大数据（localStorage - 会失败）
+        function testLargeDatasetLocalStorage() {
+            const output = 'largeDataOutput';
+            document.getElementById(output).textContent = '';
+
+            const count = parseInt(document.getElementById('entryCount').value);
+            log(output, `测试保存 ${count} 条词条到 localStorage...`);
+
+            const startTime = Date.now();
+
+            try {
+                const testSets = {};
+                const id = 'local-test-' + generateUUID();
+                testSets[id] = {
+                    id,
+                    name: `localStorage 测试 (${count} 条)`,
+                    enabled: true,
+                    entries: []
+                };
+
+                for (let i = 0; i < count; i++) {
+                    testSets[id].entries.push({
+                        id: generateUUID(),
+                        term: `Term-${i}`,
+                        translation: `Translation ${i} with some extra text to increase size`,
+                        caseSensitive: false,
+                        wholeWord: false,
+                        enabled: true
+                    });
+                }
+
+                localStorage.setItem('test_large_glossary', JSON.stringify(testSets));
+
+                const elapsed = Date.now() - startTime;
+                log(output, `✅ 居然成功了? ${count} 条`, 'success');
+                log(output, `耗时: ${elapsed} ms`);
+                log(output, `如果条目更多，localStorage 会抛出 QuotaExceededError`);
+            } catch (err) {
+                log(output, `❌ 预期的失败: ${err.name}`, 'error');
+                log(output, `这就是为什么需要 IndexedDB！`);
+            }
+        }
+
+        // 清除 localStorage
+        function clearLocalStorage() {
+            const output = 'cleanupOutput';
+            document.getElementById(output).textContent = '';
+
+            localStorage.removeItem('translationGlossarySets');
+            localStorage.removeItem('test_large_glossary');
+            log(output, 'localStorage 术语库数据已清除', 'success');
+        }
+
+        // 清除 IndexedDB
+        async function clearIndexedDB() {
+            const output = 'cleanupOutput';
+            document.getElementById(output).textContent = '';
+            log(output, '清除 IndexedDB...');
+
+            try {
+                const request = indexedDB.deleteDatabase('PaperBurnerGlossaryDB');
+                request.onsuccess = () => {
+                    log(output, 'IndexedDB 已清除', 'success');
+                };
+                request.onerror = () => {
+                    log(output, '清除失败', 'error');
+                };
+            } catch (err) {
+                log(output, `清除出错: ${err.message}`, 'error');
+            }
+        }
+
+        // 重置迁移标记
+        function resetMigrationFlag() {
+            const output = 'cleanupOutput';
+            document.getElementById(output).textContent = '';
+
+            localStorage.removeItem('glossaryMigratedToIDB');
+            log(output, '迁移标记已重置', 'success');
+            log(output, '现在可以重新测试迁移了');
+        }
+
+        // 页面加载时检查
+        window.addEventListener('load', () => {
+            console.log('测试页面已加载');
+            console.log('glossaryStorage available:', typeof window.glossaryStorage !== 'undefined');
+        });
+    </script>
+
+    <!-- 引入实际的存储模块 -->
+    <script src="/js/storage/storage.js"></script>
+    <script src="/js/storage/glossary-storage.js"></script>
+</body>
+</html>

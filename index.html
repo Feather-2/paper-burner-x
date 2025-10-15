@@ -587,14 +587,14 @@
 
                                 <!-- 编辑面板 -->
                                 <div id="glossaryEditorPanel" class="hidden border border-slate-200 rounded-xl bg-slate-50/70 p-4 md:p-5" data-editing-id="">
-                                  <div class="flex items-center justify-between mb-4">
-                                    <div class="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                                      <iconify-icon icon="carbon:list" width="18"></iconify-icon>
-                                      <span>术语条目</span>
-                                    </div>
-                                    <span class="text-xs text-slate-500">点击单元可直接编辑，支持导入导出 JSON</span>
-                                  </div>
+                                  <!-- 工具栏容器（搜索、批量操作等） -->
+                                  <div id="glossaryEditorToolbar"></div>
+
+                                  <!-- 条目列表容器 -->
                                   <div id="glossaryEntriesTable"></div>
+
+                                  <!-- 分页容器 -->
+                                  <div id="glossaryEditorPagination"></div>
                                 </div>
                             </div>
                         </div>
@@ -1041,6 +1041,7 @@
     <script src="https://unpkg.com/iconify-icon@1.0.7/dist/iconify-icon.min.js"></script>
     <script src="js/api/api.js"></script>
     <script src="js/storage/storage.js"></script>
+    <script src="js/storage/glossary-storage.js"></script>
     <script src="js/storage/storage-adapter.js"></script>
     <script src="https://gcore.jsdelivr.net/npm/mammoth@1.4.21/mammoth.browser.min.js"></script>
     <script src="https://gcore.jsdelivr.net/npm/turndown@7.1.2/dist/turndown.min.js"></script>
@@ -1084,6 +1085,8 @@
     <script src="js/process/glossary-matcher.js"></script> <!-- 高效术语匹配器 -->
     <!-- glossary-core.js 由 index.js 动态加载，避免重复 -->
     <script src="js/process/glossary-config.js"></script> <!-- 术语库性能配置 -->
+    <script src="js/ui/glossary-progress.js"></script> <!-- 术语库进度条 -->
+    <script src="js/ui/glossary-editor-enhanced.js"></script> <!-- 增强版术语库编辑器 -->
     <script src="js/ui/glossary-ui.js"></script>
     <!-- 子块分割器（支持中英文标点分割），用于高亮与批注的精确定位 -->
     <script src="js/processing/sub_block_segmenter.js"></script>

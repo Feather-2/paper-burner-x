@@ -597,9 +597,26 @@ async function translateMarkdown(
                 const instr = (typeof buildGlossaryInstruction === 'function') ? buildGlossaryInstruction(matches, targetLang) : '';
                 if (instr) {
                     systemPrompt = (systemPrompt || '') + "\n\n" + instr;
+
+                    // 获取实际限制的数量
+                    let actualLimit = 50; // 默认
+                    if (typeof loadGlossarySets === 'function') {
+                        const sets = loadGlossarySets();
+                        const setIds = Object.keys(sets || {});
+                        for (const id of setIds) {
+                            const set = sets[id];
+                            if (set && set.enabled && set.maxTermsInPrompt) {
+                                actualLimit = set.maxTermsInPrompt;
+                                break;
+                            }
+                        }
+                    }
+                    const actualCount = Math.min(matches.length, actualLimit);
+
                     if (typeof addProgressLog === 'function') {
                         const names = matches.slice(0, 6).map(m => m.term).join(', ');
-                        addProgressLog(`${actualLogContext} 命中备择库 ${matches.length} 条：${names}${matches.length>6?'...':''}`);
+                        const filterInfo = matches.length > actualCount ? ` (已过滤至 ${actualCount} 条)` : '';
+                        addProgressLog(`${actualLogContext} 命中术语库 ${matches.length} 条${filterInfo}：${names}${matches.length>6?'...':''}`);
                     }
                 }
             }
