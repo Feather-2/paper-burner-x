@@ -1,0 +1,98 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:16-alpine
+    container_name: paperburner-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-paperburner}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_DB: ${DB_NAME:-paperburner}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-paperburner}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Paper Burner X 应用
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: paperburner-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # 数据库配置
+      DATABASE_URL: postgresql://${DB_USER:-paperburner}:${DB_PASSWORD:-changeme}@postgres:5432/${DB_NAME:-paperburner}
+
+      # 服务器配置
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${PORT:-3000}
+
+      # JWT 配置
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+
+      # CORS 配置
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+
+      # 部署模式
+      DEPLOYMENT_MODE: backend
+
+      # OCR API Keys（可选，可通过管理面板配置）
+      MINERU_API_TOKEN: ${MINERU_API_TOKEN:-}
+      DOC2X_API_TOKEN: ${DOC2X_API_TOKEN:-}
+
+      # 翻译模型 API Keys（可选）
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+      TONGYI_API_KEY: ${TONGYI_API_KEY:-}
+      VOLCANO_API_KEY: ${VOLCANO_API_KEY:-}
+
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    volumes:
+      # 如果需要持久化上传的文件
+      - app_uploads:/app/uploads
+    command: >
+      sh -c "
+        cd /app/server &&
+        npx prisma migrate deploy &&
+        node src/index.js
+      "
+
+  # Nginx 反向代理（可选，用于生产环境）
+  nginx:
+    image: nginx:alpine
+    container_name: paperburner-nginx
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "${NGINX_PORT:-80}:80"
+      - "${NGINX_SSL_PORT:-443}:443"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/ssl:/etc/nginx/ssl:ro
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
+    driver: local
+  app_uploads:
+    driver: local
+
+networks:
+  default:
+    name: paperburner-network

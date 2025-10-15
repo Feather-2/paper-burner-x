@@ -1,11 +1,30 @@
 
-# Paper Burner X - AI文献识别、翻译、阅读与智能分析工具 
+# Paper Burner X - AI文献识别、翻译、阅读与智能分析工具
 
 <div align="center">
-  <img src="https://img.shields.io/badge/版本-1.0.0-blue.svg" alt="版本">
+  <img src="https://img.shields.io/badge/版本-2.0.0-blue.svg" alt="版本">
   <img src="https://img.shields.io/badge/License-GPL_v2-blue.svg" alt="许可证">
   <img src="https://img.shields.io/badge/Pure-JavaScript-yellow.svg" alt="JavaScript">
+  <img src="https://img.shields.io/badge/Docker-Ready-2496ED.svg" alt="Docker">
 </div>
+
+## 🚀 部署模式
+
+Paper Burner X 现在支持两种部署模式：
+
+- **前端模式（Vercel）** - 纯静态部署，5 分钟快速上线 → [查看指南](QUICKSTART.md#-选项-1-vercel-部署5-分钟)
+- **后端模式（Docker）** - 完整服务端，支持数据库、多租户、管理面板 → [查看指南](QUICKSTART.md#-选项-2-docker-部署15-分钟)
+
+| 功能 | 前端模式 | 后端模式 |
+|------|---------|---------|
+| 部署难度 | ⭐ 简单 | ⭐⭐⭐ 中等 |
+| OCR 翻译 | ✅ | ✅ |
+| 数据持久化 | 浏览器本地 | 数据库 |
+| 用户登录 | ❌ | ✅ |
+| 多租户 | ❌ | ✅ |
+| 管理面板 | ❌ | ✅ |
+
+[📖 快速开始指南](QUICKSTART.md) | [🐳 Docker 部署](DEPLOYMENT.md)
 
 [落地页](https://paperburner.viwoplus.site/views/landing/landing-page.html)
 

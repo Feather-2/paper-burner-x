@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paper Burner X - 管理面板</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body class="bg-gray-100">
+    <!-- 登录页面 -->
+    <div id="loginPage" class="min-h-screen flex items-center justify-center">
+        <div class="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
+            <h1 class="text-2xl font-bold mb-6 text-center">Paper Burner X 管理面板</h1>
+            <form id="loginForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">邮箱</label>
+                    <input type="email" id="email" required
+                        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">密码</label>
+                    <input type="password" id="password" required
+                        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <button type="submit"
+                    class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                    登录
+                </button>
+            </form>
+            <div id="loginError" class="mt-4 text-red-600 text-sm hidden"></div>
+        </div>
+    </div>
+
+    <!-- 管理面板主界面 -->
+    <div id="adminPanel" class="hidden min-h-screen">
+        <!-- 顶部导航 -->
+        <nav class="bg-white shadow-sm">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between h-16">
+                    <div class="flex items-center">
+                        <h1 class="text-xl font-bold">Paper Burner X 管理面板</h1>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <span id="adminName" class="text-gray-700"></span>
+                        <button onclick="logout()"
+                            class="bg-gray-200 px-4 py-2 rounded-md hover:bg-gray-300">
+                            退出登录
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- 主内容区 -->
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <!-- 统计卡片 -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <div class="text-gray-500 text-sm">总用户数</div>
+                    <div id="totalUsers" class="text-3xl font-bold mt-2">0</div>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <div class="text-gray-500 text-sm">活跃用户</div>
+                    <div id="activeUsers" class="text-3xl font-bold mt-2">0</div>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <div class="text-gray-500 text-sm">总文档数</div>
+                    <div id="totalDocuments" class="text-3xl font-bold mt-2">0</div>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <div class="text-gray-500 text-sm">今日处理</div>
+                    <div id="documentsToday" class="text-3xl font-bold mt-2">0</div>
+                </div>
+            </div>
+
+            <!-- 选项卡导航 -->
+            <div class="bg-white rounded-lg shadow mb-4">
+                <div class="border-b border-gray-200">
+                    <nav class="flex -mb-px">
+                        <button onclick="switchTab('users')" id="tab-users"
+                            class="tab-button px-6 py-3 border-b-2 border-blue-500 font-medium text-blue-600">
+                            用户管理
+                        </button>
+                        <button onclick="switchTab('models')" id="tab-models"
+                            class="tab-button px-6 py-3 border-b-2 border-transparent font-medium text-gray-500 hover:text-gray-700 hover:border-gray-300">
+                            模型配置
+                        </button>
+                        <button onclick="switchTab('system')" id="tab-system"
+                            class="tab-button px-6 py-3 border-b-2 border-transparent font-medium text-gray-500 hover:text-gray-700 hover:border-gray-300">
+                            系统设置
+                        </button>
+                    </nav>
+                </div>
+
+                <!-- 用户管理 -->
+                <div id="content-users" class="p-6">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">邮箱</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">姓名</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">角色</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">状态</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">注册时间</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="usersList" class="bg-white divide-y divide-gray-200">
+                                <!-- 用户列表将在这里动态加载 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 模型配置 -->
+                <div id="content-models" class="p-6 hidden">
+                    <div class="mb-4">
+                        <button onclick="addSourceSite()"
+                            class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
+                            添加自定义源站
+                        </button>
+                    </div>
+                    <div id="sourceSitesList" class="space-y-4">
+                        <!-- 源站配置将在这里动态加载 -->
+                    </div>
+                </div>
+
+                <!-- 系统设置 -->
+                <div id="content-system" class="p-6 hidden">
+                    <div class="space-y-6">
+                        <div>
+                            <h3 class="text-lg font-medium mb-4">系统配置</h3>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">允许用户注册</label>
+                                    <select id="allowRegistration"
+                                        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
+                                        <option value="true">是</option>
+                                        <option value="false">否</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">最大上传大小（MB）</label>
+                                    <input type="number" id="maxUploadSize" value="100"
+                                        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
+                                </div>
+                                <button onclick="saveSystemSettings()"
+                                    class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
+                                    保存设置
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin + '/api';
+        let authToken = localStorage.getItem('admin_token');
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            if (authToken) {
+                checkAuth();
+            } else {
+                showLoginPage();
+            }
+        });
+
+        // 登录
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            try {
+                const response = await axios.post(`${API_BASE}/auth/login`, {
+                    email,
+                    password
+                });
+
+                if (response.data.success && response.data.user.role === 'ADMIN') {
+                    authToken = response.data.token;
+                    localStorage.setItem('admin_token', authToken);
+                    showAdminPanel(response.data.user);
+                } else {
+                    showError('您没有管理员权限');
+                }
+            } catch (error) {
+                showError('登录失败：' + (error.response?.data?.error || error.message));
+            }
+        });
+
+        function showError(message) {
+            const errorDiv = document.getElementById('loginError');
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+            setTimeout(() => errorDiv.classList.add('hidden'), 5000);
+        }
+
+        async function checkAuth() {
+            try {
+                const response = await axios.get(`${API_BASE}/auth/me`, {
+                    headers: { Authorization: `Bearer ${authToken}` }
+                });
+
+                if (response.data.user.role === 'ADMIN') {
+                    showAdminPanel(response.data.user);
+                } else {
+                    logout();
+                }
+            } catch (error) {
+                logout();
+            }
+        }
+
+        function showLoginPage() {
+            document.getElementById('loginPage').classList.remove('hidden');
+            document.getElementById('adminPanel').classList.add('hidden');
+        }
+
+        async function showAdminPanel(user) {
+            document.getElementById('loginPage').classList.add('hidden');
+            document.getElementById('adminPanel').classList.remove('hidden');
+            document.getElementById('adminName').textContent = user.name || user.email;
+
+            await loadStats();
+            await loadUsers();
+        }
+
+        async function loadStats() {
+            try {
+                const response = await axios.get(`${API_BASE}/admin/stats`, {
+                    headers: { Authorization: `Bearer ${authToken}` }
+                });
+
+                const stats = response.data;
+                document.getElementById('totalUsers').textContent = stats.totalUsers;
+                document.getElementById('activeUsers').textContent = stats.activeUsers;
+                document.getElementById('totalDocuments').textContent = stats.totalDocuments;
+                document.getElementById('documentsToday').textContent = stats.documentsToday;
+            } catch (error) {
+                console.error('Failed to load stats:', error);
+            }
+        }
+
+        async function loadUsers() {
+            try {
+                const response = await axios.get(`${API_BASE}/admin/users`, {
+                    headers: { Authorization: `Bearer ${authToken}` }
+                });
+
+                const usersList = document.getElementById('usersList');
+                usersList.innerHTML = response.data.map(user => `
+                    <tr>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm">${user.email}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm">${user.name || '-'}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm">${user.role}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm">
+                            <span class="px-2 py-1 rounded-full text-xs ${user.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                                ${user.isActive ? '活跃' : '禁用'}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm">${new Date(user.createdAt).toLocaleDateString()}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm">
+                            <button onclick="toggleUserStatus('${user.id}', ${!user.isActive})"
+                                class="text-blue-600 hover:text-blue-900">
+                                ${user.isActive ? '禁用' : '启用'}
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                console.error('Failed to load users:', error);
+            }
+        }
+
+        async function toggleUserStatus(userId, isActive) {
+            try {
+                await axios.put(`${API_BASE}/admin/users/${userId}/status`,
+                    { isActive },
+                    { headers: { Authorization: `Bearer ${authToken}` } }
+                );
+                await loadUsers();
+            } catch (error) {
+                alert('操作失败：' + error.message);
+            }
+        }
+
+        function switchTab(tab) {
+            // 更新选项卡样式
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('border-blue-500', 'text-blue-600');
+                btn.classList.add('border-transparent', 'text-gray-500');
+            });
+            document.getElementById(`tab-${tab}`).classList.add('border-blue-500', 'text-blue-600');
+            document.getElementById(`tab-${tab}`).classList.remove('border-transparent', 'text-gray-500');
+
+            // 切换内容
+            ['users', 'models', 'system'].forEach(t => {
+                document.getElementById(`content-${t}`).classList.toggle('hidden', t !== tab);
+            });
+        }
+
+        function logout() {
+            localStorage.removeItem('admin_token');
+            authToken = null;
+            showLoginPage();
+        }
+
+        // 占位函数
+        function addSourceSite() {
+            alert('自定义源站管理功能开发中...');
+        }
+
+        function saveSystemSettings() {
+            alert('系统设置保存功能开发中...');
+        }
+    </script>
+</body>
+</html>

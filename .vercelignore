@@ -1,6 +1,12 @@
 # Workers 目录（独立部署到 Cloudflare）
 workers/
 
+# 后端文件（Docker 模式专用）
+server/
+docker/
+scripts/
+.github/workflows/
+
 # 测试相关
 **/__tests__/**
 **/*.test.ts
@@ -17,3 +23,10 @@ workers/
 # 开发文件
 .vscode/
 .idea/
+
+# Docker 相关
+docker-compose.yml
+Dockerfile
+.env.example
+deploy.sh
+deploy.ps1

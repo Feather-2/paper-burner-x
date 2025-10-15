@@ -1,0 +1,255 @@
+// Prisma Schema for Paper Burner X
+// 支持多租户系统、历史记录持久化、模型配置管理
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== 用户与认证 ====================
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  password      String   // bcrypt 加密
+  name          String?
+  role          Role     @default(USER)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // 关联
+  settings      UserSettings?
+  documents     Document[]
+  apiKeys       ApiKey[]
+  glossaries    Glossary[]
+  annotations   Annotation[]
+
+  @@index([email])
+  @@map("users")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+// ==================== 用户设置 ====================
+
+model UserSettings {
+  id                          String   @id @default(uuid())
+  userId                      String   @unique
+  user                        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // OCR 设置
+  ocrProvider                 String?  // 'mineru' | 'doc2x'
+  ocrApiKey                   String?  @db.Text
+
+  // 翻译设置
+  translationModel            String?  // 'deepseek' | 'gemini' | 'claude' | 'custom'
+  targetLanguage              String   @default("chinese")
+  customTargetLanguageName    String?
+  maxTokensPerChunk           Int      @default(2000)
+  translationConcurrency      Int      @default(15)
+
+  // 提示词设置
+  defaultSystemPrompt         String?  @db.Text
+  defaultUserPromptTemplate   String?  @db.Text
+  useCustomPrompts            Boolean  @default(false)
+
+  // 其他设置
+  enableGlossary              Boolean  @default(false)
+  batchModeEnabled            Boolean  @default(false)
+  batchModeTemplate           String?
+  batchModeFormats            String[] // ['original', 'markdown', 'pdf']
+  batchModeZipEnabled         Boolean  @default(false)
+
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  @@map("user_settings")
+}
+
+// ==================== API Keys 管理 ====================
+
+model ApiKey {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  provider    String   // 'mistral' | 'deepseek' | 'gemini' | 'claude' | 'tongyi' | 'volcano' | 'custom_source_xxx'
+  keyValue    String   @db.Text // 加密存储
+  remark      String?
+  status      KeyStatus @default(UNTESTED)
+  order       Int      @default(0)
+
+  lastUsedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, provider])
+  @@map("api_keys")
+}
+
+enum KeyStatus {
+  UNTESTED
+  VALID
+  INVALID
+  TESTING
+}
+
+// ==================== 自定义模型源站配置 ====================
+
+model CustomSourceSite {
+  id              String   @id @default(uuid())
+  userId          String?  // null = 管理员全局配置
+
+  displayName     String
+  apiBaseUrl      String
+  modelId         String?
+  availableModels String[] // JSON array
+  requestFormat   String   @default("openai") // 'openai' | 'anthropic' | 'custom'
+  temperature     Float    @default(0.5)
+  maxTokens       Int      @default(8000)
+  endpointMode    String   @default("auto")
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@map("custom_source_sites")
+}
+
+// ==================== 文档处理历史 ====================
+
+model Document {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // 基本信息
+  fileName          String
+  fileSize          Int?
+  fileType          String
+  filePath          String?  // 如果启用文件上传存储
+
+  // 处理状态
+  status            DocStatus @default(PENDING)
+
+  // OCR 结果
+  ocrProvider       String?
+  ocrText           String?  @db.Text
+  ocrMetadata       Json?
+
+  // 翻译结果
+  translationModel  String?
+  translatedText    String?  @db.Text
+  translationMetadata Json?
+
+  // 其他数据
+  summary           String?  @db.Text
+  toc               Json?    // Table of Contents
+  metadata          Json?    // 其他元数据
+
+  processingTime    Int?     // 处理时间（毫秒）
+  errorMessage      String?  @db.Text
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // 关联
+  annotations       Annotation[]
+  semanticGroups    SemanticGroup[]
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@map("documents")
+}
+
+enum DocStatus {
+  PENDING
+  PROCESSING
+  OCR_COMPLETED
+  TRANSLATION_COMPLETED
+  COMPLETED
+  FAILED
+}
+
+// ==================== 高亮与标注 ====================
+
+model Annotation {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  documentId  String
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  type        String   // 'highlight' | 'note'
+  color       String?
+  startIndex  Int
+  endIndex    Int
+  text        String   @db.Text
+  note        String?  @db.Text
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([documentId])
+  @@index([userId])
+  @@map("annotations")
+}
+
+// ==================== 意群数据 ====================
+
+model SemanticGroup {
+  id          String   @id @default(uuid())
+  documentId  String
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  groups      Json     // 存储意群数组
+  version     String?
+  source      String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([documentId])
+  @@map("semantic_groups")
+}
+
+// ==================== 翻译术语库 ====================
+
+model Glossary {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name          String
+  enabled       Boolean  @default(true)
+  entries       Json     // 存储术语条目数组
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+  @@map("glossaries")
+}
+
+// ==================== 系统配置（管理员）====================
+
+model SystemConfig {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String   @db.Text
+  description String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_config")
+}
