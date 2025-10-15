@@ -22,9 +22,15 @@ services:
 
   # Paper Burner X 应用
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # 方式 1: 从 Docker Hub 拉取（推荐用于生产，快速启动）
+    image: feather2dev/paper-burner-x:latest
+
+    # 方式 2: 从本地构建（推荐用于开发和自定义修改）
+    # 取消下面的注释并注释掉上面的 image 行即可使用本地构建
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+
     container_name: paperburner-app
     restart: unless-stopped
     depends_on:

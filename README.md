@@ -1,145 +1,313 @@
-
 # Paper Burner X - AI文献识别、翻译、阅读与智能分析工具
 
 <div align="center">
   <img src="https://img.shields.io/badge/版本-2.0.0-blue.svg" alt="版本">
-  <img src="https://img.shields.io/badge/License-GPL_v2-blue.svg" alt="许可证">
-  <img src="https://img.shields.io/badge/Pure-JavaScript-yellow.svg" alt="JavaScript">
+  <img src="https://img.shields.io/badge/License-AGPL_v3-blue.svg" alt="许可证">
+  <img src="https://img.shields.io/badge/JavaScript-yellow.svg" alt="JavaScript">
   <img src="https://img.shields.io/badge/Docker-Ready-2496ED.svg" alt="Docker">
 </div>
 
-## 🚀 部署模式
-
-Paper Burner X 现在支持两种部署模式：
-
-- **前端模式（Vercel）** - 纯静态部署，5 分钟快速上线 → [查看指南](QUICKSTART.md#-选项-1-vercel-部署5-分钟)
-- **后端模式（Docker）** - 完整服务端，支持数据库、多租户、管理面板 → [查看指南](QUICKSTART.md#-选项-2-docker-部署15-分钟)
-
-[落地页](https://paperburner.viwoplus.site/views/landing/landing-page.html)
-
-<img width="3303" height="1576" alt="画板 7" src="https://github.com/user-attachments/assets/cb769c1c-33e0-4c12-9174-f2237fb5929b" />
-
-
-## ✨ 特性概览 (截至25/9/20)
-
-该项目不仅实现了基于大模型的ocr、翻译和阅读/分析，还有一些特性，包括：
-
-1.  **极速并发翻译🚀:**
-    *   **多文件与高速并发翻译:** 支持上传多个文件，实现快速并发翻译（理想情况下，一篇长论文的翻译时间仅需几十秒）,因此具备快速大量翻译文献或者书籍的能力。
-    *   **自定义并发数:** 用户可自定义文件处理/翻译任务的并发数量，并能够结合key管理机制，以保证并发的可用性。
-    *   **提示词池机制** 对智能提示词进行智能健康管理，以保证快速并发翻译。
-    *   **多种导入方式** 支持一整个库/文件夹的翻译，并保留文件夹层级
-    *   **工程实践** 在调整提示词/不调整的效果下，预设的每段的文字数（如1500-3000），能够达到相对较好的翻译效果，您可以视效果进行调整。
- 
-2.  **灵活的key, 模型与提示词配置:**
-    *   **自定义翻译提示词:** 支持自定义翻译的Prompt，以满足客制化需求。
-    *   **提示词池生成机制** 以给定提示词作为基础，使用LLM生成不同的变体，并保证基础核心需求不变。
-    *   **翻译备择库：** 支持维护多套术语库，命中时自动注入翻译提示，帮助保持术语一致性。可按项目导入导出，灵活协同。
-    *   **自定义模型设置:** 改用Base URL方式配置模型，并通过（v1/models）API自动检测可用模型。
-    *   **模型与 Key 管理:** 提供一站式的导入/测活机制，用户友好。 能够保存多个不同源站的不同配置，支持翻译时多Key轮询和配置的导入导出， 能够更自如的切换、获取可用模型列表、查看和测活等常见的管理Key的操作。
-    *   
-
-3.  **新增的阅读与交互体验:**
-    *   **历史记录面板:** 基于IndexDB存储历史转换记录，支持原文译文/对比等多种模式查看OCR与翻译结果。
-    *   **基础渲染支持:** 历史记录和查看模式下支持基础的公式、图片和表格渲染。
-    *   **分块对比:** 新增原文与译文的分块对比功能，显著提升文本对照的直观性和校对效率。保证块的段落对齐，对于一定字数内的文献，还有升级的智能对齐。
-    *   **目录 (TOC):** 引入目录功能，方便用户快速浏览文档结构并实现内容间的快速跳转。
-    *   **沉浸模式** 桌面端可使用沉浸模式，将诸要素放在一个画面中。
-    *   **标注和高亮系统** 实现了字级的高亮和标注，支持多种颜色，未来会拓展功能以复用在智能文档分析上。
-    *   
-
-4.  **智能文档分析与辅助:**
-    *   **智能聊天助手:** 能够通过 LLM 对长文档内容进行提问和分析，并支持内容导出，灵活可拖拽，支持上传图片等，能够实现流式输出。
-    *   **快捷指令** 预置了一些学术相关的问题，可以快速提问。
-    *   **思维导图和流程图生成:** 能够按需生成与导出文档相关所需内容的思维导图，以及mermaid流程图；并可以实现导出和快速编辑。
-    *   **快速导出** 将AI助手的对话内容快速导出为图片。
-
-5.  **多种格式导入导出:**
-    *   支持：PDF / MD / TXT / DOCX / PPTX / HTML / EPUB 文件格式 的导入。
-    *   支持：HTML / PDF / DOCX / MD (图片嵌入或不嵌入) 文件格式 的导出。
+<div align="center">
+  <p><strong>浏览器即开即用 | 极速并发翻译 | 智能文档分析 | Docker 一键部署</strong></p>
+  <p>
+    <a href="https://paperburner.viwoplus.site/views/landing/landing-page.html">📱 落地页</a> •
+    <a href="#-快速开始">🚀 快速开始</a> •
+    <a href="#-特性概览">✨ 特性</a> •
+    <a href="deploy/DEPLOYMENT_GUIDE.md">📖 部署文档</a>
+  </p>
+</div>
 
 ---
 
-> 本分支是在 Paper Burner 原项目基础上进行扩充和修改的，为示尊重和区分，故该项目暂时改名 Paper Burner X。
-实际在实现上已经有了一些区别。
-> 未来亦会考虑：（1）增加多种ocr识别方法 （2）对界面进行完全的重构。
+## 🎯 项目简介
 
+**Paper Burner X** 是为研究生和研究人员设计的 AI 驱动文献处理工具。支持 PDF/DOCX/PPTX/EPUB 等多种格式，能够进行 OCR 识别、高质量翻译、智能分析，完美保留公式、图表和格式。
 
-# 原项目： Paper burner
+**核心优势：**
+- ⚡ **极速翻译** - 并发处理，长论文仅需数十秒
+- 🎨 **完美排版** - 保留公式、图表、格式
+- 🤖 **智能分析** - AI 助手、思维导图、流程图生成
+- 🔒 **隐私安全** - 纯前端模式，数据完全本地化
+- 🐳 **灵活部署** - 支持 Vercel 静态部署和 Docker 完整部署
 
-## 📝 项目介绍
+<img width="3303" height="1576" alt="界面预览" src="https://github.com/user-attachments/assets/cb769c1c-33e0-4c12-9174-f2237fb5929b" />
 
-Paper Burner是为广大研究生和研究人员设计的PDF文档处理工具。考虑到对于非母语者，直接阅读英文PDF文献不方便、效率低，而目前的全文翻译工具无法很好地处理PDF中的公式和图表，且存在段落之间断开、语意不连贯的问题，Paper Burner能够从PDF文档中提取文本（OCR），将其转换为Markdown格式，并支持使用多种AI模型进行高质量翻译，完美保留公式、图表、格式，最大限度地保持语意连贯通顺。
-
-本工具完全在浏览器中运行。
-
-## ✨ 核心特性
-
-- **PDF文本提取**：使用Mistral AI的OCR技术从PDF文档中精确提取文本内容
-- **Markdown转换**：自动将提取的内容转换为规范的Markdown格式
-- **图像处理**：自动提取并保存PDF中的图片
-- **多模型翻译**：支持多种顶级AI大模型进行翻译
-- **长文档翻译**：自动按照文章小节分段处理长文档，避免段落中出现断点，确保翻译质量和内容一致性
-- **保留格式**：翻译过程中完美保留原文档的格式、公式和结构 
-
+---
 
 ## 🚀 快速开始
 
-### 在线使用
+Paper Burner X 提供**两种部署模式**，根据你的需求选择：
 
-本工具可以直接通过浏览器使用，无需安装：
+### 📱 模式 1：纯前端部署（推荐个人使用）
 
-1. 访问[在线版Paper Burner](https://baoyu.space/paper-burner/)
-2. 输入必要的API密钥
-3. 上传PDF文档
-4. 选择所需的翻译模型和目标语言
-5. 点击处理按钮
-6. 等待处理完成，下载压缩包**并解压**
-7. 使用你喜欢的Markdown阅读器打开Markdown文件
+**特点：**
+- ✅ 无需服务器，完全免费
+- ✅ 5 分钟快速部署到 Vercel
+- ✅ 数据存储在浏览器本地，隐私安全
+- ✅ 适合个人使用和快速体验
 
+**部署步骤：**
 
-## 🔑 API密钥配置
+```bash
+# 1. Fork 本仓库到你的 GitHub 账号
 
-本工具需要以下API密钥才能正常工作：
+# 2. 在 Vercel 中导入项目
+# 访问 https://vercel.com/new
+# 选择你 fork 的仓库
+# 点击 Deploy
 
-1. **Mistral API Key**（必需）：用于PDF文档的OCR处理
-   - 获取方式：[Mistral AI官网](https://mistral.ai/)
+# 3. 部署完成！访问你的域名即可使用
+```
 
-2. **翻译API Key**（可选）：根据选择的翻译模型而定
-   - DeepSeek: [DeepSeek AI官网](https://deepseek.com/)
-   - Gemini: [Google AI Studio](https://makersuite.google.com/)
-   - Claude: [Anthropic官网](https://www.anthropic.com/)
-   - 通义百炼: [阿里云官网](https://www.aliyun.com/)
-   - 火山引擎: [火山引擎官网](https://www.volcengine.com/)
+> 💡 **提示：** 纯前端模式下，所有数据存储在浏览器 localStorage/IndexedDB 中，不会上传到任何服务器。
 
-所有API密钥均在本地浏览器中处理，不会上传到任何服务器，确保安全性。您可以选择通过浏览器本地存储功能保存密钥，方便下次使用。
+**在线体验：** [https://paperburner.viwoplus.site](https://paperburner.viwoplus.site)
 
+---
 
-## ⚠️ 注意事项
+### 🐳 模式 2：Docker 完整部署（推荐团队使用）
 
-- AI模型翻译结果仅供参考，重要内容请以原文为准，本工具不对翻译内容的准确性、完整性和合法性负责
-- 大型文档的处理可能需要较长时间，请耐心等待
-- 对于包含特殊格式的PDF，OCR结果可能需要人工校对
-- 使用API时请遵守相应服务提供商的使用条款
+**特点：**
+- ✅ 包含后端服务器 + PostgreSQL 数据库
+- ✅ 支持多用户、用户认证、权限管理
+- ✅ 管理员面板，可管理用户和系统配置
+- ✅ 数据持久化存储
+- ✅ 适合团队协作和生产环境
+
+**快速部署：**
+
+```bash
+# 1. 克隆仓库
+git clone https://github.com/Feather-2/paper-burner-x.git
+cd paper-burner-x
+
+# 2. 配置环境变量
+cp .env.example .env
+nano .env  # 修改数据库密码、JWT 密钥、管理员账号等
+
+# 3. 启动服务
+docker-compose up -d
+
+# 4. 访问服务
+# 前端: http://localhost:3000
+# 管理面板: http://localhost:3000/admin
+```
+
+**或使用 Docker Hub 镜像：**
+
+```bash
+docker pull feather2dev/paper-burner-x:latest
+```
+
+> 📖 **详细文档：** [完整部署指南](deploy/DEPLOYMENT_GUIDE.md)
+
+---
+
+## ✨ 特性概览
+
+### 1. ⚡ 极速并发翻译
+
+- **多文件并发处理** - 一次上传多个文件，自动排队处理
+- **高速并发翻译** - 理想情况下，长论文翻译仅需几十秒
+- **自定义并发数** - 可配置文件处理和翻译任务的并发数量
+- **提示词池机制** - 智能健康管理提示词，保证翻译质量
+- **文件夹批量导入** - 支持整个库/文件夹翻译，保留文件夹层级
+
+### 2. 🔧 灵活的配置管理
+
+- **术语库系统** - 维护多套术语库，自动注入翻译提示，保持术语一致性
+- **自定义提示词** - 支持自定义翻译 Prompt，满足客制化需求
+- **提示词池生成** - AI 自动生成提示词变体，保证核心需求不变
+- **模型自动检测** - 通过 `/v1/models` API 自动检测可用模型
+- **多 Key 轮询** - 支持多个 API Key 轮询使用，提高稳定性
+- **配置导入导出** - 方便迁移和备份配置
+
+### 3. 📖 增强的阅读体验
+
+- **历史记录面板** - 基于 IndexedDB 存储，支持原文/译文/对比模式
+- **公式与表格渲染** - 完美支持 LaTeX 公式、图片、表格渲染
+- **分块对比** - 原文与译文智能对齐，段落级精准对比
+- **目录导航 (TOC)** - 快速浏览文档结构，实现内容间快速跳转
+- **沉浸式阅读** - 桌面端沉浸模式，所有要素集中在一个画面
+- **标注与高亮** - 字级高亮和标注，支持多种颜色
+
+### 4. 🤖 智能文档分析
+
+- **AI 聊天助手** - 对长文档进行提问和分析，支持流式输出
+- **快捷指令** - 预置学术相关问题，快速提问
+- **思维导图生成** - 自动生成文档思维导图
+- **流程图生成** - 支持 Mermaid 流程图生成和编辑
+- **对话导出** - 将 AI 对话内容快速导出为图片
+- **图片上传** - 支持上传图片进行多模态对话
+
+### 5. 📁 多格式支持
+
+**支持导入：**
+- PDF / Markdown / TXT / DOCX / PPTX / HTML / EPUB
+
+**支持导出：**
+- HTML / PDF / DOCX / Markdown（支持图片嵌入或链接）
+
+---
+
+## 🔑 API 密钥配置
+
+### 纯前端模式
+
+需要在浏览器中配置以下 API 密钥（本地存储，不会上传）：
+
+1. **OCR 服务**（二选一）
+   - [MinerU](https://github.com/opendatalab/MinerU) - 开源 OCR
+   - [Doc2X](https://doc2x.noedgeai.com/) - 商业 OCR
+
+2. **翻译模型**（可选多个）
+   - [DeepSeek](https://deepseek.com/)
+   - [Google Gemini](https://makersuite.google.com/)
+   - [Anthropic Claude](https://www.anthropic.com/)
+   - [阿里通义千问](https://www.aliyun.com/)
+   - [火山引擎](https://www.volcengine.com/)
+
+### Docker 模式
+
+在 `.env` 文件中配置，也可以通过管理面板配置：
+
+```bash
+# OCR 服务
+MINERU_API_TOKEN=your_token
+DOC2X_API_TOKEN=your_token
+
+# 翻译模型
+DEEPSEEK_API_KEY=your_key
+GEMINI_API_KEY=your_key
+CLAUDE_API_KEY=your_key
+# ...更多配置见 .env.example
+```
+
+---
+
+## 🎮 使用指南
+
+### 基本使用流程
+
+1. **上传文档** - 支持拖拽或点击上传
+2. **OCR 识别** - 自动提取文本和图片
+3. **配置翻译** - 选择目标语言和翻译模型
+4. **开始翻译** - 自动分块处理，并发翻译
+5. **查看结果** - 原文/译文/对比模式查看
+6. **导出文档** - 选择格式导出（HTML/PDF/DOCX/MD）
+
+### 高级功能
+
+- **术语库管理** - 在设置中添加专业术语，提高翻译准确性
+- **批量处理** - 上传整个文件夹，批量翻译
+- **AI 分析** - 使用聊天助手深入分析文档内容
+- **思维导图** - 自动生成文档结构思维导图
+
+---
+
+## 📊 性能对比
+
+| 模式 | 部署时间 | 适用场景 | 数据存储 | 性能 |
+|------|---------|---------|---------|------|
+| 纯前端（Vercel） | 5 分钟 | 个人使用 | 浏览器本地 | ⭐⭐⭐⭐⭐ |
+| Docker 完整版 | 15 分钟 | 团队协作 | PostgreSQL | ⭐⭐⭐⭐ |
+
+---
+
+## 🗺️ 路线图
+
+- [x] 纯前端模式
+- [x] Docker 部署支持
+- [x] 多用户系统
+- [x] 管理员面板
+- [ ] 更多 OCR 引擎支持
+- [ ] UI 界面重构
+- [ ] 移动端适配优化
+- [ ] 云端同步（可选）
+
+---
 
 ## 🤝 贡献指南
 
-欢迎为Paper Burner做出贡献！您可以通过以下方式参与：
+欢迎为 Paper Burner X 做出贡献！
 
-1. 提交Issue：报告Bug或提出新功能建议
-2. 提交Pull Request：改进代码或添加新功能
-3. 改进文档：完善使用说明或提供使用示例
-4. 为项目点一个Star⭐：
+**参与方式：**
+- 🐛 [报告 Bug](https://github.com/Feather-2/paper-burner-x/issues)
+- 💡 [提出新功能建议](https://github.com/Feather-2/paper-burner-x/issues)
+- 🔧 [提交 Pull Request](https://github.com/Feather-2/paper-burner-x/pulls)
+- 📖 [改进文档](https://github.com/Feather-2/paper-burner-x/wiki)
+- ⭐ [为项目点 Star](https://github.com/Feather-2/paper-burner-x)
+
+---
+
+## 📚 相关文档
+
+- [部署指南](deploy/DEPLOYMENT_GUIDE.md) - 详细的部署步骤
+- [本地测试指南](deploy/LOCAL_TESTING.md) - 本地开发和测试
+
+---
+
+## ⚠️ 注意事项
+
+- AI 模型翻译结果仅供参考，重要内容请以原文为准
+- 大型文档的处理可能需要较长时间，请耐心等待
+- 对于包含特殊格式的 PDF，OCR 结果可能需要人工校对
+- 使用 API 时请遵守相应服务提供商的使用条款
+- 纯前端模式下，数据存储在浏览器本地，清除浏览器数据会丢失历史记录
+
+---
 
 ## 📄 许可证
 
-本项目采用GPL-v2许可证 - 详见 [LICENSE](LICENSE) 文件
+本项目采用 **GNU Affero General Public License v3.0 (AGPL-3.0)** 许可证。
 
+### 📋 关键要求
+
+如果你部署本项目作为网络服务（包括但不限于）：
+- 公开的 Web 服务
+- SaaS 平台
+- 内部企业服务
+
+**你必须**：
+1. 在用户界面显著位置提供"源代码"链接
+2. 用户可以通过该链接免费获取完整源代码
+3. 包括你所做的任何修改
+
+### 📜 许可证变更说明
+
+本项目基于 [Paper Burner](https://github.com/baoyu0/paper-burner) (GPL-2.0) 开发，已升级到 AGPL-3.0：
+
+- **原项目**: ~1,000 行代码 (GPL-2.0)
+- **当前项目**: ~150,000 行代码
+- **新增内容**: ~140,000+ 行 (93%+)，包括完整后端、Docker 部署、多用户系统等
+
+**为什么升级到 AGPL-3.0？**
+- 原许可证允许升级到更高版本
+- 新代码占比超过 93%
+- AGPL-3.0 确保云服务部署也需要开源（防止"云服务漏洞"）
+
+详见 [NOTICE](NOTICE) 文件和 [LICENSE](LICENSE) 文件。
+
+---
+
+## 🙏 致谢
+
+> 本项目是在 [Paper Burner](https://github.com/baoyudu/paper-burner) 原项目基础上进行扩充和修改的，为示尊重和区分，故命名为 Paper Burner X。
+
+**贡献者：**
 
 <div align="center">
-  <p>如果这个工具对您有帮助，请考虑给项目一个⭐</p>
-  <p>Contributors</p>
-  <a href="https://github.com/feather-2/paper-burner/graphs/contributors">
-    <img src="https://contrib.rocks/image?repo=feather-2/paper-burner" />
+  <a href="https://github.com/feather-2/paper-burner-x/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=feather-2/paper-burner-x" />
   </a>
+</div>
+
+---
+
+<div align="center">
+  <p><strong>如果这个工具对您有帮助，请考虑给项目一个 ⭐</strong></p>
+  <p>
+    <a href="https://github.com/Feather-2/paper-burner-x">GitHub</a> •
+    <a href="https://paperburner.viwoplus.site">在线体验</a>
+  </p>
 </div>
