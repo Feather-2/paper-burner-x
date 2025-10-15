@@ -46,91 +46,154 @@ ${references.map((ref, idx) => `[${idx}] ${ref}`).join('\n\n')}`
     }
 
     /**
-     * 调用AI API提取文献信息
+     * 调用AI API提取文献信息（带指数退避重试）
      */
     async function callAIExtraction(references, apiConfig, sourceLang = 'auto') {
-        const prompt = generateExtractionPrompt(references, sourceLang);
+        const maxRetries = 3;
+        const baseDelay = 1000;
+        const maxDelay = 8000;
 
-        try {
-            const requestBody = apiConfig.bodyBuilder
-                ? apiConfig.bodyBuilder(prompt.system, prompt.user)
-                : {
-                    model: apiConfig.modelName,
-                    messages: [
-                        { role: "system", content: prompt.system },
-                        { role: "user", content: prompt.user }
-                    ],
-                    temperature: 0.1
-                };
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            try {
+                const prompt = generateExtractionPrompt(references, sourceLang);
+                const requestBody = apiConfig.bodyBuilder
+                    ? apiConfig.bodyBuilder(prompt.system, prompt.user)
+                    : {
+                        model: apiConfig.modelName,
+                        messages: [
+                            { role: "system", content: prompt.system },
+                            { role: "user", content: prompt.user }
+                        ],
+                        temperature: 0.1
+                    };
 
-            console.log('[ReferenceAIProcessor] 请求详情:', {
-                endpoint: apiConfig.endpoint,
-                model: apiConfig.modelName,
-                hasApiKey: !!apiConfig.apiKey,
-                headers: apiConfig.headers,
-                bodyPreview: {
-                    model: requestBody.model,
-                    messagesCount: requestBody.messages?.length,
-                    temperature: requestBody.temperature
+                if (attempt === 0) {
+                    console.log('[ReferenceAIProcessor] 请求详情:', {
+                        endpoint: apiConfig.endpoint,
+                        model: apiConfig.modelName,
+                        hasApiKey: !!apiConfig.apiKey,
+                        headers: apiConfig.headers,
+                        bodyPreview: {
+                            model: requestBody.model,
+                            messagesCount: requestBody.messages?.length,
+                            temperature: requestBody.temperature
+                        }
+                    });
                 }
-            });
 
-            const headers = apiConfig.headers || {};
+                const headers = apiConfig.headers || {};
 
-            const response = await fetch(apiConfig.endpoint, {
-                method: 'POST',
-                headers: headers,
-                body: JSON.stringify(requestBody)
-            });
-
-            console.log('[ReferenceAIProcessor] 响应状态:', response.status, response.statusText);
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('[ReferenceAIProcessor] API错误响应:', {
-                    status: response.status,
-                    statusText: response.statusText,
-                    preview: errorText.substring(0, 500)
+                const response = await fetch(apiConfig.endpoint, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(requestBody)
                 });
-                throw new Error(`API请求失败 (${response.status}): ${response.statusText}`);
+
+                console.log(`[ReferenceAIProcessor] 响应状态 (尝试 ${attempt + 1}/${maxRetries + 1}):`, response.status, response.statusText);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    const isRetriable = [401, 403, 408, 429, 500, 502, 503, 504].includes(response.status);
+
+                    console.error('[ReferenceAIProcessor] API错误响应:', {
+                        status: response.status,
+                        statusText: response.statusText,
+                        preview: errorText.substring(0, 500),
+                        retriable: isRetriable
+                    });
+
+                    if (isRetriable && attempt < maxRetries) {
+                        const delay = Math.min(baseDelay * Math.pow(2, attempt) + Math.random() * 1000, maxDelay);
+                        console.log(`[ReferenceAIProcessor] 等待 ${Math.round(delay)}ms 后重试...`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        continue;
+                    }
+
+                    throw new Error(`API请求失败 (${response.status}): ${response.statusText}`);
+                }
+
+                const responseText = await response.text();
+                if (attempt === 0) {
+                    console.log('[ReferenceAIProcessor] 原始响应前500字符:', responseText.substring(0, 500));
+                }
+
+                // 检查是否是HTML响应
+                if (responseText.trim().toLowerCase().startsWith('<!doctype') ||
+                    responseText.trim().toLowerCase().startsWith('<html')) {
+                    console.error('[ReferenceAIProcessor] API返回了HTML页面而不是JSON');
+                    throw new Error('API返回HTML而非JSON，请检查端点配置和API Key');
+                }
+
+                const data = JSON.parse(responseText);
+
+                // 检查是否因长度限制被截断
+                const finishReason = data?.choices?.[0]?.finish_reason;
+                if (finishReason === 'length' && attempt < maxRetries) {
+                    console.warn(`[ReferenceAIProcessor] 响应被截断 (finish_reason: length)，尝试 ${attempt + 1}/${maxRetries + 1}，将重试...`);
+                    const delay = Math.min(baseDelay * Math.pow(2, attempt) + Math.random() * 1000, maxDelay);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    continue;
+                }
+
+                const extractedText = apiConfig.responseExtractor
+                    ? apiConfig.responseExtractor(data)
+                    : data?.choices?.[0]?.message?.content;
+
+                if (!extractedText) {
+                    console.error('[ReferenceAIProcessor] 响应数据:', data);
+
+                    if (attempt < maxRetries) {
+                        console.warn(`[ReferenceAIProcessor] 内容为空，尝试 ${attempt + 1}/${maxRetries + 1}，将重试...`);
+                        const delay = Math.min(baseDelay * Math.pow(2, attempt) + Math.random() * 1000, maxDelay);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        continue;
+                    }
+
+                    throw new Error('API返回的内容为空');
+                }
+
+                // 清理可能的markdown代码块标记
+                let cleanText = extractedText.trim();
+                if (cleanText.startsWith('```json')) {
+                    cleanText = cleanText.replace(/^```json\s*/, '').replace(/```\s*$/, '');
+                } else if (cleanText.startsWith('```')) {
+                    cleanText = cleanText.replace(/^```\s*/, '').replace(/```\s*$/, '');
+                }
+
+                // 解析JSON响应
+                try {
+                    const parsed = JSON.parse(cleanText);
+                    console.log(`[ReferenceAIProcessor] 成功提取 ${parsed.references?.length || 0} 条文献`);
+                    return parsed.references || [];
+                } catch (parseError) {
+                    console.error('[ReferenceAIProcessor] JSON解析失败:', parseError);
+                    console.error('[ReferenceAIProcessor] 原始内容:', cleanText.substring(0, 1000));
+
+                    if (attempt < maxRetries) {
+                        console.warn(`[ReferenceAIProcessor] JSON格式错误，尝试 ${attempt + 1}/${maxRetries + 1}，将重试...`);
+                        const delay = Math.min(baseDelay * Math.pow(2, attempt) + Math.random() * 1000, maxDelay);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        continue;
+                    }
+
+                    throw parseError;
+                }
+
+            } catch (error) {
+                // 网络错误也重试
+                if (attempt < maxRetries && (error.name === 'TypeError' || error.message.includes('fetch'))) {
+                    const delay = Math.min(baseDelay * Math.pow(2, attempt) + Math.random() * 1000, maxDelay);
+                    console.error(`[ReferenceAIProcessor] 网络错误，尝试 ${attempt + 1}/${maxRetries + 1}，等待 ${Math.round(delay)}ms 后重试:`, error.message);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    continue;
+                }
+
+                console.error(`[ReferenceAIProcessor] AI extraction failed after ${attempt + 1} attempts:`, error);
+                throw error;
             }
-
-            const responseText = await response.text();
-            console.log('[ReferenceAIProcessor] 原始响应前500字符:', responseText.substring(0, 500));
-
-            // 检查是否是HTML响应
-            if (responseText.trim().toLowerCase().startsWith('<!doctype') ||
-                responseText.trim().toLowerCase().startsWith('<html')) {
-                console.error('[ReferenceAIProcessor] API返回了HTML页面而不是JSON');
-                throw new Error('API返回HTML而非JSON，请检查端点配置和API Key');
-            }
-
-            const data = JSON.parse(responseText);
-            const extractedText = apiConfig.responseExtractor
-                ? apiConfig.responseExtractor(data)
-                : data?.choices?.[0]?.message?.content;
-
-            if (!extractedText) {
-                console.error('[ReferenceAIProcessor] 响应数据:', data);
-                throw new Error('API返回的内容为空');
-            }
-
-            // 清理可能的markdown代码块标记
-            let cleanText = extractedText.trim();
-            if (cleanText.startsWith('```json')) {
-                cleanText = cleanText.replace(/^```json\s*/, '').replace(/```\s*$/, '');
-            } else if (cleanText.startsWith('```')) {
-                cleanText = cleanText.replace(/^```\s*/, '').replace(/```\s*$/, '');
-            }
-
-            // 解析JSON响应
-            const parsed = JSON.parse(cleanText);
-            return parsed.references || [];
-
-        } catch (error) {
-            console.error('[ReferenceAIProcessor] AI extraction failed:', error);
-            throw error;
         }
+
+        throw new Error(`AI提取失败：已尝试 ${maxRetries + 1} 次`);
     }
 
     /**
