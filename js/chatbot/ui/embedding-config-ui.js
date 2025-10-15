@@ -603,7 +603,26 @@
     resultDiv.style.display = 'none';
 
     try {
-      // 临时保存配置
+      // 确保 EmbeddingClient 已加载
+      if (!window.EmbeddingClient || typeof window.EmbeddingClient.saveConfig !== 'function') {
+        // 尝试动态加载
+        try {
+          const scripts = Array.from(document.getElementsByTagName('script'));
+          const sem = scripts.find(s => (s.src || '').includes('semantic-vector-search.js'));
+          const candidates = [];
+          if (sem && sem.src) candidates.push(sem.src.replace('semantic-vector-search.js', 'embedding-client.js'));
+          const rer = scripts.find(s => (s.src || '').includes('rerank-client.js'));
+          if (rer && rer.src) candidates.push(rer.src.replace('rerank-client.js', 'embedding-client.js'));
+          candidates.push('../../js/chatbot/agents/embedding-client.js');
+          for (const url of Array.from(new Set(candidates))) {
+            await new Promise((resolve, reject) => { const s=document.createElement('script'); s.src=url; s.async=true; s.onload=resolve; s.onerror=reject; document.head.appendChild(s); });
+            if (window.EmbeddingClient && typeof window.EmbeddingClient.saveConfig === 'function') break;
+          }
+        } catch(_) {}
+      }
+      if (!window.EmbeddingClient || typeof window.EmbeddingClient.saveConfig !== 'function') {
+        throw new Error('EmbeddingClient 未加载');
+      }
       window.EmbeddingClient.saveConfig({ ...config, enabled: true });
 
       // 测试调用
@@ -636,6 +655,22 @@
       dimensions: parseInt($('emb-dimensions').value) || null
     };
 
+    if (!window.EmbeddingClient || typeof window.EmbeddingClient.saveConfig !== 'function') {
+      if (window.ChatbotUtils && window.ChatbotUtils.showToast) {
+        window.ChatbotUtils.showToast('保存失败：EmbeddingClient 未加载', 'error', 3000);
+      } else {
+        alert('❌ 保存失败：EmbeddingClient 未加载');
+      }
+      return;
+    }
+    if (!window.EmbeddingClient || typeof window.EmbeddingClient.saveConfig !== 'function') {
+      if (window.ChatbotUtils && window.ChatbotUtils.showToast) {
+        window.ChatbotUtils.showToast('保存失败：EmbeddingClient 未加载', 'error', 3000);
+      } else {
+        alert('❌ 保存失败：EmbeddingClient 未加载');
+      }
+      return;
+    }
     window.EmbeddingClient.saveConfig(config);
 
     if (window.ChatbotUtils?.showToast) {

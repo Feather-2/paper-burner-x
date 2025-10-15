@@ -325,7 +325,22 @@
   <script src="../../js/chatbot/agents/semantic-grouper.js"></script>
   <script src="../../js/chatbot/agents/semantic-tools.js"></script>
   <!-- 新增：向量搜索模块 -->
+  <script src="../../js/boot/ensure-embedding.js"></script>
   <script src="../../js/chatbot/agents/embedding-client.js"></script>
+  <script>
+    (function(){
+      try {
+        if (!window.EmbeddingClient || typeof window.EmbeddingClient.saveConfig !== 'function') {
+          var s = document.createElement('script');
+          s.src = '../../js/chatbot/agents/embedding-client.js?v=' + Date.now();
+          s.async = true;
+          s.onload = function(){ console.log('[Boot] EmbeddingClient loaded via cache-bust (detail)'); };
+          s.onerror = function(){ console.error('[Boot] Failed to load EmbeddingClient (detail)'); };
+          document.head.appendChild(s);
+        }
+      } catch (e) { console.warn('[Boot] Embedding ensure failed (detail):', e.message); }
+    })();
+  </script>
   <!-- 新增：重排模块（确保在 semantic-vector-search 之前加载） -->
   <script src="../../js/chatbot/agents/rerank-client.js"></script>
   <script src="../../js/chatbot/agents/vector-store.js"></script>

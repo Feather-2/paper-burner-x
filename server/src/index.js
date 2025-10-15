@@ -15,6 +15,7 @@ import translationRoutes from './routes/translation.js';
 import documentRoutes from './routes/document.js';
 import userRoutes from './routes/user.js';
 import adminRoutes from './routes/admin.js';
+import glossaryRoutes from './routes/glossary.js';
 
 // 导入中间件
 import { errorHandler } from './middleware/errorHandler.js';
@@ -99,6 +100,8 @@ app.use('/api/user', userRoutes);
 
 // 管理员路由
 app.use('/api/admin', adminRoutes);
+// 术语库路由（与 Next.js app/api/glossary 对齐）
+app.use('/api/glossary', glossaryRoutes);
 
 // ==================== 前端路由（SPA） ====================
 

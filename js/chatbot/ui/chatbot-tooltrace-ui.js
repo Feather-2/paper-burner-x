@@ -238,6 +238,15 @@
       clearTimeout(batchTimer);
       batchTimer = null;
     }
+
+    // 提前插入一个初始化步骤，避免初次渲染为空
+    try {
+      addStepHtml({
+        tool: 'preload',
+        message: '准备检索上下文...',
+        args: {}
+      }, 'running');
+    } catch (_) { /* ignore */ }
   }
 
   /**
@@ -314,7 +323,10 @@
     // });
 
     if (currentStepsHtml.length === 0) {
-      console.warn('[ToolTraceUI] currentStepsHtml 为空，返回空字符串');
+      // 初始阶段可能尚无步骤，不必告警
+      if (console && typeof console.debug === 'function') {
+        console.debug('[ToolTraceUI] 等待步骤数据，暂不生成HTML');
+      }
       return '';
     }
 

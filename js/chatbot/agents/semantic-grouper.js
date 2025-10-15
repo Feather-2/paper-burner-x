@@ -7,29 +7,55 @@
   'use strict';
 
   /**
-   * 带重试的LLM调用包装器
+   * 带重试的LLM调用包装器（指数退避 + 抖动）
+   * - 重试条件：408/429/5xx 或明显的网络错误
+   * - 默认为 3 次重试，基准延迟 600ms，上限 5000ms
    * @param {Function} fn - 要执行的异步函数
-   * @param {number} maxRetries - 最大重试次数
-   * @param {number} delayMs - 重试延迟（毫秒）
-   * @returns {Promise} 函数执行结果
+   * @param {Object} opts
+   * @param {number} opts.maxRetries
+   * @param {number} opts.baseDelay
+   * @param {number} opts.maxDelay
+   * @returns {Promise<any>} 函数执行结果
    */
-  async function retryWithBackoff(fn, maxRetries = 2, delayMs = 1000) {
+  async function retryWithBackoff(fn, opts = {}) {
+    const extractStatusFromMessage = (msg) => {
+      if (!msg) return undefined;
+      const m = String(msg).match(/\b(\d{3})\b/);
+      return m ? parseInt(m[1], 10) : undefined;
+    };
+
+    const shouldRetry = (err) => {
+      const status = err && (err.status || extractStatusFromMessage(err.message));
+      // 将 401/403 也视作可重试（上游号池问题）
+      if (status === 401 || status === 403) return true;
+      if (status === 408 || status === 429) return true;
+      if (status >= 500 && status <= 599) return true;
+      if (!status && (err?.name === 'TypeError' || /fetch|network|timeout/i.test(String(err && err.message)))) {
+        return true; // 网络类错误
+      }
+      return false;
+    };
+
+    const maxRetries = typeof opts.maxRetries === 'number' ? opts.maxRetries : 3;
+    const baseDelay = typeof opts.baseDelay === 'number' ? opts.baseDelay : 600;
+    const maxDelay = typeof opts.maxDelay === 'number' ? opts.maxDelay : 5000;
+
+    let lastError = null;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         return await fn();
       } catch (error) {
-        // 如果是最后一次尝试，或者不是5xx错误，直接抛出
-        const is5xxError = error.message && /50\d/.test(error.message);
-        if (attempt === maxRetries || !is5xxError) {
+        lastError = error;
+        if (attempt === maxRetries || !shouldRetry(error)) {
           throw error;
         }
-
-        // 等待后重试，使用指数退避
-        const delay = delayMs * Math.pow(2, attempt);
-        console.warn(`[SemanticGrouper] API调用失败，${delay}ms后重试 (${attempt + 1}/${maxRetries})...`);
+        const jitter = Math.floor(Math.random() * 250);
+        const delay = Math.min(maxDelay, baseDelay * Math.pow(2, attempt)) + jitter;
+        console.warn(`[SemanticGrouper] API调用失败，${delay}ms后重试 (${attempt + 1}/${maxRetries})...`, error?.message || error);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
+    if (lastError) throw lastError;
   }
 
   /**
@@ -267,7 +293,7 @@ ${inputText}
           config,
           apiKey
         );
-      });
+      }, { maxRetries: 3, baseDelay: 600, maxDelay: 5000 });
 
       return summary.trim();
     } catch (error) {
@@ -321,7 +347,7 @@ ${inputText}`;
           config,
           apiKey
         );
-      });
+      }, { maxRetries: 3, baseDelay: 600, maxDelay: 5000 });
 
       // 解析关键词
       const keywords = result

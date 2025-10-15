@@ -203,7 +203,8 @@ async function ensureSemanticGroupsReady(docContentInfo, getCurrentDocId, getCha
 
       // 建立BM25索引（轻量级，不需要API）
       const docId = getCurrentDocId();
-      await ensureIndexesBuilt(simpleEnrichedChunks, [], docId, false);
+      // 向量索引改为后台生成，避免阻塞对话流程
+      await ensureIndexesBuilt(simpleEnrichedChunks, [], docId, true);
     }
 
     return;
@@ -527,30 +528,38 @@ async function ensureIndexesBuilt(chunks, groups, docId, async = false) {
   // 异步建立向量索引（仅在用户配置允许且启用了向量搜索时）
   const buildVectorIndex = async () => {
     try {
-      // 关键修复：无论multiHopEnabled状态如何，都要检查useVectorSearch配置
+      // 仅在多轮检索开启且文档允许向量搜索时建立向量索引
       if (!useVectorSearch) {
         console.log('[ChatbotCore] 用户选择不使用向量搜索，跳过向量索引生成');
         return;
       }
-
       if (!multiHopEnabled) {
         console.log('[ChatbotCore] 多轮检索未启用，跳过向量索引生成');
         return;
       }
 
-      if (window.EmbeddingClient?.config?.enabled && window.SemanticVectorSearch) {
+      if (window.EmbeddingClient && window.EmbeddingClient.config && window.EmbeddingClient.config.enabled && window.SemanticVectorSearch) {
         console.log(`[ChatbotCore] 检测到向量搜索已启用，开始为 ${chunks.length} 个chunks建立索引...`);
         await window.SemanticVectorSearch.indexChunks(chunks, docId, {
           showProgress: true,
           forceRebuild: false
         });
         // 更新UI显示
-        if (window.ChatbotFloatingOptionsUI?.updateDisplay) {
+        if (window.ChatbotFloatingOptionsUI && window.ChatbotFloatingOptionsUI.updateDisplay) {
           window.ChatbotFloatingOptionsUI.updateDisplay();
+        }
+      } else {
+        console.warn('[ChatbotCore] 向量索引未启动：Embedding 未启用或 SemanticVectorSearch 未加载');
+        if (window.ChatbotUtils && window.ChatbotUtils.showToast) {
+          window.ChatbotUtils.showToast('向量索引未启动：请在“向量配置”中启用并测试连接', 'warning', 3000);
         }
       }
     } catch (vectorErr) {
       console.warn('[ChatbotCore] 建立向量索引失败（不影响意群功能）:', vectorErr);
+      // 不再自动禁用向量搜索，避免后续索引被永久跳过；仅提示用户检查配置
+      if (window.ChatbotUtils && window.ChatbotUtils.showToast) {
+        window.ChatbotUtils.showToast('向量索引失败：请检查向量服务配置或稍后重试', 'warning', 3000);
+      }
     }
   };
 
@@ -569,7 +578,7 @@ async function ensureIndexesBuilt(chunks, groups, docId, async = false) {
   if (async) {
     buildVectorIndex(); // 不await，让它在后台运行
     if (multiHopEnabled && useVectorSearch) {
-      console.log('[ChatbotCore] 向量索引将在后台生成，不阻塞当前流程');
+      console.log('[ChatbotCore] 向量索引将在后台生成（已开启多轮检索）');
     }
   } else {
     await buildVectorIndex(); // 同步等待完成

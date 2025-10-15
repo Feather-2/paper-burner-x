@@ -875,7 +875,37 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
           continue; // 继续下一轮round
         }
 
-        const ops = Array.isArray(plan.operations) ? plan.operations : [];
+        let ops = Array.isArray(plan.operations) ? plan.operations : [];
+
+        // 若首轮规划为空且尚无任何已获取内容，自动注入一次默认检索，避免空转
+        if (round === 0 && ops.length === 0 && fetched.size === 0) {
+          const buildDefaultOpsFromQuestion = (q, preferVector) => {
+            try {
+              const raw = String(q || '').toLowerCase();
+              // 去掉无信息量的泛化词
+              const stop = /(用通俗语言|通俗解释|解释一下|解释|概述|总结|主要内容|全文|请|如何|是什么|简单|大致|大概|说明|讲一讲|讲一下|阐述|简介|介绍|说明一下)/g;
+              const cleaned = raw.replace(stop, ' ').replace(/[\p{P}\p{S}]+/gu, ' ').replace(/\s+/g, ' ').trim();
+              const tokens = cleaned.split(/\s+/).filter(w => w && w.length > 1);
+              const query = tokens.slice(0, 6).join(' ');
+              if (!query) return [];
+              if (preferVector) {
+                return [{ tool: 'vector_search', args: { query, limit: 8 } }];
+              } else {
+                return [{ tool: 'grep', args: { query, limit: 12, context: 2000, caseInsensitive: true } }];
+              }
+            } catch (_) { return []; }
+          };
+
+          // 判断是否可用向量（来自前面的配置判断）
+          const docIdTmp = (window.data && window.data.currentPdfName) || 'unknown';
+          const docCfgTmp = window.data?.multiHopConfig?.[docIdTmp];
+          const preferVector = docCfgTmp?.useVectorSearch !== false;
+          const injected = buildDefaultOpsFromQuestion(userQuestion, preferVector);
+          if (injected && injected.length > 0) {
+            ops = injected;
+            yield { type: 'info', message: '规划为空，已自动注入默认检索' };
+          }
+        }
 
         // 如果operations为空但已有内容，说明AI认为当前内容已足够
         if (ops.length === 0) {
@@ -1542,6 +1572,11 @@ ${useSemanticGroups ? `**第四步：地图信息的智能使用**
         // 检查是否final：优先尊重AI的final判断
         const hadContextThisRound = contextParts.length > 0 || detail.length > 0;
         console.log(`[StreamingMultiHop] 第${round + 1}轮结束检查：contextParts=${contextParts.length}, detail=${detail.length}, final=${plan.final}`);
+
+        // 若首轮没有任何搜索也没有上下文，发出提示，继续下一轮（已在执行阶段注入默认检索）
+        if (round === 0 && !hasSearch && !hadContextThisRound) {
+          yield { type: 'warning', message: '首轮未产生上下文，将继续并执行默认检索' };
+        }
 
         // 优先判断：AI明确说final=true，直接结束
         if (plan.final === true) {

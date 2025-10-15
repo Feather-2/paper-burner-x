@@ -80,19 +80,25 @@
         // 批量生成向量
         const vectors = await window.EmbeddingClient.batchEmbed(texts);
 
-        // 批量存储
-        const items = groups.map((g, idx) => ({
-          id: g.groupId,
-          vector: vectors[idx],
-          metadata: {
-            docId: docId,
-            groupId: g.groupId,
-            charCount: g.charCount,
-            keywords: g.keywords,
-            summary: g.summary,
-            segments: g.segments
-          }
-        }));
+        // 批量存储（过滤失败的向量）
+        const items = [];
+        let skipped = 0;
+        groups.forEach((g, idx) => {
+          const vec = vectors[idx];
+          if (!Array.isArray(vec)) { skipped++; return; }
+          items.push({
+            id: g.groupId,
+            vector: vec,
+            metadata: {
+              docId: docId,
+              groupId: g.groupId,
+              charCount: g.charCount,
+              keywords: g.keywords,
+              summary: g.summary,
+              segments: g.segments
+            }
+          });
+        });
 
         await this.vectorStore.batchUpsert(items);
 
@@ -101,7 +107,7 @@
 
         this.indexedDocs.add(docId);
 
-        console.log(`[SemanticVectorSearch] 向量索引建立完成，共 ${vectors.length} 个意群`);
+        console.log(`[SemanticVectorSearch] 向量索引建立完成，共 ${items.length} 个意群${skipped>0?`（跳过 ${skipped} 个失败向量）`:''}`);
 
         if (showProgress && window.ChatbotUtils?.showToast) {
           window.ChatbotUtils.showToast('向量索引建立完成', 'success', 2000);
@@ -193,19 +199,25 @@
           }
         });
 
-        // 批量存储
-        const items = chunks.map((chunk, idx) => ({
-          id: chunk.chunkId,
-          vector: vectors[idx],
-          metadata: {
-            docId: docId,
-            chunkId: chunk.chunkId,
-            belongsToGroup: chunk.belongsToGroup,
-            position: chunk.position,
-            charCount: chunk.charCount,
-            text: chunk.text.substring(0, 200) // 只存储前200字作为预览
-          }
-        }));
+        // 批量存储（过滤失败的向量）
+        const items = [];
+        let skipped = 0;
+        chunks.forEach((chunk, idx) => {
+          const vec = vectors[idx];
+          if (!Array.isArray(vec)) { skipped++; return; }
+          items.push({
+            id: chunk.chunkId,
+            vector: vec,
+            metadata: {
+              docId: docId,
+              chunkId: chunk.chunkId,
+              belongsToGroup: chunk.belongsToGroup,
+              position: chunk.position,
+              charCount: chunk.charCount,
+              text: (chunk.text || '').substring(0, 200) // 只存储前200字作为预览
+            }
+          });
+        });
 
         await this.vectorStore.batchUpsert(items);
 
@@ -214,7 +226,7 @@
 
         this.indexedDocs.add(docId);
 
-        console.log(`[SemanticVectorSearch] 向量索引建立完成，共 ${vectors.length} 个chunks`);
+        console.log(`[SemanticVectorSearch] 向量索引建立完成，共 ${items.length} 个chunks${skipped>0?`（跳过 ${skipped} 个失败向量）`:''}`);
 
         // 关闭进度toast，显示成功提示
         if (progressToast && typeof progressToast.close === 'function') {

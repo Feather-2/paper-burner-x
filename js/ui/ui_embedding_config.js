@@ -6,6 +6,43 @@
 (function(window) {
   'use strict';
 
+  // 确保 EmbeddingClient 已加载（必要时动态注入脚本）
+  async function ensureEmbeddingClientLoaded() {
+    if (window.EmbeddingClient && typeof window.EmbeddingClient.saveConfig === 'function') return true;
+
+    // 从已加载脚本推断候选路径
+    const candidates = [];
+    try {
+      const scripts = Array.from(document.getElementsByTagName('script'));
+      const sem = scripts.find(s => (s.src || '').includes('semantic-vector-search.js'));
+      if (sem && sem.src) candidates.push(sem.src.replace('semantic-vector-search.js', 'embedding-client.js'));
+      const rer = scripts.find(s => (s.src || '').includes('rerank-client.js'));
+      if (rer && rer.src) candidates.push(rer.src.replace('rerank-client.js', 'embedding-client.js'));
+    } catch(_) {}
+
+    // 兜底：相对当前页面常见路径
+    candidates.push('js/chatbot/agents/embedding-client.js');
+
+    // 动态加载（无论是否已存在旧标签，均追加一个带缓存破坏参数的标签）
+    for (const base of Array.from(new Set(candidates))) {
+      const url = base + (base.includes('?') ? '&' : '?') + 'v=' + Date.now();
+      try {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = url;
+          s.async = true;
+          s.onload = () => resolve();
+          s.onerror = () => reject(new Error('load failed: ' + url));
+          document.head.appendChild(s);
+        });
+        if (window.EmbeddingClient && typeof window.EmbeddingClient.saveConfig === 'function') return true;
+      } catch(_) {
+        // try next
+      }
+    }
+    return !!(window.EmbeddingClient && typeof window.EmbeddingClient.saveConfig === 'function');
+  }
+
   /**
    * 显示嵌入模型选择器对话框
    * @param {Array} models - 模型列表
@@ -648,6 +685,10 @@
           result.style.display = 'none';
 
           try {
+              if (!window.EmbeddingClient || typeof window.EmbeddingClient.saveConfig !== 'function') {
+                  const ok = await ensureEmbeddingClientLoaded();
+                  if (!ok) throw new Error('EmbeddingClient 未加载');
+              }
               window.EmbeddingClient.saveConfig({ ...testConfig, enabled: true });
               const vector = await window.EmbeddingClient.embed('测试文本');
 
@@ -665,7 +706,7 @@
       };
 
       // 保存配置
-      $('emb-save-km').onclick = () => {
+      $('emb-save-km').onclick = async () => {
           let baseUrl = $('emb-endpoint-km').value.trim();
           // 自动补全 /embeddings 路径
           if (baseUrl && !baseUrl.endsWith('/embeddings')) {
@@ -682,6 +723,10 @@
               concurrency: Math.max(1, Math.min(parseInt($('emb-concurrency-km').value) || 5, 50))
           };
 
+          if (!window.EmbeddingClient || typeof window.EmbeddingClient.saveConfig !== 'function') {
+              const ok = await ensureEmbeddingClientLoaded();
+              if (!ok) { alert('❌ 保存失败：EmbeddingClient 未加载'); return; }
+          }
           window.EmbeddingClient.saveConfig(newConfig);
           if (typeof showNotification === 'function') {
               showNotification('向量搜索配置已保存', 'success');

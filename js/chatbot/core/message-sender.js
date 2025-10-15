@@ -221,12 +221,13 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
             // 每次事件后实时更新HTML到消息对象
             if (window.ChatbotToolTraceUI?.generateBlockHtml) {
               const toolCallHtml = window.ChatbotToolTraceUI.generateBlockHtml();
-              chatHistory[earlyAssistantMsgIndex].toolCallHtml = toolCallHtml;
-              chatHistory[earlyAssistantMsgIndex].content = ''; // 清空占位文本
-
-              // 触发UI刷新
-              if (typeof updateChatbotUI === 'function') {
-                updateChatbotUI();
+              // 仅在有内容时覆盖占位文本，避免空串刷屏
+              if (toolCallHtml && toolCallHtml.length > 0) {
+                chatHistory[earlyAssistantMsgIndex].toolCallHtml = toolCallHtml;
+                chatHistory[earlyAssistantMsgIndex].content = '';
+                if (typeof updateChatbotUI === 'function') {
+                  updateChatbotUI();
+                }
               }
             }
           }

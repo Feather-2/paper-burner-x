@@ -250,11 +250,14 @@ class StorageAdapterFactory {
     static create() {
         if (DEPLOYMENT_MODE === 'backend') {
             console.log('[Storage] Using Backend Storage Mode');
-            return new BackendStorage();
+            const instance = new BackendStorage();
+            // 标记模式，供其他模块探测（如 glossary-storage.js）
+            instance.isFrontendMode = false;
+            return instance;
         } else {
             console.log('[Storage] Using Local Storage Mode');
             // 返回 storage.js 中的函数包装器
-            return {
+            const adapter = {
                 loadSettings: window.loadSettings,
                 saveSettings: window.saveSettings,
                 loadModelKeys: window.loadModelKeys,
@@ -273,6 +276,9 @@ class StorageAdapterFactory {
                 loadProcessedFilesRecord: window.loadProcessedFilesRecord,
                 saveProcessedFilesRecord: window.saveProcessedFilesRecord
             };
+            // 标记模式，供其他模块探测（如 glossary-storage.js）
+            adapter.isFrontendMode = true;
+            return adapter;
         }
     }
 }
