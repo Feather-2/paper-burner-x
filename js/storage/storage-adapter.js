@@ -282,4 +282,35 @@ window.storageAdapter = StorageAdapterFactory.create();
 window.AuthManager = AuthManager;
 window.DEPLOYMENT_MODE = DEPLOYMENT_MODE;
 
-console.log('[Storage Adapter] Initialized in mode:', DEPLOYMENT_MODE);
+// 控制台欢迎信息
+(function() {
+    const logoStyle = 'font-size: 16px; font-weight: bold; color: #3b82f6;';
+    const infoStyle = 'font-size: 14px; color: #10b981;';
+    const modeStyle = 'font-size: 14px; font-weight: bold; color: #f59e0b;';
+    const borderStyle = 'color: #6366f1;';
+    const linkStyle = 'font-size: 13px; color: #06b6d4; text-decoration: underline;';
+
+    const logo = `
+  ____                          ____                              __  __
+ |  _ \\ __ _ _ __   ___ _ __   | __ ) _   _ _ __ _ __   ___ _ __ \\ \\/ /
+ | |_) / _\` | '_ \\ / _ \\ '__|  |  _ \\| | | | '__| '_ \\ / _ \\ '__| \\  /
+ |  __/ (_| | |_) |  __/ |     | |_) | |_| | |  | | | |  __/ |    /  \\
+ |_|   \\__,_| .__/ \\___|_|     |____/ \\__,_|_|  |_| |_|\\___|_|   /_/\\_\\
+            |_|
+    `;
+
+    const mode = DEPLOYMENT_MODE === 'backend' ? '后端模式 (Backend Mode)' : '前端模式 (Frontend Mode)';
+    const storage = DEPLOYMENT_MODE === 'backend' ? 'Backend API + PostgreSQL' : 'localStorage + IndexedDB';
+    const auth = DEPLOYMENT_MODE === 'backend' ? 'JWT Authentication' : 'No Authentication';
+
+    console.log('%c' + logo, logoStyle);
+    console.log('%c╔════════════════════════════════════════════════════════════╗', borderStyle);
+    console.log('%c║                   系统信息 / System Info                   ║', borderStyle);
+    console.log('%c╠════════════════════════════════════════════════════════════╣', borderStyle);
+    console.log('%c║  %c运行模式: ' + mode + '                                  %c║', borderStyle, modeStyle, borderStyle);
+    console.log('%c║  %c存储方式: ' + storage + '                %c║', borderStyle, infoStyle, borderStyle);
+    console.log('%c║  %c认证方式: ' + auth + '                         %c║', borderStyle, infoStyle, borderStyle);
+    console.log('%c╚════════════════════════════════════════════════════════════╝', borderStyle);
+    console.log('%c\n🚀 Paper Burner X 已就绪！Ready to burn papers!\n', 'font-size: 14px; color: #8b5cf6; font-weight: bold;');
+    console.log('%c⭐ GitHub: %chttps://github.com/Feather-2/paper-burner-x', 'font-size: 13px; color: #64748b;', linkStyle);
+})();
