@@ -1320,74 +1320,10 @@
                 }
             }
 
-            let successCount = results.filter(r => r.success).length;
-            console.log(`[DOIResolver] Primary phase complete: ${successCount}/${references.length} resolved`);
+            const successCount = results.filter(r => r.success).length;
+            console.log(`[DOIResolver] Primary phase complete: ${successCount}/${references.length}`);
 
-            // === 新增：Abstract 补全阶段 ===
-            // 对于已经找到 DOI 但缺少 abstract 的文献，尝试从其他源补全
-            const needsAbstract = results.filter(r =>
-                r.success && r.resolved && !r.resolved.abstract && r.resolved.title
-            );
-
-            if (needsAbstract.length > 0) {
-                console.log(`[DOIResolver] Abstract补全阶段: ${needsAbstract.length} 篇文献缺少摘要，尝试补全`);
-
-                if (progressCallback) {
-                    progressCallback({
-                        completed: completed,
-                        total: references.length,
-                        current: `Abstract补全: ${needsAbstract.length} 篇缺少摘要`,
-                        phase: 'abstract-enrichment'
-                    });
-                }
-
-                // 优先使用 OpenAlex 和 Semantic Scholar（它们的 abstract 覆盖率更高）
-                const abstractSources = ['openalex', 'semanticscholar'];
-
-                for (const source of abstractSources) {
-                    const stillNeedsAbstract = needsAbstract.filter(r => !r.resolved.abstract);
-
-                    if (stillNeedsAbstract.length === 0) {
-                        console.log(`[DOIResolver] Abstract补全完成，所有文献都有摘要了`);
-                        break;
-                    }
-
-                    console.log(`[DOIResolver] 使用 ${source} 补全 ${stillNeedsAbstract.length} 篇文献的摘要`);
-
-                    try {
-                        const resolver = this._getResolver(source);
-                        if (!resolver || !resolver.batchQuery) continue;
-
-                        const abstractResults = await resolver.batchQuery(
-                            stillNeedsAbstract.map(r => r.original)
-                        );
-
-                        // 只更新 abstract 字段，保留原有的其他信息
-                        let enrichedCount = 0;
-                        abstractResults.forEach(result => {
-                            if (result.success && result.resolved?.abstract) {
-                                const targetIndex = results.findIndex(r => r.original === result.original);
-                                if (targetIndex !== -1 && results[targetIndex].resolved) {
-                                    results[targetIndex].resolved.abstract = result.resolved.abstract;
-                                    enrichedCount++;
-                                    console.log(`[DOIResolver] ✓ 补全摘要 via ${source}: "${result.original.title.substring(0, 40)}..." (长度: ${result.resolved.abstract.length})`);
-                                }
-                            }
-                        });
-
-                        console.log(`[DOIResolver] ${source} 补全了 ${enrichedCount}/${stillNeedsAbstract.length} 篇摘要`);
-
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                    } catch (error) {
-                        console.warn(`[DOIResolver] ${source} abstract补全失败:`, error.message);
-                    }
-                }
-
-                const abstractCount = results.filter(r => r.success && r.resolved?.abstract).length;
-                console.log(`[DOIResolver] Abstract补全完成: ${abstractCount}/${successCount} 篇有摘要 (${Math.round(abstractCount/successCount*100)}%)`);
-            }
-
-            // 第二阶段：使用Semantic Scholar托底查询失败的文献
+            // 托底查询：使用 Semantic Scholar 处理失败的文献
             if (this.enableSemanticScholarFallback) {
                 const failed = results.filter(r => !r.success);
 
