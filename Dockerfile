@@ -5,8 +5,8 @@ FROM node:20-alpine AS backend-builder
 
 WORKDIR /app/server
 
-# Install OpenSSL 1.1 compatibility for Prisma
-RUN apk add --no-cache openssl1.1-compat
+# Install OpenSSL for Prisma (Alpine 3.22 uses OpenSSL 3.x)
+RUN apk add --no-cache openssl openssl-dev
 
 # Copy backend package files
 COPY server/package*.json ./
@@ -17,7 +17,7 @@ RUN npm ci --only=production
 # Copy Prisma schema
 COPY server/prisma ./prisma/
 
-# Generate Prisma Client
+# Generate Prisma Client with binary target
 RUN npx prisma generate
 
 # Copy backend source
@@ -28,8 +28,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install dumb-init and OpenSSL 1.1 compatibility for Prisma
-RUN apk add --no-cache dumb-init openssl1.1-compat
+# Install dumb-init and OpenSSL for Prisma
+RUN apk add --no-cache dumb-init openssl
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
