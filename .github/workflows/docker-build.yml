@@ -14,7 +14,7 @@ on:
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: ${{ github.repository_owner }}/paper-burner-x
+  IMAGE_NAME: feather2dev/paper-burner-x
 
 jobs:
   build-and-push:
