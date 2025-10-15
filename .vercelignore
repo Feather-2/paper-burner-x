@@ -5,9 +5,11 @@ workers/
 server/
 docker/
 scripts/
+admin/
 .github/workflows/
 
 # 测试相关
+test/
 **/__tests__/**
 **/*.test.ts
 **/*.test.tsx
@@ -16,13 +18,18 @@ scripts/
 **/*.spec.tsx
 **/*.spec.js
 
-# 文档
+# 文档目录
+docs/
+
+# 文档（排除 README.md）
 *.md
 !README.md
 
 # 开发文件
 .vscode/
 .idea/
+.claude/
+organize-docs.sh
 
 # Docker 相关
 docker-compose.yml
@@ -30,3 +37,5 @@ Dockerfile
 .env.example
 deploy.sh
 deploy.ps1
+COMMIT_CHECKLIST.md
+LOCAL_TESTING.md

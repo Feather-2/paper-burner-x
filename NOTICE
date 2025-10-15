@@ -1,0 +1,272 @@
+Paper Burner X - License Notice
+================================
+
+## Dual Licensing Structure
+
+This project contains code under two licenses:
+
+1. **AGPL-3.0**: New code and substantial modifications (constituting ~93%+ of the codebase)
+2. **GPL-2.0**: Original Paper Burner code and its direct derivatives (constituting ~2% of the codebase)
+
+**Primary License**: GNU Affero General Public License v3.0 (AGPL-3.0)
+**Legacy Code License**: GNU General Public License v2.0 (GPL-2.0)
+
+Copyright (C) 2024-2025 Feather-2 and contributors
+
+---
+
+## Code Attribution and Licensing Details
+
+### GPL-2.0 Licensed Components (Original Work)
+
+The following components are conceptually derived from the original Paper Burner project
+and remain under GPL-2.0 out of respect for the foundational work:
+
+**Original Core Concepts (~2,000 lines, heavily refactored and rewritten):**
+- Basic PDF processing workflow concept
+- OCR integration approach (note: actual implementation is NEW)
+- Translation pipeline concept (note: actual implementation is NEW)
+- Basic UI structure concept
+
+**Important Clarifications:**
+- **Multiple file processing**: Paper Burner X's batch processing system is entirely NEW implementation
+- **Retry mechanism**: Completely NEW - original project did not have this feature
+- **Concurrent processing**: NEW implementation with our own queue management
+- **All actual code**: Has been rewritten, refactored, or newly implemented
+
+**Note**: While we started from the original project's architectural concepts,
+virtually all code has been rewritten. We maintain GPL-2.0 attribution for
+the foundational ideas out of respect for the original work.
+
+**Original Project Attribution:**
+- Author: Baoyu (baoyudu)
+- Repository: https://github.com/baoyudu/paper-burner
+- License: GPL-2.0
+- Original: Basic PDF OCR and translation tool (~6 files, ~2,000 lines)
+
+### AGPL-3.0 Licensed Components (New Work)
+
+The following represents new, original work under AGPL-3.0 (~140,000+ lines):
+
+**Complete Backend System (NEW):**
+- Node.js + Express server architecture
+- PostgreSQL database integration
+- Prisma ORM implementation
+- RESTful API design
+- Authentication & authorization system (JWT, bcrypt)
+- Multi-tenant user management
+- Admin panel and management interface
+
+**Docker Deployment Architecture (NEW):**
+- Multi-stage Dockerfile
+- Docker Compose orchestration
+- Database migration system
+- Health check implementation
+- Production-ready configuration
+
+**Advanced Features (NEW):**
+- Dual-mode deployment (frontend-only vs. full-stack)
+- Storage adapter pattern for mode switching
+- Multiple OCR engine support (MinerU, Doc2X)
+- Enhanced translation workflows
+- Batch processing system
+- History management with IndexedDB
+- Annotation and highlighting system
+- AI chatbot integration
+- Mind map and flowchart generation
+- Advanced document analysis tools
+
+**UI/UX Enhancements (NEW):**
+- Complete UI refactoring
+- Enhanced markdown rendering
+- Split-view comparison
+- Table of contents navigation
+- Immersive reading mode
+- Glossary management system
+- Key management interface
+- Settings and configuration panels
+
+---
+
+## Why AGPL-3.0 for New Code?
+
+The license upgrade to AGPL-3.0 for new contributions is justified and necessary for:
+
+### 1. Legal Compatibility
+- GPL-2.0 permits upgrading to later GPL versions (no "version 2 only" restriction)
+- AGPL-3.0 is compatible with GPL-2.0 code
+- Over 93% of the codebase is new work eligible for relicensing
+
+### 2. Network Copyleft Protection
+The primary motivation for AGPL-3.0 is **closing the cloud service loophole**:
+
+**GPL-2.0 Limitation**: If someone deploys your GPL-2.0 software as a web service
+(SaaS), they are NOT required to share their modifications because users don't
+"receive" the software - they only access it remotely.
+
+**AGPL-3.0 Solution**: Section 13 explicitly requires that users interacting with
+the software over a network must be offered access to the source code.
+
+**Real-World Scenario**:
+```
+Without AGPL-3.0:
+Company X takes Paper Burner X → Modifies it → Deploys as paid SaaS
+→ Keeps modifications private → Legal under GPL-2.0 (cloud loophole)
+
+With AGPL-3.0:
+Company X takes Paper Burner X → Modifies it → Deploys as paid SaaS
+→ MUST provide source code link → Users can see modifications → Fair!
+```
+
+### 3. Protecting Open Source Values
+This is NOT about preventing commercial use - it's about ensuring:
+- **Transparency**: Users know what code is running
+- **Freedom**: Users can run their own instances
+- **Fairness**: Improvements benefit the community
+- **Sustainability**: Prevents proprietary forks that don't contribute back
+
+---
+
+## AGPL-3.0 Requirements for Network Deployment
+
+Under AGPL-3.0, Section 13, if you deploy this software as a network service:
+
+### You MUST:
+1. **Prominently display** a "Source Code" or "View Source" link in your UI
+2. **Provide free access** to the complete source code (including your modifications)
+3. **Use standard methods** for distributing the source (e.g., Git, download link)
+
+### Example Implementation:
+
+**Minimal Compliance (Footer Link):**
+```html
+<!-- In your footer or about section -->
+<footer>
+  <p>
+    Powered by <a href="https://github.com/Feather-2/paper-burner-x">Paper Burner X</a> (AGPL-3.0)
+    • <a href="https://github.com/your-org/your-fork" style="font-weight: bold;">
+      📥 Download Source Code
+    </a>
+  </p>
+</footer>
+```
+
+**Recommended Compliance (About/Settings Page):**
+```html
+<!-- In settings or about page -->
+<div class="license-notice">
+  <h3>Open Source License</h3>
+  <p>
+    This service is based on
+    <a href="https://github.com/Feather-2/paper-burner-x">Paper Burner X</a>,
+    licensed under AGPL-3.0.
+  </p>
+  <p>
+    <strong>Source Code Access:</strong> You can download the complete source code,
+    including any modifications we made:
+  </p>
+  <a href="https://github.com/your-org/your-fork" class="btn-primary">
+    View/Download Source Code
+  </a>
+  <p style="margin-top: 1rem; font-size: 0.9em;">
+    Under AGPL-3.0, you have the right to:
+    • Use the software freely
+    • Modify and redistribute it
+    • Access the source code at any time
+  </p>
+</div>
+```
+
+**Best Practice (In-App Notice):**
+```javascript
+// Show on first visit or in help menu
+function showLicenseNotice() {
+  const notice = `
+    This application uses Paper Burner X (AGPL-3.0).
+
+    You have the right to:
+    ✓ View and download the source code
+    ✓ Run your own instance
+    ✓ Modify and redistribute the software
+
+    Access source code at: https://github.com/your-org/your-fork
+  `;
+
+  // Display in modal, notification, or about dialog
+  showNotification(notice, { persistent: true, link: sourceCodeUrl });
+}
+```
+
+### This applies to:
+- ✅ Public web services
+- ✅ SaaS platforms
+- ✅ Internal corporate deployments (if accessed over network)
+- ✅ University/institution deployments
+- ❌ Personal use on your own computer (no network access)
+
+---
+
+## For Downstream Users and Deployers
+
+### If you're deploying Paper Burner X:
+
+**Pure Frontend Mode (Vercel/Static):**
+- Uses only GPL-2.0 and AGPL-3.0 frontend code
+- No backend deployment = Simpler compliance
+- Recommend: Add source code link in your footer
+
+**Full Docker Mode (with Backend):**
+- Uses both GPL-2.0 and AGPL-3.0 code
+- MUST provide source code access per AGPL-3.0 Section 13
+- Required: Prominent source code link in UI
+
+### If you're modifying Paper Burner X:
+
+**GPL-2.0 Components**: Can modify, but must remain GPL-2.0 compatible
+**AGPL-3.0 Components**: Can modify, but must share modifications if deployed
+**New Components**: You can add under AGPL-3.0 or compatible license
+
+### Compatibility Guide:
+- ✅ GPL-3.0 code → Can integrate (AGPL-3.0 is GPL-3.0 + network clause)
+- ✅ MIT/BSD/Apache 2.0 → Can integrate
+- ✅ Commercial use → Allowed (with source disclosure)
+- ❌ Proprietary license → Cannot integrate
+- ❌ GPL-3.0-incompatible licenses → Cannot integrate
+
+---
+
+## Third-Party Components
+
+This project uses the following open-source libraries and services:
+
+### Frontend Libraries
+- TailwindCSS (MIT License)
+- Turndown (MIT License)
+- Mammoth.js (BSD-2-Clause License)
+- Iconify (MIT License)
+
+### Backend Libraries (Docker mode only)
+- Express.js (MIT License)
+- Prisma (Apache 2.0 License)
+- bcryptjs (MIT License)
+- jsonwebtoken (MIT License)
+- PostgreSQL (PostgreSQL License)
+
+### OCR Services (API-based)
+- MinerU (Apache 2.0 License)
+- Doc2X (Commercial Service)
+
+### AI Models (API-based)
+- Various AI translation services (user-configured)
+
+## Contact
+
+- GitHub: https://github.com/Feather-2/paper-burner-x
+- Issues: https://github.com/Feather-2/paper-burner-x/issues
+
+## Full License Text
+
+See the LICENSE file in the root directory for the full text of the
+GNU Affero General Public License v3.0.
+
+Online version: https://www.gnu.org/licenses/agpl-3.0.html

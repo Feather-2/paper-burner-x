@@ -226,7 +226,9 @@
         async function showAdminPanel(user) {
             document.getElementById('loginPage').classList.add('hidden');
             document.getElementById('adminPanel').classList.remove('hidden');
-            document.getElementById('adminName').textContent = user.name || user.email;
+            // 使用 textContent 而不是 innerHTML 来防止 XSS
+            const adminNameElement = document.getElementById('adminName');
+            adminNameElement.textContent = user.name || user.email;
 
             await loadStats();
             await loadUsers();
@@ -248,6 +250,14 @@
             }
         }
 
+        // 辅助函数：安全地转义 HTML 以防止 XSS 攻击
+        function escapeHtml(text) {
+            if (!text) return '-';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
         async function loadUsers() {
             try {
                 const response = await axios.get(`${API_BASE}/admin/users`, {
@@ -257,9 +267,9 @@
                 const usersList = document.getElementById('usersList');
                 usersList.innerHTML = response.data.map(user => `
                     <tr>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm">${user.email}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm">${user.name || '-'}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm">${user.role}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm">${escapeHtml(user.email)}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm">${escapeHtml(user.name)}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm">${escapeHtml(user.role)}</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm">
                             <span class="px-2 py-1 rounded-full text-xs ${user.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
                                 ${user.isActive ? '活跃' : '禁用'}
@@ -267,7 +277,7 @@
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm">${new Date(user.createdAt).toLocaleDateString()}</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm">
-                            <button onclick="toggleUserStatus('${user.id}', ${!user.isActive})"
+                            <button onclick="toggleUserStatus('${escapeHtml(user.id)}', ${!user.isActive})"
                                 class="text-blue-600 hover:text-blue-900">
                                 ${user.isActive ? '禁用' : '启用'}
                             </button>
