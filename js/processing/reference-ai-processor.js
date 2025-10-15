@@ -15,13 +15,26 @@
     function generateExtractionPrompt(references, sourceLang = 'auto') {
         const langHint = sourceLang !== 'auto' ? `注意：文献可能是${sourceLang}语言。` : '';
 
+        // 构建 JSON 输入格式，让 AI 更容易对应每条文献
+        const inputJson = references.map((ref, idx) => ({
+            id: idx,
+            raw: ref
+        }));
+
         return {
             system: `你是专业的文献信息提取助手。从参考文献中提取结构化信息，返回JSON格式。
 
-返回格式示例：
+输入格式：
+[
+  {"id": 0, "raw": "文献原始文本"},
+  {"id": 1, "raw": "文献原始文本"}
+]
+
+返回格式：
 {
   "references": [
     {
+      "id": 0,
       "authors": ["作者列表"],
       "title": "标题",
       "year": 2023,
@@ -37,11 +50,16 @@
 - 无法提取的字段设为null
 - 保持原文格式
 - ${langHint}
-- 只返回JSON，不要任何其他文字`,
+- 只返回JSON，不要任何其他文字
 
-            user: `提取以下${references.length}条文献信息：
+⚠️ 严格要求：
+- 必须返回 ${references.length} 条文献，每条文献的 id 必须与输入一一对应（0 到 ${references.length - 1}）
+- 不要遗漏任何一条（检查 id 是否连续）
+- 不要添加额外的文献
+- 不要编造不存在的信息
+- 保持 id 顺序与输入完全一致`,
 
-${references.map((ref, idx) => `[${idx}] ${ref}`).join('\n\n')}`
+            user: JSON.stringify(inputJson, null, 2)
         };
     }
 
@@ -163,8 +181,56 @@ ${references.map((ref, idx) => `[${idx}] ${ref}`).join('\n\n')}`
                 // 解析JSON响应
                 try {
                     const parsed = JSON.parse(cleanText);
-                    console.log(`[ReferenceAIProcessor] 成功提取 ${parsed.references?.length || 0} 条文献`);
-                    return parsed.references || [];
+                    const extractedRefs = parsed.references || [];
+
+                    // 验证1：数量必须匹配
+                    if (extractedRefs.length !== references.length) {
+                        console.error(`[ReferenceAIProcessor] 数量不匹配: 输入 ${references.length} 条，AI 返回 ${extractedRefs.length} 条`);
+                        console.error('[ReferenceAIProcessor] 输入文献:', references.map((r, i) => `[${i}] ${r.substring(0, 100)}...`));
+                        console.error('[ReferenceAIProcessor] AI 返回:', extractedRefs.map((r, i) => `[${i}] id=${r.id} ${r.title?.substring(0, 100)}`));
+
+                        if (attempt < maxRetries) {
+                            console.warn(`[ReferenceAIProcessor] 数量不匹配（可能幻觉），尝试 ${attempt + 1}/${maxRetries + 1}，将重试...`);
+                            const delay = Math.min(baseDelay * Math.pow(2, attempt) + Math.random() * 1000, maxDelay);
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                            continue;
+                        }
+
+                        throw new Error(`AI 返回数量错误：期望 ${references.length} 条，实际 ${extractedRefs.length} 条（可能产生幻觉）`);
+                    }
+
+                    // 验证2：检查 id 是否连续且完整（0 到 N-1）
+                    const ids = extractedRefs.map(r => r.id).sort((a, b) => a - b);
+                    const expectedIds = Array.from({ length: references.length }, (_, i) => i);
+                    const missingIds = expectedIds.filter(id => !ids.includes(id));
+                    const extraIds = ids.filter(id => !expectedIds.includes(id));
+
+                    if (missingIds.length > 0 || extraIds.length > 0) {
+                        console.error(`[ReferenceAIProcessor] ID 不匹配:`);
+                        if (missingIds.length > 0) {
+                            console.error(`  缺失 ID: ${missingIds.join(', ')}`);
+                        }
+                        if (extraIds.length > 0) {
+                            console.error(`  额外 ID: ${extraIds.join(', ')}`);
+                        }
+                        console.error('[ReferenceAIProcessor] AI 返回的 ID:', ids.join(', '));
+                        console.error('[ReferenceAIProcessor] 期望的 ID:', expectedIds.join(', '));
+
+                        if (attempt < maxRetries) {
+                            console.warn(`[ReferenceAIProcessor] ID 不连续（可能幻觉或遗漏），尝试 ${attempt + 1}/${maxRetries + 1}，将重试...`);
+                            const delay = Math.min(baseDelay * Math.pow(2, attempt) + Math.random() * 1000, maxDelay);
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                            continue;
+                        }
+
+                        throw new Error(`AI 返回的 ID 不连续：缺失 [${missingIds.join(', ')}]，额外 [${extraIds.join(', ')}]`);
+                    }
+
+                    // 验证3：按 id 排序确保顺序正确
+                    extractedRefs.sort((a, b) => a.id - b.id);
+
+                    console.log(`[ReferenceAIProcessor] 成功提取 ${extractedRefs.length} 条文献（验证通过：数量✓ ID连续✓）`);
+                    return extractedRefs;
                 } catch (parseError) {
                     console.error('[ReferenceAIProcessor] JSON解析失败:', parseError);
                     console.error('[ReferenceAIProcessor] 原始内容:', cleanText.substring(0, 1000));
