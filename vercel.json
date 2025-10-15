@@ -2,6 +2,5 @@
   "buildCommand": null,
   "outputDirectory": ".",
   "installCommand": null,
-  "devCommand": null,
-  "ignoreCommand": "echo 'Skipping build'"
+  "devCommand": null
 }
