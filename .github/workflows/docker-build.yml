@@ -1,18 +1,16 @@
 name: Build and Push Docker Image
 
-# 暂时禁用自动构建 - 需要配置 DOCKER_USERNAME 和 DOCKER_PASSWORD secrets
-# 取消下面的注释并删除 workflow_dispatch 来启用自动构建
 on:
-  workflow_dispatch:  # 只允许手动触发
-  # push:
-  #   branches:
-  #     - main
-  #     - develop
-  #   tags:
-  #     - 'v*'
-  # pull_request:
-  #   branches:
-  #     - main
+  workflow_dispatch:  # 允许手动触发
+  push:
+    branches:
+      - main
+      - develop
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
 
 env:
   REGISTRY: docker.io
