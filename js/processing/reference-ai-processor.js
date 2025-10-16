@@ -146,11 +146,33 @@
 
                 // 检查是否因长度限制被截断
                 const finishReason = data?.choices?.[0]?.finish_reason;
-                if (finishReason === 'length' && attempt < maxRetries) {
-                    console.warn(`[ReferenceAIProcessor] 响应被截断 (finish_reason: length)，尝试 ${attempt + 1}/${maxRetries + 1}，将重试...`);
-                    const delay = Math.min(baseDelay * Math.pow(2, attempt) + Math.random() * 1000, maxDelay);
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                    continue;
+                if (finishReason === 'length') {
+                    console.warn(`[ReferenceAIProcessor] 响应被截断 (finish_reason: length)，尝试 ${attempt + 1}/${maxRetries + 1}`);
+
+                    // 如果批次大小 > 5，拆分成更小的子批次重试
+                    if (references.length > 5) {
+                        console.warn(`[ReferenceAIProcessor] 批次太大 (${references.length} 条)，拆分为 2 个子批次重试...`);
+                        const mid = Math.ceil(references.length / 2);
+                        const batch1 = references.slice(0, mid);
+                        const batch2 = references.slice(mid);
+
+                        // 递归调用，分别处理两个子批次
+                        const [results1, results2] = await Promise.all([
+                            callAIExtraction(batch1, apiConfig, sourceLang),
+                            callAIExtraction(batch2, apiConfig, sourceLang)
+                        ]);
+
+                        // 合并结果（保持 id 顺序）
+                        return [...results1, ...results2];
+                    } else if (attempt < maxRetries) {
+                        // 批次已经很小，延迟后重试
+                        const delay = Math.min(baseDelay * Math.pow(2, attempt) + Math.random() * 1000, maxDelay);
+                        console.warn(`[ReferenceAIProcessor] 批次较小 (${references.length} 条)，等待 ${Math.round(delay)}ms 后重试...`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        continue;
+                    } else {
+                        throw new Error(`响应被截断（finish_reason: length），批次大小已最小 (${references.length} 条)，无法继续拆分`);
+                    }
                 }
 
                 const extractedText = apiConfig.responseExtractor
