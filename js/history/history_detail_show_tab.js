@@ -1652,6 +1652,10 @@ function showTab(tab) {
               // ========== 内容加载完成 =============
               window.contentReady = true;
               console.log('[DEBUG] window.contentReady = true (after OCR/Translation segmentInBatches)');
+              try {
+                // 通知其他模块（例如参考文献管理器）内容已渲染
+                document.dispatchEvent(new CustomEvent('contentRendered', { detail: { tab } }));
+              } catch (e) { /* no-op */ }
               // ====================================
           });
         } else {
@@ -1661,6 +1665,10 @@ function showTab(tab) {
           // ========== 内容加载完成 =============
           window.contentReady = true;
           console.log('[DEBUG] window.contentReady = true (after OCR/Translation segmentInBatches, no activeContentElement)');
+          try {
+            // 通知其他模块（例如参考文献管理器）内容已渲染
+            document.dispatchEvent(new CustomEvent('contentRendered', { detail: { tab } }));
+          } catch (e) { /* no-op */ }
           // ====================================
         }
       }); // End of requestAnimationFrame

@@ -46,11 +46,16 @@
         // 创建悬浮面板
         createFloatingPanel();
 
-        // 立即尝试加载（处理页面刷新的情况）
-        // 延迟执行以确保其他模块已加载
+        // 处理页面刷新：仅在内容已就绪或数据已可用时尝试一次，
+        // 否则等待 contentRendered 事件再处理，避免早期取不到内容
         setTimeout(() => {
-            loadAndDisplayReferences();
-        }, 100);
+            const hasData = !!(window.data && (window.data.ocr || window.data.translation || (Array.isArray(window.data.ocrChunks) && window.data.ocrChunks.length > 0)));
+            if (window.contentReady || hasData) {
+                loadAndDisplayReferences();
+            } else {
+                console.log('[ReferenceManagerDetail] 等待内容渲染完成后再尝试提取参考文献');
+            }
+        }, 200);
 
         console.log('[ReferenceManagerDetail] Initialized for document:', currentDocumentId);
     }
@@ -1378,30 +1383,53 @@
      * 获取当前Markdown内容
      */
     async function getCurrentMarkdownContent() {
-        // 方式1: 从 window.data 获取（详情页使用）
-        if (window.data && window.data.ocr) {
-            console.log('[ReferenceManagerDetail] 使用 window.data.ocr，长度:', window.data.ocr.length);
-            return window.data.ocr;
+        const active = window.globalCurrentContentIdentifier || window.currentVisibleTabId || 'ocr';
+
+        // 优先：根据当前可见内容获取（translation 优先使用译文）
+        if (window.data) {
+            if (active === 'translation' && typeof window.data.translation === 'string' && window.data.translation.length > 0) {
+                console.log('[ReferenceManagerDetail] 使用 window.data.translation，长度:', window.data.translation.length);
+                return window.data.translation;
+            }
+            if (typeof window.data.ocr === 'string' && window.data.ocr.length > 0) {
+                console.log('[ReferenceManagerDetail] 使用 window.data.ocr，长度:', window.data.ocr.length);
+                return window.data.ocr;
+            }
+            // 备用：从分块重建
+            if (Array.isArray(window.data.ocrChunks) && window.data.ocrChunks.length > 0) {
+                const joined = window.data.ocrChunks.filter(Boolean).join('\n\n');
+                if (joined && joined.trim().length > 0) {
+                    console.log('[ReferenceManagerDetail] 使用 window.data.ocrChunks 重建内容，块数:', window.data.ocrChunks.length);
+                    return joined;
+                }
+            }
         }
 
-        // 方式2: 从currentHistoryData获取
+        // 方式：历史数据（若存在）
         if (window.currentHistoryData && window.currentHistoryData.ocrResult) {
             console.log('[ReferenceManagerDetail] 使用 currentHistoryData.ocrResult');
             return window.currentHistoryData.ocrResult;
         }
 
-        // 方式3: 从DOM中的文本内容获取
-        const ocrContent = document.querySelector('#tab-ocr-content, #ocr-content-wrapper');
-        if (ocrContent && ocrContent.textContent) {
-            console.log('[ReferenceManagerDetail] 使用 DOM textContent');
-            return ocrContent.textContent;
+        // 方式：从DOM中的文本内容获取（依据当前标签）
+        const selector = active === 'translation'
+            ? '#translation-content-wrapper'
+            : '#tab-ocr-content, #ocr-content-wrapper';
+        const contentEl = document.querySelector(selector) || document.querySelector('#tabContent .markdown-body');
+        if (contentEl && contentEl.textContent && contentEl.textContent.trim()) {
+            console.log('[ReferenceManagerDetail] 使用 DOM textContent, selector:', selector);
+            return contentEl.textContent;
         }
 
         console.error('[ReferenceManagerDetail] 无法获取文档内容，尝试的方法:', {
+            active,
             hasWindowData: !!window.data,
             hasOcr: !!(window.data && window.data.ocr),
+            hasTranslation: !!(window.data && window.data.translation),
+            hasOcrChunks: !!(window.data && Array.isArray(window.data.ocrChunks) && window.data.ocrChunks.length > 0),
+            contentReady: !!window.contentReady,
             hasCurrentHistoryData: !!window.currentHistoryData,
-            hasDOMContent: !!document.querySelector('#tab-ocr-content, #ocr-content-wrapper')
+            hasDOMContent: !!document.querySelector(selector) || !!document.querySelector('#tabContent .markdown-body')
         });
         return null;
     }
@@ -1665,4 +1693,3 @@
     console.log('[ReferenceManagerDetail] Module loaded. v1.0.1 - Fixed refIndex error');
 
 })(window);
-

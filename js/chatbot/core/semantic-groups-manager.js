@@ -202,7 +202,8 @@ async function ensureSemanticGroupsReady(docContentInfo, getCurrentDocId, getCha
       console.log(`[ChatbotCore] 创建了 ${simpleEnrichedChunks.length} 个简单chunks（无意群分组）`);
 
       // 建立BM25索引（轻量级，不需要API）
-      const docId = getCurrentDocId();
+      // 使用前面保存配置时的同一个 docId，而不是重新获取
+      console.log(`[ChatbotCore][DEBUG] 使用 docId=${docId} 来建立索引`);
       // 向量索引改为后台生成，避免阻塞对话流程
       await ensureIndexesBuilt(simpleEnrichedChunks, [], docId, true);
     }
@@ -528,6 +529,9 @@ async function ensureIndexesBuilt(chunks, groups, docId, async = false) {
   // 异步建立向量索引（仅在用户配置允许且启用了向量搜索时）
   const buildVectorIndex = async () => {
     try {
+      console.log(`[ChatbotCore][DEBUG] 向量索引检查: useVectorSearch=${useVectorSearch}, multiHopEnabled=${multiHopEnabled}, docId=${docId}`);
+      console.log('[ChatbotCore][DEBUG] 文档配置:', docConfig);
+
       // 仅在多轮检索开启且文档允许向量搜索时建立向量索引
       if (!useVectorSearch) {
         console.log('[ChatbotCore] 用户选择不使用向量搜索，跳过向量索引生成');
