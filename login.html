@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登录 - Paper Burner X</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center">
+  <div class="bg-white p-8 rounded-lg shadow w-full max-w-md">
+    <h1 class="text-2xl font-bold mb-6 text-center">登录到 Paper Burner X</h1>
+    <form id="loginForm" class="space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700">邮箱</label>
+        <input id="email" type="email" required class="mt-1 block w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500" placeholder="you@example.com" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700">密码</label>
+        <input id="password" type="password" required class="mt-1 block w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500" placeholder="••••••••" />
+      </div>
+      <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700">登录</button>
+      <p id="error" class="text-red-600 text-sm hidden"></p>
+    </form>
+    <div class="text-sm text-gray-500 mt-4">
+      <p>默认管理员：<code>admin@paperburner.local / admin123456</code></p>
+      <p class="mt-1">管理员入口：<a href="/admin" class="text-blue-600 hover:underline">/admin</a></p>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = window.location.origin + '/api';
+
+    function getRedirect() {
+      try {
+        const p = new URLSearchParams(window.location.search);
+        return p.get('redirect') || '/';
+      } catch { return '/'; }
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const err = document.getElementById('error');
+      err.classList.add('hidden');
+      err.textContent = '';
+      try {
+        const res = await axios.post(`${API_BASE}/auth/login`, { email, password });
+        if (res.data && res.data.token) {
+          // 与前端适配器一致的存储键
+          localStorage.setItem('auth_token', res.data.token);
+          window.location.href = getRedirect();
+        } else {
+          throw new Error('登录响应异常');
+        }
+      } catch (e2) {
+        err.textContent = e2?.response?.data?.error || e2.message || '登录失败';
+        err.classList.remove('hidden');
+      }
+    });
+  </script>
+</body>
+</html>
+
