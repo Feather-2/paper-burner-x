@@ -242,19 +242,28 @@
 </head>
 <body class="gradient-bg min-h-screen">
     <script>
-        // Redirect to landing page once per day
-        var currentPath = window.location.pathname;
-        if (currentPath.indexOf('landing-page.html') === -1) {
+        // 可选：每天一次跳转到落地页（仅在非后端模式且未强制 backend 时启用）
+        (function() {
+          try {
+            var currentPath = window.location.pathname;
+            // 如果明确进入后端模式（通过查询参数或全局变量），则不跳转落地页，避免影响使用
+            var params = new URLSearchParams(window.location.search);
+            var forcedMode = (params.get('mode') || '').toLowerCase();
+            var envMode = (window.ENV_DEPLOYMENT_MODE || '').toLowerCase();
+            var shouldSkip = (forcedMode === 'backend') || (envMode === 'backend');
+
+            if (shouldSkip) return;
+            if (currentPath.indexOf('landing-page.html') !== -1) return;
+
             var today = new Date().toDateString();
             var lastShownDate = localStorage.getItem('paperBurnerLandingLastShown');
-
             if (lastShownDate !== today) {
-                // First visit today, redirect to landing page
-                localStorage.setItem('paperBurnerLandingLastShown', today);
-                var basePath = currentPath.substring(0, currentPath.lastIndexOf('/') + 1);
-                window.location.href = basePath + 'views/landing/landing-page.html';
+              localStorage.setItem('paperBurnerLandingLastShown', today);
+              var basePath = currentPath.substring(0, currentPath.lastIndexOf('/') + 1);
+              window.location.href = basePath + 'views/landing/landing-page.html';
             }
-        }
+          } catch (e) { /* ignore */ }
+        })();
     </script>
 
     <div id="mainAppContainer" class="container mx-auto px-4 py-8 max-w-6xl">
