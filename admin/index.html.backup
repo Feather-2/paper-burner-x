@@ -78,72 +78,24 @@
             <!-- 选项卡导航 -->
             <div class="bg-white rounded-lg shadow mb-4">
                 <div class="border-b border-gray-200">
-                    <nav class="flex -mb-px overflow-x-auto">
-                        <button onclick="switchTab('overview')" id="tab-overview"
-                            class="tab-button px-6 py-3 border-b-2 border-transparent font-medium text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap">
-                            概览
-                        </button>
+                    <nav class="flex -mb-px">
                         <button onclick="switchTab('users')" id="tab-users"
-                            class="tab-button px-6 py-3 border-b-2 border-blue-500 font-medium text-blue-600 whitespace-nowrap">
+                            class="tab-button px-6 py-3 border-b-2 border-blue-500 font-medium text-blue-600">
                             用户管理
                         </button>
-                        <button onclick="switchTab('quotas')" id="tab-quotas"
-                            class="tab-button px-6 py-3 border-b-2 border-transparent font-medium text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap">
-                            配额管理
-                        </button>
-                        <button onclick="switchTab('activity')" id="tab-activity"
-                            class="tab-button px-6 py-3 border-b-2 border-transparent font-medium text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap">
-                            活动日志
-                        </button>
                         <button onclick="switchTab('models')" id="tab-models"
-                            class="tab-button px-6 py-3 border-b-2 border-transparent font-medium text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap">
+                            class="tab-button px-6 py-3 border-b-2 border-transparent font-medium text-gray-500 hover:text-gray-700 hover:border-gray-300">
                             模型配置
                         </button>
                         <button onclick="switchTab('system')" id="tab-system"
-                            class="tab-button px-6 py-3 border-b-2 border-transparent font-medium text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap">
+                            class="tab-button px-6 py-3 border-b-2 border-transparent font-medium text-gray-500 hover:text-gray-700 hover:border-gray-300">
                             系统设置
                         </button>
                     </nav>
                 </div>
 
-                <!-- 概览标签页 -->
-                <div id="content-overview" class="p-6 hidden">
-                    <div class="mb-8">
-                        <h3 class="text-lg font-medium mb-4">使用趋势（最近30天）</h3>
-                        <div class="bg-white p-4 rounded-lg border">
-                            <canvas id="trendChart" height="80"></canvas>
-                        </div>
-                    </div>
-                    <div class="mb-8">
-                        <h3 class="text-lg font-medium mb-4">文档状态分布</h3>
-                        <div id="documentsByStatus" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4"></div>
-                    </div>
-                    <div>
-                        <h3 class="text-lg font-medium mb-4">Top 10 活跃用户（本月）</h3>
-                        <div class="overflow-x-auto">
-                            <table class="min-w-full divide-y divide-gray-200">
-                                <thead class="bg-gray-50">
-                                    <tr>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">排名</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">用户</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">邮箱</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">文档数</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="topUsersList" class="bg-white divide-y divide-gray-200"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- 用户管理 -->
                 <div id="content-users" class="p-6">
-                    <div class="mb-4 flex justify-between items-center">
-                        <h3 class="text-lg font-medium">用户列表</h3>
-                        <button onclick="loadUsers()" class="bg-gray-200 px-4 py-2 rounded-md hover:bg-gray-300">
-                            刷新
-                        </button>
-                    </div>
                     <div class="overflow-x-auto">
                         <table class="min-w-full divide-y divide-gray-200">
                             <thead class="bg-gray-50">
@@ -156,127 +108,8 @@
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">操作</th>
                                 </tr>
                             </thead>
-                            <tbody id="usersList" class="bg-white divide-y divide-gray-200"></tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <!-- 配额管理 -->
-                <div id="content-quotas" class="p-6 hidden">
-                    <div class="mb-4">
-                        <h3 class="text-lg font-medium mb-2">配额管理</h3>
-                        <p class="text-sm text-gray-600">为用户设置文档数量和存储空间限制（-1 表示无限制）</p>
-                    </div>
-
-                    <div class="mb-6">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">选择用户</label>
-                        <select id="quotaUserId" onchange="loadUserQuota()"
-                            class="block w-full px-3 py-2 border border-gray-300 rounded-md">
-                            <option value="">请选择用户...</option>
-                        </select>
-                    </div>
-
-                    <div id="quotaForm" class="hidden space-y-6">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700">每日文档限制</label>
-                                <input type="number" id="maxDocumentsPerDay"
-                                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
-                                <p class="mt-1 text-xs text-gray-500">-1 表示无限制</p>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700">每月文档限制</label>
-                                <input type="number" id="maxDocumentsPerMonth"
-                                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
-                                <p class="mt-1 text-xs text-gray-500">-1 表示无限制</p>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700">存储空间限制（MB）</label>
-                                <input type="number" id="maxStorageSize"
-                                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
-                                <p class="mt-1 text-xs text-gray-500">-1 表示无限制</p>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700">API Keys 数量限制</label>
-                                <input type="number" id="maxApiKeysCount"
-                                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
-                                <p class="mt-1 text-xs text-gray-500">-1 表示无限制</p>
-                            </div>
-                        </div>
-
-                        <div class="bg-gray-50 p-4 rounded-lg">
-                            <h4 class="text-sm font-medium text-gray-700 mb-3">当前使用量</h4>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <div class="text-sm text-gray-600">本月文档数</div>
-                                    <div id="documentsThisMonthQuota" class="text-lg font-semibold">0</div>
-                                    <div class="w-full bg-gray-200 rounded-full h-2 mt-2">
-                                        <div id="documentsProgressBar" class="bg-blue-600 h-2 rounded-full transition-all" style="width: 0%"></div>
-                                    </div>
-                                </div>
-                                <div>
-                                    <div class="text-sm text-gray-600">存储使用（MB）</div>
-                                    <div id="currentStorageUsed" class="text-lg font-semibold">0</div>
-                                    <div class="w-full bg-gray-200 rounded-full h-2 mt-2">
-                                        <div id="storageProgressBar" class="bg-green-600 h-2 rounded-full transition-all" style="width: 0%"></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="flex space-x-4">
-                            <button onclick="saveUserQuota()"
-                                class="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700">
-                                保存配额
-                            </button>
-                            <button onclick="resetUserQuota()"
-                                class="bg-gray-200 px-6 py-2 rounded-md hover:bg-gray-300">
-                                重置使用量
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 活动日志 -->
-                <div id="content-activity" class="p-6 hidden">
-                    <div class="mb-6">
-                        <h3 class="text-lg font-medium mb-2">用户活动日志</h3>
-                        <div class="flex items-center space-x-4">
-                            <div class="flex-1">
-                                <label class="block text-sm font-medium text-gray-700 mb-2">选择用户</label>
-                                <select id="activityUserId" onchange="loadUserActivity()"
-                                    class="block w-full px-3 py-2 border border-gray-300 rounded-md">
-                                    <option value="">请选择用户...</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">显示条数</label>
-                                <select id="activityLimit" onchange="loadUserActivity()"
-                                    class="block w-full px-3 py-2 border border-gray-300 rounded-md">
-                                    <option value="50">50</option>
-                                    <option value="100">100</option>
-                                    <option value="200">200</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">时间</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">操作</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">资源ID</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">详情</th>
-                                </tr>
-                            </thead>
-                            <tbody id="activityLogsList" class="bg-white divide-y divide-gray-200">
-                                <tr>
-                                    <td colspan="4" class="px-6 py-4 text-center text-gray-500">
-                                        请选择用户查看活动日志
-                                    </td>
-                                </tr>
+                            <tbody id="usersList" class="bg-white divide-y divide-gray-200">
+                                <!-- 用户列表将在这里动态加载 -->
                             </tbody>
                         </table>
                     </div>
@@ -418,7 +251,7 @@
             }
         }
 
-        // 安全转义
+        // 辅助函数：安全地转义 HTML 以防止 XSS 攻击
         function escapeHtml(text) {
             if (!text) return '-';
             const div = document.createElement('div');
@@ -475,16 +308,12 @@
                 btn.classList.remove('border-blue-500', 'text-blue-600');
                 btn.classList.add('border-transparent', 'text-gray-500');
             });
-            const activeBtn = document.getElementById(`tab-${tab}`);
-            if (activeBtn) {
-                activeBtn.classList.add('border-blue-500', 'text-blue-600');
-                activeBtn.classList.remove('border-transparent', 'text-gray-500');
-            }
+            document.getElementById(`tab-${tab}`).classList.add('border-blue-500', 'text-blue-600');
+            document.getElementById(`tab-${tab}`).classList.remove('border-transparent', 'text-gray-500');
 
             // 切换内容
-            ['overview', 'users', 'quotas', 'activity', 'models', 'system'].forEach(t => {
-                const el = document.getElementById(`content-${t}`);
-                if (el) el.classList.toggle('hidden', t !== tab);
+            ['users', 'models', 'system'].forEach(t => {
+                document.getElementById(`content-${t}`).classList.toggle('hidden', t !== tab);
             });
         }
 
@@ -506,4 +335,3 @@
     <script src="admin-enhanced.js"></script>
 </body>
 </html>
-
