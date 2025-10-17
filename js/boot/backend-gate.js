@@ -6,6 +6,9 @@
     var loc = window.location;
     var path = loc.pathname || '';
 
+    // 纯本地文件访问（file://）时，强制视为前端模式：不做任何后端探测或跳转
+    if (loc.protocol === 'file:') return;
+
     // 排除管理台与登录页自身
     if (path.startsWith('/admin') || path.endsWith('/login.html')) return;
 
@@ -76,4 +79,3 @@
     // 忽略所有门禁过程中的异常，避免影响前端模式体验
   }
 })();
-
