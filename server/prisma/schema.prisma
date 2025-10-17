@@ -29,6 +29,8 @@ model User {
   apiKeys       ApiKey[]
   glossaries    Glossary[]
   annotations   Annotation[]
+  processedFiles ProcessedFile[]
+  quota         UserQuota?
 
   @@index([email])
   @@map("users")
@@ -253,4 +255,62 @@ model SystemConfig {
   updatedAt   DateTime @updatedAt
 
   @@map("system_config")
+}
+
+// ==================== 已处理文件记录 ====================
+
+model ProcessedFile {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  fileIdentifier String  // 文件标识符 (name + size + lastModified)
+  fileName       String
+  processedAt    DateTime @default(now())
+
+  @@unique([userId, fileIdentifier])
+  @@index([userId])
+  @@map("processed_files")
+}
+
+// ==================== 用户配额管理 ====================
+
+model UserQuota {
+  id                    String   @id @default(uuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // 配额限制 (-1 表示无限制)
+  maxDocumentsPerDay    Int      @default(-1)
+  maxDocumentsPerMonth  Int      @default(-1)
+  maxStorageSize        Int      @default(-1) // MB
+  maxApiKeysCount       Int      @default(-1)
+
+  // 当前使用量
+  documentsThisMonth    Int      @default(0)
+  currentStorageUsed    Int      @default(0) // MB
+
+  // 重置时间
+  lastMonthlyReset      DateTime @default(now())
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@map("user_quotas")
+}
+
+// ==================== 使用量日志 ====================
+
+model UsageLog {
+  id          String   @id @default(uuid())
+  userId      String
+  action      String   // 'ocr', 'translate', 'document_create', etc.
+  resourceId  String?  // 关联的资源ID（如文档ID）
+  metadata    Json?    // 额外元数据
+
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@map("usage_logs")
 }

@@ -1,6 +1,7 @@
 import express from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { PrismaClient } from '@prisma/client';
+import { checkQuota, incrementDocumentCount, decrementDocumentCount, logUsage } from '../utils/quota.js';
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -75,11 +76,26 @@ router.get('/:id', requireAuth, async (req, res, next) => {
 // 创建文档记录
 router.post('/', requireAuth, async (req, res, next) => {
   try {
+    // 检查配额
+    const quotaCheck = await checkQuota(req.user.id);
+    if (!quotaCheck.allowed) {
+      return res.status(403).json({ error: quotaCheck.reason });
+    }
+
     const document = await prisma.document.create({
       data: {
         userId: req.user.id,
         ...req.body
       }
+    });
+
+    // 增加文档计数
+    await incrementDocumentCount(req.user.id, req.body.fileSize || 0);
+
+    // 记录使用日志
+    await logUsage(req.user.id, 'document_create', document.id, {
+      fileName: document.fileName,
+      fileType: document.fileType
     });
 
     res.status(201).json(document);
@@ -108,12 +124,25 @@ router.put('/:id', requireAuth, async (req, res, next) => {
 // 删除文档
 router.delete('/:id', requireAuth, async (req, res, next) => {
   try {
-    await prisma.document.deleteMany({
+    // 先获取文档信息以获取文件大小
+    const document = await prisma.document.findFirst({
       where: {
         id: req.params.id,
         userId: req.user.id
       }
     });
+
+    if (document) {
+      await prisma.document.delete({
+        where: { id: req.params.id }
+      });
+
+      // 减少文档计数
+      await decrementDocumentCount(req.user.id, document.fileSize || 0);
+
+      // 记录使用日志
+      await logUsage(req.user.id, 'document_delete', req.params.id);
+    }
 
     res.json({ success: true });
   } catch (error) {
@@ -149,6 +178,112 @@ router.get('/:id/annotations', requireAuth, async (req, res, next) => {
     });
 
     res.json(annotations);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 更新标注
+router.put('/:documentId/annotations/:annotationId', requireAuth, async (req, res, next) => {
+  try {
+    await prisma.annotation.updateMany({
+      where: {
+        id: req.params.annotationId,
+        documentId: req.params.documentId,
+        userId: req.user.id
+      },
+      data: req.body
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 删除标注
+router.delete('/:documentId/annotations/:annotationId', requireAuth, async (req, res, next) => {
+  try {
+    await prisma.annotation.deleteMany({
+      where: {
+        id: req.params.annotationId,
+        documentId: req.params.documentId,
+        userId: req.user.id
+      }
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 保存/更新意群数据
+router.post('/:id/semantic-groups', requireAuth, async (req, res, next) => {
+  try {
+    const { groups, version, source } = req.body;
+
+    // 验证文档所有权
+    const document = await prisma.document.findFirst({
+      where: {
+        id: req.params.id,
+        userId: req.user.id
+      }
+    });
+
+    if (!document) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const semanticGroup = await prisma.semanticGroup.upsert({
+      where: {
+        documentId: req.params.id
+      },
+      update: {
+        groups,
+        version,
+        source
+      },
+      create: {
+        documentId: req.params.id,
+        groups,
+        version,
+        source
+      }
+    });
+
+    res.json(semanticGroup);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 获取意群数据
+router.get('/:id/semantic-groups', requireAuth, async (req, res, next) => {
+  try {
+    // 验证文档所有权
+    const document = await prisma.document.findFirst({
+      where: {
+        id: req.params.id,
+        userId: req.user.id
+      }
+    });
+
+    if (!document) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const semanticGroup = await prisma.semanticGroup.findUnique({
+      where: {
+        documentId: req.params.id
+      }
+    });
+
+    if (!semanticGroup) {
+      return res.status(404).json({ error: 'Semantic groups not found' });
+    }
+
+    res.json(semanticGroup);
   } catch (error) {
     next(error);
   }
