@@ -761,6 +761,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     headers['X-Auth-Key'] = authKey;
                 }
 
+                // 透传 API 密钥（用于密钥状态检测）
+                const proxyConfig = JSON.parse(localStorage.getItem('academicSearchProxyConfig') || '{}');
+                if (proxyConfig.semanticScholarApiKey) {
+                    headers['X-Api-Key'] = proxyConfig.semanticScholarApiKey;
+                } else if (proxyConfig.pubmedApiKey) {
+                    headers['X-Api-Key'] = proxyConfig.pubmedApiKey;
+                }
+
                 const response = await fetch(`${baseUrl}/health`, {
                     method: 'GET',
                     headers: headers
