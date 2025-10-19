@@ -60,7 +60,25 @@
         return;
       }
 
-      // 打开模型管理器
+      // 后端模式下禁用模型与Key管理器弹窗
+      const isBackendMode = (typeof window !== 'undefined' && window.storageAdapter && window.storageAdapter.isFrontendMode === false);
+      if (isBackendMode) {
+        modelKeyManagerBtn.setAttribute('title', '后端模式：模型与Key管理已禁用');
+        modelKeyManagerBtn.classList.add('opacity-50', 'cursor-not-allowed');
+        modelKeyManagerBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (typeof window.showNotification === 'function') {
+            window.showNotification('后端模式下无法打开模型/Key设置，请在首页仅选择要使用的模型。', 'info');
+          } else {
+            alert('后端模式下无法打开模型/Key设置，请在首页仅选择要使用的模型。');
+          }
+        });
+        // 直接返回，不绑定打开弹窗的逻辑
+        return;
+      }
+
+      // 打开模型管理器（前端模式）
       modelKeyManagerBtn.addEventListener('click', () => {
         if (typeof migrateLegacyCustomConfig === 'function') {
           migrateLegacyCustomConfig();

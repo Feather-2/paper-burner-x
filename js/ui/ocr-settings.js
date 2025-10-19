@@ -61,6 +61,8 @@ class OcrSettingsManager {
   onDOMReady() {
     this.cacheElements();
     this.loadSettings();
+    // 后端模式：异步加载 settings.ocrConfig 并应用到表单
+    this._loadFromBackendIfAvailable();
     this.bindEvents();
     this.showFirstTimeTip();
 
@@ -165,9 +167,99 @@ class OcrSettingsManager {
   }
 
   /**
+   * 如处于后端模式，则从后端 settings.ocrConfig 拉取配置并应用到表单，同时更新本地缓存以保持其它模块兼容。
+   */
+  async _loadFromBackendIfAvailable() {
+    try {
+      if (typeof window === 'undefined' || !window.storageAdapter || window.storageAdapter.isFrontendMode !== false) return;
+      const settings = await window.storageAdapter.loadSettings();
+      const cfg = (settings && settings.ocrConfig && typeof settings.ocrConfig === 'object') ? settings.ocrConfig : null;
+      if (!cfg || !cfg.engine) return;
+
+      // 将后端配置应用到 UI
+      this._applyOcrConfigToDom(cfg);
+
+      // 同步到 localStorage 以兼容其它读取路径（例如 ui_model_ocr_config.js 等）
+      this._mirrorOcrConfigToLocalStorage(cfg);
+
+      console.log('[OCR Settings] Loaded ocrConfig from backend and applied.');
+    } catch (e) {
+      console.warn('[OCR Settings] Failed to load ocrConfig from backend (ignored):', e?.message || e);
+    }
+  }
+
+  /**
+   * 将后端 ocrConfig 应用到现有表单控件
+   */
+  _applyOcrConfigToDom(cfg) {
+    try {
+      if (!cfg || !cfg.engine) return;
+      if (this.elements.ocrEngine) {
+        this.elements.ocrEngine.value = cfg.engine;
+      }
+      this.switchEngine(cfg.engine);
+
+      const setVal = (el, val) => { if (el && val !== undefined && val !== null) el.value = String(val); };
+      const setChk = (el, val) => { if (el) el.checked = !!val; };
+
+      if (cfg.engine === 'mistral') {
+        setVal(this.elements.mistralBaseUrl, cfg.baseUrl || 'https://api.mistral.ai');
+        if (Array.isArray(cfg.keys)) {
+          setVal(this.elements.mistralOcrKeys, cfg.keys.join('\n'));
+        }
+      } else if (cfg.engine === 'mineru') {
+        setVal(this.elements.mineruWorkerUrl, (cfg.workerUrl || '').replace(/\/+$/, ''));
+        setVal(this.elements.mineruToken, cfg.token || '');
+        setVal(document.getElementById('mineruAuthKey') || null, cfg.authKey || '');
+        setChk(this.elements.mineruEnableOcr, cfg.enableOcr !== false);
+        setChk(this.elements.mineruEnableFormula, cfg.enableFormula !== false);
+        setChk(this.elements.mineruEnableTable, cfg.enableTable !== false);
+        if (this.elements.mineruTranslationModeRadios && cfg.translationMode) {
+          Array.from(this.elements.mineruTranslationModeRadios).forEach(r => { r.checked = (r.value === cfg.translationMode); });
+        }
+      } else if (cfg.engine === 'doc2x') {
+        setVal(this.elements.doc2xWorkerUrl, (cfg.workerUrl || '').replace(/\/+$/, ''));
+        setVal(this.elements.doc2xToken, cfg.token || '');
+        setVal(this.elements.doc2xFormulaMode, cfg.formulaMode || 'dollar');
+        setVal(this.elements.doc2xExportFormat, cfg.exportFormat || '');
+      }
+    } catch (_) { /* ignore */ }
+  }
+
+  /**
+   * 将后端 ocrConfig 写入本地存储键（用于兼容仍从 localStorage 读取的模块）
+   */
+  _mirrorOcrConfigToLocalStorage(cfg) {
+    try {
+      if (!cfg || !cfg.engine) return;
+      localStorage.setItem(this.keys.engine, cfg.engine);
+      if (cfg.engine === 'mistral') {
+        if (Array.isArray(cfg.keys)) localStorage.setItem(this.keys.mistralKeys, cfg.keys.join('\n'));
+        localStorage.setItem(this.keys.mistralBaseUrl, cfg.baseUrl || 'https://api.mistral.ai');
+      } else if (cfg.engine === 'mineru') {
+        localStorage.setItem(this.keys.mineruWorkerUrl, (cfg.workerUrl || '').replace(/\/+$/, ''));
+        localStorage.setItem(this.keys.mineruToken, cfg.token || '');
+        localStorage.setItem(this.keys.workerAuthKey, cfg.authKey || '');
+        localStorage.setItem(this.keys.mineruTokenMode, cfg.tokenMode || 'frontend');
+        localStorage.setItem(this.keys.mineruEnableOcr, cfg.enableOcr !== false);
+        localStorage.setItem(this.keys.mineruEnableFormula, cfg.enableFormula !== false);
+        localStorage.setItem(this.keys.mineruEnableTable, cfg.enableTable !== false);
+        localStorage.setItem(this.keys.mineruTranslationMode, cfg.translationMode || 'standard');
+      } else if (cfg.engine === 'doc2x') {
+        localStorage.setItem(this.keys.doc2xWorkerUrl, (cfg.workerUrl || '').replace(/\/+$/, ''));
+        localStorage.setItem(this.keys.doc2xToken, cfg.token || '');
+        localStorage.setItem(this.keys.workerAuthKey, cfg.authKey || '');
+        localStorage.setItem(this.keys.doc2xTokenMode, cfg.tokenMode || 'frontend');
+        localStorage.setItem(this.keys.doc2xFormulaMode, cfg.formulaMode || 'dollar');
+        localStorage.setItem(this.keys.doc2xExportFormat, cfg.exportFormat || '');
+      }
+    } catch (_) { /* ignore */ }
+  }
+
+  /**
    * 保存所有 OCR 配置
    */
-  saveSettings() {
+  async saveSettings() {
     try {
       // 引擎选择
       if (this.elements.ocrEngine) {
@@ -221,6 +313,19 @@ class OcrSettingsManager {
       }
 
       console.log('[OCR Settings] Settings saved');
+
+      // 后端模式：写入 settings.ocrConfig
+      try {
+        if (typeof window !== 'undefined' && window.storageAdapter && window.storageAdapter.isFrontendMode === false) {
+          const settings = await window.storageAdapter.loadSettings();
+          const cfg = this.getCurrentConfig();
+          const merged = { ...(settings || {}), ocrConfig: cfg };
+          await window.storageAdapter.saveSettings(merged);
+          console.log('[OCR Settings] ocrConfig persisted to backend');
+        }
+      } catch (be) {
+        console.warn('[OCR Settings] Persist ocrConfig to backend failed (ignored):', be?.message || be);
+      }
     } catch (error) {
       console.error('[OCR Settings] Failed to save settings:', error);
     }

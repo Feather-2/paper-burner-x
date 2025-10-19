@@ -361,6 +361,42 @@ function initializeAllUI_internal() {
     } else {
         console.warn("DEBUG index.js: Translation model select element not found during initializeAllUI_internal.");
     }
+
+    // 后端模式：隐藏/禁用模型与Key设置相关的前端编辑入口，仅保留“选择使用哪个模型”
+    try {
+        const isBackendMode = (typeof window !== 'undefined' && window.storageAdapter && window.storageAdapter.isFrontendMode === false);
+        if (isBackendMode) {
+            const hide = (el) => { try { if (el) { el.classList.add('hidden'); el.setAttribute('aria-hidden', 'true'); } } catch {} };
+            const disable = (el) => { try { if (el) { el.setAttribute('disabled', 'true'); el.classList.add('opacity-50','cursor-not-allowed'); } } catch {} };
+
+            // 1) API Key 文本域与其标签
+            hide(document.querySelector('label[for="mistralApiKeys"]'));
+            hide(document.getElementById('mistralApiKeys'));
+            hide(document.querySelector('label[for="translationApiKeys"]'));
+            hide(document.getElementById('translationApiKeys'));
+            hide(document.getElementById('rememberMistralKey'));
+            hide(document.getElementById('rememberTranslationKey'));
+
+            // 2) Key 管理器按钮与弹窗
+            const keyBtn = document.getElementById('modelKeyManagerBtn');
+            if (keyBtn) { disable(keyBtn); keyBtn.title = '后端模式：模型与Key管理已禁用'; }
+            hide(document.getElementById('modelKeyManagerModal'));
+
+            // 3) 自定义源站点相关（仅保留选择模型，不提供站点/Key管理）
+            hide(document.getElementById('customSourceSiteContainer'));
+            hide(document.getElementById('customSourceSite'));
+            hide(document.getElementById('customSourceSiteInfo'));
+            hide(document.getElementById('manageSourceSiteKeyBtn'));
+            hide(document.getElementById('detectModelsBtn'));
+
+            // 4) 提示
+            if (typeof window.showNotification === 'function') {
+                window.showNotification('后端模式：已禁用前端的模型与Key设置；可直接选择要使用的模型。', 'info');
+            }
+        }
+    } catch (e) {
+        console.warn('[Index] Backend-mode gating failed (ignored):', e?.message || e);
+    }
     console.log("DEBUG index.js: initializeAllUI_internal finished.");
 }
 
