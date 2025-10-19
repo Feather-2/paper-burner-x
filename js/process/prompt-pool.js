@@ -18,6 +18,15 @@ class TranslationPromptPool {
 
         // 一次性迁移：如果历史数据只有使用次数，没有请求统计，则将其回填为成功请求
         this.migrateUsageToRequestsIfNeeded();
+
+        // 后端模式：异步从后端同步提示词池与健康配置（不阻塞）
+        try {
+            if (typeof window !== 'undefined' && window.storageAdapter && window.storageAdapter.isFrontendMode === false && typeof window.storageAdapter.loadPromptPool === 'function') {
+                this._syncFromBackend();
+            }
+        } catch (e) {
+            console.warn('[PromptPool] 初始化后端同步失败（忽略）:', e);
+        }
     }
 
     /**
@@ -53,7 +62,9 @@ class TranslationPromptPool {
      */
     saveHealthConfig() {
         try {
-            localStorage.setItem(this.healthConfigKey, JSON.stringify(this.healthConfig));
+            this._persistLocalOnly();
+            this._persistToBackend();
+            this._notifyUpdated();
         } catch (error) {
             console.error('Failed to save health config:', error);
         }
@@ -126,7 +137,9 @@ class TranslationPromptPool {
      */
     savePromptPool() {
         try {
-            localStorage.setItem(this.storageKey, JSON.stringify(this.promptPool));
+            this._persistLocalOnly();
+            this._persistToBackend(); // fire-and-forget
+            this._notifyUpdated();
         } catch (error) {
             console.error('Failed to save prompt pool:', error);
         }
@@ -1143,6 +1156,53 @@ ${referenceUserPrompt}
             (stats.totalSuccesses / stats.totalRequests) : 0;
         
         return stats;
+    }
+
+    // ==================== 持久化与后端同步 ====================
+    _persistLocalOnly() {
+        try {
+            localStorage.setItem(this.storageKey, JSON.stringify(this.promptPool));
+            localStorage.setItem(this.healthConfigKey, JSON.stringify(this.healthConfig));
+        } catch (e) {
+            console.warn('[PromptPool] 本地持久化失败（忽略）:', e);
+        }
+    }
+
+    async _persistToBackend() {
+        try {
+            if (typeof window === 'undefined') return;
+            const sa = window.storageAdapter;
+            if (!sa || sa.isFrontendMode !== false || typeof sa.savePromptPool !== 'function') return;
+            await sa.savePromptPool({ prompts: this.promptPool, healthConfig: this.healthConfig });
+        } catch (e) {
+            console.warn('[PromptPool] 后端保存失败（忽略）:', e?.message || e);
+        }
+    }
+
+    async _syncFromBackend() {
+        try {
+            const sa = window.storageAdapter;
+            const data = await sa.loadPromptPool();
+            if (data && Array.isArray(data.prompts)) {
+                this.promptPool = data.prompts;
+            }
+            if (data && data.healthConfig) {
+                this.healthConfig = { ...this.healthConfig, ...data.healthConfig };
+            }
+            this._persistLocalOnly();
+            this._notifyUpdated();
+            console.log('[PromptPool] 已从后端同步最新提示词池');
+        } catch (e) {
+            console.warn('[PromptPool] 拉取后端提示词池失败（忽略）:', e?.message || e);
+        }
+    }
+
+    _notifyUpdated() {
+        try {
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('pb:prompt-pool-updated'));
+            }
+        } catch {}
     }
 }
 

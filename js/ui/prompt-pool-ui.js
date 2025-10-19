@@ -5,7 +5,7 @@
  * 提示词池 UI 管理器
  */
 class PromptPoolUI {
-    constructor() {
+  constructor() {
 
         this.promptPool = window.translationPromptPool;
         this.currentEditingId = null;
@@ -22,11 +22,18 @@ class PromptPoolUI {
         this.loadSettings();
         this.initializeEventListeners();
         this.handlePromptModeChange();
+    this.updateUI();
+
+    // 后端同步事件：Prompt Pool 更新后刷新界面
+    try {
+      window.addEventListener('pb:prompt-pool-updated', () => {
         this.updateUI();
+      });
+    } catch {}
 
         // 延迟加载模型列表，确保其他脚本已加载
         setTimeout(() => { this.populateAvailableModels(); }, 1000);
-    }
+  }
 
     /**
      * 加载保存的设置

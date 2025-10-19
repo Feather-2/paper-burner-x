@@ -375,7 +375,31 @@ class StorageAdapterFactory {
       updateAnnotationInDB: window.updateAnnotationInDB,
       deleteAnnotationFromDB: window.deleteAnnotationFromDB,
       loadProcessedFilesRecord: window.loadProcessedFilesRecord,
-      saveProcessedFilesRecord: window.saveProcessedFilesRecord
+      saveProcessedFilesRecord: window.saveProcessedFilesRecord,
+      // Prompt Pool（前端模式：落地到 localStorage，键与 process/prompt-pool.js 一致）
+      loadPromptPool: async function () {
+        try {
+          const prompts = JSON.parse(localStorage.getItem('paperBurnerPromptPool') || '[]');
+          const healthConfig = JSON.parse(localStorage.getItem('paperBurnerPromptHealthConfig') || 'null');
+          return { prompts, healthConfig };
+        } catch (e) {
+          console.warn('[StorageAdapter] loadPromptPool(local) 失败，返回空集合:', e);
+          return { prompts: [], healthConfig: null };
+        }
+      },
+      savePromptPool: async function (data) {
+        try {
+          if (!data || typeof data !== 'object') return;
+          if (Array.isArray(data.prompts)) {
+            localStorage.setItem('paperBurnerPromptPool', JSON.stringify(data.prompts));
+          }
+          if (data.healthConfig) {
+            localStorage.setItem('paperBurnerPromptHealthConfig', JSON.stringify(data.healthConfig));
+          }
+        } catch (e) {
+          console.warn('[StorageAdapter] savePromptPool(local) 失败:', e);
+        }
+      }
     };
     adapter.isFrontendMode = true; // 供其他模块探测
     return adapter;
@@ -431,4 +455,3 @@ autoDetectBackendAvailability().then((hasBackend) => {
     console.log('[Storage] Auto-switched to Backend mode (health check passed)');
   }
 }).catch(() => {/* ignore */});
-

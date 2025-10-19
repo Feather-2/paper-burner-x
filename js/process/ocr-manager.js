@@ -18,7 +18,18 @@ class OcrManager {
    * @returns {Promise<void>}
    */
   async initialize() {
-    const config = this.getConfig();
+    let config = this.getConfig();
+    try {
+      if (typeof window !== 'undefined' && window.storageAdapter && window.storageAdapter.isFrontendMode === false && typeof window.storageAdapter.loadSettings === 'function') {
+        const settings = await window.storageAdapter.loadSettings();
+        if (settings && settings.ocrConfig && typeof settings.ocrConfig === 'object') {
+          // 后端统一配置优先
+          config = settings.ocrConfig;
+        }
+      }
+    } catch (e) {
+      console.warn('[OCR Manager] 加载后端 ocrConfig 失败，使用本地配置:', e);
+    }
     this.adapter = this.createAdapter(config);
     console.log(`[OCR Manager] Initialized with ${config.engine} adapter`);
   }
