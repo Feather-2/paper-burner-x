@@ -14,23 +14,26 @@ datasource db {
 // ==================== 用户与认证 ====================
 
 model User {
-  id            String   @id @default(uuid())
-  email         String   @unique
-  password      String   // bcrypt 加密
-  name          String?
-  role          Role     @default(USER)
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String // bcrypt 加密
+  name      String?
+  role      Role     @default(USER)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // 关联
-  settings      UserSettings?
-  documents     Document[]
-  apiKeys       ApiKey[]
-  glossaries    Glossary[]
-  annotations   Annotation[]
+  settings       UserSettings?
+  documents      Document[]
+  apiKeys        ApiKey[]
+  glossaries     Glossary[]
+  annotations    Annotation[]
   processedFiles ProcessedFile[]
-  quota         UserQuota?
+  quota          UserQuota?
+  chatMessages   ChatMessage[]
+  references     Reference[]
+  promptPool     PromptPool?
 
   @@index([email])
   @@map("users")
@@ -44,35 +47,40 @@ enum Role {
 // ==================== 用户设置 ====================
 
 model UserSettings {
-  id                          String   @id @default(uuid())
-  userId                      String   @unique
-  user                        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // OCR 设置
-  ocrProvider                 String?  // 'mineru' | 'doc2x'
-  ocrApiKey                   String?  @db.Text
+  ocrProvider String? // 'mineru' | 'doc2x'
+  ocrApiKey   String? @db.Text
 
   // 翻译设置
-  translationModel            String?  // 'deepseek' | 'gemini' | 'claude' | 'custom'
-  targetLanguage              String   @default("chinese")
-  customTargetLanguageName    String?
-  maxTokensPerChunk           Int      @default(2000)
-  translationConcurrency      Int      @default(15)
+  translationModel         String? // 'deepseek' | 'gemini' | 'claude' | 'custom'
+  targetLanguage           String  @default("chinese")
+  customTargetLanguageName String?
+  maxTokensPerChunk        Int     @default(2000)
+  translationConcurrency   Int     @default(15)
 
   // 提示词设置
-  defaultSystemPrompt         String?  @db.Text
-  defaultUserPromptTemplate   String?  @db.Text
-  useCustomPrompts            Boolean  @default(false)
+  defaultSystemPrompt       String? @db.Text
+  defaultUserPromptTemplate String? @db.Text
+  useCustomPrompts          Boolean @default(false)
 
   // 其他设置
-  enableGlossary              Boolean  @default(false)
-  batchModeEnabled            Boolean  @default(false)
-  batchModeTemplate           String?
-  batchModeFormats            String[] // ['original', 'markdown', 'pdf']
-  batchModeZipEnabled         Boolean  @default(false)
+  enableGlossary      Boolean  @default(false)
+  batchModeEnabled    Boolean  @default(false)
+  batchModeTemplate   String?
+  batchModeFormats    String[] // ['original', 'markdown', 'pdf']
+  batchModeZipEnabled Boolean  @default(false)
 
-  createdAt                   DateTime @default(now())
-  updatedAt                   DateTime @updatedAt
+  // 扩展配置（JSON 字段）
+  ocrConfig            Json? // OCR 引擎和详细配置
+  academicSearchConfig Json? // 学术搜索配置
+  uiLayoutConfig       Json? // UI 布局配置
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("user_settings")
 }
@@ -80,19 +88,19 @@ model UserSettings {
 // ==================== API Keys 管理 ====================
 
 model ApiKey {
-  id          String   @id @default(uuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  provider    String   // 'mistral' | 'deepseek' | 'gemini' | 'claude' | 'tongyi' | 'volcano' | 'custom_source_xxx'
-  keyValue    String   @db.Text // 加密存储
-  remark      String?
-  status      KeyStatus @default(UNTESTED)
-  order       Int      @default(0)
+  provider String // 'mistral' | 'deepseek' | 'gemini' | 'claude' | 'tongyi' | 'volcano' | 'custom_source_xxx'
+  keyValue String    @db.Text // 加密存储
+  remark   String?
+  status   KeyStatus @default(UNTESTED)
+  order    Int       @default(0)
 
-  lastUsedAt  DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@index([userId, provider])
   @@map("api_keys")
@@ -108,8 +116,8 @@ enum KeyStatus {
 // ==================== 自定义模型源站配置 ====================
 
 model CustomSourceSite {
-  id              String   @id @default(uuid())
-  userId          String?  // null = 管理员全局配置
+  id     String  @id @default(uuid())
+  userId String? // null = 管理员全局配置
 
   displayName     String
   apiBaseUrl      String
@@ -120,8 +128,8 @@ model CustomSourceSite {
   maxTokens       Int      @default(8000)
   endpointMode    String   @default("auto")
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@map("custom_source_sites")
@@ -130,43 +138,45 @@ model CustomSourceSite {
 // ==================== 文档处理历史 ====================
 
 model Document {
-  id                String   @id @default(uuid())
-  userId            String
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // 基本信息
-  fileName          String
-  fileSize          Int?
-  fileType          String
-  filePath          String?  // 如果启用文件上传存储
+  fileName String
+  fileSize Int?
+  fileType String
+  filePath String? // 如果启用文件上传存储
 
   // 处理状态
-  status            DocStatus @default(PENDING)
+  status DocStatus @default(PENDING)
 
   // OCR 结果
-  ocrProvider       String?
-  ocrText           String?  @db.Text
-  ocrMetadata       Json?
+  ocrProvider String?
+  ocrText     String? @db.Text
+  ocrMetadata Json?
 
   // 翻译结果
-  translationModel  String?
-  translatedText    String?  @db.Text
+  translationModel    String?
+  translatedText      String? @db.Text
   translationMetadata Json?
 
   // 其他数据
-  summary           String?  @db.Text
-  toc               Json?    // Table of Contents
-  metadata          Json?    // 其他元数据
+  summary  String? @db.Text
+  toc      Json? // Table of Contents
+  metadata Json? // 其他元数据
 
-  processingTime    Int?     // 处理时间（毫秒）
-  errorMessage      String?  @db.Text
+  processingTime Int? // 处理时间（毫秒）
+  errorMessage   String? @db.Text
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // 关联
-  annotations       Annotation[]
-  semanticGroups    SemanticGroup[]
+  annotations    Annotation[]
+  semanticGroups SemanticGroup[]
+  chatMessages   ChatMessage[]
+  references     Reference[]
 
   @@index([userId, createdAt])
   @@index([status])
@@ -185,22 +195,22 @@ enum DocStatus {
 // ==================== 高亮与标注 ====================
 
 model Annotation {
-  id          String   @id @default(uuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  documentId  String
-  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
-  type        String   // 'highlight' | 'note'
-  color       String?
-  startIndex  Int
-  endIndex    Int
-  text        String   @db.Text
-  note        String?  @db.Text
+  type       String // 'highlight' | 'note'
+  color      String?
+  startIndex Int
+  endIndex   Int
+  text       String  @db.Text
+  note       String? @db.Text
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([documentId])
   @@index([userId])
@@ -210,16 +220,16 @@ model Annotation {
 // ==================== 意群数据 ====================
 
 model SemanticGroup {
-  id          String   @id @default(uuid())
-  documentId  String
-  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  id         String   @id @default(uuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
-  groups      Json     // 存储意群数组
-  version     String?
-  source      String?
+  groups  Json // 存储意群数组
+  version String?
+  source  String?
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([documentId])
   @@map("semantic_groups")
@@ -228,16 +238,16 @@ model SemanticGroup {
 // ==================== 翻译术语库 ====================
 
 model Glossary {
-  id            String   @id @default(uuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  name          String
-  enabled       Boolean  @default(true)
-  entries       Json     // 存储术语条目数组
+  name    String
+  enabled Boolean @default(true)
+  entries Json // 存储术语条目数组
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@map("glossaries")
@@ -246,13 +256,13 @@ model Glossary {
 // ==================== 系统配置（管理员）====================
 
 model SystemConfig {
-  id          String   @id @default(uuid())
-  key         String   @unique
-  value       String   @db.Text
+  id          String  @id @default(uuid())
+  key         String  @unique
+  value       String  @db.Text
   description String?
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("system_config")
 }
@@ -260,11 +270,11 @@ model SystemConfig {
 // ==================== 已处理文件记录 ====================
 
 model ProcessedFile {
-  id            String   @id @default(uuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  fileIdentifier String  // 文件标识符 (name + size + lastModified)
+  fileIdentifier String // 文件标识符 (name + size + lastModified)
   fileName       String
   processedAt    DateTime @default(now())
 
@@ -276,25 +286,25 @@ model ProcessedFile {
 // ==================== 用户配额管理 ====================
 
 model UserQuota {
-  id                    String   @id @default(uuid())
-  userId                String   @unique
-  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // 配额限制 (-1 表示无限制)
-  maxDocumentsPerDay    Int      @default(-1)
-  maxDocumentsPerMonth  Int      @default(-1)
-  maxStorageSize        Int      @default(-1) // MB
-  maxApiKeysCount       Int      @default(-1)
+  maxDocumentsPerDay   Int @default(-1)
+  maxDocumentsPerMonth Int @default(-1)
+  maxStorageSize       Int @default(-1) // MB
+  maxApiKeysCount      Int @default(-1)
 
   // 当前使用量
-  documentsThisMonth    Int      @default(0)
-  currentStorageUsed    Int      @default(0) // MB
+  documentsThisMonth Int @default(0)
+  currentStorageUsed Int @default(0) // MB
 
   // 重置时间
-  lastMonthlyReset      DateTime @default(now())
+  lastMonthlyReset DateTime @default(now())
 
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("user_quotas")
 }
@@ -302,15 +312,75 @@ model UserQuota {
 // ==================== 使用量日志 ====================
 
 model UsageLog {
-  id          String   @id @default(uuid())
-  userId      String
-  action      String   // 'ocr', 'translate', 'document_create', etc.
-  resourceId  String?  // 关联的资源ID（如文档ID）
-  metadata    Json?    // 额外元数据
+  id         String  @id @default(uuid())
+  userId     String
+  action     String // 'ocr', 'translate', 'document_create', etc.
+  resourceId String? // 关联的资源ID（如文档ID）
+  metadata   Json? // 额外元数据
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
   @@index([action, createdAt])
   @@map("usage_logs")
+}
+
+// ==================== 聊天消息 ====================
+
+model ChatMessage {
+  id         String   @id @default(uuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  role      String // 'user' | 'assistant'
+  content   String   @db.Text
+  timestamp DateTime @default(now())
+  metadata  Json? // 扩展信息（模型、token 等）
+
+  @@index([documentId, timestamp])
+  @@map("chat_messages")
+}
+
+// ==================== 文献引用 ====================
+
+model Reference {
+  id         String   @id @default(uuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  citationKey String // 引用标识符（如 "[1]"）
+  doi         String?
+  title       String?
+  authors     Json? // [{name, affiliation}]
+  year        Int?
+  journal     String?
+  volume      String?
+  pages       String?
+  url         String?
+  metadata    Json? // 完整元数据
+
+  createdAt DateTime @default(now())
+
+  @@unique([documentId, citationKey])
+  @@index([documentId])
+  @@map("references")
+}
+
+// ==================== 提示词池 ====================
+
+model PromptPool {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  prompts      Json // 提示词数组
+  healthConfig Json? // 健康检查配置
+
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@map("prompt_pool")
 }

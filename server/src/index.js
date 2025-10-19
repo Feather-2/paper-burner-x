@@ -16,6 +16,9 @@ import documentRoutes from './routes/document.js';
 import userRoutes from './routes/user.js';
 import adminRoutes from './routes/admin.js';
 import glossaryRoutes from './routes/glossary.js';
+import chatRoutes from './routes/chat.js';
+import referenceRoutes from './routes/reference.js';
+import promptPoolRoutes from './routes/prompt-pool.js';
 
 // 导入中间件
 import { errorHandler } from './middleware/errorHandler.js';
@@ -102,6 +105,15 @@ app.use('/api/user', userRoutes);
 app.use('/api/admin', adminRoutes);
 // 术语库路由（与 Next.js app/api/glossary 对齐）
 app.use('/api/glossary', glossaryRoutes);
+
+// 聊天历史路由
+app.use('/api/chat', chatRoutes);
+
+// 文献引用路由
+app.use('/api/references', referenceRoutes);
+
+// Prompt Pool 路由
+app.use('/api/prompt-pool', promptPoolRoutes);
 
 // ==================== 前端路由（SPA） ====================
 

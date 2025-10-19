@@ -236,6 +236,99 @@ class BackendStorage {
     }
   }
 
+  // 聊天历史
+  async loadChatHistory(docId) {
+    try {
+      if (!AuthManager.isAuthenticated()) return [];
+      const data = await this.fetchAPI(`/chat/${docId}/history`);
+      return data.messages || [];
+    } catch (error) {
+      console.error('Failed to load chat history:', error);
+      return [];
+    }
+  }
+
+  async saveChatMessage(docId, message) {
+    try {
+      if (!AuthManager.isAuthenticated()) return;
+      await this.fetchAPI(`/chat/${docId}/history`, {
+        method: 'POST',
+        body: JSON.stringify(message)
+      });
+    } catch (error) {
+      console.error('Failed to save chat message:', error);
+      throw error;
+    }
+  }
+
+  async clearChatHistory(docId) {
+    try {
+      if (!AuthManager.isAuthenticated()) return;
+      await this.fetchAPI(`/chat/${docId}/history`, { method: 'DELETE' });
+    } catch (error) {
+      console.error('Failed to clear chat history:', error);
+      throw error;
+    }
+  }
+
+  // 文献引用
+  async loadReferences(docId) {
+    try {
+      if (!AuthManager.isAuthenticated()) return [];
+      return await this.fetchAPI(`/references/${docId}/references`);
+    } catch (error) {
+      console.error('Failed to load references:', error);
+      return [];
+    }
+  }
+
+  async saveReference(docId, reference) {
+    try {
+      if (!AuthManager.isAuthenticated()) return;
+      await this.fetchAPI(`/references/${docId}/references`, {
+        method: 'POST',
+        body: JSON.stringify(reference)
+      });
+    } catch (error) {
+      console.error('Failed to save reference:', error);
+      throw error;
+    }
+  }
+
+  async deleteReference(docId, refId) {
+    try {
+      if (!AuthManager.isAuthenticated()) return;
+      await this.fetchAPI(`/references/${docId}/references/${refId}`, { method: 'DELETE' });
+    } catch (error) {
+      console.error('Failed to delete reference:', error);
+      throw error;
+    }
+  }
+
+  // Prompt Pool
+  async loadPromptPool() {
+    try {
+      if (!AuthManager.isAuthenticated()) return { prompts: [], healthConfig: null };
+      return await this.fetchAPI('/prompt-pool');
+    } catch (error) {
+      console.error('Failed to load prompt pool:', error);
+      return { prompts: [], healthConfig: null };
+    }
+  }
+
+  async savePromptPool(data) {
+    try {
+      if (!AuthManager.isAuthenticated()) return;
+      await this.fetchAPI('/prompt-pool', {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      });
+    } catch (error) {
+      console.error('Failed to save prompt pool:', error);
+      throw error;
+    }
+  }
+
   _getDefaultSettings() {
     return {
       maxTokensPerChunk: 2000,
