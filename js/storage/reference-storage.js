@@ -1,11 +1,18 @@
 // js/storage/reference-storage.js
-// 参考文献存储管理器
+// 参考文献存储管理器 - 支持前端 localStorage 和后端 API 双模式
 
 (function(global) {
     'use strict';
 
     const STORAGE_KEY_PREFIX = 'pbx_references_';
     const STORAGE_KEY_INDEX = 'pbx_reference_index';
+
+    /**
+     * 判断是否为后端模式
+     */
+    function isBackendMode() {
+        return window.storageAdapter && window.storageAdapter.isFrontendMode === false;
+    }
 
     /**
      * 参考文献存储类
@@ -17,9 +24,15 @@
         }
 
         /**
-         * 加载索引
+         * 加载索引（仅前端模式）
          */
         loadIndex() {
+            if (isBackendMode()) {
+                this.documentIds = [];
+                this.metadata = {};
+                return;
+            }
+
             try {
                 const indexData = localStorage.getItem(STORAGE_KEY_INDEX);
                 if (indexData) {
@@ -38,9 +51,11 @@
         }
 
         /**
-         * 保存索引
+         * 保存索引（仅前端模式）
          */
         saveIndex() {
+            if (isBackendMode()) return;
+
             try {
                 const index = {
                     documentIds: this.documentIds,
@@ -55,11 +70,8 @@
 
         /**
          * 保存文档的参考文献
-         * @param {string} documentId - 文档ID
-         * @param {Array} references - 文献数组
-         * @param {Object} metadata - 元数据
          */
-        saveReferences(documentId, references, metadata = {}) {
+        async saveReferences(documentId, references, metadata = {}) {
             try {
                 const data = {
                     documentId: documentId,
@@ -71,15 +83,37 @@
                     }
                 };
 
-                const key = STORAGE_KEY_PREFIX + documentId;
-                localStorage.setItem(key, JSON.stringify(data));
+                if (isBackendMode()) {
+                    // 后端模式：批量保存引用
+                    // 先清空旧的，再批量添加
+                    const existing = await window.storageAdapter.loadReferences(documentId);
+                    // TODO: 可优化为差异同步
+                    for (const ref of references) {
+                        await window.storageAdapter.saveReference(documentId, {
+                            citationKey: ref.citationKey || `[${ref.index + 1}]`,
+                            doi: ref.doi,
+                            title: ref.title,
+                            authors: ref.authors,
+                            year: ref.year,
+                            journal: ref.journal,
+                            volume: ref.volume,
+                            pages: ref.pages,
+                            url: ref.url,
+                            metadata: ref
+                        });
+                    }
+                } else {
+                    // 前端模式：localStorage
+                    const key = STORAGE_KEY_PREFIX + documentId;
+                    localStorage.setItem(key, JSON.stringify(data));
 
-                // 更新索引
-                if (!this.documentIds.includes(documentId)) {
-                    this.documentIds.push(documentId);
+                    // 更新索引
+                    if (!this.documentIds.includes(documentId)) {
+                        this.documentIds.push(documentId);
+                    }
+                    this.metadata[documentId] = data.metadata;
+                    this.saveIndex();
                 }
-                this.metadata[documentId] = data.metadata;
-                this.saveIndex();
 
                 // 更新缓存
                 this.cache.set(documentId, data);
@@ -94,22 +128,47 @@
 
         /**
          * 加载文档的参考文献
-         * @param {string} documentId - 文档ID
-         * @returns {Object|null} { documentId, references, metadata }
          */
-        loadReferences(documentId) {
+        async loadReferences(documentId) {
             // 先检查缓存
             if (this.cache.has(documentId)) {
                 return this.cache.get(documentId);
             }
 
             try {
-                const key = STORAGE_KEY_PREFIX + documentId;
-                const data = localStorage.getItem(key);
-                if (data) {
-                    const parsed = JSON.parse(data);
-                    this.cache.set(documentId, parsed);
-                    return parsed;
+                if (isBackendMode()) {
+                    // 后端模式：从 API 加载
+                    const backendRefs = await window.storageAdapter.loadReferences(documentId);
+                    const data = {
+                        documentId: documentId,
+                        references: backendRefs.map((ref, idx) => ({
+                            index: idx,
+                            citationKey: ref.citationKey,
+                            doi: ref.doi,
+                            title: ref.title,
+                            authors: ref.authors,
+                            year: ref.year,
+                            journal: ref.journal,
+                            volume: ref.volume,
+                            pages: ref.pages,
+                            url: ref.url,
+                            ...(ref.metadata || {})
+                        })),
+                        metadata: {
+                            totalCount: backendRefs.length
+                        }
+                    };
+                    this.cache.set(documentId, data);
+                    return data;
+                } else {
+                    // 前端模式：localStorage
+                    const key = STORAGE_KEY_PREFIX + documentId;
+                    const storedData = localStorage.getItem(key);
+                    if (storedData) {
+                        const parsed = JSON.parse(storedData);
+                        this.cache.set(documentId, parsed);
+                        return parsed;
+                    }
                 }
                 return null;
             } catch (error) {
@@ -120,17 +179,25 @@
 
         /**
          * 删除文档的参考文献
-         * @param {string} documentId - 文档ID
          */
-        deleteReferences(documentId) {
+        async deleteReferences(documentId) {
             try {
-                const key = STORAGE_KEY_PREFIX + documentId;
-                localStorage.removeItem(key);
+                if (isBackendMode()) {
+                    // 后端模式：调用 API 删除
+                    const refs = await window.storageAdapter.loadReferences(documentId);
+                    for (const ref of refs) {
+                        await window.storageAdapter.deleteReference(documentId, ref.id);
+                    }
+                } else {
+                    // 前端模式：localStorage
+                    const key = STORAGE_KEY_PREFIX + documentId;
+                    localStorage.removeItem(key);
 
-                // 更新索引
-                this.documentIds = this.documentIds.filter(id => id !== documentId);
-                delete this.metadata[documentId];
-                this.saveIndex();
+                    // 更新索引
+                    this.documentIds = this.documentIds.filter(id => id !== documentId);
+                    delete this.metadata[documentId];
+                    this.saveIndex();
+                }
 
                 // 清除缓存
                 this.cache.delete(documentId);
@@ -145,12 +212,9 @@
 
         /**
          * 更新单个文献
-         * @param {string} documentId - 文档ID
-         * @param {number} referenceIndex - 文献索引
-         * @param {Object} updates - 更新内容
          */
-        updateReference(documentId, referenceIndex, updates) {
-            const data = this.loadReferences(documentId);
+        async updateReference(documentId, referenceIndex, updates) {
+            const data = await this.loadReferences(documentId);
             if (!data || !data.references[referenceIndex]) {
                 console.error('[ReferenceStorage] Reference not found');
                 return false;
@@ -162,16 +226,14 @@
                 updatedAt: new Date().toISOString()
             };
 
-            return this.saveReferences(documentId, data.references, data.metadata);
+            return await this.saveReferences(documentId, data.references, data.metadata);
         }
 
         /**
          * 添加新文献
-         * @param {string} documentId - 文档ID
-         * @param {Object} reference - 文献对象
          */
-        addReference(documentId, reference) {
-            let data = this.loadReferences(documentId);
+        async addReference(documentId, reference) {
+            let data = await this.loadReferences(documentId);
             if (!data) {
                 data = {
                     documentId: documentId,
@@ -184,16 +246,14 @@
             reference.addedAt = new Date().toISOString();
             data.references.push(reference);
 
-            return this.saveReferences(documentId, data.references, data.metadata);
+            return await this.saveReferences(documentId, data.references, data.metadata);
         }
 
         /**
          * 删除单个文献
-         * @param {string} documentId - 文档ID
-         * @param {number} referenceIndex - 文献索引
          */
-        removeReference(documentId, referenceIndex) {
-            const data = this.loadReferences(documentId);
+        async removeReference(documentId, referenceIndex) {
+            const data = await this.loadReferences(documentId);
             if (!data) {
                 return false;
             }
@@ -205,17 +265,14 @@
                 ref.index = idx;
             });
 
-            return this.saveReferences(documentId, data.references, data.metadata);
+            return await this.saveReferences(documentId, data.references, data.metadata);
         }
 
         /**
          * 搜索文献
-         * @param {string} documentId - 文档ID
-         * @param {string} query - 搜索关键词
-         * @returns {Array} 匹配的文献
          */
-        searchReferences(documentId, query) {
-            const data = this.loadReferences(documentId);
+        async searchReferences(documentId, query) {
+            const data = await this.loadReferences(documentId);
             if (!data) {
                 return [];
             }
@@ -236,12 +293,9 @@
 
         /**
          * 按标签筛选文献
-         * @param {string} documentId - 文档ID
-         * @param {string} tag - 标签
-         * @returns {Array} 匹配的文献
          */
-        filterByTag(documentId, tag) {
-            const data = this.loadReferences(documentId);
+        async filterByTag(documentId, tag) {
+            const data = await this.loadReferences(documentId);
             if (!data) {
                 return [];
             }
@@ -253,7 +307,6 @@
 
         /**
          * 获取所有文档列表
-         * @returns {Array} 文档列表
          */
         getAllDocuments() {
             return this.documentIds.map(id => ({
@@ -264,11 +317,9 @@
 
         /**
          * 导出文献数据（BibTeX格式）
-         * @param {string} documentId - 文档ID
-         * @returns {string} BibTeX格式的文献
          */
-        exportToBibTeX(documentId) {
-            const data = this.loadReferences(documentId);
+        async exportToBibTeX(documentId) {
+            const data = await this.loadReferences(documentId);
             if (!data) {
                 return '';
             }
@@ -314,11 +365,9 @@
 
         /**
          * 导出文献数据（JSON格式）
-         * @param {string} documentId - 文档ID
-         * @returns {string} JSON格式的文献
          */
-        exportToJSON(documentId) {
-            const data = this.loadReferences(documentId);
+        async exportToJSON(documentId) {
+            const data = await this.loadReferences(documentId);
             if (!data) {
                 return '[]';
             }
@@ -335,11 +384,9 @@
 
         /**
          * 获取统计信息
-         * @param {string} documentId - 文档ID
-         * @returns {Object} 统计信息
          */
-        getStatistics(documentId) {
-            const data = this.loadReferences(documentId);
+        async getStatistics(documentId) {
+            const data = await this.loadReferences(documentId);
             if (!data) {
                 return null;
             }
@@ -393,7 +440,7 @@
     // 导出API
     global.ReferenceStorage = storage;
 
-    console.log('[ReferenceStorage] Reference storage loaded.');
+    console.log('[ReferenceStorage] Reference storage loaded (supports frontend & backend modes).');
 
 })(window);
 

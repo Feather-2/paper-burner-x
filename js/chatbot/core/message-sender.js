@@ -139,7 +139,16 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
 
   chatHistory.push({ role: 'user', content: displayUserInput || userInput });
 
-  saveChatHistory(docIdForThisMessage, chatHistory);
+  // 保存聊天历史（前端 localStorage / 后端 API）
+  await saveChatHistory(docIdForThisMessage, chatHistory);
+
+  // 后端模式：立即保存用户消息
+  if (window.ChatHistoryManager && window.ChatHistoryManager.saveSingleMessage) {
+    await window.ChatHistoryManager.saveSingleMessage(docIdForThisMessage, {
+      role: 'user',
+      content: displayUserInput || userInput
+    });
+  }
 
   if (typeof updateChatbotUI === 'function') updateChatbotUI();
 
@@ -836,6 +845,20 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
     }
 
     saveChatHistory(docIdForThisMessage, chatHistory);
+
+    // 后端模式：保存助手消息
+    if (window.ChatHistoryManager && window.ChatHistoryManager.saveSingleMessage) {
+      await window.ChatHistoryManager.saveSingleMessage(docIdForThisMessage, {
+        role: 'assistant',
+        content: chatHistory[assistantMsgIndex].content,
+        metadata: {
+          toolCallHtml: chatHistory[assistantMsgIndex].toolCallHtml,
+          hasMindMap: chatHistory[assistantMsgIndex].hasMindMap,
+          mindMapData: chatHistory[assistantMsgIndex].mindMapData,
+          reasoningContent: chatHistory[assistantMsgIndex].reasoningContent
+        }
+      });
+    }
   }
 }
 
