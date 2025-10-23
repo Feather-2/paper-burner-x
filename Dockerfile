@@ -12,7 +12,7 @@ RUN apk add --no-cache openssl openssl-dev
 COPY server/package*.json ./
 
 # Install dependencies
-RUN npm ci --only=production
+RUN npm ci
 
 # Copy Prisma schema
 COPY server/prisma ./prisma/
@@ -37,6 +37,10 @@ RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
 # Copy backend from builder
 COPY --from=backend-builder --chown=nodejs:nodejs /app/server ./server/
 
+# Copy entrypoint script
+COPY --chown=nodejs:nodejs server/scripts/docker-entrypoint.sh /app/server/scripts/docker-entrypoint.sh
+RUN chmod +x /app/server/scripts/docker-entrypoint.sh
+
 # Copy frontend files
 COPY --chown=nodejs:nodejs index.html ./
 COPY --chown=nodejs:nodejs js ./js/
@@ -57,4 +61,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s \
 
 # Start server with dumb-init
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "server/src/index.js"]
+CMD ["/app/server/scripts/docker-entrypoint.sh"]

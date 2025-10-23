@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
   # PostgreSQL 数据库
@@ -53,6 +52,7 @@ services:
 
       # 部署模式
       DEPLOYMENT_MODE: backend
+      RUN_MIGRATIONS: "true"
 
       # OCR API Keys（可选，可通过管理面板配置）
       MINERU_API_TOKEN: ${MINERU_API_TOKEN:-}
@@ -70,12 +70,6 @@ services:
     volumes:
       # 如果需要持久化上传的文件
       - app_uploads:/app/uploads
-    command: >
-      sh -c "
-        cd /app/server &&
-        npx prisma migrate deploy &&
-        node src/index.js
-      "
 
   # Nginx 反向代理（可选，用于生产环境）
   nginx:
