@@ -1,4 +1,6 @@
 (function(window, document) {
+  // 本地优先加载 KaTeX 样式，必要时回退到 CDN
+  const KATEX_LOCAL = '/vendor/katex/katex.min.css';
   const KATEX_CDN = 'https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css';
 
   const EXPORT_LABELS = {
@@ -51,6 +53,19 @@
     if (!controls || !trigger || !panel || !configContent || !confirmBtn) return;
 
     const formatButtons = Array.from(panel.querySelectorAll('.export-menu-btn'));
+    // 确保 KaTeX 样式可用（本地优先）
+    (function ensureKatex() {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = KATEX_LOCAL;
+      link.onerror = function(){
+        const cdn = document.createElement('link');
+        cdn.rel = 'stylesheet';
+        cdn.href = KATEX_CDN;
+        document.head.appendChild(cdn);
+      };
+      document.head.appendChild(link);
+    })();
     trigger.setAttribute('aria-expanded', 'false');
 
     const ensureMargin = function(value, fallback) {

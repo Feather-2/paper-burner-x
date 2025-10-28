@@ -58,10 +58,11 @@ const cspDirectives = {
     'https://cdn.jsdelivr.net',
     'https://gcore.jsdelivr.net',
     'https://cdn.tailwindcss.com',
+    'https://fonts.googleapis.com',
     "'unsafe-inline'"
   ],
   "img-src": ["'self'", 'data:'],
-  "font-src": ["'self'", 'data:'],
+  "font-src": ["'self'", 'data:', 'https://fonts.gstatic.com'],
   // 前后端同源调用；如需跨域可按需补充具体域名
   "connect-src": ["'self'"],
 };
