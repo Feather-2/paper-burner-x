@@ -38,9 +38,29 @@ const PORT = process.env.PORT || 3000;
 
 // ==================== 中间件配置 ====================
 
-// 安全头部
+// 安全头部（CSP）
+const isProd = process.env.NODE_ENV === 'production';
+const disableCSP = process.env.DISABLE_CSP === 'true';
+
+const cspDirectives = {
+  "default-src": ["'self'"],
+  "script-src": [
+    "'self'",
+    // 允许必要的 CDN 资源（Tailwind、jsDelivr）
+    'https://cdn.tailwindcss.com',
+    'https://cdn.jsdelivr.net',
+    // 开发阶段可能存在的内联脚本（后续可通过 nonce/hash 收紧）
+    "'unsafe-inline'"
+  ],
+  "style-src": ["'self'", 'https://cdn.jsdelivr.net', "'unsafe-inline'"],
+  "img-src": ["'self'", 'data:'],
+  "font-src": ["'self'", 'data:'],
+  // 前后端同源调用；如需跨域可按需补充具体域名
+  "connect-src": ["'self'"],
+};
+
 app.use(helmet({
-  contentSecurityPolicy: process.env.NODE_ENV === 'production' ? undefined : false,
+  contentSecurityPolicy: disableCSP ? false : (isProd ? { useDefaults: true, directives: cspDirectives } : false),
 }));
 
 // CORS 配置
