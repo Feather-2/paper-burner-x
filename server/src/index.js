@@ -49,10 +49,17 @@ const cspDirectives = {
     // 允许必要的 CDN 资源（Tailwind、jsDelivr）
     'https://cdn.tailwindcss.com',
     'https://cdn.jsdelivr.net',
+    'https://gcore.jsdelivr.net',
     // 开发阶段可能存在的内联脚本（后续可通过 nonce/hash 收紧）
     "'unsafe-inline'"
   ],
-  "style-src": ["'self'", 'https://cdn.jsdelivr.net', "'unsafe-inline'"],
+  "style-src": [
+    "'self'",
+    'https://cdn.jsdelivr.net',
+    'https://gcore.jsdelivr.net',
+    'https://cdn.tailwindcss.com',
+    "'unsafe-inline'"
+  ],
   "img-src": ["'self'", 'data:'],
   "font-src": ["'self'", 'data:'],
   // 前后端同源调用；如需跨域可按需补充具体域名
