@@ -75,21 +75,13 @@ function exportMessageAsPng(messageIndex) {
   if (typeof html2canvas === 'undefined') {
     showToast('正在加载图片导出组件...');
     const script = document.createElement('script');
-    // 本地优先，失败回退 CDN
-    const localUrl = '/vendor/html2pdf/html2canvas.min.js';
-    const cdnUrl = 'https://gcore.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
-    script.src = localUrl;
+    script.src = 'https://gcore.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
     script.onload = function() {
       showToast('组件加载完成，正在生成图片...');
       doExportAsPng(messageIndex);
     };
     script.onerror = function() {
-      console.warn('本地 html2canvas 加载失败，尝试 CDN...');
-      const s2 = document.createElement('script');
-      s2.src = cdnUrl;
-      s2.onload = script.onload;
-      s2.onerror = function(){ showToast('导出组件加载失败，请检查网络或 CSP'); };
-      document.head.appendChild(s2);
+      showToast('导出组件加载失败，请检查网络连接');
     };
     document.head.appendChild(script);
     return;

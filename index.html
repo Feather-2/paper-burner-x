@@ -7,20 +7,20 @@
     <title>Paper Burner X - AI文献阅读与智能分析平台</title>
     <link rel="icon" type="image/svg+xml" href="public/pure.svg">
     <!-- Tailwind CSS & 依赖库 -->
-    <script src="/vendor/tailwindcss/tailwindcdn.js"></script>
-    <script src="/vendor/iconify/iconify-icon.min.js"></script>
-    <script src="/vendor/axios/axios.min.js"></script>
-    <script src="/vendor/js-base64/base64.min.js"></script>
-    <script src="/vendor/file-saver/FileSaver.min.js"></script>
-    <script src="/vendor/jszip/jszip.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://gcore.jsdelivr.net/npm/iconify-icon@2.0.0/dist/iconify-icon.min.js"></script>
+    <script src="https://gcore.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://gcore.jsdelivr.net/npm/js-base64@3.7.5/base64.min.js"></script>
+    <script src="https://gcore.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+    <script src="https://gcore.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <!-- docx-preview.js for Word preview -->
-    <script src="/vendor/docx-preview/docx-preview.min.js"></script>
-    <link rel="stylesheet" href="/vendor/katex/katex.min.css">
+    <script src="https://gcore.jsdelivr.net/npm/docx-preview@0.3.7/dist/docx-preview.min.js"></script>
+    <link rel="stylesheet" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
     <link rel="stylesheet" href="css/markdown-enhanced.css">
     <link rel="stylesheet" href="css/math-display-fix.css">
     <link rel="stylesheet" href="css/reference-manager.css">
-    <script src="/vendor/katex/katex.min.js"></script>
-    <script src="/vendor/marked/marked.min.js"></script>
+    <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="https://gcore.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
       // failback: 如果 CDN 加载失败，自动加载本地 jszip
       if (typeof JSZip === 'undefined') {
@@ -29,7 +29,7 @@
         document.head.appendChild(script);
       }
     </script>
-    <script src="/vendor/animejs/anime.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
     <style>
         /* 谷歌字体 Nunito */
         @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700&display=swap');
@@ -1047,7 +1047,7 @@
     <!-- ===================== -->
     <!-- 脚本引入区（顺序不能乱） -->
     <!-- ===================== -->
-    <script src="/vendor/iconify/iconify-icon.min.js"></script>
+    <script src="https://unpkg.com/iconify-icon@1.0.7/dist/iconify-icon.min.js"></script>
     <!-- 明确前端模式，避免不必要的后端探测 -->
     <script>window.ENV_DEPLOYMENT_MODE = window.ENV_DEPLOYMENT_MODE || 'frontend';</script>
     <script src="js/api/api.js"></script>
@@ -1092,8 +1092,8 @@
     </script>
     <!-- 再加载术语库存储（会依据适配器模式决定是否探测后端） -->
     <script src="js/storage/glossary-storage.js"></script>
-    <script src="/vendor/mammoth/mammoth.browser.min.js"></script>
-    <script src="/vendor/turndown/turndown.min.js"></script>
+    <script src="https://gcore.jsdelivr.net/npm/mammoth@1.4.21/mammoth.browser.min.js"></script>
+    <script src="https://gcore.jsdelivr.net/npm/turndown@7.1.2/dist/turndown.min.js"></script>
     <script src="js/ui/ui-helpers.js"></script>
     <script src="js/ui/ui-notifications.js"></script>
     <script src="js/ui/ui-model-search.js"></script>
@@ -1134,11 +1134,11 @@
     <script src="js/ui/ui.js"></script>
     <script src="js/ui/ocr-settings.js"></script> <!-- OCR 配置管理 -->
     <!-- PDF.js 库（用于本地解析 PDF） -->
-    <script src="/vendor/pdfjs/pdf.min.js"></script>
+    <script src="https://gcore.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
     <script>
         // 配置 PDF.js worker
         if (typeof pdfjsLib !== 'undefined') {
-            pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.js';
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://gcore.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
         }
     </script>
     <!-- OCR 处理模块 -->
