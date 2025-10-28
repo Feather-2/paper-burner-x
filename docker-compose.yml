@@ -23,6 +23,7 @@ services:
   app:
     # 方式 1: 从 Docker Hub 拉取（推荐用于生产，快速启动）
     image: feather2dev/paper-burner-x:latest
+    pull_policy: always
 
     # 方式 2: 从本地构建（推荐用于开发和自定义修改）
     # 取消下面的注释并注释掉上面的 image 行即可使用本地构建
@@ -70,6 +71,9 @@ services:
     volumes:
       # 如果需要持久化上传的文件
       - app_uploads:/app/uploads
+      # 将迁移与 schema 挂载到容器，确保旧镜像也能找到迁移（只读）
+      - ./server/prisma/migrations:/app/server/prisma/migrations:ro
+      - ./server/prisma/schema.prisma:/app/server/prisma/schema.prisma:ro
 
   # Nginx 反向代理（可选，用于生产环境）
   nginx:
