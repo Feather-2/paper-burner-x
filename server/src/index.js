@@ -42,39 +42,45 @@ const PORT = process.env.PORT || 3000;
 const isProd = process.env.NODE_ENV === 'production';
 const disableCSP = process.env.DISABLE_CSP === 'true';
 
-// 使用短横线形式的 CSP 指令名，确保浏览器正确解析
+// Helmet v8 使用驼峰指令名（camelCase）。
+// 为兼容现有页面，暂时允许内联脚本与常用 CDN；后续建议改为外部文件 + nonce。
 const cspDirectives = {
-  "default-src": ["'self'"],
-  // 允许内联脚本与常用 CDN（仅为兼容旧页面；生产建议改为外部文件+nonce）
-  "script-src": [
+  defaultSrc: ["'self'"],
+  scriptSrc: [
     "'self'",
     "'unsafe-inline'",
     'https://cdn.tailwindcss.com',
     'https://cdn.jsdelivr.net',
     'https://gcore.jsdelivr.net',
+    'https://cdnjs.cloudflare.com',
+    'https://unpkg.com',
   ],
   // 明确元素级脚本与内联事件来源
-  "script-src-elem": [
+  scriptSrcElem: [
     "'self'",
     "'unsafe-inline'",
     'https://cdn.tailwindcss.com',
     'https://cdn.jsdelivr.net',
     'https://gcore.jsdelivr.net',
+    'https://cdnjs.cloudflare.com',
+    'https://unpkg.com',
   ],
-  "script-src-attr": ["'self'", "'unsafe-inline'"],
+  scriptSrcAttr: ["'self'", "'unsafe-inline'"],
   // 样式与字体
-  "style-src": [
+  styleSrc: [
     "'self'",
     "'unsafe-inline'",
     'https://cdn.jsdelivr.net',
     'https://gcore.jsdelivr.net',
     'https://cdn.tailwindcss.com',
     'https://fonts.googleapis.com',
+    'https://cdnjs.cloudflare.com',
+    'https://unpkg.com',
   ],
-  "img-src": ["'self'", 'data:'],
-  "font-src": ["'self'", 'data:', 'https://fonts.gstatic.com'],
+  imgSrc: ["'self'", 'data:'],
+  fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
   // 前后端同源调用；如需跨域可按需补充具体域名
-  "connect-src": ["'self'"],
+  connectSrc: ["'self'"],
 };
 
 app.use(helmet({
