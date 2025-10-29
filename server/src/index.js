@@ -42,28 +42,37 @@ const PORT = process.env.PORT || 3000;
 const isProd = process.env.NODE_ENV === 'production';
 const disableCSP = process.env.DISABLE_CSP === 'true';
 
+// Helmet v8 使用驼峰形式的 CSP 指令名
 const cspDirectives = {
-  "default-src": ["'self'"],
-  "script-src": [
+  defaultSrc: ["'self'"],
+  scriptSrc: [
     "'self'",
-    // 允许必要的 CDN 资源（Tailwind、jsDelivr）
     'https://cdn.tailwindcss.com',
     'https://cdn.jsdelivr.net',
     'https://gcore.jsdelivr.net',
-    // 开发阶段可能存在的内联脚本（后续可通过 nonce/hash 收紧）
-    "'unsafe-inline'"
+    "'unsafe-inline'",
   ],
-  "style-src": [
+  // 防止回退为 scriptSrc 的更严策略，显式指定元素级脚本来源
+  scriptSrcElem: [
+    "'self'",
+    'https://cdn.tailwindcss.com',
+    'https://cdn.jsdelivr.net',
+    'https://gcore.jsdelivr.net',
+    "'unsafe-inline'",
+  ],
+  // 允许内联事件处理（如 onclick）
+  scriptSrcAttr: ["'self'", "'unsafe-inline'"],
+  styleSrc: [
     "'self'",
     'https://cdn.jsdelivr.net',
     'https://gcore.jsdelivr.net',
     'https://cdn.tailwindcss.com',
-    "'unsafe-inline'"
+    'https://fonts.googleapis.com',
+    "'unsafe-inline'",
   ],
-  "img-src": ["'self'", 'data:'],
-  "font-src": ["'self'", 'data:'],
-  // 前后端同源调用；如需跨域可按需补充具体域名
-  "connect-src": ["'self'"],
+  imgSrc: ["'self'", 'data:'],
+  fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
+  connectSrc: ["'self'"],
 };
 
 app.use(helmet({
