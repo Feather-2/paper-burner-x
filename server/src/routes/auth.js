@@ -1,13 +1,35 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import { authLimiter } from '../middleware/rateLimit.js';
+import { validateRegisterData } from '../utils/validation.js';
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+/**
+ * 获取 JWT 密钥
+ * - 生产环境：必须设置 JWT_SECRET 环境变量
+ * - 开发环境：如果未设置，会生成随机密钥并给出警告
+ */
+const getJwtSecret = () => {
+  if (process.env.JWT_SECRET) {
+    return process.env.JWT_SECRET;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET must be set in production environment');
+  }
+
+  // 开发环境：生成随机密钥（每次启动会变化，但给出警告）
+  const devSecret = 'dev-secret-' + crypto.randomBytes(16).toString('hex');
+  console.warn('⚠️  Using auto-generated JWT_SECRET for development. Set JWT_SECRET env var for production.');
+  return devSecret;
+};
+
+const JWT_SECRET = getJwtSecret();
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 // 注册
@@ -15,8 +37,13 @@ router.post('/register', authLimiter, async (req, res, next) => {
   try {
     const { email, password, name } = req.body;
 
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+    // 使用验证工具验证输入
+    const validation = validateRegisterData({ email, password, name });
+    if (!validation.valid) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        errors: validation.errors
+      });
     }
 
     // 检查用户是否已存在

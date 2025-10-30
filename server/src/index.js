@@ -42,7 +42,7 @@ const PORT = process.env.PORT || 3000;
 const isProd = process.env.NODE_ENV === 'production';
 const disableCSP = process.env.DISABLE_CSP === 'true';
 // 根据部署模式/环境变量决定是否允许内联脚本，以兼容前端模式
-const deploymentMode = process.env.DEPLOYMENT_MODE || 'backend';
+const deploymentMode = process.env.DEPLOYMENT_MODE || 'frontend';
 const allowInline = process.env.CSP_ALLOW_INLINE === 'true' || deploymentMode === 'frontend';
 
 // Helmet v8 使用驼峰指令名（camelCase）。
@@ -148,9 +148,27 @@ if (cspEnabled) {
 }
 
 // CORS 配置
+const isProduction = process.env.NODE_ENV === 'production';
+// deploymentMode 已在上面声明，直接使用
+
+let corsOrigin;
+if (process.env.CORS_ORIGIN) {
+  // 支持逗号分隔的多个源
+  corsOrigin = process.env.CORS_ORIGIN.split(',').map(s => s.trim());
+} else if (isProduction) {
+  // 生产环境：默认限制为同源（必须配置）
+  corsOrigin = false; // 不允许跨域
+  console.error('❌ Production mode: CORS_ORIGIN not set, defaulting to same-origin only. Set CORS_ORIGIN env var.');
+} else {
+  // 开发/前端模式：允许所有源（但给出警告）
+  corsOrigin = true; // 允许所有源
+  console.warn('⚠️  CORS allows all origins. Set CORS_ORIGIN for production.');
+}
+
 const corsOptions = {
-  origin: process.env.CORS_ORIGIN || '*',
-  credentials: true,
+  origin: corsOrigin,
+  // 注意：如果 origin 是 true（允许所有源），credentials 会被浏览器忽略
+  credentials: corsOrigin !== true, // 只有当 origin 不是 true 时才设置 credentials
   optionsSuccessStatus: 200
 };
 app.use(cors(corsOptions));
@@ -168,12 +186,53 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cookieParser());
 
 // Multer 文件上传配置
+// 文件类型白名单（可通过环境变量配置）
+const ALLOWED_MIME_TYPES = process.env.ALLOWED_MIME_TYPES
+  ? process.env.ALLOWED_MIME_TYPES.split(',').map(s => s.trim())
+  : [
+      'application/pdf',
+      'text/markdown',
+      'text/plain',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation', // .pptx
+      'text/html',
+      'application/epub+zip',
+      'image/png',
+      'image/jpeg',
+      'image/jpg',
+      'image/gif',
+      'image/webp',
+    ];
+
+// 文件验证过滤器（可通过环境变量控制严格程度）
+const FILE_VALIDATION_STRICT = process.env.FILE_VALIDATION_STRICT === 'true';
+const fileFilter = (req, file, cb) => {
+  // 非严格模式（前端模式）：允许所有文件类型
+  if (!FILE_VALIDATION_STRICT) {
+    cb(null, true);
+    return;
+  }
+
+  // 严格模式：只允许白名单中的文件类型
+  if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error(`File type ${file.mimetype} not allowed. Allowed types: ${ALLOWED_MIME_TYPES.join(', ')}`), false);
+  }
+};
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: parseInt(process.env.MAX_UPLOAD_SIZE || 100) * 1024 * 1024 // MB to bytes
-  }
+  },
+  fileFilter: fileFilter
 });
+
+// 生产环境建议启用严格模式
+if (process.env.NODE_ENV === 'production' && process.env.FILE_VALIDATION_STRICT !== 'true') {
+  console.warn('⚠️  Production mode: Consider setting FILE_VALIDATION_STRICT=true for file upload security.');
+}
 
 // 静态文件服务（前端）
 const frontendPath = join(__dirname, '../../');
@@ -182,17 +241,24 @@ app.use(express.static(frontendPath));
 // ==================== API 路由 ====================
 
 app.get('/api/health', (req, res) => {
+  const isDev = process.env.NODE_ENV !== 'production';
+
   res.json({
     status: 'ok',
     timestamp: Date.now(),
     mode: process.env.DEPLOYMENT_MODE || 'docker',
     version: '1.0.0',
-    csp: {
-      enabled: cspEnabled,
-      deploymentMode,
-      allowInline,
-      header: cspEnabled ? buildCspHeader(cspDirectives) : null,
-    },
+    // 开发环境返回详细信息，生产环境仅返回状态
+    ...(isDev ? {
+      csp: {
+        enabled: cspEnabled,
+        deploymentMode,
+        allowInline,
+        header: cspEnabled ? buildCspHeader(cspDirectives) : null,
+      },
+    } : {
+      csp: { enabled: cspEnabled }
+    }),
   });
 });
 

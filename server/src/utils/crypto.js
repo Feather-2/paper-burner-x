@@ -12,13 +12,33 @@ const TAG_LENGTH = 16;
 const KEY_LENGTH = 32;
 
 /**
+ * 获取加密 salt
+ * - 生产环境：必须设置 ENCRYPTION_SALT 环境变量
+ * - 开发环境：如果未设置，使用固定 salt（便于开发）
+ */
+function getEncryptionSalt() {
+  if (process.env.ENCRYPTION_SALT) {
+    return process.env.ENCRYPTION_SALT;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('ENCRYPTION_SALT must be set in production environment');
+  }
+
+  // 开发环境：使用固定 salt（便于开发，但给出警告）
+  console.warn('⚠️  Using default encryption salt for development. Set ENCRYPTION_SALT for production.');
+  return 'dev-salt-fixed-for-development';
+}
+
+/**
  * 从环境变量获取加密密钥，如果不存在则使用默认值（仅用于开发）
  */
 function getEncryptionKey() {
   const secret = process.env.ENCRYPTION_SECRET || process.env.JWT_SECRET || 'default-encryption-key-change-in-production';
 
   // 使用 PBKDF2 从密钥生成固定长度的加密密钥
-  return crypto.pbkdf2Sync(secret, 'salt', 100000, KEY_LENGTH, 'sha256');
+  // 使用环境变量或开发环境固定 salt
+  return crypto.pbkdf2Sync(secret, getEncryptionSalt(), 100000, KEY_LENGTH, 'sha256');
 }
 
 /**

@@ -1,6 +1,27 @@
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+/**
+ * 获取 JWT 密钥
+ * - 生产环境：必须设置 JWT_SECRET 环境变量
+ * - 开发环境：如果未设置，会生成随机密钥并给出警告
+ */
+const getJwtSecret = () => {
+  if (process.env.JWT_SECRET) {
+    return process.env.JWT_SECRET;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET must be set in production environment');
+  }
+
+  // 开发环境：生成随机密钥（每次启动会变化，但给出警告）
+  const devSecret = 'dev-secret-' + crypto.randomBytes(16).toString('hex');
+  console.warn('⚠️  Using auto-generated JWT_SECRET for development. Set JWT_SECRET env var for production.');
+  return devSecret;
+};
+
+const JWT_SECRET = getJwtSecret();
 
 export const requireAuth = (req, res, next) => {
   try {
