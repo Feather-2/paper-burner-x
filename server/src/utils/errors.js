@@ -21,6 +21,20 @@ export class AppError extends Error {
 }
 
 /**
+ * HTTP 状态码常量（用于导出）
+ */
+export const HTTP_STATUS = {
+  OK: 200,
+  CREATED: 201,
+  BAD_REQUEST: 400,
+  UNAUTHORIZED: 401,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  CONFLICT: 409,
+  INTERNAL_SERVER_ERROR: 500
+};
+
+/**
  * 常用错误工厂函数
  */
 export const AppErrors = {
@@ -28,42 +42,42 @@ export const AppErrors = {
    * 未找到资源错误
    */
   notFound: (resource = 'Resource') => {
-    return new AppError(`${resource} not found`, 404);
+    return new AppError(`${resource} not found`, HTTP_STATUS.NOT_FOUND);
   },
 
   /**
    * 未授权错误
    */
   unauthorized: (message = 'Unauthorized') => {
-    return new AppError(message, 401);
+    return new AppError(message, HTTP_STATUS.UNAUTHORIZED);
   },
 
   /**
    * 禁止访问错误
    */
   forbidden: (message = 'Forbidden') => {
-    return new AppError(message, 403);
+    return new AppError(message, HTTP_STATUS.FORBIDDEN);
   },
 
   /**
    * 验证错误
    */
   validation: (message = 'Validation failed') => {
-    return new AppError(message, 400);
+    return new AppError(message, HTTP_STATUS.BAD_REQUEST);
   },
 
   /**
    * 冲突错误
    */
   conflict: (message = 'Resource conflict') => {
-    return new AppError(message, 409);
+    return new AppError(message, HTTP_STATUS.CONFLICT);
   },
 
   /**
    * 内部服务器错误
    */
   internal: (message = 'Internal server error') => {
-    return new AppError(message, 500);
+    return new AppError(message, HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
 };
 

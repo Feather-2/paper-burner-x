@@ -7,6 +7,7 @@ import cookieParser from 'cookie-parser';
 import multer from 'multer';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { FILE_UPLOAD } from './utils/constants.js';
 
 // 导入路由
 import authRoutes from './routes/auth.js';
@@ -224,7 +225,7 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: parseInt(process.env.MAX_UPLOAD_SIZE || 100) * 1024 * 1024 // MB to bytes
+    fileSize: parseInt(process.env.MAX_UPLOAD_SIZE || FILE_UPLOAD.DEFAULT_MAX_SIZE_MB) * 1024 * 1024 // MB to bytes
   },
   fileFilter: fileFilter
 });

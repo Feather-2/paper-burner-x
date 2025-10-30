@@ -3,6 +3,8 @@
  * 提供密码强度验证和基本输入验证功能
  */
 
+import { VALIDATION } from './constants.js';
+
 /**
  * 验证密码强度
  * @param {string} password - 要验证的密码
@@ -16,12 +18,12 @@ export function validatePassword(password) {
     return { valid: false, errors };
   }
 
-  if (password.length < 8) {
-    errors.push('密码长度至少为 8 个字符');
+  if (password.length < VALIDATION.PASSWORD_MIN_LENGTH) {
+    errors.push(`密码长度至少为 ${VALIDATION.PASSWORD_MIN_LENGTH} 个字符`);
   }
 
-  if (password.length > 100) {
-    errors.push('密码长度不能超过 100 个字符');
+  if (password.length > VALIDATION.PASSWORD_MAX_LENGTH) {
+    errors.push(`密码长度不能超过 ${VALIDATION.PASSWORD_MAX_LENGTH} 个字符`);
   }
 
   // 检查是否包含至少一个字母和一个数字
@@ -77,8 +79,8 @@ export function validateRegisterData(data) {
   }
 
   // 验证名称（可选）
-  if (data.name && data.name.length > 100) {
-    errors.name = '用户名长度不能超过 100 个字符';
+  if (data.name && data.name.length > VALIDATION.NAME_MAX_LENGTH) {
+    errors.name = `用户名长度不能超过 ${VALIDATION.NAME_MAX_LENGTH} 个字符`;
   }
 
   return {

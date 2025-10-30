@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { CRYPTO } from './constants.js';
 
 /**
  * 加密工具模块
@@ -6,10 +7,10 @@ import crypto from 'crypto';
  */
 
 const ALGORITHM = 'aes-256-gcm';
-const IV_LENGTH = 16;
-const SALT_LENGTH = 64;
-const TAG_LENGTH = 16;
-const KEY_LENGTH = 32;
+const IV_LENGTH = CRYPTO.IV_LENGTH;
+const SALT_LENGTH = CRYPTO.SALT_LENGTH;
+const TAG_LENGTH = CRYPTO.TAG_LENGTH;
+const KEY_LENGTH = CRYPTO.KEY_LENGTH;
 
 /**
  * 获取加密 salt
@@ -38,7 +39,7 @@ function getEncryptionKey() {
 
   // 使用 PBKDF2 从密钥生成固定长度的加密密钥
   // 使用环境变量或开发环境固定 salt
-  return crypto.pbkdf2Sync(secret, getEncryptionSalt(), 100000, KEY_LENGTH, 'sha256');
+  return crypto.pbkdf2Sync(secret, getEncryptionSalt(), CRYPTO.PBKDF2_ITERATIONS, KEY_LENGTH, 'sha256');
 }
 
 /**

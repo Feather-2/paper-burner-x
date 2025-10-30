@@ -1,11 +1,12 @@
 import { prisma } from './prisma.js';
 import bcrypt from 'bcryptjs';
+import { CRYPTO, ROLES } from './constants.js';
 
 export async function initializeAdmin() {
   try {
     // 检查是否已有管理员
     const adminCount = await prisma.user.count({
-      where: { role: 'ADMIN' }
+      where: { role: ROLES.ADMIN }
     });
 
     if (adminCount > 0) {
@@ -19,14 +20,14 @@ export async function initializeAdmin() {
     const adminName = process.env.ADMIN_NAME || 'Administrator';
 
     // 创建管理员账户
-    const hashedPassword = await bcrypt.hash(adminPassword, 10);
+    const hashedPassword = await bcrypt.hash(adminPassword, CRYPTO.BCRYPT_ROUNDS);
 
     const admin = await prisma.user.create({
       data: {
         email: adminEmail,
         password: hashedPassword,
         name: adminName,
-        role: 'ADMIN',
+        role: ROLES.ADMIN,
         isActive: true
       }
     });

@@ -5,6 +5,8 @@ import crypto from 'crypto';
 import { prisma } from '../utils/prisma.js';
 import { authLimiter } from '../middleware/rateLimit.js';
 import { validateRegisterData } from '../utils/validation.js';
+import { AppErrors, HTTP_STATUS } from '../utils/errors.js';
+import { JWT, CRYPTO, ROLES } from '../utils/constants.js';
 
 const router = express.Router();
 
@@ -29,7 +31,7 @@ const getJwtSecret = () => {
 };
 
 const JWT_SECRET = getJwtSecret();
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || JWT.DEFAULT_EXPIRES_IN;
 
 // 注册
 router.post('/register', authLimiter, async (req, res, next) => {
@@ -39,7 +41,7 @@ router.post('/register', authLimiter, async (req, res, next) => {
     // 使用验证工具验证输入
     const validation = validateRegisterData({ email, password, name });
     if (!validation.valid) {
-      return res.status(400).json({
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({
         error: 'Validation failed',
         errors: validation.errors
       });
@@ -51,11 +53,11 @@ router.post('/register', authLimiter, async (req, res, next) => {
     });
 
     if (existingUser) {
-      return res.status(409).json({ error: 'User already exists' });
+      throw AppErrors.conflict('User already exists');
     }
 
     // 密码加密
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, CRYPTO.BCRYPT_ROUNDS);
 
     // 创建用户
     const user = await prisma.user.create({
@@ -63,7 +65,7 @@ router.post('/register', authLimiter, async (req, res, next) => {
         email,
         password: hashedPassword,
         name,
-        role: 'USER'
+        role: ROLES.USER
       }
     });
 
@@ -81,7 +83,7 @@ router.post('/register', authLimiter, async (req, res, next) => {
       { expiresIn: JWT_EXPIRES_IN }
     );
 
-    res.status(201).json({
+    res.status(HTTP_STATUS.CREATED).json({
       success: true,
       token,
       user: {
@@ -103,7 +105,7 @@ router.post('/login', authLimiter, async (req, res, next) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+      throw AppErrors.validation('Email and password are required');
     }
 
     // 查找用户
@@ -112,19 +114,19 @@ router.post('/login', authLimiter, async (req, res, next) => {
     });
 
     if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      throw AppErrors.unauthorized('Invalid credentials');
     }
 
     // 验证密码
     const isValidPassword = await bcrypt.compare(password, user.password);
 
     if (!isValidPassword) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      throw AppErrors.unauthorized('Invalid credentials');
     }
 
     // 检查账户状态
     if (!user.isActive) {
-      return res.status(403).json({ error: 'Account is disabled' });
+      throw AppErrors.forbidden('Account is disabled');
     }
 
     // 生成 JWT
@@ -134,7 +136,7 @@ router.post('/login', authLimiter, async (req, res, next) => {
       { expiresIn: JWT_EXPIRES_IN }
     );
 
-    res.json({
+    res.status(HTTP_STATUS.OK).json({
       success: true,
       token,
       user: {
@@ -156,7 +158,7 @@ router.get('/me', async (req, res, next) => {
     const token = req.headers.authorization?.split(' ')[1];
 
     if (!token) {
-      return res.status(401).json({ error: 'Authentication required' });
+      throw AppErrors.unauthorized('Authentication required');
     }
 
     const decoded = jwt.verify(token, JWT_SECRET);
@@ -173,10 +175,10 @@ router.get('/me', async (req, res, next) => {
     });
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      throw AppErrors.notFound('User');
     }
 
-    res.json({ user });
+    res.status(HTTP_STATUS.OK).json({ user });
 
   } catch (error) {
     next(error);
