@@ -89,3 +89,38 @@ export function validateRegisterData(data) {
   };
 }
 
+/**
+ * 验证日期字符串格式
+ * @param {string} dateStr - 日期字符串
+ * @returns {Date|null} - 解析后的日期对象，无效则返回 null
+ */
+export function validateDate(dateStr) {
+  if (!dateStr) return null;
+
+  const date = new Date(dateStr);
+  return isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * 验证 UUID 格式
+ * @param {string} uuid - UUID 字符串
+ * @returns {boolean}
+ */
+export function validateUUID(uuid) {
+  if (!uuid) return false;
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(uuid);
+}
+
+/**
+ * 验证和清理搜索字符串
+ * @param {string} search - 搜索字符串
+ * @param {number} maxLength - 最大长度（默认 100）
+ * @returns {string}
+ */
+export function sanitizeSearchString(search, maxLength = 100) {
+  if (!search || typeof search !== 'string') return '';
+  // 移除特殊字符，防止注入攻击
+  return search.replace(/[<>\"'%;()&+]/g, '').substring(0, maxLength);
+}
+

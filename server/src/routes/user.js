@@ -2,6 +2,7 @@ import express from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { prisma } from '../utils/prisma.js';
 import { encrypt, decrypt } from '../utils/crypto.js';
+import { AppErrors, HTTP_STATUS } from '../utils/errors.js';
 
 const router = express.Router();
 
@@ -17,10 +18,10 @@ router.get('/settings', requireAuth, async (req, res, next) => {
       const newSettings = await prisma.userSettings.create({
         data: { userId: req.user.id }
       });
-      return res.json(newSettings);
+      return res.status(HTTP_STATUS.OK).json(newSettings);
     }
 
-    res.json(settings);
+    res.status(HTTP_STATUS.OK).json(settings);
   } catch (error) {
     next(error);
   }
@@ -38,7 +39,7 @@ router.put('/settings', requireAuth, async (req, res, next) => {
       }
     });
 
-    res.json(settings);
+    res.status(HTTP_STATUS.OK).json(settings);
   } catch (error) {
     next(error);
   }
@@ -74,7 +75,7 @@ router.post('/api-keys', requireAuth, async (req, res, next) => {
     const { provider, keyValue, remark, order } = req.body;
 
     if (!provider || !keyValue) {
-      return res.status(400).json({ error: 'Provider and keyValue are required' });
+      throw AppErrors.validation('Provider and keyValue are required');
     }
 
     // 加密 API Key
@@ -90,7 +91,7 @@ router.post('/api-keys', requireAuth, async (req, res, next) => {
       }
     });
 
-    res.status(201).json({
+    res.status(HTTP_STATUS.CREATED).json({
       id: key.id,
       provider: key.provider,
       remark: key.remark,
@@ -113,13 +114,13 @@ router.get('/api-keys/:id/decrypt', requireAuth, async (req, res, next) => {
     });
 
     if (!key) {
-      return res.status(404).json({ error: 'API Key not found' });
+      throw AppErrors.notFound('API Key');
     }
 
     // 解密并返回
     const decryptedKey = decrypt(key.keyValue);
 
-    res.json({
+    res.status(HTTP_STATUS.OK).json({
       id: key.id,
       provider: key.provider,
       keyValue: decryptedKey,
@@ -136,7 +137,7 @@ router.patch('/api-keys/:id/status', requireAuth, async (req, res, next) => {
     const { status } = req.body;
 
     if (!['VALID', 'INVALID', 'TESTING', 'UNTESTED'].includes(status)) {
-      return res.status(400).json({ error: 'Invalid status value' });
+      throw AppErrors.validation('Invalid status value');
     }
 
     await prisma.apiKey.updateMany({
@@ -150,7 +151,7 @@ router.patch('/api-keys/:id/status', requireAuth, async (req, res, next) => {
       }
     });
 
-    res.json({ success: true });
+    res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
   }
@@ -166,7 +167,7 @@ router.delete('/api-keys/:id', requireAuth, async (req, res, next) => {
       }
     });
 
-    res.json({ success: true });
+    res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
   }
@@ -199,7 +200,7 @@ router.post('/glossaries', requireAuth, async (req, res, next) => {
       }
     });
 
-    res.status(201).json(glossary);
+    res.status(HTTP_STATUS.CREATED).json(glossary);
   } catch (error) {
     next(error);
   }
@@ -216,7 +217,7 @@ router.put('/glossaries/:id', requireAuth, async (req, res, next) => {
       data: req.body
     });
 
-    res.json({ success: true });
+    res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
   }
@@ -232,7 +233,7 @@ router.delete('/glossaries/:id', requireAuth, async (req, res, next) => {
       }
     });
 
-    res.json({ success: true });
+    res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
   }
@@ -264,7 +265,7 @@ router.post('/processed-files', requireAuth, async (req, res, next) => {
     const { fileIdentifier, fileName } = req.body;
 
     if (!fileIdentifier || !fileName) {
-      return res.status(400).json({ error: 'fileIdentifier and fileName are required' });
+      throw AppErrors.validation('fileIdentifier and fileName are required');
     }
 
     const file = await prisma.processedFile.upsert({
@@ -285,7 +286,7 @@ router.post('/processed-files', requireAuth, async (req, res, next) => {
       }
     });
 
-    res.status(201).json(file);
+    res.status(HTTP_STATUS.CREATED).json(file);
   } catch (error) {
     next(error);
   }
@@ -303,7 +304,7 @@ router.get('/processed-files/check/:identifier', requireAuth, async (req, res, n
       }
     });
 
-    res.json({ processed: !!file });
+    res.status(HTTP_STATUS.OK).json({ processed: !!file });
   } catch (error) {
     next(error);
   }
@@ -315,7 +316,7 @@ router.post('/processed-files/check-batch', requireAuth, async (req, res, next) 
     const { identifiers } = req.body;
 
     if (!Array.isArray(identifiers)) {
-      return res.status(400).json({ error: 'identifiers must be an array' });
+      throw AppErrors.validation('identifiers must be an array');
     }
 
     const files = await prisma.processedFile.findMany({
@@ -336,7 +337,7 @@ router.post('/processed-files/check-batch', requireAuth, async (req, res, next) 
       result[id] = processedSet.has(id);
     });
 
-    res.json(result);
+    res.status(HTTP_STATUS.OK).json(result);
   } catch (error) {
     next(error);
   }
@@ -349,7 +350,7 @@ router.delete('/processed-files', requireAuth, async (req, res, next) => {
       where: { userId: req.user.id }
     });
 
-    res.json({ success: true });
+    res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
   }

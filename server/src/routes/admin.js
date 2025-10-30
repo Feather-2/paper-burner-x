@@ -3,8 +3,25 @@ import bcrypt from 'bcryptjs';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { adminWriteLimiter } from '../middleware/rateLimit.js';
 import { prisma } from '../utils/prisma.js';
+import { AppErrors, HTTP_STATUS } from '../utils/errors.js';
+import { CRYPTO, ROLES, PAGINATION } from '../utils/constants.js';
+import { validateEmail, sanitizeSearchString, validateDate } from '../utils/validation.js';
 
 const router = express.Router();
+
+// 允许排序的字段白名单（防止 SQL 注入）
+const ALLOWED_SORT_FIELDS = ['createdAt', 'email', 'name', 'role', 'isActive'];
+
+// 验证排序字段
+function validateSortField(field) {
+  return ALLOWED_SORT_FIELDS.includes(field) ? field : 'createdAt';
+}
+
+// 验证排序方向
+function validateSortOrder(order) {
+  const orderLower = String(order).toLowerCase();
+  return orderLower === 'asc' ? 'asc' : 'desc';
+}
 
 // 所有管理员路由都需要管理员权限
 router.use(requireAuth, requireAdmin);
@@ -12,14 +29,22 @@ router.use(requireAuth, requireAdmin);
 // 获取所有用户
 router.get('/users', async (req, res, next) => {
   try {
-    const { page = 1, pageSize = 20, search = '', sort = 'createdAt', order = 'desc' } = req.query;
-    const p = Math.max(parseInt(page), 1);
-    const ps = Math.min(Math.max(parseInt(pageSize), 1), 100);
-    const where = search
+    const { page = PAGINATION.DEFAULT_PAGE, pageSize = PAGINATION.DEFAULT_LIMIT, search = '', sort = 'createdAt', order = 'desc' } = req.query;
+
+    // 验证和规范化参数
+    const p = Math.max(parseInt(page) || PAGINATION.DEFAULT_PAGE, 1);
+    const ps = Math.min(Math.max(parseInt(pageSize) || PAGINATION.DEFAULT_LIMIT, 1), PAGINATION.MAX_LIMIT);
+    const sortField = validateSortField(String(sort));
+    const sortOrder = validateSortOrder(order);
+
+    // 限制搜索字符串长度，防止过长的查询
+    const searchStr = sanitizeSearchString(search, 100);
+
+    const where = searchStr
       ? {
           OR: [
-            { email: { contains: String(search), mode: 'insensitive' } },
-            { name: { contains: String(search), mode: 'insensitive' } }
+            { email: { contains: searchStr, mode: 'insensitive' } },
+            { name: { contains: searchStr, mode: 'insensitive' } }
           ]
         }
       : {};
@@ -29,13 +54,13 @@ router.get('/users', async (req, res, next) => {
       prisma.user.findMany({
         where,
         select: { id: true, email: true, name: true, role: true, isActive: true, createdAt: true },
-        orderBy: { [String(sort)]: String(order).toLowerCase() === 'asc' ? 'asc' : 'desc' },
+        orderBy: { [sortField]: sortOrder },
         skip: (p - 1) * ps,
         take: ps
       })
     ]);
 
-    res.json({ total, page: p, pageSize: ps, items });
+    res.status(HTTP_STATUS.OK).json({ total, page: p, pageSize: ps, items });
   } catch (error) {
     next(error);
   }
@@ -44,24 +69,53 @@ router.get('/users', async (req, res, next) => {
 // 创建用户（管理员）
 router.post('/users', adminWriteLimiter, async (req, res, next) => {
   try {
-    const { email, name = '', role = 'USER', password } = req.body || {};
-    if (!email || typeof email !== 'string') return res.status(400).json({ error: 'email is required' });
-    if (!['USER', 'ADMIN'].includes(role)) return res.status(400).json({ error: 'invalid role' });
-    const pwd = typeof password === 'string' && password.length >= 8 ? password : Math.random().toString(36).slice(2, 10) + 'A1!';
+    const { email, name = '', role = ROLES.USER, password } = req.body || {};
+
+    // 输入验证
+    if (!email || typeof email !== 'string') {
+      throw AppErrors.validation('Email is required');
+    }
+
+    if (!validateEmail(email)) {
+      throw AppErrors.validation('Invalid email format');
+    }
+
+    if (![ROLES.USER, ROLES.ADMIN].includes(role)) {
+      throw AppErrors.validation('Invalid role');
+    }
+
+    const pwd = typeof password === 'string' && password.length >= 8
+      ? password
+      : Math.random().toString(36).slice(2, 10) + 'A1!';
 
     const existing = await prisma.user.findUnique({ where: { email } });
-    if (existing) return res.status(409).json({ error: 'User already exists' });
+    if (existing) {
+      throw AppErrors.conflict('User already exists');
+    }
 
-    const hashed = await bcrypt.hash(pwd, 10);
+    const hashed = await bcrypt.hash(pwd, CRYPTO.BCRYPT_ROUNDS);
     const user = await prisma.user.create({
       data: { email, name, role, password: hashed, isActive: true }
     });
     await prisma.userSettings.create({ data: { userId: user.id } });
 
-    try { await prisma.usageLog.create({ data: { userId: req.user.id, action: 'admin_create_user', resourceId: user.id, metadata: { email, role } } }); } catch {}
+    try {
+      await prisma.usageLog.create({
+        data: { userId: req.user.id, action: 'admin_create_user', resourceId: user.id, metadata: { email, role } }
+      });
+    } catch {}
 
-    res.status(201).json({ id: user.id, email: user.email, name: user.name, role: user.role, isActive: user.isActive, tempPassword: password ? undefined : pwd });
-  } catch (error) { next(error); }
+    res.status(HTTP_STATUS.CREATED).json({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      isActive: user.isActive,
+      tempPassword: password ? undefined : pwd
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // 编辑用户（邮箱/姓名/角色）
@@ -71,24 +125,42 @@ router.put('/users/:id', adminWriteLimiter, async (req, res, next) => {
     const userId = req.params.id;
 
     const target = await prisma.user.findUnique({ where: { id: userId } });
-    if (!target) return res.status(404).json({ error: 'User not found' });
+    if (!target) {
+      throw AppErrors.notFound('User');
+    }
 
-    if (role && role !== 'ADMIN' && target.role === 'ADMIN') {
-      const adminCount = await prisma.user.count({ where: { role: 'ADMIN', isActive: true } });
-      if (adminCount <= 1) return res.status(400).json({ error: 'Cannot demote the last active admin' });
+    if (role && role !== ROLES.ADMIN && target.role === ROLES.ADMIN) {
+      const adminCount = await prisma.user.count({ where: { role: ROLES.ADMIN, isActive: true } });
+      if (adminCount <= 1) {
+        throw AppErrors.validation('Cannot demote the last active admin');
+      }
     }
 
     const data = {};
-    if (typeof email === 'string' && email) data.email = email;
+    if (typeof email === 'string' && email) {
+      if (!validateEmail(email)) {
+        throw AppErrors.validation('Invalid email format');
+      }
+      data.email = email;
+    }
     if (typeof name === 'string') data.name = name;
-    if (role && ['USER', 'ADMIN'].includes(role)) data.role = role;
+    if (role && [ROLES.USER, ROLES.ADMIN].includes(role)) data.role = role;
 
-    if (Object.keys(data).length === 0) return res.json({ success: true });
+    if (Object.keys(data).length === 0) {
+      return res.status(HTTP_STATUS.OK).json({ success: true });
+    }
 
     await prisma.user.update({ where: { id: userId }, data });
-    try { await prisma.usageLog.create({ data: { userId: req.user.id, action: 'admin_update_user', resourceId: userId, metadata: data } }); } catch {}
-    res.json({ success: true });
-  } catch (error) { next(error); }
+    try {
+      await prisma.usageLog.create({
+        data: { userId: req.user.id, action: 'admin_update_user', resourceId: userId, metadata: data }
+      });
+    } catch {}
+
+    res.status(HTTP_STATUS.OK).json({ success: true });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // 更新用户状态
@@ -96,17 +168,31 @@ router.put('/users/:id/status', adminWriteLimiter, async (req, res, next) => {
   try {
     const { isActive } = req.body;
     const userId = req.params.id;
-    const target = await prisma.user.findUnique({ where: { id: userId } });
-    if (!target) return res.status(404).json({ error: 'User not found' });
 
-    if (target.role === 'ADMIN' && isActive === false) {
-      const adminCount = await prisma.user.count({ where: { role: 'ADMIN', isActive: true } });
-      if (adminCount <= 1) return res.status(400).json({ error: 'Cannot disable the last active admin' });
+    if (typeof isActive !== 'boolean') {
+      throw AppErrors.validation('isActive must be a boolean');
+    }
+
+    const target = await prisma.user.findUnique({ where: { id: userId } });
+    if (!target) {
+      throw AppErrors.notFound('User');
+    }
+
+    if (target.role === ROLES.ADMIN && isActive === false) {
+      const adminCount = await prisma.user.count({ where: { role: ROLES.ADMIN, isActive: true } });
+      if (adminCount <= 1) {
+        throw AppErrors.validation('Cannot disable the last active admin');
+      }
     }
 
     await prisma.user.update({ where: { id: userId }, data: { isActive: !!isActive } });
-    try { await prisma.usageLog.create({ data: { userId: req.user.id, action: 'admin_update_user_status', resourceId: userId, metadata: { isActive: !!isActive } } }); } catch {}
-    res.json({ success: true });
+    try {
+      await prisma.usageLog.create({
+        data: { userId: req.user.id, action: 'admin_update_user_status', resourceId: userId, metadata: { isActive: !!isActive } }
+      });
+    } catch {}
+
+    res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
   }
@@ -117,12 +203,23 @@ router.put('/users/:id/password', adminWriteLimiter, async (req, res, next) => {
   try {
     const userId = req.params.id;
     const { password } = req.body || {};
-    if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'password (>=8 chars) required' });
-    const hashed = await bcrypt.hash(password, 10);
+
+    if (typeof password !== 'string' || password.length < 8) {
+      throw AppErrors.validation('Password must be at least 8 characters');
+    }
+
+    const hashed = await bcrypt.hash(password, CRYPTO.BCRYPT_ROUNDS);
     await prisma.user.update({ where: { id: userId }, data: { password: hashed } });
-    try { await prisma.usageLog.create({ data: { userId: req.user.id, action: 'admin_reset_password', resourceId: userId } }); } catch {}
-    res.json({ success: true });
-  } catch (error) { next(error); }
+    try {
+      await prisma.usageLog.create({
+        data: { userId: req.user.id, action: 'admin_reset_password', resourceId: userId }
+      });
+    } catch {}
+
+    res.status(HTTP_STATUS.OK).json({ success: true });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // 删除用户（保护最后一个管理员）
@@ -130,15 +227,29 @@ router.delete('/users/:id', adminWriteLimiter, async (req, res, next) => {
   try {
     const userId = req.params.id;
     const target = await prisma.user.findUnique({ where: { id: userId } });
-    if (!target) return res.status(404).json({ error: 'User not found' });
-    if (target.role === 'ADMIN') {
-      const adminCount = await prisma.user.count({ where: { role: 'ADMIN', isActive: true } });
-      if (adminCount <= 1) return res.status(400).json({ error: 'Cannot delete the last active admin' });
+
+    if (!target) {
+      throw AppErrors.notFound('User');
     }
+
+    if (target.role === ROLES.ADMIN) {
+      const adminCount = await prisma.user.count({ where: { role: ROLES.ADMIN, isActive: true } });
+      if (adminCount <= 1) {
+        throw AppErrors.validation('Cannot delete the last active admin');
+      }
+    }
+
     await prisma.user.delete({ where: { id: userId } });
-    try { await prisma.usageLog.create({ data: { userId: req.user.id, action: 'admin_delete_user', resourceId: userId } }); } catch {}
-    res.json({ success: true });
-  } catch (error) { next(error); }
+    try {
+      await prisma.usageLog.create({
+        data: { userId: req.user.id, action: 'admin_delete_user', resourceId: userId }
+      });
+    } catch {}
+
+    res.status(HTTP_STATUS.OK).json({ success: true });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // 获取系统统计
@@ -164,7 +275,7 @@ router.get('/stats', async (req, res, next) => {
       })
     ]);
 
-    res.json({
+    res.status(HTTP_STATUS.OK).json({
       totalUsers,
       totalDocuments,
       documentsToday,
@@ -182,7 +293,7 @@ router.get('/config', async (req, res, next) => {
     const sensitiveKeys = new Set(['JWT_SECRET', 'ENCRYPTION_SECRET']);
     const configMap = {};
     configs.forEach(c => { configMap[c.key] = sensitiveKeys.has(c.key) ? '********' : c.value; });
-    res.json(configMap);
+    res.status(HTTP_STATUS.OK).json(configMap);
   } catch (error) {
     next(error);
   }
@@ -200,7 +311,7 @@ router.put('/config', adminWriteLimiter, async (req, res, next) => {
       create: { key, value, description }
     });
     try { await prisma.usageLog.create({ data: { userId: req.user.id, action: 'admin_update_config', resourceId: key, metadata: { valueChanged: true } } }); } catch {}
-    res.json({ success: true });
+    res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
   }
@@ -213,7 +324,7 @@ router.get('/source-sites', async (req, res, next) => {
       where: { userId: null } // 全局配置
     });
 
-    res.json(sites);
+    res.status(HTTP_STATUS.OK).json(sites);
   } catch (error) {
     next(error);
   }
@@ -228,7 +339,7 @@ router.post('/source-sites', adminWriteLimiter, async (req, res, next) => {
       }
     });
 
-    res.status(201).json(site);
+    res.status(HTTP_STATUS.CREATED).json(site);
   } catch (error) {
     next(error);
   }
@@ -241,7 +352,7 @@ router.put('/source-sites/:id', adminWriteLimiter, async (req, res, next) => {
       data: req.body
     });
 
-    res.json({ success: true });
+    res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
   }
@@ -253,7 +364,7 @@ router.delete('/source-sites/:id', adminWriteLimiter, async (req, res, next) => 
       where: { id: req.params.id }
     });
 
-    res.json({ success: true });
+    res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
   }
@@ -275,7 +386,7 @@ router.get('/users/:userId/quota', async (req, res, next) => {
       });
     }
 
-    res.json(quota);
+    res.status(HTTP_STATUS.OK).json(quota);
   } catch (error) {
     next(error);
   }
@@ -293,7 +404,7 @@ router.put('/users/:userId/quota', async (req, res, next) => {
       }
     });
 
-    res.json(quota);
+    res.status(HTTP_STATUS.OK).json(quota);
   } catch (error) {
     next(error);
   }
@@ -306,7 +417,7 @@ router.get('/stats/detailed', async (req, res, next) => {
   try {
     const { startDate, endDate } = req.query;
 
-    // 基础统计
+    // 基础统计（可以根据日期范围过滤）
     const [
       totalUsers,
       activeUsers,
@@ -382,7 +493,7 @@ router.get('/stats/detailed', async (req, res, next) => {
       })
     );
 
-    res.json({
+    res.status(HTTP_STATUS.OK).json({
       basic: {
         totalUsers,
         activeUsers,
@@ -407,7 +518,14 @@ router.get('/stats/detailed', async (req, res, next) => {
 router.get('/stats/trends', async (req, res, next) => {
   try {
     const { days = 30 } = req.query;
-    const startDate = new Date(Date.now() - parseInt(days) * 24 * 60 * 60 * 1000);
+
+    // 验证 days 参数
+    const daysNum = parseInt(days);
+    if (isNaN(daysNum) || daysNum < 1 || daysNum > 365) {
+      throw AppErrors.validation('days must be between 1 and 365');
+    }
+
+    const startDate = new Date(Date.now() - daysNum * 24 * 60 * 60 * 1000);
 
     // 按天统计文档创建数
     const documents = await prisma.document.findMany({
@@ -436,7 +554,7 @@ router.get('/stats/trends', async (req, res, next) => {
       new Date(a.date) - new Date(b.date)
     );
 
-    res.json(trends);
+    res.status(HTTP_STATUS.OK).json(trends);
   } catch (error) {
     next(error);
   }
@@ -447,14 +565,18 @@ router.get('/users/:userId/activity', async (req, res, next) => {
   try {
     const { limit = 50, offset = 0 } = req.query;
 
+    // 验证参数
+    const limitNum = Math.min(Math.max(parseInt(limit) || 50, 1), 200);
+    const offsetNum = Math.max(parseInt(offset) || 0, 0);
+
     const logs = await prisma.usageLog.findMany({
       where: { userId: req.params.userId },
       orderBy: { createdAt: 'desc' },
-      take: parseInt(limit),
-      skip: parseInt(offset)
+      take: limitNum,
+      skip: offsetNum
     });
 
-    res.json(logs);
+    res.status(HTTP_STATUS.OK).json(logs);
   } catch (error) {
     next(error);
   }

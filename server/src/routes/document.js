@@ -2,24 +2,33 @@ import express from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { prisma } from '../utils/prisma.js';
 import { checkQuota, incrementDocumentCount, decrementDocumentCount, logUsage } from '../utils/quota.js';
+import { AppErrors, HTTP_STATUS } from '../utils/errors.js';
+import { PAGINATION } from '../utils/constants.js';
+import { validateUUID } from '../utils/validation.js';
 
 const router = express.Router();
+
+// 允许的状态值白名单
+const ALLOWED_STATUSES = ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'];
 
 // 获取文档列表
 router.get('/', requireAuth, async (req, res, next) => {
   try {
-    const { page = 1, limit = 20, status } = req.query;
+    const { page = PAGINATION.DEFAULT_PAGE, limit = PAGINATION.DEFAULT_LIMIT, status } = req.query;
 
     const where = {
       userId: req.user.id,
-      ...(status && { status })
+      ...(status && ALLOWED_STATUSES.includes(status) && { status })
     };
+
+    const pageNum = Math.max(parseInt(page) || PAGINATION.DEFAULT_PAGE, 1);
+    const limitNum = Math.min(Math.max(parseInt(limit) || PAGINATION.DEFAULT_LIMIT, 1), PAGINATION.MAX_LIMIT);
 
     const documents = await prisma.document.findMany({
       where,
       orderBy: { createdAt: 'desc' },
-      skip: (page - 1) * limit,
-      take: parseInt(limit),
+      skip: (pageNum - 1) * limitNum,
+      take: limitNum,
       select: {
         id: true,
         fileName: true,
@@ -34,13 +43,13 @@ router.get('/', requireAuth, async (req, res, next) => {
 
     const total = await prisma.document.count({ where });
 
-    res.json({
+    res.status(HTTP_STATUS.OK).json({
       documents,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: pageNum,
+        limit: limitNum,
         total,
-        totalPages: Math.ceil(total / limit)
+        totalPages: Math.ceil(total / limitNum)
       }
     });
   } catch (error) {
@@ -51,6 +60,11 @@ router.get('/', requireAuth, async (req, res, next) => {
 // 获取单个文档详情
 router.get('/:id', requireAuth, async (req, res, next) => {
   try {
+    // 验证 UUID 格式
+    if (!validateUUID(req.params.id)) {
+      throw AppErrors.validation('Invalid document ID format');
+    }
+
     const document = await prisma.document.findFirst({
       where: {
         id: req.params.id,
@@ -63,10 +77,10 @@ router.get('/:id', requireAuth, async (req, res, next) => {
     });
 
     if (!document) {
-      return res.status(404).json({ error: 'Document not found' });
+      throw AppErrors.notFound('Document');
     }
 
-    res.json(document);
+    res.status(HTTP_STATUS.OK).json(document);
   } catch (error) {
     next(error);
   }
@@ -78,7 +92,7 @@ router.post('/', requireAuth, async (req, res, next) => {
     // 检查配额
     const quotaCheck = await checkQuota(req.user.id);
     if (!quotaCheck.allowed) {
-      return res.status(403).json({ error: quotaCheck.reason });
+      throw AppErrors.forbidden(quotaCheck.reason);
     }
 
     const document = await prisma.document.create({
@@ -97,7 +111,7 @@ router.post('/', requireAuth, async (req, res, next) => {
       fileType: document.fileType
     });
 
-    res.status(201).json(document);
+    res.status(HTTP_STATUS.CREATED).json(document);
   } catch (error) {
     next(error);
   }
@@ -106,6 +120,11 @@ router.post('/', requireAuth, async (req, res, next) => {
 // 更新文档
 router.put('/:id', requireAuth, async (req, res, next) => {
   try {
+    // 验证 UUID 格式
+    if (!validateUUID(req.params.id)) {
+      throw AppErrors.validation('Invalid document ID format');
+    }
+
     const document = await prisma.document.updateMany({
       where: {
         id: req.params.id,
@@ -114,7 +133,7 @@ router.put('/:id', requireAuth, async (req, res, next) => {
       data: req.body
     });
 
-    res.json({ success: true });
+    res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
   }
@@ -123,6 +142,11 @@ router.put('/:id', requireAuth, async (req, res, next) => {
 // 删除文档
 router.delete('/:id', requireAuth, async (req, res, next) => {
   try {
+    // 验证 UUID 格式
+    if (!validateUUID(req.params.id)) {
+      throw AppErrors.validation('Invalid document ID format');
+    }
+
     // 先获取文档信息以获取文件大小
     const document = await prisma.document.findFirst({
       where: {
@@ -143,7 +167,7 @@ router.delete('/:id', requireAuth, async (req, res, next) => {
       await logUsage(req.user.id, 'document_delete', req.params.id);
     }
 
-    res.json({ success: true });
+    res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
   }
@@ -152,6 +176,11 @@ router.delete('/:id', requireAuth, async (req, res, next) => {
 // 保存标注
 router.post('/:id/annotations', requireAuth, async (req, res, next) => {
   try {
+    // 验证 UUID 格式
+    if (!validateUUID(req.params.id)) {
+      throw AppErrors.validation('Invalid document ID format');
+    }
+
     const annotation = await prisma.annotation.create({
       data: {
         userId: req.user.id,
@@ -160,7 +189,7 @@ router.post('/:id/annotations', requireAuth, async (req, res, next) => {
       }
     });
 
-    res.status(201).json(annotation);
+    res.status(HTTP_STATUS.CREATED).json(annotation);
   } catch (error) {
     next(error);
   }
@@ -169,6 +198,11 @@ router.post('/:id/annotations', requireAuth, async (req, res, next) => {
 // 获取文档的所有标注
 router.get('/:id/annotations', requireAuth, async (req, res, next) => {
   try {
+    // 验证 UUID 格式
+    if (!validateUUID(req.params.id)) {
+      throw AppErrors.validation('Invalid document ID format');
+    }
+
     const annotations = await prisma.annotation.findMany({
       where: {
         documentId: req.params.id,
@@ -176,7 +210,7 @@ router.get('/:id/annotations', requireAuth, async (req, res, next) => {
       }
     });
 
-    res.json(annotations);
+    res.status(HTTP_STATUS.OK).json(annotations);
   } catch (error) {
     next(error);
   }
@@ -185,6 +219,11 @@ router.get('/:id/annotations', requireAuth, async (req, res, next) => {
 // 更新标注
 router.put('/:documentId/annotations/:annotationId', requireAuth, async (req, res, next) => {
   try {
+    // 验证 UUID 格式
+    if (!validateUUID(req.params.documentId) || !validateUUID(req.params.annotationId)) {
+      throw AppErrors.validation('Invalid document or annotation ID format');
+    }
+
     await prisma.annotation.updateMany({
       where: {
         id: req.params.annotationId,
@@ -194,7 +233,7 @@ router.put('/:documentId/annotations/:annotationId', requireAuth, async (req, re
       data: req.body
     });
 
-    res.json({ success: true });
+    res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
   }
@@ -203,6 +242,11 @@ router.put('/:documentId/annotations/:annotationId', requireAuth, async (req, re
 // 删除标注
 router.delete('/:documentId/annotations/:annotationId', requireAuth, async (req, res, next) => {
   try {
+    // 验证 UUID 格式
+    if (!validateUUID(req.params.documentId) || !validateUUID(req.params.annotationId)) {
+      throw AppErrors.validation('Invalid document or annotation ID format');
+    }
+
     await prisma.annotation.deleteMany({
       where: {
         id: req.params.annotationId,
@@ -211,7 +255,7 @@ router.delete('/:documentId/annotations/:annotationId', requireAuth, async (req,
       }
     });
 
-    res.json({ success: true });
+    res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
   }
@@ -220,6 +264,11 @@ router.delete('/:documentId/annotations/:annotationId', requireAuth, async (req,
 // 保存/更新意群数据
 router.post('/:id/semantic-groups', requireAuth, async (req, res, next) => {
   try {
+    // 验证 UUID 格式
+    if (!validateUUID(req.params.id)) {
+      throw AppErrors.validation('Invalid document ID format');
+    }
+
     const { groups, version, source } = req.body;
 
     // 验证文档所有权
@@ -231,7 +280,7 @@ router.post('/:id/semantic-groups', requireAuth, async (req, res, next) => {
     });
 
     if (!document) {
-      return res.status(404).json({ error: 'Document not found' });
+      throw AppErrors.notFound('Document');
     }
 
     const semanticGroup = await prisma.semanticGroup.upsert({
@@ -251,7 +300,7 @@ router.post('/:id/semantic-groups', requireAuth, async (req, res, next) => {
       }
     });
 
-    res.json(semanticGroup);
+    res.status(HTTP_STATUS.OK).json(semanticGroup);
   } catch (error) {
     next(error);
   }
@@ -260,6 +309,11 @@ router.post('/:id/semantic-groups', requireAuth, async (req, res, next) => {
 // 获取意群数据
 router.get('/:id/semantic-groups', requireAuth, async (req, res, next) => {
   try {
+    // 验证 UUID 格式
+    if (!validateUUID(req.params.id)) {
+      throw AppErrors.validation('Invalid document ID format');
+    }
+
     // 验证文档所有权
     const document = await prisma.document.findFirst({
       where: {
@@ -269,7 +323,7 @@ router.get('/:id/semantic-groups', requireAuth, async (req, res, next) => {
     });
 
     if (!document) {
-      return res.status(404).json({ error: 'Document not found' });
+      throw AppErrors.notFound('Document');
     }
 
     const semanticGroup = await prisma.semanticGroup.findUnique({
@@ -279,10 +333,10 @@ router.get('/:id/semantic-groups', requireAuth, async (req, res, next) => {
     });
 
     if (!semanticGroup) {
-      return res.status(404).json({ error: 'Semantic groups not found' });
+      throw AppErrors.notFound('Semantic groups');
     }
 
-    res.json(semanticGroup);
+    res.status(HTTP_STATUS.OK).json(semanticGroup);
   } catch (error) {
     next(error);
   }
