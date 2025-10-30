@@ -1,14 +1,33 @@
 import express from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { prisma } from '../utils/prisma.js';
+import { AppErrors, HTTP_STATUS } from '../utils/errors.js';
+import { PAGINATION } from '../utils/constants.js';
+import { validateUUID, validateDate } from '../utils/validation.js';
 
 const router = express.Router();
+
+// 允许的聊天角色
+const ALLOWED_ROLES = ['user', 'assistant'];
 
 // 获取文档的聊天历史
 router.get('/:documentId/history', requireAuth, async (req, res, next) => {
   try {
     const { documentId } = req.params;
     const { limit = 100, before } = req.query;
+
+    // 验证 UUID 格式
+    if (!validateUUID(documentId)) {
+      throw AppErrors.validation('Invalid document ID format');
+    }
+
+    // 验证和规范化参数
+    const limitNum = Math.min(Math.max(parseInt(limit) || 100, 1), PAGINATION.MAX_LIMIT);
+    const beforeDate = before ? validateDate(before) : null;
+
+    if (before && !beforeDate) {
+      throw AppErrors.validation('Invalid before date format');
+    }
 
     // 验证文档所有权
     const document = await prisma.document.findFirst({
@@ -19,7 +38,7 @@ router.get('/:documentId/history', requireAuth, async (req, res, next) => {
     });
 
     if (!document) {
-      return res.status(404).json({ error: 'Document not found' });
+      throw AppErrors.notFound('Document');
     }
 
     // 构建查询条件
@@ -28,15 +47,15 @@ router.get('/:documentId/history', requireAuth, async (req, res, next) => {
       userId: req.user.id
     };
 
-    if (before) {
-      where.timestamp = { lt: new Date(before) };
+    if (beforeDate) {
+      where.timestamp = { lt: beforeDate };
     }
 
     // 获取消息
     const messages = await prisma.chatMessage.findMany({
       where,
       orderBy: { timestamp: 'desc' },
-      take: parseInt(limit),
+      take: limitNum,
       select: {
         id: true,
         role: true,
@@ -49,9 +68,9 @@ router.get('/:documentId/history', requireAuth, async (req, res, next) => {
     // 反转顺序，使最早的消息在前
     const sortedMessages = messages.reverse();
 
-    res.json({
+    res.status(HTTP_STATUS.OK).json({
       messages: sortedMessages,
-      hasMore: messages.length === parseInt(limit)
+      hasMore: messages.length === limitNum
     });
   } catch (error) {
     next(error);
@@ -64,12 +83,28 @@ router.post('/:documentId/history', requireAuth, async (req, res, next) => {
     const { documentId } = req.params;
     const { role, content, metadata } = req.body;
 
-    if (!role || !content) {
-      return res.status(400).json({ error: 'Role and content are required' });
+    // 验证 UUID 格式
+    if (!validateUUID(documentId)) {
+      throw AppErrors.validation('Invalid document ID format');
     }
 
-    if (!['user', 'assistant'].includes(role)) {
-      return res.status(400).json({ error: 'Role must be "user" or "assistant"' });
+    // 输入验证
+    if (!role || typeof role !== 'string') {
+      throw AppErrors.validation('Role is required');
+    }
+
+    if (!ALLOWED_ROLES.includes(role)) {
+      throw AppErrors.validation(`Role must be one of: ${ALLOWED_ROLES.join(', ')}`);
+    }
+
+    if (!content || typeof content !== 'string') {
+      throw AppErrors.validation('Content is required');
+    }
+
+    // 限制内容长度（防止过大的消息）
+    const maxContentLength = 100000; // 100KB
+    if (content.length > maxContentLength) {
+      throw AppErrors.validation(`Content too long (max ${maxContentLength} characters)`);
     }
 
     // 验证文档所有权
@@ -81,7 +116,7 @@ router.post('/:documentId/history', requireAuth, async (req, res, next) => {
     });
 
     if (!document) {
-      return res.status(404).json({ error: 'Document not found' });
+      throw AppErrors.notFound('Document');
     }
 
     // 创建消息
@@ -95,7 +130,7 @@ router.post('/:documentId/history', requireAuth, async (req, res, next) => {
       }
     });
 
-    res.status(201).json(message);
+    res.status(HTTP_STATUS.CREATED).json(message);
   } catch (error) {
     next(error);
   }
@@ -107,8 +142,20 @@ router.post('/:documentId/history/batch', requireAuth, async (req, res, next) =>
     const { documentId } = req.params;
     const { messages } = req.body;
 
+    // 验证 UUID 格式
+    if (!validateUUID(documentId)) {
+      throw AppErrors.validation('Invalid document ID format');
+    }
+
+    // 输入验证
     if (!Array.isArray(messages)) {
-      return res.status(400).json({ error: 'Messages must be an array' });
+      throw AppErrors.validation('Messages must be an array');
+    }
+
+    // 限制批量大小（防止过大的批量请求）
+    const maxBatchSize = 1000;
+    if (messages.length > maxBatchSize) {
+      throw AppErrors.validation(`Batch size too large (max ${maxBatchSize} messages)`);
     }
 
     // 验证文档所有权
@@ -120,23 +167,34 @@ router.post('/:documentId/history/batch', requireAuth, async (req, res, next) =>
     });
 
     if (!document) {
-      return res.status(404).json({ error: 'Document not found' });
+      throw AppErrors.notFound('Document');
+    }
+
+    // 验证每条消息的基本格式
+    const validMessages = messages.filter(msg => {
+      return msg && typeof msg === 'object' &&
+             ALLOWED_ROLES.includes(msg.role) &&
+             typeof msg.content === 'string';
+    });
+
+    if (validMessages.length !== messages.length) {
+      throw AppErrors.validation('Some messages have invalid format');
     }
 
     // 批量创建消息
     const createdMessages = await prisma.chatMessage.createMany({
-      data: messages.map(msg => ({
+      data: validMessages.map(msg => ({
         documentId,
         userId: req.user.id,
         role: msg.role,
         content: msg.content,
-        timestamp: msg.timestamp ? new Date(msg.timestamp) : undefined,
+        timestamp: msg.timestamp ? validateDate(msg.timestamp) || new Date() : undefined,
         metadata: msg.metadata
       })),
       skipDuplicates: true
     });
 
-    res.status(201).json({
+    res.status(HTTP_STATUS.CREATED).json({
       success: true,
       count: createdMessages.count
     });
@@ -150,6 +208,11 @@ router.delete('/:documentId/history', requireAuth, async (req, res, next) => {
   try {
     const { documentId } = req.params;
 
+    // 验证 UUID 格式
+    if (!validateUUID(documentId)) {
+      throw AppErrors.validation('Invalid document ID format');
+    }
+
     // 验证文档所有权
     const document = await prisma.document.findFirst({
       where: {
@@ -159,7 +222,7 @@ router.delete('/:documentId/history', requireAuth, async (req, res, next) => {
     });
 
     if (!document) {
-      return res.status(404).json({ error: 'Document not found' });
+      throw AppErrors.notFound('Document');
     }
 
     await prisma.chatMessage.deleteMany({
@@ -169,7 +232,7 @@ router.delete('/:documentId/history', requireAuth, async (req, res, next) => {
       }
     });
 
-    res.json({ success: true });
+    res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
   }

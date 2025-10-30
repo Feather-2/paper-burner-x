@@ -1,8 +1,13 @@
 import express from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { prisma } from '../utils/prisma.js';
+import { AppErrors, HTTP_STATUS } from '../utils/errors.js';
 
 const router = express.Router();
+
+// 限制数组大小
+const MAX_PROMPTS_ARRAY_SIZE = 1000;
+const MAX_PROMPT_CONTENT_LENGTH = 100000; // 100KB
 
 // 获取用户的 Prompt Pool
 router.get('/', requireAuth, async (req, res, next) => {
@@ -13,13 +18,13 @@ router.get('/', requireAuth, async (req, res, next) => {
 
     if (!promptPool) {
       // 返回默认空结构
-      return res.json({
+      return res.status(HTTP_STATUS.OK).json({
         prompts: [],
         healthConfig: null
       });
     }
 
-    res.json({
+    res.status(HTTP_STATUS.OK).json({
       prompts: promptPool.prompts,
       healthConfig: promptPool.healthConfig
     });
@@ -33,24 +38,39 @@ router.put('/', requireAuth, async (req, res, next) => {
   try {
     const { prompts, healthConfig } = req.body;
 
+    // 输入验证
     if (!Array.isArray(prompts)) {
-      return res.status(400).json({ error: 'prompts must be an array' });
+      throw AppErrors.validation('prompts must be an array');
+    }
+
+    // 限制数组大小
+    if (prompts.length > MAX_PROMPTS_ARRAY_SIZE) {
+      throw AppErrors.validation(`Too many prompts (max ${MAX_PROMPTS_ARRAY_SIZE})`);
+    }
+
+    // 验证每个 prompt 的基本格式（但保持宽松，不强制要求所有字段）
+    const validPrompts = prompts.filter(prompt => {
+      return prompt && typeof prompt === 'object';
+    });
+
+    if (validPrompts.length !== prompts.length) {
+      throw AppErrors.validation('Some prompts have invalid format');
     }
 
     const promptPool = await prisma.promptPool.upsert({
       where: { userId: req.user.id },
       update: {
-        prompts,
+        prompts: validPrompts,
         healthConfig
       },
       create: {
         userId: req.user.id,
-        prompts,
+        prompts: validPrompts,
         healthConfig
       }
     });
 
-    res.json({
+    res.status(HTTP_STATUS.OK).json({
       prompts: promptPool.prompts,
       healthConfig: promptPool.healthConfig
     });
@@ -64,12 +84,22 @@ router.post('/prompts', requireAuth, async (req, res, next) => {
   try {
     const newPrompt = req.body;
 
+    // 输入验证
+    if (!newPrompt || typeof newPrompt !== 'object') {
+      throw AppErrors.validation('Prompt must be an object');
+    }
+
     // 获取当前 Prompt Pool
     let promptPool = await prisma.promptPool.findUnique({
       where: { userId: req.user.id }
     });
 
     let prompts = promptPool ? (promptPool.prompts || []) : [];
+
+    // 限制数组大小
+    if (prompts.length >= MAX_PROMPTS_ARRAY_SIZE) {
+      throw AppErrors.validation(`Maximum number of prompts reached (${MAX_PROMPTS_ARRAY_SIZE})`);
+    }
 
     // 添加新 Prompt
     prompts.push(newPrompt);
@@ -84,7 +114,7 @@ router.post('/prompts', requireAuth, async (req, res, next) => {
       }
     });
 
-    res.status(201).json({
+    res.status(HTTP_STATUS.CREATED).json({
       prompts: promptPool.prompts,
       healthConfig: promptPool.healthConfig
     });
@@ -103,7 +133,7 @@ router.delete('/prompts/:identifier', requireAuth, async (req, res, next) => {
     });
 
     if (!promptPool) {
-      return res.status(404).json({ error: 'Prompt pool not found' });
+      throw AppErrors.notFound('Prompt pool');
     }
 
     let prompts = promptPool.prompts || [];
@@ -118,7 +148,7 @@ router.delete('/prompts/:identifier', requireAuth, async (req, res, next) => {
       prompts = prompts.filter(p => p.id !== identifier);
 
       if (prompts.length === initialLength) {
-        return res.status(404).json({ error: 'Prompt not found' });
+        throw AppErrors.notFound('Prompt');
       }
     }
 
@@ -128,7 +158,7 @@ router.delete('/prompts/:identifier', requireAuth, async (req, res, next) => {
       data: { prompts }
     });
 
-    res.json({
+    res.status(HTTP_STATUS.OK).json({
       prompts: updated.prompts,
       healthConfig: updated.healthConfig
     });
