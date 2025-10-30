@@ -8,6 +8,45 @@
   <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
 <body class="bg-gray-100 min-h-screen flex items-center justify-center">
+  <script>
+    // 防止登录页 redirect 参数递归叠加/循环
+    (function () {
+      try {
+        var url = new URL(window.location.href);
+        var red = url.searchParams.get('redirect');
+        if (!red) return;
+        // 多层解码，防止 %25 级联编码导致的嵌套绕过
+        function deepDecode(s, limit) {
+          var i = 0, prev = s;
+          while (i++ < (limit || 8)) {
+            try {
+              var next = decodeURIComponent(prev);
+              if (next === prev) break;
+              prev = next;
+            } catch { break; }
+          }
+          return prev;
+        }
+        var decoded = deepDecode(red, 8);
+        // 规则：
+        // 1) 任意层包含 login.html?redirect= 视为递归 → 归一 '/'
+        // 2) 过长（>512）视为异常 → 归一 '/'
+        var shouldClamp = (red.length > 512) || (decoded.length > 512) || (decoded.indexOf('/login.html?redirect=') !== -1);
+        if (shouldClamp) {
+          url.searchParams.set('redirect', '/');
+          history.replaceState(null, '', url.toString());
+          return;
+        }
+        // 仅允许同源，且目标不能是登录页自身
+        var target;
+        try { target = new URL(decoded, window.location.origin); } catch { target = null; }
+        if (!target || target.origin !== window.location.origin || target.pathname.endsWith('/login.html')) {
+          url.searchParams.set('redirect', '/');
+          history.replaceState(null, '', url.toString());
+        }
+      } catch {}
+    })();
+  </script>
   <div class="bg-white p-8 rounded-lg shadow w-full max-w-md">
     <h1 class="text-2xl font-bold mb-6 text-center">登录到 Paper Burner X</h1>
     <form id="loginForm" class="space-y-4">
@@ -31,6 +70,34 @@
   <script>
     const API_BASE = window.location.origin + '/api';
 
+    function getSafeRedirect() {
+      try {
+        const p = new URLSearchParams(window.location.search);
+        const raw = p.get('redirect');
+        if (!raw) return '/';
+        // 多层解码，长度限制
+        function deepDecode(s, limit) {
+          let i = 0, prev = s;
+          while (i++ < (limit || 8)) {
+            try {
+              const next = decodeURIComponent(prev);
+              if (next === prev) break;
+              prev = next;
+            } catch { break; }
+          }
+          return prev;
+        }
+        const decoded = deepDecode(raw, 8);
+        if (decoded.length > 512 || decoded.indexOf('/login.html?redirect=') !== -1) return '/';
+        const u = new URL(decoded, window.location.origin);
+        // 仅允许同源回跳，且不指向 login.html 防止循环
+        if (u.origin !== window.location.origin) return '/';
+        if (u.pathname.endsWith('/login.html')) return '/';
+        u.searchParams.delete('redirect');
+        return u.toString();
+      } catch { return '/'; }
+    }
+
     function getRedirect() {
       try {
         const p = new URLSearchParams(window.location.search);
@@ -50,7 +117,7 @@
         if (res.data && res.data.token) {
           // 与前端适配器一致的存储键
           localStorage.setItem('auth_token', res.data.token);
-          window.location.href = getRedirect();
+          window.location.href = getSafeRedirect();
         } else {
           throw new Error('登录响应异常');
         }

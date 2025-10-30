@@ -4,7 +4,8 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 
 export const requireAuth = (req, res, next) => {
   try {
-    const token = req.headers.authorization?.split(' ')[1] || req.cookies.token;
+    // 仅接受 Authorization 头，避免 CSRF 混淆
+    const token = req.headers.authorization?.split(' ')[1];
 
     if (!token) {
       return res.status(401).json({ error: 'Authentication required' });
@@ -27,7 +28,7 @@ export const requireAdmin = (req, res, next) => {
 
 export const optionalAuth = (req, res, next) => {
   try {
-    const token = req.headers.authorization?.split(' ')[1] || req.cookies.token;
+    const token = req.headers.authorization?.split(' ')[1];
 
     if (token) {
       const decoded = jwt.verify(token, JWT_SECRET);

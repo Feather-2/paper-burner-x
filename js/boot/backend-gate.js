@@ -16,6 +16,35 @@
       try { return new URLSearchParams(loc.search).get(key); } catch { return null; }
     }
 
+    function normalizeRedirectParam(urlObj) {
+      try {
+        var red = urlObj.searchParams.get('redirect');
+        if (!red) return;
+        function deepDecode(s, limit) {
+          var i = 0, prev = s;
+          while (i++ < (limit || 8)) {
+            try {
+              var next = decodeURIComponent(prev);
+              if (next === prev) break;
+              prev = next;
+            } catch { break; }
+          }
+          return prev;
+        }
+        var decoded = deepDecode(red, 8);
+        // 连续嵌套或超长，直接归一为首页
+        if (red.length > 512 || decoded.length > 512 || decoded.indexOf('/login.html?redirect=') !== -1) {
+          urlObj.searchParams.set('redirect', '/');
+          return;
+        }
+        var target = null;
+        try { target = new URL(decoded, urlObj.origin); } catch {}
+        if (!target || target.origin !== urlObj.origin || target.pathname.endsWith('/login.html')) {
+          urlObj.searchParams.set('redirect', '/');
+        }
+      } catch {}
+    }
+
     function modeForced() {
       var m = (q('mode') || '').toLowerCase();
       if (m === 'backend') return true;
@@ -32,9 +61,32 @@
       try { return !!localStorage.getItem('auth_token'); } catch { return false; }
     }
 
+    function buildSafeRedirectTarget() {
+      try {
+        var u = new URL(window.location.href);
+        // 避免递归嵌套：去除已有的 redirect 参数
+        u.searchParams.delete('redirect');
+        // 若当前已是登录页，则回首页
+        if (u.pathname.endsWith('/login.html')) {
+          u.pathname = '/';
+          u.search = '';
+        }
+        // 限制同源
+        if (u.origin !== window.location.origin) return '/';
+        return u.toString();
+      } catch { return '/'; }
+    }
+
     function redirectToLogin() {
-      var redirect = encodeURIComponent(window.location.href);
-      window.location.replace('/login.html?redirect=' + redirect);
+      // 如果当前 URL 已包含 redirect 指向 login.html（异常嵌套），则强制回首页
+      try {
+        var current = new URL(window.location.href);
+        normalizeRedirectParam(current);
+        // 将标准化后的当前 URL 写回，避免下次读取到异常 redirect
+        history.replaceState(null, '', current.toString());
+      } catch {}
+      var safe = encodeURIComponent(buildSafeRedirectTarget());
+      window.location.replace('/login.html?redirect=' + safe);
     }
 
     function gateIfBackendKnown() {

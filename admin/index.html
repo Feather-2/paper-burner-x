@@ -138,11 +138,18 @@
 
                 <!-- 用户管理 -->
                 <div id="content-users" class="p-6">
-                    <div class="mb-4 flex justify-between items-center">
+                    <div class="mb-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                         <h3 class="text-lg font-medium">用户列表</h3>
-                        <button onclick="loadUsers()" class="bg-gray-200 px-4 py-2 rounded-md hover:bg-gray-300">
-                            刷新
-                        </button>
+                        <div class="flex items-center gap-2">
+                            <input id="usersSearch" type="text" placeholder="搜索邮箱/姓名" class="px-3 py-2 border rounded-md" onkeypress="if(event.key==='Enter'){ usersPage=1; loadUsers(); }">
+                            <select id="usersPageSize" class="px-2 py-2 border rounded-md" onchange="usersPage=1; usersPageSize=parseInt(this.value); loadUsers();">
+                                <option value="10">10/页</option>
+                                <option value="20" selected>20/页</option>
+                                <option value="50">50/页</option>
+                            </select>
+                            <button onclick="usersPage=1; loadUsers();" class="bg-gray-200 px-3 py-2 rounded-md hover:bg-gray-300">搜索</button>
+                            <button onclick="openCreateUser()" class="bg-blue-600 text-white px-3 py-2 rounded-md hover:bg-blue-700">新建用户</button>
+                        </div>
                     </div>
                     <div class="overflow-x-auto">
                         <table class="min-w-full divide-y divide-gray-200">
@@ -158,6 +165,14 @@
                             </thead>
                             <tbody id="usersList" class="bg-white divide-y divide-gray-200"></tbody>
                         </table>
+                    </div>
+                    <div class="flex items-center justify-between mt-3 text-sm text-gray-600">
+                        <div id="usersPagerInfo">共 0 条</div>
+                        <div class="flex items-center gap-2">
+                            <button class="px-3 py-1 border rounded-md" onclick="if(usersPage>1){usersPage--; loadUsers();}">上一页</button>
+                            <span id="usersPagerPage">第 1/1 页</span>
+                            <button class="px-3 py-1 border rounded-md" onclick="if(usersPage<usersTotalPages){usersPage++; loadUsers();}">下一页</button>
+                        </div>
                     </div>
                 </div>
 
@@ -329,6 +344,9 @@
     <script>
         const API_BASE = window.location.origin + '/api';
         let authToken = localStorage.getItem('admin_token');
+        let usersPage = 1;
+        let usersPageSize = 20;
+        let usersTotalPages = 1;
 
         // 初始化
         document.addEventListener('DOMContentLoaded', () => {
@@ -428,12 +446,13 @@
 
         async function loadUsers() {
             try {
-                const response = await axios.get(`${API_BASE}/admin/users`, {
-                    headers: { Authorization: `Bearer ${authToken}` }
-                });
+                const search = (document.getElementById('usersSearch')?.value || '').trim();
+                const params = new URLSearchParams({ page: String(usersPage), pageSize: String(usersPageSize), search });
+                const response = await axios.get(`${API_BASE}/admin/users?${params.toString()}`, { headers: { Authorization: `Bearer ${authToken}` } });
 
+                const data = response.data;
                 const usersList = document.getElementById('usersList');
-                usersList.innerHTML = response.data.map(user => `
+                usersList.innerHTML = data.items.map(user => `
                     <tr>
                         <td class="px-6 py-4 whitespace-nowrap text-sm">${escapeHtml(user.email)}</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm">${escapeHtml(user.name)}</td>
@@ -445,13 +464,20 @@
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm">${new Date(user.createdAt).toLocaleDateString()}</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm">
-                            <button onclick="toggleUserStatus('${escapeHtml(user.id)}', ${!user.isActive})"
-                                class="text-blue-600 hover:text-blue-900">
-                                ${user.isActive ? '禁用' : '启用'}
-                            </button>
+                            <div class="flex items-center gap-3">
+                              <button onclick="openEditUser('${escapeHtml(user.id)}','${escapeHtml(user.email)}','${escapeHtml(user.name)}','${escapeHtml(user.role)}')" class="text-blue-600 hover:text-blue-900">编辑</button>
+                              <button onclick="toggleUserStatus('${escapeHtml(user.id)}', ${!user.isActive})" class="text-yellow-600 hover:text-yellow-800">${user.isActive ? '禁用' : '启用'}</button>
+                              <button onclick="resetUserPasswordPrompt('${escapeHtml(user.id)}')" class="text-indigo-600 hover:text-indigo-800">重置密码</button>
+                              <button onclick="deleteUserConfirm('${escapeHtml(user.id)}')" class="text-red-600 hover:text-red-800">删除</button>
+                            </div>
                         </td>
                     </tr>
                 `).join('');
+
+                // 分页信息
+                usersTotalPages = Math.max(1, Math.ceil((data.total || 0) / data.pageSize));
+                document.getElementById('usersPagerInfo').textContent = `共 ${data.total} 条`;
+                document.getElementById('usersPagerPage').textContent = `第 ${data.page}/${usersTotalPages} 页`;
             } catch (error) {
                 console.error('Failed to load users:', error);
             }
@@ -467,6 +493,68 @@
             } catch (error) {
                 alert('操作失败：' + error.message);
             }
+        }
+
+        // 创建/编辑/重置/删除用户
+        function openCreateUser() {
+          const email = prompt('请输入邮箱：');
+          if (!email) return;
+          const name = prompt('请输入姓名（可留空）：') || '';
+          const role = prompt('角色（USER/ADMIN，默认 USER）：') || 'USER';
+          const password = prompt('初始密码（至少 8 位，留空则自动生成）：') || undefined;
+          createUser({ email, name, role, password });
+        }
+
+        async function createUser(payload) {
+          try {
+            const res = await axios.post(`${API_BASE}/admin/users`, payload, { headers: { Authorization: `Bearer ${authToken}` } });
+            alert('创建成功' + (res.data.tempPassword ? `，临时密码：${res.data.tempPassword}` : ''));
+            await loadUsers();
+          } catch (e) { alert('创建失败：' + (e.response?.data?.error || e.message)); }
+        }
+
+        function openEditUser(id, email, name, role) {
+          const newEmail = prompt('修改邮箱（留空不变）：', email) || undefined;
+          const newName = prompt('修改姓名（可留空）：', name) || undefined;
+          const newRole = prompt('修改角色（USER/ADMIN，留空不变）：', role) || undefined;
+          const data = {};
+          if (newEmail && newEmail !== email) data.email = newEmail;
+          if (newName !== undefined && newName !== name) data.name = newName;
+          if (newRole && newRole !== role) data.role = newRole;
+          if (Object.keys(data).length === 0) return;
+          updateUser(id, data);
+        }
+
+        async function updateUser(id, data) {
+          try {
+            await axios.put(`${API_BASE}/admin/users/${id}`, data, { headers: { Authorization: `Bearer ${authToken}` } });
+            await loadUsers();
+          } catch (e) { alert('更新失败：' + (e.response?.data?.error || e.message)); }
+        }
+
+        function resetUserPasswordPrompt(id) {
+          const password = prompt('输入新密码（>=8 位）：');
+          if (!password) return;
+          resetUserPassword(id, password);
+        }
+
+        async function resetUserPassword(id, password) {
+          try {
+            await axios.put(`${API_BASE}/admin/users/${id}/password`, { password }, { headers: { Authorization: `Bearer ${authToken}` } });
+            alert('密码已重置');
+          } catch (e) { alert('重置失败：' + (e.response?.data?.error || e.message)); }
+        }
+
+        function deleteUserConfirm(id) {
+          if (!confirm('确认删除该用户？此操作不可恢复。')) return;
+          deleteUser(id);
+        }
+
+        async function deleteUser(id) {
+          try {
+            await axios.delete(`${API_BASE}/admin/users/${id}`, { headers: { Authorization: `Bearer ${authToken}` } });
+            await loadUsers();
+          } catch (e) { alert('删除失败：' + (e.response?.data?.error || e.message)); }
         }
 
         function switchTab(tab) {

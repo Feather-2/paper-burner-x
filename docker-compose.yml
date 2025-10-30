@@ -22,14 +22,14 @@ services:
   # Paper Burner X 应用
   app:
     # 方式 1: 从 Docker Hub 拉取（推荐用于生产，快速启动）
-    image: feather2dev/paper-burner-x:latest
-    pull_policy: always
+    # image: feather2dev/paper-burner-x:latest
+    # pull_policy: always
 
     # 方式 2: 从本地构建（推荐用于开发和自定义修改）
-    # 取消下面的注释并注释掉上面的 image 行即可使用本地构建
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile
+    # 已切换为本地构建，便于验证当前仓库代码改动
+    build:
+      context: .
+      dockerfile: Dockerfile
 
     container_name: paperburner-app
     restart: unless-stopped
@@ -54,6 +54,8 @@ services:
       # 部署模式
       DEPLOYMENT_MODE: backend
       RUN_MIGRATIONS: "true"
+      # 后端模式下临时允许内联脚本（CSP），以兼容现有页面
+      CSP_ALLOW_INLINE: "true"
 
       # OCR API Keys（可选，可通过管理面板配置）
       MINERU_API_TOKEN: ${MINERU_API_TOKEN:-}
@@ -67,13 +69,25 @@ services:
       VOLCANO_API_KEY: ${VOLCANO_API_KEY:-}
 
     ports:
-      - "${APP_PORT:-3000}:3000"
+      # 避免与本机可能占用的 3000 端口冲突，改为仅绑定 IPv4 127.0.0.1:3300
+      - "127.0.0.1:3300:3000"
+      # 如需同时绑定 IPv6 本地回环，可取消下一行注释（某些环境不支持）：
+      # - "[::1]:3300:3000"
     volumes:
       # 如果需要持久化上传的文件
       - app_uploads:/app/uploads
       # 将迁移与 schema 挂载到容器，确保旧镜像也能找到迁移（只读）
       - ./server/prisma/migrations:/app/server/prisma/migrations:ro
       - ./server/prisma/schema.prisma:/app/server/prisma/schema.prisma:ro
+      # 挂载前端与服务端源码为只读，确保容器运行当前工作区代码（避免旧镜像残留）
+      - ./server/src:/app/server/src:ro
+      - ./index.html:/app/index.html:ro
+      - ./login.html:/app/login.html:ro
+      - ./admin:/app/admin:ro
+      - ./views:/app/views:ro
+      - ./js:/app/js:ro
+      - ./css:/app/css:ro
+      - ./public:/app/public:ro
 
   # Nginx 反向代理（可选，用于生产环境）
   nginx:

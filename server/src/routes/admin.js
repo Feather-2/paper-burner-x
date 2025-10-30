@@ -1,5 +1,7 @@
 import express from 'express';
+import bcrypt from 'bcryptjs';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { adminWriteLimiter } from '../middleware/rateLimit.js';
 import { PrismaClient } from '@prisma/client';
 
 const router = express.Router();
@@ -11,38 +13,133 @@ router.use(requireAuth, requireAdmin);
 // 获取所有用户
 router.get('/users', async (req, res, next) => {
   try {
-    const users = await prisma.user.findMany({
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        isActive: true,
-        createdAt: true
-      },
-      orderBy: { createdAt: 'desc' }
-    });
+    const { page = 1, pageSize = 20, search = '', sort = 'createdAt', order = 'desc' } = req.query;
+    const p = Math.max(parseInt(page), 1);
+    const ps = Math.min(Math.max(parseInt(pageSize), 1), 100);
+    const where = search
+      ? {
+          OR: [
+            { email: { contains: String(search), mode: 'insensitive' } },
+            { name: { contains: String(search), mode: 'insensitive' } }
+          ]
+        }
+      : {};
 
-    res.json(users);
+    const [total, items] = await Promise.all([
+      prisma.user.count({ where }),
+      prisma.user.findMany({
+        where,
+        select: { id: true, email: true, name: true, role: true, isActive: true, createdAt: true },
+        orderBy: { [String(sort)]: String(order).toLowerCase() === 'asc' ? 'asc' : 'desc' },
+        skip: (p - 1) * ps,
+        take: ps
+      })
+    ]);
+
+    res.json({ total, page: p, pageSize: ps, items });
   } catch (error) {
     next(error);
   }
 });
 
+// 创建用户（管理员）
+router.post('/users', adminWriteLimiter, async (req, res, next) => {
+  try {
+    const { email, name = '', role = 'USER', password } = req.body || {};
+    if (!email || typeof email !== 'string') return res.status(400).json({ error: 'email is required' });
+    if (!['USER', 'ADMIN'].includes(role)) return res.status(400).json({ error: 'invalid role' });
+    const pwd = typeof password === 'string' && password.length >= 8 ? password : Math.random().toString(36).slice(2, 10) + 'A1!';
+
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) return res.status(409).json({ error: 'User already exists' });
+
+    const hashed = await bcrypt.hash(pwd, 10);
+    const user = await prisma.user.create({
+      data: { email, name, role, password: hashed, isActive: true }
+    });
+    await prisma.userSettings.create({ data: { userId: user.id } });
+
+    try { await prisma.usageLog.create({ data: { userId: req.user.id, action: 'admin_create_user', resourceId: user.id, metadata: { email, role } } }); } catch {}
+
+    res.status(201).json({ id: user.id, email: user.email, name: user.name, role: user.role, isActive: user.isActive, tempPassword: password ? undefined : pwd });
+  } catch (error) { next(error); }
+});
+
+// 编辑用户（邮箱/姓名/角色）
+router.put('/users/:id', adminWriteLimiter, async (req, res, next) => {
+  try {
+    const { email, name, role } = req.body || {};
+    const userId = req.params.id;
+
+    const target = await prisma.user.findUnique({ where: { id: userId } });
+    if (!target) return res.status(404).json({ error: 'User not found' });
+
+    if (role && role !== 'ADMIN' && target.role === 'ADMIN') {
+      const adminCount = await prisma.user.count({ where: { role: 'ADMIN', isActive: true } });
+      if (adminCount <= 1) return res.status(400).json({ error: 'Cannot demote the last active admin' });
+    }
+
+    const data = {};
+    if (typeof email === 'string' && email) data.email = email;
+    if (typeof name === 'string') data.name = name;
+    if (role && ['USER', 'ADMIN'].includes(role)) data.role = role;
+
+    if (Object.keys(data).length === 0) return res.json({ success: true });
+
+    await prisma.user.update({ where: { id: userId }, data });
+    try { await prisma.usageLog.create({ data: { userId: req.user.id, action: 'admin_update_user', resourceId: userId, metadata: data } }); } catch {}
+    res.json({ success: true });
+  } catch (error) { next(error); }
+});
+
 // 更新用户状态
-router.put('/users/:id/status', async (req, res, next) => {
+router.put('/users/:id/status', adminWriteLimiter, async (req, res, next) => {
   try {
     const { isActive } = req.body;
+    const userId = req.params.id;
+    const target = await prisma.user.findUnique({ where: { id: userId } });
+    if (!target) return res.status(404).json({ error: 'User not found' });
 
-    await prisma.user.update({
-      where: { id: req.params.id },
-      data: { isActive }
-    });
+    if (target.role === 'ADMIN' && isActive === false) {
+      const adminCount = await prisma.user.count({ where: { role: 'ADMIN', isActive: true } });
+      if (adminCount <= 1) return res.status(400).json({ error: 'Cannot disable the last active admin' });
+    }
 
+    await prisma.user.update({ where: { id: userId }, data: { isActive: !!isActive } });
+    try { await prisma.usageLog.create({ data: { userId: req.user.id, action: 'admin_update_user_status', resourceId: userId, metadata: { isActive: !!isActive } } }); } catch {}
     res.json({ success: true });
   } catch (error) {
     next(error);
   }
+});
+
+// 重置用户密码
+router.put('/users/:id/password', adminWriteLimiter, async (req, res, next) => {
+  try {
+    const userId = req.params.id;
+    const { password } = req.body || {};
+    if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'password (>=8 chars) required' });
+    const hashed = await bcrypt.hash(password, 10);
+    await prisma.user.update({ where: { id: userId }, data: { password: hashed } });
+    try { await prisma.usageLog.create({ data: { userId: req.user.id, action: 'admin_reset_password', resourceId: userId } }); } catch {}
+    res.json({ success: true });
+  } catch (error) { next(error); }
+});
+
+// 删除用户（保护最后一个管理员）
+router.delete('/users/:id', adminWriteLimiter, async (req, res, next) => {
+  try {
+    const userId = req.params.id;
+    const target = await prisma.user.findUnique({ where: { id: userId } });
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    if (target.role === 'ADMIN') {
+      const adminCount = await prisma.user.count({ where: { role: 'ADMIN', isActive: true } });
+      if (adminCount <= 1) return res.status(400).json({ error: 'Cannot delete the last active admin' });
+    }
+    await prisma.user.delete({ where: { id: userId } });
+    try { await prisma.usageLog.create({ data: { userId: req.user.id, action: 'admin_delete_user', resourceId: userId } }); } catch {}
+    res.json({ success: true });
+  } catch (error) { next(error); }
 });
 
 // 获取系统统计
@@ -79,33 +176,31 @@ router.get('/stats', async (req, res, next) => {
   }
 });
 
-// 获取系统配置
+// 获取系统配置（敏感掩码）
 router.get('/config', async (req, res, next) => {
   try {
     const configs = await prisma.systemConfig.findMany();
-
+    const sensitiveKeys = new Set(['JWT_SECRET', 'ENCRYPTION_SECRET']);
     const configMap = {};
-    configs.forEach(c => {
-      configMap[c.key] = c.value;
-    });
-
+    configs.forEach(c => { configMap[c.key] = sensitiveKeys.has(c.key) ? '********' : c.value; });
     res.json(configMap);
   } catch (error) {
     next(error);
   }
 });
 
-// 更新系统配置
-router.put('/config', async (req, res, next) => {
+// 更新系统配置（白名单）
+router.put('/config', adminWriteLimiter, async (req, res, next) => {
   try {
-    const { key, value, description } = req.body;
-
+    const { key, value, description } = req.body || {};
+    const allowList = new Set(['SITE_NAME','ALLOW_REGISTRATION','MAX_UPLOAD_SIZE_MB','ENFORCE_2FA','FRONTEND_CDN_MODE']);
+    if (!key || !allowList.has(key)) return res.status(400).json({ error: 'Invalid config key' });
     await prisma.systemConfig.upsert({
       where: { key },
       update: { value, description },
       create: { key, value, description }
     });
-
+    try { await prisma.usageLog.create({ data: { userId: req.user.id, action: 'admin_update_config', resourceId: key, metadata: { valueChanged: true } } }); } catch {}
     res.json({ success: true });
   } catch (error) {
     next(error);
@@ -125,7 +220,7 @@ router.get('/source-sites', async (req, res, next) => {
   }
 });
 
-router.post('/source-sites', async (req, res, next) => {
+router.post('/source-sites', adminWriteLimiter, async (req, res, next) => {
   try {
     const site = await prisma.customSourceSite.create({
       data: {
@@ -140,7 +235,7 @@ router.post('/source-sites', async (req, res, next) => {
   }
 });
 
-router.put('/source-sites/:id', async (req, res, next) => {
+router.put('/source-sites/:id', adminWriteLimiter, async (req, res, next) => {
   try {
     await prisma.customSourceSite.update({
       where: { id: req.params.id },
@@ -153,7 +248,7 @@ router.put('/source-sites/:id', async (req, res, next) => {
   }
 });
 
-router.delete('/source-sites/:id', async (req, res, next) => {
+router.delete('/source-sites/:id', adminWriteLimiter, async (req, res, next) => {
   try {
     await prisma.customSourceSite.delete({
       where: { id: req.params.id }

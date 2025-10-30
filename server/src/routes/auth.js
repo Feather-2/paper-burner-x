@@ -2,6 +2,7 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
+import { authLimiter } from '../middleware/rateLimit.js';
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -10,7 +11,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 // 注册
-router.post('/register', async (req, res, next) => {
+router.post('/register', authLimiter, async (req, res, next) => {
   try {
     const { email, password, name } = req.body;
 
@@ -71,7 +72,7 @@ router.post('/register', async (req, res, next) => {
 });
 
 // 登录
-router.post('/login', async (req, res, next) => {
+router.post('/login', authLimiter, async (req, res, next) => {
   try {
     const { email, password } = req.body;
 

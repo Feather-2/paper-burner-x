@@ -250,7 +250,9 @@
             var params = new URLSearchParams(window.location.search);
             var forcedMode = (params.get('mode') || '').toLowerCase();
             var envMode = (window.ENV_DEPLOYMENT_MODE || '').toLowerCase();
-            var shouldSkip = (forcedMode === 'backend') || (envMode === 'backend');
+            // 若 URL 中包含 redirect（通常来自登录跳转），为避免循环，不做落地页跳转
+            var hasRedirectParam = params.has('redirect');
+            var shouldSkip = hasRedirectParam || (forcedMode === 'backend') || (envMode === 'backend');
 
             if (shouldSkip) return;
             if (currentPath.indexOf('landing-page.html') !== -1) return;
@@ -1048,8 +1050,8 @@
     <!-- 脚本引入区（顺序不能乱） -->
     <!-- ===================== -->
     <script src="https://unpkg.com/iconify-icon@1.0.7/dist/iconify-icon.min.js"></script>
-    <!-- 明确前端模式，避免不必要的后端探测 -->
-    <script>window.ENV_DEPLOYMENT_MODE = window.ENV_DEPLOYMENT_MODE || 'frontend';</script>
+    <!-- 自动探测后端：若 /api/健康检查通过将切换为 backend；也可用 ?mode=backend 强制 -->
+    <script>window.ENV_DEPLOYMENT_MODE = 'auto';</script>
     <script src="js/api/api.js"></script>
     <script src="js/storage/storage.js"></script>
     <!-- 先初始化存储适配器（提供 isFrontendMode 标记） -->
