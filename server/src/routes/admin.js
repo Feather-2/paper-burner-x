@@ -2,10 +2,9 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { adminWriteLimiter } from '../middleware/rateLimit.js';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../utils/prisma.js';
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 // 所有管理员路由都需要管理员权限
 router.use(requireAuth, requireAdmin);

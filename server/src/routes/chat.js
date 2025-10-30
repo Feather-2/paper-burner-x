@@ -1,9 +1,8 @@
 import express from 'express';
 import { requireAuth } from '../middleware/auth.js';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../utils/prisma.js';
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 // 获取文档的聊天历史
 router.get('/:documentId/history', requireAuth, async (req, res, next) => {

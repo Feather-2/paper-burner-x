@@ -2,12 +2,11 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../utils/prisma.js';
 import { authLimiter } from '../middleware/rateLimit.js';
 import { validateRegisterData } from '../utils/validation.js';
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 /**
  * 获取 JWT 密钥

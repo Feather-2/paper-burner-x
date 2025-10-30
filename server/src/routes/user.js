@@ -1,10 +1,9 @@
 import express from 'express';
 import { requireAuth } from '../middleware/auth.js';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../utils/prisma.js';
 import { encrypt, decrypt } from '../utils/crypto.js';
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 // 获取用户设置
 router.get('/settings', requireAuth, async (req, res, next) => {
