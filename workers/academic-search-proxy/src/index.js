@@ -159,15 +159,35 @@ export default {
 
       // ===== 健康检查 =====
       if (url.pathname === '/health' && request.method === 'GET') {
+        // 检查透传的 API Key（前端在健康检查时可带上）
+        const hasTransmittedApiKey = request.headers.get('X-Api-Key');
+
         return jsonResponse({
           status: 'ok',
           timestamp: Date.now(),
           services: {
-            semanticscholar: { enabled: true, hasApiKey: !!env.SEMANTIC_SCHOLAR_API_KEY },
-            pubmed: { enabled: true, hasApiKey: !!env.PUBMED_API_KEY },
+            semanticscholar: {
+              enabled: true,
+              hasApiKey: !!env.SEMANTIC_SCHOLAR_API_KEY || !!hasTransmittedApiKey
+            },
+            pubmed: {
+              enabled: true,
+              hasApiKey: !!env.PUBMED_API_KEY || !!hasTransmittedApiKey
+            },
             crossref: { enabled: true },
             openalex: { enabled: true },
             arxiv: { enabled: true }
+          },
+          // 认证与密钥来源信息
+          authentication: {
+            hasTransmittedApiKey: !!hasTransmittedApiKey,
+            hasEnvironmentKey: !!env.SEMANTIC_SCHOLAR_API_KEY || !!env.PUBMED_API_KEY,
+            source: hasTransmittedApiKey
+              ? 'transmitted'
+              : (env.SEMANTIC_SCHOLAR_API_KEY || env.PUBMED_API_KEY)
+                ? 'environment'
+                : 'none',
+            required: env.ENABLE_AUTH === 'true'
           },
           rateLimit: {
             enabled: env.RATE_LIMIT_ENABLED === 'true',
@@ -186,9 +206,6 @@ export default {
                 tpm: parseInt(env.RATE_LIMIT_SEMANTICSCHOLAR_TPM) || 300
               }
             }
-          },
-          authentication: {
-            required: env.ENABLE_AUTH === 'true'
           }
         }, 200, request, env);
       }
