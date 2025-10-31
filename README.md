@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/JavaScript-yellow.svg" alt="JavaScript">
   <img src="https://img.shields.io/badge/Docker-building-2496ED.svg" alt="Docker">
 </div>
-* 项目分前端版本和后端版本，目前后端版本构建中，请暂时不要拉取docker镜像。
+
 <div align="center">
   <p><strong>浏览器即开即用 | 极速并发翻译 | 智能文档分析 | Docker 一键部署</strong></p>
   <p>
@@ -18,6 +18,7 @@
 </div>
 
 ---
+* 项目分前端版本和后端版本，目前后端版本构建中，请暂时不要拉取docker镜像。
 
 ## 🎯 项目简介
 
@@ -332,6 +333,7 @@ CLAUDE_API_KEY=your_key
     <a href="https://paperburner.viwoplus.site">在线体验</a>
   </p>
 </div>
+
 
 
 
