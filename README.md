@@ -4,7 +4,7 @@
   <img src="https://img.shields.io/badge/版本-2.0.0-blue.svg" alt="版本">
   <img src="https://img.shields.io/badge/License-AGPL_v3-blue.svg" alt="许可证">
   <img src="https://img.shields.io/badge/JavaScript-yellow.svg" alt="JavaScript">
-  <img src="https://img.shields.io/badge/Docker-Ready-2496ED.svg" alt="Docker">
+  <img src="https://img.shields.io/badge/Docker-building-2496ED.svg" alt="Docker">
 </div>
 
 <div align="center">
@@ -332,3 +332,4 @@ CLAUDE_API_KEY=your_key
     <a href="https://paperburner.viwoplus.site">在线体验</a>
   </p>
 </div>
+
