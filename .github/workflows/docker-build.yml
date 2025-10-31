@@ -109,9 +109,9 @@ jobs:
           DATABASE_URL: postgresql://test:test@localhost:5432/test
         run: npx prisma migrate deploy
 
-      - name: Lint check (if applicable)
+      - name: Lint check (placeholder)
         working-directory: ./server
-        run: npm run lint || echo "No lint script found, skipping..."
+        run: npm run lint
         continue-on-error: true
 
       - name: Test server startup
@@ -128,3 +128,9 @@ jobs:
             echo "Server failed to start"
             exit 1
           fi
+
+      - name: Run unit tests
+        working-directory: ./server
+        env:
+          NODE_ENV: test
+        run: npm test

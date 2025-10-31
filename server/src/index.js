@@ -9,6 +9,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { FILE_UPLOAD } from './utils/constants.js';
+import { validateEnv, env } from './utils/env.js';
 
 // 导入路由
 import authRoutes from './routes/auth.js';
@@ -31,6 +32,8 @@ import { initializeAdmin } from './utils/initAdmin.js';
 
 // 环境变量
 dotenv.config();
+// Validate environment (fail-fast in production)
+validateEnv();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -360,7 +363,8 @@ app.use(errorHandler);
 
 // ==================== 启动服务器 ====================
 
-app.listen(PORT, async () => {
+// Exported server/start to allow supertest to import app without listening in test
+const startServer = async () => {
   console.log(`
 ╔═══════════════════════════════════════╗
 ║   Paper Burner X Server Started      ║
@@ -377,6 +381,11 @@ app.listen(PORT, async () => {
   } catch (error) {
     console.error('Failed to initialize admin:', error.message);
   }
-});
+};
 
-export default app;
+// Only listen when not in test mode, to allow supertest to use the app directly
+if (!env.isTest()) {
+  app.listen(PORT, () => { startServer(); });
+}
+
+export { app };

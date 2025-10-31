@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
+    "test": "NODE_ENV=test node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand",
+    "lint": "eslint . --ext .js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
@@ -32,6 +34,9 @@
     "uuid": "^11.0.3"
   },
   "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.1.1",
+    "eslint": "^9.12.0",
     "nodemon": "^3.1.7",
     "prisma": "^5.22.0"
   }

@@ -2,7 +2,6 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { adminWriteLimiter } from '../middleware/rateLimit.js';
-import { prisma } from '../utils/prisma.js';
 import { getProxySettingsDetailed, invalidateAllConfigCache } from '../utils/configCenter.js';
 import { AppErrors, HTTP_STATUS } from '../utils/errors.js';
 import { CRYPTO, ROLES, PAGINATION } from '../utils/constants.js';
