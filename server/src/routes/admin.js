@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { adminWriteLimiter } from '../middleware/rateLimit.js';
 import { prisma } from '../utils/prisma.js';
-import { getProxySettingsDetailed } from '../utils/configCenter.js';
+import { getProxySettingsDetailed, invalidateAllConfigCache } from '../utils/configCenter.js';
 import { AppErrors, HTTP_STATUS } from '../utils/errors.js';
 import { CRYPTO, ROLES, PAGINATION } from '../utils/constants.js';
 import { prisma } from '../utils/prisma.js';
@@ -369,6 +369,16 @@ router.get('/proxy-settings/effective', async (req, res, next) => {
   try {
     const detailed = await getProxySettingsDetailed();
     res.status(HTTP_STATUS.OK).json(detailed);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 立即应用配置（清空配置缓存，强制下次读取 DB）
+router.post('/proxy-settings/apply-now', adminWriteLimiter, async (req, res, next) => {
+  try {
+    invalidateAllConfigCache();
+    res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
   }

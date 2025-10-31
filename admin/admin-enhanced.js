@@ -772,3 +772,35 @@ async function refreshEffectiveProxySettings() {
 }
 
 window.refreshEffectiveProxySettings = refreshEffectiveProxySettings;
+
+async function applyProxySettingsNow() {
+    try {
+        await axios.post(`${API_BASE}/admin/proxy-settings/apply-now`, {}, { headers: { Authorization: `Bearer ${authToken}` } });
+        await refreshEffectiveProxySettings();
+        alert('已立即应用配置（缓存清空）');
+    } catch (e) {
+        alert('操作失败：' + (e.response?.data?.error || e.message));
+    }
+}
+
+async function clearProxyDomains() {
+    if (!confirm('确定清空“代理白名单域（手动）”与“Workers 代理域”吗？')) return;
+    try {
+        const entries = [
+            { key: 'PROXY_WHITELIST_DOMAINS', value: '' },
+            { key: 'WORKER_PROXY_DOMAINS', value: '' },
+        ];
+        for (const item of entries) {
+            await axios.put(`${API_BASE}/admin/config`, item, { headers: { Authorization: `Bearer ${authToken}` } });
+        }
+        await applyProxySettingsNow();
+        // 同步表单显示
+        setInputValue('proxyWhitelistDomains', '');
+        setInputValue('workerProxyDomains', '');
+    } catch (e) {
+        alert('清空失败：' + (e.response?.data?.error || e.message));
+    }
+}
+
+window.applyProxySettingsNow = applyProxySettingsNow;
+window.clearProxyDomains = clearProxyDomains;

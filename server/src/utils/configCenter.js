@@ -151,6 +151,11 @@ export async function getProxySettingsDetailed() {
   };
 }
 
+// 使配置缓存立即失效（便于“立即应用配置”）
+export function invalidateAllConfigCache() {
+  cache.clear();
+}
+
 export default {
   getSystemConfigValue,
   getProxySettings,
