@@ -378,10 +378,24 @@ router.get('/source-sites', async (req, res, next) => {
 
 router.post('/source-sites', adminWriteLimiter, async (req, res, next) => {
   try {
+    const { displayName, apiBaseUrl, requestFormat = 'openai', temperature = 0.5, maxTokens = 8000, availableModels = [] } = req.body || {};
+
+    if (!displayName || typeof displayName !== 'string') throw AppErrors.validation('displayName is required');
+    if (!apiBaseUrl || typeof apiBaseUrl !== 'string' || !/^https?:\/\//i.test(apiBaseUrl)) throw AppErrors.validation('apiBaseUrl must be a valid URL');
+    if (!['openai','anthropic','custom'].includes(requestFormat)) throw AppErrors.validation('requestFormat invalid');
+    const tempNum = Number(temperature); if (Number.isNaN(tempNum) || tempNum < 0 || tempNum > 2) throw AppErrors.validation('temperature must be 0~2');
+    const maxTk = parseInt(maxTokens); if (Number.isNaN(maxTk) || maxTk < 1 || maxTk > 1000000) throw AppErrors.validation('maxTokens out of range');
+    const models = Array.isArray(availableModels) ? availableModels.map(String).slice(0, 200) : [];
+
     const site = await prisma.customSourceSite.create({
       data: {
-        userId: null, // 全局配置
-        ...req.body
+        userId: null,
+        displayName,
+        apiBaseUrl,
+        requestFormat,
+        temperature: tempNum,
+        maxTokens: maxTk,
+        availableModels: models,
       }
     });
 
@@ -393,10 +407,40 @@ router.post('/source-sites', adminWriteLimiter, async (req, res, next) => {
 
 router.put('/source-sites/:id', adminWriteLimiter, async (req, res, next) => {
   try {
-    await prisma.customSourceSite.update({
-      where: { id: req.params.id },
-      data: req.body
-    });
+    const id = req.params.id;
+    if (!validateUUID(id)) return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Invalid id' });
+
+    const { displayName, apiBaseUrl, requestFormat, temperature, maxTokens, availableModels } = req.body || {};
+
+    const data = {};
+    if (displayName !== undefined) {
+      if (!displayName || typeof displayName !== 'string') throw AppErrors.validation('displayName invalid');
+      data.displayName = displayName;
+    }
+    if (apiBaseUrl !== undefined) {
+      if (!apiBaseUrl || typeof apiBaseUrl !== 'string' || !/^https?:\/\//i.test(apiBaseUrl)) throw AppErrors.validation('apiBaseUrl invalid');
+      data.apiBaseUrl = apiBaseUrl;
+    }
+    if (requestFormat !== undefined) {
+      if (!['openai','anthropic','custom'].includes(requestFormat)) throw AppErrors.validation('requestFormat invalid');
+      data.requestFormat = requestFormat;
+    }
+    if (temperature !== undefined) {
+      const tempNum = Number(temperature); if (Number.isNaN(tempNum) || tempNum < 0 || tempNum > 2) throw AppErrors.validation('temperature must be 0~2');
+      data.temperature = tempNum;
+    }
+    if (maxTokens !== undefined) {
+      const maxTk = parseInt(maxTokens); if (Number.isNaN(maxTk) || maxTk < 1 || maxTk > 1000000) throw AppErrors.validation('maxTokens out of range');
+      data.maxTokens = maxTk;
+    }
+    if (availableModels !== undefined) {
+      const models = Array.isArray(availableModels) ? availableModels.map(String).slice(0, 200) : [];
+      data.availableModels = models;
+    }
+
+    if (Object.keys(data).length === 0) return res.status(HTTP_STATUS.OK).json({ success: true });
+
+    await prisma.customSourceSite.update({ where: { id }, data });
 
     res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
@@ -406,9 +450,10 @@ router.put('/source-sites/:id', adminWriteLimiter, async (req, res, next) => {
 
 router.delete('/source-sites/:id', adminWriteLimiter, async (req, res, next) => {
   try {
-    await prisma.customSourceSite.delete({
-      where: { id: req.params.id }
-    });
+    const id = req.params.id;
+    if (!validateUUID(id)) return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Invalid id' });
+
+    await prisma.customSourceSite.delete({ where: { id } });
 
     res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {

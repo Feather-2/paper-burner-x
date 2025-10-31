@@ -458,6 +458,8 @@ function switchTab(tab) {
     } else if (tab === 'system') {
         // 进入系统设置页时加载代理配置
         loadProxySettings();
+    } else if (tab === 'models') {
+        loadSourceSites();
     }
 }
 
@@ -483,6 +485,32 @@ window.showAdminPanel = async function(user) {
 // 页面加载完成后的初始化
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Admin panel enhancements loaded');
+    // 绑定模型配置的导入/导出按钮
+    const importBtn = document.getElementById('importSourceSitesBtn');
+    const importFile = document.getElementById('importSourceSitesFile');
+    const exportBtn = document.getElementById('exportSourceSitesBtn');
+    if (importBtn && importFile) {
+        importBtn.addEventListener('click', () => importFile.click());
+        importFile.addEventListener('change', async (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+            try {
+                const text = await file.text();
+                const json = JSON.parse(text);
+                await importSourceSites(json);
+                await loadSourceSites();
+                alert('导入完成');
+            } catch (err) {
+                console.error('Import failed:', err);
+                alert('导入失败：' + err.message);
+            } finally {
+                e.target.value = '';
+            }
+        });
+    }
+    if (exportBtn) {
+        exportBtn.addEventListener('click', exportSourceSites);
+    }
 });
 
 // ==================== 代理设置（系统设置） ====================
@@ -526,3 +554,164 @@ function setInputValue(id, val) { const el = document.getElementById(id); if (el
 function getInputValue(id) { const el = document.getElementById(id); return el ? el.value : ''; }
 function setSelectValue(id, val) { const el = document.getElementById(id); if (el) el.value = val; }
 function getSelectValue(id) { const el = document.getElementById(id); return el ? el.value : ''; }
+
+// ==================== 自定义源站（模型配置） ====================
+
+async function loadSourceSites() {
+    try {
+        const resp = await axios.get(`${API_BASE}/admin/source-sites`, { headers: { Authorization: `Bearer ${authToken}` } });
+        renderSourceSitesList(resp.data || []);
+    } catch (e) {
+        console.error('Failed to load source sites:', e);
+        const list = document.getElementById('sourceSitesList');
+        if (list) list.innerHTML = `<div class="text-sm text-red-600">加载失败：${e.message}</div>`;
+    }
+}
+
+function renderSourceSitesList(sites) {
+    const list = document.getElementById('sourceSitesList');
+    if (!list) return;
+    if (!Array.isArray(sites) || sites.length === 0) {
+        list.innerHTML = `<div class="text-gray-500 text-sm">暂无自定义源站。</div>`;
+        return;
+    }
+    list.innerHTML = sites.map(site => `
+        <div class="bg-white border rounded-lg p-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <div class="text-base font-medium">${escapeHtml(site.displayName || '-')}</div>
+                    <div class="text-xs text-gray-600 mt-1">${escapeHtml(site.apiBaseUrl || '-')}</div>
+                    <div class="text-xs text-gray-500 mt-1">格式: ${escapeHtml(site.requestFormat || 'openai')} · 温度: ${site.temperature ?? 0.5} · MaxTokens: ${site.maxTokens ?? 8000}</div>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button class="text-blue-600 hover:text-blue-800" onclick="editSourceSite('${site.id}')">编辑</button>
+                    <button class="text-red-600 hover:text-red-800" onclick="deleteSourceSite('${site.id}')">删除</button>
+                </div>
+            </div>
+            <div class="text-xs text-gray-500 mt-2">提示：该域将自动加入代理白名单。</div>
+        </div>
+    `).join('');
+}
+
+async function addSourceSite() {
+    try {
+        const displayName = prompt('源站名称：'); if (!displayName) return;
+        const apiBaseUrl = prompt('API 基础地址（https://...）：'); if (!apiBaseUrl) return;
+        const requestFormat = prompt('请求格式（openai/anthropic/custom，默认 openai）：') || 'openai';
+        const temperature = parseFloat(prompt('温度（0.0~2.0，默认 0.5）：') || '0.5');
+        const maxTokens = parseInt(prompt('最大 Tokens（默认 8000）：') || '8000');
+        const modelsCsv = prompt('可用模型（逗号分隔，可留空）：') || '';
+        const availableModels = modelsCsv ? modelsCsv.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+        const payload = { displayName, apiBaseUrl, requestFormat, temperature, maxTokens, availableModels };
+        await axios.post(`${API_BASE}/admin/source-sites`, payload, { headers: { Authorization: `Bearer ${authToken}` } });
+        await loadSourceSites();
+        alert('已添加');
+    } catch (e) {
+        alert('添加失败：' + (e.response?.data?.error || e.message));
+    }
+}
+
+async function editSourceSite(id) {
+    try {
+        // 获取当前项
+        const resp = await axios.get(`${API_BASE}/admin/source-sites`, { headers: { Authorization: `Bearer ${authToken}` } });
+        const site = (resp.data || []).find(s => s.id === id);
+        if (!site) return alert('未找到该源站');
+
+        const displayName = prompt('源站名称：', site.displayName || '') ?? site.displayName;
+        const apiBaseUrl = prompt('API 基础地址（https://...）：', site.apiBaseUrl || '') ?? site.apiBaseUrl;
+        const requestFormat = prompt('请求格式（openai/anthropic/custom）：', site.requestFormat || 'openai') || site.requestFormat;
+        const temperature = parseFloat(prompt('温度（0.0~2.0）：', String(site.temperature ?? '0.5')) || site.temperature);
+        const maxTokens = parseInt(prompt('最大 Tokens：', String(site.maxTokens ?? '8000')) || site.maxTokens);
+        const modelsCsv = prompt('可用模型（逗号分隔）：', Array.isArray(site.availableModels) ? site.availableModels.join(',') : '') || '';
+        const availableModels = modelsCsv ? modelsCsv.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+        const payload = { displayName, apiBaseUrl, requestFormat, temperature, maxTokens, availableModels };
+        await axios.put(`${API_BASE}/admin/source-sites/${id}`, payload, { headers: { Authorization: `Bearer ${authToken}` } });
+        await loadSourceSites();
+        alert('已保存');
+    } catch (e) {
+        alert('保存失败：' + (e.response?.data?.error || e.message));
+    }
+}
+
+async function deleteSourceSite(id) {
+    if (!confirm('确定要删除该源站？')) return;
+    try {
+        await axios.delete(`${API_BASE}/admin/source-sites/${id}`, { headers: { Authorization: `Bearer ${authToken}` } });
+        await loadSourceSites();
+        alert('已删除');
+    } catch (e) {
+        alert('删除失败：' + (e.response?.data?.error || e.message));
+    }
+}
+
+// 暴露到全局（index.html 的按钮会调用）
+window.addSourceSite = addSourceSite;
+window.editSourceSite = editSourceSite;
+window.deleteSourceSite = deleteSourceSite;
+
+// 导入/导出源站点 JSON
+async function importSourceSites(data) {
+    // 支持对象或数组格式
+    let items = [];
+    if (Array.isArray(data)) {
+        items = data;
+    } else if (data && typeof data === 'object') {
+        // 兼容 { items: [...] } 或 { customSourceSites: {...} }
+        if (Array.isArray(data.items)) {
+            items = data.items;
+        } else if (Array.isArray(data.customSourceSites)) {
+            items = data.customSourceSites;
+        } else if (data.customSourceSites && typeof data.customSourceSites === 'object') {
+            // 对象转数组
+            items = Object.values(data.customSourceSites);
+        } else {
+            items = Object.values(data);
+        }
+    }
+    if (!Array.isArray(items)) throw new Error('无效的导入格式');
+
+    // 逐条创建（后端已做校验/截断）
+    for (const raw of items) {
+        const payload = normalizeSitePayload(raw);
+        if (!payload) continue;
+        try {
+            await axios.post(`${API_BASE}/admin/source-sites`, payload, { headers: { Authorization: `Bearer ${authToken}` } });
+        } catch (e) {
+            console.warn('Skip one item due to error:', e.response?.data || e.message);
+        }
+    }
+}
+
+function normalizeSitePayload(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const displayName = raw.displayName || raw.name || '';
+    const apiBaseUrl = raw.apiBaseUrl || raw.baseUrl || raw.endpoint || '';
+    if (!displayName || !apiBaseUrl) return null;
+    const requestFormat = raw.requestFormat || 'openai';
+    const temperature = Number.isFinite(raw.temperature) ? Number(raw.temperature) : 0.5;
+    const maxTokens = Number.isFinite(raw.maxTokens) ? Number(raw.maxTokens) : 8000;
+    const availableModels = Array.isArray(raw.availableModels) ? raw.availableModels : [];
+    return { displayName, apiBaseUrl, requestFormat, temperature, maxTokens, availableModels };
+}
+
+async function exportSourceSites() {
+    try {
+        const resp = await axios.get(`${API_BASE}/admin/source-sites`, { headers: { Authorization: `Bearer ${authToken}` } });
+        const items = resp.data || [];
+        const blob = new Blob([JSON.stringify({ items }, null, 2)], { type: 'application/json;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `source-sites-${new Date().toISOString().slice(0,10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (e) {
+        console.error('Export failed:', e);
+        alert('导出失败：' + (e.response?.data?.error || e.message));
+    }
+}

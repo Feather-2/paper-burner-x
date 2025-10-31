@@ -299,10 +299,19 @@
 
                 <!-- 模型配置 -->
                 <div id="content-models" class="p-6 hidden">
-                    <div class="mb-4">
+                    <div class="mb-4 flex flex-wrap items-center gap-3">
                         <button onclick="addSourceSite()"
                             class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
                             添加自定义源站
+                        </button>
+                        <button id="importSourceSitesBtn"
+                            class="bg-gray-200 px-4 py-2 rounded-md hover:bg-gray-300">
+                            导入 JSON
+                        </button>
+                        <input id="importSourceSitesFile" type="file" accept="application/json" class="hidden">
+                        <button id="exportSourceSitesBtn"
+                            class="bg-gray-200 px-4 py-2 rounded-md hover:bg-gray-300">
+                            导出 JSON
                         </button>
                     </div>
                     <div id="sourceSitesList" class="space-y-4">
