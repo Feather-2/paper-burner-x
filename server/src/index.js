@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import cookieParser from 'cookie-parser';
 import multer from 'multer';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { FILE_UPLOAD } from './utils/constants.js';
@@ -50,6 +51,10 @@ const allowInline = process.env.CSP_ALLOW_INLINE === 'true' || deploymentMode ==
 // 为兼容现有页面，暂时允许内联脚本与常用 CDN；后续建议改为外部文件 + nonce。
 const cspDirectives = {
   defaultSrc: ["'self'"],
+  // 进一步加固
+  frameAncestors: ["'none'"],
+  baseUri: ["'self'"],
+  objectSrc: ["'none'"],
   scriptSrc: [
     "'self'",
     ...(allowInline ? ["'unsafe-inline'"] : []),
@@ -105,6 +110,9 @@ const cspDirectives = {
 // CSP 构建工具与开关（便于调试/健康检查暴露）
 const dashMap = {
   defaultSrc: 'default-src',
+  frameAncestors: 'frame-ancestors',
+  baseUri: 'base-uri',
+  objectSrc: 'object-src',
   scriptSrc: 'script-src',
   scriptSrcElem: 'script-src-elem',
   scriptSrcAttr: 'script-src-attr',
@@ -235,11 +243,31 @@ if (process.env.NODE_ENV === 'production' && process.env.FILE_VALIDATION_STRICT 
   console.warn('⚠️  Production mode: Consider setting FILE_VALIDATION_STRICT=true for file upload security.');
 }
 
-// 静态文件服务（前端）
-const frontendPath = join(__dirname, '../../');
-app.use(express.static(frontendPath));
+// 静态文件服务（前端）- 收敛暴露范围，仅白名单必要目录
+const rootPath = join(__dirname, '../../');
+const staticOptions = {
+  dotfiles: 'ignore',
+  maxAge: isProd ? '7d' : 0,
+  immutable: isProd,
+};
+// 仅暴露必要的静态目录
+app.use('/public', express.static(join(rootPath, 'public'), staticOptions));
+app.use('/css', express.static(join(rootPath, 'css'), staticOptions));
+app.use('/js', express.static(join(rootPath, 'js'), staticOptions));
+app.use('/views', express.static(join(rootPath, 'views'), staticOptions));
+app.use('/workers', express.static(join(rootPath, 'workers'), staticOptions));
+app.use('/admin', express.static(join(rootPath, 'admin'), staticOptions));
 
 // ==================== API 路由 ====================
+
+// 读取版本号（来自 server/package.json）
+let appVersion = 'unknown';
+try {
+  const pkg = JSON.parse(fs.readFileSync(join(__dirname, '../package.json'), 'utf8'));
+  if (pkg && pkg.version) appVersion = pkg.version;
+} catch (_) {
+  // ignore
+}
 
 app.get('/api/health', (req, res) => {
   const isDev = process.env.NODE_ENV !== 'production';
@@ -248,7 +276,7 @@ app.get('/api/health', (req, res) => {
     status: 'ok',
     timestamp: Date.now(),
     mode: process.env.DEPLOYMENT_MODE || 'docker',
-    version: '1.0.0',
+    version: appVersion,
     // 开发环境返回详细信息，生产环境仅返回状态
     ...(isDev ? {
       csp: {
@@ -296,12 +324,12 @@ app.use('/api/prompt-pool', promptPoolRoutes);
 
 // 管理员面板
 app.get('/admin*', (req, res) => {
-  res.sendFile(join(frontendPath, 'admin/index.html'));
+  res.sendFile(join(rootPath, 'admin/index.html'));
 });
 
 // 主应用
 app.get('*', (req, res) => {
-  res.sendFile(join(frontendPath, 'index.html'));
+  res.sendFile(join(rootPath, 'index.html'));
 });
 
 // ==================== 错误处理 ====================

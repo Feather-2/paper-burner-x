@@ -335,6 +335,46 @@
                                 </button>
                             </div>
                         </div>
+
+                        <div class="pt-6 border-t">
+                            <h3 class="text-lg font-medium mb-4">代理与下载设置</h3>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">代理白名单域（手动追加，逗号分隔）</label>
+                                    <input type="text" id="proxyWhitelistDomains" placeholder="mineru.net, v2.doc2x.noedgeai.com"
+                                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
+                                    <p class="mt-1 text-xs text-gray-500">与“自定义源站点（全局）”“Workers 域”动态合并；子域名自动匹配。</p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Workers 代理域（逗号分隔）</label>
+                                    <input type="text" id="workerProxyDomains" placeholder="ocr-proxy.xxx.workers.dev, my-proxy.example.com"
+                                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">允许 HTTP 代理</label>
+                                        <select id="allowHttpProxy" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
+                                            <option value="false">否（推荐）</option>
+                                            <option value="true">是（仅测试环境）</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">上游超时（毫秒）</label>
+                                        <input type="number" id="ocrUpstreamTimeoutMs" placeholder="30000"
+                                               class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700">下载体积上限（MB）</label>
+                                        <input type="number" id="maxProxyDownloadMb" placeholder="100"
+                                               class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md">
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <button onclick="saveProxySettings()" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">保存代理设置</button>
+                                    <span class="text-xs text-gray-500">保存后约 60 秒内生效（服务端定时刷新）。</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

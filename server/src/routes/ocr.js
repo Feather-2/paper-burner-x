@@ -1,10 +1,105 @@
 import express from 'express';
 import fetch from 'node-fetch';
+import dns from 'dns';
+import net from 'net';
+import { PassThrough } from 'stream';
+import { getProxySettings } from '../utils/configCenter.js';
 
 const router = express.Router();
 
 const MINERU_BASE_URL = 'https://mineru.net/api/v4';
 const DOC2X_BASE_URL = 'https://v2.doc2x.noedgeai.com';
+
+// 从配置中心动态获取设置
+let dynamicProxySettings = {
+  whitelist: [],
+  allowHttp: false,
+  timeoutMs: parseInt(process.env.OCR_UPSTREAM_TIMEOUT_MS || '30000', 10),
+  maxDownloadBytes: parseInt(process.env.MAX_PROXY_DOWNLOAD_MB || '100', 10) * 1024 * 1024,
+};
+
+async function refreshProxySettings() {
+  try {
+    dynamicProxySettings = await getProxySettings();
+  } catch {
+    // ignore; fallback to env defaults
+  }
+}
+
+// 启动时预取一次
+refreshProxySettings();
+// 周期刷新（1分钟）
+setInterval(refreshProxySettings, 60 * 1000).unref?.();
+
+// ================ 安全辅助函数 ================
+
+function isPrivateIp(ip) {
+  if (!ip) return true;
+  // IPv4 私网与保留
+  const v = net.isIP(ip);
+  if (v === 4) {
+    const octets = ip.split('.').map(n => parseInt(n, 10));
+    const [a, b] = octets;
+    if (a === 10) return true; // 10.0.0.0/8
+    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+    if (a === 192 && b === 168) return true; // 192.168.0.0/16
+    if (a === 127) return true; // 127.0.0.0/8 回环
+    if (a === 169 && b === 254) return true; // 链路本地
+    if (a === 0) return true; // 0.0.0.0/8
+  }
+  if (v === 6) {
+    const normalized = ip.toLowerCase();
+    if (normalized === '::1') return true; // 回环
+    if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true; // fc00::/7 私网
+    if (normalized.startsWith('fe8') || normalized.startsWith('fe9') || normalized.startsWith('fea') || normalized.startsWith('feb')) return true; // fe80::/10 链路本地
+  }
+  return false;
+}
+
+async function resolveAndValidateHost(urlObj) {
+  // 协议限制：仅 https（更安全）；如需放宽到 http，可通过环境变量显式允许
+  const allowHttp = dynamicProxySettings.allowHttp === true;
+  if (!(urlObj.protocol === 'https:' || (allowHttp && urlObj.protocol === 'http:'))) {
+    throw new Error('Only HTTPS is allowed for proxy');
+  }
+
+  const hostname = urlObj.hostname.toLowerCase();
+  if (hostname === 'localhost') {
+    throw new Error('Proxy to localhost is not allowed');
+  }
+
+  // 白名单检查（如配置）
+  const whitelist = dynamicProxySettings.whitelist || [];
+  if (whitelist.length > 0) {
+    const hit = whitelist.some(allowed => hostname === allowed || hostname.endsWith('.' + allowed));
+    if (!hit) {
+      throw new Error('Host is not in whitelist');
+    }
+  }
+
+  // 解析 A/AAAA 记录并阻断私网
+  const lookup = dns.promises.lookup;
+  try {
+    const result = await lookup(hostname, { all: true });
+    for (const addr of result) {
+      if (isPrivateIp(addr.address)) {
+        throw new Error('Resolved to private or loopback address');
+      }
+    }
+  } catch (err) {
+    // DNS 失败也拒绝，避免绕过
+    throw new Error('DNS resolution failed');
+  }
+}
+
+function fetchWithTimeout(url, options = {}, timeoutMs, controller) {
+  const effectiveTimeout = parseInt(timeoutMs || dynamicProxySettings.timeoutMs || 30000, 10);
+  const ctrl = controller || new AbortController();
+  const id = setTimeout(() => ctrl.abort(new Error('Fetch timeout')), effectiveTimeout);
+  const finalOptions = { ...options, signal: ctrl.signal };
+  return fetch(url, finalOptions)
+    .finally(() => clearTimeout(id));
+}
 
 // ==================== Helper Functions ====================
 
@@ -52,7 +147,7 @@ router.post('/mineru/upload', async (req, res, next) => {
     const language = req.body.language || 'ch';
 
     // 申请上传链接
-    const uploadUrlResponse = await fetch(`${MINERU_BASE_URL}/file-urls/batch`, {
+    const uploadUrlResponse = await fetchWithTimeout(`${MINERU_BASE_URL}/file-urls/batch`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -84,7 +179,7 @@ router.post('/mineru/upload', async (req, res, next) => {
     // 上传文件到 OSS
     const ossUploadUrl = uploadData.data.file_urls[0];
 
-    const ossUploadResponse = await fetch(ossUploadUrl, {
+    const ossUploadResponse = await fetchWithTimeout(ossUploadUrl, {
       method: 'PUT',
       body: file.buffer,
     });
@@ -132,7 +227,7 @@ router.get('/mineru/result/:batchId', async (req, res, next) => {
       });
     }
 
-    const resultResponse = await fetch(`${MINERU_BASE_URL}/extract-results/batch/${batchId}`, {
+    const resultResponse = await fetchWithTimeout(`${MINERU_BASE_URL}/extract-results/batch/${batchId}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -180,7 +275,7 @@ router.post('/doc2x/upload', async (req, res, next) => {
     }
 
     // 1. 请求预上传链接
-    const preuploadResponse = await fetch(`${DOC2X_BASE_URL}/api/v2/parse/preupload`, {
+    const preuploadResponse = await fetchWithTimeout(`${DOC2X_BASE_URL}/api/v2/parse/preupload`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -200,7 +295,7 @@ router.post('/doc2x/upload', async (req, res, next) => {
     const { uid, url: uploadUrl } = preuploadData.data;
 
     // 2. 上传文件到 OSS
-    const ossUploadResponse = await fetch(uploadUrl, {
+    const ossUploadResponse = await fetchWithTimeout(uploadUrl, {
       method: 'PUT',
       body: file.buffer,
     });
@@ -243,7 +338,7 @@ router.get('/doc2x/status/:uid', async (req, res, next) => {
       return res.status(401).json({ error: 'Doc2X API Token required' });
     }
 
-    const statusResponse = await fetch(`${DOC2X_BASE_URL}/api/v2/parse/status?uid=${uid}`, {
+    const statusResponse = await fetchWithTimeout(`${DOC2X_BASE_URL}/api/v2/parse/status?uid=${uid}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -290,7 +385,7 @@ router.post('/doc2x/convert', async (req, res, next) => {
       return res.status(401).json({ error: 'Doc2X API Token required' });
     }
 
-    const convertResponse = await fetch(`${DOC2X_BASE_URL}/api/v2/convert/parse`, {
+    const convertResponse = await fetchWithTimeout(`${DOC2X_BASE_URL}/api/v2/convert/parse`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -345,7 +440,7 @@ router.get('/doc2x/convert/result/:uid', async (req, res, next) => {
       return res.status(401).json({ error: 'Doc2X API Token required' });
     }
 
-    const resultResponse = await fetch(`${DOC2X_BASE_URL}/api/v2/convert/parse/result?uid=${uid}`, {
+    const resultResponse = await fetchWithTimeout(`${DOC2X_BASE_URL}/api/v2/convert/parse/result?uid=${uid}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -388,20 +483,37 @@ router.get('/proxy/zip', async (req, res, next) => {
       return res.status(400).json({ error: 'url parameter is required' });
     }
 
+    let urlObj;
+    try {
+      urlObj = new URL(zipUrl);
+    } catch {
+      return res.status(400).json({ error: 'Invalid URL' });
+    }
+
+    // 校验域名与解析地址
+    try {
+      await resolveAndValidateHost(urlObj);
+    } catch (err) {
+      const msg = process.env.NODE_ENV === 'production' ? 'Upstream validation failed' : `Validation failed: ${err.message}`;
+      return res.status(400).json({ error: msg });
+    }
+
     const upstreamHeaders = {};
     const rangeHeader = req.headers['range'];
     if (rangeHeader) {
       upstreamHeaders['Range'] = rangeHeader;
     }
 
-    const response = await fetch(zipUrl, {
+    const controller = new AbortController();
+    const response = await fetchWithTimeout(zipUrl, {
       method: req.method,
       headers: upstreamHeaders,
-      redirect: 'follow'
-    });
+      redirect: 'follow',
+    }, dynamicProxySettings.timeoutMs, controller);
 
     if (!response.ok && response.status !== 206) {
-      return res.status(502).json({ error: `Upstream fetch failed: ${response.status}` });
+      const msg = process.env.NODE_ENV === 'production' ? 'Upstream fetch failed' : `Upstream fetch failed: ${response.status}`;
+      return res.status(502).json({ error: msg });
     }
 
     res.setHeader('Content-Type', response.headers.get('Content-Type') || 'application/zip');
@@ -419,9 +531,28 @@ router.get('/proxy/zip', async (req, res, next) => {
     }
 
     res.status(response.status);
-    response.body.pipe(res);
+
+    // 监控大小，超过限制则中止
+    let downloaded = 0;
+    const monitor = new PassThrough();
+    monitor.on('data', (chunk) => {
+      downloaded += chunk.length;
+      if (downloaded > (dynamicProxySettings.maxDownloadBytes || 100 * 1024 * 1024)) {
+        controller.abort();
+        monitor.destroy(new Error('Response too large'));
+      }
+    });
+
+    response.body.on('error', (err) => {
+      monitor.destroy(err);
+    });
+
+    response.body.pipe(monitor).pipe(res);
 
   } catch (error) {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(502).json({ error: 'Proxy error' });
+    }
     next(error);
   }
 });

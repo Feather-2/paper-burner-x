@@ -5,6 +5,7 @@ import { adminWriteLimiter } from '../middleware/rateLimit.js';
 import { prisma } from '../utils/prisma.js';
 import { AppErrors, HTTP_STATUS } from '../utils/errors.js';
 import { CRYPTO, ROLES, PAGINATION } from '../utils/constants.js';
+import { prisma } from '../utils/prisma.js';
 import { validateEmail, sanitizeSearchString, validateDate } from '../utils/validation.js';
 
 const router = express.Router();
@@ -303,7 +304,19 @@ router.get('/config', async (req, res, next) => {
 router.put('/config', adminWriteLimiter, async (req, res, next) => {
   try {
     const { key, value, description } = req.body || {};
-    const allowList = new Set(['SITE_NAME','ALLOW_REGISTRATION','MAX_UPLOAD_SIZE_MB','ENFORCE_2FA','FRONTEND_CDN_MODE']);
+    // 扩展白名单：加入代理相关配置键，便于动态管理 OCR 代理白名单/限额/超时
+    const allowList = new Set([
+      'SITE_NAME',
+      'ALLOW_REGISTRATION',
+      'MAX_UPLOAD_SIZE_MB',
+      'ENFORCE_2FA',
+      'FRONTEND_CDN_MODE',
+      // 新增：代理安全相关配置
+      'PROXY_WHITELIST_DOMAINS',
+      'ALLOW_HTTP_PROXY',
+      'OCR_UPSTREAM_TIMEOUT_MS',
+      'MAX_PROXY_DOWNLOAD_MB',
+    ]);
     if (!key || !allowList.has(key)) return res.status(400).json({ error: 'Invalid config key' });
     await prisma.systemConfig.upsert({
       where: { key },

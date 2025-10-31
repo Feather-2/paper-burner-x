@@ -455,6 +455,9 @@ function switchTab(tab) {
         populateUserSelect();
     } else if (tab === 'activity') {
         populateUserSelect();
+    } else if (tab === 'system') {
+        // 进入系统设置页时加载代理配置
+        loadProxySettings();
     }
 }
 
@@ -481,3 +484,45 @@ window.showAdminPanel = async function(user) {
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Admin panel enhancements loaded');
 });
+
+// ==================== 代理设置（系统设置） ====================
+
+async function loadProxySettings() {
+    try {
+        const resp = await axios.get(`${API_BASE}/admin/config`, { headers: { Authorization: `Bearer ${authToken}` } });
+        const cfg = resp.data || {};
+        // 回显
+        setInputValue('proxyWhitelistDomains', cfg.PROXY_WHITELIST_DOMAINS || '');
+        setInputValue('workerProxyDomains', cfg.WORKER_PROXY_DOMAINS || '');
+        setSelectValue('allowHttpProxy', (cfg.ALLOW_HTTP_PROXY || 'false').toString());
+        setInputValue('ocrUpstreamTimeoutMs', cfg.OCR_UPSTREAM_TIMEOUT_MS || '30000');
+        setInputValue('maxProxyDownloadMb', cfg.MAX_PROXY_DOWNLOAD_MB || '100');
+    } catch (e) {
+        console.error('Failed to load proxy settings:', e);
+    }
+}
+
+async function saveProxySettings() {
+    try {
+        const entries = [
+            { key: 'PROXY_WHITELIST_DOMAINS', value: getInputValue('proxyWhitelistDomains') },
+            { key: 'WORKER_PROXY_DOMAINS', value: getInputValue('workerProxyDomains') },
+            { key: 'ALLOW_HTTP_PROXY', value: getSelectValue('allowHttpProxy') },
+            { key: 'OCR_UPSTREAM_TIMEOUT_MS', value: String(parseInt(getInputValue('ocrUpstreamTimeoutMs') || '30000')) },
+            { key: 'MAX_PROXY_DOWNLOAD_MB', value: String(parseInt(getInputValue('maxProxyDownloadMb') || '100')) },
+        ];
+
+        for (const item of entries) {
+            await axios.put(`${API_BASE}/admin/config`, item, { headers: { Authorization: `Bearer ${authToken}` } });
+        }
+        alert('已保存，约 60 秒内生效');
+    } catch (e) {
+        console.error('Failed to save proxy settings:', e);
+        alert('保存失败：' + (e.response?.data?.error || e.message));
+    }
+}
+
+function setInputValue(id, val) { const el = document.getElementById(id); if (el) el.value = val ?? ''; }
+function getInputValue(id) { const el = document.getElementById(id); return el ? el.value : ''; }
+function setSelectValue(id, val) { const el = document.getElementById(id); if (el) el.value = val; }
+function getSelectValue(id) { const el = document.getElementById(id); return el ? el.value : ''; }
