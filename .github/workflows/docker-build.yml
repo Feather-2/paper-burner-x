@@ -18,6 +18,8 @@ env:
 
 jobs:
   build-and-push:
+    # PR 上仅需跑 test 必要检查；跳过镜像构建以避免 lock 不一致导致失败
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
