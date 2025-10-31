@@ -62,8 +62,8 @@ export async function getProxySettings() {
   ]);
 
   // 手动配置域
-  const manualWhitelist = parseDomainList(dbWhitelist ?? process.env.PROXY_WHITELIST_DOMAINS || '');
-  const workerDomains = parseDomainList(dbWorkerDomains ?? process.env.WORKER_PROXY_DOMAINS || '');
+  const manualWhitelist = parseDomainList((dbWhitelist ?? process.env.PROXY_WHITELIST_DOMAINS) || '');
+  const workerDomains = parseDomainList((dbWorkerDomains ?? process.env.WORKER_PROXY_DOMAINS) || '');
 
   // 全局自定义源站（管理员配置）
   let customSiteDomains = [];
@@ -91,9 +91,9 @@ export async function getProxySettings() {
   ].map(d => d.toLowerCase()));
 
   const whitelist = Array.from(domainSet);
-  const allowHttp = String(dbAllowHttp ?? process.env.ALLOW_HTTP_PROXY || 'false').toLowerCase() === 'true';
-  const timeoutMs = parseInt(dbTimeout ?? process.env.OCR_UPSTREAM_TIMEOUT_MS || '30000', 10);
-  const maxMb = parseInt(dbMaxMb ?? process.env.MAX_PROXY_DOWNLOAD_MB || '100', 10);
+  const allowHttp = String((dbAllowHttp ?? process.env.ALLOW_HTTP_PROXY) || 'false').toLowerCase() === 'true';
+  const timeoutMs = parseInt((dbTimeout ?? process.env.OCR_UPSTREAM_TIMEOUT_MS) || '30000', 10);
+  const maxMb = parseInt((dbMaxMb ?? process.env.MAX_PROXY_DOWNLOAD_MB) || '100', 10);
 
   const maxDownloadBytes = Math.max(1, maxMb) * 1024 * 1024;
   const finalTimeout = Math.max(1000, timeoutMs);
@@ -111,8 +111,8 @@ export async function getProxySettingsDetailed() {
     getSystemConfigValue('WORKER_PROXY_DOMAINS'),
   ]);
 
-  const manualWhitelist = parseDomainList(dbWhitelist ?? process.env.PROXY_WHITELIST_DOMAINS || '');
-  const workerDomains = parseDomainList(dbWorkerDomains ?? process.env.WORKER_PROXY_DOMAINS || '');
+  const manualWhitelist = parseDomainList((dbWhitelist ?? process.env.PROXY_WHITELIST_DOMAINS) || '');
+  const workerDomains = parseDomainList((dbWorkerDomains ?? process.env.WORKER_PROXY_DOMAINS) || '');
 
   let customSiteDomains = [];
   try {
@@ -130,9 +130,9 @@ export async function getProxySettingsDetailed() {
   const defaultVendors = ['mineru.net', 'v2.doc2x.noedgeai.com'];
   const merged = Array.from(new Set([...defaultVendors, ...manualWhitelist, ...workerDomains, ...customSiteDomains].map(d => d.toLowerCase())));
 
-  const allowHttp = String(dbAllowHttp ?? process.env.ALLOW_HTTP_PROXY || 'false').toLowerCase() === 'true';
-  const timeoutMs = Math.max(1000, parseInt(dbTimeout ?? process.env.OCR_UPSTREAM_TIMEOUT_MS || '30000', 10));
-  const maxMb = parseInt(dbMaxMb ?? process.env.MAX_PROXY_DOWNLOAD_MB || '100', 10);
+  const allowHttp = String((dbAllowHttp ?? process.env.ALLOW_HTTP_PROXY) || 'false').toLowerCase() === 'true';
+  const timeoutMs = Math.max(1000, parseInt((dbTimeout ?? process.env.OCR_UPSTREAM_TIMEOUT_MS) || '30000', 10));
+  const maxMb = parseInt((dbMaxMb ?? process.env.MAX_PROXY_DOWNLOAD_MB) || '100', 10);
   const maxDownloadBytes = Math.max(1, maxMb) * 1024 * 1024;
 
   return {
