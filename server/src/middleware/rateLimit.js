@@ -17,3 +17,26 @@ export const adminWriteLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' },
 });
+
+// OCR 高成本接口限流（IP + 用户维度）
+export function createOcrLimiter({ windowMs = 60 * 1000, maxPerIp = 30, maxPerUser = 30 } = {}) {
+  const ipLimiter = rateLimit({
+    windowMs,
+    max: maxPerIp,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many OCR requests from this IP, slow down.' },
+    keyGenerator: (req) => req.ip,
+  });
+
+  const userLimiter = rateLimit({
+    windowMs,
+    max: maxPerUser,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many OCR requests from this user, slow down.' },
+    keyGenerator: (req) => req.user?.id || 'anonymous',
+  });
+
+  return [ipLimiter, userLimiter];
+}

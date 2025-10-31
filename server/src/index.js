@@ -230,8 +230,29 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
+// 选择存储模式：memory | disk（生产建议 disk）
+const uploadStorageMode = process.env.UPLOAD_STORAGE || 'memory';
+let storage;
+if (uploadStorageMode === 'disk') {
+  const tmpDir = process.env.UPLOAD_TMP_DIR || join(__dirname, '../../.uploads');
+  try { fs.mkdirSync(tmpDir, { recursive: true }); } catch {}
+  storage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, tmpDir),
+    filename: (req, file, cb) => {
+      const safeName = file.originalname.replace(/[^a-zA-Z0-9_.\-]/g, '_');
+      cb(null, `${Date.now()}_${safeName}`);
+    }
+  });
+  console.log(`File upload storage: disk -> ${tmpDir}`);
+} else {
+  storage = multer.memoryStorage();
+  if (isProd) {
+    console.warn('⚠️  Using memory storage for uploads in production. Consider set UPLOAD_STORAGE=disk');
+  }
+}
+
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage,
   limits: {
     fileSize: parseInt(process.env.MAX_UPLOAD_SIZE || FILE_UPLOAD.DEFAULT_MAX_SIZE_MB) * 1024 * 1024 // MB to bytes
   },

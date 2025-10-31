@@ -6,7 +6,7 @@ import { prisma } from '../utils/prisma.js';
 import { AppErrors, HTTP_STATUS } from '../utils/errors.js';
 import { CRYPTO, ROLES, PAGINATION } from '../utils/constants.js';
 import { prisma } from '../utils/prisma.js';
-import { validateEmail, sanitizeSearchString, validateDate } from '../utils/validation.js';
+import { validateEmail, sanitizeSearchString, validateDate, validateUUID } from '../utils/validation.js';
 
 const router = express.Router();
 
@@ -125,6 +125,10 @@ router.put('/users/:id', adminWriteLimiter, async (req, res, next) => {
     const { email, name, role } = req.body || {};
     const userId = req.params.id;
 
+    if (!validateUUID(userId)) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Invalid user id' });
+    }
+
     const target = await prisma.user.findUnique({ where: { id: userId } });
     if (!target) {
       throw AppErrors.notFound('User');
@@ -170,6 +174,10 @@ router.put('/users/:id/status', adminWriteLimiter, async (req, res, next) => {
     const { isActive } = req.body;
     const userId = req.params.id;
 
+    if (!validateUUID(userId)) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Invalid user id' });
+    }
+
     if (typeof isActive !== 'boolean') {
       throw AppErrors.validation('isActive must be a boolean');
     }
@@ -203,6 +211,9 @@ router.put('/users/:id/status', adminWriteLimiter, async (req, res, next) => {
 router.put('/users/:id/password', adminWriteLimiter, async (req, res, next) => {
   try {
     const userId = req.params.id;
+    if (!validateUUID(userId)) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Invalid user id' });
+    }
     const { password } = req.body || {};
 
     if (typeof password !== 'string' || password.length < 8) {
@@ -227,6 +238,9 @@ router.put('/users/:id/password', adminWriteLimiter, async (req, res, next) => {
 router.delete('/users/:id', adminWriteLimiter, async (req, res, next) => {
   try {
     const userId = req.params.id;
+    if (!validateUUID(userId)) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Invalid user id' });
+    }
     const target = await prisma.user.findUnique({ where: { id: userId } });
 
     if (!target) {
@@ -291,9 +305,14 @@ router.get('/stats', async (req, res, next) => {
 router.get('/config', async (req, res, next) => {
   try {
     const configs = await prisma.systemConfig.findMany();
+    // 扩展敏感键掩码：匹配常见后缀
     const sensitiveKeys = new Set(['JWT_SECRET', 'ENCRYPTION_SECRET']);
     const configMap = {};
-    configs.forEach(c => { configMap[c.key] = sensitiveKeys.has(c.key) ? '********' : c.value; });
+    configs.forEach(c => {
+      const k = c.key || '';
+      const isSensitive = sensitiveKeys.has(k) || /(_SECRET|_TOKEN|_KEY)$/i.test(k);
+      configMap[k] = isSensitive ? '********' : c.value;
+    });
     res.status(HTTP_STATUS.OK).json(configMap);
   } catch (error) {
     next(error);
@@ -318,6 +337,20 @@ router.put('/config', adminWriteLimiter, async (req, res, next) => {
       'MAX_PROXY_DOWNLOAD_MB',
     ]);
     if (!key || !allowList.has(key)) return res.status(400).json({ error: 'Invalid config key' });
+
+    // 基本类型/范围校验
+    const validators = {
+      'ALLOW_HTTP_PROXY': v => ['true','false'].includes(String(v).toLowerCase()),
+      'OCR_UPSTREAM_TIMEOUT_MS': v => !isNaN(parseInt(v)) && parseInt(v) >= 1000 && parseInt(v) <= 300000,
+      'MAX_PROXY_DOWNLOAD_MB': v => !isNaN(parseInt(v)) && parseInt(v) >= 1 && parseInt(v) <= 2048,
+      'PROXY_WHITELIST_DOMAINS': v => typeof v === 'string' && v.length <= 2000,
+      'WORKER_PROXY_DOMAINS': v => typeof v === 'string' && v.length <= 2000,
+      'MAX_UPLOAD_SIZE_MB': v => !isNaN(parseInt(v)) && parseInt(v) >= 1 && parseInt(v) <= 2048,
+      'ALLOW_REGISTRATION': v => ['true','false'].includes(String(v).toLowerCase()),
+    };
+    if (validators[key] && !validators[key](value)) {
+      return res.status(400).json({ error: `Invalid value for ${key}` });
+    }
     await prisma.systemConfig.upsert({
       where: { key },
       update: { value, description },
@@ -388,14 +421,19 @@ router.delete('/source-sites/:id', adminWriteLimiter, async (req, res, next) => 
 // 获取用户配额
 router.get('/users/:userId/quota', async (req, res, next) => {
   try {
+    const userId = req.params.userId;
+    if (!validateUUID(userId)) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Invalid user id' });
+    }
+
     let quota = await prisma.userQuota.findUnique({
-      where: { userId: req.params.userId }
+      where: { userId }
     });
 
     if (!quota) {
       // 创建默认配额
       quota = await prisma.userQuota.create({
-        data: { userId: req.params.userId }
+        data: { userId }
       });
     }
 
@@ -408,11 +446,16 @@ router.get('/users/:userId/quota', async (req, res, next) => {
 // 更新用户配额
 router.put('/users/:userId/quota', async (req, res, next) => {
   try {
+    const userId = req.params.userId;
+    if (!validateUUID(userId)) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Invalid user id' });
+    }
+
     const quota = await prisma.userQuota.upsert({
-      where: { userId: req.params.userId },
+      where: { userId },
       update: req.body,
       create: {
-        userId: req.params.userId,
+        userId,
         ...req.body
       }
     });
@@ -577,13 +620,17 @@ router.get('/stats/trends', async (req, res, next) => {
 router.get('/users/:userId/activity', async (req, res, next) => {
   try {
     const { limit = 50, offset = 0 } = req.query;
+    const userId = req.params.userId;
+    if (!validateUUID(userId)) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Invalid user id' });
+    }
 
     // 验证参数
     const limitNum = Math.min(Math.max(parseInt(limit) || 50, 1), 200);
     const offsetNum = Math.max(parseInt(offset) || 0, 0);
 
     const logs = await prisma.usageLog.findMany({
-      where: { userId: req.params.userId },
+      where: { userId },
       orderBy: { createdAt: 'desc' },
       take: limitNum,
       skip: offsetNum

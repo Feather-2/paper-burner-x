@@ -3,9 +3,20 @@ import fetch from 'node-fetch';
 import dns from 'dns';
 import net from 'net';
 import { PassThrough } from 'stream';
+import fs from 'fs';
 import { getProxySettings } from '../utils/configCenter.js';
+import { requireAuth, optionalAuth } from '../middleware/auth.js';
+import { createOcrLimiter } from '../middleware/rateLimit.js';
 
 const router = express.Router();
+
+// 为所有 OCR 路由添加基础限流与可选鉴权
+const [ocrIpLimiter, ocrUserLimiter] = createOcrLimiter({
+  windowMs: parseInt(process.env.OCR_LIMIT_WINDOW_MS || '60000', 10),
+  maxPerIp: parseInt(process.env.OCR_LIMIT_MAX_PER_IP || '30', 10),
+  maxPerUser: parseInt(process.env.OCR_LIMIT_MAX_PER_USER || '30', 10),
+});
+router.use(optionalAuth, ocrIpLimiter, ocrUserLimiter);
 
 const MINERU_BASE_URL = 'https://mineru.net/api/v4';
 const DOC2X_BASE_URL = 'https://v2.doc2x.noedgeai.com';
@@ -122,10 +133,25 @@ function getToken(req, service) {
   return token || null;
 }
 
+function getUploadBody(file) {
+  if (!file) throw new Error('No file provided');
+  // 磁盘存储模式：使用流并在完成后清理临时文件
+  if (file.path) {
+    const stream = fs.createReadStream(file.path);
+    const cleanup = async () => { try { await fs.promises.unlink(file.path); } catch {} };
+    return { body: stream, cleanup };
+  }
+  // 内存存储模式
+  if (file.buffer) {
+    return { body: file.buffer, cleanup: async () => {} };
+  }
+  throw new Error('Unsupported upload file format');
+}
+
 // ==================== MinerU Routes ====================
 
 // MinerU 文件上传
-router.post('/mineru/upload', async (req, res, next) => {
+router.post('/mineru/upload', requireAuth, async (req, res, next) => {
   try {
     // 文件从 multer 中间件获取
     const file = req.file;
@@ -178,11 +204,16 @@ router.post('/mineru/upload', async (req, res, next) => {
 
     // 上传文件到 OSS
     const ossUploadUrl = uploadData.data.file_urls[0];
-
-    const ossUploadResponse = await fetchWithTimeout(ossUploadUrl, {
-      method: 'PUT',
-      body: file.buffer,
-    });
+    const { body, cleanup } = getUploadBody(file);
+    let ossUploadResponse;
+    try {
+      ossUploadResponse = await fetchWithTimeout(ossUploadUrl, {
+        method: 'PUT',
+        body,
+      });
+    } finally {
+      await cleanup();
+    }
 
     if (!ossUploadResponse.ok) {
       throw new Error(`OSS上传失败: ${ossUploadResponse.status} ${ossUploadResponse.statusText}`);
@@ -201,7 +232,7 @@ router.post('/mineru/upload', async (req, res, next) => {
 });
 
 // MinerU 获取结果
-router.get('/mineru/result/:batchId', async (req, res, next) => {
+router.get('/mineru/result/:batchId', requireAuth, async (req, res, next) => {
   try {
     const { batchId } = req.params;
 
@@ -259,7 +290,7 @@ router.get('/mineru/result/:batchId', async (req, res, next) => {
 // ==================== Doc2X Routes ====================
 
 // Doc2X 文件上传
-router.post('/doc2x/upload', async (req, res, next) => {
+router.post('/doc2x/upload', requireAuth, async (req, res, next) => {
   try {
     const file = req.file;
 
@@ -295,10 +326,16 @@ router.post('/doc2x/upload', async (req, res, next) => {
     const { uid, url: uploadUrl } = preuploadData.data;
 
     // 2. 上传文件到 OSS
-    const ossUploadResponse = await fetchWithTimeout(uploadUrl, {
-      method: 'PUT',
-      body: file.buffer,
-    });
+    const { body, cleanup } = getUploadBody(file);
+    let ossUploadResponse;
+    try {
+      ossUploadResponse = await fetchWithTimeout(uploadUrl, {
+        method: 'PUT',
+        body,
+      });
+    } finally {
+      await cleanup();
+    }
 
     if (!ossUploadResponse.ok) {
       throw new Error(`Doc2X OSS上传失败: ${ossUploadResponse.status} ${ossUploadResponse.statusText}`);
@@ -317,7 +354,7 @@ router.post('/doc2x/upload', async (req, res, next) => {
 });
 
 // Doc2X 查询状态
-router.get('/doc2x/status/:uid', async (req, res, next) => {
+router.get('/doc2x/status/:uid', requireAuth, async (req, res, next) => {
   try {
     const { uid } = req.params;
 
@@ -372,7 +409,7 @@ router.get('/doc2x/status/:uid', async (req, res, next) => {
 });
 
 // Doc2X 转换
-router.post('/doc2x/convert', async (req, res, next) => {
+router.post('/doc2x/convert', requireAuth, async (req, res, next) => {
   try {
     const { uid, to = 'md', formula_mode = 'normal', filename, merge_cross_page_forms = false } = req.body;
 
@@ -427,7 +464,7 @@ router.post('/doc2x/convert', async (req, res, next) => {
 });
 
 // Doc2X 获取转换结果
-router.get('/doc2x/convert/result/:uid', async (req, res, next) => {
+router.get('/doc2x/convert/result/:uid', requireAuth, async (req, res, next) => {
   try {
     const { uid } = req.params;
 
@@ -475,7 +512,7 @@ router.get('/doc2x/convert/result/:uid', async (req, res, next) => {
 
 // ==================== ZIP 代理 ====================
 
-router.get('/proxy/zip', async (req, res, next) => {
+router.get('/proxy/zip', requireAuth, async (req, res, next) => {
   try {
     const zipUrl = req.query.url;
 
