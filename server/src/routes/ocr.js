@@ -5,6 +5,7 @@ import net from 'net';
 import { PassThrough } from 'stream';
 import fs from 'fs';
 import { getProxySettings } from '../utils/configCenter.js';
+import { logWarn, logError, logDebug } from '../utils/logger.js';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import { createOcrLimiter } from '../middleware/rateLimit.js';
 
@@ -112,6 +113,28 @@ function fetchWithTimeout(url, options = {}, timeoutMs, controller) {
     .finally(() => clearTimeout(id));
 }
 
+async function fetchWithRetry(url, options = {}, { retries = 2, timeoutMs } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    try {
+      const res = await fetchWithTimeout(url, { ...options, signal: controller.signal }, timeoutMs, controller);
+      return res;
+    } catch (err) {
+      lastErr = err;
+      logWarn('Upstream fetch attempt failed', { url, attempt, message: err.message });
+      // 对超时/连接类错误做短暂退避
+      const isAbort = /abort|timeout/i.test(String(err.message));
+      if (attempt < retries && isAbort) {
+        await new Promise(r => setTimeout(r, 200 * Math.pow(2, attempt))); // 200ms, 400ms
+        continue;
+      }
+      break;
+    }
+  }
+  throw lastErr;
+}
+
 // ==================== Helper Functions ====================
 
 function getToken(req, service) {
@@ -173,7 +196,7 @@ router.post('/mineru/upload', requireAuth, async (req, res, next) => {
     const language = req.body.language || 'ch';
 
     // 申请上传链接
-    const uploadUrlResponse = await fetchWithTimeout(`${MINERU_BASE_URL}/file-urls/batch`, {
+    const uploadUrlResponse = await fetchWithRetry(`${MINERU_BASE_URL}/file-urls/batch`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -190,7 +213,7 @@ router.post('/mineru/upload', requireAuth, async (req, res, next) => {
           ...(req.body.page_ranges && { page_ranges: req.body.page_ranges }),
         }],
       }),
-    });
+    }, { retries: 2, timeoutMs: dynamicProxySettings.timeoutMs });
 
     if (!uploadUrlResponse.ok) {
       throw new Error(`MinerU申请上传链接失败: ${await uploadUrlResponse.text()}`);
@@ -207,10 +230,10 @@ router.post('/mineru/upload', requireAuth, async (req, res, next) => {
     const { body, cleanup } = getUploadBody(file);
     let ossUploadResponse;
     try {
-      ossUploadResponse = await fetchWithTimeout(ossUploadUrl, {
+      ossUploadResponse = await fetchWithRetry(ossUploadUrl, {
         method: 'PUT',
         body,
-      });
+      }, { retries: 1, timeoutMs: dynamicProxySettings.timeoutMs });
     } finally {
       await cleanup();
     }
@@ -258,13 +281,13 @@ router.get('/mineru/result/:batchId', requireAuth, async (req, res, next) => {
       });
     }
 
-    const resultResponse = await fetchWithTimeout(`${MINERU_BASE_URL}/extract-results/batch/${batchId}`, {
+    const resultResponse = await fetchWithRetry(`${MINERU_BASE_URL}/extract-results/batch/${batchId}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Accept': 'application/json',
       },
-    });
+    }, { retries: 2, timeoutMs: dynamicProxySettings.timeoutMs });
 
     if (!resultResponse.ok) {
       throw new Error(`MinerU查询失败: ${resultResponse.statusText}`);
@@ -306,12 +329,12 @@ router.post('/doc2x/upload', requireAuth, async (req, res, next) => {
     }
 
     // 1. 请求预上传链接
-    const preuploadResponse = await fetchWithTimeout(`${DOC2X_BASE_URL}/api/v2/parse/preupload`, {
+    const preuploadResponse = await fetchWithRetry(`${DOC2X_BASE_URL}/api/v2/parse/preupload`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
       },
-    });
+    }, { retries: 2, timeoutMs: dynamicProxySettings.timeoutMs });
 
     if (!preuploadResponse.ok) {
       throw new Error(`Doc2X预上传失败: ${await preuploadResponse.text()}`);
@@ -329,10 +352,10 @@ router.post('/doc2x/upload', requireAuth, async (req, res, next) => {
     const { body, cleanup } = getUploadBody(file);
     let ossUploadResponse;
     try {
-      ossUploadResponse = await fetchWithTimeout(uploadUrl, {
+      ossUploadResponse = await fetchWithRetry(uploadUrl, {
         method: 'PUT',
         body,
-      });
+      }, { retries: 1, timeoutMs: dynamicProxySettings.timeoutMs });
     } finally {
       await cleanup();
     }
@@ -375,12 +398,12 @@ router.get('/doc2x/status/:uid', requireAuth, async (req, res, next) => {
       return res.status(401).json({ error: 'Doc2X API Token required' });
     }
 
-    const statusResponse = await fetchWithTimeout(`${DOC2X_BASE_URL}/api/v2/parse/status?uid=${uid}`, {
+    const statusResponse = await fetchWithRetry(`${DOC2X_BASE_URL}/api/v2/parse/status?uid=${uid}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
       },
-    });
+    }, { retries: 2, timeoutMs: dynamicProxySettings.timeoutMs });
 
     if (!statusResponse.ok) {
       throw new Error(`Doc2X查询失败: ${statusResponse.statusText}`);
@@ -422,7 +445,7 @@ router.post('/doc2x/convert', requireAuth, async (req, res, next) => {
       return res.status(401).json({ error: 'Doc2X API Token required' });
     }
 
-    const convertResponse = await fetchWithTimeout(`${DOC2X_BASE_URL}/api/v2/convert/parse`, {
+    const convertResponse = await fetchWithRetry(`${DOC2X_BASE_URL}/api/v2/convert/parse`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -435,7 +458,7 @@ router.post('/doc2x/convert', requireAuth, async (req, res, next) => {
         ...(filename && { filename }),
         merge_cross_page_forms,
       }),
-    });
+    }, { retries: 1, timeoutMs: dynamicProxySettings.timeoutMs });
 
     if (!convertResponse.ok) {
       throw new Error(`Doc2X转换失败: ${await convertResponse.text()}`);
@@ -477,12 +500,12 @@ router.get('/doc2x/convert/result/:uid', requireAuth, async (req, res, next) => 
       return res.status(401).json({ error: 'Doc2X API Token required' });
     }
 
-    const resultResponse = await fetchWithTimeout(`${DOC2X_BASE_URL}/api/v2/convert/parse/result?uid=${uid}`, {
+    const resultResponse = await fetchWithRetry(`${DOC2X_BASE_URL}/api/v2/convert/parse/result?uid=${uid}`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
       },
-    });
+    }, { retries: 2, timeoutMs: dynamicProxySettings.timeoutMs });
 
     if (!resultResponse.ok) {
       throw new Error(`Doc2X查询转换结果失败: ${resultResponse.statusText}`);
@@ -542,11 +565,11 @@ router.get('/proxy/zip', requireAuth, async (req, res, next) => {
     }
 
     const controller = new AbortController();
-    const response = await fetchWithTimeout(zipUrl, {
+    const response = await fetchWithRetry(zipUrl, {
       method: req.method,
       headers: upstreamHeaders,
       redirect: 'follow',
-    }, dynamicProxySettings.timeoutMs, controller);
+    }, { retries: 1, timeoutMs: dynamicProxySettings.timeoutMs });
 
     if (!response.ok && response.status !== 206) {
       const msg = process.env.NODE_ENV === 'production' ? 'Upstream fetch failed' : `Upstream fetch failed: ${response.status}`;
