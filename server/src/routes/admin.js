@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { adminWriteLimiter } from '../middleware/rateLimit.js';
 import { prisma } from '../utils/prisma.js';
+import { getProxySettingsDetailed } from '../utils/configCenter.js';
 import { AppErrors, HTTP_STATUS } from '../utils/errors.js';
 import { CRYPTO, ROLES, PAGINATION } from '../utils/constants.js';
 import { prisma } from '../utils/prisma.js';
@@ -358,6 +359,16 @@ router.put('/config', adminWriteLimiter, async (req, res, next) => {
     });
     try { await prisma.usageLog.create({ data: { userId: req.user.id, action: 'admin_update_config', resourceId: key, metadata: { valueChanged: true } } }); } catch {}
     res.status(HTTP_STATUS.OK).json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 获取当前生效的代理设置（合并后 + 来源拆解）
+router.get('/proxy-settings/effective', async (req, res, next) => {
+  try {
+    const detailed = await getProxySettingsDetailed();
+    res.status(HTTP_STATUS.OK).json(detailed);
   } catch (error) {
     next(error);
   }

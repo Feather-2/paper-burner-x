@@ -525,6 +525,10 @@ async function loadProxySettings() {
         setSelectValue('allowHttpProxy', (cfg.ALLOW_HTTP_PROXY || 'false').toString());
         setInputValue('ocrUpstreamTimeoutMs', cfg.OCR_UPSTREAM_TIMEOUT_MS || '30000');
         setInputValue('maxProxyDownloadMb', cfg.MAX_PROXY_DOWNLOAD_MB || '100');
+
+        // 读取有效配置与来源拆解并渲染
+        const eff = await axios.get(`${API_BASE}/admin/proxy-settings/effective`, { headers: { Authorization: `Bearer ${authToken}` } });
+        renderEffectiveProxySettings(eff.data);
     } catch (e) {
         console.error('Failed to load proxy settings:', e);
     }
@@ -713,5 +717,47 @@ async function exportSourceSites() {
     } catch (e) {
         console.error('Export failed:', e);
         alert('导出失败：' + (e.response?.data?.error || e.message));
+    }
+}
+
+function renderEffectiveProxySettings(d) {
+    const containerId = 'effectiveProxySettings';
+    let container = document.getElementById(containerId);
+    if (!container) {
+        const sys = document.getElementById('content-system');
+        if (!sys) return;
+        container = document.createElement('div');
+        container.id = containerId;
+        container.className = 'mt-6 bg-gray-50 border rounded-md p-4';
+        sys.appendChild(container);
+    }
+    try {
+        const sources = d?.sources || {};
+        const eff = d?.effective || {};
+        const nl = arr => Array.isArray(arr) && arr.length ? arr.map(x => `<code class="px-1 py-0.5 bg-white border rounded">${escapeHtml(String(x))}</code>`).join(' ') : '<span class="text-gray-400">(空)</span>';
+        container.innerHTML = `
+            <h4 class="text-sm font-medium text-gray-800 mb-2">当前生效的代理设置（合并 + 来源）</h4>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                <div class="bg-white rounded border p-3">
+                    <div class="font-medium text-gray-700 mb-1">合并后白名单</div>
+                    <div class="space-x-1">${nl(eff.whitelist)}</div>
+                </div>
+                <div class="bg-white rounded border p-3">
+                    <div class="font-medium text-gray-700 mb-1">开关与限制</div>
+                    <div class="text-gray-600">允许 HTTP：${eff.allowHttp ? '是' : '否'}</div>
+                    <div class="text-gray-600">上游超时：${eff.timeoutMs} ms</div>
+                    <div class="text-gray-600">下载上限：${Math.round((eff.maxDownloadBytes||0)/1024/1024)} MB</div>
+                </div>
+                <div class="bg-white rounded border p-3 md:col-span-2">
+                    <div class="font-medium text-gray-700 mb-1">来源拆解</div>
+                    <div class="mt-1"><span class="text-gray-600">默认域：</span>${nl(sources.defaults)}</div>
+                    <div class="mt-1"><span class="text-gray-600">手动白名单：</span>${nl(sources.manualWhitelist)}</div>
+                    <div class="mt-1"><span class="text-gray-600">Workers 域：</span>${nl(sources.workerDomains)}</div>
+                    <div class="mt-1"><span class="text-gray-600">自定义源站域：</span>${nl(sources.customSiteDomains)}</div>
+                </div>
+            </div>
+        `;
+    } catch (e) {
+        container.innerHTML = `<div class="text-sm text-red-600">无法渲染有效配置：${e.message}</div>`;
     }
 }
