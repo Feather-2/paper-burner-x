@@ -5,6 +5,7 @@ import net from 'net';
 import { PassThrough } from 'stream';
 import fs from 'fs';
 import { getProxySettings } from '../utils/configCenter.js';
+import { env } from '../utils/env.js';
 import { logWarn, logError, logDebug } from '../utils/logger.js';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import { createOcrLimiter } from '../middleware/rateLimit.js';
@@ -38,10 +39,12 @@ async function refreshProxySettings() {
   }
 }
 
-// 启动时预取一次
-refreshProxySettings();
-// 周期刷新（1分钟）
-setInterval(refreshProxySettings, 60 * 1000).unref?.();
+// 启动时预取一次与周期刷新：测试环境跳过，避免在 CI 中访问数据库
+if (!env.isTest()) {
+  refreshProxySettings();
+  // 周期刷新（1分钟）
+  setInterval(refreshProxySettings, 60 * 1000).unref?.();
+}
 
 // ================ 安全辅助函数 ================
 

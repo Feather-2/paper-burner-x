@@ -273,6 +273,8 @@ const staticOptions = {
   dotfiles: 'ignore',
   maxAge: isProd ? '7d' : 0,
   immutable: isProd,
+  // 避免 /admin 被 express.static 重定向到 /admin/，影响测试与直达路由
+  redirect: false,
 };
 // 仅暴露必要的静态目录
 app.use('/public', express.static(join(rootPath, 'public'), staticOptions));
