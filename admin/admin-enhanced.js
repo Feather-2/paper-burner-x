@@ -761,3 +761,14 @@ function renderEffectiveProxySettings(d) {
         container.innerHTML = `<div class="text-sm text-red-600">无法渲染有效配置：${e.message}</div>`;
     }
 }
+
+async function refreshEffectiveProxySettings() {
+    try {
+        const eff = await axios.get(`${API_BASE}/admin/proxy-settings/effective`, { headers: { Authorization: `Bearer ${authToken}` } });
+        renderEffectiveProxySettings(eff.data);
+    } catch (e) {
+        alert('刷新失败：' + (e.response?.data?.error || e.message));
+    }
+}
+
+window.refreshEffectiveProxySettings = refreshEffectiveProxySettings;
