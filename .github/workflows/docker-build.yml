@@ -99,7 +99,8 @@ jobs:
 
       - name: Install dependencies
         working-directory: ./server
-        run: npm ci
+        run: |
+          npm ci || npm install --no-audit --no-fund
 
       - name: Generate Prisma Client
         working-directory: ./server

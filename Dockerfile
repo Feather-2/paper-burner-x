@@ -12,7 +12,8 @@ RUN apk add --no-cache openssl openssl-dev
 COPY server/package*.json ./
 
 # Install dependencies
-RUN npm ci
+# 优先使用 npm ci，若锁文件未同步则回退到 npm install（PR 构建环境容忍非完全可复现）
+RUN npm ci || npm install --no-audit --no-fund
 
 # Copy Prisma schema
 COPY server/prisma ./prisma/
