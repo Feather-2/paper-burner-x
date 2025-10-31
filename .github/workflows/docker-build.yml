@@ -48,7 +48,9 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=sha,prefix={{branch}}-
+            # 避免在 PR 场景下出现 "-<sha>" 这种以连字符开头的非法标签
+            # 统一使用稳定前缀，确保 Docker tag 合法（如 "sha-ac262a7"）
+            type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
