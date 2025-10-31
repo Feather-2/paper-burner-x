@@ -1,6 +1,101 @@
 // Paper Burner X - 管理员面板增强功能
 // 包含：配额管理、详细统计、趋势图表、活动日志
 
+// ==================== 全局网络与提示（超时/拦截/离线提示） ====================
+
+// 统一超时
+axios.defaults.timeout = 15000; // 15s
+
+// 简易 Toast 实现
+function ensureToastContainer() {
+    let c = document.getElementById('toast-container');
+    if (!c) {
+        c = document.createElement('div');
+        c.id = 'toast-container';
+        c.style.position = 'fixed';
+        c.style.top = '12px';
+        c.style.right = '12px';
+        c.style.zIndex = '9999';
+        c.style.display = 'flex';
+        c.style.flexDirection = 'column';
+        c.style.gap = '8px';
+        document.body.appendChild(c);
+    }
+    return c;
+}
+
+function showToast(message, type = 'info', duration = 3000) {
+    const c = ensureToastContainer();
+    const el = document.createElement('div');
+    const base = 'px-3 py-2 rounded shadow text-sm text-white';
+    const color = type === 'error' ? 'bg-red-600' : type === 'warn' ? 'bg-yellow-600' : 'bg-gray-800';
+    el.className = `${base} ${color}`;
+    el.textContent = message;
+    c.appendChild(el);
+    setTimeout(() => { try { c.removeChild(el); } catch {} }, duration);
+}
+
+// 离线横幅
+function ensureOfflineBanner() {
+    let b = document.getElementById('offline-banner');
+    if (!b) {
+        b = document.createElement('div');
+        b.id = 'offline-banner';
+        b.className = 'w-full text-center text-sm text-white bg-red-600 py-2 hidden';
+        b.textContent = '当前处于离线状态，部分功能不可用；请检查网络连接。';
+        document.body.prepend(b);
+    }
+    return b;
+}
+
+function updateOfflineBanner() {
+    const b = ensureOfflineBanner();
+    if (navigator.onLine) {
+        b.classList.add('hidden');
+    } else {
+        b.classList.remove('hidden');
+    }
+}
+
+window.addEventListener('online', () => {
+    updateOfflineBanner();
+    showToast('网络已恢复', 'info', 1500);
+});
+window.addEventListener('offline', () => {
+    updateOfflineBanner();
+    showToast('网络连接断开', 'warn');
+});
+
+// Axios 响应错误统一处理 + GET 一次自动重试
+axios.interceptors.response.use(
+    (res) => res,
+    async (error) => {
+        const config = error?.config || {};
+        const isGet = (config.method || 'get').toLowerCase() === 'get';
+        const transient = !error.response; // 网络/超时等
+        const code = error.code || '';
+
+        // 自动重试：仅 GET，且网络错误/超时，最多 1 次
+        if (isGet && transient && !config.__retried) {
+            config.__retried = true;
+            await new Promise(r => setTimeout(r, 800));
+            try { return await axios(config); } catch (e) { /* fallthrough */ }
+        }
+
+        // 统一提示
+        if (transient || code === 'ECONNABORTED') {
+            showToast('网络连接中断或超时，请稍后重试', 'warn');
+        } else if (error.response) {
+            const msg = error.response?.data?.error || `请求失败 (${error.response.status})`;
+            showToast(msg, 'error');
+        } else {
+            showToast('请求失败，请检查网络或稍后再试', 'error');
+        }
+
+        return Promise.reject(error);
+    }
+);
+
 // ==================== 详细统计 ====================
 
 async function loadDetailedStats() {
@@ -178,7 +273,9 @@ async function populateUserSelect() {
             headers: { Authorization: `Bearer ${authToken}` }
         });
 
-        const users = response.data;
+        // 后端 /admin/users 返回 { total, page, pageSize, items }
+        const payload = response.data || {};
+        const users = Array.isArray(payload.items) ? payload.items : Array.isArray(payload) ? payload : [];
 
         // 填充配额管理的用户选择器
         const quotaSelect = document.getElementById('quotaUserId');
@@ -520,6 +617,11 @@ async function loadProxySettings() {
         const resp = await axios.get(`${API_BASE}/admin/config`, { headers: { Authorization: `Bearer ${authToken}` } });
         const cfg = resp.data || {};
         // 回显
+        // 通用系统设置
+        setSelectValue('allowRegistration', (cfg.ALLOW_REGISTRATION || 'false').toString());
+        setInputValue('maxUploadSize', cfg.MAX_UPLOAD_SIZE_MB || '100');
+
+        // 代理与下载相关
         setInputValue('proxyWhitelistDomains', cfg.PROXY_WHITELIST_DOMAINS || '');
         setInputValue('workerProxyDomains', cfg.WORKER_PROXY_DOMAINS || '');
         setSelectValue('allowHttpProxy', (cfg.ALLOW_HTTP_PROXY || 'false').toString());
@@ -533,6 +635,23 @@ async function loadProxySettings() {
         console.error('Failed to load proxy settings:', e);
     }
 }
+// 保存通用系统设置（允许注册、最大上传大小）
+async function saveSystemSettings() {
+    try {
+        const entries = [
+            { key: 'ALLOW_REGISTRATION', value: getSelectValue('allowRegistration') },
+            { key: 'MAX_UPLOAD_SIZE_MB', value: String(parseInt(getInputValue('maxUploadSize') || '100')) },
+        ];
+        for (const item of entries) {
+            await axios.put(`${API_BASE}/admin/config`, item, { headers: { Authorization: `Bearer ${authToken}` } });
+        }
+        alert('系统设置已保存');
+    } catch (e) {
+        console.error('Failed to save system settings:', e);
+        alert('保存失败：' + (e.response?.data?.error || e.message));
+    }
+}
+
 
 async function saveProxySettings() {
     try {

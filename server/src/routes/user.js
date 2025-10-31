@@ -104,32 +104,7 @@ router.post('/api-keys', requireAuth, async (req, res, next) => {
 });
 
 // 获取解密的 API Key (仅用于内部使用，不暴露给前端)
-router.get('/api-keys/:id/decrypt', requireAuth, async (req, res, next) => {
-  try {
-    const key = await prisma.apiKey.findFirst({
-      where: {
-        id: req.params.id,
-        userId: req.user.id
-      }
-    });
-
-    if (!key) {
-      throw AppErrors.notFound('API Key');
-    }
-
-    // 解密并返回
-    const decryptedKey = decrypt(key.keyValue);
-
-    res.status(HTTP_STATUS.OK).json({
-      id: key.id,
-      provider: key.provider,
-      keyValue: decryptedKey,
-      remark: key.remark
-    });
-  } catch (error) {
-    next(error);
-  }
-});
+// 安全考虑：不提供返回明文 Key 的接口，所有下游调用应在服务端完成并仅返回必要元数据
 
 // 更新 API Key 状态
 router.patch('/api-keys/:id/status', requireAuth, async (req, res, next) => {

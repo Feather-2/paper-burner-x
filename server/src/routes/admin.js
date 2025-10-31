@@ -335,6 +335,8 @@ router.put('/config', adminWriteLimiter, async (req, res, next) => {
       'ALLOW_HTTP_PROXY',
       'OCR_UPSTREAM_TIMEOUT_MS',
       'MAX_PROXY_DOWNLOAD_MB',
+      // 前端系统设置中存在的 Workers 域键
+      'WORKER_PROXY_DOMAINS',
     ]);
     if (!key || !allowList.has(key)) return res.status(400).json({ error: 'Invalid config key' });
 
