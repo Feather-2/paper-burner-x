@@ -5,10 +5,10 @@
 ## 近期路线与优先级（建议）
 
 - P1（两周内）：
-  - 前端构建优化与模块化拆分（Vite/ESM、懒加载、SRI）。
-  - 缓存层与全局限流基座（可选 Redis，LRU 内存兜底）。
+  - 前端构建优化与模块化拆分（Vite/ESM、懒加载、SRI）。【进度】管理面板已拆分为 `admin/modules/{stats,activity,quotas,system}.js` 并动态导入，保持直出兼容；新增 `vite.config.js` 与根脚本（可选构建，不改现有 HTML）。
+  - 缓存层与全局限流基座（可选 Redis，LRU 内存兜底）。【进度】Admin 统计/趋势已接入短 TTL 缓存与只读限流；支持 `REDIS_URL` 时自动启用 Redis + 全局 epoch 失效，默认进程内降级。
   - 流式化覆盖导出与大文件下载路径，统一清理策略。
-  - 测试与 CI 基座（Jest + Supertest + GitHub Actions）。【进度】已新增最小管理端鉴权测试（server/test/admin-auth.test.js）。
+  - 测试与 CI 基座（Jest + Supertest + GitHub Actions）。【进度】已新增最小 CI（server 目录 lint + openapi:validate + jest）；测试补充 admin 统计/趋势基本回归与登录流程。
 - P2（四周内）：
   - 环境变量校验与安全基线（dotenv-safe/自检脚本）。
   - CSP 生产化（nonce/hash 策略矩阵）与健康检查增强。
@@ -28,7 +28,7 @@
   - 入口统一：建立 `js/main.js` 作为页面动态入口；移除 `window.*` 暴露，改为命名导出。
   - 渐进迁移：先抽离服务层与工具层，再迁页面逻辑；保留过渡适配器以兼容旧调用。
   - 打包产物：`public/assets/*`，文件指纹与 SRI 校验可选启用。
-  - 关联管理面板：`admin/admin-enhanced.js` 与 `admin/index.html` 按模块引入，新增的概览/配额/活动脚本独立模块化加载。
+  - 关联管理面板：`admin/admin-enhanced.js` 与 `admin/index.html` 按模块引入，新增的概览/配额/活动脚本独立模块化加载。【进度】已拆分并上线 `admin/modules/{stats,activity,quotas,system}.js`，以动态 import 方式装配；直出模式与 onclick 兼容保留。
   - 近期补充：已在 `admin/admin-enhanced.js` 增加 axios 全局超时、离线横幅、GET 自动重试与统一错误提示，以提升网络不稳定场景可用性（非构建层变更）。
   - 涉及文件：`js/*.js`、`admin/admin-enhanced.js`、`admin/index.html`、新增 `vite.config.js`（可选）。
   - 验收：
@@ -89,14 +89,14 @@
 
 19) 缓存层（P1）
 - 建议行动：
-  - 抽象 `Cache` 接口：`get/set/del/mget`；优先 `REDIS_URL` → Redis 实现，降级至 LRU（如 `lru-cache`）。
+  - 抽象 `Cache` 接口：`get/set/del/mget`；优先 `REDIS_URL` → Redis 实现，降级至 LRU（如 `lru-cache`）。【进度】已实现最小 `server/src/utils/cache.js`（进程内 + Redis 自动启用）；统计/趋势缓存 key 引入 epoch 版本，写操作后原子 bump，无需 SCAN 删除即可跨实例失效。
   - 缓存对象：系统配置、统计聚合（短 TTL 30–120s）、用户设置（60s）、热点列表；写操作后主动失效。
   - 与限流共享 Redis：统一连接与命名空间；暴露命中率与体积指标日志。
   - 验收：缓存命中率 > 60%（统计类），Redis 不可用时自动降级不影响功能。
 
 20) 前端构建优化（P1）
 - 建议行动：
-  - 构建：开启 `esbuild`/`terser` 压缩与分包，`vite` Rollup 分块策略（vendor、ui、charts）。
+  - 构建：开启 `esbuild`/`terser` 压缩与分包，`vite` Rollup 分块策略（vendor、ui、charts）。【进度】已新增 `vite.config.js` 与根 `package.json` 脚本（`dev:fe/build:fe/preview:fe`），默认不改变现有引用与托管。
   - 懒加载：基于路由/标签页动态 import（如 admin 的 概览/配额/活动）。
   - SRI：为 CDN 资源与打包产物生成 hash（可选 `vite-plugin-sri`）；`index.html` 注入 integrity。
   - 资源治理：启用 `eslint-plugin-import/no-unused-modules` 与 Bundle 分析；移除未使用依赖。
@@ -131,13 +131,13 @@ Q1) 测试与 CI（P1）
 - 建议行动：
   - 单测：`jest` + `supertest`，新增样例测试：auth、documents、admin 统计三个覆盖面。
   - 覆盖关键路径：加密/解密、配额拦截、权限校验、输入验证、统计聚合。
-  - CI：GitHub Actions 工作流 `.github/workflows/ci.yml`（Node 版本矩阵、安装、lint、test）；可选缓存 `~/.npm`。
+  - CI：GitHub Actions 工作流 `.github/workflows/ci.yml`（Node 版本矩阵、安装、lint、test）；可选缓存 `~/.npm`。【进度】已落地最小 CI（server 目录 lint + OpenAPI 解析校验 + Jest）。
   - 验收：PR 必须通过 lint+test；基础用例覆盖率门槛（行覆盖 ≥ 40% 起步）。
   - 风险/备注：避免引入与数据库强耦合的大量集成测试，优先 fast tests；必要时使用 Prisma 的 SQLite/内存模式。
 
 Q2) API 文档与契约测试（P2）
 - 建议行动：
-  - 从 `API_REFERENCE.md` 生成 `openapi.yaml`（最低：认证、文档 CRUD、配额、统计）；
+  - 从 `API_REFERENCE.md` 生成 `openapi.yaml`（最低：认证、文档 CRUD、配额、统计）；【进度】已补全 Admin 主要路由最小条目（servers: /api），并新增 `server/package.json` 的 `openapi:validate` 与 CI 校验；下一步补全 documents/user 等其余路径与契约测试。
   - 增加契约测试：根据 OpenAPI 校验响应 shape（如 `openapi-enforcer`/`zod-to-openapi` 反向校验）。
   - 验收：核心路径契约稳定；前端生成型客户端可选落地（如 openapi-typescript）。
 

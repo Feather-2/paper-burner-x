@@ -2,7 +2,7 @@
 
 本文档记录从 CODE_REVIEW.md 中已经实现和修复的项目。
 
-**最后更新：** 2025-11-01
+**最后更新：** 2025-11-02
 
 **最新更新（2025-11-01）：**
 - 安全：移除返回明文 API Key 的接口，避免潜在密钥泄露。
@@ -20,6 +20,46 @@
 
 - 已增强 admin.js 的 SQL 注入防护和输入验证
 - 已为 document.js 添加 UUID 验证和状态值白名单
+
+---
+
+## 最新更新（2025-11-02）
+
+### 后端（Admin 统计加强 + 缓存与限流）
+
+- 统计正确性与筛选：
+  - 修复 Prisma `groupBy` 计数与排序（`_count: { _all: true }`；Top 用户以 `_count._all` 排序）。
+  - `GET /api/admin/stats/detailed` 与 `GET /api/admin/stats/trends` 支持 `startDate`/`endDate` 日期范围；新增范围合法性校验（start<=end 返回 200，否则 400）。
+  - 保持“今日/本周/本月”卡片仍按自然窗口统计。
+- 只读限流：
+  - 为统计/趋势接口新增只读限流（默认 60s 内 120 次），可通过 `ADMIN_READ_LIMIT_WINDOW_MS`、`ADMIN_READ_LIMIT_MAX` 调整。
+- 短 TTL 缓存 + 多实例失效：
+  - 统计/趋势接口增加短 TTL 缓存（默认 60s，`ADMIN_STATS_CACHE_TTL_MS` 可调）。
+  - 新增全局 epoch 失效机制：写操作后原子递增 epoch（有 `REDIS_URL` 则用 Redis INCR；否则内存 Map），无需扫描删除键即可跨实例一致失效。
+  - 新增 `server/src/utils/cache.js`（进程内缓存；有 Redis 自动使用，失败降级）。
+
+### 前端管理面板（不影响直出）
+
+- 概览页增强：
+  - 日期筛选控件、当前筛选提示；URL hash 持久化；刷新/分享链接后保留选择。
+  - 概览/趋势图按日期范围联动。
+- 渐进模块化：
+  - 新增 `admin/modules/{stats,activity,quotas,system}.js`，并在 `admin/admin-enhanced.js` 中动态导入，保留现有 onclick 与直出模式。
+  - onclick 传参增加引号转义，防止属性破坏与潜在 XSS。
+- 可选 Vite：
+  - 根目录新增 `vite.config.js` 与脚本（`dev:fe/build:fe/preview:fe`）；默认不改 HTML 引用，保持开箱即用。
+
+### OpenAPI 与 CI
+
+- 文档：
+  - `docs/openapi.yaml`（OpenAPI 3.1；`servers: /api`），最小覆盖：
+    - Admin：users（列表/创建/更新/删除/状态/密码）、config（读/写）、source-sites（增删改查）、users/{id}/quota（读/写）、users/{id}/activity、stats detailed/trends。
+  - `server/package.json` 增加 `openapi:validate`（语法校验）。
+- CI：
+  - 新增 `.github/workflows/ci.yml`，执行 Lint + OpenAPI 校验 + Jest 基础测试。
+- 测试：
+  - `server/test/admin-stats.test.js`（未授权/参数错误/日期范围 400 等基础回归）。
+  - `server/test/admin-stats-authflow.test.js`（注册→登录→访问受限接口；使用一次性随机密码，避免密钥误报）。
 
 ---
 
