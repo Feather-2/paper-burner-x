@@ -29,6 +29,7 @@ if (useRedis) {
 }
 
 const store = new Map(); // key -> { value, expiresAt }
+const epochStore = new Map(); // ns -> number
 
 /**
  * 读取缓存
@@ -104,4 +105,32 @@ export function cacheDelByPrefix(prefix) {
     if (key.startsWith(prefix)) { store.delete(key); count++; }
   }
   return count;
+}
+
+/**
+ * 获取命名空间的 epoch（用于全局失效）。
+ * Redis 存在时读取 `${ns}:epoch`，否则使用内存 Map。
+ */
+export async function cacheGetEpoch(ns) {
+  if (useRedis && redisReady) {
+    try {
+      const v = await redisClient.get(`${ns}:epoch`);
+      return Number.isFinite(parseInt(v)) ? parseInt(v) : 0;
+    } catch { return 0; }
+  }
+  return epochStore.get(ns) || 0;
+}
+
+/**
+ * 递增命名空间的 epoch（写操作后调用）。
+ */
+export async function cacheBumpEpoch(ns) {
+  if (useRedis && redisReady) {
+    try {
+      await redisClient.incr(`${ns}:epoch`);
+      return;
+    } catch { /* ignore */ }
+  }
+  const cur = epochStore.get(ns) || 0;
+  epochStore.set(ns, cur + 1);
 }
