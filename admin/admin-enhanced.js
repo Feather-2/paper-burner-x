@@ -673,8 +673,8 @@ function switchTab(tab) {
     } else if (tab === 'activity') {
         (async () => { try { const m = await import('./modules/activity.js'); await m.initActivity(); } catch(e){ console.error(e);} })();
     } else if (tab === 'system') {
-        // 进入系统设置页时加载代理配置
-        loadProxySettings();
+        // 进入系统设置页时加载代理配置（动态导入模块）
+        (async () => { try { const m = await import('./modules/system.js'); await m.initSystem(); } catch(e){ console.error(e);} })();
     } else if (tab === 'models') {
         loadSourceSites();
     }
