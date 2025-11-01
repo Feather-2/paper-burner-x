@@ -96,11 +96,91 @@ axios.interceptors.response.use(
     }
 );
 
+// ================ URL Hash 持久化日期筛选 ================
+function persistRangeToHash() {
+    try {
+        const s = document.getElementById('statsStartDate')?.value || '';
+        const e = document.getElementById('statsEndDate')?.value || '';
+        const params = new URLSearchParams(location.hash.replace(/^#/, ''));
+        if (s) params.set('startDate', s); else params.delete('startDate');
+        if (e) params.set('endDate', e); else params.delete('endDate');
+        const next = params.toString();
+        location.hash = next ? `#${next}` : '';
+    } catch {}
+}
+
+function restoreRangeFromHash() {
+    try {
+        const params = new URLSearchParams(location.hash.replace(/^#/, ''));
+        const s = params.get('startDate') || '';
+        const e = params.get('endDate') || '';
+        const sd = document.getElementById('statsStartDate');
+        const ed = document.getElementById('statsEndDate');
+        if (sd) sd.value = s;
+        if (ed) ed.value = e;
+    } catch {}
+}
+
+function persistTabToHash(tab) {
+    try {
+        const params = new URLSearchParams(location.hash.replace(/^#/, ''));
+        if (tab) params.set('tab', tab); else params.delete('tab');
+        const next = params.toString();
+        location.hash = next ? `#${next}` : '';
+    } catch {}
+}
+
+function restoreTabFromHash() {
+    try {
+        const params = new URLSearchParams(location.hash.replace(/^#/, ''));
+        const tab = params.get('tab');
+        if (tab) {
+            // 若 hash 指向的 tab 存在，则切换；否则保持默认
+            const known = ['overview','users','quotas','activity','models','system'];
+            if (known.includes(tab)) {
+                // 直接调用增强后的切换函数（会触发加载与持久化）
+                switchTab(tab);
+                return true;
+            }
+        }
+    } catch {}
+    return false;
+}
+
 // ==================== 详细统计 ====================
+
+function getStatsRangeParams() {
+    const s = document.getElementById('statsStartDate')?.value || '';
+    const e = document.getElementById('statsEndDate')?.value || '';
+    const params = new URLSearchParams();
+    if (s) params.set('startDate', s);
+    if (e) params.set('endDate', e);
+    const qs = params.toString();
+    return qs ? `?${qs}` : '';
+}
+
+function updateStatsRangeHint() {
+    const s = document.getElementById('statsStartDate')?.value || '';
+    const e = document.getElementById('statsEndDate')?.value || '';
+    const el = document.getElementById('statsRangeHint');
+    if (!el) return;
+    if (!s && !e) {
+        el.textContent = '当前筛选：全部';
+        return;
+    }
+    if (s && e) {
+        el.textContent = `当前筛选：${s} - ${e}`;
+    } else if (s) {
+        el.textContent = `当前筛选：自 ${s} 起`; 
+    } else {
+        el.textContent = `当前筛选：截至 ${e}`;
+    }
+}
 
 async function loadDetailedStats() {
     try {
-        const response = await axios.get(`${API_BASE}/admin/stats/detailed`, {
+        const range = getStatsRangeParams();
+        const response = await axios.get(`${API_BASE}/admin/stats/detailed${range}`, {
             headers: { Authorization: `Bearer ${authToken}` }
         });
 
@@ -123,6 +203,7 @@ async function loadDetailedStats() {
         // 显示 Top 用户
         displayTopUsers(stats.topUsers || []);
 
+        updateStatsRangeHint();
     } catch (error) {
         console.error('Failed to load detailed stats:', error);
     }
@@ -191,7 +272,17 @@ let trendChartInstance = null;
 
 async function loadTrendsChart() {
     try {
-        const response = await axios.get(`${API_BASE}/admin/stats/trends?days=30`, {
+        // 直接传递 startDate/endDate（若存在）；否则默认 days=30
+        const s = document.getElementById('statsStartDate')?.value;
+        const e = document.getElementById('statsEndDate')?.value;
+        let url = `${API_BASE}/admin/stats/trends?days=30`;
+        if (s || e) {
+            const params = new URLSearchParams();
+            if (s) params.set('startDate', s);
+            if (e) params.set('endDate', e);
+            url = `${API_BASE}/admin/stats/trends?${params.toString()}`;
+        }
+        const response = await axios.get(url, {
             headers: { Authorization: `Bearer ${authToken}` }
         });
 
@@ -264,6 +355,24 @@ async function loadTrendsChart() {
         console.error('Failed to load trends chart:', error);
     }
 }
+
+// 应用/清除日期范围并刷新
+async function applyStatsRange() {
+    persistRangeToHash();
+    await loadDetailedStats();
+    await loadTrendsChart();
+}
+async function clearStatsRange() {
+    const s = document.getElementById('statsStartDate');
+    const e = document.getElementById('statsEndDate');
+    if (s) s.value = '';
+    if (e) e.value = '';
+    persistRangeToHash();
+    await applyStatsRange();
+}
+
+window.applyStatsRange = applyStatsRange;
+window.clearStatsRange = clearStatsRange;
 
 // ==================== 配额管理 ====================
 
@@ -523,6 +632,15 @@ function formatMetadata(metadata) {
 
 // ==================== 标签页切换增强 ====================
 
+async function initOverviewStatsModule() {
+    try {
+        const mod = await import('./modules/stats.js');
+        await mod.initStats();
+    } catch (e) {
+        console.error('Failed to init stats module:', e);
+    }
+}
+
 function switchTab(tab) {
     // 更新选项卡样式
     document.querySelectorAll('.tab-button').forEach(btn => {
@@ -544,14 +662,16 @@ function switchTab(tab) {
         }
     });
 
+    // 持久化到 URL hash
+    persistTabToHash(tab);
+
     // 根据标签页加载数据
     if (tab === 'overview') {
-        loadDetailedStats();
-        loadTrendsChart();
+        initOverviewStatsModule();
     } else if (tab === 'quotas') {
-        populateUserSelect();
+        (async () => { try { const m = await import('./modules/quotas.js'); await m.initQuotas(); } catch(e){ console.error(e);} })();
     } else if (tab === 'activity') {
-        populateUserSelect();
+        (async () => { try { const m = await import('./modules/activity.js'); await m.initActivity(); } catch(e){ console.error(e);} })();
     } else if (tab === 'system') {
         // 进入系统设置页时加载代理配置
         loadProxySettings();
@@ -568,20 +688,17 @@ window.showAdminPanel = async function(user) {
     if (originalShowAdminPanel) {
         await originalShowAdminPanel(user);
     }
-
-    // 加载详细统计
-    await loadDetailedStats();
-
-    // 如果在概览标签，加载趋势图
-    const currentTab = document.querySelector('.tab-button.border-blue-500')?.id;
-    if (currentTab === 'tab-overview') {
-        await loadTrendsChart();
-    }
+    // 初始化概览统计模块（动态导入，失败不影响其它功能）
+    await initOverviewStatsModule();
 };
 
 // 页面加载完成后的初始化
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Admin panel enhancements loaded');
+    // 恢复 URL hash 中的日期筛选
+    restoreRangeFromHash();
+    // 若 URL 指定 tab，则切换到指定 tab
+    restoreTabFromHash();
     // 绑定模型配置的导入/导出按钮
     const importBtn = document.getElementById('importSourceSitesBtn');
     const importFile = document.getElementById('importSourceSitesFile');

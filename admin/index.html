@@ -108,6 +108,22 @@
 
                 <!-- 概览标签页 -->
                 <div id="content-overview" class="p-6 hidden">
+                    <!-- 日期筛选 -->
+                    <div class="mb-6 flex flex-wrap items-end gap-3">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">开始日期</label>
+                            <input type="date" id="statsStartDate" class="px-3 py-2 border rounded-md">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">结束日期</label>
+                            <input type="date" id="statsEndDate" class="px-3 py-2 border rounded-md">
+                        </div>
+                        <div class="flex items-center gap-2 pb-1">
+                            <button onclick="applyStatsRange()" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">应用</button>
+                            <button onclick="clearStatsRange()" class="px-4 py-2 border rounded-md hover:bg-gray-50">清除</button>
+                        </div>
+                    </div>
+                    <div id="statsRangeHint" class="mb-6 text-sm text-gray-600">当前筛选：全部</div>
                     <div class="mb-8">
                         <h3 class="text-lg font-medium mb-4">使用趋势（最近30天）</h3>
                         <div class="bg-white p-4 rounded-lg border">
@@ -504,27 +520,37 @@
 
                 const data = response.data;
                 const usersList = document.getElementById('usersList');
-                usersList.innerHTML = data.items.map(user => `
+                usersList.innerHTML = data.items.map(user => {
+                    // 额外安全处理：为 onclick 组装参数时转义引号，避免属性破坏
+                    const safe = (s) => String(s ?? '').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+                    const id = safe(user.id);
+                    const email = safe(user.email);
+                    const name = safe(user.name);
+                    const role = safe(user.role);
+                    const createdAt = new Date(user.createdAt).toLocaleDateString();
+                    const isActive = !!user.isActive;
+                    return `
                     <tr>
                         <td class="px-6 py-4 whitespace-nowrap text-sm">${escapeHtml(user.email)}</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm">${escapeHtml(user.name)}</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm">${escapeHtml(user.role)}</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm">
-                            <span class="px-2 py-1 rounded-full text-xs ${user.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
-                                ${user.isActive ? '活跃' : '禁用'}
+                            <span class="px-2 py-1 rounded-full text-xs ${isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                                ${isActive ? '活跃' : '禁用'}
                             </span>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm">${new Date(user.createdAt).toLocaleDateString()}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm">${createdAt}</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm">
                             <div class="flex items-center gap-3">
-                              <button onclick="openEditUser('${escapeHtml(user.id)}','${escapeHtml(user.email)}','${escapeHtml(user.name)}','${escapeHtml(user.role)}')" class="text-blue-600 hover:text-blue-900">编辑</button>
-                              <button onclick="toggleUserStatus('${escapeHtml(user.id)}', ${!user.isActive})" class="text-yellow-600 hover:text-yellow-800">${user.isActive ? '禁用' : '启用'}</button>
-                              <button onclick="resetUserPasswordPrompt('${escapeHtml(user.id)}')" class="text-indigo-600 hover:text-indigo-800">重置密码</button>
-                              <button onclick="deleteUserConfirm('${escapeHtml(user.id)}')" class="text-red-600 hover:text-red-800">删除</button>
+                              <button onclick="openEditUser('${id}','${email}','${name}','${role}')" class="text-blue-600 hover:text-blue-900">编辑</button>
+                              <button onclick="toggleUserStatus('${id}', ${!isActive})" class="text-yellow-600 hover:text-yellow-800">${isActive ? '禁用' : '启用'}</button>
+                              <button onclick="resetUserPasswordPrompt('${id}')" class="text-indigo-600 hover:text-indigo-800">重置密码</button>
+                              <button onclick="deleteUserConfirm('${id}')" class="text-red-600 hover:text-red-800">删除</button>
                             </div>
                         </td>
                     </tr>
-                `).join('');
+                `;
+                }).join('');
 
                 // 分页信息
                 usersTotalPages = Math.max(1, Math.ceil((data.total || 0) / data.pageSize));

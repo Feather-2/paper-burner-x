@@ -1,0 +1,13 @@
+{
+  "name": "paper-burner-root",
+  "private": true,
+  "scripts": {
+    "dev:fe": "vite",
+    "build:fe": "vite build",
+    "preview:fe": "vite preview",
+    "postinstall": "echo 'No frontend build by default. Use npm run build:fe if needed.'"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}
