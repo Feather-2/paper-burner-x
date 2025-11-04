@@ -315,6 +315,7 @@ CLAUDE_API_KEY=your_key
 ## 🙏 致谢
 
 > 本项目是在 [Paper Burner](https://github.com/baoyudu/paper-burner) 原项目基础上进行扩充和修改的，为示尊重和区分，故命名为 Paper Burner X。
+> 该项目扩充了诸多阅读/AI工具上的便利，但如果您需要一个简洁、轻量化的文档处理工具，也欢迎使用 [Paper Burner](https://github.com/baoyudu/paper-burner) ， [baoyu](https://github.com/baoyudu) 的原分支。
 
 **贡献者：**
 
@@ -333,6 +334,7 @@ CLAUDE_API_KEY=your_key
     <a href="https://paperburner.viwoplus.site">在线体验</a>
   </p>
 </div>
+
 
 
 
