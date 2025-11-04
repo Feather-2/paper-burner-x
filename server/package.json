@@ -13,7 +13,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "smoke:health": "node ./scripts/smoke-health.mjs"
   },
   "keywords": ["paper-burner", "translation", "ocr"],
   "author": "",
