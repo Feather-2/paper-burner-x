@@ -348,6 +348,11 @@ app.use('/api/prompt-pool', promptPoolRoutes);
 
 // ==================== 前端路由（SPA） ====================
 
+// 登录页需显式返回 login.html，避免被通配符 * 误回退到 index.html
+app.get('/login.html', (req, res) => {
+  res.sendFile(join(rootPath, 'login.html'));
+});
+
 // 管理员面板
 app.get('/admin*', (req, res) => {
   res.sendFile(join(rootPath, 'admin/index.html'));

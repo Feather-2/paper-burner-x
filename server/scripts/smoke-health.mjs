@@ -9,6 +9,9 @@ async function main() {
     const admin = await request(app).get('/admin');
     console.log('ADMIN', admin.status, admin.headers['content-type']);
 
+    const login = await request(app).get('/login.html');
+    console.log('LOGIN', login.status, login.headers['content-type']);
+
     if (health.status !== 200) {
       process.exitCode = 1;
     }
