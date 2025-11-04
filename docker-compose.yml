@@ -48,6 +48,9 @@ services:
       JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
 
+      # 加密密钥（生产必填）
+      ENCRYPTION_SECRET: ${ENCRYPTION_SECRET:-your-encryption-secret-min-32-chars-change-in-production}
+
       # CORS 配置
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
 
