@@ -9,7 +9,7 @@
     "start": "node src/index.js",
     "test": "NODE_ENV=test node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand",
     "openapi:validate": "node -e \"require('yaml'); const fs=require('fs'); const y=require('yaml').parse(fs.readFileSync('../docs/openapi.yaml','utf8')); console.log('OpenAPI parsed OK:', !!y);\"",
-    "lint": "eslint . --ext .js",
+    "lint": "eslint .",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
