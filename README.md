@@ -255,6 +255,12 @@ CLAUDE_API_KEY=your_key
 
 ---
 
+## 🧪 CI 说明（开发者）
+
+- 本仓库的 `npm` 缓存锁文件位于 `server/package-lock.json`，CI 已在 `setup-node` 使用 `cache-dependency-path: server/package-lock.json` 配置。
+
+---
+
 ## ⚠️ 注意事项
 
 - AI 模型翻译结果仅供参考，重要内容请以原文为准

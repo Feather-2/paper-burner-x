@@ -17,6 +17,8 @@ jobs:
         with:
           node-version: 20
           cache: 'npm'
+          # 指定锁文件路径以启用 npm 缓存（仓库根部无 lockfile）
+          cache-dependency-path: 'server/package-lock.json'
 
       - name: Install dependencies (server)
         working-directory: server
