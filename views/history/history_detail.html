@@ -313,6 +313,8 @@
   </script>
 
   <script src="../../js/chatbot/utils/mermaid-loader.js"></script>
+  <!-- XSS 防护：安全的 Markdown 渲染（必须在 markdown-katex-render.js 之前加载） -->
+  <script type="module" src="../../js/chatbot/utils/safe-markdown-render.js"></script>
   <script src="../../js/chatbot/utils/markdown-katex-render.js"></script>
   <script src="../../js/chatbot/prompt/prompt-constructor.js"></script> <!-- Add this line -->
   <script src="../../js/chatbot/utils/chatbot-utils.js"></script>

@@ -6,6 +6,10 @@
     <meta name="description" content="Paper Burner X - 您的一站式AI文献阅读与智能分析平台，支持OCR、翻译、深度解析与高级管理。">
     <title>Paper Burner X - AI文献阅读与智能分析平台</title>
     <link rel="icon" type="image/svg+xml" href="public/pure.svg">
+
+    <!-- XSS 防护：DOMPurify - 用于清理 AI 生成的 HTML 内容 -->
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+
     <!-- Tailwind CSS & 依赖库 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://gcore.jsdelivr.net/npm/iconify-icon@2.0.0/dist/iconify-icon.min.js"></script>
