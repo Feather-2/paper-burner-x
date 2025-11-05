@@ -1,6 +1,31 @@
 // js/chatbot/chatbot-mermaid-renderer.js
 
 /**
+ * 本地 HTML 转义函数（用于错误消息防护）
+ * 如果 ChatbotUtils.escapeHtml 不可用时的降级方案
+ * @param {string} str - 需要转义的字符串
+ * @returns {string} 转义后的安全字符串
+ */
+function localEscapeHtml(str) {
+  if (typeof str !== 'string') return '';
+  return str.replace(/[&<>"']/g, function (c) {
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c];
+  });
+}
+
+/**
+ * 安全地转义 HTML（优先使用 ChatbotUtils，降级到本地实现）
+ * @param {string} str - 需要转义的字符串
+ * @returns {string} 转义后的安全字符串
+ */
+function safeEscapeHtml(str) {
+  if (typeof window.ChatbotUtils !== 'undefined' && typeof window.ChatbotUtils.escapeHtml === 'function') {
+    return window.ChatbotUtils.escapeHtml(str);
+  }
+  return localEscapeHtml(str);
+}
+
+/**
  * 渲染聊天内容中的所有 Mermaid 代码块。
  *
  * 主要流程：
@@ -648,12 +673,9 @@ async function renderAllMermaidBlocksInternal(chatBodyElement) {
 
         // 如果所有修正都失败
         if (!fixSuccess) {
-          const escapedErrorMessage = typeof window.ChatbotUtils !== 'undefined' && typeof window.ChatbotUtils.escapeHtml === 'function'
-            ? window.ChatbotUtils.escapeHtml(renderError.str || renderError.message)
-            : (renderError.str || renderError.message);
-          const escapedCode = typeof window.ChatbotUtils !== 'undefined' && typeof window.ChatbotUtils.escapeHtml === 'function'
-            ? window.ChatbotUtils.escapeHtml(currentCodeForError)
-            : currentCodeForError;
+          // XSS 防护：安全地转义错误消息和代码
+          const escapedErrorMessage = safeEscapeHtml(renderError.str || renderError.message);
+          const escapedCode = safeEscapeHtml(currentCodeForError);
 
           if (lastSVG) {
             // 回退到上一次成功的 SVG
@@ -693,7 +715,8 @@ async function renderAllMermaidBlocksInternal(chatBodyElement) {
       }
     } catch (generalBlockError) {
       // 兜底：处理 block 解析或 DOM 操作异常
-      const escapedGeneralErrorMessage = typeof window.ChatbotUtils !== 'undefined' && typeof window.ChatbotUtils.escapeHtml === 'function' ? window.ChatbotUtils.escapeHtml(generalBlockError.message) : generalBlockError.message;
+      // XSS 防护：安全地转义错误消息
+      const escapedGeneralErrorMessage = safeEscapeHtml(generalBlockError.message);
       console.error('处理Mermaid block时发生一般错误:', generalBlockError, block);
       let errorDisplayDiv = block.parentElement || document.createElement('div');
       if (block.parentElement) {
