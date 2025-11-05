@@ -116,14 +116,6 @@ paths:
                         email: { type: string }
                         name: { type: string }
                         documentCount: { type: integer }
-components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-security:
-  - bearerAuth: []
   /admin/stats/trends:
     get:
       summary: Trends by day
@@ -478,6 +470,12 @@ security:
           schema: { type: string }
       responses:
         '200': { description: OK }
-  
-  
-  
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+security:
+  - bearerAuth: []
+
