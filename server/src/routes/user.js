@@ -1,7 +1,7 @@
 import express from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { prisma } from '../utils/prisma.js';
-import { encrypt, decrypt } from '../utils/crypto.js';
+import { encrypt } from '../utils/crypto.js';
 import { AppErrors, HTTP_STATUS } from '../utils/errors.js';
 
 const router = express.Router();
@@ -184,7 +184,7 @@ router.post('/glossaries', requireAuth, async (req, res, next) => {
 // 更新术语库
 router.put('/glossaries/:id', requireAuth, async (req, res, next) => {
   try {
-    const glossary = await prisma.glossary.updateMany({
+    await prisma.glossary.updateMany({
       where: {
         id: req.params.id,
         userId: req.user.id

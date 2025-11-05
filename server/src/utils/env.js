@@ -33,7 +33,6 @@ export function validateEnv() {
   // 友好警告（非致命）
   const softMissing = SUGGESTED_IN_PROD.filter(k => !process.env[k]);
   if (softMissing.length) {
-    // eslint-disable-next-line no-console
     console.warn(`⚠️  Suggested envs not set: ${softMissing.join(', ')}.`);
   }
 }

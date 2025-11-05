@@ -287,7 +287,7 @@ let appVersion = 'unknown';
 try {
   const pkg = JSON.parse(fs.readFileSync(join(__dirname, '../package.json'), 'utf8'));
   if (pkg && pkg.version) appVersion = pkg.version;
-} catch (_) {
+} catch {
   // ignore
 }
 

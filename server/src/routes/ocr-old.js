@@ -1,6 +1,5 @@
 import express from 'express';
 import fetch from 'node-fetch';
-import { requireAuth } from '../middleware/auth.js';
 
 const router = express.Router();
 

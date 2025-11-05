@@ -35,7 +35,7 @@ export const requireAuth = (req, res, next) => {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
     next();
-  } catch (error) {
+  } catch {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
 };
@@ -55,7 +55,7 @@ export const optionalAuth = (req, res, next) => {
       const decoded = jwt.verify(token, JWT_SECRET);
       req.user = decoded;
     }
-  } catch (error) {
+  } catch {
     // 忽略错误，继续处理
   }
   next();
