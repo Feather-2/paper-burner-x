@@ -75,6 +75,22 @@
                 </div>
             </div>
 
+            <!-- 额外统计卡片（周/月处理量与总存储） -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <div class="text-gray-500 text-sm mb-2">本周处理</div>
+                    <div id="documentsThisWeek" class="text-2xl font-bold">-</div>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <div class="text-gray-500 text-sm mb-2">本月处理</div>
+                    <div id="documentsThisMonth" class="text-2xl font-bold">-</div>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <div class="text-gray-500 text-sm mb-2">总存储使用</div>
+                    <div id="totalStorageMB" class="text-2xl font-bold">- MB</div>
+                </div>
+            </div>
+
             <!-- 选项卡导航 -->
             <div class="bg-white rounded-lg shadow mb-4">
                 <div class="border-b border-gray-200">
