@@ -36,4 +36,4 @@ jobs:
         working-directory: server
         env:
           NODE_ENV: test
-        run: npm test -- --ci --reporters=default --reporters=jest-junit
+        run: npm test -- --ci
