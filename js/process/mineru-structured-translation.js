@@ -736,24 +736,25 @@ ${jsonContent}
     }
 
     // 验证每个元素的关键字段
+    // 注意：由于发送给AI的是简化数据（只有id、type和翻译字段），
+    // AI返回的也只有这些字段，不包含page_idx、bbox等元数据
     for (let i = 0; i < original.length; i++) {
       const orig = original[i];
       const trans = translated[i];
 
+      // 验证 id 是否匹配（用于正确对应原始项）
+      if (orig.id !== trans.id) {
+        console.error(`[MinerU Structured] 验证失败：索引 ${i} 的 id 不匹配`, orig.id, trans.id);
+        return false;
+      }
+
+      // 验证 type 是否匹配
       if (orig.type !== trans.type) {
-        console.error(`[MinerU Structured] 验证失败：索引 ${i} 的 type 不匹配`);
+        console.error(`[MinerU Structured] 验证失败：索引 ${i} 的 type 不匹配`, orig.type, trans.type);
         return false;
       }
 
-      if (orig.page_idx !== trans.page_idx) {
-        console.error(`[MinerU Structured] 验证失败：索引 ${i} 的 page_idx 不匹配`);
-        return false;
-      }
-
-      // bbox 可能在翻译过程中被保留或丢失，宽松验证
-      if (orig.bbox && trans.bbox && JSON.stringify(orig.bbox) !== JSON.stringify(trans.bbox)) {
-        console.warn(`[MinerU Structured] 警告：索引 ${i} 的 bbox 不完全匹配`);
-      }
+      // 不再验证 page_idx、bbox 等元数据字段，因为AI返回的简化数据中不包含这些
     }
 
     return true;
