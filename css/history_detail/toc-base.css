@@ -209,9 +209,16 @@
 }
 
 #toc-list li a:hover {
-  background: #eef2ff;
-  color: #3b82f6;
-  border-left-color: #3b82f6;
+  background: var(--color-slate-100);
+  color: var(--color-slate-900);
+  border-left-color: var(--color-slate-400);
+}
+
+#toc-list li a.active {
+  background: var(--color-primary-50);
+  color: var(--color-primary-700);
+  border-left-color: var(--color-primary-600);
+  font-weight: 600;
 }
 
 /* 不同层级标题的缩进和字体大小 */

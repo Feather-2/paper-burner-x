@@ -46,7 +46,7 @@ class PDFCompareView {
     // PDF 文本层缓存（用于精确清除文字）
     this.pageTextLayers = new Map(); // pageNum -> textContent
 
-    // 全局字号统一：存储预计算的字号信息（参考 BabelDOC）
+    // 全局字号统一：存储预计算的字号信息（参考 其他开源项目）
     this.globalFontSizeCache = new Map(); // idx -> { estimatedFontSize, estimatedLines, bbox }
     this.hasPreprocessed = false; // 是否已经完成预处理
   }
@@ -81,7 +81,7 @@ class PDFCompareView {
   }
 
   /**
-   * 预处理：计算全局统一的字号（参考 BabelDOC 的 preprocess_document）
+   * 预处理：计算全局统一的字号（参考 其他开源项目 的 preprocess_document）
    * 这样可以确保整个文档的字号基本一致
    */
   preprocessGlobalFontSizes() {

@@ -168,7 +168,7 @@ class PDFCompareRenderer {
       // 获取行距
       const lineSkip = isCJK ? this.textFittingEngine.LINE_SKIP_CJK : this.textFittingEngine.LINE_SKIP_WESTERN;
 
-      // 动态缩放循环：不断尝试直到所有内容都装下（参考 BabelDOC）
+      // 动态缩放循环：不断尝试直到所有内容都装下（参考 其他开源项目）
       const minReadableFontSize = 9; // 提高最小字号到 9px，保证可读性
       const minFontSize = Math.max(estimatedFontSize * 0.2, minReadableFontSize); // 允许缩到 20%
 
@@ -181,7 +181,7 @@ class PDFCompareRenderer {
       let attempts = 0;
       const maxAttempts = 40; // 尝试次数
 
-      // 允许适度的底部溢出（像 BabelDOC 一样）
+      // 允许适度的底部溢出（像 其他开源项目 一样）
       const allowedBottomOverflow = height * 0.15; // 允许 15% 底部溢出
 
       while (finalFontSize >= minFontSize && attempts < maxAttempts) {

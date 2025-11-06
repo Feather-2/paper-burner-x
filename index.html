@@ -35,16 +35,218 @@
     </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
     <style>
-        /* 谷歌字体 Nunito */
-        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700&display=swap');
+        /* 谷歌字体 Inter */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         /* 基础字体设置 */
         body {
-            font-family: 'Nunito', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f8fafc; /* 更中性的应用背景色 */
         }
-        /* 背景渐变 */
+        /* App Shell Layout */
+        .app-shell {
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .app-sidebar {
+            width: 260px;
+            background-color: #ffffff;
+            border-right: 1px solid #e2e8f0;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            /* Mobile defaults: fixed off-screen */
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 50;
+            transform: translateX(-100%);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        @media (min-width: 768px) {
+            .app-sidebar {
+                position: static;
+                transform: none;
+                border-top-right-radius: 1.5rem;
+                border-bottom-right-radius: 1.5rem;
+            }
+            /* 侧边栏收起状态 */
+            .app-sidebar.collapsed {
+                width: 76px;
+            }
+            .app-sidebar.collapsed .px-6 {
+                padding-left: 0;
+                padding-right: 0;
+            }
+            /* 收起时头部垂直排列并居中 */
+            .app-sidebar.collapsed #sidebarHeader {
+                flex-direction: column;
+                align-items: center; /* 关键：水平居中 */
+                gap: 1.5rem;
+                padding-top: 1.5rem;
+                padding-bottom: 1rem;
+            }
+            .app-sidebar.collapsed #sidebarLogo {
+                width: 32px;
+                height: 32px;
+                object-fit: contain;
+            }
+            .app-sidebar.collapsed .nav-text,
+            .app-sidebar.collapsed .nav-section-title,
+            .app-sidebar.collapsed #sidebarHistoryToggleBtn,
+            .app-sidebar.collapsed #sidebarHistoryQuickList {
+                opacity: 0;
+                pointer-events: none;
+                display: none;
+            }
+            .app-sidebar.collapsed .nav-item,
+            .app-sidebar.collapsed #sidebarHistoryMainBtn {
+                justify-content: center;
+                padding-left: 0;
+                padding-right: 0;
+            }
+            .app-sidebar.collapsed .nav-icon {
+                margin-right: 0;
+            }
+            .app-sidebar.collapsed #sidebarHistoryMainBtn {
+                justify-content: center; /* 确保历史记录图标居中 */
+                border-radius: 0.5rem;
+            }
+            .app-sidebar.collapsed #sidebarFooter {
+                display: none;
+            }
+            .app-sidebar.collapsed #sidebarFooterCollapsed {
+                display: flex;
+            }
+            .app-sidebar.collapsed #sidebarDivider {
+                margin-left: 1rem;
+                margin-right: 1rem;
+            }
+        }
+        .app-sidebar.mobile-open {
+            transform: translateX(0);
+            box-shadow: 4px 0 24px rgba(0,0,0,0.1);
+        }
+        .sidebar-overlay {
+            position: fixed;
+            inset: 0;
+            background-color: rgba(0,0,0,0.4);
+            z-index: 40;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s linear;
+            backdrop-filter: blur(2px);
+        }
+        .sidebar-overlay.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .app-main {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            position: relative;
+            width: 100%; /* Ensure it takes full width on mobile when sidebar is hidden */
+        }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 0.875rem;
+            color: #475569; /* slate-600 */
+            border-radius: 0.5rem;
+            transition: all 0.2s ease;
+            font-weight: 500;
+            font-size: 0.9375rem; /* 15px */
+            margin-bottom: 0.25rem;
+            user-select: none;
+        }
+        .nav-item:hover {
+            background-color: #f1f5f9; /* slate-100 */
+            color: #0f172a; /* slate-900 */
+        }
+        .nav-item.active {
+            background-color: #eff6ff; /* blue-50 */
+            color: #2563eb; /* blue-600 */
+            font-weight: 600;
+        }
+        .nav-item .nav-icon {
+            margin-right: 0.75rem;
+            font-size: 1.25rem; /* 20px */
+            color: #94a3b8; /* slate-400 */
+            transition: color 0.2s ease;
+        }
+        .nav-item:hover .nav-icon {
+            color: #64748b; /* slate-500 */
+        }
+        .nav-item.active .nav-icon {
+            color: #3b82f6; /* blue-500 */
+        }
+        /* 侧边栏子菜单项 */
+        .nav-sub-item {
+            display: flex;
+            align-items: center;
+            padding: 0.5rem 0.75rem 0.5rem 2.75rem; /* 左侧留出空间对齐文字 */
+            font-size: 0.875rem; /* 14px */
+            color: #64748b;
+            border-radius: 0.5rem;
+            transition: all 0.15s;
+            text-decoration: none;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .nav-sub-item:hover {
+            color: #0f172a;
+            background-color: #f8fafc;
+        }
+
+        /* Workspace Header */
+        .workspace-header {
+            background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
+            border-radius: 1.5rem;
+            padding: 2.5rem;
+            margin-bottom: 2.5rem;
+            border: 1px solid #e2e8f0;
+            position: relative;
+            overflow: hidden;
+        }
+        .workspace-header::before {
+            content: '';
+            position: absolute;
+            top: -30%;
+            right: -10%;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(59,130,246,0.06) 0%, rgba(255,255,255,0) 70%);
+            border-radius: 50%;
+            pointer-events: none;
+        }
+        /* 新增：右侧大 Logo 背景装饰 */
+        .workspace-header::after {
+            content: '';
+            position: absolute;
+            right: -20px;
+            bottom: -40px;
+            width: 300px;
+            height: 300px;
+            background-image: url('public/pure.svg');
+            background-repeat: no-repeat;
+            background-position: center;
+            background-size: contain;
+            opacity: 0.07; /* 极低透明度，仅作纹理 */
+            transform: rotate(-10deg);
+            pointer-events: none;
+        }
+        .workspace-header-content {
+            position: relative;
+            z-index: 1;
+            max-width: 600px;
+        }
+
+        /* 背景渐变 (保留用于特定区域，如果需要) */
         .gradient-bg {
-            /* background: linear-gradient(135deg, #f5f7fa 0%, #e4edf9 100%); */
-            background-color: #F3F6FA; /* 主题背景色 */
+            background-color: #F3F6FA;
         }
         /* 卡片渐变 */
         .gradient-card {
@@ -242,62 +444,238 @@
             transform: translateY(0);
           }
         }
+
+        /* Phase 2.3: Core Workflow Enhancements */
+        .modern-card {
+            background: #ffffff;
+            border: 1px solid #f1f5f9;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            border-radius: 1rem; /* 16px */
+            transition: box-shadow 0.3s ease, border-color 0.3s ease;
+        }
+        .modern-card:hover {
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025);
+            border-color: #e2e8f0;
+        }
+        .section-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .section-title {
+            font-size: 1.125rem; /* 18px */
+            font-weight: 600;
+            color: #1e293b; /* slate-800 */
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .upload-zone-modern {
+            border: 2px dashed #cbd5e1; /* slate-300 */
+            border-radius: 1rem;
+            background-color: #f8fafc; /* slate-50 */
+            transition: all 0.2s ease;
+        }
+        .upload-zone-modern:hover, .upload-zone-modern.drag-over {
+            border-color: #3b82f6; /* blue-500 */
+            background-color: #eff6ff; /* blue-50 */
+        }
+        .btn-primary-large {
+            background: linear-gradient(to right, #2563eb, #3b82f6);
+            box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2), 0 2px 4px -1px rgba(37, 99, 235, 0.1);
+        }
+        .btn-primary-large:hover {
+            background: linear-gradient(to right, #1d4ed8, #2563eb);
+            box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.3), 0 4px 6px -2px rgba(37, 99, 235, 0.15);
+        }
+        /* 全局入场动画 */
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in-up {
+            animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+        /* 悬浮历史记录按钮 (极简风格) */
+        .floating-history-btn {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            z-index: 40;
+            width: 3rem;
+            height: 3rem;
+            border-radius: 9999px;
+            background-color: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(4px);
+            color: #94a3b8; /* slate-400 */
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            cursor: pointer;
+            opacity: 0.6; /* 默认低透明度，减少视觉干扰 */
+        }
+        .floating-history-btn:hover {
+            opacity: 1;
+            color: #3b82f6; /* blue-500 */
+            border-color: #bfdbfe; /* blue-200 */
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+            transform: translateY(-2px);
+        }
+        .floating-history-btn:active {
+            transform: translateY(0);
+            background-color: #f8fafc;
+        }
+        @media (max-width: 768px) {
+            .floating-history-btn {
+                bottom: 1.5rem;
+                right: 1.5rem;
+                opacity: 0.8; /* 移动端稍微不那么透明，因为没有 hover */
+            }
+        }
     </style>
 </head>
-<body class="gradient-bg min-h-screen">
-    <script>
-        // 可选：每天一次跳转到落地页（仅在非后端模式且未强制 backend 时启用）
-        (function() {
-          try {
-            var currentPath = window.location.pathname;
-            // 如果明确进入后端模式（通过查询参数或全局变量），则不跳转落地页，避免影响使用
-            var params = new URLSearchParams(window.location.search);
-            var forcedMode = (params.get('mode') || '').toLowerCase();
-            var envMode = (window.ENV_DEPLOYMENT_MODE || '').toLowerCase();
-            // 若 URL 中包含 redirect（通常来自登录跳转），为避免循环，不做落地页跳转
-            var hasRedirectParam = params.has('redirect');
-            var shouldSkip = hasRedirectParam || (forcedMode === 'backend') || (envMode === 'backend');
+<body class="bg-slate-50 min-h-screen">
+  <!-- Mobile Sidebar Overlay -->
+  <div id="sidebarOverlay" class="sidebar-overlay md:hidden"></div>
 
-            if (shouldSkip) return;
-            if (currentPath.indexOf('landing-page.html') !== -1) return;
+  <div class="app-shell">
+    <!-- ===================== -->
+    <!-- 侧边栏 (Responsive) -->
+    <!-- ===================== -->
+    <aside id="appSidebar" class="app-sidebar">
+      <div class="px-6 py-5 flex items-center justify-between transition-all" id="sidebarHeader">
+        <a href="views/landing/landing-page.html" class="hover:opacity-80 transition-opacity" title="返回落地页">
+          <img id="sidebarLogo" src="public/h_with_name.svg" class="h-8 transition-all" alt="Paper Burner X">
+        </a>
+        <!-- Desktop Collapse Button -->
+        <button id="sidebarToggleBtn" class="hidden md:flex text-slate-400 hover:text-slate-600 p-1.5 hover:bg-slate-100 rounded-md transition-colors" title="切换侧边栏">
+            <iconify-icon id="sidebarToggleIcon" icon="carbon:side-panel-close" width="20"></iconify-icon>
+        </button>
+        <!-- Mobile Close Button -->
+        <button id="sidebarCloseBtn" class="md:flex md:hidden p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors">
+            <iconify-icon icon="carbon:close" width="20"></iconify-icon>
+        </button>
+      </div>
+      <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto custom-scrollbar overflow-x-hidden">
+        <div class="nav-section-title px-3 mb-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider transition-opacity">
+            主要功能
+        </div>
+        <div class="nav-item active cursor-pointer" title="工作台">
+          <iconify-icon icon="carbon:dashboard" class="nav-icon"></iconify-icon>
+          <span class="nav-text transition-opacity">工作台</span>
+        </div>
+        
+        <!-- 可折叠的历史记录菜单 (Split Action) -->
+        <div id="historyMenuContainer">
+            <div class="flex items-stretch mb-0.5 select-none group">
+                <div id="sidebarHistoryMainBtn" class="flex-1 flex items-center px-[0.875rem] py-[0.75rem] text-[0.9375rem] font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 cursor-pointer rounded-lg transition-all" title="打开完整历史记录面板">
+                     <iconify-icon icon="carbon:time" class="nav-icon mr-[0.75rem] text-[1.25rem] text-slate-400 group-hover:text-slate-500 transition-colors"></iconify-icon>
+                     <span class="nav-text transition-opacity">历史记录</span>
+                </div>
+                <button id="sidebarHistoryToggleBtn" class="flex items-center justify-center px-2 hover:bg-slate-100 text-slate-300 hover:text-slate-500 cursor-pointer rounded-r-lg transition-colors" title="展开/收起最近记录">
+                     <iconify-icon icon="carbon:chevron-right" class="transition-transform duration-200" id="sidebarHistoryChevron" width="16"></iconify-icon>
+                </button>
+            </div>
+            <div id="sidebarHistoryQuickList" class="hidden py-1 space-y-0.5 pl-2 transition-all">
+                <!-- JS 将在此处填充最近记录 -->
+                <div class="px-3 py-2 text-xs text-slate-400 text-center">加载中...</div>
+            </div>
+        </div>
 
-            var today = new Date().toDateString();
-            var lastShownDate = localStorage.getItem('paperBurnerLandingLastShown');
-            if (lastShownDate !== today) {
-              localStorage.setItem('paperBurnerLandingLastShown', today);
-              var basePath = currentPath.substring(0, currentPath.lastIndexOf('/') + 1);
-              window.location.href = basePath + 'views/landing/landing-page.html';
-            }
-          } catch (e) { /* ignore */ }
-        })();
-    </script>
+        <div class="my-4 border-t border-slate-100 mx-3 transition-all" id="sidebarDivider"></div>
+        <div class="nav-section-title px-3 mb-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider transition-opacity">
+            系统
+        </div>
+        <div id="sidebarSettingsBtn" class="nav-item cursor-pointer" title="全局设置">
+          <iconify-icon icon="carbon:settings" class="nav-icon"></iconify-icon>
+          <span class="nav-text transition-opacity">全局设置</span>
+        </div>
+      </nav>
+      <div class="p-3 transition-all" id="sidebarFooter">
+        <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100 overflow-hidden">
+          <a href="https://github.com/Feather-2/paper-burner" target="_blank" class="flex items-start gap-3 hover:opacity-80 transition-opacity" title="GitHub 仓库">
+             <div class="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center text-slate-400 shadow-sm shrink-0">
+               <iconify-icon icon="carbon:logo-github" width="24"></iconify-icon>
+             </div>
+             <div class="flex-1 min-w-0 nav-text transition-opacity">
+               <div class="flex items-center gap-1.5 mb-1">
+                 <span id="githubStars" class="inline-flex items-center gap-1 text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                   <iconify-icon icon="carbon:star" width="10"></iconify-icon>
+                   <span>加载中...</span>
+                 </span>
+               </div>
+               <p class="text-xs text-slate-500">支持自部署，欢迎星标</p>
+             </div>
+          </a>
+        </div>
+        <div class="text-center py-1 mt-1 nav-text transition-opacity">
+            <span id="showCopyrightModal" class="text-[11px] text-slate-400 hover:text-slate-600 transition-colors cursor-pointer select-none">
+                Paper Burner X 丨 关于
+            </span>
+        </div>
+      </div>
+      <!-- 收起状态的底部按钮 -->
+      <div id="sidebarFooterCollapsed" class="hidden flex-col items-center p-3">
+        <a href="https://github.com/Feather-2/paper-burner" target="_blank" class="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors" title="GitHub 仓库">
+          <iconify-icon icon="mdi:github" width="28"></iconify-icon>
+        </a>
+      </div>
+    </aside>
 
-    <div id="mainAppContainer" class="container mx-auto px-4 py-8 max-w-6xl">
-        <!-- ===================== -->
-        <!-- 顶部标题与简介 -->
-        <!-- ===================== -->
-        <header class="text-center mt-8 mb-12">
-            <h1 class="text-3xl md:text-4xl font-bold text-gray-800 mb-3">Paper Burner X: <span class="text-blue-600">AI 辅助</span> 的文献阅读与分析工具</h1>
-            <p class="text-gray-600 max-w-2xl mx-auto">提供多种格式的文本提取、翻译、内容分析及管理功能，旨在提升文献处理效率。</p>
-        </header>
+    <!-- ===================== -->
+    <!-- 主内容区 -->
+    <!-- ===================== -->
+    <main class="app-main flex flex-col">
+      <!-- 移动端 Header -->
+      <header class="md:hidden bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
+        <a href="views/landing/landing-page.html" class="text-lg font-bold flex items-center gap-2 text-slate-800">
+          <img src="public/pure.svg" class="w-7 h-7" alt="PBX Logo">
+          PBX
+        </a>
+        <div class="flex items-center gap-3">
+            <button id="mobileHistoryBtn" class="text-slate-600 p-1">
+                <iconify-icon icon="carbon:time" width="20"></iconify-icon>
+            </button>
+            <button id="mobileMenuBtn" class="text-slate-600 p-1">
+                <iconify-icon icon="carbon:menu" width="24"></iconify-icon>
+            </button>
+        </div>
+      </header>
 
-        <main>
+      <!-- 滚动内容容器 -->
+      <div class="flex-1 overflow-y-auto custom-scrollbar">
+        <div id="mainAppContainer" class="container mx-auto px-4 py-6 md:py-8 max-w-6xl animate-fade-in-up">
+
             <!-- ===================== -->
-            <!-- 新增的步骤标题 -->
+            <!-- 顶部欢迎区 (Modern Dashboard Style) -->
             <!-- ===================== -->
-            <div class="mb-6">
-                <h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center">
-                    <iconify-icon icon="carbon:document-preliminary" class="mr-2 text-blue-500" width="24"></iconify-icon>
-                    Step 1：文档识别
-                </h2>
+            <div class="workspace-header">
+                <div class="workspace-header-content">
+                    <h1 class="text-3xl md:text-4xl font-bold text-slate-900 mb-4 tracking-tight">
+                        开始新的任务
+                    </h1>
+                    <p class="text-lg text-slate-600 leading-relaxed">
+                        配置高性能 OCR 引擎与 AI 翻译模型，上传您的文献，Paper Burner X 将自动为您提取知识、生成摘要并构建专属知识库。
+                    </p>
+                </div>
             </div>
 
             <!-- ===================== -->
-            <!-- 主功能卡片区域 -->
+            <!-- 主功能区 -->
             <!-- ===================== -->
-            <div class="bg-white rounded-xl shadow-sm p-6 mb-3">
+            <div>
 
-                <!-- API 密钥设置 (旧版，已注释掉) -->
+            <div class="space-y-6">
+
+                <!-- ===================== -->
+                <!-- 卡片 1: OCR 文档解析 -->
+                <!-- ===================== -->
+                <div class="modern-card p-4 md:p-6">
                 <!--
                 <div class="mb-6">
                     <h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center">
@@ -324,17 +702,22 @@
                 <!-- ===================== -->
                 <!-- OCR 设置 -->
                 <!-- ===================== -->
-                <div class="mb-6">
-                    <h2 class="text-xl font-semibold text-gray-800 mb-4 flex justify-between items-center">
-                        <span class="flex items-center">
-                            <iconify-icon icon="carbon:document-tasks" class="mr-2 text-purple-500" width="24"></iconify-icon>
-                            OCR 设置
-                        </span>
-                        <span class="flex items-center">
-                            <span id="flashConfigTip" class="flash-tip-anim text-base text-blue-600 font-semibold mr-1">配置模型与Key管理</span>
-                            <iconify-icon id="modelKeyManagerBtn" icon="carbon:settings" width="22" class="text-gray-400 hover:text-blue-600 cursor-pointer transition-colors" title="模型与Key管理"></iconify-icon>
-                        </span>
-                    </h2>
+                <div>
+                    <div class="section-header justify-between">
+                        <h2 class="section-title">
+                            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-50 to-purple-100/80 border border-purple-100 text-purple-600 flex items-center justify-center mr-3 shadow-sm">
+                                <iconify-icon icon="carbon:scan" width="20"></iconify-icon>
+                            </div>
+                            OCR 文档解析
+                        </h2>
+                        <div class="flex items-center">
+                            <span id="flashConfigTip" class="flash-tip-anim text-sm text-blue-600 font-medium mr-2">配置模型与Key</span>
+                            <button id="modelKeyManagerBtn" class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors" title="模型与Key管理">
+                                <iconify-icon icon="carbon:settings" width="18"></iconify-icon>
+                                <span>设置</span>
+                            </button>
+                        </div>
+                    </div>
 
                     <!-- OCR 引擎选择（简化版） -->
                     <div>
@@ -374,17 +757,20 @@
                         </div>
                     </div>
                 </div>
+                </div><!-- /.modern-card (OCR) -->
 
                 <!-- ===================== -->
-                <!-- 翻译设置 -->
+                <!-- 卡片 2: 翻译与分析 -->
                 <!-- ===================== -->
-                <div class="mb-6">
-                    <h2 class="text-xl font-semibold text-gray-800 mb-4">
-                        <span class="flex items-center">
-                            <iconify-icon icon="carbon:translate" class="mr-2 text-blue-500" width="24"></iconify-icon>
-                            翻译设置
-                        </span>
-                    </h2>
+                <div class="modern-card p-4 md:p-6">
+                    <div class="section-header">
+                        <h2 class="section-title">
+                            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-50 to-blue-100/80 border border-blue-100 text-blue-600 flex items-center justify-center mr-3 shadow-sm">
+                                <iconify-icon icon="carbon:language" width="20"></iconify-icon>
+                            </div>
+                            翻译与分析
+                        </h2>
+                    </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <!-- 翻译模型选择 -->
                         <div>
@@ -616,24 +1002,29 @@
                     </div>
                 </div>
 
-                <hr class="my-6 border-gray-200">
-
                 <!-- ===================== -->
-                <!-- 高级设置区域 -->
+                <!-- 卡片 3: 高级设置 -->
                 <!-- ===================== -->
-                <div class="mt-4 mb-6">
-                    <!-- 展开/收起高级设置的按钮 -->
-                    <button id="advancedSettingsToggle" class="text-sm text-gray-500 hover:text-gray-700 flex items-center" type="button">
-                        <iconify-icon icon="carbon:settings-adjust" class="mr-1" width="16"></iconify-icon>
-                        <span>高级设置</span>
-                        <iconify-icon icon="carbon:chevron-down" class="ml-1" width="16" id="advancedSettingsIcon"></iconify-icon>
-                    </button>
+                <div class="modern-card p-4 md:p-6">
+                    <!-- 展开/收起高级设置的头部 -->
+                    <div id="advancedSettingsToggle" class="section-header justify-between cursor-pointer select-none hover:opacity-80 transition-opacity -mb-4 pb-4">
+                        <h2 class="section-title">
+                            <div class="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center mr-3">
+                                <iconify-icon icon="carbon:settings-adjust" width="20"></iconify-icon>
+                            </div>
+                            高级设置
+                        </h2>
+                        <iconify-icon icon="carbon:chevron-down" class="text-slate-400 transition-transform duration-300" width="24" id="advancedSettingsIcon"></iconify-icon>
+                    </div>
 
                     <!-- 高级设置详细内容区 -->
-                    <div id="advancedSettings" class="hidden mt-2">
-                        <div class="border-2 border-dashed border-gray-300 rounded-lg p-6">
-                            <h3 class="text-lg font-semibold text-gray-800 mb-4 border-b pb-2 flex items-center"><iconify-icon icon="carbon:settings-check" class="mr-2 text-gray-600"></iconify-icon>性能与流程设置</h3>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div id="advancedSettings" class="hidden pt-4">
+                        <div class="pt-2">
+                            <h3 class="text-base font-semibold text-slate-800 mb-4 flex items-center">
+                                <iconify-icon icon="carbon:settings-check" class="mr-2 text-blue-500"></iconify-icon>
+                                性能与流程
+                            </h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                                 <!-- 文件处理并发数 -->
                                 <div>
                                     <label for="concurrencyLevel" class="block text-sm font-medium text-gray-700 mb-1">文件处理并发数</label>
@@ -852,59 +1243,85 @@
                             </div>
                         </div>
                     </div>
-                </div>
+                </div><!-- /.modern-card (Advanced) -->
 
                 <!-- ===================== -->
-                <!-- PDF 文件上传区域 -->
+                <!-- 卡片 4: 文件上传 -->
                 <!-- ===================== -->
-                <div class="mb-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h2 class="text-xl font-semibold text-gray-800 flex items-center">
-                            <iconify-icon icon="carbon:document-multiple-01" class="mr-2 text-blue-500" width="24"></iconify-icon>
-                            文件上传 (可多选)
+                <div class="modern-card p-4 md:p-6">
+                    <div class="section-header justify-between">
+                        <h2 class="section-title">
+                            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 text-white flex items-center justify-center mr-3 shadow-md shadow-blue-500/20">
+                                <iconify-icon icon="carbon:cloud-upload" width="20"></iconify-icon>
+                            </div>
+                            文件上传
                         </h2>
-                        <label id="batchModeToggleWrapper" class="hidden flex items-center space-x-2 text-sm text-gray-600">
-                            <span class="select-none">批量模式</span>
-                            <input type="checkbox" id="batchModeToggle" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <label id="batchModeToggleWrapper" class="hidden flex items-center space-x-2 text-sm text-slate-600 bg-slate-100 px-3 py-1.5 rounded-full cursor-pointer hover:bg-slate-200 transition-colors">
+                            <input type="checkbox" id="batchModeToggle" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4">
+                            <span class="select-none font-medium">批量模式</span>
                         </label>
                     </div>
-                    <!-- 拖拽区域与浏览按钮 -->
-                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center mb-4" id="dropZone">
+
+                    <!-- 拖拽区域 -->
+                    <div id="dropZone" class="upload-zone-modern p-8 text-center mb-6 group cursor-pointer">
                         <input type="file" id="pdfFileInput" accept=".pdf,.md,.txt,.docx,.pptx,.html,.htm,.epub,.yaml,.yml,.zip" class="hidden" multiple>
                         <input type="file" id="folderInput" class="hidden" webkitdirectory mozdirectory multiple>
-                        <div class="mx-auto mb-4 w-16 h-16 flex items-center justify-center rounded-full bg-blue-50">
-                            <iconify-icon icon="carbon:upload" class="text-blue-500" width="32"></iconify-icon>
+                        
+                        <div class="mx-auto mb-4 w-20 h-20 flex items-center justify-center rounded-full bg-blue-50 text-blue-500 group-hover:scale-110 group-hover:bg-blue-100 transition-all duration-300">
+                            <iconify-icon icon="carbon:cloud-upload" width="40"></iconify-icon>
                         </div>
-                        <h3 class="text-lg font-medium text-gray-800 mb-1">拖放 PDF / MD / TXT / DOCX / PPTX / HTML / EPUB / YAML 文件到这里</h3>
-                        <p class="text-sm text-gray-500 mb-4">或者</p>
+                        <h3 class="text-lg font-semibold text-slate-700 mb-2">点击或拖拽文件到此处</h3>
+                        <p class="text-sm text-slate-500 mb-6 max-w-md mx-auto">
+                            支持 PDF, Markdown, Word, PowerPoint, HTML, EPUB 等常见文档格式
+                        </p>
+                        
                         <div class="flex flex-wrap justify-center gap-3">
-                            <button id="browseFilesBtn" class="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
-                                浏览文件
+                            <button id="browseFilesBtn" class="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl hover:border-blue-500 hover:text-blue-600 transition-all flex items-center gap-2 font-medium shadow-sm">
+                                <iconify-icon icon="carbon:document-add" width="18"></iconify-icon>
+                                选择文件
                             </button>
-                            <button id="browseFolderBtn" class="px-6 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
-                                上传文件夹
+                            <button id="browseFolderBtn" class="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl hover:border-indigo-500 hover:text-indigo-600 transition-all flex items-center gap-2 font-medium shadow-sm">
+                                <iconify-icon icon="carbon:folder-add" width="18"></iconify-icon>
+                                选择文件夹
                             </button>
-                            <button id="urlImportBtn" class="px-6 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-all focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2">
+                        </div>
+                        <div class="mt-4 flex flex-wrap justify-center gap-4 text-sm">
+                             <button id="urlImportBtn" class="text-slate-500 hover:text-purple-600 transition-colors flex items-center gap-1.5">
+                                <iconify-icon icon="carbon:link" width="16"></iconify-icon>
                                 URL 导入
                             </button>
-                            <button id="githubImportBtn" class="px-6 py-2 bg-slate-500 text-white rounded-lg hover:bg-slate-600 transition-all focus:outline-none focus:ring-2 focus:ring-slate-500 focus:ring-offset-2">
+                            <span class="text-slate-300">|</span>
+                            <button id="githubImportBtn" class="text-slate-500 hover:text-slate-800 transition-colors flex items-center gap-1.5">
+                                <iconify-icon icon="carbon:logo-github" width="16"></iconify-icon>
                                 GitHub 导入
                             </button>
                         </div>
                     </div>
-                    <!-- 已选文件列表显示区域 -->
-                    <div id="fileListContainer" class="max-h-60 overflow-y-auto border-2 border-dashed border-gray-300 rounded-lg p-3 bg-gray-50 hidden">
-                        <div class="flex justify-between items-center mb-2">
-                            <span class="text-sm font-medium text-gray-700">已选文件:</span>
-                            <button id="clearFilesBtn" class="text-sm text-red-500 hover:text-red-700">清空列表</button>
-                        </div>
-                        <div id="fileFormatFilters" class="flex flex-wrap gap-2 mb-3 text-xs text-gray-600"></div>
-                        <div id="fileList">
-                            <!-- File items will be added here by JavaScript -->
+
+                    <!-- 已选文件列表 -->
+                    <div id="fileListContainer" class="hidden">
+                        <div class="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
+                            <div class="px-4 py-3 border-b border-slate-200 flex justify-between items-center bg-slate-100/50">
+                                <span class="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                    <iconify-icon icon="carbon:document-tasks" class="text-slate-500"></iconify-icon>
+                                    待处理文件
+                                </span>
+                                <button id="clearFilesBtn" class="text-xs text-red-500 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded transition-colors flex items-center gap-1">
+                                    <iconify-icon icon="carbon:trash-can" width="14"></iconify-icon>
+                                    清空
+                                </button>
+                            </div>
+                            <div class="p-3">
+                                <div id="fileFormatFilters" class="flex flex-wrap gap-2 mb-3"></div>
+                                <div id="fileList" class="max-h-[300px] overflow-y-auto pr-1 space-y-2">
+                                    <!-- JS 填充 -->
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    <div id="batchModeConfig" class="hidden mt-4 border border-blue-200 bg-blue-50/60 rounded-lg">
+                    <!-- 批量配置 (保持原有逻辑，仅微调样式) -->
+                    <div id="batchModeConfig" class="hidden mt-4 border border-blue-100 bg-blue-50/30 rounded-xl overflow-hidden">
                         <div class="flex items-center justify-between px-4 py-3 border-b border-blue-100">
                             <span class="text-sm font-semibold text-blue-700">批量导出配置</span>
                             <button type="button" id="batchModeConfigToggle" class="text-xs text-blue-600 hover:text-blue-700 flex items-center space-x-1">
@@ -970,78 +1387,97 @@
                 </div>
 
                 <!-- 处理按钮 -->
-                <div class="flex justify-center mt-8">
-                    <button id="processBtn" class="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed flex items-center">
-                        <iconify-icon icon="carbon:play" class="mr-2" width="20"></iconify-icon>
-                        <span>开始处理</span>
+                <div class="flex justify-center mt-8 mb-12">
+                    <button id="processBtn" class="btn-primary-large px-10 py-4 text-lg font-semibold text-white rounded-2xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-3 hover:scale-[1.02] active:scale-[0.98]">
+                        <iconify-icon icon="carbon:rocket" width="24"></iconify-icon>
+                        <span>开始智能处理</span>
                     </button>
                 </div>
-            </div>
+                    </div>
+
+            <!-- ===================== -->
+            <!-- 进度与结果区域 (恢复为单栏垂直排列) -->
+            <!-- ===================== -->
+            <div class="mt-12 space-y-6">
 
             <!-- ===================== -->
             <!-- 进度与结果区域 -->
             <!-- ===================== -->
             <!-- 处理进度显示区 -->
-            <div id="progressSection" class="bg-white rounded-xl shadow-sm p-6 mb-8 hidden">
-                <h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center">
-                    <iconify-icon icon="carbon:progress-bar" class="mr-2 text-blue-500" width="24"></iconify-icon>
-                    处理进度
-                </h2>
-                <!-- 批处理总体进度文本 -->
-                <div class="mb-2">
-                    <span id="batchProgressText" class="text-sm font-medium text-gray-700"></span>
+            <div id="progressSection" class="modern-card p-4 md:p-6 hidden">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <div class="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center mr-3">
+                            <iconify-icon icon="carbon:progress-bar-round" width="20"></iconify-icon>
+                        </div>
+                        处理进度
+                    </h2>
                 </div>
-                <!-- 并发任务进度文本 -->
-                 <div class="mb-2">
-                    <span id="concurrentProgressText" class="text-sm font-medium text-gray-600"></span>
-                </div>
-                <!-- 单个文件/步骤进度条 -->
-                <div class="mb-4">
-                    <div class="flex justify-between mb-1">
-                        <span id="progressStep" class="text-sm font-medium text-gray-700">等待开始...</span>
-                        <span id="progressPercentage" class="text-sm font-medium text-gray-700">0%</span>
+                
+                <div class="space-y-4">
+                    <!-- 进度概览 -->
+                    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <span id="batchProgressText" class="text-sm font-semibold text-slate-700"></span>
+                        <span id="concurrentProgressText" class="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded-full"></span>
                     </div>
-                    <div class="w-full bg-gray-200 rounded-full h-2.5">
-                        <div id="progressBar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    
+                    <!-- 主进度条 -->
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <span id="progressStep" class="text-sm font-medium text-slate-700">等待开始...</span>
+                            <span id="progressPercentage" class="text-sm font-bold text-blue-600">0%</span>
+                        </div>
+                        <div class="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+                            <div id="progressBar" class="bg-gradient-to-r from-blue-500 to-indigo-600 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
                     </div>
+
+                    <!-- 处理日志 -->
+                    <div id="progressLog" class="bg-slate-900 rounded-xl p-4 h-48 overflow-auto text-xs text-slate-300 font-mono leading-relaxed shadow-inner"></div>
                 </div>
-                <!-- 处理日志显示区 -->
-                <div id="progressLog" class="bg-gray-50 rounded-lg p-4 h-40 overflow-auto text-sm text-gray-600 font-mono"></div>
             </div>
 
             <!-- 处理结果显示与下载区 -->
-            <div id="resultsSection" class="bg-white rounded-xl shadow-sm p-6 mb-8 hidden">
-                <h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center">
-                    <iconify-icon icon="carbon:document-download" class="mr-2 text-blue-500" width="24"></iconify-icon>
-                    处理完成
-                </h2>
-                <p class="text-gray-600 mb-4">所有文件处理完成。您可以下载包含所有结果的 ZIP 文件。</p>
+            <div id="resultsSection" class="modern-card p-4 md:p-6 hidden">
+                <div class="section-header">
+                    <h2 class="section-title">
+                        <div class="w-8 h-8 rounded-lg bg-green-100 text-green-600 flex items-center justify-center mr-3">
+                            <iconify-icon icon="carbon:result" width="20"></iconify-icon>
+                        </div>
+                        处理完成
+                    </h2>
+                </div>
+                
+                <div class="bg-green-50 border border-green-100 rounded-xl p-4 mb-6 flex items-start gap-3">
+                    <iconify-icon icon="carbon:checkmark-filled" class="text-green-500 mt-0.5" width="20"></iconify-icon>
+                    <div>
+                        <h4 class="text-sm font-semibold text-green-800 mb-1">所有任务已完成</h4>
+                        <p class="text-sm text-green-700">您可以下载包含所有结果的 ZIP 文件，或在历史记录中查看详情。</p>
+                    </div>
+                </div>
+
                 <!-- 结果统计摘要 -->
-                <div id="resultsSummary" class="mb-4 text-sm text-gray-700">
+                <div id="resultsSummary" class="mb-6 text-sm text-slate-600">
                     <!-- Summary will be added here -->
                 </div>
+
                 <!-- 下载全部结果按钮 -->
-                <button id="downloadAllBtn" class="mt-3 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 flex items-center justify-center w-full md:w-auto">
-                    <iconify-icon icon="carbon:download" class="mr-2" width="20"></iconify-icon>
+                <button id="downloadAllBtn" class="btn-primary-large px-6 py-3 text-white rounded-xl transition-all flex items-center justify-center w-full sm:w-auto gap-2 font-medium hover:scale-[1.02] active:scale-[0.98] bg-gradient-to-r from-green-500 to-emerald-600 shadow-green-500/20">
+                    <iconify-icon icon="carbon:download" width="20"></iconify-icon>
                     <span>下载全部结果 (ZIP)</span>
                 </button>
             </div>
-            <!-- Moved disclaimer text inside main -->
-            <p class="text-center text-gray-500 text-xs max-w-xl mx-auto mt-0 mb-4">注意：AI 模型翻译结果仅供参考，最终内容请以原文为准</p>
-        </main>
+            <!-- Moved disclaimer text inside the scrollable container -->
+                        <div class="flex justify-center mt-8 mb-6">
+                            <p class="text-center text-gray-400 text-xs select-none px-4">
+                                注意：AI 模型翻译结果仅供参考，最终内容请以原文为准
+                            </p>
+                        </div>
+            </div>
+        </div><!-- /#mainAppContainer -->
+        </div><!-- /.flex-1.overflow-y-auto -->
+      </main><!-- /.app-main -->
 
-        <!-- ===================== -->
-        <!-- 页脚 -->
-        <!-- ===================== -->
-        <footer class="text-center text-gray-500 text-sm mt-12">
-            <!-- 版权或链接信息 -->
-            <p class="mb-2">
-                <span id="showCopyrightModal" class="text-blue-500 hover:text-blue-700 transition-colors cursor-pointer select-none">
-                    <iconify-icon icon="carbon:logo-github" class="mr-1" inline></iconify-icon>
-                    Paper Burner X 丨 基于 Paper Burner
-                </span>
-            </p>
-        </footer>
     </div>
 
     <!-- ===================== -->
@@ -1050,10 +1486,17 @@
     <!-- ===================== -->
     <div id="notification-container" class="fixed top-4 right-4 z-50 flex flex-col items-end space-y-2 pointer-events-none max-w-lg"></div>
 
+    <!-- 悬浮历史记录按钮 -->
+    <button id="floatingHistoryBtn" class="floating-history-btn" title="查看历史记录">
+        <iconify-icon icon="carbon:time" width="24"></iconify-icon>
+    </button>
+
     <!-- ===================== -->
     <!-- 脚本引入区（顺序不能乱） -->
     <!-- ===================== -->
     <script src="https://unpkg.com/iconify-icon@1.0.7/dist/iconify-icon.min.js"></script>
+    <!-- GitHub Stars 统一获取模块 -->
+    <script src="js/utils/github-stars.js"></script>
     <!-- 自动探测后端：若 /api/健康检查通过将切换为 backend；也可用 ?mode=backend 强制 -->
     <script>window.ENV_DEPLOYMENT_MODE = 'auto';</script>
     <script src="js/api/api.js"></script>
@@ -1187,69 +1630,58 @@
 
 
     <!-- ===================== -->
-    <!-- 历史记录浮动按钮与面板 -->
-    <!-- ===================== -->
-    <!-- 浮动按钮，点击显示历史记录面板 -->
-    <div id="history-fab" style="position:fixed;bottom:32px;right:32px;z-index:9999;">
-      <button id="showHistoryBtn" class="bg-blue-600 text-white rounded-full shadow-lg p-4 hover:bg-blue-700 transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1">
-        <iconify-icon icon="carbon:time" width="28"></iconify-icon>
-      </button>
-    </div>
     <!-- 历史记录面板 (模态框) -->
-    <div id="historyPanel" class="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm flex items-center justify-center hidden p-4">
-      <div class="bg-white rounded-xl shadow-xl p-4 md:p-6 w-[92vw] md:w-[90vw] max-w-6xl max-h-[90vh] flex flex-col overflow-hidden">
-        <div class="flex justify-between items-center pb-3 mb-3 border-b border-gray-200">
-          <span class="font-semibold text-lg text-gray-700">历史记录</span>
-          <button id="closeHistoryPanel" class="text-gray-400 hover:text-red-500 transition-colors"><iconify-icon icon="carbon:close" width="24"></iconify-icon></button>
+    <div id="historyPanel" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center hidden p-4 md:p-8">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[85vh] flex flex-col overflow-hidden border border-slate-100">
+        <div class="flex justify-between items-center p-5 border-b border-slate-100 bg-slate-50/50">
+          <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                  <iconify-icon icon="carbon:time" width="24"></iconify-icon>
+              </div>
+              <div>
+                  <h3 class="text-lg font-bold text-slate-800">历史记录</h3>
+                  <p class="text-xs text-slate-500">查看和管理您处理过的文档</p>
+              </div>
+          </div>
+          <button id="closeHistoryPanel" class="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors">
+              <iconify-icon icon="carbon:close" width="24"></iconify-icon>
+          </button>
         </div>
-        <div class="flex flex-1 min-h-0 gap-4">
-          <aside class="hidden md:flex w-60 shrink-0 border border-gray-100 rounded-lg bg-gray-50/80 p-3 flex-col" id="historySidebar">
-            <div class="flex items-center justify-between text-xs font-semibold text-gray-600 uppercase tracking-wide">
-              <span>历史文件夹</span>
-              <button id="historyAddFolderBtn" class="text-blue-500 hover:text-blue-600 transition-colors flex items-center gap-1 text-xs font-medium" type="button">
+        <div class="flex flex-1 min-h-0">
+          <aside class="hidden md:flex w-64 shrink-0 border-r border-slate-100 bg-slate-50 p-4 flex-col" id="historySidebar">
+            <div class="flex items-center justify-between mb-4">
+              <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">文件夹</span>
+              <button id="historyAddFolderBtn" class="text-blue-600 hover:bg-blue-50 p-1.5 rounded-md transition-colors" title="新建文件夹">
                 <iconify-icon icon="carbon:add" width="16"></iconify-icon>
-                新建
               </button>
             </div>
-            <div class="mt-3 flex-1 overflow-y-auto" id="historyFolderList" aria-label="历史文件夹列表"></div>
+            <div class="flex-1 overflow-y-auto -mx-2 px-2" id="historyFolderList"></div>
           </aside>
-          <div class="flex-1 flex flex-col min-h-0">
-            <div class="pb-2 md:hidden">
-              <div class="flex items-center gap-2">
-                <div class="flex-1">
-                  <label for="historyFolderSelectMobile" class="sr-only">筛选文件夹</label>
-                  <select id="historyFolderSelectMobile" class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200">
-                    <option value="all">全部记录</option>
-                  </select>
-                </div>
-                <button id="historyAddFolderBtnMobile" class="text-blue-600 hover:text-blue-700 transition-colors flex items-center gap-1 text-sm font-medium shrink-0" type="button" aria-label="新建文件夹" title="新建文件夹">
-                  <iconify-icon icon="carbon:add" width="18"></iconify-icon>
-                  <span class="hidden sm:inline">新建</span>
-                </button>
-                <button id="historyRenameFolderBtnMobile" class="text-gray-600 hover:text-blue-700 transition-colors flex items-center gap-1 text-sm font-medium shrink-0" type="button" aria-label="重命名文件夹" title="重命名当前文件夹">
-                  <iconify-icon icon="carbon:edit" width="18"></iconify-icon>
-                  <span class="hidden sm:inline">重命名</span>
-                </button>
-                <button id="historyDeleteFolderBtnMobile" class="text-gray-600 hover:text-red-600 transition-colors flex items-center gap-1 text-sm font-medium shrink-0" type="button" aria-label="删除文件夹" title="删除当前文件夹">
-                  <iconify-icon icon="carbon:trash-can" width="18"></iconify-icon>
-                  <span class="hidden sm:inline">删除</span>
-                </button>
-              </div>
+          <div class="flex-1 flex flex-col min-h-0 p-5">
+            <!-- Mobile Folder Controls -->
+            <div class="md:hidden mb-4 flex gap-2">
+                 <select id="historyFolderSelectMobile" class="flex-1 rounded-xl border-slate-200 text-sm py-2 pl-3 pr-8"></select>
+                 <button id="historyAddFolderBtnMobile" class="p-2 border border-slate-200 rounded-xl text-blue-600"><iconify-icon icon="carbon:add" width="20"></iconify-icon></button>
+                 <button id="historyRenameFolderBtnMobile" class="p-2 border border-slate-200 rounded-xl text-slate-600"><iconify-icon icon="carbon:edit" width="20"></iconify-icon></button>
+                 <button id="historyDeleteFolderBtnMobile" class="p-2 border border-slate-200 rounded-xl text-red-500"><iconify-icon icon="carbon:trash-can" width="20"></iconify-icon></button>
             </div>
-            <div class="pb-3">
-              <label for="historySearchInput" class="sr-only">搜索历史记录</label>
-              <div class="relative">
-                <iconify-icon icon="carbon:search" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" width="18"></iconify-icon>
-                <input id="historySearchInput" type="search" placeholder="搜索历史文件、OCR、译文或路径" class="w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 py-2 text-sm focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200" autocomplete="off">
-              </div>
+
+            <div class="mb-4 relative">
+                <iconify-icon icon="carbon:search" class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" width="20"></iconify-icon>
+                <input id="historySearchInput" type="search" placeholder="搜索文档标题、内容或 OCR 结果..."
+                       class="w-full pl-11 pr-4 py-3 bg-slate-50 border-transparent rounded-xl focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all text-sm">
             </div>
-            <div id="historyList" class="flex-1 overflow-y-auto space-y-2 pr-1" aria-live="polite"></div>
+
+            <div id="historyList" class="flex-1 overflow-y-auto space-y-3 pr-1"></div>
+
+            <div class="mt-5 pt-4 border-t border-slate-100">
+                <button id="clearHistoryBtn" class="w-full flex items-center justify-center gap-2 py-3 px-4 bg-red-50 text-red-600 font-medium rounded-xl hover:bg-red-100 transition-colors">
+                    <iconify-icon icon="carbon:trash-can" width="20"></iconify-icon>
+                    <span>清空所有历史记录</span>
+                </button>
+            </div>
           </div>
         </div>
-        <button id="clearHistoryBtn" class="mt-4 w-full bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-lg py-2.5 px-4 transition-colors flex items-center justify-center text-sm font-medium">
-            <iconify-icon icon="carbon:trash-can" class="mr-2" width="18"></iconify-icon>
-            清空历史
-        </button>
       </div>
     </div>
     <!-- 历史记录详情弹窗 (已废弃，详情在新页面打开) -->
@@ -1317,23 +1749,27 @@
     <!-- ===================== -->
     <!-- 模型搜索弹窗 -->
     <!-- ===================== -->
-    <div id="modelSearchOverlay" class="hidden fixed inset-0 z-[60] bg-black bg-opacity-40 backdrop-blur-sm flex items-center justify-center px-3 py-6 sm:px-4 sm:py-8 overflow-y-auto">
-      <div class="bg-white rounded-2xl shadow-2xl w-full sm:max-w-2xl h-[88vh] sm:h-auto sm:max-h-[82vh] flex flex-col overflow-hidden">
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between px-4 sm:px-5 py-3 border-b gap-2">
-          <h3 id="modelSearchTitle" class="text-base sm:text-lg font-semibold text-gray-800">选择模型</h3>
-          <button id="modelSearchCloseBtn" class="self-end sm:self-auto text-gray-400 hover:text-red-500 transition-colors">
+    <div id="modelSearchOverlay" class="hidden fixed inset-0 z-[60] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden border border-slate-100">
+        <div class="flex items-center justify-between p-5 border-b border-slate-100">
+          <h3 id="modelSearchTitle" class="text-lg font-bold text-slate-800">选择模型</h3>
+          <button id="modelSearchCloseBtn" class="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors">
             <iconify-icon icon="carbon:close" width="20"></iconify-icon>
           </button>
         </div>
-        <div class="px-4 sm:px-5 py-4 grid sm:flex sm:flex-col grid-rows-[3fr_7fr] gap-3 sm:gap-4 flex-1 min-h-0">
-          <div class="min-h-0">
-            <input id="modelSearchInput" type="search" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors" placeholder="搜索模型..." autocomplete="off" />
+        <div class="p-5 flex flex-col flex-1 min-h-0 gap-4">
+          <div class="relative shrink-0">
+            <iconify-icon icon="carbon:search" class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" width="20"></iconify-icon>
+            <input id="modelSearchInput" type="search" class="w-full pl-11 pr-4 py-3 bg-slate-50 border-transparent rounded-xl focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all text-sm" placeholder="输入关键词搜索模型..." autocomplete="off" />
           </div>
-          <div class="min-h-0 overflow-hidden">
-            <div id="modelSearchList" class="h-full overflow-y-auto space-y-2 pr-1 sm:max-h-[55vh]">
+          <div class="flex-1 overflow-y-auto min-h-0 -mr-2 pr-2">
+            <div id="modelSearchList" class="space-y-2">
               <!-- 动态填充模型列表 -->
             </div>
-            <div id="modelSearchEmpty" class="hidden text-sm text-gray-500 text-center py-6 border border-dashed border-gray-200 rounded-lg mt-3">暂无可选项</div>
+            <div id="modelSearchEmpty" class="hidden flex flex-col items-center justify-center py-12 text-slate-400">
+                <iconify-icon icon="carbon:search-locate" width="40" class="mb-2 opacity-50"></iconify-icon>
+                <p class="text-sm">未找到匹配的模型</p>
+            </div>
           </div>
         </div>
       </div>
@@ -1341,27 +1777,37 @@
 
     <!-- 模型与Key管理弹窗 -->
     <!-- ===================== -->
-    <div id="modelKeyManagerModal" class="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center hidden p-4">
-      <div class="bg-white rounded-xl shadow-2xl w-full md:w-[95vw] max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
+    <div id="modelKeyManagerModal" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center hidden p-4 md:p-8">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-100">
         <!-- 弹窗头部 -->
-        <div class="flex justify-between items-center p-4 border-b sticky top-0 bg-white z-10">
-          <span class="font-bold text-lg">模型与 Key 管理</span>
-          <button id="closeModelKeyManager" class="text-gray-400 hover:text-red-500"><iconify-icon icon="carbon:close" width="20"></iconify-icon></button>
+        <div class="flex justify-between items-center p-5 border-b border-slate-100 bg-slate-50/50">
+          <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-slate-200 text-slate-700 flex items-center justify-center">
+                  <iconify-icon icon="carbon:settings-check" width="24"></iconify-icon>
+              </div>
+              <div>
+                  <h3 class="text-lg font-bold text-slate-800">模型与密钥配置</h3>
+                  <p class="text-xs text-slate-500">集中管理所有 AI 服务的连接信息</p>
+              </div>
+          </div>
+          <button id="closeModelKeyManager" class="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors">
+              <iconify-icon icon="carbon:close" width="24"></iconify-icon>
+          </button>
         </div>
         <!-- 主体内容区 - 左右布局 -->
         <div class="flex flex-1 overflow-hidden flex-col md:flex-row">
           <!-- 左侧模型/源站点列表 -->
-          <div id="modelListColumn" class="w-full md:w-1/4 md:min-w-[220px] md:max-w-[260px] bg-gray-50 md:border-r border-b md:border-b-0 overflow-y-auto p-3 space-y-1 max-h-[40vh] md:max-h-none">
+          <div id="modelListColumn" class="w-full md:w-64 bg-slate-50 md:border-r border-slate-100 overflow-y-auto p-4 space-y-1">
             <!-- 模型/源站点列表将由 JS 动态填充 -->
           </div>
           <!-- 右侧配置项与Key池管理 -->
-          <div class="flex-1 p-4 overflow-y-auto space-y-4">
+          <div class="flex-1 p-6 overflow-y-auto bg-white">
             <!-- 当前选中模型/源站点的配置项 -->
-            <div id="modelConfigColumn" class="mb-4">
+            <div id="modelConfigColumn" class="mb-8">
               <!-- 配置项将由 JS 动态填充 -->
             </div>
             <!-- API Key 管理界面 (由 key-manager-ui.js 渲染) -->
-            <div id="keyManagerColumn" class="border-t pt-4">
+            <div id="keyManagerColumn" class="border-t border-slate-100 pt-6">
               <!-- KeyManagerUI 实例将渲染到这里 -->
             </div>
           </div>
@@ -1378,102 +1824,115 @@
             <iconify-icon icon="carbon:close" width="24"></iconify-icon>
         </button>
         <div class="text-center mb-5 md:mb-6">
-          <h2 class="text-2xl md:text-3xl font-extrabold tracking-tight mb-2">Paper Burner X 功能概览</h2>
+          <h2 class="text-2xl md:text-3xl font-extrabold tracking-tight mb-2">关于 Paper Burner X</h2>
         </div>
         <div class="text-gray-700 space-y-4 md:space-y-5 text-sm md:text-base font-normal overflow-y-auto pr-3 flex-1">
-          <p class="leading-relaxed text-left text-sm md:text-base text-gray-700 font-normal">
-            Paper Burner X 专注于浏览器端的一站式文献处理，整合 OCR、翻译、术语表、阅读、批注与 AI 分析能力，确保在本地即可完成从原文到知识沉淀的流程。
-          </p>
-          <div>
-            <h3 class="text-base md:text-lg font-bold text-blue-700 mb-3 md:mb-4 flex items-center">
-              <iconify-icon icon="carbon:list-checked" class="mr-2 text-blue-500" width="20"></iconify-icon>
-              核心能力亮点：
-            </h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
-              <article class="feature-card-modern text-left">
-                <div class="feature-card-inner">
-                  <div class="feature-icon-ring text-orange-500">
-                    <iconify-icon icon="carbon:flash" width="22"></iconify-icon>
-                  </div>
-                  <div>
-                    <h4 class="text-base md:text-lg font-semibold text-gray-800">极速并发翻译</h4>
-                    <ul class="mt-1.5 text-xs md:text-sm text-gray-600 leading-relaxed space-y-1">
-                      <li>多文件并发 + 自定义并发数，长篇论文亦能快速出译文。</li>
-                      <li>提示词池健康监测，配合 Key 轮转保障稳定产出。</li>
-                    </ul>
-                    <div class="feature-meta">
-                      <span class="bg-orange-100/80 text-orange-600">多文件</span>
-                      <span class="bg-orange-50 text-orange-500 border border-orange-200/70">提示词池</span>
-                    </div>
-                  </div>
-                </div>
-              </article>
-              <article class="feature-card-modern text-left">
-                <div class="feature-card-inner">
-                  <div class="feature-icon-ring text-blue-600">
-                    <iconify-icon icon="carbon:settings-adjust" width="22"></iconify-icon>
-                  </div>
-                  <div>
-                    <h4 class="text-base md:text-lg font-semibold text-gray-800">灵活配置中心</h4>
-                    <ul class="mt-1.5 text-xs md:text-sm text-gray-600 leading-relaxed space-y-1">
-                      <li>Base URL、模型自动检测、多 Key 轮询统一在一处配置。</li>
-                      <li>术语表、提示词池与预设 prompt 联动，满足客制化翻译。</li>
-                    </ul>
-                    <div class="feature-meta">
-                      <span class="bg-blue-100/80 text-blue-600">术语表</span>
-                      <span class="bg-blue-50 text-blue-500 border border-blue-200/70">多源 Key</span>
-                    </div>
-                  </div>
-                </div>
-              </article>
-              <article class="feature-card-modern text-left">
-                <div class="feature-card-inner">
-                  <div class="feature-icon-ring text-indigo-500">
-                    <iconify-icon icon="carbon:notebook" width="22"></iconify-icon>
-                  </div>
-                  <div>
-                    <h4 class="text-base md:text-lg font-semibold text-gray-800">沉浸式阅读体验</h4>
-                    <ul class="mt-1.5 text-xs md:text-sm text-gray-600 leading-relaxed space-y-1">
-                      <li>历史记录、原译对照、智能对齐与 TOC 导航协同校对。</li>
-                      <li>沉浸模式 + 多彩标注，让重点整理更专注。</li>
-                    </ul>
-                    <div class="feature-meta">
-                      <span class="bg-indigo-100/80 text-indigo-600">历史记录</span>
-                      <span class="bg-indigo-50 text-indigo-500 border border-indigo-200/70">沉浸模式</span>
-                    </div>
-                  </div>
-                </div>
-              </article>
-              <article class="feature-card-modern text-left">
-                <div class="feature-card-inner">
-                  <div class="feature-icon-ring text-purple-600">
-                    <iconify-icon icon="carbon:ai-status" width="22"></iconify-icon>
-                  </div>
-                  <div>
-                    <h4 class="text-base md:text-lg font-semibold text-gray-800">智能分析与导出</h4>
-                    <ul class="mt-1.5 text-xs md:text-sm text-gray-600 leading-relaxed space-y-1">
-                      <li>内置聊天助手与快捷指令，支持深度问答、流式输出。</li>
-                      <li>思维导图、流程图与 HTML/PDF/DOCX/MD 多格式导出即用。</li>
-                    </ul>
-                    <div class="feature-meta">
-                      <span class="bg-purple-100/80 text-purple-600">LLM 助手</span>
-                      <span class="bg-purple-50 text-purple-500 border border-purple-200/70">多格式导出</span>
-                    </div>
-                  </div>
-                </div>
-              </article>
+          <div class="leading-relaxed text-left space-y-3">
+            <p class="text-sm md:text-base text-gray-700 font-normal">
+              这是一款<strong>开源的、在浏览器中即开即用的 AI 工作站</strong>，专为扫除海量的 PDF 文献、复杂的公式和跨语言的障碍。
+            </p>
+            <p class="text-sm md:text-base text-gray-700 font-normal">
+              它为需要进行精细、长文本阅读的研究人员和深度学习者设计，致力于将复杂的文档处理、翻译和分析流程整合到单一、流畅的体验中。
+            </p>
+            <div class="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-r-lg">
+              <p class="text-sm text-gray-700">
+                <strong class="text-blue-700">GitHub:</strong> <a href="https://github.com/Feather-2/paper-burner" target="_blank" class="text-blue-600 hover:text-blue-700 underline">github.com/Feather-2/paper-burner</a><br>
+                <strong class="text-blue-700">在线体验:</strong> <a href="https://paperburner.viwoplus.site/" target="_blank" class="text-blue-600 hover:text-blue-700 underline">paperburner.viwoplus.site</a>
+              </p>
             </div>
           </div>
           <div>
-            <h3 class="text-base md:text-lg font-bold text-blue-700 mb-2 flex items-center">
-              <iconify-icon icon="carbon:road" class="mr-2 text-blue-500" width="20"></iconify-icon>
-              近期路线：
+            <h3 class="text-base md:text-lg font-bold text-blue-700 mb-3 flex items-center">
+              <iconify-icon icon="carbon:checkmark-outline" class="mr-2 text-blue-500" width="20"></iconify-icon>
+              目前实现了：
             </h3>
-            <ul class="list-disc pl-5 text-sm md:text-base text-gray-600 space-y-2">
-              <li>拓展更多 OCR 引擎与结构化解析，增强复杂出版物的还原能力。</li>
-              <li>强化术语表协同、批注数据同步与团队共享机制。</li>
-              <li>优化界面布局，探索多窗口沉浸式工作流与更多可视化能力。</li>
+            <div class="space-y-4">
+              <div class="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg border border-blue-100">
+                <h4 class="text-base font-semibold text-gray-800 mb-2 flex items-center">
+                  <iconify-icon icon="carbon:ai-status" class="mr-2 text-blue-600" width="18"></iconify-icon>
+                  前端 Agent 驱动的智能检索
+                </h4>
+                <p class="text-sm text-gray-700 leading-relaxed">
+                  我们在前端实现了一个 Agentic RAG 系统。通过赋予 AI 全局的文章结构和一系列工具（如 grep, vector search, fetch等等），AI 能够自主决策、多步推理，并在长文本中实现复杂的分析和信息提取任务。
+                </p>
+              </div>
+              <div class="bg-gradient-to-r from-green-50 to-emerald-50 p-4 rounded-lg border border-green-100">
+                <h4 class="text-base font-semibold text-gray-800 mb-2 flex items-center">
+                  <iconify-icon icon="carbon:flash" class="mr-2 text-green-600" width="18"></iconify-icon>
+                  高性能批量处理
+                </h4>
+                <p class="text-sm text-gray-700 leading-relaxed">
+                  支持多种文档格式（PDF/DOCX/EPUB 等）和代码库的直接导入。利用并发 OCR 和翻译，并结合术语库（支持数万词条快速匹配），显著提升了文献处理效率。
+                </p>
+              </div>
+              <div class="bg-gradient-to-r from-purple-50 to-pink-50 p-4 rounded-lg border border-purple-100">
+                <h4 class="text-base font-semibold text-gray-800 mb-2 flex items-center">
+                  <iconify-icon icon="carbon:settings-adjust" class="mr-2 text-purple-600" width="18"></iconify-icon>
+                  高可扩展性与本地化
+                </h4>
+                <p class="text-sm text-gray-700 leading-relaxed">
+                  目前所有数据均在浏览器本地，支持用户接入自定义 AI 模型端点，并提供了配套的 OCR Server 和 Docker 部署选项（开发中），让用户未来可以实现完全离线的本地化使用。
+                </p>
+              </div>
+            </div>
+            <p class="text-sm text-gray-600 italic mt-4 text-center">
+              希望这个工具能成为研究人员和知识工作者的得力助手，欢迎试用和提出宝贵意见！
+            </p>
+          </div>
+          <div>
+            <h3 class="text-base md:text-lg font-bold text-blue-700 mb-3 flex items-center">
+              <iconify-icon icon="carbon:document" class="mr-2 text-blue-500" width="20"></iconify-icon>
+              具体介绍
+            </h3>
+            <div class="space-y-4">
+              <div>
+                <h4 class="text-base font-semibold text-gray-800 mb-2">一体化的文档处理引擎</h4>
+                <ul class="list-disc pl-5 text-sm text-gray-600 space-y-1.5 leading-relaxed">
+                  <li><strong>广泛的格式支持：</strong>能够处理 PDF、DOCX、PPTX、EPUB、Markdown 甚至代码注释等多种格式，并支持导出为 DOCX、MD 等常用格式。</li>
+                  <li><strong>智能导入与处理：</strong>不仅支持本地文件上传，更可一键从 GitHub 仓库或任意 URL 导入内容，自动完成解析。PDF可以使用OCR (支持mineru/doc2x等) 与翻译引擎，并实现保留原文格式翻译功能（基于mineru，目前优化中，并会支持更多模型）。</li>
+                  <li><strong>术语备择库：</strong>进行了性能优化，支持一次性导入数万条术语并进行快速匹配。</li>
+                  <li>支持自定义模型端点，可以支持检测、多key、快捷导出等机制，使用灵活。</li>
+                </ul>
+              </div>
+              <div>
+                <h4 class="text-base font-semibold text-gray-800 mb-2">为深度阅读优化的交互体验</h4>
+                <ul class="list-disc pl-5 text-sm text-gray-600 space-y-1.5 leading-relaxed">
+                  <li><strong>沉浸式对照阅读：</strong>提供智能对齐的段落级原译文对照、文档结构目录（TOC）、高亮与标注功能，先进行无障碍的阅读，再进行AI总结。</li>
+                  <li><strong>增强学术内容展示：</strong>针对学术场景，特别优化了复杂公式的渲染。</li>
+                  <li><strong>结构化信息提取：</strong>内置了"文献矩阵"等实用工具，能够将非结构化的论文内容，智能提取为清晰的结构化数据，方便进行横向对比和分析。</li>
+                </ul>
+              </div>
+              <div>
+                <h4 class="text-base font-semibold text-gray-800 mb-2">不止于问答：前端 Agent 驱动的智能分析</h4>
+                <p class="text-sm text-gray-600 leading-relaxed mb-2">
+                  我们在纯前端环境中，实现了一个长文本Agent。少量文本下，将使用全量的策略；而当提供长文本时候，使用长文本Agent。
+                </p>
+                <ul class="list-disc pl-5 text-sm text-gray-600 space-y-1.5 leading-relaxed">
+                  <li><strong>赋予 AI 全局视野：</strong>我们为 AI 构建了"分层意群/地图"，让它在处理长文本时拥有对全文结构的整体认知。</li>
+                  <li><strong>为 AI 配备工具箱：</strong>我们给予 AI 一系列工具，如精确匹配的 grep、向量搜索 vector search、内容抓取 fetch 等。AI 会根据你的问题，自主分析并决定调用哪种工具组合来寻找最佳答案。</li>
+                  <li><strong>上述皆在纯前端实现，浏览器打开即用</strong></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div>
+            <h3 class="text-base md:text-lg font-bold text-blue-700 mb-3 flex items-center">
+              <iconify-icon icon="carbon:road" class="mr-2 text-blue-500" width="20"></iconify-icon>
+              项目正在活跃地迭代
+            </h3>
+            <ul class="list-disc pl-5 text-sm text-gray-600 space-y-2 leading-relaxed">
+              <li><strong>完全本地化部署：</strong>正在开发Docker 部署方案，还提供了可自托管的 OCR Server，最终目标是让用户可以完全在离线环境中使用全部功能。</li>
+              <li><strong>从单文档到多文档：</strong>下一个里程碑是将能力从分析单篇文献，扩展到处理多篇文献，并基于此开发能自动生成文献综述的综述 Agent，成为真正的 AI 研究助理。</li>
             </ul>
+          </div>
+          <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+            <h3 class="text-base font-bold text-gray-800 mb-2 flex items-center">
+              <iconify-icon icon="carbon:license" class="mr-2 text-gray-600" width="18"></iconify-icon>
+              基于 AGPL 3.0 开源
+            </h3>
+            <p class="text-sm text-gray-600 leading-relaxed">
+              本项目基于 <a href="https://github.com/baoyudu/paper-burner" target="_blank" class="text-blue-600 hover:text-blue-700 underline">baoyudu/paper-burner</a>（该项目是基于mistral ocr的pdf极简翻译工具），并已在原始项目上进行了重构和各方面极多内容的扩充。为避免和Paper Burner原项目名称产生重复，为示尊重和区分，该分支项目改名Paper Burner X。
+            </p>
           </div>
           <div class="border-t-2 border-dashed border-blue-200 pt-5 mt-5 text-center space-y-3">
             <p class="text-sm md:text-base text-gray-600 font-normal">探索本分支的更多细节或贡献您的智慧：</p>
@@ -1493,6 +1952,80 @@
     </div>
 
     <script>
+      // App Shell 导航逻辑
+      document.addEventListener('DOMContentLoaded', () => {
+          const historyPanel = document.getElementById('historyPanel');
+          const modelKeyManagerModal = document.getElementById('modelKeyManagerModal');
+
+          // Desktop Sidebar Buttons
+          const sidebarSettingsBtn = document.getElementById('sidebarSettingsBtn');
+
+          if (sidebarSettingsBtn && modelKeyManagerModal) {
+              sidebarSettingsBtn.addEventListener('click', () => {
+                  // 触发模型管理器的打开逻���（与主界面的"设置"按钮保持一致）
+                  const modelKeyManagerBtn = document.getElementById('modelKeyManagerBtn');
+                  if (modelKeyManagerBtn) {
+                      modelKeyManagerBtn.click();
+                  } else {
+                      // 后备方案：直接打开弹窗（但可能是空的）
+                      modelKeyManagerModal.classList.remove('hidden');
+                  }
+              });
+          }
+
+          // Mobile Sidebar Logic
+          const appSidebar = document.getElementById('appSidebar');
+          const sidebarOverlay = document.getElementById('sidebarOverlay');
+          const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+          const sidebarCloseBtn = document.getElementById('sidebarCloseBtn');
+
+          function openSidebar() {
+              appSidebar?.classList.add('mobile-open');
+              sidebarOverlay?.classList.add('show');
+          }
+
+          function closeSidebar() {
+              appSidebar?.classList.remove('mobile-open');
+              sidebarOverlay?.classList.remove('show');
+          }
+
+          if (mobileMenuBtn) mobileMenuBtn.addEventListener('click', openSidebar);
+          if (sidebarCloseBtn) sidebarCloseBtn.addEventListener('click', closeSidebar);
+          if (sidebarOverlay) sidebarOverlay.addEventListener('click', closeSidebar);
+
+          // Desktop Sidebar Collapse Logic
+          const sidebarToggleBtn = document.getElementById('sidebarToggleBtn');
+          const sidebarToggleIcon = document.getElementById('sidebarToggleIcon');
+          const sidebarLogo = document.getElementById('sidebarLogo');
+          const LOGO_FULL = 'public/h_with_name.svg';
+          const LOGO_PURE = 'public/pure.svg';
+
+          function setSidebarState(collapsed) {
+              if (collapsed) {
+                  appSidebar.classList.add('collapsed');
+                  if (sidebarToggleIcon) sidebarToggleIcon.setAttribute('icon', 'carbon:side-panel-open');
+                  if (sidebarLogo) sidebarLogo.src = LOGO_PURE;
+              } else {
+                  appSidebar.classList.remove('collapsed');
+                  if (sidebarToggleIcon) sidebarToggleIcon.setAttribute('icon', 'carbon:side-panel-close');
+                  if (sidebarLogo) sidebarLogo.src = LOGO_FULL;
+              }
+              localStorage.setItem('pbx_sidebar_collapsed', collapsed);
+          }
+
+          // Init state from local storage
+          const isCollapsed = localStorage.getItem('pbx_sidebar_collapsed') === 'true';
+          // 初始加载时不启用动画，避免闪烁 (可选优化，这里暂不复杂化)
+          setSidebarState(isCollapsed);
+
+          if (sidebarToggleBtn) {
+              sidebarToggleBtn.addEventListener('click', () => {
+                  const willCollapse = !appSidebar.classList.contains('collapsed');
+                  setSidebarState(willCollapse);
+              });
+          }
+      });
+
       // 一闪而过的提示文字淡入淡出动画 (用于"配置模型与Key管理"提示)
       window.addEventListener('DOMContentLoaded', function() {
         var tip = document.getElementById('flashConfigTip');
@@ -1551,6 +2084,22 @@
       })();
 
       // Landing Page Logic Removed - main app is now shown by default // This line and related block will be removed by the next instruction.
+
+      // 获取 GitHub Stars 数量（使用统一模块）
+      (function() {
+        const starsElement = document.getElementById('githubStars');
+        if (!starsElement || !window.GitHubStars) return;
+
+        window.GitHubStars.getStars()
+          .then(result => {
+            starsElement.innerHTML = '<iconify-icon icon="carbon:star" width="10"></iconify-icon><span>' + result.formatted + ' stars</span>';
+          })
+          .catch(error => {
+            console.warn('[Index] Failed to fetch GitHub stars:', error);
+            // 失败时隐藏 stars 显示
+            starsElement.style.display = 'none';
+          });
+      })();
     </script>
 </body>
 </html>

@@ -1,0 +1,181 @@
+/* =========================================
+   Paper Burner - Modern Markdown Typography
+   ========================================= */
+
+/* --- 1. 基础排版优化 --- */
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  line-height: 1.3;
+  margin-top: 1.5em;
+  margin-bottom: 0.75em;
+  color: var(--text-primary);
+}
+
+.markdown-body h1 { font-size: 2.25rem; }
+.markdown-body h2 { font-size: 1.75rem; padding-bottom: 0.5em; border-bottom: 1px solid var(--color-slate-100); }
+.markdown-body h3 { font-size: 1.375rem; }
+.markdown-body h4 { font-size: 1.125rem; }
+
+.markdown-body p {
+  margin-top: 0;
+  margin-bottom: 1.25em;
+}
+
+.markdown-body strong {
+  font-weight: 600;
+  color: var(--color-slate-900);
+}
+
+.markdown-body a {
+  color: var(--color-primary-600);
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+
+.markdown-body a:hover {
+  border-bottom-color: var(--color-primary-600);
+}
+
+/* --- 2. 列表优化 --- */
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 1.75em;
+  margin-bottom: 1.25em;
+}
+
+.markdown-body li {
+  margin-bottom: 0.5em;
+}
+
+.markdown-body li > p {
+  margin-bottom: 0.75em;
+}
+
+/* --- 3. 现代表格样式 --- */
+.markdown-body table {
+  width: 100%;
+  max-width: 100%;
+  margin-bottom: 2rem;
+  border-spacing: 0;
+  border-collapse: separate; /* 允许圆角 */
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-slate-200);
+  overflow: hidden; /* 裁剪内部圆角 */
+  box-shadow: var(--shadow-sm);
+}
+
+.markdown-body table th,
+.markdown-body table td {
+  padding: 12px 16px;
+  line-height: var(--leading-normal);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--color-slate-200);
+}
+
+.markdown-body table th {
+  font-weight: 600;
+  color: var(--text-primary);
+  background-color: var(--color-slate-50);
+  border-bottom-width: 2px; /* 表头底部边框加粗 */
+}
+
+.markdown-body table tr:last-child td {
+  border-bottom: none; /* 最后一行移除底部边框 */
+}
+
+.markdown-body table tbody tr:nth-child(even) {
+  background-color: var(--color-slate-50); /* 隔行变色 */
+}
+
+.markdown-body table tbody tr:hover {
+  background-color: var(--color-primary-50); /* 悬停高亮 */
+}
+
+/* --- 4. 现代引用块 --- */
+.markdown-body blockquote {
+  margin: 1.5em 0;
+  padding: 1em 1.5em;
+  color: var(--text-secondary);
+  background-color: var(--color-slate-50);
+  border-left: 4px solid var(--color-primary-500);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  font-style: italic;
+}
+
+.markdown-body blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* --- 5. 现代代码块 --- */
+.markdown-body pre {
+  background-color: var(--color-slate-900); /* 深色背景 */
+  color: var(--color-slate-50);
+  padding: 16px;
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  margin: 1.5em 0;
+  position: relative;
+  box-shadow: var(--shadow-md);
+}
+
+/* 可选：macOS 风格窗口装饰（如果需要更花哨的效果，可以后续添加伪元素） */
+/*
+.markdown-body pre::before {
+  content: "";
+  display: block;
+  height: 12px;
+  width: 54px;
+  margin-bottom: 16px;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="54" height="14" viewBox="0 0 54 14"><g fill="none" fill-rule="evenodd" transform="translate(1 1)"><circle cx="6" cy="6" r="6" fill="%23FF5F56" stroke="%23E0443E" stroke-width=".5"/><circle cx="26" cy="6" r="6" fill="%23FFBD2E" stroke="%23DEA123" stroke-width=".5"/><circle cx="46" cy="6" r="6" fill="%2327C93F" stroke="%231AAB29" stroke-width=".5"/></g></svg>');
+  background-repeat: no-repeat;
+}
+*/
+
+.markdown-body code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+/* 行内代码 */
+.markdown-body :not(pre) > code {
+  background-color: var(--color-slate-100);
+  color: var(--color-primary-700);
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  font-size: 0.875em;
+  border: 1px solid var(--color-slate-200);
+}
+
+/* --- 6. 图片优化 --- */
+.markdown-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 2rem auto; /* 居中且增加上下间距 */
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.markdown-body img:hover {
+  transform: scale(1.01);
+  box-shadow: var(--shadow-lg);
+}
+
+/* --- 7. 分割线 --- */
+.markdown-body hr {
+  height: 1px;
+  padding: 0;
+  margin: 3rem 0;
+  background-color: var(--color-slate-200);
+  border: 0;
+}

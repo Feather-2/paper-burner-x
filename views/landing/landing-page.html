@@ -3,23 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Paper Burner X - 您的一站式AI文献阅读与智能分析平台，支持OCR、翻译、深度解析与高级管理。">
-    <title>Paper Burner X - AI文献阅读与智能分析平台</title>
+    <meta name="description" content="Paper Burner X - 开源的、在浏览器中即开即用的 AI 工作站，专为扫除海量的 PDF ���献、复杂的公式和跨语言的障碍。支持前端 Agent 驱动的智能检索、高性能批量处理和完全本地化部署。">
+    <title>Paper Burner X - 开源 AI 文献工作站</title>
     <link rel="icon" type="image/svg+xml" href="../../public/pure.svg">
     <!-- Tailwind CSS & 依赖库 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://gcore.jsdelivr.net/npm/iconify-icon@2.0.0/dist/iconify-icon.min.js"></script>
+    <!-- GitHub Stars 统一获取模块 -->
+    <script src="../../js/utils/github-stars.js"></script>
     <!-- 后端模式未登录门禁（在有后端部署时，直接要求登录） -->
     <script src="/js/boot/backend-gate.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
     <style>
-        /* 谷歌字体 Nunito */
-        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700&display=swap');
+        /* 谷歌字体 Inter (更专业、现代) */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
         /* 基础字体设置 */
         body {
-            font-family: 'Nunito', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
-        /* 背景渐变 */
+        /* 背景渐变 - 更加细腻 */
         .gradient-bg {
             /* background: linear-gradient(135deg, #f5f7fa 0%, #e4edf9 100%); */
             background-color: #F3F6FA; /* 主题背景色 */
@@ -86,12 +90,41 @@
             font-size: 1.25rem;
         }
 
-        /* Premium Commercial Gradient Background */
+        /* Premium Commercial Gradient Background - 增强纵深感 */
         .ocean-gradient-bg {
-          background:
-            radial-gradient(circle at 20% 10%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
-            radial-gradient(circle at 80% 80%, rgba(59, 130, 246, 0.06) 0%, transparent 50%),
-            linear-gradient(135deg, #FAFBFC 0%, #F8FAFC 50%, #FFFFFF 100%);
+            background-color: #FAFBFC;
+            background-image:
+                radial-gradient(at 27% 37%, hsla(215, 98%, 61%, 0.15) 0px, transparent 50%),
+                radial-gradient(at 97% 21%, hsla(125, 98%, 72%, 0.12) 0px, transparent 50%),
+                radial-gradient(at 52% 99%, hsla(354, 98%, 61%, 0.1) 0px, transparent 50%),
+                radial-gradient(at 10% 29%, hsla(256, 96%, 67%, 0.13) 0px, transparent 50%),
+                radial-gradient(at 97% 96%, hsla(38, 60%, 74%, 0.12) 0px, transparent 50%),
+                radial-gradient(at 33% 50%, hsla(222, 67%, 73%, 0.12) 0px, transparent 50%),
+                radial-gradient(at 79% 53%, hsla(343, 68%, 79%, 0.12) 0px, transparent 50%);
+            background-attachment: fixed; /* 视差效果 */
+        }
+
+        /* Modern Sticky Header */
+        .glass-header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 50;
+            padding: 1rem 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.3s ease;
+            background: transparent;
+        }
+        .glass-header.scrolled {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(16px) saturate(180%);
+            border-bottom: 1px solid rgba(209, 213, 219, 0.3);
+            padding-top: 0.75rem;
+            padding-bottom: 0.75rem;
+            box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.03);
         }
 
         /* Hero Premium Card */
@@ -390,155 +423,172 @@
             margin: 0;
         }
 
-        /* Top Header */
-        .top-logo {
-            position: absolute;
-            top: 20px;
-            left: 12px;
-            z-index: 10;
+        /* Header Elements */
+        .header-logo img {
+            height: 36px;
+            width: auto;
+            transition: all 0.3s ease;
         }
-
-        .top-logo img {
-            height: 32px;
-        }
-
         @media (min-width: 768px) {
-            .top-logo {
-                top: 24px;
-                left: 24px;
-            }
-            .top-logo img {
-                height: 64px;
-            }
+            .header-logo img { height: 42px; }
         }
 
-        .top-banner {
-            position: absolute;
-            top: 68px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 10;
-            background: rgba(255, 255, 255, 0.9);
-            backdrop-filter: blur(10px);
+        .header-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
             padding: 6px 12px;
-            border-radius: 6px;
-            border: 1px solid rgba(99, 102, 241, 0.2);
-            box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
-            font-size: 0.7rem;
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(99, 102, 241, 0.15);
+            border-radius: 999px;
+            font-size: 0.75rem;
             font-weight: 500;
-            color: #4F46E5;
-            animation: banner-fade-out 15s forwards;
-            max-width: calc(100vw - 160px);
-            text-align: center;
+            color: #4338ca;
+            box-shadow: 0 2px 6px rgba(99, 102, 241, 0.06);
+            transition: all 0.2s ease;
+            animation: banner-slide-down 0.5s ease-out forwards;
+        }
+        .header-pill:hover {
+            background: rgba(255, 255, 255, 0.9);
+            border-color: rgba(99, 102, 241, 0.3);
+            transform: translateY(1px);
+        }
+        @keyframes banner-slide-down {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .github-btn-modern {
             display: flex;
             align-items: center;
             gap: 8px;
-            cursor: pointer;
+            padding: 8px 16px;
+            background: rgba(31, 41, 55, 0.9); /* Dark background for contrast */
+            color: white;
+            border-radius: 12px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        .github-btn-modern:hover {
+            background: rgba(0, 0, 0, 1);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
         }
 
-        .top-banner:hover {
-            background: rgba(255, 255, 255, 1);
+        /* How it works Section */
+        .steps-section {
+            position: relative;
+            z-index: 1;
         }
-
-        .top-banner .close-btn {
-            display: inline-flex;
+        .step-card {
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            border-radius: 24px;
+            padding: 2rem;
+            text-align: center;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+        }
+        .step-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 10px 10px -5px rgba(0, 0, 0, 0.02);
+            background: rgba(255, 255, 255, 0.8);
+        }
+        .step-icon-wrapper {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 1.5rem;
+            display: flex;
             align-items: center;
             justify-content: center;
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background: rgba(99, 102, 241, 0.15);
-            color: #4F46E5;
-            transition: all 0.2s ease;
-            flex-shrink: 0;
+            border-radius: 20px;
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+            color: #0ea5e9;
+            font-size: 2.5rem;
+            position: relative;
         }
-
-        .top-banner .close-btn:hover {
-            background: rgba(99, 102, 241, 0.25);
-            transform: scale(1.1);
-        }
-
-        @media (min-width: 768px) {
-            .top-banner {
-                top: 24px;
-                font-size: 0.9rem;
-                padding: 10px 18px;
-                max-width: 600px;
-            }
-            .top-banner .close-btn {
-                width: 18px;
-                height: 18px;
-            }
-        }
-
-        .github-link-mobile {
+        .step-number {
             position: absolute;
-            top: 20px;
-            right: 12px;
-            z-index: 10;
+            top: -10px;
+            right: -10px;
+            width: 30px;
+            height: 30px;
+            background: #3b82f6;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.9rem;
+            border: 2px solid white;
         }
 
-        @media (min-width: 768px) {
-            .github-link-mobile {
-                top: 24px;
-                right: 24px;
+        /* Mobile optimization for steps */
+        @media (max-width: 767px) {
+            .step-card {
+                padding: 1.5rem;
+                display: flex;
+                align-items: flex-start;
+                text-align: left;
+                gap: 1rem;
             }
-        }
-
-        @keyframes banner-fade-out {
-            0% { opacity: 1; }
-            90% { opacity: 1; }
-            100% { opacity: 0; visibility: hidden; }
+            .step-icon-wrapper {
+                width: 60px;
+                height: 60px;
+                font-size: 1.8rem;
+                margin: 0; /* Reset margin for flex layout */
+                flex-shrink: 0;
+            }
+            .step-card h3 {
+                margin-top: 0.5rem;
+                margin-bottom: 0.25rem;
+            }
         }
     </style>
 </head>
-<body class="gradient-bg min-h-screen">
+<body class="ocean-gradient-bg min-h-screen">
 
     <!-- ===================== -->
-    <!-- Landing Page Section -->
+    <!-- Modern Sticky Header -->
     <!-- ===================== -->
-    <div id="landingPageSection" class="min-h-screen flex flex-col items-center justify-center ocean-gradient-bg p-4 sm:p-8 text-gray-800 relative" style="opacity: 0; transition: opacity 0.5s ease-in-out;">
-
+    <header id="mainHeader" class="glass-header">
         <!-- Left: Logo -->
-        <div class="top-logo">
+        <div class="header-logo flex-shrink-0">
             <img src="../../public/h_with_name.svg" alt="Paper Burner X">
         </div>
 
-        <!-- Center: Update Banner (15s fade out) -->
-        <div class="top-banner" id="topBanner">
-            <span>📚 更新Agent，可使用多种检索工具</span>
-            <span class="close-btn" onclick="document.getElementById('topBanner').style.display='none'; event.stopPropagation();">
-                <iconify-icon icon="carbon:close" width="12"></iconify-icon>
-            </span>
+        <!-- Center: Update Pill (Optional, can be hidden if needed) -->
+        <div id="headerBannerPill" class="hidden md:flex absolute left-1/2 -translate-x-1/2 items-center">
+             <div class="header-pill cursor-pointer" onclick="this.style.display='none'">
+                <iconify-icon icon="carbon:information-filled" class="text-blue-500" width="16"></iconify-icon>
+                <span>📚 全新 Agent 升级，支持多种检索工具</span>
+                <iconify-icon icon="carbon:close" class="text-gray-400 hover:text-gray-600 ml-1" width="14"></iconify-icon>
+            </div>
         </div>
 
-        <!-- Right: GitHub Link and Stars -->
-        <div class="github-link-mobile">
-            <a href="https://github.com/Feather-2/paper-burner" target="_blank" rel="noopener noreferrer"
-               class="group bg-white/80 backdrop-blur-sm rounded-lg shadow-md hover:shadow-xl transition-all duration-300 border border-gray-200/50 hover:border-blue-300 block">
-                <!-- Mobile: Single row -->
-                <div class="flex md:hidden items-center gap-2 px-2 py-1.5 text-gray-700 group-hover:text-blue-600 transition-colors">
-                    <iconify-icon icon="carbon:logo-github" class="text-lg"></iconify-icon>
-                    <div id="githubStarsMobile" class="hidden items-center gap-1 text-blue-600">
-                        <iconify-icon icon="carbon:star-filled" class="text-xs"></iconify-icon>
-                        <span id="githubStarsCountMobile" class="text-xs font-semibold"></span>
-                    </div>
-                </div>
-                <!-- Desktop: Two rows -->
-                <div class="hidden md:flex flex-col overflow-hidden">
-                    <div class="flex items-center justify-between gap-3 px-3 py-2 text-gray-700 group-hover:text-blue-600 transition-colors">
-                        <iconify-icon icon="carbon:logo-github" class="text-xl"></iconify-icon>
-                        <div id="githubStars" class="hidden items-center gap-1.5 text-blue-600">
-                            <iconify-icon icon="carbon:star-filled" class="text-sm"></iconify-icon>
-                            <span id="githubStarsCount" class="text-sm font-semibold"></span>
-                        </div>
-                    </div>
-                    <div class="px-3 py-1.5 bg-gray-50/80 border-t border-gray-100 text-center">
-                        <span class="text-sm font-medium text-gray-600 group-hover:text-blue-600 transition-colors tracking-wider">View on GitHub</span>
-                    </div>
+        <!-- Right: Actions -->
+        <div class="flex items-center gap-3 md:gap-4 flex-shrink-0">
+            <!-- GitHub Button -->
+            <a href="https://github.com/Feather-2/paper-burner" target="_blank" rel="noopener noreferrer" class="github-btn-modern group">
+                <iconify-icon icon="carbon:logo-github" width="20"></iconify-icon>
+                <span class="hidden sm:inline">Star on GitHub</span>
+                <div id="githubStarsTag" class="hidden items-center gap-1 px-2 py-0.5 bg-white/20 rounded-full text-xs font-medium ml-1">
+                    <iconify-icon icon="carbon:star-filled" class="text-yellow-400" width="12"></iconify-icon>
+                    <span id="githubStarsCount"></span>
                 </div>
             </a>
         </div>
+    </header>
+
+    <!-- ===================== -->
+    <!-- Landing Page Content -->
+    <!-- ===================== -->
+    <div id="landingPageSection" class="min-h-screen flex flex-col items-center justify-start pt-24 sm:pt-32 p-4 sm:p-8 text-gray-800 relative" style="opacity: 0; transition: opacity 0.5s ease-in-out;">
 
         <div class="max-w-6xl w-full space-y-16 md:space-y-24 text-center landing-content-container relative z-[2]">
 
@@ -553,7 +603,7 @@
 
                     <!-- Slide 1: 阅读优先 -->
                     <div class="hero-carousel-item active">
-                        <h1 class="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 mb-5 md:mb-7 leading-tight hero-title">
+                        <h1 class="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 mb-5 md:mb-7 leading-tight tracking-tight hero-title">
                             先读懂，再借助 AI<br class="hidden sm:block">
                             <span class="select-anim-bg">让深度阅读与智能辅助完美结合</span>
                         </h1>
@@ -601,7 +651,7 @@
 
                     <!-- Slide 2: 高效翻译 -->
                     <div class="hero-carousel-item">
-                        <h1 class="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 mb-5 md:mb-7 leading-tight hero-title">
+                        <h1 class="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 mb-5 md:mb-7 leading-tight tracking-tight hero-title">
                             专业翻译，也可以很快<br class="hidden sm:block">
                             <span class="select-anim-bg">术语一致、批量处理、自由配置</span>
                         </h1>
@@ -646,7 +696,7 @@
 
                     <!-- Slide 3: 分享协作 -->
                     <div class="hero-carousel-item">
-                        <h1 class="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 mb-5 md:mb-7 leading-tight hero-title">
+                        <h1 class="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 mb-5 md:mb-7 leading-tight tracking-tight hero-title">
                             知识需要流转和分享<br class="hidden sm:block">
                             <span class="select-anim-bg">让阅读成果轻松传递给团队</span>
                         </h1>
@@ -691,7 +741,7 @@
 
                     <!-- Slide 4: 简单部署 -->
                     <div class="hero-carousel-item">
-                        <h1 class="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 mb-5 md:mb-7 leading-tight hero-title">
+                        <h1 class="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 mb-5 md:mb-7 leading-tight tracking-tight hero-title">
                             无需繁琐部署，打开即用<br class="hidden sm:block">
                             <span class="select-anim-bg">你的 API Key，你的数据，你做主</span>
                         </h1>
@@ -736,7 +786,7 @@
 
                     <!-- Slide 5: Agent 智能助手 -->
                     <div class="hero-carousel-item">
-                        <h1 class="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 mb-5 md:mb-7 leading-tight hero-title">
+                        <h1 class="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 mb-5 md:mb-7 leading-tight tracking-tight hero-title">
                             和学术 Agent 一起<br class="hidden sm:block">
                             <span class="select-anim-bg">点燃你的阅读力！</span>
                         </h1>
@@ -829,6 +879,53 @@
                 </p>
             </section>
 
+            <!-- How it works Section -->
+            <section class="steps-section py-16 md:py-24">
+                <div class="text-center mb-16">
+                    <h2 class="text-3xl md:text-4xl font-bold text-gray-900 mb-4 tracking-tight">
+                        只需三步，开启深度阅读
+                    </h2>
+                    <p class="text-lg text-gray-600 max-w-2xl mx-auto">
+                        简单直观的工作流，让复杂的文献处理变得轻松自如
+                    </p>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto px-4">
+                    <!-- Step 1 -->
+                    <div class="step-card group">
+                        <div class="step-icon-wrapper group-hover:scale-110 transition-transform">
+                            <iconify-icon icon="carbon:cloud-upload"></iconify-icon>
+                            <div class="step-number">1</div>
+                        </div>
+                        <h3 class="text-xl font-bold text-gray-900 mb-3">上传文档</h3>
+                        <p class="text-gray-600 leading-relaxed">
+                            拖拽 PDF、Word 或 Markdown 文件到浏览器。所有处理均在本地完成，安全快速。
+                        </p>
+                    </div>
+                    <!-- Step 2 -->
+                    <div class="step-card group">
+                        <div class="step-icon-wrapper group-hover:scale-110 transition-transform" style="background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%); color: #8b5cf6;">
+                            <iconify-icon icon="carbon:data-enrichment"></iconify-icon>
+                            <div class="step-number" style="background: #8b5cf6;">2</div>
+                        </div>
+                        <h3 class="text-xl font-bold text-gray-900 mb-3">智能解析</h3>
+                        <p class="text-gray-600 leading-relaxed">
+                            AI 自动识别文档结构、提取目录、解析公式和表格，生成精准的对照译文。
+                        </p>
+                    </div>
+                    <!-- Step 3 -->
+                    <div class="step-card group">
+                        <div class="step-icon-wrapper group-hover:scale-110 transition-transform" style="background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); color: #10b981;">
+                            <iconify-icon icon="carbon:chat-bot"></iconify-icon>
+                            <div class="step-number" style="background: #10b981;">3</div>
+                        </div>
+                        <h3 class="text-xl font-bold text-gray-900 mb-3">对话阅读</h3>
+                        <p class="text-gray-600 leading-relaxed">
+                            在阅读界面与 AI 助手实时对话。划词翻译、深度追问、整理笔记，一气呵成。
+                        </p>
+                    </div>
+                </div>
+            </section>
+
             <!-- Features Section - Updated -->
             <section id="features" class="features-section py-16 md:py-20 bg-white/70 backdrop-blur-md shadow-2xl rounded-3xl p-8 md:p-14">
                 <div class="text-center mb-14">
@@ -840,64 +937,81 @@
                         从智能对话到翻译管理，覆盖文献阅读的全流程需求
                     </p>
                 </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
-                    <article class="feature-card-modern text-left h-full">
-                        <div class="feature-icon-ring mb-5 text-purple-600">
-                            <iconify-icon icon="carbon:bot" width="32"></iconify-icon>
-                        </div>
-                        <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">智能对话式阅读</h3>
-                        <p class="text-sm md:text-base text-gray-600 leading-relaxed mb-4">
-                            看不懂某个概念？想快速了解某段内容？直接问 AI 助手。内置多轮对话与长文本检索引擎，支持上下文理解和知识关联，让复杂论文的理解变得轻松自然。
-                        </p>
-                        <div class="feature-meta">
-                            <span class="bg-purple-50 text-purple-700 border border-purple-200">多轮对话</span>
-                            <span class="bg-purple-50 text-purple-700 border border-purple-200">智能检索</span>
-                            <span class="bg-purple-50 text-purple-700 border border-purple-200">上下文理解</span>
-                        </div>
-                    </article>
-
-                    <article class="feature-card-modern text-left h-full">
-                        <div class="feature-icon-ring mb-5 text-orange-600">
-                            <iconify-icon icon="carbon:flash" width="32"></iconify-icon>
-                        </div>
-                        <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">高效翻译与术语管理</h3>
-                        <p class="text-sm md:text-base text-gray-600 leading-relaxed mb-4">
-                            支持多文件并发翻译，配合智能任务队列，长篇论文也能在数十秒内完成。专业术语库协同工作，确保领域专有名词翻译准确一致。
-                        </p>
-                        <div class="feature-meta">
-                            <span class="bg-orange-50 text-orange-700 border border-orange-200">并发处理</span>
-                            <span class="bg-orange-50 text-orange-700 border border-orange-200">术语库</span>
-                            <span class="bg-orange-50 text-orange-700 border border-orange-200">智能队列</span>
+                
+                <!-- Bento Grid Layout -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-6xl mx-auto">
+                    
+                    <!-- Feature 1: Agent (Span 2 cols) -->
+                    <article class="feature-card-modern text-left h-full md:col-span-2">
+                        <div class="flex flex-col md:flex-row gap-6 h-full">
+                            <div class="flex-1">
+                                <div class="feature-icon-ring mb-5 text-purple-600">
+                                    <iconify-icon icon="carbon:bot" width="32"></iconify-icon>
+                                </div>
+                                <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">智能对话式阅读</h3>
+                                <p class="text-sm md:text-base text-gray-600 leading-relaxed mb-6">
+                                    看不懂某个概念？想快速了解某段内容？直接问 AI 助手。内置多轮对话与长文本检索引擎，支持上下文理解和知识关联，让复杂论文的理解变得轻松自然。
+                                </p>
+                                <div class="feature-meta">
+                                    <span class="bg-purple-50 text-purple-700 border border-purple-200">多轮对话</span>
+                                    <span class="bg-purple-50 text-purple-700 border border-purple-200">智能检索</span>
+                                    <span class="bg-purple-50 text-purple-700 border border-purple-200">上下文理解</span>
+                                </div>
+                            </div>
+                            <!-- Optional: Add an illustrative image or graphic here for larger cards -->
+                            <div class="hidden md:block w-1/3 bg-purple-50/50 rounded-xl border border-purple-100/50"></div>
                         </div>
                     </article>
 
-                    <article class="feature-card-modern text-left h-full">
+                    <!-- Feature 3: Config (Span 1 col) - Moved up for Bento effect -->
+                    <article class="feature-card-modern text-left h-full md:col-span-1">
                         <div class="feature-icon-ring mb-5 text-blue-600">
                             <iconify-icon icon="carbon:settings-adjust" width="32"></iconify-icon>
                         </div>
                         <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">灵活的模型配置</h3>
                         <p class="text-sm md:text-base text-gray-600 leading-relaxed mb-4">
-                            自由选择 AI 服务商，配置自定义模型端点和 API Key。支持多源轮询和提示词管理，打造适合你研究领域的专属翻译工作流。
+                            自由选择 AI 服务商，配置自定义模型端点和 API Key。支持多源轮询和提示词管理，打造专属工作流。
                         </p>
-                        <div class="feature-meta">
-                            <span class="bg-blue-50 text-blue-700 border border-blue-200">自定义端点</span>
+                        <div class="feature-meta mt-auto">
+                            <span class="bg-blue-50 text-blue-700 border border-blue-200">BYOK</span>
                             <span class="bg-blue-50 text-blue-700 border border-blue-200">多源轮询</span>
-                            <span class="bg-blue-50 text-blue-700 border border-blue-200">提示词管理</span>
                         </div>
                     </article>
 
-                    <article class="feature-card-modern text-left h-full">
-                        <div class="feature-icon-ring mb-5 text-indigo-600">
-                            <iconify-icon icon="carbon:document-multiple-02" width="32"></iconify-icon>
+                    <!-- Feature 2: Translation (Span 1 col) -->
+                    <article class="feature-card-modern text-left h-full md:col-span-1">
+                        <div class="feature-icon-ring mb-5 text-orange-600">
+                            <iconify-icon icon="carbon:flash" width="32"></iconify-icon>
                         </div>
-                        <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">完整的阅读工具链</h3>
+                        <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">高效翻译与术语管理</h3>
                         <p class="text-sm md:text-base text-gray-600 leading-relaxed mb-4">
-                            原译对照、历史版本、TOC 快速导航、多彩标注笔记，支持 PDF、DOCX、Markdown 等多格式导入导出。一站式满足从阅读到整理的全部需求。
+                            支持多文件并发翻译，配合智能任务队列，长篇论文也能在数十秒内完成。专业术语库协同工作，确保准确性。
                         </p>
-                        <div class="feature-meta">
-                            <span class="bg-indigo-50 text-indigo-700 border border-indigo-200">多格式支持</span>
-                            <span class="bg-indigo-50 text-indigo-700 border border-indigo-200">原译对照</span>
-                            <span class="bg-indigo-50 text-indigo-700 border border-indigo-200">版本管理</span>
+                        <div class="feature-meta mt-auto">
+                            <span class="bg-orange-50 text-orange-700 border border-orange-200">并发处理</span>
+                            <span class="bg-orange-50 text-orange-700 border border-orange-200">术语库</span>
+                        </div>
+                    </article>
+
+                    <!-- Feature 4: Toolchain (Span 2 cols) -->
+                    <article class="feature-card-modern text-left h-full md:col-span-2">
+                         <div class="flex flex-col md:flex-row-reverse gap-6 h-full">
+                            <div class="flex-1">
+                                <div class="feature-icon-ring mb-5 text-indigo-600">
+                                    <iconify-icon icon="carbon:document-multiple-02" width="32"></iconify-icon>
+                                </div>
+                                <h3 class="text-xl md:text-2xl font-bold text-gray-900 mb-3">完整的阅读工具链</h3>
+                                <p class="text-sm md:text-base text-gray-600 leading-relaxed mb-6">
+                                    原译对照、历史版本、TOC 快速导航、多彩标注笔记，支持 PDF、DOCX、Markdown 等多格式导入导出。一站式满足从阅读到整理的全部需求。
+                                </p>
+                                <div class="feature-meta">
+                                    <span class="bg-indigo-50 text-indigo-700 border border-indigo-200">多格式支持</span>
+                                    <span class="bg-indigo-50 text-indigo-700 border border-indigo-200">原译对照</span>
+                                    <span class="bg-indigo-50 text-indigo-700 border border-indigo-200">版本管理</span>
+                                </div>
+                            </div>
+                            <!-- Optional: Add an illustrative image or graphic here for larger cards -->
+                            <div class="hidden md:block w-1/3 bg-indigo-50/50 rounded-xl border border-indigo-100/50"></div>
                         </div>
                     </article>
                 </div>
@@ -963,35 +1077,30 @@
         // Initialize a global store for stoppable animations (e.g., looping ones)
         window.stoppableLandingPageAnimations = [];
 
-        // Fetch GitHub Stars
-        var githubStarsSpan = document.getElementById('githubStars');
-        var githubStarsSpanMobile = document.getElementById('githubStarsMobile');
-        if (githubStarsSpan || githubStarsSpanMobile) {
-            fetch('https://api.github.com/repos/Feather-2/paper-burner')
-                .then(response => response.json())
-                .then(data => {
-                    if (data && data.stargazers_count !== undefined) {
-                        var starsText = data.stargazers_count + ' Stars';
-
-                        // Desktop version
-                        var githubStarsCount = document.getElementById('githubStarsCount');
-                        if (githubStarsCount && githubStarsSpan) {
-                            githubStarsCount.textContent = starsText;
-                            githubStarsSpan.classList.remove('hidden');
-                            githubStarsSpan.classList.add('flex');
-                        }
-
-                        // Mobile version
-                        var githubStarsCountMobile = document.getElementById('githubStarsCountMobile');
-                        if (githubStarsCountMobile && githubStarsSpanMobile) {
-                            githubStarsCountMobile.textContent = starsText;
-                            githubStarsSpanMobile.classList.remove('hidden');
-                            githubStarsSpanMobile.classList.add('flex');
-                        }
-                    }
+        // Fetch GitHub Stars (使用统一模块)
+        var githubStarsTag = document.getElementById('githubStarsTag');
+        var githubStarsCount = document.getElementById('githubStarsCount');
+        if (githubStarsTag && githubStarsCount && window.GitHubStars) {
+            window.GitHubStars.getStars()
+                .then(result => {
+                    githubStarsCount.textContent = result.formatted;
+                    githubStarsTag.classList.remove('hidden');
+                    githubStarsTag.classList.add('flex');
                 })
-                .catch(error => console.error('Error fetching GitHub stars:', error));
+                .catch(error => {
+                    console.error('[LandingPage] Error fetching GitHub stars:', error);
+                });
         }
+
+        // Header Scroll Effect
+        window.addEventListener('scroll', () => {
+            const header = document.getElementById('mainHeader');
+            if (window.scrollY > 20) {
+                header.classList.add('scrolled');
+            } else {
+                header.classList.remove('scrolled');
+            }
+        });
 
         function setLandingPageShownAndRedirect(event) {
             event.preventDefault(); // Prevent default link behavior
