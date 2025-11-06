@@ -128,46 +128,58 @@ class MinerUStructuredTranslation {
 
 【结构化翻译规则】：
 1. 输入是 JSON 数组格式的文档片段（共 ${batch.items.length} 个片段）
-2. 仅翻译以下字段的内容：
-   - "text"（文本内容）
-   - "image_caption"（图片说明，数组格式）
-   - "table_caption"（表格标题）
-3. 以下字段**必须保持原样，不翻译**：
-   - "type"（类型）
-   - "bbox"（位置坐标）
-   - "page_idx"（页码）
-   - "latex"（LaTeX 公式）
-   - "img_path"（图片路径）
-   - "table_data"（表格数据）
-   - "id", "text_level", "originalItem"（元数据字段）
-4. 特殊处理：
-   - 如果 type 是 "formula"，保留整个对象不变
-   - 如果 type 是 "text" 且 text_level 为 1-3，说明是标题，注意翻译简洁性
+2. 每个片段只包含必要字段：
+   - "id"（唯一标识符，必须保持不变）
+   - "type"（类型，必须保持不变）
+   - 需要翻译的字段（根据类型而定）
+3. 翻译规则：
+   - type="text"：翻译 "text" 字段的内容
+   - type="image"：翻译 "image_caption" 数组中的内容
+   - type="table"：翻译 "table_caption" 字段的内容
+   - type="formula"：无需翻译，保持原样即可
+4. 翻译要求：
    - 术语保持一致（专有名词、学术术语等）
-5. 上下文连贯：
    - 考虑上文内容（如有），确保术语和表述一致
    - 保持段落间逻辑关系
-6. **JSON 格式要求（极其重要）**：
+5. **JSON 格式要求（极其重要）**：
    - 字符串中的特殊字符必须正确转义：
      * 双引号：使用 \\"
-     * 反斜杠：使用 \\\\
      * 换行符：使用 \\n
      * 制表符：使用 \\t
-   - LaTeX 公式中的反斜杠保持原样（如 \\alpha、\\beta）
-   - 路径中的反斜杠必须双写（如 "path\\\\to\\\\file"）
-   - 不要使用无效的转义序列（如 \\a、\\x、\\_）
-7. **输出格式**：
-   返回翻译后的完整 JSON 数组，结构与输入完全一致
-   使用 JSON 代码块包裹：\`\`\`json\n...\n\`\`\`
-   确保输出是**合法的 JSON 格式**，可以被 JSON.parse() 解析`;
+     * 反斜杠：使用 \\\\
+   - 确保输出是**合法的 JSON 格式**，可以被 JSON.parse() 解析
+6. **输出格式**：
+   - 返回翻译后的完整 JSON 数组，结构与输入完全一致
+   - 使用 JSON 代码块包裹：\`\`\`json\n...\n\`\`\`
+   - **id 和 type 字段必须与输入完全一致**`;
 
     // 3. 合并系统提示词
     const systemPrompt = (baseSystemPrompt || '你是一位专业的文档翻译助手。') +
                          contextHint +
                          structuredRules;
 
-    // 4. 构建用户提示词
-    const jsonContent = JSON.stringify(batch.items, null, 2);
+    // 4. 构建用户提示词 - 只提取必要字段发送给AI
+    // 简化数据结构，减少token消耗和JSON解析错误
+    const simplifiedItems = batch.items.map(item => {
+      const simplified = {
+        id: item.id,
+        type: item.type
+      };
+
+      // 根据类型提取需要翻译的字段
+      if (item.type === 'text') {
+        simplified.text = item.text || '';
+      } else if (item.type === 'image' && Array.isArray(item.image_caption)) {
+        simplified.image_caption = item.image_caption;
+      } else if (item.type === 'table') {
+        if (item.table_caption) simplified.table_caption = item.table_caption;
+      }
+      // formula类型不需要翻译任何内容
+
+      return simplified;
+    });
+
+    const jsonContent = JSON.stringify(simplifiedItems, null, 2);
 
     // 如果有用户提示词模板，使用它；否则使用默认模板
     let userPrompt;
@@ -393,29 +405,46 @@ ${jsonContent}
           return { batchIndex, items: failed };
         }
 
-        // 5. 细粒度失败标记（逐项检测是否实际发生翻译）
+        // 5. 细粒度失败标记 + 合并翻译结果到原始对象
+        // 关键：保留原始对象的所有字段（bbox、page_idx、originalItem等），只更新翻译字段
         const markedItems = translatedItems.map((it, idx) => {
           const orig = batch.items[idx];
           let isFailed = false;
+
+          // 先复制原始完整对象，保留所有元数据（bbox、page_idx等，用于定位）
+          const out = { ...orig };
+
           if (orig && it) {
             if (orig.type === 'text') {
               const a = this._normalizeText(orig.text);
               const b = this._normalizeText(it.text);
               isFailed = !b || b === a;
+              // 更新翻译后的文本
+              if (!isFailed && it.text !== undefined) {
+                out.text = it.text;
+              }
             } else if (orig.type === 'image') {
               const a = this._normalizeText(Array.isArray(orig.image_caption) ? orig.image_caption.join(' ') : orig.image_caption);
               const b = this._normalizeText(Array.isArray(it.image_caption) ? it.image_caption.join(' ') : it.image_caption);
               isFailed = !!a && (!b || b === a);
+              // 更新翻译后的图片说明
+              if (!isFailed && it.image_caption !== undefined) {
+                out.image_caption = it.image_caption;
+              }
             } else if (orig.type === 'table') {
               const a = this._normalizeText(orig.table_caption);
               const b = this._normalizeText(it.table_caption);
               // 表格数据不翻译，仅检测标题
               isFailed = !!a && (!b || b === a);
+              // 更新翻译后的表格标题
+              if (!isFailed && it.table_caption !== undefined) {
+                out.table_caption = it.table_caption;
+              }
             } else if (orig.type === 'formula') {
               isFailed = false; // 公式不需要翻译
             }
           }
-          const out = { ...it };
+
           if (isFailed) {
             out.failed = true;
             // 不在这里添加到 failedItems，让 main.js 统一收集
