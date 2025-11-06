@@ -15,34 +15,36 @@
 
 /* 切换原文/译文位置按钮 */
 #swap-chunks-btn {
-  background: transparent;
-  border: 1px solid #ccc;
-  border-radius: 5px;
-  padding: 5px 10px;
+  background: var(--color-slate-50);
+  border: 1px solid var(--color-slate-200);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
   cursor: pointer;
-  font-size: 1.1em; /* 图标大小 */
+  font-size: 1rem;
   line-height: 1;
-  color: #333;
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
 }
 
 #swap-chunks-btn:hover {
-  background-color: #f0f0f0;
-  border-color: #bbb;
+  background-color: var(--color-slate-100);
+  border-color: var(--color-slate-300);
+  color: var(--text-primary);
 }
 
 /* 分块对比主容器，垂直排列块对 */
 .chunk-compare-container {
   display: flex;
   flex-direction: column;
-  gap: 1em;
+  gap: 1.5rem; /* 增加间距 */
 }
 
 /* 单个原文/译文对比块对，水平排列 */
 .chunk-pair {
   display: flex;
-  gap: 1em;
-  border-bottom: 1px solid #eee;
-  padding-bottom: 1em;
+  gap: 1.5rem;
+  border-bottom: 1px solid var(--color-slate-100);
+  padding-bottom: 1.5rem;
 }
 
 .chunk-pair:last-child {
@@ -53,28 +55,37 @@
 .chunk-pair > div {
   flex: 1;
   min-width: 0;
-  background: #fdfdfd;
-  padding: 12px;
-  border-radius: 6px;
-  border: 1px solid #eef;
+  background: var(--color-slate-50);
+  padding: 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-slate-200);
+  transition: all 0.2s ease; /* 添加过渡效果 */
+}
+
+/* 3.5.3 分块联动 (Chunk Sync)：悬停时同时高亮原文和译文 */
+.chunk-pair:hover > div {
+  background-color: var(--color-primary-50);
+  border-color: var(--color-primary-200);
+  box-shadow: var(--shadow-sm);
 }
 
 /* 表格对比对：整体轻微蓝色提示 */
 .align-flex.table-pair .align-block {
-  background: #f0f9ff;
-  border-color: #bae6fd;
+  background: var(--color-primary-50);
+  border-color: var(--color-primary-200);
 }
 .align-flex.table-pair .align-title span {
-  color: #1e40af;
+  color: var(--color-primary-700);
 }
 
 .chunk-pair h4 {
   margin-top: 0;
-  font-size: 0.9em;
-  color: #555;
-  border-bottom: 1px dashed #ddd;
-  padding-bottom: 0.5em;
-  margin-bottom: 0.5em;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--color-slate-200); /* 改为实线 */
+  padding-bottom: 8px;
+  margin-bottom: 12px;
 }
 
 /* 确保分块内容区域在内容过长时可以横向滚动 */

@@ -1,0 +1,481 @@
+openapi: 3.1.0
+info:
+  title: Paper Burner X API
+  version: 0.1.0
+  description: Minimal spec skeleton. Extend per CODE_REVIEW plan.
+servers:
+  - url: /api
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: integer
+                  mode:
+                    type: string
+  /auth/login:
+    post:
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string }
+                password: { type: string }
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  token: { type: string }
+                  user:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      email: { type: string }
+                      role: { type: string, enum: [USER, ADMIN] }
+  /documents:
+    get:
+      summary: List documents
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100 }
+      responses:
+        '200': { description: OK }
+    post:
+      summary: Create document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fileName: { type: string }
+                fileSize: { type: integer }
+                fileType: { type: string }
+                status: { type: string }
+      responses:
+        '201': { description: Created }
+  /admin/stats/detailed:
+    get:
+      summary: Detailed stats
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  basic:
+                    type: object
+                    properties:
+                      totalUsers: { type: integer }
+                      activeUsers: { type: integer }
+                      totalDocuments: { type: integer }
+                      totalStorageMB: { type: integer }
+                      documentsToday: { type: integer }
+                      documentsThisWeek: { type: integer }
+                      documentsThisMonth: { type: integer }
+                  documentsByStatus:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        status: { type: string }
+                        count: { type: integer }
+                  topUsers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        email: { type: string }
+                        name: { type: string }
+                        documentCount: { type: integer }
+  /admin/stats/trends:
+    get:
+      summary: Trends by day
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: days
+          schema: { type: integer, minimum: 1, maximum: 365 }
+        - in: query
+          name: startDate
+          schema: { type: string, format: date }
+        - in: query
+          name: endDate
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    date: { type: string, format: date }
+                    total: { type: integer }
+                    completed: { type: integer }
+                    failed: { type: integer }
+  /admin/users:
+    get:
+      summary: List users (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 200 }
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: sort
+          schema: { type: string, enum: [createdAt, email, name, role, isActive] }
+        - in: query
+          name: order
+          schema: { type: string, enum: [asc, desc] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  page: { type: integer }
+                  pageSize: { type: integer }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        email: { type: string }
+                        name: { type: string }
+                        role: { type: string, enum: [USER, ADMIN] }
+                        isActive: { type: boolean }
+                        createdAt: { type: string, format: date-time }
+    post:
+      summary: Create user (admin)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+                name: { type: string }
+                role: { type: string, enum: [USER, ADMIN] }
+                password: { type: string, minLength: 8 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  email: { type: string }
+                  name: { type: string }
+                  role: { type: string }
+                  isActive: { type: boolean }
+                  tempPassword: { type: string, nullable: true }
+  /admin/users/{id}:
+    put:
+      summary: Update user
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string, format: email }
+                name: { type: string }
+                role: { type: string, enum: [USER, ADMIN] }
+      responses:
+        '200': { description: OK }
+    delete:
+      summary: Delete user
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+  /admin/users/{id}/status:
+    put:
+      summary: Update user status
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [isActive]
+              properties:
+                isActive: { type: boolean }
+      responses:
+        '200': { description: OK }
+  /admin/users/{id}/password:
+    put:
+      summary: Reset user password
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: { type: string, minLength: 8 }
+      responses:
+        '200': { description: OK }
+  /admin/users/{userId}/quota:
+    get:
+      summary: Get user quota
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userId: { type: string }
+                  maxDocumentsPerDay: { type: integer }
+                  maxDocumentsPerMonth: { type: integer }
+                  maxStorageSize: { type: integer }
+                  maxApiKeysCount: { type: integer }
+                  documentsThisMonth: { type: integer }
+                  currentStorageUsed: { type: integer }
+                  lastMonthlyReset: { type: string, format: date-time }
+    put:
+      summary: Update user quota
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                maxDocumentsPerDay: { type: integer }
+                maxDocumentsPerMonth: { type: integer }
+                maxStorageSize: { type: integer }
+                maxApiKeysCount: { type: integer }
+                documentsThisMonth: { type: integer }
+                currentStorageUsed: { type: integer }
+                lastMonthlyReset: { type: string, format: date-time }
+      responses:
+        '200':
+          description: OK
+  /admin/users/{userId}/activity:
+    get:
+      summary: Get user activity logs
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 200 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string }
+                    userId: { type: string }
+                    action: { type: string }
+                    resourceId: { type: string, nullable: true }
+                    metadata: { type: object, nullable: true }
+                    createdAt: { type: string, format: date-time }
+  /admin/config:
+    get:
+      summary: Get system config (masked)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: { type: string }
+    put:
+      summary: Update system config (whitelist keys)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key, value]
+              properties:
+                key: { type: string }
+                value: { type: string }
+                description: { type: string }
+      responses:
+        '200': { description: OK }
+  /admin/source-sites:
+    get:
+      summary: List global custom source sites
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string }
+                    displayName: { type: string }
+                    apiBaseUrl: { type: string }
+                    requestFormat: { type: string, enum: [openai, anthropic, custom] }
+                    temperature: { type: number }
+                    maxTokens: { type: integer }
+                    availableModels: { type: array, items: { type: string } }
+    post:
+      summary: Create global custom source site
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [displayName, apiBaseUrl, requestFormat]
+              properties:
+                displayName: { type: string }
+                apiBaseUrl: { type: string, format: uri }
+                requestFormat: { type: string, enum: [openai, anthropic, custom] }
+                temperature: { type: number, minimum: 0, maximum: 2 }
+                maxTokens: { type: integer, minimum: 1 }
+                availableModels: { type: array, items: { type: string } }
+      responses:
+        '201':
+          description: Created
+  /admin/source-sites/{id}:
+    put:
+      summary: Update custom source site
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                displayName: { type: string }
+                apiBaseUrl: { type: string, format: uri }
+                requestFormat: { type: string, enum: [openai, anthropic, custom] }
+                temperature: { type: number, minimum: 0, maximum: 2 }
+                maxTokens: { type: integer, minimum: 1 }
+                availableModels: { type: array, items: { type: string } }
+      responses:
+        '200': { description: OK }
+    delete:
+      summary: Delete custom source site
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+security:
+  - bearerAuth: []
+

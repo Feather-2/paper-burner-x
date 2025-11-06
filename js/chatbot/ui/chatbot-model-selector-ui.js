@@ -7,6 +7,23 @@
  * 3. 绑定所有相关交互事件（切换、参数同步、帮助提示、返回等）。
  * 4. 支持参数的本地持久化与回显。
  */
+
+/**
+ * XSS 防护：安全地转义 HTML（优先使用 ChatbotUtils，降级到本地实现）
+ * @param {string} str - 需要转义的字符串
+ * @returns {string} 转义后的安全字符串
+ */
+function safeEscapeHtmlForModel(str) {
+  if (typeof str !== 'string') return '';
+  if (typeof window.ChatbotUtils !== 'undefined' && typeof window.ChatbotUtils.escapeHtml === 'function') {
+    return window.ChatbotUtils.escapeHtml(str);
+  }
+  // 降级方案
+  return str.replace(/[&<>"']/g, function (c) {
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c];
+  });
+}
+
 window.ChatbotModelSelectorUI = {
   /**
    * 渲染模型选择器主界面，并绑定所有交互事件。
@@ -82,19 +99,36 @@ window.ChatbotModelSelectorUI = {
           <div style="font-size:14px;color:#1e3a8a;font-weight:500;margin-bottom:4px;">多模态模型</div>
           <select id="chatbot-multimodal-model-select" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid #93c5fd;">
             <option value="">使用默认模型</option>
-            ${models.map(m => typeof m === 'string' ? `<option value="${m}">${m}</option>` : `<option value="${m.id}">${m.name || m.id}</option>`).join('')}
+            ${models.map(m => {
+              // XSS 防护：转义模型 ID 和名称
+              const modelId = typeof m === 'string' ? safeEscapeHtmlForModel(m) : safeEscapeHtmlForModel(m.id);
+              const modelName = typeof m === 'string' ? safeEscapeHtmlForModel(m) : safeEscapeHtmlForModel(m.name || m.id);
+              return `<option value="${modelId}">${modelName}</option>`;
+            }).join('')}
           </select>
         </div>
         <div>
           <div style="font-size:14px;color:#1e3a8a;font-weight:500;margin-bottom:4px;">Batch模型</div>
           <select id="chatbot-batch-model-select" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid #93c5fd;">
             <option value="">使用默认模型</option>
-            ${models.map(m => typeof m === 'string' ? `<option value="${m}">${m}</option>` : `<option value="${m.id}">${m.name || m.id}</option>`).join('')}
+            ${models.map(m => {
+              // XSS 防护：转义模型 ID 和名称
+              const modelId = typeof m === 'string' ? safeEscapeHtmlForModel(m) : safeEscapeHtmlForModel(m.id);
+              const modelName = typeof m === 'string' ? safeEscapeHtmlForModel(m) : safeEscapeHtmlForModel(m.name || m.id);
+              return `<option value="${modelId}">${modelName}</option>`;
+            }).join('')}
           </select>
         </div>
       </div>
       <select id="chatbot-model-select" style="width:100%;margin-bottom:12px;padding:12px 16px;border-radius:10px;border:2px solid #93c5fd;background:white;color:#1e3a8a;font-size:15px;font-weight:600;outline:none;">
-        ${models.length === 0 ? '<option value="">（无可用模型）</option>' : models.map(m => typeof m === 'string' ? `<option value="${m}"${m === defaultModelId ? ' selected' : ''}>${m}</option>` : `<option value="${m.id}"${m.id === defaultModelId ? ' selected' : ''}>${m.name || m.id}</option>`).join('')}
+        ${models.length === 0 ? '<option value="">（无可用模型）</option>' : models.map(m => {
+          // XSS 防护：转义模型 ID 和名称
+          const modelId = typeof m === 'string' ? safeEscapeHtmlForModel(m) : safeEscapeHtmlForModel(m.id);
+          const modelName = typeof m === 'string' ? safeEscapeHtmlForModel(m) : safeEscapeHtmlForModel(m.name || m.id);
+          const rawId = typeof m === 'string' ? m : m.id;
+          const selected = rawId === defaultModelId ? ' selected' : '';
+          return `<option value="${modelId}"${selected}>${modelName}</option>`;
+        }).join('')}
       </select>
       <div style="display:flex;justify-content:space-between;gap:16px;margin:4px 0;">
         <div style="flex:1;">

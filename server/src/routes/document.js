@@ -125,7 +125,7 @@ router.put('/:id', requireAuth, async (req, res, next) => {
       throw AppErrors.validation('Invalid document ID format');
     }
 
-    const document = await prisma.document.updateMany({
+    await prisma.document.updateMany({
       where: {
         id: req.params.id,
         userId: req.user.id

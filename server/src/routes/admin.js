@@ -7,6 +7,8 @@ import { AppErrors, HTTP_STATUS } from '../utils/errors.js';
 import { CRYPTO, ROLES, PAGINATION } from '../utils/constants.js';
 import { prisma } from '../utils/prisma.js';
 import { validateEmail, sanitizeSearchString, validateDate, validateUUID } from '../utils/validation.js';
+import { cacheGet, cacheSet, cacheDelByPrefix, cacheGetEpoch, cacheBumpEpoch } from '../utils/cache.js';
+import rateLimit from 'express-rate-limit';
 
 const router = express.Router();
 
@@ -26,6 +28,18 @@ function validateSortOrder(order) {
 
 // 所有管理员路由都需要管理员权限
 router.use(requireAuth, requireAdmin);
+
+// 只读统计接口限流（防刷）- 可通过环境变量调整
+const READ_LIMIT_WINDOW_MS = parseInt(process.env.ADMIN_READ_LIMIT_WINDOW_MS || '60000');
+const READ_LIMIT_MAX = parseInt(process.env.ADMIN_READ_LIMIT_MAX || '120');
+const adminReadLimiter = rateLimit({
+  windowMs: READ_LIMIT_WINDOW_MS,
+  max: READ_LIMIT_MAX,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+const STATS_CACHE_TTL = parseInt(process.env.ADMIN_STATS_CACHE_TTL_MS || '60000');
 
 // 获取所有用户
 router.get('/users', async (req, res, next) => {
@@ -106,6 +120,9 @@ router.post('/users', adminWriteLimiter, async (req, res, next) => {
       });
     } catch {}
 
+    // 写操作后清理相关统计缓存
+    try { cacheDelByPrefix('admin:stats:'); } catch {}
+
     res.status(HTTP_STATUS.CREATED).json({
       id: user.id,
       email: user.email,
@@ -161,7 +178,7 @@ router.put('/users/:id', adminWriteLimiter, async (req, res, next) => {
         data: { userId: req.user.id, action: 'admin_update_user', resourceId: userId, metadata: data }
       });
     } catch {}
-
+    try { await cacheBumpEpoch('admin:stats:detailed'); await cacheBumpEpoch('admin:stats:trends'); } catch {}
     res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
@@ -200,7 +217,7 @@ router.put('/users/:id/status', adminWriteLimiter, async (req, res, next) => {
         data: { userId: req.user.id, action: 'admin_update_user_status', resourceId: userId, metadata: { isActive: !!isActive } }
       });
     } catch {}
-
+    try { await cacheBumpEpoch('admin:stats:detailed'); await cacheBumpEpoch('admin:stats:trends'); } catch {}
     res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
@@ -227,7 +244,7 @@ router.put('/users/:id/password', adminWriteLimiter, async (req, res, next) => {
         data: { userId: req.user.id, action: 'admin_reset_password', resourceId: userId }
       });
     } catch {}
-
+    try { await cacheBumpEpoch('admin:stats:detailed'); await cacheBumpEpoch('admin:stats:trends'); } catch {}
     res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
@@ -260,7 +277,7 @@ router.delete('/users/:id', adminWriteLimiter, async (req, res, next) => {
         data: { userId: req.user.id, action: 'admin_delete_user', resourceId: userId }
       });
     } catch {}
-
+    try { await cacheBumpEpoch('admin:stats:detailed'); await cacheBumpEpoch('admin:stats:trends'); } catch {}
     res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
@@ -335,6 +352,8 @@ router.put('/config', adminWriteLimiter, async (req, res, next) => {
       'ALLOW_HTTP_PROXY',
       'OCR_UPSTREAM_TIMEOUT_MS',
       'MAX_PROXY_DOWNLOAD_MB',
+      // 前端系统设置中存在的 Workers 域键
+      'WORKER_PROXY_DOMAINS',
     ]);
     if (!key || !allowList.has(key)) return res.status(400).json({ error: 'Invalid config key' });
 
@@ -357,6 +376,7 @@ router.put('/config', adminWriteLimiter, async (req, res, next) => {
       create: { key, value, description }
     });
     try { await prisma.usageLog.create({ data: { userId: req.user.id, action: 'admin_update_config', resourceId: key, metadata: { valueChanged: true } } }); } catch {}
+    try { await cacheBumpEpoch('admin:stats:detailed'); await cacheBumpEpoch('admin:stats:trends'); } catch {}
     res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
@@ -377,6 +397,7 @@ router.get('/proxy-settings/effective', async (req, res, next) => {
 router.post('/proxy-settings/apply-now', adminWriteLimiter, async (req, res, next) => {
   try {
     invalidateAllConfigCache();
+    try { await cacheBumpEpoch('admin:stats:detailed'); await cacheBumpEpoch('admin:stats:trends'); } catch {}
     res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
@@ -418,7 +439,7 @@ router.post('/source-sites', adminWriteLimiter, async (req, res, next) => {
         availableModels: models,
       }
     });
-
+    try { await cacheBumpEpoch('admin:stats:detailed'); await cacheBumpEpoch('admin:stats:trends'); } catch {}
     res.status(HTTP_STATUS.CREATED).json(site);
   } catch (error) {
     next(error);
@@ -461,7 +482,7 @@ router.put('/source-sites/:id', adminWriteLimiter, async (req, res, next) => {
     if (Object.keys(data).length === 0) return res.status(HTTP_STATUS.OK).json({ success: true });
 
     await prisma.customSourceSite.update({ where: { id }, data });
-
+    try { await cacheBumpEpoch('admin:stats:detailed'); await cacheBumpEpoch('admin:stats:trends'); } catch {}
     res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
@@ -474,7 +495,7 @@ router.delete('/source-sites/:id', adminWriteLimiter, async (req, res, next) => 
     if (!validateUUID(id)) return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'Invalid id' });
 
     await prisma.customSourceSite.delete({ where: { id } });
-
+    try { await cacheBumpEpoch('admin:stats:detailed'); await cacheBumpEpoch('admin:stats:trends'); } catch {}
     res.status(HTTP_STATUS.OK).json({ success: true });
   } catch (error) {
     next(error);
@@ -524,7 +545,7 @@ router.put('/users/:userId/quota', async (req, res, next) => {
         ...req.body
       }
     });
-
+    try { await cacheBumpEpoch('admin:stats:detailed'); await cacheBumpEpoch('admin:stats:trends'); } catch {}
     res.status(HTTP_STATUS.OK).json(quota);
   } catch (error) {
     next(error);
@@ -534,9 +555,31 @@ router.put('/users/:userId/quota', async (req, res, next) => {
 // ==================== 高级统计 ====================
 
 // 获取详细的系统统计
-router.get('/stats/detailed', async (req, res, next) => {
+router.get('/stats/detailed', adminReadLimiter, async (req, res, next) => {
   try {
     const { startDate, endDate } = req.query;
+
+    // 可选日期范围过滤
+    const start = validateDate(startDate);
+    const endParsed = validateDate(endDate);
+    const end = endParsed ? new Date(endParsed) : null;
+    if (end) end.setHours(23, 59, 59, 999); // 包含结束日整天
+
+    // 合法范围校验：若 start>end 则返回 400
+    if (start && end && start.getTime() > end.getTime()) {
+      return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'startDate must be <= endDate' });
+    }
+    const hasRange = !!(start || end);
+    const createdAtFilter = {};
+    if (start) createdAtFilter.gte = start;
+    if (end) createdAtFilter.lte = end;
+
+    // 缓存（按时间范围）
+    const ns = 'admin:stats:detailed';
+    const epoch = await cacheGetEpoch(ns);
+    const cacheKey = `${ns}:e${epoch}:${start ? start.toISOString() : 'null'}:${end ? end.toISOString() : 'null'}`;
+    const cached = await cacheGet(cacheKey);
+    if (cached) return res.status(HTTP_STATUS.OK).json(cached);
 
     // 基础统计（可以根据日期范围过滤）
     const [
@@ -550,9 +593,10 @@ router.get('/stats/detailed', async (req, res, next) => {
     ] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({ where: { isActive: true } }),
-      prisma.document.count(),
+      prisma.document.count({ where: hasRange ? { createdAt: createdAtFilter } : undefined }),
       prisma.document.aggregate({
-        _sum: { fileSize: true }
+        _sum: { fileSize: true },
+        where: hasRange ? { createdAt: createdAtFilter } : undefined
       }),
       prisma.document.count({
         where: {
@@ -580,22 +624,24 @@ router.get('/stats/detailed', async (req, res, next) => {
     // 按状态统计文档
     const documentsByStatus = await prisma.document.groupBy({
       by: ['status'],
-      _count: true
+      _count: { _all: true }
+      ,
+      where: hasRange ? { createdAt: createdAtFilter } : undefined
     });
 
     // 最活跃的用户（本月）
     const topUsers = await prisma.document.groupBy({
       by: ['userId'],
-      _count: true,
-      where: {
-        createdAt: {
-          gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-        }
-      },
+      _count: { _all: true },
+      where: hasRange
+        ? { createdAt: createdAtFilter }
+        : {
+            createdAt: {
+              gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+            }
+          },
       orderBy: {
-        _count: {
-          userId: 'desc'
-        }
+        _count: { _all: 'desc' }
       },
       take: 10
     });
@@ -607,14 +653,15 @@ router.get('/stats/detailed', async (req, res, next) => {
           where: { id: u.userId },
           select: { id: true, email: true, name: true }
         });
-        return {
-          ...user,
-          documentCount: u._count
-        };
+        const count = (u._count && (u._count._all ?? 0)) || 0;
+        if (!user) {
+          return { id: u.userId, email: '(deleted)', name: '', documentCount: count };
+        }
+        return { ...user, documentCount: count };
       })
     );
 
-    res.status(HTTP_STATUS.OK).json({
+    const payload = {
       basic: {
         totalUsers,
         activeUsers,
@@ -626,32 +673,55 @@ router.get('/stats/detailed', async (req, res, next) => {
       },
       documentsByStatus: documentsByStatus.map(d => ({
         status: d.status,
-        count: d._count
+        count: (d._count && (d._count._all ?? d._count.status)) || 0
       })),
       topUsers: topUsersDetails
-    });
+    };
+    try { await cacheSet(cacheKey, payload, STATS_CACHE_TTL); } catch {}
+    res.status(HTTP_STATUS.OK).json(payload);
   } catch (error) {
     next(error);
   }
 });
 
 // 获取使用趋势
-router.get('/stats/trends', async (req, res, next) => {
+router.get('/stats/trends', adminReadLimiter, async (req, res, next) => {
   try {
-    const { days = 30 } = req.query;
+    const { days = 30, startDate: startStr, endDate: endStr } = req.query;
 
-    // 验证 days 参数
-    const daysNum = parseInt(days);
-    if (isNaN(daysNum) || daysNum < 1 || daysNum > 365) {
-      throw AppErrors.validation('days must be between 1 and 365');
+    let startDate;
+    let endDate;
+    const start = validateDate(startStr);
+    const endParsed = validateDate(endStr);
+
+    if (start || endParsed) {
+      // 若提供了 start/end 任意一个，则启用日期范围模式
+      startDate = start || new Date(Date.now() - Math.min(Math.max(parseInt(days) || 30, 1), 365) * 24 * 60 * 60 * 1000);
+      endDate = endParsed ? new Date(endParsed) : new Date();
+      endDate.setHours(23, 59, 59, 999);
+      if (startDate && endDate && startDate.getTime() > endDate.getTime()) {
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({ error: 'startDate must be <= endDate' });
+      }
+    } else {
+      // 兼容原有 days 行为
+      const daysNum = parseInt(days);
+      if (isNaN(daysNum) || daysNum < 1 || daysNum > 365) {
+        throw AppErrors.validation('days must be between 1 and 365');
+      }
+      startDate = new Date(Date.now() - daysNum * 24 * 60 * 60 * 1000);
     }
 
-    const startDate = new Date(Date.now() - daysNum * 24 * 60 * 60 * 1000);
+    // 缓存 key（按时间范围或 days）
+    const tNs = 'admin:stats:trends';
+    const tEpoch = await cacheGetEpoch(tNs);
+    const trendsKey = `${tNs}:e${tEpoch}:${startDate.toISOString()}:${endDate ? endDate.toISOString() : 'null'}`;
+    const tCached = await cacheGet(trendsKey);
+    if (tCached) return res.status(HTTP_STATUS.OK).json(tCached);
 
     // 按天统计文档创建数
     const documents = await prisma.document.findMany({
       where: {
-        createdAt: { gte: startDate }
+        createdAt: { gte: startDate, ...(endDate ? { lte: endDate } : {}) }
       },
       select: {
         createdAt: true,
@@ -675,6 +745,7 @@ router.get('/stats/trends', async (req, res, next) => {
       new Date(a.date) - new Date(b.date)
     );
 
+    try { await cacheSet(trendsKey, trends, STATS_CACHE_TTL); } catch {}
     res.status(HTTP_STATUS.OK).json(trends);
   } catch (error) {
     next(error);

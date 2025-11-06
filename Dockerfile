@@ -39,7 +39,9 @@ COPY --from=backend-builder --chown=nodejs:nodejs /app/server ./server/
 
 # Copy entrypoint script
 COPY --chown=nodejs:nodejs server/scripts/docker-entrypoint.sh /app/server/scripts/docker-entrypoint.sh
-RUN chmod +x /app/server/scripts/docker-entrypoint.sh
+# Normalize line endings on Windows checkouts and ensure executable bit
+RUN sed -i 's/\r$//' /app/server/scripts/docker-entrypoint.sh && \
+    chmod +x /app/server/scripts/docker-entrypoint.sh
 
 # Copy frontend files
 COPY --chown=nodejs:nodejs index.html ./

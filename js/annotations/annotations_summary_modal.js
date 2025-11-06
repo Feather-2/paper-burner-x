@@ -208,7 +208,12 @@ function populateAnnotationsSummaryTable(typeFilter = 'all', contentFilter = 'al
     groupCount += grouped[key].items.length;
     const groupRow = document.createElement('tr');
     groupRow.className = 'toc-group';
-    groupRow.innerHTML = `<td colspan="7">${key}（${grouped[key].items.length}）</td>`;
+    // XSS 防护：使用 textContent 而不是 innerHTML
+    // key 来自文档标题，可能包含恶意 HTML
+    const td = document.createElement('td');
+    td.setAttribute('colspan', '7');
+    td.textContent = `${key}（${grouped[key].items.length}）`;
+    groupRow.appendChild(td);
     annotationsSummaryTableBody.appendChild(groupRow);
     grouped[key].items.forEach(ann => {
       const row = annotationsSummaryTableBody.insertRow();
@@ -555,7 +560,11 @@ function populateAnnotationsSummaryTable(typeFilter = 'all', contentFilter = 'al
   if (ungrouped.length) {
     const groupRow = document.createElement('tr');
     groupRow.className = 'toc-group';
-    groupRow.innerHTML = `<td colspan="7">未分组（${ungrouped.length}）</td>`;
+    // XSS 防护：使用 textContent（虽然 length 是数字，但保持一致性）
+    const td = document.createElement('td');
+    td.setAttribute('colspan', '7');
+    td.textContent = `未分组（${ungrouped.length}）`;
+    groupRow.appendChild(td);
     annotationsSummaryTableBody.appendChild(groupRow);
     ungrouped.forEach(ann => {
       const row = annotationsSummaryTableBody.insertRow();

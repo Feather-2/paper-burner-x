@@ -8,11 +8,13 @@
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
     "test": "NODE_ENV=test node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand",
-    "lint": "eslint . --ext .js",
+    "openapi:validate": "node -e \"require('yaml'); const fs=require('fs'); const y=require('yaml').parse(fs.readFileSync('../docs/openapi.yaml','utf8')); console.log('OpenAPI parsed OK:', !!y);\"",
+    "lint": "eslint .",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "smoke:health": "node ./scripts/smoke-health.mjs"
   },
   "keywords": ["paper-burner", "translation", "ocr"],
   "author": "",
@@ -38,6 +40,7 @@
     "supertest": "^7.1.1",
     "eslint": "^9.12.0",
     "nodemon": "^3.1.7",
-    "prisma": "^5.22.0"
+    "prisma": "^5.22.0",
+    "yaml": "^2.6.0"
   }
 }

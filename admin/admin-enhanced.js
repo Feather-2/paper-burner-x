@@ -1,11 +1,186 @@
 // Paper Burner X - 管理员面板增强功能
 // 包含：配额管理、详细统计、趋势图表、活动日志
 
+// ==================== 全局网络与提示（超时/拦截/离线提示） ====================
+
+// 统一超时
+axios.defaults.timeout = 15000; // 15s
+
+// 简易 Toast 实现
+function ensureToastContainer() {
+    let c = document.getElementById('toast-container');
+    if (!c) {
+        c = document.createElement('div');
+        c.id = 'toast-container';
+        c.style.position = 'fixed';
+        c.style.top = '12px';
+        c.style.right = '12px';
+        c.style.zIndex = '9999';
+        c.style.display = 'flex';
+        c.style.flexDirection = 'column';
+        c.style.gap = '8px';
+        document.body.appendChild(c);
+    }
+    return c;
+}
+
+function showToast(message, type = 'info', duration = 3000) {
+    const c = ensureToastContainer();
+    const el = document.createElement('div');
+    const base = 'px-3 py-2 rounded shadow text-sm text-white';
+    const color = type === 'error' ? 'bg-red-600' : type === 'warn' ? 'bg-yellow-600' : 'bg-gray-800';
+    el.className = `${base} ${color}`;
+    el.textContent = message;
+    c.appendChild(el);
+    setTimeout(() => { try { c.removeChild(el); } catch {} }, duration);
+}
+
+// 离线横幅
+function ensureOfflineBanner() {
+    let b = document.getElementById('offline-banner');
+    if (!b) {
+        b = document.createElement('div');
+        b.id = 'offline-banner';
+        b.className = 'w-full text-center text-sm text-white bg-red-600 py-2 hidden';
+        b.textContent = '当前处于离线状态，部分功能不可用；请检查网络连接。';
+        document.body.prepend(b);
+    }
+    return b;
+}
+
+function updateOfflineBanner() {
+    const b = ensureOfflineBanner();
+    if (navigator.onLine) {
+        b.classList.add('hidden');
+    } else {
+        b.classList.remove('hidden');
+    }
+}
+
+window.addEventListener('online', () => {
+    updateOfflineBanner();
+    showToast('网络已恢复', 'info', 1500);
+});
+window.addEventListener('offline', () => {
+    updateOfflineBanner();
+    showToast('网络连接断开', 'warn');
+});
+
+// Axios 响应错误统一处理 + GET 一次自动重试
+axios.interceptors.response.use(
+    (res) => res,
+    async (error) => {
+        const config = error?.config || {};
+        const isGet = (config.method || 'get').toLowerCase() === 'get';
+        const transient = !error.response; // 网络/超时等
+        const code = error.code || '';
+
+        // 自动重试：仅 GET，且网络错误/超时，最多 1 次
+        if (isGet && transient && !config.__retried) {
+            config.__retried = true;
+            await new Promise(r => setTimeout(r, 800));
+            try { return await axios(config); } catch (e) { /* fallthrough */ }
+        }
+
+        // 统一提示
+        if (transient || code === 'ECONNABORTED') {
+            showToast('网络连接中断或超时，请稍后重试', 'warn');
+        } else if (error.response) {
+            const msg = error.response?.data?.error || `请求失败 (${error.response.status})`;
+            showToast(msg, 'error');
+        } else {
+            showToast('请求失败，请检查网络或稍后再试', 'error');
+        }
+
+        return Promise.reject(error);
+    }
+);
+
+// ================ URL Hash 持久化日期筛选 ================
+function persistRangeToHash() {
+    try {
+        const s = document.getElementById('statsStartDate')?.value || '';
+        const e = document.getElementById('statsEndDate')?.value || '';
+        const params = new URLSearchParams(location.hash.replace(/^#/, ''));
+        if (s) params.set('startDate', s); else params.delete('startDate');
+        if (e) params.set('endDate', e); else params.delete('endDate');
+        const next = params.toString();
+        location.hash = next ? `#${next}` : '';
+    } catch {}
+}
+
+function restoreRangeFromHash() {
+    try {
+        const params = new URLSearchParams(location.hash.replace(/^#/, ''));
+        const s = params.get('startDate') || '';
+        const e = params.get('endDate') || '';
+        const sd = document.getElementById('statsStartDate');
+        const ed = document.getElementById('statsEndDate');
+        if (sd) sd.value = s;
+        if (ed) ed.value = e;
+    } catch {}
+}
+
+function persistTabToHash(tab) {
+    try {
+        const params = new URLSearchParams(location.hash.replace(/^#/, ''));
+        if (tab) params.set('tab', tab); else params.delete('tab');
+        const next = params.toString();
+        location.hash = next ? `#${next}` : '';
+    } catch {}
+}
+
+function restoreTabFromHash() {
+    try {
+        const params = new URLSearchParams(location.hash.replace(/^#/, ''));
+        const tab = params.get('tab');
+        if (tab) {
+            // 若 hash 指向的 tab 存在，则切换；否则保持默认
+            const known = ['overview','users','quotas','activity','models','system'];
+            if (known.includes(tab)) {
+                // 直接调用增强后的切换函数（会触发加载与持久化）
+                switchTab(tab);
+                return true;
+            }
+        }
+    } catch {}
+    return false;
+}
+
 // ==================== 详细统计 ====================
+
+function getStatsRangeParams() {
+    const s = document.getElementById('statsStartDate')?.value || '';
+    const e = document.getElementById('statsEndDate')?.value || '';
+    const params = new URLSearchParams();
+    if (s) params.set('startDate', s);
+    if (e) params.set('endDate', e);
+    const qs = params.toString();
+    return qs ? `?${qs}` : '';
+}
+
+function updateStatsRangeHint() {
+    const s = document.getElementById('statsStartDate')?.value || '';
+    const e = document.getElementById('statsEndDate')?.value || '';
+    const el = document.getElementById('statsRangeHint');
+    if (!el) return;
+    if (!s && !e) {
+        el.textContent = '当前筛选：全部';
+        return;
+    }
+    if (s && e) {
+        el.textContent = `当前筛选：${s} - ${e}`;
+    } else if (s) {
+        el.textContent = `当前筛选：自 ${s} 起`; 
+    } else {
+        el.textContent = `当前筛选：截至 ${e}`;
+    }
+}
 
 async function loadDetailedStats() {
     try {
-        const response = await axios.get(`${API_BASE}/admin/stats/detailed`, {
+        const range = getStatsRangeParams();
+        const response = await axios.get(`${API_BASE}/admin/stats/detailed${range}`, {
             headers: { Authorization: `Bearer ${authToken}` }
         });
 
@@ -28,6 +203,7 @@ async function loadDetailedStats() {
         // 显示 Top 用户
         displayTopUsers(stats.topUsers || []);
 
+        updateStatsRangeHint();
     } catch (error) {
         console.error('Failed to load detailed stats:', error);
     }
@@ -96,7 +272,17 @@ let trendChartInstance = null;
 
 async function loadTrendsChart() {
     try {
-        const response = await axios.get(`${API_BASE}/admin/stats/trends?days=30`, {
+        // 直接传递 startDate/endDate（若存在）；否则默认 days=30
+        const s = document.getElementById('statsStartDate')?.value;
+        const e = document.getElementById('statsEndDate')?.value;
+        let url = `${API_BASE}/admin/stats/trends?days=30`;
+        if (s || e) {
+            const params = new URLSearchParams();
+            if (s) params.set('startDate', s);
+            if (e) params.set('endDate', e);
+            url = `${API_BASE}/admin/stats/trends?${params.toString()}`;
+        }
+        const response = await axios.get(url, {
             headers: { Authorization: `Bearer ${authToken}` }
         });
 
@@ -170,6 +356,24 @@ async function loadTrendsChart() {
     }
 }
 
+// 应用/清除日期范围并刷新
+async function applyStatsRange() {
+    persistRangeToHash();
+    await loadDetailedStats();
+    await loadTrendsChart();
+}
+async function clearStatsRange() {
+    const s = document.getElementById('statsStartDate');
+    const e = document.getElementById('statsEndDate');
+    if (s) s.value = '';
+    if (e) e.value = '';
+    persistRangeToHash();
+    await applyStatsRange();
+}
+
+window.applyStatsRange = applyStatsRange;
+window.clearStatsRange = clearStatsRange;
+
 // ==================== 配额管理 ====================
 
 async function populateUserSelect() {
@@ -178,7 +382,9 @@ async function populateUserSelect() {
             headers: { Authorization: `Bearer ${authToken}` }
         });
 
-        const users = response.data;
+        // 后端 /admin/users 返回 { total, page, pageSize, items }
+        const payload = response.data || {};
+        const users = Array.isArray(payload.items) ? payload.items : Array.isArray(payload) ? payload : [];
 
         // 填充配额管理的用户选择器
         const quotaSelect = document.getElementById('quotaUserId');
@@ -426,6 +632,15 @@ function formatMetadata(metadata) {
 
 // ==================== 标签页切换增强 ====================
 
+async function initOverviewStatsModule() {
+    try {
+        const mod = await import('./modules/stats.js');
+        await mod.initStats();
+    } catch (e) {
+        console.error('Failed to init stats module:', e);
+    }
+}
+
 function switchTab(tab) {
     // 更新选项卡样式
     document.querySelectorAll('.tab-button').forEach(btn => {
@@ -447,17 +662,19 @@ function switchTab(tab) {
         }
     });
 
+    // 持久化到 URL hash
+    persistTabToHash(tab);
+
     // 根据标签页加载数据
     if (tab === 'overview') {
-        loadDetailedStats();
-        loadTrendsChart();
+        initOverviewStatsModule();
     } else if (tab === 'quotas') {
-        populateUserSelect();
+        (async () => { try { const m = await import('./modules/quotas.js'); await m.initQuotas(); } catch(e){ console.error(e);} })();
     } else if (tab === 'activity') {
-        populateUserSelect();
+        (async () => { try { const m = await import('./modules/activity.js'); await m.initActivity(); } catch(e){ console.error(e);} })();
     } else if (tab === 'system') {
-        // 进入系统设置页时加载代理配置
-        loadProxySettings();
+        // 进入系统设置页时加载代理配置（动态导入模块）
+        (async () => { try { const m = await import('./modules/system.js'); await m.initSystem(); } catch(e){ console.error(e);} })();
     } else if (tab === 'models') {
         loadSourceSites();
     }
@@ -471,20 +688,17 @@ window.showAdminPanel = async function(user) {
     if (originalShowAdminPanel) {
         await originalShowAdminPanel(user);
     }
-
-    // 加载详细统计
-    await loadDetailedStats();
-
-    // 如果在概览标签，加载趋势图
-    const currentTab = document.querySelector('.tab-button.border-blue-500')?.id;
-    if (currentTab === 'tab-overview') {
-        await loadTrendsChart();
-    }
+    // 初始化概览统计模块（动态导入，失败不影响其它功能）
+    await initOverviewStatsModule();
 };
 
 // 页面加载完成后的初始化
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Admin panel enhancements loaded');
+    // 恢复 URL hash 中的日期筛选
+    restoreRangeFromHash();
+    // 若 URL 指定 tab，则切换到指定 tab
+    restoreTabFromHash();
     // 绑定模型配置的导入/导出按钮
     const importBtn = document.getElementById('importSourceSitesBtn');
     const importFile = document.getElementById('importSourceSitesFile');
@@ -520,6 +734,11 @@ async function loadProxySettings() {
         const resp = await axios.get(`${API_BASE}/admin/config`, { headers: { Authorization: `Bearer ${authToken}` } });
         const cfg = resp.data || {};
         // 回显
+        // 通用系统设置
+        setSelectValue('allowRegistration', (cfg.ALLOW_REGISTRATION || 'false').toString());
+        setInputValue('maxUploadSize', cfg.MAX_UPLOAD_SIZE_MB || '100');
+
+        // 代理与下载相关
         setInputValue('proxyWhitelistDomains', cfg.PROXY_WHITELIST_DOMAINS || '');
         setInputValue('workerProxyDomains', cfg.WORKER_PROXY_DOMAINS || '');
         setSelectValue('allowHttpProxy', (cfg.ALLOW_HTTP_PROXY || 'false').toString());
@@ -533,6 +752,23 @@ async function loadProxySettings() {
         console.error('Failed to load proxy settings:', e);
     }
 }
+// 保存通用系统设置（允许注册、最大上传大小）
+async function saveSystemSettings() {
+    try {
+        const entries = [
+            { key: 'ALLOW_REGISTRATION', value: getSelectValue('allowRegistration') },
+            { key: 'MAX_UPLOAD_SIZE_MB', value: String(parseInt(getInputValue('maxUploadSize') || '100')) },
+        ];
+        for (const item of entries) {
+            await axios.put(`${API_BASE}/admin/config`, item, { headers: { Authorization: `Bearer ${authToken}` } });
+        }
+        alert('系统设置已保存');
+    } catch (e) {
+        console.error('Failed to save system settings:', e);
+        alert('保存失败：' + (e.response?.data?.error || e.message));
+    }
+}
+
 
 async function saveProxySettings() {
     try {

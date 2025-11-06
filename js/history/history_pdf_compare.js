@@ -38,6 +38,204 @@ class PDFCompareView {
     // PDF.js 渲染串行队列（避免同一 canvas 并发 render 报错）
     this._renderQueueOriginal = Promise.resolve();
     this._renderQueueTranslation = Promise.resolve();
+
+    // 文本自适应引擎（保留格式翻译）
+    this.textFittingEngine = null;
+    // 注意：延迟到 initialize() 方法中初始化，确保脚本加载完成
+
+    // PDF 文本层缓存（用于精确清除文字）
+    this.pageTextLayers = new Map(); // pageNum -> textContent
+
+    // 全局字号统一：存储预计算的字号信息（参考 其他开源项目）
+    this.globalFontSizeCache = new Map(); // idx -> { estimatedFontSize, estimatedLines, bbox }
+    this.hasPreprocessed = false; // 是否已经完成预处理
+  }
+
+  /**
+   * 初始化文本自适应引擎
+   */
+  initializeTextFitting() {
+    // 检查 TextFittingEngine 是否已加载
+    if (typeof TextFittingEngine === 'undefined') {
+      console.error('[PDFCompareView] TextFittingEngine 未加载！请确保 js/utils/text-fitting.js 已正确引入');
+      console.error('[PDFCompareView] 当前可用类:', typeof TextFittingEngine, typeof PDFTextRenderer);
+      return;
+    }
+
+    try {
+      this.textFittingEngine = new TextFittingEngine({
+        // 优化参数（可根据实际效果调整）
+        initialScale: 1.0,
+        minScale: 0.3,        // 最小缩放30%（提高可读性）
+        scaleStepHigh: 0.05,
+        scaleStepLow: 0.1,
+        lineSkipCJK: 1.5,     // CJK 行距
+        lineSkipWestern: 1.3,  // 西文行距
+        minLineHeight: 1.05
+      });
+
+      console.log('[PDFCompareView] 文本自适应引擎已启用');
+    } catch (error) {
+      console.error('[PDFCompareView] 文本自适应引擎初始化失败:', error);
+    }
+  }
+
+  /**
+   * 预处理：计算全局统一的字号（参考 其他开源项目 的 preprocess_document）
+   * 这样可以确保整个文档的字号基本一致
+   */
+  preprocessGlobalFontSizes() {
+    if (this.hasPreprocessed) return;
+
+    console.log('[PDFCompareView] 开始预处理全局字号...');
+    const startTime = performance.now();
+
+    // 简化策略：不做复杂的预处理，让每个 bbox 独立决定字号
+    // 仅设置一个全局的字号缩放因子
+    const globalFontScale = 0.85; // 全局字号缩放因子，可调节（0.5-1.0）
+
+    this.contentListJson.forEach((item, idx) => {
+      if (item.type !== 'text' || !item.bbox) return;
+
+      const translatedItem = this.translatedContentList[idx];
+      if (!translatedItem || !translatedItem.text) return;
+
+      const bbox = item.bbox;
+      const BBOX_NORMALIZED_RANGE = 1000;
+      const height = (bbox[3] - bbox[1]) / BBOX_NORMALIZED_RANGE;
+
+      // 简单直接：字号 = bbox高度 * 全局缩放因子
+      const estimatedFontSize = height * globalFontScale;
+
+      this.globalFontSizeCache.set(idx, {
+        estimatedFontSize: estimatedFontSize,
+        bbox: bbox
+      });
+    });
+
+    console.log(`[PDFCompareView] 预处理完成：全局缩放=${globalFontScale}, 耗时=${(performance.now() - startTime).toFixed(0)}ms`);
+    this.hasPreprocessed = true;
+  }
+
+  /**
+   * 获取并缓存页面的文本层信息
+   * @param {number} pageNum - 页码（1-based）
+   * @returns {Promise<Array>} 文本项数组
+   */
+  async getPageTextLayer(pageNum) {
+    // 检查缓存
+    if (this.pageTextLayers.has(pageNum)) {
+      return this.pageTextLayers.get(pageNum);
+    }
+
+    try {
+      const page = await this.pdfDoc.getPage(pageNum);
+      const textContent = await page.getTextContent();
+
+      // 缓存结果
+      this.pageTextLayers.set(pageNum, textContent.items);
+
+      console.log(`[PDFCompareView] 页面 ${pageNum} 文本层已缓存，共 ${textContent.items.length} 个文本项`);
+      return textContent.items;
+    } catch (error) {
+      console.error(`[PDFCompareView] 获取页面 ${pageNum} 文本层失败:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * 精确清除 bbox 内的原始文字（只清除文字，保留背景）
+   * @param {CanvasRenderingContext2D} ctx - Canvas 上下文
+   * @param {number} pageNum - 页码（1-based）
+   * @param {Object} bbox - 边界框 { x, y, w, h }（canvas 坐标）
+   * @param {number} yOffset - Y 轴偏移（用于连续模式）
+   */
+  async clearTextInBbox(ctx, pageNum, bbox, yOffset = 0) {
+    const textItems = await this.getPageTextLayer(pageNum);
+    if (!textItems || textItems.length === 0) {
+      console.warn(`[clearTextInBbox] 页面 ${pageNum} 没有文本层数据`);
+      return;
+    }
+
+    const page = await this.pdfDoc.getPage(pageNum);
+    const viewport = page.getViewport({ scale: this.scale * this.dpr });
+
+    console.log(`[clearTextInBbox] 页面 ${pageNum}, bbox: x=${bbox.x.toFixed(1)}, y=${bbox.y.toFixed(1)}, w=${bbox.w.toFixed(1)}, h=${bbox.h.toFixed(1)}, yOffset=${yOffset.toFixed(1)}, viewport: ${viewport.width}x${viewport.height}`);
+
+    let clearedCount = 0;
+    let checkedCount = 0;
+
+    // 遍历所有文本项，找出与 bbox 重叠的
+    for (const item of textItems) {
+      if (!item.transform) continue;
+      checkedCount++;
+
+      // PDF.js 文本项的坐标转换
+      // transform: [scaleX, skewY, skewX, scaleY, translateX, translateY]
+      const transform = item.transform;
+      const tx = transform[4] * this.scale * this.dpr;
+      const ty = transform[5] * this.scale * this.dpr;
+      const itemWidth = item.width * this.scale * this.dpr;
+      const itemHeight = item.height * this.scale * this.dpr;
+
+      // 转换为 Canvas 坐标（考虑 Y 轴翻转）
+      const textX = tx;
+      const textY = viewport.height - ty - itemHeight;
+      const textW = itemWidth;
+      const textH = itemHeight;
+
+      // 注意：这里的 bbox.y 已经包含了 yOffset（在调用时计算好的）
+      // 所以 textY 也需要加上 yOffset 才能对齐
+      const textRect = { x: textX, y: textY + yOffset, w: textW, h: textH };
+
+      // 调试：显示前几个文本项的坐标
+      if (clearedCount === 0 && checkedCount <= 3) {
+        console.log(`  文本项 ${checkedCount}: str="${item.str}", textRect: x=${textRect.x.toFixed(1)}, y=${textRect.y.toFixed(1)}, w=${textRect.w.toFixed(1)}, h=${textRect.h.toFixed(1)}`);
+      }
+
+      // 检查是否与 bbox 重叠
+      if (this.checkRectOverlap(textRect, bbox)) {
+        // 在文本区域填充白色（略微扩大边界以确保覆盖完整）
+        const padding = 2;
+        ctx.fillStyle = 'rgba(255, 255, 255, 1.0)'; // 完全不透明
+        ctx.fillRect(
+          textX - padding,
+          textY + yOffset - padding,
+          textW + padding * 2,
+          textH + padding * 2
+        );
+        clearedCount++;
+
+        // 调试：绘制红色边框显示清除区域（已关闭）
+        if (false) {
+          ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(textX - padding, textY + yOffset - padding, textW + padding * 2, textH + padding * 2);
+        }
+
+        // 调试：显示清除的文本
+        if (clearedCount <= 5) {
+          console.log(`  清除文本 ${clearedCount}: "${item.str}" at (${textX.toFixed(1)}, ${(textY + yOffset).toFixed(1)})`);
+        }
+      }
+    }
+
+    console.log(`[clearTextInBbox] 页面 ${pageNum} 检查了 ${checkedCount} 个文本项，清除了 ${clearedCount} 个`);
+  }
+
+  /**
+   * 检查两个矩形是否重叠
+   * @param {Object} rect1 - { x, y, w, h }
+   * @param {Object} rect2 - { x, y, w, h }
+   * @returns {boolean}
+   */
+  checkRectOverlap(rect1, rect2) {
+    return !(
+      rect1.x + rect1.w < rect2.x ||  // rect1 在 rect2 左边
+      rect1.x > rect2.x + rect2.w ||  // rect1 在 rect2 右边
+      rect1.y + rect1.h < rect2.y ||  // rect1 在 rect2 上边
+      rect1.y > rect2.y + rect2.h     // rect1 在 rect2 下边
+    );
   }
 
   /**
@@ -48,6 +246,9 @@ class PDFCompareView {
    * @param {Object} layoutJson - layout.json 数据（包含页面真实尺寸）
    */
   async initialize(pdfBase64, contentListJson, translatedContentList, layoutJson) {
+    // 初始化文本自适应引擎
+    this.initializeTextFitting();
+
     this.contentListJson = contentListJson;
     this.translatedContentList = translatedContentList;
     this.layoutJson = layoutJson;
@@ -269,6 +470,7 @@ class PDFCompareView {
         right: null,
         rendered: false,
         rendering: false,
+        textCleared: false, // 标记是否已清除文字（避免重复清除）
       };
       this.segments.push(seg);
       currentSeg = seg;
@@ -429,10 +631,41 @@ class PDFCompareView {
     }
 
     // 绘制 overlays（仅本段）
-    this.renderSegmentOverlays(seg);
+    // 注意：白色背景和翻译文本都在 overlay 层绘制，不会被 PDF 覆盖
+    await this.renderSegmentOverlays(seg);
   }
 
-  renderSegmentOverlays(seg) {
+  /**
+   * 清除段内所有 bbox 的原始文字（在 base canvas 上操作）
+   */
+  async clearTextInSegment(seg) {
+    const pageItems = this.contentListJson.filter(item => item.type === 'text');
+    const BBOX_NORMALIZED_RANGE = 1000;
+
+    for (const p of seg.pages) {
+      const pageNum = p.pageNum;
+      const scaleX = p.width / BBOX_NORMALIZED_RANGE;
+      const scaleY = p.height / BBOX_NORMALIZED_RANGE;
+
+      // 获取当前页的所有 bbox
+      const currentPageItems = pageItems.filter(item => item.page_idx === pageNum - 1);
+
+      for (const item of currentPageItems) {
+        if (!item.bbox) continue;
+
+        const bb = item.bbox;
+        const x = bb[0] * scaleX;
+        const y = bb[1] * scaleY + p.yInSegPx;
+        const w = (bb[2] - bb[0]) * scaleX;
+        const h = (bb[3] - bb[1]) * scaleY;
+
+        // 在右侧 base canvas 上精确清除文字
+        await this.clearTextInBbox(seg.right.ctx, pageNum, { x, y, w, h }, p.yInSegPx);
+      }
+    }
+  }
+
+  async renderSegmentOverlays(seg) {
     const leftCtx = seg.left.overlayCtx;
     const rightCtx = seg.right.overlayCtx;
     // 清理段 overlay
@@ -443,9 +676,10 @@ class PDFCompareView {
       this.clearFormulaElementsForPageInWrapper(p.pageNum, seg.right.wrapper);
     }
 
+    // 绘制 overlays（串行执行以确保文本层正确清除）
     for (const p of seg.pages) {
       this.renderPageBboxesToCtx(leftCtx, p.pageNum, p.yInSegPx, p.width, p.height);
-      this.renderPageTranslationToCtx(rightCtx, seg.right.wrapper, p.pageNum, p.yInSegPx, p.width, p.height);
+      await this.renderPageTranslationToCtx(rightCtx, seg.right.wrapper, p.pageNum, p.yInSegPx, p.width, p.height);
     }
   }
 
@@ -499,16 +733,6 @@ class PDFCompareView {
     const scaleX = pageWidth / BBOX_NORMALIZED_RANGE;
     const scaleY = pageHeight / BBOX_NORMALIZED_RANGE;
 
-    const canvasBboxes = pageItems.map(item => {
-      const bbox = item.bbox;
-      return {
-        x: bbox[0] * scaleX,
-        y: bbox[1] * scaleY + yOffset,
-        w: (bbox[2] - bbox[0]) * scaleX,
-        h: (bbox[3] - bbox[1]) * scaleY
-      };
-    });
-
     const ctx = this.translationOverlayContext;
     // 清理该页区域上的历史绘制与公式 DOM
     ctx.clearRect(0, yOffset, pageWidth, pageHeight);
@@ -525,18 +749,11 @@ class PDFCompareView {
       const w = (bbox[2] - bbox[0]) * scaleX;
       const h = (bbox[3] - bbox[1]) * scaleY;
 
-      const expandedBox = this.expandBboxIfPossible(
-        { x, y, w, h },
-        canvasBboxes,
-        idx,
-        pageWidth,
-        pageHeight
-      );
-
+      // 直接使用原始 bbox（文本自适应引擎会自动处理）
       ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-      ctx.fillRect(expandedBox.x, expandedBox.y, expandedBox.w, expandedBox.h);
+      ctx.fillRect(x, y, w, h);
 
-      this.drawTextInBox(ctx, translatedItem.text, expandedBox.x, expandedBox.y, expandedBox.w, expandedBox.h, pageNum);
+      this.drawTextInBox(ctx, translatedItem.text, x, y, w, h, pageNum);
     });
   }
 
@@ -562,28 +779,54 @@ class PDFCompareView {
   }
 
   // 分段：将译文绘制到指定 ctx，并将公式 DOM 插入到 wrapper
-  renderPageTranslationToCtx(ctx, wrapperEl, pageNum, yOffset, pageWidth, pageHeight) {
+  async renderPageTranslationToCtx(ctx, wrapperEl, pageNum, yOffset, pageWidth, pageHeight) {
+    // 确保已经完成预处理
+    if (!this.hasPreprocessed) {
+      this.preprocessGlobalFontSizes();
+    }
+
     const pageItems = this.contentListJson.filter(item => item.page_idx === pageNum - 1 && item.type === 'text');
     const BBOX_NORMALIZED_RANGE = 1000;
     const scaleX = pageWidth / BBOX_NORMALIZED_RANGE;
     const scaleY = pageHeight / BBOX_NORMALIZED_RANGE;
-    const canvasBboxes = pageItems.map(item => {
-      const bb = item.bbox;
-      return { x: bb[0] * scaleX, y: bb[1] * scaleY + yOffset, w: (bb[2] - bb[0]) * scaleX, h: (bb[3] - bb[1]) * scaleY };
-    });
-    pageItems.forEach((item, idx) => {
-      const originalIdx = this.contentListJson.indexOf(item);
-      const translatedItem = this.translatedContentList[originalIdx];
-      if (!translatedItem || !item.bbox) return;
+
+    // 第一步：在 overlay 层绘制白色背景（覆盖原始文字）
+    pageItems.forEach((item) => {
+      if (!item.bbox) return;
+
       const bb = item.bbox;
       const x = bb[0] * scaleX;
       const y = bb[1] * scaleY + yOffset;
       const w = (bb[2] - bb[0]) * scaleX;
       const h = (bb[3] - bb[1]) * scaleY;
-      const expandedBox = this.expandBboxIfPossible({ x, y, w, h }, canvasBboxes, idx, pageWidth, pageHeight);
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-      ctx.fillRect(expandedBox.x, expandedBox.y, expandedBox.w, expandedBox.h);
-      this.drawTextInBox(ctx, translatedItem.text, expandedBox.x, expandedBox.y, expandedBox.w, expandedBox.h, pageNum, wrapperEl);
+
+      // 向上下扩展白色背景（覆盖更多原始文字）
+      const verticalExpansion = h * 0.15; // 向上下各扩展 15%（配合溢出策略）
+      const expandedY = y - verticalExpansion;
+      const expandedH = h + verticalExpansion * 2;
+
+      // 在 overlay 层绘制扩展后的白色背景（不透明，遮挡下层的原始文字）
+      ctx.fillStyle = 'rgba(255, 255, 255, 1.0)';
+      ctx.fillRect(x, expandedY, w, expandedH);
+    });
+
+    // 第二步：绘制翻译文本（在白色背景上）
+    pageItems.forEach((item) => {
+      const originalIdx = this.contentListJson.indexOf(item);
+      const translatedItem = this.translatedContentList[originalIdx];
+      if (!translatedItem || !item.bbox) return;
+
+      const bb = item.bbox;
+      const x = bb[0] * scaleX;
+      const y = bb[1] * scaleY + yOffset;
+      const w = (bb[2] - bb[0]) * scaleX;
+      const h = (bb[3] - bb[1]) * scaleY;
+
+      // 使用预处理的字号信息
+      const cachedInfo = this.globalFontSizeCache.get(originalIdx);
+
+      // 使用新的文本自适应引擎渲染
+      this.drawTextInBox(ctx, translatedItem.text, x, y, w, h, pageNum, wrapperEl, cachedInfo);
     });
   }
 
@@ -1038,7 +1281,7 @@ class PDFCompareView {
   /**
    * 在指定区域内绘制自适应大小的文字
    */
-  drawTextInBox(ctx, text, x, y, width, height, pageNum = null, wrapperEl = null) {
+  drawTextInBox(ctx, text, x, y, width, height, pageNum = null, wrapperEl = null, cachedInfo = null) {
     if (!text) return;
 
     // 检查是否为短文本/小标题（与 bbox 扩展判断保持一致）
@@ -1046,14 +1289,25 @@ class PDFCompareView {
 
     // 暂时禁用公式渲染（用于测试）
     // 所有文本都用 Canvas 渲染
-    this.drawPlainTextInBox(ctx, text, x, y, width, height, isShortText);
+
+    // 使用预处理的字号信息或直接传递 cachedInfo
+    const suggestedFontSize = cachedInfo ? cachedInfo.estimatedFontSize : null;
+    this.drawPlainTextInBox(ctx, text, x, y, width, height, isShortText, cachedInfo);
   }
 
   /**
    * 绘制纯文本（Canvas）
    * @param {boolean} isShortText - 是否为短文本/小标题（会使用更大的最小字号）
+   * @param {Object} cachedInfo - 预处理的字号信息（可选）
    */
-  drawPlainTextInBox(ctx, text, x, y, width, height, isShortText = false) {
+  drawPlainTextInBox(ctx, text, x, y, width, height, isShortText = false, cachedInfo = null) {
+    // 直接使用新的文本自适应引擎
+    if (this.textFittingEngine) {
+      const suggestedFontSize = cachedInfo ? cachedInfo.estimatedFontSize : null;
+      return this.drawPlainTextWithFitting(ctx, text, x, y, width, height, isShortText, suggestedFontSize);
+    }
+
+    // 回退方案：如果引擎未初始化（不应该发生）
     let bestFontSize = 8;
     let bestLines = [];
 
@@ -1131,6 +1385,160 @@ class PDFCompareView {
       // 因为 bestLines 已经在上面被裁剪到只包含能完整显示的行
       ctx.fillText(line, x + 2, lineY);
     });
+  }
+
+  /**
+   * 使用文本自适应算法绘制文本（新算法）
+   * 策略：
+   * 1. 尽可能保证和原来的 bbox 块高度一致
+   * 2. 尽可能放下所有的内容
+   * 3. 在宽度和高度之间进行平衡，从而尽可能放大字体，但在 bbox 的框架内
+   * @param {number} suggestedFontSize - 可选的建议字号（来自预处理）
+   */
+  drawPlainTextWithFitting(ctx, text, x, y, width, height, isShortText = false, suggestedFontSize = null) {
+    try {
+      // 判断是否为 CJK 语言
+      const isCJK = /[\u4e00-\u9fa5]/.test(text);
+      const lineSkip = isCJK ? 1.25 : 1.15; // 降低行距，充分利用高度
+
+      // 内边距
+      const paddingTop = 2;
+      const paddingX = 2;
+      const availableHeight = height - paddingTop * 2; // 上下都留边距
+      const availableWidth = width - paddingX * 2;
+
+      // 字号范围：基于 bbox 高度估算
+      // 假设单行文本，字号约为 bbox 高度的 80%
+      const estimatedSingleLineFontSize = height * 0.8;
+
+      // 最小字号：确保可读性
+      const minFontSize = isShortText ? 10 : 6;
+
+      // 最大字号：不超过单行估算值的 1.5 倍
+      const maxFontSize = Math.min(estimatedSingleLineFontSize * 1.5, height * 1.2);
+
+      // 检查文本是否包含换行符
+      const hasNewlines = text.includes('\n');
+      const textLength = text.length;
+
+      console.log(`[TextFitting] 开始: "${text.substring(0, 30)}..." bbox=${width.toFixed(0)}x${height.toFixed(0)}, 字号范围=${minFontSize.toFixed(1)}-${maxFontSize.toFixed(1)}px, 文本长度=${textLength}, 有换行=${hasNewlines}`);
+
+      // 尝试不同的宽度因子（从 1.0 开始，优先使用全宽）
+      // 如果文本很短或有原始换行符，只使用全宽
+      const widthFactors = (textLength < 20 || hasNewlines)
+        ? [1.0]
+        : [1.0, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70];
+
+      let bestSolution = null; // { fontSize, widthFactor, lines }
+
+      // 对每个宽度因子，使用二分查找找到最大可用字号
+      for (const widthFactor of widthFactors) {
+        const effectiveWidth = availableWidth * widthFactor;
+
+        // 二分查找最大字号
+        let low = minFontSize;
+        let high = maxFontSize;
+        let foundFontSize = null;
+        let foundLines = null;
+
+        while (high - low > 0.5) { // 精度 0.5px
+          const mid = (low + high) / 2;
+
+          // 测试这个字号是否能装下
+          ctx.font = `${mid}px Arial, "Microsoft YaHei", "SimHei", sans-serif`;
+          const lines = this.wrapText(ctx, text, effectiveWidth);
+          const lineHeight = mid * lineSkip;
+
+          // 计算总高度：最后一行不需要完整行高
+          const totalHeight = lines.length > 0
+            ? (lines.length - 1) * lineHeight + mid
+            : 0;
+
+          if (totalHeight <= availableHeight) {
+            // 能装下，尝试更大的字号
+            foundFontSize = mid;
+            foundLines = lines;
+            low = mid;
+          } else {
+            // 装不下，尝试更小的字号
+            high = mid;
+          }
+        }
+
+        // 如果找到了可行解，且比当前最优解更好（字号更大）
+        if (foundFontSize && (!bestSolution || foundFontSize > bestSolution.fontSize)) {
+          bestSolution = {
+            fontSize: foundFontSize,
+            widthFactor: widthFactor,
+            lines: foundLines
+          };
+        }
+      }
+
+      // 如果找到了最优解，绘制
+      if (bestSolution) {
+        const { fontSize, widthFactor, lines } = bestSolution;
+        const lineHeight = fontSize * lineSkip;
+
+        ctx.font = `${fontSize}px Arial, "Microsoft YaHei", "SimHei", sans-serif`;
+        ctx.fillStyle = '#000';
+        ctx.textBaseline = 'top';
+
+        // 计算水平偏移（如果使用了缩小的宽度，左对齐）
+        const xOffset = 0; // 始终左对齐
+
+        // 计算总高度并垂直居中
+        const totalHeight = lines.length > 0
+          ? (lines.length - 1) * lineHeight + fontSize
+          : 0;
+        const yOffset = (availableHeight - totalHeight) / 2;
+
+        lines.forEach((line, i) => {
+          const lineY = y + paddingTop + yOffset + i * lineHeight;
+          ctx.fillText(line, x + paddingX + xOffset, lineY);
+        });
+
+        // 显示前3行内容用于调试
+        const previewLines = lines.slice(0, 3).map(l => `"${l}"`).join(', ');
+        console.log(`[TextFitting] ✓ 成功: "${text.substring(0, 30)}..." 字号=${fontSize.toFixed(1)}px, 行数=${lines.length}, 宽度=${(widthFactor*100).toFixed(0)}%, bbox高=${height.toFixed(1)}px, 实际高=${totalHeight.toFixed(1)}px`);
+        console.log(`[TextFitting]   前3行: ${previewLines}`);
+        return;
+      }
+
+      // 如果所有方案都失败，使用最小字号强制绘制（裁剪行数）
+      console.warn(`[TextFitting] ⚠ 无法找到合适字号，使用最小字号: "${text.substring(0, 30)}..."`);
+
+      const fallbackFontSize = minFontSize;
+      const fallbackLineHeight = fallbackFontSize * lineSkip;
+      ctx.font = `${fallbackFontSize}px Arial, "Microsoft YaHei", "SimHei", sans-serif`;
+      ctx.fillStyle = '#000';
+      ctx.textBaseline = 'top';
+
+      const allLines = this.wrapText(ctx, text, availableWidth);
+      const maxLines = Math.floor(availableHeight / fallbackLineHeight);
+      const linesToDraw = allLines.slice(0, Math.max(1, maxLines));
+
+      linesToDraw.forEach((line, i) => {
+        const lineY = y + paddingTop + i * fallbackLineHeight;
+        ctx.fillText(line, x + paddingX, lineY);
+      });
+
+      console.warn(`[TextFitting] ✗ 裁剪: 字号=${fallbackFontSize.toFixed(1)}px, 绘制=${linesToDraw.length}/${allLines.length}行`);
+
+    } catch (error) {
+      console.error('[PDFCompareView] 文本自适应渲染失败:', error);
+      // 最小回退渲染
+      ctx.font = '8px Arial, sans-serif';
+      ctx.fillStyle = '#000';
+      ctx.textBaseline = 'top';
+      const lines = this.wrapText(ctx, text, width - 4);
+      lines.forEach((line, i) => {
+        const lineY = y + 4 + i * 12;
+        if (lineY + 12 <= y + height) {
+          ctx.fillText(line, x + 2, lineY);
+        }
+      });
+    }
   }
 
   /**
@@ -1401,7 +1809,7 @@ class PDFCompareView {
   }
 
   // 段 overlay 点击命中测试并高亮左右
-  onSegmentOverlayClick(e, seg) {
+  async onSegmentOverlayClick(e, seg) {
     const overlay = e.currentTarget;
     const rect = overlay.getBoundingClientRect();
     const sx = overlay.width / overlay.clientWidth;
@@ -1427,7 +1835,7 @@ class PDFCompareView {
       const bh = (b[3] - b[1]) * scaleY;
       if (x >= bx && x <= bx + bw && y >= by && y <= by + bh) {
         // 重绘本段 overlays
-        this.renderSegmentOverlays(seg);
+        await this.renderSegmentOverlays(seg);
         // 高亮左右
         const drawHL = (ctx) => {
           ctx.strokeStyle = 'rgb(255, 0, 0)';

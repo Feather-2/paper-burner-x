@@ -28,6 +28,24 @@
  * - **提示词管理**: 根据用户选择的目标语言或自定义设置，生成或加载相应的翻译提示词。
  */
 
+// =====================
+// XSS 防护工具函数
+// =====================
+/**
+ * 转义 HTML 特殊字符，防止 XSS 攻击
+ * @param {string} str - 需要转义的字符串
+ * @returns {string} 转义后的安全字符串
+ */
+function escapeHtml(str) {
+  if (typeof str !== 'string') return '';
+  return str.replace(/[&<>"']/g, function (c) {
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c];
+  });
+}
+
+// =====================
+// 全局状态变量
+// =====================
 /**
  * @type {File[]}
  * @description 存储用户选择的待处理文件列表。
@@ -1090,10 +1108,13 @@ function refreshFormatFilters() {
     entries.forEach(([ext, count]) => {
         const checked = !isExtensionExcluded(ext) ? 'checked' : '';
         const label = ext ? ext.toUpperCase() : '未知';
+        // XSS 防护：转义文件扩展名，防止恶意文件名注入
+        const safeExt = escapeHtml(ext);
+        const safeLabel = escapeHtml(label);
         fragments.push(`
             <label class="flex items-center space-x-1 bg-white border border-gray-200 rounded px-2 py-1 shadow-sm">
-                <input type="checkbox" class="format-filter-checkbox" data-ext="${ext}" ${checked}>
-                <span>${label} <span class="text-gray-400">(${count})</span></span>
+                <input type="checkbox" class="format-filter-checkbox" data-ext="${safeExt}" ${checked}>
+                <span>${safeLabel} <span class="text-gray-400">(${count})</span></span>
             </label>
         `);
     });

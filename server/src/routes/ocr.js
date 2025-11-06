@@ -6,7 +6,7 @@ import { PassThrough } from 'stream';
 import fs from 'fs';
 import { getProxySettings } from '../utils/configCenter.js';
 import { env } from '../utils/env.js';
-import { logWarn, logError, logDebug } from '../utils/logger.js';
+import { logWarn } from '../utils/logger.js';
 import { requireAuth, optionalAuth } from '../middleware/auth.js';
 import { createOcrLimiter } from '../middleware/rateLimit.js';
 
@@ -101,7 +101,7 @@ async function resolveAndValidateHost(urlObj) {
         throw new Error('Resolved to private or loopback address');
       }
     }
-  } catch (err) {
+  } catch {
     // DNS 失败也拒绝，避免绕过
     throw new Error('DNS resolution failed');
   }

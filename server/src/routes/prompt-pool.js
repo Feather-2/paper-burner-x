@@ -7,7 +7,6 @@ const router = express.Router();
 
 // 限制数组大小
 const MAX_PROMPTS_ARRAY_SIZE = 1000;
-const MAX_PROMPT_CONTENT_LENGTH = 100000; // 100KB
 
 // 获取用户的 Prompt Pool
 router.get('/', requireAuth, async (req, res, next) => {

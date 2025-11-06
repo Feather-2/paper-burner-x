@@ -168,7 +168,12 @@ window.ChatbotMessageRenderer = {
             } else if (typeof renderWithKatexFailback === 'function') {
               renderedContent = renderWithKatexFailback(m.content);
             } else {
-              renderedContent = marked.parse(m.content);
+              // XSS 防护：使用 safeRenderMarkdown 替代直接 marked.parse()
+              if (typeof window.safeRenderMarkdown === 'function') {
+                renderedContent = window.safeRenderMarkdown(m.content);
+              } else {
+                renderedContent = marked.parse(m.content);
+              }
             }
           } else {
             renderedContent = window.ChatbotUtils.escapeHtml(m.content).replace(/\n/g, '<br>');

@@ -62,7 +62,6 @@ const cspDirectives = {
     "'self'",
     ...(allowInline ? ["'unsafe-inline'"] : []),
     'https://cdn.tailwindcss.com',
-    'https://cdn.jsdelivr.net',
     'https://gcore.jsdelivr.net',
     'https://cdnjs.cloudflare.com',
     'https://unpkg.com',
@@ -72,7 +71,6 @@ const cspDirectives = {
     "'self'",
     ...(allowInline ? ["'unsafe-inline'"] : []),
     'https://cdn.tailwindcss.com',
-    'https://cdn.jsdelivr.net',
     'https://gcore.jsdelivr.net',
     'https://cdnjs.cloudflare.com',
     'https://unpkg.com',
@@ -82,7 +80,6 @@ const cspDirectives = {
   styleSrc: [
     "'self'",
     "'unsafe-inline'",
-    'https://cdn.jsdelivr.net',
     'https://gcore.jsdelivr.net',
     'https://cdn.tailwindcss.com',
     'https://fonts.googleapis.com',
@@ -95,7 +92,6 @@ const cspDirectives = {
     "'self'",
     'data:',
     'https://fonts.gstatic.com',
-    'https://cdn.jsdelivr.net',
     'https://gcore.jsdelivr.net',
     'https://cdnjs.cloudflare.com',
     'https://unpkg.com',
@@ -291,7 +287,7 @@ let appVersion = 'unknown';
 try {
   const pkg = JSON.parse(fs.readFileSync(join(__dirname, '../package.json'), 'utf8'));
   if (pkg && pkg.version) appVersion = pkg.version;
-} catch (_) {
+} catch {
   // ignore
 }
 
@@ -347,6 +343,11 @@ app.use('/api/references', referenceRoutes);
 app.use('/api/prompt-pool', promptPoolRoutes);
 
 // ==================== 前端路由（SPA） ====================
+
+// 登录页需显式返回 login.html，避免被通配符 * 误回退到 index.html
+app.get('/login.html', (req, res) => {
+  res.sendFile(join(rootPath, 'login.html'));
+});
 
 // 管理员面板
 app.get('/admin*', (req, res) => {

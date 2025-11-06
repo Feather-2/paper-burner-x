@@ -2,77 +2,69 @@
  * Markdown 内容通用样式
  * ========================== */
 .content-wrapper {
-  background: #fff;
-  padding: 16px;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
+  background: var(--panel-bg);
+  padding: 32px; /* 增加内边距，提升阅读呼吸感 */
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-slate-200);
+  box-shadow: var(--shadow-sm); /* 轻微阴影增加层次 */
 }
 
 .markdown-body {
-  font-size: 1rem;
-  line-height: 1.7;
+  font-family: var(--font-sans);
+  font-size: 1.05rem; /* 稍微调大字号，提升沉浸感 */
+  line-height: var(--leading-relaxed);
+  color: var(--color-slate-800);
 }
 
-.markdown-body img {
-  max-width: 100%;
-  height: auto;
-  margin: 8px 0;
-  border-radius: 6px;
-  border: 1px dashed #e2e8f0;
-  display: block;
-}
-
-pre {
-  background: #f3f3f3;
-  padding: 8px;
-  border-radius: 4px;
-  overflow-x: auto;
-  border: 1px dashed #e2e8f0;
-}
+/* 图片和代码块样式已迁移至 markdown-modern.css */
 
 h2 {
   margin-top: 0;
-} /* 移除h3，只保留h2的顶部外边距移除 */
+}
 
 .meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 12px;
-  color: #5b6470;
-  font-size: 0.95em;
-  margin-bottom: 1em;
+  gap: 16px;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--color-slate-100); /* 增加分割线 */
 }
 
 .meta-info {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
+  font-weight: 500;
 }
 
 .meta-separator {
-  opacity: 0.6;
+  color: var(--color-slate-300);
 }
 
 .meta-export-trigger {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(59, 130, 246, 0.22);
-  background: rgba(59, 130, 246, 0.12);
-  color: #1d4ed8;
-  font-size: 0.9em;
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-primary-100);
+  background: var(--color-primary-50);
+  color: var(--color-primary-600);
+  font-size: var(--text-sm);
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .meta-export-trigger:hover {
-  background: rgba(37, 99, 235, 0.18);
-  border-color: rgba(37, 99, 235, 0.32);
-  color: #1e3a8a;
+  background: var(--color-primary-100);
+  border-color: var(--color-primary-200);
+  color: var(--color-primary-700);
 }
 
 .meta-export-trigger:focus {

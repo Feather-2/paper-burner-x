@@ -115,5 +115,14 @@ window.renderWithKatexStreaming = function(md) {
   for (let i = 0; i < codeBlockCounter; i++) {
     md = md.replace(`__CODE_BLOCK_${i}__`, codeBlocks[i]);
   }
+
+  // XSS 防护：使用 safeRenderMarkdown 替代直接 marked.parse()
+  if (typeof window.safeRenderMarkdown === 'function') {
+    return window.safeRenderMarkdown(md);
+  }
+
+  // 降级方案：如果 safeRenderMarkdown 不可用，仍使用 marked.parse
+  // 但会在控制台警告
+  console.warn('[Security] safeRenderMarkdown not available, using unsafe marked.parse()');
   return marked.parse(md);
 };

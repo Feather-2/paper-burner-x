@@ -8,7 +8,6 @@ import { CRYPTO } from './constants.js';
 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = CRYPTO.IV_LENGTH;
-const SALT_LENGTH = CRYPTO.SALT_LENGTH;
 const TAG_LENGTH = CRYPTO.TAG_LENGTH;
 const KEY_LENGTH = CRYPTO.KEY_LENGTH;
 

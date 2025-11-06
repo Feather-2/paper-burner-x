@@ -1,7 +1,9 @@
 /* history_detail.css has been split into modular files for maintainability. */
+@import url('./history_detail/modern-base.css');
 @import url('./history_detail/layout.css');
 @import url('./history_detail/chunk-compare.css');
 @import url('./history_detail/markdown-content.css');
+@import url('./history_detail/markdown-modern.css');
 @import url('./history_detail/context-menu.css');
 @import url('./history_detail/toc-base.css');
 @import url('./history_detail/chunk-interactions.css');

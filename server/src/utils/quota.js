@@ -39,6 +39,18 @@ export async function checkQuota(userId) {
       return { allowed: true };
     }
 
+    // 检查日度配额
+    if (quota.maxDocumentsPerDay > 0) {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayCount = await prisma.document.count({
+        where: { userId, createdAt: { gte: todayStart } }
+      });
+      if (todayCount >= quota.maxDocumentsPerDay) {
+        return { allowed: false, reason: `Daily document quota exceeded (${quota.maxDocumentsPerDay} documents)` };
+      }
+    }
+
     // 检查月度配额
     if (quota.maxDocumentsPerMonth > 0) {
       // 检查是否需要重置

@@ -14,11 +14,119 @@
 document.addEventListener('DOMContentLoaded', function() {
     const REQUIRED_CLEAR_PHRASE = '确定删除';
 
+    // --------------------------------------------------
+    // 侧边栏快捷历史记录逻辑
+    // --------------------------------------------------
+    async function renderSidebarQuickAccess() {
+        const quickListEl = document.getElementById('sidebarHistoryQuickList');
+        if (!quickListEl) return;
+
+        try {
+            // 假设 getAllResultsFromDB 是全局可用的 (在 storage.js 中定义)
+            const results = await window.getAllResultsFromDB();
+            if (!results || !Array.isArray(results) || results.length === 0) {
+                quickListEl.innerHTML = '<div class="px-3 py-2 text-xs text-slate-400 text-center">暂无记录</div>';
+                return;
+            }
+
+            // 按时间倒序取前 5 条
+            const recent = results.slice().sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 5);
+
+            quickListEl.innerHTML = recent.map(record => {
+                const safeId = escapeAttr(record.id);
+                const name = escapeHtml(record.name || '未命名文档');
+                // 简短时间格式: MM/DD HH:mm
+                const timeObj = new Date(record.time);
+                const timeStr = `${timeObj.getMonth() + 1}/${timeObj.getDate()} ${String(timeObj.getHours()).padStart(2, '0')}:${String(timeObj.getMinutes()).padStart(2, '0')}`;
+
+                return `
+                    <div class="group flex items-center gap-2 px-2 py-1.5 text-[13px] text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors cursor-pointer rounded-md mx-2 mb-0.5" onclick="showHistoryDetail('${safeId}')" title="${name}\n${timeObj.toLocaleString()}">
+                        <iconify-icon icon="carbon:document" width="14" class="flex-shrink-0 text-slate-400 group-hover:text-slate-500 transition-colors"></iconify-icon>
+                        <span class="truncate flex-1">${name}</span>
+                        <span class="text-[10px] text-slate-400 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">${timeStr}</span>
+                    </div>
+                `;
+            }).join('');
+
+        } catch (e) {
+            console.error('Failed to render sidebar history:', e);
+            quickListEl.innerHTML = '<div class="px-3 py-2 text-xs text-red-400 text-center">加载失败</div>';
+        }
+    }
+
+    function initSidebarHistory() {
+        const mainBtn = document.getElementById('sidebarHistoryMainBtn');
+        const toggleBtn = document.getElementById('sidebarHistoryToggleBtn');
+        const quickList = document.getElementById('sidebarHistoryQuickList');
+        const chevron = document.getElementById('sidebarHistoryChevron');
+
+        // 左侧主按钮：直接打开完整历史面板
+        if (mainBtn) {
+            mainBtn.addEventListener('click', openHistoryPanel);
+        }
+
+        // 右侧切换按钮：展开/收起快捷列表
+        if (toggleBtn && quickList) {
+            toggleBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                // 当前是否隐藏
+                const isHidden = quickList.classList.contains('hidden');
+                // 切换显示状态
+                quickList.classList.toggle('hidden', !isHidden);
+
+                // 更新图标方向：展开时旋转90度向下
+                if (chevron) {
+                    chevron.classList.toggle('rotate-90', isHidden);
+                }
+
+                // 保存展开状态到 localStorage
+                localStorage.setItem('pbx_history_expanded', isHidden ? 'true' : 'false');
+
+                // 如果是展开操作，刷新数据
+                if (isHidden) {
+                    renderSidebarQuickAccess();
+                }
+            });
+        }
+
+        // 从 localStorage 恢复历史记录展开状态
+        const isExpanded = localStorage.getItem('pbx_history_expanded') === 'true';
+        if (isExpanded && quickList && chevron) {
+            quickList.classList.remove('hidden');
+            chevron.classList.add('rotate-90');
+            renderSidebarQuickAccess();
+        } else {
+            // 初始加载数据（保持折叠状态）
+            renderSidebarQuickAccess();
+        }
+
+        // 暴露给全局以便其他模块调用刷新
+        window.refreshSidebarHistory = renderSidebarQuickAccess;
+    }
+
     // 显示历史面板并渲染历史列表
-    document.getElementById('showHistoryBtn').onclick = async function() {
-        document.getElementById('historyPanel').classList.remove('hidden');
+    async function openHistoryPanel() {
+        const panel = document.getElementById('historyPanel');
+        if (panel) panel.classList.remove('hidden');
         await renderHistoryList();
-    };
+    }
+
+    // 初始化侧边栏历史
+    initSidebarHistory();
+
+    const sidebarHistoryBtn = document.getElementById('sidebarHistoryBtn');
+    if (sidebarHistoryBtn) {
+        sidebarHistoryBtn.addEventListener('click', openHistoryPanel);
+    }
+    const mobileHistoryBtn = document.getElementById('mobileHistoryBtn');
+    if (mobileHistoryBtn) {
+        mobileHistoryBtn.addEventListener('click', openHistoryPanel);
+    }
+    // 悬浮历史记录按钮
+    const floatingHistoryBtn = document.getElementById('floatingHistoryBtn');
+    if (floatingHistoryBtn) {
+        floatingHistoryBtn.addEventListener('click', openHistoryPanel);
+    }
     // 关闭历史面板
     document.getElementById('closeHistoryPanel').onclick = function() {
         document.getElementById('historyPanel').classList.add('hidden');
@@ -477,6 +585,11 @@ document.addEventListener('DOMContentLoaded', function() {
             batchCache[batchId] = group;
         });
         window.__historyBatchCache = batchCache;
+
+        // 同步刷新侧边栏快捷入口
+        if (typeof window.refreshSidebarHistory === 'function') {
+            window.refreshSidebarHistory();
+        }
     }
 
     function loadUserFolders() {

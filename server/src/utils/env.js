@@ -4,8 +4,13 @@
 const REQUIRED_IN_PROD = [
   'JWT_SECRET',
   'ENCRYPTION_SECRET',
-  // DATABASE_URL is required for DB-backed features; server can boot without connecting,
-  // but migrations/runtime require it. We warn if missing.
+];
+
+const SUGGESTED_IN_PROD = [
+  'DATABASE_URL', // DB 依赖功能需要
+  'CORS_ORIGIN',  // 生产建议显式配置跨域白名单
+  'UPLOAD_STORAGE', // 建议使用 disk
+  'MAX_UPLOAD_SIZE',
 ];
 
 export function validateEnv() {
@@ -25,10 +30,10 @@ export function validateEnv() {
     throw new Error(msg);
   }
 
-  if (!process.env.DATABASE_URL) {
-    // Non-fatal warning: helpful in dev/test; CI sets it when needed.
-    // eslint-disable-next-line no-console
-    console.warn('⚠️  DATABASE_URL not set. DB features and migrations will not work until provided.');
+  // 友好警告（非致命）
+  const softMissing = SUGGESTED_IN_PROD.filter(k => !process.env[k]);
+  if (softMissing.length) {
+    console.warn(`⚠️  Suggested envs not set: ${softMissing.join(', ')}.`);
   }
 }
 
