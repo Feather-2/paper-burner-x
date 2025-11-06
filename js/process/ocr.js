@@ -40,7 +40,11 @@ function processOcrResults(ocrResponse) {
                         const imgData = img.image_base64;
                         imagesData.push({ id: imgId, data: imgData });
                         // 记录图片 ID 到 markdown 路径的映射
-                        pageImages[imgId] = `images/${imgId}.png`;
+                        // 检查 imgId 是否已包含扩展名，避免双重扩展名问题（如 img-0.jpeg.png）
+                        const imgPath = /\.[a-z0-9]+$/i.test(imgId)
+                            ? `images/${imgId}`
+                            : `images/${imgId}.png`;
+                        pageImages[imgId] = imgPath;
                     }
                 }
             }
