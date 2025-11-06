@@ -2220,17 +2220,35 @@ class PDFCompareView {
       const pdfBytes = this.base64ToUint8Array(this.originalPdfBase64);
       const pdfDoc = await PDFDocument.load(pdfBytes);
 
+      // 注册 fontkit（用于嵌入自定义字体）
+      if (typeof fontkit !== 'undefined') {
+        pdfDoc.registerFontkit(fontkit);
+        console.log('[PDFCompareView] fontkit 已注册');
+      } else {
+        console.warn('[PDFCompareView] fontkit 未加载，无法嵌入自定义字体');
+      }
+
       // 尝试嵌入中文字体（从CDN加载思源黑体）
-      let font;
+      let font = null;
       try {
+        if (typeof fontkit === 'undefined') {
+          throw new Error('fontkit 未加载，无法嵌入中文字体');
+        }
+
         console.log('[PDFCompareView] 正在加载中文字体...');
-        const fontBytes = await fetch('https://cdn.jsdelivr.net/npm/source-han-sans-cn@1.0.0/SourceHanSansCN-Normal.otf').then(res => res.arrayBuffer());
+        const fontBytes = await fetch('https://gcore.jsdelivr.net/npm/source-han-sans-cn@1.0.0/SourceHanSansCN-Normal.otf').then(res => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+          return res.arrayBuffer();
+        });
+
         font = await pdfDoc.embedFont(fontBytes);
         console.log('[PDFCompareView] 中文字体加载成功');
       } catch (fontError) {
-        console.warn('[PDFCompareView] 中文字体加载失败，使用默认字体:', fontError);
-        // 使用内置字体作为后备
-        font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        console.error('[PDFCompareView] 中文字体加载失败:', fontError);
+        if (typeof showNotification === 'function') {
+          showNotification('中文字体加载失败，无法导出PDF: ' + fontError.message, 'error');
+        }
+        throw fontError; // 中止导出
       }
 
       // 按页面分组翻译内容
@@ -2387,27 +2405,43 @@ class PDFCompareView {
   }
 
   /**
-   * 动态加载 pdf-lib 库
+   * 动态加载 pdf-lib 库和 fontkit
    */
   async loadPdfLib() {
-    return new Promise((resolve, reject) => {
-      if (typeof PDFLib !== 'undefined') {
-        resolve();
-        return;
-      }
+    // 先加载 pdf-lib
+    if (typeof PDFLib === 'undefined') {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://gcore.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
+        script.onload = () => {
+          console.log('[PDFCompareView] pdf-lib 加载成功');
+          resolve();
+        };
+        script.onerror = (error) => {
+          console.error('[PDFCompareView] pdf-lib 加载失败:', error);
+          reject(new Error('Failed to load pdf-lib library'));
+        };
+        document.head.appendChild(script);
+      });
+    }
 
-      const script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
-      script.onload = () => {
-        console.log('[PDFCompareView] pdf-lib 加载成功');
-        resolve();
-      };
-      script.onerror = (error) => {
-        console.error('[PDFCompareView] pdf-lib 加载失败:', error);
-        reject(new Error('Failed to load pdf-lib library'));
-      };
-      document.head.appendChild(script);
-    });
+    // 再加载 fontkit（用于嵌入自定义字体）
+    if (typeof fontkit === 'undefined') {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://gcore.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js';
+        script.onload = () => {
+          console.log('[PDFCompareView] fontkit 加载成功');
+          resolve();
+        };
+        script.onerror = (error) => {
+          console.warn('[PDFCompareView] fontkit 加载失败:', error);
+          // fontkit加载失败不应该阻止整个流程，只是无法使用自定义字体
+          resolve();
+        };
+        document.head.appendChild(script);
+      });
+    }
   }
 
   /**
