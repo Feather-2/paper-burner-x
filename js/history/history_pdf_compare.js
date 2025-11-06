@@ -2297,7 +2297,7 @@ class PDFCompareView {
           });
         });
 
-        // 绘制翻译文本
+        // 绘制翻译文本（使用与canvas渲染相同的文本适配算法）
         items.forEach(item => {
           const bbox = item.bbox;
           const text = item.text || '';
@@ -2312,56 +2312,34 @@ class PDFCompareView {
           const bboxTop = pageHeight - (bbox[1] * scaleY);
           const bboxBottom = pageHeight - (bbox[3] * scaleY);
 
-          // 估算字号（使用bbox高度的75%）
-          let fontSize = boxHeight * 0.75;
-          fontSize = Math.max(6, Math.min(fontSize, 20)); // 限制字号范围 6-20pt
+          // 判断是否为短文本（与canvas渲染一致）
+          const isShortText = text.length < 30;
 
-          // 尝试适配文本到bbox宽度
-          let textWidth = font.widthOfTextAtSize(text, fontSize);
+          // 使用与canvas相同的文本布局算法
+          const layout = this.calculatePdfTextLayout(font, text, boxWidth, boxHeight, isShortText);
+          const { fontSize, lines, lineHeight } = layout;
 
-          // 如果文本太宽，缩小字号
-          if (textWidth > boxWidth * 0.95) {
-            fontSize = fontSize * (boxWidth * 0.95 / textWidth);
-            fontSize = Math.max(5, fontSize); // 最小字号5pt
-            textWidth = font.widthOfTextAtSize(text, fontSize);
-          }
+          // 内边距（与canvas渲染一致）
+          const paddingTop = 2;
+          const paddingX = 2;
+          const availableHeight = boxHeight - paddingTop * 2;
 
-          // 如果文本仍然太长，进行换行处理
-          const lines = [];
-          if (textWidth > boxWidth * 0.95) {
-            // 简单换行：按字符分割
-            const chars = text.split('');
-            let currentLine = '';
-            for (const char of chars) {
-              const testLine = currentLine + char;
-              const testWidth = font.widthOfTextAtSize(testLine, fontSize);
-              if (testWidth > boxWidth * 0.95 && currentLine) {
-                lines.push(currentLine);
-                currentLine = char;
-              } else {
-                currentLine = testLine;
-              }
-            }
-            if (currentLine) lines.push(currentLine);
-          } else {
-            lines.push(text);
-          }
-
-          // 计算行高和起始Y坐标（baseline位置）
-          const lineHeight = fontSize * 1.15;
-          // 第一行baseline从bbox底部向上偏移（留出descender空间）
-          const firstLineBaseline = bboxBottom + lineHeight * 0.85;
+          // 计算总高度并垂直居中（与canvas渲染一致）
+          const totalHeight = lines.length > 0
+            ? (lines.length - 1) * lineHeight + fontSize
+            : 0;
+          const yOffset = (availableHeight - totalHeight) / 2;
 
           // 绘制每一行
           lines.forEach((line, lineIdx) => {
-            // 计算当前行的baseline Y坐标（向上递增）
-            const lineY = firstLineBaseline + (lineIdx * lineHeight);
+            // 计算baseline Y坐标（从bbox底部开始，加上padding和居中偏移）
+            const lineY = bboxBottom + paddingTop + yOffset + (lineIdx * lineHeight);
 
-            // 确保不超出bbox顶部
-            if (lineY > bboxTop - fontSize * 0.2) return;
+            // 确保不超出bbox范围
+            if (lineY < bboxBottom || lineY > bboxTop) return;
 
             page.drawText(line, {
-              x: x + 1, // 稍微偏移避免边缘
+              x: x + paddingX,
               y: lineY,
               size: fontSize,
               font: font,
@@ -2407,6 +2385,156 @@ class PDFCompareView {
         showNotification('导出失败: ' + error.message, 'error');
       }
     }
+  }
+
+  /**
+   * 为PDF导出计算文本布局（使用与canvas渲染相同的算法）
+   * @param {Object} font - pdf-lib字体对象
+   * @param {string} text - 要渲染的文本
+   * @param {number} boxWidth - bbox宽度（PDF坐标）
+   * @param {number} boxHeight - bbox高度（PDF坐标）
+   * @param {boolean} isShortText - 是否为短文本
+   * @returns {Object} { fontSize, lines, lineHeight }
+   */
+  calculatePdfTextLayout(font, text, boxWidth, boxHeight, isShortText = false) {
+    // 判断是否为 CJK 语言
+    const isCJK = /[\u4e00-\u9fa5]/.test(text);
+    const lineSkip = isCJK ? 1.25 : 1.15;
+
+    // 内边距（与canvas渲染一致）
+    const paddingTop = 2;
+    const paddingX = 2;
+    const availableHeight = boxHeight - paddingTop * 2;
+    const availableWidth = boxWidth - paddingX * 2;
+
+    // 字号范围（与canvas渲染一致）
+    const estimatedSingleLineFontSize = boxHeight * 0.8;
+    const minFontSize = isShortText ? 10 : 6;
+    const maxFontSize = Math.min(estimatedSingleLineFontSize * 1.5, boxHeight * 1.2);
+
+    // 检查文本是否包含换行符
+    const hasNewlines = text.includes('\n');
+    const textLength = text.length;
+
+    // 尝试不同的宽度因子（与canvas渲染一致）
+    const widthFactors = (textLength < 20 || hasNewlines)
+      ? [1.0]
+      : [1.0, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70];
+
+    let bestSolution = null;
+
+    // 对每个宽度因子，使用二分查找找到最大可用字号
+    for (const widthFactor of widthFactors) {
+      const effectiveWidth = availableWidth * widthFactor;
+
+      // 二分查找最大字号
+      let low = minFontSize;
+      let high = maxFontSize;
+      let foundFontSize = null;
+      let foundLines = null;
+
+      while (high - low > 0.5) {
+        const mid = (low + high) / 2;
+
+        // 使用pdf-lib的字体测量API换行
+        const lines = this.wrapTextForPdf(font, text, effectiveWidth, mid);
+        const lineHeight = mid * lineSkip;
+
+        // 计算总高度（与canvas渲染一致）
+        const totalHeight = lines.length > 0
+          ? (lines.length - 1) * lineHeight + mid
+          : 0;
+
+        if (totalHeight <= availableHeight) {
+          foundFontSize = mid;
+          foundLines = lines;
+          low = mid;
+        } else {
+          high = mid;
+        }
+      }
+
+      // 如果找到了可行解，且比当前最优解更好
+      if (foundFontSize && (!bestSolution || foundFontSize > bestSolution.fontSize)) {
+        bestSolution = {
+          fontSize: foundFontSize,
+          widthFactor: widthFactor,
+          lines: foundLines,
+          lineHeight: foundFontSize * lineSkip
+        };
+      }
+    }
+
+    // 如果找到了最优解，返回
+    if (bestSolution) {
+      return bestSolution;
+    }
+
+    // 后备方案：使用最小字号（与canvas渲染一致）
+    const fallbackFontSize = minFontSize;
+    const fallbackLineHeight = fallbackFontSize * lineSkip;
+    const allLines = this.wrapTextForPdf(font, text, availableWidth, fallbackFontSize);
+    const maxLines = Math.floor(availableHeight / fallbackLineHeight);
+    const linesToDraw = allLines.slice(0, Math.max(1, maxLines));
+
+    return {
+      fontSize: fallbackFontSize,
+      lines: linesToDraw,
+      lineHeight: fallbackLineHeight,
+      widthFactor: 1.0
+    };
+  }
+
+  /**
+   * 为PDF文本换行（使用pdf-lib字体测量）
+   */
+  wrapTextForPdf(font, text, maxWidth, fontSize) {
+    if (!text) return [];
+
+    const lines = [];
+    let currentLine = '';
+
+    // 先按自然断句分段（与canvas wrapText一致）
+    const segments = text.split(/([。？！，、；：\n])/);
+
+    for (let segment of segments) {
+      if (!segment) continue;
+
+      // 如果是标点符号，直接加到当前行
+      if (/^[。？！，、；：]$/.test(segment)) {
+        currentLine += segment;
+        continue;
+      }
+
+      // 如果是换行符，强制换行
+      if (segment === '\n') {
+        if (currentLine) {
+          lines.push(currentLine);
+          currentLine = '';
+        }
+        continue;
+      }
+
+      // 按字符逐个添加
+      for (let i = 0; i < segment.length; i++) {
+        const char = segment[i];
+        const testLine = currentLine + char;
+        const width = font.widthOfTextAtSize(testLine, fontSize);
+
+        if (width > maxWidth && currentLine.length > 0) {
+          lines.push(currentLine);
+          currentLine = char;
+        } else {
+          currentLine = testLine;
+        }
+      }
+    }
+
+    if (currentLine) {
+      lines.push(currentLine);
+    }
+
+    return lines.length > 0 ? lines : [''];
   }
 
   /**
