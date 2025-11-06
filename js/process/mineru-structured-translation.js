@@ -419,6 +419,18 @@ ${jsonContent}
               const a = this._normalizeText(orig.text);
               const b = this._normalizeText(it.text);
               isFailed = !b || b === a;
+
+              // 调试日志：记录失败判定详情
+              if (isFailed) {
+                const reason = !b ? '译文为空' : (b === a ? '译文与原文相同' : '未知原因');
+                console.log(`[结构化翻译] 项目 ${idx} 判定为失败: ${reason}`, {
+                  原文前50字: a.substring(0, 50),
+                  译文前50字: b ? b.substring(0, 50) : '(空)',
+                  原文长度: a.length,
+                  译文长度: b ? b.length : 0
+                });
+              }
+
               // 更新翻译后的文本
               if (!isFailed && it.text !== undefined) {
                 out.text = it.text;
@@ -455,17 +467,23 @@ ${jsonContent}
           return out;
         });
 
-        // 6. 更新进度
+        // 6. 统计本批次失败情况
+        const batchFailedCount = markedItems.filter(item => item.failed === true).length;
+        const batchSuccessCount = markedItems.length - batchFailedCount;
+
+        console.log(`[结构化翻译] 批次 ${batchIndex + 1} 完成: ${batchSuccessCount}/${markedItems.length} 成功, ${batchFailedCount} 失败`);
+
+        // 7. 更新进度
         completedCount++;
         onProgress?.({
           current: completedCount,
           total: totalBatches,
           percentage: Math.floor((completedCount / totalBatches) * 100),
-          message: `已完成 ${completedCount}/${totalBatches} 批次`
+          message: `已完成 ${completedCount}/${totalBatches} 批次 (${batchSuccessCount}/${markedItems.length} 成功)`
         });
 
         if (typeof addProgressLog === 'function') {
-          addProgressLog(`${logContext} 翻译完成`);
+          addProgressLog(`${logContext} 翻译完成 (${batchSuccessCount}/${markedItems.length} 成功)`);
         }
 
         return { batchIndex, items: markedItems };
@@ -514,6 +532,25 @@ ${jsonContent}
     const results = [];
     for (const result of batchResults) {
       results.push(...result.items);
+    }
+
+    // 统计整体翻译情况
+    const totalItems = results.length;
+    const failedItems = results.filter(item => item.failed === true);
+    const failedCount = failedItems.length;
+    const successCount = totalItems - failedCount;
+
+    console.log(`[结构化翻译] 全部完成: ${successCount}/${totalItems} 成功, ${failedCount} 失败`);
+
+    if (failedCount > 0) {
+      console.warn(`[结构化翻译] 失败项索引:`, failedItems.map((item, idx) => {
+        const originalIdx = results.indexOf(item);
+        return `#${originalIdx} (${item.type})`;
+      }).join(', '));
+    }
+
+    if (typeof addProgressLog === 'function') {
+      addProgressLog(`结构化翻译完成: ${successCount}/${totalItems} 成功${failedCount > 0 ? `, ${failedCount} 失败` : ''}`);
     }
 
     return results;
