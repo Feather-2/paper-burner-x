@@ -2263,7 +2263,7 @@ class PDFCompareView {
         pageContentMap.get(pageIdx).push({ ...item, originalIndex: idx });
       });
 
-      // 常量：MinerU bbox 归一化范围
+      // 常量：MinerU bbox 归一化范围（固定为1000，与canvas渲染逻辑一致）
       const BBOX_NORMALIZED_RANGE = 1000;
 
       // 遍历每一页，覆盖翻译文本
@@ -2273,13 +2273,11 @@ class PDFCompareView {
         const page = pdfDoc.getPage(pageIdx);
         const { width: pageWidth, height: pageHeight } = page.getSize();
 
-        // 获取此页的归一化尺寸
-        const normalizedWidth = this.pageImageSizes[pageIdx]?.width || BBOX_NORMALIZED_RANGE;
-        const normalizedHeight = this.pageImageSizes[pageIdx]?.height || BBOX_NORMALIZED_RANGE;
+        // 计算缩放因子（bbox归一化范围固定为1000）
+        const scaleX = pageWidth / BBOX_NORMALIZED_RANGE;
+        const scaleY = pageHeight / BBOX_NORMALIZED_RANGE;
 
-        // 计算缩放因子
-        const scaleX = pageWidth / normalizedWidth;
-        const scaleY = pageHeight / normalizedHeight;
+        console.log(`[PDFCompareView] 页面 ${pageIdx}: PDF尺寸=${pageWidth.toFixed(2)}x${pageHeight.toFixed(2)}pt, 缩放比例=${scaleX.toFixed(3)}x${scaleY.toFixed(3)}`);
 
         // 先用白色矩形覆盖原文（清除原文）
         items.forEach(item => {
@@ -2306,36 +2304,38 @@ class PDFCompareView {
 
           if (!text.trim()) return;
 
-          // 计算文本位置和尺寸
-          const x = bbox[0] * scaleX;
-          const y = pageHeight - (bbox[1] * scaleY); // PDF坐标系从下往上，使用bbox[1]作为顶部
+          // 计算bbox在PDF坐标系中的位置和尺寸
+          const x = bbox[0] * scaleX;  // 左边界
           const boxWidth = (bbox[2] - bbox[0]) * scaleX;
           const boxHeight = (bbox[3] - bbox[1]) * scaleY;
+          // bbox顶部和底部在PDF坐标系中的Y坐标
+          const bboxTop = pageHeight - (bbox[1] * scaleY);
+          const bboxBottom = pageHeight - (bbox[3] * scaleY);
 
-          // 估算字号（使用bbox高度的80%）
-          let fontSize = boxHeight * 0.8;
-          fontSize = Math.max(8, Math.min(fontSize, 24)); // 限制字号范围
+          // 估算字号（使用bbox高度的75%）
+          let fontSize = boxHeight * 0.75;
+          fontSize = Math.max(6, Math.min(fontSize, 20)); // 限制字号范围 6-20pt
 
-          // 尝试适配文本到bbox
+          // 尝试适配文本到bbox宽度
           let textWidth = font.widthOfTextAtSize(text, fontSize);
 
           // 如果文本太宽，缩小字号
-          if (textWidth > boxWidth) {
-            fontSize = fontSize * (boxWidth / textWidth) * 0.95;
-            fontSize = Math.max(6, fontSize); // 最小字号6
+          if (textWidth > boxWidth * 0.95) {
+            fontSize = fontSize * (boxWidth * 0.95 / textWidth);
+            fontSize = Math.max(5, fontSize); // 最小字号5pt
             textWidth = font.widthOfTextAtSize(text, fontSize);
           }
 
           // 如果文本仍然太长，进行换行处理
           const lines = [];
-          if (textWidth > boxWidth) {
+          if (textWidth > boxWidth * 0.95) {
             // 简单换行：按字符分割
             const chars = text.split('');
             let currentLine = '';
             for (const char of chars) {
               const testLine = currentLine + char;
               const testWidth = font.widthOfTextAtSize(testLine, fontSize);
-              if (testWidth > boxWidth && currentLine) {
+              if (testWidth > boxWidth * 0.95 && currentLine) {
                 lines.push(currentLine);
                 currentLine = char;
               } else {
@@ -2347,16 +2347,21 @@ class PDFCompareView {
             lines.push(text);
           }
 
-          // 绘制每一行
-          const lineHeight = fontSize * 1.2;
-          lines.forEach((line, lineIdx) => {
-            const lineY = y - (lineIdx * lineHeight) - fontSize; // 从顶部往下绘制
+          // 计算行高和起始Y坐标（baseline位置）
+          const lineHeight = fontSize * 1.15;
+          // 第一行baseline从bbox底部向上偏移（留出descender空间）
+          const firstLineBaseline = bboxBottom + lineHeight * 0.85;
 
-            // 确保不超出bbox底部
-            if (lineY < y - boxHeight) return;
+          // 绘制每一行
+          lines.forEach((line, lineIdx) => {
+            // 计算当前行的baseline Y坐标（向上递增）
+            const lineY = firstLineBaseline + (lineIdx * lineHeight);
+
+            // 确保不超出bbox顶部
+            if (lineY > bboxTop - fontSize * 0.2) return;
 
             page.drawText(line, {
-              x: x + 2, // 稍微偏移避免边缘
+              x: x + 1, // 稍微偏移避免边缘
               y: lineY,
               size: fontSize,
               font: font,
