@@ -30,7 +30,7 @@
  * safeRenderMarkdown('<img src=x onerror="alert(\'XSS\')">')
  * // => "<img src='x'>"  // onerror 被移除
  */
-export function safeRenderMarkdown(markdown) {
+function safeRenderMarkdown(markdown) {
   // 检查依赖
   if (typeof marked === 'undefined') {
     console.error('safeRenderMarkdown: marked is not loaded');
@@ -140,7 +140,7 @@ function escapeHtml(unsafe) {
  * 检查 DOMPurify 是否可用
  * @returns {boolean}
  */
-export function isDOMPurifyAvailable() {
+function isDOMPurifyAvailable() {
   return typeof DOMPurify !== 'undefined';
 }
 
@@ -148,7 +148,7 @@ export function isDOMPurifyAvailable() {
  * 获取当前安全配置的统计信息（用于调试）
  * @returns {object}
  */
-export function getSecurityInfo() {
+function getSecurityInfo() {
   return {
     hasDOMPurify: isDOMPurifyAvailable(),
     hasMarked: typeof marked !== 'undefined',
@@ -162,10 +162,9 @@ export function getSecurityInfo() {
   };
 }
 
-// 默认导出
-export default safeRenderMarkdown;
-
-// 全局暴露（兼容非模块化使用）
+// 全局暴露（支持 file:// 协议）
 if (typeof window !== 'undefined') {
   window.safeRenderMarkdown = safeRenderMarkdown;
+  window.isDOMPurifyAvailable = isDOMPurifyAvailable;
+  window.getSecurityInfo = getSecurityInfo;
 }
