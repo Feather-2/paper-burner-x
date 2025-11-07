@@ -1359,17 +1359,26 @@ document.addEventListener('DOMContentLoaded', function() {
                 for (let i = 0; i < minLen; i++) {
                     const o = origList[i] || {};
                     const t = transList[i] || {};
+                    // 统一的字段标准化函数（处理字符串、数组等）
+                    const _norm = (v) => {
+                        if (v == null) return '';
+                        try {
+                            if (Array.isArray(v)) return v.join(' ').trim();
+                            if (typeof v === 'string') return v.trim();
+                            return String(v).trim();
+                        } catch(_) { return ''; }
+                    };
                     if (o.type === 'text') {
-                        const a = (o.text || '').trim();
-                        const b = (t.text || '').trim();
+                        const a = _norm(o.text);
+                        const b = _norm(t.text);
                         if (a && !b) failed++;  // 移除 a === b 判断
                     } else if (o.type === 'image') {
-                        const a = Array.isArray(o.image_caption) ? o.image_caption.join(' ').trim() : '';
-                        const b = Array.isArray(t.image_caption) ? t.image_caption.join(' ').trim() : '';
+                        const a = _norm(o.image_caption);
+                        const b = _norm(t.image_caption);
                         if (a && !b) failed++;  // 移除 a === b 判断
                     } else if (o.type === 'table') {
-                        const a = (o.table_caption || '').trim();
-                        const b = (t.table_caption || '').trim();
+                        const a = _norm(o.table_caption);
+                        const b = _norm(t.table_caption);
                         if (a && !b) failed++;  // 移除 a === b 判断
                     }
                 }
