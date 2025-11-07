@@ -1311,6 +1311,16 @@ document.addEventListener('DOMContentLoaded', function() {
         const supportsStructured = !!meta.supportsStructuredTranslation;
         if (supportsStructured && transList.length > 0) {
             const total = transList.length;
+            // 统一的字段标准化函数（处理字符串、数组等）
+            const _norm = (v) => {
+                if (v == null) return '';
+                try {
+                    if (Array.isArray(v)) return v.join(' ').trim();
+                    if (typeof v === 'string') return v.trim();
+                    return String(v).trim();
+                } catch(_) { return ''; }
+            };
+
             let failed = 0;
             for (let i = 0; i < total; i++) {
                 const it = transList[i];
@@ -1323,8 +1333,31 @@ document.addEventListener('DOMContentLoaded', function() {
                         }
                         // failureReason === 'unchanged' 不统计为失败
                     } else {
-                        // 旧数据没有 failureReason 字段，保持兼容性
-                        failed++;
+                        // 旧数据没有 failureReason 字段，需要检查是否真的失败（空译文）
+                        // 只有译文为空时才计入失败，译文与原文相同不算失败
+                        const orig = Array.isArray(meta.contentListJson) ? meta.contentListJson[i] : null;
+                        if (orig) {
+                            let shouldCountAsFailed = false;
+                            if (orig.type === 'text') {
+                                const a = _norm(orig.text);
+                                const b = _norm(it.text);
+                                shouldCountAsFailed = a && !b;  // 只有空译文才算失败
+                            } else if (orig.type === 'image') {
+                                const a = _norm(orig.image_caption);
+                                const b = _norm(it.image_caption);
+                                shouldCountAsFailed = a && !b;
+                            } else if (orig.type === 'table') {
+                                const a = _norm(orig.table_caption);
+                                const b = _norm(it.table_caption);
+                                shouldCountAsFailed = a && !b;
+                            }
+                            if (shouldCountAsFailed) {
+                                failed++;
+                            }
+                        } else {
+                            // 没有原文数据，保守统计为失败
+                            failed++;
+                        }
                     }
                 }
             }
@@ -1342,8 +1375,30 @@ document.addEventListener('DOMContentLoaded', function() {
                                 actualFailed++;
                             }
                         } else {
-                            // 没有 failureReason 或项不存在，保守统计
-                            actualFailed++;
+                            // 没有 failureReason，检查是否真的失败（空译文）
+                            const orig = Array.isArray(meta.contentListJson) ? meta.contentListJson[idx] : null;
+                            if (orig && item) {
+                                let shouldCountAsFailed = false;
+                                if (orig.type === 'text') {
+                                    const a = _norm(orig.text);
+                                    const b = _norm(item.text);
+                                    shouldCountAsFailed = a && !b;
+                                } else if (orig.type === 'image') {
+                                    const a = _norm(orig.image_caption);
+                                    const b = _norm(item.image_caption);
+                                    shouldCountAsFailed = a && !b;
+                                } else if (orig.type === 'table') {
+                                    const a = _norm(orig.table_caption);
+                                    const b = _norm(item.table_caption);
+                                    shouldCountAsFailed = a && !b;
+                                }
+                                if (shouldCountAsFailed) {
+                                    actualFailed++;
+                                }
+                            } else {
+                                // 没有原文或译文数据，保守统计
+                                actualFailed++;
+                            }
                         }
                     } else {
                         actualFailed++;
@@ -1359,15 +1414,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 for (let i = 0; i < minLen; i++) {
                     const o = origList[i] || {};
                     const t = transList[i] || {};
-                    // 统一的字段标准化函数（处理字符串、数组等）
-                    const _norm = (v) => {
-                        if (v == null) return '';
-                        try {
-                            if (Array.isArray(v)) return v.join(' ').trim();
-                            if (typeof v === 'string') return v.trim();
-                            return String(v).trim();
-                        } catch(_) { return ''; }
-                    };
                     if (o.type === 'text') {
                         const a = _norm(o.text);
                         const b = _norm(t.text);
