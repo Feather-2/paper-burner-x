@@ -420,8 +420,8 @@ ${jsonContent}
               const a = this._normalizeText(orig.text);
               const b = this._normalizeText(it.text);
 
-              // 只有译文为空时才标记为失败（译文与原文相同是正常行为）
-              if (!b) {
+              // 只有原文不为空但译文为空时才标记为失败（译文与原文相同是正常行为）
+              if (!b && !!a) {
                 isFailed = true;
                 failureReason = 'empty';  // 空译文，需要自动重试
 
