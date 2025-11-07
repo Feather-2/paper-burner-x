@@ -541,7 +541,7 @@ ${jsonContent}
                 );
 
                 // 解析单条翻译结果
-                const singleTranslated = this.parseTranslationResult(singleResponse);
+                const singleTranslated = this.parseTranslationResponse(singleResponse);
 
                 if (singleTranslated && singleTranslated.length > 0) {
                   const translatedItem = singleTranslated[0];
