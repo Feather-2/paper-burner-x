@@ -120,11 +120,21 @@
                        `1. 正则表达式（快速，适合标准格式）\n` +
                        `2. AI智能提取（准确，适合任意格式）\n` +
                        `3. 混合模式（推荐，先正则再AI）\n\n` +
-                       `请输入数字 1、2 或 3：`;
+                       `请输入数字 1、2 或 3（取消将不再提示）：`;
 
         const choice = prompt(message);
 
-        if (!choice) return;
+        // 用户点击取消：保存空数组，避免反复提示
+        if (!choice) {
+            console.log('[ReferenceManagerDetail] User cancelled extraction, saving empty state');
+            if (global.ReferenceStorage) {
+                global.ReferenceStorage.saveReferences(currentDocumentId, [], {
+                    extractionSkipped: true,
+                    skippedAt: new Date().toISOString()
+                });
+            }
+            return;
+        }
 
         switch (choice.trim()) {
             case '1':
@@ -137,7 +147,7 @@
                 extractWithHybrid(section, markdown);
                 break;
             default:
-                alert('无效的选择');
+                alert('无效的选择，请重新打开文档并输入 1、2 或 3');
         }
     }
 
