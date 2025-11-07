@@ -1314,11 +1314,42 @@ document.addEventListener('DOMContentLoaded', function() {
             let failed = 0;
             for (let i = 0; i < total; i++) {
                 const it = transList[i];
-                if (it && it.failed === true) failed++;
+                // 只统计真正失败的项（空译文），忽略"译文与原文相同"的项
+                if (it && it.failed === true) {
+                    // 如果有 failureReason 字段，只统计 'empty' 类型的失败
+                    if (it.failureReason) {
+                        if (it.failureReason === 'empty') {
+                            failed++;
+                        }
+                        // failureReason === 'unchanged' 不统计为失败
+                    } else {
+                        // 旧数据没有 failureReason 字段，保持兼容性
+                        failed++;
+                    }
+                }
             }
-            // 若元数据提供了失败项，优先使用
+            // 若元数据提供了失败项，需要过滤掉"unchanged"类型的
             if (Array.isArray(meta.failedStructuredItems) && meta.failedStructuredItems.length > 0) {
-                failed = meta.failedStructuredItems.length;
+                // 检查 failedStructuredItems 中每个项，过滤掉"译文与原文相同"的项
+                let actualFailed = 0;
+                for (const failedItem of meta.failedStructuredItems) {
+                    const idx = failedItem.index;
+                    if (idx >= 0 && idx < transList.length) {
+                        const item = transList[idx];
+                        // 如果有 failureReason，只统计 'empty' 类型
+                        if (item && item.failureReason) {
+                            if (item.failureReason === 'empty') {
+                                actualFailed++;
+                            }
+                        } else {
+                            // 没有 failureReason 或项不存在，保守统计
+                            actualFailed++;
+                        }
+                    } else {
+                        actualFailed++;
+                    }
+                }
+                failed = actualFailed;
             }
             // 回退：若未统计到失败但可对比原始内容，则尝试检测空译文（仅 text/image/table）
             // 注意：只统计译文为空的情况，译文与原文相同是正常行为
