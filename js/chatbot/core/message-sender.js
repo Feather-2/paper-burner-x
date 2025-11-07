@@ -22,6 +22,26 @@
    */
   function getChatbotConfig(externalConfig = null) {
   if (externalConfig) return externalConfig;
+
+  // 使用新的 ChatbotConfigManager 获取配置
+  if (typeof window !== 'undefined' && window.ChatbotConfigManager) {
+    try {
+      const chatbotConfig = window.ChatbotConfigManager.getChatbotModelConfig();
+      const convertedConfig = window.ChatbotConfigManager.convertChatbotConfigToMessageSenderFormat(chatbotConfig);
+
+      console.log('[getChatbotConfig] 使用chatbot专用配置:', {
+        chatbotConfig,
+        convertedConfig
+      });
+
+      return convertedConfig;
+    } catch (error) {
+      console.error('[getChatbotConfig] 使用chatbot配置失败，回退到翻译模型配置:', error);
+    }
+  }
+
+  // 回退逻辑：如果 ChatbotConfigManager 不可用，使用原有的翻译模型配置
+  console.warn('[getChatbotConfig] ChatbotConfigManager 不可用，使用翻译模型配置');
   const settings = (typeof loadSettings === 'function') ? loadSettings() : JSON.parse(localStorage.getItem('paperBurnerSettings') || '{}');
   let model = settings.selectedTranslationModel || 'mistral';
   let cms = settings.customModelSettings || {};

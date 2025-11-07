@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="../../css/chunk_compare_optimizer.css"> <!-- 分块对比优化样式 -->
   <link rel="stylesheet" href="../../css/reference-manager.css"> <!-- 参考文献管理 -->
   <link rel="stylesheet" href="../../css/history_detail/lightbox.css"> <!-- 图片灯箱样式 -->
+  <link rel="stylesheet" href="../../css/chatbot-model-config-modal.css"> <!-- Chatbot配置弹窗 -->
 
 </head>
 <body>
@@ -315,6 +316,8 @@
   </script>
 
   <script src="../../js/chatbot/utils/mermaid-loader.js"></script>
+  <!-- XSS 防护：DOMPurify - 用于清理 AI 生成的 HTML 内容 -->
+  <script src="https://gcore.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
   <!-- XSS 防护：安全的 Markdown 渲染（必须在 markdown-katex-render.js 之前加载） -->
   <script src="../../js/chatbot/utils/safe-markdown-render.js"></script>
   <script src="../../js/chatbot/utils/markdown-katex-render.js"></script>
@@ -358,6 +361,8 @@
   <script src="../../js/chatbot/core/content-processor.js"></script>
   <script src="../../js/chatbot/core/semantic-groups-manager.js"></script>
   <script src="../../js/chatbot/core/message-sender.js"></script>
+  <!-- Chatbot 配置管理模块（独立于翻译模型） -->
+  <script src="../../js/chatbot/core/chatbot-config-manager.js?v=20251107c"></script>
   <!-- Chatbot Core 主入口（依赖上述所有模块） -->
   <script src="../../js/chatbot/core/chatbot-core.js"></script>
   <script src="../../js/chatbot/renderers/chatbot-mermaid-renderer.js"></script>
@@ -368,6 +373,8 @@
   <script src="../../js/chatbot/ui/semantic-groups-ui.js"></script> <!-- 新增：意群面板 -->
   <script src="../../js/chatbot/ui/embedding-config-ui.js"></script> <!-- 新增：向量搜索配置 -->
   <script src="../../js/chatbot/ui/chatbot-ui.js"></script>
+  <!-- Chatbot 模型配置弹窗（独立配置界面） -->
+  <script src="../../js/chatbot/ui/chatbot-model-config-modal.js?v=20251107f"></script>
   <script src="../../js/chatbot/ui/chatbot-model-selector-ui.js"></script>
   <script src="../../js/chatbot/strategy/segmentation-strategy.js"></script>
 

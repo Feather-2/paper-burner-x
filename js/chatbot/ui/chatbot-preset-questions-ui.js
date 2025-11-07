@@ -60,34 +60,39 @@ window.ChatbotPresetQuestionsUI = {
     headerLeftGroup.appendChild(presetToggleBtn);
     newPresetHeader.appendChild(headerLeftGroup);
 
-    if (isCustomModel) {
-      const gearBtn = document.createElement('button');
-      gearBtn.id = 'chatbot-model-gear-btn';
-      gearBtn.title = '选择模型';
-      gearBtn.innerHTML = '<i class="fa-solid fa-gear" style="color:#2563eb;font-size:16px;display:block;"></i>';
-      gearBtn.style.display = 'flex';
-      gearBtn.style.alignItems = 'center';
-      gearBtn.style.justifyContent = 'center';
-      gearBtn.style.background = 'none';
-      gearBtn.style.border = 'none';
-      gearBtn.style.cursor = 'pointer';
-      gearBtn.style.padding = '2.5px';
-      gearBtn.style.borderRadius = '50%';
-      gearBtn.style.transition = 'background 0.16s, box-shadow 0.16s';
-      gearBtn.onmouseover = function(){
-        this.style.background = '#e0f2fe';
-        this.style.boxShadow = '0 1.5px 6px 0 rgba(59,130,246,0.10)';
-      };
-      gearBtn.onmouseout = function(){
-        this.style.background = 'none';
-        this.style.boxShadow = 'none';
-      };
-      gearBtn.onclick = function(){
+    // 齿轮按钮（模型配置）- 始终显示
+    const gearBtn = document.createElement('button');
+    gearBtn.id = 'chatbot-model-gear-btn';
+    gearBtn.title = '模型配置';
+    gearBtn.innerHTML = '<i class="fa-solid fa-gear" style="color:#2563eb;font-size:16px;display:block;"></i>';
+    gearBtn.style.display = 'flex';
+    gearBtn.style.alignItems = 'center';
+    gearBtn.style.justifyContent = 'center';
+    gearBtn.style.background = 'none';
+    gearBtn.style.border = 'none';
+    gearBtn.style.cursor = 'pointer';
+    gearBtn.style.padding = '2.5px';
+    gearBtn.style.borderRadius = '50%';
+    gearBtn.style.transition = 'background 0.16s, box-shadow 0.16s';
+    gearBtn.onmouseover = function(){
+      this.style.background = '#e0f2fe';
+      this.style.boxShadow = '0 1.5px 6px 0 rgba(59,130,246,0.10)';
+    };
+    gearBtn.onmouseout = function(){
+      this.style.background = 'none';
+      this.style.boxShadow = 'none';
+    };
+    gearBtn.onclick = function(){
+      // 打开独立的chatbot模型配置弹窗
+      if (typeof window !== 'undefined' && window.ChatbotModelConfigModal) {
+        window.ChatbotModelConfigModal.open();
+      } else {
+        console.warn('[Chatbot Gear] ChatbotModelConfigModal 不可用，回退到旧版选择器');
         window.isModelSelectorOpen = true; // 设置全局状态
         updateChatbotUICallback();        // 调用主UI更新
-      };
-      newPresetHeader.appendChild(gearBtn);
-    }
+      }
+    };
+    newPresetHeader.appendChild(gearBtn);
     presetContainer.appendChild(newPresetHeader);
 
     const newPresetBody = document.createElement('div');
