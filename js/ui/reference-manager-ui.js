@@ -273,9 +273,9 @@
          * 显示管理界面
          * @param {string} documentId - 文档ID
          */
-        show(documentId) {
+        async show(documentId) {
             this.currentDocumentId = documentId;
-            this.loadReferences();
+            await this.loadReferences();
 
             const modal = document.getElementById('reference-manager-modal');
             if (modal) {
@@ -296,10 +296,10 @@
         /**
          * 加载文献数据
          */
-        loadReferences() {
+        async loadReferences() {
             if (!this.currentDocumentId) return;
 
-            const data = global.ReferenceStorage.loadReferences(this.currentDocumentId);
+            const data = await global.ReferenceStorage.loadReferences(this.currentDocumentId);
             if (data && data.references) {
                 this.references = data.references;
                 this.filteredReferences = [...this.references];
@@ -729,7 +729,7 @@
                 references = indexedReferences;
             }
 
-            const success = global.ReferenceStorage.saveReferences(
+            const success = await global.ReferenceStorage.saveReferences(
                 this.currentDocumentId,
                 references,
                 {
@@ -740,7 +740,7 @@
 
             if (success) {
                 alert(`成功保存 ${references.length} 条文献`);
-                this.loadReferences();
+                await this.loadReferences();
             } else {
                 alert('保存失败');
             }
@@ -894,7 +894,7 @@
         /**
          * 保存编辑
          */
-        saveEdit(originalRef) {
+        async saveEdit(originalRef) {
             const updates = {
                 authors: document.getElementById('edit-authors').value.split(',').map(s => s.trim()).filter(Boolean),
                 title: document.getElementById('edit-title').value,
@@ -912,14 +912,14 @@
 
             if (originalRef) {
                 // 更新现有文献
-                global.ReferenceStorage.updateReference(this.currentDocumentId, originalRef.index, updates);
+                await global.ReferenceStorage.updateReference(this.currentDocumentId, originalRef.index, updates);
             } else {
                 // 添加新文献
-                global.ReferenceStorage.addReference(this.currentDocumentId, updates);
+                await global.ReferenceStorage.addReference(this.currentDocumentId, updates);
             }
 
             document.getElementById('reference-edit-modal').style.display = 'none';
-            this.loadReferences();
+            await this.loadReferences();
         }
 
         /**
@@ -948,27 +948,27 @@
         /**
          * 删除文献
          */
-        deleteReference(index) {
-            global.ReferenceStorage.removeReference(this.currentDocumentId, index);
-            this.loadReferences();
+        async deleteReference(index) {
+            await global.ReferenceStorage.removeReference(this.currentDocumentId, index);
+            await this.loadReferences();
         }
 
         /**
          * 批量删除
          */
-        batchDelete() {
+        async batchDelete() {
             if (!confirm(`确定要删除选中的 ${this.selectedReferences.size} 条文献吗？`)) {
                 return;
             }
 
             // 从大到小删除，避免索引变化
             const indices = Array.from(this.selectedReferences).sort((a, b) => b - a);
-            indices.forEach(index => {
-                global.ReferenceStorage.removeReference(this.currentDocumentId, index);
-            });
+            for (const index of indices) {
+                await global.ReferenceStorage.removeReference(this.currentDocumentId, index);
+            }
 
             this.selectedReferences.clear();
-            this.loadReferences();
+            await this.loadReferences();
         }
 
         /**

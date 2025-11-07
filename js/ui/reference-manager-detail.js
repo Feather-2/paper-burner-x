@@ -77,9 +77,9 @@
     /**
      * 加载并显示参考文献
      */
-    function loadAndDisplayReferences() {
+    async function loadAndDisplayReferences() {
         // 从存储加载
-        const data = global.ReferenceStorage?.loadReferences(currentDocumentId);
+        const data = await global.ReferenceStorage?.loadReferences(currentDocumentId);
 
         if (data && data.references) {
             currentReferences = data.references;
@@ -88,7 +88,7 @@
             addToTOC();
         } else {
             // 尝试自动提取
-            autoExtractReferences();
+            await autoExtractReferences();
         }
     }
 
@@ -108,23 +108,34 @@
         console.log(`[ReferenceManagerDetail] Auto-detected ${section.entries.length} references`);
 
         // 显示提取方式选择对话框
-        showExtractionMethodDialog(section, markdown);
+        await showExtractionMethodDialog(section, markdown);
     }
 
     /**
      * 显示提取方式选择对话框
      */
-    function showExtractionMethodDialog(section, markdown) {
+    async function showExtractionMethodDialog(section, markdown) {
         const message = `检测到 ${section.entries.length} 条文献\n\n` +
                        `请选择提取方式：\n` +
                        `1. 正则表达式（快速，适合标准格式）\n` +
                        `2. AI智能提取（准确，适合任意格式）\n` +
                        `3. 混合模式（推荐，先正则再AI）\n\n` +
-                       `请输入数字 1、2 或 3：`;
+                       `请输入数字 1、2 或 3（取消将不再提示）：`;
 
         const choice = prompt(message);
 
-        if (!choice) return;
+        // 用户点击取消：保存空数组，避免反复提示
+        if (!choice) {
+            console.log('[ReferenceManagerDetail] User cancelled extraction, saving empty state');
+            if (global.ReferenceStorage) {
+                await global.ReferenceStorage.saveReferences(currentDocumentId, [], {
+                    extractionSkipped: true,
+                    skippedAt: new Date().toISOString()
+                });
+                console.log('[ReferenceManagerDetail] Empty state saved successfully');
+            }
+            return;
+        }
 
         switch (choice.trim()) {
             case '1':
@@ -137,7 +148,7 @@
                 extractWithHybrid(section, markdown);
                 break;
             default:
-                alert('无效的选择');
+                alert('无效的选择，请重新打开文档并输入 1、2 或 3');
         }
     }
 
@@ -1458,7 +1469,7 @@
         }
 
         // 使用统一的提取方式选择对话框
-        showExtractionMethodDialog(section, markdown);
+        await showExtractionMethodDialog(section, markdown);
     };
 
     /**
