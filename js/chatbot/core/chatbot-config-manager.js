@@ -104,7 +104,13 @@ function initializeChatbotConfigFromTranslation() {
 
       // 如果有可用模型列表，选择第一个
       if (site.availableModels && site.availableModels.length > 0) {
-        config.selectedModelId = site.availableModels[0];
+        const firstModel = site.availableModels[0];
+        // 处理对象和字符串两种情况
+        if (typeof firstModel === 'string') {
+          config.selectedModelId = firstModel;
+        } else if (typeof firstModel === 'object' && firstModel !== null) {
+          config.selectedModelId = firstModel.id || firstModel.modelId || firstModel.value || '';
+        }
       } else if (site.modelId) {
         config.selectedModelId = site.modelId;
       }

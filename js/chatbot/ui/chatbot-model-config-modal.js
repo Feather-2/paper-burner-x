@@ -920,7 +920,11 @@
         // 设置模型ID
         const modelIdInput = document.getElementById('chatbot-model-id-search');
         if (modelIdInput && config.selectedModelId) {
-          modelIdInput.value = config.selectedModelId;
+          // 确保 selectedModelId 是字符串
+          const modelId = typeof config.selectedModelId === 'string'
+            ? config.selectedModelId
+            : (config.selectedModelId.id || config.selectedModelId.modelId || config.selectedModelId.value || '');
+          modelIdInput.value = modelId;
         }
       }
 
