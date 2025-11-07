@@ -1395,14 +1395,11 @@ document.addEventListener('DOMContentLoaded', function() {
                                 if (shouldCountAsFailed) {
                                     actualFailed++;
                                 }
-                            } else {
-                                // 没有原文或译文数据，保守统计
-                                actualFailed++;
                             }
+                            // 如果没有原文或译文数据，不统计（无法判断）
                         }
-                    } else {
-                        actualFailed++;
                     }
+                    // 如果索引超出范围，不统计（无法判断）
                 }
                 failed = actualFailed;
             }
