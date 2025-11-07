@@ -2491,21 +2491,27 @@ document.addEventListener('DOMContentLoaded', function() {
                     for (let i = 0; i < minLen; i++) {
                         const t = tlist[i] || {};
                         const o = olist[i] || {};
-                        let isFailed = !!t.failed;
-                        if (!isFailed) {
-                            // 只有译文为空时才标记为失败（译文与原文相同是正常行为）
+                        let isFailed = false;
+
+                        // 如果有 failureReason 字段，根据它判断
+                        if (t.failed && t.failureReason) {
+                            isFailed = (t.failureReason === 'empty');
+                            // failureReason === 'unchanged' 不重试
+                        } else if (t.failed || !t.text) {
+                            // 旧数据没有 failureReason，需要重新判定
+                            // 只有原文不为空且译文为空时才标记为失败
                             if (o.type === 'text') {
                                 const a = _norm(o.text);
                                 const b = _norm(t.text);
-                                isFailed = a && !b;  // 移除 a === b 判断
+                                isFailed = a && !b;
                             } else if (o.type === 'image') {
                                 const a = _norm(o.image_caption);
                                 const b = _norm(t.image_caption);
-                                isFailed = a && !b;  // 移除 a === b 判断
+                                isFailed = a && !b;
                             } else if (o.type === 'table') {
                                 const a = _norm(o.table_caption);
                                 const b = _norm(t.table_caption);
-                                isFailed = a && !b;  // 移除 a === b 判断
+                                isFailed = a && !b;
                             }
                         }
                         if (isFailed) {
