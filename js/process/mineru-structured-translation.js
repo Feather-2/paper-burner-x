@@ -420,23 +420,20 @@ ${jsonContent}
               const a = this._normalizeText(orig.text);
               const b = this._normalizeText(it.text);
 
-              // 区分两种失败：空译文（需要重试）vs 译文与原文相同（可能正常）
+              // 只有译文为空时才标记为失败（译文与原文相同是正常行为）
               if (!b) {
                 isFailed = true;
                 failureReason = 'empty';  // 空译文，需要自动重试
-              } else if (b === a) {
-                isFailed = true;
-                failureReason = 'unchanged';  // 译文与原文相同，可能是正常的
-              }
 
-              // 调试日志：记录失败判定详情
-              if (isFailed) {
-                const reason = failureReason === 'empty' ? '译文为空' : '译文与原文相同';
-                console.log(`[结构化翻译] 项目 ${idx} 判定为失败: ${reason}`, {
+                // 调试日志：记录失败判定详情
+                console.log(`[结构化翻译] 项目 ${idx} 判定为失败: 译文为空`, {
                   原文前50字: a.substring(0, 50),
-                  译文前50字: b ? b.substring(0, 50) : '(空)',
-                  原文长度: a.length,
-                  译文长度: b ? b.length : 0
+                  原文长度: a.length
+                });
+              } else if (b === a) {
+                // 译文与原文相同，记录日志但不标记为失败（可能是专有名词、公式等）
+                console.log(`[结构化翻译] 项目 ${idx} 译文与原文相同（正常）`, {
+                  文本前50字: a.substring(0, 50)
                 });
               }
 
@@ -448,12 +445,11 @@ ${jsonContent}
               const a = this._normalizeText(Array.isArray(orig.image_caption) ? orig.image_caption.join(' ') : orig.image_caption);
               const b = this._normalizeText(Array.isArray(it.image_caption) ? it.image_caption.join(' ') : it.image_caption);
 
+              // 只有译文为空时才标记为失败
               if (!b && !!a) {
                 isFailed = true;
                 failureReason = 'empty';
-              } else if (b === a && !!a) {
-                isFailed = true;
-                failureReason = 'unchanged';
+                console.log(`[结构化翻译] 项目 ${idx} (image) 判定为失败: 图片说明为空`);
               }
 
               // 更新翻译后的图片说明
@@ -464,12 +460,11 @@ ${jsonContent}
               const a = this._normalizeText(orig.table_caption);
               const b = this._normalizeText(it.table_caption);
 
+              // 只有译文为空时才标记为失败
               if (!b && !!a) {
                 isFailed = true;
                 failureReason = 'empty';
-              } else if (b === a && !!a) {
-                isFailed = true;
-                failureReason = 'unchanged';
+                console.log(`[结构化翻译] 项目 ${idx} (table) 判定为失败: 表格标题为空`);
               }
 
               // 更新翻译后的表格标题

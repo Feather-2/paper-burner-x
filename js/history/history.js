@@ -1320,7 +1320,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (Array.isArray(meta.failedStructuredItems) && meta.failedStructuredItems.length > 0) {
                 failed = meta.failedStructuredItems.length;
             }
-            // 回退：若未统计到失败但可对比原始内容，则尝试检测未变更的文本（仅 text/image/table）
+            // 回退：若未统计到失败但可对比原始内容，则尝试检测空译文（仅 text/image/table）
+            // 注意：只统计译文为空的情况，译文与原文相同是正常行为
             if (failed === 0 && Array.isArray(meta.contentListJson)) {
                 const origList = meta.contentListJson;
                 const minLen = Math.min(origList.length, transList.length);
@@ -1330,15 +1331,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (o.type === 'text') {
                         const a = (o.text || '').trim();
                         const b = (t.text || '').trim();
-                        if (a && (!b || a === b)) failed++;
+                        if (a && !b) failed++;  // 移除 a === b 判断
                     } else if (o.type === 'image') {
                         const a = Array.isArray(o.image_caption) ? o.image_caption.join(' ').trim() : '';
                         const b = Array.isArray(t.image_caption) ? t.image_caption.join(' ').trim() : '';
-                        if (a && (!b || a === b)) failed++;
+                        if (a && !b) failed++;  // 移除 a === b 判断
                     } else if (o.type === 'table') {
                         const a = (o.table_caption || '').trim();
                         const b = (t.table_caption || '').trim();
-                        if (a && (!b || a === b)) failed++;
+                        if (a && !b) failed++;  // 移除 a === b 判断
                     }
                 }
             }
@@ -2406,18 +2407,19 @@ document.addEventListener('DOMContentLoaded', function() {
                         const o = olist[i] || {};
                         let isFailed = !!t.failed;
                         if (!isFailed) {
+                            // 只有译文为空时才标记为失败（译文与原文相同是正常行为）
                             if (o.type === 'text') {
                                 const a = _norm(o.text);
                                 const b = _norm(t.text);
-                                isFailed = a && (!b || a === b);
+                                isFailed = a && !b;  // 移除 a === b 判断
                             } else if (o.type === 'image') {
                                 const a = _norm(o.image_caption);
                                 const b = _norm(t.image_caption);
-                                isFailed = a && (!b || a === b);
+                                isFailed = a && !b;  // 移除 a === b 判断
                             } else if (o.type === 'table') {
                                 const a = _norm(o.table_caption);
                                 const b = _norm(t.table_caption);
-                                isFailed = a && (!b || a === b);
+                                isFailed = a && !b;  // 移除 a === b 判断
                             }
                         }
                         if (isFailed) {
