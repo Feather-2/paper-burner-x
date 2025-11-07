@@ -340,18 +340,19 @@ const fileType = fileToProcess.name.split('.').pop().toLowerCase();
                                 const t = tlist[i] || {};
                                 let failed = !!t.failed;
                                 if (!failed) {
+                                    // 只有译文为空时才标记为失败（译文与原文相同是正常行为）
                                     if (o.type === 'text') {
                                         const a = _norm(o.text);
                                         const b = _norm(t.text);
-                                        failed = a && (!b || a === b);
+                                        failed = a && !b;  // 移除 a === b 判断
                                     } else if (o.type === 'image') {
                                         const a = _norm(o.image_caption);
                                         const b = _norm(t.image_caption);
-                                        failed = a && (!b || a === b);
+                                        failed = a && !b;  // 移除 a === b 判断
                                     } else if (o.type === 'table') {
                                         const a = _norm(o.table_caption);
                                         const b = _norm(t.table_caption);
-                                        failed = a && (!b || a === b);
+                                        failed = a && !b;  // 移除 a === b 判断
                                     }
                                 }
                                 if (failed) {

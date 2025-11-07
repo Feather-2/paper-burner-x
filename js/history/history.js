@@ -1311,16 +1311,98 @@ document.addEventListener('DOMContentLoaded', function() {
         const supportsStructured = !!meta.supportsStructuredTranslation;
         if (supportsStructured && transList.length > 0) {
             const total = transList.length;
+            // 统一的字段标准化函数（处理字符串、数组等）
+            const _norm = (v) => {
+                if (v == null) return '';
+                try {
+                    if (Array.isArray(v)) return v.join(' ').trim();
+                    if (typeof v === 'string') return v.trim();
+                    return String(v).trim();
+                } catch(_) { return ''; }
+            };
+
             let failed = 0;
             for (let i = 0; i < total; i++) {
                 const it = transList[i];
-                if (it && it.failed === true) failed++;
+                // 只统计真正失败的项（空译文），忽略"译文与原文相同"的项
+                if (it && it.failed === true) {
+                    // 如果有 failureReason 字段，只统计 'empty' 类型的失败
+                    if (it.failureReason) {
+                        if (it.failureReason === 'empty') {
+                            failed++;
+                        }
+                        // failureReason === 'unchanged' 不统计为失败
+                    } else {
+                        // 旧数据没有 failureReason 字段，需要检查是否真的失败（空译文）
+                        // 只有原文不为空且译文为空时才计入失败，译文与原文相同不算失败
+                        const orig = Array.isArray(meta.contentListJson) ? meta.contentListJson[i] : null;
+                        if (orig) {
+                            let shouldCountAsFailed = false;
+                            if (orig.type === 'text') {
+                                const a = _norm(orig.text);
+                                const b = _norm(it.text);
+                                shouldCountAsFailed = a && !b;  // 原文不为空且译文为空才算失败
+                            } else if (orig.type === 'image') {
+                                const a = _norm(orig.image_caption);
+                                const b = _norm(it.image_caption);
+                                shouldCountAsFailed = a && !b;
+                            } else if (orig.type === 'table') {
+                                const a = _norm(orig.table_caption);
+                                const b = _norm(it.table_caption);
+                                shouldCountAsFailed = a && !b;
+                            }
+                            if (shouldCountAsFailed) {
+                                failed++;
+                            }
+                        }
+                        // 如果没有原文数据，不统计（无法判断）
+                    }
+                }
             }
-            // 若元数据提供了失败项，优先使用
+            // 若元数据提供了失败项，需要过滤掉"unchanged"类型的
             if (Array.isArray(meta.failedStructuredItems) && meta.failedStructuredItems.length > 0) {
-                failed = meta.failedStructuredItems.length;
+                // 检查 failedStructuredItems 中每个项，过滤掉"译文与原文相同"的项
+                let actualFailed = 0;
+                for (const failedItem of meta.failedStructuredItems) {
+                    const idx = failedItem.index;
+                    if (idx >= 0 && idx < transList.length) {
+                        const item = transList[idx];
+                        // 如果有 failureReason，只统计 'empty' 类型
+                        if (item && item.failureReason) {
+                            if (item.failureReason === 'empty') {
+                                actualFailed++;
+                            }
+                        } else {
+                            // 没有 failureReason，检查是否真的失败（空译文）
+                            const orig = Array.isArray(meta.contentListJson) ? meta.contentListJson[idx] : null;
+                            if (orig && item) {
+                                let shouldCountAsFailed = false;
+                                if (orig.type === 'text') {
+                                    const a = _norm(orig.text);
+                                    const b = _norm(item.text);
+                                    shouldCountAsFailed = a && !b;
+                                } else if (orig.type === 'image') {
+                                    const a = _norm(orig.image_caption);
+                                    const b = _norm(item.image_caption);
+                                    shouldCountAsFailed = a && !b;
+                                } else if (orig.type === 'table') {
+                                    const a = _norm(orig.table_caption);
+                                    const b = _norm(item.table_caption);
+                                    shouldCountAsFailed = a && !b;
+                                }
+                                if (shouldCountAsFailed) {
+                                    actualFailed++;
+                                }
+                            }
+                            // 如果没有原文或译文数据，不统计（无法判断）
+                        }
+                    }
+                    // 如果索引超出范围，不统计（无法判断）
+                }
+                failed = actualFailed;
             }
-            // 回退：若未统计到失败但可对比原始内容，则尝试检测未变更的文本（仅 text/image/table）
+            // 回退：若未统计到失败但可对比原始内容，则尝试检测空译文（仅 text/image/table）
+            // 注意：只统计译文为空的情况，译文与原文相同是正常行为
             if (failed === 0 && Array.isArray(meta.contentListJson)) {
                 const origList = meta.contentListJson;
                 const minLen = Math.min(origList.length, transList.length);
@@ -1328,17 +1410,17 @@ document.addEventListener('DOMContentLoaded', function() {
                     const o = origList[i] || {};
                     const t = transList[i] || {};
                     if (o.type === 'text') {
-                        const a = (o.text || '').trim();
-                        const b = (t.text || '').trim();
-                        if (a && (!b || a === b)) failed++;
+                        const a = _norm(o.text);
+                        const b = _norm(t.text);
+                        if (a && !b) failed++;  // 移除 a === b 判断
                     } else if (o.type === 'image') {
-                        const a = Array.isArray(o.image_caption) ? o.image_caption.join(' ').trim() : '';
-                        const b = Array.isArray(t.image_caption) ? t.image_caption.join(' ').trim() : '';
-                        if (a && (!b || a === b)) failed++;
+                        const a = _norm(o.image_caption);
+                        const b = _norm(t.image_caption);
+                        if (a && !b) failed++;  // 移除 a === b 判断
                     } else if (o.type === 'table') {
-                        const a = (o.table_caption || '').trim();
-                        const b = (t.table_caption || '').trim();
-                        if (a && (!b || a === b)) failed++;
+                        const a = _norm(o.table_caption);
+                        const b = _norm(t.table_caption);
+                        if (a && !b) failed++;  // 移除 a === b 判断
                     }
                 }
             }
@@ -2404,20 +2486,27 @@ document.addEventListener('DOMContentLoaded', function() {
                     for (let i = 0; i < minLen; i++) {
                         const t = tlist[i] || {};
                         const o = olist[i] || {};
-                        let isFailed = !!t.failed;
-                        if (!isFailed) {
+                        let isFailed = false;
+
+                        // 如果有 failureReason 字段，根据它判断
+                        if (t.failed && t.failureReason) {
+                            isFailed = (t.failureReason === 'empty');
+                            // failureReason === 'unchanged' 不重试
+                        } else if (t.failed || !t.text) {
+                            // 旧数据没有 failureReason，需要重新判定
+                            // 只有原文不为空且译文为空时才标记为失败
                             if (o.type === 'text') {
                                 const a = _norm(o.text);
                                 const b = _norm(t.text);
-                                isFailed = a && (!b || a === b);
+                                isFailed = a && !b;
                             } else if (o.type === 'image') {
                                 const a = _norm(o.image_caption);
                                 const b = _norm(t.image_caption);
-                                isFailed = a && (!b || a === b);
+                                isFailed = a && !b;
                             } else if (o.type === 'table') {
                                 const a = _norm(o.table_caption);
                                 const b = _norm(t.table_caption);
-                                isFailed = a && (!b || a === b);
+                                isFailed = a && !b;
                             }
                         }
                         if (isFailed) {

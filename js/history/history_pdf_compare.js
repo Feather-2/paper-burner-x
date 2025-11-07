@@ -249,6 +249,9 @@ class PDFCompareView {
     // 初始化文本自适应引擎
     this.initializeTextFitting();
 
+    // 保存原始PDF数据（用于导出）
+    this.originalPdfBase64 = pdfBase64;
+
     this.contentListJson = contentListJson;
     this.translatedContentList = translatedContentList;
     this.layoutJson = layoutJson;
@@ -372,6 +375,13 @@ class PDFCompareView {
             <div style="display: flex; align-items: center; gap: 8px; padding: 6px 16px; background: #e8f5e9; border-radius: 20px;">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="flex-shrink: 0;"><path d="M3 5.5C3 4.67157 3.67157 4 4.5 4H11.5C12.3284 4 13 4.67157 13 5.5V12.5C13 13.3284 12.3284 14 11.5 14H4.5C3.67157 14 3 13.3284 3 12.5V5.5Z" stroke="#2e7d32" stroke-width="1.5"/><path d="M5 7H11M5 9.5H9" stroke="#2e7d32" stroke-width="1.5" stroke-linecap="round"/></svg>
               <span style="color: #2e7d32; font-size: 13px; font-weight: 600;">译文对照</span>
+            </div>
+            <!-- 导出按钮（右对齐） -->
+            <div style="margin-left: auto; display: flex; gap: 8px; align-items: center;">
+              <button id="pdf-export-structured-translation" style="padding: 7px 16px; background: #1976d2; border: none; border-radius: 6px; color: #fff; cursor: pointer; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px; transition: all 0.2s; box-shadow: 0 2px 4px rgba(25, 118, 210, 0.2);" onmouseover="this.style.background='#1565c0'; this.style.boxShadow='0 4px 8px rgba(25, 118, 210, 0.3)'" onmouseout="this.style.background='#1976d2'; this.style.boxShadow='0 2px 4px rgba(25, 118, 210, 0.2)'" title="导出保留原格式的译文PDF">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="flex-shrink: 0;"><path d="M12 15V3M12 15L7 10M12 15L17 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 17L2 19C2 20.1046 2.89543 21 4 21L20 21C21.1046 21 22 20.1046 22 19V17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                <span>导出译文PDF</span>
+              </button>
             </div>
           </div>
           <div class="pdf-scroll-area" id="pdf-translation-scroll" style="flex: 1; overflow: auto; padding: 20px; position: relative; background: #f5f5f5;">
@@ -2047,6 +2057,11 @@ class PDFCompareView {
         this.renderPage(this.currentPage);
       }
     });
+
+    // 导出保留原格式的译文PDF
+    document.getElementById('pdf-export-structured-translation')?.addEventListener('click', async () => {
+      await this.exportStructuredTranslation();
+    });
   }
 
   /**
@@ -2164,6 +2179,402 @@ class PDFCompareView {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  /**
+   * 导出保留原格式的译文PDF
+   * 使用 pdf-lib 在原始PDF上覆盖翻译后的文本
+   */
+  async exportStructuredTranslation() {
+    try {
+      // 检查是否有翻译数据
+      if (!this.translatedContentList || this.translatedContentList.length === 0) {
+        if (typeof showNotification === 'function') {
+          showNotification('没有翻译内容可导出', 'warning');
+        }
+        return;
+      }
+
+      // 检查是否有原始PDF数据
+      if (!this.originalPdfBase64) {
+        if (typeof showNotification === 'function') {
+          showNotification('原始PDF数据不可用', 'error');
+        }
+        return;
+      }
+
+      // 显示进度提示
+      if (typeof showNotification === 'function') {
+        showNotification('正在生成译文PDF，请稍候...', 'info');
+      }
+
+      // 动态加载 pdf-lib（如果尚未加载）
+      if (typeof PDFLib === 'undefined') {
+        console.log('[PDFCompareView] 正在加载 pdf-lib...');
+        await this.loadPdfLib();
+      }
+
+      const { PDFDocument, rgb, StandardFonts } = PDFLib;
+
+      // 加载原始PDF
+      const pdfBytes = this.base64ToUint8Array(this.originalPdfBase64);
+      const pdfDoc = await PDFDocument.load(pdfBytes);
+
+      // 注册 fontkit（用于嵌入自定义字体）
+      if (typeof fontkit !== 'undefined') {
+        pdfDoc.registerFontkit(fontkit);
+        console.log('[PDFCompareView] fontkit 已注册');
+      } else {
+        console.warn('[PDFCompareView] fontkit 未加载，无法嵌入自定义字体');
+      }
+
+      // 尝试嵌入中文字体（从CDN加载思源黑体）
+      let font = null;
+      try {
+        if (typeof fontkit === 'undefined') {
+          throw new Error('fontkit 未加载，无法嵌入中文字体');
+        }
+
+        console.log('[PDFCompareView] 正在加载中文字体...');
+        const fontBytes = await fetch('https://gcore.jsdelivr.net/npm/source-han-sans-cn@1.0.0/SourceHanSansCN-Normal.otf').then(res => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+          return res.arrayBuffer();
+        });
+
+        font = await pdfDoc.embedFont(fontBytes);
+        console.log('[PDFCompareView] 中文字体加载成功');
+      } catch (fontError) {
+        console.error('[PDFCompareView] 中文字体加载失败:', fontError);
+        if (typeof showNotification === 'function') {
+          showNotification('中文字体加载失败，无法导出PDF: ' + fontError.message, 'error');
+        }
+        throw fontError; // 中止导出
+      }
+
+      // 按页面分组翻译内容
+      const pageContentMap = new Map();
+      this.translatedContentList.forEach((item, idx) => {
+        if (item.type !== 'text' || !item.text || !item.bbox) return;
+
+        const pageIdx = item.page_idx !== undefined ? item.page_idx : 0;
+        if (!pageContentMap.has(pageIdx)) {
+          pageContentMap.set(pageIdx, []);
+        }
+        pageContentMap.get(pageIdx).push({ ...item, originalIndex: idx });
+      });
+
+      // 常量：MinerU bbox 归一化范围（固定为1000，与canvas渲染逻辑一致）
+      const BBOX_NORMALIZED_RANGE = 1000;
+
+      // 遍历每一页，覆盖翻译文本
+      for (const [pageIdx, items] of pageContentMap.entries()) {
+        if (pageIdx >= pdfDoc.getPageCount()) continue;
+
+        const page = pdfDoc.getPage(pageIdx);
+        const { width: pageWidth, height: pageHeight } = page.getSize();
+
+        // 计算缩放因子（bbox归一化范围固定为1000）
+        const scaleX = pageWidth / BBOX_NORMALIZED_RANGE;
+        const scaleY = pageHeight / BBOX_NORMALIZED_RANGE;
+
+        console.log(`[PDFCompareView] 页面 ${pageIdx}: PDF尺寸=${pageWidth.toFixed(2)}x${pageHeight.toFixed(2)}pt, 缩放比例=${scaleX.toFixed(3)}x${scaleY.toFixed(3)}`);
+
+        // 先用白色矩形覆盖原文（清除原文）
+        items.forEach(item => {
+          const bbox = item.bbox;
+          const x = bbox[0] * scaleX;
+          const y = pageHeight - (bbox[3] * scaleY); // PDF坐标系从下往上
+          const width = (bbox[2] - bbox[0]) * scaleX;
+          const height = (bbox[3] - bbox[1]) * scaleY;
+
+          // 绘制白色矩形覆盖原文
+          page.drawRectangle({
+            x: x,
+            y: y,
+            width: width,
+            height: height,
+            color: rgb(1, 1, 1), // 白色
+          });
+        });
+
+        // 绘制翻译文本（使用与canvas渲染相同的文本适配算法）
+        items.forEach(item => {
+          const bbox = item.bbox;
+          const text = item.text || '';
+
+          if (!text.trim()) return;
+
+          // 计算bbox在PDF坐标系中的位置和尺寸
+          const x = bbox[0] * scaleX;  // 左边界
+          const boxWidth = (bbox[2] - bbox[0]) * scaleX;
+          const boxHeight = (bbox[3] - bbox[1]) * scaleY;
+          // bbox顶部和底部在PDF坐标系中的Y坐标
+          const bboxTop = pageHeight - (bbox[1] * scaleY);
+          const bboxBottom = pageHeight - (bbox[3] * scaleY);
+
+          // 判断是否为短文本（与canvas渲染一致）
+          const isShortText = text.length < 30;
+
+          // 使用与canvas相同的文本布局算法
+          const layout = this.calculatePdfTextLayout(font, text, boxWidth, boxHeight, isShortText);
+          const { fontSize, lines, lineHeight } = layout;
+
+          // 内边距（与canvas渲染一致）
+          const paddingTop = 2;
+          const paddingX = 2;
+          const availableHeight = boxHeight - paddingTop * 2;
+
+          // 计算总高度并垂直居中（与canvas渲染一致）
+          const totalHeight = lines.length > 0
+            ? (lines.length - 1) * lineHeight + fontSize
+            : 0;
+          const yOffset = (availableHeight - totalHeight) / 2;
+
+          // 绘制每一行
+          lines.forEach((line, lineIdx) => {
+            // 计算baseline Y坐标（从bbox底部开始，加上padding和居中偏移）
+            const lineY = bboxBottom + paddingTop + yOffset + (lineIdx * lineHeight);
+
+            // 确保不超出bbox范围
+            if (lineY < bboxBottom || lineY > bboxTop) return;
+
+            page.drawText(line, {
+              x: x + paddingX,
+              y: lineY,
+              size: fontSize,
+              font: font,
+              color: rgb(0, 0, 0), // 黑色文本
+            });
+          });
+        });
+      }
+
+      // 生成PDF
+      const modifiedPdfBytes = await pdfDoc.save();
+
+      // 创建Blob并下载
+      const blob = new Blob([modifiedPdfBytes], { type: 'application/pdf' });
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0];
+      const filename = `translated_${timestamp}.pdf`;
+
+      // 使用FileSaver下载
+      if (typeof saveAs === 'function') {
+        saveAs(blob, filename);
+        if (typeof showNotification === 'function') {
+          showNotification('译文PDF导出成功！', 'success');
+        }
+      } else {
+        // 后备方案：创建下载链接
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        if (typeof showNotification === 'function') {
+          showNotification('译文PDF导出成功！', 'success');
+        }
+      }
+
+    } catch (error) {
+      console.error('[PDFCompareView] 导出PDF失败:', error);
+      if (typeof showNotification === 'function') {
+        showNotification('导出失败: ' + error.message, 'error');
+      }
+    }
+  }
+
+  /**
+   * 为PDF导出计算文本布局（使用与canvas渲染相同的算法）
+   * @param {Object} font - pdf-lib字体对象
+   * @param {string} text - 要渲染的文本
+   * @param {number} boxWidth - bbox宽度（PDF坐标）
+   * @param {number} boxHeight - bbox高度（PDF坐标）
+   * @param {boolean} isShortText - 是否为短文本
+   * @returns {Object} { fontSize, lines, lineHeight }
+   */
+  calculatePdfTextLayout(font, text, boxWidth, boxHeight, isShortText = false) {
+    // 判断是否为 CJK 语言
+    const isCJK = /[\u4e00-\u9fa5]/.test(text);
+    const lineSkip = isCJK ? 1.25 : 1.15;
+
+    // 内边距（与canvas渲染一致）
+    const paddingTop = 2;
+    const paddingX = 2;
+    const availableHeight = boxHeight - paddingTop * 2;
+    const availableWidth = boxWidth - paddingX * 2;
+
+    // 字号范围（与canvas渲染一致）
+    const estimatedSingleLineFontSize = boxHeight * 0.8;
+    const minFontSize = isShortText ? 10 : 6;
+    const maxFontSize = Math.min(estimatedSingleLineFontSize * 1.5, boxHeight * 1.2);
+
+    // 检查文本是否包含换行符
+    const hasNewlines = text.includes('\n');
+    const textLength = text.length;
+
+    // 尝试不同的宽度因子（与canvas渲染一致）
+    const widthFactors = (textLength < 20 || hasNewlines)
+      ? [1.0]
+      : [1.0, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70];
+
+    let bestSolution = null;
+
+    // 对每个宽度因子，使用二分查找找到最大可用字号
+    for (const widthFactor of widthFactors) {
+      const effectiveWidth = availableWidth * widthFactor;
+
+      // 二分查找最大字号
+      let low = minFontSize;
+      let high = maxFontSize;
+      let foundFontSize = null;
+      let foundLines = null;
+
+      while (high - low > 0.5) {
+        const mid = (low + high) / 2;
+
+        // 使用pdf-lib的字体测量API换行
+        const lines = this.wrapTextForPdf(font, text, effectiveWidth, mid);
+        const lineHeight = mid * lineSkip;
+
+        // 计算总高度（与canvas渲染一致）
+        const totalHeight = lines.length > 0
+          ? (lines.length - 1) * lineHeight + mid
+          : 0;
+
+        if (totalHeight <= availableHeight) {
+          foundFontSize = mid;
+          foundLines = lines;
+          low = mid;
+        } else {
+          high = mid;
+        }
+      }
+
+      // 如果找到了可行解，且比当前最优解更好
+      if (foundFontSize && (!bestSolution || foundFontSize > bestSolution.fontSize)) {
+        bestSolution = {
+          fontSize: foundFontSize,
+          widthFactor: widthFactor,
+          lines: foundLines,
+          lineHeight: foundFontSize * lineSkip
+        };
+      }
+    }
+
+    // 如果找到了最优解，返回
+    if (bestSolution) {
+      return bestSolution;
+    }
+
+    // 后备方案：使用最小字号（与canvas渲染一致）
+    const fallbackFontSize = minFontSize;
+    const fallbackLineHeight = fallbackFontSize * lineSkip;
+    const allLines = this.wrapTextForPdf(font, text, availableWidth, fallbackFontSize);
+    const maxLines = Math.floor(availableHeight / fallbackLineHeight);
+    const linesToDraw = allLines.slice(0, Math.max(1, maxLines));
+
+    return {
+      fontSize: fallbackFontSize,
+      lines: linesToDraw,
+      lineHeight: fallbackLineHeight,
+      widthFactor: 1.0
+    };
+  }
+
+  /**
+   * 为PDF文本换行（使用pdf-lib字体测量）
+   */
+  wrapTextForPdf(font, text, maxWidth, fontSize) {
+    if (!text) return [];
+
+    const lines = [];
+    let currentLine = '';
+
+    // 先按自然断句分段（与canvas wrapText一致）
+    const segments = text.split(/([。？！，、；：\n])/);
+
+    for (let segment of segments) {
+      if (!segment) continue;
+
+      // 如果是标点符号，直接加到当前行
+      if (/^[。？！，、；：]$/.test(segment)) {
+        currentLine += segment;
+        continue;
+      }
+
+      // 如果是换行符，强制换行
+      if (segment === '\n') {
+        if (currentLine) {
+          lines.push(currentLine);
+          currentLine = '';
+        }
+        continue;
+      }
+
+      // 按字符逐个添加
+      for (let i = 0; i < segment.length; i++) {
+        const char = segment[i];
+        const testLine = currentLine + char;
+        const width = font.widthOfTextAtSize(testLine, fontSize);
+
+        if (width > maxWidth && currentLine.length > 0) {
+          lines.push(currentLine);
+          currentLine = char;
+        } else {
+          currentLine = testLine;
+        }
+      }
+    }
+
+    if (currentLine) {
+      lines.push(currentLine);
+    }
+
+    return lines.length > 0 ? lines : [''];
+  }
+
+  /**
+   * 动态加载 pdf-lib 库和 fontkit
+   */
+  async loadPdfLib() {
+    // 先加载 pdf-lib
+    if (typeof PDFLib === 'undefined') {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://gcore.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js';
+        script.onload = () => {
+          console.log('[PDFCompareView] pdf-lib 加载成功');
+          resolve();
+        };
+        script.onerror = (error) => {
+          console.error('[PDFCompareView] pdf-lib 加载失败:', error);
+          reject(new Error('Failed to load pdf-lib library'));
+        };
+        document.head.appendChild(script);
+      });
+    }
+
+    // 再加载 fontkit（用于嵌入自定义字体）
+    if (typeof fontkit === 'undefined') {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://gcore.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js';
+        script.onload = () => {
+          console.log('[PDFCompareView] fontkit 加载成功');
+          resolve();
+        };
+        script.onerror = (error) => {
+          console.warn('[PDFCompareView] fontkit 加载失败:', error);
+          // fontkit加载失败不应该阻止整个流程，只是无法使用自定义字体
+          resolve();
+        };
+        document.head.appendChild(script);
+      });
+    }
   }
 
   /**

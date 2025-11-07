@@ -23,6 +23,7 @@
     <link rel="stylesheet" href="css/markdown-enhanced.css">
     <link rel="stylesheet" href="css/math-display-fix.css">
     <link rel="stylesheet" href="css/reference-manager.css">
+    <link rel="stylesheet" href="css/chatbot-model-config-modal.css">
     <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script src="https://gcore.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
@@ -540,6 +541,31 @@
     </style>
 </head>
 <body class="bg-slate-50 min-h-screen">
+  <script>
+    // 可选：每天一次跳转到落地页（仅在非后端模式且未强制 backend 时启用）
+    (function() {
+      try {
+        var currentPath = window.location.pathname;
+        // 如果明确进入后端模式（通过查询参数或全局变量），则不跳转落地页，避免影响使用
+        var params = new URLSearchParams(window.location.search);
+        var forcedMode = (params.get('mode') || '').toLowerCase();
+        var envMode = (window.ENV_DEPLOYMENT_MODE || '').toLowerCase();
+        var shouldSkip = (forcedMode === 'backend') || (envMode === 'backend');
+
+        if (shouldSkip) return;
+        if (currentPath.indexOf('landing-page.html') !== -1) return;
+
+        var today = new Date().toDateString();
+        var lastShownDate = localStorage.getItem('paperBurnerLandingLastShown');
+        if (lastShownDate !== today) {
+          localStorage.setItem('paperBurnerLandingLastShown', today);
+          var basePath = currentPath.substring(0, currentPath.lastIndexOf('/') + 1);
+          window.location.href = basePath + 'views/landing/landing-page.html';
+        }
+      } catch (e) { /* ignore */ }
+    })();
+  </script>
+
   <!-- Mobile Sidebar Overlay -->
   <div id="sidebarOverlay" class="sidebar-overlay md:hidden"></div>
 
@@ -660,7 +686,7 @@
                         开始新的任务
                     </h1>
                     <p class="text-lg text-slate-600 leading-relaxed">
-                        配置高性能 OCR 引擎与 AI 翻译模型，上传您的文献，Paper Burner X 将自动为您提取知识、生成摘要并构建专属知识库。
+                        配置多种OCR 引擎与 AI 翻译模型。上传文档后，Paper Burner X将给您流畅的阅读与处理体验。
                     </p>
                 </div>
             </div>
@@ -1574,6 +1600,9 @@
     <script src="js/chatbot/agents/semantic-vector-search.js"></script>
     <!-- 高级搜索工具模块 -->
     <script src="js/chatbot/agents/advanced-search-tools.js"></script>
+    <!-- Chatbot 配置管理模块 -->
+    <script src="js/chatbot/core/chatbot-config-manager.js?v=20251107c"></script>
+    <script src="js/chatbot/ui/chatbot-model-config-modal.js?v=20251107f"></script>
     <!-- UI 模块化组件 (新增) -->
     <script src="js/ui/ui_dom_elements.js"></script>
     <script src="js/ui/ui_model_manager_core.js"></script>

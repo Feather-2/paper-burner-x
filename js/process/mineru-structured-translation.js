@@ -128,46 +128,58 @@ class MinerUStructuredTranslation {
 
 【结构化翻译规则】：
 1. 输入是 JSON 数组格式的文档片段（共 ${batch.items.length} 个片段）
-2. 仅翻译以下字段的内容：
-   - "text"（文本内容）
-   - "image_caption"（图片说明，数组格式）
-   - "table_caption"（表格标题）
-3. 以下字段**必须保持原样，不翻译**：
-   - "type"（类型）
-   - "bbox"（位置坐标）
-   - "page_idx"（页码）
-   - "latex"（LaTeX 公式）
-   - "img_path"（图片路径）
-   - "table_data"（表格数据）
-   - "id", "text_level", "originalItem"（元数据字段）
-4. 特殊处理：
-   - 如果 type 是 "formula"，保留整个对象不变
-   - 如果 type 是 "text" 且 text_level 为 1-3，说明是标题，注意翻译简洁性
+2. 每个片段只包含必要字段：
+   - "id"（唯一标识符，必须保持不变）
+   - "type"（类型，必须保持不变）
+   - 需要翻译的字段（根据类型而定）
+3. 翻译规则：
+   - type="text"：翻译 "text" 字段的内容
+   - type="image"：翻译 "image_caption" 数组中的内容
+   - type="table"：翻译 "table_caption" 字段的内容
+   - type="formula"：无需翻译，保持原样即可
+4. 翻译要求：
    - 术语保持一致（专有名词、学术术语等）
-5. 上下文连贯：
    - 考虑上文内容（如有），确保术语和表述一致
    - 保持段落间逻辑关系
-6. **JSON 格式要求（极其重要）**：
+5. **JSON 格式要求（极其重要）**：
    - 字符串中的特殊字符必须正确转义：
      * 双引号：使用 \\"
-     * 反斜杠：使用 \\\\
      * 换行符：使用 \\n
      * 制表符：使用 \\t
-   - LaTeX 公式中的反斜杠保持原样（如 \\alpha、\\beta）
-   - 路径中的反斜杠必须双写（如 "path\\\\to\\\\file"）
-   - 不要使用无效的转义序列（如 \\a、\\x、\\_）
-7. **输出格式**：
-   返回翻译后的完整 JSON 数组，结构与输入完全一致
-   使用 JSON 代码块包裹：\`\`\`json\n...\n\`\`\`
-   确保输出是**合法的 JSON 格式**，可以被 JSON.parse() 解析`;
+     * 反斜杠：使用 \\\\
+   - 确保输出是**合法的 JSON 格式**，可以被 JSON.parse() 解析
+6. **输出格式**：
+   - 返回翻译后的完整 JSON 数组，结构与输入完全一致
+   - 使用 JSON 代码块包裹：\`\`\`json\n...\n\`\`\`
+   - **id 和 type 字段必须与输入完全一致**`;
 
     // 3. 合并系统提示词
     const systemPrompt = (baseSystemPrompt || '你是一位专业的文档翻译助手。') +
                          contextHint +
                          structuredRules;
 
-    // 4. 构建用户提示词
-    const jsonContent = JSON.stringify(batch.items, null, 2);
+    // 4. 构建用户提示词 - 只提取必要字段发送给AI
+    // 简化数据结构，减少token消耗和JSON解析错误
+    const simplifiedItems = batch.items.map(item => {
+      const simplified = {
+        id: item.id,
+        type: item.type
+      };
+
+      // 根据类型提取需要翻译的字段
+      if (item.type === 'text') {
+        simplified.text = item.text || '';
+      } else if (item.type === 'image' && Array.isArray(item.image_caption)) {
+        simplified.image_caption = item.image_caption;
+      } else if (item.type === 'table') {
+        if (item.table_caption) simplified.table_caption = item.table_caption;
+      }
+      // formula类型不需要翻译任何内容
+
+      return simplified;
+    });
+
+    const jsonContent = JSON.stringify(simplifiedItems, null, 2);
 
     // 如果有用户提示词模板，使用它；否则使用默认模板
     let userPrompt;
@@ -393,50 +405,220 @@ ${jsonContent}
           return { batchIndex, items: failed };
         }
 
-        // 5. 细粒度失败标记（逐项检测是否实际发生翻译）
+        // 5. 细粒度失败标记 + 合并翻译结果到原始对象
+        // 关键：保留原始对象的所有字段（bbox、page_idx、originalItem等），只更新翻译字段
         const markedItems = translatedItems.map((it, idx) => {
           const orig = batch.items[idx];
           let isFailed = false;
+          let failureReason = '';  // 记录失败原因
+
+          // 先复制原始完整对象，保留所有元数据（bbox、page_idx等，用于定位）
+          const out = { ...orig };
+
           if (orig && it) {
             if (orig.type === 'text') {
               const a = this._normalizeText(orig.text);
               const b = this._normalizeText(it.text);
-              isFailed = !b || b === a;
+
+              // 只有原文不为空但译文为空时才标记为失败（译文与原文相同是正常行为）
+              if (!b && !!a) {
+                isFailed = true;
+                failureReason = 'empty';  // 空译文，需要自动重试
+
+                // 调试日志：记录失败判定详情
+                console.log(`[结构化翻译] 项目 ${idx} 判定为失败: 译文为空`, {
+                  原文前50字: a.substring(0, 50),
+                  原文长度: a.length
+                });
+              } else if (b === a) {
+                // 译文与原文相同，记录日志但不标记为失败（可能是专有名词、公式等）
+                console.log(`[结构化翻译] 项目 ${idx} 译文与原文相同（正常）`, {
+                  文本前50字: a.substring(0, 50)
+                });
+              }
+
+              // 更新翻译后的文本
+              if (!isFailed && it.text !== undefined) {
+                out.text = it.text;
+              }
             } else if (orig.type === 'image') {
               const a = this._normalizeText(Array.isArray(orig.image_caption) ? orig.image_caption.join(' ') : orig.image_caption);
               const b = this._normalizeText(Array.isArray(it.image_caption) ? it.image_caption.join(' ') : it.image_caption);
-              isFailed = !!a && (!b || b === a);
+
+              // 只有译文为空时才标记为失败
+              if (!b && !!a) {
+                isFailed = true;
+                failureReason = 'empty';
+                console.log(`[结构化翻译] 项目 ${idx} (image) 判定为失败: 图片说明为空`);
+              }
+
+              // 更新翻译后的图片说明
+              if (!isFailed && it.image_caption !== undefined) {
+                out.image_caption = it.image_caption;
+              }
             } else if (orig.type === 'table') {
               const a = this._normalizeText(orig.table_caption);
               const b = this._normalizeText(it.table_caption);
-              // 表格数据不翻译，仅检测标题
-              isFailed = !!a && (!b || b === a);
+
+              // 只有译文为空时才标记为失败
+              if (!b && !!a) {
+                isFailed = true;
+                failureReason = 'empty';
+                console.log(`[结构化翻译] 项目 ${idx} (table) 判定为失败: 表格标题为空`);
+              }
+
+              // 更新翻译后的表格标题
+              if (!isFailed && it.table_caption !== undefined) {
+                out.table_caption = it.table_caption;
+              }
             } else if (orig.type === 'formula') {
               isFailed = false; // 公式不需要翻译
             }
           }
-          const out = { ...it };
+
           if (isFailed) {
             out.failed = true;
-            // 不在这里添加到 failedItems，让 main.js 统一收集
+            out.failureReason = failureReason;  // 保存失败原因
           } else {
             // 翻译成功：明确移除 failed 标记（如果原来有的话）
             delete out.failed;
+            delete out.failureReason;
           }
           return out;
         });
 
-        // 6. 更新进度
+        // 6. 对"译文为空"的项进行单独重试（最多2次）
+        const emptyFailedIndices = [];
+        markedItems.forEach((item, idx) => {
+          if (item.failed && item.failureReason === 'empty') {
+            emptyFailedIndices.push(idx);
+          }
+        });
+
+        if (emptyFailedIndices.length > 0) {
+          console.log(`[结构化翻译] 批次 ${batchIndex + 1}: 发现 ${emptyFailedIndices.length} 个空译文项，开始单独重试...`);
+
+          for (const idx of emptyFailedIndices) {
+            const item = markedItems[idx];
+            const origItem = batch.items[idx];
+            let retrySuccess = false;
+
+            // 最多重试2次
+            for (let retryAttempt = 1; retryAttempt <= 2 && !retrySuccess; retryAttempt++) {
+              try {
+                console.log(`[结构化翻译] 重试项目 ${idx} (第 ${retryAttempt} 次)...`);
+
+                // 构建单条翻译的简化数据
+                const singleItem = {
+                  id: origItem.id,
+                  type: origItem.type
+                };
+
+                if (origItem.type === 'text') {
+                  singleItem.text = origItem.text || '';
+                } else if (origItem.type === 'image' && Array.isArray(origItem.image_caption)) {
+                  singleItem.image_caption = origItem.image_caption;
+                } else if (origItem.type === 'table') {
+                  if (origItem.table_caption) singleItem.table_caption = origItem.table_caption;
+                }
+
+                // 构建单条翻译提示词（使用与批次翻译相同的 prompt 构建逻辑）
+                const singleBatch = { items: [singleItem] };
+                const { systemPrompt: retrySysPrompt, userPrompt: retryUserPrompt } = this.buildBatchTranslationPrompt(
+                  singleBatch,
+                  targetLang,
+                  baseSystemPrompt,
+                  baseUserPromptTemplate
+                );
+
+                // 调用API翻译单条
+                const singleResponse = await this.callTranslationAPI(
+                  retrySysPrompt,
+                  retryUserPrompt,
+                  model,
+                  apiKey,
+                  options
+                );
+
+                // 解析单条翻译结果
+                const singleTranslated = this.parseTranslationResponse(singleResponse);
+
+                if (singleTranslated && singleTranslated.length > 0) {
+                  const translatedItem = singleTranslated[0];
+
+                  // 检查是否真的翻译成功了
+                  let isStillEmpty = false;
+                  if (origItem.type === 'text') {
+                    const b = this._normalizeText(translatedItem.text);
+                    isStillEmpty = !b;
+                  } else if (origItem.type === 'image') {
+                    const b = this._normalizeText(Array.isArray(translatedItem.image_caption) ? translatedItem.image_caption.join(' ') : translatedItem.image_caption);
+                    isStillEmpty = !b;
+                  } else if (origItem.type === 'table') {
+                    const b = this._normalizeText(translatedItem.table_caption);
+                    isStillEmpty = !b;
+                  }
+
+                  if (!isStillEmpty) {
+                    // 重试成功！更新 markedItems
+                    if (origItem.type === 'text') {
+                      markedItems[idx].text = translatedItem.text;
+                    } else if (origItem.type === 'image') {
+                      markedItems[idx].image_caption = translatedItem.image_caption;
+                    } else if (origItem.type === 'table') {
+                      markedItems[idx].table_caption = translatedItem.table_caption;
+                    }
+
+                    delete markedItems[idx].failed;
+                    delete markedItems[idx].failureReason;
+                    retrySuccess = true;
+
+                    console.log(`[结构化翻译] ✓ 项目 ${idx} 重试成功`);
+
+                    if (typeof addProgressLog === 'function') {
+                      addProgressLog(`${logContext} 项目 ${idx} 重试成功`);
+                    }
+                  } else {
+                    console.warn(`[结构化翻译] 项目 ${idx} 第 ${retryAttempt} 次重试仍为空`);
+                  }
+                }
+
+                // 如果还有下一次重试，等待一下
+                if (!retrySuccess && retryAttempt < 2) {
+                  await this.delay(500);
+                }
+
+              } catch (retryError) {
+                console.error(`[结构化翻译] 项目 ${idx} 第 ${retryAttempt} 次重试失败:`, retryError);
+              }
+            }
+
+            if (!retrySuccess) {
+              console.warn(`[结构化翻译] ✗ 项目 ${idx} 重试 2 次后仍然失败`);
+              if (typeof addProgressLog === 'function') {
+                addProgressLog(`${logContext} 项目 ${idx} 重试失败`);
+              }
+            }
+          }
+        }
+
+        // 7. 统计本批次失败情况（重试后）
+        const batchFailedCount = markedItems.filter(item => item.failed === true).length;
+        const batchSuccessCount = markedItems.length - batchFailedCount;
+
+        console.log(`[结构化翻译] 批次 ${batchIndex + 1} 完成: ${batchSuccessCount}/${markedItems.length} 成功, ${batchFailedCount} 失败`);
+
+        // 8. 更新进度
         completedCount++;
         onProgress?.({
           current: completedCount,
           total: totalBatches,
           percentage: Math.floor((completedCount / totalBatches) * 100),
-          message: `已完成 ${completedCount}/${totalBatches} 批次`
+          message: `已完成 ${completedCount}/${totalBatches} 批次 (${batchSuccessCount}/${markedItems.length} 成功)`
         });
 
         if (typeof addProgressLog === 'function') {
-          addProgressLog(`${logContext} 翻译完成`);
+          addProgressLog(`${logContext} 翻译完成 (${batchSuccessCount}/${markedItems.length} 成功)`);
         }
 
         return { batchIndex, items: markedItems };
@@ -485,6 +667,25 @@ ${jsonContent}
     const results = [];
     for (const result of batchResults) {
       results.push(...result.items);
+    }
+
+    // 统计整体翻译情况
+    const totalItems = results.length;
+    const failedItems = results.filter(item => item.failed === true);
+    const failedCount = failedItems.length;
+    const successCount = totalItems - failedCount;
+
+    console.log(`[结构化翻译] 全部完成: ${successCount}/${totalItems} 成功, ${failedCount} 失败`);
+
+    if (failedCount > 0) {
+      console.warn(`[结构化翻译] 失败项索引:`, failedItems.map((item, idx) => {
+        const originalIdx = results.indexOf(item);
+        return `#${originalIdx} (${item.type})`;
+      }).join(', '));
+    }
+
+    if (typeof addProgressLog === 'function') {
+      addProgressLog(`结构化翻译完成: ${successCount}/${totalItems} 成功${failedCount > 0 ? `, ${failedCount} 失败` : ''}`);
     }
 
     return results;
@@ -624,6 +825,53 @@ ${jsonContent}
   }
 
   /**
+   * 修复JSON字符串值中的未转义换行符
+   * @param {string} jsonStr
+   * @returns {string}
+   */
+  _fixUnescapedNewlinesInJsonStrings(jsonStr) {
+    let result = '';
+    let inString = false;
+    let escapeNext = false;
+
+    for (let i = 0; i < jsonStr.length; i++) {
+      const char = jsonStr[i];
+
+      if (escapeNext) {
+        // 当前字符被转义，直接添加
+        result += char;
+        escapeNext = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        // 下一个字符将被转义
+        result += char;
+        escapeNext = true;
+        continue;
+      }
+
+      if (char === '"') {
+        // 切换字符串状态
+        inString = !inString;
+        result += char;
+        continue;
+      }
+
+      if (inString && char === '\n') {
+        // 在字符串内部遇到换行符，转义为 \\n
+        result += '\\n';
+        continue;
+      }
+
+      // 其他字符直接添加
+      result += char;
+    }
+
+    return result;
+  }
+
+  /**
    * 解析翻译响应（提取 JSON）
    * @param {string} response
    * @returns {Array}
@@ -658,7 +906,12 @@ ${jsonContent}
       .replace(/\r\n/g, '\n')  // 统一换行符
       .replace(/\r/g, '\n');
 
-    // 4) 修复常见的无效转义（但保留合法的转义序列）
+    // 4) 修复字符串值中的未转义换行符
+    // 这是导致 "Unterminated string" 错误的主要原因
+    // 需要在JSON字符串值内部将真实换行符转义为 \\n
+    cleaned = this._fixUnescapedNewlinesInJsonStrings(cleaned);
+
+    // 5) 修复常见的无效转义（但保留合法的转义序列）
     // 合法的 JSON 转义：\" \\ \/ \b \f \n \r \t \uXXXX
     // 先处理已经双反斜杠的情况（避免重复转义）
     const placeholder = '\u0000ESCAPED_BACKSLASH\u0000';
@@ -707,24 +960,25 @@ ${jsonContent}
     }
 
     // 验证每个元素的关键字段
+    // 注意：由于发送给AI的是简化数据（只有id、type和翻译字段），
+    // AI返回的也只有这些字段，不包含page_idx、bbox等元数据
     for (let i = 0; i < original.length; i++) {
       const orig = original[i];
       const trans = translated[i];
 
+      // 验证 id 是否匹配（用于正确对应原始项）
+      if (orig.id !== trans.id) {
+        console.error(`[MinerU Structured] 验证失败：索引 ${i} 的 id 不匹配`, orig.id, trans.id);
+        return false;
+      }
+
+      // 验证 type 是否匹配
       if (orig.type !== trans.type) {
-        console.error(`[MinerU Structured] 验证失败：索引 ${i} 的 type 不匹配`);
+        console.error(`[MinerU Structured] 验证失败：索引 ${i} 的 type 不匹配`, orig.type, trans.type);
         return false;
       }
 
-      if (orig.page_idx !== trans.page_idx) {
-        console.error(`[MinerU Structured] 验证失败：索引 ${i} 的 page_idx 不匹配`);
-        return false;
-      }
-
-      // bbox 可能在翻译过程中被保留或丢失，宽松验证
-      if (orig.bbox && trans.bbox && JSON.stringify(orig.bbox) !== JSON.stringify(trans.bbox)) {
-        console.warn(`[MinerU Structured] 警告：索引 ${i} 的 bbox 不完全匹配`);
-      }
+      // 不再验证 page_idx、bbox 等元数据字段，因为AI返回的简化数据中不包含这些
     }
 
     return true;
