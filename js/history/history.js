@@ -1334,14 +1334,14 @@ document.addEventListener('DOMContentLoaded', function() {
                         // failureReason === 'unchanged' 不统计为失败
                     } else {
                         // 旧数据没有 failureReason 字段，需要检查是否真的失败（空译文）
-                        // 只有译文为空时才计入失败，译文与原文相同不算失败
+                        // 只有原文不为空且译文为空时才计入失败，译文与原文相同不算失败
                         const orig = Array.isArray(meta.contentListJson) ? meta.contentListJson[i] : null;
                         if (orig) {
                             let shouldCountAsFailed = false;
                             if (orig.type === 'text') {
                                 const a = _norm(orig.text);
                                 const b = _norm(it.text);
-                                shouldCountAsFailed = a && !b;  // 只有空译文才算失败
+                                shouldCountAsFailed = a && !b;  // 原文不为空且译文为空才算失败
                             } else if (orig.type === 'image') {
                                 const a = _norm(orig.image_caption);
                                 const b = _norm(it.image_caption);
@@ -1354,10 +1354,8 @@ document.addEventListener('DOMContentLoaded', function() {
                             if (shouldCountAsFailed) {
                                 failed++;
                             }
-                        } else {
-                            // 没有原文数据，保守统计为失败
-                            failed++;
                         }
+                        // 如果没有原文数据，不统计（无法判断）
                     }
                 }
             }
