@@ -24,7 +24,7 @@
 ---
 * 项目分前端版本和后端版本，目前后端版本构建中，请暂时不要拉取docker镜像。
 
-<img width="3303" height="1576" alt="界面预览" src="https://github.com/user-attachments/assets/cb769c1c-33e0-4c12-9174-f2237fb5929b" />
+<img width="2000" height="954" alt="paper burner x" src="https://github.com/user-attachments/assets/24837387-5b33-41d0-95d2-0424a55f6d47" />
 
 
 ## 🎯 项目简介
@@ -317,6 +317,7 @@ docker pull feather2dev/paper-burner-x:latest
     <a href="https://paperburner.viwoplus.site">在线体验</a>
   </p>
 </div>
+
 
 
 
