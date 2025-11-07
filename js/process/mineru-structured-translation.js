@@ -825,6 +825,53 @@ ${jsonContent}
   }
 
   /**
+   * 修复JSON字符串值中的未转义换行符
+   * @param {string} jsonStr
+   * @returns {string}
+   */
+  _fixUnescapedNewlinesInJsonStrings(jsonStr) {
+    let result = '';
+    let inString = false;
+    let escapeNext = false;
+
+    for (let i = 0; i < jsonStr.length; i++) {
+      const char = jsonStr[i];
+
+      if (escapeNext) {
+        // 当前字符被转义，直接添加
+        result += char;
+        escapeNext = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        // 下一个字符将被转义
+        result += char;
+        escapeNext = true;
+        continue;
+      }
+
+      if (char === '"') {
+        // 切换字符串状态
+        inString = !inString;
+        result += char;
+        continue;
+      }
+
+      if (inString && char === '\n') {
+        // 在字符串内部遇到换行符，转义为 \\n
+        result += '\\n';
+        continue;
+      }
+
+      // 其他字符直接添加
+      result += char;
+    }
+
+    return result;
+  }
+
+  /**
    * 解析翻译响应（提取 JSON）
    * @param {string} response
    * @returns {Array}
@@ -859,7 +906,12 @@ ${jsonContent}
       .replace(/\r\n/g, '\n')  // 统一换行符
       .replace(/\r/g, '\n');
 
-    // 4) 修复常见的无效转义（但保留合法的转义序列）
+    // 4) 修复字符串值中的未转义换行符
+    // 这是导致 "Unterminated string" 错误的主要原因
+    // 需要在JSON字符串值内部将真实换行符转义为 \\n
+    cleaned = this._fixUnescapedNewlinesInJsonStrings(cleaned);
+
+    // 5) 修复常见的无效转义（但保留合法的转义序列）
     // 合法的 JSON 转义：\" \\ \/ \b \f \n \r \t \uXXXX
     // 先处理已经双反斜杠的情况（避免重复转义）
     const placeholder = '\u0000ESCAPED_BACKSLASH\u0000';
