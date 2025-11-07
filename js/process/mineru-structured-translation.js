@@ -522,19 +522,19 @@ ${jsonContent}
                   if (origItem.table_caption) singleItem.table_caption = origItem.table_caption;
                 }
 
-                // 构建单条翻译提示词
+                // 构建单条翻译提示词（使用与批次翻译相同的 prompt 构建逻辑）
                 const singleBatch = { items: [singleItem] };
-                const { systemPrompt, userPrompt } = this.buildTranslationPrompts(
+                const { systemPrompt: retrySysPrompt, userPrompt: retryUserPrompt } = this.buildBatchTranslationPrompt(
                   singleBatch,
-                  targetLanguage,
-                  sourceLanguage,
-                  customPrompts
+                  targetLang,
+                  baseSystemPrompt,
+                  baseUserPromptTemplate
                 );
 
                 // 调用API翻译单条
                 const singleResponse = await this.callTranslationAPI(
-                  systemPrompt,
-                  userPrompt,
+                  retrySysPrompt,
+                  retryUserPrompt,
                   model,
                   apiKey,
                   options
