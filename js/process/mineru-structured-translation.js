@@ -410,6 +410,7 @@ ${jsonContent}
         const markedItems = translatedItems.map((it, idx) => {
           const orig = batch.items[idx];
           let isFailed = false;
+          let failureReason = '';  // 记录失败原因
 
           // 先复制原始完整对象，保留所有元数据（bbox、page_idx等，用于定位）
           const out = { ...orig };
@@ -418,11 +419,19 @@ ${jsonContent}
             if (orig.type === 'text') {
               const a = this._normalizeText(orig.text);
               const b = this._normalizeText(it.text);
-              isFailed = !b || b === a;
+
+              // 区分两种失败：空译文（需要重试）vs 译文与原文相同（可能正常）
+              if (!b) {
+                isFailed = true;
+                failureReason = 'empty';  // 空译文，需要自动重试
+              } else if (b === a) {
+                isFailed = true;
+                failureReason = 'unchanged';  // 译文与原文相同，可能是正常的
+              }
 
               // 调试日志：记录失败判定详情
               if (isFailed) {
-                const reason = !b ? '译文为空' : (b === a ? '译文与原文相同' : '未知原因');
+                const reason = failureReason === 'empty' ? '译文为空' : '译文与原文相同';
                 console.log(`[结构化翻译] 项目 ${idx} 判定为失败: ${reason}`, {
                   原文前50字: a.substring(0, 50),
                   译文前50字: b ? b.substring(0, 50) : '(空)',
@@ -438,7 +447,15 @@ ${jsonContent}
             } else if (orig.type === 'image') {
               const a = this._normalizeText(Array.isArray(orig.image_caption) ? orig.image_caption.join(' ') : orig.image_caption);
               const b = this._normalizeText(Array.isArray(it.image_caption) ? it.image_caption.join(' ') : it.image_caption);
-              isFailed = !!a && (!b || b === a);
+
+              if (!b && !!a) {
+                isFailed = true;
+                failureReason = 'empty';
+              } else if (b === a && !!a) {
+                isFailed = true;
+                failureReason = 'unchanged';
+              }
+
               // 更新翻译后的图片说明
               if (!isFailed && it.image_caption !== undefined) {
                 out.image_caption = it.image_caption;
@@ -446,8 +463,15 @@ ${jsonContent}
             } else if (orig.type === 'table') {
               const a = this._normalizeText(orig.table_caption);
               const b = this._normalizeText(it.table_caption);
-              // 表格数据不翻译，仅检测标题
-              isFailed = !!a && (!b || b === a);
+
+              if (!b && !!a) {
+                isFailed = true;
+                failureReason = 'empty';
+              } else if (b === a && !!a) {
+                isFailed = true;
+                failureReason = 'unchanged';
+              }
+
               // 更新翻译后的表格标题
               if (!isFailed && it.table_caption !== undefined) {
                 out.table_caption = it.table_caption;
@@ -459,21 +483,137 @@ ${jsonContent}
 
           if (isFailed) {
             out.failed = true;
-            // 不在这里添加到 failedItems，让 main.js 统一收集
+            out.failureReason = failureReason;  // 保存失败原因
           } else {
             // 翻译成功：明确移除 failed 标记（如果原来有的话）
             delete out.failed;
+            delete out.failureReason;
           }
           return out;
         });
 
-        // 6. 统计本批次失败情况
+        // 6. 对"译文为空"的项进行单独重试（最多2次）
+        const emptyFailedIndices = [];
+        markedItems.forEach((item, idx) => {
+          if (item.failed && item.failureReason === 'empty') {
+            emptyFailedIndices.push(idx);
+          }
+        });
+
+        if (emptyFailedIndices.length > 0) {
+          console.log(`[结构化翻译] 批次 ${batchIndex + 1}: 发现 ${emptyFailedIndices.length} 个空译文项，开始单独重试...`);
+
+          for (const idx of emptyFailedIndices) {
+            const item = markedItems[idx];
+            const origItem = batch.items[idx];
+            let retrySuccess = false;
+
+            // 最多重试2次
+            for (let retryAttempt = 1; retryAttempt <= 2 && !retrySuccess; retryAttempt++) {
+              try {
+                console.log(`[结构化翻译] 重试项目 ${idx} (第 ${retryAttempt} 次)...`);
+
+                // 构建单条翻译的简化数据
+                const singleItem = {
+                  id: origItem.id,
+                  type: origItem.type
+                };
+
+                if (origItem.type === 'text') {
+                  singleItem.text = origItem.text || '';
+                } else if (origItem.type === 'image' && Array.isArray(origItem.image_caption)) {
+                  singleItem.image_caption = origItem.image_caption;
+                } else if (origItem.type === 'table') {
+                  if (origItem.table_caption) singleItem.table_caption = origItem.table_caption;
+                }
+
+                // 构建单条翻译提示词
+                const singleBatch = { items: [singleItem] };
+                const { systemPrompt, userPrompt } = this.buildTranslationPrompts(
+                  singleBatch,
+                  targetLanguage,
+                  sourceLanguage,
+                  customPrompts
+                );
+
+                // 调用API翻译单条
+                const singleResponse = await this.callTranslationAPI(
+                  systemPrompt,
+                  userPrompt,
+                  model,
+                  apiKey,
+                  options
+                );
+
+                // 解析单条翻译结果
+                const singleTranslated = this.parseTranslationResult(singleResponse);
+
+                if (singleTranslated && singleTranslated.length > 0) {
+                  const translatedItem = singleTranslated[0];
+
+                  // 检查是否真的翻译成功了
+                  let isStillEmpty = false;
+                  if (origItem.type === 'text') {
+                    const b = this._normalizeText(translatedItem.text);
+                    isStillEmpty = !b;
+                  } else if (origItem.type === 'image') {
+                    const b = this._normalizeText(Array.isArray(translatedItem.image_caption) ? translatedItem.image_caption.join(' ') : translatedItem.image_caption);
+                    isStillEmpty = !b;
+                  } else if (origItem.type === 'table') {
+                    const b = this._normalizeText(translatedItem.table_caption);
+                    isStillEmpty = !b;
+                  }
+
+                  if (!isStillEmpty) {
+                    // 重试成功！更新 markedItems
+                    if (origItem.type === 'text') {
+                      markedItems[idx].text = translatedItem.text;
+                    } else if (origItem.type === 'image') {
+                      markedItems[idx].image_caption = translatedItem.image_caption;
+                    } else if (origItem.type === 'table') {
+                      markedItems[idx].table_caption = translatedItem.table_caption;
+                    }
+
+                    delete markedItems[idx].failed;
+                    delete markedItems[idx].failureReason;
+                    retrySuccess = true;
+
+                    console.log(`[结构化翻译] ✓ 项目 ${idx} 重试成功`);
+
+                    if (typeof addProgressLog === 'function') {
+                      addProgressLog(`${logContext} 项目 ${idx} 重试成功`);
+                    }
+                  } else {
+                    console.warn(`[结构化翻译] 项目 ${idx} 第 ${retryAttempt} 次重试仍为空`);
+                  }
+                }
+
+                // 如果还有下一次重试，等待一下
+                if (!retrySuccess && retryAttempt < 2) {
+                  await this.delay(500);
+                }
+
+              } catch (retryError) {
+                console.error(`[结构化翻译] 项目 ${idx} 第 ${retryAttempt} 次重试失败:`, retryError);
+              }
+            }
+
+            if (!retrySuccess) {
+              console.warn(`[结构化翻译] ✗ 项目 ${idx} 重试 2 次后仍然失败`);
+              if (typeof addProgressLog === 'function') {
+                addProgressLog(`${logContext} 项目 ${idx} 重试失败`);
+              }
+            }
+          }
+        }
+
+        // 7. 统计本批次失败情况（重试后）
         const batchFailedCount = markedItems.filter(item => item.failed === true).length;
         const batchSuccessCount = markedItems.length - batchFailedCount;
 
         console.log(`[结构化翻译] 批次 ${batchIndex + 1} 完成: ${batchSuccessCount}/${markedItems.length} 成功, ${batchFailedCount} 失败`);
 
-        // 7. 更新进度
+        // 8. 更新进度
         completedCount++;
         onProgress?.({
           current: completedCount,
