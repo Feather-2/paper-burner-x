@@ -96,6 +96,23 @@
                     <option value="">-- 请选择源站点 --</option>
                   </select>
 
+                  <!-- 无源站点提示 -->
+                  <div id="chatbot-no-custom-source-hint" class="chatbot-hint-box chatbot-hidden">
+                    <div style="display: flex; align-items: flex-start; gap: 12px;">
+                      <i class="fa-solid fa-circle-info" style="color: #3b82f6; font-size: 20px; margin-top: 2px;"></i>
+                      <div style="flex: 1;">
+                        <div style="font-weight: 600; margin-bottom: 6px; color: #1e293b;">未找到自定义源站点</div>
+                        <div style="font-size: 14px; color: #475569; line-height: 1.6; margin-bottom: 10px;">
+                          请先在【全局设置】→【自定义源站管理】中添加您的自定义源站点，然后即可在此选择使用。
+                        </div>
+                        <button id="chatbot-open-global-settings-btn" class="chatbot-hint-button" type="button">
+                          <i class="fa-solid fa-gear"></i>
+                          <span>打开全局设置</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
                   <!-- 源站点信息 -->
                   <div id="chatbot-custom-source-info" class="chatbot-source-info chatbot-hidden">
                     <div class="chatbot-source-info-item">
@@ -296,6 +313,25 @@
       });
     }
 
+    // 初始化"打开全局设置"按钮
+    const openSettingsBtn = document.getElementById('chatbot-open-global-settings-btn');
+    if (openSettingsBtn) {
+      openSettingsBtn.addEventListener('click', () => {
+        // 关闭当前弹窗
+        modal.classList.remove('active');
+
+        // 打开全局设置
+        if (typeof openSettings === 'function') {
+          openSettings();
+        } else if (typeof window.openSettings === 'function') {
+          window.openSettings();
+        } else {
+          alert('无法打开全局设置，请在主菜单中手动打开');
+          console.warn('[ChatbotModelConfigModal] openSettings 函数不可用');
+        }
+      });
+    }
+
     console.log('[ChatbotModelConfigModal] 弹窗初始化完成');
   }
 
@@ -417,6 +453,7 @@
    */
   function loadCustomSourceSites() {
     const select = document.getElementById('chatbot-custom-source-select');
+    const hintBox = document.getElementById('chatbot-no-custom-source-hint');
     if (!select) return;
 
     // 清空现有选项
@@ -435,10 +472,20 @@
       option.textContent = '无自定义源站点（请先在设置中添加）';
       select.appendChild(option);
       select.disabled = true;
+
+      // 显示提示框
+      if (hintBox) {
+        hintBox.classList.remove('chatbot-hidden');
+      }
       return;
     }
 
     select.disabled = false;
+
+    // 隐藏提示框（有源站点）
+    if (hintBox) {
+      hintBox.classList.add('chatbot-hidden');
+    }
 
     // 添加源站点选项
     siteIds.forEach(id => {
@@ -450,17 +497,23 @@
       select.appendChild(option);
     });
 
-    // 监听选择变化
-    select.addEventListener('change', (e) => {
-      const selectedOption = e.target.options[e.target.selectedIndex];
-      if (selectedOption && selectedOption.dataset.site) {
-        const site = JSON.parse(selectedOption.dataset.site);
-        displaySourceSiteInfo(site);
-        loadAvailableModels(site);
-      } else {
-        hideSourceSiteInfo();
-      }
-    });
+    // 监听选择变化（使用once: false确保可以重复绑定）
+    select.removeEventListener('change', handleCustomSourceChange);
+    select.addEventListener('change', handleCustomSourceChange);
+  }
+
+  /**
+   * 处理自定义源站点选择变化
+   */
+  function handleCustomSourceChange(e) {
+    const selectedOption = e.target.options[e.target.selectedIndex];
+    if (selectedOption && selectedOption.dataset.site) {
+      const site = JSON.parse(selectedOption.dataset.site);
+      displaySourceSiteInfo(site);
+      loadAvailableModels(site);
+    } else {
+      hideSourceSiteInfo();
+    }
   }
 
   /**
