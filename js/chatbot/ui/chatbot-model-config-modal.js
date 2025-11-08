@@ -18,32 +18,25 @@
    */
   function checkIfAnyPredefinedModelHasApiKey() {
     try {
-      // 获取翻译模型设置
-      const settings = (typeof loadSettings === 'function') ? loadSettings() : {};
-
       // 检查每个预设模型是否有API密钥
       for (const model of PREDEFINED_MODELS) {
         const modelName = model.value;
-        let hasKey = false;
 
-        // 根据不同模型名称检查对应的API密钥
-        if (modelName === 'mistral' && settings.mistralApiKey) {
-          hasKey = true;
-        } else if (modelName === 'deepseek' && settings.deepseekApiKey) {
-          hasKey = true;
-        } else if (modelName === 'gemini' && settings.geminiApiKey) {
-          hasKey = true;
-        } else if (modelName === 'tongyi' && settings.tongyiApiKey) {
-          hasKey = true;
-        } else if (modelName === 'volcano' && settings.volcanoApiKey) {
-          hasKey = true;
-        }
-
-        if (hasKey) {
-          return true; // 只要有一个配置了就返回true
+        // 使用 loadModelKeys 函数检查是否有可用的密钥
+        if (typeof loadModelKeys === 'function') {
+          const keys = loadModelKeys(modelName);
+          // 检查是否有可用的密钥（valid 或 untested 状态）
+          if (keys && Array.isArray(keys) && keys.length > 0) {
+            const usableKeys = keys.filter(k => k.status === 'valid' || k.status === 'untested');
+            if (usableKeys.length > 0) {
+              console.log(`[ChatbotModelConfigModal] 检测到 ${modelName} 有 ${usableKeys.length} 个可用密钥`);
+              return true;
+            }
+          }
         }
       }
 
+      console.log('[ChatbotModelConfigModal] 未检测到任何预设模型的API密钥');
       return false; // 没有任何模型配置API密钥
     } catch (error) {
       console.error('[ChatbotModelConfigModal] 检测API密钥失败:', error);
