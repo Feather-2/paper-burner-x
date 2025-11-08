@@ -14,37 +14,6 @@
   ];
 
   /**
-   * 检测是否配置了任何预设模型的API密钥
-   */
-  function checkIfAnyPredefinedModelHasApiKey() {
-    try {
-      // 检查每个预设模型是否有API密钥
-      for (const model of PREDEFINED_MODELS) {
-        const modelName = model.value;
-
-        // 使用 loadModelKeys 函数检查是否有可用的密钥
-        if (typeof loadModelKeys === 'function') {
-          const keys = loadModelKeys(modelName);
-          // 检查是否有可用的密钥（valid 或 untested 状态）
-          if (keys && Array.isArray(keys) && keys.length > 0) {
-            const usableKeys = keys.filter(k => k.status === 'valid' || k.status === 'untested');
-            if (usableKeys.length > 0) {
-              console.log(`[ChatbotModelConfigModal] 检测到 ${modelName} 有 ${usableKeys.length} 个可用密钥`);
-              return true;
-            }
-          }
-        }
-      }
-
-      console.log('[ChatbotModelConfigModal] 未检测到任何预设模型的API密钥');
-      return false; // 没有任何模型配置API密钥
-    } catch (error) {
-      console.error('[ChatbotModelConfigModal] 检测API密钥失败:', error);
-      return false; // 出错时返回false，显示提示
-    }
-  }
-
-  /**
    * 创建弹窗HTML
    */
   function createModalHTML() {
@@ -119,23 +88,6 @@
                       <i class="fa-solid fa-cog"></i>
                       <span class="chatbot-source-info-label">请求格式:</span>
                       <span id="chatbot-predefined-format" class="chatbot-source-info-value">OpenAI</span>
-                    </div>
-                  </div>
-
-                  <!-- 无API密钥提示 -->
-                  <div id="chatbot-no-api-key-hint" class="chatbot-hint-box chatbot-hidden">
-                    <div style="display: flex; align-items: flex-start; gap: 12px;">
-                      <i class="fa-solid fa-circle-info" style="color: #3b82f6; font-size: 20px; margin-top: 2px;"></i>
-                      <div style="flex: 1;">
-                        <div style="font-weight: 600; margin-bottom: 6px; color: #1e293b;">未配置预设模型的API密钥</div>
-                        <div style="font-size: 14px; color: #475569; line-height: 1.6; margin-bottom: 10px;">
-                          请先在【全局设置】→【翻译模型设置】中配置预设模型（Mistral、DeepSeek、Gemini、通义千问等）的API密钥，然后即可在此选择使用。
-                        </div>
-                        <button id="chatbot-open-settings-for-api-key-btn" class="chatbot-hint-button" type="button">
-                          <i class="fa-solid fa-gear"></i>
-                          <span>打开全局设置</span>
-                        </button>
-                      </div>
                     </div>
                   </div>
 
@@ -411,25 +363,6 @@
           const hintText = hintBox.querySelector('div[style*="font-size: 14px"]');
           if (hintText) {
             hintText.textContent = '请在主页面的【全局设置】→【自定义源站管理】中添加您的自定义源站点，然后即可在此选择使用。';
-          }
-        }
-      }
-    }
-
-    // 初始化"打开全局设置"按钮（预设模型的）
-    const openSettingsForApiKeyBtn = document.getElementById('chatbot-open-settings-for-api-key-btn');
-    if (openSettingsForApiKeyBtn) {
-      if (hasGlobalSettings) {
-        openSettingsForApiKeyBtn.addEventListener('click', openGlobalSettings);
-      } else {
-        // 如果没有全局设置弹窗，隐藏提示中的按钮
-        openSettingsForApiKeyBtn.style.display = 'none';
-        // 修改提示文字
-        const hintBox = document.getElementById('chatbot-no-api-key-hint');
-        if (hintBox) {
-          const hintText = hintBox.querySelector('div[style*="font-size: 14px"]');
-          if (hintText) {
-            hintText.textContent = '请在主页面的【全局设置】→【翻译模型设置】中配置预设模型的API密钥，然后即可在此选择使用。';
           }
         }
       }
