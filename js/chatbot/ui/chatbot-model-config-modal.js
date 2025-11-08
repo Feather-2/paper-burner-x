@@ -77,6 +77,20 @@
                     <!-- 模型描述将动态插入 -->
                   </div>
 
+                  <!-- 预设模型信息显示 -->
+                  <div id="chatbot-predefined-model-info" class="chatbot-source-info chatbot-hidden">
+                    <div class="chatbot-source-info-item">
+                      <i class="fa-solid fa-link"></i>
+                      <span class="chatbot-source-info-label">API端点:</span>
+                      <span id="chatbot-predefined-endpoint" class="chatbot-source-info-value"></span>
+                    </div>
+                    <div class="chatbot-source-info-item">
+                      <i class="fa-solid fa-cog"></i>
+                      <span class="chatbot-source-info-label">请求格式:</span>
+                      <span id="chatbot-predefined-format" class="chatbot-source-info-value">OpenAI</span>
+                    </div>
+                  </div>
+
                   <!-- 获取模型列表按钮 -->
                   <button id="chatbot-fetch-predefined-models-btn" class="chatbot-fetch-models-btn chatbot-hidden" type="button">
                     <i class="fa-solid fa-rotate"></i>
@@ -95,6 +109,23 @@
                   <select id="chatbot-custom-source-select" class="chatbot-form-select">
                     <option value="">-- 请选择源站点 --</option>
                   </select>
+
+                  <!-- 无源站点提示 -->
+                  <div id="chatbot-no-custom-source-hint" class="chatbot-hint-box chatbot-hidden">
+                    <div style="display: flex; align-items: flex-start; gap: 12px;">
+                      <i class="fa-solid fa-circle-info" style="color: #3b82f6; font-size: 20px; margin-top: 2px;"></i>
+                      <div style="flex: 1;">
+                        <div style="font-weight: 600; margin-bottom: 6px; color: #1e293b;">未找到自定义源站点</div>
+                        <div style="font-size: 14px; color: #475569; line-height: 1.6; margin-bottom: 10px;">
+                          请先在【全局设置】→【自定义源站管理】中添加您的自定义源站点，然后即可在此选择使用。
+                        </div>
+                        <button id="chatbot-open-global-settings-btn" class="chatbot-hint-button" type="button">
+                          <i class="fa-solid fa-gear"></i>
+                          <span>打开全局设置</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
 
                   <!-- 源站点信息 -->
                   <div id="chatbot-custom-source-info" class="chatbot-source-info chatbot-hidden">
@@ -288,12 +319,53 @@
           // 刷新自定义源站点模型列表
           const sourceSelect = document.getElementById('chatbot-custom-source-select');
           const selectedOption = sourceSelect ? sourceSelect.options[sourceSelect.selectedIndex] : null;
-          if (selectedOption && selectedOption.dataset.site) {
-            const site = JSON.parse(selectedOption.dataset.site);
-            loadAvailableModels(site);
+          if (selectedOption && selectedOption.dataset && selectedOption.dataset.site) {
+            try {
+              const site = JSON.parse(selectedOption.dataset.site);
+              loadAvailableModels(site);
+            } catch (error) {
+              console.error('[ChatbotModelConfigModal] 刷新模型列表失败:', error);
+            }
           }
         }
       });
+    }
+
+    // 检查是否有全局设置弹窗
+    const modelKeyManagerModal = document.getElementById('modelKeyManagerModal');
+    const hasGlobalSettings = !!modelKeyManagerModal;
+
+    // 通用函数：打开全局设置弹窗
+    const openGlobalSettings = () => {
+      // 关闭当前弹窗
+      modal.classList.remove('active');
+
+      // 打开 index.html 的模型与Key管理弹窗
+      if (modelKeyManagerModal) {
+        modelKeyManagerModal.classList.remove('hidden');
+      } else {
+        console.warn('[ChatbotModelConfigModal] modelKeyManagerModal 元素未找到，可能在详情页面');
+        alert('请返回主页面进行设置配置');
+      }
+    };
+
+    // 初始化"打开全局设置"按钮（自定义源站点的）
+    const openSettingsBtn = document.getElementById('chatbot-open-global-settings-btn');
+    if (openSettingsBtn) {
+      if (hasGlobalSettings) {
+        openSettingsBtn.addEventListener('click', openGlobalSettings);
+      } else {
+        // 如果没有全局设置弹窗，隐藏提示中的按钮
+        openSettingsBtn.style.display = 'none';
+        // 修改提示文字
+        const hintBox = document.getElementById('chatbot-no-custom-source-hint');
+        if (hintBox) {
+          const hintText = hintBox.querySelector('div[style*="font-size: 14px"]');
+          if (hintText) {
+            hintText.textContent = '请在主页面的【全局设置】→【自定义源站管理】中添加您的自定义源站点，然后即可在此选择使用。';
+          }
+        }
+      }
     }
 
     console.log('[ChatbotModelConfigModal] 弹窗初始化完成');
@@ -310,7 +382,7 @@
     // 清空现有选项（保留第一个占位符）
     select.innerHTML = '<option value="">-- 请选择模型 --</option>';
 
-    // 添加预设模型
+    // 添加预设模型（始终显示所有模型，不管是否配置了API密钥）
     PREDEFINED_MODELS.forEach(model => {
       const option = document.createElement('option');
       option.value = model.value;
@@ -321,14 +393,55 @@
 
     // 监听选择变化
     select.addEventListener('change', (e) => {
-      const selectedOption = e.target.options[e.target.selectedIndex];
-      const description = selectedOption.dataset.description;
+      if (!e.target || !e.target.options) {
+        console.warn('[ChatbotModelConfigModal] select change: e.target.options 不可用');
+        return;
+      }
+
+      const selectedIndex = e.target.selectedIndex;
+      if (selectedIndex < 0 || selectedIndex >= e.target.options.length) {
+        const descEl = document.getElementById('chatbot-predefined-model-description');
+        if (descEl) descEl.classList.add('chatbot-hidden');
+        hidePredefinedModelInfo();
+        if (fetchBtn) fetchBtn.classList.add('chatbot-hidden');
+        return;
+      }
+
+      const selectedOption = e.target.options[selectedIndex];
+      const description = selectedOption && selectedOption.dataset ? selectedOption.dataset.description : null;
       const descEl = document.getElementById('chatbot-predefined-model-description');
       const modelValue = e.target.value;
 
       if (description && modelValue) {
-        descEl.textContent = description;
-        descEl.classList.remove('chatbot-hidden');
+        // 检查该模型是否配置了API密钥
+        let hasApiKey = false;
+        if (typeof loadModelKeys === 'function') {
+          const keys = loadModelKeys(modelValue);
+          if (keys && Array.isArray(keys) && keys.length > 0) {
+            const usableKeys = keys.filter(k => k.status === 'valid' || k.status === 'untested');
+            hasApiKey = usableKeys.length > 0;
+          }
+        }
+
+        // 如果没有配置API密钥，提示用户
+        if (!hasApiKey) {
+          const modelLabel = PREDEFINED_MODELS.find(m => m.value === modelValue)?.label || modelValue;
+          alert(`尚未配置 ${modelLabel} 的API密钥\n\n请到主页面的【全局设置】→【翻译模型设置】中配置 ${modelLabel} 的API密钥，配置完成后刷新本页面即可使用。`);
+          // 重置选择
+          e.target.selectedIndex = 0;
+          if (descEl) descEl.classList.add('chatbot-hidden');
+          hidePredefinedModelInfo();
+          if (fetchBtn) fetchBtn.classList.add('chatbot-hidden');
+          return;
+        }
+
+        if (descEl) {
+          descEl.textContent = description;
+          descEl.classList.remove('chatbot-hidden');
+        }
+
+        // 显示预设模型端点信息
+        displayPredefinedModelInfo(modelValue);
 
         // 显示"获取模型列表"按钮（仅支持的模型）
         if (fetchBtn && ['mistral', 'deepseek', 'gemini', 'tongyi'].includes(modelValue)) {
@@ -337,7 +450,8 @@
           fetchBtn.classList.add('chatbot-hidden');
         }
       } else {
-        descEl.classList.add('chatbot-hidden');
+        if (descEl) descEl.classList.add('chatbot-hidden');
+        hidePredefinedModelInfo();
         if (fetchBtn) {
           fetchBtn.classList.add('chatbot-hidden');
         }
@@ -417,6 +531,7 @@
    */
   function loadCustomSourceSites() {
     const select = document.getElementById('chatbot-custom-source-select');
+    const hintBox = document.getElementById('chatbot-no-custom-source-hint');
     if (!select) return;
 
     // 清空现有选项
@@ -435,10 +550,20 @@
       option.textContent = '无自定义源站点（请先在设置中添加）';
       select.appendChild(option);
       select.disabled = true;
+
+      // 显示提示框
+      if (hintBox) {
+        hintBox.classList.remove('chatbot-hidden');
+      }
       return;
     }
 
     select.disabled = false;
+
+    // 隐藏提示框（有源站点）
+    if (hintBox) {
+      hintBox.classList.add('chatbot-hidden');
+    }
 
     // 添加源站点选项
     siteIds.forEach(id => {
@@ -450,17 +575,39 @@
       select.appendChild(option);
     });
 
-    // 监听选择变化
-    select.addEventListener('change', (e) => {
-      const selectedOption = e.target.options[e.target.selectedIndex];
-      if (selectedOption && selectedOption.dataset.site) {
+    // 监听选择变化（使用once: false确保可以重复绑定）
+    select.removeEventListener('change', handleCustomSourceChange);
+    select.addEventListener('change', handleCustomSourceChange);
+  }
+
+  /**
+   * 处理自定义源站点选择变化
+   */
+  function handleCustomSourceChange(e) {
+    if (!e.target || !e.target.options) {
+      console.warn('[ChatbotModelConfigModal] handleCustomSourceChange: e.target.options 不可用');
+      return;
+    }
+
+    const selectedIndex = e.target.selectedIndex;
+    if (selectedIndex < 0 || selectedIndex >= e.target.options.length) {
+      hideSourceSiteInfo();
+      return;
+    }
+
+    const selectedOption = e.target.options[selectedIndex];
+    if (selectedOption && selectedOption.dataset && selectedOption.dataset.site) {
+      try {
         const site = JSON.parse(selectedOption.dataset.site);
         displaySourceSiteInfo(site);
         loadAvailableModels(site);
-      } else {
+      } catch (error) {
+        console.error('[ChatbotModelConfigModal] 解析源站点数据失败:', error);
         hideSourceSiteInfo();
       }
-    });
+    } else {
+      hideSourceSiteInfo();
+    }
   }
 
   /**
@@ -483,6 +630,39 @@
    */
   function hideSourceSiteInfo() {
     const infoDiv = document.getElementById('chatbot-custom-source-info');
+    if (infoDiv) {
+      infoDiv.classList.add('chatbot-hidden');
+    }
+  }
+
+  /**
+   * 显示预设模型信息
+   */
+  function displayPredefinedModelInfo(modelName) {
+    const infoDiv = document.getElementById('chatbot-predefined-model-info');
+    const endpointSpan = document.getElementById('chatbot-predefined-endpoint');
+
+    if (!infoDiv || !endpointSpan) return;
+
+    // 根据模型名称设置端点
+    const endpoints = {
+      'mistral': 'https://api.mistral.ai/v1',
+      'deepseek': 'https://api.deepseek.com/v1',
+      'gemini': 'https://generativelanguage.googleapis.com/v1beta',
+      'tongyi': 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      'volcano': '火山引擎 API 端点'
+    };
+
+    const endpoint = endpoints[modelName] || '未知';
+    endpointSpan.textContent = endpoint;
+    infoDiv.classList.remove('chatbot-hidden');
+  }
+
+  /**
+   * 隐藏预设模型信息
+   */
+  function hidePredefinedModelInfo() {
+    const infoDiv = document.getElementById('chatbot-predefined-model-info');
     if (infoDiv) {
       infoDiv.classList.add('chatbot-hidden');
     }
