@@ -496,14 +496,16 @@
           alert(`尚未配置 ${modelLabel} 的API密钥\n\n请到主页面的【全局设置】→【翻译模型设置】中配置 ${modelLabel} 的API密钥，配置完成后刷新本页面即可使用。`);
           // 重置选择
           e.target.selectedIndex = 0;
-          descEl.classList.add('chatbot-hidden');
+          if (descEl) descEl.classList.add('chatbot-hidden');
           hidePredefinedModelInfo();
           if (fetchBtn) fetchBtn.classList.add('chatbot-hidden');
           return;
         }
 
-        descEl.textContent = description;
-        descEl.classList.remove('chatbot-hidden');
+        if (descEl) {
+          descEl.textContent = description;
+          descEl.classList.remove('chatbot-hidden');
+        }
 
         // 显示预设模型端点信息
         displayPredefinedModelInfo(modelValue);
