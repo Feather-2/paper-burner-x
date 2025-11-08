@@ -480,8 +480,22 @@
 
     // 监听选择变化
     select.addEventListener('change', (e) => {
-      const selectedOption = e.target.options[e.target.selectedIndex];
-      const description = selectedOption.dataset.description;
+      if (!e.target || !e.target.options) {
+        console.warn('[ChatbotModelConfigModal] select change: e.target.options 不可用');
+        return;
+      }
+
+      const selectedIndex = e.target.selectedIndex;
+      if (selectedIndex < 0 || selectedIndex >= e.target.options.length) {
+        const descEl = document.getElementById('chatbot-predefined-model-description');
+        if (descEl) descEl.classList.add('chatbot-hidden');
+        hidePredefinedModelInfo();
+        if (fetchBtn) fetchBtn.classList.add('chatbot-hidden');
+        return;
+      }
+
+      const selectedOption = e.target.options[selectedIndex];
+      const description = selectedOption && selectedOption.dataset ? selectedOption.dataset.description : null;
       const descEl = document.getElementById('chatbot-predefined-model-description');
       const modelValue = e.target.value;
 
@@ -499,7 +513,7 @@
           fetchBtn.classList.add('chatbot-hidden');
         }
       } else {
-        descEl.classList.add('chatbot-hidden');
+        if (descEl) descEl.classList.add('chatbot-hidden');
         hidePredefinedModelInfo();
         if (fetchBtn) {
           fetchBtn.classList.add('chatbot-hidden');
