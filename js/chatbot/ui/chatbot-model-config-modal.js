@@ -444,25 +444,12 @@
   function populatePredefinedModels() {
     const select = document.getElementById('chatbot-predefined-model-select');
     const fetchBtn = document.getElementById('chatbot-fetch-predefined-models-btn');
-    const hintBox = document.getElementById('chatbot-no-api-key-hint');
     if (!select) return;
 
     // 清空现有选项（保留第一个占位符）
     select.innerHTML = '<option value="">-- 请选择模型 --</option>';
 
-    // 检测是否配置了预设模型的API密钥
-    const hasAnyApiKey = checkIfAnyPredefinedModelHasApiKey();
-    if (!hasAnyApiKey && hintBox) {
-      hintBox.classList.remove('chatbot-hidden');
-      select.disabled = true;
-    } else {
-      if (hintBox) {
-        hintBox.classList.add('chatbot-hidden');
-      }
-      select.disabled = false;
-    }
-
-    // 添加预设模型
+    // 添加预设模型（始终显示所有模型，不管是否配置了API密钥）
     PREDEFINED_MODELS.forEach(model => {
       const option = document.createElement('option');
       option.value = model.value;
@@ -493,6 +480,28 @@
       const modelValue = e.target.value;
 
       if (description && modelValue) {
+        // 检查该模型是否配置了API密钥
+        let hasApiKey = false;
+        if (typeof loadModelKeys === 'function') {
+          const keys = loadModelKeys(modelValue);
+          if (keys && Array.isArray(keys) && keys.length > 0) {
+            const usableKeys = keys.filter(k => k.status === 'valid' || k.status === 'untested');
+            hasApiKey = usableKeys.length > 0;
+          }
+        }
+
+        // 如果没有配置API密钥，提示用户
+        if (!hasApiKey) {
+          const modelLabel = PREDEFINED_MODELS.find(m => m.value === modelValue)?.label || modelValue;
+          alert(`尚未配置 ${modelLabel} 的API密钥\n\n请到主页面的【全局设置】→【翻译模型设置】中配置 ${modelLabel} 的API密钥，配置完成后刷新本页面即可使用。`);
+          // 重置选择
+          e.target.selectedIndex = 0;
+          descEl.classList.add('chatbot-hidden');
+          hidePredefinedModelInfo();
+          if (fetchBtn) fetchBtn.classList.add('chatbot-hidden');
+          return;
+        }
+
         descEl.textContent = description;
         descEl.classList.remove('chatbot-hidden');
 
