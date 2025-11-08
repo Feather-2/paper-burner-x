@@ -374,13 +374,21 @@
           // 刷新自定义源站点模型列表
           const sourceSelect = document.getElementById('chatbot-custom-source-select');
           const selectedOption = sourceSelect ? sourceSelect.options[sourceSelect.selectedIndex] : null;
-          if (selectedOption && selectedOption.dataset.site) {
-            const site = JSON.parse(selectedOption.dataset.site);
-            loadAvailableModels(site);
+          if (selectedOption && selectedOption.dataset && selectedOption.dataset.site) {
+            try {
+              const site = JSON.parse(selectedOption.dataset.site);
+              loadAvailableModels(site);
+            } catch (error) {
+              console.error('[ChatbotModelConfigModal] 刷新模型列表失败:', error);
+            }
           }
         }
       });
     }
+
+    // 检查是否有全局设置弹窗
+    const modelKeyManagerModal = document.getElementById('modelKeyManagerModal');
+    const hasGlobalSettings = !!modelKeyManagerModal;
 
     // 通用函数：打开全局设置弹窗
     const openGlobalSettings = () => {
@@ -388,24 +396,50 @@
       modal.classList.remove('active');
 
       // 打开 index.html 的模型与Key管理弹窗
-      const modelKeyManagerModal = document.getElementById('modelKeyManagerModal');
       if (modelKeyManagerModal) {
         modelKeyManagerModal.classList.remove('hidden');
       } else {
-        console.warn('[ChatbotModelConfigModal] modelKeyManagerModal 元素未找到');
+        console.warn('[ChatbotModelConfigModal] modelKeyManagerModal 元素未找到，可能在详情页面');
+        alert('请返回主页面进行设置配置');
       }
     };
 
     // 初始化"打开全局设置"按钮（自定义源站点的）
     const openSettingsBtn = document.getElementById('chatbot-open-global-settings-btn');
     if (openSettingsBtn) {
-      openSettingsBtn.addEventListener('click', openGlobalSettings);
+      if (hasGlobalSettings) {
+        openSettingsBtn.addEventListener('click', openGlobalSettings);
+      } else {
+        // 如果没有全局设置弹窗，隐藏提示中的按钮
+        openSettingsBtn.style.display = 'none';
+        // 修改提示文字
+        const hintBox = document.getElementById('chatbot-no-custom-source-hint');
+        if (hintBox) {
+          const hintText = hintBox.querySelector('div[style*="font-size: 14px"]');
+          if (hintText) {
+            hintText.textContent = '请在主页面的【全局设置】→【自定义源站管理】中添加您的自定义源站点，然后即可在此选择使用。';
+          }
+        }
+      }
     }
 
     // 初始化"打开全局设置"按钮（预设模型的）
     const openSettingsForApiKeyBtn = document.getElementById('chatbot-open-settings-for-api-key-btn');
     if (openSettingsForApiKeyBtn) {
-      openSettingsForApiKeyBtn.addEventListener('click', openGlobalSettings);
+      if (hasGlobalSettings) {
+        openSettingsForApiKeyBtn.addEventListener('click', openGlobalSettings);
+      } else {
+        // 如果没有全局设置弹窗，隐藏提示中的按钮
+        openSettingsForApiKeyBtn.style.display = 'none';
+        // 修改提示文字
+        const hintBox = document.getElementById('chatbot-no-api-key-hint');
+        if (hintBox) {
+          const hintText = hintBox.querySelector('div[style*="font-size: 14px"]');
+          if (hintText) {
+            hintText.textContent = '请在主页面的【全局设置】→【翻译模型设置】中配置预设模型的API密钥，然后即可在此选择使用。';
+          }
+        }
+      }
     }
 
     console.log('[ChatbotModelConfigModal] 弹窗初始化完成');
@@ -599,11 +633,27 @@
    * 处理自定义源站点选择变化
    */
   function handleCustomSourceChange(e) {
-    const selectedOption = e.target.options[e.target.selectedIndex];
-    if (selectedOption && selectedOption.dataset.site) {
-      const site = JSON.parse(selectedOption.dataset.site);
-      displaySourceSiteInfo(site);
-      loadAvailableModels(site);
+    if (!e.target || !e.target.options) {
+      console.warn('[ChatbotModelConfigModal] handleCustomSourceChange: e.target.options 不可用');
+      return;
+    }
+
+    const selectedIndex = e.target.selectedIndex;
+    if (selectedIndex < 0 || selectedIndex >= e.target.options.length) {
+      hideSourceSiteInfo();
+      return;
+    }
+
+    const selectedOption = e.target.options[selectedIndex];
+    if (selectedOption && selectedOption.dataset && selectedOption.dataset.site) {
+      try {
+        const site = JSON.parse(selectedOption.dataset.site);
+        displaySourceSiteInfo(site);
+        loadAvailableModels(site);
+      } catch (error) {
+        console.error('[ChatbotModelConfigModal] 解析源站点数据失败:', error);
+        hideSourceSiteInfo();
+      }
     } else {
       hideSourceSiteInfo();
     }
