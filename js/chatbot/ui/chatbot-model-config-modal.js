@@ -14,6 +14,44 @@
   ];
 
   /**
+   * 检测是否配置了任何预设模型的API密钥
+   */
+  function checkIfAnyPredefinedModelHasApiKey() {
+    try {
+      // 获取翻译模型设置
+      const settings = (typeof loadSettings === 'function') ? loadSettings() : {};
+
+      // 检查每个预设模型是否有API密钥
+      for (const model of PREDEFINED_MODELS) {
+        const modelName = model.value;
+        let hasKey = false;
+
+        // 根据不同模型名称检查对应的API密钥
+        if (modelName === 'mistral' && settings.mistralApiKey) {
+          hasKey = true;
+        } else if (modelName === 'deepseek' && settings.deepseekApiKey) {
+          hasKey = true;
+        } else if (modelName === 'gemini' && settings.geminiApiKey) {
+          hasKey = true;
+        } else if (modelName === 'tongyi' && settings.tongyiApiKey) {
+          hasKey = true;
+        } else if (modelName === 'volcano' && settings.volcanoApiKey) {
+          hasKey = true;
+        }
+
+        if (hasKey) {
+          return true; // 只要有一个配置了就返回true
+        }
+      }
+
+      return false; // 没有任何模型配置API密钥
+    } catch (error) {
+      console.error('[ChatbotModelConfigModal] 检测API密钥失败:', error);
+      return false; // 出错时返回false，显示提示
+    }
+  }
+
+  /**
    * 创建弹窗HTML
    */
   function createModalHTML() {
@@ -75,6 +113,23 @@
                   </select>
                   <div id="chatbot-predefined-model-description" class="chatbot-form-description chatbot-hidden">
                     <!-- 模型描述将动态插入 -->
+                  </div>
+
+                  <!-- 无API密钥提示 -->
+                  <div id="chatbot-no-api-key-hint" class="chatbot-hint-box chatbot-hidden">
+                    <div style="display: flex; align-items: flex-start; gap: 12px;">
+                      <i class="fa-solid fa-circle-info" style="color: #3b82f6; font-size: 20px; margin-top: 2px;"></i>
+                      <div style="flex: 1;">
+                        <div style="font-weight: 600; margin-bottom: 6px; color: #1e293b;">未配置预设模型的API密钥</div>
+                        <div style="font-size: 14px; color: #475569; line-height: 1.6; margin-bottom: 10px;">
+                          请先在【全局设置】→【翻译模型设置】中配置预设模型（Mistral、DeepSeek、Gemini、通义千问等）的API密钥，然后即可在此选择使用。
+                        </div>
+                        <button id="chatbot-open-settings-for-api-key-btn" class="chatbot-hint-button" type="button">
+                          <i class="fa-solid fa-gear"></i>
+                          <span>打开全局设置</span>
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
                   <!-- 获取模型列表按钮 -->
@@ -320,14 +375,41 @@
         // 关闭当前弹窗
         modal.classList.remove('active');
 
-        // 打开全局设置
-        if (typeof openSettings === 'function') {
-          openSettings();
-        } else if (typeof window.openSettings === 'function') {
-          window.openSettings();
+        // 直接打开全局设置弹窗
+        const dockSettingsModal = document.getElementById('dock-settings-modal');
+        if (dockSettingsModal) {
+          // 优先调用全局设置的打开函数
+          if (typeof window.openDockSettingsModal === 'function') {
+            window.openDockSettingsModal();
+          } else {
+            // 直接添加 visible 类
+            dockSettingsModal.classList.add('visible');
+          }
         } else {
-          alert('无法打开全局设置，请在主菜单中手动打开');
-          console.warn('[ChatbotModelConfigModal] openSettings 函数不可用');
+          console.warn('[ChatbotModelConfigModal] dock-settings-modal 元素未找到');
+        }
+      });
+    }
+
+    // 初始化"打开全局设置"按钮（预设模型的）
+    const openSettingsForApiKeyBtn = document.getElementById('chatbot-open-settings-for-api-key-btn');
+    if (openSettingsForApiKeyBtn) {
+      openSettingsForApiKeyBtn.addEventListener('click', () => {
+        // 关闭当前弹窗
+        modal.classList.remove('active');
+
+        // 直接打开全局设置弹窗
+        const dockSettingsModal = document.getElementById('dock-settings-modal');
+        if (dockSettingsModal) {
+          // 优先调用全局设置的打开函数
+          if (typeof window.openDockSettingsModal === 'function') {
+            window.openDockSettingsModal();
+          } else {
+            // 直接添加 visible 类
+            dockSettingsModal.classList.add('visible');
+          }
+        } else {
+          console.warn('[ChatbotModelConfigModal] dock-settings-modal 元素未找到');
         }
       });
     }
@@ -341,10 +423,23 @@
   function populatePredefinedModels() {
     const select = document.getElementById('chatbot-predefined-model-select');
     const fetchBtn = document.getElementById('chatbot-fetch-predefined-models-btn');
+    const hintBox = document.getElementById('chatbot-no-api-key-hint');
     if (!select) return;
 
     // 清空现有选项（保留第一个占位符）
     select.innerHTML = '<option value="">-- 请选择模型 --</option>';
+
+    // 检测是否配置了预设模型的API密钥
+    const hasAnyApiKey = checkIfAnyPredefinedModelHasApiKey();
+    if (!hasAnyApiKey && hintBox) {
+      hintBox.classList.remove('chatbot-hidden');
+      select.disabled = true;
+    } else {
+      if (hintBox) {
+        hintBox.classList.add('chatbot-hidden');
+      }
+      select.disabled = false;
+    }
 
     // 添加预设模型
     PREDEFINED_MODELS.forEach(model => {
