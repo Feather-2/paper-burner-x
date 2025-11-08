@@ -165,6 +165,3 @@ function updateTocModeRadioButtons() {
     }
   }
 }
-
-// 暴露 openDockSettingsModal 到全局，供其他模块调用
-window.openDockSettingsModal = openDockSettingsModal;
