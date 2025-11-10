@@ -39,16 +39,64 @@ class PDFCompareView {
     this._renderQueueOriginal = Promise.resolve();
     this._renderQueueTranslation = Promise.resolve();
 
-    // 文本自适应引擎（保留格式翻译）
-    this.textFittingEngine = null;
-    // 注意：延迟到 initialize() 方法中初始化，确保脚本加载完成
-
     // PDF 文本层缓存（用于精确清除文字）
     this.pageTextLayers = new Map(); // pageNum -> textContent
 
-    // 全局字号统一：存储预计算的字号信息（参考 其他开源项目）
-    this.globalFontSizeCache = new Map(); // idx -> { estimatedFontSize, estimatedLines, bbox }
-    this.hasPreprocessed = false; // 是否已经完成预处理
+    // ============ 新模块化架构 ============
+    // 初始化文本自适应渲染模块
+    this.textFittingAdapter = null;
+    // 兼容性：保留原有属性
+    this.textFittingEngine = null;
+    this.globalFontSizeCache = new Map();
+    this.hasPreprocessed = false;
+
+    // 初始化PDF导出模块
+    this.pdfExporter = null;
+
+    // 初始化分段管理模块
+    this.segmentManager = null;
+
+    // 初始化模块（延迟到 initialize 方法，确保依赖加载）
+    this._initializeModules();
+  }
+
+  /**
+   * 初始化各个功能模块
+   */
+  _initializeModules() {
+    try {
+      // 初始化文本自适应模块
+      if (typeof TextFittingAdapter !== 'undefined') {
+        this.textFittingAdapter = new TextFittingAdapter({
+          initialScale: 1.0,
+          minScale: 0.3,
+          scaleStepHigh: 0.05,
+          scaleStepLow: 0.1,
+          lineSkipCJK: 1.5,
+          lineSkipWestern: 1.3,
+          minLineHeight: 1.05,
+          globalFontScale: 0.85,
+          bboxNormalizedRange: 1000
+        });
+        console.log('[PDFCompareView] TextFittingAdapter 已初始化');
+      } else {
+        console.warn('[PDFCompareView] TextFittingAdapter 未加载，将使用回退方案');
+      }
+
+      // 初始化PDF导出模块
+      if (typeof PDFExporter !== 'undefined') {
+        this.pdfExporter = new PDFExporter({
+          bboxNormalizedRange: 1000
+        });
+        console.log('[PDFCompareView] PDFExporter 已初始化');
+      } else {
+        console.warn('[PDFCompareView] PDFExporter 未加载，导出功能将不可用');
+      }
+
+      // SegmentManager 将在 renderAllPagesContinuous 中初始化，因为需要 pdfDoc
+    } catch (error) {
+      console.error('[PDFCompareView] 模块初始化失败:', error);
+    }
   }
 
   /**
