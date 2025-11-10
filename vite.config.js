@@ -14,7 +14,8 @@ export default {
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
-        admin: resolve(__dirname, 'admin/index.html'),
+        // admin 入口已被 .vercelignore 排除，不参与 Vercel 构建
+        // admin: resolve(__dirname, 'admin/index.html'),
       },
     },
   },
