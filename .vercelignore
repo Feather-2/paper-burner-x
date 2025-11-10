@@ -6,10 +6,12 @@ server/
 docker/
 scripts/
 admin/
+app/
 .github/workflows/
 
 # 测试相关
 test/
+test-*.html
 **/__tests__/**
 **/*.test.ts
 **/*.test.tsx
