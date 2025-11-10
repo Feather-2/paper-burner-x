@@ -328,27 +328,28 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
     config.model === 'custom' ||
     (typeof config.model === 'string' && config.model.startsWith('custom_source_'))
   ) {
-    // 优先读取 index.html 选择的模型ID（settings.selectedCustomModelId）
+    // Chatbot 独立配置：优先使用 Chatbot 配置，可回退到翻译模型配置（单向隔离）
     let selectedModelId = '';
     try {
-      // 1. index.html 选择的模型（settings.selectedCustomModelId）
-      if (config.settings && config.settings.selectedCustomModelId) {
+      // 1. 【最高优先级】Chatbot 专用配置的模型ID（cms.modelId）
+      if (config.cms && config.cms.modelId) {
+        selectedModelId = config.cms.modelId;
+        console.log('[Chatbot] ✓ 使用 Chatbot 独立配置:', selectedModelId);
+      }
+      // 2. 【回退】翻译模型配置（仅读取，Chatbot 保存时不会修改翻译配置）
+      if (!selectedModelId && config.settings && config.settings.selectedCustomModelId) {
         selectedModelId = config.settings.selectedCustomModelId;
+        console.log('[Chatbot] ↩ 回退到翻译模型配置:', selectedModelId);
       }
-      // 2. 浮窗选择的模型（lastSelectedCustomModel）
-      if (!selectedModelId) {
-        selectedModelId = localStorage.getItem('lastSelectedCustomModel') || '';
+      // 3. 【进一步回退】可用模型列表的第一个
+      if (!selectedModelId && Array.isArray(config.siteSpecificAvailableModels) && config.siteSpecificAvailableModels.length > 0) {
+        selectedModelId = typeof config.siteSpecificAvailableModels[0] === 'object'
+          ? config.siteSpecificAvailableModels[0].id
+          : config.siteSpecificAvailableModels[0];
+        console.log('[Chatbot] ↩ 使用可用模型列表的第一个:', selectedModelId);
       }
-    } catch (e) {}
-    // 3. 站点配置的默认模型
-    if (!selectedModelId && config.cms && config.cms.modelId) {
-      selectedModelId = config.cms.modelId;
-    }
-    // 4. 可用模型列表的第一个
-    if (!selectedModelId && Array.isArray(config.siteSpecificAvailableModels) && config.siteSpecificAvailableModels.length > 0) {
-      selectedModelId = typeof config.siteSpecificAvailableModels[0] === 'object'
-        ? config.siteSpecificAvailableModels[0].id
-        : config.siteSpecificAvailableModels[0];
+    } catch (e) {
+      console.error('[Chatbot] ✗ 获取模型ID失败:', e);
     }
     // 新增：如果还是没有模型ID，弹出模型选择界面并阻止对话
     if (!selectedModelId) {
@@ -945,21 +946,23 @@ async function singleChunkSummary(sysPrompt, userInput, config, apiKey) {
   const isCustomLike = config.model === 'custom' || (typeof config.model === 'string' && config.model.startsWith('custom_source_'));
 
   if (isCustomLike) {
-    // 与 sendChatbotMessage 对齐：选择模型ID优先顺序
+    // 与 sendChatbotMessage 对齐：Chatbot 独立配置，可回退到翻译模型配置（单向隔离）
     let selectedModelId = '';
     try {
-      if (config.settings && config.settings.selectedCustomModelId) {
+      // 1. 【最高优先级】Chatbot 专用配置的模型ID
+      if (config.cms && config.cms.modelId) {
+        selectedModelId = config.cms.modelId;
+      }
+      // 2. 【回退】翻译模型配置（仅读取）
+      if (!selectedModelId && config.settings && config.settings.selectedCustomModelId) {
         selectedModelId = config.settings.selectedCustomModelId;
       }
-      if (!selectedModelId) {
-        selectedModelId = localStorage.getItem('lastSelectedCustomModel') || '';
+      // 3. 【进一步回退】可用模型列表的第一个
+      if (!selectedModelId && Array.isArray(config.siteSpecificAvailableModels) && config.siteSpecificAvailableModels.length > 0) {
+        selectedModelId = typeof config.siteSpecificAvailableModels[0] === 'object' ? config.siteSpecificAvailableModels[0].id : config.siteSpecificAvailableModels[0];
       }
-    } catch (e) {}
-    if (!selectedModelId && config.cms && config.cms.modelId) {
-      selectedModelId = config.cms.modelId;
-    }
-    if (!selectedModelId && Array.isArray(config.siteSpecificAvailableModels) && config.siteSpecificAvailableModels.length > 0) {
-      selectedModelId = typeof config.siteSpecificAvailableModels[0] === 'object' ? config.siteSpecificAvailableModels[0].id : config.siteSpecificAvailableModels[0];
+    } catch (e) {
+      console.error('[Chatbot/Summary] 获取模型ID失败:', e);
     }
 
     apiConfig = buildCustomApiConfig(

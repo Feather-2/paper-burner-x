@@ -150,7 +150,21 @@
     const endpointMode = options.endpointMode || 'auto';
     let resolvedRequestFormat = customRequestFormat;
 
+    // 获取当前选择的模型ID（如果有模型检测模块）
+    if (typeof window.modelDetector !== 'undefined') {
+      const currentModelId = window.modelDetector.getCurrentModelId();
+      if (currentModelId) {
+        modelId = currentModelId;
+      }
+    }
+
+    // 新增：如果 customRequestFormat 为空且 endpoint 以 /v1/chat/completions 结尾，则自动设为 openai
+    if ((!resolvedRequestFormat || resolvedRequestFormat === '') && apiEndpoint && apiEndpoint.endsWith('/v1/chat/completions')) {
+      resolvedRequestFormat = 'openai';
+    }
+
     // 检查是否有模型检测模块，如果有则使用其提供的完整端点
+    // 注意：现在 resolvedRequestFormat 已经确定，端点标准化会使用正确的路径
     if (typeof window.modelDetector !== 'undefined' && typeof window.modelDetector.getFullApiEndpoint === 'function') {
       const fullEndpoint = window.modelDetector.getFullApiEndpoint();
       if (fullEndpoint) {
@@ -160,19 +174,6 @@
       }
     } else {
       apiEndpoint = normalizeOpenAIEndpointForChatbot(apiEndpoint, resolvedRequestFormat, endpointMode);
-    }
-
-    // 新增：如果 customRequestFormat 为空且 endpoint 以 /v1/chat/completions 结尾，则自动设为 openai
-    if ((!resolvedRequestFormat || resolvedRequestFormat === '') && apiEndpoint && apiEndpoint.endsWith('/v1/chat/completions')) {
-      resolvedRequestFormat = 'openai';
-    }
-
-    // 获取当前选择的模型ID（如果有模型检测模块）
-    if (typeof window.modelDetector !== 'undefined') {
-      const currentModelId = window.modelDetector.getCurrentModelId();
-      if (currentModelId) {
-        modelId = currentModelId;
-      }
     }
 
     const config = {
@@ -197,17 +198,54 @@
           temperature: temperature ?? 0.5,
           max_tokens: max_tokens ?? 8000
         });
-        config.streamBodyBuilder = (sys, msgs, user_content) => ({ // user_content can be string or array
-          model: modelId,
-          messages: [
-            { role: 'system', content: sys },
-            ...msgs,
-            { role: 'user', content: user_content }
-          ],
-          temperature: temperature ?? 0.5,
-          max_tokens: max_tokens ?? 8000,
-          stream: true
-        });
+
+        // 流式请求构建器 - 针对转接站兼容性优化
+        config.streamBodyBuilder = (sys, msgs, user_content) => {
+          // 检测是否是 Claude 模型 + OpenAI 格式（转接站场景）
+          const isClaudeViaProxy = modelId && typeof modelId === 'string' && modelId.toLowerCase().includes('claude');
+
+          if (isClaudeViaProxy) {
+            // 对于通过转接站使用的 Claude 模型，将 system prompt 合并到第一条 user 消息中
+            // 因为很多转接站不正确处理 system role
+            console.log('[ApiConfigBuilder] 🔧 检测到通过转接站使用 Claude，将 system prompt 合并到 user 消息');
+
+            // 构建合并后的第一条用户消息
+            let firstUserMessage = sys ? `${sys}\n\n---\n\n` : '';
+            if (typeof user_content === 'string') {
+              firstUserMessage += user_content;
+            } else if (Array.isArray(user_content)) {
+              // 如果是多模态内容，只提取文本部分合并
+              const textPart = user_content.find(p => p.type === 'text');
+              if (textPart) {
+                firstUserMessage += textPart.text;
+              }
+            }
+
+            return {
+              model: modelId,
+              messages: [
+                ...msgs,
+                { role: 'user', content: firstUserMessage }
+              ],
+              temperature: temperature ?? 0.5,
+              max_tokens: max_tokens ?? 8000,
+              stream: true
+            };
+          } else {
+            // 其他模型使用标准格式
+            return {
+              model: modelId,
+              messages: [
+                { role: 'system', content: sys },
+                ...msgs,
+                { role: 'user', content: user_content }
+              ],
+              temperature: temperature ?? 0.5,
+              max_tokens: max_tokens ?? 8000,
+              stream: true
+            };
+          }
+        };
         config.responseExtractor = (data) => data?.choices?.[0]?.message?.content;
         config.streamSupport = true;
         break;
