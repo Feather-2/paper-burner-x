@@ -36,6 +36,10 @@ class SegmentManager {
     this._renderingVisible = false;
     this._pendingVisibleRender = false;
 
+    // 保存事件处理函数引用，用于清理
+    this._originalScrollHandler = null;
+    this._translationScrollHandler = null;
+
     // 依赖的渲染函数（由外部注入）
     this.renderPageBboxesToCtx = null;
     this.renderPageTranslationToCtx = null;
@@ -227,8 +231,12 @@ class SegmentManager {
     };
 
     if (!this._lazyInitialized) {
-      this.originalScroll.addEventListener('scroll', () => onScroll(this.originalScroll));
-      this.translationScroll.addEventListener('scroll', () => onScroll(this.translationScroll));
+      // 保存事件处理函数引用
+      this._originalScrollHandler = () => onScroll(this.originalScroll);
+      this._translationScrollHandler = () => onScroll(this.translationScroll);
+
+      this.originalScroll.addEventListener('scroll', this._originalScrollHandler);
+      this.translationScroll.addEventListener('scroll', this._translationScrollHandler);
       this._lazyInitialized = true;
     }
   }
@@ -395,13 +403,28 @@ class SegmentManager {
    * 清理资源
    */
   destroy() {
+    // 清理定时器
+    if (this._lazyScrollTimer) {
+      clearTimeout(this._lazyScrollTimer);
+      this._lazyScrollTimer = null;
+    }
+
     // 移除事件监听
     if (this._lazyInitialized && this.originalScroll && this.translationScroll) {
-      // 注意：由于事件监听使用了箭头函数，无法直接移除
-      // 这里设置标记位，防止继续渲染
-      this.segments = [];
-      this.pageInfos = [];
+      if (this._originalScrollHandler) {
+        this.originalScroll.removeEventListener('scroll', this._originalScrollHandler);
+        this._originalScrollHandler = null;
+      }
+      if (this._translationScrollHandler) {
+        this.translationScroll.removeEventListener('scroll', this._translationScrollHandler);
+        this._translationScrollHandler = null;
+      }
+      this._lazyInitialized = false;
     }
+
+    // 清空数据
+    this.segments = [];
+    this.pageInfos = [];
 
     // 清空 DOM
     if (this.originalSegmentsContainer) {

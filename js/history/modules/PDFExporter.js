@@ -269,9 +269,10 @@ class PDFExporter {
         const lines = this.wrapTextForPdf(font, text, effectiveWidth, mid);
         const lineHeight = mid * lineSkip;
 
-        const totalHeight = lines.length > 0
-          ? (lines.length - 1) * lineHeight + mid
-          : 0;
+        // 与Canvas渲染保持一致：最后一行使用 mid * 1.2 留出垂直空间
+        const totalHeight = lines.length === 1
+          ? mid * 1.2
+          : (lines.length - 1) * lineHeight + mid * 1.2;
 
         if (totalHeight <= availableHeight) {
           foundFontSize = mid;

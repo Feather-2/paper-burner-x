@@ -24,7 +24,8 @@ class TextFittingAdapter {
       lineSkipCJK: 1.5,
       lineSkipWestern: 1.3,
       minLineHeight: 1.05,
-      globalFontScale: 0.85
+      globalFontScale: 0.85,
+      bboxNormalizedRange: 1000
     }, options);
   }
 
@@ -68,7 +69,7 @@ class TextFittingAdapter {
     const startTime = performance.now();
 
     const globalFontScale = this.options.globalFontScale;
-    const BBOX_NORMALIZED_RANGE = 1000;
+    const BBOX_NORMALIZED_RANGE = this.options.bboxNormalizedRange || 1000;
 
     contentListJson.forEach((item, idx) => {
       if (item.type !== 'text' || !item.bbox) return;
