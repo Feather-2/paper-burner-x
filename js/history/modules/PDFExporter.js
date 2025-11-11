@@ -357,8 +357,8 @@ class PDFExporter {
     // ✅ 使用与Canvas渲染一致的初始行距
     const lineSkip = isCJK ? 1.5 : 1.3;
 
-    // 内边距
-    const paddingTop = 2;
+    // 内边距：对小bbox减少padding避免裁剪
+    const paddingTop = boxHeight < 20 ? 0.5 : 2;
     const paddingX = 2;
     const availableHeight = boxHeight - paddingTop * 2;
     const availableWidth = boxWidth - paddingX * 2;
@@ -368,10 +368,10 @@ class PDFExporter {
 
     // 最小字号：动态调整（基于bbox高度）
     let minFontSize;
-    if (boxHeight < 15) {
-      minFontSize = Math.max(6, boxHeight * 0.4);  // 极小bbox：最小6px
+    if (boxHeight < 20) {
+      minFontSize = Math.max(6, boxHeight * 0.35);  // 小bbox：最小6px
     } else {
-      minFontSize = isShortText ? 12 : 8;  // 正常bbox：保持可读性
+      minFontSize = isShortText ? 10 : 8;  // 正常bbox：10px/8px
     }
 
     let maxFontSize = Math.min(estimatedSingleLineFontSize * 1.5, boxHeight * 1.2);

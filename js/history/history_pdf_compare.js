@@ -1527,8 +1527,8 @@ class PDFCompareView {
       const isCJK = /[\u4e00-\u9fa5]/.test(text);
       const lineSkip = isCJK ? 1.5 : 1.3; // 使用统一的行距
 
-      // 内边距
-      const paddingTop = 2;
+      // 内边距：对小bbox减少padding避免裁剪
+      const paddingTop = height < 20 ? 0.5 : 2;  // 小bbox（<20px）：0.5px padding
       const paddingX = 2;
       const availableHeight = height - paddingTop * 2; // 上下都留边距
       const availableWidth = width - paddingX * 2;
@@ -1538,13 +1538,13 @@ class PDFCompareView {
       const estimatedSingleLineFontSize = height * 0.8;
 
       // 最小字号：动态调整（基于bbox高度）
-      // 对于极小的bbox（高度<15px），允许使用更小的字号以避免裁剪
-      // 对于正常bbox，保持12px/8px以确保可读性
+      // 对于小bbox（高度<20px），允许使用更小的字号以避免裁剪
+      // 对于正常bbox，使用10px/8px以平衡可读性和容纳率
       let minFontSize;
-      if (height < 15) {
-        minFontSize = Math.max(6, height * 0.4);  // 极小bbox：最小6px
+      if (height < 20) {
+        minFontSize = Math.max(6, height * 0.35);  // 小bbox：最小6px, 35%系数
       } else {
-        minFontSize = isShortText ? 12 : 8;  // 正常bbox：保持可读性
+        minFontSize = isShortText ? 10 : 8;  // 正常bbox：10px/8px（降低阈值）
       }
 
       // 最大字号：不超过单行估算值的 1.5 倍
@@ -2583,8 +2583,8 @@ class PDFCompareView {
     const isCJK = /[\u4e00-\u9fa5]/.test(text);
     const lineSkip = isCJK ? 1.25 : 1.15;
 
-    // 内边距（与canvas渲染一致）
-    const paddingTop = 2;
+    // 内边距（与canvas渲染一致）：对小bbox减少padding
+    const paddingTop = boxHeight < 20 ? 0.5 : 2;
     const paddingX = 2;
     const availableHeight = boxHeight - paddingTop * 2;
     const availableWidth = boxWidth - paddingX * 2;
@@ -2594,10 +2594,10 @@ class PDFCompareView {
 
     // 最小字号：动态调整（基于bbox高度）
     let minFontSize;
-    if (boxHeight < 15) {
-      minFontSize = Math.max(6, boxHeight * 0.4);  // 极小bbox：最小6px
+    if (boxHeight < 20) {
+      minFontSize = Math.max(6, boxHeight * 0.35);  // 小bbox：最小6px
     } else {
-      minFontSize = isShortText ? 12 : 8;  // 正常bbox：保持可读性
+      minFontSize = isShortText ? 10 : 8;  // 正常bbox：10px/8px
     }
 
     const maxFontSize = Math.min(estimatedSingleLineFontSize * 1.5, boxHeight * 1.2);

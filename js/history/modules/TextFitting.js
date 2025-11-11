@@ -370,8 +370,8 @@ class TextFittingAdapter {
       // 判断是否为 CJK 语言
       const isCJK = /[\u4e00-\u9fa5]/.test(text);
 
-      // 内边距
-      const paddingTop = 2;
+      // 内边距：对小bbox减少padding避免裁剪
+      const paddingTop = height < 20 ? 0.5 : 2;
       const paddingX = 2;
       const availableHeight = height - paddingTop * 2;
       const availableWidth = width - paddingX * 2;
@@ -381,10 +381,10 @@ class TextFittingAdapter {
 
       // 最小字号：动态调整（基于bbox高度）
       let minFontSize;
-      if (height < 15) {
-        minFontSize = Math.max(6, height * 0.4);  // 极小bbox：最小6px
+      if (height < 20) {
+        minFontSize = Math.max(6, height * 0.35);  // 小bbox：最小6px
       } else {
-        minFontSize = isShortText ? 12 : 8;  // 正常bbox：保持可读性
+        minFontSize = isShortText ? 10 : 8;  // 正常bbox：10px/8px
       }
 
       const maxFontSize = Math.min(estimatedSingleLineFontSize * 1.5, height * 1.2);
