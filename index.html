@@ -26,6 +26,8 @@
     <link rel="stylesheet" href="css/chatbot-model-config-modal.css">
     <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script src="https://gcore.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Markdown-it for AST-based processing (新架构) -->
+    <script src="https://gcore.jsdelivr.net/npm/markdown-it@14.0.0/dist/markdown-it.min.js"></script>
     <script>
       // failback: 如果 CDN 加载失败，自动加载本地 jszip
       if (typeof JSZip === 'undefined') {
@@ -1643,6 +1645,8 @@
     <script src="js/api/model-detector.js"></script>
     <script src="js/app.js"></script>
     <script src="js/processing/markdown_processor_enhanced.js"></script>
+    <!-- AST-based processor (新架构) -->
+    <script src="js/processing/markdown_processor_ast.js"></script>
     <script src="js/processing/markdown_text_fix.js"></script>
     <script src="js/processing/markdown_processor.js"></script>
 
