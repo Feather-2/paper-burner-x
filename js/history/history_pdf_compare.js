@@ -1405,12 +1405,20 @@ class PDFCompareView {
     // 检查是否为短文本/小标题（与 bbox 扩展判断保持一致）
     const isShortText = text.length < 30;
 
-    // 暂时禁用公式渲染（用于测试）
-    // 所有文本都用 Canvas 渲染
+    // 检查是否包含公式（更严格的检测）
+    // 1. $$ 包围的块公式
+    // 2. $ 包围且包含数学符号的行内公式（不是简单的 $数字$）
+    const hasBlockFormula = /\$\$[\s\S]+?\$\$/.test(text);
+    const hasInlineFormula = /\$[^$]*[\\^_{}a-zA-Z][\s\S]*?\$/.test(text); // 必须包含 \、^、_、{、}、字母等数学符号
+    const hasFormula = hasBlockFormula || hasInlineFormula;
 
-    // 使用预处理的字号信息或直接传递 cachedInfo
-    const suggestedFontSize = cachedInfo ? cachedInfo.estimatedFontSize : null;
-    this.drawPlainTextInBox(ctx, text, x, y, width, height, isShortText, cachedInfo);
+    if (hasFormula && wrapperEl) {
+      // 包含公式，使用 HTML 渲染（通过模块或回退方案）
+      this.drawTextWithFormulaInBox(text, x, y, width, height, pageNum, wrapperEl, isShortText, cachedInfo);
+    } else {
+      // 纯文本，使用 Canvas 渲染
+      this.drawPlainTextInBox(ctx, text, x, y, width, height, isShortText, cachedInfo);
+    }
   }
 
   /**
@@ -1749,10 +1757,15 @@ class PDFCompareView {
   }
 
   /**
-   * 渲染文本中的公式（优化版：缓存 + 减少日志）
+   * 渲染文本中的公式（优化版：优先使用模块）
    */
   renderFormulasInText(text) {
-    // 使用缓存避免重复渲染
+    // 优先使用 TextFittingAdapter 的公式渲染
+    if (this.textFittingAdapter && typeof this.textFittingAdapter.renderFormulasInText === 'function') {
+      return this.textFittingAdapter.renderFormulasInText(text);
+    }
+
+    // 回退方案：使用本地实现
     if (!this._formulaCache) {
       this._formulaCache = new Map();
     }
