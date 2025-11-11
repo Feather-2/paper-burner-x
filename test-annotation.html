@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AST 注释插件测试</title>
+    <link rel="stylesheet" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.6;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .controls {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .result-panel {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            min-height: 300px;
+        }
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #1d4ed8;
+        }
+        .annotation-highlight {
+            background: #fef08a;
+            border-bottom: 2px solid #eab308;
+            padding: 2px 4px;
+            border-radius: 3px;
+            cursor: pointer;
+            position: relative;
+        }
+        .annotation-highlight:hover {
+            background: #fde047;
+        }
+        .annotation-highlight::after {
+            content: attr(data-annotation-id);
+            position: absolute;
+            top: -30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1e293b;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
+        .annotation-highlight:hover::after {
+            opacity: 1;
+        }
+        .test-info {
+            background: #f1f5f9;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #475569;
+        }
+        .test-info ul {
+            margin-left: 20px;
+            margin-top: 10px;
+        }
+        code {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 AST 注释插件测试</h1>
+
+        <div class="test-info">
+            <strong>测试说明：</strong>
+            <ul>
+                <li>AST 插件会<strong>精准匹配</strong>指定的文本并高亮显示</li>
+                <li>自动<strong>跳过代码块和公式</strong>中的相同文本</li>
+                <li>鼠标悬停注释可查看 ID</li>
+                <li>对比旧版基于 marked.Renderer 的字符串替换</li>
+            </ul>
+        </div>
+
+        <div class="controls">
+            <button onclick="testBasic()">测试 1: 基础注释</button>
+            <button onclick="testSkipCode()">测试 2: 跳过代码块</button>
+            <button onclick="testSkipMath()">测试 3: 跳过公式</button>
+            <button onclick="testComplex()">测试 4: 复杂场景</button>
+        </div>
+
+        <div class="result-panel" id="result"></div>
+    </div>
+
+    <!-- 依赖库 -->
+    <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="https://gcore.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://gcore.jsdelivr.net/npm/markdown-it@14.0.0/dist/markdown-it.min.js"></script>
+
+    <!-- AST 处理器 -->
+    <script src="js/processing/markdown_processor_enhanced.js"></script>
+    <script src="js/processing/annotation_plugin_ast.js"></script>
+    <script src="js/processing/markdown_processor_ast.js"></script>
+
+    <script>
+        const resultDiv = document.getElementById('result');
+
+        function testBasic() {
+            const markdown = `
+# 基础注释测试
+
+This is a **test** document. The word "test" appears multiple times.
+We can annotate the word test here as well.
+
+Another paragraph with some test content.
+`;
+
+            const annotations = [
+                { text: 'test', id: 'ann-1' },
+                { text: 'document', id: 'ann-2' }
+            ];
+
+            render(markdown, annotations, '测试 1: 基础注释 - "test" 和 "document" 被高亮');
+        }
+
+        function testSkipCode() {
+            const markdown = `
+# 跳过代码块测试
+
+The variable \`result\` stores the result of computation.
+
+\`\`\`javascript
+const result = calculate();
+console.log(result);
+\`\`\`
+
+Note that "result" in code blocks is NOT annotated.
+`;
+
+            const annotations = [
+                { text: 'result', id: 'ann-3' }
+            ];
+
+            render(markdown, annotations, '测试 2: "result" 只在正文中高亮，代码块中的 result 被跳过');
+        }
+
+        function testSkipMath() {
+            const markdown = `
+# 跳过公式测试
+
+The variable $x$ represents the unknown.
+
+In equations: $x + y = z$
+
+The letter x appears here in normal text too.
+`;
+
+            const annotations = [
+                { text: 'x', id: 'ann-4' }
+            ];
+
+            render(markdown, annotations, '测试 3: "x" 只在正文中高亮，公式中的 x 被跳过（如果公式插件正常工作）');
+        }
+
+        function testComplex() {
+            const markdown = `
+# 复杂场景测试
+
+## 论文分析
+
+The **regression model** is defined as:
+
+$R_{i,t} = \\alpha_i + \\beta_i \\cdot Factor_t + \\epsilon_{i,t}$
+
+In this regression model, we use the following parameters:
+- $\\alpha_i$ is the intercept
+- $\\beta_i$ is the coefficient
+- The model explains the relationship
+
+\`\`\`python
+# Define the model
+model = RegressionModel()
+model.fit(data)
+\`\`\`
+
+The word "model" appears in text, code, and math contexts.
+`;
+
+            const annotations = [
+                { text: 'model', id: 'ann-5' },
+                { text: 'regression', id: 'ann-6' },
+                { text: 'parameters', id: 'ann-7' }
+            ];
+
+            render(markdown, annotations, '测试 4: "model" 只在正文中高亮，代码和公式中被跳过');
+        }
+
+        function render(markdown, annotations, description) {
+            try {
+                const html = window.MarkdownProcessorAST.renderWithAnnotations(
+                    markdown,
+                    null,
+                    annotations,
+                    'test'
+                );
+
+                resultDiv.innerHTML = `
+                    <div style="background: #f1f5f9; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                        <strong style="color: #1e293b;">📌 ${description}</strong>
+                    </div>
+                    ${html}
+                    <div style="margin-top: 30px; padding: 15px; background: #f1f5f9; border-radius: 8px;">
+                        <strong>注释列表：</strong>
+                        <ul style="margin-top: 10px; margin-left: 20px;">
+                            ${annotations.map(a => `<li>${a.text} (ID: ${a.id})</li>`).join('')}
+                        </ul>
+                    </div>
+                `;
+
+                // 添加点击事件
+                document.querySelectorAll('.annotation-highlight').forEach(el => {
+                    el.addEventListener('click', () => {
+                        alert(`注释信息：\n文本: ${el.dataset.annotationText}\nID: ${el.dataset.annotationId}`);
+                    });
+                });
+
+                console.log('✓ 渲染成功');
+            } catch (error) {
+                resultDiv.innerHTML = `<div style="color: red;">渲染失败: ${error.message}</div>`;
+                console.error(error);
+            }
+        }
+
+        // 页面加载时运行第一个测试
+        window.addEventListener('load', () => {
+            testBasic();
+        });
+    </script>
+</body>
+</html>
