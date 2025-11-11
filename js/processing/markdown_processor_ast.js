@@ -612,10 +612,11 @@
         compatibility: 'Backward compatible with MarkdownProcessor & MarkdownProcessorEnhanced'
     };
 
-    // 向后兼容：可以选择性地覆盖旧版
-    // global.MarkdownProcessor = global.MarkdownProcessorAST;
-    // global.MarkdownProcessorEnhanced = global.MarkdownProcessorAST;
+    // 向后兼容：全局启用新架构
+    global.MarkdownProcessor = global.MarkdownProcessorAST;
+    global.MarkdownProcessorEnhanced = global.MarkdownProcessorAST;
 
+    console.log('%c[MarkdownProcessorAST] ✅ AST 架构已启用', 'color: #10b981; font-weight: bold', CONFIG.version);
     debug('MarkdownProcessorAST initialized', CONFIG.version);
 
 })(window);
