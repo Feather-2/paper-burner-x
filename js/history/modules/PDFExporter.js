@@ -90,6 +90,9 @@ class PDFExporter {
         throw fontError;
       }
 
+      // ✅ 预处理：计算全局字号限制（与Canvas渲染保持一致）
+      const fontSizeLimits = this.preprocessPdfFontSizes(pdfDoc, font, translatedContentList);
+
       // 按页面分组翻译内容
       const pageContentMap = new Map();
       translatedContentList.forEach((item, idx) => {
@@ -148,10 +151,11 @@ class PDFExporter {
           const bboxTop = pageHeight - (bbox[1] * scaleY);
           const bboxBottom = pageHeight - (bbox[3] * scaleY);
 
-          const isShortText = text.length < 30;
+          // 判断是否为短文本（与TextFittingAdapter保持一致）
+          const isShortText = text.length < 50 || (/\n/.test(text) && text.length < 80);
 
-          // 使用文本布局算法
-          const layout = this.calculatePdfTextLayout(font, text, boxWidth, boxHeight, isShortText);
+          // 使用文本布局算法（应用全局字号限制）
+          const layout = this.calculatePdfTextLayout(font, text, boxWidth, boxHeight, isShortText, fontSizeLimits);
           const { fontSize, lines, lineHeight } = layout;
 
           const paddingTop = 2;
@@ -164,9 +168,10 @@ class PDFExporter {
             : 0;
           const yOffset = (availableHeight - totalHeight) / 2;
 
-          // 绘制每一行
+          // 绘制每一行（PDF坐标系：Y轴从下往上，所以从顶部开始往下绘制）
           lines.forEach((line, lineIdx) => {
-            const lineY = bboxBottom + paddingTop + yOffset + (lineIdx * lineHeight);
+            // 从顶部开始，每一行往下偏移
+            const lineY = bboxTop - paddingTop - yOffset - (lineIdx * lineHeight);
 
             if (lineY < bboxBottom || lineY > bboxTop) return;
 
@@ -220,18 +225,137 @@ class PDFExporter {
   }
 
   /**
+   * 预处理PDF字号：计算全局字号限制（与TextFittingAdapter算法一致）
+   * @param {Object} pdfDoc - pdf-lib文档对象
+   * @param {Object} font - pdf-lib字体对象
+   * @param {Array} translatedContentList - 翻译内容列表
+   * @returns {Object} { shortTextLimit, longTextLimit } 字号限制（单位：pt）
+   */
+  preprocessPdfFontSizes(pdfDoc, font, translatedContentList) {
+    console.log('[PDFExporter] 开始预处理全局字号（计算百分位数限制）...');
+    const startTime = performance.now();
+
+    const BBOX_NORMALIZED_RANGE = this.options.bboxNormalizedRange;
+    const allScales = [];
+    const allBboxHeights = [];
+
+    // 收集所有段落的最优缩放因子和bbox高度
+    translatedContentList.forEach((item, idx) => {
+      if (item.type !== 'text' || !item.text || !item.bbox) return;
+
+      const bbox = item.bbox;
+      const pageIdx = item.page_idx !== undefined ? item.page_idx : 0;
+
+      if (pageIdx >= pdfDoc.getPageCount()) return;
+
+      const page = pdfDoc.getPage(pageIdx);
+      const { width: pageWidth, height: pageHeight } = page.getSize();
+
+      const scaleX = pageWidth / BBOX_NORMALIZED_RANGE;
+      const scaleY = pageHeight / BBOX_NORMALIZED_RANGE;
+
+      const boxWidth = (bbox[2] - bbox[0]) * scaleX;
+      const boxHeight = (bbox[3] - bbox[1]) * scaleY;
+      const text = item.text;
+
+      // 收集bbox高度（用于计算平均值）
+      allBboxHeights.push(boxHeight);
+
+      // 检测公式和短文本
+      const hasFormula = /\$\$?[\s\S]*?\$\$?/.test(text);
+      const isShortText = text.length < 50 || (/\n/.test(text) && text.length < 80);
+
+      // 计算最优缩放（字号/bbox高度）
+      const optimalScale = this._calculateOptimalScaleForPdf(font, text, boxWidth, boxHeight, hasFormula);
+
+      // 按字符数加权采样
+      const unitCount = Math.max(1, Math.floor(text.length / 10));
+      for (let i = 0; i < unitCount; i++) {
+        allScales.push(optimalScale);
+      }
+    });
+
+    // 计算百分位数（缩放因子的百分位数，不是字号）
+    const percentile60 = this._calculatePercentile(allScales, 0.60);
+    const percentile80 = this._calculatePercentile(allScales, 0.80);
+
+    const result = {
+      shortTextLimitScale: percentile80,  // 短文本缩放因子上限（80%百分位）
+      longTextLimitScale: percentile60    // 长文本缩放因子上限（60%百分位）
+    };
+
+    console.log(`[PDFExporter] 预处理完成: 样本数=${allScales.length}`);
+    console.log(`[PDFExporter] 百分位数: 60%=${percentile60.toFixed(3)}, 80%=${percentile80.toFixed(3)}, 耗时=${(performance.now() - startTime).toFixed(0)}ms`);
+    console.log(`[PDFExporter] 缩放因子限制: 短文本≤${result.shortTextLimitScale.toFixed(3)} (80%分位), 长文本≤${result.longTextLimitScale.toFixed(3)} (60%分位)`);
+
+    return result;
+  }
+
+  /**
+   * 计算单个段落的最优缩放因子（PDF版本）
+   * @private
+   */
+  _calculateOptimalScaleForPdf(font, text, boxWidth, boxHeight, hasFormula = false) {
+    if (hasFormula) return 0.5; // 公式使用保守缩放
+
+    const isCJK = /[\u4e00-\u9fa5]/.test(text);
+    const hasNewlines = /\n/.test(text);
+    const textLength = text.length;
+    const initialLineSkip = isCJK ? 1.5 : 1.3;
+
+    // 迭代尝试不同缩放因子
+    for (const scale of [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3]) {
+      const fontSize = boxHeight * scale;
+      const estimatedCharWidth = fontSize * (isCJK ? 1.0 : 0.6);
+      const effectiveWidth = boxWidth * 0.9;
+      const charsPerLine = Math.max(1, Math.floor(effectiveWidth / estimatedCharWidth));
+      const estimatedLines = hasNewlines ? text.split('\n').length : Math.ceil(textLength / charsPerLine);
+
+      const lineHeight = fontSize * initialLineSkip;
+      const totalHeight = estimatedLines === 1 ? fontSize * 1.2 : (estimatedLines - 1) * lineHeight + fontSize * 1.2;
+
+      if (totalHeight <= boxHeight) {
+        return scale; // 找到第一个可行的缩放
+      }
+    }
+
+    return 0.3; // 最小缩放
+  }
+
+  /**
+   * 计算百分位数（线性插值法）
+   * @private
+   */
+  _calculatePercentile(arr, percentile) {
+    if (arr.length === 0) return 0.85; // 默认值
+
+    const sorted = [...arr].sort((a, b) => a - b);
+    const index = percentile * (sorted.length - 1);
+    const lower = Math.floor(index);
+    const upper = Math.ceil(index);
+    const weight = index - lower;
+
+    if (lower === upper) {
+      return sorted[lower];
+    }
+    return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+  }
+
+  /**
    * 计算PDF文本布局（与Canvas渲染算法一致）
    * @param {Object} font - pdf-lib字体对象
    * @param {string} text - 文本内容
    * @param {number} boxWidth - 区域宽度
    * @param {number} boxHeight - 区域高度
    * @param {boolean} isShortText - 是否为短文本
+   * @param {Object} fontSizeLimits - 全局字号限制 { shortTextLimit, longTextLimit }
    * @returns {Object} { fontSize, lines, lineHeight }
    */
-  calculatePdfTextLayout(font, text, boxWidth, boxHeight, isShortText = false) {
+  calculatePdfTextLayout(font, text, boxWidth, boxHeight, isShortText = false, fontSizeLimits = null) {
     // 判断是否为 CJK 语言
     const isCJK = /[\u4e00-\u9fa5]/.test(text);
-    const lineSkip = isCJK ? 1.25 : 1.15;
+    // ✅ 使用与Canvas渲染一致的初始行距
+    const lineSkip = isCJK ? 1.5 : 1.3;
 
     // 内边距
     const paddingTop = 2;
@@ -241,8 +365,23 @@ class PDFExporter {
 
     // 字号范围
     const estimatedSingleLineFontSize = boxHeight * 0.8;
-    const minFontSize = isShortText ? 10 : 6;
-    const maxFontSize = Math.min(estimatedSingleLineFontSize * 1.5, boxHeight * 1.2);
+
+    // 最小字号：动态调整（基于bbox高度）
+    let minFontSize;
+    if (boxHeight < 15) {
+      minFontSize = Math.max(6, boxHeight * 0.4);  // 极小bbox：最小6px
+    } else {
+      minFontSize = isShortText ? 12 : 8;  // 正常bbox：保持可读性
+    }
+
+    let maxFontSize = Math.min(estimatedSingleLineFontSize * 1.5, boxHeight * 1.2);
+
+    // ✅ 应用全局缩放因子限制（与Canvas渲染保持一致）
+    if (fontSizeLimits) {
+      const limitScale = isShortText ? fontSizeLimits.shortTextLimitScale : fontSizeLimits.longTextLimitScale;
+      const limitFontSize = boxHeight * limitScale;  // 缩放因子 × bbox高度 = 字号上限
+      maxFontSize = Math.min(maxFontSize, limitFontSize);
+    }
 
     const hasNewlines = text.includes('\n');
     const textLength = text.length;
