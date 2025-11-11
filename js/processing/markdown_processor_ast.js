@@ -508,11 +508,15 @@
 
     /**
      * 主渲染函数（带缓存）
+     * @param {string} mdText - Markdown 文本
+     * @param {Array} images - 图片数组
+     * @param {Array} annotations - 注释数组（可选）
+     * @param {string} contentIdentifier - 内容标识符（可选）
      */
-    function render(mdText, images) {
+    function render(mdText, images, annotations, contentIdentifier) {
         metrics.totalRenders++;
 
-        const cacheKey = `${CONFIG.version}:${mdText}`;
+        const cacheKey = `${CONFIG.version}:${mdText}:${annotations ? annotations.length : 0}`;
 
         // 检查缓存
         if (renderCache.has(cacheKey)) {
@@ -526,15 +530,43 @@
             // 预处理
             const processed = preprocessMarkdown(mdText, images);
 
-            // AST 渲染
-            const result = md.render(processed);
+            // 如果有注释，动态注册注释插件
+            let mdInstance = md;
+            if (annotations && annotations.length > 0 && global.createAnnotationPluginAST) {
+                // 创建临时的 markdown-it 实例（避免污染全局实例）
+                mdInstance = markdownit({
+                    html: true,
+                    breaks: false,
+                    linkify: false,
+                    typographer: false
+                });
 
-            // 缓存结果
-            if (renderCache.size >= CONFIG.cacheSize) {
-                const firstKey = renderCache.keys().next().value;
-                renderCache.delete(firstKey);
+                // 注册所有插件
+                mdInstance.use(ocrFixPlugin);
+                mdInstance.use(tableFixPlugin);
+                mdInstance.use(mathPlugin);
+
+                // 注册注释插件
+                const annotationPlugin = global.createAnnotationPluginAST(annotations, {
+                    contentIdentifier: contentIdentifier || 'default',
+                    debug: CONFIG.debug
+                });
+                mdInstance.use(annotationPlugin);
+
+                debug('Rendering with', annotations.length, 'annotations');
             }
-            renderCache.set(cacheKey, result);
+
+            // AST 渲染
+            const result = mdInstance.render(processed);
+
+            // 缓存结果（注意：带注释的渲染不应缓存太久）
+            if (!annotations || annotations.length === 0) {
+                if (renderCache.size >= CONFIG.cacheSize) {
+                    const firstKey = renderCache.keys().next().value;
+                    renderCache.delete(firstKey);
+                }
+                renderCache.set(cacheKey, result);
+            }
 
             return result;
         } catch (error) {
@@ -564,6 +596,17 @@
             console.warn('[MarkdownProcessorAST] Custom renderer not supported in AST mode');
         }
         return render(md, null);
+    }
+
+    /**
+     * 新 API: 支持注释的渲染
+     * @param {string} md - Markdown 文本
+     * @param {Array} images - 图片数组
+     * @param {Array} annotations - 注释数组 [{text, id, ...}, ...]
+     * @param {string} contentIdentifier - 内容标识符
+     */
+    function renderWithAnnotations(md, images, annotations, contentIdentifier) {
+        return render(md, images, annotations, contentIdentifier);
     }
 
     // ========================================
@@ -600,6 +643,7 @@
         render: render,
         safeMarkdown: safeMarkdown,
         renderWithKatexFailback: renderWithKatexFailback,
+        renderWithAnnotations: renderWithAnnotations,  // 新增：支持注释
 
         // 管理函数
         getMetrics: getMetrics,
