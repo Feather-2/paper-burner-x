@@ -147,40 +147,62 @@
             const routingCheck = document.getElementById('routingCheck');
             const results = [];
 
-            // 检查 MarkdownProcessor 是否等于 AST
+            // 检查全局对象的关系
             if (window.MarkdownProcessor && window.MarkdownProcessorAST) {
-                // 通过调用 safeMarkdown 来检测实际使用的是哪个
+                // 检查 1: 直接比较（这会失败，因为 markdown_processor.js 创建了包装器）
+                const directMatch = (window.MarkdownProcessor === window.MarkdownProcessorAST);
+                if (directMatch) {
+                    results.push('<span class="success">✓ MarkdownProcessor === MarkdownProcessorAST (直接引用)</span>');
+                } else {
+                    results.push('<span class="info">ℹ MarkdownProcessor 是包装器（预期行为）</span>');
+                }
+
+                // 检查 2: 测试实际调用（通过劫持 safeMarkdown）
                 const testInput = 'test $x + y$';
-                let usedProcessor = '未知';
+                let astCalled = false;
+                let enhancedCalled = false;
 
                 try {
-                    // 临时劫持 AST 的 render 方法
-                    const originalRender = window.MarkdownProcessorAST.render;
-                    let astCalled = false;
-
-                    window.MarkdownProcessorAST.render = function(...args) {
+                    // 劫持 AST 的 safeMarkdown
+                    const originalASTSafe = window.MarkdownProcessorAST.safeMarkdown;
+                    window.MarkdownProcessorAST.safeMarkdown = function(...args) {
                         astCalled = true;
-                        return originalRender.apply(this, args);
+                        return originalASTSafe.apply(this, args);
                     };
 
-                    // 调用 MarkdownProcessor
+                    // 调用 MarkdownProcessor（如果 Enhanced 还在，也劫持它）
+                    if (window.MarkdownProcessorEnhanced && window.MarkdownProcessorEnhanced !== window.MarkdownProcessorAST) {
+                        const originalEnhancedSafe = window.MarkdownProcessorEnhanced.safeMarkdown;
+                        window.MarkdownProcessorEnhanced.safeMarkdown = function(...args) {
+                            enhancedCalled = true;
+                            return originalEnhancedSafe.apply(this, args);
+                        };
+                    }
+
+                    // 执行测试调用
                     window.MarkdownProcessor.safeMarkdown(testInput, []);
 
                     // 恢复
-                    window.MarkdownProcessorAST.render = originalRender;
+                    window.MarkdownProcessorAST.safeMarkdown = originalASTSafe;
 
+                    // 分析结果
                     if (astCalled) {
-                        usedProcessor = 'AST 架构';
-                        results.push('<span class="success">✓ MarkdownProcessor 正确路由到 AST</span>');
+                        results.push('<span class="success">✓ MarkdownProcessor.safeMarkdown() 路由到 AST ✓</span>');
+                    } else if (enhancedCalled) {
+                        results.push('<span class="error">✗ 路由到 Enhanced（旧版）</span>');
                     } else {
-                        usedProcessor = '其他版本';
-                        results.push('<span class="error">✗ MarkdownProcessor 未路由到 AST</span>');
+                        results.push('<span class="error">✗ 路由到 Legacy（最旧版）</span>');
                     }
                 } catch (error) {
                     results.push('<span class="error">✗ 路由检测失败: ' + error.message + '</span>');
                 }
 
-                results.push('<span class="info">  实际使用: ' + usedProcessor + '</span>');
+                // 检查 3: 验证 MarkdownProcessorEnhanced 是否也指向 AST
+                if (window.MarkdownProcessorEnhanced === window.MarkdownProcessorAST) {
+                    results.push('<span class="success">✓ MarkdownProcessorEnhanced === MarkdownProcessorAST</span>');
+                } else {
+                    results.push('<span class="info">ℹ MarkdownProcessorEnhanced 独立存在</span>');
+                }
             } else {
                 results.push('<span class="error">✗ 无法检测路由（处理器未完全加载）</span>');
             }
