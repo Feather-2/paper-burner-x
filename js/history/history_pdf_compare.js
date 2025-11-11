@@ -1775,8 +1775,13 @@ class PDFCompareView {
     }
 
     if (typeof window.renderMathInElement === 'function') {
+      // 预处理公式：修复常见的非标准LaTeX命令
+      let processedText = text;
+      // 将 \plus 替换为 +（\plus 不是标准LaTeX命令）
+      processedText = processedText.replace(/\\plus(?![a-zA-Z])/g, '+');
+
       const tempContainer = document.createElement('div');
-      tempContainer.textContent = text;
+      tempContainer.textContent = processedText;
 
       try {
         window.renderMathInElement(tempContainer, {
