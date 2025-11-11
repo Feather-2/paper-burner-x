@@ -58,18 +58,21 @@ class TextFittingAdapter {
   }
 
   /**
-   * 预处理：计算全局统一的字号
+   * 预处理：使用众数统计计算全局统一的字号
    * @param {Array} contentListJson - 原文内容列表
    * @param {Array} translatedContentList - 译文内容列表
    */
   preprocessGlobalFontSizes(contentListJson, translatedContentList) {
     if (this.hasPreprocessed) return;
 
-    console.log('[TextFittingAdapter] 开始预处理全局字号...');
+    console.log('[TextFittingAdapter] 开始预处理全局字号（使用众数统计）...');
     const startTime = performance.now();
 
-    const globalFontScale = this.options.globalFontScale;
     const BBOX_NORMALIZED_RANGE = this.options.bboxNormalizedRange || 1000;
+
+    // 第一步：收集所有段落的最优缩放因子
+    const allScales = [];
+    const tempCache = new Map(); // 临时存储每个段落的最优缩放
 
     contentListJson.forEach((item, idx) => {
       if (item.type !== 'text' || !item.bbox) return;
@@ -78,19 +81,100 @@ class TextFittingAdapter {
       if (!translatedItem || !translatedItem.text) return;
 
       const bbox = item.bbox;
-      const height = (bbox[3] - bbox[1]) / BBOX_NORMALIZED_RANGE;
+      const bboxHeight = (bbox[3] - bbox[1]) / BBOX_NORMALIZED_RANGE;
+      const bboxWidth = (bbox[2] - bbox[0]) / BBOX_NORMALIZED_RANGE;
+      const text = translatedItem.text;
 
-      // 字号 = bbox高度 * 全局缩放因子
-      const estimatedFontSize = height * globalFontScale;
+      // 计算该段落的最优缩放因子（模拟实际渲染）
+      const optimalScale = this._calculateOptimalScale(text, bboxWidth, bboxHeight);
 
-      this.globalFontSizeCache.set(idx, {
-        estimatedFontSize: estimatedFontSize,
-        bbox: bbox
+      // 根据文本单元数量加权（字符数越多，权重越大）
+      const unitCount = Math.max(1, Math.floor(text.length / 10));
+      for (let i = 0; i < unitCount; i++) {
+        allScales.push(optimalScale);
+      }
+
+      tempCache.set(idx, {
+        optimalScale: optimalScale,
+        bbox: bbox,
+        bboxHeight: bboxHeight
       });
     });
 
-    console.log(`[TextFittingAdapter] 预处理完成：全局缩放=${globalFontScale}, 耗时=${(performance.now() - startTime).toFixed(0)}ms`);
+    // 第二步：计算众数（mode）
+    const modeScale = this._calculateMode(allScales);
+    console.log(`[TextFittingAdapter] 收集了 ${allScales.length} 个缩放样本，计算众数=${modeScale.toFixed(3)}`);
+
+    // 第三步：应用众数，限制过大的字号
+    tempCache.forEach((data, idx) => {
+      const finalScale = Math.min(data.optimalScale, modeScale);
+      const estimatedFontSize = data.bboxHeight * finalScale;
+
+      this.globalFontSizeCache.set(idx, {
+        estimatedFontSize: estimatedFontSize,
+        bbox: data.bbox,
+        scale: finalScale
+      });
+    });
+
+    console.log(`[TextFittingAdapter] 预处理完成：众数缩放=${modeScale.toFixed(3)}, 耗时=${(performance.now() - startTime).toFixed(0)}ms`);
     this.hasPreprocessed = true;
+  }
+
+  /**
+   * 计算单个段落的最优缩放因子
+   * @private
+   */
+  _calculateOptimalScale(text, bboxWidth, bboxHeight) {
+    // 使用简化的估算方法（避免实际创建Canvas）
+    const textLength = text.length;
+    const isCJK = /[\u4e00-\u9fa5]/.test(text);
+
+    // 估算平均字符宽度（CJK字符较宽）
+    const avgCharWidth = isCJK ? 1.0 : 0.6;
+
+    // 估算需要的行数（假设单行能放下 width / (height * avgCharWidth) 个字符）
+    const charsPerLine = Math.max(1, bboxWidth / (bboxHeight * avgCharWidth));
+    const estimatedLines = Math.ceil(textLength / charsPerLine);
+
+    // 根据行数计算最优缩放
+    const lineSkip = isCJK ? 1.25 : 1.15;
+    const availableHeightForFont = bboxHeight / (estimatedLines === 1 ? 1.2 : ((estimatedLines - 1) * lineSkip + 1.2));
+
+    // 缩放因子 = 实际可用字号 / bbox高度
+    const optimalScale = Math.min(1.0, Math.max(0.3, availableHeightForFont));
+
+    return optimalScale;
+  }
+
+  /**
+   * 计算数组的众数（mode）
+   * @private
+   */
+  _calculateMode(arr) {
+    if (arr.length === 0) return this.options.globalFontScale; // 回退到默认值
+
+    // 将连续值离散化（四舍五入到0.05精度）
+    const rounded = arr.map(v => Math.round(v * 20) / 20);
+
+    // 统计频率
+    const frequency = new Map();
+    rounded.forEach(val => {
+      frequency.set(val, (frequency.get(val) || 0) + 1);
+    });
+
+    // 找到出现次数最多的值
+    let maxCount = 0;
+    let modeValue = this.options.globalFontScale;
+
+    frequency.forEach((count, value) => {
+      if (count > maxCount) {
+        maxCount = count;
+        modeValue = value;
+      }
+    });
+
+    return modeValue;
   }
 
   /**
@@ -180,7 +264,7 @@ class TextFittingAdapter {
   }
 
   /**
-   * 使用文本自适应算法绘制文本（优化版）
+   * 使用文本自适应算法绘制文本（优化版，支持动态行距调整）
    * @param {CanvasRenderingContext2D} ctx - Canvas 上下文
    * @param {string} text - 文本内容
    * @param {number} x - X 坐标
@@ -194,7 +278,6 @@ class TextFittingAdapter {
     try {
       // 判断是否为 CJK 语言
       const isCJK = /[\u4e00-\u9fa5]/.test(text);
-      const lineSkip = isCJK ? 1.25 : 1.15;
 
       // 内边距
       const paddingTop = 2;
@@ -219,57 +302,74 @@ class TextFittingAdapter {
 
       let bestSolution = null;
 
-      // 对每个宽度因子，使用二分查找找到最大可用字号
+      // 动态行距策略：初始值 → 逐步缩小
+      const initialLineSkip = isCJK ? 1.5 : 1.3;
+      const lineSkipStep = 0.1;
+      const minLineSkip = 1.1; // 最小行距
+
+      // 对每个宽度因子和行距组合，使用二分查找找到最大可用字号
       for (const widthFactor of widthFactors) {
         const effectiveWidth = availableWidth * widthFactor;
 
-        let low = minFontSize;
-        let high = maxFontSize;
-        let foundFontSize = null;
-        let foundLines = null;
+        // 尝试不同的行距
+        for (let currentLineSkip = initialLineSkip; currentLineSkip >= minLineSkip; currentLineSkip -= lineSkipStep) {
+          let low = minFontSize;
+          let high = maxFontSize;
+          let foundFontSize = null;
+          let foundLines = null;
 
-        while (high - low > 0.5) {
-          const mid = (low + high) / 2;
+          while (high - low > 0.5) {
+            const mid = (low + high) / 2;
 
-          ctx.font = `${mid}px Arial, "Microsoft YaHei", "SimHei", sans-serif`;
-          const lines = this.wrapText(ctx, text, effectiveWidth);
-          const lineHeight = mid * lineSkip;
+            ctx.font = `${mid}px Arial, "Microsoft YaHei", "SimHei", sans-serif`;
+            const lines = this.wrapText(ctx, text, effectiveWidth);
+            const lineHeight = mid * currentLineSkip;
 
-          const totalHeight = lines.length === 1
-            ? mid * 1.2
-            : (lines.length - 1) * lineHeight + mid * 1.2;
+            const totalHeight = lines.length === 1
+              ? mid * 1.2
+              : (lines.length - 1) * lineHeight + mid * 1.2;
 
-          if (totalHeight <= availableHeight) {
-            foundFontSize = mid;
-            foundLines = lines;
-            low = mid;
-          } else {
-            high = mid;
+            if (totalHeight <= availableHeight) {
+              foundFontSize = mid;
+              foundLines = lines;
+              low = mid;
+            } else {
+              high = mid;
+            }
           }
-        }
 
-        if (foundFontSize) {
-          if (!bestSolution || foundFontSize > bestSolution.fontSize) {
-            bestSolution = { fontSize: foundFontSize, widthFactor, lines: foundLines };
+          if (foundFontSize) {
+            // 找到可行方案，优先选择字号大、行距大的方案
+            const quality = foundFontSize * currentLineSkip; // 综合质量评分
+            if (!bestSolution || quality > (bestSolution.fontSize * bestSolution.lineSkip)) {
+              bestSolution = {
+                fontSize: foundFontSize,
+                widthFactor,
+                lines: foundLines,
+                lineSkip: currentLineSkip
+              };
+            }
+            break; // 找到可行方案后，不需要继续缩小行距
           }
         }
       }
 
-      // 没找到合适方案，使用最小字号
+      // 没找到合适方案，使用最小字号和最小行距
       if (!bestSolution) {
         ctx.font = `${minFontSize}px Arial, "Microsoft YaHei", "SimHei", sans-serif`;
         const lines = this.wrapText(ctx, text, availableWidth);
-        const lineHeight = minFontSize * lineSkip;
+        const lineHeight = minFontSize * minLineSkip;
         const maxLines = Math.max(1, Math.floor(availableHeight / lineHeight));
         bestSolution = {
           fontSize: minFontSize,
           widthFactor: 1.0,
-          lines: lines.slice(0, maxLines)
+          lines: lines.slice(0, maxLines),
+          lineSkip: minLineSkip
         };
       }
 
       // 绘制文字
-      const { fontSize, lines } = bestSolution;
+      const { fontSize, lines, lineSkip } = bestSolution;
       const lineHeight = fontSize * lineSkip;
 
       ctx.fillStyle = '#000';
@@ -289,7 +389,7 @@ class TextFittingAdapter {
         ctx.fillText(line, lineX, lineY);
       });
 
-      console.log(`[TextFitting] 完成: 字号=${fontSize.toFixed(1)}px, 行数=${lines.length}, 宽度因子=${bestSolution.widthFactor}`);
+      console.log(`[TextFitting] 完成: 字号=${fontSize.toFixed(1)}px, 行数=${lines.length}, 行距=${lineSkip.toFixed(2)}, 宽度因子=${bestSolution.widthFactor}`);
 
     } catch (error) {
       console.error('[TextFitting] 渲染失败:', error);
@@ -301,7 +401,7 @@ class TextFittingAdapter {
   }
 
   /**
-   * 文本换行算法
+   * 文本换行算法（支持中英文混排间距）
    * @param {CanvasRenderingContext2D} ctx - Canvas 上下文
    * @param {string} text - 文本内容
    * @param {number} maxWidth - 最大宽度
@@ -338,9 +438,11 @@ class TextFittingAdapter {
       for (let i = 0; i < segment.length; i++) {
         const char = segment[i];
         const testLine = currentLine + char;
-        const metrics = ctx.measureText(testLine);
 
-        if (metrics.width > maxWidth && currentLine.length > 0) {
+        // 计算宽度时考虑中英文混排间距
+        const lineWidth = this._measureTextWithCJKSpacing(ctx, testLine);
+
+        if (lineWidth > maxWidth && currentLine.length > 0) {
           lines.push(currentLine);
           currentLine = char;
         } else {
@@ -354,6 +456,51 @@ class TextFittingAdapter {
     }
 
     return lines.length > 0 ? lines : [''];
+  }
+
+  /**
+   * 测量文本宽度（考虑中英文混排间距）
+   * @private
+   */
+  _measureTextWithCJKSpacing(ctx, text) {
+    if (!text) return 0;
+
+    let totalWidth = ctx.measureText(text).width;
+    let spacingCount = 0;
+
+    // 计算需要添加间距的位置数量
+    for (let i = 0; i < text.length - 1; i++) {
+      if (this._needsCJKWesternSpacing(text[i], text[i + 1])) {
+        spacingCount++;
+      }
+    }
+
+    // 每个间距添加0.5个字符宽度
+    const avgCharWidth = ctx.measureText('中').width; // 使用CJK字符宽度作为基准
+    totalWidth += spacingCount * avgCharWidth * 0.5;
+
+    return totalWidth;
+  }
+
+  /**
+   * 判断两个字符之间是否需要添加间距
+   * @private
+   */
+  _needsCJKWesternSpacing(char1, char2) {
+    // 黑名单：这些字符不需要添加间距
+    const punctuationBlacklist = /[，。、；：！？""''（）《》【】…—]/;
+
+    if (punctuationBlacklist.test(char1) || punctuationBlacklist.test(char2)) {
+      return false;
+    }
+
+    const isCJK1 = /[\u4e00-\u9fa5]/.test(char1);
+    const isCJK2 = /[\u4e00-\u9fa5]/.test(char2);
+    const isWestern1 = /[a-zA-Z0-9]/.test(char1);
+    const isWestern2 = /[a-zA-Z0-9]/.test(char2);
+
+    // CJK → Western 或 Western → CJK 需要间距
+    return (isCJK1 && isWestern2) || (isWestern1 && isCJK2);
   }
 
   /**
