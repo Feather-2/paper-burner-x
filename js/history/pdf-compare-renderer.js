@@ -111,7 +111,7 @@ class PDFCompareRenderer {
 
     // 从较大字号开始尝试，允许多行显示
     for (let size = 16; size >= 6; size -= 1) {
-      ctx.font = `${size}px Arial, "Microsoft YaHei", "SimHei", sans-serif`;
+      ctx.font = `${size}px "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif`;
       const lines = this.wrapText(ctx, text, width - 4);
 
       // 计算总高度
@@ -126,7 +126,7 @@ class PDFCompareRenderer {
     }
 
     // 绘制最佳结果
-    ctx.font = `${bestFontSize}px Arial, "Microsoft YaHei", "SimHei", sans-serif`;
+    ctx.font = `${bestFontSize}px "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif`;
     ctx.fillStyle = '#000';
     ctx.textBaseline = 'top';
 
@@ -169,7 +169,7 @@ class PDFCompareRenderer {
       const lineSkip = isCJK ? this.textFittingEngine.LINE_SKIP_CJK : this.textFittingEngine.LINE_SKIP_WESTERN;
 
       // 动态缩放循环：不断尝试直到所有内容都装下（参考 其他开源项目）
-      const minReadableFontSize = 9; // 提高最小字号到 9px，保证可读性
+      const minReadableFontSize = 10; // 提高最小字号到 10px，保证可读性
       const minFontSize = Math.max(estimatedFontSize * 0.2, minReadableFontSize); // 允许缩到 20%
 
       // 确保至少从一个合理的字号开始尝试
@@ -188,7 +188,7 @@ class PDFCompareRenderer {
         attempts++;
 
         // 设置字体
-        ctx.font = `${finalFontSize}px Arial, "Microsoft YaHei", "SimHei", sans-serif`;
+        ctx.font = `${finalFontSize}px "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif`;
         ctx.fillStyle = '#000';
         ctx.textBaseline = 'top';
 
@@ -236,7 +236,7 @@ class PDFCompareRenderer {
       // 如果循环结束还是装不下，优先保证字号可读性
       // 使用最小可读字号绘制，即使会跳过部分行
       const fallbackFontSize = Math.max(finalFontSize, minReadableFontSize);
-      ctx.font = `${fallbackFontSize}px Arial, "Microsoft YaHei", "SimHei", sans-serif`;
+      ctx.font = `${fallbackFontSize}px "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif`;
       ctx.fillStyle = '#000';
       ctx.textBaseline = 'top';
       const lines = this.wrapText(ctx, text, width - 4);
@@ -262,7 +262,7 @@ class PDFCompareRenderer {
     } catch (error) {
       console.error('[PDFCompareView] 文本自适应渲染失败:', error);
       // 使用最小的回退渲染
-      ctx.font = '8px Arial, sans-serif';
+      ctx.font = '8px "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif';
       ctx.fillStyle = '#000';
       ctx.textBaseline = 'top';
       const lines = this.wrapText(ctx, text, width - 4);

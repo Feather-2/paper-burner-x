@@ -39,23 +39,79 @@ class PDFCompareView {
     this._renderQueueOriginal = Promise.resolve();
     this._renderQueueTranslation = Promise.resolve();
 
-    // 文本自适应引擎（保留格式翻译）
-    this.textFittingEngine = null;
-    // 注意：延迟到 initialize() 方法中初始化，确保脚本加载完成
-
     // PDF 文本层缓存（用于精确清除文字）
     this.pageTextLayers = new Map(); // pageNum -> textContent
 
-    // 全局字号统一：存储预计算的字号信息（参考 其他开源项目）
-    this.globalFontSizeCache = new Map(); // idx -> { estimatedFontSize, estimatedLines, bbox }
-    this.hasPreprocessed = false; // 是否已经完成预处理
+    // ============ 新模块化架构 ============
+    // 初始化文本自适应渲染模块
+    this.textFittingAdapter = null;
+    // 兼容性：保留原有属性
+    this.textFittingEngine = null;
+    this.globalFontSizeCache = new Map();
+    this.hasPreprocessed = false;
+
+    // 初始化PDF导出模块
+    this.pdfExporter = null;
+
+    // 初始化分段管理模块
+    this.segmentManager = null;
+
+    // 初始化模块（延迟到 initialize 方法，确保依赖加载）
+    this._initializeModules();
+  }
+
+  /**
+   * 初始化各个功能模块
+   */
+  _initializeModules() {
+    try {
+      // 初始化文本自适应模块
+      if (typeof TextFittingAdapter !== 'undefined') {
+        this.textFittingAdapter = new TextFittingAdapter({
+          initialScale: 1.0,
+          minScale: 0.3,
+          scaleStepHigh: 0.05,
+          scaleStepLow: 0.1,
+          lineSkipCJK: 1.5,
+          lineSkipWestern: 1.3,
+          minLineHeight: 1.05,
+          globalFontScale: 0.85,
+          bboxNormalizedRange: 1000
+        });
+        console.log('[PDFCompareView] TextFittingAdapter 已初始化');
+      } else {
+        console.warn('[PDFCompareView] TextFittingAdapter 未加载，将使用回退方案');
+      }
+
+      // 初始化PDF导出模块
+      if (typeof PDFExporter !== 'undefined') {
+        this.pdfExporter = new PDFExporter({
+          bboxNormalizedRange: 1000
+        });
+        console.log('[PDFCompareView] PDFExporter 已初始化');
+      } else {
+        console.warn('[PDFCompareView] PDFExporter 未加载，导出功能将不可用');
+      }
+
+      // SegmentManager 将在 renderAllPagesContinuous 中初始化，因为需要 pdfDoc
+    } catch (error) {
+      console.error('[PDFCompareView] 模块初始化失败:', error);
+    }
   }
 
   /**
    * 初始化文本自适应引擎
    */
   initializeTextFitting() {
-    // 检查 TextFittingEngine 是否已加载
+    // 优先使用新模块
+    if (this.textFittingAdapter) {
+      this.textFittingAdapter.initialize();
+      // 兼容性：同步到旧属性
+      this.textFittingEngine = this.textFittingAdapter.textFittingEngine;
+      return;
+    }
+
+    // 回退：使用原有实现
     if (typeof TextFittingEngine === 'undefined') {
       console.error('[PDFCompareView] TextFittingEngine 未加载！请确保 js/utils/text-fitting.js 已正确引入');
       console.error('[PDFCompareView] 当前可用类:', typeof TextFittingEngine, typeof PDFTextRenderer);
@@ -64,13 +120,12 @@ class PDFCompareView {
 
     try {
       this.textFittingEngine = new TextFittingEngine({
-        // 优化参数（可根据实际效果调整）
         initialScale: 1.0,
-        minScale: 0.3,        // 最小缩放30%（提高可读性）
+        minScale: 0.3,
         scaleStepHigh: 0.05,
         scaleStepLow: 0.1,
-        lineSkipCJK: 1.5,     // CJK 行距
-        lineSkipWestern: 1.3,  // 西文行距
+        lineSkipCJK: 1.5,
+        lineSkipWestern: 1.3,
         minLineHeight: 1.05
       });
 
@@ -81,18 +136,28 @@ class PDFCompareView {
   }
 
   /**
-   * 预处理：计算全局统一的字号（参考 其他开源项目 的 preprocess_document）
-   * 这样可以确保整个文档的字号基本一致
+   * 预处理：计算全局统一的字号
    */
   preprocessGlobalFontSizes() {
+    // 优先使用新模块
+    if (this.textFittingAdapter) {
+      this.textFittingAdapter.preprocessGlobalFontSizes(
+        this.contentListJson,
+        this.translatedContentList
+      );
+      // 兼容性：同步缓存
+      this.globalFontSizeCache = this.textFittingAdapter.globalFontSizeCache;
+      this.hasPreprocessed = this.textFittingAdapter.hasPreprocessed;
+      return;
+    }
+
+    // 回退：使用原有实现
     if (this.hasPreprocessed) return;
 
     console.log('[PDFCompareView] 开始预处理全局字号...');
     const startTime = performance.now();
 
-    // 简化策略：不做复杂的预处理，让每个 bbox 独立决定字号
-    // 仅设置一个全局的字号缩放因子
-    const globalFontScale = 0.85; // 全局字号缩放因子，可调节（0.5-1.0）
+    const globalFontScale = 0.85;
 
     this.contentListJson.forEach((item, idx) => {
       if (item.type !== 'text' || !item.bbox) return;
@@ -104,7 +169,6 @@ class PDFCompareView {
       const BBOX_NORMALIZED_RANGE = 1000;
       const height = (bbox[3] - bbox[1]) / BBOX_NORMALIZED_RANGE;
 
-      // 简单直接：字号 = bbox高度 * 全局缩放因子
       const estimatedFontSize = height * globalFontScale;
 
       this.globalFontSizeCache.set(idx, {
@@ -435,6 +499,50 @@ class PDFCompareView {
   async renderAllPagesContinuous() {
     this.mode = 'continuous';
 
+    // 优先使用新模块
+    if (typeof SegmentManager !== 'undefined') {
+      // 初始化 SegmentManager
+      this.segmentManager = new SegmentManager(this.pdfDoc, {
+        maxSegmentPixels: this.dpr >= 2 ? 4096 : 8192,
+        bufferRatio: 0.5,
+        scrollDebounceMs: 80,
+        bboxNormalizedRange: 1000
+      });
+
+      // 设置容器
+      this.segmentManager.setContainers(
+        this.originalSegmentsContainer,
+        this.translationSegmentsContainer,
+        document.getElementById('pdf-original-scroll'),
+        document.getElementById('pdf-translation-scroll')
+      );
+
+      // 设置依赖注入
+      this.segmentManager.setDependencies({
+        renderPageBboxesToCtx: this.renderPageBboxesToCtx.bind(this),
+        renderPageTranslationToCtx: this.renderPageTranslationToCtx.bind(this),
+        clearTextInBbox: this.clearTextInBbox.bind(this),
+        clearFormulaElementsForPageInWrapper: this.clearFormulaElementsForPageInWrapper.bind(this),
+        onOverlayClick: this.onSegmentOverlayClick.bind(this),
+        contentListJson: this.contentListJson
+      });
+
+      // 执行渲染
+      await this.segmentManager.renderAllPagesContinuous();
+
+      // 同步属性（兼容性）
+      this.pageInfos = this.segmentManager.pageInfos;
+      this.scale = this.segmentManager.scale;
+      this.segments = this.segmentManager.segments;
+
+      // 更新UI
+      document.getElementById('pdf-page-info').textContent = `共 ${this.totalPages} 页`;
+      document.getElementById('pdf-zoom-level').textContent = `${Math.round(this.scale * 100)}%`;
+
+      return;
+    }
+
+    // 回退：使用原有实现
     // 计算自适应缩放
     const firstPage = await this.pdfDoc.getPage(1);
     const originalViewport = firstPage.getViewport({ scale: 1.0 });
@@ -1208,7 +1316,7 @@ class PDFCompareView {
 
     // 从大到小尝试字号
     for (let fontSize = maxFontSize; fontSize >= minFontSize; fontSize -= 0.5) {
-      ctx.font = `${fontSize}px sans-serif`;
+      ctx.font = `${fontSize}px "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif`;
       const lines = this.wrapText(ctx, text, width - 4);
       const lineHeight = fontSize * 1.5; // 行间距 1.5
 
@@ -1245,7 +1353,7 @@ class PDFCompareView {
     // 如果所有字号都重叠，继续降低字号直到 3px（强制绘制）
     if (bestLines.length === 0) {
       bestFontSize = 3;
-      ctx.font = `${bestFontSize}px sans-serif`;
+      ctx.font = `${bestFontSize}px "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif`;
       bestLines = this.wrapText(ctx, text, width - 4);
       const lineHeight = bestFontSize * 1.5;
 
@@ -1268,7 +1376,7 @@ class PDFCompareView {
     // 单行小标题最小字号限制（仅限单行）
     if (isShortText && bestLines.length === 1 && bestFontSize < 14) {
       bestFontSize = 14;
-      ctx.font = `${bestFontSize}px sans-serif`;
+      ctx.font = `${bestFontSize}px "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif`;
       bestLines = this.wrapText(ctx, text, width - 4);
       bestActualHeight = bestFontSize * 1.3 + 8;
     }
@@ -1276,7 +1384,7 @@ class PDFCompareView {
     // 绘制文字
     ctx.fillStyle = '#000';
     ctx.textBaseline = 'top';
-    ctx.font = `${bestFontSize}px sans-serif`;
+    ctx.font = `${bestFontSize}px "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif`;
     const lineHeight = bestFontSize * 1.5; // 行间距 1.5
 
     bestLines.forEach((line, i) => {
@@ -1297,12 +1405,20 @@ class PDFCompareView {
     // 检查是否为短文本/小标题（与 bbox 扩展判断保持一致）
     const isShortText = text.length < 30;
 
-    // 暂时禁用公式渲染（用于测试）
-    // 所有文本都用 Canvas 渲染
+    // 检查是否包含公式（更严格的检测）
+    // 1. $$ 包围的块公式
+    // 2. $ 包围且包含数学符号的行内公式（不是简单的 $数字$）
+    const hasBlockFormula = /\$\$[\s\S]+?\$\$/.test(text);
+    const hasInlineFormula = /\$[^$]*[\\^_{}a-zA-Z][\s\S]*?\$/.test(text); // 必须包含 \、^、_、{、}、字母等数学符号
+    const hasFormula = hasBlockFormula || hasInlineFormula;
 
-    // 使用预处理的字号信息或直接传递 cachedInfo
-    const suggestedFontSize = cachedInfo ? cachedInfo.estimatedFontSize : null;
-    this.drawPlainTextInBox(ctx, text, x, y, width, height, isShortText, cachedInfo);
+    if (hasFormula && wrapperEl) {
+      // 包含公式，使用 HTML 渲染（通过模块或回退方案）
+      this.drawTextWithFormulaInBox(text, x, y, width, height, pageNum, wrapperEl, isShortText, cachedInfo);
+    } else {
+      // 纯文本，使用 Canvas 渲染
+      this.drawPlainTextInBox(ctx, text, x, y, width, height, isShortText, cachedInfo);
+    }
   }
 
   /**
@@ -1333,7 +1449,7 @@ class PDFCompareView {
     // 先尝试找到能完整放下所有文本的最大字号（从大到小）
     let foundPerfectFit = false;
     for (let fontSize = maxFontSize; fontSize >= 3; fontSize -= 0.5) { // 降到 3px
-      ctx.font = `${fontSize}px sans-serif`;
+      ctx.font = `${fontSize}px "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif`;
       const lines = this.wrapText(ctx, text, width - 4);
       const lineHeight = fontSize * 1.5; // 行间距 1.5
 
@@ -1354,7 +1470,7 @@ class PDFCompareView {
     // 如果仍然找不到（极端情况），使用3px并裁剪行数
     if (!foundPerfectFit) {
       bestFontSize = 3;
-      ctx.font = `${bestFontSize}px sans-serif`;
+      ctx.font = `${bestFontSize}px "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif`;
       const allLines = this.wrapText(ctx, text, width - 4);
       const lineHeight = bestFontSize * 1.5;
 
@@ -1377,14 +1493,14 @@ class PDFCompareView {
     if (isShortText && bestLines.length === 1 && bestFontSize < 14) {
       // 单行小标题：强制使用至少 14px
       bestFontSize = 14;
-      ctx.font = `${bestFontSize}px sans-serif`;
+      ctx.font = `${bestFontSize}px "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif`;
       bestLines = this.wrapText(ctx, text, width - 4);
     }
 
     // 绘制文字（确保不超出 bbox 高度）
     ctx.fillStyle = '#000';
     ctx.textBaseline = 'top';
-    ctx.font = `${bestFontSize}px sans-serif`;
+    ctx.font = `${bestFontSize}px "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif`;
 
     const lineHeight = bestFontSize * 1.5; // 行间距 1.5
 
@@ -1409,10 +1525,10 @@ class PDFCompareView {
     try {
       // 判断是否为 CJK 语言
       const isCJK = /[\u4e00-\u9fa5]/.test(text);
-      const lineSkip = isCJK ? 1.25 : 1.15; // 降低行距，充分利用高度
+      const lineSkip = isCJK ? 1.5 : 1.3; // 使用统一的行距
 
-      // 内边距
-      const paddingTop = 2;
+      // 内边距：对小bbox减少padding避免裁剪
+      const paddingTop = height < 20 ? 0.5 : 2;  // 小bbox（<20px）：0.5px padding
       const paddingX = 2;
       const availableHeight = height - paddingTop * 2; // 上下都留边距
       const availableWidth = width - paddingX * 2;
@@ -1421,8 +1537,15 @@ class PDFCompareView {
       // 假设单行文本，字号约为 bbox 高度的 80%
       const estimatedSingleLineFontSize = height * 0.8;
 
-      // 最小字号：确保可读性
-      const minFontSize = isShortText ? 10 : 6;
+      // 最小字号：动态调整（基于bbox高度）
+      // 对于小bbox（高度<20px），允许使用更小的字号以避免裁剪
+      // 对于正常bbox，使用10px/8px以平衡可读性和容纳率
+      let minFontSize;
+      if (height < 20) {
+        minFontSize = Math.max(6, height * 0.35);  // 小bbox：最小6px, 35%系数
+      } else {
+        minFontSize = isShortText ? 10 : 8;  // 正常bbox：10px/8px（降低阈值）
+      }
 
       // 最大字号：不超过单行估算值的 1.5 倍
       const maxFontSize = Math.min(estimatedSingleLineFontSize * 1.5, height * 1.2);
@@ -1431,7 +1554,7 @@ class PDFCompareView {
       const hasNewlines = text.includes('\n');
       const textLength = text.length;
 
-      console.log(`[TextFitting] 开始: "${text.substring(0, 30)}..." bbox=${width.toFixed(0)}x${height.toFixed(0)}, 字号范围=${minFontSize.toFixed(1)}-${maxFontSize.toFixed(1)}px, 文本长度=${textLength}, 有换行=${hasNewlines}`);
+      // console.log(`[TextFitting] 开始: "${text.substring(0, 30)}..." bbox=${width.toFixed(0)}x${height.toFixed(0)}, 字号范围=${minFontSize.toFixed(1)}-${maxFontSize.toFixed(1)}px, 文本长度=${textLength}, 有换行=${hasNewlines}`);
 
       // 尝试不同的宽度因子（从 1.0 开始，优先使用全宽）
       // 如果文本很短或有原始换行符，只使用全宽
@@ -1455,7 +1578,7 @@ class PDFCompareView {
           const mid = (low + high) / 2;
 
           // 测试这个字号是否能装下
-          ctx.font = `${mid}px Arial, "Microsoft YaHei", "SimHei", sans-serif`;
+          ctx.font = `${mid}px "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif`;
           const lines = this.wrapText(ctx, text, effectiveWidth);
           const lineHeight = mid * lineSkip;
 
@@ -1490,7 +1613,7 @@ class PDFCompareView {
         const { fontSize, widthFactor, lines } = bestSolution;
         const lineHeight = fontSize * lineSkip;
 
-        ctx.font = `${fontSize}px Arial, "Microsoft YaHei", "SimHei", sans-serif`;
+        ctx.font = `${fontSize}px "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif`;
         ctx.fillStyle = '#000';
         ctx.textBaseline = 'top';
 
@@ -1508,10 +1631,10 @@ class PDFCompareView {
           ctx.fillText(line, x + paddingX + xOffset, lineY);
         });
 
-        // 显示前3行内容用于调试
-        const previewLines = lines.slice(0, 3).map(l => `"${l}"`).join(', ');
-        console.log(`[TextFitting] ✓ 成功: "${text.substring(0, 30)}..." 字号=${fontSize.toFixed(1)}px, 行数=${lines.length}, 宽度=${(widthFactor*100).toFixed(0)}%, bbox高=${height.toFixed(1)}px, 实际高=${totalHeight.toFixed(1)}px`);
-        console.log(`[TextFitting]   前3行: ${previewLines}`);
+        // 显示前3行内容用于调试（已注释以减少日志）
+        // const previewLines = lines.slice(0, 3).map(l => `"${l}"`).join(', ');
+        // console.log(`[TextFitting] ✓ 成功: "${text.substring(0, 30)}..." 字号=${fontSize.toFixed(1)}px, 行数=${lines.length}, 宽度=${(widthFactor*100).toFixed(0)}%, bbox高=${height.toFixed(1)}px, 实际高=${totalHeight.toFixed(1)}px`);
+        // console.log(`[TextFitting]   前3行: ${previewLines}`);
         return;
       }
 
@@ -1520,7 +1643,7 @@ class PDFCompareView {
 
       const fallbackFontSize = minFontSize;
       const fallbackLineHeight = fallbackFontSize * lineSkip;
-      ctx.font = `${fallbackFontSize}px Arial, "Microsoft YaHei", "SimHei", sans-serif`;
+      ctx.font = `${fallbackFontSize}px "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif`;
       ctx.fillStyle = '#000';
       ctx.textBaseline = 'top';
 
@@ -1564,8 +1687,9 @@ class PDFCompareView {
     tempDiv.style.top = `${y / this.dpr}px`;
     tempDiv.style.width = `${width / this.dpr}px`;
     // 设置高度限制
-    tempDiv.style.height = `${height / this.dpr}px`;
-    tempDiv.style.maxHeight = `${height / this.dpr}px`;
+    const targetHeightPx = height / this.dpr;
+    tempDiv.style.height = `${targetHeightPx}px`;
+    tempDiv.style.maxHeight = `${targetHeightPx}px`;
     tempDiv.style.overflow = 'hidden'; // 隐藏超出部分
     tempDiv.style.wordWrap = 'break-word';
     tempDiv.style.overflowWrap = 'break-word';
@@ -1590,7 +1714,44 @@ class PDFCompareView {
 
     // 添加到传入的段 wrapper（相对定位的容器）
     const targetWrapper = wrapperEl || this.translationSegmentsContainer || document.getElementById('pdf-translation-segments') || this.translationCanvas?.parentElement;
-    if (targetWrapper) targetWrapper.appendChild(tempDiv);
+    if (targetWrapper) {
+      targetWrapper.appendChild(tempDiv);
+
+      // ✅ 修复公式超高问题：迭代缩小字号直到内容适配
+      const minFontSize = 6; // 最小字号
+      const fontSizeStep = 0.5; // 每次缩小 0.5px
+      let currentFontSize = fontSize;
+      let iterations = 0;
+      const maxIterations = 20; // 最多尝试 20 次
+
+      // 等待 KaTeX 渲染完成后检查高度
+      setTimeout(() => {
+        // 检查实际内容高度是否超出容器
+        while (tempDiv.scrollHeight > targetHeightPx && currentFontSize > minFontSize && iterations < maxIterations) {
+          currentFontSize -= fontSizeStep;
+          tempDiv.style.fontSize = `${currentFontSize}px`;
+          iterations++;
+        }
+
+        // 如果经过迭代后仍然超高，记录警告
+        if (tempDiv.scrollHeight > targetHeightPx) {
+          const overflowRatio = ((tempDiv.scrollHeight / targetHeightPx - 1) * 100).toFixed(1);
+          console.warn(
+            `[FormulaFitting] 公式内容超出bbox ${overflowRatio}%:`,
+            `scrollHeight=${tempDiv.scrollHeight.toFixed(1)}px,`,
+            `targetHeight=${targetHeightPx.toFixed(1)}px,`,
+            `最终字号=${currentFontSize.toFixed(1)}px`,
+            `(已达最小字号${minFontSize}px)`
+          );
+        } else if (iterations > 0) {
+          // 成功缩小到合适大小，记录调试信息
+          console.log(
+            `[FormulaFitting] 自动缩小字号: ${fontSize.toFixed(1)}px → ${currentFontSize.toFixed(1)}px`,
+            `(迭代${iterations}次)`
+          );
+        }
+      }, 10); // 等待 10ms 让 KaTeX 渲染完成
+    }
   }
 
   /**
@@ -1641,10 +1802,15 @@ class PDFCompareView {
   }
 
   /**
-   * 渲染文本中的公式（优化版：缓存 + 减少日志）
+   * 渲染文本中的公式（优化版：优先使用模块）
    */
   renderFormulasInText(text) {
-    // 使用缓存避免重复渲染
+    // 优先使用 TextFittingAdapter 的公式渲染
+    if (this.textFittingAdapter && typeof this.textFittingAdapter.renderFormulasInText === 'function') {
+      return this.textFittingAdapter.renderFormulasInText(text);
+    }
+
+    // 回退方案：使用本地实现
     if (!this._formulaCache) {
       this._formulaCache = new Map();
     }
@@ -1654,8 +1820,13 @@ class PDFCompareView {
     }
 
     if (typeof window.renderMathInElement === 'function') {
+      // 预处理公式：修复常见的非标准LaTeX命令
+      let processedText = text;
+      // 将 \plus 替换为 +（\plus 不是标准LaTeX命令）
+      processedText = processedText.replace(/\\plus(?![a-zA-Z])/g, '+');
+
       const tempContainer = document.createElement('div');
-      tempContainer.textContent = text;
+      tempContainer.textContent = processedText;
 
       try {
         window.renderMathInElement(tempContainer, {
@@ -2186,6 +2357,17 @@ class PDFCompareView {
    * 使用 pdf-lib 在原始PDF上覆盖翻译后的文本
    */
   async exportStructuredTranslation() {
+    // 优先使用新模块
+    if (this.pdfExporter) {
+      await this.pdfExporter.exportStructuredTranslation(
+        this.originalPdfBase64,
+        this.translatedContentList,
+        typeof showNotification === 'function' ? showNotification : null
+      );
+      return;
+    }
+
+    // 回退：使用原有实现
     try {
       // 检查是否有翻译数据
       if (!this.translatedContentList || this.translatedContentList.length === 0) {
@@ -2401,15 +2583,23 @@ class PDFCompareView {
     const isCJK = /[\u4e00-\u9fa5]/.test(text);
     const lineSkip = isCJK ? 1.25 : 1.15;
 
-    // 内边距（与canvas渲染一致）
-    const paddingTop = 2;
+    // 内边距（与canvas渲染一致）：对小bbox减少padding
+    const paddingTop = boxHeight < 20 ? 0.5 : 2;
     const paddingX = 2;
     const availableHeight = boxHeight - paddingTop * 2;
     const availableWidth = boxWidth - paddingX * 2;
 
     // 字号范围（与canvas渲染一致）
     const estimatedSingleLineFontSize = boxHeight * 0.8;
-    const minFontSize = isShortText ? 10 : 6;
+
+    // 最小字号：动态调整（基于bbox高度）
+    let minFontSize;
+    if (boxHeight < 20) {
+      minFontSize = Math.max(6, boxHeight * 0.35);  // 小bbox：最小6px
+    } else {
+      minFontSize = isShortText ? 10 : 8;  // 正常bbox：10px/8px
+    }
+
     const maxFontSize = Math.min(estimatedSingleLineFontSize * 1.5, boxHeight * 1.2);
 
     // 检查文本是否包含换行符
@@ -2581,6 +2771,16 @@ class PDFCompareView {
    * 清理资源
    */
   destroy() {
+    // 清理模块
+    if (this.segmentManager) {
+      this.segmentManager.destroy();
+      this.segmentManager = null;
+    }
+
+    if (this.textFittingAdapter) {
+      this.textFittingAdapter.clearCache();
+    }
+
     if (this.pdfDoc) {
       this.pdfDoc.destroy();
       this.pdfDoc = null;
