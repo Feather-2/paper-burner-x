@@ -388,10 +388,19 @@
     };
 
     function getActiveProcessor() {
+      // 优先使用 AST 架构（如果已加载）
+      const ast = global.MarkdownProcessorAST;
+      if (ast && typeof ast.render === 'function') {
+        return ast;
+      }
+
+      // 其次使用 Enhanced
       const enhanced = global.MarkdownProcessorEnhanced;
       if (enhanced && typeof enhanced.safeMarkdown === 'function' && typeof enhanced.renderWithKatexFailback === 'function') {
         return enhanced;
       }
+
+      // 最后使用 Legacy
       return legacyImpl;
     }
 
@@ -422,5 +431,15 @@
           renderCache: renderCache
         }
     };
+
+    // 日志输出当前使用的处理器
+    const activeProcessor = getActiveProcessor();
+    if (activeProcessor === global.MarkdownProcessorAST) {
+        console.log('%c[MarkdownProcessor] 🎯 路由到 AST 架构', 'color: #10b981; font-weight: bold');
+    } else if (activeProcessor === global.MarkdownProcessorEnhanced) {
+        console.log('%c[MarkdownProcessor] 使用 Enhanced 版本', 'color: #3b82f6');
+    } else {
+        console.log('%c[MarkdownProcessor] 使用 Legacy 版本', 'color: #64748b');
+    }
 
 })(window);
