@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>renderBatch 表格渲染测试</title>
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@4.0.0/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
+    <script src="js/processing/markdown_processor_ast.js"></script>
+    <script src="js/processing/formula_post_processor.js"></script>
+    <script src="js/processing/markdown_processor_integration.js"></script>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            max-width: 1400px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-case {
+            background: white;
+            margin: 20px 0;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .success {
+            color: #27ae60;
+            font-weight: bold;
+            background: #d4edda;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .fail {
+            color: #e74c3c;
+            font-weight: bold;
+            background: #f8d7da;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .log {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .result {
+            border: 2px solid #3498db;
+            padding: 15px;
+            margin: 10px 0;
+            background: #f8f9fa;
+        }
+        .result table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+        }
+        .result th, .result td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        .result th {
+            background: #3498db;
+            color: white;
+        }
+        .source {
+            background: #ecf0f1;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 4px solid #95a5a6;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 renderBatch 表格渲染测试</h1>
+    <p>此测试模拟实际应用中的 renderBatch 渲染流程，验证三层修复机制</p>
+
+    <div id="output"></div>
+
+    <script>
+        const output = document.getElementById('output');
+        const allLogs = [];
+
+        // 拦截 console
+        const originalLog = console.log;
+        const originalWarn = console.warn;
+        const originalError = console.error;
+
+        console.log = function(...args) {
+            allLogs.push('[LOG] ' + args.join(' '));
+            originalLog.apply(console, args);
+        };
+
+        console.warn = function(...args) {
+            allLogs.push('[WARN] ' + args.join(' '));
+            originalWarn.apply(console, args);
+        };
+
+        console.error = function(...args) {
+            allLogs.push('[ERROR] ' + args.join(' '));
+            originalError.apply(console, args);
+        };
+
+        // 测试用例
+        const testCases = [
+            {
+                name: '测试 1: 普通多行表格',
+                markdown: `| Header 1 | Header 2 | Header 3 |
+|----------|----------|----------|
+| Row 1 A  | Row 1 B  | Row 1 C  |
+| Row 2 A  | Row 2 B  | Row 2 C  |`,
+                expectedType: 'table'
+            },
+            {
+                name: '测试 2: 简单压缩表格',
+                markdown: `| A | B | C ||---|---|---|| 1 | 2 | 3 || 4 | 5 | 6 |`,
+                expectedType: 'table'
+            },
+            {
+                name: '测试 3: 复杂压缩表格（Block #31）',
+                markdown: `| | | | 五分位数 (Quintiles) | | | |---|---|---|---|---|---|---| | | 1 | 2 | 3 | 4 | 5 | 5-1 | | 市场 (Market) | 0.145*** | 0.200** | 0.061* | 0.136* | 0.106*** | -0.039 | | | (2.774) | (2.441) | (1.938) | (1.689) | (2.703) | (-0.930) | | 规模 (Size) | 0.107** | 0.329* | 0.147** | 0.206** | 0.059*** | 0.047 | | | (2.163) | (1.800) | (2.223) | (2.452) | (3.150) | (1.090) |`,
+                expectedType: 'table'
+            },
+            {
+                name: '测试 4: 带公式的表格',
+                markdown: `| 变量 | 值 |
+|------|------|
+| α | $\\alpha = 0.05$ |
+| β | $\\beta = 0.95$ |`,
+                expectedType: 'table'
+            }
+        ];
+
+        // 模拟 renderBatch 的渲染逻辑
+        function simulateRenderBatch(markdown, testName) {
+            const logs = [];
+
+            // 步骤1: 使用 marked.lexer 进行词法分析
+            logs.push('=== 步骤 1: marked.lexer 词法分析 ===');
+            const tokens = marked.lexer(markdown);
+            logs.push(`Token 数量: ${tokens.length}`);
+            if (tokens.length > 0) {
+                logs.push(`Token[0] type: "${tokens[0].type}"`);
+                logs.push(`Token[0] raw: "${tokens[0].raw.substring(0, 100)}..."`);
+            }
+
+            // 步骤2: 应用三层修复机制
+            logs.push('\n=== 步骤 2: 应用三层修复机制 ===');
+
+            const tokenRaw = tokens[0]?.raw || '';
+
+            // 【第一层】Pre-render detection
+            const hasTableSyntax = /\|(:?-+:?\|)+/.test(tokenRaw);
+            logs.push(`检测表格语法: ${hasTableSyntax ? '✓ 是' : '✗ 否'}`);
+
+            if (tokens[0].type === 'paragraph' && hasTableSyntax) {
+                logs.push('✓ [第一层] 检测到 paragraph token 包含表格语法，强制作为表格处理');
+                tokens[0].type = 'table';
+            }
+            logs.push(`处理后 token type: "${tokens[0].type}"`);
+
+            // 【第二层】Use AST renderer
+            logs.push('\n=== 步骤 3: AST 渲染器渲染 ===');
+            let htmlStr;
+            if (typeof MarkdownIntegration !== 'undefined' && MarkdownIntegration.smartRender) {
+                logs.push('使用 MarkdownIntegration.smartRender');
+                htmlStr = MarkdownIntegration.smartRender(tokenRaw, {}, null, 'test');
+            } else if (typeof MarkdownProcessorAST !== 'undefined' && MarkdownProcessorAST.render) {
+                logs.push('使用 MarkdownProcessorAST.render');
+                htmlStr = MarkdownProcessorAST.render(tokenRaw, {});
+            } else {
+                logs.push('降级到基础渲染器');
+                const md = markdownit({ html: true });
+                htmlStr = md.render(tokenRaw);
+            }
+
+            logs.push(`渲染结果类型: ${htmlStr.trim().startsWith('<table') ? '<table>' : htmlStr.trim().startsWith('<p') ? '<p>' : '其他'}`);
+            logs.push(`渲染结果长度: ${htmlStr.length} 字符`);
+
+            // 【第三层】Post-render recovery
+            logs.push('\n=== 步骤 4: 后验检查 ===');
+            if (hasTableSyntax && htmlStr.trim().startsWith('<p')) {
+                logs.push('⚠ [第三层] 渲染后仍然是 <p>，尝试直接提取并渲染表格部分');
+
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = htmlStr;
+                const pElement = tempDiv.querySelector('p');
+
+                if (pElement && pElement.textContent.includes('|')) {
+                    const tableMarkdown = pElement.textContent;
+                    logs.push(`提取到表格 Markdown: "${tableMarkdown.substring(0, 80)}..."`);
+
+                    if (typeof MarkdownProcessorAST !== 'undefined' && MarkdownProcessorAST.render) {
+                        htmlStr = MarkdownProcessorAST.render(tableMarkdown, {});
+                        logs.push('✓ 重新渲染表格成功');
+                        logs.push(`新渲染结果类型: ${htmlStr.trim().startsWith('<table') ? '<table>' : '<p>'}`);
+                    }
+                }
+            } else {
+                logs.push('✓ 渲染结果正确，无需后处理');
+            }
+
+            return { htmlStr, logs };
+        }
+
+        // 运行所有测试
+        testCases.forEach((testCase, index) => {
+            allLogs.length = 0; // 清空日志
+
+            const section = document.createElement('div');
+            section.className = 'test-case';
+
+            const result = simulateRenderBatch(testCase.markdown, testCase.name);
+            const isTable = result.htmlStr.trim().startsWith('<table');
+            const passed = isTable && testCase.expectedType === 'table';
+
+            section.innerHTML = `
+                <h2>${testCase.name}</h2>
+                <div class="${passed ? 'success' : 'fail'}">
+                    ${passed ? '✓ 测试通过' : '✗ 测试失败'}
+                    - 期望: &lt;${testCase.expectedType}&gt;,
+                    实际: ${isTable ? '&lt;table&gt;' : '&lt;p&gt;'}
+                </div>
+
+                <h3>源 Markdown:</h3>
+                <div class="source">${testCase.markdown}</div>
+
+                <h3>渲染结果:</h3>
+                <div class="result">${result.htmlStr}</div>
+
+                <h3>处理日志:</h3>
+                <div class="log">${result.logs.join('\n')}</div>
+            `;
+
+            output.appendChild(section);
+        });
+
+        // 显示汇总日志
+        setTimeout(() => {
+            const summarySection = document.createElement('div');
+            summarySection.className = 'test-case';
+            summarySection.innerHTML = `
+                <h2>🔍 完整控制台日志</h2>
+                <div class="log">${allLogs.join('\n')}</div>
+            `;
+            output.appendChild(summarySection);
+        }, 500);
+    </script>
+</body>
+</html>

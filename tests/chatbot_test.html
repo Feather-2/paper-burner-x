@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatbot 拖拽测试</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+        }
+        .test-content {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        .features {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+        }
+        .feature-item {
+            margin: 10px 0;
+            padding: 8px 0;
+            border-bottom: 1px dashed #e0e0e0;
+        }
+        .feature-item:last-child {
+            border-bottom: none;
+        }
+        .open-btn {
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.2s;
+        }
+        .open-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <div class="test-content">
+        <h1>🤖 Chatbot 增强拖拽功能测试</h1>
+        <p>这个页面用来测试 chatbot 的新增拖拽和浮动功能。</p>
+        
+        <div class="features">
+            <h3>✨ 新功能介绍：</h3>
+            <div class="feature-item">
+                <strong>🎯 浮动模式：</strong> 点击浮动按钮可以将 chatbot 切换为自由浮动窗口
+            </div>
+            <div class="feature-item">
+                <strong>🖱️ 拖拽移动：</strong> 在浮动模式下，可以拖拽标题栏移动窗口位置
+            </div>
+            <div class="feature-item">
+                <strong>📏 八方向调整大小：</strong> 可以拖拽窗口的上下左右边缘和四个角来调整大小
+            </div>
+            <div class="feature-item">
+                <strong>💾 状态保存：</strong> 位置和大小会自动保存，下次打开时恢复
+            </div>
+            <div class="feature-item">
+                <strong>🔄 切换模式：</strong> 可以在固定模式和浮动模式之间自由切换
+            </div>
+        </div>
+
+        <button class="open-btn" onclick="openChatbot()">
+            打开 Chatbot 测试功能
+        </button>
+
+        <div style="margin-top: 30px; padding: 20px; background: #e3f2fd; border-radius: 8px;">
+            <h4>🔧 操作说明：</h4>
+            <ol>
+                <li>点击上方按钮打开 chatbot</li>
+                <li>找到右上角的浮动按钮（立方体图标），点击切换到浮动模式</li>
+                <li>在浮动模式下：
+                    <ul>
+                        <li>拖拽标题栏可以移动窗口</li>
+                        <li>拖拽窗口边缘可以调整大小</li>
+                        <li>右上角图标会变为固定模式按钮</li>
+                    </ul>
+                </li>
+                <li>再次点击可以切换回固定模式</li>
+            </ol>
+        </div>
+    </div>
+
+    <!-- 模拟必要的全局对象和函数 -->
+    <script>
+        // 模拟必要的全局对象
+        window.ChatbotCore = {
+            getChatbotConfig: () => ({ model: 'test', settings: {}, siteSpecificAvailableModels: [] }),
+            getCurrentDocId: () => 'test_doc',
+            getCurrentDocContent: () => ({ name: 'test.pdf', images: [], ocr: '', translation: '' }),
+            chatHistory: [],
+            isChatbotLoading: false,
+            sendChatbotMessage: () => {},
+            clearCurrentDocChatHistory: () => {}
+        };
+        
+        window.ChatbotImageUtils = {
+            selectedChatbotImages: [],
+            updateSelectedImagesPreview: () => {},
+            openImageSelectionModal: () => {}
+        };
+
+        window.ChatbotPresetQuestionsUI = {
+            render: () => {
+                const div = document.createElement('div');
+                div.id = 'chatbot-preset-container';
+                div.style.display = 'none';
+                return div;
+            }
+        };
+
+        window.ChatbotFloatingOptionsUI = {
+            createBar: () => {},
+            updateDisplay: () => {}
+        };
+
+        window.ChatbotMessageRenderer = {
+            renderUserMessage: () => '<div>用户消息</div>',
+            renderAssistantMessage: () => '<div>AI回复</div>',
+            renderTypingIndicator: () => '<div>正在输入...</div>',
+            renderFinalSummaryMessage: () => '<div>总结</div>',
+            getMarkdownStyles: () => ''
+        };
+
+        // 打开chatbot的函数
+        function openChatbot() {
+            window.isChatbotOpen = true;
+            window.ChatbotUI.updateChatbotUI();
+        }
+
+        // 模拟发送消息
+        window.handleChatbotSend = function() {
+            console.log('发送消息');
+        };
+    </script>
+
+    <!-- 引入chatbot UI -->
+    <script src="js/chatbot/ui/chatbot-ui.js"></script>
+</body>
+</html>

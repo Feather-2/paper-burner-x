@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>表格渲染测试</title>
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"></script>
+    <script src="js/processing/markdown_processor_ast.js"></script>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            max-width: 1400px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-case {
+            background: white;
+            margin: 20px 0;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-title {
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 18px;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 8px;
+        }
+        .source {
+            background: #f8f9fa;
+            padding: 12px;
+            margin: 10px 0;
+            border-left: 3px solid #27ae60;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .result {
+            background: #fff;
+            padding: 15px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .result table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+        }
+        .result th, .result td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        .result th {
+            background: #3498db;
+            color: white;
+        }
+        .result tr:nth-child(even) {
+            background: #f2f2f2;
+        }
+        .status {
+            display: inline-block;
+            padding: 5px 12px;
+            margin-left: 10px;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: bold;
+        }
+        .success { background: #27ae60; color: white; }
+        .fail { background: #e74c3c; color: white; }
+        .html-output {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 12px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>📊 表格渲染测试</h1>
+
+    <div id="test-container"></div>
+
+    <script>
+        // 测试用例：从简单到复杂
+        const testCases = [
+            {
+                title: '测试 1: 简单表格',
+                markdown: `| 列1 | 列2 |
+|-----|-----|
+| 数据1 | 数据2 |`
+            },
+            {
+                title: '测试 2: 带数字的表格',
+                markdown: `| 参数 | 值 |
+|------|------|
+| 速度 | 0.145*** |
+| 长度 | 0.200** |`
+            },
+            {
+                title: '测试 3: 用户提供的表格（正常格式）',
+                markdown: `| | | | 五分位数 (Quintiles) | | | |
+|---|---|---|---|---|---|---|
+| | 1 | 2 | 3 | 4 | 5 | 5-1 |
+| 市场 (Market) | 0.145*** | 0.200** | 0.061* | 0.136* | 0.106*** | -0.039 |
+| | (2.774) | (2.441) | (1.938) | (1.689) | (2.703) | (-0.930) |
+| 规模 (Size) | 0.107** | 0.329* | 0.147** | 0.206** | 0.059*** | 0.047 |
+| | (2.163) | (1.800) | (2.223) | (2.452) | (3.150) | (1.090) |`
+            },
+            {
+                title: '测试 4: 压缩的单行表格（原始问题）⚠️',
+                markdown: `| | | | 五分位数 (Quintiles) | | | |---|---|---|---|---|---|---| | | 1 | 2 | 3 | 4 | 5 | 5-1 | | 市场 (Market) | 0.145*** | 0.200** | 0.061* | 0.136* | 0.106*** | -0.039 | | | (2.774) | (2.441) | (1.938) | (1.689) | (2.703) | (-0.930) | | 规模 (Size) | 0.107** | 0.329* | 0.147** | 0.206** | 0.059*** | 0.047 | | | (2.163) | (1.800) | (2.223) | (2.452) | (3.150) | (1.090) |`,
+                isCompressed: true
+            },
+            {
+                title: '测试 5: 简化的压缩表格',
+                markdown: `| A | B | C ||---|---|---|| 1 | 2 | 3 || 4 | 5 | 6 |`,
+                isCompressed: true
+            }
+        ];
+
+        const container = document.getElementById('test-container');
+
+        testCases.forEach((test, idx) => {
+            const testDiv = document.createElement('div');
+            testDiv.className = 'test-case';
+
+            // 标题
+            const titleDiv = document.createElement('div');
+            titleDiv.className = 'test-title';
+            titleDiv.textContent = test.title;
+            testDiv.appendChild(titleDiv);
+
+            // 源码
+            const sourceLabel = document.createElement('div');
+            sourceLabel.style.fontWeight = 'bold';
+            sourceLabel.style.marginTop = '10px';
+            sourceLabel.textContent = 'Markdown 源码:';
+            testDiv.appendChild(sourceLabel);
+
+            const sourceDiv = document.createElement('div');
+            sourceDiv.className = 'source';
+            sourceDiv.textContent = test.markdown;
+            testDiv.appendChild(sourceDiv);
+
+            // markdown-it 直接渲染
+            const mdLabel = document.createElement('div');
+            mdLabel.style.fontWeight = 'bold';
+            mdLabel.style.marginTop = '15px';
+            mdLabel.textContent = 'markdown-it 直接渲染:';
+
+            try {
+                const mdDirect = markdownit({ html: true, breaks: false });
+                const htmlDirect = mdDirect.render(test.markdown);
+
+                const hasTable = htmlDirect.includes('<table');
+                const status = document.createElement('span');
+                status.className = `status ${hasTable ? 'success' : 'fail'}`;
+                status.textContent = hasTable ? '✓ 生成了表格' : '✗ 未生成表格';
+                mdLabel.appendChild(status);
+
+                testDiv.appendChild(mdLabel);
+
+                const mdResult = document.createElement('div');
+                mdResult.className = 'result';
+                mdResult.innerHTML = htmlDirect;
+                testDiv.appendChild(mdResult);
+
+                // 显示 HTML 源码
+                const htmlSourceLabel = document.createElement('div');
+                htmlSourceLabel.style.fontWeight = 'bold';
+                htmlSourceLabel.style.marginTop = '10px';
+                htmlSourceLabel.textContent = '生成的 HTML:';
+                testDiv.appendChild(htmlSourceLabel);
+
+                const htmlOutput = document.createElement('div');
+                htmlOutput.className = 'html-output';
+                htmlOutput.textContent = htmlDirect;
+                testDiv.appendChild(htmlOutput);
+
+            } catch (error) {
+                const status = document.createElement('span');
+                status.className = 'status fail';
+                status.textContent = '✗ 渲染出错';
+                mdLabel.appendChild(status);
+                testDiv.appendChild(mdLabel);
+
+                const errorDiv = document.createElement('div');
+                errorDiv.style.color = '#e74c3c';
+                errorDiv.textContent = `错误: ${error.message}`;
+                testDiv.appendChild(errorDiv);
+            }
+
+            // MarkdownProcessorAST 渲染（如果可用）
+            if (typeof MarkdownProcessorAST !== 'undefined') {
+                const astLabel = document.createElement('div');
+                astLabel.style.fontWeight = 'bold';
+                astLabel.style.marginTop = '15px';
+                astLabel.textContent = 'MarkdownProcessorAST 渲染:';
+
+                try {
+                    const htmlAST = MarkdownProcessorAST.render(test.markdown);
+
+                    const hasTable = htmlAST.includes('<table');
+                    const status = document.createElement('span');
+                    status.className = `status ${hasTable ? 'success' : 'fail'}`;
+                    status.textContent = hasTable ? '✓ 生成了表格' : '✗ 未生成表格';
+                    astLabel.appendChild(status);
+
+                    testDiv.appendChild(astLabel);
+
+                    const astResult = document.createElement('div');
+                    astResult.className = 'result';
+                    astResult.innerHTML = htmlAST;
+                    testDiv.appendChild(astResult);
+
+                    // 显示 HTML 源码
+                    const htmlSourceLabel = document.createElement('div');
+                    htmlSourceLabel.style.fontWeight = 'bold';
+                    htmlSourceLabel.style.marginTop = '10px';
+                    htmlSourceLabel.textContent = '生成的 HTML:';
+                    testDiv.appendChild(htmlSourceLabel);
+
+                    const htmlOutput = document.createElement('div');
+                    htmlOutput.className = 'html-output';
+                    htmlOutput.textContent = htmlAST;
+                    testDiv.appendChild(htmlOutput);
+
+                } catch (error) {
+                    const status = document.createElement('span');
+                    status.className = 'status fail';
+                    status.textContent = '✗ 渲染出错';
+                    astLabel.appendChild(status);
+                    testDiv.appendChild(astLabel);
+
+                    const errorDiv = document.createElement('div');
+                    errorDiv.style.color = '#e74c3c';
+                    errorDiv.textContent = `错误: ${error.message}`;
+                    testDiv.appendChild(errorDiv);
+                }
+            }
+
+            container.appendChild(testDiv);
+        });
+    </script>
+</body>
+</html>

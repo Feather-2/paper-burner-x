@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>公式渲染问题测试</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script src="js/processing/markdown_processor_ast.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+        .test-case {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-title {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .source {
+            background: #f5f5f5;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 3px solid #4CAF50;
+            font-family: monospace;
+        }
+        .result {
+            background: #fff;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 3px solid #2196F3;
+        }
+        .katex-fallback {
+            background: #ffebee;
+            color: #c62828;
+        }
+    </style>
+</head>
+<body>
+    <h1>公式渲染问题测试</h1>
+
+    <div class="test-case">
+        <div class="test-title">问题1: 简单单位公式</div>
+        <div class="source" id="source1"></div>
+        <div class="result" id="result1"></div>
+    </div>
+
+    <div class="test-case">
+        <div class="test-title">问题2: 段落中的多个公式</div>
+        <div class="source" id="source2"></div>
+        <div class="result" id="result2"></div>
+    </div>
+
+    <div class="test-case">
+        <div class="test-title">测试3: 其他类似公式</div>
+        <div class="source" id="source3"></div>
+        <div class="result" id="result3"></div>
+    </div>
+
+    <script>
+        const testCases = [
+            {
+                title: '问题1',
+                input: '$1\\mathrm{\\;m}/\\mathrm{s}$'
+            },
+            {
+                title: '问题2',
+                input: '(a) 在 ${10}\\mathrm{\\;{min}}$ 时，${\\mathrm{{CO}}}_{2}$ 在 ${1.5}\\mathrm{\\;m}$ 处 和 1.1 $\\mathrm{m}$ 处，对于 $8\\mathrm{{person}}/{\\mathrm{m}}^{2}$ 的模拟，我们仍使用了 $4\\mathrm{{person}}/{\\mathrm{m}}^{2}$ 的模型'
+            },
+            {
+                title: '测试3',
+                input: '速度为 $1\\mathrm{m}/\\mathrm{s}$，质量为 $2\\mathrm{kg}$'
+            }
+        ];
+
+        testCases.forEach((testCase, index) => {
+            const sourceEl = document.getElementById(`source${index + 1}`);
+            const resultEl = document.getElementById(`result${index + 1}`);
+
+            sourceEl.textContent = testCase.input;
+
+            try {
+                const rendered = MarkdownProcessorAST.render(testCase.input);
+                resultEl.innerHTML = rendered;
+            } catch (error) {
+                resultEl.innerHTML = `<span style="color: red;">错误: ${error.message}</span>`;
+            }
+        });
+
+        // 显示诊断信息
+        console.log('MarkdownProcessorAST Metrics:', MarkdownProcessorAST.getMetrics());
+    </script>
+</body>
+</html>

@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>函数访问测试</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; }
+        .success { color: green; }
+        .error { color: red; }
+        .info { color: blue; }
+        pre { background: #f5f5f5; padding: 10px; overflow: auto; }
+    </style>
+</head>
+<body>
+    <h1>函数访问测试</h1>
+    
+    <div class="test-section">
+        <h2>1. 脚本加载测试</h2>
+        <div id="script-load-results"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>2. 函数可用性测试</h2>
+        <div id="function-test-results"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>3. 数据加载测试</h2>
+        <div id="data-test-results"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>4. 提示词池测试</h2>
+        <button onclick="testPromptPool()">测试提示词池</button>
+        <div id="prompt-pool-results"></div>
+    </div>
+    
+    <!-- 引入必要的脚本 -->
+    <script src="js/storage/storage.js"></script>
+    <script src="js/process/prompt-pool.js"></script>
+    <script src="js/ui/prompt-pool-ui.js"></script>
+    
+    <script>
+        function logResult(sectionId, message, type = 'info') {
+            const section = document.getElementById(sectionId);
+            const div = document.createElement('div');
+            div.className = type;
+            div.textContent = message;
+            section.appendChild(div);
+        }
+        
+        function logObject(sectionId, title, obj, type = 'info') {
+            const section = document.getElementById(sectionId);
+            const div = document.createElement('div');
+            div.className = type;
+            div.innerHTML = `<strong>${title}:</strong><pre>${JSON.stringify(obj, null, 2)}</pre>`;
+            section.appendChild(div);
+        }
+        
+        // 测试脚本加载
+        function testScriptLoading() {
+            logResult('script-load-results', '测试脚本是否正确加载...', 'info');
+            
+            // 检查关键对象是否存在
+            logResult('script-load-results', `window.translationPromptPool: ${typeof window.translationPromptPool}`, 
+                typeof window.translationPromptPool !== 'undefined' ? 'success' : 'error');
+            logResult('script-load-results', `window.promptPoolUI: ${typeof window.promptPoolUI}`, 
+                typeof window.promptPoolUI !== 'undefined' ? 'success' : 'error');
+        }
+        
+        // 测试函数可用性
+        function testFunctionAvailability() {
+            logResult('function-test-results', '测试关键函数是否可用...', 'info');
+            
+            const functions = [
+                'loadAllCustomSourceSites',
+                'saveCustomSourceSites', 
+                'loadKeys',
+                'loadModelKeys'
+            ];
+            
+            functions.forEach(func => {
+                const available = typeof window[func] === 'function';
+                logResult('function-test-results', `window.${func}: ${typeof window[func]}`, 
+                    available ? 'success' : 'error');
+            });
+            
+            // 显示所有window对象中包含load的函数
+            const loadFunctions = Object.keys(window).filter(k => k.includes('load'));
+            logObject('function-test-results', '所有包含load的window属性', loadFunctions, 'info');
+        }
+        
+        // 测试数据加载
+        function testDataLoading() {
+            logResult('data-test-results', '测试数据加载功能...', 'info');
+            
+            // 首先添加一些测试数据
+            try {
+                // 添加测试API密钥
+                localStorage.setItem('deepseekApiKeys', 'test-deepseek-key-1\ntest-deepseek-key-2');
+                localStorage.setItem('geminiApiKeys', 'test-gemini-key-1');
+                
+                // 添加测试源站点配置
+                const testSites = {
+                    'test_site_1': {
+                        displayName: '测试站点1',
+                        apiBaseUrl: 'https://api.test1.com',
+                        modelId: 'test-model-1',
+                        requestFormat: 'openai',
+                        temperature: 0.5,
+                        friendlyName: '测试站点1'
+                    }
+                };
+                localStorage.setItem('custom_source_sites', JSON.stringify(testSites));
+                
+                logResult('data-test-results', '测试数据已添加到localStorage', 'success');
+                
+                // 测试函数调用
+                if (typeof window.loadAllCustomSourceSites === 'function') {
+                    const sites = window.loadAllCustomSourceSites();
+                    logObject('data-test-results', '加载的源站点', sites, 'success');
+                } else {
+                    logResult('data-test-results', 'loadAllCustomSourceSites函数不可用', 'error');
+                }
+                
+                if (typeof window.loadKeys === 'function') {
+                    const deepseekKeys = window.loadKeys('deepseek');
+                    logObject('data-test-results', 'DeepSeek密钥', deepseekKeys, 'success');
+                } else {
+                    logResult('data-test-results', 'loadKeys函数不可用', 'error');
+                }
+                
+            } catch (error) {
+                logResult('data-test-results', `数据测试出错: ${error.message}`, 'error');
+            }
+        }
+        
+        // 测试提示词池
+        function testPromptPool() {
+            logResult('prompt-pool-results', '测试提示词池功能...', 'info');
+            
+            try {
+                if (window.promptPoolUI) {
+                    // 触发模型列表填充
+                    window.promptPoolUI.populateAvailableModels();
+                    logResult('prompt-pool-results', '已触发模型列表填充', 'success');
+                    
+                    // 检查模型选择框
+                    const modelSelect = document.getElementById('generationModel');
+                    if (modelSelect) {
+                        logResult('prompt-pool-results', `模型选择框选项数量: ${modelSelect.options.length}`, 'info');
+                        for (let i = 0; i < modelSelect.options.length; i++) {
+                            logResult('prompt-pool-results', `选项${i}: ${modelSelect.options[i].value} - ${modelSelect.options[i].text}`, 'info');
+                        }
+                    } else {
+                        logResult('prompt-pool-results', '未找到模型选择框', 'error');
+                    }
+                } else {
+                    logResult('prompt-pool-results', 'window.promptPoolUI不存在', 'error');
+                }
+            } catch (error) {
+                logResult('prompt-pool-results', `提示词池测试出错: ${error.message}`, 'error');
+            }
+        }
+        
+        // 页面加载完成后运行测试
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('开始测试...');
+            
+            // 立即测试
+            testScriptLoading();
+            testFunctionAvailability();
+            testDataLoading();
+            
+            // 延迟测试（等待脚本完全加载）
+            setTimeout(() => {
+                console.log('延迟测试开始...');
+                logResult('function-test-results', '--- 延迟测试结果 ---', 'info');
+                testFunctionAvailability();
+            }, 2000);
+            
+            setTimeout(() => {
+                console.log('最终测试开始...');
+                logResult('function-test-results', '--- 最终测试结果 ---', 'info');
+                testFunctionAvailability();
+            }, 4000);
+        });
+    </script>
+</body>
+</html>

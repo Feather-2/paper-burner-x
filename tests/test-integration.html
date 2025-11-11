@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>集成层演示</title>
+    <link rel="stylesheet" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.6;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .info-panel {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .info-panel h3 {
+            color: #1e293b;
+            margin-bottom: 15px;
+        }
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .metric-card {
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 8px;
+        }
+        .metric-label {
+            font-size: 12px;
+            color: #64748b;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+        .metric-value {
+            font-size: 20px;
+            font-weight: 600;
+            color: #1e293b;
+        }
+        .code-example {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            margin-top: 15px;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background: #1d4ed8;
+        }
+        .result {
+            background: #f8fafc;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 15px;
+            min-height: 100px;
+        }
+        .annotation-highlight {
+            background: #fef08a;
+            border-bottom: 2px solid #eab308;
+            padding: 2px 4px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .annotation-highlight:hover {
+            background: #fde047;
+        }
+        .success {
+            color: #10b981;
+            font-weight: bold;
+        }
+        .warning {
+            color: #f59e0b;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔗 AST 集成层演示</h1>
+
+        <div class="info-panel">
+            <h3>当前架构信息</h3>
+            <div id="archInfo"></div>
+            <div class="metrics" id="metrics"></div>
+        </div>
+
+        <div class="info-panel">
+            <h3>📚 API 使用示例</h3>
+
+            <h4 style="margin-top: 20px;">1. 智能渲染（自动选择 AST 或旧版）</h4>
+            <div class="code-example">// 简单渲染（无注释）
+const html = MarkdownIntegration.smartRender(markdown, images);
+
+// 带注释渲染
+const annotations = [{ text: 'test', id: 'ann-1' }];
+const html = MarkdownIntegration.smartRender(
+    markdown,
+    images,
+    annotations,
+    'content-id'
+);</div>
+
+            <h4 style="margin-top: 20px;">2. 替代 createCustomMarkdownRenderer</h4>
+            <div class="code-example">// 旧版（不再工作）
+const renderer = createCustomMarkdownRenderer(annotations, 'ocr', ...);
+marked(md, { renderer });
+
+// 新版（使用集成层）
+const config = MarkdownIntegration.createAnnotationConfig(annotations, 'ocr');
+const html = config.render(markdown, images);</div>
+
+            <h4 style="margin-top: 20px;">3. 批量渲染 tokens</h4>
+            <div class="code-example">const tokens = marked.lexer(markdown);
+const htmlArray = MarkdownIntegration.renderTokens(
+    tokens,
+    images,
+    annotations,
+    'content-id'
+);</div>
+        </div>
+
+        <div class="test-section">
+            <h3>🧪 实时测试</h3>
+            <button onclick="testSimple()">测试 1: 简单渲染</button>
+            <button onclick="testWithAnnotations()">测试 2: 带注释渲染</button>
+            <button onclick="testBatch()">测试 3: 批量渲染</button>
+            <button onclick="showMetrics()">显示性能指标</button>
+            <div class="result" id="result"></div>
+        </div>
+    </div>
+
+    <!-- 依赖库 -->
+    <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="https://gcore.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://gcore.jsdelivr.net/npm/markdown-it@14.0.0/dist/markdown-it.min.js"></script>
+
+    <!-- 处理器 -->
+    <script src="js/processing/markdown_processor_enhanced.js"></script>
+    <script src="js/processing/annotation_plugin_ast.js"></script>
+    <script src="js/processing/markdown_processor_ast.js"></script>
+    <script src="js/processing/markdown_processor_integration.js"></script>
+
+    <script>
+        // 显示架构信息
+        function updateArchInfo() {
+            const arch = MarkdownIntegration.getActiveArchitecture();
+            const archInfo = document.getElementById('archInfo');
+
+            archInfo.innerHTML = `
+                <div style="font-size: 18px; margin-top: 10px;">
+                    当前架构: <span class="success">${arch}</span>
+                </div>
+                <div style="margin-top: 10px; color: #64748b;">
+                    ${arch === 'AST' ? '✓ 使用 markdown-it + AST 插件系统' : '⚠ 使用旧版渲染器'}
+                </div>
+            `;
+        }
+
+        // 显示性能指标
+        function showMetrics() {
+            const metrics = MarkdownIntegration.getMetrics();
+            const metricsDiv = document.getElementById('metrics');
+
+            const cards = Object.entries(metrics).map(([key, value]) => {
+                return `
+                    <div class="metric-card">
+                        <div class="metric-label">${key}</div>
+                        <div class="metric-value">${typeof value === 'number' ? value.toFixed(2) : value}</div>
+                    </div>
+                `;
+            }).join('');
+
+            metricsDiv.innerHTML = cards;
+        }
+
+        // 测试 1: 简单渲染
+        function testSimple() {
+            const markdown = `# 简单渲染测试
+
+This is a **test** with formula: $x^2 + y^2 = z^2$
+
+- Item 1
+- Item 2
+- Item 3`;
+
+            const start = performance.now();
+            const html = MarkdownIntegration.smartRender(markdown, null);
+            const time = performance.now() - start;
+
+            document.getElementById('result').innerHTML = `
+                <div style="margin-bottom: 15px;">
+                    <strong class="success">✓ 渲染成功</strong>
+                    <span style="color: #64748b; margin-left: 10px;">耗时: ${time.toFixed(2)} ms</span>
+                </div>
+                ${html}
+            `;
+
+            console.log('Simple render:', time.toFixed(2), 'ms');
+        }
+
+        // 测试 2: 带注释渲染
+        function testWithAnnotations() {
+            const markdown = `# 注释渲染测试
+
+The word **test** appears multiple times in this test document.
+We can annotate the word test and it will be highlighted.`;
+
+            const annotations = [
+                { text: 'test', id: 'ann-1' },
+                { text: 'annotate', id: 'ann-2' }
+            ];
+
+            const start = performance.now();
+            const html = MarkdownIntegration.smartRender(
+                markdown,
+                null,
+                annotations,
+                'test-content'
+            );
+            const time = performance.now() - start;
+
+            document.getElementById('result').innerHTML = `
+                <div style="margin-bottom: 15px;">
+                    <strong class="success">✓ 带注释渲染成功</strong>
+                    <span style="color: #64748b; margin-left: 10px;">
+                        ${annotations.length} 个注释 | 耗时: ${time.toFixed(2)} ms
+                    </span>
+                </div>
+                ${html}
+            `;
+
+            console.log('Annotation render:', time.toFixed(2), 'ms');
+        }
+
+        // 测试 3: 批量渲染
+        function testBatch() {
+            const markdown = `# Heading 1
+
+Paragraph 1 with some text.
+
+## Heading 2
+
+Paragraph 2 with more text.
+
+- List item 1
+- List item 2`;
+
+            const tokens = marked.lexer(markdown);
+            const annotations = [{ text: 'text', id: 'ann-3' }];
+
+            const start = performance.now();
+            const htmlArray = MarkdownIntegration.renderTokens(
+                tokens,
+                null,
+                annotations,
+                'batch-test'
+            );
+            const time = performance.now() - start;
+
+            document.getElementById('result').innerHTML = `
+                <div style="margin-bottom: 15px;">
+                    <strong class="success">✓ 批量渲染成功</strong>
+                    <span style="color: #64748b; margin-left: 10px;">
+                        ${tokens.length} 个块 | 耗时: ${time.toFixed(2)} ms
+                    </span>
+                </div>
+                ${htmlArray.join('\n')}
+            `;
+
+            console.log('Batch render:', tokens.length, 'tokens in', time.toFixed(2), 'ms');
+        }
+
+        // 页面加载时显示架构信息
+        window.addEventListener('load', () => {
+            updateArchInfo();
+            showMetrics();
+            console.log('Integration layer ready. Architecture:', MarkdownIntegration.getActiveArchitecture());
+        });
+    </script>
+</body>
+</html>

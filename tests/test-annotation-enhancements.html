@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>标注增强功能测试</title>
+    <link rel="stylesheet" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            line-height: 1.6;
+        }
+        .test-container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-block {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f9f9f9;
+            border-left: 4px solid #007cba;
+        }
+        .sub-block {
+            display: inline;
+            margin: 0 2px;
+        }
+        .status {
+            padding: 5px 10px;
+            margin: 5px 0;
+            border-radius: 3px;
+        }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.info { background: #d1ecf1; color: #0c5460; }
+        
+        /* 测试用的高亮样式 */
+        .annotated-formula {
+            position: relative;
+        }
+        .annotated-formula::after {
+            content: "📝";
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            font-size: 12px;
+        }
+        
+        button {
+            margin: 5px;
+            padding: 8px 15px;
+            background: #007cba;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        button:hover { background: #005a87; }
+        
+        .formula-test {
+            margin: 10px 0;
+            padding: 10px;
+            background: #fff;
+            border: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>标注系统增强功能测试</h1>
+        
+        <div id="test-results"></div>
+        
+        <!-- 测试1: 公式感知分割 -->
+        <div class="test-section">
+            <h2>测试1: 公式感知分割</h2>
+            <div class="test-block" data-block-index="0">
+                这是一个包含行内公式的段落。爱因斯坦的质能方程是 $E=mc^2$，这是物理学中最著名的公式之一。它表明质量和能量之间存在等价关系。
+            </div>
+            <div class="test-block" data-block-index="1">
+                这里有一个块级公式：$$\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}$$ 这是高斯积分的结果。
+            </div>
+            <button onclick="testFormulaAwareSegmentation()">测试公式感知分割</button>
+        </div>
+        
+        <!-- 测试2: 公式高亮 -->
+        <div class="test-section">
+            <h2>测试2: 公式标注高亮</h2>
+            <div class="formula-test">
+                <div class="test-block" data-block-index="2">
+                    <span class="katex-inline">$f(x) = x^2 + 2x + 1$</span> 是一个二次函数。
+                </div>
+                <div class="test-block" data-block-index="3">
+                    <div class="katex-display">$$\lim_{x \to 0} \frac{\sin x}{x} = 1$$</div>
+                </div>
+            </div>
+            <button onclick="testFormulaHighlight()">测试公式高亮</button>
+        </div>
+        
+        <!-- 测试3: 跨子块选择 -->
+        <div class="test-section">
+            <h2>测试3: 跨子块选择</h2>
+            <div class="test-block" data-block-index="4">
+                <span class="sub-block" data-sub-block-id="4.0">这是第一个子块。</span>
+                <span class="sub-block" data-sub-block-id="4.1">这是第二个子块。</span>
+                <span class="sub-block" data-sub-block-id="4.2">这是第三个子块。</span>
+            </div>
+            <p><strong>操作说明：</strong>请用鼠标选择跨越多个子块的文本，然后右键查看菜单选项。</p>
+            <button onclick="testCrossBlockSelection()">模拟跨子块选择</button>
+        </div>
+        
+        <!-- 测试4: 综合测试 -->
+        <div class="test-section">
+            <h2>测试4: 综合功能测试</h2>
+            <div class="test-block" data-block-index="5">
+                勾股定理的表达式是 $a^2 + b^2 = c^2$。对于直角三角形，这个关系总是成立。更一般地，我们有余弦定理：$$c^2 = a^2 + b^2 - 2ab\cos C$$这里C是边c所对的角。
+            </div>
+            <button onclick="runAllTests()">运行所有测试</button>
+        </div>
+        
+        <div id="console-output" style="background: #f0f0f0; padding: 10px; margin-top: 20px; font-family: monospace; font-size: 12px; max-height: 300px; overflow-y: auto;">
+            <h3>控制台输出</h3>
+        </div>
+    </div>
+
+    <!-- 引入依赖脚本 -->
+    <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="js/processing/sub_block_segmenter.js"></script>
+    <script src="js/annotations/annotation_highlighter.js"></script>
+    <script src="js/annotations/annotation_logic.js"></script>
+
+    <script>
+        // 模拟全局环境
+        window.data = { annotations: [] };
+        window.globalCurrentContentIdentifier = 'ocr';
+        window.contentReady = true;
+        
+        // 重定向console.log到页面
+        const consoleOutput = document.getElementById('console-output');
+        const originalLog = console.log;
+        const originalWarn = console.warn;
+        const originalError = console.error;
+        
+        function logToPage(message, type = 'log') {
+            const timestamp = new Date().toLocaleTimeString();
+            const div = document.createElement('div');
+            div.innerHTML = `<span style="color: #666;">[${timestamp}]</span> <span style="color: ${type === 'error' ? 'red' : type === 'warn' ? 'orange' : 'black'};">${message}</span>`;
+            consoleOutput.appendChild(div);
+            consoleOutput.scrollTop = consoleOutput.scrollHeight;
+        }
+        
+        console.log = function(message) {
+            originalLog.apply(console, arguments);
+            logToPage(message);
+        };
+        console.warn = function(message) {
+            originalWarn.apply(console, arguments);
+            logToPage(message, 'warn');
+        };
+        console.error = function(message) {
+            originalError.apply(console, arguments);
+            logToPage(message, 'error');
+        };
+
+        // 测试函数
+        function showStatus(message, type = 'info') {
+            const resultsDiv = document.getElementById('test-results');
+            const statusDiv = document.createElement('div');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            resultsDiv.appendChild(statusDiv);
+        }
+
+        function testFormulaAwareSegmentation() {
+            console.log('开始测试公式感知分割...');
+            showStatus('开始测试公式感知分割', 'info');
+            
+            try {
+                if (!window.SubBlockSegmenter || !window.SubBlockSegmenter.checkForFormulas) {
+                    throw new Error('SubBlockSegmenter.checkForFormulas 未找到');
+                }
+                
+                // 测试公式检测
+                const block0 = document.querySelector('[data-block-index="0"]');
+                const block1 = document.querySelector('[data-block-index="1"]');
+                
+                const hasFormula0 = window.SubBlockSegmenter.checkForFormulas(block0, block0.textContent);
+                const hasFormula1 = window.SubBlockSegmenter.checkForFormulas(block1, block1.textContent);
+                
+                console.log(`块0公式检测结果: ${hasFormula0}`);
+                console.log(`块1公式检测结果: ${hasFormula1}`);
+                
+                if (hasFormula0 && hasFormula1) {
+                    showStatus('✅ 公式检测功能正常', 'success');
+                    
+                    // 测试分割
+                    window.SubBlockSegmenter.segment(block0, 0);
+                    window.SubBlockSegmenter.segment(block1, 1);
+                    
+                    showStatus('✅ 公式感知分割测试完成', 'success');
+                } else {
+                    showStatus('❌ 公式检测失败', 'error');
+                }
+                
+            } catch (error) {
+                console.error('公式感知分割测试失败:', error);
+                showStatus(`❌ 测试失败: ${error.message}`, 'error');
+            }
+        }
+
+        function testFormulaHighlight() {
+            console.log('开始测试公式高亮...');
+            showStatus('开始测试公式高亮', 'info');
+            
+            try {
+                if (!window.detectFormulaType) {
+                    throw new Error('detectFormulaType 函数未找到');
+                }
+                
+                const block2 = document.querySelector('[data-block-index="2"]');
+                const block3 = document.querySelector('[data-block-index="3"]');
+                
+                const formulaInfo2 = window.detectFormulaType(block2);
+                const formulaInfo3 = window.detectFormulaType(block3);
+                
+                console.log('行内公式检测:', formulaInfo2);
+                console.log('块级公式检测:', formulaInfo3);
+                
+                if (formulaInfo2.hasFormula && formulaInfo3.hasFormula) {
+                    showStatus('✅ 公式类型检测正常', 'success');
+                    
+                    // 模拟高亮应用
+                    const mockAnnotation = {
+                        id: 'test-annotation-1',
+                        highlightColor: 'yellow',
+                        body: []
+                    };
+                    
+                    if (window.applyFormulaAnnotation) {
+                        window.applyFormulaAnnotation(block2, mockAnnotation, 'ocr', '2', 'block', formulaInfo2);
+                        window.applyFormulaAnnotation(block3, mockAnnotation, 'ocr', '3', 'block', formulaInfo3);
+                        showStatus('✅ 公式高亮应用完成', 'success');
+                    } else {
+                        showStatus('❌ applyFormulaAnnotation 函数未找到', 'error');
+                    }
+                } else {
+                    showStatus('❌ 公式类型检测失败', 'error');
+                }
+                
+            } catch (error) {
+                console.error('公式高亮测试失败:', error);
+                showStatus(`❌ 测试失败: ${error.message}`, 'error');
+            }
+        }
+
+        function testCrossBlockSelection() {
+            console.log('开始测试跨子块选择...');
+            showStatus('开始测试跨子块选择', 'info');
+            
+            try {
+                if (!window.detectCrossBlockSelection) {
+                    throw new Error('detectCrossBlockSelection 函数未找到');
+                }
+                
+                // 创建模拟选择
+                const subBlocks = document.querySelectorAll('[data-sub-block-id]');
+                if (subBlocks.length < 3) {
+                    throw new Error('测试子块不足');
+                }
+                
+                // 创建跨越子块的选择
+                const range = document.createRange();
+                range.setStart(subBlocks[0].firstChild, 5);
+                range.setEnd(subBlocks[2].firstChild, 5);
+                
+                const selection = window.getSelection();
+                selection.removeAllRanges();
+                selection.addRange(range);
+                
+                const crossBlockInfo = window.detectCrossBlockSelection();
+                console.log('跨子块选择检测结果:', crossBlockInfo);
+                
+                if (crossBlockInfo.isCrossBlock) {
+                    showStatus('✅ 跨子块选择检测正常', 'success');
+                    showStatus(`检测到跨越 ${crossBlockInfo.affectedSubBlocks.length} 个子块`, 'info');
+                } else {
+                    showStatus('❌ 未检测到跨子块选择', 'error');
+                }
+                
+            } catch (error) {
+                console.error('跨子块选择测试失败:', error);
+                showStatus(`❌ 测试失败: ${error.message}`, 'error');
+            }
+        }
+
+        function runAllTests() {
+            console.log('开始运行所有测试...');
+            document.getElementById('test-results').innerHTML = '';
+            
+            setTimeout(() => testFormulaAwareSegmentation(), 100);
+            setTimeout(() => testFormulaHighlight(), 500);
+            setTimeout(() => testCrossBlockSelection(), 1000);
+            
+            setTimeout(() => {
+                showStatus('🎉 所有测试完成！请查看控制台输出了解详情。', 'info');
+            }, 1500);
+        }
+
+        // 页面加载完成后进行初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('测试页面加载完成');
+            showStatus('测试环境初始化完成，可以开始测试。', 'success');
+            
+            // 渲染KaTeX公式
+            if (window.katex) {
+                const inlineFormulas = document.querySelectorAll('.katex-inline');
+                const displayFormulas = document.querySelectorAll('.katex-display');
+                
+                inlineFormulas.forEach(el => {
+                    try {
+                        const tex = el.textContent.replace(/\$/g, '');
+                        katex.render(tex, el, { displayMode: false });
+                    } catch (e) {
+                        console.warn('行内公式渲染失败:', e);
+                    }
+                });
+                
+                displayFormulas.forEach(el => {
+                    try {
+                        const tex = el.textContent.replace(/\$\$/g, '');
+                        katex.render(tex, el, { displayMode: true });
+                    } catch (e) {
+                        console.warn('块级公式渲染失败:', e);
+                    }
+                });
+                
+                showStatus('KaTeX公式渲染完成', 'success');
+            }
+        });
+    </script>
+</body>
+</html>

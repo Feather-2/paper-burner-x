@@ -26,6 +26,8 @@
     <link rel="stylesheet" href="css/chatbot-model-config-modal.css">
     <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script src="https://gcore.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Markdown-it for AST-based processing (新架构) -->
+    <script src="https://gcore.jsdelivr.net/npm/markdown-it@14.0.0/dist/markdown-it.min.js"></script>
     <script>
       // failback: 如果 CDN 加载失败，自动加载本地 jszip
       if (typeof JSZip === 'undefined') {
@@ -1643,8 +1645,28 @@
     <script src="js/api/model-detector.js"></script>
     <script src="js/app.js"></script>
     <script src="js/processing/markdown_processor_enhanced.js"></script>
+    <!-- AST-based processor (新架构) -->
+    <script src="js/processing/annotation_plugin_ast.js"></script>  <!-- 注释插件 -->
+    <script src="js/processing/markdown_processor_ast.js"></script>
+    <script src="js/processing/markdown_processor_integration.js"></script>  <!-- 集成层 -->
     <script src="js/processing/markdown_text_fix.js"></script>
     <script src="js/processing/markdown_processor.js"></script>
+
+    <!-- AST 架构状态显示 -->
+    <script>
+      (function() {
+        if (window.MarkdownProcessorAST && window.MarkdownProcessor === window.MarkdownProcessorAST) {
+          console.log(
+            '%c🚀 Markdown 渲染引擎升级成功！%c\n' +
+            '当前版本: ' + window.MarkdownProcessorAST.version + '\n' +
+            '架构: AST (markdown-it)\n' +
+            '特性: 上下文感知 | 精准匹配 | 插件系统',
+            'color: #10b981; font-size: 14px; font-weight: bold; padding: 4px 0;',
+            'color: #64748b; font-size: 12px;'
+          );
+        }
+      })();
+    </script>
 
     <!-- 文本自适应算法 (PDF 保留格式翻译) - 必须在 history 脚本之前加载 -->
     <script src="js/utils/text-fitting.js"></script>

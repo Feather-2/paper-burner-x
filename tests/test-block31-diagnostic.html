@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Block #31 表格诊断</title>
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@4.0.0/marked.min.js"></script>
+    <script src="../js/processing/markdown_processor_ast.js"></script>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            max-width: 1600px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .section {
+            background: white;
+            margin: 20px 0;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .success { color: #27ae60; font-weight: bold; }
+        .fail { color: #e74c3c; font-weight: bold; }
+        .log {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .result {
+            border: 3px solid #3498db;
+            padding: 20px;
+            margin: 15px 0;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        .result table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+            background: white;
+        }
+        .result th, .result td {
+            border: 1px solid #dee2e6;
+            padding: 10px;
+            text-align: left;
+        }
+        .result th {
+            background: #3498db;
+            color: white;
+            font-weight: bold;
+        }
+        .code {
+            background: #f1f3f5;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            color: #d9480f;
+        }
+        h2 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }
+        h3 { color: #495057; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Block #31 表格诊断</h1>
+
+    <div id="output"></div>
+
+    <script>
+        const output = document.getElementById('output');
+        const logs = [];
+
+        function log(msg) {
+            logs.push(msg);
+            console.log(msg);
+        }
+
+        // Block #31 的实际内容
+        const block31Content = `| | | | 五分位数 (Quintiles) | | |
+|---|---|---|---|---|---|---|
+| | 1 | 2 | 3 | 4 | 5 | 5-1 |
+| 市场 (Market) | 0.145*** | 0.200** | 0.061* | 0.136* | 0.106*** | -0.039 |
+| | (2.774) | (2.441) | (1.938) | (1.689) | (2.703) | (-0.930) |
+| 规模 (Size) | 0.107** | 0.329* | 0.147** | 0.206** | 0.059*** | 0.047 |
+| | (2.163) | (1.800) | (2.223) | (2.452) | (3.150) | (1.090) |`;
+
+        // ============ 步骤 1: 检查依赖 ============
+        const section1 = document.createElement('div');
+        section1.className = 'section';
+        section1.innerHTML = '<h2>步骤 1: 检查依赖加载</h2>';
+
+        log('=== 步骤 1: 检查依赖 ===');
+
+        const checks = {
+            'marked': typeof marked !== 'undefined',
+            'markdownit': typeof markdownit !== 'undefined',
+            'MarkdownProcessorAST': typeof MarkdownProcessorAST !== 'undefined'
+        };
+
+        let checksHTML = '<ul>';
+        for (const [name, loaded] of Object.entries(checks)) {
+            const status = loaded ? '<span class="success">✓ 已加载</span>' : '<span class="fail">✗ 未加载</span>';
+            checksHTML += `<li><strong>${name}</strong>: ${status}</li>`;
+            log(`${name}: ${loaded ? '✓ 已加载' : '✗ 未加载'}`);
+        }
+        checksHTML += '</ul>';
+        section1.innerHTML += checksHTML;
+        output.appendChild(section1);
+
+        // ============ 步骤 2: 检测表格语法 ============
+        const section2 = document.createElement('div');
+        section2.className = 'section';
+        section2.innerHTML = '<h2>步骤 2: 表格语法检测</h2>';
+
+        log('\n=== 步骤 2: 表格语法检测 ===');
+
+        const hasTableSyntax = /\|(:?-+:?\|)+/.test(block31Content);
+        const pipeCount = (block31Content.match(/\|/g) || []).length;
+        const lineCount = block31Content.split('\n').length;
+
+        section2.innerHTML += `
+            <p>包含表格分隔符: ${hasTableSyntax ? '<span class="success">✓ 是</span>' : '<span class="fail">✗ 否</span>'}</p>
+            <p>管道符数量: <strong>${pipeCount}</strong></p>
+            <p>行数: <strong>${lineCount}</strong></p>
+            <p>内容长度: <strong>${block31Content.length} 字符</strong></p>
+        `;
+
+        log(`包含表格分隔符: ${hasTableSyntax}`);
+        log(`管道符数量: ${pipeCount}`);
+        log(`行数: ${lineCount}`);
+
+        output.appendChild(section2);
+
+        // ============ 步骤 3: marked.lexer() 测试 ============
+        const section3 = document.createElement('div');
+        section3.className = 'section';
+        section3.innerHTML = '<h2>步骤 3: marked.lexer() 词法分析</h2>';
+
+        log('\n=== 步骤 3: marked.lexer() 测试 ===');
+
+        if (typeof marked !== 'undefined') {
+            const tokens = marked.lexer(block31Content);
+            log(`Token 数量: ${tokens.length}`);
+
+            if (tokens.length > 0) {
+                log(`Token[0] type: "${tokens[0].type}"`);
+                log(`Token[0] raw 长度: ${tokens[0].raw.length}`);
+
+                section3.innerHTML += `
+                    <p>Token 数量: <strong>${tokens.length}</strong></p>
+                    <p>第一个 Token 类型: <strong class="${tokens[0].type === 'table' ? 'success' : 'fail'}">${tokens[0].type}</strong></p>
+                    ${tokens[0].type === 'paragraph' ? '<p class="fail">⚠️ 被误判为 paragraph！需要三层修复机制</p>' : ''}
+                `;
+            }
+        } else {
+            section3.innerHTML += '<p class="fail">✗ marked 未加载，无法测试</p>';
+        }
+
+        output.appendChild(section3);
+
+        // ============ 步骤 4: MarkdownProcessorAST 渲染 ============
+        const section4 = document.createElement('div');
+        section4.className = 'section';
+        section4.innerHTML = '<h2>步骤 4: MarkdownProcessorAST 渲染</h2>';
+
+        log('\n=== 步骤 4: MarkdownProcessorAST 渲染 ===');
+
+        if (typeof MarkdownProcessorAST !== 'undefined' && MarkdownProcessorAST.render) {
+            try {
+                const rendered = MarkdownProcessorAST.render(block31Content, {});
+                const isTable = rendered.trim().startsWith('<table');
+
+                log(`渲染结果是 table: ${isTable}`);
+                log(`渲染结果长度: ${rendered.length}`);
+
+                section4.innerHTML += `
+                    <p>渲染结果: ${isTable ? '<span class="success">✓ &lt;table&gt;</span>' : '<span class="fail">✗ &lt;p&gt;</span>'}</p>
+                    <h3>渲染输出:</h3>
+                    <div class="result">${rendered}</div>
+                `;
+
+                // 如果是 p 标签，提取内容重新渲染
+                if (!isTable && rendered.trim().startsWith('<p')) {
+                    log('\n尝试从 <p> 中提取并重新渲染...');
+
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = rendered;
+                    const pElement = tempDiv.querySelector('p');
+
+                    if (pElement) {
+                        const extractedContent = pElement.textContent;
+                        log(`提取的内容长度: ${extractedContent.length}`);
+
+                        const reRendered = MarkdownProcessorAST.render(extractedContent, {});
+                        const isTableNow = reRendered.trim().startsWith('<table');
+
+                        log(`重新渲染结果是 table: ${isTableNow}`);
+
+                        section4.innerHTML += `
+                            <h3>🔄 从 &lt;p&gt; 提取后重新渲染:</h3>
+                            <p>重新渲染结果: ${isTableNow ? '<span class="success">✓ &lt;table&gt;</span>' : '<span class="fail">✗ 仍然是 &lt;p&gt;</span>'}</p>
+                            <div class="result">${reRendered}</div>
+                        `;
+                    }
+                }
+            } catch (error) {
+                section4.innerHTML += `<p class="fail">✗ 渲染出错: ${error.message}</p>`;
+                log(`渲染出错: ${error.message}`);
+            }
+        } else {
+            section4.innerHTML += '<p class="fail">✗ MarkdownProcessorAST 未加载</p>';
+            log('MarkdownProcessorAST 未加载');
+        }
+
+        output.appendChild(section4);
+
+        // ============ 步骤 5: 模拟三层修复机制 ============
+        const section5 = document.createElement('div');
+        section5.className = 'section';
+        section5.innerHTML = '<h2>步骤 5: 模拟三层修复机制</h2>';
+
+        log('\n=== 步骤 5: 模拟三层修复机制 ===');
+
+        if (typeof marked !== 'undefined' && typeof MarkdownProcessorAST !== 'undefined') {
+            const tokens = marked.lexer(block31Content);
+            const tokenRaw = tokens[0]?.raw || '';
+
+            // 第一层：检测并修正 token 类型
+            log('【第一层】Token 类型检测');
+            const hasTableSyntaxCheck = /\|(:?-+:?\|)+/.test(tokenRaw);
+            log(`包含表格语法: ${hasTableSyntaxCheck}`);
+            log(`原始 token 类型: ${tokens[0].type}`);
+
+            if (tokens[0].type === 'paragraph' && hasTableSyntaxCheck) {
+                log('✓ 强制修正 token 类型为 table');
+                tokens[0].type = 'table';
+            }
+            log(`修正后 token 类型: ${tokens[0].type}`);
+
+            // 第二层：使用 AST 渲染器
+            log('\n【第二层】使用 AST 渲染器');
+            let htmlStr = MarkdownProcessorAST.render(tokenRaw, {});
+            log(`渲染结果类型: ${htmlStr.trim().startsWith('<table') ? '<table>' : '<p>'}`);
+
+            // 第三层：后验检查
+            log('\n【第三层】后验检查');
+            if (hasTableSyntaxCheck && htmlStr.trim().startsWith('<p')) {
+                log('⚠️ 渲染结果仍然是 <p>，尝试提取并重新渲染');
+
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = htmlStr;
+                const pElement = tempDiv.querySelector('p');
+
+                if (pElement && pElement.textContent.includes('|')) {
+                    const tableMarkdown = pElement.textContent;
+                    htmlStr = MarkdownProcessorAST.render(tableMarkdown, {});
+                    log('✓ 重新渲染完成');
+                    log(`最终结果类型: ${htmlStr.trim().startsWith('<table') ? '<table>' : '<p>'}`);
+                }
+            } else {
+                log('✓ 渲染结果正确，无需后处理');
+            }
+
+            const finalIsTable = htmlStr.trim().startsWith('<table');
+
+            section5.innerHTML += `
+                <p><strong>三层修复机制执行结果:</strong></p>
+                <ul>
+                    <li>第一层 - Token 类型修正: ${tokens[0].type === 'table' ? '<span class="success">✓</span>' : '<span class="fail">✗</span>'}</li>
+                    <li>第二层 - AST 渲染器: <span class="success">✓</span></li>
+                    <li>第三层 - 后验检查: <span class="success">✓</span></li>
+                </ul>
+                <p><strong>最终结果:</strong> ${finalIsTable ? '<span class="success">✓ 成功渲染为 &lt;table&gt;</span>' : '<span class="fail">✗ 仍然是 &lt;p&gt;</span>'}</p>
+                <h3>最终渲染输出:</h3>
+                <div class="result">${htmlStr}</div>
+            `;
+        } else {
+            section5.innerHTML += '<p class="fail">✗ 无法执行：缺少必要的库</p>';
+        }
+
+        output.appendChild(section5);
+
+        // ============ 显示日志 ============
+        setTimeout(() => {
+            const logSection = document.createElement('div');
+            logSection.className = 'section';
+            logSection.innerHTML = `
+                <h2>📋 完整日志 (${logs.length} 条)</h2>
+                <div class="log">${logs.join('\n')}</div>
+            `;
+            output.appendChild(logSection);
+
+            // ============ 诊断建议 ============
+            const suggestionSection = document.createElement('div');
+            suggestionSection.className = 'section';
+            suggestionSection.innerHTML = `
+                <h2>💡 诊断建议</h2>
+                <ol>
+                    <li><strong>如果 MarkdownProcessorAST 未加载：</strong>
+                        <ul>
+                            <li>检查 <span class="code">views/history/history_detail.html</span> 中的脚本引用</li>
+                            <li>确认 <span class="code">js/processing/markdown_processor_ast.js</span> 文件存在</li>
+                            <li>清除浏览器缓存 (Ctrl + Shift + R)</li>
+                        </ul>
+                    </li>
+                    <li><strong>如果渲染为 &lt;table&gt; 但应用中仍显示 &lt;p&gt;：</strong>
+                        <ul>
+                            <li>确认应用已刷新 (Ctrl + Shift + R)</li>
+                            <li>检查 <span class="code">js/history/history_detail_show_tab.js</span> 中的三层修复代码</li>
+                            <li>在应用控制台中查找 <span class="code">[renderBatch]</span> 日志</li>
+                        </ul>
+                    </li>
+                    <li><strong>如果三层修复机制未生效：</strong>
+                        <ul>
+                            <li>打开应用的开发者工具 (F12)</li>
+                            <li>执行: <span class="code">console.log(typeof MarkdownProcessorAST)</span></li>
+                            <li>应该输出 <span class="code">'object'</span> 而不是 <span class="code">'undefined'</span></li>
+                        </ul>
+                    </li>
+                </ol>
+            `;
+            output.appendChild(suggestionSection);
+        }, 200);
+    </script>
+</body>
+</html>

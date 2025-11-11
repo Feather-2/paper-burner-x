@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>多逗号公式测试</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script src="js/processing/markdown_processor_ast.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+        .test-case {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-title {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        .source {
+            background: #f5f5f5;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 3px solid #4CAF50;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            word-break: break-all;
+            font-size: 13px;
+        }
+        .result {
+            background: #fff;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 3px solid #2196F3;
+            min-height: 30px;
+        }
+        .error {
+            color: #c62828;
+            background: #ffebee;
+            padding: 5px;
+        }
+        .success {
+            color: #2e7d32;
+            background: #e8f5e9;
+            padding: 5px;
+        }
+        .warning {
+            color: #f57c00;
+            background: #fff3e0;
+            padding: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>多逗号公式测试</h1>
+    <p>测试包含多个逗号的数学公式能否正确渲染</p>
+
+    <div id="test-container"></div>
+
+    <script>
+        const testCases = [
+            {
+                title: '用户问题: 5个逗号的公式',
+                input: '三方 QSS 协议的仿真。假设 $a_{1}=3, p_{1}=15, o_{1}=1, r_{1}=9, b_{1}^{1}=5, q_{1}^{1}=11$，$b_{1}^{1}=7$ 和 $q_{2}^{1}=13$。',
+                expectFormulas: 3
+            },
+            {
+                title: '单独测试: 第一个公式（5个逗号）',
+                input: '$a_{1}=3, p_{1}=15, o_{1}=1, r_{1}=9, b_{1}^{1}=5, q_{1}^{1}=11$',
+                expectFormulas: 1
+            },
+            {
+                title: '测试: 3个逗号',
+                input: '$x=1, y=2, z=3, w=4$',
+                expectFormulas: 1
+            },
+            {
+                title: '测试: 2个逗号（边界）',
+                input: '$x=1, y=2, z=3$',
+                expectFormulas: 1
+            },
+            {
+                title: '测试: 10个逗号',
+                input: '$a=1, b=2, c=3, d=4, e=5, f=6, g=7, h=8, i=9, j=10, k=11$',
+                expectFormulas: 1
+            }
+        ];
+
+        const container = document.getElementById('test-container');
+        let passCount = 0;
+
+        testCases.forEach((testCase, index) => {
+            const div = document.createElement('div');
+            div.className = 'test-case';
+
+            const title = document.createElement('div');
+            title.className = 'test-title';
+            title.textContent = `测试 ${index + 1}: ${testCase.title}`;
+            div.appendChild(title);
+
+            // 源代码
+            const source = document.createElement('div');
+            source.className = 'source';
+            source.textContent = testCase.input;
+            div.appendChild(source);
+
+            // 期望结果
+            const expect = document.createElement('div');
+            expect.textContent = `期望: ${testCase.expectFormulas} 个公式`;
+            expect.style.color = '#666';
+            expect.style.fontSize = '12px';
+            expect.style.marginTop = '5px';
+            div.appendChild(expect);
+
+            // MarkdownProcessorAST 渲染结果
+            const resultLabel = document.createElement('div');
+            resultLabel.textContent = '渲染结果:';
+            resultLabel.style.fontWeight = 'bold';
+            resultLabel.style.marginTop = '10px';
+            div.appendChild(resultLabel);
+
+            const result = document.createElement('div');
+            result.className = 'result';
+
+            try {
+                const rendered = MarkdownProcessorAST.render(testCase.input);
+                result.innerHTML = rendered;
+
+                // 统计公式数量
+                const formulaCount = (rendered.match(/class="katex/g) || []).length;
+
+                const status = document.createElement('span');
+                if (formulaCount === testCase.expectFormulas) {
+                    status.className = 'success';
+                    status.textContent = ` ✓ 正确（发现 ${formulaCount} 个公式）`;
+                    passCount++;
+                } else if (formulaCount === 0) {
+                    status.className = 'error';
+                    status.textContent = ` ✗ 失败（没有渲染公式）`;
+                } else {
+                    status.className = 'warning';
+                    status.textContent = ` ⚠ 部分正确（发现 ${formulaCount}/${testCase.expectFormulas} 个公式）`;
+                }
+                resultLabel.appendChild(status);
+
+                console.log(`测试 ${index + 1}:`, {
+                    input: testCase.input,
+                    expectFormulas: testCase.expectFormulas,
+                    actualFormulas: formulaCount,
+                    pass: formulaCount === testCase.expectFormulas
+                });
+
+            } catch (error) {
+                result.innerHTML = `<span class="error">错误: ${error.message}</span>`;
+                const status = document.createElement('span');
+                status.className = 'error';
+                status.textContent = ` ✗ 渲染异常`;
+                resultLabel.appendChild(status);
+            }
+
+            div.appendChild(result);
+            container.appendChild(div);
+        });
+
+        // 显示总结
+        setTimeout(() => {
+            const summary = document.createElement('div');
+            summary.style.marginTop = '30px';
+            summary.style.padding = '20px';
+            summary.style.borderRadius = '8px';
+            summary.style.fontWeight = 'bold';
+            summary.style.fontSize = '18px';
+
+            if (passCount === testCases.length) {
+                summary.style.background = '#d4edda';
+                summary.style.color = '#155724';
+                summary.textContent = `✅ 完美！所有 ${testCases.length} 个测试通过！`;
+            } else {
+                summary.style.background = '#fff3cd';
+                summary.style.color = '#856404';
+                summary.textContent = `⚠️ ${passCount}/${testCases.length} 个测试通过`;
+            }
+
+            container.appendChild(summary);
+            console.log(`\n=== 总结: ${passCount}/${testCases.length} 通过 ===`);
+        }, 100);
+
+        // 输出版本信息
+        console.log('MarkdownProcessorAST 版本:', MarkdownProcessorAST.version);
+        console.log('Metrics:', MarkdownProcessorAST.getMetrics());
+    </script>
+</body>
+</html>

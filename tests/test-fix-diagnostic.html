@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>压缩表格修复诊断</title>
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"></script>
+    <script src="js/processing/markdown_processor_ast.js"></script>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', monospace;
+            max-width: 1400px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .section {
+            background: white;
+            margin: 20px 0;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .log {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .success { color: #27ae60; }
+        .fail { color: #e74c3c; }
+        .result table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+        }
+        .result th, .result td {
+            border: 1px solid #ddd;
+            padding: 6px;
+            font-size: 12px;
+        }
+        .result th {
+            background: #3498db;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 压缩表格修复诊断</h1>
+
+    <div id="output"></div>
+
+    <script>
+        // 拦截所有 console.log
+        const logs = [];
+        const originalLog = console.log;
+        const originalWarn = console.warn;
+        const originalError = console.error;
+
+        console.log = function(...args) {
+            logs.push('[LOG] ' + args.join(' '));
+            originalLog.apply(console, args);
+        };
+
+        console.warn = function(...args) {
+            logs.push('[WARN] ' + args.join(' '));
+            originalWarn.apply(console, args);
+        };
+
+        console.error = function(...args) {
+            logs.push('[ERROR] ' + args.join(' '));
+            originalError.apply(console, args);
+        };
+
+        const output = document.getElementById('output');
+        const compressedTable = `| | | | 五分位数 (Quintiles) | | | |---|---|---|---|---|---|---| | | 1 | 2 | 3 | 4 | 5 | 5-1 | | 市场 (Market) | 0.145*** | 0.200** | 0.061* | 0.136* | 0.106*** | -0.039 | | | (2.774) | (2.441) | (1.938) | (1.689) | (2.703) | (-0.930) | | 规模 (Size) | 0.107** | 0.329* | 0.147** | 0.206** | 0.059*** | 0.047 | | | (2.163) | (1.800) | (2.223) | (2.452) | (3.150) | (1.090) |`;
+
+        // 步骤1: 验证输入
+        const section1 = document.createElement('div');
+        section1.className = 'section';
+        section1.innerHTML = `
+            <h2>步骤1: 验证输入</h2>
+            <p>管道符数量: <strong>${(compressedTable.match(/\|/g) || []).length}</strong></p>
+            <p>文本长度: <strong>${compressedTable.length}</strong></p>
+            <p>包含分隔符: <strong>${/\|(:?-+:?\|)+/.test(compressedTable) ? '✓ 是' : '✗ 否'}</strong></p>
+        `;
+        output.appendChild(section1);
+
+        // 步骤2: 测试 MarkdownProcessorAST
+        const section2 = document.createElement('div');
+        section2.className = 'section';
+        section2.innerHTML = `<h2>步骤2: MarkdownProcessorAST 渲染</h2>`;
+
+        if (typeof MarkdownProcessorAST !== 'undefined') {
+            try {
+                logs.length = 0; // 清空日志
+                const html = MarkdownProcessorAST.render(compressedTable);
+                const hasTable = html.includes('<table');
+
+                section2.innerHTML += `
+                    <p class="${hasTable ? 'success' : 'fail'}">
+                        ${hasTable ? '✓ 成功生成表格' : '✗ 未生成表格'}
+                    </p>
+                    <div class="result">${html}</div>
+                `;
+            } catch (error) {
+                section2.innerHTML += `
+                    <p class="fail">✗ 渲染出错: ${error.message}</p>
+                    <pre>${error.stack}</pre>
+                `;
+            }
+        } else {
+            section2.innerHTML += `<p class="fail">✗ MarkdownProcessorAST 未加载</p>`;
+        }
+        output.appendChild(section2);
+
+        // 步骤3: 显示日志
+        setTimeout(() => {
+            const section3 = document.createElement('div');
+            section3.className = 'section';
+            section3.innerHTML = `
+                <h2>步骤3: 控制台日志 (${logs.length} 条)</h2>
+                <div class="log">${logs.length > 0 ? logs.join('\n') : '(无日志)'}</div>
+            `;
+            output.appendChild(section3);
+
+            // 步骤4: 获取指标
+            if (typeof MarkdownProcessorAST !== 'undefined' && MarkdownProcessorAST.getMetrics) {
+                const metrics = MarkdownProcessorAST.getMetrics();
+                const section4 = document.createElement('div');
+                section4.className = 'section';
+                section4.innerHTML = `
+                    <h2>步骤4: 性能指标</h2>
+                    <div class="log">${JSON.stringify(metrics, null, 2)}</div>
+                `;
+                output.appendChild(section4);
+            }
+        }, 200);
+    </script>
+</body>
+</html>

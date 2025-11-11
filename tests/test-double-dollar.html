@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>花括号公式诊断</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script src="js/processing/markdown_processor_ast.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+        .test-case {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-title {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        .source {
+            background: #f5f5f5;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 3px solid #4CAF50;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            word-break: break-all;
+            font-size: 13px;
+        }
+        .result {
+            background: #fff;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 3px solid #2196F3;
+            min-height: 30px;
+        }
+        .katex-test {
+            background: #e3f2fd;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 3px solid #1976D2;
+        }
+        .error {
+            color: #c62828;
+            background: #ffebee;
+            padding: 5px;
+        }
+        .success {
+            color: #2e7d32;
+            background: #e8f5e9;
+            padding: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>花括号公式渲染诊断</h1>
+    <p>测试包含花括号的公式渲染</p>
+
+    <div id="test-container"></div>
+
+    <script>
+        const testCases = [
+            {
+                title: '问题1: ${10}\\mathrm{\\;{min}}$',
+                input: '${10}\\mathrm{\\;{min}}$',
+                katexDirect: '{10}\\mathrm{\\;{min}}'
+            },
+            {
+                title: '问题2: ${\\mathrm{{CO}}}_{2}$',
+                input: '${\\mathrm{{CO}}}_{2}$',
+                katexDirect: '{\\mathrm{{CO}}}_{2}'
+            },
+            {
+                title: '问题3: ${1.5}\\mathrm{\\;m}$',
+                input: '${1.5}\\mathrm{\\;m}$',
+                katexDirect: '{1.5}\\mathrm{\\;m}'
+            },
+            {
+                title: '问题4: $\\mathrm{m}$',
+                input: '$\\mathrm{m}$',
+                katexDirect: '\\mathrm{m}'
+            },
+            {
+                title: '问题5: $8\\mathrm{{person}}/{\\mathrm{m}}^{2}$',
+                input: '$8\\mathrm{{person}}/{\\mathrm{m}}^{2}$',
+                katexDirect: '8\\mathrm{{person}}/{\\mathrm{m}}^{2}'
+            },
+            {
+                title: '问题6: $4\\mathrm{{person}}/{\\mathrm{m}}^{2}$',
+                input: '$4\\mathrm{{person}}/{\\mathrm{m}}^{2}$',
+                katexDirect: '4\\mathrm{{person}}/{\\mathrm{m}}^{2}'
+            },
+            {
+                title: '完整段落',
+                input: '(a) 在 ${10}\\mathrm{\\;{min}}$ 时，${\\mathrm{{CO}}}_{2}$ 在 ${1.5}\\mathrm{\\;m}$ 处 和 1.1 $\\mathrm{m}$ 处，对于 $8\\mathrm{{person}}/{\\mathrm{m}}^{2}$ 的模拟，我们仍使用了 $4\\mathrm{{person}}/{\\mathrm{m}}^{2}$ 的模型',
+                katexDirect: null
+            }
+        ];
+
+        const container = document.getElementById('test-container');
+
+        testCases.forEach((testCase, index) => {
+            const div = document.createElement('div');
+            div.className = 'test-case';
+
+            const title = document.createElement('div');
+            title.className = 'test-title';
+            title.textContent = `测试 ${index + 1}: ${testCase.title}`;
+            div.appendChild(title);
+
+            // 源代码
+            const source = document.createElement('div');
+            source.className = 'source';
+            source.textContent = testCase.input;
+            div.appendChild(source);
+
+            // MarkdownProcessorAST 渲染结果
+            const resultLabel = document.createElement('div');
+            resultLabel.textContent = 'MarkdownProcessorAST 渲染:';
+            resultLabel.style.fontWeight = 'bold';
+            resultLabel.style.marginTop = '10px';
+            div.appendChild(resultLabel);
+
+            const result = document.createElement('div');
+            result.className = 'result';
+            try {
+                const rendered = MarkdownProcessorAST.render(testCase.input);
+                result.innerHTML = rendered;
+
+                // 检查是否包含 katex 元素
+                if (rendered.includes('katex') || rendered.includes('math')) {
+                    const status = document.createElement('span');
+                    status.className = 'success';
+                    status.textContent = ' ✓ 包含数学渲染';
+                    resultLabel.appendChild(status);
+                } else {
+                    const status = document.createElement('span');
+                    status.className = 'error';
+                    status.textContent = ' ✗ 未渲染为公式';
+                    resultLabel.appendChild(status);
+                }
+            } catch (error) {
+                result.innerHTML = `<span class="error">错误: ${error.message}</span>`;
+            }
+            div.appendChild(result);
+
+            // KaTeX 直接渲染（如果有）
+            if (testCase.katexDirect) {
+                const katexLabel = document.createElement('div');
+                katexLabel.textContent = 'KaTeX 直接渲染 (参考):';
+                katexLabel.style.fontWeight = 'bold';
+                katexLabel.style.marginTop = '10px';
+                div.appendChild(katexLabel);
+
+                const katexDiv = document.createElement('div');
+                katexDiv.className = 'katex-test';
+                try {
+                    katex.render(testCase.katexDirect, katexDiv, {
+                        throwOnError: false,
+                        displayMode: false
+                    });
+                    const status = document.createElement('span');
+                    status.className = 'success';
+                    status.textContent = ' ✓ KaTeX 渲染成功';
+                    katexLabel.appendChild(status);
+                } catch (error) {
+                    katexDiv.innerHTML = `<span class="error">KaTeX 错误: ${error.message}</span>`;
+                }
+                div.appendChild(katexDiv);
+            }
+
+            container.appendChild(div);
+        });
+
+        // 输出调试信息到控制台
+        console.log('=== 测试完成 ===');
+        console.log('Metrics:', MarkdownProcessorAST.getMetrics());
+    </script>
+</body>
+</html>

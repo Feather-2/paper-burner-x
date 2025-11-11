@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IndexedDB 术语库检查工具</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        .section h2 {
+            margin-top: 0;
+            color: #555;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button.danger {
+            background: #dc3545;
+        }
+        button.danger:hover {
+            background: #c82333;
+        }
+        pre {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            max-height: 400px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 IndexedDB 术语库检查工具</h1>
+
+        <div class="section">
+            <h2>数据库状态</h2>
+            <div id="dbStatus"></div>
+            <button onclick="checkDatabase()">检查数据库</button>
+            <button onclick="checkCache()">检查缓存</button>
+        </div>
+
+        <div class="section">
+            <h2>术语库集合 (Glossary Sets)</h2>
+            <div id="setsInfo"></div>
+            <button onclick="loadSets()">加载集合</button>
+            <button onclick="testCreate()">测试创建</button>
+        </div>
+
+        <div class="section">
+            <h2>术语条目 (Entries)</h2>
+            <input type="text" id="setIdInput" placeholder="输入术语库 ID" style="padding: 8px; width: 300px; margin-right: 10px;">
+            <button onclick="loadEntries()">加载条目</button>
+            <div id="entriesInfo"></div>
+        </div>
+
+        <div class="section">
+            <h2>测试操作</h2>
+            <button onclick="testSave()">测试保存</button>
+            <button onclick="testMigration()">测试迁移</button>
+            <button class="danger" onclick="clearAllData()">清空所有数据</button>
+        </div>
+
+        <div class="section">
+            <h2>原始数据</h2>
+            <pre id="rawData">点击上面的按钮查看数据...</pre>
+        </div>
+    </div>
+
+    <script>
+        const DB_NAME = 'PaperBurnerGlossaryDB';
+        const DB_VERSION = 1;
+
+        function log(message, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `status ${type}`;
+            div.textContent = message;
+            return div.outerHTML;
+        }
+
+        async function openDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => resolve(request.result);
+            });
+        }
+
+        async function checkDatabase() {
+            const statusDiv = document.getElementById('dbStatus');
+            try {
+                const db = await openDB();
+                const stores = Array.from(db.objectStoreNames);
+
+                let html = log(`✅ 数据库已打开: ${DB_NAME}`, 'success');
+                html += log(`Object Stores: ${stores.join(', ')}`, 'info');
+
+                // 统计数据
+                for (const storeName of stores) {
+                    const tx = db.transaction(storeName, 'readonly');
+                    const store = tx.objectStore(storeName);
+                    const countRequest = store.count();
+
+                    await new Promise((resolve) => {
+                        countRequest.onsuccess = () => {
+                            html += log(`${storeName}: ${countRequest.result} 条记录`, 'info');
+                            resolve();
+                        };
+                    });
+                }
+
+                statusDiv.innerHTML = html;
+                db.close();
+            } catch (err) {
+                statusDiv.innerHTML = log(`❌ 错误: ${err.message}`, 'error');
+            }
+        }
+
+        async function checkCache() {
+            const statusDiv = document.getElementById('dbStatus');
+            const cache = window._glossarySetsCache;
+
+            if (!cache) {
+                statusDiv.innerHTML = log('⚠️ 缓存为空 (window._glossarySetsCache)', 'error');
+                return;
+            }
+
+            const setIds = Object.keys(cache);
+            let html = log(`✅ 缓存中有 ${setIds.length} 个术语库`, 'success');
+
+            setIds.forEach(id => {
+                const set = cache[id];
+                const entryCount = set.entries ? set.entries.length : 0;
+                html += log(`${set.name} (${id.slice(0,8)}): ${entryCount} 条`, 'info');
+            });
+
+            statusDiv.innerHTML = html;
+            document.getElementById('rawData').textContent = JSON.stringify(cache, null, 2);
+        }
+
+        async function loadSets() {
+            const infoDiv = document.getElementById('setsInfo');
+            const rawDiv = document.getElementById('rawData');
+
+            try {
+                const db = await openDB();
+                const tx = db.transaction('glossary_sets', 'readonly');
+                const store = tx.objectStore('glossary_sets');
+                const request = store.getAll();
+
+                request.onsuccess = () => {
+                    const sets = request.result;
+                    let html = log(`✅ 加载了 ${sets.length} 个术语库集合`, 'success');
+
+                    sets.forEach(set => {
+                        html += log(`${set.name} (ID: ${set.id.slice(0,8)})`, 'info');
+                    });
+
+                    infoDiv.innerHTML = html;
+                    rawDiv.textContent = JSON.stringify(sets, null, 2);
+                };
+
+                request.onerror = () => {
+                    infoDiv.innerHTML = log(`❌ 加载失败: ${request.error}`, 'error');
+                };
+
+                db.close();
+            } catch (err) {
+                infoDiv.innerHTML = log(`❌ 错误: ${err.message}`, 'error');
+            }
+        }
+
+        async function loadEntries() {
+            const setId = document.getElementById('setIdInput').value.trim();
+            const infoDiv = document.getElementById('entriesInfo');
+            const rawDiv = document.getElementById('rawData');
+
+            if (!setId) {
+                infoDiv.innerHTML = log('⚠️ 请输入术语库 ID', 'error');
+                return;
+            }
+
+            try {
+                const db = await openDB();
+                const tx = db.transaction('glossary_entries', 'readonly');
+                const store = tx.objectStore('glossary_entries');
+                const index = store.index('setId');
+                const request = index.getAll(setId);
+
+                request.onsuccess = () => {
+                    const entries = request.result;
+                    infoDiv.innerHTML = log(`✅ 加载了 ${entries.length} 条术语`, 'success');
+                    rawDiv.textContent = JSON.stringify(entries.slice(0, 100), null, 2) +
+                                        (entries.length > 100 ? `\n... (仅显示前100条，共${entries.length}条)` : '');
+                };
+
+                request.onerror = () => {
+                    infoDiv.innerHTML = log(`❌ 加载失败: ${request.error}`, 'error');
+                };
+
+                db.close();
+            } catch (err) {
+                infoDiv.innerHTML = log(`❌ 错误: ${err.message}`, 'error');
+            }
+        }
+
+        async function testCreate() {
+            const infoDiv = document.getElementById('setsInfo');
+
+            try {
+                const db = await openDB();
+                const newSet = {
+                    id: 'test-' + Date.now(),
+                    name: '测试术语库',
+                    enabled: true,
+                    updatedAt: Date.now()
+                };
+
+                const tx = db.transaction('glossary_sets', 'readwrite');
+                const store = tx.objectStore('glossary_sets');
+                const request = store.put(newSet);
+
+                request.onsuccess = () => {
+                    infoDiv.innerHTML = log(`✅ 创建成功: ${newSet.id}`, 'success');
+                    loadSets();
+                };
+
+                request.onerror = () => {
+                    infoDiv.innerHTML = log(`❌ 创建失败: ${request.error}`, 'error');
+                };
+
+                db.close();
+            } catch (err) {
+                infoDiv.innerHTML = log(`❌ 错误: ${err.message}`, 'error');
+            }
+        }
+
+        async function testSave() {
+            alert('这个功能需要加载 glossary-storage.js，请在主页面测试');
+        }
+
+        async function testMigration() {
+            const statusDiv = document.getElementById('dbStatus');
+
+            // 检查 localStorage
+            const oldData = localStorage.getItem('translationGlossarySets');
+            if (!oldData) {
+                statusDiv.innerHTML = log('⚠️ localStorage 中没有旧数据', 'error');
+                return;
+            }
+
+            try {
+                const sets = JSON.parse(oldData);
+                const setIds = Object.keys(sets);
+                statusDiv.innerHTML = log(`✅ localStorage 中有 ${setIds.length} 个术语库`, 'success');
+
+                // 显示详情
+                let html = '';
+                setIds.forEach(id => {
+                    const set = sets[id];
+                    const entryCount = set.entries ? set.entries.length : 0;
+                    html += log(`${set.name}: ${entryCount} 条`, 'info');
+                });
+                statusDiv.innerHTML += html;
+
+                document.getElementById('rawData').textContent = JSON.stringify(sets, null, 2);
+            } catch (err) {
+                statusDiv.innerHTML = log(`❌ 解析失败: ${err.message}`, 'error');
+            }
+        }
+
+        async function clearAllData() {
+            if (!confirm('确定要清空所有术语库数据吗？此操作不可撤销！')) return;
+
+            try {
+                const db = await openDB();
+
+                // 清空两个 store
+                const stores = ['glossary_sets', 'glossary_entries'];
+                for (const storeName of stores) {
+                    const tx = db.transaction(storeName, 'readwrite');
+                    const store = tx.objectStore(storeName);
+                    await new Promise((resolve, reject) => {
+                        const request = store.clear();
+                        request.onsuccess = resolve;
+                        request.onerror = () => reject(request.error);
+                    });
+                }
+
+                // 清空缓存
+                window._glossarySetsCache = {};
+
+                // 重置迁移标志
+                localStorage.removeItem('glossaryMigratedToIDB');
+
+                db.close();
+
+                alert('✅ 所有数据已清空');
+                checkDatabase();
+            } catch (err) {
+                alert(`❌ 清空失败: ${err.message}`);
+            }
+        }
+
+        // 自动检查
+        window.addEventListener('DOMContentLoaded', () => {
+            checkDatabase();
+            checkCache();
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>花括号公式测试</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script src="js/processing/markdown_processor_ast.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+        .test-case {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-title {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .source {
+            background: #f5f5f5;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 3px solid #4CAF50;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .result {
+            background: #fff;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 3px solid #2196F3;
+        }
+        .expected {
+            background: #e8f5e9;
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 3px solid #4CAF50;
+        }
+        .debug {
+            background: #fff3e0;
+            padding: 10px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <h1>花括号公式渲染测试</h1>
+
+    <div class="test-case">
+        <div class="test-title">问题：包含转义花括号的公式</div>
+        <div class="source" id="source1"></div>
+        <div class="result" id="result1"></div>
+        <div class="debug" id="debug1"></div>
+    </div>
+
+    <div class="test-case">
+        <div class="test-title">单独测试：单个公式</div>
+        <div class="source" id="source2"></div>
+        <div class="result" id="result2"></div>
+    </div>
+
+    <div class="test-case">
+        <div class="test-title">单独测试：三个公式</div>
+        <div class="source" id="source3"></div>
+        <div class="result" id="result3"></div>
+    </div>
+
+    <script>
+        // 开启调试模式
+        if (typeof MarkdownProcessorAST !== 'undefined') {
+            MarkdownProcessorAST.setDebug(true);
+        }
+
+        const testCases = [
+            {
+                title: '完整段落',
+                input: '其中 $p \\in \\{0,1, \\cdots, d-1\\}$，$o \\in \\{0,1\\}$，$r \\in \\mathbb{Z}$。为了测量 $|\\psi_{r}\\rangle$，我们定义测量算符为'
+            },
+            {
+                title: '单个公式',
+                input: '$p \\in \\{0,1, \\cdots, d-1\\}$'
+            },
+            {
+                title: '三个公式',
+                input: '$p \\in \\{0,1, \\cdots, d-1\\}$，$o \\in \\{0,1\\}$，$r \\in \\mathbb{Z}$'
+            }
+        ];
+
+        console.clear();
+        console.log('=== 开始测试 ===');
+
+        testCases.forEach((testCase, index) => {
+            const sourceEl = document.getElementById(`source${index + 1}`);
+            const resultEl = document.getElementById(`result${index + 1}`);
+            const debugEl = document.getElementById(`debug${index + 1}`);
+
+            sourceEl.textContent = testCase.input;
+
+            console.log(`\n--- 测试 ${index + 1}: ${testCase.title} ---`);
+            console.log('输入:', testCase.input);
+
+            try {
+                const rendered = MarkdownProcessorAST.render(testCase.input);
+                resultEl.innerHTML = rendered;
+
+                console.log('渲染成功');
+                if (debugEl) {
+                    debugEl.textContent = `输出 HTML (前 500 字符):\n${rendered.substring(0, 500)}`;
+                }
+            } catch (error) {
+                console.error('渲染错误:', error);
+                resultEl.innerHTML = `<span style="color: red;">错误: ${error.message}</span>`;
+                if (debugEl) {
+                    debugEl.textContent = `错误: ${error.message}\n${error.stack}`;
+                }
+            }
+        });
+
+        console.log('\n=== 测试完成 ===');
+        console.log('Metrics:', MarkdownProcessorAST.getMetrics());
+    </script>
+</body>
+</html>

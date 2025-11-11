@@ -1520,7 +1520,43 @@ function showTab(tab) {
   function renderBatch(startIdx, onDoneAllBatchesCallback) { // Added onDoneAllBatchesCallback parameter
       const fragment = document.createDocumentFragment();
       for(let i=startIdx;i<Math.min(tokens.length, startIdx+batchSize);i++){
-        const htmlStr = MarkdownProcessor.renderWithKatexFailback(MarkdownProcessor.safeMarkdown(tokens[i].raw || '', data.images), customRenderer);
+        const tokenRaw = tokens[i].raw || '';
+
+        // 检测：如果 token 类型是 paragraph 但包含表格语法，强制作为表格处理
+        const hasTableSyntax = /\|(:?-+:?\|)+/.test(tokenRaw);
+        if (tokens[i].type === 'paragraph' && hasTableSyntax) {
+          console.log('[renderBatch] 检测到 paragraph token 包含表格语法，强制作为表格处理');
+          tokens[i].type = 'table'; // 强制改为 table 类型
+        }
+
+        // 优先使用 AST 处理器（支持压缩表格修复）
+        let htmlStr;
+        if (typeof MarkdownIntegration !== 'undefined' && MarkdownIntegration.smartRender) {
+          htmlStr = MarkdownIntegration.smartRender(tokenRaw, data.images, customRenderer, contentIdentifier);
+        } else if (typeof MarkdownProcessorAST !== 'undefined' && MarkdownProcessorAST.render) {
+          htmlStr = MarkdownProcessorAST.render(tokenRaw, data.images);
+        } else {
+          // 降级到旧版
+          htmlStr = MarkdownProcessor.renderWithKatexFailback(MarkdownProcessor.safeMarkdown(tokenRaw, data.images), customRenderer);
+        }
+
+        // 后验检查：如果渲染后仍然是 <p> 但包含表格 Markdown，尝试直接渲染表格
+        if (hasTableSyntax && htmlStr.trim().startsWith('<p')) {
+          console.warn('[renderBatch] 渲染后仍然是 <p>，尝试直接提取并渲染表格部分');
+          // 提取 <p> 中的文本内容
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = htmlStr;
+          const pElement = tempDiv.querySelector('p');
+          if (pElement && pElement.textContent.includes('|')) {
+            const tableMarkdown = pElement.textContent;
+            // 重新渲染表格
+            if (typeof MarkdownProcessorAST !== 'undefined' && MarkdownProcessorAST.render) {
+              htmlStr = MarkdownProcessorAST.render(tableMarkdown, data.images);
+              console.log('[renderBatch] 重新渲染表格成功');
+            }
+          }
+        }
+
         const wrap = document.createElement('div');
         wrap.innerHTML = htmlStr;
         while(wrap.firstChild) fragment.appendChild(wrap.firstChild);
@@ -1582,6 +1618,13 @@ function showTab(tab) {
             segmentInBatches(activeContentElement, 10, 50, () => {
                 // This is the onDone callback for segmentInBatches
                 // All segmentation is complete, now apply annotations and listeners
+
+                // 后处理：渲染表格和其他地方的纯文本公式
+                if (typeof FormulaPostProcessor !== 'undefined' && FormulaPostProcessor.processFormulasInElement) {
+                    console.log('[showTab] 开始后处理公式');
+                    FormulaPostProcessor.processFormulasInElement(activeContentElement);
+                }
+
                 if (data && data.annotations && typeof window.applyBlockAnnotations === 'function') {
                     window.applyBlockAnnotations(activeContentElement, data.annotations, contentIdentifier);
                 }
@@ -1634,6 +1677,13 @@ function showTab(tab) {
           segmentInBatches(activeContentElement, 10, 50, () => {
               // This is the onDone callback for segmentInBatches
               // All segmentation is complete, now apply annotations and listeners
+
+              // 后处理：渲染表格和其他地方的纯文本公式
+              if (typeof FormulaPostProcessor !== 'undefined' && FormulaPostProcessor.processFormulasInElement) {
+                  console.log('[showTab] 开始后处理公式');
+                  FormulaPostProcessor.processFormulasInElement(activeContentElement);
+              }
+
               if (data && data.annotations && typeof window.applyBlockAnnotations === 'function') {
                   window.applyBlockAnnotations(activeContentElement, data.annotations, contentIdentifier);
               }
@@ -1856,6 +1906,11 @@ function showTab(tab) {
                 if (i < blockElements.length) {
                     setTimeout(runChunkSubBatch, 20);
                 } else {
+                    // 后处理：渲染表格和其他地方的纯文本公式
+                    if (typeof FormulaPostProcessor !== 'undefined' && FormulaPostProcessor.processFormulasInElement) {
+                        FormulaPostProcessor.processFormulasInElement(area);
+                    }
+
                     if (data && data.annotations && typeof window.applyBlockAnnotations === 'function') {
                         const annotationsToApply = (currentVisibleTabId === 'chunk-compare') ? [] : data.annotations;
                         window.applyBlockAnnotations(area, annotationsToApply, effectiveContentIdentifier);

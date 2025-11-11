@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>路由验证测试</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .test-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background: #f8fafc;
+        }
+        .test-title {
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #1e293b;
+        }
+        .result {
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+        }
+        .success {
+            color: #10b981;
+            font-weight: bold;
+        }
+        .error {
+            color: #ef4444;
+            font-weight: bold;
+        }
+        .info {
+            color: #3b82f6;
+        }
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #1d4ed8;
+        }
+        pre {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 MarkdownProcessor 路由验证</h1>
+
+        <div class="test-section">
+            <div class="test-title">1. 检测加载的处理器</div>
+            <div id="loadCheck" class="result">检查中...</div>
+        </div>
+
+        <div class="test-section">
+            <div class="test-title">2. 检查 MarkdownProcessor 的实际路由</div>
+            <div id="routingCheck" class="result">检查中...</div>
+        </div>
+
+        <div class="test-section">
+            <div class="test-title">3. 测试实际渲染调用</div>
+            <button onclick="testRender()">执行渲染测试</button>
+            <div id="renderResult" class="result" style="margin-top: 10px; display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <div class="test-title">4. 控制台日志</div>
+            <pre id="consoleLog">打开浏览器开发者控制台查看详细日志</pre>
+        </div>
+    </div>
+
+    <!-- 依赖库 -->
+    <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="https://gcore.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://gcore.jsdelivr.net/npm/markdown-it@14.0.0/dist/markdown-it.min.js"></script>
+
+    <!-- 处理器（按照 index.html 的顺序） -->
+    <script src="js/processing/markdown_processor_enhanced.js"></script>
+    <script src="js/processing/markdown_processor_ast.js"></script>
+    <script src="js/processing/markdown_processor.js"></script>
+
+    <script>
+        console.clear();
+        console.log('%c=== 路由验证测试开始 ===', 'font-size: 16px; font-weight: bold; color: #2563eb;');
+
+        // 1. 检测加载的处理器
+        function checkLoaded() {
+            const results = [];
+            const loadCheck = document.getElementById('loadCheck');
+
+            if (window.MarkdownProcessorEnhanced) {
+                results.push('<span class="success">✓ MarkdownProcessorEnhanced 已加载</span>');
+            } else {
+                results.push('<span class="error">✗ MarkdownProcessorEnhanced 未加载</span>');
+            }
+
+            if (window.MarkdownProcessorAST) {
+                results.push('<span class="success">✓ MarkdownProcessorAST 已加载</span>');
+                results.push('<span class="info">  版本: ' + window.MarkdownProcessorAST.version + '</span>');
+            } else {
+                results.push('<span class="error">✗ MarkdownProcessorAST 未加载</span>');
+            }
+
+            if (window.MarkdownProcessor) {
+                results.push('<span class="success">✓ MarkdownProcessor 已加载</span>');
+            } else {
+                results.push('<span class="error">✗ MarkdownProcessor 未加载</span>');
+            }
+
+            loadCheck.innerHTML = results.join('<br>');
+        }
+
+        // 2. 检查路由
+        function checkRouting() {
+            const routingCheck = document.getElementById('routingCheck');
+            const results = [];
+
+            // 检查全局对象的关系
+            if (window.MarkdownProcessor && window.MarkdownProcessorAST) {
+                // 检查 1: 直接比较（这会失败，因为 markdown_processor.js 创建了包装器）
+                const directMatch = (window.MarkdownProcessor === window.MarkdownProcessorAST);
+                if (directMatch) {
+                    results.push('<span class="success">✓ MarkdownProcessor === MarkdownProcessorAST (直接引用)</span>');
+                } else {
+                    results.push('<span class="info">ℹ MarkdownProcessor 是包装器（预期行为）</span>');
+                }
+
+                // 检查 2: 测试实际调用（通过劫持 safeMarkdown）
+                const testInput = 'test $x + y$';
+                let astCalled = false;
+                let enhancedCalled = false;
+
+                try {
+                    // 劫持 AST 的 safeMarkdown
+                    const originalASTSafe = window.MarkdownProcessorAST.safeMarkdown;
+                    window.MarkdownProcessorAST.safeMarkdown = function(...args) {
+                        astCalled = true;
+                        return originalASTSafe.apply(this, args);
+                    };
+
+                    // 调用 MarkdownProcessor（如果 Enhanced 还在，也劫持它）
+                    if (window.MarkdownProcessorEnhanced && window.MarkdownProcessorEnhanced !== window.MarkdownProcessorAST) {
+                        const originalEnhancedSafe = window.MarkdownProcessorEnhanced.safeMarkdown;
+                        window.MarkdownProcessorEnhanced.safeMarkdown = function(...args) {
+                            enhancedCalled = true;
+                            return originalEnhancedSafe.apply(this, args);
+                        };
+                    }
+
+                    // 执行测试调用
+                    window.MarkdownProcessor.safeMarkdown(testInput, []);
+
+                    // 恢复
+                    window.MarkdownProcessorAST.safeMarkdown = originalASTSafe;
+
+                    // 分析结果
+                    if (astCalled) {
+                        results.push('<span class="success">✓ MarkdownProcessor.safeMarkdown() 路由到 AST ✓</span>');
+                    } else if (enhancedCalled) {
+                        results.push('<span class="error">✗ 路由到 Enhanced（旧版）</span>');
+                    } else {
+                        results.push('<span class="error">✗ 路由到 Legacy（最旧版）</span>');
+                    }
+                } catch (error) {
+                    results.push('<span class="error">✗ 路由检测失败: ' + error.message + '</span>');
+                }
+
+                // 检查 3: 验证 MarkdownProcessorEnhanced 是否也指向 AST
+                if (window.MarkdownProcessorEnhanced === window.MarkdownProcessorAST) {
+                    results.push('<span class="success">✓ MarkdownProcessorEnhanced === MarkdownProcessorAST</span>');
+                } else {
+                    results.push('<span class="info">ℹ MarkdownProcessorEnhanced 独立存在</span>');
+                }
+            } else {
+                results.push('<span class="error">✗ 无法检测路由（处理器未完全加载）</span>');
+            }
+
+            routingCheck.innerHTML = results.join('<br>');
+        }
+
+        // 3. 测试渲染
+        function testRender() {
+            const renderResult = document.getElementById('renderResult');
+            renderResult.style.display = 'block';
+
+            const testMd = 'Test formula: $x^2 + y^2 = z^2$';
+
+            try {
+                const t1 = performance.now();
+                const result = window.MarkdownProcessor.renderWithKatexFailback(testMd);
+                const t2 = performance.now();
+
+                renderResult.innerHTML = `
+                    <span class="success">✓ 渲染成功</span><br>
+                    <span class="info">耗时: ${(t2 - t1).toFixed(2)} ms</span><br>
+                    <div style="margin-top: 10px; padding: 10px; background: #f8fafc; border-radius: 4px;">
+                        ${result}
+                    </div>
+                `;
+
+                // 显示指标
+                if (window.MarkdownProcessorAST) {
+                    const metrics = window.MarkdownProcessorAST.getMetrics();
+                    console.log('%c渲染指标:', 'font-weight: bold; color: #3b82f6;', metrics);
+                }
+            } catch (error) {
+                renderResult.innerHTML = '<span class="error">✗ 渲染失败: ' + error.message + '</span>';
+            }
+        }
+
+        // 页面加载时执行检测
+        window.addEventListener('load', () => {
+            console.log('%c--- 开始检测 ---', 'color: #64748b;');
+            setTimeout(() => {
+                checkLoaded();
+                checkRouting();
+                console.log('%c=== 检测完成，请查看上方结果 ===', 'font-size: 16px; font-weight: bold; color: #10b981;');
+            }, 100);
+        });
+    </script>
+</body>
+</html>

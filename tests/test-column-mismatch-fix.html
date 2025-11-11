@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>表格列数不匹配修复测试</title>
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"></script>
+    <script src="../js/processing/markdown_processor_ast.js"></script>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            max-width: 1600px;
+            margin: 20px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        h1 {
+            color: white;
+            text-align: center;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        .test-case {
+            background: white;
+            margin: 20px 0;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+        }
+        .success { color: #27ae60; font-weight: bold; }
+        .fail { color: #e74c3c; font-weight: bold; }
+        .log {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .result {
+            border: 3px solid #3498db;
+            padding: 20px;
+            margin: 15px 0;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        .result table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+            background: white;
+        }
+        .result th, .result td {
+            border: 1px solid #dee2e6;
+            padding: 10px;
+            text-align: left;
+        }
+        .result th {
+            background: linear-gradient(135deg, #4c6ef5, #364fc7);
+            color: white;
+            font-weight: bold;
+        }
+        .result tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+        .source {
+            background: #fff3bf;
+            border: 2px dashed #fcc419;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            white-space: pre-wrap;
+        }
+        h2 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <h1>🔧 表格列数不匹配修复测试</h1>
+
+    <div id="output"></div>
+
+    <script>
+        const output = document.getElementById('output');
+        const logs = [];
+
+        // 拦截console.log
+        const originalLog = console.log;
+        console.log = function(...args) {
+            logs.push(args.join(' '));
+            originalLog.apply(console, args);
+        };
+
+        // 测试用例
+        const testCases = [
+            {
+                name: 'Block #31 (表头6列，分隔符7列)',
+                markdown: `| | | | 五分位数 (Quintiles) | | |
+|---|---|---|---|---|---|---|
+| | 1 | 2 | 3 | 4 | 5 | 5-1 |
+| 市场 (Market) | 0.145*** | 0.200** | 0.061* | 0.136* | 0.106*** | -0.039 |`
+            },
+            {
+                name: '简单测试 (表头3列，分隔符4列)',
+                markdown: `| A | B | C |
+|---|---|---|---|
+| 1 | 2 | 3 |
+| 4 | 5 | 6 |`
+            },
+            {
+                name: '表头多列 (表头5列，分隔符3列)',
+                markdown: `| A | B | C | D | E |
+|---|---|---|
+| 1 | 2 | 3 | 4 | 5 |`
+            }
+        ];
+
+        testCases.forEach((test, idx) => {
+            logs.length = 0; // 清空日志
+
+            const testDiv = document.createElement('div');
+            testDiv.className = 'test-case';
+
+            testDiv.innerHTML = `<h2>${test.name}</h2>`;
+
+            // 显示原始 Markdown
+            testDiv.innerHTML += `
+                <h3>原始 Markdown:</h3>
+                <div class="source">${test.markdown}</div>
+            `;
+
+            // 分析列数
+            const lines = test.markdown.split('\n');
+            const headerPipes = (lines[0].match(/\|/g) || []).length;
+            const separatorPipes = (lines[1].match(/\|/g) || []).length;
+
+            testDiv.innerHTML += `
+                <p>表头管道符: <strong>${headerPipes}</strong> (${headerPipes - 1} 列)</p>
+                <p>分隔符管道符: <strong>${separatorPipes}</strong> (${separatorPipes - 1} 列)</p>
+                ${headerPipes !== separatorPipes ? '<p class="fail">⚠️ 列数不匹配！</p>' : '<p class="success">✓ 列数匹配</p>'}
+            `;
+
+            // 使用 MarkdownProcessorAST 渲染
+            if (typeof MarkdownProcessorAST !== 'undefined' && MarkdownProcessorAST.render) {
+                const rendered = MarkdownProcessorAST.render(test.markdown, {});
+                const isTable = rendered.trim().startsWith('<table');
+
+                testDiv.innerHTML += `
+                    <h3>渲染结果:</h3>
+                    <p>${isTable ? '<span class="success">✓ 成功渲染为 &lt;table&gt;</span>' : '<span class="fail">✗ 渲染为 &lt;p&gt;</span>'}</p>
+                    <div class="result">${rendered}</div>
+                `;
+
+                if (logs.length > 0) {
+                    testDiv.innerHTML += `
+                        <h3>修复日志:</h3>
+                        <div class="log">${logs.join('\n')}</div>
+                    `;
+                }
+            } else {
+                testDiv.innerHTML += '<p class="fail">✗ MarkdownProcessorAST 未加载</p>';
+            }
+
+            output.appendChild(testDiv);
+        });
+
+        // 添加说明
+        setTimeout(() => {
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'test-case';
+            infoDiv.innerHTML = `
+                <h2>📋 测试说明</h2>
+                <p><strong>修复策略：</strong></p>
+                <ul>
+                    <li><strong>表头列数 < 分隔符列数：</strong>删除分隔符的多余列</li>
+                    <li><strong>表头列数 > 分隔符列数：</strong>给分隔符添加 <code>---|</code></li>
+                    <li><strong>数据行列数 < 分隔符列数：</strong>给数据行添加空单元格 <code> |</code></li>
+                </ul>
+
+                <h2>✅ 验证步骤</h2>
+                <ol>
+                    <li>所有测试用例应显示为 <code>&lt;table&gt;</code> 而非 <code>&lt;p&gt;</code></li>
+                    <li>修复日志应显示列数调整信息</li>
+                    <li>表格应正确显示边框和样式</li>
+                </ol>
+
+                <h2>🚀 下一步</h2>
+                <p>如果此测试通过，请刷新实际应用 (Ctrl + Shift + R) 来验证 Block #31 的渲染。</p>
+            `;
+            output.appendChild(infoDiv);
+        }, 100);
+    </script>
+</body>
+</html>

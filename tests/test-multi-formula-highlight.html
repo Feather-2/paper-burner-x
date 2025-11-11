@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>多公式区间高亮测试</title>
+  <link rel="stylesheet" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; line-height: 1.6; }
+    .wrap { max-width: 900px; margin: 0 auto; }
+    .block { padding: 12px; background: #f9f9f9; border-left: 4px solid #3b82f6; }
+    .sub-block { display: inline; }
+    .status { margin: 10px 0; padding: 8px 12px; border-radius: 6px; background: #eef2ff; color: #1e40af; }
+    button { margin: 8px 6px; padding: 8px 12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>多公式区间高亮测试</h1>
+    <p class="status">场景：一个子块中间包含两个公式，验证两公式之间的文本被正确高亮。</p>
+
+    <div id="content" data-block-index="10" class="block">
+      <span class="sub-block" data-sub-block-id="10.0">
+        这是前导文字，
+        <span class="katex-inline">$E=mc^2$</span>
+        这里是第一个公式后的文字，应该被高亮，
+        <span class="katex-inline">$a^2+b^2=c^2$</span>
+        这里是第二个公式后的文字，也应该被高亮。
+      </span>
+    </div>
+
+    <div style="margin-top:12px;">
+      <button id="btn-annotate">应用“子块区间”高亮</button>
+      <button id="btn-clear">清除高亮</button>
+    </div>
+
+    <div id="log" class="status" style="white-space: pre-wrap;"></div>
+  </div>
+
+  <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script src="js/annotations/annotation_highlighter.js"></script>
+  <script>
+    const log = (m)=>{ document.getElementById('log').textContent += (m+"\n"); };
+
+    // 渲染行内公式
+    document.querySelectorAll('.katex-inline').forEach(el => {
+      try { katex.render(el.textContent.replace(/\$/g, ''), el, { displayMode: false }); } catch(e) {}
+    });
+
+    // 简单计算“忽略公式”的纯文本长度
+    function pureTextLength(root) {
+      const isFormula = (n)=>{
+        let p = n && (n.nodeType===Node.TEXT_NODE?n.parentElement:n);
+        while (p) { if (p.classList && (p.classList.contains('katex')||p.classList.contains('katex-inline')||p.classList.contains('katex-display'))) return true; p=p.parentElement; }
+        return false;
+      };
+      const it = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+      let len=0, t; while ((t=it.nextNode())) { if (!isFormula(t)) len += (t.nodeValue||'').length; }
+      return len;
+    }
+
+    // 构造一个 SubBlockRangeSelector 的注解，范围覆盖整个子块（忽略公式），用于验证中间文本会被高亮
+    function buildAnnotationForWholeSubBlock(subBlockId, element) {
+      const total = pureTextLength(element);
+      return {
+        id: 'test-multi-formula-range',
+        type: 'Annotation',
+        motivation: 'highlighting',
+        targetType: 'ocr',
+        highlightColor: 'yellow',
+        target: { selector: [{ type: 'SubBlockRangeSelector', subBlockId, startOffset: 0, endOffset: total, exact: element.textContent }] },
+        body: []
+      };
+    }
+
+    document.getElementById('btn-annotate').addEventListener('click', ()=>{
+      const container = document.body; // applyBlockAnnotations 会在容器内部查找 sub-block
+      const el = document.querySelector('[data-sub-block-id="10.0"]');
+      const ann = buildAnnotationForWholeSubBlock('10.0', el);
+      log('应用高亮: 覆盖整个子块（忽略公式）');
+      window.applyBlockAnnotations(container, [ann], 'ocr');
+    });
+
+    document.getElementById('btn-clear').addEventListener('click', ()=>{
+      const container = document.body;
+      log('清除高亮');
+      window.applyBlockAnnotations(container, [], 'ocr');
+    });
+  </script>
+</body>
+</html>
+

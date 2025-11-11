@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>跨子块高亮修复测试</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; line-height: 1.6; }
+        .test-container { max-width: 800px; margin: 0 auto; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .test-block { margin: 10px 0; padding: 10px; background: #f9f9f9; border-left: 4px solid #007cba; }
+        .sub-block { display: inline; margin: 0 2px; }
+        .status { padding: 5px 10px; margin: 5px 0; border-radius: 3px; }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.info { background: #d1ecf1; color: #0c5460; }
+        button { margin: 5px; padding: 8px 15px; background: #007cba; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button:hover { background: #005a87; }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>跨子块高亮修复测试</h1>
+        
+        <div id="test-results"></div>
+        
+        <!-- 测试跨子块高亮 -->
+        <div class="test-section">
+            <h2>跨子块高亮测试</h2>
+            <div class="test-block" data-block-index="4">
+                <span class="sub-block" data-sub-block-id="4.0">这是第一个子块的内容。</span>
+                <span class="sub-block" data-sub-block-id="4.1">这是第二个子块的内容。</span>
+                <span class="sub-block" data-sub-block-id="4.2">这是第三个子块的内容。</span>
+            </div>
+            <button onclick="testCrossBlockHighlight()">测试跨子块高亮应用</button>
+            <button onclick="testCrossBlockWithOffsets()">测试带偏移的跨子块高亮</button>
+            <button onclick="clearHighlights()">清除高亮</button>
+        </div>
+        
+        <div id="console-output" style="background: #f0f0f0; padding: 10px; margin-top: 20px; font-family: monospace; font-size: 12px; max-height: 300px; overflow-y: auto;">
+            <h3>控制台输出</h3>
+        </div>
+    </div>
+
+    <!-- 引入必要脚本 -->
+    <script src="js/annotations/annotation_highlighter.js"></script>
+    <script src="js/annotations/annotation_logic.js"></script>
+
+    <script>
+        // 模拟全局环境
+        window.data = { annotations: [] };
+        window.globalCurrentContentIdentifier = 'ocr';
+        window.contentReady = true;
+        
+        // 重定向console输出到页面
+        const consoleOutput = document.getElementById('console-output');
+        const originalLog = console.log;
+        const originalWarn = console.warn;
+        const originalError = console.error;
+        
+        function logToPage(message, type = 'log') {
+            const timestamp = new Date().toLocaleTimeString();
+            const div = document.createElement('div');
+            div.innerHTML = `<span style="color: #666;">[${timestamp}]</span> <span style="color: ${type === 'error' ? 'red' : type === 'warn' ? 'orange' : 'black'};">${message}</span>`;
+            consoleOutput.appendChild(div);
+            consoleOutput.scrollTop = consoleOutput.scrollHeight;
+        }
+        
+        console.log = function(message) {
+            originalLog.apply(console, arguments);
+            logToPage(message);
+        };
+        console.warn = function(message) {
+            originalWarn.apply(console, arguments);
+            logToPage(message, 'warn');
+        };
+        console.error = function(message) {
+            originalError.apply(console, arguments);
+            logToPage(message, 'error');
+        };
+
+        function showStatus(message, type = 'info') {
+            const resultsDiv = document.getElementById('test-results');
+            const statusDiv = document.createElement('div');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            resultsDiv.appendChild(statusDiv);
+        }
+
+        function testCrossBlockHighlight() {
+            console.log('开始测试跨子块高亮...');
+            showStatus('开始测试跨子块高亮', 'info');
+            
+            try {
+                // 创建模拟的跨子块批注
+                const mockCrossBlockAnnotation = {
+                    "@context": "http://www.w3.org/ns/anno.jsonld",
+                    "id": "urn:uuid:test-cross-block-annotation",
+                    "type": "Annotation",
+                    "motivation": "highlighting",
+                    "isCrossBlock": true,  // 关键标识
+                    "targetType": "ocr",
+                    "highlightColor": "yellow",
+                    "target": {
+                        "selector": [{
+                            "type": "CrossBlockRangeSelector",
+                            "startSubBlockId": "4.0",
+                            "endSubBlockId": "4.2", 
+                            "affectedSubBlocks": ["4.0", "4.1", "4.2"],
+                            "exact": "这是第一个子块的内容。这是第二个子块的内容。这是第三个子块的内容。"
+                        }]
+                    },
+                    "body": []
+                };
+
+                console.log('创建的跨子块批注:', mockCrossBlockAnnotation);
+                
+                // 获取容器元素
+                const container = document.querySelector('.test-container');
+                const allAnnotations = [mockCrossBlockAnnotation];
+                
+                console.log('调用 applyBlockAnnotations...');
+                
+                // 调用高亮应用函数
+                if (typeof window.applyBlockAnnotations === 'function') {
+                    window.applyBlockAnnotations(container, allAnnotations, 'ocr');
+                    showStatus('✅ applyBlockAnnotations 调用成功', 'success');
+                } else {
+                    showStatus('❌ applyBlockAnnotations 函数未找到', 'error');
+                }
+                
+                // 检查是否成功应用了高亮
+                setTimeout(() => {
+                    const highlightedElements = container.querySelectorAll('.cross-block-highlight, [data-annotation-id]');
+                    console.log(`找到 ${highlightedElements.length} 个高亮元素`);
+                    
+                    if (highlightedElements.length > 0) {
+                        showStatus(`✅ 成功应用高亮到 ${highlightedElements.length} 个元素`, 'success');
+                        highlightedElements.forEach((el, index) => {
+                            console.log(`高亮元素 ${index + 1}:`, el.outerHTML.substring(0, 100) + '...');
+                        });
+                    } else {
+                        showStatus('❌ 未发现高亮元素', 'error');
+                    }
+                }, 100);
+                
+            } catch (error) {
+                console.error('跨子块高亮测试失败:', error);
+                showStatus(`❌ 测试失败: ${error.message}`, 'error');
+            }
+        }
+
+        function testCrossBlockWithOffsets() {
+            console.log('开始测试带偏移的跨子块高亮...');
+            showStatus('开始测试带偏移的跨子块高亮', 'info');
+
+            try {
+                const mockCrossBlockAnnotation = {
+                    "@context": "http://www.w3.org/ns/anno.jsonld",
+                    "id": "urn:uuid:test-cross-block-annotation-offsets",
+                    "type": "Annotation",
+                    "motivation": "highlighting",
+                    "isCrossBlock": true,
+                    "targetType": "ocr",
+                    "highlightColor": "yellow",
+                    "target": {
+                        "selector": [{
+                            "type": "CrossBlockRangeSelector",
+                            "startSubBlockId": "4.0",
+                            "endSubBlockId": "4.2",
+                            // 选中：从第一个子块的第3个字符开始，到最后一个子块倒数第4个字符结束
+                            "startOffset": 2,
+                            "endOffset":  (function(){
+                                const endEl = document.querySelector('[data-sub-block-id=\"4.2\"]');
+                                return Math.max(0, (endEl && endEl.textContent ? endEl.textContent.length - 3 : 0));
+                            })(),
+                            "affectedSubBlocks": ["4.0", "4.1", "4.2"],
+                            "exact": "(测试偏移)"
+                        }]
+                    },
+                    "body": []
+                };
+
+                const container = document.querySelector('.test-container');
+                const allAnnotations = [mockCrossBlockAnnotation];
+
+                if (typeof window.applyBlockAnnotations === 'function') {
+                    window.applyBlockAnnotations(container, allAnnotations, 'ocr');
+                    showStatus('✅ 带偏移的 applyBlockAnnotations 调用成功', 'success');
+                } else {
+                    showStatus('❌ applyBlockAnnotations 函数未找到', 'error');
+                }
+            } catch (error) {
+                console.error('带偏移的跨子块高亮测试失败:', error);
+                showStatus(`❌ 测试失败: ${error.message}`, 'error');
+            }
+        }
+
+        function clearHighlights() {
+            console.log('清除所有高亮...');
+            const container = document.querySelector('.test-container');
+            
+            // 调用清除高亮
+            if (typeof window.applyBlockAnnotations === 'function') {
+                window.applyBlockAnnotations(container, [], 'ocr');
+                showStatus('✅ 高亮已清除', 'info');
+            }
+        }
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('跨子块高亮修复测试页面加载完成');
+            
+            // 检查关键函数是否加载
+            console.log('检查函数加载状态:');
+            console.log('- applyBlockAnnotations:', typeof window.applyBlockAnnotations);
+            console.log('- applyCrossBlockAnnotation:', typeof window.applyCrossBlockAnnotation);
+            console.log('- detectFormulaType:', typeof window.detectFormulaType);
+            
+            if (typeof window.applyBlockAnnotations === 'function') {
+                showStatus('✅ applyBlockAnnotations 函数加载成功', 'success');
+            } else {
+                showStatus('❌ applyBlockAnnotations 函数加载失败', 'error');
+            }
+            
+            showStatus('测试环境初始化完成，可以开始测试。', 'success');
+        });
+    </script>
+</body>
+</html>

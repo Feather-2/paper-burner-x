@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>花括号开头公式测试</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script src="js/processing/markdown_processor_ast.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+        .test-case {
+            margin: 15px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: #f9f9f9;
+        }
+        .source {
+            background: #fff;
+            padding: 8px;
+            margin: 8px 0;
+            border-left: 3px solid #4CAF50;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+        .result {
+            background: #fff;
+            padding: 10px;
+            margin: 8px 0;
+            border-left: 3px solid #2196F3;
+            min-height: 25px;
+        }
+        .katex-direct {
+            background: #e3f2fd;
+            padding: 10px;
+            margin: 8px 0;
+            border-left: 3px solid #1976D2;
+        }
+        .status {
+            display: inline-block;
+            padding: 3px 8px;
+            margin-left: 10px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .success { background: #4CAF50; color: white; }
+        .fail { background: #f44336; color: white; }
+    </style>
+</head>
+<body>
+    <h1>🔍 花括号开头公式测试</h1>
+    <p><strong>问题：</strong> <code>${...}</code> 格式的公式无法渲染</p>
+
+    <div id="test-container"></div>
+
+    <script>
+        const testCases = [
+            { input: '$1\\mathrm{\\;m}/\\mathrm{s}$', katex: '1\\mathrm{\\;m}/\\mathrm{s}' },
+            { input: '$5\\mathrm{\\;s}$', katex: '5\\mathrm{\\;s}' },
+            { input: '${1.1}\\mathrm{\\;m}$', katex: '{1.1}\\mathrm{\\;m}' },
+            { input: '$\\mathrm{m}/\\mathrm{s}$', katex: '\\mathrm{m}/\\mathrm{s}' },
+            { input: '${L}_{0.5}\\left( \\mathrm{\\;m}\\right)$', katex: '{L}_{0.5}\\left( \\mathrm{\\;m}\\right)' },
+            { input: '${10}\\mathrm{\\;{min}}$', katex: '{10}\\mathrm{\\;{min}}' },
+            { input: '${\\mathrm{{CO}}}_{2}$', katex: '{\\mathrm{{CO}}}_{2}' },
+            { input: '${1.5}\\mathrm{\\;m}$', katex: '{1.5}\\mathrm{\\;m}' },
+            { input: '$\\mathrm{m}$', katex: '\\mathrm{m}' },
+            { input: '$8\\mathrm{{person}}/{\\mathrm{m}}^{2}$', katex: '8\\mathrm{{person}}/{\\mathrm{m}}^{2}' },
+        ];
+
+        const container = document.getElementById('test-container');
+        let passCount = 0;
+
+        testCases.forEach((test, i) => {
+            const div = document.createElement('div');
+            div.className = 'test-case';
+
+            // 标题
+            const title = document.createElement('div');
+            title.style.fontWeight = 'bold';
+            title.style.marginBottom = '8px';
+            title.textContent = `测试 ${i + 1}`;
+            div.appendChild(title);
+
+            // 源码
+            const source = document.createElement('div');
+            source.className = 'source';
+            source.textContent = test.input;
+            div.appendChild(source);
+
+            // MarkdownProcessorAST 渲染
+            const astLabel = document.createElement('div');
+            astLabel.style.fontSize = '12px';
+            astLabel.style.marginTop = '8px';
+            astLabel.textContent = 'MarkdownProcessorAST:';
+
+            const astResult = document.createElement('div');
+            astResult.className = 'result';
+
+            try {
+                const html = MarkdownProcessorAST.render(test.input);
+                astResult.innerHTML = html;
+
+                const hasKatex = html.includes('class="katex');
+                const status = document.createElement('span');
+                status.className = `status ${hasKatex ? 'success' : 'fail'}`;
+                status.textContent = hasKatex ? '✓ 渲染成功' : '✗ 未渲染';
+                astLabel.appendChild(status);
+
+                if (hasKatex) passCount++;
+            } catch (error) {
+                astResult.innerHTML = `<span style="color: red;">${error.message}</span>`;
+            }
+
+            div.appendChild(astLabel);
+            div.appendChild(astResult);
+
+            // KaTeX 直接渲染（参考）
+            const katexLabel = document.createElement('div');
+            katexLabel.style.fontSize = '12px';
+            katexLabel.style.marginTop = '8px';
+            katexLabel.textContent = 'KaTeX 直接渲染（期望效果）:';
+
+            const katexDiv = document.createElement('div');
+            katexDiv.className = 'katex-direct';
+
+            try {
+                katex.render(test.katex, katexDiv, { throwOnError: false });
+            } catch (error) {
+                katexDiv.textContent = `KaTeX 错误: ${error.message}`;
+            }
+
+            div.appendChild(katexLabel);
+            div.appendChild(katexDiv);
+
+            container.appendChild(div);
+        });
+
+        // 总结
+        setTimeout(() => {
+            const summary = document.createElement('div');
+            summary.style.marginTop = '30px';
+            summary.style.padding = '20px';
+            summary.style.borderRadius = '8px';
+            summary.style.fontWeight = 'bold';
+            summary.style.fontSize = '18px';
+
+            if (passCount === testCases.length) {
+                summary.style.background = '#d4edda';
+                summary.style.color = '#155724';
+                summary.textContent = `✅ 完美！${passCount}/${testCases.length} 测试通过`;
+            } else {
+                summary.style.background = '#fff3cd';
+                summary.style.color = '#856404';
+                summary.textContent = `⚠️ ${passCount}/${testCases.length} 测试通过`;
+            }
+
+            container.appendChild(summary);
+        }, 100);
+    </script>
+</body>
+</html>
