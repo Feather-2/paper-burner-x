@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AST 架构测试对比</title>
+    <link rel="stylesheet" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.6;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .controls {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        textarea {
+            width: 100%;
+            min-height: 200px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #1d4ed8;
+        }
+        button.secondary {
+            background: #64748b;
+        }
+        button.secondary:hover {
+            background: #475569;
+        }
+        .comparison {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .panel {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .panel-header {
+            background: #f8fafc;
+            padding: 15px 20px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .panel-title {
+            font-weight: 600;
+            color: #1e293b;
+        }
+        .panel-badge {
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background: #e0e7ff;
+            color: #3730a3;
+        }
+        .panel-content {
+            padding: 20px;
+            min-height: 300px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .metric-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .metric-label {
+            font-size: 12px;
+            color: #64748b;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: 600;
+            color: #1e293b;
+        }
+        .test-cases {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .test-case {
+            margin-bottom: 10px;
+        }
+        .test-case button {
+            width: 100%;
+            text-align: left;
+            background: #f8fafc;
+            color: #334155;
+            border: 1px solid #e2e8f0;
+        }
+        .test-case button:hover {
+            background: #e2e8f0;
+        }
+        code {
+            background: #f1f5f9;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 AST 架构测试对比</h1>
+
+        <div class="controls">
+            <h3 style="margin-bottom: 10px;">输入 Markdown 文本：</h3>
+            <textarea id="input" placeholder="输入要测试的 Markdown 文本...">where $R _ { i , t }$ represents the return of crypto $i$ in month t; $\alpha _ { i }$ represents the asset-specific intercept</textarea>
+            <button onclick="renderBoth()">渲染对比</button>
+            <button class="secondary" onclick="clearResults()">清空</button>
+        </div>
+
+        <div class="test-cases">
+            <h3 style="margin-bottom: 10px;">预设测试用例：</h3>
+            <div class="test-case">
+                <button onclick="loadTestCase('formula')">📐 公式误匹配测试</button>
+            </div>
+            <div class="test-case">
+                <button onclick="loadTestCase('table')">📊 表格错位测试</button>
+            </div>
+            <div class="test-case">
+                <button onclick="loadTestCase('ocr')">🔧 OCR 错误修复测试</button>
+            </div>
+            <div class="test-case">
+                <button onclick="loadTestCase('mixed')">🎭 综合场景测试</button>
+            </div>
+        </div>
+
+        <div class="metrics" id="metrics" style="display: none;">
+            <div class="metric-card">
+                <div class="metric-label">旧版渲染时间</div>
+                <div class="metric-value" id="oldTime">-</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">新版渲染时间</div>
+                <div class="metric-value" id="newTime">-</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">速度提升</div>
+                <div class="metric-value" id="speedup">-</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">公式成功率</div>
+                <div class="metric-value" id="formulaRate">-</div>
+            </div>
+        </div>
+
+        <div class="comparison">
+            <div class="panel">
+                <div class="panel-header">
+                    <span class="panel-title">旧版（正则方案）</span>
+                    <span class="panel-badge">marked + regex</span>
+                </div>
+                <div class="panel-content" id="oldResult"></div>
+            </div>
+            <div class="panel">
+                <div class="panel-header">
+                    <span class="panel-title">新版（AST 方案）</span>
+                    <span class="panel-badge">markdown-it + AST</span>
+                </div>
+                <div class="panel-content" id="newResult"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 依赖库 -->
+    <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="https://gcore.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://gcore.jsdelivr.net/npm/markdown-it@14.0.0/dist/markdown-it.min.js"></script>
+
+    <!-- 旧版处理器 -->
+    <script src="js/processing/markdown_processor_enhanced.js"></script>
+
+    <!-- 新版处理器 -->
+    <script src="js/processing/markdown_processor_ast.js"></script>
+
+    <script>
+        // 测试用例
+        const testCases = {
+            formula: `where $R _ { i , t }$ represents the return of crypto $i$ in month t; $\\alpha _ { i }$ represents the asset-specific intercept; $\\beta _ { i , f a c t o r }$ represent crypto i's sensitivity to the respective factor`,
+
+            table: `| 指标 | 1 | 2 | 3 | 4 | 5 |
+|------|---|---|---|---|---|
+| 市场 | 0.145*** | 0.200** | 0.061* | 0.136* | 0.106*** |
+| | (2.774) | (2.441) | (1.938) | (1.689) | (2.703) |
+| 规模 | 0.107** | 0.329* | 0.147** | 0.206** | 0.059*** |`,
+
+            ocr: `This is a formula: $\\$ R_{i,t} \\$ and another one: $\\$ \\alpha_{i} \\$$`,
+
+            mixed: `# 测试文档
+
+## 公式测试
+The regression model is: $R_{i,t} = \\alpha_i + \\beta_i \\cdot Factor_t + \\epsilon_{i,t}$
+
+## 表格测试
+| 变量 | 系数 | t值 |
+|------|------|-----|
+| 常数项 | 0.05 | 2.3 |
+| | (标准误) | (0.02) |
+
+## OCR 错误测试
+Some text with $\\$ x + y \\$$ formula.`
+        };
+
+        function loadTestCase(name) {
+            document.getElementById('input').value = testCases[name];
+            renderBoth();
+        }
+
+        function renderBoth() {
+            const input = document.getElementById('input').value;
+            if (!input.trim()) {
+                alert('请输入 Markdown 文本');
+                return;
+            }
+
+            // 显示指标面板
+            document.getElementById('metrics').style.display = 'grid';
+
+            // 旧版渲染
+            const oldStart = performance.now();
+            let oldResult = '';
+            try {
+                const processed = MarkdownProcessorEnhanced.safeMarkdown(input, []);
+                oldResult = MarkdownProcessorEnhanced.renderWithKatexFailback(processed);
+            } catch (error) {
+                oldResult = `<div style="color: red;">渲染错误: ${error.message}</div>`;
+            }
+            const oldTime = performance.now() - oldStart;
+
+            // 新版渲染
+            const newStart = performance.now();
+            let newResult = '';
+            try {
+                newResult = MarkdownProcessorAST.render(input, []);
+            } catch (error) {
+                newResult = `<div style="color: red;">渲染错误: ${error.message}</div>`;
+            }
+            const newTime = performance.now() - newStart;
+
+            // 显示结果
+            document.getElementById('oldResult').innerHTML = oldResult;
+            document.getElementById('newResult').innerHTML = newResult;
+
+            // 显示指标
+            document.getElementById('oldTime').textContent = oldTime.toFixed(2) + ' ms';
+            document.getElementById('newTime').textContent = newTime.toFixed(2) + ' ms';
+
+            const speedup = ((oldTime / newTime - 1) * 100).toFixed(1);
+            document.getElementById('speedup').textContent = speedup > 0 ? '+' + speedup + '%' : speedup + '%';
+            document.getElementById('speedup').style.color = speedup > 0 ? '#10b981' : '#ef4444';
+
+            // 获取新版指标
+            const metrics = MarkdownProcessorAST.getMetrics();
+            document.getElementById('formulaRate').textContent =
+                `${metrics.formulaSuccesses}/${metrics.formulaSuccesses + metrics.formulaErrors}`;
+        }
+
+        function clearResults() {
+            document.getElementById('input').value = '';
+            document.getElementById('oldResult').innerHTML = '';
+            document.getElementById('newResult').innerHTML = '';
+            document.getElementById('metrics').style.display = 'none';
+        }
+
+        // 页面加载时渲染默认示例
+        window.addEventListener('load', () => {
+            renderBoth();
+        });
+    </script>
+</body>
+</html>
