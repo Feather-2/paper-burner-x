@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>KaTeX 错误直接测试</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.js"></script>
+    <style>
+        body { max-width: 1200px; margin: 20px auto; padding: 20px; font-family: Arial; }
+        .test { background: white; margin: 20px 0; padding: 20px; border: 1px solid #ddd; }
+        .success { color: green; }
+        .fail { color: red; }
+        .result { padding: 15px; margin: 10px 0; background: #f8f9fa; min-height: 40px; }
+        code { background: #f1f1f1; padding: 2px 6px; }
+    </style>
+</head>
+<body>
+    <h1>KaTeX 错误分析</h1>
+
+    <div class="test">
+        <h3>问题 1: \tag 在行内公式中</h3>
+        <p>原始公式: <code>$...\tag{7}$</code></p>
+        <p><strong>错误原因:</strong> \tag 只能用在块级公式 $$...$$ 中</p>
+
+        <p>修复前:</p>
+        <div class="result" id="r1"></div>
+
+        <p>修复后（移除 \tag）:</p>
+        <div class="result" id="r2"></div>
+    </div>
+
+    <div class="test">
+        <h3>问题 2: \;^\circ 语法错误</h3>
+        <p>原始公式: <code>$\mathrm{\;^\circ C}$</code></p>
+        <p><strong>错误原因:</strong> \; 后直接跟 ^ 会产生内部组错误</p>
+
+        <p>修复前:</p>
+        <div class="result" id="r3"></div>
+
+        <p>修复后（改为 \,^{\circ}）:</p>
+        <div class="result" id="r4"></div>
+    </div>
+
+    <div class="test">
+        <h3>问题 3: 双花括号 {{...}}</h3>
+        <p>原始公式: <code>${{0.37}}$</code></p>
+        <p><strong>错误原因:</strong> 双花括号可能导致解析错误</p>
+
+        <p>修复前:</p>
+        <div class="result" id="r5"></div>
+
+        <p>修复后（单花括号）:</p>
+        <div class="result" id="r6"></div>
+    </div>
+
+    <script>
+        function render(formula, id) {
+            try {
+                katex.render(formula, document.getElementById(id), {
+                    displayMode: false,
+                    throwOnError: false,
+                    errorColor: '#c92a2a'
+                });
+
+                // 检查是否有错误
+                setTimeout(() => {
+                    const el = document.getElementById(id);
+                    const hasError = el.querySelector('.katex-error');
+                    const status = document.createElement('div');
+                    status.style.marginTop = '10px';
+                    status.innerHTML = hasError ?
+                        '<span class="fail">✗ 渲染错误</span>' :
+                        '<span class="success">✓ 渲染成功</span>';
+                    el.appendChild(status);
+                }, 100);
+            } catch (e) {
+                document.getElementById(id).innerHTML = '<span class="fail">错误: ' + e.message + '</span>';
+            }
+        }
+
+        // 测试 1: \tag 问题
+        render('i = \\left| 0.37 \\right| \\tag{7}', 'r1');
+        render('i = \\left| 0.37 \\right|', 'r2');
+
+        // 测试 2: \;^\circ 问题
+        render('0.1 - 0.2 \\mathrm{\\;^\\circ C}', 'r3');
+        render('0.1 - 0.2\\,^{\\circ}\\mathrm{C}', 'r4');
+
+        // 测试 3: 双花括号
+        render('\\left| {{0.37}{v}_{\\mathrm{r}}}\\right|', 'r5');
+        render('\\left| {0.37}{v}_{\\mathrm{r}}\\right|', 'r6');
+    </script>
+</body>
+</html>

@@ -5,6 +5,59 @@
     'use strict';
 
     /**
+     * 修复公式中的常见 LaTeX 错误
+     * @param {string} formula - 原始公式
+     * @param {boolean} isDisplay - 是否为块级公式
+     * @returns {string} - 修复后的公式
+     */
+    function fixFormulaErrors(formula, isDisplay) {
+        let fixed = formula;
+
+        // 修复 1: 移除行内公式中的 \tag{...}
+        // \tag 只能在块级公式 (displayMode) 中使用
+        if (!isDisplay && /\\tag\{[^}]*\}/.test(fixed)) {
+            console.log('[FormulaPostProcessor] 移除行内公式中的 \\tag');
+            fixed = fixed.replace(/\\tag\{[^}]*\}/g, '');
+        }
+
+        // 修复 2: 修复 \;^\circ 语法错误
+        // \;^\circ → \,^{\circ} 或 ^{\circ}
+        if (/\\;\s*\^\\circ/.test(fixed)) {
+            console.log('[FormulaPostProcessor] 修复 \\;^\\circ → \\,^{\\circ}');
+            fixed = fixed.replace(/\\;\s*\^\\circ/g, '\\,^{\\circ}');
+        }
+
+        // 修复 2b: 修复其他 \;^ 的情况
+        if (/\\;\s*\^([^{])/.test(fixed)) {
+            console.log('[FormulaPostProcessor] 修复 \\;^x → \\,^{x}');
+            fixed = fixed.replace(/\\;\s*\^([^{])/g, (match, char) => `\\,^{${char}}`);
+        }
+
+        // 修复 3: 修复双花括号 {{...}} → {...}
+        // 双花括号可能导致 "internal group" 错误
+        if (/\{\{/.test(fixed)) {
+            console.log('[FormulaPostProcessor] 修复双花括号 {{...}} → {...}');
+            // 递归移除双花括号，直到没有为止
+            while (/\{\{/.test(fixed)) {
+                fixed = fixed.replace(/\{\{([^}]*)\}\}/g, '{$1}');
+            }
+        }
+
+        // 修复 4: 修复 \mathrm{\;^\circ C} 的情况
+        if (/\\mathrm\{[^}]*\\;[^}]*\^\s*\\circ[^}]*\}/.test(fixed)) {
+            console.log('[FormulaPostProcessor] 修复 \\mathrm{\\;^\\circ C}');
+            // \mathrm{\;^\circ C} → \,^{\circ}\mathrm{C}
+            fixed = fixed.replace(/\\mathrm\{\s*\\;\s*\^\s*\\circ\s+([^}]+)\}/g, '\\,^{\\circ}\\mathrm{$1}');
+        }
+
+        // 修复 5: 确保上标总是用花括号包围（除非是单个字符）
+        // ^xy → ^{xy} (如果 y 不是空格或特殊符号)
+        fixed = fixed.replace(/\^([a-zA-Z]{2,})/g, '^{$1}');
+
+        return fixed.trim();
+    }
+
+    /**
      * 扫描元素中的所有文本节点，找到未渲染的公式并渲染
      * @param {HTMLElement} rootElement - 要扫描的根元素
      */
@@ -214,8 +267,11 @@
                 }
 
                 // 渲染公式
-                const formula = match[1] || match[2]; // $$...$$ 或 $...$
+                let formula = match[1] || match[2]; // $$...$$ 或 $...$
                 const isDisplay = !!match[1];
+
+                // 预处理：修复常见的 LaTeX 错误
+                formula = fixFormulaErrors(formula, isDisplay);
 
                 try {
                     // 使用 KaTeX 渲染
