@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>KaTeX 错误修复测试</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.js"></script>
+    <script src="../js/processing/formula_post_processor.js"></script>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            max-width: 1400px;
+            margin: 20px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        h1 {
+            color: white;
+            text-align: center;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        .test-case {
+            background: white;
+            margin: 20px 0;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+        }
+        .success { color: #27ae60; font-weight: bold; }
+        .fail { color: #e74c3c; font-weight: bold; }
+        .result {
+            border: 3px solid #3498db;
+            padding: 20px;
+            margin: 15px 0;
+            background: #f8f9fa;
+            border-radius: 8px;
+            min-height: 50px;
+            font-size: 18px;
+        }
+        .source {
+            background: #fff3bf;
+            border: 2px dashed #fcc419;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        h2 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }
+        .badge {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .badge-before { background: #ffe3e3; color: #c92a2a; }
+        .badge-after { background: #d3f9d8; color: #2b8a3e; }
+    </style>
+</head>
+<body>
+    <h1>🔧 KaTeX 错误自动修复测试</h1>
+
+    <div id="output"></div>
+
+    <script>
+        const output = document.getElementById('output');
+
+        // 测试用例
+        const testCases = [
+            {
+                name: '用户问题 1: 行内公式中的 \\tag',
+                before: `$i = \\left| {{0.37}{v}_{\\mathrm{r}}}\\right| + \\left| {{0.28}{d}_{\\mathrm{r}}}\\right| + \\left| {{0.2}{o}_{\\mathrm{r}}}\\right| + \\left| {{0.15}{t}_{\\mathrm{r}}}\\right| \\tag{7}$`,
+                error: '\\tag 只能在块级公式中使用',
+                fix: '自动移除行内公式中的 \\tag'
+            },
+            {
+                name: '用户问题 2: \\;^\\circ 语法错误',
+                before: `$0.1 - 0.2 \\mathrm{\\;^\\circ C}$`,
+                error: 'Got group of unknown type: internal',
+                fix: '修复为 \\,^{\\circ}\\mathrm{C}'
+            },
+            {
+                name: '额外修复: 双花括号',
+                before: `$\\left| {{0.37}{v}_{\\mathrm{r}}}\\right|$`,
+                error: '可能导致内部组错误',
+                fix: '移除多余的花括号 {{...}} → {...}'
+            },
+            {
+                name: '块级公式测试: \\tag 应保留',
+                before: `$$i = a + b \\tag{1}$$`,
+                error: '无错误（块级公式）',
+                fix: '保持不变（\\tag 在块级公式中有效）'
+            },
+            {
+                name: '温度符号测试',
+                before: `$25\\;^\\circ\\mathrm{C}$`,
+                error: '\\;^\\circ 错误',
+                fix: '修复为 25\\,^{\\circ}\\mathrm{C}'
+            }
+        ];
+
+        testCases.forEach((test, idx) => {
+            const testDiv = document.createElement('div');
+            testDiv.className = 'test-case';
+
+            testDiv.innerHTML = `
+                <h2>${test.name}</h2>
+                <p><strong>原始公式:</strong> <span class="badge badge-before">修复前</span></p>
+                <div class="source">${test.before}</div>
+                <p><strong>错误原因:</strong> ${test.error}</p>
+                <p><strong>修复策略:</strong> ${test.fix}</p>
+            `;
+
+            // 修复前
+            const beforeDiv = document.createElement('div');
+            beforeDiv.className = 'result';
+            beforeDiv.innerHTML = '<p><strong>修复前渲染:</strong></p>' + test.before;
+
+            testDiv.appendChild(beforeDiv);
+
+            // 应用公式后处理器
+            if (typeof FormulaPostProcessor !== 'undefined') {
+                FormulaPostProcessor.processFormulasInElement(beforeDiv);
+            }
+
+            // 修复后
+            const afterDiv = document.createElement('div');
+            afterDiv.className = 'result';
+            afterDiv.innerHTML = '<p><strong><span class="badge badge-after">修复后</span> 渲染:</strong></p>' + test.before;
+
+            testDiv.appendChild(afterDiv);
+
+            // 应用公式后处理器
+            setTimeout(() => {
+                if (typeof FormulaPostProcessor !== 'undefined') {
+                    FormulaPostProcessor.processFormulasInElement(afterDiv);
+
+                    // 检查是否有错误
+                    setTimeout(() => {
+                        const hasError = afterDiv.querySelector('.katex-error') !== null;
+                        const statusDiv = document.createElement('div');
+                        statusDiv.style.marginTop = '15px';
+                        statusDiv.innerHTML = hasError
+                            ? '<p class="fail">✗ 仍有错误</p>'
+                            : '<p class="success">✓ 修复成功</p>';
+                        testDiv.appendChild(statusDiv);
+                    }, 100);
+                }
+            }, 50);
+
+            output.appendChild(testDiv);
+        });
+
+        // 添加说明
+        setTimeout(() => {
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'test-case';
+            infoDiv.innerHTML = `
+                <h2>📋 修复规则说明</h2>
+                <ol>
+                    <li><strong>\\tag 移除规则:</strong> 检测行内公式（$...$）中的 \\tag{...}，自动移除</li>
+                    <li><strong>\\;^\\circ 修复:</strong> 替换为 \\,^{\\circ}（更安全的语法）</li>
+                    <li><strong>双花括号移除:</strong> 递归移除 {{...}} → {...}</li>
+                    <li><strong>\\mathrm{\\;^\\circ C} 重写:</strong> 提取到外部 → \\,^{\\circ}\\mathrm{C}</li>
+                    <li><strong>上标花括号补全:</strong> ^xy → ^{xy}（多字符上标）</li>
+                </ol>
+
+                <h2>✅ 验证步骤</h2>
+                <ol>
+                    <li>检查"修复前"是否显示错误（红色 katex-error）</li>
+                    <li>检查"修复后"是否正确渲染（无错误）</li>
+                    <li>在实际应用中刷新页面（Ctrl + Shift + R）</li>
+                    <li>查看控制台日志确认修复规则执行</li>
+                </ol>
+
+                <h2>🔍 控制台日志</h2>
+                <p>打开浏览器开发者工具（F12），应该能看到：</p>
+                <pre>[FormulaPostProcessor] 移除行内公式中的 \\tag
+[FormulaPostProcessor] 修复 \\;^\\circ → \\,^{\\circ}
+[FormulaPostProcessor] 修复双花括号 {{...}} → {...}
+[FormulaPostProcessor] 修复 \\mathrm{\\;^\\circ C}</pre>
+            `;
+            output.appendChild(infoDiv);
+        }, 200);
+    </script>
+</body>
+</html>

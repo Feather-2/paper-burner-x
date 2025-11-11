@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>KaTeX 错误简单测试</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.4/dist/katex.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test {
+            background: white;
+            margin: 20px 0;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .success { color: green; font-weight: bold; }
+        .fail { color: red; font-weight: bold; }
+        .result { padding: 15px; margin: 10px 0; background: #f8f9fa; border: 2px solid #ccc; }
+    </style>
+</head>
+<body>
+    <h1>KaTeX 错误测试</h1>
+
+    <div class="test">
+        <h2>问题 1: \tag 在行内公式</h2>
+        <p><strong>原始:</strong> <code>$i = \left| 0.37 \right| \tag{7}$</code></p>
+        <div class="result" id="test1-before"></div>
+        <p><strong>修复后:</strong></p>
+        <div class="result" id="test1-after"></div>
+    </div>
+
+    <div class="test">
+        <h2>问题 2: \;^\circ 语法错误</h2>
+        <p><strong>原始:</strong> <code>$0.1 - 0.2 \mathrm{\;^\circ C}$</code></p>
+        <div class="result" id="test2-before"></div>
+        <p><strong>修复后:</strong></p>
+        <div class="result" id="test2-after"></div>
+    </div>
+
+    <div class="test">
+        <h2>问题 3: 双花括号</h2>
+        <p><strong>原始:</strong> <code>$\left| {{0.37}{v}_{\mathrm{r}}}\right|$</code></p>
+        <div class="result" id="test3-before"></div>
+        <p><strong>修复后:</strong></p>
+        <div class="result" id="test3-after"></div>
+    </div>
+
+    <script>
+        // 修复函数
+        function fixFormula(formula, isDisplay) {
+            let fixed = formula;
+
+            // 1. 移除行内公式的 \tag
+            if (!isDisplay) {
+                fixed = fixed.replace(/\\tag\{[^}]*\}/g, '');
+                console.log('移除 \\tag');
+            }
+
+            // 2. 修复 \;^\circ
+            fixed = fixed.replace(/\\;\s*\^\\circ/g, '\\,^{\\circ}');
+            fixed = fixed.replace(/\\mathrm\{\s*\\;\s*\^\s*\\circ\s+([^}]+)\}/g, '\\,^{\\circ}\\mathrm{$1}');
+
+            // 3. 移除双花括号
+            while (/\{\{/.test(fixed)) {
+                fixed = fixed.replace(/\{\{([^}]*)\}\}/g, '{$1}');
+                console.log('移除双花括号');
+            }
+
+            return fixed;
+        }
+
+        // 渲染函数
+        function renderTest(formula, targetId, shouldFix) {
+            const target = document.getElementById(targetId);
+            const fixed = shouldFix ? fixFormula(formula, false) : formula;
+
+            try {
+                katex.render(fixed, target, {
+                    displayMode: false,
+                    throwOnError: false
+                });
+
+                // 检查是否有错误
+                const hasError = target.querySelector('.katex-error') !== null;
+                const status = document.createElement('p');
+                status.innerHTML = hasError ?
+                    '<span class="fail">✗ 有错误</span>' :
+                    '<span class="success">✓ 渲染成功</span>';
+                target.appendChild(status);
+            } catch (e) {
+                target.innerHTML = `<span class="fail">错误: ${e.message}</span>`;
+            }
+        }
+
+        // 测试 1
+        const formula1 = 'i = \\left| 0.37 \\right| \\tag{7}';
+        renderTest(formula1, 'test1-before', false);
+        renderTest(formula1, 'test1-after', true);
+
+        // 测试 2
+        const formula2 = '0.1 - 0.2 \\mathrm{\\;^\\circ C}';
+        renderTest(formula2, 'test2-before', false);
+        renderTest(formula2, 'test2-after', true);
+
+        // 测试 3
+        const formula3 = '\\left| {{0.37}{v}_{\\mathrm{r}}}\\right|';
+        renderTest(formula3, 'test3-before', false);
+        renderTest(formula3, 'test3-after', true);
+    </script>
+</body>
+</html>

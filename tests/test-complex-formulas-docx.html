@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>复杂公式 DOCX 导出测试</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 1000px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 25px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #1e40af;
+            border-bottom: 3px solid #3b82f6;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #1e3a8a;
+            margin-top: 0;
+        }
+        .formula-example {
+            margin: 15px 0;
+            padding: 15px;
+            background: #f8fafc;
+            border-left: 4px solid #3b82f6;
+        }
+        .formula-example h3 {
+            margin-top: 0;
+            color: #475569;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        button:disabled {
+            background: #94a3b8;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 12px;
+            margin: 15px 0;
+            border-radius: 6px;
+            font-weight: 500;
+        }
+        .success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #6ee7b7;
+        }
+        .error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+        .info {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #93c5fd;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧮 复杂公式 DOCX 导出测试</h1>
+
+    <div class="test-section">
+        <h2>📋 测试说明</h2>
+        <p>本页面测试增强的 MathML → OMML 转换器，包含以下复杂公式类型：</p>
+        <ul>
+            <li>✅ <strong>矩阵</strong> - mtable/mtr/mtd</li>
+            <li>✅ <strong>大型运算符</strong> - 求和、积分、乘积</li>
+            <li>✅ <strong>上下标</strong> - 极限、求和范围</li>
+            <li>✅ <strong>复杂分数</strong> - 嵌套分数</li>
+            <li>✅ <strong>根式</strong> - 多重根式</li>
+        </ul>
+        <div id="status"></div>
+        <button onclick="exportToDOCX()">📥 导出为 DOCX</button>
+        <button onclick="testConverter()">🔬 测试转换器</button>
+    </div>
+
+    <!-- 测试公式 -->
+    <div class="test-section" id="formulas-content">
+        <h2>🔢 测试公式</h2>
+
+        <div class="formula-example">
+            <h3>1. 矩阵示例</h3>
+            $$
+            A = \begin{bmatrix}
+            a_{11} & a_{12} & a_{13} \\
+            a_{21} & a_{22} & a_{23} \\
+            a_{31} & a_{32} & a_{33}
+            \end{bmatrix}
+            $$
+        </div>
+
+        <div class="formula-example">
+            <h3>2. 求和与极限</h3>
+            $$
+            \lim_{n \to \infty} \sum_{i=1}^{n} \frac{1}{i^2} = \frac{\pi^2}{6}
+            $$
+        </div>
+
+        <div class="formula-example">
+            <h3>3. 积分</h3>
+            $$
+            \int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}
+            $$
+        </div>
+
+        <div class="formula-example">
+            <h3>4. 复杂分数</h3>
+            $$
+            \frac{1}{1 + \frac{1}{1 + \frac{1}{1 + x}}}
+            $$
+        </div>
+
+        <div class="formula-example">
+            <h3>5. 行列式</h3>
+            $$
+            \det(A) = \begin{vmatrix}
+            a & b & c \\
+            d & e & f \\
+            g & h & i
+            \end{vmatrix}
+            = aei + bfg + cdh - ceg - bdi - afh
+            $$
+        </div>
+
+        <div class="formula-example">
+            <h3>6. 多重积分</h3>
+            $$
+            \iiint_V f(x,y,z) \, dV = \int_0^1 \int_0^1 \int_0^1 xyz \, dx\,dy\,dz
+            $$
+        </div>
+
+        <div class="formula-example">
+            <h3>7. 复杂上下标</h3>
+            $$
+            \sum_{k=1}^{\infty} \frac{(-1)^{k+1}}{k} = \ln(2)
+            $$
+        </div>
+
+        <div class="formula-example">
+            <h3>8. 根式组合</h3>
+            $$
+            x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
+            $$
+        </div>
+
+        <div class="formula-example">
+            <h3>9. 大型矩阵</h3>
+            $$
+            \begin{pmatrix}
+            1 & 0 & 0 & 0 \\
+            0 & 1 & 0 & 0 \\
+            0 & 0 & 1 & 0 \\
+            0 & 0 & 0 & 1
+            \end{pmatrix}
+            $$
+        </div>
+
+        <div class="formula-example">
+            <h3>10. 带边界的积分</h3>
+            $$
+            \int\limits_0^{\frac{\pi}{2}} \sin(x) \, dx = 1
+            $$
+        </div>
+    </div>
+
+    <!-- 依赖库 -->
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+
+    <!-- Paper Burner 模块 -->
+    <script src="../js/history/exporter/mathml2omml.browser.js"></script>
+    <script src="../js/history/exporter/docx_mathml_converter_enhanced.js"></script>
+    <script src="../js/history/exporter/history_exporter_docx.js"></script>
+
+    <script>
+        // 渲染所有公式
+        document.addEventListener('DOMContentLoaded', function() {
+            renderMathInElement(document.body, {
+                delimiters: [
+                    {left: '$$', right: '$$', display: true},
+                    {left: '$', right: '$', display: false}
+                ]
+            });
+
+            showStatus('公式渲染完成！可以开始测试。', 'info');
+        });
+
+        // 渲染公式的辅助函数
+        function renderMathInElement(element, options) {
+            const delimiters = options.delimiters || [];
+            const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+            const nodes = [];
+
+            while (walker.nextNode()) {
+                nodes.push(walker.currentNode);
+            }
+
+            nodes.forEach(node => {
+                const text = node.textContent;
+                for (const delim of delimiters) {
+                    const regex = new RegExp(
+                        delim.left.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
+                        '([\\s\\S]*?)' +
+                        delim.right.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+                        'g'
+                    );
+
+                    if (regex.test(text)) {
+                        const container = document.createElement('span');
+                        let lastIndex = 0;
+                        let html = '';
+
+                        text.replace(regex, (match, formula, offset) => {
+                            html += text.substring(lastIndex, offset);
+                            try {
+                                html += katex.renderToString(formula, {
+                                    displayMode: delim.display,
+                                    throwOnError: false,
+                                    output: 'mathml'
+                                });
+                            } catch (e) {
+                                html += `<span class="error">${match}</span>`;
+                            }
+                            lastIndex = offset + match.length;
+                        });
+
+                        html += text.substring(lastIndex);
+                        container.innerHTML = html;
+                        node.parentNode.replaceChild(container, node);
+                        return;
+                    }
+                }
+            });
+        }
+
+        // 测试转换器
+        function testConverter() {
+            showStatus('正在测试转换器...', 'info');
+
+            try {
+                // 测试增强转换器是否加载
+                if (!window.PBXMathMlToOmmlConverterEnhanced) {
+                    throw new Error('增强转换器未加载！');
+                }
+
+                const converter = new window.PBXMathMlToOmmlConverterEnhanced();
+
+                // 找一个矩阵公式测试
+                const mathElements = document.querySelectorAll('math');
+                if (mathElements.length === 0) {
+                    throw new Error('未找到 MathML 元素！请等待公式渲染完成。');
+                }
+
+                // 测试第一个公式
+                const testMath = mathElements[0];
+                const omml = converter.convert(testMath);
+
+                if (!omml || omml.length === 0) {
+                    throw new Error('转换失败：OMML 为空');
+                }
+
+                console.log('✅ 转换成功！', omml);
+                showStatus(
+                    `✅ 转换器测试成功！\n找到 ${mathElements.length} 个公式，第一个公式转换后长度：${omml.length} 字符`,
+                    'success'
+                );
+            } catch (error) {
+                console.error('❌ 转换器测试失败:', error);
+                showStatus(`❌ 测试失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 导出为 DOCX
+        async function exportToDOCX() {
+            showStatus('正在生成 DOCX...', 'info');
+
+            try {
+                if (!window.PBXHistoryExporterDocx || !window.PBXHistoryExporterDocx.exportAsDocx) {
+                    throw new Error('DOCX 导出模块未加载！');
+                }
+
+                // 获取渲染后的 HTML
+                const content = document.getElementById('formulas-content');
+                const bodyHtml = content.innerHTML;
+
+                // 构建 payload
+                const payload = {
+                    bodyHtml: bodyHtml,
+                    data: {
+                        name: '复杂公式测试'
+                    },
+                    images: [],
+                    exportTime: new Date(),
+                    fileNameBase: '复杂公式测试'
+                };
+
+                // 导出
+                await window.PBXHistoryExporterDocx.exportAsDocx(payload, {
+                    debug: true,
+                    validateXml: true
+                });
+
+                showStatus('✅ DOCX 导出成功！请检查下载的文件。', 'success');
+            } catch (error) {
+                console.error('❌ 导出失败:', error);
+                showStatus(`❌ 导出失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 显示状态
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = 'status ' + type;
+            statusDiv.textContent = message;
+        }
+    </script>
+</body>
+</html>

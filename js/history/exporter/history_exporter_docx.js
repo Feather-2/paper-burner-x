@@ -110,7 +110,53 @@ const HEADING_OUTLINE_LEVELS = {
       this.relIdCounter = 1;
       this.imageCounter = 1;
       this.drawingCounter = 1;
-      this.mathConverter = new MathMlToOmmlConverter();
+      // 优先使用专业的 mathml2omml 库，否则使用增强转换器，最后回退到基础版本
+      if (window.mml2omml) {
+        this.mathConverter = {
+          convert: function(mathEl) {
+            if (!mathEl) return '';
+            try {
+              // 克隆元素以避免修改原始 DOM
+              const cloned = mathEl.cloneNode(true);
+
+              // 清理不支持的元素：移除 <annotation> 元素（语义标注）
+              const annotations = cloned.querySelectorAll('annotation, annotation-xml');
+              annotations.forEach(ann => ann.remove());
+
+              // 清理不支持的元素：展开 <mpadded> 元素（保留内容，移除包装器）
+              const mpaddeds = cloned.querySelectorAll('mpadded');
+              mpaddeds.forEach(mpad => {
+                // 将子元素移到父元素中
+                const parent = mpad.parentNode;
+                if (parent) {
+                  while (mpad.firstChild) {
+                    parent.insertBefore(mpad.firstChild, mpad);
+                  }
+                  parent.removeChild(mpad);
+                }
+              });
+
+              // 序列化 MathML 元素为字符串
+              const serializer = new XMLSerializer();
+              const mathmlString = serializer.serializeToString(cloned);
+
+              // 调用 mathml2omml
+              const omml = window.mml2omml(mathmlString);
+              return omml;
+            } catch (error) {
+              console.warn('[DOCX] mathml2omml 转换失败:', error);
+              return '';
+            }
+          }
+        };
+        console.log('🚀 使用专业 mathml2omml 库（已启用 MathML 清理）');
+      } else if (window.PBXMathMlToOmmlConverterEnhanced) {
+        this.mathConverter = new window.PBXMathMlToOmmlConverterEnhanced();
+        console.log('✨ 使用增强 MathML → OMML 转换器（支持矩阵、复杂运算符）');
+      } else {
+        this.mathConverter = new MathMlToOmmlConverter();
+        console.log('ℹ️ 使用基础 MathML → OMML 转换器');
+      }
       this.footerInfo = null;
       const initialImages = Array.isArray(payload && payload.images)
         ? payload.images
