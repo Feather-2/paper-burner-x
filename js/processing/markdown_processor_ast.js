@@ -558,8 +558,9 @@
      * 兼容旧版 API: renderWithKatexFailback
      */
     function renderWithKatexFailback(md, customRenderer) {
-        // customRenderer 在新架构中不再使用
-        if (customRenderer) {
+        // customRenderer 在新架构中暂不支持
+        // 只在 debug 模式下显示警告
+        if (customRenderer && CONFIG.debug) {
             console.warn('[MarkdownProcessorAST] Custom renderer not supported in AST mode');
         }
         return render(md, null);
