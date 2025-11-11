@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>调试压缩表格修复</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .log {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .result {
+            background: white;
+            padding: 15px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🐛 调试压缩表格修复</h1>
+
+    <div id="output"></div>
+
+    <script>
+        const compressedTable = `| | | | 五分位数 (Quintiles) | | | |---|---|---|---|---|---|---| | | 1 | 2 | 3 | 4 | 5 | 5-1 | | 市场 (Market) | 0.145*** | 0.200** | 0.061* | 0.136* | 0.106*** | -0.039 | | | (2.774) | (2.441) | (1.938) | (1.689) | (2.703) | (-0.930) | | 规模 (Size) | 0.107** | 0.329* | 0.147** | 0.206** | 0.059*** | 0.047 | | | (2.163) | (1.800) | (2.223) | (2.452) | (3.150) | (1.090) |`;
+
+        const output = document.getElementById('output');
+        const logs = [];
+
+        function log(message) {
+            logs.push(message);
+            console.log(message);
+        }
+
+        // 测试正则匹配
+        log('=== 测试 1: 检测分隔符 ===');
+        const separatorPattern = /\|\s*:?-+:?\s*\|/;
+        log(`正则: ${separatorPattern}`);
+        log(`测试结果: ${separatorPattern.test(compressedTable)}`);
+
+        // 查找分隔符位置
+        log('\n=== 测试 2: 查找分隔符位置 ===');
+        const fullSeparatorMatch = compressedTable.match(/(\|\s*:?-+:?\s*)+\|/);
+        if (fullSeparatorMatch) {
+            log(`找到分隔符: "${fullSeparatorMatch[0]}"`);
+            log(`起始位置: ${fullSeparatorMatch.index}`);
+            log(`长度: ${fullSeparatorMatch[0].length}`);
+        } else {
+            log('未找到分隔符！');
+        }
+
+        // 统计管道符
+        log('\n=== 测试 3: 统计管道符 ===');
+        const pipeCount = (compressedTable.match(/\|/g) || []).length;
+        log(`管道符数量: ${pipeCount}`);
+        log(`长度: ${compressedTable.length}`);
+
+        // 测试列数识别
+        if (fullSeparatorMatch) {
+            log('\n=== 测试 4: 识别列数 ===');
+            const separator = fullSeparatorMatch[0];
+            const separatorPipes = (separator.match(/\|/g) || []).length;
+            const columnCount = separatorPipes - 1; // 列数 = 管道符数 - 1
+            log(`分隔符管道符: ${separatorPipes}`);
+            log(`列数: ${columnCount}`);
+
+            // 提取各部分
+            log('\n=== 测试 5: 提取表格部分 ===');
+            const separatorIndex = fullSeparatorMatch.index;
+            const separatorLength = fullSeparatorMatch[0].length;
+
+            const beforeSeparator = compressedTable.substring(0, separatorIndex);
+            const afterSeparator = compressedTable.substring(separatorIndex + separatorLength);
+
+            log(`表头部分 (${beforeSeparator.length} 字符):`);
+            log(`  "${beforeSeparator.substring(0, 100)}..."`);
+            log(`\n数据部分 (${afterSeparator.length} 字符):`);
+            log(`  "${afterSeparator.substring(0, 100)}..."`);
+
+            // 计算每行需要的管道符数量
+            log('\n=== 测试 6: 按列数分割 ===');
+            const pipesPerRow = columnCount + 1; // 每行管道符 = 列数 + 1
+            log(`每行需要 ${pipesPerRow} 个管道符`);
+
+            // 分割表头
+            log('\n提取表头行:');
+            const headerPipes = [];
+            for (let i = 0; i < beforeSeparator.length && headerPipes.length < pipesPerRow; i++) {
+                if (beforeSeparator[i] === '|') {
+                    headerPipes.push(i);
+                }
+            }
+            log(`表头中找到 ${headerPipes.length} 个管道符，位置: ${headerPipes.slice(0, 5)}...`);
+
+            if (headerPipes.length >= pipesPerRow) {
+                const headerRow = beforeSeparator.substring(0, headerPipes[pipesPerRow - 1] + 1);
+                log(`表头行: "${headerRow}"`);
+            }
+
+            // 分割数据行
+            log('\n提取数据行:');
+            let remaining = afterSeparator.trim();
+            let rowNum = 1;
+            const dataRows = [];
+
+            while (remaining.length > 0 && rowNum <= 5) { // 最多提取5行用于调试
+                // 跳过开头的管道符
+                if (remaining.startsWith('|')) {
+                    remaining = remaining.slice(1).trim();
+                }
+
+                const rowPipes = [];
+                for (let i = 0; i < remaining.length && rowPipes.length < pipesPerRow - 1; i++) {
+                    if (remaining[i] === '|') {
+                        rowPipes.push(i);
+                    }
+                }
+
+                if (rowPipes.length < pipesPerRow - 1) {
+                    log(`行 ${rowNum}: 管道符不足 (${rowPipes.length}/${pipesPerRow - 1})，停止`);
+                    break;
+                }
+
+                const endIndex = rowPipes[pipesPerRow - 2];
+                const row = '|' + remaining.substring(0, endIndex + 1);
+                dataRows.push(row);
+                log(`行 ${rowNum}: "${row.substring(0, 80)}..."`);
+
+                remaining = remaining.substring(endIndex + 1).trim();
+                rowNum++;
+            }
+
+            // 组合结果
+            log('\n=== 测试 7: 组合多行表格 ===');
+            const headerRow = beforeSeparator.substring(0, headerPipes[pipesPerRow - 1] + 1);
+            const fixedTable = [
+                headerRow.trim(),
+                separator.trim(),
+                ...dataRows
+            ].join('\n');
+
+            log('修复后的表格:');
+            log(fixedTable);
+        }
+
+        // 显示日志
+        const logDiv = document.createElement('div');
+        logDiv.className = 'log';
+        logDiv.textContent = logs.join('\n');
+        output.appendChild(logDiv);
+    </script>
+</body>
+</html>

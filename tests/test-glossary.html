@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>测试页：翻译备择库</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/iconify-icon@1.0.7/dist/iconify-icon.min.js"></script>
+</head>
+<body class="bg-gray-50">
+  <div class="max-w-5xl mx-auto p-6">
+    <h1 class="text-2xl font-bold text-gray-800 mb-4">测试：翻译备择库（术语库）</h1>
+
+    <!-- 控制区：开关与导入导出 -->
+    <div class="bg-white rounded-lg border p-4 mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <label class="flex items-center text-sm text-gray-700 select-none">
+          <input id="enableGlossaryToggleTest" type="checkbox" class="rounded mr-2">
+          启用翻译备择库（保存到全局设置）
+        </label>
+        <div class="flex items-center gap-2">
+          <button id="addGlossarySetBtn" class="px-3 py-1.5 text-sm border rounded hover:bg-gray-50">新增术语库</button>
+          <button id="importGlossarySetBtn" class="px-3 py-1.5 text-sm border rounded hover:bg-gray-50">导入术语库</button>
+          <input id="importGlossarySetFile" type="file" accept="application/json" class="hidden">
+          <button id="exportAllGlossarySetsBtn" class="px-3 py-1.5 text-sm border rounded hover:bg-gray-50">导出全部术语库</button>
+        </div>
+      </div>
+      <div id="glossarySetsTable" class="border border-dashed border-gray-300 rounded p-3 bg-white mb-3"></div>
+      <div id="glossaryEditorPanel" class="hidden border border-gray-200 rounded p-3 bg-white" data-editing-id="">
+        <div id="glossaryEntriesTable"></div>
+      </div>
+    </div>
+
+    <!-- 预览区：输入原文并查看命中与注入效果 -->
+    <div class="bg-white rounded-lg border p-4">
+      <h2 class="text-lg font-semibold text-gray-800 mb-3">分块注入预览</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div>
+          <label class="block text-sm text-gray-700 mb-1">原文分块内容</label>
+          <textarea id="sampleText" rows="8" class="w-full border rounded px-3 py-2 text-sm" placeholder="在此粘贴一段文本，包含你希望命中的术语..."></textarea>
+        </div>
+        <div>
+          <label class="block text-sm text-gray-700 mb-1">目标语言（用于展示）</label>
+          <input id="previewTargetLang" type="text" value="中文" class="w-full border rounded px-3 py-2 text-sm mb-3" />
+          <button id="previewBtn" class="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">预览命中与注入</button>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <div class="text-sm text-gray-700 mb-1">命中术语</div>
+          <div id="matchList" class="text-sm bg-gray-50 border rounded p-2 h-40 overflow-auto"></div>
+        </div>
+        <div>
+          <div class="text-sm text-gray-700 mb-1">注入到 System Prompt 的术语指引</div>
+          <textarea id="injectionPreview" rows="8" class="w-full border rounded px-3 py-2 text-sm" readonly></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/storage/storage.js"></script>
+  <script src="js/process/glossary.js"></script>
+  <script src="js/ui/glossary-ui.js"></script>
+  <script>
+    // 初始化：同步开关状态
+    document.addEventListener('DOMContentLoaded', function() {
+      try {
+        const st = loadSettings();
+        const toggle = document.getElementById('enableGlossaryToggleTest');
+        if (toggle) toggle.checked = !!st.enableGlossary;
+      } catch (e) {}
+    });
+
+    // 保存开关到全局设置
+    document.getElementById('enableGlossaryToggleTest').addEventListener('change', function() {
+      const st = loadSettings();
+      st.enableGlossary = !!this.checked;
+      saveSettings(st);
+    });
+
+    // 预览按钮逻辑
+    document.getElementById('previewBtn').addEventListener('click', function() {
+      const text = document.getElementById('sampleText').value || '';
+      const lang = document.getElementById('previewTargetLang').value || '中文';
+      const listEl = document.getElementById('matchList');
+      const injEl = document.getElementById('injectionPreview');
+      listEl.textContent = '';
+      injEl.value = '';
+
+      try {
+        const matches = (typeof getGlossaryMatchesForText === 'function') ? getGlossaryMatchesForText(text) : [];
+        if (!matches || matches.length === 0) {
+          listEl.innerHTML = '<div class="text-gray-500">无命中</div>';
+          injEl.value = '';
+          return;
+        }
+        const items = matches.map(m => `<div class="flex items-center justify-between py-0.5"><span>${escapeHtml(m.term)}</span><span class="text-gray-500">→</span><span>${escapeHtml(m.translation)}</span></div>`).join('');
+        listEl.innerHTML = items;
+        const instr = (typeof buildGlossaryInstruction === 'function') ? buildGlossaryInstruction(matches, lang) : '';
+        injEl.value = instr;
+      } catch (e) {
+        listEl.innerHTML = `<div class="text-red-600">错误：${escapeHtml(e.message)}</div>`;
+      }
+    });
+
+    function escapeHtml(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>

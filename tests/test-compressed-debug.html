@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>压缩表格调试</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            max-width: 1400px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .section {
+            background: white;
+            margin: 20px 0;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .log {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .success { color: #27ae60; font-weight: bold; }
+        .fail { color: #e74c3c; font-weight: bold; }
+        .result table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+        }
+        .result th, .result td {
+            border: 1px solid #ddd;
+            padding: 8px;
+        }
+        .result th {
+            background: #3498db;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>🐛 压缩表格修复调试</h1>
+
+    <div id="output"></div>
+
+    <script>
+        // 测试4的压缩表格
+        const compressedTable = `| | | | 五分位数 (Quintiles) | | | |---|---|---|---|---|---|---| | | 1 | 2 | 3 | 4 | 5 | 5-1 | | 市场 (Market) | 0.145*** | 0.200** | 0.061* | 0.136* | 0.106*** | -0.039 | | | (2.774) | (2.441) | (1.938) | (1.689) | (2.703) | (-0.930) | | 规模 (Size) | 0.107** | 0.329* | 0.147** | 0.206** | 0.059*** | 0.047 | | | (2.163) | (1.800) | (2.223) | (2.452) | (3.150) | (1.090) |`;
+
+        const output = document.getElementById('output');
+        const logs = [];
+
+        function log(msg) {
+            logs.push(msg);
+            console.log(msg);
+        }
+
+        // === 步骤1: 基本检测 ===
+        log('=== 步骤1: 基本检测 ===');
+        log(`文本长度: ${compressedTable.length}`);
+        log(`是否包含 |: ${compressedTable.includes('|')}`);
+
+        const pipeCount = (compressedTable.match(/\|/g) || []).length;
+        log(`管道符数量: ${pipeCount}`);
+        log(`是否 >= 10: ${pipeCount >= 10}`);
+
+        // === 步骤2: 分隔符检测 ===
+        log('\n=== 步骤2: 分隔符检测 ===');
+        const separatorPattern = /\|(:?-+:?\|)+/;
+        log(`正则模式: ${separatorPattern}`);
+        log(`是否匹配: ${separatorPattern.test(compressedTable)}`);
+
+        const separatorMatch = compressedTable.match(separatorPattern);
+        if (separatorMatch) {
+            log(`✓ 找到分隔符: "${separatorMatch[0]}"`);
+            log(`  位置: ${separatorMatch.index}`);
+            log(`  长度: ${separatorMatch[0].length}`);
+
+            const separator = separatorMatch[0];
+            const separatorPipes = (separator.match(/\|/g) || []).length;
+            const columnCount = separatorPipes - 1;
+            log(`  分隔符中的管道符: ${separatorPipes}`);
+            log(`  列数: ${columnCount}`);
+            log(`  每行需要管道符: ${columnCount + 1}`);
+        } else {
+            log('✗ 未找到分隔符！');
+        }
+
+        // === 步骤3: 提取表头 ===
+        if (separatorMatch) {
+            log('\n=== 步骤3: 提取表头 ===');
+            const separatorIndex = separatorMatch.index;
+            const separator = separatorMatch[0];
+            const columnCount = (separator.match(/\|/g) || []).length - 1;
+            const pipesPerRow = columnCount + 1;
+
+            const beforeSeparator = compressedTable.substring(0, separatorIndex);
+            log(`表头部分长度: ${beforeSeparator.length}`);
+            log(`表头部分: "${beforeSeparator.substring(0, 100)}..."`);
+
+            // 手动提取表头
+            let headerPipeCount = 0;
+            let headerEndIndex = -1;
+            for (let i = 0; i < beforeSeparator.length; i++) {
+                if (beforeSeparator[i] === '|') {
+                    headerPipeCount++;
+                    if (headerPipeCount === pipesPerRow) {
+                        headerEndIndex = i + 1;
+                        break;
+                    }
+                }
+            }
+
+            if (headerEndIndex !== -1) {
+                const headerRow = beforeSeparator.substring(0, headerEndIndex).trim();
+                log(`✓ 表头提取成功: "${headerRow}"`);
+            } else {
+                log(`✗ 表头提取失败！找到 ${headerPipeCount} 个管道符，需要 ${pipesPerRow} 个`);
+            }
+
+            // === 步骤4: 提取数据行 ===
+            log('\n=== 步骤4: 提取数据行 ===');
+            const afterSeparator = compressedTable.substring(separatorIndex + separator.length);
+            log(`数据部分长度: ${afterSeparator.length}`);
+            log(`数据部分开头: "${afterSeparator.substring(0, 100)}..."`);
+
+            let remaining = afterSeparator.trim();
+            let rowNum = 1;
+            const dataRows = [];
+
+            while (remaining.length > 0 && rowNum <= 10) {
+                log(`\n尝试提取行 ${rowNum}:`);
+                log(`  剩余长度: ${remaining.length}`);
+                log(`  开头: "${remaining.substring(0, 50)}..."`);
+
+                // 如果开头不是 |，添加一个
+                if (!remaining.startsWith('|')) {
+                    log(`  添加开头的 |`);
+                    remaining = '|' + remaining;
+                }
+
+                // 提取行
+                const rowText = remaining.substring(1); // 跳过开头的 |
+                let rowPipeCount = 0;
+                let rowEndIndex = -1;
+
+                for (let i = 0; i < rowText.length; i++) {
+                    if (rowText[i] === '|') {
+                        rowPipeCount++;
+                        if (rowPipeCount === pipesPerRow) {
+                            rowEndIndex = i + 1;
+                            break;
+                        }
+                    }
+                }
+
+                if (rowEndIndex === -1) {
+                    log(`  ✗ 行提取失败：找到 ${rowPipeCount} 个管道符，需要 ${pipesPerRow} 个`);
+                    break;
+                }
+
+                const row = '|' + rowText.substring(0, rowEndIndex).trim();
+                dataRows.push(row);
+                log(`  ✓ 行 ${rowNum}: "${row.substring(0, 80)}..."`);
+
+                // 移动到下一行
+                const consumedLength = rowEndIndex + 1;
+                remaining = rowText.substring(rowEndIndex).trim();
+                rowNum++;
+            }
+
+            log(`\n总共提取 ${dataRows.length} 行数据`);
+
+            // === 步骤5: 组合结果 ===
+            if (headerEndIndex !== -1 && dataRows.length > 0) {
+                log('\n=== 步骤5: 组合结果 ===');
+                const headerRow = beforeSeparator.substring(0, headerEndIndex).trim();
+                const fixedTable = [
+                    headerRow,
+                    separator,
+                    ...dataRows
+                ].join('\n');
+
+                log('✓ 修复成功！');
+                log(`\n修复后的表格:\n${fixedTable}\n`);
+
+                // 渲染测试
+                const section = document.createElement('div');
+                section.className = 'section';
+                section.innerHTML = `
+                    <h2 class="success">✓ 修复成功！</h2>
+                    <h3>渲染结果:</h3>
+                    <div class="result" id="render-result"></div>
+                `;
+                output.appendChild(section);
+
+                // 使用 markdown-it 渲染
+                setTimeout(() => {
+                    if (typeof markdownit !== 'undefined') {
+                        const md = markdownit({ html: true });
+                        const html = md.render(fixedTable);
+                        document.getElementById('render-result').innerHTML = html;
+                    }
+                }, 100);
+            } else {
+                log('\n✗ 修复失败');
+            }
+        }
+
+        // 显示日志
+        const logDiv = document.createElement('div');
+        logDiv.className = 'log';
+        logDiv.textContent = logs.join('\n');
+        output.insertBefore(logDiv, output.firstChild);
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"></script>
+</body>
+</html>

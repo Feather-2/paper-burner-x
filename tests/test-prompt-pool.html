@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI提示词池测试</title>
+    <script src="js/utils/env.js"></script>
+    <script src="js/utils/asset-loader.js"></script>
+    <script>
+      (async function () {
+        var A = window.AssetLoader; if (!A) return;
+        await A.loadScriptsSequentially([
+          A.assetUrl('js/tailwindcdn.js', 'https://cdn.tailwindcss.com'),
+          A.assetUrl('js/iconify-icon-2.0.0.min.js', 'https://gcore.jsdelivr.net/npm/iconify-icon@2.0.0/dist/iconify-icon.min.js')
+        ]);
+      })();
+    </script>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-6xl mx-auto">
+        <h1 class="text-3xl font-bold mb-6 flex items-center">
+            <iconify-icon icon="carbon:ai-status" class="text-blue-600 mr-3" width="36"></iconify-icon>
+            AI提示词池功能测试
+        </h1>
+        
+        <!-- 提示词模式选择 -->
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+            <h2 class="text-lg font-semibold mb-4">提示词模式选择</h2>
+            <div class="flex items-center space-x-6 mb-3">
+                <label class="flex items-center">
+                    <input type="radio" name="promptMode" value="builtin" id="promptModeBuiltin" class="rounded text-blue-500 focus:ring-blue-500 h-4 w-4 mr-2" checked>
+                    <span class="text-sm font-medium text-gray-700">内置提示词</span>
+                </label>
+                <label class="flex items-center">
+                    <input type="radio" name="promptMode" value="custom" id="promptModeCustom" class="rounded text-blue-500 focus:ring-blue-500 h-4 w-4 mr-2">
+                    <span class="text-sm font-medium text-gray-700">单个自定义</span>
+                </label>
+                <label class="flex items-center">
+                    <input type="radio" name="promptMode" value="pool" id="promptModePool" class="rounded text-blue-500 focus:ring-blue-500 h-4 w-4 mr-2">
+                    <span class="text-sm font-medium text-gray-700">AI提示词池</span>
+                </label>
+            </div>
+        </div>
+
+        <!-- 单个自定义提示区域 -->
+        <div id="customPromptsContainer" class="bg-white rounded-lg shadow p-6 mb-6 hidden">
+            <h2 class="text-lg font-semibold mb-4">自定义提示词</h2>
+            <div class="space-y-4">
+                <div>
+                    <label for="defaultSystemPrompt" class="block text-sm font-medium text-gray-700 mb-1">系统提示</label>
+                    <textarea id="defaultSystemPrompt" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500" placeholder="输入系统提示词..."></textarea>
+                </div>
+                <div>
+                    <label for="defaultUserPromptTemplate" class="block text-sm font-medium text-gray-700 mb-1">用户提示模板</label>
+                    <textarea id="defaultUserPromptTemplate" rows="6" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500" placeholder="请将以下内容翻译为${targetLangName}：&#10;&#10;${content}"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- 提示词池管理区域 -->
+        <div id="promptPoolContainer" class="bg-white rounded-lg shadow p-6 hidden">
+            <h2 class="text-lg font-semibold mb-4">AI提示词池管理</h2>
+            
+            <!-- 参考提示词输入 -->
+            <div class="bg-orange-50 rounded-lg p-4 mb-4 border border-orange-200">
+                <h4 class="font-medium text-orange-800 mb-3 flex items-center">
+                    <iconify-icon icon="carbon:template" class="text-orange-600 mr-2" width="18"></iconify-icon>
+                    参考提示词 (AI生成基础)
+                </h4>
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">参考系统提示词</label>
+                        <textarea id="referenceSystemPrompt" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-orange-500 text-sm" placeholder="你是专业的翻译助手，请准确翻译用户提供的内容。"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">参考用户提示模板</label>
+                        <textarea id="referenceUserPrompt" rows="4" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-orange-500 text-sm" placeholder="请将以下内容翻译为${targetLangName}：&#10;&#10;${content}"></textarea>
+                        <p class="text-xs text-gray-500 mt-1">必须包含 <code>${targetLangName}</code> 和 <code>${content}</code> 占位符</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 提示词池控制面板 -->
+            <div class="bg-blue-50 rounded-lg p-4 mb-4">
+                <div class="flex justify-between items-center mb-3">
+                    <div class="flex items-center">
+                        <iconify-icon icon="carbon:ai-status-running" class="text-blue-600 mr-2" width="20"></iconify-icon>
+                        <span class="font-medium text-blue-800">AI生成提示词池</span>
+                        <span id="poolStatsText" class="ml-2 text-sm text-blue-600">(0 个已选)</span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <select id="promptPoolMode" class="text-sm border border-blue-200 rounded px-2 py-1 bg-white">
+                            <option value="random">随机选择</option>
+                            <option value="rotation">轮换使用</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <!-- 生成参数控制 -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                    <div>
+                        <label class="block text-xs text-gray-600 mb-1">生成数量</label>
+                        <input type="number" id="variationCount" value="5" min="3" max="10" class="w-full text-sm border border-gray-300 rounded px-2 py-1">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-600 mb-1">相似度</label>
+                        <select id="similarityControl" class="w-full text-sm border border-gray-300 rounded px-2 py-1">
+                            <option value="0.2">差异很大</option>
+                            <option value="0.4">中等差异</option>
+                            <option value="0.6" selected>适度相似</option>
+                            <option value="0.8">高度相似</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-600 mb-1">AI模型</label>
+                        <select id="generationModel" class="w-full text-sm border border-gray-300 rounded px-2 py-1">
+                            <option value="">加载中...</option>
+                        </select>
+                        <p class="text-xs text-gray-500 mt-1">自动使用已配置的API密钥</p>
+                    </div>
+                </div>
+                
+                <!-- 生成控制按钮 -->
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-3">
+                        <button id="generateVariationsBtn" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm flex items-center disabled:opacity-50 disabled:cursor-not-allowed">
+                            <iconify-icon icon="carbon:ai-status" class="mr-2" width="16"></iconify-icon>
+                            AI生成变体
+                        </button>
+                        <div id="generateStatus" class="text-xs text-gray-600 hidden">
+                            <iconify-icon icon="carbon:loading" class="animate-spin mr-1" width="14"></iconify-icon>
+                            正在生成...
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button id="clearPoolBtn" class="px-3 py-1.5 bg-gray-400 text-white rounded text-xs hover:bg-gray-500 transition-colors">
+                            清空
+                        </button>
+                        <button id="importPoolBtn" class="px-3 py-1.5 bg-green-600 text-white rounded text-xs hover:bg-green-700 transition-colors">
+                            导入
+                        </button>
+                        <button id="exportPoolBtn" class="px-3 py-1.5 bg-green-600 text-white rounded text-xs hover:bg-green-700 transition-colors">
+                            导出
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 提示词列表容器 -->
+            <div id="promptPoolList" class="space-y-2 max-h-96 overflow-y-auto border border-gray-200 rounded-lg p-3 bg-gray-50">
+                <div class="text-center text-gray-500 text-sm py-8">
+                    <iconify-icon icon="carbon:ai-status-queued" class="text-gray-400 mb-2" width="32"></iconify-icon>
+                    <p>暂无提示词</p>
+                    <p class="text-xs mt-1">请先填写参考提示词，然后点击"AI生成变体"</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 测试按钮区域 -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-semibold mb-4">快速测试功能</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <button id="fillSampleBtn" class="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors flex items-center justify-center">
+                    <iconify-icon icon="carbon:template" class="mr-2" width="16"></iconify-icon>
+                    填写示例提示词
+                </button>
+                <button id="testGetPromptBtn" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center justify-center">
+                    <iconify-icon icon="carbon:search" class="mr-2" width="16"></iconify-icon>
+                    获取当前提示词
+                </button>
+                <button id="testRandomPromptBtn" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 flex items-center justify-center">
+                    <iconify-icon icon="carbon:shuffle" class="mr-2" width="16"></iconify-icon>
+                    随机选择提示词
+                </button>
+            </div>
+            
+            <!-- 测试结果显示 -->
+            <div id="testResults" class="mt-4 p-4 bg-gray-100 rounded-lg hidden">
+                <h3 class="font-medium mb-2">测试结果：</h3>
+                <pre id="testOutput" class="text-sm bg-white p-2 rounded border overflow-auto max-h-48"></pre>
+            </div>
+        </div>
+
+        <!-- API密钥测试输入 -->
+        <div class="bg-white rounded-lg shadow p-6 mt-6">
+            <h2 class="text-lg font-semibold mb-4">API密钥管理</h2>
+            <p class="text-sm text-gray-600 mb-4">提示词池将自动使用已在模型管理中配置的API密钥。请确保：</p>
+            <div class="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+                <div class="flex">
+                    <iconify-icon icon="carbon:warning" class="text-yellow-400 mr-2 mt-0.5" width="16"></iconify-icon>
+                    <div class="text-sm text-yellow-800">
+                        <p class="font-medium mb-1">使用提示：</p>
+                        <ul class="list-disc list-inside space-y-1">
+                            <li>在主界面的"高级设置 → 翻译模型 → 管理API密钥"中配置</li>
+                            <li>或者使用模型管理界面添加和测试API密钥</li>
+                            <li>提示词池会自动选择有效的密钥进行AI生成</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 引入必要的脚本 -->
+    <script src="js/api/api.js"></script>
+    <script src="js/storage/storage.js"></script>
+    <script src="js/process/prompt-pool.js"></script>
+    <script src="js/ui/prompt-pool-ui.js"></script>
+    
+    <script>
+        // 测试脚本
+        document.addEventListener('DOMContentLoaded', () => {
+            // 填写示例提示词
+            document.getElementById('fillSampleBtn').addEventListener('click', () => {
+                document.getElementById('referenceSystemPrompt').value = `你是专业的翻译助手，擅长在保持原意的基础上，提供准确、流畅的翻译。请确保：
+1. 翻译准确性和完整性
+2. 保持原文的语言风格和语调
+3. 适当处理专业术语和习惯用语
+4. 确保译文自然流畅，符合目标语言习惯`;
+
+                document.getElementById('referenceUserPrompt').value = `请将以下内容翻译为\${targetLangName}，确保准确传达原文含义：
+
+\${content}`;
+                
+                showTestResult('提示', '已填写示例参考提示词');
+            });
+
+            // 保存测试密钥 - 已移除，现在使用现有的密钥管理系统
+
+            // 添加其他测试按钮事件监听器
+            document.getElementById('testGetPromptBtn').addEventListener('click', () => {
+                const ui = window.promptPoolUI;
+                if (ui) {
+                    const prompt = ui.getPromptForTranslation();
+                    showTestResult('当前提示词', prompt);
+                } else {
+                    showTestResult('错误', '提示词池UI未初始化');
+                }
+            });
+
+            document.getElementById('testRandomPromptBtn').addEventListener('click', () => {
+                const pool = window.translationPromptPool;
+                if (pool) {
+                    const prompt = pool.getRandomActivePrompt();
+                    showTestResult('随机选择提示词', prompt);
+                } else {
+                    showTestResult('错误', '提示词池未初始化');
+                }
+            });
+
+            function showTestResult(title, result) {
+                const resultsDiv = document.getElementById('testResults');
+                const outputPre = document.getElementById('testOutput');
+                
+                resultsDiv.classList.remove('hidden');
+                outputPre.textContent = `${title}:\n${JSON.stringify(result, null, 2)}`;
+            }
+
+            console.log('AI提示词池测试页面加载完成');
+            console.log('提示词池:', window.translationPromptPool);
+            console.log('提示词池UI:', window.promptPoolUI);
+        });
+    </script>
+</body>
+</html>

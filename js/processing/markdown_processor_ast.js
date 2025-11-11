@@ -65,10 +65,29 @@
      */
     function looksLikeParagraph(text) {
         if (!text || typeof text !== 'string') return false;
+
+        // 白名单：包含明显的 LaTeX 命令，应该被识别为公式
+        if (/\\(mathrm|mathbf|mathit|text|frac|sqrt|sum|int|limits|cdot|cdots|ldots|dots|times|div|pm|infty|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|sigma|omega|mathbb|psi|rangle|langle|in)\b/.test(text)) {
+            return false; // 不是段落，是公式
+        }
+
+        // 白名单：包含常见的 LaTeX 空格命令
+        if (/\\[,;:!\s]/.test(text)) {
+            return false; // 不是段落，是公式
+        }
+
+        // 白名单：包含数学符号（下标、上标、括号等），应该被识别为公式
+        if (/[_^{}=+\-*/()]/.test(text)) {
+            return false; // 包含数学符号，是公式
+        }
+
+        // 先移除 LaTeX 转义序列（如 \; \, \! 等），避免误判
+        const cleanText = text.replace(/\\[,;:!]/g, '');
+
         // 包含句子标点
-        if (/[。；;]/.test(text)) return true;
-        // 包含多个逗号
-        if ((text.match(/[，,]/g) || []).length > 2) return true;
+        if (/[。；;]/.test(cleanText)) return true;
+        // 包含多个逗号（提高阈值到 10 个，因为数学公式中逗号很常见）
+        if ((cleanText.match(/[，,]/g) || []).length > 10) return true;
         // 包含英文解释性词汇
         if (/\b(represents?|where|is|are|and|the|of)\b/i.test(text)) return true;
         return false;
@@ -280,7 +299,7 @@
     function mathPlugin(md) {
         debug('Loading math plugin');
 
-        // 处理行内公式 $...$
+        // 处理行内公式 $...$ 和 $$...$$
         md.inline.ruler.before('escape', 'math_inline', function(state, silent) {
             const start = state.pos;
             const max = state.posMax;
@@ -290,38 +309,75 @@
                 return false;
             }
 
-            // 寻找结束的 $
-            let pos = start + 1;
-            while (pos < max && state.src.charCodeAt(pos) !== 0x24) {
-                if (state.src.charCodeAt(pos) === 0x5C /* \ */) {
-                    pos++; // 跳过转义字符
+            // 检测是否是 $$（块级公式在行内）
+            const isDouble = (start + 1 < max && state.src.charCodeAt(start + 1) === 0x24);
+            const searchStart = isDouble ? start + 2 : start + 1;
+            const endMarker = isDouble ? '$$' : '$';
+
+            // 寻找结束标记
+            let pos = searchStart;
+            let foundEnd = false;
+            while (pos < max) {
+                const char = state.src.charCodeAt(pos);
+
+                // 遇到换行符，停止搜索（行内公式不应跨行）
+                if (char === 0x0A /* \n */) {
+                    break;
                 }
+
+                // 遇到反斜杠，跳过反斜杠和后面的字符
+                if (char === 0x5C /* \ */) {
+                    pos += 2;
+                    continue;
+                }
+
+                // 找到 $
+                if (char === 0x24 /* $ */) {
+                    if (isDouble) {
+                        // 需要确认是 $$
+                        if (pos + 1 < max && state.src.charCodeAt(pos + 1) === 0x24) {
+                            foundEnd = true;
+                            break; // 找到 $$
+                        }
+                    } else {
+                        foundEnd = true;
+                        break; // 找到 $
+                    }
+                }
+
                 pos++;
             }
 
-            if (pos >= max) {
-                return false; // 没有找到闭合的 $
+            if (!foundEnd) {
+                return false; // 没有找到闭合标记
             }
 
-            const content = state.src.slice(start + 1, pos);
+            const content = state.src.slice(searchStart, pos);
 
-            // 快速检查：跳过纯中文
-            if (/^[\u4e00-\u9fa5，、。；：！？""''（）【】《》\s]+$/.test(content)) {
+            // 内容不能为空
+            if (!content || !content.trim()) {
                 return false;
             }
 
-            // 检查是否像段落
-            if (looksLikeParagraph(content)) {
+            // 快速检查：跳过纯中文（但允许单个汉字数学公式）
+            if (content.length > 1 && /^[\u4e00-\u9fa5，、。；：！？""''（）【】《》\s]+$/.test(content)) {
+                return false;
+            }
+
+            // 检查是否像段落（只对单 $ 检查，且长度超过3个字符）
+            if (!isDouble && content.length > 3 && looksLikeParagraph(content)) {
                 return false;
             }
 
             if (!silent) {
+                // 在段落中的 $$...$$ 也使用 inline mode（不独立成行）
                 const token = state.push('math_inline', 'math', 0);
                 token.content = content.trim();
-                token.markup = '$';
+                token.markup = endMarker;
+                token.block = false; // 行内元素统一使用 inline mode
             }
 
-            state.pos = pos + 1;
+            state.pos = pos + (isDouble ? 2 : 1);
             return true;
         });
 
@@ -456,6 +512,12 @@
             return '';
         }
 
+        // 修复压缩的单行表格（所有内容在一行）
+        mdText = fixCompressedTables(mdText);
+
+        // 修复表格列数不匹配问题
+        mdText = fixTableColumnMismatch(mdText);
+
         // 构建图片映射
         const imgMap = new Map();
         if (Array.isArray(images)) {
@@ -504,6 +566,279 @@
         });
 
         return mdText;
+    }
+
+    /**
+     * 修复压缩的单行表格
+     * 将 "| a | b | |---|---| | c | d |" 转换为多行格式
+     */
+    function fixCompressedTables(text) {
+        if (!text || !text.includes('|')) return text;
+
+        // 检测表格分隔符行的模式：|---|---|... 或 |:---|---:| 等
+        const separatorPattern = /\|(:?-+:?\|)+/;
+
+        return text.split('\n').map(line => {
+            // 只处理包含分隔符的行
+            if (!separatorPattern.test(line)) {
+                return line;
+            }
+
+            // 统计管道符数量，判断是否可能是压缩表格
+            const pipeCount = (line.match(/\|/g) || []).length;
+            if (pipeCount < 10) return line; // 至少需要多行表格的管道符数量
+
+            // 尝试分割表格
+            try {
+                const fixed = splitCompressedTable(line);
+                if (fixed !== line) {
+                    metrics.tableFixCount++;
+                    console.log('[MarkdownProcessorAST] 修复压缩表格，管道符:', pipeCount);
+                }
+                return fixed;
+            } catch (err) {
+                console.warn('[MarkdownProcessorAST] 表格修复失败:', err.message);
+                return line;
+            }
+        }).join('\n');
+    }
+
+    /**
+     * 分割压缩表格为多行
+     */
+    function splitCompressedTable(line) {
+        // 找到分隔符行：|---|---|---|...
+        const separatorMatch = line.match(/\|(:?-+:?\|)+/);
+        if (!separatorMatch) return line;
+
+        const separatorIndex = separatorMatch.index;
+        const separator = separatorMatch[0];
+
+        // 计算列数：分隔符中的 | 数量 - 1
+        // 例如：|---|---|---| 有 4 个 |，对应 3 列
+        const columnCount = (separator.match(/\|/g) || []).length - 1;
+        if (columnCount < 2) return line; // 至少2列
+
+        // 每行需要的管道符数量 = 列数 + 1
+        const pipesPerRow = columnCount + 1;
+
+        // 提取表头（分隔符之前）
+        // 注意：分隔符匹配包含开头的 |，所以需要把它补回表头
+        let beforeSeparator = line.substring(0, separatorIndex);
+        if (line[separatorIndex] === '|') {
+            beforeSeparator += '|'; // 补回被分隔符匹配吃掉的 |
+        }
+        beforeSeparator = beforeSeparator.trim();
+
+        const headerPipes = (beforeSeparator.match(/\|/g) || []).length;
+        console.log('[MarkdownProcessorAST] 表头管道符:', headerPipes, '/', pipesPerRow);
+
+        let headerRow;
+        const headerResult = extractRow(beforeSeparator, pipesPerRow);
+        if (headerResult) {
+            headerRow = headerResult.row;
+            console.log('[MarkdownProcessorAST] ✓ 表头提取成功');
+        } else if (headerPipes === pipesPerRow - 1) {
+            // 如果只差1个管道符，添加结尾的 |
+            headerRow = beforeSeparator + ' |';
+            console.log('[MarkdownProcessorAST] 修复表头：添加缺失的结尾 |');
+        } else {
+            console.warn('[MarkdownProcessorAST] 表头提取失败，管道符:', headerPipes, '需要:', pipesPerRow);
+            return line;
+        }
+
+        // 提取数据行（分隔符之后）
+        const afterSeparator = line.substring(separatorIndex + separator.length);
+        const dataRows = extractAllRows(afterSeparator, pipesPerRow);
+
+        if (dataRows.length === 0) {
+            console.warn('[MarkdownProcessorAST] 未提取到数据行');
+            return line;
+        }
+
+        // 构建多行表格
+        const result = [
+            headerRow,
+            separator,
+            ...dataRows
+        ].join('\n');
+
+        console.log('[MarkdownProcessorAST] 压缩表格分割:', {
+            原始长度: line.length,
+            列数: columnCount,
+            表头: headerRow.substring(0, 50) + '...',
+            数据行数: dataRows.length
+        });
+
+        return result;
+    }
+
+    /**
+     * 从文本开头提取一行表格（包含指定数量的管道符）
+     * @returns {Object} { row: 提取的行（trim后）, endIndex: 原始结束位置 }
+     */
+    function extractRow(text, pipesNeeded) {
+        if (!text || !text.includes('|')) return null;
+
+        // 找到所需数量的管道符
+        let pipeCount = 0;
+        let endIndex = -1;
+
+        for (let i = 0; i < text.length; i++) {
+            if (text[i] === '|') {
+                pipeCount++;
+                if (pipeCount === pipesNeeded) {
+                    endIndex = i + 1;
+                    break;
+                }
+            }
+        }
+
+        if (endIndex === -1) return null;
+
+        return {
+            row: text.substring(0, endIndex).trim(),
+            endIndex: endIndex
+        };
+    }
+
+    /**
+     * 修复表格列数不匹配问题
+     * 确保表头、分隔符和数据行的列数一致
+     */
+    function fixTableColumnMismatch(text) {
+        if (!text || !text.includes('|')) return text;
+
+        const lines = text.split('\n');
+        const fixedLines = [];
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line.includes('|')) {
+                fixedLines.push(lines[i]);
+                continue;
+            }
+
+            // 检测是否为表格分隔符行
+            const isSeparator = /^\|[\s:]*-+[\s:]*(\|[\s:]*-+[\s:]*)+\|?$/.test(line);
+
+            if (isSeparator && i > 0) {
+                // 这是分隔符行，检查与上一行（表头）的列数
+                const prevLine = fixedLines[fixedLines.length - 1];
+                if (prevLine && prevLine.includes('|')) {
+                    const prevPipes = (prevLine.match(/\|/g) || []).length;
+                    const currPipes = (line.match(/\|/g) || []).length;
+
+                    if (prevPipes !== currPipes) {
+                        console.log(`[MarkdownProcessorAST] 检测到列数不匹配：表头 ${prevPipes} 列，分隔符 ${currPipes} 列`);
+
+                        // 修复策略：调整分隔符以匹配表头
+                        if (prevPipes < currPipes) {
+                            // 表头列数少，分隔符列数多 → 删除分隔符的多余列
+                            const sepParts = line.split('|').filter(part => part.trim() !== '' || part === '');
+                            while (sepParts.length > prevPipes) {
+                                sepParts.pop();
+                            }
+                            // 确保开头和结尾有 |
+                            const fixedSep = '|' + sepParts.slice(1).join('|');
+                            console.log(`[MarkdownProcessorAST] 修复分隔符：从 ${currPipes} 列减少到 ${prevPipes} 列`);
+                            fixedLines.push(fixedSep);
+                            continue;
+                        } else {
+                            // 表头列数多，分隔符列数少 → 给分隔符添加列
+                            let fixedSep = line;
+                            while ((fixedSep.match(/\|/g) || []).length < prevPipes) {
+                                // 在结尾 | 之前添加 ---
+                                if (fixedSep.endsWith('|')) {
+                                    fixedSep = fixedSep.slice(0, -1) + '---|';
+                                } else {
+                                    fixedSep += '---|';
+                                }
+                            }
+                            console.log(`[MarkdownProcessorAST] 修复分隔符：从 ${currPipes} 列增加到 ${prevPipes} 列`);
+                            fixedLines.push(fixedSep);
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            // 如果是表格数据行，检查与分隔符的列数
+            if (i >= 2 && lines[i-1] && /^\|[\s:]*-+/.test(lines[i-1])) {
+                const separatorLine = fixedLines[fixedLines.length - 1];
+                const sepPipes = (separatorLine.match(/\|/g) || []).length;
+                const currPipes = (line.match(/\|/g) || []).length;
+
+                if (currPipes !== sepPipes) {
+                    console.log(`[MarkdownProcessorAST] 数据行列数不匹配：${currPipes} vs ${sepPipes}`);
+
+                    // 调整数据行以匹配分隔符
+                    if (currPipes < sepPipes) {
+                        // 数据行列数少 → 添加空单元格
+                        let fixedLine = line;
+                        while ((fixedLine.match(/\|/g) || []).length < sepPipes) {
+                            if (fixedLine.endsWith('|')) {
+                                fixedLine = fixedLine.slice(0, -1) + ' |';
+                            } else {
+                                fixedLine += ' |';
+                            }
+                        }
+                        fixedLines.push(fixedLine);
+                        continue;
+                    }
+                }
+            }
+
+            fixedLines.push(lines[i]);
+        }
+
+        return fixedLines.join('\n');
+    }
+
+    /**
+     * 从文本中提取所有表格行
+     * 按照固定的管道符数量提取每一行
+     */
+    function extractAllRows(text, pipesPerRow) {
+        const rows = [];
+        let remaining = text.trim();
+
+        while (remaining.length > 0) {
+            // 跳过开头的空白和单个 |
+            remaining = remaining.trimStart();
+            if (remaining.startsWith('|')) {
+                remaining = remaining.substring(1).trimStart();
+            }
+
+            if (remaining.length === 0) break;
+
+            // 提取一行（找到 pipesPerRow 个管道符）
+            const result = extractRow(remaining, pipesPerRow);
+            if (!result) {
+                // 如果提取失败，尝试查找下一个 | | 分隔符
+                const nextSep = remaining.indexOf(' | |');
+                if (nextSep > 0) {
+                    console.warn('[MarkdownProcessorAST] 跳过无效数据:', remaining.substring(0, Math.min(50, nextSep)));
+                    remaining = remaining.substring(nextSep + 3);
+                    continue;
+                }
+                break;
+            }
+
+            rows.push('|' + result.row);
+
+            // 移动到下一行
+            remaining = remaining.substring(result.endIndex).trim();
+
+            // 防止无限循环
+            if (rows.length > 100) {
+                console.warn('[MarkdownProcessorAST] 表格行数超过限制，停止提取');
+                break;
+            }
+        }
+
+        console.log('[MarkdownProcessorAST] 提取到', rows.length, '行数据');
+        return rows;
     }
 
     /**
@@ -634,6 +969,11 @@
         debug('Cache cleared');
     }
 
+    function setDebug(enabled) {
+        CONFIG.debug = !!enabled;
+        debug('Debug mode', enabled ? 'enabled' : 'disabled');
+    }
+
     // ========================================
     // 导出 API
     // ========================================
@@ -648,6 +988,7 @@
         // 管理函数
         getMetrics: getMetrics,
         clearCache: clearCache,
+        setDebug: setDebug,
 
         // 配置
         config: CONFIG,

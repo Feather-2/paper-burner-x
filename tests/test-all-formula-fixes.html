@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>公式渲染修复 - 综合测试</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script src="js/processing/markdown_processor_ast.js"></script>
+    <script src="js/processing/formula_post_processor.js"></script>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            max-width: 1400px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        .test-section {
+            background: white;
+            margin: 20px 0;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-section h2 {
+            color: #3498db;
+            margin-top: 0;
+            font-size: 20px;
+        }
+        .test-case {
+            margin: 15px 0;
+            padding: 15px;
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+            background: #fafafa;
+        }
+        .test-title {
+            font-weight: bold;
+            color: #34495e;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        .source {
+            background: #fff;
+            padding: 8px;
+            margin: 8px 0;
+            border-left: 3px solid #27ae60;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            overflow-x: auto;
+        }
+        .result {
+            background: #fff;
+            padding: 12px;
+            margin: 8px 0;
+            border-left: 3px solid #3498db;
+            min-height: 30px;
+        }
+        .status {
+            display: inline-block;
+            padding: 4px 10px;
+            margin-left: 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .success { background: #27ae60; color: white; }
+        .fail { background: #e74c3c; color: white; }
+        .summary {
+            position: sticky;
+            top: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        .summary-stats {
+            display: flex;
+            gap: 20px;
+            margin-top: 15px;
+        }
+        .stat-box {
+            flex: 1;
+            padding: 15px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .stat-box.total { background: #ecf0f1; }
+        .stat-box.passed { background: #d5f4e6; color: #27ae60; }
+        .stat-box.failed { background: #fadbd8; color: #e74c3c; }
+        .stat-number {
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .stat-label {
+            font-size: 14px;
+            color: #7f8c8d;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+            background: white;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background: #3498db;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="summary" id="summary">
+        <h1>🧪 公式渲染修复 - 综合测试</h1>
+        <div class="summary-stats">
+            <div class="stat-box total">
+                <div class="stat-number" id="total-count">0</div>
+                <div class="stat-label">总测试数</div>
+            </div>
+            <div class="stat-box passed">
+                <div class="stat-number" id="passed-count">0</div>
+                <div class="stat-label">通过</div>
+            </div>
+            <div class="stat-box failed">
+                <div class="stat-number" id="failed-count">0</div>
+                <div class="stat-label">失败</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="test-container"></div>
+
+    <script>
+        const testSections = [
+            {
+                title: '1. 花括号开头公式（原始问题）',
+                tests: [
+                    { input: '$1\\mathrm{\\;m}/\\mathrm{s}$', desc: '简单单位公式' },
+                    { input: '$5\\mathrm{\\;s}$', desc: '短公式' },
+                    { input: '${1.1}\\mathrm{\\;m}$', desc: '花括号开头' },
+                    { input: '${L}_{0.5}\\left( \\mathrm{\\;m}\\right)$', desc: '表格中的复杂公式' },
+                    { input: '${10}\\mathrm{\\;{min}}$', desc: '嵌套花括号' },
+                    { input: '${\\mathrm{{CO}}}_{2}$', desc: '化学公式' },
+                    { input: '${1.5}\\mathrm{\\;m}$', desc: '图片标注公式' },
+                    { input: '$8\\mathrm{{person}}/{\\mathrm{m}}^{2}$', desc: '分数上标' },
+                ]
+            },
+            {
+                title: '2. 多逗号公式（增强后的公式识别）',
+                tests: [
+                    { input: '$a_{1}=3, p_{1}=15, o_{1}=1$', desc: '3个逗号' },
+                    { input: '$a_{1}=3, p_{1}=15, o_{1}=1, r_{1}=9, b_{1}^{1}=5$', desc: '5个逗号' },
+                    { input: '$x=1, y=2, z=3, a=4, b=5, c=6, d=7$', desc: '7个逗号' },
+                ]
+            },
+            {
+                title: '3. LaTeX命令错误修正',
+                tests: [
+                    { input: '$\\Vec{v}$', desc: '\\Vec → \\vec（向量）', shouldFix: true },
+                    { input: '$\\Sum_{i=1}^{n} x_i$', desc: '\\Sum → \\sum', shouldFix: true },
+                    { input: '$\\Int f(x) dx$', desc: '\\Int → \\int', shouldFix: true },
+                    { input: '$\\Alpha + \\Beta$', desc: '\\Alpha/\\Beta → \\alpha/\\beta', shouldFix: true },
+                    { input: '$\\Frac{1}{2}$', desc: '\\Frac → \\frac', shouldFix: true },
+                ]
+            },
+            {
+                title: '4. 字体嵌套错误修正',
+                tests: [
+                    { input: '$\\texttt{\\textbf{M}}$', desc: 'texttt嵌套textbf', shouldFix: true },
+                    { input: '$\\textbf{\\texttt{ABC}}$', desc: 'textbf嵌套texttt', shouldFix: true },
+                    { input: '$\\mathbb{\\mathbf{R}}$', desc: 'mathbb嵌套mathbf', shouldFix: true },
+                ]
+            },
+            {
+                title: '5. 表格中的公式（模拟结构化数据）',
+                tests: [
+                    {
+                        input: '<table><tr><th>参数</th><th>值</th></tr><tr><td>速度</td><td>$1\\mathrm{\\;m}/\\mathrm{s}$</td></tr><tr><td>长度</td><td>${L}_{0.5}\\left( \\mathrm{\\;m}\\right)$</td></tr></table>',
+                        desc: '表格中的公式（需要后处理）',
+                        isTable: true
+                    },
+                ]
+            },
+            {
+                title: '6. 极短公式',
+                tests: [
+                    { input: '$x$', desc: '单字符' },
+                    { input: '$\\pi$', desc: '希腊字母' },
+                    { input: '$=$', desc: '等号' },
+                    { input: '$a^2$', desc: '上标' },
+                ]
+            }
+        ];
+
+        const container = document.getElementById('test-container');
+        let totalTests = 0;
+        let passedTests = 0;
+
+        testSections.forEach(section => {
+            const sectionDiv = document.createElement('div');
+            sectionDiv.className = 'test-section';
+
+            const sectionTitle = document.createElement('h2');
+            sectionTitle.textContent = section.title;
+            sectionDiv.appendChild(sectionTitle);
+
+            section.tests.forEach((test, idx) => {
+                totalTests++;
+
+                const testDiv = document.createElement('div');
+                testDiv.className = 'test-case';
+
+                // 测试标题
+                const title = document.createElement('div');
+                title.className = 'test-title';
+                title.textContent = `测试 ${idx + 1}: ${test.desc}`;
+                testDiv.appendChild(title);
+
+                // 源码
+                const source = document.createElement('div');
+                source.className = 'source';
+                source.textContent = test.input;
+                testDiv.appendChild(source);
+
+                // 渲染结果
+                const resultLabel = document.createElement('div');
+                resultLabel.style.fontSize = '12px';
+                resultLabel.style.marginTop = '8px';
+                resultLabel.style.fontWeight = 'bold';
+                resultLabel.textContent = '渲染结果:';
+
+                const resultDiv = document.createElement('div');
+                resultDiv.className = 'result';
+
+                try {
+                    if (test.isTable) {
+                        // 表格测试：先插入HTML，再后处理
+                        resultDiv.innerHTML = test.input;
+
+                        // 模拟后处理
+                        if (typeof FormulaPostProcessor !== 'undefined') {
+                            FormulaPostProcessor.processFormulasInElement(resultDiv);
+                        }
+
+                        // 检查表格中的公式是否被渲染
+                        const hasKatex = resultDiv.innerHTML.includes('class="katex');
+                        const status = document.createElement('span');
+                        status.className = `status ${hasKatex ? 'success' : 'fail'}`;
+                        status.textContent = hasKatex ? '✓ 后处理成功' : '✗ 后处理失败';
+                        resultLabel.appendChild(status);
+
+                        if (hasKatex) passedTests++;
+                    } else {
+                        // 普通公式测试
+                        const html = MarkdownProcessorAST.render(test.input);
+                        resultDiv.innerHTML = html;
+
+                        // 如果需要修正错误，再次后处理
+                        if (test.shouldFix && typeof FormulaPostProcessor !== 'undefined') {
+                            FormulaPostProcessor.processFormulasInElement(resultDiv);
+                        }
+
+                        const hasKatex = resultDiv.innerHTML.includes('class="katex');
+                        const status = document.createElement('span');
+                        status.className = `status ${hasKatex ? 'success' : 'fail'}`;
+                        status.textContent = hasKatex ? '✓ 渲染成功' : '✗ 未渲染';
+                        resultLabel.appendChild(status);
+
+                        if (hasKatex) passedTests++;
+                    }
+                } catch (error) {
+                    resultDiv.innerHTML = `<span style="color: #e74c3c;">${error.message}</span>`;
+                    const status = document.createElement('span');
+                    status.className = 'status fail';
+                    status.textContent = '✗ 异常';
+                    resultLabel.appendChild(status);
+                }
+
+                testDiv.appendChild(resultLabel);
+                testDiv.appendChild(resultDiv);
+                sectionDiv.appendChild(testDiv);
+            });
+
+            container.appendChild(sectionDiv);
+        });
+
+        // 更新统计
+        document.getElementById('total-count').textContent = totalTests;
+        document.getElementById('passed-count').textContent = passedTests;
+        document.getElementById('failed-count').textContent = totalTests - passedTests;
+
+        // 控制台输出
+        console.log(`%c========== 测试完成 ==========`, 'color: #3498db; font-size: 16px; font-weight: bold;');
+        console.log(`总测试数: ${totalTests}`);
+        console.log(`%c通过: ${passedTests}`, 'color: #27ae60; font-weight: bold;');
+        console.log(`%c失败: ${totalTests - passedTests}`, 'color: #e74c3c; font-weight: bold;');
+        console.log(`通过率: ${(passedTests / totalTests * 100).toFixed(1)}%`);
+    </script>
+</body>
+</html>

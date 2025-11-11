@@ -61,6 +61,14 @@
             return; // 直接返回，不修改表格内容
         }
 
+        // ===== 新增：检测 Markdown 表格语法 =====
+        // 检测表格分隔符行：|---|---|... 或 |:---|---:| 等
+        const hasMarkdownTableSeparator = /\|(:?-+:?\|)+/.test(rawText);
+        if (hasMarkdownTableSeparator) {
+            console.log(`[SubBlockSegmenter] 块 #${parentBlockIndex} 包含 Markdown 表格语法，跳过分块以保持表格完整性`);
+            return; // 直接返回，不分割 Markdown 表格
+        }
+
         // ===== 新增：公式感知分割处理 =====
         if (hasFormula) {
             return segmentFormulaAwareBlock(blockElement, parentBlockIndex, rawText, __SUBBLOCK_DEBUG__);
@@ -275,6 +283,16 @@
     function segmentFormulaAwareBlock(blockElement, parentBlockIndex, rawText, debug) {
         if (debug) {
             console.log(`[SubBlockSegmenter] 开始公式感知分割，块 #${parentBlockIndex}`);
+        }
+
+        // ===== 新增：检测 Markdown 表格语法 =====
+        const hasMarkdownTableSeparator = /\|(:?-+:?\|)+/.test(rawText);
+        if (hasMarkdownTableSeparator) {
+            if (debug) {
+                console.log(`[SubBlockSegmenter] 块 #${parentBlockIndex} 含表格语法，包装为单一子块（原子）`);
+            }
+            wrapAsSingleSubBlock(blockElement, parentBlockIndex);
+            return;
         }
 
         // 检测公式位置和类型

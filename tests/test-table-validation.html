@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>表格格式验证</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .section {
+            background: white;
+            margin: 20px 0;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .fail { color: #e74c3c; font-weight: bold; }
+        .success { color: #27ae60; font-weight: bold; }
+        pre { background: #f1f3f5; padding: 15px; border-radius: 4px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔍 表格格式验证</h1>
+
+    <script>
+        const table = `| | | | 五分位数 (Quintiles) | | |
+|---|---|---|---|---|---|---|
+| | 1 | 2 | 3 | 4 | 5 | 5-1 |`;
+
+        const lines = table.split('\n');
+
+        document.write('<div class="section">');
+        document.write('<h2>表格内容:</h2>');
+        document.write('<pre>' + table + '</pre>');
+
+        document.write('<h2>逐行分析:</h2>');
+
+        lines.forEach((line, idx) => {
+            const pipes = (line.match(/\|/g) || []).length;
+            const cells = pipes > 0 ? pipes - 1 : 0;
+
+            document.write(`<p><strong>第 ${idx + 1} 行:</strong></p>`);
+            document.write(`<pre>${line}</pre>`);
+            document.write(`<p>管道符数量: ${pipes}, 单元格数量: ${cells}</p>`);
+        });
+
+        // 分析列数
+        const headerPipes = (lines[0].match(/\|/g) || []).length;
+        const separatorPipes = (lines[1].match(/\|/g) || []).length;
+        const dataPipes = lines.length > 2 ? (lines[2].match(/\|/g) || []).length : 0;
+
+        const headerCells = headerPipes - 1;
+        const separatorCells = separatorPipes - 1;
+        const dataCells = dataPipes - 1;
+
+        document.write('<h2>列数检查:</h2>');
+        document.write(`<p>表头单元格: ${headerCells}</p>`);
+        document.write(`<p>分隔符段: ${separatorCells}</p>`);
+        document.write(`<p>数据行单元格: ${dataCells}</p>`);
+
+        const isValid = headerCells === separatorCells && headerCells === dataCells;
+
+        if (isValid) {
+            document.write('<p class="success">✓ 表格格式有效</p>');
+        } else {
+            document.write('<p class="fail">✗ 表格格式无效：列数不匹配！</p>');
+            document.write('<p class="fail">Markdown 解析器无法识别这种格式的表格</p>');
+        }
+
+        document.write('<h2>💡 解决方案:</h2>');
+        document.write('<p>需要修复表头或分隔符，使列数一致：</p>');
+
+        // 提供两种修复方案
+        if (headerCells < separatorCells) {
+            // 方案1：给表头添加单元格
+            const fixed1 = lines[0] + ' |';
+            document.write('<p><strong>方案 1：给表头添加空单元格</strong></p>');
+            document.write('<pre>' + fixed1 + '</pre>');
+
+            // 方案2：从分隔符删除列
+            const sepParts = lines[1].split('|');
+            sepParts.pop();  // 删除最后一个空元素
+            sepParts.pop();  // 删除最后一个 ---
+            const fixed2 = sepParts.join('|') + '|';
+            document.write('<p><strong>方案 2：从分隔符删除一列</strong></p>');
+            document.write('<pre>' + lines[0] + '\n' + fixed2 + '\n' + lines[2] + '</pre>');
+        }
+
+        document.write('</div>');
+    </script>
+</body>
+</html>

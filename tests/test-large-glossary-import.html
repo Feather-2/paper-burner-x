@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>大数据术语库导入测试</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 p-8">
+    <div class="max-w-6xl mx-auto">
+        <h1 class="text-3xl font-bold mb-6 text-gray-800">大数据术语库导入性能测试</h1>
+
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">快速生成测试数据</h2>
+            <div class="flex gap-4 items-center mb-4">
+                <label class="text-sm text-gray-600">条目数量:</label>
+                <input type="number" id="generateCount" value="70000" min="1000" max="1000000"
+                       class="border rounded px-3 py-2 w-40">
+                <button onclick="generateTestData()" class="bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600">
+                    生成测试数据
+                </button>
+            </div>
+            <div id="generateStatus" class="text-sm text-gray-600"></div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">导入测试</h2>
+            <button onclick="testImport()" class="bg-green-500 text-white px-6 py-2 rounded hover:bg-green-600 mb-4">
+                开始导入测试
+            </button>
+
+            <!-- 进度条 -->
+            <div class="mb-4">
+                <div class="flex justify-between text-sm text-gray-600 mb-2">
+                    <span id="progressText">等待开始...</span>
+                    <span id="progressPercent">0%</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-4">
+                    <div id="progressBar" class="bg-blue-500 h-4 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div id="importStatus" class="text-sm space-y-1"></div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold mb-4">性能统计</h2>
+            <div id="stats" class="grid grid-cols-2 gap-4 text-sm"></div>
+        </div>
+    </div>
+
+    <script src="/js/storage/storage.js"></script>
+    <script src="/js/storage/glossary-storage.js"></script>
+
+    <script>
+        let testData = null;
+
+        function log(elementId, message, append = true) {
+            const el = document.getElementById(elementId);
+            if (append) {
+                const line = document.createElement('div');
+                line.textContent = message;
+                el.appendChild(line);
+                el.scrollTop = el.scrollHeight;
+            } else {
+                el.textContent = message;
+            }
+        }
+
+        function updateProgress(current, total, message) {
+            const percent = Math.round((current / total) * 100);
+            document.getElementById('progressBar').style.width = percent + '%';
+            document.getElementById('progressPercent').textContent = percent + '%';
+            document.getElementById('progressText').textContent = message;
+        }
+
+        function generateTestData() {
+            const count = parseInt(document.getElementById('generateCount').value);
+            const statusEl = document.getElementById('generateStatus');
+
+            statusEl.textContent = `正在生成 ${count.toLocaleString()} 条测试数据...`;
+
+            setTimeout(() => {
+                const startTime = performance.now();
+
+                const entries = [];
+                for (let i = 1; i <= count; i++) {
+                    entries.push({
+                        id: `test-${i}`,
+                        term: `Term-${i}`,
+                        translation: `翻译词条 ${i} - 这里是一些额外的文本内容用于增加数据量`,
+                        caseSensitive: i % 10 === 0,
+                        wholeWord: i % 5 === 0,
+                        enabled: true
+                    });
+                }
+
+                testData = {
+                    id: 'test-large-set',
+                    name: `大型测试术语库 (${count.toLocaleString()} 条)`,
+                    enabled: true,
+                    entries: entries
+                };
+
+                const elapsed = performance.now() - startTime;
+                const sizeKB = (JSON.stringify(testData).length / 1024).toFixed(2);
+
+                statusEl.innerHTML = `
+                    ✅ 已生成 ${count.toLocaleString()} 条测试数据<br>
+                    耗时: ${elapsed.toFixed(0)} ms<br>
+                    数据大小: ${sizeKB} KB (${(sizeKB / 1024).toFixed(2)} MB)
+                `;
+
+                log('stats', '', false);
+                document.getElementById('stats').innerHTML = `
+                    <div><strong>条目数量:</strong> ${count.toLocaleString()}</div>
+                    <div><strong>数据大小:</strong> ${sizeKB} KB</div>
+                    <div><strong>生成耗时:</strong> ${elapsed.toFixed(0)} ms</div>
+                    <div><strong>平均:</strong> ${(elapsed / count).toFixed(3)} ms/条</div>
+                `;
+            }, 100);
+        }
+
+        async function testImport() {
+            if (!testData) {
+                alert('请先生成测试数据！');
+                return;
+            }
+
+            if (!window.glossaryStorage) {
+                alert('glossary-storage.js 未加载');
+                return;
+            }
+
+            const importStatusEl = document.getElementById('importStatus');
+            importStatusEl.innerHTML = '';
+
+            log('importStatus', '开始导入测试...', true);
+            updateProgress(0, testData.entries.length, '准备导入...');
+
+            const startTime = performance.now();
+            let lastUpdateTime = startTime;
+            let lastProcessed = 0;
+
+            try {
+                // 使用带进度回调的保存函数
+                await window.glossaryStorage.saveGlossarySetUnified(
+                    {
+                        id: testData.id,
+                        name: testData.name,
+                        enabled: testData.enabled
+                    },
+                    testData.entries,
+                    (current, total) => {
+                        const now = performance.now();
+                        const elapsed = now - startTime;
+                        const chunkElapsed = now - lastUpdateTime;
+                        const processed = current - lastProcessed;
+                        const speed = processed / (chunkElapsed / 1000);
+
+                        updateProgress(
+                            current,
+                            total,
+                            `已保存: ${current.toLocaleString()} / ${total.toLocaleString()} (${speed.toFixed(0)} 条/秒)`
+                        );
+
+                        lastUpdateTime = now;
+                        lastProcessed = current;
+                    }
+                );
+
+                const totalElapsed = performance.now() - startTime;
+                const avgSpeed = testData.entries.length / (totalElapsed / 1000);
+
+                log('importStatus', `✅ 导入完成！`, true);
+                log('importStatus', `总耗时: ${(totalElapsed / 1000).toFixed(2)} 秒`, true);
+                log('importStatus', `平均速度: ${avgSpeed.toFixed(0)} 条/秒`, true);
+                log('importStatus', `平均: ${(totalElapsed / testData.entries.length).toFixed(3)} ms/条`, true);
+
+                // 更新统计
+                const statsEl = document.getElementById('stats');
+                statsEl.innerHTML += `
+                    <div><strong>导入耗时:</strong> ${(totalElapsed / 1000).toFixed(2)} 秒</div>
+                    <div><strong>平均速度:</strong> ${avgSpeed.toFixed(0)} 条/秒</div>
+                    <div><strong>保存成功:</strong> ✅</div>
+                    <div><strong>存储方式:</strong> IndexedDB (分块)</div>
+                `;
+
+                updateProgress(testData.entries.length, testData.entries.length, '导入完成！');
+
+                // 验证数据
+                log('importStatus', '验证数据...', true);
+                const loaded = await window.glossaryStorage.loadEntriesForSetUnified(testData.id);
+                log('importStatus', `验证完成: 读取到 ${loaded.length.toLocaleString()} 条`, true);
+
+            } catch (err) {
+                log('importStatus', `❌ 导入失败: ${err.message}`, true);
+                console.error('Import error:', err);
+            }
+        }
+
+        // 页面加载时等待初始化
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                if (window.glossaryStorage) {
+                    log('generateStatus', '✅ 术语库存储模块已就绪', false);
+                } else {
+                    log('generateStatus', '❌ 术语库存储模块未加载', false);
+                }
+            }, 1000);
+        });
+    </script>
+</body>
+</html>
