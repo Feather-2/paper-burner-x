@@ -488,7 +488,8 @@ class TextFittingAdapter {
    */
   _needsCJKWesternSpacing(char1, char2) {
     // 黑名单：这些字符不需要添加间距
-    const punctuationBlacklist = /[，。、；：！？""''（）《》【】…—]/;
+    // 包括：中文标点、数学公式标记符号($)、括号等
+    const punctuationBlacklist = /[，。、；：！？""''（）《》【】…—$]/;
 
     if (punctuationBlacklist.test(char1) || punctuationBlacklist.test(char2)) {
       return false;
