@@ -180,11 +180,12 @@ function processExport(messageElement) {
     messageContainer.style.maxWidth = 'none';
   }
 
-  // Phase 3.5: 移除 exportContainer 自身的宽度限制，允许内容完整展开
+  // Phase 3.5: 放宽（但不完全移除）exportContainer 的宽度限制
+  // 避免表格过宽导致导出的图片太大，设置合理的最大宽度
   const originalExportContainerMaxWidth = exportContainer.style.maxWidth;
   const originalExportContainerWidth = exportContainer.style.width;
-  exportContainer.style.maxWidth = 'none';
-  exportContainer.style.width = 'auto';
+  exportContainer.style.maxWidth = '1200px';  // 合理的最大宽度（原720px → 1200px）
+  exportContainer.style.width = 'auto';       // 自适应宽度，但不超过maxWidth
 
   // 等待DOM重新布局，确保获取到真实的完整宽度
   setTimeout(() => {
