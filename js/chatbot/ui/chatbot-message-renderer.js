@@ -5,7 +5,7 @@
  * 设置为 true 启用事件委托（减少内存占用 40-60%）
  * 设置为 false 回滚到内联事件（用于紧急回滚）
  */
-const USE_EVENT_DELEGATION = true;
+const USE_EVENT_DELEGATION = true;  // 已修复流式更新配置加载问题
 
 /**
  * ChatbotMessageRenderer 聊天消息渲染工具

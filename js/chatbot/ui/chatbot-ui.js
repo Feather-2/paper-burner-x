@@ -372,7 +372,12 @@ function updateChatbotUI() {
   let availableModels = [];
   let currentSettings = {};
   try {
-    const config = window.ChatbotCore.getChatbotConfig();
+    // 缓存配置,避免流式更新时频繁加载
+    // 只在模型选择器打开或缓存失效时重新获取
+    if (!window._cachedChatbotConfig || window.isModelSelectorOpen) {
+      window._cachedChatbotConfig = window.ChatbotCore.getChatbotConfig();
+    }
+    const config = window._cachedChatbotConfig;
     currentSettings = config.settings || {};
     isCustomModel = config.model === 'custom' || (typeof config.model === 'string' && config.model.startsWith('custom_source_'));
     availableModels = config.siteSpecificAvailableModels || [];
