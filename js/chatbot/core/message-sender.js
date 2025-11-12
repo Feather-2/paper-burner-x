@@ -674,8 +674,18 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         };
       }
       let lastUpdateTime = Date.now();
-      const UPDATE_INTERVAL = 250;  // 增加到250ms，减少渲染频率，避免KaTeX渲染导致的卡顿
+      const UPDATE_INTERVAL = 400;  // Phase 3 优化: 增加到400ms (2.5次/秒)，进一步减少渲染频率
       let collectedReasoning = '';
+      let debounceTimer = null;  // Phase 3 优化: 防抖计时器，避免流式结束时的多次渲染
+
+      // Phase 3 优化: 防抖更新函数，避免流式结束时的多次重复渲染
+      const debouncedUpdateUI = () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          if (typeof updateChatbotUI === 'function') updateChatbotUI();
+        }, 50);
+      };
+
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -690,7 +700,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
                 const now = Date.now();
                 if (now - lastUpdateTime > UPDATE_INTERVAL) {
                   chatHistory[assistantMsgIndex].content = collectedContent;
-                  if (typeof updateChatbotUI === 'function') updateChatbotUI();
+                  debouncedUpdateUI();  // Phase 3: 使用防抖更新
                   lastUpdateTime = now;
                 }
               }
@@ -705,7 +715,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
               }
               const now = Date.now();
               if (now - lastUpdateTime > UPDATE_INTERVAL) {
-                if (typeof updateChatbotUI === 'function') updateChatbotUI();
+                debouncedUpdateUI();  // Phase 3: 使用防抖更新
                 lastUpdateTime = now;
               }
             }
