@@ -483,7 +483,7 @@ window.ChatbotMessageRenderer = {
 
         /* Phase 3.5 防溢出：确保所有内容都在容器内 */
         .markdown-content {
-          overflow-x:auto;
+          overflow-x: auto; /* 横向滚动 */
           word-wrap: break-word;
           overflow-wrap: break-word;
           max-width: 100%;
@@ -508,33 +508,35 @@ window.ChatbotMessageRenderer = {
         .markdown-content h2 {font-size:1.3em;}
         .markdown-content h3 {font-size:1.2em;}
 
-        /* Phase 3.5 代码块防溢出 */
+        /* Phase 3.5 代码块防溢出：使用横向滚动 + 保持格式 */
         .markdown-content code {
           background:rgba(0,0,0,0.05);
           padding:2px 4px;
           border-radius:4px;
           font-family:monospace;
           font-size:0.9em;
-          word-break: break-all;
-          white-space: pre-wrap;
+          /* 行内代码允许换行，但优先保持完整 */
+          white-space: normal;
+          word-break: break-word;
         }
 
         .markdown-content pre {
           background:rgba(0,0,0,0.05);
           padding:10px;
           border-radius:8px;
-          overflow-x:auto;
+          overflow-x:auto; /* 横向滚动 */
           margin:10px 0;
           max-width: 100%;
-          white-space: pre-wrap;
-          word-wrap: break-word;
+          /* 代码块保持原始格式，不换行 */
+          white-space: pre;
         }
 
         .markdown-content pre code {
           background:transparent;
           padding:0;
-          white-space: pre-wrap;
-          word-break: break-all;
+          /* 代码块内的code保持pre格式 */
+          white-space: pre;
+          word-break: normal;
         }
 
         .markdown-content ul, .markdown-content ol {margin:8px 0;padding-left:20px;}
@@ -555,35 +557,54 @@ window.ChatbotMessageRenderer = {
           margin:8px 0;
         }
 
-        /* Phase 3.5 链接防溢出 */
+        /* Phase 3.5 链接防溢出：强制断行 */
         .markdown-content a {
           color:#2563eb;
           text-decoration:underline;
-          word-break: break-all;
+          word-break: break-all; /* URL 强制断行 */
           overflow-wrap: break-word;
         }
 
-        /* Phase 3.5 表格防溢出 */
+        /* Phase 3.5 表格防溢出：横向滚动 */
         .markdown-content table {
           border-collapse:collapse;
           width:100%;
           margin:12px 0;
           display: block;
-          overflow-x: auto;
+          overflow-x: auto; /* 横向滚动 */
           max-width: 100%;
         }
 
         .markdown-content th, .markdown-content td {
           border:1px solid #e5e7eb;
           padding:8px;
+          /* 表格单元格内的文本优雅换行 */
           word-wrap: break-word;
           overflow-wrap: break-word;
-          max-width: 300px;
+          min-width: 50px; /* 最小宽度，避免过窄 */
+          max-width: 300px; /* 最大宽度，避免过宽 */
         }
 
         .markdown-content th {background:#f3f4f6;}
 
         .mermaid { margin: 12px 0; }
+
+        /* Phase 3.5 滚动条美化 */
+        .markdown-content pre::-webkit-scrollbar,
+        .markdown-content table::-webkit-scrollbar {
+          height: 6px;
+        }
+
+        .markdown-content pre::-webkit-scrollbar-thumb,
+        .markdown-content table::-webkit-scrollbar-thumb {
+          background: rgba(0,0,0,0.2);
+          border-radius: 3px;
+        }
+
+        .markdown-content pre::-webkit-scrollbar-thumb:hover,
+        .markdown-content table::-webkit-scrollbar-thumb:hover {
+          background: rgba(0,0,0,0.3);
+        }
       </style>
     `;
   }

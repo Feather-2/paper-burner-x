@@ -511,8 +511,8 @@ function updateChatbotUI() {
           }
 
           // Phase 3.5 智能滚动：流式更新时保持用户阅读位置
-          // 只有在用户主动停留在底部时才自动滚动，否则保持当前位置
-          const isUserAtBottom = oldScrollHeight - oldClientHeight <= oldScrollTop + 10;
+          // 只有在用户主动停留在底部附近时才自动滚动
+          const isUserAtBottom = oldScrollHeight - oldClientHeight <= oldScrollTop + 50; // 增加容差到 50px
           if (isUserAtBottom) {
             chatBody.scrollTop = chatBody.scrollHeight;
           }
@@ -554,16 +554,17 @@ function updateChatbotUI() {
       }
     }, 0);
 
-    // Phase 3.5 智能滚动：完整渲染时也保持用户阅读位置
-    const isUserAtBottom = oldScrollHeight - oldClientHeight <= oldScrollTop + 10;
+    // Phase 3.5 智能滚动：完整渲染时保持用户阅读位置
+    const isUserAtBottom = oldScrollHeight - oldClientHeight <= oldScrollTop + 50; // 增加容差到 50px
+    const isNewMessageArrival = currentMessageCount > lastRenderedCount; // 检测是否有新消息到达
 
-    // 只在以下情况自动滚动到底部：
-    // 1. 正在加载新消息（isChatbotLoading）
-    // 2. 用户已经停留在底部（isUserAtBottom）
-    if (window.ChatbotCore.isChatbotLoading || isUserAtBottom) {
+    // 自动滚动到底部的条件：
+    // 1. 有新消息到达（用户发送消息或助手开始回复）
+    // 2. 或者用户已经停留在底部附近
+    if (isNewMessageArrival || isUserAtBottom) {
       chatBody.scrollTop = chatBody.scrollHeight;
     }
-    // 否则保持用户当前的阅读位置
+    // 否则保持用户当前的阅读位置（即使正在加载也不强制滚动）
 
     if (window.ChatbotRenderingUtils && typeof window.ChatbotRenderingUtils.renderAllMermaidBlocks === 'function') {
       if (window.mermaidLoaded && typeof window.mermaid !== 'undefined') {
