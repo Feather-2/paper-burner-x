@@ -480,23 +480,109 @@ window.ChatbotMessageRenderer = {
     return `
       <style>
         /* Removed .message-container:hover .top-right-actions as it's handled by JS mouseover/out */
-        .markdown-content {overflow-x:auto;}
-        .markdown-content p {margin:8px 0;}
+
+        /* Phase 3.5 防溢出：确保所有内容都在容器内 */
+        .markdown-content {
+          overflow-x:auto;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+          max-width: 100%;
+        }
+
+        .markdown-content p {
+          margin:8px 0;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+        }
+
         .markdown-content h1, .markdown-content h2, .markdown-content h3,
-        .markdown-content h4, .markdown-content h5, .markdown-content h6 {margin-top:16px;margin-bottom:8px;font-weight:600;}
+        .markdown-content h4, .markdown-content h5, .markdown-content h6 {
+          margin-top:16px;
+          margin-bottom:8px;
+          font-weight:600;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+        }
+
         .markdown-content h1 {font-size:1.5em;}
         .markdown-content h2 {font-size:1.3em;}
         .markdown-content h3 {font-size:1.2em;}
-        .markdown-content code {background:rgba(0,0,0,0.05);padding:2px 4px;border-radius:4px;font-family:monospace;font-size:0.9em;}
-        .markdown-content pre {background:rgba(0,0,0,0.05);padding:10px;border-radius:8px;overflow-x:auto;margin:10px 0;}
-        .markdown-content pre code {background:transparent;padding:0;}
+
+        /* Phase 3.5 代码块防溢出 */
+        .markdown-content code {
+          background:rgba(0,0,0,0.05);
+          padding:2px 4px;
+          border-radius:4px;
+          font-family:monospace;
+          font-size:0.9em;
+          word-break: break-all;
+          white-space: pre-wrap;
+        }
+
+        .markdown-content pre {
+          background:rgba(0,0,0,0.05);
+          padding:10px;
+          border-radius:8px;
+          overflow-x:auto;
+          margin:10px 0;
+          max-width: 100%;
+          white-space: pre-wrap;
+          word-wrap: break-word;
+        }
+
+        .markdown-content pre code {
+          background:transparent;
+          padding:0;
+          white-space: pre-wrap;
+          word-break: break-all;
+        }
+
         .markdown-content ul, .markdown-content ol {margin:8px 0;padding-left:20px;}
-        .markdown-content blockquote {border-left:3px solid #cbd5e1;padding-left:12px;color:#4b5563;margin:10px 0;}
-        .markdown-content img {max-width:100%;height:auto;border-radius:6px;margin:8px 0;}
-        .markdown-content a {color:#2563eb;text-decoration:underline;}
-        .markdown-content table {border-collapse:collapse;width:100%;margin:12px 0;}
-        .markdown-content th, .markdown-content td {border:1px solid #e5e7eb;padding:8px;}
+
+        .markdown-content blockquote {
+          border-left:3px solid #cbd5e1;
+          padding-left:12px;
+          color:#4b5563;
+          margin:10px 0;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+        }
+
+        .markdown-content img {
+          max-width:100%;
+          height:auto;
+          border-radius:6px;
+          margin:8px 0;
+        }
+
+        /* Phase 3.5 链接防溢出 */
+        .markdown-content a {
+          color:#2563eb;
+          text-decoration:underline;
+          word-break: break-all;
+          overflow-wrap: break-word;
+        }
+
+        /* Phase 3.5 表格防溢出 */
+        .markdown-content table {
+          border-collapse:collapse;
+          width:100%;
+          margin:12px 0;
+          display: block;
+          overflow-x: auto;
+          max-width: 100%;
+        }
+
+        .markdown-content th, .markdown-content td {
+          border:1px solid #e5e7eb;
+          padding:8px;
+          word-wrap: break-word;
+          overflow-wrap: break-word;
+          max-width: 300px;
+        }
+
         .markdown-content th {background:#f3f4f6;}
+
         .mermaid { margin: 12px 0; }
       </style>
     `;

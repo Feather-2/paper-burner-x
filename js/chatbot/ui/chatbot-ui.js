@@ -510,11 +510,13 @@ function updateChatbotUI() {
             }
           }
 
-          // 保持滚动位置
-          const isUserInitiallyAtBottom = oldScrollHeight - oldClientHeight <= oldScrollTop + 5;
-          if (isUserInitiallyAtBottom) {
+          // Phase 3.5 智能滚动：流式更新时保持用户阅读位置
+          // 只有在用户主动停留在底部时才自动滚动，否则保持当前位置
+          const isUserAtBottom = oldScrollHeight - oldClientHeight <= oldScrollTop + 10;
+          if (isUserAtBottom) {
             chatBody.scrollTop = chatBody.scrollHeight;
           }
+          // 如果用户正在查看上方内容，不做任何滚动操作
           return; // 跳过完整重新渲染
         }
 
@@ -552,11 +554,16 @@ function updateChatbotUI() {
       }
     }, 0);
 
-    const isUserInitiallyAtBottom = oldScrollHeight - oldClientHeight <= oldScrollTop + 5;
+    // Phase 3.5 智能滚动：完整渲染时也保持用户阅读位置
+    const isUserAtBottom = oldScrollHeight - oldClientHeight <= oldScrollTop + 10;
 
-    if (window.ChatbotCore.isChatbotLoading || isUserInitiallyAtBottom) {
+    // 只在以下情况自动滚动到底部：
+    // 1. 正在加载新消息（isChatbotLoading）
+    // 2. 用户已经停留在底部（isUserAtBottom）
+    if (window.ChatbotCore.isChatbotLoading || isUserAtBottom) {
       chatBody.scrollTop = chatBody.scrollHeight;
     }
+    // 否则保持用户当前的阅读位置
 
     if (window.ChatbotRenderingUtils && typeof window.ChatbotRenderingUtils.renderAllMermaidBlocks === 'function') {
       if (window.mermaidLoaded && typeof window.mermaid !== 'undefined') {
