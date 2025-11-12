@@ -476,6 +476,49 @@ function updateChatbotUI() {
     }
 
     if (window.ChatbotMessageRenderer) {
+        // Phase 3.5 增量渲染: 只渲染变化的消息，避免重新渲染整个历史
+        const currentMessageCount = window.ChatbotCore.chatHistory.length;
+        const lastRenderedCount = window._lastRenderedMessageCount || 0;
+
+        // 如果是流式更新（消息数量没变），只更新最后一条消息
+        if (window.ChatbotCore.isChatbotLoading && currentMessageCount === lastRenderedCount && currentMessageCount > 0) {
+          const lastMessage = window.ChatbotCore.chatHistory[currentMessageCount - 1];
+          const lastMessageContainer = chatBody.querySelector(`.assistant-message[data-message-index="${currentMessageCount - 1}"]`);
+
+          if (lastMessageContainer && lastMessage.role === 'assistant') {
+            // 只更新 markdown-content 部分（避免重新渲染整个消息）
+            const contentDiv = lastMessageContainer.querySelector('.markdown-content');
+            if (contentDiv && lastMessage.content) {
+              // 使用快速路径：直接更新 textContent（不触发 KaTeX/Marked 解析）
+              // 只在内容有实质性变化时才更新（避免无谓的DOM操作）
+              const newContentPreview = lastMessage.content.substring(0, 500);
+              if (!contentDiv.dataset.lastPreview || contentDiv.dataset.lastPreview !== newContentPreview) {
+                try {
+                  // 流式更新时使用简化渲染（禁用复杂的 KaTeX/Marked 解析）
+                  if (typeof renderWithKatexStreaming === 'function') {
+                    contentDiv.innerHTML = renderWithKatexStreaming(lastMessage.content);
+                  } else if (typeof marked !== 'undefined') {
+                    contentDiv.innerHTML = marked.parse(lastMessage.content);
+                  } else {
+                    contentDiv.textContent = lastMessage.content;
+                  }
+                  contentDiv.dataset.lastPreview = newContentPreview;
+                } catch (e) {
+                  contentDiv.textContent = lastMessage.content;
+                }
+              }
+            }
+          }
+
+          // 保持滚动位置
+          const isUserInitiallyAtBottom = oldScrollHeight - oldClientHeight <= oldScrollTop + 5;
+          if (isUserInitiallyAtBottom) {
+            chatBody.scrollTop = chatBody.scrollHeight;
+          }
+          return; // 跳过完整重新渲染
+        }
+
+        // 完整渲染：新消息或非流式更新
         let messagesHtml = window.ChatbotCore.chatHistory.map((m, index) => {
             if (m.role === 'segment-summary') {
                 return '';
@@ -494,6 +537,8 @@ function updateChatbotUI() {
         }
 
         chatBody.innerHTML = messagesHtml + window.ChatbotMessageRenderer.getMarkdownStyles();
+        window._lastRenderedMessageCount = currentMessageCount;
+        console.log(`[Phase 3.5 增量渲染] 完整渲染 ${currentMessageCount} 条消息`);
     } else {
         console.error("ChatbotMessageRenderer is not loaded!");
         chatBody.innerHTML = "<p style='color:red;'>错误：消息渲染模块加载失败。</p>";
