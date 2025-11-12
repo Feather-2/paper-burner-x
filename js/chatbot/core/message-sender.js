@@ -674,17 +674,27 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         };
       }
       let lastUpdateTime = Date.now();
-      const UPDATE_INTERVAL = 400;  // Phase 3 优化: 增加到400ms (2.5次/秒)，进一步减少渲染频率
+      // Phase 3 并发优化: 智能降频 - 后台标签页大幅降低更新频率
+      const BASE_UPDATE_INTERVAL = 400;     // 前台标签页: 400ms (2.5次/秒)
+      const BACKGROUND_UPDATE_INTERVAL = 1500;  // 后台标签页: 1500ms (0.67次/秒)
+      const getUpdateInterval = () => {
+        return (typeof document !== 'undefined' && document.hidden) ? BACKGROUND_UPDATE_INTERVAL : BASE_UPDATE_INTERVAL;
+      };
+
       let collectedReasoning = '';
       let debounceTimer = null;  // Phase 3 优化: 防抖计时器，避免流式结束时的多次渲染
 
-      // Phase 3 优化: 防抖更新函数，避免流式结束时的多次重复渲染
+      // Phase 3 并发优化: 增大防抖时间 50ms → 150ms，在高负载下更好地合并更新
       const debouncedUpdateUI = () => {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
           if (typeof updateChatbotUI === 'function') updateChatbotUI();
-        }, 50);
+        }, 150);  // 从50ms增加到150ms
       };
+
+      // 输出智能降频状态
+      const initialInterval = getUpdateInterval();
+      console.log(`[Phase 3 并发优化] 流式更新间隔: ${initialInterval}ms (${document.hidden ? '后台标签页' : '前台标签页'})`);
 
       try {
         while (true) {
@@ -698,7 +708,8 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
               if (parsed) {
                 collectedContent += parsed;
                 const now = Date.now();
-                if (now - lastUpdateTime > UPDATE_INTERVAL) {
+                const currentInterval = getUpdateInterval();  // Phase 3: 动态获取更新间隔
+                if (now - lastUpdateTime > currentInterval) {
                   chatHistory[assistantMsgIndex].content = collectedContent;
                   debouncedUpdateUI();  // Phase 3: 使用防抖更新
                   lastUpdateTime = now;
@@ -714,7 +725,8 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
                 chatHistory[assistantMsgIndex].content = collectedContent;
               }
               const now = Date.now();
-              if (now - lastUpdateTime > UPDATE_INTERVAL) {
+              const currentInterval = getUpdateInterval();  // Phase 3: 动态获取更新间隔
+              if (now - lastUpdateTime > currentInterval) {
                 debouncedUpdateUI();  // Phase 3: 使用防抖更新
                 lastUpdateTime = now;
               }
