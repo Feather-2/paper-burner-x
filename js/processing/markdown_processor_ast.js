@@ -125,7 +125,21 @@
         /**
          * 修复 OCR 错误的数学分隔符
          */
-        function normalizeMathDelimiters(text) {
+        // 性能优化：提升正则表达式到模块级（避免重复编译）
+const MATH_DELIMITER_PATTERNS = Object.freeze({
+    dollarWithComma: /$\$s*([^$
+]{1,200}?)s*\$s*，s*$/g,
+    doubleDollar: /$\$s*([^$
+]{1,200}?)s*\$/g,
+    singleDollarEnd: /$\$s*([^$
+]{1,200}?)s*\$/g,
+    dollarSpaceDollar: /$s+$/g,
+    dollarDollarSpace: /$s+/g,
+    spaceDollarDollar: /s+$/g,
+    doubleDollarEOL: /$$/g
+});
+
+function normalizeMathDelimiters(text) {
             if (typeof text !== 'string' || !text) return text;
             let s = text;
 
