@@ -461,6 +461,10 @@ function updateChatbotUI() {
     const oldScrollHeight = chatBody.scrollHeight;
     const oldClientHeight = chatBody.clientHeight;
 
+    // Phase 3.5 提前定义消息计数（用于后续滚动逻辑）
+    const currentMessageCount = window.ChatbotCore.chatHistory.length;
+    const lastRenderedCount = window._lastRenderedMessageCount || 0;
+
     let docName = 'unknown_doc';
     let dataForMindmap = { images: [], ocr: '', translation: '' };
     if (window.ChatbotCore && typeof window.ChatbotCore.getCurrentDocContent === 'function') {
@@ -477,8 +481,6 @@ function updateChatbotUI() {
 
     if (window.ChatbotMessageRenderer) {
         // Phase 3.5 增量渲染: 只渲染变化的消息，避免重新渲染整个历史
-        const currentMessageCount = window.ChatbotCore.chatHistory.length;
-        const lastRenderedCount = window._lastRenderedMessageCount || 0;
 
         // 如果是流式更新（消息数量没变），只更新最后一条消息
         if (window.ChatbotCore.isChatbotLoading && currentMessageCount === lastRenderedCount && currentMessageCount > 0) {
