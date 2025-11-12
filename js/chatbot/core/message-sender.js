@@ -674,7 +674,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         };
       }
       let lastUpdateTime = Date.now();
-      const UPDATE_INTERVAL = 100;
+      const UPDATE_INTERVAL = 250;  // 增加到250ms，减少渲染频率，避免KaTeX渲染导致的卡顿
       let collectedReasoning = '';
       try {
         while (true) {
