@@ -674,27 +674,53 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         };
       }
       let lastUpdateTime = Date.now();
-      // Phase 3 并发优化: 智能降频 - 后台标签页大幅降低更新频率
-      const BASE_UPDATE_INTERVAL = 400;     // 前台标签页: 400ms (2.5次/秒)
-      const BACKGROUND_UPDATE_INTERVAL = 1500;  // 后台标签页: 1500ms (0.67次/秒)
+      // Phase 3.5 超级降频: 大幅降低更新频率 + 智能跳帧
+      const BASE_UPDATE_INTERVAL = 800;     // 前台标签页: 800ms (1.25次/秒) - 从400ms翻倍
+      const BACKGROUND_UPDATE_INTERVAL = 3000;  // 后台标签页: 3000ms (0.33次/秒) - 从1500ms翻倍
+
+      // Phase 3.5 智能跳帧: 监测渲染性能
+      let lastRenderDuration = 0;  // 上次渲染耗时
+      let adaptiveMultiplier = 1;  // 自适应倍数（渲染慢时自动增大间隔）
+      const HEAVY_RENDER_THRESHOLD = 200;  // 渲染耗时超过200ms视为"重负载"
+
       const getUpdateInterval = () => {
-        return (typeof document !== 'undefined' && document.hidden) ? BACKGROUND_UPDATE_INTERVAL : BASE_UPDATE_INTERVAL;
+        const baseInterval = (typeof document !== 'undefined' && document.hidden)
+          ? BACKGROUND_UPDATE_INTERVAL
+          : BASE_UPDATE_INTERVAL;
+
+        // 智能跳帧: 如果上次渲染很慢，临时翻倍间隔
+        if (lastRenderDuration > HEAVY_RENDER_THRESHOLD) {
+          adaptiveMultiplier = 2;  // 翻倍间隔
+          console.log(`[Phase 3.5 跳帧] 检测到重渲染(${lastRenderDuration.toFixed(0)}ms)，临时降频×2`);
+        } else {
+          adaptiveMultiplier = 1;  // 恢复正常
+        }
+
+        return baseInterval * adaptiveMultiplier;
       };
 
       let collectedReasoning = '';
       let debounceTimer = null;  // Phase 3 优化: 防抖计时器，避免流式结束时的多次渲染
 
-      // Phase 3 并发优化: 增大防抖时间 50ms → 150ms，在高负载下更好地合并更新
+      // Phase 3.5 性能监控版 debouncedUpdateUI
       const debouncedUpdateUI = () => {
         clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
+          const renderStart = performance.now();
           if (typeof updateChatbotUI === 'function') updateChatbotUI();
+          const renderEnd = performance.now();
+          lastRenderDuration = renderEnd - renderStart;
+
+          // 只在渲染超过100ms时输出警告（避免日志刷屏）
+          if (lastRenderDuration > 100) {
+            console.log(`[Phase 3.5 性能] 渲染耗时: ${lastRenderDuration.toFixed(0)}ms`);
+          }
         }, 150);  // 从50ms增加到150ms
       };
 
       // 输出智能降频状态
       const initialInterval = getUpdateInterval();
-      console.log(`[Phase 3 并发优化] 流式更新间隔: ${initialInterval}ms (${document.hidden ? '后台标签页' : '前台标签页'})`);
+      console.log(`[Phase 3.5 超级降频] 流式更新间隔: ${initialInterval}ms (${document.hidden ? '后台标签页' : '前台标签页'})`);
 
       try {
         while (true) {
@@ -708,10 +734,10 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
               if (parsed) {
                 collectedContent += parsed;
                 const now = Date.now();
-                const currentInterval = getUpdateInterval();  // Phase 3: 动态获取更新间隔
+                const currentInterval = getUpdateInterval();  // Phase 3.5: 智能跳帧
                 if (now - lastUpdateTime > currentInterval) {
                   chatHistory[assistantMsgIndex].content = collectedContent;
-                  debouncedUpdateUI();  // Phase 3: 使用防抖更新
+                  debouncedUpdateUI();  // Phase 3.5: 性能监控版
                   lastUpdateTime = now;
                 }
               }
@@ -725,9 +751,9 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
                 chatHistory[assistantMsgIndex].content = collectedContent;
               }
               const now = Date.now();
-              const currentInterval = getUpdateInterval();  // Phase 3: 动态获取更新间隔
+              const currentInterval = getUpdateInterval();  // Phase 3.5: 智能跳帧
               if (now - lastUpdateTime > currentInterval) {
-                debouncedUpdateUI();  // Phase 3: 使用防抖更新
+                debouncedUpdateUI();  // Phase 3.5: 性能监控版
                 lastUpdateTime = now;
               }
             }
