@@ -399,7 +399,7 @@ window.ChatbotMessageRenderer = {
       return `
         <div class="message-container assistant-message-container" style="display:flex;justify-content:flex-start;margin-bottom:16px;padding-right:20%;position:relative; margin-top: 30px;">
           ${actionButtons}
-          <div style="background:linear-gradient(to bottom, #f9fafb, #f3f4f6);color:#111827;padding:12px 16px;border-radius:4px 18px 18px 18px;font-size:15px;line-height:1.5;box-shadow:0 2px 8px rgba(0,0,0,0.08);border:1px solid rgba(0,0,0,0.03);position:relative;">
+          <div style="background:linear-gradient(to bottom, #f9fafb, #f3f4f6);color:#111827;padding:12px 16px;border-radius:4px 18px 18px 18px;font-size:15px;line-height:1.5;box-shadow:0 2px 8px rgba(0,0,0,0.08);border:1px solid rgba(0,0,0,0.03);position:relative;min-width:0;overflow-x:auto;">
             ${existingActions}
             <div class="assistant-message" data-message-index="${index}">
               ${toolCallBlock}
@@ -416,7 +416,7 @@ window.ChatbotMessageRenderer = {
              onmouseenter="this.querySelector('.action-buttons-container').style.display='flex'"
              onmouseleave="var container=this.querySelector('.action-buttons-container'); if(!container.matches(':hover')){container.style.display='none'}">
           ${actionButtons}
-          <div style="background:linear-gradient(to bottom, #f9fafb, #f3f4f6);color:#111827;padding:12px 16px;border-radius:4px 18px 18px 18px;font-size:15px;line-height:1.5;box-shadow:0 2px 8px rgba(0,0,0,0.08);border:1px solid rgba(0,0,0,0.03);position:relative;">
+          <div style="background:linear-gradient(to bottom, #f9fafb, #f3f4f6);color:#111827;padding:12px 16px;border-radius:4px 18px 18px 18px;font-size:15px;line-height:1.5;box-shadow:0 2px 8px rgba(0,0,0,0.08);border:1px solid rgba(0,0,0,0.03);position:relative;min-width:0;overflow-x:auto;">
             ${existingActions}
             <div class="assistant-message" data-message-index="${index}">
               ${toolCallBlock}
