@@ -180,15 +180,23 @@ function processExport(messageElement) {
     messageContainer.style.maxWidth = 'none';
   }
 
-  showToast('正在生成图片...');
-  html2canvas(exportContainer, {
-    scale: 2,
-    useCORS: true,
-    backgroundColor: 'white',
-    logging: false,
-    width: exportContainer.scrollWidth, // 使用完整宽度
-    height: exportContainer.scrollHeight // 使用完整高度
-  }).then(canvas => {
+  // Phase 3.5: 移除 exportContainer 自身的宽度限制，允许内容完整展开
+  const originalExportContainerMaxWidth = exportContainer.style.maxWidth;
+  const originalExportContainerWidth = exportContainer.style.width;
+  exportContainer.style.maxWidth = 'none';
+  exportContainer.style.width = 'auto';
+
+  // 等待DOM重新布局，确保获取到真实的完整宽度
+  setTimeout(() => {
+    showToast('正在生成图片...');
+    html2canvas(exportContainer, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: 'white',
+      logging: false,
+      width: exportContainer.scrollWidth, // 使用完整宽度
+      height: exportContainer.scrollHeight // 使用完整高度
+    }).then(canvas => {
     try {
       const link = document.createElement('a');
       link.download = `paper-burner-ai-${new Date().toISOString().slice(0,10)}.png`;
@@ -198,7 +206,7 @@ function processExport(messageElement) {
     } catch (err) {
       showToast('导出图片失败');
     } finally {
-      // Phase 3.5: 清理前恢复表格样式（虽然容器会被删除，但保持代码完整性）
+      // Phase 3.5: 清理前恢复所有样式
       tables.forEach((table, index) => {
         if (originalTableStyles[index]) {
           table.style.overflow = originalTableStyles[index].overflow;
@@ -209,11 +217,13 @@ function processExport(messageElement) {
       if (messageContainer && originalContainerMaxWidth) {
         messageContainer.style.maxWidth = originalContainerMaxWidth;
       }
+      exportContainer.style.maxWidth = originalExportContainerMaxWidth;
+      exportContainer.style.width = originalExportContainerWidth;
       document.body.removeChild(exportContainer);
     }
   }).catch(err => {
     showToast('生成图片失败');
-    // Phase 3.5: 错误时也要清理
+    // Phase 3.5: 错误时也要清理所有样式
     tables.forEach((table, index) => {
       if (originalTableStyles[index]) {
         table.style.overflow = originalTableStyles[index].overflow;
@@ -224,8 +234,11 @@ function processExport(messageElement) {
     if (messageContainer && originalContainerMaxWidth) {
       messageContainer.style.maxWidth = originalContainerMaxWidth;
     }
+    exportContainer.style.maxWidth = originalExportContainerMaxWidth;
+    exportContainer.style.width = originalExportContainerWidth;
     document.body.removeChild(exportContainer);
   });
+  }, 50); // 50ms足够让DOM重新布局
 }
 
 /**
