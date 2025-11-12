@@ -993,4 +993,38 @@ function checkForNewColors() {
 lastSeenColors = new Set(getAllHighlightColors());
 
 // 每秒检查一次新颜色
-setInterval(checkForNewColors, 1000);
+// 性能优化：页面隐藏时暂停轮询
+(function() {
+    let timerId = null;
+    let isActive = false;
+
+    function poll() {
+        if (!isActive) return;
+        if (!document.hidden) {
+            checkForNewColors();
+        }
+        timerId = setTimeout(poll, 1000);
+    }
+
+    function start() {
+        if (isActive) return;
+        isActive = true;
+        poll();
+    }
+
+    function stop() {
+        isActive = false;
+        if (timerId) {
+            clearTimeout(timerId);
+            timerId = null;
+        }
+    }
+
+    document.addEventListener('visibilitychange', () => {
+        // 页面隐藏/显示时无需额外操作，poll 函数会自动跳过
+    });
+
+    window.addEventListener('beforeunload', stop);
+
+    start();
+})();
