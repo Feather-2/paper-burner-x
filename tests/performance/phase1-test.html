@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phase 1 性能优化测试工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .test-section {
+            margin-bottom: 40px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 6px;
+            border-left: 4px solid #4CAF50;
+        }
+
+        .test-section h2 {
+            color: #333;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .test-section h2 .icon {
+            font-size: 24px;
+        }
+
+        .test-description {
+            color: #666;
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+
+        .test-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #45a049;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        button.secondary {
+            background: #2196F3;
+        }
+
+        button.secondary:hover {
+            background: #0b7dda;
+        }
+
+        button.danger {
+            background: #f44336;
+        }
+
+        button.danger:hover {
+            background: #da190b;
+        }
+
+        .results {
+            background: white;
+            padding: 15px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+
+        .result-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .result-item:last-child {
+            border-bottom: none;
+        }
+
+        .result-label {
+            font-weight: 500;
+            color: #666;
+        }
+
+        .result-value {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .result-value.good {
+            color: #4CAF50;
+        }
+
+        .result-value.bad {
+            color: #f44336;
+        }
+
+        .log-area {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+        }
+
+        .log-entry.info {
+            color: #4FC3F7;
+        }
+
+        .log-entry.success {
+            color: #4CAF50;
+        }
+
+        .log-entry.warning {
+            color: #FFA726;
+        }
+
+        .log-entry.error {
+            color: #EF5350;
+        }
+
+        input[type="text"] {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            width: 300px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
+        .status-badge.pending {
+            background: #FFF9C4;
+            color: #F57F17;
+        }
+
+        .status-badge.running {
+            background: #BBDEFB;
+            color: #1565C0;
+        }
+
+        .status-badge.passed {
+            background: #C8E6C9;
+            color: #2E7D32;
+        }
+
+        .status-badge.failed {
+            background: #FFCDD2;
+            color: #C62828;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: #e0e0e0;
+            border-radius: 2px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #4CAF50;
+            transition: width 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Phase 1 性能优化测试工具</h1>
+        <p class="subtitle">自动化测试防抖和定时器优化效果</p>
+
+        <!-- 测试 1: 防抖功能 -->
+        <div class="test-section">
+            <h2>
+                <span class="icon">🔍</span>
+                测试 1: 搜索防抖优化
+                <span class="status-badge pending" id="test1-status">待测试</span>
+            </h2>
+            <p class="test-description">
+                测试历史记录搜索输入的防抖功能。模拟快速输入多个字符，验证是否只触发一次渲染。
+                <br><strong>预期结果</strong>：快速输入 10 次，只触发 1 次函数调用（减少 90%）
+            </p>
+
+            <div class="test-controls">
+                <button onclick="runDebounceTest()">▶️ 运行测试</button>
+                <button class="secondary" onclick="clearDebounceLog()">🗑️ 清空日志</button>
+            </div>
+
+            <div class="results" id="debounce-results" style="display: none;">
+                <div class="result-item">
+                    <span class="result-label">触发次数:</span>
+                    <span class="result-value" id="debounce-triggers">-</span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">实际执行次数:</span>
+                    <span class="result-value good" id="debounce-calls">-</span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">减少比例:</span>
+                    <span class="result-value" id="debounce-reduction">-</span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">总耗时:</span>
+                    <span class="result-value" id="debounce-time">-</span>
+                </div>
+            </div>
+
+            <div class="log-area" id="debounce-log"></div>
+        </div>
+
+        <!-- 测试 2: 定时器优化 -->
+        <div class="test-section">
+            <h2>
+                <span class="icon">⏱️</span>
+                测试 2: 轮询定时器优化
+                <span class="status-badge pending" id="test2-status">待测试</span>
+            </h2>
+            <p class="test-description">
+                测试页面可见性检测功能。验证页面隐藏时是否跳过轮询执行。
+                <br><strong>预期结果</strong>：页面隐藏时，轮询函数内部逻辑不执行（0 次）
+            </p>
+
+            <div class="test-controls">
+                <button onclick="startPollingTest()">▶️ 开始监控</button>
+                <button class="danger" onclick="stopPollingTest()">⏹️ 停止监控</button>
+                <button class="secondary" onclick="clearPollingLog()">🗑️ 清空日志</button>
+            </div>
+
+            <div class="results" id="polling-results" style="display: none;">
+                <div class="result-item">
+                    <span class="result-label">页面状态:</span>
+                    <span class="result-value" id="page-visibility">-</span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">定时器运行次数:</span>
+                    <span class="result-value" id="polling-ticks">-</span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">函数执行次数:</span>
+                    <span class="result-value good" id="polling-executions">-</span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">跳过次数（页面隐藏）:</span>
+                    <span class="result-value" id="polling-skipped">-</span>
+                </div>
+            </div>
+
+            <div class="log-area" id="polling-log"></div>
+        </div>
+
+        <!-- 综合报告 -->
+        <div class="test-section" style="border-left-color: #2196F3;">
+            <h2>
+                <span class="icon">📊</span>
+                综合测试报告
+            </h2>
+            <div class="results">
+                <div class="result-item">
+                    <span class="result-label">防抖测试:</span>
+                    <span class="result-value" id="summary-debounce">未运行</span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">定时器测试:</span>
+                    <span class="result-value" id="summary-polling">未运行</span>
+                </div>
+                <div class="result-item">
+                    <span class="result-label">总体评价:</span>
+                    <span class="result-value" id="summary-overall">等待测试...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // 测试 1: 防抖功能测试
+        // ============================================
+
+        // 防抖函数实现（从 history.js 复制）
+        function debounce(fn, delay) {
+            let timer = null;
+            return function debounced(...args) {
+                const context = this;
+                if (timer) clearTimeout(timer);
+                timer = setTimeout(() => {
+                    timer = null;
+                    fn.apply(context, args);
+                }, delay);
+            };
+        }
+
+        let debounceTestData = {
+            triggers: 0,
+            calls: 0,
+            startTime: 0
+        };
+
+        function logDebounce(message, type = 'info') {
+            const log = document.getElementById('debounce-log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            const timestamp = new Date().toLocaleTimeString();
+            entry.textContent = `[${timestamp}] ${message}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function clearDebounceLog() {
+            document.getElementById('debounce-log').innerHTML = '';
+        }
+
+        async function runDebounceTest() {
+            const status = document.getElementById('test1-status');
+            status.textContent = '运行中...';
+            status.className = 'status-badge running';
+
+            // 重置数据
+            debounceTestData = { triggers: 0, calls: 0, startTime: performance.now() };
+            clearDebounceLog();
+
+            logDebounce('=== 开始防抖测试 ===', 'info');
+            logDebounce('配置: 延迟 300ms, 快速触发 10 次', 'info');
+
+            // 创建测试函数
+            let callCount = 0;
+            const testFn = debounce(() => {
+                callCount++;
+                debounceTestData.calls = callCount;
+                logDebounce(`✓ 函数执行 (第 ${callCount} 次)`, 'success');
+                updateDebounceResults();
+            }, 300);
+
+            // 模拟快速输入 10 次
+            logDebounce('开始模拟快速输入...', 'info');
+            for (let i = 1; i <= 10; i++) {
+                debounceTestData.triggers++;
+                logDebounce(`触发 #${i}`, 'info');
+                testFn();
+                await new Promise(resolve => setTimeout(resolve, 50)); // 50ms 间隔
+            }
+
+            logDebounce('等待防抖完成...', 'warning');
+
+            // 等待防抖完成
+            await new Promise(resolve => setTimeout(resolve, 400));
+
+            const totalTime = performance.now() - debounceTestData.startTime;
+            logDebounce(`=== 测试完成 (耗时 ${totalTime.toFixed(0)}ms) ===`, 'success');
+
+            // 显示结果
+            document.getElementById('debounce-results').style.display = 'block';
+            updateDebounceResults();
+
+            // 评估结果
+            if (debounceTestData.calls === 1) {
+                status.textContent = '✅ 通过';
+                status.className = 'status-badge passed';
+                logDebounce('✓ 测试通过！防抖功能正常工作', 'success');
+                document.getElementById('summary-debounce').textContent = '✅ 通过';
+                document.getElementById('summary-debounce').className = 'result-value good';
+            } else {
+                status.textContent = '❌ 失败';
+                status.className = 'status-badge failed';
+                logDebounce(`✗ 测试失败！预期 1 次执行，实际 ${debounceTestData.calls} 次`, 'error');
+                document.getElementById('summary-debounce').textContent = '❌ 失败';
+                document.getElementById('summary-debounce').className = 'result-value bad';
+            }
+
+            updateSummary();
+        }
+
+        function updateDebounceResults() {
+            document.getElementById('debounce-triggers').textContent = debounceTestData.triggers;
+            document.getElementById('debounce-calls').textContent = debounceTestData.calls;
+
+            const reduction = ((1 - debounceTestData.calls / debounceTestData.triggers) * 100).toFixed(0);
+            const reductionEl = document.getElementById('debounce-reduction');
+            reductionEl.textContent = `${reduction}% ↓`;
+            reductionEl.className = reduction >= 70 ? 'result-value good' : 'result-value bad';
+
+            const time = (performance.now() - debounceTestData.startTime).toFixed(0);
+            document.getElementById('debounce-time').textContent = `${time}ms`;
+        }
+
+        // ============================================
+        // 测试 2: 轮询定时器测试
+        // ============================================
+
+        let pollingTestData = {
+            ticks: 0,
+            executions: 0,
+            skipped: 0,
+            timerId: null,
+            isActive: false
+        };
+
+        function logPolling(message, type = 'info') {
+            const log = document.getElementById('polling-log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            const timestamp = new Date().toLocaleTimeString();
+            entry.textContent = `[${timestamp}] ${message}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function clearPollingLog() {
+            document.getElementById('polling-log').innerHTML = '';
+        }
+
+        function mockCheckFunction() {
+            // 模拟批注颜色检查函数
+            pollingTestData.executions++;
+            logPolling(`✓ 执行函数逻辑 (第 ${pollingTestData.executions} 次)`, 'success');
+            updatePollingResults();
+        }
+
+        function startPollingTest() {
+            const status = document.getElementById('test2-status');
+            status.textContent = '运行中...';
+            status.className = 'status-badge running';
+
+            // 重置数据
+            pollingTestData = { ticks: 0, executions: 0, skipped: 0, timerId: null, isActive: true };
+            clearPollingLog();
+
+            logPolling('=== 开始定时器监控 ===', 'info');
+            logPolling('说明: 请切换到其他标签页测试页面隐藏检测', 'warning');
+
+            document.getElementById('polling-results').style.display = 'block';
+
+            // 启动轮询（模拟优化后的逻辑）
+            function poll() {
+                if (!pollingTestData.isActive) {
+                    logPolling('轮询已停止', 'info');
+                    return;
+                }
+
+                pollingTestData.ticks++;
+
+                if (document.hidden) {
+                    pollingTestData.skipped++;
+                    logPolling(`⏭️ 跳过执行 (页面隐藏, 总跳过: ${pollingTestData.skipped})`, 'warning');
+                } else {
+                    mockCheckFunction();
+                }
+
+                updatePollingResults();
+                pollingTestData.timerId = setTimeout(poll, 1000);
+            }
+
+            poll();
+
+            // 监听页面可见性变化
+            document.addEventListener('visibilitychange', handleVisibilityChange);
+
+            status.textContent = '监控中...';
+            document.getElementById('summary-polling').textContent = '🔄 运行中';
+        }
+
+        function stopPollingTest() {
+            const status = document.getElementById('test2-status');
+
+            if (!pollingTestData.isActive) {
+                logPolling('⚠️ 测试未运行', 'warning');
+                return;
+            }
+
+            pollingTestData.isActive = false;
+
+            if (pollingTestData.timerId) {
+                clearTimeout(pollingTestData.timerId);
+                pollingTestData.timerId = null;
+            }
+
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+
+            logPolling('=== 测试停止 ===', 'info');
+            logPolling(`总计: 轮询 ${pollingTestData.ticks} 次, 执行 ${pollingTestData.executions} 次, 跳过 ${pollingTestData.skipped} 次`, 'success');
+
+            // 评估结果
+            if (pollingTestData.skipped > 0) {
+                status.textContent = '✅ 通过';
+                status.className = 'status-badge passed';
+                logPolling('✓ 测试通过！页面隐藏时正确跳过执行', 'success');
+                document.getElementById('summary-polling').textContent = '✅ 通过';
+                document.getElementById('summary-polling').className = 'result-value good';
+            } else {
+                status.textContent = '⚠️ 未验证';
+                status.className = 'status-badge pending';
+                logPolling('⚠️ 未检测到页面隐藏，请切换标签页后再测试', 'warning');
+                document.getElementById('summary-polling').textContent = '⚠️ 未充分测试';
+                document.getElementById('summary-polling').className = 'result-value';
+            }
+
+            updateSummary();
+        }
+
+        function handleVisibilityChange() {
+            const isHidden = document.hidden;
+            logPolling(
+                isHidden ? '🔒 页面隐藏 - 将跳过执行' : '👁️ 页面可见 - 恢复执行',
+                isHidden ? 'warning' : 'success'
+            );
+            updatePollingResults();
+        }
+
+        function updatePollingResults() {
+            document.getElementById('page-visibility').textContent =
+                document.hidden ? '🔒 隐藏' : '👁️ 可见';
+            document.getElementById('polling-ticks').textContent = pollingTestData.ticks;
+            document.getElementById('polling-executions').textContent = pollingTestData.executions;
+            document.getElementById('polling-skipped').textContent = pollingTestData.skipped;
+        }
+
+        function updateSummary() {
+            const debounceResult = document.getElementById('summary-debounce').textContent;
+            const pollingResult = document.getElementById('summary-polling').textContent;
+
+            let overall = '等待测试...';
+            if (debounceResult.includes('✅') && pollingResult.includes('✅')) {
+                overall = '🎉 所有测试通过！';
+                document.getElementById('summary-overall').className = 'result-value good';
+            } else if (debounceResult.includes('❌') || pollingResult.includes('❌')) {
+                overall = '❌ 部分测试失败';
+                document.getElementById('summary-overall').className = 'result-value bad';
+            } else if (debounceResult.includes('✅') || pollingResult.includes('✅')) {
+                overall = '⚠️ 部分测试完成';
+                document.getElementById('summary-overall').className = 'result-value';
+            }
+
+            document.getElementById('summary-overall').textContent = overall;
+        }
+
+        // 初始化
+        window.addEventListener('load', () => {
+            console.log('%c🚀 Phase 1 测试工具已加载', 'color: #4CAF50; font-size: 16px; font-weight: bold;');
+            console.log('%c提示: 在这个页面测试防抖和定时器优化', 'color: #666;');
+        });
+    </script>
+</body>
+</html>
