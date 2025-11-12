@@ -155,12 +155,39 @@ function processExport(messageElement) {
   exportContainer.appendChild(contentContainer);
   exportContainer.appendChild(watermark);
   document.body.appendChild(exportContainer);
+
+  // Phase 3.5: 导出前临时展开所有表格，确保完整显示
+  // 保存原始样式，以便后续恢复
+  const tables = exportContainer.querySelectorAll('.markdown-content table');
+  const originalTableStyles = [];
+  tables.forEach((table, index) => {
+    originalTableStyles[index] = {
+      overflow: table.style.overflow || '',
+      maxWidth: table.style.maxWidth || '',
+      display: table.style.display || ''
+    };
+    // 临时移除滚动，展开完整内容
+    table.style.overflow = 'visible';
+    table.style.maxWidth = 'none';
+    table.style.display = 'table'; // 恢复为标准表格布局
+  });
+
+  // 同时移除表格容器的宽度限制
+  const messageContainer = exportContainer.querySelector('.assistant-message');
+  let originalContainerMaxWidth = '';
+  if (messageContainer) {
+    originalContainerMaxWidth = messageContainer.style.maxWidth || '';
+    messageContainer.style.maxWidth = 'none';
+  }
+
   showToast('正在生成图片...');
   html2canvas(exportContainer, {
     scale: 2,
     useCORS: true,
     backgroundColor: 'white',
-    logging: false
+    logging: false,
+    width: exportContainer.scrollWidth, // 使用完整宽度
+    height: exportContainer.scrollHeight // 使用完整高度
   }).then(canvas => {
     try {
       const link = document.createElement('a');
@@ -171,10 +198,32 @@ function processExport(messageElement) {
     } catch (err) {
       showToast('导出图片失败');
     } finally {
+      // Phase 3.5: 清理前恢复表格样式（虽然容器会被删除，但保持代码完整性）
+      tables.forEach((table, index) => {
+        if (originalTableStyles[index]) {
+          table.style.overflow = originalTableStyles[index].overflow;
+          table.style.maxWidth = originalTableStyles[index].maxWidth;
+          table.style.display = originalTableStyles[index].display;
+        }
+      });
+      if (messageContainer && originalContainerMaxWidth) {
+        messageContainer.style.maxWidth = originalContainerMaxWidth;
+      }
       document.body.removeChild(exportContainer);
     }
   }).catch(err => {
     showToast('生成图片失败');
+    // Phase 3.5: 错误时也要清理
+    tables.forEach((table, index) => {
+      if (originalTableStyles[index]) {
+        table.style.overflow = originalTableStyles[index].overflow;
+        table.style.maxWidth = originalTableStyles[index].maxWidth;
+        table.style.display = originalTableStyles[index].display;
+      }
+    });
+    if (messageContainer && originalContainerMaxWidth) {
+      messageContainer.style.maxWidth = originalContainerMaxWidth;
+    }
     document.body.removeChild(exportContainer);
   });
 }

@@ -586,6 +586,34 @@ function updateChatbotUI() {
     } else {
       console.warn('ChatbotUI: ChatbotRenderingUtils.renderAllMermaidBlocks is not available.');
     }
+
+    // Phase 3.5: 表格滚动监听 - 动态显示/隐藏渐变阴影提示
+    // 当表格滚动到最右侧时，隐藏右侧的渐变阴影
+    chatBody.querySelectorAll('.markdown-content table').forEach(table => {
+      // 移除旧的监听器（如果存在）
+      if (table._scrollListener) {
+        table.removeEventListener('scroll', table._scrollListener);
+      }
+
+      // 定义滚动监听器
+      const scrollListener = function() {
+        const isScrolledToEnd = table.scrollLeft >= (table.scrollWidth - table.clientWidth - 5); // 5px 容差
+        if (isScrolledToEnd) {
+          table.classList.add('scrolled-to-end');
+        } else {
+          table.classList.remove('scrolled-to-end');
+        }
+      };
+
+      // 保存监听器引用，以便后续移除
+      table._scrollListener = scrollListener;
+
+      // 绑定监听器
+      table.addEventListener('scroll', scrollListener);
+
+      // 初始检查（表格首次渲染时）
+      scrollListener();
+    });
   }
 
   const input = document.getElementById('chatbot-input');

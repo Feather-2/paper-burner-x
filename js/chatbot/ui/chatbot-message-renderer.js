@@ -565,7 +565,7 @@ window.ChatbotMessageRenderer = {
           overflow-wrap: break-word;
         }
 
-        /* Phase 3.5 表格防溢出：横向滚动 */
+        /* Phase 3.5 表格防溢出：横向滚动 + 视觉提示 */
         .markdown-content table {
           border-collapse:collapse;
           width:100%;
@@ -573,6 +573,26 @@ window.ChatbotMessageRenderer = {
           display: block;
           overflow-x: auto; /* 横向滚动 */
           max-width: 100%;
+          position: relative;
+        }
+
+        /* Phase 3.5 表格容器：添加渐变阴影提示 */
+        .markdown-content table::after {
+          content: '';
+          position: absolute;
+          top: 0;
+          right: 0;
+          bottom: 0;
+          width: 30px;
+          background: linear-gradient(to left, rgba(0,0,0,0.08), transparent);
+          pointer-events: none;
+          opacity: 1;
+          transition: opacity 0.3s;
+        }
+
+        /* 滚动到底部时隐藏渐变阴影（通过JS动态添加类） */
+        .markdown-content table.scrolled-to-end::after {
+          opacity: 0;
         }
 
         .markdown-content th, .markdown-content td {
@@ -589,21 +609,27 @@ window.ChatbotMessageRenderer = {
 
         .mermaid { margin: 12px 0; }
 
-        /* Phase 3.5 滚动条美化 */
+        /* Phase 3.5 滚动条美化 + 始终可见（表格） */
         .markdown-content pre::-webkit-scrollbar,
         .markdown-content table::-webkit-scrollbar {
-          height: 6px;
+          height: 8px; /* 增加高度使其更明显 */
+        }
+
+        .markdown-content pre::-webkit-scrollbar-track,
+        .markdown-content table::-webkit-scrollbar-track {
+          background: rgba(0,0,0,0.03);
+          border-radius: 4px;
         }
 
         .markdown-content pre::-webkit-scrollbar-thumb,
         .markdown-content table::-webkit-scrollbar-thumb {
-          background: rgba(0,0,0,0.2);
-          border-radius: 3px;
+          background: rgba(0,0,0,0.2); /* 始终可见的滚动条（半透明） */
+          border-radius: 4px;
         }
 
         .markdown-content pre::-webkit-scrollbar-thumb:hover,
         .markdown-content table::-webkit-scrollbar-thumb:hover {
-          background: rgba(0,0,0,0.3);
+          background: rgba(0,0,0,0.4); /* 悬停时加深 */
         }
       </style>
     `;
