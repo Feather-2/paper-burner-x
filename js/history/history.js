@@ -349,10 +349,28 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const historySearchInput = document.getElementById('historySearchInput');
     const historyFolderSelectMobile = document.getElementById('historyFolderSelectMobile');
+
+    // 性能优化：防抖函数（减少频繁的渲染调用）
+    function debounce(fn, delay) {
+        let timer = null;
+        return function debounced(...args) {
+            const context = this;
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => {
+                timer = null;
+                fn.apply(context, args);
+            }, delay);
+        };
+    }
+
+    // 创建防抖版本的渲染函数（300ms 延迟）
+    const debouncedRenderHistoryList = debounce(function() {
+        renderHistoryList();
+    }, 300);
     if (historySearchInput) {
         historySearchInput.addEventListener('input', function(event) {
             historyUIState.searchQuery = event.target.value || '';
-            renderHistoryList();
+            debouncedRenderHistoryList();  // 使用防抖版本，减少渲染次数
         });
     }
     if (historyFolderSelectMobile) {
