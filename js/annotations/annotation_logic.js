@@ -12,6 +12,95 @@
 
 var annotationContextMenuElement; // 右键菜单的HTML元素
 
+// ========== Phase 2.3: 批注系统 DOM 缓存优化 ==========
+/**
+ * 批注系统 DOM 缓存类
+ * 缓存 sub-block 元素，避免右键时全文档 querySelectorAll
+ */
+const AnnotationDOMCache = {
+    // 缓存的 sub-block 元素数组
+    subBlocks: null,
+
+    // 缓存的 sub-block 映射 (subBlockId -> element)
+    subBlockMap: null,
+
+    // 缓存是否已初始化
+    initialized: false,
+
+    /**
+     * 初始化缓存
+     * 在内容渲染完成后调用
+     */
+    init: function() {
+        console.time('[AnnotationCache] 初始化 sub-block 缓存');
+
+        // 查询所有 sub-block 元素
+        this.subBlocks = Array.from(document.querySelectorAll('.sub-block[data-sub-block-id]'));
+
+        // 创建映射表
+        this.subBlockMap = new Map();
+        this.subBlocks.forEach(subBlock => {
+            const subBlockId = subBlock.dataset.subBlockId;
+            if (subBlockId) {
+                this.subBlockMap.set(subBlockId, subBlock);
+            }
+        });
+
+        this.initialized = true;
+        console.timeEnd('[AnnotationCache] 初始化 sub-block 缓存');
+        console.log(`[AnnotationCache] 已缓存 ${this.subBlocks.length} 个 sub-block 元素`);
+
+        return this;
+    },
+
+    /**
+     * 获取所有 sub-block 元素（从缓存）
+     * 如果缓存未初始化，则动态查询
+     */
+    getAllSubBlocks: function() {
+        if (!this.initialized) {
+            console.warn('[AnnotationCache] 缓存未初始化，执行动态查询');
+            return document.querySelectorAll('.sub-block[data-sub-block-id]');
+        }
+        return this.subBlocks;
+    },
+
+    /**
+     * 根据 subBlockId 获取元素
+     */
+    getSubBlockById: function(subBlockId) {
+        if (!this.initialized) {
+            console.warn('[AnnotationCache] 缓存未初始化，执行动态查询');
+            return document.querySelector(`.sub-block[data-sub-block-id="${subBlockId}"]`);
+        }
+        return this.subBlockMap.get(subBlockId) || null;
+    },
+
+    /**
+     * 清空缓存
+     * 在标签切换或内容重新渲染时调用
+     */
+    clear: function() {
+        this.subBlocks = null;
+        this.subBlockMap = null;
+        this.initialized = false;
+        console.log('[AnnotationCache] 缓存已清空');
+    },
+
+    /**
+     * 重新初始化缓存
+     * 在内容更新（如自动分块）后调用
+     */
+    refresh: function() {
+        console.log('[AnnotationCache] 刷新缓存...');
+        this.clear();
+        return this.init();
+    }
+};
+
+// 挂载到全局，方便外部调用
+window.AnnotationDOMCache = AnnotationDOMCache;
+
 // 这些全局变量将在 history_detail.html 的主脚本中初始化和管理。
 // 此脚本将使用它们。
 // let globalCurrentSelection = null; // 全局当前选区对象
@@ -463,10 +552,11 @@ function initAnnotationSystem() {
             
             // ===== 新增：跨子块选择检测 =====
             console.log('[跨子块检测] 开始检测跨子块选择...');
-            
-            // 先检查页面上是否有子块；若没有且有块级元素，尝试自动分块（支持英文/中文标点）
-            let allSubBlocks = document.querySelectorAll('.sub-block[data-sub-block-id]');
+
+            // 使用缓存获取所有子块（Phase 2.3 优化）
+            let allSubBlocks = window.AnnotationDOMCache.getAllSubBlocks();
             console.log('[跨子块检测] 页面上的子块总数:', allSubBlocks.length);
+
             if (allSubBlocks.length === 0) {
                 console.log('[跨子块检测] ⚠️ 页面上没有找到任何子块！内容可能还没有分割。');
                 const blocks = document.querySelectorAll('[data-block-index]');
@@ -477,7 +567,8 @@ function initAnnotationSystem() {
                         try { window.SubBlockSegmenter.segment(el, el.dataset.blockIndex, true); }
                         catch (e) { console.warn('[跨子块检测] 自动分块失败:', e); }
                     });
-                    allSubBlocks = document.querySelectorAll('.sub-block[data-sub-block-id]');
+                    // 自动分块后刷新缓存
+                    allSubBlocks = window.AnnotationDOMCache.refresh().getAllSubBlocks();
                     console.log('[跨子块检测] 自动分块后 .sub-block数量:', allSubBlocks.length);
                 }
             } else {
@@ -645,6 +736,11 @@ function initAnnotationSystem() {
             } else {
                 delete annotationContextMenuElement.dataset.contextBlockIndex;
             }
+
+            // 🔧 BUG FIX: 清除跨子块相关属性，避免单子块操作时误用旧的跨子块数据
+            delete annotationContextMenuElement.dataset.contextIsCrossBlock;
+            delete annotationContextMenuElement.dataset.contextCrossBlockAnnotationId;
+            delete annotationContextMenuElement.dataset.contextAffectedSubBlocks;
 
             console.log(`%c[AnnotationLogic ContxtMenu] Event triggered for container: ${mainContainer.id}, content type: ${window.globalCurrentContentIdentifier}`, 'color: blue; font-weight: bold;');
             console.log(`  Stored on menu - contentId: ${annotationContextMenuElement.dataset.contextContentIdentifier}, targetId: ${annotationContextMenuElement.dataset.contextTargetIdentifier}, type: ${annotationContextMenuElement.dataset.contextIdentifierType}, annId: ${annotationContextMenuElement.dataset.contextAnnotationId}, blockIdx: ${annotationContextMenuElement.dataset.contextBlockIndex}`);
