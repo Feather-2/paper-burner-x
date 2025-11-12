@@ -1113,7 +1113,7 @@ function initChatbotDragAndResize() {
   // ==========================================
   if (window.ChatMessageEventManager) {
     try {
-      window.chatMessageEventManager = new ChatMessageEventManager('#chatbot-messages');
+      window.chatMessageEventManager = new ChatMessageEventManager('#chatbot-body');
       console.log('[ChatbotUI] ✅ Phase 3: 消息事件管理器已初始化（事件委托模式）');
     } catch (error) {
       console.error('[ChatbotUI] ❌ Phase 3: 消息事件管理器初始化失败:', error);
