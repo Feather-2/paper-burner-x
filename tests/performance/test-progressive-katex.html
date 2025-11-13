@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>KaTeX 渐进式渲染性能测试</title>
+  <link rel="stylesheet" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 1400px;
+      margin: 20px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 30px;
+      border-radius: 10px;
+      margin-bottom: 30px;
+    }
+    .test-controls {
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+    button {
+      padding: 12px 24px;
+      font-size: 14px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-weight: 500;
+    }
+    .btn-primary {
+      background: #667eea;
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #5568d3;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+    }
+    .btn-secondary {
+      background: #48bb78;
+      color: white;
+    }
+    .btn-secondary:hover {
+      background: #38a169;
+    }
+    .btn-danger {
+      background: #f56565;
+      color: white;
+    }
+    .btn-danger:hover {
+      background: #e53e3e;
+    }
+    .results {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+    .metric-card {
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .metric-card h3 {
+      margin-top: 0;
+      color: #2d3748;
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .metric-value {
+      font-size: 32px;
+      font-weight: bold;
+      margin: 10px 0;
+    }
+    .metric-good { color: #48bb78; }
+    .metric-warning { color: #ed8936; }
+    .metric-bad { color: #f56565; }
+    .metric-info { color: #667eea; }
+    .comparison {
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .render-output {
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      margin-top: 20px;
+      min-height: 200px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .log {
+      background: #2d3748;
+      color: #a0aec0;
+      padding: 15px;
+      border-radius: 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      max-height: 300px;
+      overflow-y: auto;
+      margin-top: 20px;
+    }
+    .log-entry {
+      margin: 4px 0;
+      padding: 2px 0;
+    }
+    .log-info { color: #63b3ed; }
+    .log-success { color: #68d391; }
+    .log-warning { color: #f6ad55; }
+    .log-error { color: #fc8181; }
+    .katex-placeholder {
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 1; }
+    }
+    .progress-bar {
+      width: 100%;
+      height: 24px;
+      background: #e2e8f0;
+      border-radius: 12px;
+      overflow: hidden;
+      margin: 10px 0;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+      transition: width 0.3s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 12px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>⚡ KaTeX 渐进式渲染性能测试</h1>
+    <p>测试目标：首次可见内容 &lt; 300ms，用户感知速度提升 10 倍</p>
+  </div>
+
+  <div class="test-controls">
+    <h2>测试控制</h2>
+    <div class="button-group">
+      <button class="btn-primary" onclick="testProgressive()">🚀 测试渐进式渲染</button>
+      <button class="btn-secondary" onclick="testTraditional()">🐌 测试传统渲染</button>
+      <button class="btn-danger" onclick="clearResults()">🗑️ 清除结果</button>
+    </div>
+    <div>
+      <label>
+        <input type="checkbox" id="useRealMessage" checked>
+        使用真实复杂消息（15+ 公式 + 表格）
+      </label>
+    </div>
+  </div>
+
+  <div class="results">
+    <div class="metric-card">
+      <h3>首次可见时间</h3>
+      <div class="metric-value metric-info" id="firstVisibleTime">--</div>
+      <small>目标: &lt; 300ms</small>
+    </div>
+    <div class="metric-card">
+      <h3>全部公式渲染完成</h3>
+      <div class="metric-value metric-info" id="allFormulasTime">--</div>
+      <small>总渲染时间</small>
+    </div>
+    <div class="metric-card">
+      <h3>公式数量</h3>
+      <div class="metric-value metric-info" id="formulaCount">--</div>
+      <small>总计</small>
+    </div>
+    <div class="metric-card">
+      <h3>性能提升</h3>
+      <div class="metric-value metric-good" id="improvement">--</div>
+      <small>相比传统渲染</small>
+    </div>
+  </div>
+
+  <div class="comparison">
+    <h3>渲染进度</h3>
+    <div class="progress-bar">
+      <div class="progress-fill" id="progressBar" style="width: 0%;">0%</div>
+    </div>
+    <div id="progressText" style="margin-top: 10px; color: #718096;">等待测试...</div>
+  </div>
+
+  <div class="render-output">
+    <h3>渲染输出预览</h3>
+    <div id="renderOutput"></div>
+  </div>
+
+  <div class="log" id="logOutput"></div>
+
+  <!-- 依赖库 -->
+  <script src="https://gcore.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script src="https://gcore.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+
+  <!-- 加载测试所需的模块 -->
+  <script src="../../js/chatbot/utils/safe-markdown-render.js"></script>
+  <script src="../../js/chatbot/utils/katex-cache.js"></script>
+  <script src="../../js/chatbot/utils/markdown-katex-render-cached.js"></script>
+  <script src="../../js/chatbot/utils/katex-progressive-render.js"></script>
+
+  <script>
+    // 配置 marked.js
+    if (typeof marked !== 'undefined') {
+      marked.setOptions({
+        gfm: true,
+        breaks: true,
+        pedantic: false,
+        sanitize: false,
+        smartLists: false,
+        smartypants: false,
+        mangle: false,
+        headerIds: false
+      });
+    }
+
+    // 测试数据：真实的复杂消息
+    const REAL_COMPLEX_MESSAGE = `# Fama-MacBeth 回归分析总结
+
+## 一、方法论概述
+
+Fama-MacBeth 回归是一种**两步回归方法**，主要用于面板数据分析：
+
+1. **第一步（时间序列回归）**：对每个时间点 $t$ 进行横截面回归
+   $$r_{i,t} = \\alpha_t + \\beta_t X_{i,t} + \\varepsilon_{i,t}$$
+
+2. **第二步（横截面平均）**：计算系数的时间序列均值和 t 统计量
+   $$\\bar{\\beta} = \\frac{1}{T}\\sum_{t=1}^{T}\\beta_t$$
+
+## 二、关键假设
+
+### 2.1 基本假设
+
+| 假设 | 描述 | 重要性 |
+|------|------|--------|
+| 独立同分布 | 横截面误差项独立 | ⭐⭐⭐ |
+| 时间稳定性 | 系数随时间稳定 | ⭐⭐⭐ |
+| 无自相关 | 时间序列无相关性 | ⭐⭐ |
+
+### 2.2 数学表达
+
+误差项的协方差矩阵：
+
+$$\\text{Var}(\\varepsilon_t) = \\sigma^2 I_N$$
+
+其中 $I_N$ 是 $N \\times N$ 单位矩阵。
+
+## 三、统计推断
+
+### 3.1 标准误估计
+
+使用 Newey-West 调整的标准误：
+
+$$SE(\\bar{\\beta}) = \\sqrt{\\frac{1}{T}\\sum_{t=1}^{T}(\\beta_t - \\bar{\\beta})^2}$$
+
+### 3.2 t 统计量
+
+$$t = \\frac{\\bar{\\beta}}{SE(\\bar{\\beta})} \\sim t_{T-1}$$
+
+### 3.3 显著性检验
+
+在显著性水平 $\\alpha$ 下：
+- 如果 $|t| > t_{\\alpha/2, T-1}$，则拒绝 $H_0: \\beta = 0$
+- 临界值通常为 $t_{0.025, \\infty} \\approx 1.96$（双侧检验）
+
+## 四、实证应用案例
+
+### 4.1 CAPM 检验
+
+检验资本资产定价模型：
+
+$$E[r_i] - r_f = \\beta_i (E[r_m] - r_f)$$
+
+其中：
+- $r_i$：资产 i 的收益率
+- $r_f$：无风险收益率
+- $r_m$：市场收益率
+- $\\beta_i = \\frac{\\text{Cov}(r_i, r_m)}{\\text{Var}(r_m)}$
+
+### 4.2 Fama-French 三因子模型
+
+$$r_{i,t} - r_{f,t} = \\alpha_i + \\beta_{1i}(r_{m,t} - r_{f,t}) + \\beta_{2i}SMB_t + \\beta_{3i}HML_t + \\varepsilon_{i,t}$$
+
+其中：
+- $SMB_t$：小盘股减大盘股收益（Size Premium）
+- $HML_t$：高账面市值比减低账面市值比收益（Value Premium）
+
+## 五、优缺点分析
+
+### 5.1 优点
+
+1. **控制横截面相关性**：通过时间平均自动消除横截面相关
+2. **稳健标准误**：Fama-MacBeth 标准误对横截面相关性稳健
+3. **简单易实现**：计算过程直观，易于编程实现
+
+### 5.2 缺点
+
+1. **假设严格**：要求系数时间稳定性
+2. **效率损失**：相比固定效应模型可能损失效率
+3. **时间序列相关**：需要处理时间序列自相关问题
+
+## 六、改进方法
+
+### 6.1 Driscoll-Kraay 标准误
+
+适用于面板数据的异方差和自相关一致性（HAC）估计：
+
+$$\\hat{V}_{DK} = (X'X)^{-1}\\left[\\sum_{j=-q}^{q}w_j\\sum_{t=j+1}^{T}u_t u_{t-j}'\\right](X'X)^{-1}$$
+
+### 6.2 聚类稳健标准误
+
+按时间或个体聚类：
+
+$$\\hat{V}_{cluster} = (X'X)^{-1}\\left[\\sum_{g=1}^{G}X_g'u_g u_g' X_g\\right](X'X)^{-1}$$
+
+## 七、Python 实现示例
+
+\`\`\`python
+import numpy as np
+import pandas as pd
+from scipy import stats
+
+def fama_macbeth_regression(returns, factors):
+    """
+    Fama-MacBeth 两步回归
+
+    参数:
+    - returns: (T x N) 收益率矩阵
+    - factors: (T x K) 因子矩阵
+
+    返回:
+    - betas: (K,) 因子风险溢价
+    - t_stats: (K,) t 统计量
+    """
+    T, N = returns.shape
+    K = factors.shape[1]
+
+    # 第一步：时间序列回归
+    betas_t = np.zeros((T, K))
+    for t in range(T):
+        # 横截面回归
+        X = factors[t].reshape(-1, K)
+        y = returns[t]
+        betas_t[t] = np.linalg.lstsq(X, y, rcond=None)[0]
+
+    # 第二步：横截面平均
+    betas = np.mean(betas_t, axis=0)
+    se = np.std(betas_t, axis=0, ddof=1) / np.sqrt(T)
+    t_stats = betas / se
+
+    return betas, t_stats
+
+# 示例使用
+np.random.seed(42)
+T, N, K = 120, 100, 3
+returns = np.random.randn(T, N) * 0.02
+factors = np.random.randn(T, K)
+
+betas, t_stats = fama_macbeth_regression(returns, factors)
+print(f"因子风险溢价: {betas}")
+print(f"t 统计量: {t_stats}")
+\`\`\`
+
+## 八、总结
+
+Fama-MacBeth 回归是**资产定价实证研究的标准工具**，特别适用于：
+
+1. 检验资产定价模型（CAPM、APT、Fama-French 等）
+2. 估计风险溢价和因子载荷
+3. 控制横截面相关性的面板数据分析
+
+**核心公式回顾**：
+
+$$\\bar{\\beta} = \\frac{1}{T}\\sum_{t=1}^{T}\\beta_t, \\quad SE(\\bar{\\beta}) = \\sqrt{\\frac{1}{T(T-1)}\\sum_{t=1}^{T}(\\beta_t - \\bar{\\beta})^2}$$
+
+$$t = \\frac{\\bar{\\beta}}{SE(\\bar{\\beta})} \\sim t_{T-1}$$`;
+
+    const SIMPLE_TEST_MESSAGE = `# 简单测试消息
+
+这是一个包含几个公式的测试：
+
+行内公式：$E = mc^2$ 和 $a^2 + b^2 = c^2$
+
+块级公式：
+
+$$\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}$$
+
+$$\\frac{\\partial f}{\\partial x} = \\lim_{h \\to 0} \\frac{f(x+h) - f(x)}{h}$$
+
+更多内容...`;
+
+    let logEntries = [];
+    let traditionalTime = null;
+    let progressiveTime = null;
+
+    function log(message, type = 'info') {
+      const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+      const entry = `[${timestamp}] ${message}`;
+      logEntries.push({ message: entry, type });
+
+      const logOutput = document.getElementById('logOutput');
+      const logEntry = document.createElement('div');
+      logEntry.className = `log-entry log-${type}`;
+      logEntry.textContent = entry;
+      logOutput.appendChild(logEntry);
+      logOutput.scrollTop = logOutput.scrollHeight;
+
+      console.log(`[${type.toUpperCase()}] ${message}`);
+    }
+
+    function updateMetric(id, value, colorClass = 'metric-info') {
+      const elem = document.getElementById(id);
+      elem.textContent = value;
+      elem.className = `metric-value ${colorClass}`;
+    }
+
+    function updateProgress(percent, text) {
+      const progressBar = document.getElementById('progressBar');
+      const progressText = document.getElementById('progressText');
+      progressBar.style.width = `${percent}%`;
+      progressBar.textContent = `${percent}%`;
+      progressText.textContent = text;
+    }
+
+    async function testProgressive() {
+      log('开始渐进式渲染测试', 'info');
+      clearResults();
+
+      const useRealMessage = document.getElementById('useRealMessage').checked;
+      const markdown = useRealMessage ? REAL_COMPLEX_MESSAGE : SIMPLE_TEST_MESSAGE;
+
+      updateProgress(10, '准备测试数据...');
+      await sleep(100);
+
+      // 清空输出区域
+      const renderOutput = document.getElementById('renderOutput');
+      renderOutput.innerHTML = '';
+
+      updateProgress(20, '开始渲染...');
+
+      // 记录开始时间
+      const startTime = performance.now();
+
+      // 使用渐进式渲染
+      const html = window.renderWithKatexStreaming(markdown);
+      renderOutput.innerHTML = html;
+
+      // 记录首次可见时间（Markdown 渲染完成）
+      const firstVisibleTime = performance.now() - startTime;
+      updateMetric('firstVisibleTime', `${firstVisibleTime.toFixed(1)}ms`,
+        firstVisibleTime < 300 ? 'metric-good' : firstVisibleTime < 500 ? 'metric-warning' : 'metric-bad');
+      log(`✅ 首次可见: ${firstVisibleTime.toFixed(1)}ms`, 'success');
+
+      updateProgress(50, '文本内容已可见，公式正在后台渲染...');
+
+      // 等待所有公式渲染完成
+      await waitForFormulas();
+
+      const totalTime = performance.now() - startTime;
+      const formulaCount = countFormulas(renderOutput);
+
+      updateMetric('allFormulasTime', `${totalTime.toFixed(1)}ms`, 'metric-info');
+      updateMetric('formulaCount', formulaCount, 'metric-info');
+
+      log(`✅ 全部渲染完成: ${totalTime.toFixed(1)}ms`, 'success');
+      log(`📊 共渲染 ${formulaCount} 个公式`, 'info');
+
+      updateProgress(100, `✅ 渲染完成！首次可见 ${firstVisibleTime.toFixed(1)}ms，总耗时 ${totalTime.toFixed(1)}ms`);
+
+      progressiveTime = { first: firstVisibleTime, total: totalTime };
+      updateComparison();
+
+      // 显示缓存统计
+      if (window.getKatexCacheStats) {
+        const stats = window.katexCache.getStats();
+        log(`📈 缓存统计: ${stats.hitRate} 命中率, ${stats.hits} 命中, ${stats.misses} 未命中`, 'info');
+      }
+    }
+
+    async function testTraditional() {
+      log('开始传统渲染测试（对照组）', 'info');
+      clearResults();
+
+      const useRealMessage = document.getElementById('useRealMessage').checked;
+      const markdown = useRealMessage ? REAL_COMPLEX_MESSAGE : SIMPLE_TEST_MESSAGE;
+
+      updateProgress(10, '准备测试数据...');
+      await sleep(100);
+
+      // 清空输出区域
+      const renderOutput = document.getElementById('renderOutput');
+      renderOutput.innerHTML = '';
+
+      updateProgress(30, '传统方式渲染中（阻塞主线程）...');
+
+      // 记录开始时间
+      const startTime = performance.now();
+
+      // 临时禁用渐进式渲染
+      const originalEnable = window.katexProgressiveRenderer ?
+        window.PROGRESSIVE_CONFIG?.ENABLE : false;
+
+      if (window.katexProgressiveRenderer) {
+        // 直接使用传统渲染
+        const cacheRender = window.renderKatexCached || katex.renderToString;
+
+        // 保存原始函数
+        const progressiveRender = window.renderWithKatexStreaming;
+
+        // 临时使用非缓存版本
+        window.renderWithKatexStreaming = function(md) {
+          // 使用传统同步渲染所有公式
+          md = md.replace(/\$\$([\s\S]+?)\$\$/g, function(_, tex) {
+            try {
+              const html = katex.renderToString(tex.trim(), {
+                displayMode: true,
+                output: 'html',
+                strict: 'ignore',
+                throwOnError: false
+              });
+              return `<div class="katex-block">${html}</div>`;
+            } catch (e) {
+              return `<pre>${tex}</pre>`;
+            }
+          });
+
+          md = md.replace(/\$([^\$]+?)\$/g, function(_, tex) {
+            try {
+              const html = katex.renderToString(tex.trim(), {
+                displayMode: false,
+                output: 'html',
+                strict: 'ignore',
+                throwOnError: false
+              });
+              return `<span class="katex-inline">${html}</span>`;
+            } catch (e) {
+              return tex;
+            }
+          });
+
+          return marked.parse(md);
+        };
+
+        const html = window.renderWithKatexStreaming(markdown);
+        renderOutput.innerHTML = html;
+
+        // 恢复原始函数
+        window.renderWithKatexStreaming = progressiveRender;
+      }
+
+      const totalTime = performance.now() - startTime;
+      const formulaCount = countFormulas(renderOutput);
+
+      updateMetric('firstVisibleTime', `${totalTime.toFixed(1)}ms`,
+        totalTime < 300 ? 'metric-good' : totalTime < 500 ? 'metric-warning' : 'metric-bad');
+      updateMetric('allFormulasTime', `${totalTime.toFixed(1)}ms`, 'metric-info');
+      updateMetric('formulaCount', formulaCount, 'metric-info');
+
+      log(`⏱️ 传统渲染完成: ${totalTime.toFixed(1)}ms（阻塞主线程）`, 'warning');
+      log(`📊 共渲染 ${formulaCount} 个公式`, 'info');
+
+      updateProgress(100, `完成！总耗时 ${totalTime.toFixed(1)}ms（主线程阻塞）`);
+
+      traditionalTime = { first: totalTime, total: totalTime };
+      updateComparison();
+    }
+
+    async function waitForFormulas() {
+      return new Promise((resolve) => {
+        // 检查是否还有占位符
+        const checkInterval = setInterval(() => {
+          const placeholders = document.querySelectorAll('.katex-placeholder');
+          if (placeholders.length === 0) {
+            clearInterval(checkInterval);
+            resolve();
+          }
+        }, 100);
+
+        // 最多等待 10 秒
+        setTimeout(() => {
+          clearInterval(checkInterval);
+          resolve();
+        }, 10000);
+      });
+    }
+
+    function countFormulas(container) {
+      const blocks = container.querySelectorAll('.katex-block, .katex-inline');
+      return blocks.length;
+    }
+
+    function updateComparison() {
+      if (progressiveTime && traditionalTime) {
+        const improvement = ((traditionalTime.first - progressiveTime.first) / traditionalTime.first * 100);
+        const improvementText = improvement > 0 ? `${improvement.toFixed(1)}%` : '0%';
+        updateMetric('improvement', improvementText, improvement > 50 ? 'metric-good' : 'metric-warning');
+
+        log(`🎯 性能提升: ${improvementText} (${traditionalTime.first.toFixed(1)}ms → ${progressiveTime.first.toFixed(1)}ms)`, 'success');
+      }
+    }
+
+    function clearResults() {
+      document.getElementById('renderOutput').innerHTML = '';
+      updateMetric('firstVisibleTime', '--', 'metric-info');
+      updateMetric('allFormulasTime', '--', 'metric-info');
+      updateMetric('formulaCount', '--', 'metric-info');
+      updateMetric('improvement', '--', 'metric-info');
+      updateProgress(0, '等待测试...');
+
+      logEntries = [];
+      document.getElementById('logOutput').innerHTML = '';
+      log('测试结果已清除', 'info');
+    }
+
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // 初始化
+    log('🚀 KaTeX 渐进式渲染测试工具已加载', 'success');
+    log('💡 提示: 点击"测试渐进式渲染"查看优化效果', 'info');
+    log(`📦 渐进式渲染已${window.katexProgressiveRenderer ? '启用' : '禁用'}`,
+      window.katexProgressiveRenderer ? 'success' : 'warning');
+  </script>
+</body>
+</html>
