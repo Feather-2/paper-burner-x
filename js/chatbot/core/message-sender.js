@@ -683,7 +683,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
       const BACKGROUND_UPDATE_INTERVAL = intervals.BACKGROUND;
 
       // Phase 3.5 智能跳帧: 监测渲染性能（使用统一配置）
-      const config = window.PerformanceConfig?.ADAPTIVE_RENDER || {
+      const perfConfig = window.PerformanceConfig?.ADAPTIVE_RENDER || {
         HEAVY_THRESHOLD: 200,
         MIN_MULTIPLIER: 1,
         MAX_MULTIPLIER: 4,
@@ -703,10 +703,10 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         // 智能跳帧: 使用衰减机制而非立即重置
         const lastDuration = window.ChatbotRenderState.lastRenderDuration;
 
-        if (lastDuration > config.HEAVY_THRESHOLD) {
+        if (lastDuration > perfConfig.HEAVY_THRESHOLD) {
           // 渲染慢：逐步增加倍数（最多到 MAX_MULTIPLIER）
           window.ChatbotRenderState.adaptiveMultiplier = Math.min(
-            config.MAX_MULTIPLIER,
+            perfConfig.MAX_MULTIPLIER,
             window.ChatbotRenderState.adaptiveMultiplier * 2
           );
           if (window.PerfLogger) {
@@ -714,11 +714,11 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
               `跳帧: 检测到重渲染(${lastDuration.toFixed(0)}ms)，降频×${window.ChatbotRenderState.adaptiveMultiplier}`
             );
           }
-        } else if (lastDuration < config.DECAY_THRESHOLD && lastDuration > 0) {
+        } else if (lastDuration < perfConfig.DECAY_THRESHOLD && lastDuration > 0) {
           // 渲染快：逐步恢复倍数（最少到 MIN_MULTIPLIER）
           const oldMultiplier = window.ChatbotRenderState.adaptiveMultiplier;
           window.ChatbotRenderState.adaptiveMultiplier = Math.max(
-            config.MIN_MULTIPLIER,
+            perfConfig.MIN_MULTIPLIER,
             window.ChatbotRenderState.adaptiveMultiplier / 2
           );
           if (oldMultiplier !== window.ChatbotRenderState.adaptiveMultiplier && window.PerfLogger) {
