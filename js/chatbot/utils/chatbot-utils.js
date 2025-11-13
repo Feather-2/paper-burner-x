@@ -97,14 +97,43 @@ function exportMessageAsPng(messageIndex) {
  * @param {number} messageIndex 目标助手消息在 `ChatbotCore.chatHistory` 中的索引。
  */
 function doExportAsPng(messageIndex) {
-  const messageElements = document.querySelectorAll('.assistant-message');
-  const targetElement = document.querySelector(`.assistant-message[data-message-index="${messageIndex}"]`);
-  if ((!messageElements || messageElements.length <= messageIndex) && !targetElement) {
-    exportContentDirectly(window.ChatbotCore.chatHistory[messageIndex].content);
+  // Phase 3.5: 添加导出状态锁，防止快速点击导致内存泄漏
+  if (window.ChatbotRenderState && window.ChatbotRenderState.isExporting) {
+    if (typeof showToast === 'function') {
+      showToast('正在导出，请稍候...');
+    }
+    if (window.PerfLogger) {
+      window.PerfLogger.warn('导出已在进行中，忽略重复请求');
+    }
     return;
   }
-  const element = targetElement || messageElements[messageIndex];
-  processExport(element);
+
+  // 设置导出锁
+  if (window.ChatbotRenderState) {
+    window.ChatbotRenderState.isExporting = true;
+  }
+
+  try {
+    const messageElements = document.querySelectorAll('.assistant-message');
+    const targetElement = document.querySelector(`.assistant-message[data-message-index="${messageIndex}"]`);
+    if ((!messageElements || messageElements.length <= messageIndex) && !targetElement) {
+      exportContentDirectly(window.ChatbotCore.chatHistory[messageIndex].content);
+      return;
+    }
+    const element = targetElement || messageElements[messageIndex];
+    processExport(element);
+  } catch (error) {
+    if (window.PerfLogger) {
+      window.PerfLogger.error('导出失败:', error);
+    }
+    // 确保即使出错也释放锁
+    if (window.ChatbotRenderState) {
+      window.ChatbotRenderState.isExporting = false;
+    }
+    if (typeof showToast === 'function') {
+      showToast('导出失败，请重试');
+    }
+  }
 }
 
 /**
@@ -180,18 +209,40 @@ function processExport(messageElement) {
     messageContainer.style.maxWidth = 'none';
   }
 
-  // Phase 3.5: 放宽（但不完全移除）exportContainer 的宽度限制
-  // 避免表格过宽导致导出的图片太大，设置合理的最大宽度
+  // Phase 3.5: 动态计算导出容器的最大宽度
+  // 根据表格实际宽度智能调整，避免过宽或过窄
   const originalExportContainerMaxWidth = exportContainer.style.maxWidth;
   const originalExportContainerWidth = exportContainer.style.width;
-  exportContainer.style.maxWidth = '1200px';  // 合理的最大宽度（原720px → 1200px）
-  exportContainer.style.width = 'auto';       // 自适应宽度，但不超过maxWidth
+
+  // 计算所有表格的最大宽度
+  let maxTableWidth = 0;
+  tables.forEach(table => {
+    const tableWidth = table.scrollWidth || 0;
+    if (tableWidth > maxTableWidth) {
+      maxTableWidth = tableWidth;
+    }
+  });
+
+  // 根据实际内容动态设置宽度，但设置合理的上下限
+  const config = window.PerformanceConfig?.EXPORT || { MAX_WIDTH: 1200, ABSOLUTE_MAX_WIDTH: 2000 };
+  const calculatedWidth = maxTableWidth > 0
+    ? Math.min(maxTableWidth + 40, config.ABSOLUTE_MAX_WIDTH)  // 加40px padding
+    : config.MAX_WIDTH;  // 如果没有表格，使用默认值
+
+  exportContainer.style.maxWidth = `${calculatedWidth}px`;
+  exportContainer.style.width = 'auto';
+
+  if (window.PerfLogger) {
+    window.PerfLogger.debug(`导出容器宽度: ${calculatedWidth}px (表格最大宽度: ${maxTableWidth}px)`);
+  }
 
   // 等待DOM重新布局，确保获取到真实的完整宽度
+  const layoutDelay = window.PerformanceConfig?.EXPORT?.LAYOUT_DELAY || 50;
   setTimeout(() => {
     showToast('正在生成图片...');
+    const scale = window.PerformanceConfig?.EXPORT?.SCALE || 2;
     html2canvas(exportContainer, {
-      scale: 2,
+      scale: scale,
       useCORS: true,
       backgroundColor: 'white',
       logging: false,
@@ -221,8 +272,16 @@ function processExport(messageElement) {
       exportContainer.style.maxWidth = originalExportContainerMaxWidth;
       exportContainer.style.width = originalExportContainerWidth;
       document.body.removeChild(exportContainer);
+
+      // Phase 3.5: 释放导出锁
+      if (window.ChatbotRenderState) {
+        window.ChatbotRenderState.isExporting = false;
+      }
     }
   }).catch(err => {
+    if (window.PerfLogger) {
+      window.PerfLogger.error('生成图片失败:', err);
+    }
     showToast('生成图片失败');
     // Phase 3.5: 错误时也要清理所有样式
     tables.forEach((table, index) => {
@@ -238,8 +297,13 @@ function processExport(messageElement) {
     exportContainer.style.maxWidth = originalExportContainerMaxWidth;
     exportContainer.style.width = originalExportContainerWidth;
     document.body.removeChild(exportContainer);
+
+    // Phase 3.5: 释放导出锁
+    if (window.ChatbotRenderState) {
+      window.ChatbotRenderState.isExporting = false;
+    }
   });
-  }, 50); // 50ms足够让DOM重新布局
+  }, layoutDelay); // 使用配置的延迟时间
 }
 
 /**

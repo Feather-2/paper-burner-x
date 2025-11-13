@@ -318,6 +318,8 @@
     }
   </script>
 
+  <!-- Phase 3.5: 性能优化配置（必须在所有 chatbot 模块之前加载） -->
+  <script src="../../js/chatbot/config/performance-config.js"></script>
   <script src="../../js/chatbot/utils/mermaid-loader.js"></script>
   <!-- XSS 防护：DOMPurify - 用于清理 AI 生成的 HTML 内容 -->
   <script src="https://gcore.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>

@@ -462,8 +462,12 @@ function updateChatbotUI() {
     const oldClientHeight = chatBody.clientHeight;
 
     // Phase 3.5 提前定义消息计数（用于后续滚动逻辑）
+    // 使用统一的状态管理对象，避免全局变量污染
+    if (!window.ChatbotRenderState) {
+      window.ChatbotRenderState = { lastRenderedMessageCount: 0 };
+    }
     const currentMessageCount = window.ChatbotCore.chatHistory.length;
-    const lastRenderedCount = window._lastRenderedMessageCount || 0;
+    const lastRenderedCount = window.ChatbotRenderState.lastRenderedMessageCount || 0;
 
     let docName = 'unknown_doc';
     let dataForMindmap = { images: [], ocr: '', translation: '' };
@@ -506,6 +510,9 @@ function updateChatbotUI() {
                   }
                   contentDiv.dataset.lastPreview = newContentPreview;
                 } catch (e) {
+                  if (window.PerfLogger) {
+                    window.PerfLogger.error('增量渲染失败:', e);
+                  }
                   contentDiv.textContent = lastMessage.content;
                 }
               }
@@ -514,7 +521,8 @@ function updateChatbotUI() {
 
           // Phase 3.5 智能滚动：流式更新时保持用户阅读位置
           // 只有在用户主动停留在底部附近时才自动滚动
-          const isUserAtBottom = oldScrollHeight - oldClientHeight <= oldScrollTop + 50; // 增加容差到 50px
+          const scrollThreshold = window.PerformanceConfig?.SCROLL?.BOTTOM_THRESHOLD || 50;
+          const isUserAtBottom = oldScrollHeight - oldClientHeight <= oldScrollTop + scrollThreshold;
           if (isUserAtBottom) {
             chatBody.scrollTop = chatBody.scrollHeight;
           }
@@ -541,8 +549,10 @@ function updateChatbotUI() {
         }
 
         chatBody.innerHTML = messagesHtml + window.ChatbotMessageRenderer.getMarkdownStyles();
-        window._lastRenderedMessageCount = currentMessageCount;
-        console.log(`[Phase 3.5 增量渲染] 完整渲染 ${currentMessageCount} 条消息`);
+        window.ChatbotRenderState.lastRenderedMessageCount = currentMessageCount;
+        if (window.PerfLogger) {
+          window.PerfLogger.debug(`增量渲染: 完整渲染 ${currentMessageCount} 条消息`);
+        }
     } else {
         console.error("ChatbotMessageRenderer is not loaded!");
         chatBody.innerHTML = "<p style='color:red;'>错误：消息渲染模块加载失败。</p>";
