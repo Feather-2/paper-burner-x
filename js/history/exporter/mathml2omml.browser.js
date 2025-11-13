@@ -16,7 +16,7 @@ function loadMathml2Omml() {
   const script = document.createElement('script');
   script.type = 'module';
   script.textContent = `
-    import { mml2omml } from 'https://cdn.jsdelivr.net/npm/mathml2omml@0.5.0/+esm';
+    import { mml2omml } from 'https://gcore.jsdelivr.net/npm/mathml2omml@0.5.0/+esm';
 
     // 导出到全局
     window.mml2omml = mml2omml;

@@ -509,7 +509,10 @@ function updateChatbotUI() {
               let reasoningBlock = lastMessageContainer.querySelector(`#${reasoningBlockId}`);
 
               // 更新 reasoning 内容
-              const reasoningContentDiv = reasoningBlock.querySelector('div[style*="margin-top:8px"]');
+              // Phase 4.x 修复：使用更快的选择器（优先使用类名，回退到子元素选择器）
+              const reasoningContentDiv = reasoningBlock
+                ? (reasoningBlock.querySelector('.reasoning-content') || reasoningBlock.querySelector(':scope > div:last-child'))
+                : null;
               if (reasoningContentDiv) {
                 const newReasoningLength = lastMessage.reasoningContent.length;
                 const lastReasoningLength = parseInt(reasoningBlock.dataset.lastReasoningLength || '0', 10);
@@ -543,22 +546,63 @@ function updateChatbotUI() {
 
               if (newContentLength !== lastContentLength) {
                 try {
-                  const canUseIncrementalAppend =
+                  const isPureExtension =
                     newContentLength > lastContentLength &&
                     lastContent &&
-                    newContent.indexOf(lastContent) === 0 &&
-                    isChatbotSafePlainAppend(lastContent, newContent.slice(lastContent.length));
+                    newContent.indexOf(lastContent) === 0;
+                  const appendedText = isPureExtension ? newContent.slice(lastContent.length) : '';
+
+                  const canUseIncrementalAppend =
+                    isPureExtension &&
+                    isChatbotSafePlainAppend(lastContent, appendedText);
+
+                  let didIncrementalUpdate = false;
 
                   if (canUseIncrementalAppend && typeof renderWithKatexStreaming === 'function') {
                     // Phase 4.2: 简单增量渲染（纯文本追加场景）
-                    const appendedText = newContent.slice(lastContent.length);
                     const appendedHtml = renderWithKatexStreaming(appendedText);
                     const temp = document.createElement('div');
                     temp.innerHTML = appendedHtml;
                     while (temp.firstChild) {
                       contentDiv.appendChild(temp.firstChild);
                     }
-                  } else {
+                    didIncrementalUpdate = true;
+                  } else if (
+                    isPureExtension &&
+                    appendedText &&
+                    window.ChatbotMathStreaming &&
+                    typeof window.ChatbotMathStreaming.renderIncremental === 'function'
+                  ) {
+                    // Phase 4.2（原型）: 长公式增量渲染，仅在扩展场景下启用
+                    let prevState = null;
+                    const stateRaw = contentDiv.dataset.mathStreamingState || '';
+                    if (stateRaw) {
+                      try {
+                        prevState = JSON.parse(stateRaw);
+                      } catch (e) {
+                        prevState = null;
+                      }
+                    }
+
+                    const result = window.ChatbotMathStreaming.renderIncremental(prevState, appendedText);
+                    if (result && typeof result.html === 'string' && result.html) {
+                      const temp = document.createElement('div');
+                      temp.innerHTML = result.html;
+                      while (temp.firstChild) {
+                        contentDiv.appendChild(temp.firstChild);
+                      }
+                      if (result.state) {
+                        try {
+                          contentDiv.dataset.mathStreamingState = JSON.stringify(result.state);
+                        } catch (e) {
+                          contentDiv.dataset.mathStreamingState = '';
+                        }
+                      }
+                      didIncrementalUpdate = true;
+                    }
+                  }
+
+                  if (!didIncrementalUpdate) {
                     // 回退：完整重渲染
                     if (typeof renderWithKatexStreaming === 'function') {
                       contentDiv.innerHTML = renderWithKatexStreaming(newContent);
@@ -567,6 +611,8 @@ function updateChatbotUI() {
                     } else {
                       contentDiv.textContent = newContent;
                     }
+                    // 重渲染后清理流式状态，避免状态与内容不一致
+                    delete contentDiv.dataset.mathStreamingState;
                   }
 
                   contentDiv.dataset.lastLength = newContentLength.toString();
@@ -827,6 +873,20 @@ function setupChatbotTableScrollHints(chatBody) {
 function isChatbotSafePlainAppend(oldContent, appendedText) {
   if (!appendedText) return false;
 
+  // 边界检查 1：若旧内容末尾处位于未闭合的块级结构中（代码块/公式等），则不做增量。
+  // 这里采用“保守策略”：一旦存在疑似未闭合结构，就直接回退完整渲染，以换取更高的渲染正确性。
+  try {
+    if (isChatbotInsideUnclosedBlock(oldContent)) {
+      return false;
+    }
+  } catch (e) {
+    // 检测异常时同样回退完整渲染
+    if (window.PerfLogger) {
+      window.PerfLogger.warn('ChatbotUI: isChatbotInsideUnclosedBlock failed, fallback to full render.', e);
+    }
+    return false;
+  }
+
   // 若追加部分包含明显的代码块/公式/复杂结构标记，则不做增量
   const riskyPatterns = [
     /```/,          // 代码块
@@ -847,6 +907,66 @@ function isChatbotSafePlainAppend(oldContent, appendedText) {
   }
 
   return true;
+}
+
+/**
+ * Phase 4.2.2 - Markdown 结构边界检测
+ * 检测 oldContent 末尾是否位于未闭合的 Markdown 块级结构中：
+ * - ``` fenced code block
+ * - $$ 块级公式
+ * - \[ \] / \( \) LaTeX 公式包裹
+ *
+ * 为保证性能：
+ * - 优先仅分析结尾一段文本（TAIL_WINDOW），减少在极长消息上的全量扫描开销；
+ * - 对 fenced code / $$ 使用“奇偶计数”策略；对 \[ / \] 与 \( / \) 使用“数量差值”近似判断；
+ * - 一旦存在“不确定”或“可能未闭合”的结构，则视为不安全，回退完整渲染。
+ */
+function isChatbotInsideUnclosedBlock(oldContent) {
+  if (!oldContent || typeof oldContent !== 'string') return false;
+
+  // 限制分析窗口，避免在超长内容上多次全量扫描
+  const TAIL_WINDOW = 4000;
+  const text = oldContent.length > TAIL_WINDOW
+    ? oldContent.slice(-TAIL_WINDOW)
+    : oldContent;
+
+  // 辅助函数：统计匹配次数
+  function countMatches(pattern) {
+    const re = new RegExp(pattern, 'g');
+    let count = 0;
+    while (re.exec(text) !== null) {
+      count++;
+    }
+    return count;
+  }
+
+  // 1) Fenced code block: ``` ... ```
+  // 使用出现次数的奇偶性近似判断是否在未闭合的代码块中。
+  const codeFenceCount = countMatches('```');
+  if (codeFenceCount % 2 === 1) {
+    return true;
+  }
+
+  // 2) Block math: $$ ... $$
+  const blockMathCount = countMatches('\\$\\$');
+  if (blockMathCount % 2 === 1) {
+    return true;
+  }
+
+  // 3) LaTeX-style delimiters: \[ ... \], \( ... \)
+  const openBracket = countMatches('\\\\\\[');
+  const closeBracket = countMatches('\\\\\\]');
+  if (openBracket > closeBracket) {
+    return true;
+  }
+
+  const openParen = countMatches('\\\\\\(');
+  const closeParen = countMatches('\\\\\\)');
+  if (openParen > closeParen) {
+    return true;
+  }
+
+  return false;
 }
 
 /**

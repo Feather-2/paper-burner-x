@@ -88,9 +88,9 @@ observer.observe(lastCell);
 - 需要确保表格结构正确
 
 #### 实施计划
-- [ ] **4.1.1** 实现 Intersection Observer 方案
-- [ ] **4.1.2** 添加降级方案（RAF 节流）
-- [ ] **4.1.3** 性能测试对比（100 个表格场景）
+- [x] **4.1.1** 实现 Intersection Observer 方案（已接入聊天表格渐变阴影）
+- [x] **4.1.2** 添加降级方案（RAF 节流，含 feature detection）
+- [ ] **4.1.3** 性能测试对比（100 个表格场景，待补充系统测试）
 
 ---
 
@@ -141,7 +141,7 @@ if (newContent.startsWith(oldContent)) {
 - 需要智能判断是否可以追加
 
 #### 实施计划
-- [ ] **4.2.1** 实现简单追加逻辑（纯文本）
+- [x] **4.2.1** 实现简单追加逻辑（纯文本，最后一条消息安全追加）
 - [ ] **4.2.2** 处理 Markdown 结构边界问题
 - [ ] **4.2.3** A/B 测试验证性能提升
 
@@ -241,8 +241,8 @@ window.PerformanceExperiment = {
 ```
 
 #### 实施计划
-- [ ] **4.4.1** 实现设备性能检测
-- [ ] **4.4.2** 设计 A/B 测试框架
+- [x] **4.4.1** 实现设备性能检测（基于 deviceMemory + hardwareConcurrency）
+- [x] **4.4.2** 设计 A/B 测试框架（PerformanceExperiment + 本地分组）
 - [ ] **4.4.3** 收集性能数据（渲染耗时、FPS）
 - [ ] **4.4.4** 分析最优配置
 
@@ -556,9 +556,9 @@ images.forEach(img => imageObserver.observe(img));
 - ✅ Performance API
 - ✅ requestAnimationFrame
 - ✅ MutationObserver（事件委托）
+- ✅ Intersection Observer API
 
 ### 待引入
-- ⏳ Intersection Observer API
 - ⏳ Web Worker
 - ⏳ Service Worker
 - ⏳ Performance Observer API
@@ -583,6 +583,26 @@ images.forEach(img => imageObserver.observe(img));
    - 流式更新刷新率 > 2 Hz
    - FPS > 55
    - 内存增长 < 50MB/小时
+
+4. **实现约束（前端模式 / 后端模式）**
+   - 必须保证“前端模式”可用：直接在浏览器中打开根目录 `index.html` 即可使用核心功能，不依赖打包或后端。
+   - Vercel 部署：`vercel.json` 输出目录为项目根目录，不执行构建命令，所有优化需兼容“纯静态输出”模式。
+   - 后端模式：通过 Docker / Node 服务提供 API 和同一套前端静态文件，性能相关改动不得强绑定后端逻辑。
+   - 不引入强制的打包依赖：`vite.config.js` 仅作为可选开发构建，核心功能必须在无打包环境下工作。
+
+5. **关键文件与入口（Phase 4/5 相关）**
+   - 前端入口与页面：
+     - `index.html`：前端模式主入口，直接在浏览器中打开使用。
+     - `views/history/history_detail.html`：历史详情页，加载 chatbot 与复杂公式/对比视图的核心脚本。
+   - Chatbot 性能与渲染核心：
+     - `js/chatbot/config/performance-config.js`：全局性能配置、设备自适应与 A/B 框架、日志控制。
+     - `js/chatbot/core/message-sender.js`：流式更新节奏控制、智能跳帧、debounced UI 更新。
+     - `js/chatbot/ui/chatbot-ui.js`：聊天 UI 更新逻辑（增量渲染、滚动行为、表格滚动提示）。
+     - `js/chatbot/ui/chatbot-message-renderer.js`：消息内容渲染（Markdown/KaTeX/工具调用块）。
+     - `js/chatbot/utils/markdown-katex-render.js`：`renderWithKatexStreaming`，复杂公式渲染与 Markdown 集成。
+   - 性能相关工具与测试：
+     - `js/ui/chunk_compare_optimizer.js`：分块对比场景优化与 IntersectionObserver 使用示例。
+     - `tests/performance/phase1-test.html` 等：手动性能测试入口，可用于 Phase 4/5 验证。
 
 ---
 
