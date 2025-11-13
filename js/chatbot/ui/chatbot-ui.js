@@ -495,12 +495,13 @@ function updateChatbotUI() {
             // 只更新 markdown-content 部分（避免重新渲染整个消息）
             const contentDiv = lastMessageContainer.querySelector('.markdown-content');
             if (contentDiv && lastMessage.content) {
-              // 使用快速路径：直接更新 textContent（不触发 KaTeX/Marked 解析）
-              // 只在内容有实质性变化时才更新（避免无谓的DOM操作）
-              const newContentPreview = lastMessage.content.substring(0, 500);
-              if (!contentDiv.dataset.lastPreview || contentDiv.dataset.lastPreview !== newContentPreview) {
+              // 使用内容长度判断是否有变化（比前 500 字符更可靠）
+              const newContentLength = lastMessage.content.length;
+              const lastContentLength = parseInt(contentDiv.dataset.lastLength || '0', 10);
+
+              if (newContentLength !== lastContentLength) {
                 try {
-                  // 流式更新时使用简化渲染（禁用复杂的 KaTeX/Marked 解析）
+                  // 流式更新时使用简化渲染
                   if (typeof renderWithKatexStreaming === 'function') {
                     contentDiv.innerHTML = renderWithKatexStreaming(lastMessage.content);
                   } else if (typeof marked !== 'undefined') {
@@ -508,7 +509,7 @@ function updateChatbotUI() {
                   } else {
                     contentDiv.textContent = lastMessage.content;
                   }
-                  contentDiv.dataset.lastPreview = newContentPreview;
+                  contentDiv.dataset.lastLength = newContentLength.toString();
                 } catch (e) {
                   if (window.PerfLogger) {
                     window.PerfLogger.error('增量渲染失败:', e);
