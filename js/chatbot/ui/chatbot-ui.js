@@ -491,11 +491,51 @@ function updateChatbotUI() {
           const lastMessage = window.ChatbotCore.chatHistory[currentMessageCount - 1];
           const lastMessageContainer = chatBody.querySelector(`.assistant-message[data-message-index="${currentMessageCount - 1}"]`);
 
-          if (lastMessageContainer && lastMessage.role === 'assistant') {
-            // 只更新 markdown-content 部分（避免重新渲染整个消息）
+          // 检查是否需要完整渲染（reasoning 第一次出现）
+          let needFullRender = false;
+          if (lastMessage.reasoningContent && lastMessageContainer) {
+            const reasoningBlockId = `reasoning-block-${currentMessageCount - 1}`;
+            const reasoningBlock = lastMessageContainer.querySelector(`#${reasoningBlockId}`);
+            if (!reasoningBlock) {
+              needFullRender = true; // reasoning 块不存在，需要完整渲染
+            }
+          }
+
+          // 如果需要完整渲染，跳过增量更新
+          if (!needFullRender && lastMessageContainer && lastMessage.role === 'assistant') {
+            // 1. 更新思考过程 (reasoning)
+            if (lastMessage.reasoningContent) {
+              const reasoningBlockId = `reasoning-block-${currentMessageCount - 1}`;
+              let reasoningBlock = lastMessageContainer.querySelector(`#${reasoningBlockId}`);
+
+              // 更新 reasoning 内容
+              const reasoningContentDiv = reasoningBlock.querySelector('div[style*="margin-top:8px"]');
+              if (reasoningContentDiv) {
+                const newReasoningLength = lastMessage.reasoningContent.length;
+                const lastReasoningLength = parseInt(reasoningBlock.dataset.lastReasoningLength || '0', 10);
+
+                if (newReasoningLength !== lastReasoningLength) {
+                  try {
+                    if (typeof renderWithKatexStreaming === 'function') {
+                      reasoningContentDiv.innerHTML = renderWithKatexStreaming(lastMessage.reasoningContent);
+                    } else {
+                      reasoningContentDiv.innerHTML = lastMessage.reasoningContent.replace(/\n/g, '<br>');
+                    }
+                    reasoningBlock.dataset.lastReasoningLength = newReasoningLength.toString();
+                  } catch (e) {
+                    if (window.PerfLogger) {
+                      window.PerfLogger.error('Reasoning 增量渲染失败:', e);
+                    }
+                    reasoningContentDiv.textContent = lastMessage.reasoningContent;
+                  }
+                }
+              }
+            }
+
+            // 2. 更新主内容 (content)
             const contentDiv = lastMessageContainer.querySelector('.markdown-content');
             if (contentDiv && lastMessage.content) {
-              // 使用内容长度判断是否有变化（比前 500 字符更可靠）
+              // 使用内容长度判断是否有变化
               const newContentLength = lastMessage.content.length;
               const lastContentLength = parseInt(contentDiv.dataset.lastLength || '0', 10);
 
@@ -522,13 +562,16 @@ function updateChatbotUI() {
 
           // Phase 3.5 智能滚动：流式更新时保持用户阅读位置
           // 只有在用户主动停留在底部附近时才自动滚动
-          const scrollThreshold = window.PerformanceConfig?.SCROLL?.BOTTOM_THRESHOLD || 50;
-          const isUserAtBottom = oldScrollHeight - oldClientHeight <= oldScrollTop + scrollThreshold;
-          if (isUserAtBottom) {
-            chatBody.scrollTop = chatBody.scrollHeight;
+          if (!needFullRender) {
+            const scrollThreshold = window.PerformanceConfig?.SCROLL?.BOTTOM_THRESHOLD || 50;
+            const isUserAtBottom = oldScrollHeight - oldClientHeight <= oldScrollTop + scrollThreshold;
+            if (isUserAtBottom) {
+              chatBody.scrollTop = chatBody.scrollHeight;
+            }
+            // 如果用户正在查看上方内容，不做任何滚动操作
+            return; // 跳过完整重新渲染
           }
-          // 如果用户正在查看上方内容，不做任何滚动操作
-          return; // 跳过完整重新渲染
+          // needFullRender = true 时，继续执行完整渲染（不 return）
         }
 
         // 完整渲染：新消息或非流式更新
