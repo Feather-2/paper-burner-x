@@ -6,9 +6,9 @@
 window.PerformanceConfig = {
   // 流式更新间隔配置
   UPDATE_INTERVALS: {
-    FOREGROUND: 800,        // 前台标签页更新间隔 (ms)
-    BACKGROUND: 3000,       // 后台标签页更新间隔 (ms)
-    DEBOUNCE: 150          // 防抖延迟 (ms)
+    FOREGROUND: 400,        // 前台标签页更新间隔 (ms) - Phase 3 原值，保持流畅
+    BACKGROUND: 1500,       // 后台标签页更新间隔 (ms) - Phase 3 原值
+    DEBOUNCE: 100          // 防抖延迟 (ms) - 从 150ms 降低到 100ms，提升响应速度
   },
 
   // 智能跳帧配置
