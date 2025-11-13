@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>性能监控工具测试 - Phase 4.4.3</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+
+    .container {
+      background: white;
+      border-radius: 8px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    h1, h2 {
+      margin-top: 0;
+      color: #333;
+    }
+
+    .controls {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: #4CAF50;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #45a049;
+    }
+
+    .btn-danger {
+      background: #f44336;
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background: #da190b;
+    }
+
+    .btn-secondary {
+      background: #2196F3;
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      background: #0b7dda;
+    }
+
+    .btn-warning {
+      background: #ff9800;
+      color: white;
+    }
+
+    .btn-warning:hover {
+      background: #e68900;
+    }
+
+    #stats-output {
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+      padding: 16px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      max-height: 600px;
+      overflow-y: auto;
+    }
+
+    .status {
+      padding: 8px 16px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+      font-weight: 500;
+    }
+
+    .status.running {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+
+    .status.stopped {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+
+    .test-area {
+      padding: 20px;
+      background: #e3f2fd;
+      border-radius: 4px;
+      margin-bottom: 16px;
+    }
+
+    .workload-item {
+      padding: 12px;
+      margin: 8px 0;
+      background: white;
+      border-radius: 4px;
+      border-left: 4px solid #2196F3;
+    }
+
+    .info-box {
+      background: #fff3cd;
+      border: 1px solid #ffc107;
+      border-radius: 4px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    .info-box h3 {
+      margin-top: 0;
+      color: #856404;
+    }
+
+    .info-box ul {
+      margin: 8px 0;
+      padding-left: 24px;
+    }
+
+    .info-box code {
+      background: #f8f9fa;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Courier New', monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔍 Phase 4.4.3 - 性能监控工具测试</h1>
+
+    <div class="info-box">
+      <h3>📋 使用说明</h3>
+      <ul>
+        <li>点击"启动监控"开始收集性能数据</li>
+        <li>运行测试负载模拟真实渲染场景</li>
+        <li>点击"查看统计"查看实时性能指标</li>
+        <li>点击"导出数据"将数据输出到控制台（可复制保存）</li>
+        <li>所有数据仅在本地浏览器中，不会上传到任何服务器</li>
+      </ul>
+      <p><strong>控制台命令：</strong></p>
+      <ul>
+        <li><code>PerfMonitor.start()</code> - 启动监控</li>
+        <li><code>PerfMonitor.stop()</code> - 停止监控</li>
+        <li><code>PerfMonitor.getStats()</code> - 查看统计</li>
+        <li><code>PerfMonitor.export()</code> - 导出数据</li>
+      </ul>
+    </div>
+
+    <div id="status" class="status stopped">
+      ⏸️ 监控状态：未启动
+    </div>
+
+    <div class="controls">
+      <button class="btn-primary" onclick="startMonitor()">🚀 启动监控</button>
+      <button class="btn-danger" onclick="stopMonitor()">⏹️ 停止监控</button>
+      <button class="btn-secondary" onclick="viewStats()">📊 查看统计</button>
+      <button class="btn-secondary" onclick="exportData()">💾 导出数据</button>
+      <button class="btn-warning" onclick="clearData()">🗑️ 清空数据</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <h2>🔬 测试负载</h2>
+    <p>运行这些测试来模拟真实场景并收集性能数据：</p>
+
+    <div class="controls">
+      <button class="btn-secondary" onclick="runLightWorkload()">轻度负载（50次渲染）</button>
+      <button class="btn-secondary" onclick="runMediumWorkload()">中度负载（200次渲染）</button>
+      <button class="btn-secondary" onclick="runHeavyWorkload()">重度负载（1000次渲染）</button>
+      <button class="btn-warning" onclick="runLongTask()">触发长任务（阻塞300ms）</button>
+    </div>
+
+    <div id="test-area" class="test-area">
+      <div style="text-align: center; color: #666;">
+        点击上方按钮运行测试负载
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+    <h2>📈 性能数据</h2>
+    <div id="stats-output">
+等待数据...
+
+点击"启动监控"后，运行一些测试负载，然后点击"查看统计"查看性能指标。
+    </div>
+  </div>
+
+  <!-- 加载依赖脚本 -->
+  <script src="../../js/chatbot/config/performance-config.js"></script>
+  <script src="../../js/chatbot/utils/performance-monitor.js"></script>
+
+  <script>
+    // UI 控制函数
+    function updateStatus(isRunning) {
+      const statusEl = document.getElementById('status');
+      if (isRunning) {
+        statusEl.className = 'status running';
+        statusEl.textContent = '▶️ 监控状态：运行中';
+      } else {
+        statusEl.className = 'status stopped';
+        statusEl.textContent = '⏸️ 监控状态：已停止';
+      }
+    }
+
+    function startMonitor() {
+      PerfMonitor.start();
+      updateStatus(true);
+    }
+
+    function stopMonitor() {
+      PerfMonitor.stop();
+      updateStatus(false);
+    }
+
+    function viewStats() {
+      const stats = PerfMonitor.getStats();
+      const output = document.getElementById('stats-output');
+
+      output.textContent = `
+═══════════════════════════════════════════════════════
+  📊 性能监控统计报告
+═══════════════════════════════════════════════════════
+
+⏱️  会话信息：
+   状态：${stats.session.isRunning ? '运行中' : '已停止'}
+   时长：${stats.session.duration}
+   开始时间：${stats.session.startTime || 'N/A'}
+
+💻 设备信息：
+   性能等级：${stats.device.tier}
+   CPU 核心：${stats.device.cores}
+   内存：${stats.device.memory}
+
+🎨 渲染性能：
+   样本数量：${stats.rendering.samples}
+   平均耗时：${stats.rendering.stats.avg.toFixed(1)} ms
+   最小耗时：${stats.rendering.stats.min.toFixed(1)} ms
+   最大耗时：${stats.rendering.stats.max.toFixed(1)} ms
+   P50（中位数）：${stats.rendering.stats.p50.toFixed(1)} ms
+   P95：${stats.rendering.stats.p95.toFixed(1)} ms
+   P99：${stats.rendering.stats.p99.toFixed(1)} ms
+
+📺 帧率 (FPS)：
+   样本数量：${stats.fps.samples}
+   当前 FPS：${stats.fps.current || 'N/A'}
+   平均 FPS：${stats.fps.stats.avg.toFixed(0)}
+   最低 FPS：${stats.fps.stats.min}
+   最高 FPS：${stats.fps.stats.max}
+
+${stats.memory.available ? `💾 内存使用：
+   样本数量：${stats.memory.samples}
+   当前使用：${stats.memory.current?.used || 'N/A'}
+   总量：${stats.memory.current?.total || 'N/A'}
+   峰值：${stats.memory.peak?.used || 'N/A'}` : '💾 内存监控：不可用（仅 Chrome 支持）'}
+
+⚠️  长任务（>${PerfMonitor._config.longTaskThreshold}ms）：
+   数量：${stats.longTasks.samples}
+   ${stats.longTasks.samples > 0 ? `平均耗时：${stats.longTasks.stats.avg.toFixed(1)} ms
+   最长耗时：${stats.longTasks.stats.max.toFixed(1)} ms` : ''}
+
+🌳 DOM 节点：
+   当前总数：${stats.dom.current?.total || 'N/A'}
+   聊天消息数：${stats.dom.current?.chatMessages || 'N/A'}
+
+═══════════════════════════════════════════════════════
+使用 PerfMonitor.export() 导出完整数据到控制台
+═══════════════════════════════════════════════════════
+`;
+
+      console.log('[测试] 统计数据：', stats);
+    }
+
+    function exportData() {
+      const data = PerfMonitor.export();
+      alert('数据已输出到控制台（F12）\n可以复制 JSON 数据保存到文件中进行分析');
+    }
+
+    function clearData() {
+      if (confirm('确定要清空所有性能数据吗？')) {
+        PerfMonitor.clear();
+        document.getElementById('stats-output').textContent = '数据已清空';
+      }
+    }
+
+    // 测试负载函数
+    function simulateRender(duration) {
+      const start = performance.now();
+
+      // 模拟 CPU 密集操作
+      while (performance.now() - start < duration) {
+        // 忙等待
+      }
+
+      // 记录渲染耗时
+      PerfMonitor.recordRender(duration, 'test_simulation');
+    }
+
+    function runLightWorkload() {
+      const testArea = document.getElementById('test-area');
+      testArea.innerHTML = '<div class="workload-item">🟢 运行轻度负载测试...</div>';
+
+      let count = 0;
+      const total = 50;
+
+      const interval = setInterval(() => {
+        simulateRender(10 + Math.random() * 20); // 10-30ms
+        count++;
+
+        if (count >= total) {
+          clearInterval(interval);
+          testArea.innerHTML = `<div class="workload-item">✅ 轻度负载完成：${total} 次渲染</div>`;
+        } else {
+          testArea.innerHTML = `<div class="workload-item">🟢 轻度负载进行中... (${count}/${total})</div>`;
+        }
+      }, 100);
+    }
+
+    function runMediumWorkload() {
+      const testArea = document.getElementById('test-area');
+      testArea.innerHTML = '<div class="workload-item">🟡 运行中度负载测试...</div>';
+
+      let count = 0;
+      const total = 200;
+
+      const interval = setInterval(() => {
+        simulateRender(20 + Math.random() * 40); // 20-60ms
+        count++;
+
+        if (count >= total) {
+          clearInterval(interval);
+          testArea.innerHTML = `<div class="workload-item">✅ 中度负载完成：${total} 次渲染</div>`;
+        } else if (count % 20 === 0) {
+          testArea.innerHTML = `<div class="workload-item">🟡 中度负载进行中... (${count}/${total})</div>`;
+        }
+      }, 50);
+    }
+
+    function runHeavyWorkload() {
+      const testArea = document.getElementById('test-area');
+      testArea.innerHTML = '<div class="workload-item">🔴 运行重度负载测试...</div>';
+
+      let count = 0;
+      const total = 1000;
+
+      const interval = setInterval(() => {
+        simulateRender(30 + Math.random() * 70); // 30-100ms
+        count++;
+
+        if (count >= total) {
+          clearInterval(interval);
+          testArea.innerHTML = `<div class="workload-item">✅ 重度负载完成：${total} 次渲染</div>`;
+        } else if (count % 100 === 0) {
+          testArea.innerHTML = `<div class="workload-item">🔴 重度负载进行中... (${count}/${total})</div>`;
+        }
+      }, 30);
+    }
+
+    function runLongTask() {
+      const testArea = document.getElementById('test-area');
+      testArea.innerHTML = '<div class="workload-item">⚠️ 触发长任务（阻塞主线程 300ms）...</div>';
+
+      // 阻塞主线程 300ms
+      simulateRender(300);
+
+      setTimeout(() => {
+        testArea.innerHTML = '<div class="workload-item">✅ 长任务完成（应该在长任务列表中可见）</div>';
+      }, 100);
+    }
+
+    // 页面加载完成提示
+    window.addEventListener('load', function() {
+      console.log('%c═══════════════════════════════════════', 'color: #4CAF50; font-weight: bold');
+      console.log('%c   Phase 4.4.3 性能监控工具测试页面', 'color: #4CAF50; font-weight: bold');
+      console.log('%c═══════════════════════════════════════', 'color: #4CAF50; font-weight: bold');
+      console.log('');
+      console.log('📌 这是一个本地性能监控工具，所有数据仅存储在浏览器中');
+      console.log('📌 不会上传任何数据到服务器');
+      console.log('');
+      console.log('使用方法：');
+      console.log('  1. 点击"启动监控"开始收集数据');
+      console.log('  2. 运行测试负载模拟真实场景');
+      console.log('  3. 点击"查看统计"查看性能指标');
+      console.log('  4. 点击"导出数据"将数据输出到控制台');
+      console.log('');
+      console.log('PerfMonitor API:');
+      console.log('  PerfMonitor.start()    - 启动监控');
+      console.log('  PerfMonitor.stop()     - 停止监控');
+      console.log('  PerfMonitor.getStats() - 查看统计');
+      console.log('  PerfMonitor.export()   - 导出数据');
+    });
+  </script>
+</body>
+</html>

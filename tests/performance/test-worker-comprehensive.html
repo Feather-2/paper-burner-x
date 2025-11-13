@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Worker 综合性能测试 - Phase 5.1.3</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f5f5f5;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .header {
+      background: white;
+      padding: 24px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    h1 { margin-bottom: 12px; color: #333; }
+
+    .warning-box {
+      background: #fff3cd;
+      border: 2px solid #ffc107;
+      border-radius: 6px;
+      padding: 16px;
+      margin: 16px 0;
+    }
+
+    .warning-box h3 {
+      margin: 0 0 8px 0;
+      color: #856404;
+    }
+
+    .controls {
+      display: flex;
+      gap: 12px;
+      margin: 16px 0;
+      flex-wrap: wrap;
+    }
+
+    button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    .btn-primary { background: #4CAF50; color: white; }
+    .btn-primary:hover { background: #45a049; }
+    .btn-secondary { background: #2196F3; color: white; }
+    .btn-secondary:hover { background: #0b7dda; }
+    .btn-danger { background: #f44336; color: white; }
+    .btn-danger:hover { background: #da190b; }
+
+    .test-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+
+    .test-card {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .test-card h3 {
+      margin-bottom: 12px;
+      color: #333;
+    }
+
+    .metric {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 12px;
+      margin: 6px 0;
+      background: #f8f9fa;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    .metric.highlight {
+      background: #e8f5e9;
+      border-left: 4px solid #4CAF50;
+      font-weight: 600;
+    }
+
+    .metric.warning {
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
+    }
+
+    .comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 14px;
+    }
+
+    .comparison-table th,
+    .comparison-table td {
+      padding: 12px;
+      text-align: left;
+      border: 1px solid #e0e0e0;
+    }
+
+    .comparison-table th {
+      background: #f5f5f5;
+      font-weight: 600;
+    }
+
+    .winner {
+      background: #e8f5e9 !important;
+      font-weight: bold;
+      color: #2e7d32;
+    }
+
+    .loser {
+      background: #ffebee !important;
+      color: #666;
+    }
+
+    .chart-container {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+
+    .bar-chart {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .bar-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .bar-label {
+      width: 120px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .bar-track {
+      flex: 1;
+      height: 30px;
+      background: #e0e0e0;
+      border-radius: 4px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #4CAF50, #66BB6A);
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding-right: 8px;
+      color: white;
+      font-size: 12px;
+      font-weight: bold;
+      transition: width 0.5s ease;
+    }
+
+    .bar-fill.slow {
+      background: linear-gradient(90deg, #f44336, #e57373);
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .status-running {
+      background: #fff3cd;
+      color: #856404;
+    }
+
+    .status-completed {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .console-log {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 16px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      max-height: 400px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+
+    .console-log .info { color: #4fc3f7; }
+    .console-log .success { color: #81c784; }
+    .console-log .warning { color: #ffb74d; }
+    .console-log .error { color: #e57373; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🔬 Phase 5.1.3 - Worker 综合性能测试</h1>
+      <p>测试超长文本、流式更新等真实场景下的 Worker 性能</p>
+
+      <div class="warning-box">
+        <h3>⚠️ 重要发现</h3>
+        <p><strong>测试结论：</strong> 对于 marked.js 这种高性能解析器，只有在文本非常长（>50k字符）时，Worker 才能体现优势。</p>
+        <ul style="margin: 8px 0 0 20px; line-height: 1.8;">
+          <li><strong>短文本（<10k）：</strong> Worker 通信开销 > 计算开销，性能反而更差</li>
+          <li><strong>中文本（10k-50k）：</strong> 性能接近，差异不明显</li>
+          <li><strong>长文本（>50k）：</strong> Worker 开始体现优势，主线程不被阻塞</li>
+          <li><strong>流式更新：</strong> 频繁的小更新不适合 Worker，应该批量处理</li>
+        </ul>
+        <p style="margin-top: 12px;"><strong>建议配置：</strong> minTextLength 设为 <code style="background: #f5f5f5; padding: 2px 6px; border-radius: 3px;">10000-20000</code> 字符</p>
+      </div>
+
+      <div class="controls">
+        <button class="btn-primary" onclick="runAllTests()">🚀 运行所有测试</button>
+        <button class="btn-secondary" onclick="testSuperLongText()">测试超长文本 (100k字符)</button>
+        <button class="btn-secondary" onclick="testStreamingUpdates()">测试流式更新场景</button>
+        <button class="btn-secondary" onclick="testBatchProcessing()">测试批量处理</button>
+        <button class="btn-danger" onclick="clearResults()">清空结果</button>
+      </div>
+    </div>
+
+    <div class="chart-container">
+      <h2>📊 性能对比图表</h2>
+      <div id="chart-area" class="bar-chart">
+        <p style="color: #666; text-align: center; padding: 20px;">运行测试后将显示图表...</p>
+      </div>
+    </div>
+
+    <div class="test-grid" id="results-grid"></div>
+
+    <div class="chart-container">
+      <h2>📝 测试日志</h2>
+      <div id="console-log" class="console-log">等待测试...</div>
+    </div>
+  </div>
+
+  <!-- 加载依赖 -->
+  <script src="https://gcore.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="../../js/workers/markdown-worker-pool.js"></script>
+
+  <script>
+    let testResults = [];
+
+    function log(message, type = 'info') {
+      const logEl = document.getElementById('console-log');
+      const timestamp = new Date().toLocaleTimeString();
+      logEl.innerHTML += `<span class="${type}">[${timestamp}] ${message}</span>\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(`[${type.toUpperCase()}] ${message}`);
+    }
+
+    function generateMarkdown(charCount) {
+      const paragraphSize = 200;
+      const paragraphs = Math.ceil(charCount / paragraphSize);
+      let md = '# 性能测试文档\n\n';
+
+      for (let i = 0; i < paragraphs; i++) {
+        md += `## 第 ${i + 1} 章\n\n`;
+        md += `这是第 ${i + 1} 段的内容。`.repeat(10) + '\n\n';
+
+        if (i % 10 === 0) {
+          md += '```javascript\n';
+          md += 'function example() {\n';
+          md += '  const data = "test data";\n';
+          md += '  return data.length;\n';
+          md += '}\n';
+          md += '```\n\n';
+        }
+
+        if (i % 15 === 0) {
+          md += '| 列1 | 列2 | 列3 |\n';
+          md += '|-----|-----|-----|\n';
+          md += '| A | B | C |\n';
+          md += '| D | E | F |\n\n';
+        }
+      }
+
+      return md;
+    }
+
+    async function testPerformance(testName, markdown, useWorker, rounds = 10) {
+      log(`开始测试: ${testName} (${useWorker ? 'Worker' : '主线程'})`, 'info');
+
+      const times = [];
+      const startMemory = performance.memory ? performance.memory.usedJSHeapSize : 0;
+
+      for (let i = 0; i < rounds; i++) {
+        const start = performance.now();
+
+        try {
+          if (useWorker) {
+            await window.markdownWorkerPool.parse(markdown);
+          } else {
+            marked.parse(markdown);
+          }
+
+          const duration = performance.now() - start;
+          times.push(duration);
+        } catch (error) {
+          log(`测试失败: ${error.message}`, 'error');
+          times.push(NaN);
+        }
+      }
+
+      const endMemory = performance.memory ? performance.memory.usedJSHeapSize : 0;
+      const validTimes = times.filter(t => !isNaN(t));
+
+      const result = {
+        testName,
+        mode: useWorker ? 'Worker' : 'MainThread',
+        textLength: markdown.length,
+        rounds,
+        avgTime: validTimes.reduce((a, b) => a + b, 0) / validTimes.length,
+        minTime: Math.min(...validTimes),
+        maxTime: Math.max(...validTimes),
+        totalTime: validTimes.reduce((a, b) => a + b, 0),
+        memoryIncrease: endMemory - startMemory
+      };
+
+      log(`${testName} (${useWorker ? 'Worker' : '主线程'}) 完成: 平均 ${result.avgTime.toFixed(2)} ms`, 'success');
+
+      return result;
+    }
+
+    async function testSuperLongText() {
+      log('========================================', 'info');
+      log('测试场景: 超长文本 (100k 字符)', 'info');
+      log('========================================', 'info');
+
+      const markdown = generateMarkdown(100000);
+      log(`生成了 ${markdown.length} 字符的测试文本`, 'info');
+
+      const workerResult = await testPerformance('超长文本', markdown, true, 10);
+      await new Promise(r => setTimeout(r, 500));
+      const mainResult = await testPerformance('超长文本', markdown, false, 10);
+
+      testResults.push({ worker: workerResult, main: mainResult });
+      updateResults();
+    }
+
+    async function testStreamingUpdates() {
+      log('========================================', 'info');
+      log('测试场景: 流式更新 (100次小更新)', 'info');
+      log('========================================', 'info');
+
+      let cumulativeText = '';
+      const updates = 100;
+      const updateSize = 500;
+
+      const workerTimes = [];
+      const mainTimes = [];
+
+      for (let i = 0; i < updates; i++) {
+        cumulativeText += generateMarkdown(updateSize);
+
+        // Worker 模式
+        const workerStart = performance.now();
+        await window.markdownWorkerPool.parse(cumulativeText);
+        workerTimes.push(performance.now() - workerStart);
+
+        // 主线程模式
+        const mainStart = performance.now();
+        marked.parse(cumulativeText);
+        mainTimes.push(performance.now() - mainStart);
+
+        if (i % 20 === 0) {
+          log(`流式更新进度: ${i}/${updates}`, 'info');
+        }
+      }
+
+      const workerResult = {
+        testName: '流式更新',
+        mode: 'Worker',
+        textLength: cumulativeText.length,
+        rounds: updates,
+        avgTime: workerTimes.reduce((a, b) => a + b, 0) / workerTimes.length,
+        minTime: Math.min(...workerTimes),
+        maxTime: Math.max(...workerTimes),
+        totalTime: workerTimes.reduce((a, b) => a + b, 0)
+      };
+
+      const mainResult = {
+        testName: '流式更新',
+        mode: 'MainThread',
+        textLength: cumulativeText.length,
+        rounds: updates,
+        avgTime: mainTimes.reduce((a, b) => a + b, 0) / mainTimes.length,
+        minTime: Math.min(...mainTimes),
+        maxTime: Math.max(...mainTimes),
+        totalTime: mainTimes.reduce((a, b) => a + b, 0)
+      };
+
+      testResults.push({ worker: workerResult, main: mainResult });
+      updateResults();
+      log('流式更新测试完成', 'success');
+    }
+
+    async function testBatchProcessing() {
+      log('========================================', 'info');
+      log('测试场景: 批量处理 (10个大文档)', 'info');
+      log('========================================', 'info');
+
+      const docs = [];
+      for (let i = 0; i < 10; i++) {
+        docs.push(generateMarkdown(20000));
+      }
+
+      // Worker 并行处理
+      const workerStart = performance.now();
+      await Promise.all(docs.map(doc => window.markdownWorkerPool.parse(doc)));
+      const workerTime = performance.now() - workerStart;
+
+      // 主线程串行处理
+      const mainStart = performance.now();
+      docs.forEach(doc => marked.parse(doc));
+      const mainTime = performance.now() - mainStart;
+
+      const workerResult = {
+        testName: '批量处理',
+        mode: 'Worker',
+        textLength: docs[0].length,
+        rounds: docs.length,
+        avgTime: workerTime / docs.length,
+        totalTime: workerTime
+      };
+
+      const mainResult = {
+        testName: '批量处理',
+        mode: 'MainThread',
+        textLength: docs[0].length,
+        rounds: docs.length,
+        avgTime: mainTime / docs.length,
+        totalTime: mainTime
+      };
+
+      testResults.push({ worker: workerResult, main: mainResult });
+      updateResults();
+      log(`批量处理完成: Worker ${workerTime.toFixed(0)}ms vs 主线程 ${mainTime.toFixed(0)}ms`, 'success');
+    }
+
+    async function runAllTests() {
+      testResults = [];
+      clearResults();
+
+      await testSuperLongText();
+      await new Promise(r => setTimeout(r, 1000));
+      await testStreamingUpdates();
+      await new Promise(r => setTimeout(r, 1000));
+      await testBatchProcessing();
+
+      log('========================================', 'success');
+      log('所有测试完成！', 'success');
+      log('========================================', 'success');
+
+      displayWorkerPoolStats();
+    }
+
+    function updateResults() {
+      const grid = document.getElementById('results-grid');
+      grid.innerHTML = '';
+
+      testResults.forEach(({ worker, main }) => {
+        const improvement = ((main.avgTime - worker.avgTime) / main.avgTime * 100);
+        const isFaster = improvement > 0;
+
+        const card = document.createElement('div');
+        card.className = 'test-card';
+        card.innerHTML = `
+          <h3>${worker.testName}</h3>
+          <div class="metric">
+            <span>文本长度:</span>
+            <span>${(worker.textLength / 1000).toFixed(1)}k 字符</span>
+          </div>
+          <div class="metric ${isFaster ? 'highlight' : 'warning'}">
+            <span>性能提升:</span>
+            <span>${isFaster ? '✅' : '⚠️'} ${improvement.toFixed(1)}%</span>
+          </div>
+          <table class="comparison-table">
+            <tr>
+              <th>模式</th>
+              <th>平均耗时</th>
+              <th>总耗时</th>
+            </tr>
+            <tr class="${isFaster ? 'winner' : 'loser'}">
+              <td>Worker</td>
+              <td>${worker.avgTime.toFixed(2)} ms</td>
+              <td>${worker.totalTime.toFixed(0)} ms</td>
+            </tr>
+            <tr class="${!isFaster ? 'winner' : 'loser'}">
+              <td>主线程</td>
+              <td>${main.avgTime.toFixed(2)} ms</td>
+              <td>${main.totalTime.toFixed(0)} ms</td>
+            </tr>
+          </table>
+        `;
+        grid.appendChild(card);
+      });
+
+      updateChart();
+    }
+
+    function updateChart() {
+      const chart = document.getElementById('chart-area');
+      chart.innerHTML = '';
+
+      testResults.forEach(({ worker, main }) => {
+        const maxTime = Math.max(worker.avgTime, main.avgTime);
+
+        const row = document.createElement('div');
+        row.className = 'bar-row';
+
+        const workerPercent = (worker.avgTime / maxTime) * 100;
+        const mainPercent = (main.avgTime / maxTime) * 100;
+        const isFaster = worker.avgTime < main.avgTime;
+
+        row.innerHTML = `
+          <div class="bar-label">${worker.testName}</div>
+          <div class="bar-track">
+            <div class="bar-fill ${isFaster ? '' : 'slow'}" style="width: ${workerPercent}%">
+              Worker: ${worker.avgTime.toFixed(1)}ms
+            </div>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill ${!isFaster ? '' : 'slow'}" style="width: ${mainPercent}%">
+              主线程: ${main.avgTime.toFixed(1)}ms
+            </div>
+          </div>
+        `;
+
+        chart.appendChild(row);
+      });
+    }
+
+    function displayWorkerPoolStats() {
+      const stats = window.markdownWorkerPool.getStats();
+      log('========================================', 'info');
+      log('Worker Pool 统计信息:', 'info');
+      log(`  池大小: ${stats.poolSize}`, 'info');
+      log(`  已完成: ${stats.tasksCompleted}`, 'info');
+      log(`  失败: ${stats.tasksFailed}`, 'info');
+      log(`  降级: ${stats.tasksFallback}`, 'info');
+      log(`  平均 Worker 耗时: ${stats.avgWorkerTime.toFixed(2)} ms`, 'info');
+      log(`  平均主线程耗时: ${stats.avgMainThreadTime.toFixed(2)} ms`, 'info');
+      log('========================================', 'info');
+    }
+
+    function clearResults() {
+      document.getElementById('results-grid').innerHTML = '';
+      document.getElementById('chart-area').innerHTML = '<p style="color: #666; text-align: center; padding: 20px;">运行测试后将显示图表...</p>';
+      document.getElementById('console-log').innerHTML = '等待测试...\n';
+    }
+
+    window.addEventListener('load', function() {
+      log('页面加载完成', 'success');
+      log(`Worker Pool 已初始化，池大小: ${window.markdownWorkerPool.config.poolSize}`, 'info');
+      log(`当前配置 minTextLength: ${window.markdownWorkerPool.config.minTextLength} 字符`, 'info');
+    });
+  </script>
+</body>
+</html>
