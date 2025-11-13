@@ -372,7 +372,12 @@ function updateChatbotUI() {
   let availableModels = [];
   let currentSettings = {};
   try {
-    const config = window.ChatbotCore.getChatbotConfig();
+    // 缓存配置,避免流式更新时频繁加载
+    // 只在模型选择器打开或缓存失效时重新获取
+    if (!window._cachedChatbotConfig || window.isModelSelectorOpen) {
+      window._cachedChatbotConfig = window.ChatbotCore.getChatbotConfig();
+    }
+    const config = window._cachedChatbotConfig;
     currentSettings = config.settings || {};
     isCustomModel = config.model === 'custom' || (typeof config.model === 'string' && config.model.startsWith('custom_source_'));
     availableModels = config.siteSpecificAvailableModels || [];
@@ -456,6 +461,14 @@ function updateChatbotUI() {
     const oldScrollHeight = chatBody.scrollHeight;
     const oldClientHeight = chatBody.clientHeight;
 
+    // Phase 3.5 提前定义消息计数（用于后续滚动逻辑）
+    // 使用统一的状态管理对象，避免全局变量污染
+    if (!window.ChatbotRenderState) {
+      window.ChatbotRenderState = { lastRenderedMessageCount: 0 };
+    }
+    const currentMessageCount = window.ChatbotCore.chatHistory.length;
+    const lastRenderedCount = window.ChatbotRenderState.lastRenderedMessageCount || 0;
+
     let docName = 'unknown_doc';
     let dataForMindmap = { images: [], ocr: '', translation: '' };
     if (window.ChatbotCore && typeof window.ChatbotCore.getCurrentDocContent === 'function') {
@@ -471,6 +484,97 @@ function updateChatbotUI() {
     }
 
     if (window.ChatbotMessageRenderer) {
+        // Phase 3.5 增量渲染: 只渲染变化的消息，避免重新渲染整个历史
+
+        // 如果是流式更新（消息数量没变），只更新最后一条消息
+        if (window.ChatbotCore.isChatbotLoading && currentMessageCount === lastRenderedCount && currentMessageCount > 0) {
+          const lastMessage = window.ChatbotCore.chatHistory[currentMessageCount - 1];
+          const lastMessageContainer = chatBody.querySelector(`.assistant-message[data-message-index="${currentMessageCount - 1}"]`);
+
+          // 检查是否需要完整渲染（reasoning 第一次出现）
+          let needFullRender = false;
+          if (lastMessage.reasoningContent && lastMessageContainer) {
+            const reasoningBlockId = `reasoning-block-${currentMessageCount - 1}`;
+            const reasoningBlock = lastMessageContainer.querySelector(`#${reasoningBlockId}`);
+            if (!reasoningBlock) {
+              needFullRender = true; // reasoning 块不存在，需要完整渲染
+            }
+          }
+
+          // 如果需要完整渲染，跳过增量更新
+          if (!needFullRender && lastMessageContainer && lastMessage.role === 'assistant') {
+            // 1. 更新思考过程 (reasoning)
+            if (lastMessage.reasoningContent) {
+              const reasoningBlockId = `reasoning-block-${currentMessageCount - 1}`;
+              let reasoningBlock = lastMessageContainer.querySelector(`#${reasoningBlockId}`);
+
+              // 更新 reasoning 内容
+              const reasoningContentDiv = reasoningBlock.querySelector('div[style*="margin-top:8px"]');
+              if (reasoningContentDiv) {
+                const newReasoningLength = lastMessage.reasoningContent.length;
+                const lastReasoningLength = parseInt(reasoningBlock.dataset.lastReasoningLength || '0', 10);
+
+                if (newReasoningLength !== lastReasoningLength) {
+                  try {
+                    if (typeof renderWithKatexStreaming === 'function') {
+                      reasoningContentDiv.innerHTML = renderWithKatexStreaming(lastMessage.reasoningContent);
+                    } else {
+                      reasoningContentDiv.innerHTML = lastMessage.reasoningContent.replace(/\n/g, '<br>');
+                    }
+                    reasoningBlock.dataset.lastReasoningLength = newReasoningLength.toString();
+                  } catch (e) {
+                    if (window.PerfLogger) {
+                      window.PerfLogger.error('Reasoning 增量渲染失败:', e);
+                    }
+                    reasoningContentDiv.textContent = lastMessage.reasoningContent;
+                  }
+                }
+              }
+            }
+
+            // 2. 更新主内容 (content)
+            const contentDiv = lastMessageContainer.querySelector('.markdown-content');
+            if (contentDiv && lastMessage.content) {
+              // 使用内容长度判断是否有变化
+              const newContentLength = lastMessage.content.length;
+              const lastContentLength = parseInt(contentDiv.dataset.lastLength || '0', 10);
+
+              if (newContentLength !== lastContentLength) {
+                try {
+                  // 流式更新时使用简化渲染
+                  if (typeof renderWithKatexStreaming === 'function') {
+                    contentDiv.innerHTML = renderWithKatexStreaming(lastMessage.content);
+                  } else if (typeof marked !== 'undefined') {
+                    contentDiv.innerHTML = marked.parse(lastMessage.content);
+                  } else {
+                    contentDiv.textContent = lastMessage.content;
+                  }
+                  contentDiv.dataset.lastLength = newContentLength.toString();
+                } catch (e) {
+                  if (window.PerfLogger) {
+                    window.PerfLogger.error('增量渲染失败:', e);
+                  }
+                  contentDiv.textContent = lastMessage.content;
+                }
+              }
+            }
+          }
+
+          // Phase 3.5 智能滚动：流式更新时保持用户阅读位置
+          // 只有在用户主动停留在底部附近时才自动滚动
+          if (!needFullRender) {
+            const scrollThreshold = window.PerformanceConfig?.SCROLL?.BOTTOM_THRESHOLD || 50;
+            const isUserAtBottom = oldScrollHeight - oldClientHeight <= oldScrollTop + scrollThreshold;
+            if (isUserAtBottom) {
+              chatBody.scrollTop = chatBody.scrollHeight;
+            }
+            // 如果用户正在查看上方内容，不做任何滚动操作
+            return; // 跳过完整重新渲染
+          }
+          // needFullRender = true 时，继续执行完整渲染（不 return）
+        }
+
+        // 完整渲染：新消息或非流式更新
         let messagesHtml = window.ChatbotCore.chatHistory.map((m, index) => {
             if (m.role === 'segment-summary') {
                 return '';
@@ -489,6 +593,10 @@ function updateChatbotUI() {
         }
 
         chatBody.innerHTML = messagesHtml + window.ChatbotMessageRenderer.getMarkdownStyles();
+        window.ChatbotRenderState.lastRenderedMessageCount = currentMessageCount;
+        if (window.PerfLogger) {
+          window.PerfLogger.debug(`增量渲染: 完整渲染 ${currentMessageCount} 条消息`);
+        }
     } else {
         console.error("ChatbotMessageRenderer is not loaded!");
         chatBody.innerHTML = "<p style='color:red;'>错误：消息渲染模块加载失败。</p>";
@@ -502,11 +610,17 @@ function updateChatbotUI() {
       }
     }, 0);
 
-    const isUserInitiallyAtBottom = oldScrollHeight - oldClientHeight <= oldScrollTop + 5;
+    // Phase 3.5 智能滚动：完整渲染时保持用户阅读位置
+    const isUserAtBottom = oldScrollHeight - oldClientHeight <= oldScrollTop + 50; // 增加容差到 50px
+    const isNewMessageArrival = currentMessageCount > lastRenderedCount; // 检测是否有新消息到达
 
-    if (window.ChatbotCore.isChatbotLoading || isUserInitiallyAtBottom) {
+    // 自动滚动到底部的条件：
+    // 1. 有新消息到达（用户发送消息或助手开始回复）
+    // 2. 或者用户已经停留在底部附近
+    if (isNewMessageArrival || isUserAtBottom) {
       chatBody.scrollTop = chatBody.scrollHeight;
     }
+    // 否则保持用户当前的阅读位置（即使正在加载也不强制滚动）
 
     if (window.ChatbotRenderingUtils && typeof window.ChatbotRenderingUtils.renderAllMermaidBlocks === 'function') {
       if (window.mermaidLoaded && typeof window.mermaid !== 'undefined') {
@@ -526,6 +640,34 @@ function updateChatbotUI() {
     } else {
       console.warn('ChatbotUI: ChatbotRenderingUtils.renderAllMermaidBlocks is not available.');
     }
+
+    // Phase 3.5: 表格滚动监听 - 动态显示/隐藏渐变阴影提示
+    // 当表格滚动到最右侧时，隐藏右侧的渐变阴影
+    chatBody.querySelectorAll('.markdown-content table').forEach(table => {
+      // 移除旧的监听器（如果存在）
+      if (table._scrollListener) {
+        table.removeEventListener('scroll', table._scrollListener);
+      }
+
+      // 定义滚动监听器
+      const scrollListener = function() {
+        const isScrolledToEnd = table.scrollLeft >= (table.scrollWidth - table.clientWidth - 5); // 5px 容差
+        if (isScrolledToEnd) {
+          table.classList.add('scrolled-to-end');
+        } else {
+          table.classList.remove('scrolled-to-end');
+        }
+      };
+
+      // 保存监听器引用，以便后续移除
+      table._scrollListener = scrollListener;
+
+      // 绑定监听器
+      table.addEventListener('scroll', scrollListener);
+
+      // 初始检查（表格首次渲染时）
+      scrollListener();
+    });
   }
 
   const input = document.getElementById('chatbot-input');
@@ -1102,6 +1244,20 @@ function initChatbotDragAndResize() {
     handleDragEnd();
     handleResizeEnd();
   });
+
+  // ==========================================
+  // Phase 3: 初始化消息事件管理器（事件委托）
+  // ==========================================
+  if (window.ChatMessageEventManager) {
+    try {
+      window.chatMessageEventManager = new ChatMessageEventManager('#chatbot-body');
+      console.log('[ChatbotUI] ✅ Phase 3: 消息事件管理器已初始化（事件委托模式）');
+    } catch (error) {
+      console.error('[ChatbotUI] ❌ Phase 3: 消息事件管理器初始化失败:', error);
+    }
+  } else {
+    console.warn('[ChatbotUI] ⚠️ Phase 3: ChatMessageEventManager 类未加载，将使用内联事件（回滚模式）');
+  }
 }
 
 // 将核心函数挂载到 window 对象和 ChatbotUI 命名空间下，便于外部调用

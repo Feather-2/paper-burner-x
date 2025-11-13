@@ -1,3 +1,17 @@
+// Phase 3 优化: Marked.js 轻量化配置
+if (typeof marked !== 'undefined' && typeof marked.setOptions === 'function') {
+  marked.setOptions({
+    gfm: true,              // 启用 GitHub Flavored Markdown
+    breaks: true,           // 支持换行符
+    pedantic: false,
+    sanitize: false,
+    smartLists: false,      // 禁用智能列表（性能优化）
+    smartypants: false,     // 禁用智能标点（性能优化）
+    mangle: false,          // 禁用邮箱混淆（性能优化）
+    headerIds: false        // 禁用标题ID生成（性能优化）
+  });
+}
+
 window.renderWithKatexStreaming = function(md) {
   const codeBlocks = [];
   let codeBlockCounter = 0;
@@ -70,7 +84,16 @@ window.renderWithKatexStreaming = function(md) {
     const analysis = analyzeFormula(tex, true);
     try {
       return `
-<div class="katex-block" data-formula-display="block" data-original-text="${escapeHtml(analysis.text)}">${katex.renderToString(analysis.text, { displayMode: true, output: 'html' })}</div>
+<div class="katex-block" data-formula-display="block" data-original-text="${escapeHtml(analysis.text)}">${katex.renderToString(analysis.text, {
+  displayMode: true,
+  output: 'html',
+  strict: 'ignore',
+  throwOnError: false,
+  trust: false,          // Phase 3: 禁用不安全命令
+  macros: {},            // Phase 3: 使用空对象避免默认宏初始化
+  maxSize: 50,           // Phase 3: 限制公式大小
+  maxExpand: 100         // Phase 3: 限制宏展开
+})}</div>
 `;
     } catch (e) {
       return buildFallback(analysis.text, true, e);
@@ -80,7 +103,16 @@ window.renderWithKatexStreaming = function(md) {
     const analysis = analyzeFormula(tex, true);
     try {
       return `
-<div class="katex-block" data-formula-display="block" data-original-text="${escapeHtml(analysis.text)}">${katex.renderToString(analysis.text, { displayMode: true, output: 'html' })}</div>
+<div class="katex-block" data-formula-display="block" data-original-text="${escapeHtml(analysis.text)}">${katex.renderToString(analysis.text, {
+  displayMode: true,
+  output: 'html',
+  strict: 'ignore',
+  throwOnError: false,
+  trust: false,          // Phase 3: 禁用不安全命令
+  macros: {},            // Phase 3: 使用空对象避免默认宏初始化
+  maxSize: 50,           // Phase 3: 限制公式大小
+  maxExpand: 100         // Phase 3: 限制宏展开
+})}</div>
 `;
     } catch (e) {
       return buildFallback(analysis.text, true, e);
@@ -91,10 +123,28 @@ window.renderWithKatexStreaming = function(md) {
     try {
       if (analysis.displayMode) {
         return `
-<div class="katex-block" data-formula-display="block" data-original-text="${escapeHtml(analysis.text)}">${katex.renderToString(analysis.text, { displayMode: true, output: 'html' })}</div>
+<div class="katex-block" data-formula-display="block" data-original-text="${escapeHtml(analysis.text)}">${katex.renderToString(analysis.text, {
+  displayMode: true,
+  output: 'html',
+  strict: 'ignore',
+  throwOnError: false,
+  trust: false,          // Phase 3: 禁用不安全命令
+  macros: {},            // Phase 3: 使用空对象避免默认宏初始化
+  maxSize: 50,           // Phase 3: 限制公式大小
+  maxExpand: 100         // Phase 3: 限制宏展开
+})}</div>
 `;
       }
-      return `<span class="katex-inline" data-formula-display="inline" data-original-text="${escapeHtml(analysis.text)}">${katex.renderToString(analysis.text, { displayMode: false, output: 'html' })}</span>`;
+      return `<span class="katex-inline" data-formula-display="inline" data-original-text="${escapeHtml(analysis.text)}">${katex.renderToString(analysis.text, {
+  displayMode: false,
+  output: 'html',
+  strict: 'ignore',
+  throwOnError: false,
+  trust: false,          // Phase 3: 禁用不安全命令
+  macros: {},            // Phase 3: 使用空对象避免默认宏初始化
+  maxSize: 50,           // Phase 3: 限制公式大小
+  maxExpand: 100         // Phase 3: 限制宏展开
+})}</span>`;
     } catch (e) {
       return buildFallback(analysis.text, analysis.displayMode, e);
     }
@@ -104,10 +154,28 @@ window.renderWithKatexStreaming = function(md) {
     try {
       if (analysis.displayMode) {
         return `
-<div class="katex-block" data-formula-display="block" data-original-text="${escapeHtml(analysis.text)}">${katex.renderToString(analysis.text, { displayMode: true, output: 'html' })}</div>
+<div class="katex-block" data-formula-display="block" data-original-text="${escapeHtml(analysis.text)}">${katex.renderToString(analysis.text, {
+  displayMode: true,
+  output: 'html',
+  strict: 'ignore',
+  throwOnError: false,
+  trust: false,          // Phase 3: 禁用不安全命令
+  macros: {},            // Phase 3: 使用空对象避免默认宏初始化
+  maxSize: 50,           // Phase 3: 限制公式大小
+  maxExpand: 100         // Phase 3: 限制宏展开
+})}</div>
 `;
       }
-      return `<span class="katex-inline" data-formula-display="inline" data-original-text="${escapeHtml(analysis.text)}">${katex.renderToString(analysis.text, { displayMode: false, output: 'html' })}</span>`;
+      return `<span class="katex-inline" data-formula-display="inline" data-original-text="${escapeHtml(analysis.text)}">${katex.renderToString(analysis.text, {
+  displayMode: false,
+  output: 'html',
+  strict: 'ignore',
+  throwOnError: false,
+  trust: false,          // Phase 3: 禁用不安全命令
+  macros: {},            // Phase 3: 使用空对象避免默认宏初始化
+  maxSize: 50,           // Phase 3: 限制公式大小
+  maxExpand: 100         // Phase 3: 限制宏展开
+})}</span>`;
     } catch (e) {
       return buildFallback(analysis.text, analysis.displayMode, e);
     }

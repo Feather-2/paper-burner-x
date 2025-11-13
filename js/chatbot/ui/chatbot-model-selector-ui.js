@@ -433,6 +433,8 @@ window.ChatbotModelSelectorUI = {
     if (backBtn) {
       backBtn.onclick = function() {
         window.isModelSelectorOpen = false;
+        // 清除配置缓存,以便下次获取最新配置
+        window._cachedChatbotConfig = null;
         updateChatbotUI();
       };
     }

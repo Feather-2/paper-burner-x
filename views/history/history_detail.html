@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="../../css/reference-manager.css"> <!-- 参考文献管理 -->
   <link rel="stylesheet" href="../../css/history_detail/lightbox.css"> <!-- 图片灯箱样式 -->
   <link rel="stylesheet" href="../../css/chatbot-model-config-modal.css"> <!-- Chatbot配置弹窗 -->
+  <link rel="stylesheet" href="../../css/chatbot-message-actions.css"> <!-- Phase 3: 消息按钮样式（事件委托优化） -->
 
 </head>
 <body>
@@ -317,6 +318,8 @@
     }
   </script>
 
+  <!-- Phase 3.5: 性能优化配置（必须在所有 chatbot 模块之前加载） -->
+  <script src="../../js/chatbot/config/performance-config.js"></script>
   <script src="../../js/chatbot/utils/mermaid-loader.js"></script>
   <!-- XSS 防护：DOMPurify - 用于清理 AI 生成的 HTML 内容 -->
   <script src="https://gcore.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
@@ -329,6 +332,7 @@
   <script src="../../js/chatbot/utils/chatbot-image-utils.js"></script> <!-- Moved up to be with other utils -->
   <script src="../../js/chatbot/utils/chatbot-rendering-utils.js"></script> <!-- NEW -->
   <script src="../../js/chatbot/actions/chatbot-actions.js"></script> <!-- NEW -->
+  <script src="../../js/chatbot/core/chat-message-event-manager.js"></script> <!-- Phase 3: 事件管理器（事件委托优化） -->
   <script src="../../js/chatbot/ui/chatbot-message-renderer.js"></script> <!-- NEW -->
   <!-- 新增：意群聚合模块 -->
   <script src="../../js/chatbot/agents/semantic-grouper.js"></script>

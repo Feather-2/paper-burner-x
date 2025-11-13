@@ -1,4 +1,72 @@
+// ========== Phase 2.1: 性能优化 - DOM 缓存和防抖 ==========
+// DOM 元素缓存：避免重复查询
+const DOM_CACHE = {
+  tabs: {
+    ocr: null,
+    translation: null,
+    chunkCompare: null,
+    pdfCompare: null
+  },
+  layout: {
+    title: null,
+    meta: null,
+    tabsContainer: null
+  },
+  // 初始化缓存
+  init: function() {
+    this.tabs.ocr = document.getElementById('tab-ocr');
+    this.tabs.translation = document.getElementById('tab-translation');
+    this.tabs.chunkCompare = document.getElementById('tab-chunk-compare');
+    this.tabs.pdfCompare = document.getElementById('tab-pdf-compare');
+    this.layout.title = document.getElementById('fileName');
+    this.layout.meta = document.getElementById('fileMeta');
+    this.layout.tabsContainer = document.querySelector('.tabs-container');
+  },
+  // 懒初始化：第一次使用时自动初始化
+  ensureInitialized: function() {
+    if (!this.tabs.ocr) {
+      this.init();
+    }
+  }
+};
+
+// 防抖定时器：防止快速切换标签导致重复渲染
+let showTabDebounceTimer = null;
+let pendingTab = null;
+
+/**
+ * 带防抖的标签切换函数（用户接口）
+ * 快速点击多个标签时，只渲染最后一个
+ */
 function showTab(tab) {
+  // 记录待处理的标签
+  pendingTab = tab;
+
+  // 清除之前的定时器
+  if (showTabDebounceTimer) {
+    clearTimeout(showTabDebounceTimer);
+  }
+
+  // 设置新的延迟执行（100ms）
+  showTabDebounceTimer = setTimeout(() => {
+    showTabDebounceTimer = null;
+    showTabImmediate(pendingTab);
+  }, 100);
+}
+
+/**
+ * 立即执行标签切换（内部函数）
+ * 原 showTab 逻辑移至此处
+ */
+function showTabImmediate(tab) {
+  // 确保 DOM 缓存已初始化
+  DOM_CACHE.ensureInitialized();
+
+  // Phase 2.3: 清空批注系统缓存（标签切换时）
+  if (window.AnnotationDOMCache && window.AnnotationDOMCache.initialized) {
+    window.AnnotationDOMCache.clear();
+  }
+
   // ========== 先尝试清理上一视图的资源（尤其 chunk-compare） ==========
   try {
     const prevTab = window.currentVisibleTabId;
@@ -67,20 +135,17 @@ function showTab(tab) {
     // console.log(`Saved active tab for ${docIdForLocalStorage}: ${tab}`);
   }
 
-  document.getElementById('tab-ocr').classList.remove('active');
-  document.getElementById('tab-translation').classList.remove('active');
+  // 使用缓存的 DOM 元素：移除所有标签的 active 状态
+  DOM_CACHE.tabs.ocr.classList.remove('active');
+  DOM_CACHE.tabs.translation.classList.remove('active');
   // document.getElementById('tab-compare').classList.remove('active'); // 对应按钮已注释，此行也可注释
-  document.getElementById('tab-chunk-compare').classList.remove('active');
-  const pdfCompareTabBtn = document.getElementById('tab-pdf-compare');
-  if (pdfCompareTabBtn) pdfCompareTabBtn.classList.remove('active');
+  DOM_CACHE.tabs.chunkCompare.classList.remove('active');
+  if (DOM_CACHE.tabs.pdfCompare) DOM_CACHE.tabs.pdfCompare.classList.remove('active');
 
-  // 恢复顶部区域显示（退出 PDF 对照模式时）
-  const titleElement = document.getElementById('fileName');
-  const metaElement = document.getElementById('fileMeta');
-  const tabsContainer = document.querySelector('.tabs-container');
-  if (titleElement) titleElement.style.display = '';
-  if (metaElement) metaElement.style.display = '';
-  if (tabsContainer) tabsContainer.style.display = '';
+  // 恢复顶部区域显示（退出 PDF 对照模式时）- 使用缓存
+  if (DOM_CACHE.layout.title) DOM_CACHE.layout.title.style.display = '';
+  if (DOM_CACHE.layout.meta) DOM_CACHE.layout.meta.style.display = '';
+  if (DOM_CACHE.layout.tabsContainer) DOM_CACHE.layout.tabsContainer.style.display = '';
 
   let html = '';
   let contentContainerId = ''; // 用于 applyAnnotationsToContent
@@ -100,10 +165,10 @@ function showTab(tab) {
   if (tab === 'chunk-compare') {
     // 安全校验：需要 ocrChunks/transChunks 同步存在且长度一致
     if (!data || !Array.isArray(data.ocrChunks) || !Array.isArray(data.translatedChunks) || data.ocrChunks.length === 0 || data.translatedChunks.length === 0 || data.ocrChunks.length !== data.translatedChunks.length) {
-      document.getElementById('tab-chunk-compare').classList.add('active');
+      DOM_CACHE.tabs.chunkCompare.classList.add('active');
       const warn = `<div class="warning-box" style="padding:12px;border:1px solid #fbbf24;background:#fffbeb;color:#92400e;border-radius:8px;">`
-                 + `无法进入“分块对比”：当前记录的原文分块数量与译文分块数量不一致，或缺少分块信息。`
-                 + `<br>请先查看“仅OCR/仅翻译”，或重新生成分块以使用对比功能。`
+                 + `无法进入"分块对比"：当前记录的原文分块数量与译文分块数量不一致，或缺少分块信息。`
+                 + `<br>请先查看"仅OCR/仅翻译"，或重新生成分块以使用对比功能。`
                  + `</div>`;
       document.getElementById('tabContent').innerHTML = warn;
       if (typeof window.refreshTocList === 'function') window.refreshTocList();
@@ -114,28 +179,25 @@ function showTab(tab) {
   }
 
   if(tab === 'ocr') {
-    document.getElementById('tab-ocr').classList.add('active');
+    DOM_CACHE.tabs.ocr.classList.add('active');
     contentContainerId = 'ocr-content-wrapper';
     let ocrText = data.ocr || '';
     // 性能测试断点 - OCR渲染
     console.time('[性能] OCR分批渲染');
     html = `<h3>OCR内容</h3><div id="${contentContainerId}" class="markdown-body content-wrapper"></div>`;
   } else if(tab === 'translation') {
-    document.getElementById('tab-translation').classList.add('active');
+    DOM_CACHE.tabs.translation.classList.add('active');
     contentContainerId = 'translation-content-wrapper';
     html = `<h3>翻译内容</h3><div id="${contentContainerId}" class="markdown-body content-wrapper"></div>`;
     console.time('[性能] 翻译分批渲染');
   } else if (tab === 'pdf-compare') {
     // ========== MinerU PDF 对照视图 ==========
-    if (pdfCompareTabBtn) pdfCompareTabBtn.classList.add('active');
+    if (DOM_CACHE.tabs.pdfCompare) DOM_CACHE.tabs.pdfCompare.classList.add('active');
 
-    // 隐藏顶部区域以获得更大空间
-    const titleElement = document.getElementById('fileName');
-    const metaElement = document.getElementById('fileMeta');
-    const tabsContainer = document.querySelector('.tabs-container');
-    if (titleElement) titleElement.style.display = 'none';
-    if (metaElement) metaElement.style.display = 'none';
-    if (tabsContainer) tabsContainer.style.display = 'none';
+    // 隐藏顶部区域以获得更大空间 - 使用缓存
+    if (DOM_CACHE.layout.title) DOM_CACHE.layout.title.style.display = 'none';
+    if (DOM_CACHE.layout.meta) DOM_CACHE.layout.meta.style.display = 'none';
+    if (DOM_CACHE.layout.tabsContainer) DOM_CACHE.layout.tabsContainer.style.display = 'none';
 
     // 验证必要数据
     if (!data.metadata || !data.metadata.originalPdfBase64 || !data.metadata.contentListJson || !data.metadata.translatedContentList) {
@@ -241,7 +303,7 @@ function showTab(tab) {
     })();
 
     // window.globalCurrentContentIdentifier = ''; // 已在函数开头正确设置
-    document.getElementById('tab-chunk-compare').classList.add('active');
+    DOM_CACHE.tabs.chunkCompare.classList.add('active');
     if (data.ocrChunks && data.ocrChunks.length > 0 && data.translatedChunks && data.translatedChunks.length === data.ocrChunks.length) {
         // 使用优化器进行分块对比渲染
         if (false && window.ChunkCompareOptimizer && window.ChunkCompareOptimizer.instance) {
@@ -1643,6 +1705,11 @@ function showTab(tab) {
                 // ========== 内容加载完成 =============
                 window.contentReady = true;
                 console.log('[DEBUG] window.contentReady = true (after OCR/Translation segmentInBatches)');
+
+                // Phase 2.3: 初始化批注系统 DOM 缓存
+                if (window.AnnotationDOMCache) {
+                  window.AnnotationDOMCache.init();
+                }
                 // ====================================
             });
           } else {
@@ -1652,6 +1719,11 @@ function showTab(tab) {
             // ========== 内容加载完成 =============
             window.contentReady = true;
             console.log('[DEBUG] window.contentReady = true (after OCR/Translation segmentInBatches, no activeContentElement)');
+
+            // Phase 2.3: 初始化批注系统 DOM 缓存
+            if (window.AnnotationDOMCache) {
+              window.AnnotationDOMCache.init();
+            }
             // ====================================
           }
         }); // End of requestAnimationFrame
@@ -1702,6 +1774,12 @@ function showTab(tab) {
               // ========== 内容加载完成 =============
               window.contentReady = true;
               console.log('[DEBUG] window.contentReady = true (after OCR/Translation segmentInBatches)');
+
+              // Phase 2.3: 初始化批注系统 DOM 缓存
+              if (window.AnnotationDOMCache) {
+                window.AnnotationDOMCache.init();
+              }
+
               try {
                 // 通知其他模块（例如参考文献管理器）内容已渲染
                 document.dispatchEvent(new CustomEvent('contentRendered', { detail: { tab } }));
@@ -1715,6 +1793,12 @@ function showTab(tab) {
           // ========== 内容加载完成 =============
           window.contentReady = true;
           console.log('[DEBUG] window.contentReady = true (after OCR/Translation segmentInBatches, no activeContentElement)');
+
+          // Phase 2.3: 初始化批注系统 DOM 缓存
+          if (window.AnnotationDOMCache) {
+            window.AnnotationDOMCache.init();
+          }
+
           try {
             // 通知其他模块（例如参考文献管理器）内容已渲染
             document.dispatchEvent(new CustomEvent('contentRendered', { detail: { tab } }));

@@ -1,0 +1,323 @@
+/* ====================================
+   Phase 3: 聊天消息操作按钮样式
+   ==================================== */
+
+/**
+ * Phase 3 优化：将所有内联 hover 效果迁移到 CSS
+ * 目标：减少内联样式，提升渲染性能和代码可维护性
+ */
+
+/* ==========================================
+   基础按钮样式
+   ========================================== */
+
+.msg-action-btn {
+    background: rgba(0, 0, 0, 0.05);
+    border: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease;
+    margin-left: 4px;
+}
+
+.msg-action-btn:first-child {
+    margin-left: 0;
+}
+
+/* ==========================================
+   删除按钮
+   ========================================== */
+
+.delete-msg-btn {
+    /* 继承基础样式 */
+}
+
+.delete-msg-btn:hover {
+    background: rgba(239, 68, 68, 0.1) !important;
+    transform: scale(1.1);
+}
+
+.delete-msg-btn:active {
+    transform: scale(0.95);
+}
+
+/* ==========================================
+   重发按钮
+   ========================================== */
+
+.resend-msg-btn {
+    /* 继承基础样式 */
+}
+
+.resend-msg-btn:hover {
+    background: rgba(59, 130, 246, 0.1) !important;
+    transform: scale(1.1);
+}
+
+.resend-msg-btn:active {
+    transform: scale(0.95);
+}
+
+/* ==========================================
+   复制按钮
+   ========================================== */
+
+.copy-btn {
+    background: rgba(0, 0, 0, 0.05);
+    border: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.copy-btn:hover {
+    background: rgba(0, 0, 0, 0.1) !important;
+    transform: scale(1.05);
+}
+
+.copy-btn:active {
+    transform: scale(0.95);
+    background: rgba(0, 0, 0, 0.15) !important;
+}
+
+/* ==========================================
+   导出 PNG 按钮
+   ========================================== */
+
+.export-png-btn {
+    background: rgba(0, 0, 0, 0.05);
+    border: 1px dashed #e2e8f0;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.export-png-btn:hover {
+    background: rgba(0, 0, 0, 0.1) !important;
+    border-color: #cbd5e1;
+    transform: scale(1.05);
+}
+
+.export-png-btn:active {
+    transform: scale(0.95);
+}
+
+/* ==========================================
+   操作按钮容器
+   ========================================== */
+
+.action-buttons-container {
+    display: none;
+    gap: 5px;
+    z-index: 3;
+    padding: 4px;
+    transition: opacity 0.2s ease;
+}
+
+/* 消息容器 hover 时显示操作按钮 */
+.message-container:hover .action-buttons-container {
+    display: flex !important;
+}
+
+/* 操作按钮容器自身 hover 时保持显示 */
+.action-buttons-container:hover {
+    display: flex !important;
+}
+
+/* ==========================================
+   原始操作按钮区域（复制、导出）
+   ========================================== */
+
+.original-actions {
+    position: absolute;
+    top: 8px;
+    left: 12px;
+    display: flex;
+    gap: 6px;
+    opacity: 0.6;
+    transition: opacity 0.2s ease;
+    z-index: 2;
+}
+
+.original-actions:hover {
+    opacity: 1 !important;
+}
+
+/* ==========================================
+   思考过程折叠按钮
+   ========================================== */
+
+.reasoning-toggle-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px 6px;
+    color: #64748b;
+    font-size: 15px;
+    transition: all 0.2s ease;
+}
+
+.reasoning-toggle-btn:hover {
+    color: #475569;
+    transform: scale(1.1);
+}
+
+.reasoning-toggle-btn:active {
+    transform: scale(0.95);
+}
+
+/* ==========================================
+   思维导图打开按钮
+   ========================================== */
+
+.mindmap-open-btn {
+    padding: 10px 22px;
+    font-size: 15px;
+    background: rgba(59, 130, 246, 0.92);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.12);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.mindmap-open-btn:hover {
+    background: rgba(59, 130, 246, 1);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+    transform: translateY(-1px);
+}
+
+.mindmap-open-btn:active {
+    transform: translateY(0);
+}
+
+/* ==========================================
+   图片点击放大
+   ========================================== */
+
+.user-message-image {
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.user-message-image:hover {
+    opacity: 0.9;
+    transform: scale(1.02);
+}
+
+.user-message-image:active {
+    transform: scale(0.98);
+}
+
+/* ==========================================
+   响应式调整
+   ========================================== */
+
+@media (max-width: 768px) {
+    .msg-action-btn {
+        width: 28px;
+        height: 28px;
+    }
+
+    .copy-btn,
+    .export-png-btn {
+        width: 28px;
+        height: 28px;
+    }
+
+    .action-buttons-container {
+        gap: 8px;
+    }
+}
+
+/* ==========================================
+   辅助功能增强
+   ========================================== */
+
+/* 键盘焦点样式 */
+.msg-action-btn:focus,
+.copy-btn:focus,
+.export-png-btn:focus,
+.reasoning-toggle-btn:focus,
+.mindmap-open-btn:focus {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+}
+
+/* 禁用状态 */
+.msg-action-btn:disabled,
+.copy-btn:disabled,
+.export-png-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.msg-action-btn:disabled:hover,
+.copy-btn:disabled:hover,
+.export-png-btn:disabled:hover {
+    background: rgba(0, 0, 0, 0.05) !important;
+    transform: none !important;
+}
+
+/* ==========================================
+   打印样式
+   ========================================== */
+
+@media print {
+    .action-buttons-container,
+    .original-actions {
+        display: none !important;
+    }
+}
+
+/* ==========================================
+   深色模式支持（可选）
+   ========================================== */
+
+@media (prefers-color-scheme: dark) {
+    .msg-action-btn {
+        background: rgba(255, 255, 255, 0.1);
+    }
+
+    .delete-msg-btn:hover {
+        background: rgba(239, 68, 68, 0.2) !important;
+    }
+
+    .resend-msg-btn:hover {
+        background: rgba(59, 130, 246, 0.2) !important;
+    }
+
+    .copy-btn,
+    .export-png-btn {
+        background: rgba(255, 255, 255, 0.1);
+    }
+
+    .copy-btn:hover,
+    .export-png-btn:hover {
+        background: rgba(255, 255, 255, 0.15) !important;
+    }
+}

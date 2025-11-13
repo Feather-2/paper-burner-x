@@ -674,8 +674,91 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         };
       }
       let lastUpdateTime = Date.now();
-      const UPDATE_INTERVAL = 100;
+      // Phase 3.5 超级降频: 大幅降低更新频率 + 智能跳帧（使用统一配置）
+      const intervals = window.PerformanceConfig?.UPDATE_INTERVALS || {
+        FOREGROUND: 800,
+        BACKGROUND: 3000
+      };
+      const BASE_UPDATE_INTERVAL = intervals.FOREGROUND;
+      const BACKGROUND_UPDATE_INTERVAL = intervals.BACKGROUND;
+
+      // Phase 3.5 智能跳帧: 监测渲染性能（使用统一配置）
+      const perfConfig = window.PerformanceConfig?.ADAPTIVE_RENDER || {
+        HEAVY_THRESHOLD: 200,
+        MIN_MULTIPLIER: 1,
+        MAX_MULTIPLIER: 4,
+        DECAY_THRESHOLD: 100
+      };
+
+      // 使用全局状态管理，避免变量作用域问题
+      if (!window.ChatbotRenderState) {
+        window.ChatbotRenderState = { adaptiveMultiplier: 1, lastRenderDuration: 0 };
+      }
+
+      const getUpdateInterval = () => {
+        const baseInterval = (typeof document !== 'undefined' && document.hidden)
+          ? BACKGROUND_UPDATE_INTERVAL
+          : BASE_UPDATE_INTERVAL;
+
+        // 智能跳帧: 使用衰减机制而非立即重置
+        const lastDuration = window.ChatbotRenderState.lastRenderDuration;
+
+        if (lastDuration > perfConfig.HEAVY_THRESHOLD) {
+          // 渲染慢：逐步增加倍数（最多到 MAX_MULTIPLIER）
+          window.ChatbotRenderState.adaptiveMultiplier = Math.min(
+            perfConfig.MAX_MULTIPLIER,
+            window.ChatbotRenderState.adaptiveMultiplier * 2
+          );
+          if (window.PerfLogger) {
+            window.PerfLogger.warn(
+              `跳帧: 检测到重渲染(${lastDuration.toFixed(0)}ms)，降频×${window.ChatbotRenderState.adaptiveMultiplier}`
+            );
+          }
+        } else if (lastDuration < perfConfig.DECAY_THRESHOLD && lastDuration > 0) {
+          // 渲染快：逐步恢复倍数（最少到 MIN_MULTIPLIER）
+          const oldMultiplier = window.ChatbotRenderState.adaptiveMultiplier;
+          window.ChatbotRenderState.adaptiveMultiplier = Math.max(
+            perfConfig.MIN_MULTIPLIER,
+            window.ChatbotRenderState.adaptiveMultiplier / 2
+          );
+          if (oldMultiplier !== window.ChatbotRenderState.adaptiveMultiplier && window.PerfLogger) {
+            window.PerfLogger.debug(
+              `跳帧: 渲染恢复(${lastDuration.toFixed(0)}ms)，降频×${window.ChatbotRenderState.adaptiveMultiplier}`
+            );
+          }
+        }
+
+        return baseInterval * window.ChatbotRenderState.adaptiveMultiplier;
+      };
+
       let collectedReasoning = '';
+      let debounceTimer = null;  // Phase 3 优化: 防抖计时器，避免流式结束时的多次渲染
+
+      // Phase 3.5 性能监控版 debouncedUpdateUI（使用统一配置）
+      const debounceDelay = window.PerformanceConfig?.UPDATE_INTERVALS?.DEBOUNCE || 150;
+      const debouncedUpdateUI = () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          const renderStart = performance.now();
+          if (typeof updateChatbotUI === 'function') updateChatbotUI();
+          const renderEnd = performance.now();
+          window.ChatbotRenderState.lastRenderDuration = renderEnd - renderStart;
+
+          // 使用统一的性能日志工具
+          if (window.PerfLogger) {
+            window.PerfLogger.perf('渲染耗时', window.ChatbotRenderState.lastRenderDuration);
+          }
+        }, debounceDelay);
+      };
+
+      // 输出智能降频状态
+      const initialInterval = getUpdateInterval();
+      if (window.PerfLogger) {
+        window.PerfLogger.info(
+          `超级降频: 流式更新间隔 ${initialInterval}ms (${document.hidden ? '后台标签页' : '前台标签页'})`
+        );
+      }
+
       try {
         while (true) {
           const { done, value } = await reader.read();
@@ -688,9 +771,10 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
               if (parsed) {
                 collectedContent += parsed;
                 const now = Date.now();
-                if (now - lastUpdateTime > UPDATE_INTERVAL) {
+                const currentInterval = getUpdateInterval();  // Phase 3.5: 智能跳帧
+                if (now - lastUpdateTime > currentInterval) {
                   chatHistory[assistantMsgIndex].content = collectedContent;
-                  if (typeof updateChatbotUI === 'function') updateChatbotUI();
+                  debouncedUpdateUI();  // Phase 3.5: 性能监控版
                   lastUpdateTime = now;
                 }
               }
@@ -704,8 +788,9 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
                 chatHistory[assistantMsgIndex].content = collectedContent;
               }
               const now = Date.now();
-              if (now - lastUpdateTime > UPDATE_INTERVAL) {
-                if (typeof updateChatbotUI === 'function') updateChatbotUI();
+              const currentInterval = getUpdateInterval();  // Phase 3.5: 智能跳帧
+              if (now - lastUpdateTime > currentInterval) {
+                debouncedUpdateUI();  // Phase 3.5: 性能监控版
                 lastUpdateTime = now;
               }
             }

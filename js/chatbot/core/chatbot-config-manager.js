@@ -34,6 +34,10 @@ function saveChatbotConfig(config) {
 
     localStorage.setItem(CHATBOT_CONFIG_KEY, JSON.stringify(configToSave));
     console.log('[Chatbot Config] 配置已保存:', configToSave);
+
+    // 清除UI配置缓存,以便下次获取最新配置
+    window._cachedChatbotConfig = null;
+
     return true;
   } catch (e) {
     console.error('[Chatbot Config] 保存配置失败:', e);

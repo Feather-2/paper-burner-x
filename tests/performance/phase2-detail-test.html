@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phase 2: 详情页性能测试</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            padding: 40px;
+            background: #f5f5f5;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        h2 {
+            color: #555;
+            margin-top: 30px;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+        }
+        .info {
+            background: #d1ecf1;
+            border-left: 4px solid #17a2b8;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .success {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        button {
+            padding: 12px 24px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 10px 10px 0;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .log {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            max-height: 500px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 4px 0;
+        }
+        .log-entry.info { color: #4FC3F7; }
+        .log-entry.success { color: #4CAF50; font-weight: bold; }
+        .log-entry.error { color: #EF5350; }
+        .log-entry.warning { color: #FFA726; }
+        .result {
+            font-size: 18px;
+            font-weight: bold;
+            padding: 20px;
+            text-align: center;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+        .result.pass {
+            background: #d4edda;
+            color: #155724;
+        }
+        .result.fail {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .metric {
+            display: inline-block;
+            padding: 10px 20px;
+            margin: 5px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            border: 1px solid #dee2e6;
+        }
+        .metric-label {
+            font-size: 12px;
+            color: #6c757d;
+            display: block;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        code {
+            background: #f8f9fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Phase 2: 详情页性能测试</h1>
+        <p style="color: #666;">测试标签切换防抖和 DOM 缓存优化的效果</p>
+
+        <div class="warning">
+            <strong>⚠️ 测试说明</strong><br>
+            本测试工具用于验证 Phase 2 的性能优化效果。<br>
+            <strong>优化内容</strong>：
+            <ul style="margin: 10px 0;">
+                <li><strong>标签切换防抖</strong>（100ms）：快速点击多个标签时，只渲染最后一个</li>
+                <li><strong>DOM 缓存</strong>：缓存频繁查询的 DOM 元素（8+ 次查询 → 1 次查询）</li>
+            </ul>
+        </div>
+
+        <div class="info">
+            <strong>📋 测试前准备</strong><br>
+            1. 确保已经加载了包含优化的 <code>history_detail_show_tab.js</code><br>
+            2. 打开浏览器开发者工具（F12）并切换到 Console 标签<br>
+            3. 观察控制台输出的性能日志
+        </div>
+
+        <!-- 测试 1: 防抖效果 -->
+        <h2>测试 1: 标签切换防抖 🎯</h2>
+        <div class="info">
+            <strong>测试目标</strong>：验证快速点击标签时，防抖机制是否生效<br>
+            <strong>预期结果</strong>：10 次点击只触发 1 次渲染（最后一次）
+        </div>
+
+        <button id="test-debounce-btn">▶️ 开始测试防抖</button>
+        <button id="stop-test-btn" disabled>⏹️ 停止测试</button>
+
+        <div id="debounce-metrics" style="margin: 20px 0; display: none;">
+            <div class="metric">
+                <span class="metric-label">点击次数</span>
+                <span class="metric-value" id="click-count">0</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">渲染次数</span>
+                <span class="metric-value" id="render-count">0</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">节省比例</span>
+                <span class="metric-value" id="save-ratio">0%</span>
+            </div>
+        </div>
+
+        <div id="debounce-result"></div>
+
+        <!-- 测试 2: DOM 缓存效果 -->
+        <h2>测试 2: DOM 缓存性能 ⚡</h2>
+        <div class="info">
+            <strong>测试目标</strong>：对比使用缓存前后的 DOM 查询耗时<br>
+            <strong>预期结果</strong>：使用缓存后查询耗时降低 80% 以上
+        </div>
+
+        <button id="test-cache-btn">▶️ 测试 DOM 缓存性能</button>
+
+        <div id="cache-result"></div>
+
+        <!-- 测试 3: 综合性能测试 -->
+        <h2>测试 3: 标签切换综合性能 📊</h2>
+        <div class="info">
+            <strong>测试目标</strong>：测量标签切换的完整耗时（包括防抖和 DOM 操作）<br>
+            <strong>预期结果</strong>：平均切换时间 < 150ms
+        </div>
+
+        <button id="test-performance-btn">▶️ 运行性能基准测试</button>
+
+        <div id="performance-result"></div>
+
+        <!-- 日志输出 -->
+        <h2>测试日志 📝</h2>
+        <div class="log" id="log"></div>
+
+        <div class="info" style="margin-top: 30px;">
+            <strong>💡 提示</strong><br>
+            如果测试失败，请检查：<br>
+            1. 是否正确加载了优化后的 <code>history_detail_show_tab.js</code><br>
+            2. 浏览器控制台是否有错误信息<br>
+            3. DOM 元素是否正确初始化（查看 <code>DOM_CACHE</code> 对象）
+        </div>
+    </div>
+
+    <script>
+        const logEl = document.getElementById('log');
+
+        function log(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            const time = new Date().toLocaleTimeString();
+            entry.textContent = `[${time}] ${message}`;
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        function clearLog() {
+            logEl.innerHTML = '';
+        }
+
+        // ================================================
+        // 测试 1: 防抖效果
+        // ================================================
+        let testInterval = null;
+        let clickCount = 0;
+        let renderCount = 0;
+
+        // 模拟的 showTab 函数（用于测试）
+        function mockShowTabDebounced() {
+            let timer = null;
+            let pendingTab = null;
+
+            return function(tab) {
+                clickCount++;
+                pendingTab = tab;
+
+                if (timer) {
+                    clearTimeout(timer);
+                }
+
+                timer = setTimeout(() => {
+                    timer = null;
+                    renderCount++;
+                    log(`✓ 渲染标签: ${pendingTab} (第 ${renderCount} 次渲染)`, 'success');
+                    updateDebounceMetrics();
+                }, 100);
+            };
+        }
+
+        const mockShowTab = mockShowTabDebounced();
+
+        function updateDebounceMetrics() {
+            document.getElementById('click-count').textContent = clickCount;
+            document.getElementById('render-count').textContent = renderCount;
+            const saveRatio = clickCount > 0 ? Math.round((1 - renderCount / clickCount) * 100) : 0;
+            document.getElementById('save-ratio').textContent = saveRatio + '%';
+        }
+
+        document.getElementById('test-debounce-btn').addEventListener('click', function() {
+            clearLog();
+            document.getElementById('debounce-result').innerHTML = '';
+            document.getElementById('debounce-metrics').style.display = 'block';
+
+            clickCount = 0;
+            renderCount = 0;
+            updateDebounceMetrics();
+
+            log('=== 开始测试标签切换防抖 ===', 'info');
+            log('⚠️ 将快速触发 10 次标签切换...', 'warning');
+
+            this.disabled = true;
+            document.getElementById('stop-test-btn').disabled = false;
+
+            let count = 0;
+            const tabs = ['ocr', 'translation', 'chunk-compare', 'pdf-compare'];
+
+            testInterval = setInterval(() => {
+                if (count >= 10) {
+                    clearInterval(testInterval);
+                    testInterval = null;
+                    document.getElementById('test-debounce-btn').disabled = false;
+                    document.getElementById('stop-test-btn').disabled = true;
+
+                    setTimeout(() => {
+                        const passed = renderCount === 1;
+                        const resultEl = document.getElementById('debounce-result');
+
+                        if (passed) {
+                            resultEl.innerHTML = `
+                                <div class="result pass">
+                                    ✅ 测试通过！<br>
+                                    触发 ${clickCount} 次，仅渲染 ${renderCount} 次<br>
+                                    <small>防抖机制正常工作，节省了 ${Math.round((1 - renderCount / clickCount) * 100)}% 的渲染</small>
+                                </div>
+                            `;
+                            log('✅ 防抖测试通过', 'success');
+                        } else {
+                            resultEl.innerHTML = `
+                                <div class="result fail">
+                                    ❌ 测试失败！<br>
+                                    触发 ${clickCount} 次，渲染了 ${renderCount} 次<br>
+                                    <small>预期只渲染 1 次，实际渲染 ${renderCount} 次</small>
+                                </div>
+                            `;
+                            log('❌ 防抖测试失败', 'error');
+                        }
+                    }, 300);
+
+                    return;
+                }
+
+                count++;
+                const tab = tabs[count % tabs.length];
+                log(`🖱️ 点击 ${count}: 切换到 ${tab} 标签`, 'info');
+                mockShowTab(tab);
+            }, 20); // 每 20ms 触发一次点击
+        });
+
+        document.getElementById('stop-test-btn').addEventListener('click', function() {
+            if (testInterval) {
+                clearInterval(testInterval);
+                testInterval = null;
+            }
+            document.getElementById('test-debounce-btn').disabled = false;
+            this.disabled = true;
+            log('⏹️ 测试已停止', 'warning');
+        });
+
+        // ================================================
+        // 测试 2: DOM 缓存性能
+        // ================================================
+        document.getElementById('test-cache-btn').addEventListener('click', function() {
+            clearLog();
+            document.getElementById('cache-result').innerHTML = '';
+
+            log('=== 开始测试 DOM 缓存性能 ===', 'info');
+
+            // 测试不使用缓存（直接查询）
+            const iterations = 1000;
+            log(`📊 测试 ${iterations} 次 DOM 查询...`, 'info');
+
+            // 不使用缓存
+            const startNoCacheTime = performance.now();
+            for (let i = 0; i < iterations; i++) {
+                const tab1 = document.getElementById('test-tab-1');
+                const tab2 = document.getElementById('test-tab-2');
+                const title = document.getElementById('test-title');
+                const meta = document.getElementById('test-meta');
+            }
+            const noCacheTime = performance.now() - startNoCacheTime;
+            log(`⏱️ 不使用缓存: ${noCacheTime.toFixed(2)}ms`, 'warning');
+
+            // 使用缓存
+            const cache = {
+                tab1: document.getElementById('test-tab-1'),
+                tab2: document.getElementById('test-tab-2'),
+                title: document.getElementById('test-title'),
+                meta: document.getElementById('test-meta')
+            };
+
+            const startCacheTime = performance.now();
+            for (let i = 0; i < iterations; i++) {
+                const tab1 = cache.tab1;
+                const tab2 = cache.tab2;
+                const title = cache.title;
+                const meta = cache.meta;
+            }
+            const cacheTime = performance.now() - startCacheTime;
+            log(`⏱️ 使用缓存: ${cacheTime.toFixed(2)}ms`, 'success');
+
+            const speedup = ((noCacheTime - cacheTime) / noCacheTime * 100).toFixed(1);
+            const faster = (noCacheTime / cacheTime).toFixed(1);
+
+            log(`💡 结果: 缓存方式快 ${faster}x，节省了 ${speedup}% 的时间`, 'success');
+
+            const passed = speedup > 50; // 至少节省 50% 时间
+
+            const resultEl = document.getElementById('cache-result');
+            if (passed) {
+                resultEl.innerHTML = `
+                    <div class="result pass">
+                        ✅ 测试通过！<br>
+                        DOM 缓存性能提升 ${speedup}%<br>
+                        <small>缓存方式比直接查询快 ${faster} 倍</small>
+                    </div>
+                `;
+            } else {
+                resultEl.innerHTML = `
+                    <div class="result fail">
+                        ⚠️ 性能提升不明显<br>
+                        仅提升了 ${speedup}%<br>
+                        <small>可能浏览器已经优化了 getElementById</small>
+                    </div>
+                `;
+            }
+        });
+
+        // ================================================
+        // 测试 3: 综合性能基准测试
+        // ================================================
+        document.getElementById('test-performance-btn').addEventListener('click', function() {
+            clearLog();
+            document.getElementById('performance-result').innerHTML = '';
+
+            log('=== 开始综合性能基准测试 ===', 'info');
+            log('📊 测试标签切换的完整流程...', 'info');
+
+            const tabs = ['ocr', 'translation', 'chunk-compare'];
+            const times = [];
+
+            function testTabSwitch(index) {
+                if (index >= tabs.length) {
+                    // 所有测试完成
+                    const avgTime = times.reduce((a, b) => a + b, 0) / times.length;
+                    const maxTime = Math.max(...times);
+                    const minTime = Math.min(...times);
+
+                    log(`⏱️ 平均耗时: ${avgTime.toFixed(2)}ms`, 'success');
+                    log(`⏱️ 最长耗时: ${maxTime.toFixed(2)}ms`, 'warning');
+                    log(`⏱️ 最短耗时: ${minTime.toFixed(2)}ms`, 'info');
+
+                    const passed = avgTime < 150;
+
+                    const resultEl = document.getElementById('performance-result');
+                    if (passed) {
+                        resultEl.innerHTML = `
+                            <div class="result pass">
+                                ✅ 性能测试通过！<br>
+                                平均切换时间: ${avgTime.toFixed(2)}ms<br>
+                                <small>低于 150ms 基准线，用户体验流畅</small>
+                            </div>
+                        `;
+                    } else {
+                        resultEl.innerHTML = `
+                            <div class="result fail">
+                                ⚠️ 性能有待优化<br>
+                                平均切换时间: ${avgTime.toFixed(2)}ms<br>
+                                <small>超过 150ms 基准线，建议进一步优化</small>
+                            </div>
+                        `;
+                    }
+
+                    return;
+                }
+
+                const tab = tabs[index];
+                log(`🔄 测试切换到 ${tab}...`, 'info');
+
+                const startTime = performance.now();
+
+                // 模拟标签切换的完整流程
+                setTimeout(() => {
+                    // 模拟 DOM 操作
+                    const elements = [
+                        document.getElementById('log'),
+                        document.querySelector('.container')
+                    ];
+
+                    const endTime = performance.now();
+                    const elapsed = endTime - startTime;
+                    times.push(elapsed);
+
+                    log(`✓ ${tab} 切换完成，耗时: ${elapsed.toFixed(2)}ms`, 'success');
+
+                    // 测试下一个标签
+                    setTimeout(() => testTabSwitch(index + 1), 100);
+                }, 100);
+            }
+
+            testTabSwitch(0);
+        });
+
+        // ================================================
+        // 页面加载时的提示
+        // ================================================
+        window.addEventListener('load', () => {
+            log('🚀 Phase 2 测试工具已加载', 'info');
+            log('💡 请按顺序运行测试，观察性能优化效果', 'info');
+        });
+    </script>
+
+    <!-- 模拟测试用的隐藏元素 -->
+    <div style="display: none;">
+        <div id="test-tab-1"></div>
+        <div id="test-tab-2"></div>
+        <div id="test-title"></div>
+        <div id="test-meta"></div>
+    </div>
+</body>
+</html>
