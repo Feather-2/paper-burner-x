@@ -704,12 +704,15 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         const lastDuration = window.ChatbotRenderState.lastRenderDuration;
 
         if (lastDuration > perfConfig.HEAVY_THRESHOLD) {
-          // 渲染慢：逐步增加倍数（最多到 MAX_MULTIPLIER）
-          window.ChatbotRenderState.adaptiveMultiplier = Math.min(
+          // 渲染慢：逐步增加倍数（最多到 MAX_MULTIPLIER）；仅在倍数实际变化时输出日志
+          const oldMultiplier = window.ChatbotRenderState.adaptiveMultiplier;
+          const nextMultiplier = Math.min(
             perfConfig.MAX_MULTIPLIER,
-            window.ChatbotRenderState.adaptiveMultiplier * 2
+            oldMultiplier * 2
           );
-          if (window.PerfLogger) {
+          window.ChatbotRenderState.adaptiveMultiplier = nextMultiplier;
+
+          if (nextMultiplier !== oldMultiplier && window.PerfLogger) {
             window.PerfLogger.warn(
               `跳帧: 检测到重渲染(${lastDuration.toFixed(0)}ms)，降频×${window.ChatbotRenderState.adaptiveMultiplier}`
             );

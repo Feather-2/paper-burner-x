@@ -535,26 +535,47 @@ function updateChatbotUI() {
             // 2. 更新主内容 (content)
             const contentDiv = lastMessageContainer.querySelector('.markdown-content');
             if (contentDiv && lastMessage.content) {
-              // 使用内容长度判断是否有变化
-              const newContentLength = lastMessage.content.length;
+              // 使用内容长度与内容本身判断是否有变化
+              const newContent = String(lastMessage.content);
+              const newContentLength = newContent.length;
               const lastContentLength = parseInt(contentDiv.dataset.lastLength || '0', 10);
+              const lastContent = contentDiv.dataset.lastContent || '';
 
               if (newContentLength !== lastContentLength) {
                 try {
-                  // 流式更新时使用简化渲染
-                  if (typeof renderWithKatexStreaming === 'function') {
-                    contentDiv.innerHTML = renderWithKatexStreaming(lastMessage.content);
-                  } else if (typeof marked !== 'undefined') {
-                    contentDiv.innerHTML = marked.parse(lastMessage.content);
+                  const canUseIncrementalAppend =
+                    newContentLength > lastContentLength &&
+                    lastContent &&
+                    newContent.indexOf(lastContent) === 0 &&
+                    isChatbotSafePlainAppend(lastContent, newContent.slice(lastContent.length));
+
+                  if (canUseIncrementalAppend && typeof renderWithKatexStreaming === 'function') {
+                    // Phase 4.2: 简单增量渲染（纯文本追加场景）
+                    const appendedText = newContent.slice(lastContent.length);
+                    const appendedHtml = renderWithKatexStreaming(appendedText);
+                    const temp = document.createElement('div');
+                    temp.innerHTML = appendedHtml;
+                    while (temp.firstChild) {
+                      contentDiv.appendChild(temp.firstChild);
+                    }
                   } else {
-                    contentDiv.textContent = lastMessage.content;
+                    // 回退：完整重渲染
+                    if (typeof renderWithKatexStreaming === 'function') {
+                      contentDiv.innerHTML = renderWithKatexStreaming(newContent);
+                    } else if (typeof marked !== 'undefined') {
+                      contentDiv.innerHTML = marked.parse(newContent);
+                    } else {
+                      contentDiv.textContent = newContent;
+                    }
                   }
+
                   contentDiv.dataset.lastLength = newContentLength.toString();
+                  contentDiv.dataset.lastContent = newContent;
                 } catch (e) {
                   if (window.PerfLogger) {
                     window.PerfLogger.error('增量渲染失败:', e);
                   }
-                  contentDiv.textContent = lastMessage.content;
+                  contentDiv.textContent = newContent;
                 }
               }
             }
@@ -641,33 +662,8 @@ function updateChatbotUI() {
       console.warn('ChatbotUI: ChatbotRenderingUtils.renderAllMermaidBlocks is not available.');
     }
 
-    // Phase 3.5: 表格滚动监听 - 动态显示/隐藏渐变阴影提示
-    // 当表格滚动到最右侧时，隐藏右侧的渐变阴影
-    chatBody.querySelectorAll('.markdown-content table').forEach(table => {
-      // 移除旧的监听器（如果存在）
-      if (table._scrollListener) {
-        table.removeEventListener('scroll', table._scrollListener);
-      }
-
-      // 定义滚动监听器
-      const scrollListener = function() {
-        const isScrolledToEnd = table.scrollLeft >= (table.scrollWidth - table.clientWidth - 5); // 5px 容差
-        if (isScrolledToEnd) {
-          table.classList.add('scrolled-to-end');
-        } else {
-          table.classList.remove('scrolled-to-end');
-        }
-      };
-
-      // 保存监听器引用，以便后续移除
-      table._scrollListener = scrollListener;
-
-      // 绑定监听器
-      table.addEventListener('scroll', scrollListener);
-
-      // 初始检查（表格首次渲染时）
-      scrollListener();
-    });
+    // Phase 4.1: 表格滚动性能优化 - 使用 IntersectionObserver 优先，回退到 requestAnimationFrame 节流
+    setupChatbotTableScrollHints(chatBody);
   }
 
   const input = document.getElementById('chatbot-input');
@@ -718,6 +714,139 @@ function updateChatbotUI() {
   if (window.ChatbotFloatingOptionsUI && typeof window.ChatbotFloatingOptionsUI.updateDisplay === 'function') {
     window.ChatbotFloatingOptionsUI.updateDisplay();
   }
+}
+
+/**
+ * Phase 4.1 - 表格滚动提示性能优化
+ * 目标：在保持现有视觉行为（滚动到最右侧隐藏渐变阴影）的前提下，减少滚动事件压力。
+ *
+ * 策略：
+ * 1. 优先使用 IntersectionObserver 观察表格中“最右侧单元格”是否完全进入视口。
+ *    - root: table，自身作为滚动容器。
+ *    - threshold: 1.0，仅当最后单元格完全可见时认为滚动到末尾。
+ * 2. 当浏览器不支持 IntersectionObserver 时，回退到 requestAnimationFrame 节流的 scroll 监听。
+ * 3. 每次调用都会清理旧的监听器和观察器，避免重复绑定和内存泄漏。
+ */
+function setupChatbotTableScrollHints(chatBody) {
+  if (!chatBody) return;
+
+  const tables = chatBody.querySelectorAll('.markdown-content table');
+  tables.forEach(function(table) {
+    // 清理旧的 IntersectionObserver（如有）
+    if (table._scrollObserver && typeof table._scrollObserver.disconnect === 'function') {
+      try {
+        table._scrollObserver.disconnect();
+      } catch (e) {
+        if (window.PerfLogger) {
+          window.PerfLogger.warn('ChatbotUI: disconnect table._scrollObserver failed', e);
+        }
+      }
+    }
+    table._scrollObserver = null;
+
+    // 清理旧的 scroll 监听器（如有）
+    if (table._scrollListener) {
+      table.removeEventListener('scroll', table._scrollListener);
+    }
+    table._scrollListener = null;
+
+    // 如果浏览器支持 IntersectionObserver，则优先使用
+    if (window.IntersectionObserver) {
+      let lastCell = table.querySelector('tr:last-child td:last-child');
+      if (!lastCell) {
+        lastCell = table.querySelector('td:last-child, th:last-child');
+      }
+
+      // 如果找不到可观察的单元格，则直接视为已滚动到底部（不显示渐变阴影）
+      if (!lastCell) {
+        table.classList.add('scrolled-to-end');
+        return;
+      }
+
+      const observer = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          // 当最后一个单元格完全进入视口时，认为滚动到了最右端
+          const isEnd = entry.isIntersecting && entry.intersectionRatio >= 1;
+          if (isEnd) {
+            table.classList.add('scrolled-to-end');
+          } else {
+            table.classList.remove('scrolled-to-end');
+          }
+        });
+      }, {
+        root: table,
+        threshold: 1.0
+      });
+
+      observer.observe(lastCell);
+      table._scrollObserver = observer;
+      return;
+    }
+
+    // 回退方案：使用 requestAnimationFrame 节流 scroll 事件
+    let scrollRAF = null;
+    const scrollListener = function() {
+      if (scrollRAF) return;
+      // 若浏览器不支持 requestAnimationFrame，则直接同步执行
+      if (typeof window.requestAnimationFrame !== 'function') {
+        const isScrolledToEnd = table.scrollLeft >= (table.scrollWidth - table.clientWidth - 5);
+        if (isScrolledToEnd) {
+          table.classList.add('scrolled-to-end');
+        } else {
+          table.classList.remove('scrolled-to-end');
+        }
+        return;
+      }
+
+      scrollRAF = window.requestAnimationFrame(function() {
+        const isScrolledToEnd = table.scrollLeft >= (table.scrollWidth - table.clientWidth - 5);
+        if (isScrolledToEnd) {
+          table.classList.add('scrolled-to-end');
+        } else {
+          table.classList.remove('scrolled-to-end');
+        }
+        scrollRAF = null;
+      });
+    };
+
+    table._scrollListener = scrollListener;
+    table.addEventListener('scroll', scrollListener);
+
+    // 初始检查（表格首次渲染时）
+    scrollListener();
+  });
+}
+
+/**
+ * Phase 4.2 - 简单增量追加判定（纯文本场景）
+ * 仅在追加内容较为“安全”时启用增量渲染：
+ * - newContent 以 oldContent 为前缀（纯追加，而非回退/编辑）
+ * - 追加部分不包含明显的结构/公式标记（如 ```、$$、\[…\] 等）
+ * 复杂 Markdown / LaTeX 场景仍回退到完整重渲染，避免破坏结构。
+ */
+function isChatbotSafePlainAppend(oldContent, appendedText) {
+  if (!appendedText) return false;
+
+  // 若追加部分包含明显的代码块/公式/复杂结构标记，则不做增量
+  const riskyPatterns = [
+    /```/,          // 代码块
+    /\$\$/,         // 块级公式
+    /\\\[/,         // \[ ... \]
+    /\\\(/,         // \( ... \)
+    /<\/?[a-zA-Z]/, // HTML 标签
+    /^#{1,6}\s/m,   // 标题
+    /^\s{0,3}[-*+]\s/m, // 无序列表
+    /^\s{0,3}\d+\.\s/m, // 有序列表
+    /^\s{0,3}>\s/m  // 引用
+  ];
+
+  for (let i = 0; i < riskyPatterns.length; i++) {
+    if (riskyPatterns[i].test(appendedText)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 /**
