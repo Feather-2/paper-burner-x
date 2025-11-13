@@ -310,7 +310,7 @@ window.ChatbotMessageRenderer = {
                 ${collapsed ? '▼' : '▲'}
               </button>
             </div>
-            <div style="margin-top:8px;${collapsed ? 'display:none;' : ''}color:#334155;font-size:14px;line-height:1.5;">
+            <div class="reasoning-content" style="margin-top:8px;${collapsed ? 'display:none;' : ''}color:#334155;font-size:14px;line-height:1.5;">
               ${renderedReasoningContent}
             </div>
           </div>
@@ -325,7 +325,7 @@ window.ChatbotMessageRenderer = {
                 ${collapsed ? '▼' : '▲'}
               </button>
             </div>
-            <div style="margin-top:8px;${collapsed ? 'display:none;' : ''}color:#334155;font-size:14px;line-height:1.5;">
+            <div class="reasoning-content" style="margin-top:8px;${collapsed ? 'display:none;' : ''}color:#334155;font-size:14px;line-height:1.5;">
               ${renderedReasoningContent}
             </div>
           </div>

@@ -194,3 +194,170 @@ window.renderWithKatexStreaming = function(md) {
   console.warn('[Security] safeRenderMarkdown not available, using unsafe marked.parse()');
   return marked.parse(md);
 };
+
+/**
+ * Phase 4.2 - 长公式增量渲染原型（ChatbotMathStreaming）
+ * 目标：在流式生成长公式（特别是 $$...$$ / \[...\] 块级公式）时，避免反复对整条消息做 KaTeX 渲染。
+ *
+ * 设计要点：
+ * - 仅处理块级公式标记：'$$ ... $$' 与 '\[ ... \]'；
+ * - 利用 state 在多次调用之间记录「是否在公式内部」以及已累积的公式文本；
+ * - 每次只对“新补全的一整块公式”调用 katex.renderToString，一块公式只渲染一次；
+ * - 普通文本片段使用 safeRenderMarkdown（若存在）单独转为 HTML；
+ * - 如果出现异常或环境不满足（如 window.katex 不存在），调用方应回退到完整重渲染。
+ */
+window.ChatbotMathStreaming = (function() {
+  function escapeHtml(text) {
+    if (typeof text !== 'string') {
+      return '';
+    }
+    const map = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    };
+    return text.replace(/[&<>"']/g, function(ch) {
+      return map[ch];
+    });
+  }
+
+  function renderPlainMarkdown(text) {
+    if (!text) return '';
+    if (typeof window.safeRenderMarkdown === 'function') {
+      return window.safeRenderMarkdown(text);
+    }
+    if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+      return marked.parse(text);
+    }
+    return escapeHtml(text).replace(/\n/g, '<br>');
+  }
+
+  function renderBlockFormula(tex) {
+    const normalized = typeof tex === 'string' ? tex.trim() : '';
+    if (!normalized) return '';
+
+    if (typeof katex === 'undefined' || typeof katex.renderToString !== 'function') {
+      // 环境不足，交给上层回退处理
+      return escapeHtml(normalized);
+    }
+
+    try {
+      const html = katex.renderToString(normalized, {
+        displayMode: true,
+        output: 'html',
+        strict: 'ignore',
+        throwOnError: false,
+        trust: false,
+        macros: {},
+        maxSize: 50,
+        maxExpand: 100
+      });
+      return `
+<div class="katex-block" data-formula-display="block" data-original-text="${escapeHtml(normalized)}">${html}</div>
+`;
+    } catch (e) {
+      const message = e && e.message ? e.message : '';
+      const dataAttr = message
+        ? ` data-katex-error="${escapeHtml(message)}" title="Formula rendering failed: ${escapeHtml(message)}"`
+        : '';
+      return `
+<div class="katex-fallback katex-block"${dataAttr}><pre class="katex-fallback-source">${escapeHtml(normalized)}</pre></div>
+`;
+    }
+  }
+
+  /**
+   * 增量渲染入口
+   * @param {object|null} prevState  上一次调用时的状态（可为 null）
+   * @param {string} appendedText    本次新增的原始 Markdown 文本
+   * @returns {{ html: string, state: object }} 渲染出的追加 HTML 片段与新的状态
+   */
+  function renderIncremental(prevState, appendedText) {
+    if (!appendedText) {
+      return { html: '', state: prevState || null };
+    }
+
+    const state = prevState && typeof prevState === 'object'
+      ? {
+          pendingFormula: prevState.pendingFormula || null
+        }
+      : {
+          pendingFormula: null
+        };
+
+    const text = String(appendedText);
+    const len = text.length;
+    let i = 0;
+    let htmlParts = [];
+    let plainBuffer = '';
+
+    function flushPlain() {
+      if (!plainBuffer) return;
+      htmlParts.push(renderPlainMarkdown(plainBuffer));
+      plainBuffer = '';
+    }
+
+    while (i < len) {
+      // 不在公式内部：识别公式起始标记
+      if (!state.pendingFormula) {
+        if (text.startsWith('$$', i)) {
+          flushPlain();
+          state.pendingFormula = {
+            delimiter: '$$',
+            text: ''
+          };
+          i += 2;
+          continue;
+        }
+        if (text.startsWith('\\[', i)) {
+          flushPlain();
+          state.pendingFormula = {
+            delimiter: '\\[',
+            text: ''
+          };
+          i += 2;
+          continue;
+        }
+
+        plainBuffer += text[i];
+        i += 1;
+        continue;
+      }
+
+      // 在公式内部：识别结束标记
+      const delimiter = state.pendingFormula.delimiter;
+      if (delimiter === '$$' && text.startsWith('$$', i)) {
+        const formulaText = state.pendingFormula.text;
+        htmlParts.push(renderBlockFormula(formulaText));
+        state.pendingFormula = null;
+        i += 2;
+        continue;
+      }
+      if (delimiter === '\\[' && text.startsWith('\\]', i)) {
+        const formulaText = state.pendingFormula.text;
+        htmlParts.push(renderBlockFormula(formulaText));
+        state.pendingFormula = null;
+        i += 2;
+        continue;
+      }
+
+      // 继续累积公式内容
+      state.pendingFormula.text += text[i];
+      i += 1;
+    }
+
+    // 本轮结束时，仍可安全输出的普通文本
+    flushPlain();
+
+    return {
+      html: htmlParts.join(''),
+      state: state
+    };
+  }
+
+  return {
+    renderIncremental: renderIncremental
+  };
+})();

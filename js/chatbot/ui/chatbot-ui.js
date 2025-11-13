@@ -509,7 +509,10 @@ function updateChatbotUI() {
               let reasoningBlock = lastMessageContainer.querySelector(`#${reasoningBlockId}`);
 
               // 更新 reasoning 内容
-              const reasoningContentDiv = reasoningBlock.querySelector('div[style*="margin-top:8px"]');
+              // Phase 4.x 修复：使用更快的选择器（优先使用类名，回退到子元素选择器）
+              const reasoningContentDiv = reasoningBlock
+                ? (reasoningBlock.querySelector('.reasoning-content') || reasoningBlock.querySelector(':scope > div:last-child'))
+                : null;
               if (reasoningContentDiv) {
                 const newReasoningLength = lastMessage.reasoningContent.length;
                 const lastReasoningLength = parseInt(reasoningBlock.dataset.lastReasoningLength || '0', 10);
@@ -535,26 +538,90 @@ function updateChatbotUI() {
             // 2. 更新主内容 (content)
             const contentDiv = lastMessageContainer.querySelector('.markdown-content');
             if (contentDiv && lastMessage.content) {
-              // 使用内容长度判断是否有变化
-              const newContentLength = lastMessage.content.length;
+              // 使用内容长度与内容本身判断是否有变化
+              const newContent = String(lastMessage.content);
+              const newContentLength = newContent.length;
               const lastContentLength = parseInt(contentDiv.dataset.lastLength || '0', 10);
+              const lastContent = contentDiv.dataset.lastContent || '';
 
               if (newContentLength !== lastContentLength) {
                 try {
-                  // 流式更新时使用简化渲染
-                  if (typeof renderWithKatexStreaming === 'function') {
-                    contentDiv.innerHTML = renderWithKatexStreaming(lastMessage.content);
-                  } else if (typeof marked !== 'undefined') {
-                    contentDiv.innerHTML = marked.parse(lastMessage.content);
-                  } else {
-                    contentDiv.textContent = lastMessage.content;
+                  const isPureExtension =
+                    newContentLength > lastContentLength &&
+                    lastContent &&
+                    newContent.indexOf(lastContent) === 0;
+                  const appendedText = isPureExtension ? newContent.slice(lastContent.length) : '';
+
+                  const canUseIncrementalAppend =
+                    isPureExtension &&
+                    isChatbotSafePlainAppend(lastContent, appendedText);
+
+                  let didIncrementalUpdate = false;
+
+                  if (canUseIncrementalAppend && typeof renderWithKatexStreaming === 'function') {
+                    // Phase 4.2: 简单增量渲染（纯文本追加场景）
+                    const appendedHtml = renderWithKatexStreaming(appendedText);
+                    const temp = document.createElement('div');
+                    temp.innerHTML = appendedHtml;
+                    while (temp.firstChild) {
+                      contentDiv.appendChild(temp.firstChild);
+                    }
+                    didIncrementalUpdate = true;
+                  } else if (
+                    isPureExtension &&
+                    appendedText &&
+                    window.ChatbotMathStreaming &&
+                    typeof window.ChatbotMathStreaming.renderIncremental === 'function'
+                  ) {
+                    // Phase 4.2（原型）: 长公式增量渲染，仅在扩展场景下启用
+                    let prevState = null;
+                    const stateRaw = contentDiv.dataset.mathStreamingState || '';
+                    if (stateRaw) {
+                      try {
+                        prevState = JSON.parse(stateRaw);
+                      } catch (e) {
+                        prevState = null;
+                      }
+                    }
+
+                    const result = window.ChatbotMathStreaming.renderIncremental(prevState, appendedText);
+                    if (result && typeof result.html === 'string' && result.html) {
+                      const temp = document.createElement('div');
+                      temp.innerHTML = result.html;
+                      while (temp.firstChild) {
+                        contentDiv.appendChild(temp.firstChild);
+                      }
+                      if (result.state) {
+                        try {
+                          contentDiv.dataset.mathStreamingState = JSON.stringify(result.state);
+                        } catch (e) {
+                          contentDiv.dataset.mathStreamingState = '';
+                        }
+                      }
+                      didIncrementalUpdate = true;
+                    }
                   }
+
+                  if (!didIncrementalUpdate) {
+                    // 回退：完整重渲染
+                    if (typeof renderWithKatexStreaming === 'function') {
+                      contentDiv.innerHTML = renderWithKatexStreaming(newContent);
+                    } else if (typeof marked !== 'undefined') {
+                      contentDiv.innerHTML = marked.parse(newContent);
+                    } else {
+                      contentDiv.textContent = newContent;
+                    }
+                    // 重渲染后清理流式状态，避免状态与内容不一致
+                    delete contentDiv.dataset.mathStreamingState;
+                  }
+
                   contentDiv.dataset.lastLength = newContentLength.toString();
+                  contentDiv.dataset.lastContent = newContent;
                 } catch (e) {
                   if (window.PerfLogger) {
                     window.PerfLogger.error('增量渲染失败:', e);
                   }
-                  contentDiv.textContent = lastMessage.content;
+                  contentDiv.textContent = newContent;
                 }
               }
             }
@@ -641,33 +708,8 @@ function updateChatbotUI() {
       console.warn('ChatbotUI: ChatbotRenderingUtils.renderAllMermaidBlocks is not available.');
     }
 
-    // Phase 3.5: 表格滚动监听 - 动态显示/隐藏渐变阴影提示
-    // 当表格滚动到最右侧时，隐藏右侧的渐变阴影
-    chatBody.querySelectorAll('.markdown-content table').forEach(table => {
-      // 移除旧的监听器（如果存在）
-      if (table._scrollListener) {
-        table.removeEventListener('scroll', table._scrollListener);
-      }
-
-      // 定义滚动监听器
-      const scrollListener = function() {
-        const isScrolledToEnd = table.scrollLeft >= (table.scrollWidth - table.clientWidth - 5); // 5px 容差
-        if (isScrolledToEnd) {
-          table.classList.add('scrolled-to-end');
-        } else {
-          table.classList.remove('scrolled-to-end');
-        }
-      };
-
-      // 保存监听器引用，以便后续移除
-      table._scrollListener = scrollListener;
-
-      // 绑定监听器
-      table.addEventListener('scroll', scrollListener);
-
-      // 初始检查（表格首次渲染时）
-      scrollListener();
-    });
+    // Phase 4.1: 表格滚动性能优化 - 使用 IntersectionObserver 优先，回退到 requestAnimationFrame 节流
+    setupChatbotTableScrollHints(chatBody);
   }
 
   const input = document.getElementById('chatbot-input');
@@ -718,6 +760,213 @@ function updateChatbotUI() {
   if (window.ChatbotFloatingOptionsUI && typeof window.ChatbotFloatingOptionsUI.updateDisplay === 'function') {
     window.ChatbotFloatingOptionsUI.updateDisplay();
   }
+}
+
+/**
+ * Phase 4.1 - 表格滚动提示性能优化
+ * 目标：在保持现有视觉行为（滚动到最右侧隐藏渐变阴影）的前提下，减少滚动事件压力。
+ *
+ * 策略：
+ * 1. 优先使用 IntersectionObserver 观察表格中“最右侧单元格”是否完全进入视口。
+ *    - root: table，自身作为滚动容器。
+ *    - threshold: 1.0，仅当最后单元格完全可见时认为滚动到末尾。
+ * 2. 当浏览器不支持 IntersectionObserver 时，回退到 requestAnimationFrame 节流的 scroll 监听。
+ * 3. 每次调用都会清理旧的监听器和观察器，避免重复绑定和内存泄漏。
+ */
+function setupChatbotTableScrollHints(chatBody) {
+  if (!chatBody) return;
+
+  const tables = chatBody.querySelectorAll('.markdown-content table');
+  tables.forEach(function(table) {
+    // 清理旧的 IntersectionObserver（如有）
+    if (table._scrollObserver && typeof table._scrollObserver.disconnect === 'function') {
+      try {
+        table._scrollObserver.disconnect();
+      } catch (e) {
+        if (window.PerfLogger) {
+          window.PerfLogger.warn('ChatbotUI: disconnect table._scrollObserver failed', e);
+        }
+      }
+    }
+    table._scrollObserver = null;
+
+    // 清理旧的 scroll 监听器（如有）
+    if (table._scrollListener) {
+      table.removeEventListener('scroll', table._scrollListener);
+    }
+    table._scrollListener = null;
+
+    // 如果浏览器支持 IntersectionObserver，则优先使用
+    if (window.IntersectionObserver) {
+      let lastCell = table.querySelector('tr:last-child td:last-child');
+      if (!lastCell) {
+        lastCell = table.querySelector('td:last-child, th:last-child');
+      }
+
+      // 如果找不到可观察的单元格，则直接视为已滚动到底部（不显示渐变阴影）
+      if (!lastCell) {
+        table.classList.add('scrolled-to-end');
+        return;
+      }
+
+      const observer = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          // 当最后一个单元格完全进入视口时，认为滚动到了最右端
+          const isEnd = entry.isIntersecting && entry.intersectionRatio >= 1;
+          if (isEnd) {
+            table.classList.add('scrolled-to-end');
+          } else {
+            table.classList.remove('scrolled-to-end');
+          }
+        });
+      }, {
+        root: table,
+        threshold: 1.0
+      });
+
+      observer.observe(lastCell);
+      table._scrollObserver = observer;
+      return;
+    }
+
+    // 回退方案：使用 requestAnimationFrame 节流 scroll 事件
+    let scrollRAF = null;
+    const scrollListener = function() {
+      if (scrollRAF) return;
+      // 若浏览器不支持 requestAnimationFrame，则直接同步执行
+      if (typeof window.requestAnimationFrame !== 'function') {
+        const isScrolledToEnd = table.scrollLeft >= (table.scrollWidth - table.clientWidth - 5);
+        if (isScrolledToEnd) {
+          table.classList.add('scrolled-to-end');
+        } else {
+          table.classList.remove('scrolled-to-end');
+        }
+        return;
+      }
+
+      scrollRAF = window.requestAnimationFrame(function() {
+        const isScrolledToEnd = table.scrollLeft >= (table.scrollWidth - table.clientWidth - 5);
+        if (isScrolledToEnd) {
+          table.classList.add('scrolled-to-end');
+        } else {
+          table.classList.remove('scrolled-to-end');
+        }
+        scrollRAF = null;
+      });
+    };
+
+    table._scrollListener = scrollListener;
+    table.addEventListener('scroll', scrollListener);
+
+    // 初始检查（表格首次渲染时）
+    scrollListener();
+  });
+}
+
+/**
+ * Phase 4.2 - 简单增量追加判定（纯文本场景）
+ * 仅在追加内容较为“安全”时启用增量渲染：
+ * - newContent 以 oldContent 为前缀（纯追加，而非回退/编辑）
+ * - 追加部分不包含明显的结构/公式标记（如 ```、$$、\[…\] 等）
+ * 复杂 Markdown / LaTeX 场景仍回退到完整重渲染，避免破坏结构。
+ */
+function isChatbotSafePlainAppend(oldContent, appendedText) {
+  if (!appendedText) return false;
+
+  // 边界检查 1：若旧内容末尾处位于未闭合的块级结构中（代码块/公式等），则不做增量。
+  // 这里采用“保守策略”：一旦存在疑似未闭合结构，就直接回退完整渲染，以换取更高的渲染正确性。
+  try {
+    if (isChatbotInsideUnclosedBlock(oldContent)) {
+      return false;
+    }
+  } catch (e) {
+    // 检测异常时同样回退完整渲染
+    if (window.PerfLogger) {
+      window.PerfLogger.warn('ChatbotUI: isChatbotInsideUnclosedBlock failed, fallback to full render.', e);
+    }
+    return false;
+  }
+
+  // 若追加部分包含明显的代码块/公式/复杂结构标记，则不做增量
+  const riskyPatterns = [
+    /```/,          // 代码块
+    /\$\$/,         // 块级公式
+    /\\\[/,         // \[ ... \]
+    /\\\(/,         // \( ... \)
+    /<\/?[a-zA-Z]/, // HTML 标签
+    /^#{1,6}\s/m,   // 标题
+    /^\s{0,3}[-*+]\s/m, // 无序列表
+    /^\s{0,3}\d+\.\s/m, // 有序列表
+    /^\s{0,3}>\s/m  // 引用
+  ];
+
+  for (let i = 0; i < riskyPatterns.length; i++) {
+    if (riskyPatterns[i].test(appendedText)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Phase 4.2.2 - Markdown 结构边界检测
+ * 检测 oldContent 末尾是否位于未闭合的 Markdown 块级结构中：
+ * - ``` fenced code block
+ * - $$ 块级公式
+ * - \[ \] / \( \) LaTeX 公式包裹
+ *
+ * 为保证性能：
+ * - 优先仅分析结尾一段文本（TAIL_WINDOW），减少在极长消息上的全量扫描开销；
+ * - 对 fenced code / $$ 使用“奇偶计数”策略；对 \[ / \] 与 \( / \) 使用“数量差值”近似判断；
+ * - 一旦存在“不确定”或“可能未闭合”的结构，则视为不安全，回退完整渲染。
+ */
+function isChatbotInsideUnclosedBlock(oldContent) {
+  if (!oldContent || typeof oldContent !== 'string') return false;
+
+  // 限制分析窗口，避免在超长内容上多次全量扫描
+  const TAIL_WINDOW = 4000;
+  const text = oldContent.length > TAIL_WINDOW
+    ? oldContent.slice(-TAIL_WINDOW)
+    : oldContent;
+
+  // 辅助函数：统计匹配次数
+  function countMatches(pattern) {
+    const re = new RegExp(pattern, 'g');
+    let count = 0;
+    while (re.exec(text) !== null) {
+      count++;
+    }
+    return count;
+  }
+
+  // 1) Fenced code block: ``` ... ```
+  // 使用出现次数的奇偶性近似判断是否在未闭合的代码块中。
+  const codeFenceCount = countMatches('```');
+  if (codeFenceCount % 2 === 1) {
+    return true;
+  }
+
+  // 2) Block math: $$ ... $$
+  const blockMathCount = countMatches('\\$\\$');
+  if (blockMathCount % 2 === 1) {
+    return true;
+  }
+
+  // 3) LaTeX-style delimiters: \[ ... \], \( ... \)
+  const openBracket = countMatches('\\\\\\[');
+  const closeBracket = countMatches('\\\\\\]');
+  if (openBracket > closeBracket) {
+    return true;
+  }
+
+  const openParen = countMatches('\\\\\\(');
+  const closeParen = countMatches('\\\\\\)');
+  if (openParen > closeParen) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
