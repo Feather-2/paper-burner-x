@@ -323,12 +323,20 @@
 
   <!-- Phase 3.5: 性能优化配置（必须在所有 chatbot 模块之前加载） -->
   <script src="../../js/chatbot/config/performance-config.js"></script>
+  <!-- Phase 4.4.3: 本地性能监控工具（仅开发/测试用，不上报数据） -->
+  <script src="../../js/chatbot/utils/performance-monitor.js"></script>
   <script src="../../js/chatbot/utils/mermaid-loader.js"></script>
   <!-- XSS 防护：DOMPurify - 用于清理 AI 生成的 HTML 内容 -->
   <script src="https://gcore.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
   <!-- XSS 防护：安全的 Markdown 渲染（必须在 markdown-katex-render.js 之前加载） -->
   <script src="../../js/chatbot/utils/safe-markdown-render.js"></script>
-  <script src="../../js/chatbot/utils/markdown-katex-render.js"></script>
+  <!-- Phase 4.2+: KaTeX 公式缓存系统（解决充满公式场景 4.6s 阻塞问题） -->
+  <script src="../../js/chatbot/utils/katex-cache.js"></script>
+  <script src="../../js/chatbot/utils/markdown-katex-render-cached.js"></script>
+  <!-- Phase 4.2+: KaTeX 渐进式渲染系统（解决首次渲染 4.6s 阻塞问题） -->
+  <script src="../../js/chatbot/utils/katex-progressive-render.js"></script>
+  <!-- Phase 4.2+: KaTeX 缓存持久化（localStorage 自动保存和恢复） -->
+  <script src="../../js/chatbot/utils/katex-cache-persistence.js"></script>
   <script src="../../js/chatbot/prompt/prompt-constructor.js"></script> <!-- Add this line -->
   <script src="../../js/chatbot/utils/chatbot-utils.js"></script>
   <script src="../../js/chatbot/prompt/chatbot-preset.js"></script>
