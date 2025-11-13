@@ -5,6 +5,9 @@
 (function(global) {
     'use strict';
 
+    // Phase 3.5: 警告标志位，避免流式更新时重复输出
+    let _rendererWarningShown = false;
+
     /**
      * 智能渲染函数：自动选择最佳渲染方式
      * @param {string} markdown - Markdown 文本
@@ -41,7 +44,11 @@
         } else if (isRenderer) {
             // 传入了 marked.Renderer（旧版方式）
             // 在 AST 模式下，renderer 会被忽略，应该使用后处理方式
-            console.warn('[Integration] 检测到 marked.Renderer，但 AST 模式不支持。请使用后处理或迁移到注释数组。');
+            // Phase 3.5: 只输出一次警告，避免流式更新时刷屏
+            if (!_rendererWarningShown) {
+                console.warn('[Integration] 检测到 marked.Renderer，但 AST 模式不支持。请使用后处理或迁移到注释数组。');
+                _rendererWarningShown = true;
+            }
             return global.MarkdownProcessorAST.render(markdown, images);
         } else {
             // 没有注释或空数组

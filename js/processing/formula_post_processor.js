@@ -319,7 +319,11 @@
         processNode(rootElement);
 
         const duration = performance.now() - startTime;
-        console.log(`[FormulaPostProcessor] 处理完成: 渲染 ${processedCount} 个公式, 删除 ${removedCount} 个错误块, 耗时 ${duration.toFixed(2)}ms`);
+
+        // Phase 3.5: 只在有实际处理时才输出日志，避免流式更新时刷屏
+        if (processedCount > 0 || removedCount > 0) {
+            console.log(`[FormulaPostProcessor] 处理完成: 渲染 ${processedCount} 个公式, 删除 ${removedCount} 个错误块, 耗时 ${duration.toFixed(2)}ms`);
+        }
 
         return { processedCount, removedCount };
     }
