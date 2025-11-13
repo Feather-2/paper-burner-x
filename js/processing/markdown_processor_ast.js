@@ -16,6 +16,9 @@
     // 缓存系统
     const renderCache = new Map();
 
+    // Phase 3.5: 记录已经警告过的图片路径，避免流式更新时重复警告
+    const _warnedImages = new Set();
+
     // 性能指标
     const metrics = {
         cacheHits: 0,
@@ -561,7 +564,11 @@
                 }
             }
 
-            console.warn('[MarkdownProcessorAST] Image not found:', path);
+            // Phase 3.5: 只警告一次，避免流式更新时重复输出
+            if (!_warnedImages.has(path)) {
+                console.warn('[MarkdownProcessorAST] Image not found:', path);
+                _warnedImages.add(path);
+            }
             return match;
         });
 
