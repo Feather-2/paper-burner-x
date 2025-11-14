@@ -526,10 +526,12 @@ body.toc-dock-resizing #toc-vs-dock-resize-handle {
 /* ==================== 9. Dock 在 TOC 区域中的样式 ==================== */
 
 #immersive-toc-area #toc-dock-placeholder {
-  flex-shrink: 0;
+  flex-shrink: 0;  /* 固定在底部，不被压缩 */
   border-top: 1px solid var(--color-border-light);
   background: var(--color-bg-secondary);
-  padding: var(--spacing-md);
+  padding: var(--spacing-xs) var(--spacing-sm);  /* 减小 padding，更紧凑 */
+  width: 100%;  /* 确保占满宽度 */
+  box-sizing: border-box;
 }
 
 #immersive-toc-area #toc-dock-placeholder #bottom-left-dock {
@@ -559,16 +561,34 @@ body.toc-dock-resizing #toc-vs-dock-resize-handle {
   margin: 0 !important;
 }
 
-#immersive-toc-area #bottom-left-dock #settings-link,
-#immersive-toc-area #bottom-left-dock #dock-toggle-btn {
-  display: inline-flex !important;  /* 使用 inline-flex 确保正确对齐 */
+/* 折叠状态下的按钮 - 紧凑尺寸 */
+#immersive-toc-area #bottom-left-dock.dock-collapsed #settings-link,
+#immersive-toc-area #bottom-left-dock.dock-collapsed #dock-toggle-btn {
+  display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
   color: var(--color-text-muted) !important;
-  font-size: 16px !important;  /* 使用绝对单位 */
-  width: 28px !important;  /* 设置固定宽度 */
-  height: 28px !important;  /* 设置固定高度 */
-  padding: 0 !important;  /* 移除 padding，使用固定尺寸 */
+  font-size: 14px !important;  /* 紧凑字体 */
+  width: 24px !important;  /* 紧凑宽度 */
+  height: 24px !important;  /* 紧凑高度 */
+  padding: 0 !important;
+  margin: 0 !important;
+  background: transparent !important;
+  border-radius: var(--radius-sm) !important;
+  transition: all var(--transition-fast) !important;
+}
+
+/* 展开状态下的按钮 */
+#immersive-toc-area #bottom-left-dock:not(.dock-collapsed) #settings-link,
+#immersive-toc-area #bottom-left-dock:not(.dock-collapsed) #dock-toggle-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  color: var(--color-text-muted) !important;
+  font-size: 16px !important;
+  width: 28px !important;
+  height: 28px !important;
+  padding: 0 !important;
   margin: 0 !important;
 }
 
@@ -577,30 +597,51 @@ body.toc-dock-resizing #toc-vs-dock-resize-handle {
   color: var(--color-text-secondary) !important;
 }
 
-/* 控制栏样式简化 - 横向布局，固定在底部一条 */
-#immersive-toc-area #bottom-left-dock .dock-control-bar {
+/* 控制栏样式 - 折叠状态下横向紧凑布局 */
+#immersive-toc-area #bottom-left-dock.dock-collapsed .dock-control-bar {
   display: flex !important;
   flex-direction: row !important;
   align-items: center !important;
   justify-content: space-between !important;  /* 让元素分散排列 */
   flex-wrap: nowrap !important;  /* 禁止换行，保持一行显示 */
   gap: var(--spacing-xs) !important;  /* 小间距避免换行 */
-  padding: var(--spacing-sm) var(--spacing-sm) !important;  /* 紧凑 padding */
+  padding: var(--spacing-xs) 0 !important;  /* 最小化 padding */
   background: transparent !important;
   border-radius: 0 !important;
   width: 100% !important;
-  min-height: 32px !important;  /* 确保最小高度 */
+  min-height: 28px !important;  /* 紧凑的最小高度 */
   overflow: visible !important;  /* 避免溢出隐藏 */
 }
 
-/* 进度显示样式优化 */
-#immersive-toc-area #bottom-left-dock #dock-collapsed-progress-display {
-  flex-grow: 1 !important;  /* 让进度占据剩余空间 */
-  flex-shrink: 1 !important;  /* 允许收缩避免溢出 */
-  text-align: center !important;
-  font-size: 16px !important;  /* 使用绝对单位，确保可读性 */
-  font-weight: var(--font-weight-semibold) !important;  /* 加粗以增强可读性 */
-  min-width: 40px !important;  /* 设置最小宽度避免挤压 */
+/* 展开状态的控制栏（如果需要不同样式）*/
+#immersive-toc-area #bottom-left-dock:not(.dock-collapsed) .dock-control-bar {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: var(--spacing-sm) !important;
+  padding: var(--spacing-sm) 0 !important;
+  background: transparent !important;
+}
+
+/* 进度显示样式优化 - 折叠状态紧凑显示 */
+#immersive-toc-area #bottom-left-dock.dock-collapsed #dock-collapsed-progress-display {
+  flex-grow: 0 !important;  /* 不占据剩余空间，保持紧凑 */
+  flex-shrink: 0 !important;  /* 不收缩 */
+  text-align: left !important;
+  font-size: 13px !important;  /* 使用绝对单位 */
+  font-weight: var(--font-weight-medium) !important;
+  min-width: auto !important;  /* 自动宽度 */
+  padding: 2px var(--spacing-xs) !important;  /* 小 padding */
+  background: none !important;  /* 移除背景，更简洁 */
+  border: none !important;
+  border-radius: 0 !important;
+  color: var(--color-text-secondary) !important;
+}
+
+/* 折叠进度显示：隐藏图标 */
+#immersive-toc-area #bottom-left-dock.dock-collapsed #dock-collapsed-progress-display::before {
+  display: none !important;
 }
 
 /* 按钮容器 */
