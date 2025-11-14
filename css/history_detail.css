@@ -51,6 +51,9 @@
 /* Context Menu 右键菜单 */
 @import url('./history_detail/03-components/context-menu.css');
 
+/* Annotations 批注管理 */
+@import url('./history_detail/03-components/annotations.css');
+
 /* Reference Manager 参考文献管理器 */
 @import url('./history_detail/03-components/reference-manager/index.css');
 
@@ -110,6 +113,15 @@
  * - chatbot-model-config-modal.css → 03-components/chatbot/config-modal.css
  * - chatbot-message-actions.css → 03-components/chatbot/message-actions.css
  *
+ * Phase 8 (Inline Styles Modularization):
+ * - history_detail_inline_styles.css → 模块化拆分：
+ *   - Annotations → 03-components/annotations.css
+ *   - Dock 补充 → 03-components/dock.css
+ *   - TOC 补充 → 03-components/toc.css
+ *   - Context Menu 补充 → 03-components/context-menu.css
+ *   - Markdown 补充 → 04-features/markdown-content.css
+ *   - Buttons 已存在 → 05-utilities/buttons.css
+ *
  * 其他文件已按分层移动到相应目录。
  *
  * 废弃文件（已移至 _deprecated/）：
@@ -118,4 +130,5 @@
  * - toc-extensions.css
  * - immersive_layout.css
  * - toc-optimized.css
+ * - history_detail_inline_styles.css (Phase 8)
  */

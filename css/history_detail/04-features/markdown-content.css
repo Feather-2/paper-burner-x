@@ -356,3 +356,22 @@ h2 {
   }
 }
 
+/* ==================== 图片和表格居中样式 ==================== */
+
+/* 从 history_detail_inline_styles.css 迁移 */
+
+.markdown-body img {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 100%;
+  height: auto;
+}
+
+.markdown-body table {
+  display: table;
+  margin-left: auto;
+  margin-right: auto;
+  /* width: auto; */  /* 默认，表格将根据内容调整大小 */
+}
+

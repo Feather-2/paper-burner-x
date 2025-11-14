@@ -749,7 +749,208 @@
   }
 }
 
-/* ==================== 15. 打印样式 ==================== */
+/* ==================== 15. TOC 模式选择器 ==================== */
+
+.toc-mode-selector {
+  display: flex;
+  gap: 5px;
+  margin: var(--spacing-sm) 0;
+  padding: 5px;
+  background-color: #f5f7fa;
+  border-radius: var(--radius-sm);
+  justify-content: center;
+}
+
+.toc-mode-btn {
+  padding: var(--spacing-xs) var(--spacing-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: #fff;
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  transition: all var(--transition-fast) ease;
+}
+
+.toc-mode-btn.active {
+  background-color: var(--color-primary);
+  color: white;
+  border-color: #2563eb;
+}
+
+.toc-mode-btn:hover:not(.active) {
+  background-color: #f0f4f8;
+}
+
+/* ==================== 16. TOC 高亮效果 ==================== */
+
+.toc-highlight,
+.toc-target-highlight {
+  animation: toc-highlight-pulse 3s ease-out;
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes toc-highlight-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+    background-color: rgba(59, 130, 246, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 10px 3px rgba(59, 130, 246, 0.5);
+    background-color: rgba(59, 130, 246, 0.15);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    background-color: transparent;
+  }
+}
+
+/* 确保图片和表格等特殊元素在高亮时的效果 */
+.markdown-body img.toc-highlight,
+.markdown-body table.toc-highlight,
+.markdown-body img.toc-target-highlight,
+.markdown-body table.toc-target-highlight {
+  border: 2px solid rgba(59, 130, 246, 0.5);
+  border-radius: var(--radius-sm);
+}
+
+/* ==================== 17. 转换后的标题样式 ==================== */
+
+.converted-from-heading {
+  font-weight: var(--font-weight-semibold);
+  margin-top: 1.5em;
+  margin-bottom: 0.75em;
+  color: var(--color-text-primary);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 5px;
+}
+
+/* ==================== 18. TOC 信息提示 ==================== */
+
+.toc-info {
+  padding: var(--spacing-md);
+  margin: var(--spacing-md) 0;
+  background-color: #f8f9fa;
+  border-left: 3px solid var(--color-primary);
+  color: var(--color-text-secondary);
+  font-style: italic;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+/* ==================== 19. TOC 层级详细样式 ==================== */
+
+#toc-list li.toc-h1 a {
+  padding-left: var(--spacing-md);
+  font-size: 1em;
+  font-weight: var(--font-weight-semibold);
+}
+
+#toc-list li.toc-h2 a {
+  padding-left: var(--spacing-lg);
+  font-size: 0.95em;
+  font-weight: var(--font-weight-medium);
+}
+
+#toc-list li.toc-h3 a {
+  padding-left: 28px;
+  font-size: 0.9em;
+  font-weight: var(--font-weight-medium);
+}
+
+#toc-list li.toc-h4 a {
+  padding-left: 36px;
+  font-size: 0.85em;
+  font-weight: normal;
+}
+
+#toc-list li.toc-h5 a {
+  padding-left: 44px;
+  font-size: 0.8em;
+  font-weight: normal;
+  color: #555;
+}
+
+#toc-list li.toc-h6 a {
+  padding-left: 52px;
+  font-size: 0.75em;
+  font-weight: normal;
+  color: #666;
+}
+
+/* 转换后的标题在TOC中的样式 */
+#toc-list li.toc-p.converted-from-heading a {
+  /* 根据原始标签应用相应的样式 */
+}
+
+/* ==================== 20. 可折叠 TOC 样式 ==================== */
+
+#toc-list .toc-toggle {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+  text-align: center;
+  line-height: 16px;
+  margin-right: var(--spacing-xs);
+  color: var(--color-text-secondary);
+  transition: transform var(--transition-fast);
+  float: left;
+  margin-top: 2px;
+}
+
+#toc-list .toc-toggle.collapsed {
+  transform: rotate(-90deg);
+}
+
+#toc-list .toc-children {
+  height: auto;
+  overflow: hidden;
+  transition: height var(--transition-base) ease;
+  clear: both;
+}
+
+#toc-list .toc-children.collapsed {
+  height: 0;
+}
+
+/* 为有子项的TOC项添加特殊样式 */
+#toc-list .has-children > a {
+  font-weight: var(--font-weight-semibold);
+  display: flex;
+  align-items: flex-start;
+}
+
+/* ==================== 21. TOC 英文翻译样式 ==================== */
+
+#toc-list span.toc-en-translation {
+  font-size: 0.85em;
+  color: var(--color-text-secondary);
+  margin-left: var(--spacing-xs);
+  font-weight: var(--font-weight-normal);
+  display: inline-block;
+}
+
+/* ==================== 22. 设置对话框中的单选按钮样式 ==================== */
+
+.radio-container {
+  margin: var(--spacing-md) 0 var(--spacing-md);
+}
+
+.radio-group {
+  margin-bottom: var(--spacing-sm);
+  display: flex;
+  align-items: center;
+}
+
+.radio-group input[type="radio"] {
+  margin-right: var(--spacing-sm);
+}
+
+.radio-group label {
+  cursor: pointer;
+}
+
+/* ==================== 23. 打印样式 ==================== */
 
 @media print {
   #toc-float-btn,

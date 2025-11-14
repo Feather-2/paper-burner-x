@@ -1,16 +1,42 @@
-/* ==========================
- * 自定义上下文菜单样式
- * ========================== */
+/**
+ * Context Menu - 自定义右键菜单
+ *
+ * 职责：Notion 风格的右键菜单
+ * 作用域：#custom-context-menu 及其子元素
+ * 依赖：variables.css
+ *
+ * 合并自：history_detail_inline_styles.css
+ *
+ * 包含：
+ * - 现代化菜单容器
+ * - 颜色选择面板
+ * - 高亮文本悬停效果
+ * - 批注指示符
+ */
+
+/* ==================== 1. Notion 风格菜单容器 ==================== */
+
 #custom-context-menu {
   position: absolute;
   z-index: 10000;
+
+  /* Notion 风格外观 */
   background-color: #fff;
-  border: 1px solid #ccc;
-  border-radius: 5px;
-  box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
-  padding: 5px 0;
-  min-width: 180px;
-  display: none; /* Initially hidden */
+  border: 1px solid #eee;
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+
+  /* 布局 */
+  padding: 6px 0;
+  min-width: 220px;
+
+  /* 字体 */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+
+  /* 隐藏状态 */
+  display: none;
 }
 
 #custom-context-menu ul {
@@ -19,14 +45,25 @@
   margin: 0;
 }
 
-#custom-context-menu ul li {
-  padding: 8px 15px;
+#custom-context-menu li {
+  padding: var(--spacing-sm) var(--spacing-md);
   cursor: pointer;
-  font-size: 0.9em;
+  display: flex;
+  align-items: center;
+  transition: background-color 0.15s ease-in-out;
 }
 
-#custom-context-menu ul li:hover {
-  background-color: #f0f0f0;
+#custom-context-menu li:hover {
+  background-color: #f5f5f5;
+}
+
+/* ==================== 2. 菜单项图标 ==================== */
+
+#custom-context-menu li i.fa {
+  margin-right: var(--spacing-md);
+  color: #555;
+  width: 16px;
+  text-align: center;
 }
 
 /* 取消高亮选项的特殊样式 */
@@ -62,22 +99,35 @@
   color: #0c5460;
 }
 
-#custom-context-menu ul li .color-palette {
+/* ==================== 3. 颜色选择面板 ==================== */
+
+#custom-context-menu .color-palette {
   display: flex;
-  gap: 5px;
-  padding-top: 5px;
+  align-items: center;
+  margin-left: auto;
+  padding-left: var(--spacing-md);
 }
 
-#custom-context-menu ul li .color-option {
-  width: 20px;
-  height: 20px;
+#custom-context-menu .color-option {
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  border: 1px solid #eee;
+  margin-left: 6px;
   cursor: pointer;
+  border: 1px solid rgba(0,0,0,0.1);
+  transition: transform 0.1s ease-out;
 }
 
-#custom-context-menu ul li .color-option:hover {
-  border-color: #999;
+#custom-context-menu .color-option:hover {
+  transform: scale(1.15);
+}
+
+/* ==================== 4. 菜单分隔线 ==================== */
+
+#custom-context-menu hr.menu-divider {
+  border: none;
+  border-top: 1px solid #eee;
+  margin: 6px 0;
 }
 
 .color-yellow {
