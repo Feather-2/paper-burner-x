@@ -399,14 +399,21 @@
 
     if (!originalEl || !sidebarEl) return;
 
-    const value = originalEl.textContent.trim();
-    sidebarEl.textContent = value + suffix;
+    let value = originalEl.textContent.trim();
+
+    // 如果需要添加后缀，先检查是否已存在
+    if (suffix && !value.endsWith(suffix)) {
+      value = value + suffix;
+    }
+
+    sidebarEl.textContent = value;
   }
 
   /**
    * 同步所有 Dock 统计数据到侧边栏
    */
   function syncDockData() {
+    console.log('[Sidebar] Syncing Dock data...');
     syncStat(CONFIG.selectors.originalReadingProgress, CONFIG.selectors.sidebarReadingProgress, '%');
     syncStat(CONFIG.selectors.originalHighlightCount, CONFIG.selectors.sidebarHighlightCount);
     syncStat(CONFIG.selectors.originalAnnotationCount, CONFIG.selectors.sidebarAnnotationCount);
@@ -415,6 +422,11 @@
     syncStat(CONFIG.selectors.originalTableCount, CONFIG.selectors.sidebarTableCount);
     syncStat(CONFIG.selectors.originalWordCount, CONFIG.selectors.sidebarWordCount);
     syncStat(CONFIG.selectors.originalReferenceCount, CONFIG.selectors.sidebarReferenceCount);
+
+    // 调试：输出同步后的值
+    const progressEl = document.querySelector(CONFIG.selectors.sidebarReadingProgress);
+    const highlightEl = document.querySelector(CONFIG.selectors.sidebarHighlightCount);
+    console.log('[Sidebar] Synced values - Progress:', progressEl?.textContent, 'Highlights:', highlightEl?.textContent);
   }
 
   /**
