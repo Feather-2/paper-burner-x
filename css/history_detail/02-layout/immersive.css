@@ -550,9 +550,13 @@ body.toc-dock-resizing #toc-vs-dock-resize-handle {
   font-size: 14px !important;  /* 使用绝对单位，避免层叠缩小 */
 }
 
-/* 隐藏详细统计信息，仅显示进度 */
-#immersive-toc-area #bottom-left-dock #dock-info-stack {
+/* 隐藏详细统计信息，仅显示进度（强制隐藏，提高优先级） */
+#immersive-toc-area #toc-dock-placeholder #bottom-left-dock #dock-info-stack {
   display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
 }
 
 #immersive-toc-area #bottom-left-dock #dock-collapsed-progress-display {
@@ -562,9 +566,9 @@ body.toc-dock-resizing #toc-vs-dock-resize-handle {
   margin: 0 !important;
 }
 
-/* 折叠状态下的按钮 - 紧凑尺寸 */
-#immersive-toc-area #bottom-left-dock.dock-collapsed #settings-link,
-#immersive-toc-area #bottom-left-dock.dock-collapsed #dock-toggle-btn {
+/* 按钮统一样式 - 紧凑尺寸（不区分展开/折叠） */
+#immersive-toc-area #bottom-left-dock #settings-link,
+#immersive-toc-area #bottom-left-dock #dock-toggle-btn {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -579,27 +583,13 @@ body.toc-dock-resizing #toc-vs-dock-resize-handle {
   transition: all var(--transition-fast) !important;
 }
 
-/* 展开状态下的按钮 */
-#immersive-toc-area #bottom-left-dock:not(.dock-collapsed) #settings-link,
-#immersive-toc-area #bottom-left-dock:not(.dock-collapsed) #dock-toggle-btn {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  color: var(--color-text-muted) !important;
-  font-size: 16px !important;
-  width: 28px !important;
-  height: 28px !important;
-  padding: 0 !important;
-  margin: 0 !important;
-}
-
 #immersive-toc-area #bottom-left-dock #settings-link:hover,
 #immersive-toc-area #bottom-left-dock #dock-toggle-btn:hover {
   color: var(--color-text-secondary) !important;
 }
 
-/* 控制栏样式 - 折叠状态下横向紧凑布局 */
-#immersive-toc-area #bottom-left-dock.dock-collapsed .dock-control-bar {
+/* 控制栏统一样式 - 横向紧凑布局（不区分展开/折叠） */
+#immersive-toc-area #bottom-left-dock .dock-control-bar {
   display: flex !important;
   flex-direction: row !important;
   align-items: center !important;
@@ -612,22 +602,12 @@ body.toc-dock-resizing #toc-vs-dock-resize-handle {
   border-radius: 0 !important;
   width: 100% !important;
   min-height: 28px !important;  /* 紧凑的最小高度 */
+  max-height: 32px !important;  /* 限制最大高度，确保"一条" */
   overflow: visible !important;  /* 避免溢出隐藏 */
 }
 
-/* 展开状态的控制栏（如果需要不同样式）*/
-#immersive-toc-area #bottom-left-dock:not(.dock-collapsed) .dock-control-bar {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  gap: var(--spacing-sm) !important;
-  padding: var(--spacing-sm) 0 !important;
-  background: transparent !important;
-}
-
-/* 进度显示样式优化 - 折叠状态紧凑显示 */
-#immersive-toc-area #bottom-left-dock.dock-collapsed #dock-collapsed-progress-display {
+/* 进度显示统一样式 - 紧凑显示（不区分展开/折叠） */
+#immersive-toc-area #bottom-left-dock #dock-collapsed-progress-display {
   flex-grow: 0 !important;  /* 不占据剩余空间，保持紧凑 */
   flex-shrink: 0 !important;  /* 不收缩 */
   text-align: left !important;
@@ -639,10 +619,11 @@ body.toc-dock-resizing #toc-vs-dock-resize-handle {
   border: none !important;
   border-radius: 0 !important;
   color: var(--color-text-secondary) !important;
+  line-height: 1 !important;  /* 行高为 1，更紧凑 */
 }
 
-/* 折叠进度显示：隐藏图标 */
-#immersive-toc-area #bottom-left-dock.dock-collapsed #dock-collapsed-progress-display::before {
+/* 进度显示：隐藏图标 */
+#immersive-toc-area #bottom-left-dock #dock-collapsed-progress-display::before {
   display: none !important;
 }
 
