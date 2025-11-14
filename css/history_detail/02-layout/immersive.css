@@ -249,7 +249,12 @@ body.immersive-active #immersive-main-content-area .container .tab-content {
   display: flex !important; /* 必须覆盖默认的 display: none */
   flex-direction: column;
   width: 100% !important;
-  flex-grow: 1;
+  height: auto !important;  /* 允许高度自适应 */
+  max-height: none !important;  /* 移除最大高度限制！关键修复 */
+  min-height: 0 !important;  /* 允许缩小 */
+  flex-grow: 1;  /* 占据剩余空间 */
+  flex-shrink: 1;  /* 允许收缩 */
+  flex-basis: 0;  /* 基础尺寸为 0，完全由 flex-grow 控制 */
   border: none !important;
   box-shadow: none !important;
   transform: none !important;
