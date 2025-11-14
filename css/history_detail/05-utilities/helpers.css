@@ -1,0 +1,146 @@
+/**
+ * Helper Utilities - 辅助工具类
+ *
+ * 职责：各种辅助样式和工具类
+ * 作用域：全局
+ * 依赖：variables.css
+ *
+ * 提取自：history_detail_inline_styles.css
+ *
+ * 包含：
+ * - TOC 高亮效果
+ * - 设置对话框样式
+ * - Markdown 内容辅助
+ * - 转换标题样式
+ * - TOC 信息提示
+ */
+
+/* ==================== 1. TOC 高亮效果 ==================== */
+
+.toc-highlight,
+.toc-target-highlight {
+  animation: toc-highlight-pulse 3s ease-out;
+  position: relative;
+  z-index: calc(var(--z-base) + 1);
+}
+
+@keyframes toc-highlight-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+    background-color: rgba(59, 130, 246, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 10px 3px rgba(59, 130, 246, 0.5);
+    background-color: rgba(59, 130, 246, 0.15);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    background-color: transparent;
+  }
+}
+
+/* 确保图片和表格等特殊元素在高亮时的效果 */
+.markdown-body img.toc-highlight,
+.markdown-body table.toc-highlight,
+.markdown-body img.toc-target-highlight,
+.markdown-body table.toc-target-highlight {
+  border: 2px solid rgba(59, 130, 246, 0.5);
+  border-radius: var(--radius-sm);
+}
+
+/* ==================== 2. TOC 信息提示样式 ==================== */
+
+.toc-info {
+  padding: var(--spacing-sm);
+  margin: var(--spacing-sm) 0;
+  background-color: var(--color-bg-secondary);
+  border-left: 3px solid var(--color-primary);
+  color: var(--color-text-secondary);
+  font-style: italic;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+/* ==================== 3. 转换后的标题样式 ==================== */
+
+.converted-from-heading {
+  font-weight: var(--font-weight-semibold);
+  margin-top: 1.5em;
+  margin-bottom: 0.75em;
+  color: var(--color-text-primary);
+  border-bottom: 1px solid var(--color-border-light);
+  padding-bottom: var(--spacing-xs);
+}
+
+/* ==================== 4. 设置对话框中的单选按钮样式 ==================== */
+
+.radio-container {
+  margin: var(--spacing-sm) 0 var(--spacing-md);
+}
+
+.radio-group {
+  margin-bottom: var(--spacing-sm);
+  display: flex;
+  align-items: center;
+}
+
+.radio-group input[type="radio"] {
+  margin-right: var(--spacing-sm);
+}
+
+.radio-group label {
+  cursor: pointer;
+  user-select: none;
+}
+
+/* ==================== 5. Markdown 内容辅助样式 ==================== */
+
+/* 图片居中 */
+.markdown-body img {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 100%;
+  height: auto;
+}
+
+/* 表格居中 */
+.markdown-body table {
+  display: table;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ==================== 6. 子块样式 ==================== */
+
+.sub-block {
+  display: inline;
+}
+
+/* ==================== 7. 阅读进度数值高亮 ==================== */
+
+#reading-progress-percentage-verbose,
+#reading-progress-percentage {
+  color: var(--color-primary);
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-sm);
+}
+
+/* ==================== 8. 暗色模式支持 ==================== */
+
+@media (prefers-color-scheme: dark) {
+  .toc-info {
+    background-color: rgba(31, 41, 55, 0.6);
+    border-left-color: #60a5fa;
+    color: #9ca3af;
+  }
+
+  .converted-from-heading {
+    color: var(--color-text-inverse, #e5e7eb);
+    border-bottom-color: rgba(255, 255, 255, 0.1);
+  }
+
+  #reading-progress-percentage-verbose,
+  #reading-progress-percentage {
+    color: #60a5fa;
+  }
+}

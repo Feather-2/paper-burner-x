@@ -1,12 +1,93 @@
-/* history_detail.css has been split into modular files for maintainability. */
-@import url('./history_detail/modern-base.css');
-@import url('./history_detail/layout.css');
-@import url('./history_detail/chunk-compare.css');
-@import url('./history_detail/markdown-content.css');
-@import url('./history_detail/markdown-modern.css');
-@import url('./history_detail/context-menu.css');
-@import url('./history_detail/toc-base.css');
-@import url('./history_detail/chunk-interactions.css');
-@import url('./history_detail/state.css');
-@import url('./history_detail/modal.css');
-@import url('./history_detail/toc-extensions.css');
+/**
+ * History Detail - 主样式入口文件
+ *
+ * 架构：分层模块化 CSS
+ * 依赖：所有子模块按顺序加载
+ *
+ * 加载顺序说明：
+ * 1. Foundation - 基础变量和重置样式
+ * 2. Layout - 布局系统
+ * 3. Components - UI 组件
+ * 4. Features - 功能模块
+ * 5. Utilities - 工具类
+ *
+ * 重构日期：2025-11-14
+ * 分支：refactor/css-architecture
+ */
+
+/* ==================== 1. Foundation Layer - 基础层 ==================== */
+
+/* CSS 变量系统 */
+@import url('./history_detail/01-foundation/variables.css');
+
+/* 基础重置 */
+@import url('./history_detail/01-foundation/reset.css');
+
+/* 排版系统 */
+@import url('./history_detail/01-foundation/typography.css');
+
+/* ==================== 2. Layout Layer - 布局层 ==================== */
+
+/* 主布局 */
+@import url('./history_detail/02-layout/layout.css');
+
+/* 沉浸模式布局 */
+@import url('./history_detail/02-layout/immersive.css');
+
+/* ==================== 3. Components Layer - 组件层 ==================== */
+
+/* TOC 目录组件 */
+@import url('./history_detail/03-components/toc.css');
+
+/* Dock 统计组件 */
+@import url('./history_detail/03-components/dock.css');
+
+/* Modal 弹窗组件 */
+@import url('./history_detail/03-components/modal.css');
+
+/* Lightbox 灯箱组件 */
+@import url('./history_detail/03-components/lightbox.css');
+
+/* Context Menu 右键菜单 */
+@import url('./history_detail/03-components/context-menu.css');
+
+/* ==================== 4. Features Layer - 功能层 ==================== */
+
+/* Markdown 内容渲染 */
+@import url('./history_detail/04-features/markdown-content.css');
+
+/* Markdown 现代化样式 */
+@import url('./history_detail/04-features/markdown-modern.css');
+
+/* 分块对比功能 */
+@import url('./history_detail/04-features/chunk-compare.css');
+
+/* 分块交互功能 */
+@import url('./history_detail/04-features/chunk-interactions.css');
+
+/* ==================== 5. Utilities Layer - 工具层 ==================== */
+
+/* 状态类 */
+@import url('./history_detail/05-utilities/state.css');
+
+/* 辅助工具类 */
+@import url('./history_detail/05-utilities/helpers.css');
+
+/* ==================== 注释说明 ==================== */
+
+/**
+ * 旧文件迁移对照表：
+ *
+ * modern-base.css → 01-foundation/variables.css + reset.css + typography.css
+ * toc-base.css + toc-extensions.css → 03-components/toc.css
+ * (新增) → 03-components/dock.css
+ * (新增) → 02-layout/immersive.css
+ * (新增) → 05-utilities/helpers.css
+ *
+ * 其他文件已按分层移动到相应目录。
+ *
+ * 废弃文件（已移至 _deprecated/）：
+ * - modern-base.css
+ * - toc-base.css
+ * - toc-extensions.css
+ */
