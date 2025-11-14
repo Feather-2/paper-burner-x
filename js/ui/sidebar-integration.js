@@ -422,34 +422,36 @@
   }
 
   /**
-   * 获取当前滚动容器（复用 DockLogic 的逻辑）
+   * 获取当前滚动容器（从 main 分支的 DockLogic 移植）
    */
   function getCurrentScrollableElement() {
-    // 优先使用 DockLogic 提供的接口（如果存在）
-    if (window.DockLogic && typeof window.DockLogic.getCurrentScrollableElement === 'function') {
-      return window.DockLogic.getCurrentScrollableElement();
-    }
-
-    // 后备方案：自己实现相同的逻辑
     if (window.ImmersiveLayout && window.ImmersiveLayout.isActive && window.ImmersiveLayout.isActive()) {
+      // 沉浸模式：滚动容器取决于当前活动的标签页
       const immersiveMainArea = document.getElementById('immersive-main-content-area');
       if (immersiveMainArea) {
-        // 优先查找带有 .js-scroll-container 标记的元素
-        const markedScroller = immersiveMainArea.querySelector('.js-scroll-container');
-        if (markedScroller) {
-          return markedScroller;
-        }
+        // 1. 优先查找带有内联样式的 .tab-content
+        const tabContentScroller = immersiveMainArea.querySelector('.tab-content[style*="overflow-y: auto"], .tab-content[style*="overflow: auto"]');
+        if (tabContentScroller) return tabContentScroller;
 
-        // 后备方案：通过 computed style 检查
-        const tabContent = immersiveMainArea.querySelector('.tab-content');
-        if (tabContent) {
-          const computedStyle = getComputedStyle(tabContent);
-          if (computedStyle.overflowY === 'auto' || computedStyle.overflow === 'auto') {
-            return tabContent;
+        // 2. 查找活动的内容包装器
+        const activeTabContent = immersiveMainArea.querySelector('.tab-content .content-wrapper, .tab-content .chunk-compare-container');
+        if (activeTabContent) {
+          // 检查父元素 .tab-content 是否可滚动
+          const tabContentParent = activeTabContent.closest('.tab-content');
+          if (tabContentParent && (tabContentParent.style.overflowY === 'auto' ||
+                                 tabContentParent.style.overflow === 'auto' ||
+                                 getComputedStyle(tabContentParent).overflowY === 'auto')) {
+            return tabContentParent;
           }
+          // 回退到内容包装器本身
+          return activeTabContent;
         }
 
-        // 兜底方案：返回 immersive main area
+        // 3. 尝试 .container
+        const mainContainerInImmersive = immersiveMainArea.querySelector('.container');
+        if (mainContainerInImmersive) return mainContainerInImmersive;
+
+        // 4. 最后回退到 immersiveMainArea
         return immersiveMainArea;
       }
     }
