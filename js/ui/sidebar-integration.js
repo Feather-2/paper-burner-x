@@ -422,11 +422,43 @@
   }
 
   /**
+   * 计算并更新侧边栏的阅读进度（直接计算，不依赖 Dock）
+   */
+  function updateSidebarReadingProgress() {
+    const progressEl = document.querySelector(CONFIG.selectors.sidebarReadingProgress);
+    if (!progressEl) return;
+
+    // 获取当前滚动容器
+    const scrollableElement = document.documentElement; // 非沉浸模式下使用 document.documentElement
+
+    const scrollTop = scrollableElement.scrollTop;
+    const scrollHeight = scrollableElement.scrollHeight;
+    const clientHeight = scrollableElement.clientHeight;
+
+    // 如果内容适合视口（无滚动条），显示 100%
+    if (scrollHeight <= clientHeight) {
+      progressEl.textContent = '100%';
+      return;
+    }
+
+    // 计算滚动百分比
+    const maxScrollTop = scrollHeight - clientHeight;
+    const scrollFraction = maxScrollTop > 0 ? (scrollTop / maxScrollTop) : 0;
+    const percentage = Math.min(100, Math.max(0, Math.round(scrollFraction * 100)));
+
+    progressEl.textContent = percentage + '%';
+  }
+
+  /**
    * 同步所有 Dock 统计数据到侧边栏
    */
   function syncDockData() {
     console.log('[Sidebar] Syncing Dock data...');
-    syncStat(CONFIG.selectors.originalReadingProgress, CONFIG.selectors.sidebarReadingProgress, '%');
+
+    // 阅读进度：直接计算，不从 Dock 同步
+    updateSidebarReadingProgress();
+
+    // 其他统计：从 Dock 同步
     syncStat(CONFIG.selectors.originalHighlightCount, CONFIG.selectors.sidebarHighlightCount);
     syncStat(CONFIG.selectors.originalAnnotationCount, CONFIG.selectors.sidebarAnnotationCount);
     syncStat(CONFIG.selectors.originalImageCount, CONFIG.selectors.sidebarImageCount);
@@ -565,6 +597,17 @@
   // ==================== 初始化 ====================
 
   /**
+   * 防抖函数
+   */
+  function debounce(func, delay) {
+    let timeout;
+    return function(...args) {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => func.apply(this, args), delay);
+    };
+  }
+
+  /**
    * 初始化侧边栏集成模块
    */
   function init() {
@@ -604,6 +647,14 @@
     // 监听窗口大小变化
     window.addEventListener('resize', handleResize);
 
+    // 监听滚动事件以更新阅读进度（防抖优化）
+    const debouncedProgressUpdate = debounce(updateSidebarReadingProgress, 100);
+    window.addEventListener('scroll', debouncedProgressUpdate);
+    document.addEventListener('scroll', debouncedProgressUpdate, true); // 捕获阶段，确保捕获所有滚动
+
+    // 初始更新一次阅读进度
+    setTimeout(updateSidebarReadingProgress, 100);
+
     console.log('[Sidebar] Sidebar integration initialized successfully');
   }
 
@@ -620,6 +671,7 @@
   window.SidebarIntegration = {
     syncTocData,
     syncDockData,
+    updateReadingProgress: updateSidebarReadingProgress,
     openMobileSidebar,
     closeMobileSidebar,
     setSidebarCollapsed
