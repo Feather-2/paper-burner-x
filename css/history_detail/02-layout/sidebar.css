@@ -1,0 +1,573 @@
+/**
+ * Sidebar Layout - History Detail 统一侧边栏
+ *
+ * 职责：提供集成了 TOC 和 Dock 数据的统一侧边栏布局
+ * 依赖：01-foundation/variables.css
+ * 设计：黑白灰主色 + 蓝色重点色（极简风格）
+ *
+ * 功能：
+ * - 响应式设计（移动端：浮层，桌面端：固定侧边栏）
+ * - 可折叠（260px ↔ 76px）
+ * - 集成 TOC 目录（可展开/收起）
+ * - 集成 Dock 统计信息（可展开/收起）
+ * - 回到工作台导航
+ * - 设置入口
+ * - GitHub 链接
+ *
+ * 注意：仅用于非沉浸模式，沉浸模式保持原有 TOC 区域设计
+ */
+
+/* ==================== App Shell 容器 ==================== */
+
+.app-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ==================== 侧边栏主体 ==================== */
+
+.app-sidebar {
+  width: var(--sidebar-width);
+  background-color: var(--color-bg-base);
+  border-right: 1px solid var(--color-border-light);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+
+  /* Mobile defaults: fixed off-screen */
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: var(--sidebar-z-index);
+  transform: translateX(-100%);
+  transition: var(--sidebar-transition);
+}
+
+/* 移动端打开状态 */
+.app-sidebar.mobile-open {
+  transform: translateX(0);
+  box-shadow: 4px 0 24px var(--color-shadow-strong);
+}
+
+/* 桌面端样式 */
+@media (min-width: 768px) {
+  .app-sidebar {
+    position: static;
+    transform: none;
+  }
+
+  /* 收起状态 */
+  .app-sidebar.collapsed {
+    width: var(--sidebar-collapsed-width);
+  }
+
+  .app-sidebar.collapsed .px-6 {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  /* 收起时头部垂直排列并居中 */
+  .app-sidebar.collapsed .sidebar-header {
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5rem;
+    padding-top: 1.5rem;
+    padding-bottom: 1rem;
+  }
+
+  .app-sidebar.collapsed .sidebar-logo {
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
+  }
+
+  /* 隐藏文字元素 */
+  .app-sidebar.collapsed .nav-text,
+  .app-sidebar.collapsed .sidebar-section-title,
+  .app-sidebar.collapsed .sidebar-footer {
+    opacity: 0;
+    pointer-events: none;
+    display: none;
+  }
+
+  /* 导航项居中 */
+  .app-sidebar.collapsed .nav-item {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .app-sidebar.collapsed .nav-icon {
+    margin-right: 0;
+  }
+}
+
+/* ==================== 侧边栏头部 ==================== */
+
+.sidebar-header {
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: var(--sidebar-transition);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.sidebar-logo {
+  height: 2rem;
+  transition: var(--sidebar-transition);
+}
+
+.sidebar-toggle-btn {
+  display: none; /* 仅桌面端显示 */
+  padding: 0.375rem;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.sidebar-toggle-btn:hover {
+  color: var(--color-text-secondary);
+  background: var(--color-bg-secondary);
+}
+
+@media (min-width: 768px) {
+  .sidebar-toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+/* 移动端关闭按钮 */
+.sidebar-close-btn {
+  display: flex;
+  padding: 0.5rem;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.sidebar-close-btn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-secondary);
+}
+
+@media (min-width: 768px) {
+  .sidebar-close-btn {
+    display: none;
+  }
+}
+
+/* ==================== 侧边栏导航区 ==================== */
+
+.sidebar-nav {
+  flex: 1;
+  padding: 0.75rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* 自定义滚动条 */
+.sidebar-nav::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background: var(--color-border-medium);
+  border-radius: var(--radius-sm);
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-dark);
+}
+
+/* ==================== 导航分组标题 ==================== */
+
+.nav-section-title {
+  padding: 0 0.75rem;
+  margin-bottom: 0.5rem;
+  margin-top: 1rem;
+  font-size: 11px;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: opacity var(--transition-fast);
+}
+
+.nav-section-title:first-child {
+  margin-top: 0;
+}
+
+/* ==================== 导航项 ==================== */
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  padding: var(--sidebar-nav-item-padding);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+  font-weight: var(--font-weight-medium);
+  font-size: var(--sidebar-nav-item-font-size);
+  margin-bottom: 0.25rem;
+  user-select: none;
+  cursor: pointer;
+}
+
+.nav-item:hover {
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+.nav-item.active {
+  background-color: #eff6ff; /* blue-50 */
+  color: var(--color-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.nav-icon {
+  margin-right: 0.75rem;
+  font-size: 1.25rem;
+  color: var(--color-text-muted);
+  transition: color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.nav-item:hover .nav-icon {
+  color: var(--color-text-secondary);
+}
+
+.nav-item.active .nav-icon {
+  color: var(--color-primary);
+}
+
+.nav-text {
+  transition: opacity var(--transition-fast);
+}
+
+/* ==================== 可折叠区域 ==================== */
+
+.sidebar-section {
+  margin-bottom: 0.5rem;
+}
+
+.sidebar-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--sidebar-section-header-padding);
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  user-select: none;
+}
+
+.sidebar-section-header:hover {
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+.sidebar-section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: opacity var(--transition-fast);
+}
+
+.sidebar-section-chevron {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  transition: transform var(--transition-base);
+}
+
+.sidebar-section.expanded .sidebar-section-chevron {
+  transform: rotate(90deg);
+}
+
+/* 折叠内容区 */
+.sidebar-section-content {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height var(--transition-base);
+  padding: var(--sidebar-section-content-padding);
+}
+
+.sidebar-section.expanded .sidebar-section-content {
+  max-height: 500px; /* 足够大的值，实际高度由内容决定 */
+}
+
+/* ==================== TOC 目录列表（集成到侧边栏） ==================== */
+
+.sidebar-toc-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.sidebar-toc-item {
+  margin-bottom: 2px;
+}
+
+.sidebar-toc-link {
+  display: block;
+  padding: 4px 8px;
+  color: var(--color-text-primary);
+  text-decoration: none;
+  font-weight: var(--font-weight-normal);
+  font-size: var(--font-size-xs); /* 12px */
+  transition: background var(--transition-fast),
+              color var(--transition-fast),
+              border-left-color var(--transition-fast);
+  border-left: 2px solid var(--color-border-light);
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.3;
+  border-radius: var(--radius-sm);
+}
+
+.sidebar-toc-link:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  border-left-color: var(--color-text-secondary);
+}
+
+.sidebar-toc-link.active {
+  background: var(--color-bg-base);
+  color: var(--color-primary); /* 蓝色文字（唯一的蓝色重点） */
+  border-left-color: var(--color-primary); /* 蓝色边框 */
+  font-weight: var(--font-weight-semibold);
+}
+
+/* TOC 层级缩进 */
+.sidebar-toc-item.toc-h2 .sidebar-toc-link {
+  padding-left: 16px;
+  font-size: 0.95em;
+}
+.sidebar-toc-item.toc-h3 .sidebar-toc-link {
+  padding-left: 22px;
+  font-size: 0.90em;
+}
+.sidebar-toc-item.toc-h4 .sidebar-toc-link {
+  padding-left: 28px;
+  font-size: 0.87em;
+}
+.sidebar-toc-item.toc-h5 .sidebar-toc-link {
+  padding-left: 34px;
+  font-size: 0.85em;
+}
+.sidebar-toc-item.toc-h6 .sidebar-toc-link {
+  padding-left: 40px;
+  font-size: 0.83em;
+}
+
+/* ==================== Dock 统计信息（集成到侧边栏） ==================== */
+
+.sidebar-stat-list {
+  padding: 0 0.5rem;
+}
+
+.sidebar-stat-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.375rem;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.sidebar-stat-item:last-child {
+  border-bottom: none;
+}
+
+.sidebar-stat-label {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.sidebar-stat-value {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-primary);
+}
+
+/* ==================== 侧边栏底部 ==================== */
+
+.sidebar-footer {
+  padding: 0.75rem;
+  border-top: 1px solid var(--color-border-light);
+  transition: opacity var(--transition-fast);
+}
+
+.sidebar-footer-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.sidebar-footer-link:hover {
+  background-color: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+.sidebar-footer-icon {
+  font-size: 1.25rem;
+}
+
+/* ==================== 移动端遮罩 ==================== */
+
+.sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.4);
+  z-index: calc(var(--sidebar-z-index) - 10);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-base);
+  backdrop-filter: blur(2px);
+}
+
+.sidebar-overlay.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (min-width: 768px) {
+  .sidebar-overlay {
+    display: none;
+  }
+}
+
+/* ==================== 主内容区 ==================== */
+
+.app-main {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  width: 100%;
+}
+
+/* ==================== 移动端顶部栏 ==================== */
+
+.mobile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background-color: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--color-border-light);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.mobile-header-title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.mobile-header-logo {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.mobile-menu-btn {
+  padding: 0.25rem;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+@media (min-width: 768px) {
+  .mobile-header {
+    display: none;
+  }
+}
+
+/* ==================== 分隔线 ==================== */
+
+.sidebar-divider {
+  height: 1px;
+  background-color: var(--color-border-light);
+  margin: 1rem 0.75rem;
+  transition: margin var(--transition-fast);
+}
+
+/* ==================== 空状态提示 ==================== */
+
+.sidebar-empty-state {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.sidebar-empty-icon {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+  opacity: 0.5;
+}
+
+/* ==================== 工具提示 ==================== */
+
+.sidebar-tooltip {
+  position: absolute;
+  left: 100%;
+  margin-left: 0.5rem;
+  padding: 0.375rem 0.75rem;
+  background-color: var(--color-bg-dark);
+  color: var(--color-text-inverse);
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-fast);
+  z-index: var(--z-tooltip);
+}
+
+.nav-item:hover .sidebar-tooltip,
+.sidebar-section-header:hover .sidebar-tooltip {
+  opacity: 1;
+}
+
+/* 仅在收起状态显示工具提示 */
+@media (min-width: 768px) {
+  .app-sidebar:not(.collapsed) .sidebar-tooltip {
+    display: none;
+  }
+}

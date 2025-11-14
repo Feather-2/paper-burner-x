@@ -60,6 +60,162 @@
     <!-- Removed Placeholder for Dock in immersive mode -->
   </div>
 
+  <!-- ========== App Shell 包装器（非沉浸模式） ========== -->
+  <div class="app-shell" id="app-shell">
+    <!-- 移动端侧边栏遮罩 -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <!-- ========== 统一侧边栏 ========== -->
+    <aside class="app-sidebar" id="appSidebar">
+      <!-- 侧边栏头部 -->
+      <div class="sidebar-header">
+        <img src="../../public/h_with_name.svg" alt="Paper Burner X" class="sidebar-logo" id="sidebarLogo">
+        <!-- 桌面端收起按钮 -->
+        <button class="sidebar-toggle-btn" id="sidebarToggleBtn" title="切换侧边栏">
+          <i class="fas fa-bars"></i>
+        </button>
+        <!-- 移动端关闭按钮 -->
+        <button class="sidebar-close-btn" id="sidebarCloseBtn">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+
+      <!-- 侧边栏导航 -->
+      <nav class="sidebar-nav">
+        <!-- 主要功能区 -->
+        <div class="nav-section-title">主要功能</div>
+
+        <!-- 回到工作台 -->
+        <a href="../../index.html" class="nav-item">
+          <i class="fas fa-home nav-icon"></i>
+          <span class="nav-text">回到工作台</span>
+        </a>
+
+        <!-- 分隔线 -->
+        <div class="sidebar-divider"></div>
+
+        <!-- 文档结构区 -->
+        <div class="nav-section-title">文档结构</div>
+
+        <!-- TOC 目录（可折叠） -->
+        <div class="sidebar-section expanded" id="sidebarTocSection">
+          <button class="sidebar-section-header" id="sidebarTocToggle">
+            <span class="sidebar-section-title">
+              <i class="fas fa-list"></i>
+              <span>目录</span>
+            </span>
+            <i class="fas fa-chevron-right sidebar-section-chevron"></i>
+          </button>
+          <div class="sidebar-section-content">
+            <ul class="sidebar-toc-list" id="sidebarTocList">
+              <!-- TOC 项目将由 JavaScript 填充 -->
+              <li class="sidebar-empty-state">
+                <div class="sidebar-empty-icon">📄</div>
+                <div>加载中...</div>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 统计信息区 -->
+        <div class="nav-section-title">统计信息</div>
+
+        <!-- Dock 统计（可折叠） -->
+        <div class="sidebar-section expanded" id="sidebarDockSection">
+          <button class="sidebar-section-header" id="sidebarDockToggle">
+            <span class="sidebar-section-title">
+              <i class="fas fa-chart-bar"></i>
+              <span>阅读统计</span>
+            </span>
+            <i class="fas fa-chevron-right sidebar-section-chevron"></i>
+          </button>
+          <div class="sidebar-section-content">
+            <div class="sidebar-stat-list">
+              <div class="sidebar-stat-item">
+                <span class="sidebar-stat-label">阅读进度</span>
+                <span class="sidebar-stat-value" id="sidebarReadingProgress">0%</span>
+              </div>
+              <div class="sidebar-stat-item">
+                <span class="sidebar-stat-label">高亮</span>
+                <span class="sidebar-stat-value stat-item-clickable" data-stat-type="highlight" id="sidebarHighlightCount">0</span>
+              </div>
+              <div class="sidebar-stat-item">
+                <span class="sidebar-stat-label">批注</span>
+                <span class="sidebar-stat-value stat-item-clickable" data-stat-type="annotation" id="sidebarAnnotationCount">0</span>
+              </div>
+              <div class="sidebar-stat-item">
+                <span class="sidebar-stat-label">图片</span>
+                <span class="sidebar-stat-value" id="sidebarImageCount">0</span>
+              </div>
+              <div class="sidebar-stat-item">
+                <span class="sidebar-stat-label">公式</span>
+                <span class="sidebar-stat-value" id="sidebarFormulaCount">0</span>
+              </div>
+              <div class="sidebar-stat-item">
+                <span class="sidebar-stat-label">表格</span>
+                <span class="sidebar-stat-value" id="sidebarTableCount">0</span>
+              </div>
+              <div class="sidebar-stat-item">
+                <span class="sidebar-stat-label">总字数</span>
+                <span class="sidebar-stat-value" id="sidebarWordCount">0</span>
+              </div>
+              <div class="sidebar-stat-item">
+                <span class="sidebar-stat-label">文献</span>
+                <span class="sidebar-stat-value stat-item-clickable" data-stat-type="reference" id="sidebarReferenceCount">0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 分隔线 -->
+        <div class="sidebar-divider"></div>
+
+        <!-- 系统区 -->
+        <div class="nav-section-title">系统</div>
+
+        <!-- 设置 -->
+        <a href="#" class="nav-item" id="sidebarSettingsLink">
+          <i class="fas fa-cog nav-icon"></i>
+          <span class="nav-text">设置</span>
+        </a>
+      </nav>
+
+      <!-- 侧边栏底部 -->
+      <div class="sidebar-footer">
+        <a href="https://github.com/Feather-2/paper-burner" target="_blank" class="sidebar-footer-link">
+          <i class="fab fa-github sidebar-footer-icon"></i>
+          <span>GitHub</span>
+        </a>
+      </div>
+    </aside>
+
+    <!-- ========== 主内容区 ========== -->
+    <main class="app-main">
+      <!-- 移动端顶部栏 -->
+      <div class="mobile-header">
+        <div class="mobile-header-title">
+          <img src="../../public/pure.svg" alt="PBX" class="mobile-header-logo">
+          <span>文档详情</span>
+        </div>
+        <button class="mobile-menu-btn" id="mobileMenuBtn">
+          <i class="fas fa-bars"></i>
+        </button>
+      </div>
+
+      <!-- 旧的 TOC 和 Dock（隐藏但保留以便向后兼容） -->
+      <div style="display: none;" id="legacy-toc-dock-wrapper">
+  <!-- ===================== -->
+  <!-- 浮动TOC目录按钮及悬浮窗 -->
+  <!-- ===================== -->
+  <div id="toc-float-btn" class="tiny-round-btn"><i class="fa fa-list"></i></div>
+  <div id="toc-popup" class="toc-popup-hidden">
+    <div id="toc-popup-header">
+      <span><i class="fa fa-list"></i>目录 / TOC</span>
+      <button id="toc-popup-close-btn">关闭</button>
+    </div>
+    <ul id="toc-list"></ul>
+  </div>
+
   <!-- NEW DOCK STRUCTURE -->
   <div id="bottom-left-dock">
     <div id="dock-info-stack">
@@ -86,18 +242,7 @@
       <a href="#" id="dock-toggle-btn" title="折叠"><i class="fa fa-chevron-down"></i></a>
     </div>
   </div>
-
-  <!-- ===================== -->
-  <!-- 浮动TOC目录按钮及悬浮窗 -->
-  <!-- ===================== -->
-  <div id="toc-float-btn" class="tiny-round-btn"><i class="fa fa-list"></i></div>
-  <div id="toc-popup" class="toc-popup-hidden">
-    <div id="toc-popup-header">
-      <span><i class="fa fa-list"></i>目录 / TOC</span>
-      <button id="toc-popup-close-btn">关闭</button>
-    </div>
-    <ul id="toc-list"></ul>
-  </div>
+      </div> <!-- End legacy-toc-dock-wrapper -->
 
   <!-- ===================== -->
   <!-- 主内容容器 -->
@@ -281,6 +426,9 @@
     </div>
   </div>
 
+    </main> <!-- End app-main -->
+  </div> <!-- End app-shell -->
+
   <!-- ===================== -->
   <!-- 依赖的JS库 -->
   <!-- ===================== -->
@@ -440,6 +588,9 @@
   <script src="../../js/storage/reference-storage.js"></script>
   <script src="../../js/ui/reference-manager-ui.js"></script>
   <script src="../../js/ui/reference-manager-detail.js"></script> <!-- 详情页专用 -->
+
+  <!-- 统一侧边栏集成 (Non-Immersive Mode) -->
+  <script src="../../js/ui/sidebar-integration.js"></script>
 
 </body>
 </html>

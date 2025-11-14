@@ -71,7 +71,20 @@
   --color-shadow-medium: rgba(0, 0, 0, 0.1);
   --color-shadow-strong: rgba(0, 0, 0, 0.2);
 
-  /* ==================== TOC 组件尺寸 ==================== */
+  /* ==================== Sidebar 侧边栏尺寸 ==================== */
+
+  --sidebar-width: 260px;
+  --sidebar-collapsed-width: 76px;
+  --sidebar-z-index: 50; /* mobile overlay */
+  --sidebar-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  --sidebar-nav-item-padding: 0.75rem 0.875rem;
+  --sidebar-nav-item-font-size: 0.9375rem; /* 15px */
+  --sidebar-section-header-padding: 0.625rem 0.875rem;
+  --sidebar-section-content-padding: 0.5rem 0;
+
+  /* ==================== TOC 组件尺寸 (Non-Immersive: 已废弃，使用 Sidebar) ==================== */
+  /* 注意：非沉浸模式下 TOC 已迁移到 Sidebar，这些变量仅供沉浸模式使用 */
 
   --toc-button-size: 32px;  /* 与沉浸模式按钮统一 */
   --toc-button-left: 16px;  /* 与沉浸模式按钮统一间距 */

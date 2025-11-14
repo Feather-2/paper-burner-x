@@ -31,6 +31,9 @@
 /* 主布局 */
 @import url('./history_detail/02-layout/layout.css');
 
+/* 统一侧边栏布局 (Non-Immersive Mode) */
+@import url('./history_detail/02-layout/sidebar.css');
+
 /* 沉浸模式布局 */
 @import url('./history_detail/02-layout/immersive.css');
 
