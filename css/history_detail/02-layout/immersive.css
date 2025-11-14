@@ -13,9 +13,9 @@
  * 5. 统一 z-index 使用规范
  *
  * 核心改进：
- * - overflow 由 CSS 类控制（.immersive-scrollable）
- * - 滚动容器使用统一标记（.js-scroll-container）
- * - 移除与 immersive_layout_fix.js 的冲突
+ * - overflow 由 CSS 类控制（body.immersive-active）
+ * - 滚动容器使用统一标记（.js-scroll-container，供 JS 查询）
+ * - 消除 CSS/JS overflow 冲突（immersive_layout_fix.js 已删除）
  */
 
 /* ==================== 1. 沉浸模式布局容器 ==================== */

@@ -30,33 +30,33 @@
     // Helper function to get the current scrollable element
     function getCurrentScrollableElement() {
         if (global.ImmersiveLayout && global.ImmersiveLayout.isActive()) {
-            // In immersive mode, scrolling is more complex.
-            // It depends on the currently active tab within the immersive main content area.
+            // In immersive mode, scrolling is managed by CSS through body.immersive-active
+            // We look for elements marked with .js-scroll-container class
             const immersiveMainArea = document.getElementById('immersive-main-content-area');
             if (immersiveMainArea) {
-                // Try to find the specific, scrollable tab content area first
-                const tabContentScroller = immersiveMainArea.querySelector('.tab-content[style*="overflow-y: auto"], .tab-content[style*="overflow: auto"]');
-                if (tabContentScroller) return tabContentScroller;
-
-                const activeTabContent = immersiveMainArea.querySelector('.tab-content .content-wrapper, .tab-content .chunk-compare-container');
-                if (activeTabContent) {
-                    // Check if this activeTabContent itself is scrollable, or if its parent .tab-content is.
-                    // Often, the .tab-content (with overflow-y: auto) is the actual scroller for its children.
-                    const tabContentParent = activeTabContent.closest('.tab-content');
-                    if (tabContentParent && (tabContentParent.style.overflowY === 'auto' ||
-                                           tabContentParent.style.overflow === 'auto' ||
-                                           getComputedStyle(tabContentParent).overflowY === 'auto')) {
-                        return tabContentParent;
-                    }
-                    return activeTabContent; // Fallback to the content wrapper itself if .tab-content isn't the scroller
+                // 优先查找带有 .js-scroll-container 标记的元素（由 immersive_layout_logic.js 添加）
+                const markedScroller = immersiveMainArea.querySelector('.js-scroll-container');
+                if (markedScroller) {
+                    console.log("[DockLogic] 找到标记的滚动容器:", markedScroller.className);
+                    return markedScroller;
                 }
-                // If no specific tab content found, try the .container within immersive main area
-                const mainContainerInImmersive = immersiveMainArea.querySelector('.container');
-                if (mainContainerInImmersive) return mainContainerInImmersive;
-                return immersiveMainArea; // Fallback to the immersive main area itself
+
+                // 后备方案：通过 computed style 检查
+                const tabContent = immersiveMainArea.querySelector('.tab-content');
+                if (tabContent) {
+                    const computedStyle = getComputedStyle(tabContent);
+                    if (computedStyle.overflowY === 'auto' || computedStyle.overflow === 'auto') {
+                        console.log("[DockLogic] 通过 computed style 找到滚动容器");
+                        return tabContent;
+                    }
+                }
+
+                // 兜底方案：返回 immersive main area
+                console.log("[DockLogic] 使用兜底方案：immersiveMainArea");
+                return immersiveMainArea;
             }
         }
-        // Default to document.documentElement when not in immersive mode or if specific elements aren't found
+        // Default to document.documentElement when not in immersive mode
         return document.documentElement;
     }
 
