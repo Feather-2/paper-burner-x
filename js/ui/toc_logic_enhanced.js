@@ -891,7 +891,6 @@
       } else {
         // 普通模式下，检查是否需要滚动 .tab-content 容器（OCR/翻译模式）
         const tabContent = document.querySelector('.tab-content');
-        console.log('[TOC] 普通模式滚动 - tabContent:', tabContent);
 
         // 检查 tabContent 是否是滚动容器
         if (tabContent) {
@@ -902,15 +901,6 @@
           const isScrollable = (overflowY === 'auto' || overflowY === 'scroll' || overflow === 'auto' || overflow === 'scroll');
           const hasScroll = tabContent.scrollHeight > tabContent.clientHeight;
 
-          console.log('[TOC] tabContent 检测:', {
-            overflowY,
-            overflow,
-            isScrollable,
-            hasScroll,
-            scrollHeight: tabContent.scrollHeight,
-            clientHeight: tabContent.clientHeight
-          });
-
           if (isScrollable && hasScroll) {
             // 计算目标元素相对于滚动容器的位置
             const containerRect = tabContent.getBoundingClientRect();
@@ -920,14 +910,6 @@
             // 计算目标位置（将元素置于容器中心）
             const targetScrollTop = currentScrollTop + targetRect.top - containerRect.top - (containerRect.height / 2) + (targetRect.height / 2);
 
-            console.log('[TOC] 容器滚动计算:', {
-              currentScrollTop,
-              targetRectTop: targetRect.top,
-              containerRectTop: containerRect.top,
-              containerHeight: containerRect.height,
-              targetScrollTop: Math.max(0, targetScrollTop)
-            });
-
             // 平滑滚动到目标位置
             tabContent.scrollTo({
               top: Math.max(0, targetScrollTop),
@@ -935,7 +917,6 @@
             });
           } else {
             // 如果 tab-content 不是滚动容器或不需要滚动，使用原生 scrollIntoView
-            console.log('[TOC] tabContent 不满足滚动条件，使用 scrollIntoView');
             targetElement.scrollIntoView({
               behavior: 'smooth',
               block: 'center',
@@ -944,7 +925,6 @@
           }
         } else {
           // tab-content 不存在，使用原生 scrollIntoView
-          console.log('[TOC] tabContent 不存在，使用 scrollIntoView');
           targetElement.scrollIntoView({
             behavior: 'smooth',
             block: 'center',
