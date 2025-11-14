@@ -422,7 +422,7 @@
   }
 
   /**
-   * 获取当前滚动容器（从 main 分支的 DockLogic 移植）
+   * 获取当前滚动容器（从 main 分支的 DockLogic 移植 + 非沉浸模式修正）
    */
   function getCurrentScrollableElement() {
     if (window.ImmersiveLayout && window.ImmersiveLayout.isActive && window.ImmersiveLayout.isActive()) {
@@ -456,7 +456,13 @@
       }
     }
 
-    // 非沉浸模式：使用 document.documentElement
+    // 非沉浸模式：使用 .app-main（侧边栏布局中的主内容区）
+    const appMain = document.querySelector('.app-main');
+    if (appMain) {
+      return appMain;
+    }
+
+    // 最终回退到 document.documentElement（旧布局或特殊情况）
     return document.documentElement;
   }
 
