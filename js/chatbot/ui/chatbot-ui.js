@@ -625,6 +625,37 @@ function updateChatbotUI() {
                 }
               }
             }
+
+            // 3. 更新工具调用块 (toolCallHtml) - 支持流式多轮取材实时更新
+            if (lastMessage.toolCallHtml) {
+              const toolCallBlockContainer = lastMessageContainer.querySelector('.tool-thinking-block');
+              const newToolCallHtml = String(lastMessage.toolCallHtml);
+
+              // 检查是否需要更新（比较HTML内容）
+              if (toolCallBlockContainer) {
+                const currentHtml = toolCallBlockContainer.outerHTML;
+                if (currentHtml !== newToolCallHtml) {
+                  // 更新工具调用块HTML
+                  const tempDiv = document.createElement('div');
+                  tempDiv.innerHTML = newToolCallHtml;
+                  const newToolCallBlock = tempDiv.firstElementChild;
+                  if (newToolCallBlock) {
+                    toolCallBlockContainer.replaceWith(newToolCallBlock);
+                  }
+                }
+              } else if (newToolCallHtml) {
+                // 工具调用块不存在，插入新的块（在主内容之前）
+                const contentDiv = lastMessageContainer.querySelector('.markdown-content');
+                if (contentDiv && contentDiv.parentNode) {
+                  const tempDiv = document.createElement('div');
+                  tempDiv.innerHTML = newToolCallHtml;
+                  const newToolCallBlock = tempDiv.firstElementChild;
+                  if (newToolCallBlock) {
+                    contentDiv.parentNode.insertBefore(newToolCallBlock, contentDiv);
+                  }
+                }
+              }
+            }
           }
 
           // Phase 3.5 智能滚动：流式更新时保持用户阅读位置
