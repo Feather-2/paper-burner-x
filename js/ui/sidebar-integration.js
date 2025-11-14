@@ -446,29 +446,7 @@
    * 监听原有 Dock 的变化并同步
    */
   function watchDockChanges() {
-    // 方法1：拦截 DockLogic.updateStats 函数
-    if (window.DockLogic && typeof window.DockLogic.updateStats === 'function') {
-      const originalUpdateStats = window.DockLogic.updateStats;
-
-      window.DockLogic.updateStats = function(...args) {
-        // 调用原函数
-        const result = originalUpdateStats.apply(this, args);
-
-        // 在 Dock 更新后立即同步到侧边栏
-        setTimeout(() => {
-          console.log('[Sidebar] DockLogic.updateStats called, syncing to sidebar');
-          syncDockData();
-        }, 100); // 短暂延迟确保 DOM 已更新
-
-        return result;
-      };
-
-      console.log('[Sidebar] Successfully wrapped DockLogic.updateStats');
-    } else {
-      console.warn('[Sidebar] DockLogic.updateStats not found, falling back to MutationObserver');
-    }
-
-    // 方法2：MutationObserver 作为备用方案
+    // 使用 MutationObserver 监听 Dock 元素的变化
     const observer = new MutationObserver(() => {
       syncDockData();
     });
@@ -519,6 +497,11 @@
 
     // 开始尝试初始同步
     attemptInitialSync();
+
+    // 定期同步（兜底方案）
+    setInterval(() => {
+      syncDockData();
+    }, 2000); // 每 2 秒同步一次
   }
 
   // ==================== 设置链接 ====================
