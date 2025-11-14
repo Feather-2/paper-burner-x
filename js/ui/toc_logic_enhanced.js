@@ -873,17 +873,38 @@
             // 目标元素相对于容器内容的绝对位置 = 当前滚动位置 + 目标相对于容器视口的位置
             const targetOffsetInContainer = currentScrollTop + (targetRect.top - containerRect.top);
 
-            // 计算滚动位置：目标元素距离容器顶部 80px（留出空间）
-            // 避免滚动过头，导致 .container 的 h2/meta/tabs 被滚出视口
-            const topOffset = 80;
-            const targetScrollTop = Math.max(0, targetOffsetInContainer - topOffset);
+            // 改进的滚动逻辑：确保目标元素可见，但不滚动过头
+            // 如果目标元素已经在视口内，就不滚动
+            const viewportTop = containerRect.top;
+            const viewportBottom = containerRect.bottom;
+            const targetTop = targetRect.top;
+            const targetBottom = targetRect.bottom;
 
-            // 平滑滚动到目标位置
-            scrollContainer.scrollTo({
-              top: targetScrollTop,
-              behavior: 'smooth'
-            });
-            return; // 成功滚动，直接返回
+            // 目标元素已经完全可见，不需要滚动
+            if (targetTop >= viewportTop && targetBottom <= viewportBottom) {
+              return;
+            }
+
+            // 目标元素在视口上方，需要向上滚动
+            if (targetTop < viewportTop) {
+              const scrollDelta = targetTop - viewportTop;
+              scrollContainer.scrollTo({
+                top: currentScrollTop + scrollDelta,
+                behavior: 'smooth'
+              });
+              return;
+            }
+
+            // 目标元素在视口下方，需要向下滚动
+            // 将目标元素滚动到视口底部附近
+            if (targetBottom > viewportBottom) {
+              const scrollDelta = targetBottom - viewportBottom + 20; // 底部留 20px 空隙
+              scrollContainer.scrollTo({
+                top: currentScrollTop + scrollDelta,
+                behavior: 'smooth'
+              });
+              return;
+            }
           }
         }
 
