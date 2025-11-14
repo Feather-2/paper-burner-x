@@ -1,0 +1,835 @@
+/**
+ * Immersive Layout 沉浸模式布局
+ *
+ * 职责：沉浸式阅读模式的完整布局系统
+ * 作用域：#immersive-layout-container 及其子元素
+ * 依赖：variables.css
+ *
+ * 重构说明：
+ * 1. 使用 CSS 变量替换硬编码值
+ * 2. 移除大部分 !important（仅保留布局关键的）
+ * 3. 使用 CSS class 管理 overflow 状态
+ * 4. 消除与 JS 内联样式的冲突
+ * 5. 统一 z-index 使用规范
+ *
+ * 核心改进：
+ * - overflow 由 CSS 类控制（.immersive-scrollable）
+ * - 滚动容器使用统一标记（.js-scroll-container）
+ * - 移除与 immersive_layout_fix.js 的冲突
+ */
+
+/* ==================== 1. 沉浸模式布局容器 ==================== */
+
+#immersive-layout-container {
+  /* 显示由 JS 控制 */
+  background: var(--color-bg-secondary);
+  font-family: var(--font-family-base);
+  z-index: var(--immersive-container-z-index);
+}
+
+#immersive-content-area {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  gap: 0;
+  padding: 0;
+}
+
+/* ==================== 2. 沉浸模式面板基础样式 ==================== */
+
+.immersive-panel {
+  overflow: hidden;
+  padding: 0;
+  box-sizing: border-box;
+  position: relative;
+  min-width: var(--immersive-panel-min-width, 200px);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-bg-base);
+  transition: all var(--transition-base) ease;
+  margin: 0;
+  border-right: 1px solid var(--color-border-light);
+}
+
+/* 特定面板的 padding */
+#immersive-toc-area.immersive-panel {
+  padding: var(--spacing-xs) var(--spacing-sm) 0 var(--spacing-sm);
+  border-right: 1px solid var(--color-border-light);
+}
+
+#immersive-chatbot-area.immersive-panel {
+  padding: var(--spacing-xs) var(--spacing-sm) 0 var(--spacing-sm);
+  border-right: none;
+}
+
+#immersive-main-content-area.immersive-panel {
+  padding: 0;
+  border-right: 1px solid var(--color-border-light);
+  position: relative;
+  z-index: var(--z-base);
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ==================== 3. 主内容区域 ====================  */
+
+/* .container 在沉浸模式下的样式 */
+#immersive-main-content-area .container {
+  width: 100% !important; /* 覆盖外部设置 */
+  max-width: 100% !important;
+  margin: 0 !important;
+  padding: var(--spacing-sm) var(--spacing-md) !important;
+  box-shadow: none;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  background: var(--color-bg-base);
+  border-radius: 0;
+  border: none;
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* 标题和 meta 信息合并到一行 */
+#immersive-main-content-area .container > h2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0;
+  padding: 0;
+  gap: var(--spacing-md);
+  font-size: 0.7em;
+  font-weight: var(--font-weight-normal);
+  color: var(--color-text-muted);
+}
+
+#immersive-main-content-area .container > .meta {
+  position: absolute;
+  top: var(--spacing-sm);
+  right: var(--spacing-md);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  z-index: calc(var(--z-base) + 1);
+  pointer-events: none;
+}
+
+#immersive-main-content-area .container > .meta * {
+  pointer-events: auto;
+}
+
+/* tabs 容器 */
+#immersive-main-content-area .container > .tabs-container {
+  order: 0;
+  margin-top: 0;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  display: flex;
+  gap: 2px;
+  height: 32px;
+  justify-content: flex-start;
+  align-items: center;
+  background: transparent;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+/* tab 按钮样式 */
+#immersive-main-content-area .tabs-container .tab-btn {
+  padding: 0 var(--spacing-md);
+  font-size: 0.7em;
+  font-weight: var(--font-weight-medium);
+  border-radius: 0;
+  background-color: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin: 0;
+  height: 32px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+}
+
+#immersive-main-content-area .tabs-container .tab-btn:hover {
+  color: var(--color-text-secondary);
+  border-bottom-color: var(--color-border-medium);
+}
+
+#immersive-main-content-area .tabs-container .tab-btn.active {
+  background-color: transparent;
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* ==================== 4. 滚动容器管理（核心重构）==================== */
+
+/**
+ * 关键改进：使用 CSS class 管理 overflow，而非 JS 内联样式
+ *
+ * 工作原理：
+ * 1. .tab-content 默认不设置 overflow
+ * 2. 沉浸模式激活时，body.immersive-active 触发 overflow-y: auto
+ * 3. JS 只需添加/移除 class，不再设置内联样式
+ * 4. .js-scroll-container 标记供 JS 查询使用
+ */
+
+/* 默认状态：tab-content 不设置 overflow */
+#immersive-main-content-area .container .tab-content {
+  flex-grow: 1;
+  height: 0; /* flex-grow 生效的关键 */
+  margin: 0;
+  padding: 0;
+  min-height: 0;
+  background: transparent;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 沉浸模式激活时：tab-content 成为滚动容器 */
+body.immersive-active #immersive-main-content-area .container .tab-content {
+  overflow-y: auto; /* 移除 !important，改用高特异性选择器 */
+  /* 标记为 JS 可查询的滚动容器 */
+}
+
+/* 滚动容器标记（供 JS 使用） */
+.js-scroll-container {
+  /* 此 class 仅用于 JS 查询，不设置样式 */
+}
+
+/* 内容包装器 */
+#immersive-main-content-area .tab-content .content-wrapper {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--spacing-lg); /* 内容呼吸空间 */
+}
+
+/* chunk-compare 容器 */
+#immersive-main-content-area .tab-content .chunk-compare-container {
+  flex: none;
+  min-height: auto;
+  overflow: visible;
+  margin: 0;
+  display: block;
+  padding: 0; /* chunk-compare 有自己的内部间距 */
+}
+
+/* h3 标题 */
+#immersive-main-content-area .tab-content > h3 {
+  flex: none;
+  margin-bottom: var(--spacing-md);
+  margin-top: 0;
+  display: none; /* 沉浸模式下隐藏 */
+}
+
+#immersive-main-content-area .container .tab-content:last-child {
+  margin-bottom: 0;
+}
+
+/* ==================== 5. TOC 区域样式 ==================== */
+
+#immersive-toc-area #toc-popup {
+  position: static;
+  display: flex !important; /* 必须覆盖默认的 display: none */
+  flex-direction: column;
+  width: 100% !important;
+  flex-grow: 1;
+  border: none !important;
+  box-shadow: none !important;
+  transform: none !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+#immersive-toc-area #toc-popup #toc-popup-header {
+  display: none;
+}
+
+#immersive-toc-area #toc-popup #toc-list {
+  overflow-y: auto;
+  flex-grow: 1;
+  padding: var(--spacing-sm) 0;
+  background: transparent;
+  max-height: none !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.06) transparent;
+}
+
+#immersive-toc-area #toc-popup #toc-list::-webkit-scrollbar {
+  width: 2px;
+}
+
+#immersive-toc-area #toc-popup #toc-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#immersive-toc-area #toc-popup #toc-list::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 1px;
+}
+
+/* TOC 列表项样式 */
+#immersive-toc-area #toc-list li {
+  margin: 0 !important;
+}
+
+#immersive-toc-area #toc-list li a {
+  padding: var(--spacing-sm) var(--spacing-md) !important;
+  font-size: var(--font-size-xs) !important;
+  font-weight: var(--font-weight-medium) !important;
+  color: var(--color-text-secondary) !important;
+  border: none !important;
+  border-left: 3px solid transparent !important;
+  background: transparent !important;
+  transition: all var(--transition-fast) !important;
+  line-height: var(--line-height-base) !important;
+}
+
+#immersive-toc-area #toc-list li a:hover {
+  color: var(--color-text-primary) !important;
+  background: var(--color-bg-secondary) !important;
+  border-left-color: var(--color-border-medium) !important;
+}
+
+#immersive-toc-area #toc-list li a.active {
+  color: var(--color-primary) !important;
+  background: var(--color-selection-bg) !important;
+  border-left-color: var(--color-primary) !important;
+}
+
+/* 不同层级的样式 */
+#immersive-toc-area #toc-list li.toc-h1 a {
+  font-weight: var(--font-weight-semibold) !important;
+  color: var(--color-text-primary) !important;
+  margin-top: var(--spacing-sm) !important;
+}
+
+#immersive-toc-area #toc-list li.toc-h2 a {
+  padding-left: 18px !important;
+  font-size: 0.7em !important;
+}
+
+#immersive-toc-area #toc-list li.toc-h3 a {
+  padding-left: 26px !important;
+  font-size: 0.68em !important;
+  color: var(--color-text-muted) !important;
+}
+
+/* 隐藏折叠按钮和控制区域 */
+#immersive-toc-area #toc-list .toc-toggle {
+  display: none !important;
+}
+
+#immersive-toc-area #toc-popup #toc-popup-close-btn,
+#immersive-toc-area #toc-popup .toc-controls {
+  display: none;
+}
+
+/* 文件名占位符简化样式 */
+#immersive-toc-area #toc-list li a[href^="#placeholder-"] {
+  font-weight: var(--font-weight-medium) !important;
+  color: var(--color-text-secondary) !important;
+  background: transparent !important;
+  border: none !important;
+  border-left: 2px solid transparent !important;
+  padding-left: 10px !important;
+}
+
+#immersive-toc-area #toc-list li a[href^="#placeholder-"]::before {
+  display: none !important;
+}
+
+#immersive-toc-area #toc-list li a[href^="#placeholder-"]:hover {
+  color: var(--color-text-primary) !important;
+  background: rgba(0, 0, 0, 0.02) !important;
+  border-left-color: var(--color-border-medium) !important;
+}
+
+/* ==================== 6. Chatbot 区域样式 ==================== */
+
+#immersive-chatbot-area #chatbot-modal {
+  position: static !important;
+  display: flex !important;
+  width: 100% !important;
+  height: 100% !important;
+  pointer-events: auto !important;
+  background-color: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+#immersive-chatbot-area .chatbot-window {
+  position: static !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  resize: none !important;
+  overflow: hidden !important;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-secondary) !important;
+  border: none !important;
+  transition: all var(--transition-base) ease !important;
+}
+
+/* 隐藏 chatbot 的控制按钮 */
+#immersive-chatbot-area #chatbot-fab,
+#immersive-chatbot-area #chatbot-fullscreen-toggle-btn,
+#immersive-chatbot-area #chatbot-position-toggle-btn,
+#immersive-chatbot-area #chatbot-close-btn {
+  display: none !important;
+}
+
+#immersive-chatbot-area .chatbot-window::after {
+  display: none !important;
+}
+
+/* ==================== 7. 拖拽调整手柄 ==================== */
+
+.immersive-resize-handle {
+  width: 1px;
+  background: var(--color-border-light);
+  cursor: col-resize;
+  flex-shrink: 0;
+  position: relative;
+  z-index: calc(var(--z-base) + 10);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition-fast) ease;
+  margin: 0;
+  border-radius: 0;
+}
+
+.immersive-resize-handle::before {
+  display: none;
+}
+
+.immersive-resize-handle:hover {
+  background: rgba(59, 130, 246, 0.3);
+  transition-delay: 0.1s;
+}
+
+/* 拖动状态 */
+.immersive-dragging .immersive-resize-handle {
+  background: rgba(59, 130, 246, 0.5);
+}
+
+body.immersive-dragging {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+body.immersive-dragging * {
+  cursor: col-resize !important;
+  user-select: none !important;
+  pointer-events: none;
+}
+
+body.immersive-dragging .immersive-resize-handle {
+  pointer-events: auto;
+}
+
+/* TOC vs Dock 水平调整手柄 */
+#toc-vs-dock-resize-handle {
+  height: 1px;
+  background: var(--color-border-light);
+  cursor: ns-resize;
+  flex-shrink: 0;
+  position: relative;
+  z-index: calc(var(--z-base) + 10);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  border-radius: 0;
+  transition: background var(--transition-fast) ease;
+}
+
+#toc-vs-dock-resize-handle::before {
+  display: none;
+}
+
+#toc-vs-dock-resize-handle:hover {
+  background: rgba(59, 130, 246, 0.3);
+  transform: none;
+}
+
+body.toc-dock-resizing #toc-vs-dock-resize-handle {
+  background: rgba(59, 130, 246, 0.5);
+}
+
+/* ==================== 8. 沉浸模式切换按钮 ==================== */
+
+#toggle-immersive-btn {
+  position: fixed !important;
+  top: var(--spacing-md) !important;
+  right: var(--spacing-md) !important;
+  z-index: var(--immersive-toggle-z-index) !important;
+  width: 32px !important;
+  height: 32px !important;
+  border: 1px solid var(--color-border-light) !important;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md) !important;
+  background: var(--color-bg-base) !important;
+  color: var(--color-text-secondary) !important;
+  font-size: var(--font-size-sm) !important;
+  box-shadow: var(--shadow-sm) !important;
+  transition: all var(--transition-fast) !important;
+}
+
+#toggle-immersive-btn:hover {
+  background: var(--color-bg-secondary) !important;
+  color: var(--color-text-primary) !important;
+  border-color: var(--color-border-medium) !important;
+  box-shadow: var(--shadow-md) !important;
+}
+
+#toggle-immersive-btn:active {
+  transform: translateY(0) !important;
+  transition: all 0.1s ease !important;
+}
+
+/* 退出按钮状态（主要由 JS 控制图标） */
+#toggle-immersive-btn.immersive-exit-btn-active {
+  /* 样式与默认状态相同 */
+}
+
+/* ==================== 9. Dock 在 TOC 区域中的样式 ==================== */
+
+#immersive-toc-area #toc-dock-placeholder {
+  flex-shrink: 0;
+  border-top: 1px solid var(--color-border-light);
+  background: var(--color-bg-secondary);
+  padding: var(--spacing-md);
+}
+
+#immersive-toc-area #toc-dock-placeholder #bottom-left-dock {
+  position: static !important;
+  width: 100% !important;
+  height: auto !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: var(--spacing-xs) !important;
+  font-size: 0.7em !important;
+}
+
+/* 隐藏详细统计信息，仅显示进度 */
+#immersive-toc-area #bottom-left-dock #dock-info-stack {
+  display: none !important;
+}
+
+#immersive-toc-area #bottom-left-dock #dock-collapsed-progress-display {
+  display: block !important;
+  color: var(--color-text-secondary) !important;
+  font-weight: var(--font-weight-normal) !important;
+  margin: 0 !important;
+}
+
+#immersive-toc-area #bottom-left-dock #settings-link,
+#immersive-toc-area #bottom-left-dock #dock-toggle-btn {
+  display: inline-block !important;
+  color: var(--color-text-muted) !important;
+  font-size: 1em !important;
+  padding: 2px var(--spacing-xs) !important;
+  margin: 0 2px !important;
+}
+
+#immersive-toc-area #bottom-left-dock #settings-link:hover,
+#immersive-toc-area #bottom-left-dock #dock-toggle-btn:hover {
+  color: var(--color-text-secondary) !important;
+}
+
+/* ==================== 10. 沉浸模式激活状态 ==================== */
+
+/* 禁用 body 滚动 */
+body.no-scroll,
+body.immersive-active {
+  overflow: hidden;
+}
+
+/* 隐藏原始的 UI 元素 */
+body.immersive-active > .container,
+body.immersive-active > #toc-float-btn,
+body.immersive-active > #toc-popup:not(#immersive-toc-area #toc-popup),
+body.immersive-active > #chatbot-modal:not(#immersive-chatbot-area #chatbot-modal),
+body.immersive-active > #chatbot-fab {
+  display: none !important;
+}
+
+/* 确保沉浸模式下的主要元素正确显示 */
+body.immersive-active #immersive-layout-container {
+  display: flex;
+  flex-direction: column;
+}
+
+body.immersive-active #immersive-content-area {
+  height: 100vh !important;
+  box-sizing: border-box !important;
+}
+
+body.immersive-active .immersive-panel {
+  padding-bottom: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+body.immersive-active #immersive-main-content-area.immersive-panel {
+  padding: 0 !important;
+  height: 100% !important;
+}
+
+body.immersive-active #immersive-main-content-area .container {
+  height: 100% !important;
+  padding: var(--spacing-lg) calc(var(--spacing-lg) * 1.5) !important;
+  margin-bottom: 0 !important;
+  box-sizing: border-box !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+/* 沉浸模式下隐藏 PDF 对照按钮 */
+body.immersive-active #tab-pdf-compare {
+  display: none !important;
+}
+
+/* Modal 和右键菜单的 z-index 提升 */
+body.immersive-active .modal-overlay {
+  z-index: calc(var(--immersive-toggle-z-index) + 1) !important;
+}
+
+body.immersive-active #custom-context-menu {
+  z-index: calc(var(--immersive-toggle-z-index) + 2) !important;
+}
+
+/* ==================== 11. Meta 信息和导出控制 ==================== */
+
+#immersive-main-content-area .meta-info {
+  gap: var(--spacing-sm);
+  display: flex;
+  align-items: center;
+  color: var(--color-text-muted);
+  font-size: 0.7em;
+}
+
+#immersive-main-content-area .meta-separator {
+  color: var(--color-border-dark);
+  margin: 0 2px;
+}
+
+#immersive-main-content-area .meta-export-trigger {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: 0.7em;
+  gap: var(--spacing-xs);
+  border-radius: var(--radius-sm);
+  height: auto;
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  background: transparent;
+  color: var(--color-primary);
+  font-weight: var(--font-weight-medium);
+  transition: all var(--transition-fast);
+}
+
+#immersive-main-content-area .meta-export-trigger:hover {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.25);
+}
+
+#immersive-main-content-area .meta-export-trigger i {
+  font-size: 0.85em;
+}
+
+#immersive-main-content-area .container > .history-export-controls {
+  grid-row: 3;
+  grid-column: 1;
+  z-index: calc(var(--z-base) + 10);
+  pointer-events: none;
+}
+
+#immersive-main-content-area .container > .history-export-controls.active {
+  pointer-events: auto;
+}
+
+/* ==================== 12. 滚动条样式 ==================== */
+
+.immersive-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.immersive-panel::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: var(--radius-sm);
+}
+
+.immersive-panel::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.2);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.immersive-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.4);
+}
+
+/* ==================== 13. 进入/退出动画 ==================== */
+
+body.immersive-entering,
+body.immersive-exiting {
+  overflow: hidden;
+}
+
+body.immersive-entering #immersive-main-content-area .container,
+body.immersive-active #immersive-main-content-area .container {
+  animation: fixLayoutHeight 0.1s ease-out;
+}
+
+@keyframes fixLayoutHeight {
+  0% {
+    height: calc(100% - 1px);
+  }
+  100% {
+    height: 100%;
+  }
+}
+
+/* ==================== 14. 响应式设计 ==================== */
+
+@media (max-width: 1200px) {
+  .immersive-panel {
+    padding: var(--spacing-sm) var(--spacing-md) 0 var(--spacing-md);
+  }
+
+  #immersive-main-content-area .container {
+    padding: var(--spacing-md) var(--spacing-lg) !important;
+  }
+
+  #immersive-toc-area {
+    min-width: 200px;
+  }
+
+  #immersive-chatbot-area {
+    min-width: 250px;
+  }
+}
+
+/* 移动端禁用沉浸式布局 - 700px 以下屏幕 */
+@media (max-width: 700px) {
+  #toggle-immersive-btn {
+    display: none !important;
+  }
+
+  body.immersive-active #immersive-layout-container {
+    display: none !important;
+  }
+
+  body.immersive-active > .container,
+  body.immersive-active > #toc-float-btn,
+  body.immersive-active > #toc-popup:not(#immersive-toc-area #toc-popup),
+  body.immersive-active > #chatbot-modal:not(#immersive-chatbot-area #chatbot-modal),
+  body.immersive-active > #chatbot-fab {
+    display: block !important;
+  }
+
+  body.immersive-active {
+    overflow: auto !important;
+  }
+}
+
+/* 平板优化 - 701px-768px */
+@media (max-width: 768px) and (min-width: 701px) {
+  :root {
+    --immersive-panel-min-width: 120px;
+  }
+
+  #immersive-content-area {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .immersive-resize-handle {
+    height: 6px;
+    width: 100%;
+    cursor: ns-resize;
+  }
+
+  #toggle-immersive-btn {
+    top: 10px !important;
+    right: 10px !important;
+    width: 36px !important;
+    height: 36px !important;
+    font-size: var(--font-size-md) !important;
+  }
+}
+
+/* ==================== 15. 暗色模式支持 ==================== */
+
+@media (prefers-color-scheme: dark) {
+  #immersive-layout-container {
+    background: var(--color-bg-dark, #111827);
+  }
+
+  .immersive-panel {
+    border-color: var(--color-border-dark, #374151);
+    color: var(--color-text-inverse, #e5e7eb);
+    background: var(--color-bg-dark, #1a1d23);
+  }
+
+  #immersive-main-content-area .container {
+    background: var(--color-bg-dark, #1a1d23);
+    color: var(--color-text-inverse, #e5e7eb);
+  }
+
+  #toggle-immersive-btn {
+    background: #1f2937 !important;
+    color: var(--color-text-inverse, #e5e7eb) !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3),
+      0 0 0 1px rgba(255, 255, 255, 0.05) !important;
+  }
+
+  #toggle-immersive-btn:hover {
+    background: #374151 !important;
+  }
+}
+
+/* ==================== 16. 打印样式 ==================== */
+
+@media print {
+  #immersive-layout-container,
+  #toggle-immersive-btn {
+    display: none !important;
+  }
+
+  body.immersive-active > .container {
+    display: block !important;
+  }
+}
