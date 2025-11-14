@@ -833,9 +833,14 @@
   function addEnhancedClickHandler(link, item) {
     link.onclick = function(e) {
       e.preventDefault();
-      
+
+      console.log('[TOC Debug] TOC 点击事件触发:', item.id);
+
       const targetElement = document.getElementById(item.id);
-      if (!targetElement) return;
+      if (!targetElement) {
+        console.log('[TOC Debug] 未找到目标元素:', item.id);
+        return;
+      }
 
       // 计算距离并决定是否显示加载效果
       const clickedNodeIndex = tocNodes.findIndex(n => n.id === item.id);
@@ -846,8 +851,14 @@
         showEnhancedLoadingEffect(item.originalText || "目标章节");
       }
 
+      console.log('[TOC Debug] 检查沉浸模式:', {
+        hasImmersiveLayout: !!window.ImmersiveLayout,
+        isActive: window.ImmersiveLayout?.isActive()
+      });
+
       // 修复：在沉浸模式下使用自定义滚动逻辑，避免布局偏移
       if (window.ImmersiveLayout && window.ImmersiveLayout.isActive()) {
+        console.log('[TOC Debug] 进入沉浸模式分支');
         // 沉浸模式下使用自定义滚动定位
         // 优先查找 .content-wrapper（真正的滚动容器）
         let scrollContainer = document.querySelector('#immersive-main-content-area .content-wrapper');
