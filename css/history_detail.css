@@ -65,6 +65,9 @@
 /* 分块交互功能 */
 @import url('./history_detail/04-features/chunk-interactions.css');
 
+/* 分块虚拟化渲染 */
+@import url('./history_detail/04-features/chunk-virtual.css');
+
 /* ==================== 5. Utilities Layer - 工具层 ==================== */
 
 /* 状态类 */
@@ -73,16 +76,26 @@
 /* 辅助工具类 */
 @import url('./history_detail/05-utilities/helpers.css');
 
+/* 统一按钮系统 */
+@import url('./history_detail/05-utilities/buttons.css');
+
 /* ==================== 注释说明 ==================== */
 
 /**
  * 旧文件迁移对照表：
  *
- * modern-base.css → 01-foundation/variables.css + reset.css + typography.css
- * toc-base.css + toc-extensions.css → 03-components/toc.css
- * (新增) → 03-components/dock.css
- * (新增) → 02-layout/immersive.css
- * (新增) → 05-utilities/helpers.css
+ * Phase 1-2:
+ * - modern-base.css → 01-foundation/variables.css + reset.css + typography.css
+ * - toc-base.css + toc-extensions.css → 03-components/toc.css
+ *
+ * Phase 3-5:
+ * - immersive_layout.css → 02-layout/immersive.css
+ * - (提取) → 03-components/dock.css
+ * - (提取) → 05-utilities/helpers.css
+ *
+ * Phase 7:
+ * - chunk_compare_optimizer.css → 04-features/chunk-virtual.css
+ * - unified-button-sizes.css → 05-utilities/buttons.css
  *
  * 其他文件已按分层移动到相应目录。
  *
@@ -90,4 +103,6 @@
  * - modern-base.css
  * - toc-base.css
  * - toc-extensions.css
+ * - immersive_layout.css
+ * - toc-optimized.css
  */

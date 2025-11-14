@@ -1,0 +1,349 @@
+/**
+ * Unified Button System - 统一按钮尺寸系统
+ *
+ * 职责：全局浮动按钮尺寸标准化
+ * 作用域：TOC、Chatbot、沉浸模式等浮动按钮
+ * 依赖：variables.css
+ *
+ * 提取自：unified-button-sizes.css
+ *
+ * 包含：
+ * - 按钮尺寸变量系统
+ * - 圆形按钮样式类
+ * - 响应式尺寸调整
+ * - 无障碍支持
+ */
+
+/* ==================== 1. 按钮尺寸变量系统 ==================== */
+
+:root {
+  /* 桌面端按钮尺寸（适中尺寸，不会太小） */
+  --btn-small-size: 40px;    /* TOC按钮等 */
+  --btn-medium-size: 44px;   /* Chatbot等 */
+  --btn-large-size: 42px;    /* 沉浸式按钮等 */
+
+  /* 移动端按钮尺寸（适度缩小但保持可用性） */
+  --btn-small-mobile: 36px;
+  --btn-medium-mobile: 40px;
+  --btn-large-mobile: 44px;
+
+  /* 对应的图标尺寸 */
+  --btn-icon-small: 18px;
+  --btn-icon-medium: 20px;
+  --btn-icon-large: 19px;
+
+  /* 移动端图标尺寸 */
+  --btn-icon-small-mobile: 16px;
+  --btn-icon-medium-mobile: 18px;
+  --btn-icon-large-mobile: 18px;
+}
+
+/* ==================== 2. 基础按钮样式 ==================== */
+
+/* Tiny Round Button (小型圆形按钮) */
+.tiny-round-btn {
+  border-radius: 50% !important;
+  background-color: var(--color-primary) !important;
+  color: white !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15) !important;
+  border: none !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+  transition: background-color var(--transition-fast),
+              transform var(--transition-fast) !important;
+
+  width: var(--btn-small-size) !important;
+  height: var(--btn-small-size) !important;
+  font-size: var(--btn-icon-small) !important;
+}
+
+.tiny-round-btn:hover {
+  background-color: #1d4ed8 !important;
+  transform: scale(1.08);
+}
+
+/* Medium Round Button (中型圆形按钮) */
+.medium-round-btn {
+  border-radius: 50% !important;
+  background-color: var(--color-primary) !important;
+  color: white !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15) !important;
+  border: none !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+  transition: background-color var(--transition-fast),
+              transform var(--transition-fast) !important;
+
+  width: var(--btn-medium-size) !important;
+  height: var(--btn-medium-size) !important;
+  font-size: var(--btn-icon-medium) !important;
+}
+
+.medium-round-btn:hover {
+  background-color: #1d4ed8 !important;
+  transform: scale(1.08);
+}
+
+/* Large Round Button (大型圆形按钮) */
+.big-round-btn,
+.large-round-btn {
+  border-radius: 50% !important;
+  background-color: var(--color-primary) !important;
+  color: white !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15) !important;
+  border: none !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+  transition: background-color var(--transition-fast),
+              transform var(--transition-fast) !important;
+
+  width: var(--btn-large-size) !important;
+  height: var(--btn-large-size) !important;
+  font-size: var(--btn-icon-large) !important;
+}
+
+.big-round-btn:hover,
+.large-round-btn:hover {
+  background-color: #1d4ed8 !important;
+  transform: scale(1.08);
+}
+
+/* ==================== 3. 图标样式 ==================== */
+
+.tiny-round-btn > i,
+.medium-round-btn > i,
+.big-round-btn > i,
+.large-round-btn > i {
+  font-size: inherit !important;
+  line-height: 1 !important;
+  padding: 0 !important;
+}
+
+/* ==================== 4. 特定按钮尺寸覆盖 ==================== */
+
+/* 沉浸式布局按钮 */
+#toggle-immersive-btn {
+  width: var(--btn-large-size) !important;
+  height: var(--btn-large-size) !important;
+  font-size: var(--btn-icon-large) !important;
+}
+
+/* Chatbot FAB */
+#chatbot-fab {
+  width: var(--btn-medium-size) !important;
+  height: var(--btn-medium-size) !important;
+  font-size: var(--btn-icon-medium) !important;
+}
+
+/* Chatbot FAB按钮样式 - 使用类选择器覆盖内联样式 */
+.chatbot-fab-button {
+  width: var(--btn-medium-size) !important;
+  height: var(--btn-medium-size) !important;
+  border: none !important;
+  outline: none !important;
+  background: linear-gradient(135deg, var(--color-primary), #1d4ed8) !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  transform: scale(1) !important;
+  transition: transform var(--transition-fast) !important;
+  color: white !important;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15) !important;
+}
+
+.chatbot-fab-button i {
+  font-size: var(--btn-icon-medium) !important;
+  line-height: 1 !important;
+}
+
+.chatbot-fab-button:hover {
+  background: linear-gradient(135deg, #2563eb, #1e40af) !important;
+}
+
+/* ==================== 5. 响应式设计 ==================== */
+
+/* 平板设备优化 (768px - 1024px) */
+@media (max-width: 1024px) and (min-width: 769px) {
+  .tiny-round-btn {
+    width: 38px !important;
+    height: 38px !important;
+    font-size: 17px !important;
+  }
+
+  .medium-round-btn {
+    width: 42px !important;
+    height: 42px !important;
+    font-size: 19px !important;
+  }
+
+  .big-round-btn,
+  .large-round-btn {
+    width: 40px !important;
+    height: 40px !important;
+    font-size: 19px !important;
+  }
+
+  .chatbot-fab-button {
+    width: 42px !important;
+    height: 42px !important;
+  }
+
+  .chatbot-fab-button i {
+    font-size: 19px !important;
+  }
+
+  #toggle-immersive-btn {
+    width: 40px !important;
+    height: 40px !important;
+    font-size: 19px !important;
+  }
+}
+
+/* 移动端响应式设计 (700px以下) */
+@media (max-width: 700px) {
+  :root {
+    --btn-small-size: var(--btn-small-mobile);
+    --btn-medium-size: var(--btn-medium-mobile);
+    --btn-large-size: var(--btn-large-mobile);
+    --btn-icon-small: var(--btn-icon-small-mobile);
+    --btn-icon-medium: var(--btn-icon-medium-mobile);
+    --btn-icon-large: var(--btn-icon-large-mobile);
+  }
+
+  .tiny-round-btn {
+    width: var(--btn-small-mobile) !important;
+    height: var(--btn-small-mobile) !important;
+    font-size: var(--btn-icon-small-mobile) !important;
+  }
+
+  .medium-round-btn {
+    width: var(--btn-medium-mobile) !important;
+    height: var(--btn-medium-mobile) !important;
+    font-size: var(--btn-icon-medium-mobile) !important;
+  }
+
+  .big-round-btn,
+  .large-round-btn {
+    width: var(--btn-large-mobile) !important;
+    height: var(--btn-large-mobile) !important;
+    font-size: var(--btn-icon-large-mobile) !important;
+  }
+
+  #chatbot-fab {
+    width: var(--btn-medium-mobile) !important;
+    height: var(--btn-medium-mobile) !important;
+    font-size: var(--btn-icon-medium-mobile) !important;
+  }
+
+  .chatbot-fab-button {
+    width: var(--btn-medium-mobile) !important;
+    height: var(--btn-medium-mobile) !important;
+  }
+
+  .chatbot-fab-button i {
+    font-size: var(--btn-icon-medium-mobile) !important;
+  }
+
+  #toggle-immersive-btn {
+    width: var(--btn-large-mobile) !important;
+    height: var(--btn-large-mobile) !important;
+    font-size: var(--btn-icon-large-mobile) !important;
+  }
+}
+
+/* 极小屏幕设备 (400px以下) */
+@media (max-width: 400px) {
+  .tiny-round-btn {
+    width: 34px !important;
+    height: 34px !important;
+    font-size: 15px !important;
+  }
+
+  .medium-round-btn {
+    width: 38px !important;
+    height: 38px !important;
+    font-size: 17px !important;
+  }
+
+  .big-round-btn,
+  .large-round-btn {
+    width: 42px !important;
+    height: 42px !important;
+    font-size: 19px !important;
+  }
+
+  #chatbot-fab {
+    width: 38px !important;
+    height: 38px !important;
+    font-size: 17px !important;
+  }
+
+  .chatbot-fab-button {
+    width: 38px !important;
+    height: 38px !important;
+  }
+
+  .chatbot-fab-button i {
+    font-size: 17px !important;
+  }
+}
+
+/* ==================== 6. 无障碍支持 ==================== */
+
+/* 减少动画偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .tiny-round-btn,
+  .medium-round-btn,
+  .big-round-btn,
+  .large-round-btn {
+    transition: background-color var(--transition-fast) !important;
+  }
+
+  .tiny-round-btn:hover,
+  .medium-round-btn:hover,
+  .big-round-btn:hover,
+  .large-round-btn:hover {
+    transform: none !important;
+  }
+}
+
+/* 高对比度模式支持 */
+@media (prefers-contrast: high) {
+  .tiny-round-btn,
+  .medium-round-btn,
+  .big-round-btn,
+  .large-round-btn {
+    border: 2px solid currentColor !important;
+    box-shadow: none !important;
+  }
+}
+
+/* ==================== 7. 暗色模式适配 ==================== */
+
+@media (prefers-color-scheme: dark) {
+  .tiny-round-btn,
+  .medium-round-btn,
+  .big-round-btn,
+  .large-round-btn {
+    background-color: #1e40af !important;
+    box-shadow: 0 2px 8px rgba(30, 64, 175, 0.3) !important;
+  }
+
+  .tiny-round-btn:hover,
+  .medium-round-btn:hover,
+  .big-round-btn:hover,
+  .large-round-btn:hover {
+    background-color: #1e3a8a !important;
+  }
+}
