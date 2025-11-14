@@ -40,20 +40,21 @@
 
 /* ==================== 2. 基础按钮样式 ==================== */
 
-/* Tiny Round Button (小型圆形按钮) */
+/* Tiny Round Button (小型圆形按钮) - 极简低调风格 */
 .tiny-round-btn {
   border-radius: 50% !important;
-  background-color: var(--color-primary) !important;
-  color: white !important;
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(4px);
+  color: #94a3b8 !important; /* slate-400 */
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15) !important;
-  border: none !important;
   cursor: pointer !important;
   padding: 0 !important;
-  transition: background-color var(--transition-fast),
-              transform var(--transition-fast) !important;
+  opacity: 0.6; /* 默认低透明度，减少视觉干扰 */
+  transition: all 0.2s ease !important;
 
   width: var(--btn-small-size) !important;
   height: var(--btn-small-size) !important;
@@ -61,8 +62,23 @@
 }
 
 .tiny-round-btn:hover {
-  background-color: #1d4ed8 !important;
-  transform: scale(1.08);
+  opacity: 1;
+  color: #3b82f6 !important; /* blue-500 */
+  border-color: #bfdbfe !important; /* blue-200 */
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15) !important;
+  transform: translateY(-2px);
+}
+
+.tiny-round-btn:active {
+  transform: translateY(0);
+  background-color: #f8fafc !important;
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .tiny-round-btn {
+    opacity: 0.8; /* 移动端稍微不那么透明，因为没有 hover */
+  }
 }
 
 /* Medium Round Button (中型圆形按钮) */

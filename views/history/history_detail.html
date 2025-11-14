@@ -131,20 +131,34 @@
             <iconify-icon icon="carbon:annotation" width="14"></iconify-icon>
             <span id="sidebarAnnotationCount">0</span>
           </div>
+          <div class="sidebar-quick-stat-divider"></div>
+          <div class="sidebar-quick-stat" title="图片">
+            <iconify-icon icon="carbon:image" width="14"></iconify-icon>
+            <span id="sidebarImageCount">0</span>
+          </div>
+          <div class="sidebar-quick-stat" title="公式">
+            <iconify-icon icon="carbon:formula" width="14"></iconify-icon>
+            <span id="sidebarFormulaCount">0</span>
+          </div>
+          <div class="sidebar-quick-stat" title="表格">
+            <iconify-icon icon="carbon:table" width="14"></iconify-icon>
+            <span id="sidebarTableCount">0</span>
+          </div>
+          <div class="sidebar-quick-stat" title="总字数">
+            <iconify-icon icon="carbon:character-whole-number" width="14"></iconify-icon>
+            <span id="sidebarWordCount">0</span>
+          </div>
+          <div class="sidebar-quick-stat" data-stat-type="reference" title="文献">
+            <iconify-icon icon="carbon:document-multiple-01" width="14"></iconify-icon>
+            <span id="sidebarReferenceCount">0</span>
+          </div>
         </div>
         <button class="sidebar-settings-btn" id="sidebarSettingsLink" title="设置">
           <iconify-icon icon="carbon:settings" width="18"></iconify-icon>
         </button>
       </div>
 
-      <!-- 隐藏的统计数据容器（供 JavaScript 同步使用） -->
-      <div style="display: none;">
-        <span id="sidebarImageCount">0</span>
-        <span id="sidebarFormulaCount">0</span>
-        <span id="sidebarTableCount">0</span>
-        <span id="sidebarWordCount">0</span>
-        <span id="sidebarReferenceCount">0</span>
-      </div>
+      <!-- 隐藏的统计数据容器已移除，所有元素已在底部显示 -->
     </aside>
 
     <!-- ========== 主内容区 ========== -->
