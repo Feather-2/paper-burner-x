@@ -68,6 +68,12 @@
 /* Markdown 现代化样式 */
 @import url('./history_detail/04-features/markdown-modern.css');
 
+/* Markdown 增强功能（KaTeX 错误、缺失图片） */
+@import url('./history_detail/04-features/markdown-enhancements.css');
+
+/* 数学公式显示修复 */
+@import url('./history_detail/04-features/math-display.css');
+
 /* 分块对比功能 */
 @import url('./history_detail/04-features/chunk-compare.css');
 
@@ -121,6 +127,10 @@
  *   - Context Menu 补充 → 03-components/context-menu.css
  *   - Markdown 补充 → 04-features/markdown-content.css
  *   - Buttons 已存在 → 05-utilities/buttons.css
+ *
+ * Phase 9 (100% Modularization - Shared CSS):
+ * - markdown-enhanced.css → 04-features/markdown-enhancements.css
+ * - math-display-fix.css → 04-features/math-display.css
  *
  * 其他文件已按分层移动到相应目录。
  *
