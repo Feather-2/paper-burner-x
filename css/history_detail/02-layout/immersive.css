@@ -571,6 +571,23 @@ body.toc-dock-resizing #toc-vs-dock-resize-handle {
   color: var(--color-text-secondary) !important;
 }
 
+/* 控制栏样式简化 */
+#immersive-toc-area #bottom-left-dock .dock-control-bar {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: var(--spacing-xs) !important;
+  padding: var(--spacing-xs) !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+}
+
+/* 隐藏参考文献徽章（沉浸模式下空间有限）*/
+#immersive-toc-area #bottom-left-dock .dock-control-bar .stat-item-clickable[data-stat-type="reference"] {
+  display: none !important;
+}
+
 /* ==================== 10. 沉浸模式激活状态 ==================== */
 
 /* 禁用 body 滚动 */

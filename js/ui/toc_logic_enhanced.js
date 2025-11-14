@@ -873,12 +873,42 @@
           });
         }
       } else {
-        // 普通模式下使用原生scrollIntoView
-        targetElement.scrollIntoView({
-          behavior: 'smooth',
-          block: 'center',
-          inline: 'nearest'
-        });
+        // 普通模式下，检查是否需要滚动 .tab-content 容器（OCR/翻译模式）
+        const tabContent = document.querySelector('.tab-content');
+
+        // 检查 tabContent 是否是滚动容器（overflow-y: auto）
+        if (tabContent && (tabContent.scrollHeight > tabContent.clientHeight)) {
+          const computedStyle = getComputedStyle(tabContent);
+          if (computedStyle.overflowY === 'auto' || computedStyle.overflow === 'auto') {
+            // 计算目标元素相对于滚动容器的位置
+            const containerRect = tabContent.getBoundingClientRect();
+            const targetRect = targetElement.getBoundingClientRect();
+            const currentScrollTop = tabContent.scrollTop;
+
+            // 计算目标位置（将元素置于容器中心）
+            const targetScrollTop = currentScrollTop + targetRect.top - containerRect.top - (containerRect.height / 2) + (targetRect.height / 2);
+
+            // 平滑滚动到目标位置
+            tabContent.scrollTo({
+              top: Math.max(0, targetScrollTop),
+              behavior: 'smooth'
+            });
+          } else {
+            // 如果 tab-content 不是滚动容器，使用原生 scrollIntoView
+            targetElement.scrollIntoView({
+              behavior: 'smooth',
+              block: 'center',
+              inline: 'nearest'
+            });
+          }
+        } else {
+          // tab-content 不存在或不需要滚动，使用原生 scrollIntoView
+          targetElement.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center',
+            inline: 'nearest'
+          });
+        }
       }
 
       // 添加高亮效果
