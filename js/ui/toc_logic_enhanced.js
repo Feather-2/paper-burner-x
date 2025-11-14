@@ -862,32 +862,33 @@
           const computedStyle = getComputedStyle(scrollContainer);
           const overflowY = computedStyle.overflowY;
           const isScrollable = (overflowY === 'auto' || overflowY === 'scroll');
-          const hasScroll = scrollContainer.scrollHeight > scrollContainer.clientHeight;
 
-          if (isScrollable && hasScroll) {
-            // 计算目标元素相对于滚动容器的位置
+          // 只要找到了滚动容器，就尝试滚动（即使当前没有滚动条）
+          if (isScrollable) {
+            // 计算目标元素在滚动容器内的绝对位置
             const containerRect = scrollContainer.getBoundingClientRect();
             const targetRect = targetElement.getBoundingClientRect();
             const currentScrollTop = scrollContainer.scrollTop;
 
-            // 计算目标位置（将元素置于容器中心）
-            const targetScrollTop = currentScrollTop + targetRect.top - containerRect.top - (containerRect.height / 2) + (targetRect.height / 2);
+            // 目标元素相对于容器内容的绝对位置 = 当前滚动位置 + 目标相对于容器视口的位置
+            const targetOffsetInContainer = currentScrollTop + (targetRect.top - containerRect.top);
+
+            // 计算滚动位置：目标元素距离容器顶部 80px（留出空间）
+            // 避免滚动过头，导致 .container 的 h2/meta/tabs 被滚出视口
+            const topOffset = 80;
+            const targetScrollTop = Math.max(0, targetOffsetInContainer - topOffset);
 
             // 平滑滚动到目标位置
             scrollContainer.scrollTo({
-              top: Math.max(0, targetScrollTop),
+              top: targetScrollTop,
               behavior: 'smooth'
             });
             return; // 成功滚动，直接返回
           }
         }
 
-        // 备用方案：使用原生scrollIntoView
-        targetElement.scrollIntoView({
-          behavior: 'smooth',
-          block: 'center',
-          inline: 'nearest'
-        });
+        // 如果没有找到滚动容器，不调用 scrollIntoView，避免滚动 overflow:hidden 的祖先容器
+        return;
       } else {
         // 普通模式下，检查是否需要滚动 .tab-content 容器（OCR/翻译模式）
         const tabContent = document.querySelector('.tab-content');

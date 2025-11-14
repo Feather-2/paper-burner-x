@@ -106,6 +106,8 @@
   font-size: 0.7em;
   font-weight: var(--font-weight-normal);
   color: var(--color-text-muted);
+  flex-shrink: 0; /* 防止被压缩 */
+  min-height: 20px; /* 确保最小高度 */
 }
 
 #immersive-main-content-area .container > .meta {
@@ -575,18 +577,20 @@ body.toc-dock-resizing #toc-vs-dock-resize-handle {
   color: var(--color-text-secondary) !important;
 }
 
-/* 控制栏样式简化 - 横向布局，元素居中 */
+/* 控制栏样式简化 - 横向布局，固定在底部一条 */
 #immersive-toc-area #bottom-left-dock .dock-control-bar {
   display: flex !important;
   flex-direction: row !important;
   align-items: center !important;
-  justify-content: space-between !important;  /* 改为 space-between 让元素分散 */
-  flex-wrap: wrap !important;  /* 允许换行 */
-  gap: var(--spacing-sm) !important;  /* 增大间距 */
-  padding: var(--spacing-sm) var(--spacing-md) !important;  /* 增大 padding */
+  justify-content: space-between !important;  /* 让元素分散排列 */
+  flex-wrap: nowrap !important;  /* 禁止换行，保持一行显示 */
+  gap: var(--spacing-xs) !important;  /* 小间距避免换行 */
+  padding: var(--spacing-sm) var(--spacing-sm) !important;  /* 紧凑 padding */
   background: transparent !important;
   border-radius: 0 !important;
   width: 100% !important;
+  min-height: 32px !important;  /* 确保最小高度 */
+  overflow: visible !important;  /* 避免溢出隐藏 */
 }
 
 /* 进度显示样式优化 */
