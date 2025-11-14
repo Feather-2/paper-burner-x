@@ -2123,6 +2123,12 @@ function showTabImmediate(tab) {
   if (window.DockLogic && typeof window.DockLogic.bindScrollForCurrentScrollable === 'function') {
     window.DockLogic.bindScrollForCurrentScrollable();
   }
+
+  // 重新绑定滚动事件以保存滚动位置
+  if (typeof bindScrollForSavePosition === 'function') {
+    bindScrollForSavePosition();
+  }
+
   // 性能测试断点 - 总渲染结束
   console.timeEnd('[性能] showTab_总渲染');
 }

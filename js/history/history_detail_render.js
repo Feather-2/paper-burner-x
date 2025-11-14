@@ -158,9 +158,12 @@ async function renderDetail() {
 
   // The block for loading annotations (previously around line 415) has been moved up.
 
-  // Add scroll listener for saving scroll position
-  window.removeEventListener('scroll', debouncedSaveScrollPosition);
-  window.addEventListener('scroll', debouncedSaveScrollPosition);
+  // Add scroll listener for saving scroll position (动态绑定到正确的滚动容器)
+  if (typeof bindScrollForSavePosition === 'function') {
+    bindScrollForSavePosition();
+  } else {
+    console.warn('[historyDetailRender] bindScrollForSavePosition function not found');
+  }
   // Add scroll listener for updating reading progress - MOVED TO DOCK_LOGIC.JS
   // window.removeEventListener('scroll', debouncedUpdateReadingProgress);
   // window.addEventListener('scroll', debouncedUpdateReadingProgress);
