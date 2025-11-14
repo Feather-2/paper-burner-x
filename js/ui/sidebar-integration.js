@@ -422,14 +422,55 @@
   }
 
   /**
+   * 获取当前滚动容器（复用 DockLogic 的逻辑）
+   */
+  function getCurrentScrollableElement() {
+    // 优先使用 DockLogic 提供的接口（如果存在）
+    if (window.DockLogic && typeof window.DockLogic.getCurrentScrollableElement === 'function') {
+      return window.DockLogic.getCurrentScrollableElement();
+    }
+
+    // 后备方案：自己实现相同的逻辑
+    if (window.ImmersiveLayout && window.ImmersiveLayout.isActive && window.ImmersiveLayout.isActive()) {
+      const immersiveMainArea = document.getElementById('immersive-main-content-area');
+      if (immersiveMainArea) {
+        // 优先查找带有 .js-scroll-container 标记的元素
+        const markedScroller = immersiveMainArea.querySelector('.js-scroll-container');
+        if (markedScroller) {
+          return markedScroller;
+        }
+
+        // 后备方案：通过 computed style 检查
+        const tabContent = immersiveMainArea.querySelector('.tab-content');
+        if (tabContent) {
+          const computedStyle = getComputedStyle(tabContent);
+          if (computedStyle.overflowY === 'auto' || computedStyle.overflow === 'auto') {
+            return tabContent;
+          }
+        }
+
+        // 兜底方案：返回 immersive main area
+        return immersiveMainArea;
+      }
+    }
+
+    // 非沉浸模式：使用 document.documentElement
+    return document.documentElement;
+  }
+
+  /**
    * 计算并更新侧边栏的阅读进度（直接计算，不依赖 Dock）
    */
   function updateSidebarReadingProgress() {
     const progressEl = document.querySelector(CONFIG.selectors.sidebarReadingProgress);
     if (!progressEl) return;
 
-    // 获取当前滚动容器
-    const scrollableElement = document.documentElement; // 非沉浸模式下使用 document.documentElement
+    // 动态获取当前滚动容器
+    const scrollableElement = getCurrentScrollableElement();
+    if (!scrollableElement) {
+      console.warn('[Sidebar] No scrollable element found');
+      return;
+    }
 
     const scrollTop = scrollableElement.scrollTop;
     const scrollHeight = scrollableElement.scrollHeight;
@@ -579,6 +620,40 @@
   // ==================== 响应式处理 ====================
 
   /**
+   * 动态绑定/解绑滚动事件到当前滚动容器
+   */
+  let lastScrollableElement = null;
+  const debouncedProgressUpdate = debounce(updateSidebarReadingProgress, 100);
+
+  function bindScrollForCurrentScrollable() {
+    // 解绑旧的滚动监听
+    if (lastScrollableElement) {
+      lastScrollableElement.removeEventListener('scroll', debouncedProgressUpdate);
+      lastScrollableElement = null;
+    }
+
+    // 获取当前滚动元素
+    const el = getCurrentScrollableElement();
+    if (el) {
+      console.log(`[Sidebar] 绑定滚动事件到元素:`, el.id || el.className || el.tagName);
+      el.addEventListener('scroll', debouncedProgressUpdate);
+      lastScrollableElement = el;
+
+      // 立即更新一次阅读进度
+      setTimeout(() => updateSidebarReadingProgress(), 50);
+    } else {
+      console.warn(`[Sidebar] 未找到可滚动元素，无法绑定滚动事件`);
+    }
+  }
+
+  function unbindScrollForCurrentScrollable() {
+    if (lastScrollableElement) {
+      lastScrollableElement.removeEventListener('scroll', debouncedProgressUpdate);
+      lastScrollableElement = null;
+    }
+  }
+
+  /**
    * 处理窗口大小变化
    */
   function handleResize() {
@@ -647,13 +722,29 @@
     // 监听窗口大小变化
     window.addEventListener('resize', handleResize);
 
-    // 监听滚动事件以更新阅读进度（防抖优化）
-    const debouncedProgressUpdate = debounce(updateSidebarReadingProgress, 100);
-    window.addEventListener('scroll', debouncedProgressUpdate);
-    document.addEventListener('scroll', debouncedProgressUpdate, true); // 捕获阶段，确保捕获所有滚动
+    // 动态绑定滚动事件到当前滚动容器
+    bindScrollForCurrentScrollable();
 
-    // 初始更新一次阅读进度
-    setTimeout(updateSidebarReadingProgress, 100);
+    // 监听标签页切换事件（重新绑定滚动事件）
+    // 使用 MutationObserver 监听 .tab-content 的变化
+    const tabContent = document.getElementById('tabContent');
+    if (tabContent) {
+      const tabObserver = new MutationObserver(() => {
+        console.log('[Sidebar] Tab content changed, rebinding scroll event');
+        bindScrollForCurrentScrollable();
+      });
+
+      tabObserver.observe(tabContent, {
+        childList: true,
+        subtree: false
+      });
+    }
+
+    // 监听沉浸模式切换（重新绑定滚动事件）
+    window.addEventListener('immersive-mode-changed', () => {
+      console.log('[Sidebar] Immersive mode changed, rebinding scroll event');
+      setTimeout(() => bindScrollForCurrentScrollable(), 100);
+    });
 
     console.log('[Sidebar] Sidebar integration initialized successfully');
   }
@@ -672,6 +763,8 @@
     syncTocData,
     syncDockData,
     updateReadingProgress: updateSidebarReadingProgress,
+    bindScrollEvent: bindScrollForCurrentScrollable,
+    unbindScrollEvent: unbindScrollForCurrentScrollable,
     openMobileSidebar,
     closeMobileSidebar,
     setSidebarCollapsed
