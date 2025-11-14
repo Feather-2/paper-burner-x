@@ -540,9 +540,9 @@ body.toc-dock-resizing #toc-vs-dock-resize-handle {
   padding: 0 !important;
   display: flex !important;
   flex-direction: column !important;
-  align-items: center !important;
+  align-items: stretch !important;  /* 改为 stretch 让子元素占满宽度 */
   gap: var(--spacing-xs) !important;
-  font-size: 0.7em !important;
+  font-size: 14px !important;  /* 使用绝对单位，避免层叠缩小 */
 }
 
 /* 隐藏详细统计信息，仅显示进度 */
@@ -559,11 +559,15 @@ body.toc-dock-resizing #toc-vs-dock-resize-handle {
 
 #immersive-toc-area #bottom-left-dock #settings-link,
 #immersive-toc-area #bottom-left-dock #dock-toggle-btn {
-  display: inline-block !important;
+  display: inline-flex !important;  /* 使用 inline-flex 确保正确对齐 */
+  align-items: center !important;
+  justify-content: center !important;
   color: var(--color-text-muted) !important;
-  font-size: 1em !important;
-  padding: 2px var(--spacing-xs) !important;
-  margin: 0 2px !important;
+  font-size: 16px !important;  /* 使用绝对单位 */
+  width: 28px !important;  /* 设置固定宽度 */
+  height: 28px !important;  /* 设置固定高度 */
+  padding: 0 !important;  /* 移除 padding，使用固定尺寸 */
+  margin: 0 !important;
 }
 
 #immersive-toc-area #bottom-left-dock #settings-link:hover,
@@ -571,16 +575,33 @@ body.toc-dock-resizing #toc-vs-dock-resize-handle {
   color: var(--color-text-secondary) !important;
 }
 
-/* 控制栏样式简化 */
+/* 控制栏样式简化 - 横向布局，元素居中 */
 #immersive-toc-area #bottom-left-dock .dock-control-bar {
   display: flex !important;
   flex-direction: row !important;
   align-items: center !important;
-  justify-content: center !important;
-  gap: var(--spacing-xs) !important;
-  padding: var(--spacing-xs) !important;
+  justify-content: space-between !important;  /* 改为 space-between 让元素分散 */
+  flex-wrap: wrap !important;  /* 允许换行 */
+  gap: var(--spacing-sm) !important;  /* 增大间距 */
+  padding: var(--spacing-sm) var(--spacing-md) !important;  /* 增大 padding */
   background: transparent !important;
   border-radius: 0 !important;
+  width: 100% !important;
+}
+
+/* 进度显示样式优化 */
+#immersive-toc-area #bottom-left-dock #dock-collapsed-progress-display {
+  flex-grow: 1 !important;  /* 让进度占据剩余空间 */
+  flex-shrink: 1 !important;  /* 允许收缩避免溢出 */
+  text-align: center !important;
+  font-size: 16px !important;  /* 使用绝对单位，确保可读性 */
+  font-weight: var(--font-weight-semibold) !important;  /* 加粗以增强可读性 */
+  min-width: 40px !important;  /* 设置最小宽度避免挤压 */
+}
+
+/* 按钮容器 */
+#immersive-toc-area #bottom-left-dock .dock-control-bar > a {
+  flex-shrink: 0 !important;  /* 按钮不收缩 */
 }
 
 /* 隐藏参考文献徽章（沉浸模式下空间有限）*/
