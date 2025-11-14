@@ -90,6 +90,7 @@
   .app-sidebar.collapsed .sidebar-section-chevron,
   .app-sidebar.collapsed .sidebar-section-content,
   .app-sidebar.collapsed .sidebar-footer,
+  .app-sidebar.collapsed .sidebar-footer-compact,
   .app-sidebar.collapsed .sidebar-divider {
     opacity: 0;
     pointer-events: none;
@@ -182,26 +183,43 @@
 
 .sidebar-nav {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   padding: 0.75rem;
+  overflow: hidden; /* 不滚动，内部 TOC 内容区滚动 */
+}
+
+/* TOC section 占据剩余空间 */
+#sidebarTocSection {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* 关键：允许 flex 子元素缩小 */
+  overflow: hidden;
+}
+
+/* TOC 内容区可滚动 */
+#sidebarTocSection .sidebar-section-content {
+  flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
 }
 
-/* 自定义滚动条 */
-.sidebar-nav::-webkit-scrollbar {
+/* 自定义滚动条（应用到 TOC 内容区） */
+#sidebarTocSection .sidebar-section-content::-webkit-scrollbar {
   width: 6px;
 }
 
-.sidebar-nav::-webkit-scrollbar-track {
+#sidebarTocSection .sidebar-section-content::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.sidebar-nav::-webkit-scrollbar-thumb {
+#sidebarTocSection .sidebar-section-content::-webkit-scrollbar-thumb {
   background: var(--color-border-medium);
   border-radius: var(--radius-sm);
 }
 
-.sidebar-nav::-webkit-scrollbar-thumb:hover {
+#sidebarTocSection .sidebar-section-content::-webkit-scrollbar-thumb:hover {
   background: var(--color-border-dark);
 }
 
@@ -340,7 +358,12 @@
 }
 
 .sidebar-section.expanded .sidebar-section-content {
-  max-height: 1000px; /* 足够大的值，实际高度由内容决定 */
+  max-height: none; /* 移除高度限制，由 flex 布局控制 */
+}
+
+/* 非 TOC section 的折叠区域保持原有行为 */
+.sidebar-section:not(#sidebarTocSection).expanded .sidebar-section-content {
+  max-height: 600px; /* 其他折叠区域保持固定高度 */
 }
 
 /* ==================== TOC 目录列表（集成到侧边栏） ==================== */
@@ -441,6 +464,64 @@
   transition: opacity var(--transition-fast);
 }
 
+/* 紧凑底部布局（阅读进度 + 快速统计 + 设置） */
+.sidebar-footer-compact {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-top: 1px solid #f1f5f9; /* slate-100 */
+  font-size: 0.8125rem; /* 13px */
+  transition: opacity var(--transition-fast);
+}
+
+.sidebar-progress {
+  flex: 1;
+  color: #64748b; /* slate-500 */
+  font-weight: 600;
+  font-size: 0.875rem; /* 14px */
+}
+
+.sidebar-quick-stats {
+  display: flex;
+  gap: 0.5rem;
+  color: #94a3b8; /* slate-400 */
+}
+
+.sidebar-quick-stat {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  cursor: pointer;
+  transition: color 0.2s ease;
+  user-select: none;
+  font-size: 0.8125rem; /* 13px */
+  font-weight: 500;
+}
+
+.sidebar-quick-stat:hover {
+  color: #2563eb; /* blue-600 */
+}
+
+.sidebar-settings-btn {
+  padding: 0.375rem;
+  color: #64748b; /* slate-500 */
+  background: transparent;
+  border: none;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-settings-btn:hover {
+  background: #f1f5f9; /* slate-100 */
+  color: #0f172a; /* slate-900 */
+}
+
+/* 旧的 GitHub 链接样式（保留以便向后兼容） */
 .sidebar-footer-link {
   display: flex;
   align-items: center;

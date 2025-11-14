@@ -20,8 +20,7 @@
   const CONFIG = {
     storageKeys: {
       sidebarCollapsed: 'pbx_sidebar_collapsed',
-      tocSectionExpanded: 'pbx_sidebar_toc_expanded',
-      dockSectionExpanded: 'pbx_sidebar_dock_expanded'
+      tocSectionExpanded: 'pbx_sidebar_toc_expanded'
     },
     selectors: {
       // Sidebar
@@ -41,9 +40,7 @@
       sidebarTocList: '#sidebarTocList',
       originalTocList: '#toc-list',
 
-      // Dock Section
-      sidebarDockSection: '#sidebarDockSection',
-      sidebarDockToggle: '#sidebarDockToggle',
+      // Sidebar Footer Stats (紧凑布局)
       sidebarReadingProgress: '#sidebarReadingProgress',
       sidebarHighlightCount: '#sidebarHighlightCount',
       sidebarAnnotationCount: '#sidebarAnnotationCount',
@@ -478,14 +475,12 @@
   // ==================== 可点击统计项 ====================
 
   /**
-   * 绑定可点击统计项（高亮、批注、文献）
+   * 绑定可点击统计项（高亮、批注）
    */
   function bindClickableStats() {
-    const clickableStats = document.querySelectorAll('.sidebar-stat-value.stat-item-clickable');
+    const clickableStats = document.querySelectorAll('.sidebar-quick-stat');
 
     clickableStats.forEach(stat => {
-      stat.style.cursor = 'pointer';
-
       stat.addEventListener('click', () => {
         const statType = stat.dataset.statType;
         const originalStat = document.querySelector(`.stat-item-clickable[data-stat-type="${statType}"]`);
@@ -546,11 +541,6 @@
       CONFIG.selectors.sidebarTocSection,
       CONFIG.selectors.sidebarTocToggle,
       CONFIG.storageKeys.tocSectionExpanded
-    );
-    initCollapsibleSection(
-      CONFIG.selectors.sidebarDockSection,
-      CONFIG.selectors.sidebarDockToggle,
-      CONFIG.storageKeys.dockSectionExpanded
     );
 
     // 监听 TOC 变化并同步

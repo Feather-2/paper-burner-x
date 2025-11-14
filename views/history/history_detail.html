@@ -117,78 +117,33 @@
             </ul>
           </div>
         </div>
-
-        <!-- 统计信息区 -->
-        <div class="nav-section-title">统计信息</div>
-
-        <!-- Dock 统计（可折叠） -->
-        <div class="sidebar-section expanded" id="sidebarDockSection">
-          <button class="sidebar-section-header" id="sidebarDockToggle">
-            <span class="sidebar-section-title">
-              <iconify-icon icon="carbon:analytics"></iconify-icon>
-              <span>阅读统计</span>
-            </span>
-            <iconify-icon icon="carbon:chevron-right" class="sidebar-section-chevron" width="16"></iconify-icon>
-          </button>
-          <div class="sidebar-section-content">
-            <div class="sidebar-stat-list">
-              <div class="sidebar-stat-item">
-                <span class="sidebar-stat-label">阅读进度</span>
-                <span class="sidebar-stat-value" id="sidebarReadingProgress">0%</span>
-              </div>
-              <div class="sidebar-stat-item">
-                <span class="sidebar-stat-label">高亮</span>
-                <span class="sidebar-stat-value stat-item-clickable" data-stat-type="highlight" id="sidebarHighlightCount">0</span>
-              </div>
-              <div class="sidebar-stat-item">
-                <span class="sidebar-stat-label">批注</span>
-                <span class="sidebar-stat-value stat-item-clickable" data-stat-type="annotation" id="sidebarAnnotationCount">0</span>
-              </div>
-              <div class="sidebar-stat-item">
-                <span class="sidebar-stat-label">图片</span>
-                <span class="sidebar-stat-value" id="sidebarImageCount">0</span>
-              </div>
-              <div class="sidebar-stat-item">
-                <span class="sidebar-stat-label">公式</span>
-                <span class="sidebar-stat-value" id="sidebarFormulaCount">0</span>
-              </div>
-              <div class="sidebar-stat-item">
-                <span class="sidebar-stat-label">表格</span>
-                <span class="sidebar-stat-value" id="sidebarTableCount">0</span>
-              </div>
-              <div class="sidebar-stat-item">
-                <span class="sidebar-stat-label">总字数</span>
-                <span class="sidebar-stat-value" id="sidebarWordCount">0</span>
-              </div>
-              <div class="sidebar-stat-item">
-                <span class="sidebar-stat-label">文献</span>
-                <span class="sidebar-stat-value stat-item-clickable" data-stat-type="reference" id="sidebarReferenceCount">0</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 分隔线 -->
-        <div class="sidebar-divider"></div>
-
-        <!-- 系统区 -->
-        <div class="nav-section-title">系统</div>
-
-        <!-- 设置 -->
-        <a href="#" class="nav-item" id="sidebarSettingsLink">
-          <iconify-icon icon="carbon:settings" class="nav-icon"></iconify-icon>
-          <span class="nav-text">设置</span>
-        </a>
       </nav>
 
-      <!-- 侧边栏底部 -->
-      <div class="sidebar-footer">
-        <a href="https://github.com/Feather-2/paper-burner" target="_blank" class="sidebar-footer-link">
-          <div class="sidebar-footer-icon">
-            <iconify-icon icon="carbon:logo-github" width="24"></iconify-icon>
+      <!-- 侧边栏底部（紧凑布局） -->
+      <div class="sidebar-footer-compact">
+        <div class="sidebar-progress" id="sidebarReadingProgress">0%</div>
+        <div class="sidebar-quick-stats">
+          <div class="sidebar-quick-stat" data-stat-type="highlight" title="高亮">
+            <iconify-icon icon="carbon:highlight" width="14"></iconify-icon>
+            <span id="sidebarHighlightCount">0</span>
           </div>
-          <span>GitHub 仓库</span>
-        </a>
+          <div class="sidebar-quick-stat" data-stat-type="annotation" title="批注">
+            <iconify-icon icon="carbon:annotation" width="14"></iconify-icon>
+            <span id="sidebarAnnotationCount">0</span>
+          </div>
+        </div>
+        <button class="sidebar-settings-btn" id="sidebarSettingsLink" title="设置">
+          <iconify-icon icon="carbon:settings" width="18"></iconify-icon>
+        </button>
+      </div>
+
+      <!-- 隐藏的统计数据容器（供 JavaScript 同步使用） -->
+      <div style="display: none;">
+        <span id="sidebarImageCount">0</span>
+        <span id="sidebarFormulaCount">0</span>
+        <span id="sidebarTableCount">0</span>
+        <span id="sidebarWordCount">0</span>
+        <span id="sidebarReferenceCount">0</span>
       </div>
     </aside>
 
