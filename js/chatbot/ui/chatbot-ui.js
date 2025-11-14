@@ -470,6 +470,7 @@ function updateChatbotUI() {
     const lastRenderedCount = window.ChatbotRenderState.lastRenderedMessageCount || 0;
 
     let docName = 'unknown_doc';
+    let docId = 'unknown_doc'; // 完整的 docId，用于 draw.io 等功能
     let dataForMindmap = { images: [], ocr: '', translation: '' };
     if (window.ChatbotCore && typeof window.ChatbotCore.getCurrentDocContent === 'function') {
         const currentDoc = window.ChatbotCore.getCurrentDocContent();
@@ -481,6 +482,10 @@ function updateChatbotUI() {
                 translation: currentDoc.translation || ''
             };
         }
+    }
+    // 获取完整的 docId（包含文档名、图片数量、OCR长度、翻译长度）
+    if (window.ChatbotCore && typeof window.ChatbotCore.getCurrentDocId === 'function') {
+        docId = window.ChatbotCore.getCurrentDocId();
     }
 
     if (window.ChatbotMessageRenderer) {
@@ -683,7 +688,7 @@ function updateChatbotUI() {
             if (m.role === 'user') {
                 return window.ChatbotMessageRenderer.renderUserMessage(m, index);
             }
-            return window.ChatbotMessageRenderer.renderAssistantMessage(m, index, docName, dataForMindmap);
+            return window.ChatbotMessageRenderer.renderAssistantMessage(m, index, docName, dataForMindmap, docId);
         }).join('');
 
         if (window.ChatbotCore.isChatbotLoading) {

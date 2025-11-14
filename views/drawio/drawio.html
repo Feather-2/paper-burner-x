@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>配图编辑器 - draw.io</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" type="image/svg+xml" href="../../public/pure.svg">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700&display=swap');
+
+    body {
+      margin:0;
+      background: linear-gradient(135deg, #f3f6fa 0%, #e4edf9 100%);
+      font-family: 'Nunito', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    .topbar {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 54px;
+      background: #fff; border-bottom: 1px solid #e2e8f0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between; padding: 0 20px;
+      box-sizing: border-box;
+      box-shadow: 0 4px 24px 0 rgba(59,130,246,0.08), 0 1.5px 6px 0 rgba(59,130,246,0.04);
+      border-radius: 0 0 18px 18px;
+    }
+
+    .topbar-title {
+      display: flex;
+      align-items: center;
+      font-weight: 600;
+      font-size: 1.1em;
+      color: #2563eb;
+      gap: 12px;
+    }
+
+    .container {
+      position: fixed;
+      top: 54px;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      display: flex;
+      transition: all 0.3s ease;
+      border-radius: 18px;
+      box-shadow: 0 8px 32px 0 rgba(31, 41, 55, 0.10), 0 1.5px 6px 0 rgba(59,130,246,0.06);
+      background: #f8fafc;
+    }
+
+    .editor-container {
+      width: 25%;
+      min-width: 200px;
+      height: 100%;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border-right: 1px solid #e0e7ef;
+      margin: 12px;
+      border-radius: 18px;
+      box-shadow: 0 2px 8px 0 rgba(59,130,246,0.06);
+      background: linear-gradient(135deg, #fff 60%, #f3f6fa 100%);
+    }
+
+    .editor-header {
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: linear-gradient(90deg, #f9fafb 80%, #e0e7ef 100%);
+      padding: 0 16px;
+      font-size: 0.9em;
+      font-weight: 600;
+      color: #334155;
+      border-bottom: 1px dashed #e2e8f0;
+      flex-shrink: 0;
+      border-radius: 18px 18px 0 0;
+      box-shadow: 0 2px 8px 0 rgba(59,130,246,0.04);
+    }
+
+    .splitter {
+      width: 6px;
+      background: repeating-linear-gradient(90deg, #e0e7ef, #e0e7ef 4px, #f3f6fa 4px, #f3f6fa 8px);
+      cursor: ew-resize;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      border-radius: 8px;
+    }
+
+    .splitter::before {
+      content: "";
+      height: 20px;
+      border-left: 2px dashed #b0bfd0;
+    }
+
+    .drawio-container {
+      flex: 1;
+      min-width: 200px;
+      position: relative;
+      overflow: hidden;
+      border-radius: 18px;
+      box-shadow: 0 2px 8px 0 rgba(59,130,246,0.06);
+      margin: 12px;
+      background: linear-gradient(135deg, #fff 60%, #f3f6fa 100%);
+      border: 1.5px dashed #e0e7ef;
+    }
+
+    .drawio-header {
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      background: linear-gradient(90deg, #f9fafb 80%, #e0e7ef 100%);
+      padding: 0 16px;
+      border-bottom: 1px dashed #e2e8f0;
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      border-radius: 18px 18px 0 0;
+      box-shadow: 0 2px 8px 0 rgba(59,130,246,0.04);
+    }
+
+    .button {
+      background: linear-gradient(90deg, #3b82f6 60%, #60a5fa 100%);
+      color: #fff;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 2px 8px 0 rgba(59,130,246,0.08);
+    }
+
+    .button.outline {
+      background: #f8fafc;
+      color: #2563eb;
+      border: 1.5px dashed #2563eb;
+    }
+
+    .button.small {
+      padding: 4px 8px;
+      font-size: 12px;
+    }
+
+    .panel-control {
+      background: transparent;
+      color: #64748b;
+      border: 1.5px dashed #cbd5e1;
+      padding: 4px 8px;
+      border-radius: 10px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      box-shadow: 0 2px 8px 0 rgba(59,130,246,0.08);
+    }
+
+    .panel-control:hover {
+      color: #3b82f6;
+      border-color: #3b82f6;
+      background: rgba(59, 130, 246, 0.05);
+    }
+
+    .editor-textarea {
+      flex: 1;
+      border: none;
+      outline: none;
+      resize: none;
+      width: 100%;
+      padding: 10px 12px;
+      font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      background: transparent;
+      color: #0f172a;
+      box-sizing: border-box;
+      white-space: pre;
+      overflow: auto;
+    }
+
+    #drawio-frame {
+      position: absolute;
+      top: 40px;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      height: calc(100% - 40px);
+      border: none;
+    }
+
+    .hide-editor .editor-container, .hide-editor .splitter {
+      width: 0 !important;
+      min-width: 0 !important;
+      overflow: hidden;
+      border-right: none;
+    }
+
+    .hide-editor .splitter { display: none !important; }
+
+    .hide-drawio .drawio-container {
+      display: none !important;
+      width: 0 !important;
+      min-width: 0 !important;
+      flex: 0 0 0 !important;
+      overflow: hidden !important;
+    }
+
+    .hide-drawio .splitter { display: none !important; }
+
+    .hide-drawio .editor-container {
+      width: 100% !important;
+      flex: 1 1 auto !important;
+    }
+
+    @media (max-width: 768px) {
+      .container {
+        flex-direction: column;
+      }
+      .editor-container, .drawio-container {
+        width: 100% !important;
+        height: 50%;
+      }
+      .splitter {
+        width: 100%;
+        height: 6px;
+        cursor: ns-resize;
+      }
+      .splitter::before {
+        height: auto;
+        width: 20px;
+        border-left: none;
+        border-top: 2px dashed #b0bfd0;
+      }
+      .hide-editor .editor-container, .hide-drawio .drawio-container {
+        height: 0 !important;
+      }
+      .hide-editor .splitter, .hide-drawio .splitter { display: none !important; }
+      .container, .editor-container, .drawio-container {
+        border-radius: 0;
+        margin: 0;
+        box-shadow: none;
+      }
+      .topbar { border-radius: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="topbar-title">
+      <span style="font-size:1.2em;font-weight:700;letter-spacing:0.02em;">配图编辑器（draw.io）</span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button id="toggle-layout-btn" class="button small outline">⇄ 切换布局</button>
+    </div>
+  </div>
+
+  <div class="container" id="main-container">
+    <div class="editor-container" id="editor-area">
+      <div class="editor-header">
+        <span>draw.io XML</span>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <small id="xml-status" style="color:#64748b;">只读预览</small>
+          <button id="toggle-editor-btn" class="panel-control">隐藏</button>
+        </div>
+      </div>
+      <textarea id="xml-editor" class="editor-textarea" spellcheck="false"></textarea>
+    </div>
+
+    <div class="splitter" id="splitter"></div>
+
+    <div class="drawio-container" id="drawio-area">
+      <div class="drawio-header">
+        <button id="toggle-drawio-btn" class="panel-control">隐藏</button>
+      </div>
+      <iframe id="drawio-frame" title="draw.io editor"
+              src="https://embed.diagrams.net/?embed=1&proto=json&ui=min"
+              allow="fullscreen"></iframe>
+    </div>
+  </div>
+
+  <script>
+    function getQueryParam(name) {
+      const params = new URLSearchParams(window.location.search);
+      return params.get(name) || '';
+    }
+
+    function loadXml() {
+      const docId = getQueryParam('docId') || 'unknown';
+      const key = 'drawioData_' + docId;
+      const xml = window.localStorage.getItem(key) || '<mxfile></mxfile>';
+      return xml;
+    }
+
+    function initLayout() {
+      const container = document.getElementById('main-container');
+      const editor = document.getElementById('editor-area');
+      const splitter = document.getElementById('splitter');
+      const drawio = document.getElementById('drawio-area');
+
+      let isDragging = false;
+
+      splitter.addEventListener('mousedown', function(e) {
+        isDragging = true;
+        document.body.style.userSelect = 'none';
+      });
+
+      window.addEventListener('mousemove', function(e) {
+        if (!isDragging) return;
+        const rect = container.getBoundingClientRect();
+        const offsetX = e.clientX - rect.left;
+        const minWidth = 200;
+        const maxWidth = rect.width - 200;
+        const newWidth = Math.min(Math.max(offsetX, minWidth), maxWidth);
+        editor.style.width = newWidth + 'px';
+      });
+
+      window.addEventListener('mouseup', function() {
+        isDragging = false;
+        document.body.style.userSelect = '';
+      });
+
+      document.getElementById('toggle-layout-btn').addEventListener('click', function() {
+        if (container.classList.contains('reverse-layout')) {
+          container.classList.remove('reverse-layout');
+          container.style.flexDirection = 'row';
+        } else {
+          container.classList.add('reverse-layout');
+          container.style.flexDirection = 'row-reverse';
+        }
+      });
+
+      document.getElementById('toggle-editor-btn').addEventListener('click', function() {
+        container.classList.toggle('hide-editor');
+      });
+
+      document.getElementById('toggle-drawio-btn').addEventListener('click', function() {
+        container.classList.toggle('hide-drawio');
+      });
+    }
+
+    function initDrawioCommunication(xml) {
+      const iframe = document.getElementById('drawio-frame');
+      if (!iframe) return;
+
+      let hasReceivedInit = false; // 标记是否收到 init 事件
+      let initTimeout = null;
+
+      // 验证 XML 格式
+      function validateXml(xmlString) {
+        try {
+          const parser = new DOMParser();
+          const xmlDoc = parser.parseFromString(xmlString, 'text/xml');
+          const parserError = xmlDoc.querySelector('parsererror');
+          if (parserError) {
+            return {
+              valid: false,
+              error: parserError.textContent || '未知的 XML 解析错误'
+            };
+          }
+          return { valid: true };
+        } catch (e) {
+          return { valid: false, error: e.message };
+        }
+      }
+
+      // 显示错误提示
+      function showError(errorMsg, xmlContent) {
+        const container = document.querySelector('.drawio-container');
+        const errorHtml = `
+          <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:80%;max-width:600px;background:#fff;padding:24px;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.1);text-align:center;z-index:1000;">
+            <div style="font-size:48px;margin-bottom:12px;">⚠️</div>
+            <div style="font-size:18px;font-weight:600;color:#dc2626;margin-bottom:12px;">配图加载失败</div>
+            <div style="font-size:14px;color:#64748b;margin-bottom:20px;max-height:200px;overflow-y:auto;background:#f8fafc;padding:12px;border-radius:6px;text-align:left;word-break:break-word;">${errorMsg}</div>
+            <div style="display:flex;gap:12px;justify-content:center;">
+              <button onclick="navigator.clipboard.writeText(decodeURIComponent('${encodeURIComponent(xmlContent)}'));this.textContent='✓ 已复制'" style="padding:8px 16px;background:#3b82f6;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;">📋 复制 XML 到剪贴板</button>
+              <button onclick="window.location.reload()" style="padding:8px 16px;background:#64748b;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;">🔄 刷新重试</button>
+            </div>
+          </div>
+        `;
+        container.insertAdjacentHTML('beforeend', errorHtml);
+      }
+
+      // 验证加载的 XML
+      const validation = validateXml(xml);
+      if (!validation.valid) {
+        console.error('[drawio.html] XML 验证失败:', validation.error);
+        showError(`XML 格式错误：${validation.error}`, xml);
+        return;
+      }
+
+      // diagrams.net embed 模式使用 postMessage + proto=json 协议
+      function postDrawioMessage(msg) {
+        if (!iframe.contentWindow) {
+          console.error('[drawio.html] iframe.contentWindow 不可用');
+          return;
+        }
+        iframe.contentWindow.postMessage(JSON.stringify(msg), '*');
+        console.log('[drawio.html] 发送消息到 draw.io:', msg);
+      }
+
+      // 监听来自 diagrams.net 的消息
+      window.addEventListener('message', function (evt) {
+        if (!evt.data) return;
+        let data = null;
+        try {
+          data = typeof evt.data === 'string' ? JSON.parse(evt.data) : evt.data;
+        } catch (e) {
+          return;
+        }
+        if (!data || !data.event) return;
+
+        console.log('[drawio.html] 收到 draw.io 事件:', data);
+
+        // 等待 diagrams.net 发送 'init' 事件，表示已准备好接收消息
+        if (data.event === 'init') {
+          hasReceivedInit = true;
+          if (initTimeout) clearTimeout(initTimeout);
+
+          console.log('[drawio.html] draw.io 已初始化，发送 XML 数据');
+          // 发送 load 指令加载 XML
+          postDrawioMessage({
+            action: 'load',
+            autosave: 1,
+            xml: xml
+          });
+        } else if (data.event === 'save') {
+          // 处理保存事件
+          console.log('[drawio.html] 用户保存了图表');
+          const docId = getQueryParam('docId') || 'unknown';
+          const key = 'drawioData_' + docId;
+
+          try {
+            window.localStorage.setItem(key, data.xml);
+            // 同步更新左侧编辑器
+            document.getElementById('xml-editor').value = data.xml;
+            console.log('[drawio.html] 已保存到 localStorage:', key);
+          } catch (e) {
+            console.error('[drawio.html] 保存失败:', e);
+          }
+        } else if (data.event === 'export') {
+          // 处理导出事件
+          console.log('[drawio.html] 导出事件:', data);
+        } else if (data.event === 'load') {
+          console.log('[drawio.html] 图表加载完成');
+        }
+      });
+
+      // 超时检测：如果 5 秒内没有收到 init 事件，显示错误
+      initTimeout = setTimeout(() => {
+        if (!hasReceivedInit) {
+          console.error('[drawio.html] 超时：未收到 draw.io 初始化事件');
+          showError('draw.io 编辑器初始化超时，可能是网络问题或 embed.diagrams.net 服务不可用。', xml);
+        }
+      }, 5000);
+    }
+
+    window.addEventListener('DOMContentLoaded', function() {
+      const xml = loadXml();
+      document.getElementById('xml-editor').value = xml;
+      initLayout();
+      initDrawioCommunication(xml);
+    });
+  </script>
+</body>
+</html>

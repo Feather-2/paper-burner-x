@@ -92,6 +92,9 @@ class ChatMessageEventManager {
                 case 'open-mindmap':
                     this._handleOpenMindmap(target.dataset.mindmapUrl, e);
                     break;
+                case 'open-drawio':
+                    this._handleOpenDrawio(target.dataset.drawioUrl, e);
+                    break;
                 default:
                     console.warn(`[EventManager] 未知操作: ${action}`);
             }
@@ -251,6 +254,23 @@ class ChatMessageEventManager {
             window.open(mindmapUrl, '_blank');
         } else {
             console.error('[EventManager] 思维导图 URL 为空');
+        }
+    }
+
+    /**
+     * 打开 draw.io 配图编辑器
+     * @param {string} drawioUrl - draw.io 视图 URL
+     * @param {Event} event - 原始事件对象
+     * @private
+     */
+    _handleOpenDrawio(drawioUrl, event) {
+        event.stopPropagation();
+        console.log(`[EventManager] 🧩 打开配图编辑器: ${drawioUrl}`);
+
+        if (drawioUrl) {
+            window.open(drawioUrl, '_blank');
+        } else {
+            console.error('[EventManager] 配图编辑器 URL 为空');
         }
     }
 
