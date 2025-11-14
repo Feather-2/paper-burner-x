@@ -29,6 +29,7 @@
       appSidebar: '#appSidebar',
       sidebarOverlay: '#sidebarOverlay',
       sidebarToggleBtn: '#sidebarToggleBtn',
+      sidebarToggleIcon: '#sidebarToggleIcon',
       sidebarCloseBtn: '#sidebarCloseBtn',
       mobileMenuBtn: '#mobileMenuBtn',
       sidebarLogo: '#sidebarLogo',
@@ -153,9 +154,17 @@
     if (collapsed) {
       elements.appSidebar.classList.add('collapsed');
       elements.sidebarLogo.src = CONFIG.logos.pure;
+      // 切换图标为"打开"图标
+      if (elements.sidebarToggleIcon) {
+        elements.sidebarToggleIcon.setAttribute('icon', 'carbon:side-panel-open');
+      }
     } else {
       elements.appSidebar.classList.remove('collapsed');
       elements.sidebarLogo.src = CONFIG.logos.full;
+      // 切换图标为"关闭"图标
+      if (elements.sidebarToggleIcon) {
+        elements.sidebarToggleIcon.setAttribute('icon', 'carbon:side-panel-close');
+      }
     }
 
     // 保存状态

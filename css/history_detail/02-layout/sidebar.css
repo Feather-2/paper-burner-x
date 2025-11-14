@@ -201,8 +201,8 @@
   margin-bottom: 0.5rem;
   margin-top: 1rem;
   font-size: 11px;
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text-muted);
+  font-weight: 700;
+  color: #94a3b8; /* slate-400 */
   text-transform: uppercase;
   letter-spacing: 0.05em;
   transition: opacity var(--transition-fast);
@@ -218,11 +218,11 @@
   display: flex;
   align-items: center;
   padding: var(--sidebar-nav-item-padding);
-  color: var(--color-text-secondary);
+  color: #475569; /* slate-600 */
   text-decoration: none;
-  border-radius: var(--radius-md);
-  transition: all var(--transition-fast);
-  font-weight: var(--font-weight-medium);
+  border-radius: 0.5rem;
+  transition: all 0.2s ease;
+  font-weight: 500;
   font-size: var(--sidebar-nav-item-font-size);
   margin-bottom: 0.25rem;
   user-select: none;
@@ -230,30 +230,30 @@
 }
 
 .nav-item:hover {
-  background-color: var(--color-bg-secondary);
-  color: var(--color-text-primary);
+  background-color: #f1f5f9; /* slate-100 */
+  color: #0f172a; /* slate-900 */
 }
 
 .nav-item.active {
   background-color: #eff6ff; /* blue-50 */
-  color: var(--color-primary);
-  font-weight: var(--font-weight-semibold);
+  color: #2563eb; /* blue-600 */
+  font-weight: 600;
 }
 
 .nav-icon {
   margin-right: 0.75rem;
   font-size: 1.25rem;
-  color: var(--color-text-muted);
-  transition: color var(--transition-fast);
+  color: #94a3b8; /* slate-400 */
+  transition: color 0.2s ease;
   flex-shrink: 0;
 }
 
 .nav-item:hover .nav-icon {
-  color: var(--color-text-secondary);
+  color: #64748b; /* slate-500 */
 }
 
 .nav-item.active .nav-icon {
-  color: var(--color-primary);
+  color: #3b82f6; /* blue-500 */
 }
 
 .nav-text {
@@ -263,7 +263,7 @@
 /* ==================== 可折叠区域 ==================== */
 
 .sidebar-section {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.25rem;
 }
 
 .sidebar-section-header {
@@ -272,34 +272,48 @@
   justify-content: space-between;
   width: 100%;
   padding: var(--sidebar-section-header-padding);
-  color: var(--color-text-secondary);
+  color: #475569; /* slate-600 */
   background: transparent;
   border: none;
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
+  border-radius: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
   text-align: left;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 0.2s ease;
   user-select: none;
 }
 
 .sidebar-section-header:hover {
-  background-color: var(--color-bg-secondary);
-  color: var(--color-text-primary);
+  background-color: #f1f5f9; /* slate-100 */
+  color: #0f172a; /* slate-900 */
 }
 
 .sidebar-section-title {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
   transition: opacity var(--transition-fast);
 }
 
+.sidebar-section-title iconify-icon {
+  font-size: 1.25rem;
+  color: #94a3b8; /* slate-400 */
+  transition: color 0.2s ease;
+}
+
+.sidebar-section-header:hover .sidebar-section-title iconify-icon {
+  color: #64748b; /* slate-500 */
+}
+
 .sidebar-section-chevron {
-  font-size: 14px;
-  color: var(--color-text-muted);
-  transition: transform var(--transition-base);
+  font-size: 16px;
+  color: #cbd5e1; /* slate-300 */
+  transition: all 0.2s ease;
+}
+
+.sidebar-section-header:hover .sidebar-section-chevron {
+  color: #94a3b8; /* slate-400 */
 }
 
 .sidebar-section.expanded .sidebar-section-chevron {
@@ -416,29 +430,40 @@
 
 .sidebar-footer {
   padding: 0.75rem;
-  border-top: 1px solid var(--color-border-light);
+  border-top: 1px solid #f1f5f9; /* slate-100 */
   transition: opacity var(--transition-fast);
 }
 
 .sidebar-footer-link {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  color: var(--color-text-secondary);
+  gap: 0.75rem;
+  padding: 1rem;
+  color: #64748b; /* slate-500 */
   text-decoration: none;
   font-size: var(--font-size-sm);
-  border-radius: var(--radius-md);
-  transition: all var(--transition-fast);
+  background-color: #f8fafc; /* slate-50 */
+  border: 1px solid #f1f5f9; /* slate-100 */
+  border-radius: 1rem;
+  transition: all 0.2s ease;
 }
 
 .sidebar-footer-link:hover {
-  background-color: var(--color-bg-secondary);
-  color: var(--color-text-primary);
+  opacity: 0.8;
 }
 
 .sidebar-footer-icon {
-  font-size: 1.25rem;
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: white;
+  border: 1px solid #e2e8f0; /* slate-200 */
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  color: #94a3b8; /* slate-400 */
+  flex-shrink: 0;
 }
 
 /* ==================== 移动端遮罩 ==================== */
@@ -522,7 +547,7 @@
 
 .sidebar-divider {
   height: 1px;
-  background-color: var(--color-border-light);
+  background-color: #f1f5f9; /* slate-100 */
   margin: 1rem 0.75rem;
   transition: margin var(--transition-fast);
 }
@@ -530,16 +555,14 @@
 /* ==================== 空状态提示 ==================== */
 
 .sidebar-empty-state {
-  padding: 2rem 1rem;
+  padding: 0.75rem 1rem;
   text-align: center;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
+  color: #94a3b8; /* slate-400 */
+  font-size: 0.75rem;
 }
 
 .sidebar-empty-icon {
-  font-size: 2rem;
-  margin-bottom: 0.5rem;
-  opacity: 0.5;
+  display: none; /* 隐藏 emoji 图标 */
 }
 
 /* ==================== 工具提示 ==================== */

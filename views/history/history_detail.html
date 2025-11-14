@@ -11,6 +11,8 @@
 <link rel="preload" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/fonts/KaTeX_AMS-Regular.woff2" as="font" type="font/woff2" crossorigin>  <link rel="preload" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/fonts/KaTeX_Size3-Regular.woff2" as="font" type="font/woff2" crossorigin>  <link rel="preload" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/fonts/KaTeX_Size4-Regular.woff2" as="font" type="font/woff2" crossorigin>
   <link type="text/css" rel="stylesheet" href="https://gcore.jsdelivr.net/npm/jsmind/style/jsmind.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <!-- Iconify 图标库（用于侧边栏） -->
+  <script src="https://gcore.jsdelivr.net/npm/iconify-icon@2.0.0/dist/iconify-icon.min.js"></script>
   <!-- Main CSS Entry Point (100% Modular Architecture) -->
   <link rel="stylesheet" href="../../css/history_detail.css">
 
@@ -72,11 +74,11 @@
         <img src="../../public/h_with_name.svg" alt="Paper Burner X" class="sidebar-logo" id="sidebarLogo">
         <!-- 桌面端收起按钮 -->
         <button class="sidebar-toggle-btn" id="sidebarToggleBtn" title="切换侧边栏">
-          <i class="fas fa-bars"></i>
+          <iconify-icon icon="carbon:side-panel-close" width="20" id="sidebarToggleIcon"></iconify-icon>
         </button>
         <!-- 移动端关闭按钮 -->
         <button class="sidebar-close-btn" id="sidebarCloseBtn">
-          <i class="fas fa-times"></i>
+          <iconify-icon icon="carbon:close" width="20"></iconify-icon>
         </button>
       </div>
 
@@ -87,7 +89,7 @@
 
         <!-- 回到工作台 -->
         <a href="../../index.html" class="nav-item">
-          <i class="fas fa-home nav-icon"></i>
+          <iconify-icon icon="carbon:dashboard" class="nav-icon"></iconify-icon>
           <span class="nav-text">回到工作台</span>
         </a>
 
@@ -101,16 +103,15 @@
         <div class="sidebar-section expanded" id="sidebarTocSection">
           <button class="sidebar-section-header" id="sidebarTocToggle">
             <span class="sidebar-section-title">
-              <i class="fas fa-list"></i>
+              <iconify-icon icon="carbon:list"></iconify-icon>
               <span>目录</span>
             </span>
-            <i class="fas fa-chevron-right sidebar-section-chevron"></i>
+            <iconify-icon icon="carbon:chevron-right" class="sidebar-section-chevron" width="16"></iconify-icon>
           </button>
           <div class="sidebar-section-content">
             <ul class="sidebar-toc-list" id="sidebarTocList">
               <!-- TOC 项目将由 JavaScript 填充 -->
               <li class="sidebar-empty-state">
-                <div class="sidebar-empty-icon">📄</div>
                 <div>加载中...</div>
               </li>
             </ul>
@@ -124,10 +125,10 @@
         <div class="sidebar-section expanded" id="sidebarDockSection">
           <button class="sidebar-section-header" id="sidebarDockToggle">
             <span class="sidebar-section-title">
-              <i class="fas fa-chart-bar"></i>
+              <iconify-icon icon="carbon:analytics"></iconify-icon>
               <span>阅读统计</span>
             </span>
-            <i class="fas fa-chevron-right sidebar-section-chevron"></i>
+            <iconify-icon icon="carbon:chevron-right" class="sidebar-section-chevron" width="16"></iconify-icon>
           </button>
           <div class="sidebar-section-content">
             <div class="sidebar-stat-list">
@@ -175,7 +176,7 @@
 
         <!-- 设置 -->
         <a href="#" class="nav-item" id="sidebarSettingsLink">
-          <i class="fas fa-cog nav-icon"></i>
+          <iconify-icon icon="carbon:settings" class="nav-icon"></iconify-icon>
           <span class="nav-text">设置</span>
         </a>
       </nav>
@@ -183,8 +184,10 @@
       <!-- 侧边栏底部 -->
       <div class="sidebar-footer">
         <a href="https://github.com/Feather-2/paper-burner" target="_blank" class="sidebar-footer-link">
-          <i class="fab fa-github sidebar-footer-icon"></i>
-          <span>GitHub</span>
+          <div class="sidebar-footer-icon">
+            <iconify-icon icon="carbon:logo-github" width="24"></iconify-icon>
+          </div>
+          <span>GitHub 仓库</span>
         </a>
       </div>
     </aside>
@@ -198,7 +201,7 @@
           <span>文档详情</span>
         </div>
         <button class="mobile-menu-btn" id="mobileMenuBtn">
-          <i class="fas fa-bars"></i>
+          <iconify-icon icon="carbon:menu" width="24"></iconify-icon>
         </button>
       </div>
 
