@@ -849,10 +849,15 @@
       // 修复：在沉浸模式下使用自定义滚动逻辑，避免布局偏移
       if (window.ImmersiveLayout && window.ImmersiveLayout.isActive()) {
         // 沉浸模式下使用自定义滚动定位
-        // 优先查找 .js-scroll-container 标记（CSS 架构重构后的标准方式）
-        let scrollContainer = document.querySelector('#immersive-main-content-area .js-scroll-container');
+        // 优先查找 .content-wrapper（真正的滚动容器）
+        let scrollContainer = document.querySelector('#immersive-main-content-area .content-wrapper');
 
-        // 后备方案：查找 .tab-content
+        // 后备方案 1：查找 .js-scroll-container 标记
+        if (!scrollContainer) {
+          scrollContainer = document.querySelector('#immersive-main-content-area .js-scroll-container');
+        }
+
+        // 后备方案 2：查找 .tab-content
         if (!scrollContainer) {
           scrollContainer = document.querySelector('#immersive-main-content-area .tab-content');
         }
@@ -862,6 +867,14 @@
           const computedStyle = getComputedStyle(scrollContainer);
           const overflowY = computedStyle.overflowY;
           const isScrollable = (overflowY === 'auto' || overflowY === 'scroll');
+
+          console.log('[TOC Debug] 沉浸模式滚动检测:', {
+            scrollContainer: scrollContainer.className,
+            overflowY,
+            isScrollable,
+            scrollHeight: scrollContainer.scrollHeight,
+            clientHeight: scrollContainer.clientHeight
+          });
 
           // 只要找到了滚动容器，就尝试滚动（即使当前没有滚动条）
           if (isScrollable) {
