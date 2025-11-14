@@ -30,33 +30,54 @@
     // Helper function to get the current scrollable element
     function getCurrentScrollableElement() {
         if (global.ImmersiveLayout && global.ImmersiveLayout.isActive()) {
-            // In immersive mode, scrolling is managed by CSS through body.immersive-active
-            // We look for elements marked with .js-scroll-container class
+            // 沉浸模式：滚动容器取决于当前活动的标签页
             const immersiveMainArea = document.getElementById('immersive-main-content-area');
             if (immersiveMainArea) {
-                // 优先查找带有 .js-scroll-container 标记的元素（由 immersive_layout_logic.js 添加）
-                const markedScroller = immersiveMainArea.querySelector('.js-scroll-container');
-                if (markedScroller) {
-                    console.log("[DockLogic] 找到标记的滚动容器:", markedScroller.className);
-                    return markedScroller;
+                // 1. 优先查找带有内联样式的 .tab-content
+                const tabContentScroller = immersiveMainArea.querySelector('.tab-content[style*="overflow-y: auto"], .tab-content[style*="overflow: auto"]');
+                if (tabContentScroller) {
+                    console.log("[DockLogic] 找到带内联样式的滚动容器:", tabContentScroller.className);
+                    return tabContentScroller;
                 }
 
-                // 后备方案：通过 computed style 检查
-                const tabContent = immersiveMainArea.querySelector('.tab-content');
-                if (tabContent) {
-                    const computedStyle = getComputedStyle(tabContent);
-                    if (computedStyle.overflowY === 'auto' || computedStyle.overflow === 'auto') {
-                        console.log("[DockLogic] 通过 computed style 找到滚动容器");
-                        return tabContent;
+                // 2. 查找活动的内容包装器
+                const activeTabContent = immersiveMainArea.querySelector('.tab-content .content-wrapper, .tab-content .chunk-compare-container');
+                if (activeTabContent) {
+                    // 检查父元素 .tab-content 是否可滚动
+                    const tabContentParent = activeTabContent.closest('.tab-content');
+                    if (tabContentParent && (tabContentParent.style.overflowY === 'auto' ||
+                                           tabContentParent.style.overflow === 'auto' ||
+                                           getComputedStyle(tabContentParent).overflowY === 'auto')) {
+                        console.log("[DockLogic] 找到可滚动的 .tab-content 父元素");
+                        return tabContentParent;
                     }
+                    // 回退到内容包装器本身
+                    console.log("[DockLogic] 回退到内容包装器:", activeTabContent.className);
+                    return activeTabContent;
                 }
 
-                // 兜底方案：返回 immersive main area
+                // 3. 尝试 .container
+                const mainContainerInImmersive = immersiveMainArea.querySelector('.container');
+                if (mainContainerInImmersive) {
+                    console.log("[DockLogic] 找到 .container");
+                    return mainContainerInImmersive;
+                }
+
+                // 4. 最后回退到 immersiveMainArea
                 console.log("[DockLogic] 使用兜底方案：immersiveMainArea");
                 return immersiveMainArea;
             }
         }
-        // Default to document.documentElement when not in immersive mode
+
+        // 非沉浸模式：使用 .app-main（侧边栏布局中的主内容区）
+        const appMain = document.querySelector('.app-main');
+        if (appMain) {
+            console.log("[DockLogic] 非沉浸模式，使用 .app-main");
+            return appMain;
+        }
+
+        // 最终回退到 document.documentElement（旧布局或特殊情况）
+        console.log("[DockLogic] 最终回退到 document.documentElement");
         return document.documentElement;
     }
 
