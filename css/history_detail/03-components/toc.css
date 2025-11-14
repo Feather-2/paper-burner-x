@@ -1,0 +1,759 @@
+/**
+ * TOC (Table of Contents) 组件样式
+ *
+ * 职责：目录浮动按钮、弹窗、列表项、层级结构等完整样式
+ * 作用域：#toc-float-btn, #toc-popup 及其子元素
+ * 依赖：variables.css
+ *
+ * 合并自：
+ * - history_detail/toc-base.css (基础样式)
+ * - history_detail/toc-extensions.css (扩展功能)
+ * - toc-optimized.css (现代化设计，部分采纳)
+ *
+ * 重构说明：
+ * 1. 使用 CSS 变量替换硬编码值
+ * 2. 移除大部分 !important（保留少数必要的）
+ * 3. 保持向后兼容（ID 选择器）
+ * 4. 消除三个文件之间的样式冲突
+ */
+
+/* ==================== 1. TOC 浮动按钮 ==================== */
+
+#toc-float-btn {
+  position: fixed;
+  left: var(--toc-button-left);
+  top: var(--toc-button-top);
+  z-index: var(--toc-button-z-index);
+
+  /* 尺寸 - 由 .tiny-round-btn 类控制，此处保留兼容性 */
+  width: var(--toc-button-size);
+  height: var(--toc-button-size);
+
+  /* 布局 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  /* 交互 */
+  cursor: pointer;
+  transition: background var(--transition-fast),
+              transform var(--transition-fast);
+}
+
+#toc-float-btn:hover {
+  transform: scale(1.1);
+}
+
+#toc-float-btn:active {
+  transform: scale(0.95);
+}
+
+/* TOC 按钮图标 - 由 .tiny-round-btn 控制，此处保留文档 */
+#toc-float-btn i {
+  /* 样式由 .tiny-round-btn > i 控制 */
+}
+
+/* ==================== 2. TOC 弹窗容器 ==================== */
+
+#toc-popup {
+  /* 显示控制 */
+  display: none;
+
+  /* 定位 */
+  position: fixed;
+  left: var(--toc-popup-left);
+  top: var(--toc-popup-top);
+  z-index: var(--toc-popup-z-index);
+
+  /* 尺寸 */
+  width: var(--toc-popup-width);
+  max-width: 85vw;
+  max-height: var(--toc-popup-max-height);
+
+  /* 样式 */
+  background: var(--color-bg-overlay);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+
+  /* 动画 */
+  transition: opacity var(--transition-base),
+              transform var(--transition-base),
+              width var(--transition-base);
+  transform: translateY(-10px);
+  opacity: 0;
+
+  /* 溢出控制 */
+  overflow: hidden;
+}
+
+/* TOC 弹窗显示状态 */
+#toc-popup.toc-popup-visible,
+#toc-popup.visible {
+  display: block;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* TOC 弹窗隐藏动画 */
+#toc-popup.toc-popup-hiding {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+/* TOC 展开模式 */
+#toc-popup.toc-expanded {
+  width: 440px; /* 展开到2倍宽度 */
+}
+
+/* ==================== 3. TOC 弹窗头部 ==================== */
+
+#toc-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: 1px solid var(--color-border-light);
+  background: rgba(59, 130, 246, 0.05);
+}
+
+#toc-popup-header span {
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+#toc-popup-header i {
+  color: var(--color-primary);
+  font-size: var(--font-size-md);
+}
+
+/* 关闭按钮 */
+#toc-popup-close-btn {
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  transition: background var(--transition-fast),
+              color var(--transition-fast);
+}
+
+#toc-popup-close-btn:hover {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--color-primary);
+}
+
+/* 展开按钮 */
+#toc-expand-btn {
+  position: absolute;
+  right: var(--spacing-sm);
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--color-primary);
+  cursor: pointer;
+  font-size: var(--font-size-lg);
+  padding: var(--spacing-xs);
+  border-radius: var(--radius-sm);
+  line-height: 1;
+  opacity: 0.7;
+  transition: opacity var(--transition-fast),
+              background-color var(--transition-fast);
+}
+
+#toc-expand-btn:hover {
+  opacity: 1;
+  background-color: rgba(59, 130, 246, 0.1);
+}
+
+/* ==================== 4. TOC 模式选择器 ==================== */
+
+.toc-mode-selector {
+  display: none; /* 默认隐藏，由 JavaScript 控制显示 */
+  gap: var(--spacing-xs);
+  margin: var(--spacing-sm) var(--spacing-md);
+  padding: var(--spacing-xs);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  justify-content: center;
+}
+
+.toc-mode-btn {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-bg-base);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  transition: all var(--transition-base);
+  user-select: none;
+}
+
+.toc-mode-btn:hover {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--color-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+}
+
+.toc-mode-btn.active {
+  background: var(--color-primary);
+  color: var(--color-text-inverse);
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-md);
+}
+
+/* ==================== 5. TOC 列表容器 ==================== */
+
+#toc-list {
+  list-style: none;
+  padding: var(--spacing-sm) 0;
+  margin: 0;
+  font-size: var(--font-size-sm);
+  max-height: 60vh;
+  overflow-y: auto;
+
+  /* 滚动条样式 */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-medium) transparent;
+}
+
+#toc-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+#toc-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#toc-list::-webkit-scrollbar-thumb {
+  background: var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+#toc-list::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-dark);
+}
+
+/* TOC 子项容器 */
+#toc-list ul.toc-children {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+  overflow: hidden;
+  transition: height var(--transition-base),
+              opacity var(--transition-base);
+}
+
+/* 折叠状态下的子项容器 */
+#toc-list .toc-children.collapsed {
+  height: 0 !important; /* !important 必要，用于覆盖 JS 设置的高度 */
+  margin: 0;
+  padding: 0;
+  opacity: 0;
+}
+
+/* ==================== 6. TOC 列表项样式 ==================== */
+
+#toc-list li {
+  margin-bottom: 0;
+  line-height: var(--line-height-base);
+  position: relative;
+}
+
+/* 不同层级标题的间距 */
+#toc-list li.toc-h1 {
+  margin-top: var(--spacing-sm);
+}
+
+#toc-list li.toc-h2 {
+  margin-top: var(--spacing-xs);
+}
+
+#toc-list li.toc-h3,
+#toc-list li.toc-h4,
+#toc-list li.toc-h5,
+#toc-list li.toc-h6 {
+  margin-top: 2px;
+}
+
+/* TOC 链接样式 */
+#toc-list li a {
+  display: block;
+  padding: var(--toc-item-padding-y) var(--toc-item-padding-x);
+  color: var(--color-text-primary);
+  text-decoration: none;
+  font-weight: var(--font-weight-medium);
+  transition: background var(--transition-fast),
+              color var(--transition-fast),
+              border-left-color var(--transition-fast);
+  border-left: 3px solid var(--color-border-light);
+
+  /* 多行支持 */
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.3;
+  padding-right: var(--spacing-sm);
+}
+
+#toc-list li a:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  border-left-color: var(--color-primary);
+}
+
+#toc-list li a.active {
+  background: var(--color-selection-bg);
+  color: var(--color-primary);
+  border-left-color: var(--color-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* 不同层级标题的缩进和字体大小 */
+#toc-list li.toc-h2 a {
+  padding-left: calc(var(--toc-item-padding-x) + var(--toc-indent-width));
+  font-size: 0.95em;
+}
+
+#toc-list li.toc-h3 a {
+  padding-left: calc(var(--toc-item-padding-x) + var(--toc-indent-width) * 2);
+  font-size: 0.88em;
+  color: var(--color-text-secondary);
+}
+
+#toc-list li.toc-h3 a:hover {
+  color: var(--color-primary);
+}
+
+#toc-list li.toc-h4 a {
+  padding-left: calc(var(--toc-item-padding-x) + var(--toc-indent-width) * 3);
+  font-size: 0.85em;
+}
+
+#toc-list li.toc-h5 a {
+  padding-left: calc(var(--toc-item-padding-x) + var(--toc-indent-width) * 4);
+  font-size: 0.83em;
+}
+
+#toc-list li.toc-h6 a {
+  padding-left: calc(var(--toc-item-padding-x) + var(--toc-indent-width) * 5);
+  font-size: 0.8em;
+}
+
+/* ==================== 7. 折叠/展开功能 ==================== */
+
+/* 折叠按钮 */
+#toc-list .toc-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  text-align: center;
+  line-height: 16px;
+  margin-right: var(--spacing-xs);
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  transition: transform var(--transition-fast),
+              color var(--transition-fast),
+              background-color var(--transition-fast);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+#toc-list .toc-toggle:hover {
+  color: var(--color-primary);
+  background-color: rgba(59, 130, 246, 0.1);
+}
+
+#toc-list .toc-toggle.collapsed {
+  transform: rotate(-90deg);
+}
+
+/* 有子项的 TOC 项样式 */
+#toc-list li.has-children > a {
+  font-weight: var(--font-weight-semibold);
+}
+
+/* 修复悬停状态与折叠状态的冲突 */
+#toc-list li a:hover .toc-toggle {
+  color: var(--color-primary);
+}
+
+/* ==================== 8. TOC 文本内容结构 ==================== */
+
+/* 多行 TOC 文本布局 */
+#toc-list .toc-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  line-height: 1.5;
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  font-size: var(--font-size-xs);
+}
+
+#toc-list li.has-children > a .toc-text {
+  padding-left: 0;
+}
+
+/* TOC 内容 */
+.toc-content {
+  display: inline-block;
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
+  font-weight: var(--font-weight-normal);
+}
+
+/* TOC 英文翻译 */
+#toc-list span.toc-en-translation,
+.toc-en-translation {
+  font-size: 0.85em;
+  color: var(--color-text-muted);
+  margin-left: var(--spacing-xs);
+  font-weight: var(--font-weight-normal);
+  font-style: italic;
+}
+
+/* 非展开模式下的文本显示限制 */
+#toc-popup:not(.toc-expanded) .toc-text {
+  max-height: 3.9em; /* 三行文本高度 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+/* 展开模式下取消文本限制 */
+#toc-popup.toc-expanded .toc-text {
+  max-height: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  -webkit-line-clamp: unset;
+}
+
+/* ==================== 9. 结构化标题样式 ==================== */
+
+/* 通用结构化标题样式 */
+.toc-structured .toc-prefix {
+  font-weight: var(--font-weight-bold);
+  color: var(--color-primary);
+  margin-right: var(--spacing-xs);
+  display: inline-block;
+  font-family: var(--font-family-monospace);
+  background: rgba(59, 130, 246, 0.1);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.85em;
+}
+
+.toc-structured .toc-content {
+  padding-left: 0;
+  margin-left: 2px;
+}
+
+/* 结构化标题首字母 - 避免与前缀冲突 */
+.toc-structured .toc-content::first-letter {
+  font-weight: var(--font-weight-normal);
+  color: inherit;
+}
+
+/* 章节标题样式（如"第一章"） */
+.toc-structure-chapter .toc-prefix {
+  background: rgba(220, 38, 38, 0.1);
+  color: #dc2626;
+  font-size: 1.1em;
+}
+
+/* 数字编号标题样式（如"1.1"） */
+.toc-structure-numeric .toc-prefix {
+  font-family: var(--font-family-monospace);
+  letter-spacing: 0.5px;
+}
+
+/* 罗马数字标题样式 */
+.toc-structure-roman .toc-prefix {
+  font-style: italic;
+  color: #6a1b9a;
+}
+
+/* 字母标题样式 */
+.toc-structure-letter .toc-prefix {
+  color: #00695c;
+}
+
+/* 结构化标题缩进优化 */
+#toc-list > li.toc-structured {
+  padding-left: 0;
+}
+
+#toc-list .toc-structured.toc-h1 { padding-left: 0; }
+#toc-list .toc-structured.toc-h2 { padding-left: var(--spacing-md); }
+#toc-list .toc-structured.toc-h3 { padding-left: calc(var(--spacing-md) * 2); }
+#toc-list .toc-structured.toc-h4 { padding-left: calc(var(--spacing-md) * 3); }
+#toc-list .toc-structured.toc-h5 { padding-left: calc(var(--spacing-md) * 4); }
+#toc-list .toc-structured.toc-h6 { padding-left: calc(var(--spacing-md) * 5); }
+
+/* 强化层级视觉效果 */
+.toc-structured {
+  border-left: none;
+  position: relative;
+}
+
+.toc-structured.toc-h2 { border-left: 3px solid rgba(0, 102, 204, 0.1); }
+.toc-structured.toc-h3 { border-left: 3px solid rgba(0, 102, 204, 0.15); }
+.toc-structured.toc-h4 { border-left: 3px solid rgba(0, 102, 204, 0.2); }
+.toc-structured.toc-h5,
+.toc-structured.toc-h6 { border-left: 3px solid rgba(0, 102, 204, 0.25); }
+
+/* 简单数字列表项样式 */
+.toc-simple-numbered {
+  position: relative;
+}
+
+.toc-simple-numbered .toc-prefix {
+  color: var(--color-primary);
+  font-weight: var(--font-weight-bold);
+  font-size: 0.9em;
+}
+
+#toc-list li.toc-simple-numbered {
+  padding-left: var(--spacing-md) !important;
+}
+
+.toc-simple-numbered::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  border-left: 2px dotted rgba(37, 99, 235, 0.3);
+}
+
+.toc-simple-numbered:hover::before {
+  border-left-color: rgba(37, 99, 235, 0.6);
+}
+
+/* 带空格多级编号标题样式 */
+.toc-spaced-numeric .toc-prefix {
+  font-family: var(--font-family-monospace);
+  letter-spacing: 0.5px;
+  color: var(--color-primary);
+  font-weight: var(--font-weight-bold);
+}
+
+.toc-spaced-numeric:hover {
+  background-color: rgba(0, 102, 204, 0.05);
+}
+
+#toc-list .toc-spaced-numeric {
+  padding-left: inherit;
+}
+
+/* ==================== 10. 图表标题样式 ==================== */
+
+/* 图表标题在 TOC 中的特殊样式 */
+#toc-list li.toc-caption a::before {
+  content: "📊 ";
+  margin-right: var(--spacing-xs);
+  font-size: var(--font-size-sm);
+}
+
+#toc-list li.toc-caption a {
+  color: var(--color-primary);
+  font-style: italic;
+}
+
+#toc-list li.toc-caption a:hover {
+  background-color: rgba(37, 99, 235, 0.1);
+}
+
+/* 图表标题作为子项的样式调整 */
+.toc-caption {
+  font-style: italic;
+  color: var(--color-text-secondary);
+  padding-left: var(--spacing-md) !important;
+  position: relative;
+}
+
+.toc-caption::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  border-left: 2px dotted rgba(97, 97, 97, 0.2);
+}
+
+.toc-structured + li.toc-caption {
+  padding-left: calc(var(--spacing-md) * 2) !important;
+}
+
+/* 图表图标样式 */
+.toc-chart-icon {
+  margin-right: var(--spacing-xs);
+  font-size: 0.9em;
+  opacity: 0.8;
+  transition: opacity var(--transition-fast),
+              transform var(--transition-fast);
+}
+
+.toc-caption:hover .toc-chart-icon {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+/* 图表标题的内容样式 */
+.toc-caption .toc-content {
+  font-style: italic;
+  color: var(--color-primary);
+}
+
+.toc-caption .toc-content::first-letter {
+  font-weight: inherit;
+  color: inherit;
+}
+
+/* ==================== 11. 文件名占位符样式 ==================== */
+
+#toc-list li a[href^="#placeholder-"] {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-primary);
+  border-left-color: var(--color-primary);
+  background-color: rgba(59, 130, 246, 0.1);
+  padding-left: var(--toc-item-padding-x);
+}
+
+#toc-list li a[href^="#placeholder-"]::before {
+  content: "📄 ";
+  margin-right: var(--spacing-xs);
+}
+
+/* ==================== 12. TOC 控制按钮区域 ==================== */
+
+.toc-controls {
+  padding: var(--spacing-sm) var(--spacing-md);
+  text-align: center;
+  border-top: 1px solid var(--color-border-light);
+  font-size: 0.8em;
+  color: var(--color-text-muted);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--spacing-sm);
+  background: var(--color-bg-secondary);
+}
+
+.toc-control-btn {
+  background: transparent;
+  border: none;
+  margin: 0 var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  color: var(--color-primary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--transition-fast);
+  font-size: var(--font-size-xs);
+  user-select: none;
+}
+
+.toc-control-btn:hover {
+  background-color: rgba(59, 130, 246, 0.1);
+}
+
+/* ==================== 13. 特殊效果 ==================== */
+
+/* 目标高亮效果（跳转后的高亮） */
+.toc-target-highlight {
+  background: var(--color-selection-bg) !important;
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3) !important;
+  border-left: 4px solid var(--color-primary) !important;
+  transition: all var(--transition-base) !important;
+  border-radius: var(--radius-md) !important;
+  padding: var(--spacing-md) !important;
+}
+
+/* TOC 弹窗显示/隐藏动画效果 */
+.toc-popup-visible {
+  display: block !important;
+  opacity: 1 !important;
+  transform: translateY(0) !important;
+}
+
+.toc-popup-hidden {
+  display: none !important;
+}
+
+/* 强化TOC的视觉层级 */
+#toc-list ul.toc-children {
+  margin-left: 0;
+  border-left: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+/* ==================== 14. 响应式设计 ==================== */
+
+@media (max-width: 768px) {
+  #toc-float-btn {
+    left: 15px;
+    width: 44px;
+    height: 44px;
+    font-size: var(--font-size-lg);
+  }
+
+  #toc-popup {
+    left: 15px;
+    width: calc(100vw - 30px);
+    max-width: 350px;
+  }
+
+  .toc-mode-btn {
+    padding: var(--spacing-xs) var(--spacing-md);
+    font-size: 0.8rem;
+  }
+
+  #toc-list li a {
+    padding: 10px 14px 10px 18px;
+    margin: 2px 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  #toc-popup {
+    width: calc(100vw - 20px);
+    left: 10px;
+    max-height: 70vh;
+  }
+
+  #toc-popup-header {
+    padding: var(--spacing-md) var(--spacing-lg) var(--spacing-sm) var(--spacing-lg);
+  }
+
+  #toc-popup-header span {
+    font-size: 1rem;
+  }
+}
+
+/* ==================== 15. 打印样式 ==================== */
+
+@media print {
+  #toc-float-btn,
+  #toc-popup {
+    display: none !important;
+  }
+}
