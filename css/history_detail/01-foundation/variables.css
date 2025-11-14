@@ -73,15 +73,15 @@
 
   /* ==================== TOC 组件尺寸 ==================== */
 
-  --toc-button-size: 40px;
-  --toc-button-left: 20px;
-  --toc-button-top: 80px;
+  --toc-button-size: 32px;  /* 与沉浸模式按钮统一 */
+  --toc-button-left: 16px;  /* 与沉浸模式按钮统一间距 */
+  --toc-button-top: 16px;   /* 与沉浸模式按钮同高度 */
   --toc-button-z-index: var(--z-fixed);
 
-  --toc-popup-width: 280px;
+  --toc-popup-width: 160px;  /* 缩窄为原来的 57%，更紧凑 */
   --toc-popup-max-height: 70vh;
-  --toc-popup-left: 20px;
-  --toc-popup-top: 130px;
+  --toc-popup-left: 16px;   /* 与按钮对齐 */
+  --toc-popup-top: 56px;    /* 按钮高度 32px + 间距 24px */
   --toc-popup-z-index: var(--z-popover);
 
   --toc-item-height: 32px;

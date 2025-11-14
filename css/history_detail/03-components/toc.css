@@ -103,7 +103,7 @@
 
 /* TOC 展开模式 */
 #toc-popup.toc-expanded {
-  width: 440px; /* 展开到2倍宽度 */
+  width: 320px; /* 展开到2倍宽度（相对于新的 160px 基准） */
 }
 
 /* ==================== 3. TOC 弹窗头部 ==================== */
@@ -119,26 +119,26 @@
 
 #toc-popup-header span {
   font-weight: var(--font-weight-semibold);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-xs);  /* 缩小标题字体 */
   color: var(--color-text-primary);
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--spacing-xs);  /* 缩小间距 */
 }
 
 #toc-popup-header i {
   color: var(--color-primary);
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-sm);  /* 缩小图标 */
 }
 
 /* 关闭按钮 */
 #toc-popup-close-btn {
   background: transparent;
   border: none;
-  border-radius: var(--radius-md);
-  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  padding: 2px var(--spacing-xs);  /* 缩小内边距 */
   cursor: pointer;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);  /* 缩小字体 */
   color: var(--color-text-secondary);
   transition: background var(--transition-fast),
               color var(--transition-fast);
@@ -216,9 +216,9 @@
 
 #toc-list {
   list-style: none;
-  padding: var(--spacing-sm) 0;
+  padding: var(--spacing-xs) 0;  /* 缩小上下内边距 */
   margin: 0;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);  /* 缩小列表字体 */
   max-height: 60vh;
   overflow-y: auto;
 
@@ -290,20 +290,21 @@
 /* TOC 链接样式 */
 #toc-list li a {
   display: block;
-  padding: var(--toc-item-padding-y) var(--toc-item-padding-x);
+  padding: 4px 8px;  /* 缩小内边距以适应窄宽度 */
   color: var(--color-text-primary);
   text-decoration: none;
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-normal);  /* 减轻字重 */
+  font-size: var(--font-size-xs);  /* 缩小链接字体 */
   transition: background var(--transition-fast),
               color var(--transition-fast),
               border-left-color var(--transition-fast);
-  border-left: 3px solid var(--color-border-light);
+  border-left: 2px solid var(--color-border-light);  /* 缩窄边框 */
 
   /* 多行支持 */
   white-space: normal;
   word-break: break-word;
   line-height: 1.3;
-  padding-right: var(--spacing-sm);
+  padding-right: var(--spacing-xs);  /* 缩小右侧内边距 */
 }
 
 #toc-list li a:hover {
@@ -321,13 +322,13 @@
 
 /* 不同层级标题的缩进和字体大小 */
 #toc-list li.toc-h2 a {
-  padding-left: calc(var(--toc-item-padding-x) + var(--toc-indent-width));
+  padding-left: 16px;  /* 缩小缩进量 */
   font-size: 0.95em;
 }
 
 #toc-list li.toc-h3 a {
-  padding-left: calc(var(--toc-item-padding-x) + var(--toc-indent-width) * 2);
-  font-size: 0.88em;
+  padding-left: 22px;  /* 缩小缩进量 */
+  font-size: 0.90em;
   color: var(--color-text-secondary);
 }
 
@@ -336,18 +337,18 @@
 }
 
 #toc-list li.toc-h4 a {
-  padding-left: calc(var(--toc-item-padding-x) + var(--toc-indent-width) * 3);
-  font-size: 0.85em;
+  padding-left: 28px;  /* 缩小缩进量 */
+  font-size: 0.87em;
 }
 
 #toc-list li.toc-h5 a {
-  padding-left: calc(var(--toc-item-padding-x) + var(--toc-indent-width) * 4);
-  font-size: 0.83em;
+  padding-left: 34px;  /* 缩小缩进量 */
+  font-size: 0.85em;
 }
 
 #toc-list li.toc-h6 a {
-  padding-left: calc(var(--toc-item-padding-x) + var(--toc-indent-width) * 5);
-  font-size: 0.8em;
+  padding-left: 40px;  /* 缩小缩进量 */
+  font-size: 0.83em;
 }
 
 /* ==================== 7. 折叠/展开功能 ==================== */
@@ -397,11 +398,11 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  line-height: 1.5;
+  line-height: 1.4;  /* 缩小行高 */
   width: 100%;
   padding: 0;
   margin: 0;
-  font-size: var(--font-size-xs);
+  font-size: 11px;  /* 进一步缩小文本 */
 }
 
 #toc-list li.has-children > a .toc-text {
@@ -422,9 +423,9 @@
 /* TOC 英文翻译 */
 #toc-list span.toc-en-translation,
 .toc-en-translation {
-  font-size: 0.85em;
+  font-size: 0.80em;  /* 进一步缩小译文 */
   color: var(--color-text-muted);
-  margin-left: var(--spacing-xs);
+  margin-left: 2px;  /* 缩小间距 */
   font-weight: var(--font-weight-normal);
   font-style: italic;
 }
