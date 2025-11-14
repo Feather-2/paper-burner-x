@@ -51,6 +51,12 @@
 /* Context Menu 右键菜单 */
 @import url('./history_detail/03-components/context-menu.css');
 
+/* Reference Manager 参考文献管理器 */
+@import url('./history_detail/03-components/reference-manager/index.css');
+
+/* Chatbot 聊天机器人 */
+@import url('./history_detail/03-components/chatbot/index.css');
+
 /* ==================== 4. Features Layer - 功能层 ==================== */
 
 /* Markdown 内容渲染 */
@@ -93,9 +99,16 @@
  * - (提取) → 03-components/dock.css
  * - (提取) → 05-utilities/helpers.css
  *
- * Phase 7:
+ * Phase 7 Stage 1-2:
  * - chunk_compare_optimizer.css → 04-features/chunk-virtual.css
  * - unified-button-sizes.css → 05-utilities/buttons.css
+ *
+ * Phase 7 Stage 3 (Module Integration):
+ * - reference-manager-base.css → 03-components/reference-manager/base.css
+ * - reference-manager-detail.css → 03-components/reference-manager/detail.css
+ * - reference-manager-enrichment.css → 03-components/reference-manager/enrichment.css
+ * - chatbot-model-config-modal.css → 03-components/chatbot/config-modal.css
+ * - chatbot-message-actions.css → 03-components/chatbot/message-actions.css
  *
  * 其他文件已按分层移动到相应目录。
  *

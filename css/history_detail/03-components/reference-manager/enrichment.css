@@ -1,0 +1,179 @@
+/**
+ * Reference Manager - Metadata Enrichment Styles
+ *
+ * 职责：参考文献元数据丰富配置
+ * 作用域：配置模态框样式
+ * 依赖：variables.css
+ *
+ * 提取自：reference-manager-enrichment.css
+ *
+ * 包含：
+ * - 元数据丰富配置模态框
+ * - 字段配置选项
+ * - 策略说明
+ */
+
+/* ==================== 1. 元数据丰富配置模态框 ==================== */
+
+.enrichment-config-section {
+    padding: var(--spacing-lg) 30px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.enrichment-config-section h3 {
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text-primary);
+    margin: 0 0 var(--spacing-lg) 0;
+    padding-bottom: var(--spacing-md);
+    border-bottom: 2px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.enrichment-config-section h3 i {
+    color: var(--color-primary);
+}
+
+/* ==================== 2. 字段配置 ==================== */
+
+.enrichment-field-config {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.field-config-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px var(--spacing-md);
+    background: linear-gradient(135deg, #f8f9fa, #ffffff);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    transition: all var(--transition-fast);
+}
+
+.field-config-item:hover {
+    background: linear-gradient(135deg, #eff6ff, #f8f9fa);
+    border-color: var(--color-primary);
+    box-shadow: var(--shadow-sm);
+}
+
+.field-desc {
+    flex: 1;
+    margin-right: var(--spacing-lg);
+}
+
+.field-desc strong {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text-primary);
+    display: block;
+    margin-bottom: 4px;
+}
+
+.field-desc span {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-secondary);
+}
+
+.field-config-item select {
+    min-width: 160px;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border: 1px solid #d1d5db;
+    border-radius: var(--radius-md);
+    background: white;
+    font-size: 13px;
+    font-weight: var(--font-weight-medium);
+    color: #374151;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.field-config-item select:hover {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.field-config-item select:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+/* ==================== 3. 策略说明 ==================== */
+
+.enrichment-strategy-legend {
+    margin-top: 24px;
+    padding: var(--spacing-md);
+    background: linear-gradient(to bottom, #fffbeb, #fef3c7);
+    border: 1px solid #fcd34d;
+    border-radius: var(--radius-md);
+}
+
+.enrichment-strategy-legend h4 {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: #92400e;
+    margin: 0 0 var(--spacing-md) 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.enrichment-strategy-legend h4 i {
+    color: #d97706;
+}
+
+.enrichment-strategy-legend ul {
+    margin: 0;
+    padding-left: var(--spacing-lg);
+    list-style: none;
+}
+
+.enrichment-strategy-legend li {
+    font-size: var(--font-size-xs);
+    color: #78350f;
+    margin-bottom: var(--spacing-sm);
+    line-height: var(--leading-relaxed);
+    position: relative;
+}
+
+.enrichment-strategy-legend li:last-child {
+    margin-bottom: 0;
+}
+
+.enrichment-strategy-legend li::before {
+    content: '•';
+    position: absolute;
+    left: -12px;
+    color: #d97706;
+    font-weight: bold;
+}
+
+.enrichment-strategy-legend li strong {
+    color: #92400e;
+    font-weight: var(--font-weight-semibold);
+}
+
+/* ==================== 4. 美化配置模态框滚动条 ==================== */
+
+.enrichment-config-section::-webkit-scrollbar {
+    width: 6px;
+}
+
+.enrichment-config-section::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.enrichment-config-section::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+}
+
+.enrichment-config-section::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}

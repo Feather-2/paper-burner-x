@@ -1,0 +1,20 @@
+/**
+ * Chatbot - Main Module Entry Point
+ *
+ * 职责：聊天机器人模块入口
+ * 作用域：整个聊天机器人系统
+ * 依赖：variables.css
+ *
+ * 模块结构：
+ * - config-modal.css: 模型配置弹窗样式
+ * - message-actions.css: 消息操作按钮样式
+ *
+ * 使用方法：
+ * @import url('../03-components/chatbot/index.css');
+ */
+
+/* 模型配置弹窗样式 */
+@import url('./config-modal.css');
+
+/* 消息操作按钮样式 */
+@import url('./message-actions.css');
