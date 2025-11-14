@@ -410,6 +410,18 @@
   }
 
   /**
+   * 检查 Dock 数据是否已初始化（不全是 0）
+   */
+  function isDockDataReady() {
+    const wordCountEl = document.querySelector(CONFIG.selectors.originalWordCount);
+    const wordCount = wordCountEl?.textContent.trim();
+
+    // 如果总字数不是 0，说明 Dock 数据已计算完成
+    // 总字数是最可靠的指标，因为任何文档都应该有字数
+    return wordCount && wordCount !== '0';
+  }
+
+  /**
    * 同步所有 Dock 统计数据到侧边栏
    */
   function syncDockData() {
@@ -426,7 +438,8 @@
     // 调试：输出同步后的值
     const progressEl = document.querySelector(CONFIG.selectors.sidebarReadingProgress);
     const highlightEl = document.querySelector(CONFIG.selectors.sidebarHighlightCount);
-    console.log('[Sidebar] Synced values - Progress:', progressEl?.textContent, 'Highlights:', highlightEl?.textContent);
+    const wordCountEl = document.querySelector(CONFIG.selectors.sidebarWordCount);
+    console.log('[Sidebar] Synced values - Progress:', progressEl?.textContent, 'Highlights:', highlightEl?.textContent, 'Words:', wordCountEl?.textContent);
   }
 
   /**
@@ -461,8 +474,29 @@
       }
     });
 
-    // 初始同步
-    syncDockData();
+    // 智能初始同步：等待 Dock 数据初始化完成
+    let retryCount = 0;
+    const maxRetries = 20; // 最多重试 20 次
+    const retryDelay = 200; // 每次间隔 200ms
+
+    function attemptInitialSync() {
+      if (isDockDataReady()) {
+        console.log('[Sidebar] Dock data is ready, syncing now');
+        syncDockData();
+      } else {
+        retryCount++;
+        if (retryCount < maxRetries) {
+          console.log(`[Sidebar] Dock data not ready yet, retry ${retryCount}/${maxRetries} in ${retryDelay}ms...`);
+          setTimeout(attemptInitialSync, retryDelay);
+        } else {
+          console.warn('[Sidebar] Dock data still not ready after max retries, syncing anyway');
+          syncDockData();
+        }
+      }
+    }
+
+    // 开始尝试初始同步
+    attemptInitialSync();
   }
 
   // ==================== 设置链接 ====================
