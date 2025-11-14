@@ -313,6 +313,22 @@
       const originalLink = item.querySelector('a');
       if (!originalLink) return;
 
+      // 获取并清理文本内容
+      const text = originalLink.textContent.trim();
+      const href = originalLink.href;
+
+      // 跳过占位符和空标题
+      // 1. 空标题
+      // 2. "未命名章节"占位符
+      // 3. placeholder- 开头的ID（占位符标识）
+      if (!text ||
+          text === '未命名章节' ||
+          text === 'undefined' ||
+          text === 'null' ||
+          href.includes('#placeholder-')) {
+        return;
+      }
+
       const li = document.createElement('li');
       li.className = 'sidebar-toc-item';
 
@@ -324,9 +340,9 @@
       }
 
       const link = document.createElement('a');
-      link.href = originalLink.href;
+      link.href = href;
       link.className = 'sidebar-toc-link';
-      link.textContent = originalLink.textContent;
+      link.textContent = text; // 使用清理后的文本
 
       // 复制 active 状态
       if (originalLink.classList.contains('active')) {
