@@ -529,9 +529,10 @@ body.toc-dock-resizing #toc-vs-dock-resize-handle {
   flex-shrink: 0;  /* 固定在底部，不被压缩 */
   border-top: 1px solid var(--color-border-light);
   background: var(--color-bg-secondary);
-  padding: var(--spacing-xs) var(--spacing-sm);  /* 减小 padding，更紧凑 */
+  padding: var(--spacing-xs) var(--spacing-sm) 0 var(--spacing-sm);  /* 底部 0，紧贴边缘 */
   width: 100%;  /* 确保占满宽度 */
   box-sizing: border-box;
+  margin: 0;  /* 确保没有 margin */
 }
 
 #immersive-toc-area #toc-dock-placeholder #bottom-left-dock {
@@ -605,7 +606,8 @@ body.toc-dock-resizing #toc-vs-dock-resize-handle {
   justify-content: space-between !important;  /* 让元素分散排列 */
   flex-wrap: nowrap !important;  /* 禁止换行，保持一行显示 */
   gap: var(--spacing-xs) !important;  /* 小间距避免换行 */
-  padding: var(--spacing-xs) 0 !important;  /* 最小化 padding */
+  padding: var(--spacing-xs) 0 var(--spacing-xs) 0 !important;  /* 上下小间距 */
+  margin: 0 !important;  /* 确保没有 margin */
   background: transparent !important;
   border-radius: 0 !important;
   width: 100% !important;
