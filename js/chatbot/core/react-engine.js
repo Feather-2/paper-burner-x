@@ -529,6 +529,192 @@
   }
 
   // ============================================
+  // 系统提示词构建器
+  // ============================================
+  class SystemPromptBuilder {
+    /**
+     * 构建 ReAct 系统提示词
+     * 参考 Claude Code 的详细提示词风格
+     */
+    static buildReActSystemPrompt(toolRegistry) {
+      const parts = [];
+
+      // 1. 角色定义
+      parts.push('你是一个智能文档助手，使用 ReAct（Reasoning + Acting）框架回答用户问题。');
+      parts.push('');
+
+      // 2. 工作流程说明
+      parts.push('## 工作流程');
+      parts.push('');
+      parts.push('你将交替进行 **推理（Thought）** 和 **行动（Action）**：');
+      parts.push('1. **推理阶段**：分析当前已知信息，判断是否足够回答问题');
+      parts.push('2. **决策阶段**：');
+      parts.push('   - 如果信息充足 → 直接回答用户');
+      parts.push('   - 如果需要更多信息 → 选择合适的工具检索');
+      parts.push('3. **行动阶段**：调用工具获取新信息');
+      parts.push('4. **观察阶段**：工具返回结果，加入已知信息');
+      parts.push('5. **迭代**：返回步骤1，直到可以回答问题');
+      parts.push('');
+
+      // 3. 工具选择策略
+      parts.push('## 工具选择策略');
+      parts.push('');
+      parts.push('### 优先级规则（从高到低）：');
+      parts.push('');
+      parts.push('1. **结构化工具优先**（如果文档已生成意群）');
+      parts.push('   - `map`: 首次接触文档时，获取整体结构');
+      parts.push('   - `search_semantic_groups`: 概念性、探索性问题');
+      parts.push('   - `fetch`: 需要完整上下文（公式、图表、完整论述）');
+      parts.push('');
+      parts.push('2. **语义搜索次之**（如果向量索引可用）');
+      parts.push('   - `vector_search`: 理解同义词、相关概念、隐含关系');
+      parts.push('   - 适合：开放性问题、概念解释、主题探索');
+      parts.push('');
+      parts.push('3. **精确搜索作为补充**');
+      parts.push('   - `keyword_search`: 多关键词组合查找（BM25）');
+      parts.push('   - `grep`: 精确文本匹配（专有名词、固定术语）');
+      parts.push('   - `regex_search`: 特定格式（日期、编号、公式引用）');
+      parts.push('');
+      parts.push('4. **高级搜索**');
+      parts.push('   - `boolean_search`: 复杂逻辑组合（AND/OR/NOT）');
+      parts.push('');
+
+      // 4. 并行工具调用指南
+      parts.push('## 并行工具调用');
+      parts.push('');
+      parts.push('当需要从**不同角度**同时获取信息时，可以并行调用多个工具：');
+      parts.push('');
+      parts.push('**适合并行的场景**：');
+      parts.push('- 同时搜索不同关键词（如"背景" + "意义"）');
+      parts.push('- 语义搜索 + 精确搜索（覆盖更全面）');
+      parts.push('- 获取多个不同意群的详细内容');
+      parts.push('');
+      parts.push('**不适合并行的场景**：');
+      parts.push('- 工具之间有依赖关系（需先 map 再 fetch）');
+      parts.push('- 同一个工具重复调用');
+      parts.push('');
+      parts.push('**并行格式**：返回数组');
+      parts.push('```json');
+      parts.push('{');
+      parts.push('  "action": "use_tool",');
+      parts.push('  "thought": "同时从语义和精确两个角度搜索",');
+      parts.push('  "tool_calls": [');
+      parts.push('    {"tool": "vector_search", "params": {"query": "研究背景", "limit": 5}},');
+      parts.push('    {"tool": "grep", "params": {"query": "background|背景", "limit": 5}}');
+      parts.push('  ]');
+      parts.push('}');
+      parts.push('```');
+      parts.push('');
+
+      // 5. 最佳实践
+      parts.push('## 最佳实践');
+      parts.push('');
+      parts.push('### ✅ 推荐做法');
+      parts.push('- 首次接触文档时，先用 `map` 了解整体结构');
+      parts.push('- 语义问题优先用 `vector_search`，失败时降级到 `keyword_search` 或 `grep`');
+      parts.push('- 需要完整上下文时使用 `fetch(groupId)`，而非片段搜索');
+      parts.push('- 合理设置 `limit` 参数：精确查找用 5，探索性查找用 10');
+      parts.push('- 工具失败时检查错误信息，按建议降级使用其他工具');
+      parts.push('');
+      parts.push('### ❌ 避免做法');
+      parts.push('- 盲目调用工具而不分析错误信息');
+      parts.push('- 重复调用同一工具和参数');
+      parts.push('- 忽略已知信息，过度依赖工具');
+      parts.push('- 在没有必要时使用 `full` 粒度（消耗过多 token）');
+      parts.push('');
+
+      // 6. 响应格式
+      parts.push('## 响应格式');
+      parts.push('');
+      parts.push('### 单工具调用');
+      parts.push('```json');
+      parts.push('{');
+      parts.push('  "action": "use_tool",');
+      parts.push('  "thought": "需要XX信息，使用YY工具",');
+      parts.push('  "tool": "工具名",');
+      parts.push('  "params": {参数对象}');
+      parts.push('}');
+      parts.push('```');
+      parts.push('');
+      parts.push('### 多工具并行调用');
+      parts.push('```json');
+      parts.push('{');
+      parts.push('  "action": "use_tool",');
+      parts.push('  "thought": "从多个角度同时检索",');
+      parts.push('  "tool_calls": [');
+      parts.push('    {"tool": "工具1", "params": {...}},');
+      parts.push('    {"tool": "工具2", "params": {...}}');
+      parts.push('  ]');
+      parts.push('}');
+      parts.push('```');
+      parts.push('');
+      parts.push('### 直接回答');
+      parts.push('```json');
+      parts.push('{');
+      parts.push('  "action": "answer",');
+      parts.push('  "thought": "当前信息已足够回答",');
+      parts.push('  "answer": "详细答案"');
+      parts.push('}');
+      parts.push('```');
+      parts.push('');
+
+      return parts.join('\n');
+    }
+
+    /**
+     * 构建工具使用指南（详细的工具描述）
+     */
+    static buildToolUsageGuidelines(toolRegistry) {
+      const parts = [];
+
+      parts.push('## 可用工具详细说明');
+      parts.push('');
+
+      const toolDefs = toolRegistry.getToolDefinitions();
+
+      // 按类型分组展示工具
+      const searchTools = toolDefs.filter(t =>
+        ['vector_search', 'keyword_search', 'grep', 'regex_search', 'boolean_search'].includes(t.name)
+      );
+      const groupTools = toolDefs.filter(t =>
+        ['search_semantic_groups', 'fetch_group_text', 'fetch', 'map', 'list_all_groups'].includes(t.name)
+      );
+
+      if (searchTools.length > 0) {
+        parts.push('### 🔍 搜索工具类');
+        parts.push('');
+        searchTools.forEach(tool => {
+          parts.push(`**${tool.name}**`);
+          parts.push(`- 描述：${tool.description}`);
+          parts.push('- 参数：');
+          Object.entries(tool.parameters).forEach(([key, param]) => {
+            const defaultStr = param.default !== undefined ? ` (默认: ${param.default})` : '';
+            parts.push(`  - \`${key}\` (${param.type})${defaultStr}: ${param.description}`);
+          });
+          parts.push('');
+        });
+      }
+
+      if (groupTools.length > 0) {
+        parts.push('### 📚 意群工具类');
+        parts.push('');
+        groupTools.forEach(tool => {
+          parts.push(`**${tool.name}**`);
+          parts.push(`- 描述：${tool.description}`);
+          parts.push('- 参数：');
+          Object.entries(tool.parameters).forEach(([key, param]) => {
+            const defaultStr = param.default !== undefined ? ` (默认: ${param.default})` : '';
+            parts.push(`  - \`${key}\` (${param.type})${defaultStr}: ${param.description}`);
+          });
+          parts.push('');
+        });
+      }
+
+      return parts.join('\n');
+    }
+  }
+
+  // ============================================
   // ReAct引擎核心
   // ============================================
   class ReActEngine {
@@ -540,6 +726,30 @@
 
       // LLM调用配置
       this.llmConfig = config.llmConfig || {};
+
+      // 构建系统提示词（延迟到第一次使用，因为工具还未注册）
+      this._systemPrompt = null;
+      this._toolGuidelines = null;
+    }
+
+    /**
+     * 获取系统提示词（懒加载）
+     */
+    getSystemPrompt() {
+      if (!this._systemPrompt) {
+        this._systemPrompt = SystemPromptBuilder.buildReActSystemPrompt(this.toolRegistry);
+      }
+      return this._systemPrompt;
+    }
+
+    /**
+     * 获取工具使用指南（懒加载）
+     */
+    getToolGuidelines() {
+      if (!this._toolGuidelines) {
+        this._toolGuidelines = SystemPromptBuilder.buildToolUsageGuidelines(this.toolRegistry);
+      }
+      return this._toolGuidelines;
     }
 
     /**
@@ -615,8 +825,11 @@
 
       this.emit('reasoning_start', { prompt: reasoningPrompt });
 
+      // 使用增强的系统提示词（合并原始 systemPrompt 和 ReAct 系统提示词）
+      const enhancedSystemPrompt = systemPrompt + '\n\n' + this.getSystemPrompt();
+
       // 调用LLM
-      const response = await this.callLLM(systemPrompt, conversationHistory, reasoningPrompt);
+      const response = await this.callLLM(enhancedSystemPrompt, conversationHistory, reasoningPrompt);
 
       this.emit('reasoning_complete', { response });
 
@@ -625,12 +838,13 @@
     }
 
     /**
-     * 构建推理提示词
+     * 构建推理提示词（简化版，委托给 SystemPromptBuilder）
      */
     buildReasoningPrompt(context, question, toolResults) {
       const parts = [];
 
-      // 当前上下文
+      // 当前已知信息
+      parts.push('---');
       parts.push('当前已知信息:');
       parts.push(context);
       parts.push('');
@@ -640,29 +854,24 @@
         parts.push('工具调用历史:');
         toolResults.forEach((result, idx) => {
           parts.push(`${idx + 1}. 调用 ${result.tool}(${JSON.stringify(result.params)})`);
-          parts.push(`   结果: ${JSON.stringify(result.result).slice(0, 500)}`);
+          const resultStr = JSON.stringify(result.result);
+          parts.push(`   结果: ${resultStr.length > 500 ? resultStr.slice(0, 500) + '...' : resultStr}`);
         });
         parts.push('');
       }
 
-      // 可用工具
-      parts.push('可用工具:');
-      this.toolRegistry.getToolDefinitions().forEach(tool => {
-        parts.push(`- ${tool.name}: ${tool.description}`);
-      });
-      parts.push('');
-
       // 用户问题
       parts.push('用户问题:');
       parts.push(question);
+      parts.push('---');
       parts.push('');
 
-      // 推理指引
-      parts.push('请按照以下格式思考并回应:');
-      parts.push('1. 如果当前信息足够回答问题，返回: {"action": "answer", "thought": "你的思考过程", "answer": "最终答案"}');
-      parts.push('2. 如果需要更多信息，返回: {"action": "use_tool", "thought": "你的思考过程", "tool": "工具名", "params": {参数对象}}');
+      // 使用 SystemPromptBuilder 的详细工具指南
+      parts.push(this.getToolGuidelines());
       parts.push('');
-      parts.push('请以JSON格式返回你的决策:');
+
+      // 响应格式提醒（从 SystemPrompt 中提取的简化版）
+      parts.push('请以JSON格式返回你的决策（支持单工具或并行多工具）:');
 
       return parts.join('\n');
     }
@@ -693,7 +902,7 @@
     }
 
     /**
-     * 解析LLM的推理响应
+     * 解析LLM的推理响应（支持并行工具调用）
      */
     parseReasoningResponse(response) {
       try {
@@ -712,12 +921,31 @@
             answer: parsed.answer || response
           };
         } else if (parsed.action === 'use_tool') {
-          return {
-            action: 'use_tool',
-            thought: parsed.thought || '',
-            tool: parsed.tool,
-            params: parsed.params || {}
-          };
+          // 支持两种格式：
+          // 1. 单工具: { tool: "...", params: {...} }
+          // 2. 并行工具: { tool_calls: [{tool: "...", params: {...}}, ...] }
+
+          if (parsed.tool_calls && Array.isArray(parsed.tool_calls)) {
+            // 并行工具调用
+            return {
+              action: 'use_tool',
+              thought: parsed.thought || '',
+              parallel: true,
+              tool_calls: parsed.tool_calls.map(call => ({
+                tool: call.tool,
+                params: call.params || {}
+              }))
+            };
+          } else {
+            // 单工具调用
+            return {
+              action: 'use_tool',
+              thought: parsed.thought || '',
+              parallel: false,
+              tool: parsed.tool,
+              params: parsed.params || {}
+            };
+          }
         } else {
           throw new Error('未知的action类型: ' + parsed.action);
         }
@@ -794,42 +1022,70 @@
           return;
         }
 
-        // 3. 执行工具调用
+        // 3. 执行工具调用（支持并行）
         if (decision.action === 'use_tool') {
-          yield {
-            type: 'tool_call_start',
-            iteration: iterations,
-            tool: decision.tool,
-            params: decision.params
-          };
+          // 判断是单工具还是并行工具
+          const toolCalls = decision.parallel
+            ? decision.tool_calls
+            : [{ tool: decision.tool, params: decision.params }];
 
-          let toolResult;
-          try {
-            toolResult = await this.toolRegistry.execute(decision.tool, decision.params);
-          } catch (error) {
-            toolResult = {
-              success: false,
-              error: error.message || String(error)
+          // 发送工具调用开始事件
+          for (const call of toolCalls) {
+            yield {
+              type: 'tool_call_start',
+              iteration: iterations,
+              tool: call.tool,
+              params: call.params,
+              parallel: decision.parallel,
+              totalCalls: toolCalls.length
             };
           }
 
-          yield {
-            type: 'tool_call_complete',
-            iteration: iterations,
-            tool: decision.tool,
-            params: decision.params,
-            result: toolResult
-          };
+          // 并行执行所有工具
+          const executePromises = toolCalls.map(async (call) => {
+            let toolResult;
+            try {
+              toolResult = await this.toolRegistry.execute(call.tool, call.params);
+            } catch (error) {
+              toolResult = {
+                success: false,
+                error: error.message || String(error)
+              };
+            }
+
+            return {
+              tool: call.tool,
+              params: call.params,
+              result: toolResult
+            };
+          });
+
+          // 等待所有工具完成
+          const completedCalls = await Promise.all(executePromises);
+
+          // 发送工具调用完成事件
+          for (const call of completedCalls) {
+            yield {
+              type: 'tool_call_complete',
+              iteration: iterations,
+              tool: call.tool,
+              params: call.params,
+              result: call.result,
+              parallel: decision.parallel
+            };
+          }
 
           // 4. 更新上下文
-          const newContext = this.formatToolResultForContext(decision.tool, toolResult);
-          context += '\n\n' + newContext;
+          for (const call of completedCalls) {
+            const newContext = this.formatToolResultForContext(call.tool, call.result);
+            context += '\n\n' + newContext;
 
-          toolResults.push({
-            tool: decision.tool,
-            params: decision.params,
-            result: toolResult
-          });
+            toolResults.push({
+              tool: call.tool,
+              params: call.params,
+              result: call.result
+            });
+          }
 
           // 5. Token预算检查
           const contextTokens = this.budgetManager.estimate(context);
@@ -849,7 +1105,8 @@
             type: 'context_updated',
             iteration: iterations,
             contextSize: context.length,
-            estimatedTokens: this.budgetManager.estimate(context)
+            estimatedTokens: this.budgetManager.estimate(context),
+            parallelCallsCount: decision.parallel ? toolCalls.length : 0
           };
         }
       }
