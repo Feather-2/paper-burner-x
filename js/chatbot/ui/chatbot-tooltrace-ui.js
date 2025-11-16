@@ -569,6 +569,104 @@
   }
 
   /**
+   * 处理ReAct事件（新增）
+   */
+  function handleReActEvent(event) {
+    if (!event || !event.type) return;
+
+    switch (event.type) {
+      case 'context_initialized':
+        addStepHtml({
+          tool: 'preload',
+          message: '初始化上下文',
+          args: { preview: event.context ? event.context.slice(0, 100) : '' }
+        }, 'done');
+        break;
+
+      case 'iteration_start':
+        addStepHtml({
+          tool: 'round',
+          message: `第 ${event.iteration}/${event.maxIterations} 轮推理`,
+          args: { iteration: event.iteration, maxIterations: event.maxIterations }
+        }, 'running');
+        break;
+
+      case 'reasoning_start':
+        // 静默处理，不单独显示
+        break;
+
+      case 'reasoning_complete':
+        if (currentStepsHtml.length > 0) {
+          const thoughtPreview = event.thought ? event.thought.slice(0, 100) : '';
+          updateLastStepStatus('done', {
+            thought: thoughtPreview,
+            action: event.action
+          });
+        }
+        break;
+
+      case 'tool_call_start':
+        addStepHtml({
+          tool: event.tool,
+          message: `调用工具: ${event.tool}`,
+          args: event.params || {}
+        }, 'running');
+        break;
+
+      case 'tool_call_complete':
+        if (currentStepsHtml.length > 0) {
+          const result = event.result || {};
+          const status = result.success === false ? 'error' : 'done';
+          updateLastStepStatus(status, result);
+        }
+        break;
+
+      case 'context_updated':
+        addStepHtml({
+          tool: 'info',
+          message: `上下文更新 (${event.contextSize} 字符, ~${event.estimatedTokens} tokens)`,
+          args: {}
+        }, 'done');
+        break;
+
+      case 'context_pruned':
+        addStepHtml({
+          tool: 'warning',
+          message: `上下文裁剪 (${event.before} → ${event.after} tokens)`,
+          args: {}
+        }, 'done');
+        break;
+
+      case 'final_answer':
+        isFinished = true;
+        const suffix = event.fallback ? ' (降级回答)' : '';
+        addStepHtml({
+          tool: 'info',
+          customTitle: `✓ 完成推理${suffix} (${event.iterations} 轮, ${event.toolCallCount} 次工具调用)`,
+          args: {}
+        }, 'done');
+        break;
+
+      case 'max_iterations_reached':
+        isFinished = true;
+        addStepHtml({
+          tool: 'warning',
+          message: `达到最大迭代次数 (${event.iterations} 轮, ${event.toolCallCount} 次工具调用)`,
+          args: {}
+        }, 'error');
+        break;
+
+      case 'error':
+        addStepHtml({
+          tool: 'error',
+          message: event.error || '未知错误',
+          args: {}
+        }, 'error');
+        break;
+    }
+  }
+
+  /**
    * 获取步骤图标（SVG）
    */
   function getStepIcon(tool) {
@@ -929,6 +1027,7 @@
   window.ChatbotToolTraceUI = {
     startSession: startSession,
     handleStreamEvent: handleStreamEvent,
+    handleReActEvent: handleReActEvent,  // 新增：ReAct事件处理器
     generateBlockHtml: generateBlockHtml,
     ensureStyles: injectStyles  // 导出以便外部调用
   };

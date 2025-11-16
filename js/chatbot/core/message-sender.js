@@ -208,6 +208,110 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
   // 重要：生成后重新获取文档内容以拿到 semanticGroups（避免使用旧的 docContentInfo 快照）
   docContentInfo = getCurrentDocContent();
 
+  // ===== 新增：ReAct模式支持 =====
+  // 检查是否启用ReAct模式（优先级高于传统多轮检索）
+  const useReActMode = !!(window.chatbotActiveOptions && window.chatbotActiveOptions.useReActMode);
+
+  if (useReActMode && window.ReActEngine) {
+    console.log('[ChatbotCore] 使用 ReAct 模式');
+
+    // 提前创建助手消息占位符
+    chatHistory.push({ role: 'assistant', content: '🤔 启动 ReAct 推理引擎...' });
+    const earlyAssistantMsgIndex = chatHistory.length - 1;
+    if (typeof updateChatbotUI === 'function') updateChatbotUI();
+
+    // 开始工具调用会话
+    if (window.ChatbotToolTraceUI?.startSession) {
+      window.ChatbotToolTraceUI.startSession();
+    }
+
+    try {
+      // 创建ReAct引擎实例
+      const reactEngine = new window.ReActEngine({
+        maxIterations: (window.chatbotActiveOptions.reactMaxIterations) || 5,
+        llmConfig: config,
+        tokenBudget: {
+          totalBudget: 32000,
+          systemTokens: 2000,
+          historyTokens: 8000,
+          contextTokens: 18000,
+          responseTokens: 4000
+        }
+      });
+
+      // 构建系统提示词（简化版，因为ReAct会动态加载上下文）
+      let reactSystemPrompt = `你是一个智能文档助手，当前正在协助用户理解文档"${docContentInfo.name || '当前文档'}"。
+
+你具备ReAct（推理+行动）能力：
+1. 当信息不足时，你可以调用工具检索更多内容
+2. 当信息充足时，你应该直接回答用户问题
+3. 每次推理都要权衡：是否需要更多信息？
+
+请始终以JSON格式返回你的决策。`;
+
+      // 构建对话历史
+      const conversationHistory = chatHistory.slice(0, -1).map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }));
+
+      // 执行ReAct循环
+      let finalAnswer = null;
+      let toolCallHtml = '';
+
+      for await (const event of reactEngine.run(
+        cleanedPlainTextInput,
+        docContentInfo,
+        reactSystemPrompt,
+        conversationHistory
+      )) {
+        // 实时更新UI
+        if (window.ChatbotToolTraceUI?.handleReActEvent) {
+          window.ChatbotToolTraceUI.handleReActEvent(event);
+        }
+
+        // 更新工具调用HTML
+        if (window.ChatbotToolTraceUI?.generateBlockHtml) {
+          toolCallHtml = window.ChatbotToolTraceUI.generateBlockHtml();
+          if (toolCallHtml && toolCallHtml.length > 0) {
+            chatHistory[earlyAssistantMsgIndex].toolCallHtml = toolCallHtml;
+            chatHistory[earlyAssistantMsgIndex].content = '';
+            if (typeof updateChatbotUI === 'function') {
+              updateChatbotUI();
+            }
+          }
+        }
+
+        // 保存最终答案
+        if (event.type === 'final_answer') {
+          finalAnswer = event.answer;
+        }
+      }
+
+      // 更新助手消息为最终答案
+      if (finalAnswer) {
+        chatHistory[earlyAssistantMsgIndex].content = finalAnswer;
+        chatHistory[earlyAssistantMsgIndex].toolCallHtml = toolCallHtml;
+        if (typeof updateChatbotUI === 'function') updateChatbotUI();
+        saveChatHistory(getCurrentDocId(), chatHistory);
+        isChatbotLoadingRef.value = false;
+        return; // 完成，直接返回
+      } else {
+        // 没有得到答案，降级到传统模式
+        console.warn('[ChatbotCore] ReAct模式未能产生答案，降级到传统模式');
+        chatHistory.splice(earlyAssistantMsgIndex, 1); // 移除占位消息
+      }
+
+    } catch (error) {
+      console.error('[ChatbotCore] ReAct模式执行失败:', error);
+      chatHistory[earlyAssistantMsgIndex].content = `ReAct模式执行失败: ${error.message}`;
+      if (typeof updateChatbotUI === 'function') updateChatbotUI();
+      saveChatHistory(getCurrentDocId(), chatHistory);
+      isChatbotLoadingRef.value = false;
+      return;
+    }
+  }
+
   // 如果启用多轮取材，先让模型选择意群并附加上下文
   try {
     const multiHop = !!(window.chatbotActiveOptions && window.chatbotActiveOptions.multiHopRetrieval);
