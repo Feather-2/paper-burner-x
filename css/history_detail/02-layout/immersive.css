@@ -496,31 +496,7 @@ body.toc-dock-resizing #toc-vs-dock-resize-handle {
   top: var(--spacing-md) !important;
   right: var(--spacing-md) !important;
   z-index: var(--immersive-toggle-z-index) !important;
-  width: 32px !important;
-  height: 32px !important;
-  border: 1px solid var(--color-border-light) !important;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-md) !important;
-  background: var(--color-bg-base) !important;
-  color: var(--color-text-secondary) !important;
-  font-size: var(--font-size-sm) !important;
-  box-shadow: var(--shadow-sm) !important;
-  transition: all var(--transition-fast) !important;
-}
-
-#toggle-immersive-btn:hover {
-  background: var(--color-bg-secondary) !important;
-  color: var(--color-text-primary) !important;
-  border-color: var(--color-border-medium) !important;
-  box-shadow: var(--shadow-md) !important;
-}
-
-#toggle-immersive-btn:active {
-  transform: translateY(0) !important;
-  transition: all 0.1s ease !important;
+  /* 样式继承自 .tiny-round-btn，这里只覆盖定位和层级 */
 }
 
 /* 退出按钮状态（主要由 JS 控制图标） */

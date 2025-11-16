@@ -160,22 +160,24 @@
   font-size: var(--btn-icon-medium) !important;
 }
 
-/* Chatbot FAB按钮样式 - 使用类选择器覆盖内联样式 */
+/* Chatbot FAB按钮样式 - 极简低调风格（与 floatingHistoryBtn 一致） */
 .chatbot-fab-button {
   width: var(--btn-medium-size) !important;
   height: var(--btn-medium-size) !important;
-  border: none !important;
-  outline: none !important;
-  background: linear-gradient(135deg, var(--color-primary), #1d4ed8) !important;
   border-radius: 50% !important;
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(4px);
+  color: #94a3b8 !important; /* slate-400 */
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
   cursor: pointer !important;
-  transform: scale(1) !important;
-  transition: transform var(--transition-fast) !important;
-  color: white !important;
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15) !important;
+  padding: 0 !important;
+  opacity: 0.6; /* 默认低透明度，减少视觉干扰 */
+  transition: all 0.2s ease !important;
+  outline: none !important;
 }
 
 .chatbot-fab-button i {
@@ -184,7 +186,16 @@
 }
 
 .chatbot-fab-button:hover {
-  background: linear-gradient(135deg, #2563eb, #1e40af) !important;
+  opacity: 1;
+  color: #3b82f6 !important; /* blue-500 */
+  border-color: #bfdbfe !important; /* blue-200 */
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15) !important;
+  transform: translateY(-2px);
+}
+
+.chatbot-fab-button:active {
+  transform: translateY(0);
+  background-color: #f8fafc !important;
 }
 
 /* ==================== 5. 响应式设计 ==================== */
@@ -265,6 +276,7 @@
   .chatbot-fab-button {
     width: var(--btn-medium-mobile) !important;
     height: var(--btn-medium-mobile) !important;
+    opacity: 0.8; /* 移动端稍微不那么透明，因为没有 hover */
   }
 
   .chatbot-fab-button i {
@@ -348,7 +360,23 @@
 /* ==================== 7. 暗色模式适配 ==================== */
 
 @media (prefers-color-scheme: dark) {
-  .tiny-round-btn,
+  .tiny-round-btn {
+    background-color: rgba(30, 41, 59, 0.9) !important; /* slate-800 with opacity */
+    color: #cbd5e1 !important; /* slate-300 */
+    border-color: #475569 !important; /* slate-600 */
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+  }
+
+  .tiny-round-btn:hover {
+    color: #60a5fa !important; /* blue-400 */
+    border-color: #3b82f6 !important; /* blue-500 */
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25) !important;
+  }
+
+  .tiny-round-btn:active {
+    background-color: rgba(15, 23, 42, 0.95) !important; /* slate-900 */
+  }
+
   .medium-round-btn,
   .big-round-btn,
   .large-round-btn {
@@ -356,10 +384,26 @@
     box-shadow: 0 2px 8px rgba(30, 64, 175, 0.3) !important;
   }
 
-  .tiny-round-btn:hover,
   .medium-round-btn:hover,
   .big-round-btn:hover,
   .large-round-btn:hover {
     background-color: #1e3a8a !important;
+  }
+
+  .chatbot-fab-button {
+    background-color: rgba(30, 41, 59, 0.9) !important; /* slate-800 with opacity */
+    color: #cbd5e1 !important; /* slate-300 */
+    border-color: #475569 !important; /* slate-600 */
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+  }
+
+  .chatbot-fab-button:hover {
+    color: #60a5fa !important; /* blue-400 */
+    border-color: #3b82f6 !important; /* blue-500 */
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25) !important;
+  }
+
+  .chatbot-fab-button:active {
+    background-color: rgba(15, 23, 42, 0.95) !important; /* slate-900 */
   }
 }
