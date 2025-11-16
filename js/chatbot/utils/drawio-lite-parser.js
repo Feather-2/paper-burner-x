@@ -198,6 +198,14 @@ function generatePageXml(pageData, pageId, cellIdStart) {
 
   let xml = '';
 
+  // 0. 预处理：识别哪些节点属于 group
+  const nodeToGroup = new Map(); // 节点ID -> group ID
+  groups.forEach(group => {
+    group.members.forEach(memberId => {
+      nodeToGroup.set(memberId, group.id);
+    });
+  });
+
   // 1. 处理子图（并列布局）
   if (subgraphs.length > 0) {
     let offsetX = 50;
@@ -266,13 +274,45 @@ function generatePageXml(pageData, pageId, cellIdStart) {
     });
   } else {
     // 2. 普通节点（无子图）- 使用改进的初始布局
+
+    // 2.1 先创建 group 容器（如果有）
+    const groupContainers = new Map(); // group ID -> 容器 mxCell ID
+    groups.forEach(group => {
+      const containerCellId = cellId++;
+      groupContainers.set(group.id, containerCellId);
+
+      // 创建 group 容器（初始尺寸，后面会调整）
+      xml += `        <mxCell id="${containerCellId}" value="${escapeXml(group.title)}" style="swimlane;fontStyle=0;align=center;verticalAlign=top;startSize=30;fillColor=#F7F9FC;strokeColor=#2C3E50;fontSize=12;fontFamily=Arial;" vertex="1" parent="${pageId}">
+          <mxGeometry x="50" y="50" width="400" height="300" as="geometry"/>
+        </mxCell>
+`;
+    });
+
+    // 2.2 渲染节点
     let nodeX = 80;  // 初始 X 坐标
     let nodeY = 80;  // 初始 Y 坐标
     const columnWidth = 200;  // 每列的宽度
     const rowHeight = 140;    // 每行的高度
     const nodesPerRow = 4;    // 每行最多节点数
 
-    nodes.forEach((node, index) => {
+    // 按 group 分组节点
+    const groupedNodes = new Map(); // group ID -> nodes[]
+    const ungroupedNodes = [];
+
+    nodes.forEach(node => {
+      const groupId = nodeToGroup.get(node.id);
+      if (groupId) {
+        if (!groupedNodes.has(groupId)) {
+          groupedNodes.set(groupId, []);
+        }
+        groupedNodes.get(groupId).push(node);
+      } else {
+        ungroupedNodes.push(node);
+      }
+    });
+
+    // 2.3 渲染不属于 group 的节点
+    ungroupedNodes.forEach((node, index) => {
       const { id, label, shape, color } = node;
 
       // 颜色 fallback 检查
@@ -305,6 +345,44 @@ function generatePageXml(pageData, pageId, cellIdStart) {
           <mxGeometry x="${x}" y="${y}" width="${width}" height="${height}" as="geometry"/>
         </mxCell>
 `;
+    });
+
+    // 2.4 渲染属于 group 的节点（相对于容器坐标）
+    groups.forEach(group => {
+      const groupNodes = groupedNodes.get(group.id) || [];
+      const containerCellId = groupContainers.get(group.id);
+
+      let groupNodeY = 60; // 起始Y（容器内相对坐标，标题下方）
+
+      groupNodes.forEach(node => {
+        const { id, label, shape, color } = node;
+
+        // 颜色 fallback 检查
+        if (!COLOR_PRESETS[color]) {
+          console.warn(`[DrawioLite] 未知颜色 "${color}"，使用默认 gray`);
+        }
+        const colors = COLOR_PRESETS[color] || COLOR_PRESETS.gray;
+
+        // 形状 fallback 检查
+        if (!SHAPE_PRESETS[shape]) {
+          console.warn(`[DrawioLite] 未知形状 "${shape}"，使用默认 rect`);
+        }
+        const shapeStyle = SHAPE_PRESETS[shape] || SHAPE_PRESETS.rect;
+
+        const style = `${shapeStyle};fillColor=${colors.fill};strokeColor=${colors.stroke};strokeWidth=2;fontSize=12;fontFamily=Arial;`;
+
+        const mxCellId = cellId++;
+        nodeIdMap.set(id, mxCellId);
+
+        const width = shape === 'diamond' ? 140 : 120;
+        const height = shape === 'diamond' ? 100 : 60;
+
+        xml += `        <mxCell id="${mxCellId}" value="${escapeXml(label)}" style="${style}" vertex="1" parent="${containerCellId}">
+          <mxGeometry x="80" y="${groupNodeY}" width="${width}" height="${height}" as="geometry"/>
+        </mxCell>
+`;
+        groupNodeY += height + 60;
+      });
     });
 
     // 3. 连接（包括跨子图连接）

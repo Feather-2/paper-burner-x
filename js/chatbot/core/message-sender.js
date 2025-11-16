@@ -933,6 +933,9 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
       try {
         const assistantResponseContent = chatHistory[assistantMsgIndex].content || '';
 
+        // 标志：XML 是否已经过布局优化（来自 DrawioLite）
+        let isAlreadyOptimized = false;
+
         // 提取并修复 XML 内容（直接从响应中提取标准 XML）
         const extractAndFixDrawioXml = (raw) => {
           let text = raw || '';
@@ -943,6 +946,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
             try {
               if (window.DrawioLiteParser && window.DrawioLiteParser.convertDrawioLite) {
                 text = window.DrawioLiteParser.convertDrawioLite(text);
+                isAlreadyOptimized = true;  // 标记为已优化
                 console.log('[Draw.io] ✅ DrawioLite → XML 转换成功（已包含布局优化，跳过后续优化）');
                 return text; // DSL已在parser中优化，直接返回，避免重复优化
               } else {
@@ -1350,41 +1354,49 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
 
         // 🎨 应用布局优化（网格对齐、间距、连接等）
         // 注意：DrawioLite DSL 已在 parser 中优化，这里只处理 AI 直接生成的 XML
-        try {
-          if (window.DrawioLayoutOptimizer && typeof window.DrawioLayoutOptimizer.optimizeDrawioLayout === 'function') {
-            console.log('[Draw.io] 🎨 正在应用布局优化（多页支持）...');
-            xml = window.DrawioLayoutOptimizer.optimizeDrawioLayout(xml, {
-              dagreLayout: true,    // 使用 Dagre 算法（现已支持多页）
-              gridAlignment: true,  // 网格对齐
-              spacing: false,       // 禁用间距优化（Dagre 已处理）
-              connections: true,    // 连接优化
-              styles: false         // 不统一样式（保留 AI 的颜色选择）
-            });
-            console.log('[Draw.io] ✅ 布局优化完成');
-          } else {
-            console.warn('[Draw.io] 布局优化模块未加载，跳过优化');
+        if (!isAlreadyOptimized) {
+          try {
+            if (window.DrawioLayoutOptimizer && typeof window.DrawioLayoutOptimizer.optimizeDrawioLayout === 'function') {
+              console.log('[Draw.io] 🎨 正在应用布局优化（多页支持）...');
+              xml = window.DrawioLayoutOptimizer.optimizeDrawioLayout(xml, {
+                dagreLayout: true,    // 使用 Dagre 算法（现已支持多页）
+                gridAlignment: true,  // 网格对齐
+                spacing: false,       // 禁用间距优化（Dagre 已处理）
+                connections: true,    // 连接优化
+                styles: false         // 不统一样式（保留 AI 的颜色选择）
+              });
+              console.log('[Draw.io] ✅ 布局优化完成');
+            } else {
+              console.warn('[Draw.io] 布局优化模块未加载，跳过优化');
+            }
+          } catch (optimizeError) {
+            console.warn('[Draw.io] 布局优化失败，使用原始 XML:', optimizeError);
+            // 优化失败不影响主流程，继续使用未优化的 XML
           }
-        } catch (optimizeError) {
-          console.warn('[Draw.io] 布局优化失败，使用原始 XML:', optimizeError);
-          // 优化失败不影响主流程，继续使用未优化的 XML
+        } else {
+          console.log('[Draw.io] ⏭️ 跳过布局优化（DrawioLite 已优化）');
         }
 
         // 🎓 应用学术增强（Paper Burner 专属：语义配色 + 学术规范）
-        // 注意：由于 DrawioLite DSL 已有颜色规范，此处主要针对 AI 直接生成的 XML
-        try {
-          if (window.DrawioAcademicEnhancer && typeof window.DrawioAcademicEnhancer.enhanceAcademicDiagram === 'function') {
-            console.log('[Draw.io] 🎓 正在应用学术增强...');
-            xml = window.DrawioAcademicEnhancer.enhanceAcademicDiagram(xml, {
-              level: 2,           // Level 2: 基础 + 语义配色（默认）
-              autoDetect: true    // 自动检测图表类型
-            });
-            console.log('[Draw.io] ✅ 学术增强完成');
-          } else {
-            console.warn('[Draw.io] 学术增强模块未加载，跳过增强');
+        // 注意：DrawioLite DSL 已有颜色规范，此处主要针对 AI 直接生成的 XML
+        if (!isAlreadyOptimized) {
+          try {
+            if (window.DrawioAcademicEnhancer && typeof window.DrawioAcademicEnhancer.enhanceAcademicDiagram === 'function') {
+              console.log('[Draw.io] 🎓 正在应用学术增强...');
+              xml = window.DrawioAcademicEnhancer.enhanceAcademicDiagram(xml, {
+                level: 2,           // Level 2: 基础 + 语义配色（默认）
+                autoDetect: true    // 自动检测图表类型
+              });
+              console.log('[Draw.io] ✅ 学术增强完成');
+            } else {
+              console.warn('[Draw.io] 学术增强模块未加载，跳过增强');
+            }
+          } catch (enhanceError) {
+            console.warn('[Draw.io] 学术增强失败，使用原始 XML:', enhanceError);
+            // 增强失败不影响主流程
           }
-        } catch (enhanceError) {
-          console.warn('[Draw.io] 学术增强失败，使用原始 XML:', enhanceError);
-          // 增强失败不影响主流程
+        } else {
+          console.log('[Draw.io] ⏭️ 跳过学术增强（DrawioLite 已含颜色规范）');
         }
 
         // 存到 localStorage，key 与 mindmap 一致风格

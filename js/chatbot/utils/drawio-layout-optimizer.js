@@ -254,6 +254,8 @@ function applyDagreLayout(xmlDoc, options = {}) {
       dagre.layout(subG);
 
       // 应用布局结果（相对于 subgraph 容器的坐标）
+      // 先收集所有节点的原始坐标
+      const nodePositions = [];
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
       subG.nodes().forEach(nodeId => {
@@ -261,18 +263,59 @@ function applyDagreLayout(xmlDoc, options = {}) {
         if (!node) return;
 
         const { cell, width, height } = node;
-        const newX = Math.round(node.x - width / 2);
-        const newY = Math.round(node.y - height / 2);
+        const rawX = Math.round(node.x - width / 2);
+        const rawY = Math.round(node.y - height / 2);
 
-        // 追踪节点范围
-        minX = Math.min(minX, newX);
-        minY = Math.min(minY, newY);
-        maxX = Math.max(maxX, newX + width);
-        maxY = Math.max(maxY, newY + height);
+        nodePositions.push({ cell, width, height, rawX, rawY });
+
+        minX = Math.min(minX, rawX);
+        minY = Math.min(minY, rawY);
+        maxX = Math.max(maxX, rawX + width);
+        maxY = Math.max(maxY, rawY + height);
+      });
+
+      console.log(`[DrawioOptimizer]     📍 原始节点范围: (${minX}, ${minY}) 到 (${maxX}, ${maxY})`);
+
+      // 计算需要的偏移量，确保节点在容器内正确位置
+      // swimlane 标题高度是 30px，左边距至少 20px
+      const targetMinX = 20;  // 左边距
+      const targetMinY = 40;  // 标题栏30px + 顶部边距10px
+
+      // 只在节点坐标异常时才应用偏移量
+      // 如果节点已经在合理位置（正数且接近目标），保持原位
+      let offsetX = 0;
+      let offsetY = 0;
+
+      // 只在节点出现负坐标或严重偏移时才修正
+      if (minX < 0) {
+        offsetX = targetMinX - minX;  // 修正负坐标
+      } else if (minX < 10) {
+        offsetX = targetMinX - minX;  // 太靠近边缘，加点边距
+      }
+
+      if (minY < 0) {
+        offsetY = targetMinY - minY;  // 修正负坐标
+      } else if (minY < 30) {
+        offsetY = targetMinY - minY;  // 太靠近标题栏，加点边距
+      }
+
+      console.log(`[DrawioOptimizer]     📐 应用偏移量: (${offsetX}, ${offsetY}) ${offsetX === 0 && offsetY === 0 ? '(无需调整)' : ''}`);
+
+      // 应用偏移后的坐标
+      let finalMinX = Infinity, finalMinY = Infinity, finalMaxX = -Infinity, finalMaxY = -Infinity;
+
+      nodePositions.forEach(({ cell, width, height, rawX, rawY }) => {
+        const finalX = rawX + offsetX;
+        const finalY = rawY + offsetY;
+
+        finalMinX = Math.min(finalMinX, finalX);
+        finalMinY = Math.min(finalMinY, finalY);
+        finalMaxX = Math.max(finalMaxX, finalX + width);
+        finalMaxY = Math.max(finalMaxY, finalY + height);
 
         setCellGeometry(cell, {
-          x: newX,
-          y: newY,
+          x: finalX,
+          y: finalY,
           width: width,
           height: height
         });
@@ -280,14 +323,13 @@ function applyDagreLayout(xmlDoc, options = {}) {
         adjustedCount++;
       });
 
-      console.log(`[DrawioOptimizer]     📍 节点范围: (${minX}, ${minY}) 到 (${maxX}, ${maxY})`);
+      console.log(`[DrawioOptimizer]     ✅ 最终节点范围: (${finalMinX}, ${finalMinY}) 到 (${finalMaxX}, ${finalMaxY})`);
 
       // 调整 subgraph 容器大小以包含所有成员
-      // 使用实际节点范围来计算，而不是 graphInfo（更准确）
-      if (minX !== Infinity && minY !== Infinity) {
+      if (finalMinX !== Infinity && finalMinY !== Infinity) {
         // 容器需要的尺寸 = 节点最大范围 + 底部/右侧边距
-        const requiredWidth = Math.ceil(maxX + 40);   // 右侧留40px边距
-        const requiredHeight = Math.ceil(maxY + 40);  // 底部留40px边距
+        const requiredWidth = Math.ceil(finalMaxX + 20);   // 右侧留20px边距
+        const requiredHeight = Math.ceil(finalMaxY + 20);  // 底部留20px边距
 
         setCellGeometry(container, {
           x: containerGeo.x,

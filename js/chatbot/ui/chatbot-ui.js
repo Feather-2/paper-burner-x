@@ -124,12 +124,8 @@ function handleChatbotSend() {
  *
  * @param {string} q - 预设问题文本。
  */
-function handlePresetQuestion(q) {
-  const input = document.getElementById('chatbot-input');
-  if (!input) return;
-  input.value = q;
-  handleChatbotSend();
-}
+// handlePresetQuestion 已在 ChatbotPreset 中定义（包含 Mermaid 和其他 prompt 注入逻辑）
+// 不再在此重复定义，避免覆盖
 
 /**
  * 更新聊天机器人界面的核心函数。
@@ -390,7 +386,7 @@ function updateChatbotUI() {
     isCustomModel,
     currentDocId,
     updateChatbotUI,
-    window.handlePresetQuestion
+    window.ChatbotPreset?.handlePresetQuestion || window.handlePresetQuestion
   );
 
   chatbotWindow.appendChild(presetContainer);
@@ -1567,7 +1563,14 @@ function initChatbotDragAndResize() {
 // 将核心函数挂载到 window 对象和 ChatbotUI 命名空间下，便于外部调用
 window.handleChatbotSend = handleChatbotSend;
 window.handleChatbotStop = handleChatbotStop;
-window.handlePresetQuestion = handlePresetQuestion;
+// handlePresetQuestion 使用 ChatbotPreset 中的版本（包含完整的 prompt 注入逻辑）
+window.handlePresetQuestion = window.ChatbotPreset?.handlePresetQuestion || function(q) {
+  // 降级方案：如果 ChatbotPreset 未加载，使用简单版本
+  const input = document.getElementById('chatbot-input');
+  if (!input) return;
+  input.value = q;
+  if (typeof window.handleChatbotSend === 'function') window.handleChatbotSend();
+};
 window.ChatbotUI = {
   updateChatbotUI,
   initChatbotUI

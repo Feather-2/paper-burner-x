@@ -110,16 +110,14 @@ const BASE_SYSTEM_PROMPT = `你现在是 PDF 文档智能助手，用户正在�
  * 当用户点击一个预设问题时，此函数会将问题文本填充到聊天输入框，
  * 并尝试调用全局的 `window.handleChatbotSend` 函数来发送消息。
  *
+ * 注意：Mermaid 流程图的 prompt 不在这里注入，而是在 buildSystemPrompt 中注入到系统提示词
+ *
  * @param {string} q被点击的预设问题文本。
  */
 function handlePresetQuestion(q) {
   const input = document.getElementById('chatbot-input');
   if (!input) return;
-  let sendText = q;
-  if (q.includes('流程图')) {
-    sendText += MERMAID_FLOWCHART_PROMPT;
-  }
-  input.value = sendText;
+  input.value = q;  // 直接设置问题文本，不拼接 prompt
   if (typeof window.handleChatbotSend === 'function') {
     window.handleChatbotSend();
   }
@@ -127,29 +125,15 @@ function handlePresetQuestion(q) {
 
 /**
  * 增强用户输入的提示词
- * 如果输入包含特定关键词，添加相应的提示词
+ * 注意：Mermaid 流程图的 prompt 已改为在系统提示词中注入（prompt-constructor.js），
+ * 此函数不再处理流程图 prompt
  *
  * @param {string|Array} userInput - 用户输入，可能是字符串或多模态消息数组
- * @returns {string|Array} - 增强后的用户输入
+ * @returns {string|Array} - 增强后的用户输入（目前保持不变）
  */
 function enhanceUserPrompt(userInput) {
-  // 如果是数组（多模态消息），找到文本部分并增强
-  if (Array.isArray(userInput)) {
-    const textPartIndex = userInput.findIndex(p => p.type === 'text');
-    if (textPartIndex !== -1) {
-      const textContent = userInput[textPartIndex].text;
-      if (textContent.includes('流程图') && !textContent.includes('Mermaid语法')) {
-        userInput[textPartIndex].text += MERMAID_FLOWCHART_PROMPT;
-      }
-    }
-    return userInput;
-  }
-  // 如果是字符串，直接增强
-  else if (typeof userInput === 'string') {
-    if (userInput.includes('流程图') && !userInput.includes('Mermaid语法')) {
-      return userInput + MERMAID_FLOWCHART_PROMPT;
-    }
-  }
+  // 目前不在用户输入中添加任何 prompt
+  // 所有 prompt 都应在系统提示词中注入
   return userInput;
 }
 
