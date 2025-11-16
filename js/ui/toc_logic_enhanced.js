@@ -833,9 +833,14 @@
   function addEnhancedClickHandler(link, item) {
     link.onclick = function(e) {
       e.preventDefault();
-      
+
+      console.log('[TOC Debug] TOC 点击事件触发:', item.id);
+
       const targetElement = document.getElementById(item.id);
-      if (!targetElement) return;
+      if (!targetElement) {
+        console.log('[TOC Debug] 未找到目标元素:', item.id);
+        return;
+      }
 
       // 计算距离并决定是否显示加载效果
       const clickedNodeIndex = tocNodes.findIndex(n => n.id === item.id);
@@ -846,39 +851,132 @@
         showEnhancedLoadingEffect(item.originalText || "目标章节");
       }
 
+      console.log('[TOC Debug] 检查沉浸模式:', {
+        hasImmersiveLayout: !!window.ImmersiveLayout,
+        isActive: window.ImmersiveLayout?.isActive()
+      });
+
       // 修复：在沉浸模式下使用自定义滚动逻辑，避免布局偏移
       if (window.ImmersiveLayout && window.ImmersiveLayout.isActive()) {
+        console.log('[TOC Debug] 进入沉浸模式分支');
         // 沉浸模式下使用自定义滚动定位
-        const scrollContainer = document.querySelector('#immersive-main-content-area .tab-content');
-        if (scrollContainer && scrollContainer.style.overflowY === 'auto') {
-          // 计算目标元素相对于滚动容器的位置
-          const containerRect = scrollContainer.getBoundingClientRect();
-          const targetRect = targetElement.getBoundingClientRect();
-          const currentScrollTop = scrollContainer.scrollTop;
-          
-          // 计算目标位置（将元素置于容器中心）
-          const targetScrollTop = currentScrollTop + targetRect.top - containerRect.top - (containerRect.height / 2) + (targetRect.height / 2);
-          
-          // 平滑滚动到目标位置
-          scrollContainer.scrollTo({
-            top: Math.max(0, targetScrollTop),
-            behavior: 'smooth'
+        // 优先查找 .content-wrapper（真正的滚动容器）
+        let scrollContainer = document.querySelector('#immersive-main-content-area .content-wrapper');
+
+        // 后备方案 1：查找 .js-scroll-container 标记
+        if (!scrollContainer) {
+          scrollContainer = document.querySelector('#immersive-main-content-area .js-scroll-container');
+        }
+
+        // 后备方案 2：查找 .tab-content
+        if (!scrollContainer) {
+          scrollContainer = document.querySelector('#immersive-main-content-area .tab-content');
+        }
+
+        if (scrollContainer) {
+          // 使用 computed style 检查是否可滚动（而不是检查内联样式）
+          const computedStyle = getComputedStyle(scrollContainer);
+          const overflowY = computedStyle.overflowY;
+          const isScrollable = (overflowY === 'auto' || overflowY === 'scroll');
+
+          console.log('[TOC Debug] 沉浸模式滚动检测:', {
+            scrollContainer: scrollContainer.className,
+            overflowY,
+            isScrollable,
+            scrollHeight: scrollContainer.scrollHeight,
+            clientHeight: scrollContainer.clientHeight
           });
+
+          // 只要找到了滚动容器，就尝试滚动（即使当前没有滚动条）
+          if (isScrollable) {
+            // 计算目标元素在滚动容器内的绝对位置
+            const containerRect = scrollContainer.getBoundingClientRect();
+            const targetRect = targetElement.getBoundingClientRect();
+            const currentScrollTop = scrollContainer.scrollTop;
+
+            // 目标元素相对于容器内容的绝对位置 = 当前滚动位置 + 目标相对于容器视口的位置
+            const targetOffsetInContainer = currentScrollTop + (targetRect.top - containerRect.top);
+
+            // 改进的滚动逻辑：确保目标元素可见，但不滚动过头
+            // 如果目标元素已经在视口内，就不滚动
+            const viewportTop = containerRect.top;
+            const viewportBottom = containerRect.bottom;
+            const targetTop = targetRect.top;
+            const targetBottom = targetRect.bottom;
+
+            // 目标元素已经完全可见，不需要滚动
+            if (targetTop >= viewportTop && targetBottom <= viewportBottom) {
+              return;
+            }
+
+            // 目标元素在视口上方，需要向上滚动
+            if (targetTop < viewportTop) {
+              const scrollDelta = targetTop - viewportTop;
+              scrollContainer.scrollTo({
+                top: currentScrollTop + scrollDelta,
+                behavior: 'smooth'
+              });
+              return;
+            }
+
+            // 目标元素在视口下方，需要向下滚动
+            // 将目标元素滚动到视口底部附近
+            if (targetBottom > viewportBottom) {
+              const scrollDelta = targetBottom - viewportBottom + 20; // 底部留 20px 空隙
+              scrollContainer.scrollTo({
+                top: currentScrollTop + scrollDelta,
+                behavior: 'smooth'
+              });
+              return;
+            }
+          }
+        }
+
+        // 如果没有找到滚动容器，不调用 scrollIntoView，避免滚动 overflow:hidden 的祖先容器
+        return;
+      } else {
+        // 普通模式下，检查是否需要滚动 .tab-content 容器（OCR/翻译模式）
+        const tabContent = document.querySelector('.tab-content');
+
+        // 检查 tabContent 是否是滚动容器
+        if (tabContent) {
+          const computedStyle = getComputedStyle(tabContent);
+          const overflowY = computedStyle.overflowY;
+          const overflow = computedStyle.overflow;
+          // 支持 auto 和 scroll
+          const isScrollable = (overflowY === 'auto' || overflowY === 'scroll' || overflow === 'auto' || overflow === 'scroll');
+          const hasScroll = tabContent.scrollHeight > tabContent.clientHeight;
+
+          if (isScrollable && hasScroll) {
+            // 计算目标元素相对于滚动容器的位置
+            const containerRect = tabContent.getBoundingClientRect();
+            const targetRect = targetElement.getBoundingClientRect();
+            const currentScrollTop = tabContent.scrollTop;
+
+            // 计算目标位置（将元素置于容器中心）
+            const targetScrollTop = currentScrollTop + targetRect.top - containerRect.top - (containerRect.height / 2) + (targetRect.height / 2);
+
+            // 平滑滚动到目标位置
+            tabContent.scrollTo({
+              top: Math.max(0, targetScrollTop),
+              behavior: 'smooth'
+            });
+          } else {
+            // 如果 tab-content 不是滚动容器或不需要滚动，使用原生 scrollIntoView
+            targetElement.scrollIntoView({
+              behavior: 'smooth',
+              block: 'center',
+              inline: 'nearest'
+            });
+          }
         } else {
-          // 备用方案：使用原生scrollIntoView
+          // tab-content 不存在，使用原生 scrollIntoView
           targetElement.scrollIntoView({
             behavior: 'smooth',
             block: 'center',
             inline: 'nearest'
           });
         }
-      } else {
-        // 普通模式下使用原生scrollIntoView
-        targetElement.scrollIntoView({
-          behavior: 'smooth',
-          block: 'center',
-          inline: 'nearest'
-        });
       }
 
       // 添加高亮效果

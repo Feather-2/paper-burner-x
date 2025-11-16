@@ -1,0 +1,894 @@
+/**
+ * Chatbot - Model Configuration Modal Styles
+ *
+ * 职责：聊天机器人模型配置弹窗
+ * 作用域：配置模态框、模型选择、参数配置
+ * 依赖：variables.css
+ *
+ * 提取自：chatbot-model-config-modal.css
+ *
+ * 包含：
+ * - 弹窗容器和布局
+ * - 模型来源选择
+ * - 表单控件样式
+ * - 参数滑块配置
+ */
+
+/* ==================== 1. 弹窗容器 ==================== */
+
+.chatbot-config-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 999999; /* 必须高于chatbot的100001 */
+    display: none;
+    animation: fadeIn var(--transition-fast) ease-out;
+}
+
+.chatbot-config-modal.active {
+    display: block;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ==================== 2. 背景遮罩 ==================== */
+
+.chatbot-config-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+}
+
+/* ==================== 3. 弹窗主体 ==================== */
+
+.chatbot-config-wrapper {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-lg);
+}
+
+.chatbot-config-content {
+    background: var(--color-bg-primary);
+    border-radius: var(--radius-xl);
+    box-shadow:
+        0 25px 50px -12px rgba(0, 0, 0, 0.25),
+        0 0 0 1px rgba(0, 0, 0, 0.05);
+    width: 100%;
+    max-width: 680px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: slideUp var(--transition-base) ease-out;
+}
+
+/* ==================== 4. 头部 ==================== */
+
+.chatbot-config-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-md) 18px;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+    position: relative;
+}
+
+.chatbot-config-header::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #93c5fd 50%, transparent);
+}
+
+.chatbot-config-header-left {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+}
+
+.chatbot-config-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-md);
+    background: linear-gradient(135deg, var(--color-primary) 0%, #2563eb 100%);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--font-size-base);
+    box-shadow: 0 2px 6px rgba(59, 130, 246, 0.25);
+}
+
+.chatbot-config-title {
+    font-size: 15px;
+    font-weight: var(--font-weight-semibold);
+    color: #0f172a;
+    margin: 0;
+    letter-spacing: -0.01em;
+}
+
+.chatbot-config-subtitle {
+    font-size: 11px;
+    color: #64748b;
+    margin: 2px 0 0 0;
+    font-weight: normal;
+}
+
+.chatbot-config-close-btn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #64748b;
+    background: white;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-fast) cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: var(--shadow-sm);
+}
+
+.chatbot-config-close-btn:hover {
+    color: #0f172a;
+    background-color: #f1f5f9;
+    transform: scale(1.05);
+    box-shadow: var(--shadow-md);
+}
+
+/* ==================== 5. 内容区域 ==================== */
+
+.chatbot-config-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--spacing-lg);
+    background: #fafafa;
+}
+
+/* 自定义滚动条 */
+.chatbot-config-body::-webkit-scrollbar {
+    width: 8px;
+}
+
+.chatbot-config-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.chatbot-config-body::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: var(--radius-sm);
+}
+
+.chatbot-config-body::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+.chatbot-config-section {
+    margin-bottom: var(--spacing-md);
+}
+
+.chatbot-config-section:last-child {
+    margin-bottom: 0;
+}
+
+/* ==================== 6. 模型来源选择 ==================== */
+
+.chatbot-source-selector {
+    background: white;
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-md);
+    box-shadow: var(--shadow-sm);
+    border: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+.chatbot-source-label {
+    display: block;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: #1e293b;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+}
+
+.chatbot-source-label i {
+    color: var(--color-primary);
+    margin-right: var(--spacing-sm);
+    font-size: 15px;
+}
+
+.chatbot-source-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-md);
+}
+
+.chatbot-source-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px 18px;
+    border-radius: 10px;
+    border: 2px solid #e2e8f0;
+    background: #fafafa;
+    color: #64748b;
+    font-weight: var(--font-weight-semibold);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast) cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.chatbot-source-btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+}
+
+.chatbot-source-btn i {
+    margin-right: var(--spacing-sm);
+    font-size: var(--font-size-base);
+    position: relative;
+    z-index: 1;
+}
+
+.chatbot-source-btn span {
+    position: relative;
+    z-index: 1;
+}
+
+.chatbot-source-btn:hover {
+    border-color: #cbd5e1;
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+}
+
+.chatbot-source-btn.active {
+    background: white;
+    border-color: var(--color-primary);
+    color: #1e40af;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+}
+
+.chatbot-source-btn.active::before {
+    opacity: 1;
+}
+
+/* ==================== 7. 表单控件 ==================== */
+
+.chatbot-form-group {
+    background: white;
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-md);
+    box-shadow: var(--shadow-sm);
+    border: 1px solid rgba(226, 232, 240, 0.8);
+    margin-bottom: 14px;
+}
+
+.chatbot-form-group:last-child {
+    margin-bottom: 0;
+}
+
+.chatbot-form-label {
+    display: block;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: #1e293b;
+    margin-bottom: var(--spacing-md);
+    display: flex;
+    align-items: center;
+}
+
+.chatbot-form-label i {
+    margin-right: var(--spacing-sm);
+    color: var(--color-primary);
+    font-size: 15px;
+}
+
+.chatbot-form-select,
+.chatbot-form-input {
+    width: 100%;
+    padding: var(--spacing-md) var(--spacing-md);
+    border-radius: 10px;
+    border: 2px solid #e2e8f0;
+    font-size: var(--font-size-sm);
+    font-family: inherit;
+    transition: all var(--transition-fast) cubic-bezier(0.4, 0, 0.2, 1);
+    background: #fafafa;
+    color: #1e293b;
+    box-sizing: border-box;
+}
+
+.chatbot-form-select:focus,
+.chatbot-form-input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    background: white;
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+}
+
+.chatbot-form-select:hover,
+.chatbot-form-input:hover {
+    border-color: #cbd5e1;
+}
+
+.chatbot-form-description {
+    font-size: 13px;
+    color: #64748b;
+    padding: var(--spacing-md) var(--spacing-md);
+    margin-top: var(--spacing-md);
+    background: #f8fafc;
+    border-radius: var(--radius-md);
+    border-left: 3px solid var(--color-primary);
+}
+
+/* ==================== 8. 获取模型列表按钮 ==================== */
+
+.chatbot-fetch-models-btn {
+    margin-top: var(--spacing-md);
+    width: 100%;
+    padding: 10px var(--spacing-md);
+    border-radius: var(--radius-md);
+    border: 2px solid #e2e8f0;
+    background: white;
+    color: var(--color-primary);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    cursor: pointer;
+    transition: all var(--transition-fast) cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-sm);
+}
+
+.chatbot-fetch-models-btn:hover {
+    border-color: var(--color-primary);
+    background: #eff6ff;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
+}
+
+.chatbot-fetch-models-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.chatbot-fetch-models-btn i {
+    font-size: var(--font-size-sm);
+}
+
+.chatbot-fetch-models-btn:not(:disabled):active i {
+    animation: spin 0.6s linear;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* ==================== 9. 刷新按钮 ==================== */
+
+.chatbot-refresh-btn {
+    padding: 6px 10px;
+    border-radius: var(--radius-md);
+    border: 2px solid #e2e8f0;
+    background: white;
+    color: var(--color-primary);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast) cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.chatbot-refresh-btn:hover {
+    border-color: var(--color-primary);
+    background: #eff6ff;
+    transform: scale(1.05);
+}
+
+.chatbot-refresh-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.chatbot-refresh-btn:not(:disabled):active i {
+    animation: spin 0.6s linear;
+}
+
+/* ==================== 10. 源站点信息 ==================== */
+
+.chatbot-source-info {
+    background: linear-gradient(135deg, #eff6ff 0%, #e0f2fe 100%);
+    border-radius: 10px;
+    padding: var(--spacing-md);
+    margin-top: var(--spacing-md);
+    border: 1px solid #bfdbfe;
+}
+
+.chatbot-source-info-item {
+    display: flex;
+    align-items: flex-start;
+    font-size: 13px;
+    color: #1e293b;
+    margin-bottom: 10px;
+    line-height: var(--leading-relaxed);
+}
+
+.chatbot-source-info-item:last-child {
+    margin-bottom: 0;
+}
+
+.chatbot-source-info-item i {
+    margin-right: 10px;
+    margin-top: 2px;
+    color: var(--color-primary);
+    flex-shrink: 0;
+}
+
+.chatbot-source-info-label {
+    font-weight: var(--font-weight-semibold);
+    margin-right: var(--spacing-sm);
+    flex-shrink: 0;
+}
+
+.chatbot-source-info-value {
+    color: #475569;
+    word-break: break-all;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: var(--font-size-xs);
+}
+
+/* ==================== 11. 模型列表 ==================== */
+
+.chatbot-model-list {
+    max-height: 280px;
+    overflow-y: auto;
+    border: 2px solid #e2e8f0;
+    border-radius: 10px;
+    margin-top: var(--spacing-md);
+    background: white;
+}
+
+.chatbot-model-list::-webkit-scrollbar {
+    width: 8px;
+}
+
+.chatbot-model-list::-webkit-scrollbar-track {
+    background: #f8fafc;
+    border-radius: 0 10px 10px 0;
+}
+
+.chatbot-model-list::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: var(--radius-sm);
+}
+
+.chatbot-model-item {
+    padding: 14px 18px;
+    border-bottom: 1px solid #f1f5f9;
+    cursor: pointer;
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    font-size: var(--font-size-sm);
+    color: #334155;
+    position: relative;
+}
+
+.chatbot-model-item:last-child {
+    border-bottom: none;
+}
+
+.chatbot-model-item::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--color-primary);
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+}
+
+.chatbot-model-item:hover {
+    background: #f8fafc;
+    padding-left: 22px;
+}
+
+.chatbot-model-item:hover::before {
+    opacity: 1;
+}
+
+.chatbot-model-item.selected {
+    background: linear-gradient(90deg, #dbeafe 0%, #e0f2fe 100%);
+    color: #1e40af;
+    font-weight: var(--font-weight-semibold);
+    padding-left: 22px;
+}
+
+.chatbot-model-item.selected::before {
+    opacity: 1;
+}
+
+/* ==================== 12. 搜索框 ==================== */
+
+.chatbot-search-wrapper {
+    position: relative;
+}
+
+.chatbot-search-input {
+    padding-right: 44px;
+}
+
+.chatbot-search-icon {
+    position: absolute;
+    right: var(--spacing-md);
+    top: 50%;
+    transform: translateY(-50%);
+    color: #94a3b8;
+    pointer-events: none;
+}
+
+/* ==================== 13. 参数配置区域 ==================== */
+
+.chatbot-params-section {
+    background: white;
+    border-radius: var(--radius-lg);
+    padding: 18px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+.chatbot-params-title {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: #1e293b;
+    display: flex;
+    align-items: center;
+    margin-bottom: var(--spacing-md);
+    padding-bottom: var(--spacing-md);
+    border-bottom: 2px solid #f1f5f9;
+}
+
+.chatbot-params-title i {
+    margin-right: 10px;
+    color: var(--color-primary);
+    font-size: var(--font-size-base);
+}
+
+/* ==================== 14. 滑块 ==================== */
+
+.chatbot-slider-group {
+    margin-bottom: var(--spacing-lg);
+    padding-bottom: var(--spacing-lg);
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.chatbot-slider-group:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.chatbot-slider-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-md);
+}
+
+.chatbot-slider-label {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: #334155;
+}
+
+.chatbot-slider-value {
+    font-size: 15px;
+    font-weight: var(--font-weight-bold);
+    color: var(--color-primary);
+    background: #eff6ff;
+    padding: 4px var(--spacing-md);
+    border-radius: var(--radius-md);
+    min-width: 50px;
+    text-align: center;
+}
+
+.chatbot-slider {
+    width: 100%;
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    transition: background var(--transition-fast);
+}
+
+.chatbot-slider:hover {
+    background: #cbd5e1;
+}
+
+.chatbot-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    background: linear-gradient(135deg, var(--color-primary) 0%, #2563eb 100%);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
+    transition: all var(--transition-fast) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chatbot-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.5);
+}
+
+.chatbot-slider::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    background: linear-gradient(135deg, var(--color-primary) 0%, #2563eb 100%);
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
+    transition: all var(--transition-fast) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chatbot-slider::-moz-range-thumb:hover {
+    transform: scale(1.15);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.5);
+}
+
+.chatbot-slider-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: #94a3b8;
+    margin-top: var(--spacing-sm);
+    font-weight: var(--font-weight-medium);
+}
+
+/* ==================== 15. 底部按钮 ==================== */
+
+.chatbot-config-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--spacing-md);
+    padding: var(--spacing-lg) 28px;
+    border-top: 1px solid rgba(226, 232, 240, 0.8);
+    background: #fafafa;
+}
+
+.chatbot-btn {
+    padding: var(--spacing-md) 28px;
+    border-radius: 10px;
+    font-weight: var(--font-weight-semibold);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast) cubic-bezier(0.4, 0, 0.2, 1);
+    border: none;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    position: relative;
+    overflow: hidden;
+}
+
+.chatbot-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+}
+
+.chatbot-btn:active::before {
+    width: 300px;
+    height: 300px;
+}
+
+.chatbot-btn-cancel {
+    border: 2px solid #cbd5e1;
+    background: white;
+    color: #475569;
+}
+
+.chatbot-btn-cancel:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-sm);
+}
+
+.chatbot-btn-save {
+    background: linear-gradient(135deg, var(--color-primary) 0%, #2563eb 100%);
+    color: white;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+    position: relative;
+    z-index: 1;
+}
+
+.chatbot-btn-save:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(59, 130, 246, 0.5);
+}
+
+.chatbot-btn-save i {
+    font-size: 15px;
+}
+
+/* ==================== 16. 辅助类 ==================== */
+
+.chatbot-hidden {
+    display: none !important;
+}
+
+.chatbot-text-center {
+    text-align: center;
+}
+
+/* ==================== 17. 提示框样式 ==================== */
+
+.chatbot-hint-box {
+    background: linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%);
+    border: 1px solid #bfdbfe;
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-md);
+    margin-top: var(--spacing-md);
+    animation: slideInDown var(--transition-base) ease-out;
+}
+
+@keyframes slideInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.chatbot-hint-button {
+    background: linear-gradient(135deg, var(--color-primary) 0%, #2563eb 100%);
+    color: white;
+    border: none;
+    border-radius: var(--radius-md);
+    padding: 10px 18px;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    transition: all var(--transition-fast) ease;
+    box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+}
+
+.chatbot-hint-button:hover {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+    transform: translateY(-1px);
+}
+
+.chatbot-hint-button:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+}
+
+.chatbot-hint-button i {
+    font-size: var(--font-size-base);
+}
+
+/* ==================== 18. 响应式设计 ==================== */
+
+@media (max-width: 768px) {
+    .chatbot-config-wrapper {
+        padding: var(--spacing-md);
+    }
+
+    .chatbot-config-content {
+        max-height: 92vh;
+        border-radius: var(--radius-xl);
+    }
+
+    .chatbot-config-header {
+        padding: 18px var(--spacing-lg);
+    }
+
+    .chatbot-config-body {
+        padding: var(--spacing-lg);
+    }
+
+    .chatbot-source-buttons {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+
+    .chatbot-config-footer {
+        padding: var(--spacing-md) var(--spacing-lg);
+    }
+
+    .chatbot-btn {
+        padding: 11px var(--spacing-lg);
+        font-size: 13px;
+    }
+}
+
+@media (max-width: 480px) {
+    .chatbot-config-title {
+        font-size: var(--font-size-base);
+    }
+
+    .chatbot-config-subtitle {
+        font-size: 11px;
+    }
+
+    .chatbot-config-icon {
+        width: 40px;
+        height: 40px;
+        font-size: var(--font-size-lg);
+    }
+
+    .chatbot-form-group {
+        padding: var(--spacing-md);
+    }
+
+    .chatbot-params-section {
+        padding: 18px;
+    }
+}

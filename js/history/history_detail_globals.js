@@ -85,7 +85,15 @@ function getCurrentScrollableElementForHistoryDetail() {
             return immersiveMainArea; // Last fallback for immersive mode
         }
     }
-    // Default to document.documentElement when not in immersive mode or if specific elements aren't found
+
+    // 非沉浸模式：使用 .app-main（侧边栏布局中的主内容区）
+    const appMain = document.querySelector('.app-main');
+    if (appMain) {
+        // console.log(`[getCurrentScrollableElementForHistoryDetail] 返回.app-main作为滚动元素`);
+        return appMain;
+    }
+
+    // 最终回退到 document.documentElement（旧布局或特殊情况）
     // console.log(`[getCurrentScrollableElementForHistoryDetail] 返回document.documentElement作为滚动元素`);
     return document.documentElement;
 }
@@ -242,6 +250,34 @@ function saveScrollPosition() {
 
 // 使用debounce函数创建一个防抖动的保存滚动位置函数
 const debouncedSaveScrollPosition = debounce(saveScrollPosition, 200);
+
+// 动态绑定/解绑滚动事件到当前滚动容器
+let lastScrollableElementForSave = null;
+
+function bindScrollForSavePosition() {
+  // 解绑旧的滚动监听
+  if (lastScrollableElementForSave) {
+    lastScrollableElementForSave.removeEventListener('scroll', debouncedSaveScrollPosition);
+    lastScrollableElementForSave = null;
+  }
+
+  // 获取当前滚动元素
+  const el = getCurrentScrollableElementForHistoryDetail();
+  if (el) {
+    console.log(`[bindScrollForSavePosition] 绑定滚动事件到元素:`, el.id || el.className || el.tagName);
+    el.addEventListener('scroll', debouncedSaveScrollPosition);
+    lastScrollableElementForSave = el;
+  } else {
+    console.warn(`[bindScrollForSavePosition] 未找到可滚动元素，无法绑定滚动事件`);
+  }
+}
+
+function unbindScrollForSavePosition() {
+  if (lastScrollableElementForSave) {
+    lastScrollableElementForSave.removeEventListener('scroll', debouncedSaveScrollPosition);
+    lastScrollableElementForSave = null;
+  }
+}
 
 // 辅助函数：获取元素的DOM路径
 function getElementPath(element) {
@@ -447,6 +483,11 @@ document.addEventListener('immersiveModeEntered', function() {
                  window.DockLogic.bindScrollForCurrentScrollable();
             }
         }
+
+        // 重新绑定滚动事件以保存滚动位置
+        if (typeof bindScrollForSavePosition === 'function') {
+            bindScrollForSavePosition();
+        }
     }, 450); // 增加延迟确保DOM和TOC更新
 });
 
@@ -490,6 +531,11 @@ document.addEventListener('immersiveModeExited', function() {
             if (typeof window.DockLogic.bindScrollForCurrentScrollable === 'function') {
                  window.DockLogic.bindScrollForCurrentScrollable();
             }
+        }
+
+        // 重新绑定滚动事件以保存滚动位置
+        if (typeof bindScrollForSavePosition === 'function') {
+            bindScrollForSavePosition();
         }
     }, 450); // 增加延迟
 });

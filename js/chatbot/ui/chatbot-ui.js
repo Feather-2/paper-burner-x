@@ -470,6 +470,7 @@ function updateChatbotUI() {
     const lastRenderedCount = window.ChatbotRenderState.lastRenderedMessageCount || 0;
 
     let docName = 'unknown_doc';
+    let docId = 'unknown_doc'; // 完整的 docId，用于 draw.io 等功能
     let dataForMindmap = { images: [], ocr: '', translation: '' };
     if (window.ChatbotCore && typeof window.ChatbotCore.getCurrentDocContent === 'function') {
         const currentDoc = window.ChatbotCore.getCurrentDocContent();
@@ -481,6 +482,10 @@ function updateChatbotUI() {
                 translation: currentDoc.translation || ''
             };
         }
+    }
+    // 获取完整的 docId（包含文档名、图片数量、OCR长度、翻译长度）
+    if (window.ChatbotCore && typeof window.ChatbotCore.getCurrentDocId === 'function') {
+        docId = window.ChatbotCore.getCurrentDocId();
     }
 
     if (window.ChatbotMessageRenderer) {
@@ -625,6 +630,37 @@ function updateChatbotUI() {
                 }
               }
             }
+
+            // 3. 更新工具调用块 (toolCallHtml) - 支持流式多轮取材实时更新
+            if (lastMessage.toolCallHtml) {
+              const toolCallBlockContainer = lastMessageContainer.querySelector('.tool-thinking-block');
+              const newToolCallHtml = String(lastMessage.toolCallHtml);
+
+              // 检查是否需要更新（比较HTML内容）
+              if (toolCallBlockContainer) {
+                const currentHtml = toolCallBlockContainer.outerHTML;
+                if (currentHtml !== newToolCallHtml) {
+                  // 更新工具调用块HTML
+                  const tempDiv = document.createElement('div');
+                  tempDiv.innerHTML = newToolCallHtml;
+                  const newToolCallBlock = tempDiv.firstElementChild;
+                  if (newToolCallBlock) {
+                    toolCallBlockContainer.replaceWith(newToolCallBlock);
+                  }
+                }
+              } else if (newToolCallHtml) {
+                // 工具调用块不存在，插入新的块（在主内容之前）
+                const contentDiv = lastMessageContainer.querySelector('.markdown-content');
+                if (contentDiv && contentDiv.parentNode) {
+                  const tempDiv = document.createElement('div');
+                  tempDiv.innerHTML = newToolCallHtml;
+                  const newToolCallBlock = tempDiv.firstElementChild;
+                  if (newToolCallBlock) {
+                    contentDiv.parentNode.insertBefore(newToolCallBlock, contentDiv);
+                  }
+                }
+              }
+            }
           }
 
           // Phase 3.5 智能滚动：流式更新时保持用户阅读位置
@@ -652,7 +688,7 @@ function updateChatbotUI() {
             if (m.role === 'user') {
                 return window.ChatbotMessageRenderer.renderUserMessage(m, index);
             }
-            return window.ChatbotMessageRenderer.renderAssistantMessage(m, index, docName, dataForMindmap);
+            return window.ChatbotMessageRenderer.renderAssistantMessage(m, index, docName, dataForMindmap, docId);
         }).join('');
 
         if (window.ChatbotCore.isChatbotLoading) {

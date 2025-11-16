@@ -1,0 +1,698 @@
+/**
+ * Sidebar Layout - History Detail 统一侧边栏
+ *
+ * 职责：提供集成了 TOC 和 Dock 数据的统一侧边栏布局
+ * 依赖：01-foundation/variables.css
+ * 设计：黑白灰主色 + 蓝色重点色（极简风格）
+ *
+ * 功能：
+ * - 响应式设计（移动端：浮层，桌面端：固定侧边栏）
+ * - 可折叠（260px ↔ 76px）
+ * - 集成 TOC 目录（可展开/收起）
+ * - 集成 Dock 统计信息（可展开/收起）
+ * - 回到工作台导航
+ * - 设置入口
+ * - GitHub 链接
+ *
+ * 注意：仅用于非沉浸模式，沉浸模式保持原有 TOC 区域设计
+ */
+
+/* ==================== App Shell 容器 ==================== */
+
+.app-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ==================== 侧边栏主体 ==================== */
+
+.app-sidebar {
+  width: var(--sidebar-width);
+  background-color: var(--color-bg-base);
+  border-right: 1px solid var(--color-border-light);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+
+  /* Mobile defaults: fixed off-screen */
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: var(--sidebar-z-index);
+  transform: translateX(-100%);
+  transition: var(--sidebar-transition);
+}
+
+/* 移动端打开状态 */
+.app-sidebar.mobile-open {
+  transform: translateX(0);
+  box-shadow: 4px 0 24px var(--color-shadow-strong);
+}
+
+/* 桌面端样式 */
+@media (min-width: 768px) {
+  .app-sidebar {
+    position: static;
+    transform: none;
+  }
+
+  /* 收起状态 */
+  .app-sidebar.collapsed {
+    width: var(--sidebar-collapsed-width);
+  }
+
+  .app-sidebar.collapsed .px-6 {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  /* 收起时头部垂直排列并居中 */
+  .app-sidebar.collapsed .sidebar-header {
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5rem;
+    padding-top: 1.5rem;
+    padding-bottom: 1rem;
+  }
+
+  .app-sidebar.collapsed .sidebar-logo {
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
+  }
+
+  /* 隐藏文字元素 */
+  .app-sidebar.collapsed .nav-text,
+  .app-sidebar.collapsed .nav-section-title,
+  .app-sidebar.collapsed .sidebar-section-title span,
+  .app-sidebar.collapsed .sidebar-section-chevron,
+  .app-sidebar.collapsed .sidebar-section-content,
+  .app-sidebar.collapsed .sidebar-footer,
+  .app-sidebar.collapsed .sidebar-footer-compact,
+  .app-sidebar.collapsed .sidebar-divider {
+    opacity: 0;
+    pointer-events: none;
+    display: none;
+  }
+
+  /* 导航项居中 */
+  .app-sidebar.collapsed .nav-item {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  /* Section header 居中 */
+  .app-sidebar.collapsed .sidebar-section-header {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .app-sidebar.collapsed .nav-icon {
+    margin-right: 0;
+  }
+}
+
+/* ==================== 侧边栏头部 ==================== */
+
+.sidebar-header {
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: var(--sidebar-transition);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.sidebar-logo {
+  height: 2rem;
+  transition: var(--sidebar-transition);
+}
+
+.sidebar-toggle-btn {
+  display: none; /* 仅桌面端显示 */
+  padding: 0.375rem;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.sidebar-toggle-btn:hover {
+  color: var(--color-text-secondary);
+  background: var(--color-bg-secondary);
+}
+
+@media (min-width: 768px) {
+  .sidebar-toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+/* 移动端关闭按钮 */
+.sidebar-close-btn {
+  display: flex;
+  padding: 0.5rem;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.sidebar-close-btn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-secondary);
+}
+
+@media (min-width: 768px) {
+  .sidebar-close-btn {
+    display: none;
+  }
+}
+
+/* ==================== 侧边栏导航区 ==================== */
+
+.sidebar-nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem;
+  overflow: hidden; /* 不滚动，内部 TOC 内容区滚动 */
+}
+
+/* TOC section 占据剩余空间 */
+#sidebarTocSection {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* 关键：允许 flex 子元素缩小 */
+  overflow: hidden;
+}
+
+/* TOC 内容区可滚动 */
+#sidebarTocSection .sidebar-section-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* 自定义滚动条（应用到 TOC 内容区） */
+#sidebarTocSection .sidebar-section-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+#sidebarTocSection .sidebar-section-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#sidebarTocSection .sidebar-section-content::-webkit-scrollbar-thumb {
+  background: var(--color-border-medium);
+  border-radius: var(--radius-sm);
+}
+
+#sidebarTocSection .sidebar-section-content::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-dark);
+}
+
+/* ==================== 导航分组标题 ==================== */
+
+.nav-section-title {
+  padding: 0 0.75rem;
+  margin-bottom: 0.5rem;
+  margin-top: 1rem;
+  font-size: 11px;
+  font-weight: 700;
+  color: #94a3b8; /* slate-400 */
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: opacity var(--transition-fast);
+}
+
+.nav-section-title:first-child {
+  margin-top: 0;
+}
+
+/* ==================== 导航项 ==================== */
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  padding: var(--sidebar-nav-item-padding);
+  color: #475569; /* slate-600 */
+  text-decoration: none;
+  border-radius: 0.5rem;
+  transition: all 0.2s ease;
+  font-weight: 500;
+  font-size: var(--sidebar-nav-item-font-size);
+  margin-bottom: 0.25rem;
+  user-select: none;
+  cursor: pointer;
+}
+
+.nav-item:hover {
+  background-color: #f1f5f9; /* slate-100 */
+  color: #0f172a; /* slate-900 */
+}
+
+.nav-item.active {
+  background-color: #eff6ff; /* blue-50 */
+  color: #2563eb; /* blue-600 */
+  font-weight: 600;
+}
+
+.nav-icon {
+  margin-right: 0.75rem;
+  font-size: 1.25rem;
+  color: #94a3b8; /* slate-400 */
+  transition: color 0.2s ease;
+  flex-shrink: 0;
+}
+
+.nav-item:hover .nav-icon {
+  color: #64748b; /* slate-500 */
+}
+
+.nav-item.active .nav-icon {
+  color: #3b82f6; /* blue-500 */
+}
+
+.nav-text {
+  transition: opacity var(--transition-fast);
+}
+
+/* ==================== 可折叠区域 ==================== */
+
+.sidebar-section {
+  margin-bottom: 0.25rem;
+}
+
+.sidebar-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--sidebar-section-header-padding);
+  color: #475569; /* slate-600 */
+  background: transparent;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.sidebar-section-header:hover {
+  background-color: #f1f5f9; /* slate-100 */
+  color: #0f172a; /* slate-900 */
+}
+
+.sidebar-section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  transition: opacity var(--transition-fast);
+}
+
+.sidebar-section-title iconify-icon {
+  font-size: 1.25rem;
+  color: #94a3b8; /* slate-400 */
+  transition: color 0.2s ease;
+}
+
+.sidebar-section-header:hover .sidebar-section-title iconify-icon {
+  color: #64748b; /* slate-500 */
+}
+
+.sidebar-section-chevron {
+  font-size: 16px;
+  color: #cbd5e1; /* slate-300 */
+  transition: all 0.2s ease;
+}
+
+.sidebar-section-header:hover .sidebar-section-chevron {
+  color: #94a3b8; /* slate-400 */
+}
+
+.sidebar-section.expanded .sidebar-section-chevron {
+  transform: rotate(90deg);
+}
+
+/* 折叠内容区 */
+.sidebar-section-content {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+  padding: var(--sidebar-section-content-padding);
+}
+
+.sidebar-section.expanded .sidebar-section-content {
+  max-height: none; /* 移除高度限制，由 flex 布局控制 */
+}
+
+/* 非 TOC section 的折叠区域保持原有行为 */
+.sidebar-section:not(#sidebarTocSection).expanded .sidebar-section-content {
+  max-height: 600px; /* 其他折叠区域保持固定高度 */
+}
+
+/* ==================== TOC 目录列表（集成到侧边栏） ==================== */
+
+.sidebar-toc-list {
+  list-style: none;
+  padding: 0 0.5rem;
+  margin: 0;
+}
+
+.sidebar-toc-item {
+  margin-bottom: 2px;
+}
+
+.sidebar-toc-link {
+  display: block;
+  padding: 0.5rem 0.75rem;
+  color: #64748b; /* slate-500 */
+  text-decoration: none;
+  font-weight: 400;
+  font-size: 0.875rem; /* 14px */
+  transition: all 0.15s ease;
+  border-radius: 0.5rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+.sidebar-toc-link:hover {
+  background: #f8fafc; /* slate-50 */
+  color: #0f172a; /* slate-900 */
+}
+
+.sidebar-toc-link.active {
+  background: #eff6ff; /* blue-50 */
+  color: #2563eb; /* blue-600 */
+  font-weight: 600;
+}
+
+/* TOC 层级缩进 */
+.sidebar-toc-item.toc-h2 .sidebar-toc-link {
+  padding-left: 1.25rem; /* 20px */
+  font-size: 0.875rem;
+}
+.sidebar-toc-item.toc-h3 .sidebar-toc-link {
+  padding-left: 1.75rem; /* 28px */
+  font-size: 0.8125rem; /* 13px */
+}
+.sidebar-toc-item.toc-h4 .sidebar-toc-link {
+  padding-left: 2.25rem; /* 36px */
+  font-size: 0.8125rem;
+}
+.sidebar-toc-item.toc-h5 .sidebar-toc-link {
+  padding-left: 2.75rem; /* 44px */
+  font-size: 0.75rem; /* 12px */
+}
+.sidebar-toc-item.toc-h6 .sidebar-toc-link {
+  padding-left: 3.25rem; /* 52px */
+  font-size: 0.75rem;
+}
+
+/* ==================== Dock 统计信息（集成到侧边栏） ==================== */
+
+.sidebar-stat-list {
+  padding: 0 0.5rem;
+}
+
+.sidebar-stat-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.375rem;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.sidebar-stat-item:last-child {
+  border-bottom: none;
+}
+
+.sidebar-stat-label {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.sidebar-stat-value {
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-primary);
+}
+
+/* ==================== 侧边栏底部 ==================== */
+
+.sidebar-footer {
+  padding: 0.75rem;
+  border-top: 1px solid #f1f5f9; /* slate-100 */
+  transition: opacity var(--transition-fast);
+}
+
+/* 紧凑底部布局（阅读进度 + 快速统计 + 设置） */
+.sidebar-footer-compact {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem; /* 缩小间距 */
+  padding: 0.625rem 0.75rem; /* 稍微缩小 padding */
+  border-top: 1px solid #f1f5f9; /* slate-100 */
+  font-size: 0.75rem; /* 12px，更小 */
+  transition: opacity var(--transition-fast);
+}
+
+.sidebar-progress {
+  color: #64748b; /* slate-500 */
+  font-weight: 600;
+  font-size: 0.8125rem; /* 13px */
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.sidebar-quick-stats {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem; /* 6px，更紧凑 */
+  color: #94a3b8; /* slate-400 */
+  align-items: center;
+}
+
+.sidebar-quick-stat {
+  display: flex;
+  align-items: center;
+  gap: 0.1875rem; /* 3px，更紧凑 */
+  cursor: pointer;
+  transition: color 0.2s ease;
+  user-select: none;
+  font-size: 0.75rem; /* 12px */
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.sidebar-quick-stat:hover {
+  color: #2563eb; /* blue-600 */
+}
+
+/* 分隔线（高亮/批注 和 其他统计之间） */
+.sidebar-quick-stat-divider {
+  width: 1px;
+  height: 14px;
+  background-color: #e2e8f0; /* slate-200 */
+  margin: 0 0.125rem;
+}
+
+.sidebar-settings-btn {
+  padding: 0.375rem;
+  color: #64748b; /* slate-500 */
+  background: transparent;
+  border: none;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sidebar-settings-btn:hover {
+  background: #f1f5f9; /* slate-100 */
+  color: #0f172a; /* slate-900 */
+}
+
+/* 旧的 GitHub 链接样式（保留以便向后兼容） */
+.sidebar-footer-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  color: #64748b; /* slate-500 */
+  text-decoration: none;
+  font-size: var(--font-size-sm);
+  background-color: #f8fafc; /* slate-50 */
+  border: 1px solid #f1f5f9; /* slate-100 */
+  border-radius: 1rem;
+  transition: all 0.2s ease;
+}
+
+.sidebar-footer-link:hover {
+  opacity: 0.8;
+}
+
+.sidebar-footer-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: white;
+  border: 1px solid #e2e8f0; /* slate-200 */
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  color: #94a3b8; /* slate-400 */
+  flex-shrink: 0;
+}
+
+/* ==================== 移动端遮罩 ==================== */
+
+.sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.4);
+  z-index: calc(var(--sidebar-z-index) - 10);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-base);
+  backdrop-filter: blur(2px);
+}
+
+.sidebar-overlay.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (min-width: 768px) {
+  .sidebar-overlay {
+    display: none;
+  }
+}
+
+/* ==================== 主内容区 ==================== */
+
+.app-main {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  width: 100%;
+}
+
+/* ==================== 移动端顶部栏 ==================== */
+
+.mobile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background-color: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--color-border-light);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.mobile-header-title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.mobile-header-logo {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.mobile-menu-btn {
+  padding: 0.25rem;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+@media (min-width: 768px) {
+  .mobile-header {
+    display: none;
+  }
+}
+
+/* ==================== 分隔线 ==================== */
+
+.sidebar-divider {
+  height: 1px;
+  background-color: #f1f5f9; /* slate-100 */
+  margin: 1rem 0.75rem;
+  transition: margin var(--transition-fast);
+}
+
+/* ==================== 空状态提示 ==================== */
+
+.sidebar-empty-state {
+  padding: 0.75rem 1rem;
+  text-align: center;
+  color: #94a3b8; /* slate-400 */
+  font-size: 0.75rem;
+}
+
+.sidebar-empty-icon {
+  display: none; /* 隐藏 emoji 图标 */
+}
+
+/* ==================== 工具提示 ==================== */
+
+.sidebar-tooltip {
+  position: absolute;
+  left: 100%;
+  margin-left: 0.5rem;
+  padding: 0.375rem 0.75rem;
+  background-color: var(--color-bg-dark);
+  color: var(--color-text-inverse);
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-fast);
+  z-index: var(--z-tooltip);
+}
+
+.nav-item:hover .sidebar-tooltip,
+.sidebar-section-header:hover .sidebar-tooltip {
+  opacity: 1;
+}
+
+/* 仅在收起状态显示工具提示 */
+@media (min-width: 768px) {
+  .app-sidebar:not(.collapsed) .sidebar-tooltip {
+    display: none;
+  }
+}

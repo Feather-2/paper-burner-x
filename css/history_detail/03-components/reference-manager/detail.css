@@ -1,0 +1,1381 @@
+/**
+ * Reference Manager - Detail Page Styles
+ *
+ * 职责：参考文献详情页样式
+ * 作用域：悬浮面板、引用链接、详情卡片
+ * 依赖：variables.css
+ *
+ * 提取自：reference-manager-detail.css
+ *
+ * 包含：
+ * - 文献区域和悬浮面板
+ * - 引用链接和悬浮卡片
+ * - 详情模态框
+ * - Dock和TOC集成
+ */
+
+/* ==================== 1. 文档末尾的参考文献区域 ==================== */
+
+.reference-section {
+    margin-top: 60px;
+    margin-left: auto;
+    margin-right: auto;
+    max-width: 900px;
+    padding: 30px;
+    background: linear-gradient(to bottom, #f8fafc, #ffffff);
+    border-top: 3px solid var(--color-primary);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+}
+
+.reference-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: var(--spacing-md);
+    border-bottom: 2px solid var(--color-border);
+}
+
+.reference-section-header h2 {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: var(--font-size-3xl);
+    font-weight: var(--font-weight-semibold);
+}
+
+.reference-section-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.ref-manage-btn,
+.ref-extract-btn {
+    padding: var(--spacing-sm) var(--spacing-md);
+    border: 1px solid var(--color-border-light);
+    background-color: var(--color-bg-primary);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    transition: all var(--transition-fast);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.ref-manage-btn {
+    background-color: var(--color-primary);
+    color: white;
+    border-color: var(--color-primary);
+}
+
+.ref-manage-btn:hover {
+    background-color: #2563eb;
+}
+
+.ref-extract-btn:hover {
+    background-color: var(--color-bg-secondary);
+}
+
+/* ==================== 2. 参考文献列表 ==================== */
+
+.reference-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+}
+
+.reference-item {
+    display: flex;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md);
+    background-color: var(--color-bg-primary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    transition: all var(--transition-fast);
+}
+
+.reference-item:hover {
+    box-shadow: var(--shadow-md);
+    border-color: var(--color-primary);
+}
+
+.reference-number {
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-primary);
+    min-width: 40px;
+}
+
+.reference-content {
+    flex: 1;
+}
+
+.reference-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+}
+
+.ref-authors {
+    font-weight: var(--font-weight-medium);
+    color: var(--color-text-primary);
+}
+
+.ref-year {
+    color: var(--color-text-secondary);
+}
+
+.reference-title {
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-medium);
+    color: #1976d2;
+    margin-bottom: 6px;
+    line-height: var(--leading-normal);
+}
+
+.reference-journal {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+    margin-bottom: 4px;
+}
+
+.reference-details {
+    color: var(--color-text-tertiary);
+    font-size: 13px;
+    margin-bottom: 4px;
+}
+
+.reference-doi {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    margin-top: 6px;
+}
+
+.reference-doi a {
+    color: #2196F3;
+    text-decoration: none;
+}
+
+.reference-doi a:hover {
+    text-decoration: underline;
+}
+
+.reference-tags {
+    display: flex;
+    gap: 6px;
+    margin-top: var(--spacing-sm);
+}
+
+.ref-tag-small {
+    display: inline-block;
+    padding: 2px var(--spacing-sm);
+    background-color: #e3f2fd;
+    color: #1976d2;
+    border-radius: 10px;
+    font-size: 11px;
+}
+
+.reference-actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.ref-action-icon {
+    background: none;
+    border: 1px solid var(--color-border-light);
+    border-radius: var(--radius-sm);
+    padding: 6px 10px;
+    cursor: pointer;
+    color: var(--color-text-secondary);
+    transition: all var(--transition-fast);
+}
+
+.ref-action-icon:hover {
+    background-color: var(--color-bg-secondary);
+    color: var(--color-text-primary);
+}
+
+/* ==================== 3. TOC中的参考文献链接 ==================== */
+
+.toc-reference-link {
+    border-top: 1px solid var(--color-border);
+    padding-top: 10px;
+    margin-top: 10px;
+}
+
+.toc-ref-link {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    color: var(--color-primary) !important;
+    font-weight: var(--font-weight-medium);
+    transition: background-color var(--transition-fast);
+}
+
+.toc-ref-link:hover {
+    background-color: var(--color-bg-secondary);
+    border-radius: var(--radius-sm);
+}
+
+/* ==================== 4. 悬浮面板（类似chatbot） ==================== */
+
+.reference-floating-panel {
+    position: fixed;
+    right: 30px;
+    bottom: 80px;
+    width: 450px;
+    height: 600px;
+    max-height: 600px;
+    background: white;
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-2xl), 0 0 1px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+    z-index: var(--z-popover);
+    animation: slideInRight var(--transition-base) cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid rgba(59, 130, 246, 0.1);
+}
+
+@keyframes slideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(30px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+    }
+}
+
+.reference-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 18px 22px;
+    background: linear-gradient(135deg, var(--color-primary), #2563eb);
+    color: white;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    cursor: grab;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
+}
+
+.reference-panel-header h3 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: var(--font-weight-semibold);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    letter-spacing: -0.01em;
+}
+
+.reference-panel-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+}
+
+.ref-panel-minimize,
+.ref-panel-close {
+    background: rgba(255, 255, 255, 0.15);
+    border: none;
+    color: white;
+    font-size: 15px;
+    cursor: pointer;
+    padding: 6px 10px;
+    border-radius: var(--radius-md);
+    transition: all var(--transition-fast);
+    backdrop-filter: blur(10px);
+}
+
+.ref-panel-minimize:hover,
+.ref-panel-close:hover {
+    background: rgba(255, 255, 255, 0.25);
+    transform: scale(1.05);
+}
+
+.reference-panel-toolbar {
+    display: flex;
+    gap: var(--spacing-sm);
+    padding: 14px var(--spacing-md);
+    background: linear-gradient(to bottom, #f8f9fa, #ffffff);
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.ref-toolbar-btn {
+    flex: 1;
+    padding: var(--spacing-sm) 14px;
+    border: 1px solid #d1d5db;
+    background: white;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: var(--font-weight-medium);
+    transition: all var(--transition-fast);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    color: #374151;
+}
+
+.ref-toolbar-btn:hover {
+    background: linear-gradient(135deg, var(--color-primary), #2563eb);
+    color: white;
+    border-color: var(--color-primary);
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
+    transform: translateY(-1px);
+}
+
+.reference-panel-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--spacing-md);
+    background: #fafbfc;
+}
+
+/* 美化滚动条 */
+.reference-panel-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.reference-panel-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.reference-panel-content::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+}
+
+.reference-panel-content::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+.ref-panel-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px var(--spacing-lg);
+    text-align: center;
+    color: var(--color-text-tertiary);
+}
+
+.ref-panel-placeholder i {
+    margin-bottom: var(--spacing-md);
+    color: var(--color-border-light);
+}
+
+.ref-panel-placeholder p {
+    margin: var(--spacing-md) 0;
+    font-size: var(--font-size-sm);
+}
+
+.ref-panel-placeholder button {
+    padding: var(--spacing-sm) var(--spacing-lg);
+    background-color: var(--color-primary);
+    color: white;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    transition: background-color var(--transition-fast);
+}
+
+.ref-panel-placeholder button:hover {
+    background-color: #2563eb;
+}
+
+.ref-panel-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+    padding: 4px;
+}
+
+.ref-panel-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    padding: 14px;
+    background: linear-gradient(135deg, #ffffff, #f8f9fa);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.ref-panel-item:hover {
+    background: linear-gradient(135deg, #eff6ff, #dbeafe);
+    border-color: var(--color-primary);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+}
+
+.ref-panel-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.ref-panel-number {
+    font-size: 15px;
+    font-weight: var(--font-weight-bold);
+    color: var(--color-primary);
+    min-width: 35px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #dbeafe, #eff6ff);
+    border-radius: var(--radius-md);
+    flex-shrink: 0;
+}
+
+.ref-panel-title {
+    flex: 1;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: #1e293b;
+    line-height: var(--leading-relaxed);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.ref-panel-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+    align-items: center;
+    font-size: var(--font-size-xs);
+    color: #64748b;
+    margin-left: 45px;
+}
+
+.ref-panel-authors {
+    font-weight: var(--font-weight-medium);
+    color: #475569;
+}
+
+.ref-panel-year,
+.ref-panel-journal {
+    padding: 2px var(--spacing-sm);
+    background-color: #f1f5f9;
+    border-radius: var(--radius-sm);
+    color: #64748b;
+}
+
+.ref-panel-citations {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: #10b981;
+    background-color: #d1fae5;
+    padding: 4px 10px;
+    border-radius: var(--radius-full);
+    width: fit-content;
+    margin-left: 45px;
+    font-weight: var(--font-weight-medium);
+}
+
+.ref-panel-citations i {
+    font-size: 10px;
+}
+
+.ref-panel-actions {
+    display: flex;
+    gap: 6px;
+    margin-left: 45px;
+    margin-top: 4px;
+}
+
+.ref-panel-action-btn {
+    flex: 1;
+    padding: 6px var(--spacing-md);
+    border: 1px solid #d1d5db;
+    background: white;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    transition: all var(--transition-fast);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    color: #374151;
+    text-decoration: none;
+}
+
+.ref-panel-action-btn:hover {
+    background: linear-gradient(135deg, var(--color-primary), #2563eb);
+    color: white;
+    border-color: var(--color-primary);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(59, 130, 246, 0.25);
+}
+
+.ref-panel-action-btn i {
+    font-size: 11px;
+}
+
+/* ==================== 5. Dock中的文献统计样式 ==================== */
+
+.dock-stat-item-wrapper-reference {
+    cursor: pointer;
+    transition: background-color var(--transition-fast);
+}
+
+.dock-stat-item-wrapper-reference:hover {
+    background-color: rgba(76, 175, 80, 0.1);
+}
+
+/* ==================== 6. 参考文献条目高亮动画 ==================== */
+
+.reference-item-highlight {
+    background-color: #fff3cd !important;
+    border-color: #ffc107 !important;
+    animation: referenceFlash 0.5s ease 3;
+}
+
+@keyframes referenceFlash {
+    0%, 100% {
+        background-color: #fff3cd;
+        transform: scale(1);
+    }
+    50% {
+        background-color: #ffeb3b;
+        transform: scale(1.02);
+    }
+}
+
+/* ==================== 7. 原文中的引用链接 ==================== */
+
+.reference-citation {
+    color: var(--color-primary);
+    text-decoration: none;
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    padding: 0 2px;
+    border-radius: 3px;
+    transition: all var(--transition-fast) ease;
+    position: relative;
+}
+
+.reference-citation:hover {
+    color: #2563eb;
+    background: rgba(59, 130, 246, 0.1);
+    text-decoration: none;
+}
+
+/* ==================== 8. 引用悬浮卡片 ==================== */
+
+.reference-citation-tooltip {
+    position: absolute;
+    z-index: var(--z-tooltip);
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    box-shadow: var(--shadow-xl);
+    max-width: 400px;
+    min-width: 300px;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(-5px);
+    transition: opacity var(--transition-fast) ease, transform var(--transition-fast) ease;
+    visibility: hidden;
+}
+
+.reference-citation-tooltip.show {
+    opacity: 1;
+    transform: translateY(0);
+    visibility: visible;
+}
+
+/* ==================== 9. 详细悬浮卡片（改进版） ==================== */
+
+.reference-detail-tooltip {
+    position: absolute;
+    z-index: var(--z-tooltip);
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: var(--radius-lg);
+    width: 420px;
+    max-height: 600px;
+    overflow-y: auto;
+    box-shadow: var(--shadow-2xl);
+    pointer-events: auto;
+    opacity: 0;
+    transform: scale(0.95);
+    transition: opacity var(--transition-fast) ease, transform var(--transition-fast) ease;
+    visibility: hidden;
+}
+
+.reference-detail-tooltip.show {
+    opacity: 1;
+    transform: scale(1);
+    visibility: visible;
+}
+
+.tooltip-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-md) 18px;
+    background: linear-gradient(135deg, var(--color-primary), #2563eb);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.tooltip-detail-number {
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-bold);
+    color: white;
+}
+
+.tooltip-detail-close {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    font-size: var(--font-size-base);
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.tooltip-detail-close:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: rotate(90deg);
+}
+
+.tooltip-detail-content {
+    padding: 18px;
+}
+
+.tooltip-detail-title {
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    color: #1e293b;
+    margin: 0 0 14px 0;
+    line-height: var(--leading-normal);
+}
+
+.tooltip-detail-authors {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-sm);
+    font-size: 13px;
+    color: #475569;
+    margin-bottom: var(--spacing-md);
+    line-height: var(--leading-relaxed);
+}
+
+.tooltip-detail-authors i {
+    color: #94a3b8;
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+.tooltip-detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+    margin-bottom: 14px;
+}
+
+.tooltip-detail-meta span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: #f1f5f9;
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-xs);
+    color: #64748b;
+}
+
+.tooltip-detail-meta i {
+    color: #94a3b8;
+    font-size: 11px;
+}
+
+.tooltip-detail-abstract {
+    margin-bottom: 14px;
+    padding: var(--spacing-md);
+    background: #f8f9fa;
+    border-radius: var(--radius-md);
+}
+
+.tooltip-detail-abstract strong {
+    font-size: var(--font-size-xs);
+    color: #334155;
+    display: block;
+    margin-bottom: 6px;
+}
+
+.tooltip-detail-abstract p {
+    font-size: 13px;
+    line-height: var(--leading-relaxed);
+    color: #475569;
+    margin: 0;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.tooltip-detail-doi {
+    padding: 10px var(--spacing-md);
+    background: #eff6ff;
+    border-left: 3px solid var(--color-primary);
+    border-radius: var(--radius-sm);
+    margin-bottom: 14px;
+    font-size: var(--font-size-xs);
+}
+
+.tooltip-detail-doi strong {
+    color: #1e40af;
+    margin-right: 6px;
+}
+
+.tooltip-detail-doi a {
+    color: var(--color-primary);
+    text-decoration: none;
+}
+
+.tooltip-detail-doi a:hover {
+    text-decoration: underline;
+}
+
+.tooltip-detail-citations {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: #d1fae5;
+    border-left: 3px solid #10b981;
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-xs);
+    color: #047857;
+    margin-bottom: 14px;
+}
+
+.tooltip-detail-citations strong {
+    color: #065f46;
+}
+
+.tooltip-detail-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md) 18px;
+    border-top: 1px solid #e5e7eb;
+    background: #f9fafb;
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+.tooltip-action-btn {
+    flex: 1;
+    padding: var(--spacing-sm) 14px;
+    border: 1px solid #d1d5db;
+    background: white;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    color: #374151;
+    transition: all var(--transition-fast);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.tooltip-action-btn:hover {
+    background: linear-gradient(135deg, var(--color-primary), #2563eb);
+    color: white;
+    border-color: var(--color-primary);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+}
+
+.tooltip-action-btn i {
+    font-size: 11px;
+}
+
+/* ==================== 10. 多文献列表样式 ==================== */
+
+.tooltip-multiple-refs {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    max-height: 450px;
+    overflow-y: auto;
+}
+
+.tooltip-ref-item {
+    display: flex;
+    flex-direction: column;
+    background: white;
+    border-radius: var(--radius-md);
+    border: 1px solid #e2e8f0;
+    transition: all 0.15s;
+    overflow: hidden;
+}
+
+.tooltip-ref-item.expanded {
+    border-color: var(--color-primary);
+    box-shadow: var(--shadow-md);
+}
+
+.tooltip-ref-header {
+    display: flex;
+    gap: 10px;
+    padding: 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.tooltip-ref-header:hover {
+    background: #eff6ff;
+}
+
+.tooltip-ref-item.expanded .tooltip-ref-header {
+    background: #eff6ff;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.tooltip-ref-toggle {
+    flex-shrink: 0;
+    margin-left: auto;
+    color: #94a3b8;
+    font-size: var(--font-size-xs);
+    transition: transform var(--transition-fast);
+}
+
+.tooltip-ref-toggle.expanded {
+    transform: rotate(180deg);
+}
+
+.tooltip-ref-detail {
+    padding: var(--spacing-md);
+    background: #f8fafc;
+    border-top: 1px solid #e2e8f0;
+    animation: slideDown var(--transition-fast) ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.tooltip-ref-detail-section {
+    margin-bottom: 10px;
+    font-size: var(--font-size-xs);
+    line-height: var(--leading-relaxed);
+}
+
+.tooltip-ref-detail-section:last-of-type {
+    margin-bottom: 0;
+}
+
+.tooltip-ref-detail-section strong {
+    color: #475569;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 2px;
+}
+
+.tooltip-ref-detail-section i {
+    font-size: 11px;
+    color: #94a3b8;
+}
+
+.tooltip-ref-detail-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid #e2e8f0;
+}
+
+.tooltip-ref-action-btn {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid #d1d5db;
+    background: white;
+    color: #475569;
+    font-size: 11px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.tooltip-ref-action-btn:hover {
+    background: linear-gradient(135deg, var(--color-primary), #2563eb);
+    color: white;
+    border-color: var(--color-primary);
+}
+
+.tooltip-ref-number {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--color-primary), #2563eb);
+    color: white;
+    font-weight: var(--font-weight-semibold);
+    font-size: var(--font-size-xs);
+    border-radius: var(--radius-md);
+}
+
+.tooltip-ref-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.tooltip-ref-title {
+    font-size: 13px;
+    font-weight: var(--font-weight-medium);
+    color: #1e293b;
+    margin-bottom: 3px;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.tooltip-ref-authors {
+    font-size: 11px;
+    color: #64748b;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 美化滚动条 */
+.reference-detail-tooltip::-webkit-scrollbar {
+    width: 6px;
+}
+
+.reference-detail-tooltip::-webkit-scrollbar-track {
+    background: #f1f5f9;
+}
+
+.reference-detail-tooltip::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+}
+
+.reference-detail-tooltip::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+.tooltip-detail-abstract::-webkit-scrollbar {
+    width: 4px;
+}
+
+.tooltip-detail-abstract::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.tooltip-detail-abstract::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 2px;
+}
+
+.tooltip-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-md);
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.tooltip-number {
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-primary);
+}
+
+.tooltip-title {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--color-text-primary);
+    line-height: var(--leading-normal);
+}
+
+.tooltip-authors {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    margin-bottom: 6px;
+}
+
+.tooltip-meta {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-tertiary);
+    margin-bottom: var(--spacing-sm);
+}
+
+.tooltip-abstract {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-secondary);
+    line-height: var(--leading-relaxed);
+    margin-top: var(--spacing-sm);
+    max-height: 100px;
+    overflow-y: auto;
+    padding: var(--spacing-sm);
+    background-color: #f8f9fa;
+    border-radius: var(--radius-sm);
+}
+
+.tooltip-doi {
+    font-size: 11px;
+    margin-top: var(--spacing-sm);
+    padding-top: var(--spacing-sm);
+    border-top: 1px solid var(--color-border-light);
+}
+
+.tooltip-doi a {
+    color: #2196F3;
+    text-decoration: none;
+}
+
+.tooltip-doi a:hover {
+    text-decoration: underline;
+}
+
+/* ==================== 11. 返回原文按钮 ==================== */
+
+.ref-back-to-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    font-size: var(--font-size-xs);
+    color: var(--color-primary);
+    background-color: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    text-decoration: none;
+}
+
+.ref-back-to-text:hover {
+    background-color: #dbeafe;
+    border-color: #93c5fd;
+    transform: translateX(-2px);
+}
+
+.ref-back-to-text i {
+    font-size: 10px;
+}
+
+/* ==================== 12. 文献详细卡片模态框 ==================== */
+
+.reference-detail-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    z-index: calc(var(--z-modal) + 1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--transition-base), visibility var(--transition-base);
+}
+
+.reference-detail-modal.show {
+    opacity: 1;
+    visibility: visible;
+}
+
+.reference-detail-card {
+    background: white;
+    border-radius: var(--radius-xl);
+    width: 90%;
+    max-width: 700px;
+    max-height: 85vh;
+    overflow-y: auto;
+    box-shadow: var(--shadow-2xl);
+    transform: scale(0.95);
+    transition: transform var(--transition-base) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.reference-detail-modal.show .reference-detail-card {
+    transform: scale(1);
+}
+
+.reference-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 24px 28px;
+    background: linear-gradient(135deg, var(--color-primary), #2563eb);
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+}
+
+.reference-detail-number {
+    font-size: 24px;
+    font-weight: var(--font-weight-bold);
+    color: white;
+}
+
+.reference-detail-close {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    font-size: var(--font-size-xl);
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.reference-detail-close:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: rotate(90deg);
+}
+
+.reference-detail-content {
+    padding: 28px;
+}
+
+.reference-detail-title {
+    font-size: 22px;
+    font-weight: var(--font-weight-semibold);
+    color: #1e293b;
+    margin: 0 0 var(--spacing-lg) 0;
+    line-height: var(--leading-normal);
+}
+
+.reference-detail-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: var(--spacing-lg);
+    padding: var(--spacing-md);
+    background: #f8f9fa;
+    border-radius: var(--radius-md);
+}
+
+.reference-detail-authors,
+.reference-detail-year,
+.reference-detail-journal {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: var(--font-size-sm);
+    color: #475569;
+}
+
+.reference-detail-authors {
+    font-weight: var(--font-weight-medium);
+}
+
+.reference-detail-authors i,
+.reference-detail-year i,
+.reference-detail-journal i {
+    color: #94a3b8;
+    width: 16px;
+}
+
+.reference-detail-publication {
+    display: flex;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+    font-size: var(--font-size-sm);
+    color: #64748b;
+}
+
+.reference-detail-publication span {
+    padding: 4px var(--spacing-md);
+    background: #e2e8f0;
+    border-radius: var(--radius-md);
+}
+
+.reference-detail-abstract {
+    margin-bottom: var(--spacing-lg);
+}
+
+.reference-detail-abstract h4 {
+    font-size: 15px;
+    font-weight: var(--font-weight-semibold);
+    color: #334155;
+    margin: 0 0 var(--spacing-md) 0;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.reference-detail-abstract h4 i {
+    color: #94a3b8;
+}
+
+.reference-detail-abstract p {
+    font-size: var(--font-size-sm);
+    line-height: var(--leading-loose);
+    color: #475569;
+    margin: 0;
+}
+
+.reference-detail-doi {
+    padding: var(--spacing-md) var(--spacing-md);
+    background: #eff6ff;
+    border-left: 4px solid var(--color-primary);
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--spacing-lg);
+    font-size: var(--font-size-sm);
+}
+
+.reference-detail-doi strong {
+    color: #1e40af;
+    margin-right: var(--spacing-sm);
+}
+
+.reference-detail-doi a {
+    color: var(--color-primary);
+    text-decoration: none;
+}
+
+.reference-detail-doi a:hover {
+    text-decoration: underline;
+}
+
+.reference-detail-citations {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md) var(--spacing-md);
+    background: #d1fae5;
+    border-left: 4px solid #10b981;
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+    color: #047857;
+    margin-bottom: var(--spacing-lg);
+}
+
+.reference-detail-citations strong {
+    color: #065f46;
+}
+
+.reference-detail-actions {
+    display: flex;
+    gap: 10px;
+    padding: var(--spacing-lg) 28px;
+    border-top: 1px solid #e5e7eb;
+    background: #f9fafb;
+    border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+}
+
+.ref-detail-btn {
+    flex: 1;
+    padding: var(--spacing-md) var(--spacing-lg);
+    border: 1px solid #d1d5db;
+    background: white;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: #374151;
+    transition: all var(--transition-fast);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    text-decoration: none;
+}
+
+.ref-detail-btn:hover {
+    background: linear-gradient(135deg, #f3f4f6, #e5e7eb);
+    border-color: #9ca3af;
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+.ref-detail-btn-primary {
+    background: linear-gradient(135deg, var(--color-primary), #2563eb);
+    color: white;
+    border-color: var(--color-primary);
+}
+
+.ref-detail-btn-primary:hover {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+}
+
+/* 美化滚动条 */
+.reference-detail-card::-webkit-scrollbar {
+    width: 8px;
+}
+
+.reference-detail-card::-webkit-scrollbar-track {
+    background: #f1f5f9;
+}
+
+.reference-detail-card::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: var(--radius-sm);
+}
+
+.reference-detail-card::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+/* ==================== 13. 响应式设计 ==================== */
+
+@media (max-width: 768px) {
+    .reference-floating-panel {
+        right: 10px;
+        bottom: 70px;
+        width: calc(100% - 20px);
+        max-width: 400px;
+    }
+
+    .reference-section {
+        padding: var(--spacing-lg) var(--spacing-md);
+    }
+
+    .reference-item {
+        flex-direction: column;
+    }
+
+    .reference-actions {
+        flex-direction: row;
+    }
+}

@@ -172,17 +172,33 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
 
   if (typeof updateChatbotUI === 'function') updateChatbotUI();
 
-  let plainTextInput = '';
+  // 提取原始纯文本输入（可能带有控制前缀，如 [加入配图]）
+  let rawPlainTextInput = '';
   if (typeof userInput === 'string') {
-    plainTextInput = userInput;
+    rawPlainTextInput = userInput;
   } else if (Array.isArray(userInput)) {
     const textPart = userInput.find(part => part.type === 'text');
     if (textPart) {
-      plainTextInput = textPart.text;
+      rawPlainTextInput = textPart.text;
     }
   }
 
-  const isMindMapRequest = plainTextInput.includes('思维导图') || plainTextInput.includes('脑图');
+  // 识别思维导图请求（基于原始输入）
+  const isMindMapRequest = rawPlainTextInput.includes('思维导图') || rawPlainTextInput.includes('脑图');
+
+  // 识别配图（draw.io）请求 - 基于前缀 [加入配图]（使用原始输入做检测，避免前缀被提前剥离）
+  let isDrawioPicturesRequest = false;
+  if (window.ChatbotPreset && typeof window.ChatbotPreset.isDrawioPicturesRequest === 'function') {
+    isDrawioPicturesRequest = window.ChatbotPreset.isDrawioPicturesRequest(rawPlainTextInput);
+  } else if (rawPlainTextInput) {
+    isDrawioPicturesRequest = rawPlainTextInput.trim().startsWith('[加入配图]');
+  }
+
+  // 构造发给模型看的“干净”用户文本：如果是配图请求，则去掉前缀 [加入配图]
+  let cleanedPlainTextInput = rawPlainTextInput;
+  if (isDrawioPicturesRequest && cleanedPlainTextInput) {
+    cleanedPlainTextInput = cleanedPlainTextInput.replace(/^\[加入配图]\s*/, '');
+  }
   const config = getChatbotConfig(externalConfig);
   let docContentInfo = getCurrentDocContent();
 
@@ -288,7 +304,8 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
   // 使用新的 PromptConstructor 来构建 systemPrompt
   let systemPrompt = '';
   if (window.PromptConstructor && typeof window.PromptConstructor.buildSystemPrompt === 'function') {
-    systemPrompt = window.PromptConstructor.buildSystemPrompt(docContentInfo, isMindMapRequest, plainTextInput);
+    // 注意：这里传入原始 plainTextInput，以便 PromptConstructor 能看到控制前缀（如 [加入配图]），正确注入对应提示词
+    systemPrompt = window.PromptConstructor.buildSystemPrompt(docContentInfo, isMindMapRequest, rawPlainTextInput);
   } else {
     // Fallback or error handling if PromptConstructor is not available
     console.error("PromptConstructor.buildSystemPrompt is not available. Using basic prompt.");
@@ -736,6 +753,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
 
       let collectedReasoning = '';
       let debounceTimer = null;  // Phase 3 优化: 防抖计时器，避免流式结束时的多次渲染
+      let isCollectingDrawioXml = false; // 标志位：是否正在收集 draw.io XML（避免显示原始 XML）
 
       // Phase 3.5 性能监控版 debouncedUpdateUI（使用统一配置）
       const debounceDelay = window.PerformanceConfig?.UPDATE_INTERVALS?.DEBOUNCE || 150;
@@ -773,6 +791,29 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
             if (typeof parsed === 'string') {
               if (parsed) {
                 collectedContent += parsed;
+
+                // 🔥 实时拦截 draw.io XML 输出
+                // 如果是配图请求，且检测到 XML 内容，立即替换为友好提示
+                if (isDrawioPicturesRequest && !isCollectingDrawioXml) {
+                  // 检测是否包含 XML 特征
+                  const hasXmlContent = collectedContent.includes('<?xml') ||
+                                       collectedContent.includes('<mxfile') ||
+                                       collectedContent.includes('<mxGraphModel');
+
+                  if (hasXmlContent) {
+                    // 立即替换为友好提示，避免用户看到大量 XML 代码
+                    isCollectingDrawioXml = true;
+                    chatHistory[assistantMsgIndex].content = '⏳ 正在生成配图，请稍候...';
+                    debouncedUpdateUI();
+                    console.log('[Draw.io] 检测到 XML 输出，已隐藏原始内容');
+                  }
+                }
+
+                // 如果正在收集 draw.io XML，跳过常规的 UI 更新
+                if (isCollectingDrawioXml) {
+                  continue;
+                }
+
                 const now = Date.now();
                 const currentInterval = getUpdateInterval();  // Phase 3.5: 智能跳帧
                 if (now - lastUpdateTime > currentInterval) {
@@ -807,7 +848,20 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
     } else {
       // fallback 到非流式分支
       console.log('[非流式] 调用 bodyBuilder');
-      const requestBody = apiConfig.bodyBuilder(systemPrompt, userInput);
+      // 将用户输入中的文本部分替换为清洗后的 plain text（去掉控制前缀）
+      let userInputForApi = userInput;
+      if (Array.isArray(userInputForApi)) {
+        userInputForApi = userInputForApi.map(part => {
+          if (part.type === 'text' && typeof cleanedPlainTextInput === 'string') {
+            return Object.assign({}, part, { text: cleanedPlainTextInput });
+          }
+          return part;
+        });
+      } else if (typeof userInputForApi === 'string' && typeof cleanedPlainTextInput === 'string') {
+        userInputForApi = cleanedPlainTextInput;
+      }
+
+      const requestBody = apiConfig.bodyBuilder(systemPrompt, userInputForApi);
       console.log('API Endpoint:', apiConfig.endpoint);
       console.log('Headers:', apiConfig.headers);
       const response = await fetch(apiConfig.endpoint, {
@@ -871,6 +925,284 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
       } catch (error) {
         chatHistory[assistantMsgIndex].content +=
           '\n\n<div style="color:#e53e3e;background:#fee;padding:12px;border-radius:6px;margin-top:16px;">思维导图数据处理失败: ' + error.message + '</div>';
+      }
+    }
+
+    // 收集完内容后处理配图（draw.io XML）
+    if (isDrawioPicturesRequest && chatHistory[assistantMsgIndex].content) {
+      try {
+        const assistantResponseContent = chatHistory[assistantMsgIndex].content || '';
+
+        // 提取并修复 XML 内容（直接从响应中提取标准 XML）
+        const extractAndFixDrawioXml = (raw) => {
+          let text = raw || '';
+
+          // 清理文本：移除 Markdown 代码块标记（如果 AI 违规使用了）
+          text = text.replace(/```xml\s*/gi, '').replace(/```\s*/g, '');
+
+          // 1) 尝试提取 <mxfile> ... </mxfile>
+          let start = text.search(/<mxfile\b/i);
+          let end = text.search(/<\/mxfile>/i);
+          if (start !== -1 && end !== -1 && end > start) {
+            text = text.slice(start, end + '</mxfile>'.length).trim();
+          } else {
+            // 2) 尝试提取 <mxGraphModel> ... </mxGraphModel>，并自动包裹为完整 mxfile
+            start = text.search(/<mxGraphModel\b/i);
+            end = text.search(/<\/mxGraphModel>/i);
+            if (start !== -1 && end !== -1 && end > start) {
+              const inner = text.slice(start, end + '</mxGraphModel>'.length).trim();
+              text = `<mxfile><diagram name="diagram">${inner}</diagram></mxfile>`;
+            } else {
+              throw new Error('未检测到有效的 <mxfile> 或 <mxGraphModel> 片段');
+            }
+          }
+
+          // 如果没有 XML 声明，自动添加
+          if (!text.trim().startsWith('<?xml')) {
+            text = '<?xml version="1.0" encoding="UTF-8"?>\n' + text;
+          }
+
+          return text;
+        };
+
+        // XML 清理函数：修复常见的 XML 格式问题
+        const cleanDrawioXml = (xmlString) => {
+          let cleaned = xmlString;
+
+          // 步骤 1: 移除 XML 声明前的空白字符
+          cleaned = cleaned.trim();
+
+          // 步骤 2: 确保有 XML 声明（有助于正确解析）
+          if (!cleaned.startsWith('<?xml')) {
+            cleaned = '<?xml version="1.0" encoding="UTF-8"?>\n' + cleaned;
+          }
+
+          // 步骤 3: 修复属性值中的换行符和制表符（最常见的问题）
+          // 使用 /gs 标志支持多行匹配
+          cleaned = cleaned.replace(/(\w+)=["']([^"']*?)["']/gs, (match, attrName, attrValue) => {
+            let fixedValue = attrValue
+              .replace(/[\r\n\t]+/g, ' ')           // 换行和制表符 → 空格
+              .replace(/\s{2,}/g, ' ')              // 多个空格 → 单个空格
+              .trim();                               // 去除首尾空格
+
+            // 转义属性值中的特殊字符
+            fixedValue = fixedValue
+              .replace(/&(?!(amp|lt|gt|quot|apos);)/g, '&amp;')  // & → &amp;
+              .replace(/</g, '&lt;')                               // < → &lt;
+              .replace(/>/g, '&gt;');                              // > → &gt;
+
+            // 检查属性值中是否有未转义的引号
+            if (fixedValue.includes('"')) {
+              fixedValue = fixedValue.replace(/"/g, '&quot;');
+              return `${attrName}='${fixedValue}'`;  // 使用单引号包裹
+            }
+
+            return `${attrName}="${fixedValue}"`;
+          });
+
+          // 步骤 4: 修复非法的属性名（移除属性名中的非法字符）
+          cleaned = cleaned.replace(/([^\s<>="']+)\s*=\s*["']/g, (match, attrName) => {
+            // 只保留字母、数字、连字符、下划线、冒号（XML 命名空间）
+            const fixedAttrName = attrName.replace(/[^\w:.-]/g, '');
+            if (!fixedAttrName) return ''; // 如果属性名被完全移除，删除整个属性
+            const quoteChar = match.slice(-1); // 保留原始引号
+            return `${fixedAttrName}=${quoteChar}`;
+          });
+
+          // 步骤 5: 移除注释中的双连字符（-- 在注释中是非法的）
+          cleaned = cleaned.replace(/<!--([\s\S]*?)-->/g, (match, content) => {
+            const fixedContent = content.replace(/--/g, '- -');
+            return `<!--${fixedContent}-->`;
+          });
+
+          // 步骤 6: 修复自闭合标签格式
+          cleaned = cleaned.replace(/<(\w+)([^>]*?)\/>/g, (match, tagName, attrs) => {
+            // 确保 /> 前有空格
+            return `<${tagName}${attrs.trimEnd()} />`;
+          });
+
+          return cleaned;
+        };
+
+        // XML 验证函数：检查 XML 是否可以被解析
+        const validateDrawioXml = (xmlString) => {
+          try {
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(xmlString, 'text/xml');
+
+            // 检查解析错误
+            const parserError = xmlDoc.querySelector('parsererror');
+            if (parserError) {
+              const errorText = parserError.textContent || parserError.innerText || '';
+              throw new Error(`XML 解析错误: ${errorText.substring(0, 200)}`);
+            }
+
+            // 检查必要的元素
+            const mxfile = xmlDoc.querySelector('mxfile');
+            if (!mxfile) {
+              throw new Error('缺少 <mxfile> 根元素');
+            }
+
+            const diagram = mxfile.querySelector('diagram');
+            if (!diagram) {
+              throw new Error('缺少 <diagram> 元素');
+            }
+
+            return true;
+          } catch (error) {
+            throw new Error(`XML 验证失败: ${error.message}`);
+          }
+        };
+
+        // 提取原始 XML
+        let xml = extractAndFixDrawioXml(assistantResponseContent);
+
+        // 多轮修复策略：尝试不同的修复方法
+        const repairStrategies = [
+          // 策略 1: 标准清理（处理换行、转义等）
+          (xmlStr) => cleanDrawioXml(xmlStr),
+
+          // 策略 2: 激进清理（移除所有属性中的问题字符）
+          (xmlStr) => {
+            let fixed = cleanDrawioXml(xmlStr);
+            // 移除属性值中的所有控制字符
+            fixed = fixed.replace(/(\w+)=["']([^"']*?)["']/gs, (match, attrName, attrValue) => {
+              const cleanValue = attrValue
+                .replace(/[\x00-\x1F\x7F-\x9F]/g, ' ')  // 移除控制字符
+                .replace(/\s+/g, ' ')                    // 合并空格
+                .trim();
+              return `${attrName}="${cleanValue}"`;
+            });
+            return fixed;
+          },
+
+          // 策略 3: 最小化修复（只处理关键问题）
+          (xmlStr) => {
+            let fixed = xmlStr.trim();
+            // 只修复最关键的问题：换行符
+            fixed = fixed.replace(/(\w+)=["']([^"']*?)["']/gs, (match, attrName, attrValue) => {
+              const cleanValue = attrValue.replace(/[\r\n]+/g, ' ').trim();
+              return `${attrName}="${cleanValue}"`;
+            });
+            return fixed;
+          },
+
+          // 策略 4: 使用原始 XML（不做任何处理）
+          (xmlStr) => xmlStr
+        ];
+
+        let validXml = null;
+        let usedStrategy = -1;
+
+        // 依次尝试每个修复策略
+        for (let i = 0; i < repairStrategies.length; i++) {
+          try {
+            const repairedXml = repairStrategies[i](xml);
+            validateDrawioXml(repairedXml);
+            validXml = repairedXml;
+            usedStrategy = i;
+            console.log(`[Draw.io] 使用修复策略 ${i + 1} 成功`);
+            break;
+          } catch (error) {
+            console.warn(`[Draw.io] 修复策略 ${i + 1} 失败:`, error.message);
+          }
+        }
+
+        // 如果所有策略都失败，保存原始 XML 并显示友好的错误信息
+        if (!validXml) {
+          console.error('[Draw.io] 所有修复策略均失败，保存原始 XML 供手动编辑');
+
+          // 仍然保存原始 XML 到 localStorage（用户可以手动修复）
+          window.localStorage.setItem('drawioData_' + docIdForThisMessage, xml);
+          console.log('[Draw.io] 原始 XML 已保存到 localStorage (需要手动修复), key:', 'drawioData_' + docIdForThisMessage);
+
+          // 显示友好的错误提示，包含手动编辑选项
+          const errorHtml = `
+            <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:16px;margin-top:16px;">
+              <div style="display:flex;align-items:start;gap:12px;">
+                <div style="font-size:24px;">⚠️</div>
+                <div style="flex:1;">
+                  <div style="font-weight:600;color:#856404;margin-bottom:8px;">配图 XML 需要手动修复</div>
+                  <div style="font-size:14px;color:#856404;margin-bottom:12px;">
+                    AI 生成的 XML 包含格式错误，自动修复失败。您可以：
+                  </div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button onclick="window.open((window.location.pathname.endsWith('/history_detail.html') ? '../drawio/drawio.html' : 'views/drawio/drawio.html') + '?docId=${encodeURIComponent(docIdForThisMessage)}', '_blank')"
+                            style="padding:8px 16px;background:#3b82f6;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">
+                      🛠️ 在编辑器中手动修复
+                    </button>
+                    <button onclick="navigator.clipboard.writeText(\`${xml.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`);this.textContent='✓ 已复制'"
+                            style="padding:8px 16px;background:#6c757d;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">
+                      📋 复制 XML
+                    </button>
+                    <button onclick="if(window.ChatbotActions && window.ChatbotActions.deleteMessage) window.ChatbotActions.deleteMessage(${assistantMsgIndex})"
+                            style="padding:8px 16px;background:#dc3545;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">
+                      🗑️ 删除此消息
+                    </button>
+                  </div>
+                  <div style="font-size:12px;color:#856404;margin-top:8px;line-height:1.4;">
+                    💡 提示：点击"在编辑器中手动修复"可以在左侧文本框中编辑 XML，修复后刷新右侧预览。
+                  </div>
+                </div>
+              </div>
+            </div>
+          `;
+
+          chatHistory[assistantMsgIndex].content = errorHtml;
+          chatHistory[assistantMsgIndex].isDrawioPictures = false; // 不显示成功的卡片
+          return; // 不抛出错误，避免进入 catch 块
+        }
+
+        // 使用修复成功的 XML
+        xml = validXml;
+
+        // 🎨 应用布局优化（网格对齐、间距、连接等）
+        try {
+          if (window.DrawioLayoutOptimizer && typeof window.DrawioLayoutOptimizer.optimizeDrawioLayout === 'function') {
+            console.log('[Draw.io] 正在应用布局优化...');
+            xml = window.DrawioLayoutOptimizer.optimizeDrawioLayout(xml, {
+              gridAlignment: true,  // 网格对齐
+              spacing: true,        // 间距优化
+              connections: true,    // 连接优化
+              styles: false         // 不统一样式（保留 AI 的颜色选择）
+            });
+            console.log('[Draw.io] ✅ 布局优化完成');
+          } else {
+            console.warn('[Draw.io] 布局优化模块未加载，跳过优化');
+          }
+        } catch (optimizeError) {
+          console.warn('[Draw.io] 布局优化失败，使用原始 XML:', optimizeError);
+          // 优化失败不影响主流程，继续使用未优化的 XML
+        }
+
+        // 🎓 应用学术增强（Paper Burner 专属：语义配色 + 学术规范）
+        try {
+          if (window.DrawioAcademicEnhancer && typeof window.DrawioAcademicEnhancer.enhanceAcademicDiagram === 'function') {
+            console.log('[Draw.io] 🎓 正在应用学术增强...');
+            xml = window.DrawioAcademicEnhancer.enhanceAcademicDiagram(xml, {
+              level: 2,           // Level 2: 基础 + 语义配色（默认）
+              autoDetect: true    // 自动检测图表类型
+            });
+            console.log('[Draw.io] ✅ 学术增强完成');
+          } else {
+            console.warn('[Draw.io] 学术增强模块未加载，跳过增强');
+          }
+        } catch (enhanceError) {
+          console.warn('[Draw.io] 学术增强失败，使用原始 XML:', enhanceError);
+          // 增强失败不影响主流程
+        }
+
+        // 存到 localStorage，key 与 mindmap 一致风格
+        window.localStorage.setItem('drawioData_' + docIdForThisMessage, xml);
+        console.log('[Draw.io] XML 已保存到 localStorage, key:', 'drawioData_' + docIdForThisMessage);
+
+        // 用一个轻量占位内容替换聊天正文，后续由 MessageRenderer 渲染卡片
+        chatHistory[assistantMsgIndex].content = '[DRAWIO_XML_EMBED]';
+        chatHistory[assistantMsgIndex].isDrawioPictures = true;
+      } catch (error) {
+        console.error('[Draw.io] XML 处理失败:', error);
+        chatHistory[assistantMsgIndex].content += '\n\n<div style="color:#e53e3e;background:#fee;padding:12px;border-radius:6px;margin-top:16px;">⚠️ 配图 XML 处理失败: ' + error.message + '</div>';
+        chatHistory[assistantMsgIndex].isDrawioPictures = false;
       }
     }
   } catch (e) {

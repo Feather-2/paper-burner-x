@@ -356,49 +356,17 @@
                 window.DockLogic.forceUpdateReadingProgress();
             }
         }
-        
-        // 强制修复沉浸模式下的布局问题
+
+        // 为滚动容器添加标记 class，供 JS 查询使用
         if (immersiveMainArea) {
             const container = immersiveMainArea.querySelector('.container');
             if (container) {
-                // 强制container为flex布局
-                container.style.display = 'flex';
-                container.style.flexDirection = 'column';
-                container.style.height = '100%';
-                
                 const tabContent = container.querySelector('.tab-content');
                 if (tabContent) {
-                    // 强制tab-content正确填充
-                    tabContent.style.display = 'flex';
-                    tabContent.style.flexDirection = 'column';
-                    tabContent.style.flex = '1';
-                    tabContent.style.minHeight = '0';
-                    tabContent.style.overflow = 'hidden';
-                    
-                    // 处理不同类型的内容容器
-                    const contentWrapper = tabContent.querySelector('.content-wrapper');
-                    const chunkCompareContainer = tabContent.querySelector('.chunk-compare-container');
-                    
-                    if (contentWrapper) {
-                        contentWrapper.style.flex = '1';
-                        contentWrapper.style.overflowY = 'auto';
-                        contentWrapper.style.minHeight = '0';
-                        contentWrapper.style.margin = '0';
-                    }
-                    
-                    if (chunkCompareContainer) {
-                        chunkCompareContainer.style.flex = '1';
-                        chunkCompareContainer.style.overflowY = 'auto';
-                        chunkCompareContainer.style.minHeight = '0';
-                    }
-                    
-                    // 确保h3标题不参与flex计算
-                    const h3Title = tabContent.querySelector('h3');
-                    if (h3Title) {
-                        h3Title.style.flex = 'none';
-                        h3Title.style.marginTop = '0';
-                        h3Title.style.marginBottom = '16px';
-                    }
+                    // 添加 .js-scroll-container 标记，供 DockLogic 等模块查询
+                    // CSS 通过 body.immersive-active 选择器自动控制 overflow
+                    tabContent.classList.add('js-scroll-container');
+                    console.log("[ImmersiveLayout] 已为 tab-content 添加 js-scroll-container 标记");
                 }
             }
         }
@@ -490,7 +458,16 @@
         immersiveContainer.style.opacity = '';
         immersiveContainer.style.transform = '';
       }
-      
+
+      // 清理滚动容器标记 class
+      if (mainPageContainer) {
+        const tabContent = mainPageContainer.querySelector('.tab-content');
+        if (tabContent) {
+          tabContent.classList.remove('js-scroll-container');
+          console.log("[ImmersiveLayout] 已移除 tab-content 的 js-scroll-container 标记");
+        }
+      }
+
       if (toggleBtn) {
         toggleBtn.innerHTML = '<i class="fas fa-expand-alt"></i>';
         toggleBtn.classList.remove('immersive-exit-btn-active');

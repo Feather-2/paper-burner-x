@@ -1,0 +1,304 @@
+/**
+ * Annotations - 批注管理组件
+ *
+ * 职责：批注摘要、表格、筛选、高亮
+ * 作用域：批注功能相关样式
+ * 依赖：variables.css
+ *
+ * 提取自：history_detail_inline_styles.css
+ *
+ * 包含：
+ * - 批注摘要模态框
+ * - 批注表格样式
+ * - 颜色筛选器
+ * - 文本预览对话框
+ * - 跳转高亮效果
+ */
+
+/* ==================== 1. 批注摘要模态框 ==================== */
+
+#annotations-summary-modal .modal-content {
+  max-width: 80%;
+  width: 950px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+#annotations-summary-modal .modal-close-btn {
+  position: absolute;
+  top: var(--spacing-md);
+  right: 18px;
+  font-size: 2em;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  z-index: 10;
+  background: none;
+  border: none;
+  line-height: 1;
+  padding: 0;
+  transition: color var(--transition-fast);
+}
+
+#annotations-summary-modal .modal-close-btn:hover {
+  color: var(--color-text-primary);
+}
+
+#annotations-summary-modal .table-container {
+  overflow-y: auto;
+  flex-grow: 1;
+  margin-top: var(--spacing-md);
+  border: 1px solid var(--color-border);
+}
+
+/* ==================== 2. 批注表格样式 ==================== */
+
+#annotations-summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+#annotations-summary-table th,
+#annotations-summary-table td {
+  border: 1px solid var(--color-border);
+  padding: 10px var(--spacing-sm);
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+#annotations-summary-table th {
+  background-color: #f7f7f7;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-weight: var(--font-weight-semibold);
+}
+
+#annotations-summary-table .color-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 1px solid #ccc;
+  border-radius: var(--radius-sm);
+  vertical-align: middle;
+  box-shadow: var(--shadow-xs);
+}
+
+#annotations-summary-table .action-btn {
+  padding: 5px 10px;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  border: 1px solid var(--color-primary);
+  background-color: #fff;
+  color: var(--color-primary);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast) ease;
+}
+
+#annotations-summary-table .action-btn:hover {
+  background-color: var(--color-primary);
+  color: #fff;
+}
+
+#annotations-summary-table .action-btn:disabled {
+  border-color: #ccc;
+  background-color: #f0f0f0;
+  color: #aaa;
+  cursor: not-allowed;
+}
+
+/* ==================== 3. 批注表格增强 ==================== */
+
+#annotations-summary-table td {
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#annotations-summary-table td:nth-child(4) {
+  cursor: pointer;
+  position: relative;
+}
+
+#annotations-summary-table td:nth-child(4):hover {
+  background-color: #f0f0f0;
+}
+
+#annotations-summary-table td:nth-child(4)::after {
+  content: "👁️";
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+#annotations-summary-table td:nth-child(4):hover::after {
+  opacity: 0.7;
+}
+
+/* ==================== 4. 批注控制栏 ==================== */
+
+.annotations-summary-controls {
+  margin-bottom: var(--spacing-md);
+  display: flex;
+  gap: var(--spacing-lg);
+  align-items: center;
+  padding: 10px;
+  background-color: #f9f9f9;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  flex-wrap: wrap;
+}
+
+.annotations-summary-controls label {
+  margin-right: 5px;
+  font-weight: var(--font-weight-medium);
+}
+
+.annotations-summary-controls select {
+  padding: 6px var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  border: 1px solid #ccc;
+  background-color: #fff;
+}
+
+/* ==================== 5. 颜色筛选器 ==================== */
+
+.annotations-summary-color-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  flex-wrap: wrap;
+  padding: 5px;
+  border: 1px solid #eee;
+  border-radius: var(--radius-sm);
+  background-color: #fafafa;
+}
+
+.annotations-summary-color-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 6px;
+  cursor: pointer;
+  padding: 3px 5px;
+  border-radius: 3px;
+  transition: background-color var(--transition-fast);
+}
+
+.annotations-summary-color-checkbox:hover {
+  background-color: #f0f0f0;
+}
+
+.annotations-summary-color-checkbox input[type="checkbox"] {
+  margin: 0 2px 0 0;
+  accent-color: var(--color-primary);
+}
+
+.annotations-summary-color-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid #bbb;
+  display: inline-block;
+  margin-right: 2px;
+}
+
+/* ==================== 6. 文本预览对话框 ==================== */
+
+.full-text-dialog {
+  animation: fadeIn var(--transition-fast) ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+}
+
+.full-text-dialog button {
+  background-color: #f0f0f0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.full-text-dialog button:hover {
+  background-color: #e0e0e0;
+}
+
+/* ==================== 7. 跳转高亮效果 ==================== */
+
+.jump-to-highlight-effect {
+  transition: background-color 0.3s ease-in-out, box-shadow 0.3s ease-in-out;
+  background-color: rgba(255, 220, 0, 0.45) !important;
+  box-shadow: 0 0 12px rgba(255, 220, 0, 0.6) !important;
+  border-radius: 5px !important;
+  outline: 2px solid rgba(255, 200, 0, 0.7);
+}
+
+/* ==================== 8. 深色模式支持 ==================== */
+
+@media (prefers-color-scheme: dark) {
+  #annotations-summary-table th {
+    background-color: #1e293b;
+    color: #e2e8f0;
+  }
+
+  #annotations-summary-table td:nth-child(4):hover {
+    background-color: #334155;
+  }
+
+  .annotations-summary-controls {
+    background-color: #1e293b;
+    border-color: #334155;
+  }
+
+  .annotations-summary-controls select {
+    background-color: #0f172a;
+    color: #e2e8f0;
+    border-color: #334155;
+  }
+
+  .annotations-summary-color-filter {
+    background-color: #1e293b;
+    border-color: #334155;
+  }
+
+  .annotations-summary-color-checkbox:hover {
+    background-color: #334155;
+  }
+
+  .full-text-dialog button {
+    background-color: #334155;
+    border-color: #475569;
+    color: #e2e8f0;
+  }
+
+  .full-text-dialog button:hover {
+    background-color: #475569;
+  }
+}
+
+/* ==================== 9. 打印样式 ==================== */
+
+@media print {
+  .annotations-summary-controls {
+    display: none !important;
+  }
+
+  #annotations-summary-table .action-btn {
+    display: none !important;
+  }
+}

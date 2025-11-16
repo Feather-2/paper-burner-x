@@ -11,17 +11,12 @@
 <link rel="preload" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/fonts/KaTeX_AMS-Regular.woff2" as="font" type="font/woff2" crossorigin>  <link rel="preload" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/fonts/KaTeX_Size3-Regular.woff2" as="font" type="font/woff2" crossorigin>  <link rel="preload" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/fonts/KaTeX_Size4-Regular.woff2" as="font" type="font/woff2" crossorigin>
   <link type="text/css" rel="stylesheet" href="https://gcore.jsdelivr.net/npm/jsmind/style/jsmind.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <!-- Iconify 图标库（用于侧边栏） -->
+  <script src="https://gcore.jsdelivr.net/npm/iconify-icon@2.0.0/dist/iconify-icon.min.js"></script>
+  <!-- Main CSS Entry Point (100% Modular Architecture) -->
   <link rel="stylesheet" href="../../css/history_detail.css">
-  <link rel="stylesheet" href="../../css/history_detail_inline_styles.css">
-  <link rel="stylesheet" href="../../css/markdown-enhanced.css">
-  <link rel="stylesheet" href="../../css/math-display-fix.css">
-  <link rel="stylesheet" href="../../css/immersive_layout.css"> <!-- 新增沉浸式布局CSS -->
-  <link rel="stylesheet" href="../../css/unified-button-sizes.css"> <!-- 统一按钮尺寸系统 -->
-  <link rel="stylesheet" href="../../css/chunk_compare_optimizer.css"> <!-- 分块对比优化样式 -->
-  <link rel="stylesheet" href="../../css/reference-manager.css"> <!-- 参考文献管理 -->
-  <link rel="stylesheet" href="../../css/history_detail/lightbox.css"> <!-- 图片灯箱样式 -->
-  <link rel="stylesheet" href="../../css/chatbot-model-config-modal.css"> <!-- Chatbot配置弹窗 -->
-  <link rel="stylesheet" href="../../css/chatbot-message-actions.css"> <!-- Phase 3: 消息按钮样式（事件委托优化） -->
+
+  <!-- All CSS now imported via history_detail.css (Phase 9 完成) -->
 
 </head>
 <body>
@@ -67,6 +62,132 @@
     <!-- Removed Placeholder for Dock in immersive mode -->
   </div>
 
+  <!-- ========== App Shell 包装器（非沉浸模式） ========== -->
+  <div class="app-shell" id="app-shell">
+    <!-- 移动端侧边栏遮罩 -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <!-- ========== 统一侧边栏 ========== -->
+    <aside class="app-sidebar" id="appSidebar">
+      <!-- 侧边栏头部 -->
+      <div class="sidebar-header">
+        <img src="../../public/h_with_name.svg" alt="Paper Burner X" class="sidebar-logo" id="sidebarLogo">
+        <!-- 桌面端收起按钮 -->
+        <button class="sidebar-toggle-btn" id="sidebarToggleBtn" title="切换侧边栏">
+          <iconify-icon icon="carbon:side-panel-close" width="20" id="sidebarToggleIcon"></iconify-icon>
+        </button>
+        <!-- 移动端关闭按钮 -->
+        <button class="sidebar-close-btn" id="sidebarCloseBtn">
+          <iconify-icon icon="carbon:close" width="20"></iconify-icon>
+        </button>
+      </div>
+
+      <!-- 侧边栏导航 -->
+      <nav class="sidebar-nav">
+        <!-- 主要功能区 -->
+        <div class="nav-section-title">主要功能</div>
+
+        <!-- 回到工作台 -->
+        <a href="../../index.html" class="nav-item">
+          <iconify-icon icon="carbon:dashboard" class="nav-icon"></iconify-icon>
+          <span class="nav-text">回到工作台</span>
+        </a>
+
+        <!-- 分隔线 -->
+        <div class="sidebar-divider"></div>
+
+        <!-- 文档结构区 -->
+        <div class="nav-section-title">文档结构</div>
+
+        <!-- TOC 目录（可折叠） -->
+        <div class="sidebar-section expanded" id="sidebarTocSection">
+          <button class="sidebar-section-header" id="sidebarTocToggle">
+            <span class="sidebar-section-title">
+              <iconify-icon icon="carbon:list"></iconify-icon>
+              <span>目录</span>
+            </span>
+            <iconify-icon icon="carbon:chevron-right" class="sidebar-section-chevron" width="16"></iconify-icon>
+          </button>
+          <div class="sidebar-section-content">
+            <ul class="sidebar-toc-list" id="sidebarTocList">
+              <!-- TOC 项目将由 JavaScript 填充 -->
+              <li class="sidebar-empty-state">
+                <div>加载中...</div>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </nav>
+
+      <!-- 侧边栏底部（紧凑布局） -->
+      <div class="sidebar-footer-compact">
+        <div class="sidebar-progress" id="sidebarReadingProgress">0%</div>
+        <div class="sidebar-quick-stats">
+          <div class="sidebar-quick-stat" data-stat-type="highlight" title="高亮">
+            <iconify-icon icon="carbon:highlight" width="14"></iconify-icon>
+            <span id="sidebarHighlightCount">0</span>
+          </div>
+          <div class="sidebar-quick-stat" data-stat-type="annotation" title="批注">
+            <iconify-icon icon="carbon:annotation" width="14"></iconify-icon>
+            <span id="sidebarAnnotationCount">0</span>
+          </div>
+          <div class="sidebar-quick-stat-divider"></div>
+          <div class="sidebar-quick-stat" title="图片">
+            <iconify-icon icon="carbon:image" width="14"></iconify-icon>
+            <span id="sidebarImageCount">0</span>
+          </div>
+          <div class="sidebar-quick-stat" title="公式">
+            <iconify-icon icon="carbon:formula" width="14"></iconify-icon>
+            <span id="sidebarFormulaCount">0</span>
+          </div>
+          <div class="sidebar-quick-stat" title="表格">
+            <iconify-icon icon="carbon:table" width="14"></iconify-icon>
+            <span id="sidebarTableCount">0</span>
+          </div>
+          <div class="sidebar-quick-stat" title="总字数">
+            <iconify-icon icon="carbon:character-whole-number" width="14"></iconify-icon>
+            <span id="sidebarWordCount">0</span>
+          </div>
+          <div class="sidebar-quick-stat" data-stat-type="reference" title="文献">
+            <iconify-icon icon="carbon:document-multiple-01" width="14"></iconify-icon>
+            <span id="sidebarReferenceCount">0</span>
+          </div>
+        </div>
+        <button class="sidebar-settings-btn" id="sidebarSettingsLink" title="设置">
+          <iconify-icon icon="carbon:settings" width="18"></iconify-icon>
+        </button>
+      </div>
+
+      <!-- 隐藏的统计数据容器已移除，所有元素已在底部显示 -->
+    </aside>
+
+    <!-- ========== 主内容区 ========== -->
+    <main class="app-main">
+      <!-- 移动端顶部栏 -->
+      <div class="mobile-header">
+        <div class="mobile-header-title">
+          <img src="../../public/pure.svg" alt="PBX" class="mobile-header-logo">
+          <span>文档详情</span>
+        </div>
+        <button class="mobile-menu-btn" id="mobileMenuBtn">
+          <iconify-icon icon="carbon:menu" width="24"></iconify-icon>
+        </button>
+      </div>
+
+      <!-- 旧的 TOC 和 Dock（隐藏但保留以便向后兼容） -->
+      <div style="display: none;" id="legacy-toc-dock-wrapper">
+  <!-- ===================== -->
+  <!-- 浮动TOC目录按钮及悬浮窗 -->
+  <!-- ===================== -->
+  <div id="toc-float-btn" class="tiny-round-btn"><i class="fa fa-list"></i></div>
+  <div id="toc-popup" class="toc-popup-hidden">
+    <div id="toc-popup-header">
+      <span><i class="fa fa-list"></i>目录 / TOC</span>
+      <button id="toc-popup-close-btn">关闭</button>
+    </div>
+    <ul id="toc-list"></ul>
+  </div>
+
   <!-- NEW DOCK STRUCTURE -->
   <div id="bottom-left-dock">
     <div id="dock-info-stack">
@@ -93,18 +214,7 @@
       <a href="#" id="dock-toggle-btn" title="折叠"><i class="fa fa-chevron-down"></i></a>
     </div>
   </div>
-
-  <!-- ===================== -->
-  <!-- 浮动TOC目录按钮及悬浮窗 -->
-  <!-- ===================== -->
-  <div id="toc-float-btn" class="tiny-round-btn"><i class="fa fa-list"></i></div>
-  <div id="toc-popup" class="toc-popup-hidden">
-    <div id="toc-popup-header">
-      <span><i class="fa fa-list"></i>目录 / TOC</span>
-      <button id="toc-popup-close-btn">关闭</button>
-    </div>
-    <ul id="toc-list"></ul>
-  </div>
+      </div> <!-- End legacy-toc-dock-wrapper -->
 
   <!-- ===================== -->
   <!-- 主内容容器 -->
@@ -288,6 +398,9 @@
     </div>
   </div>
 
+    </main> <!-- End app-main -->
+  </div> <!-- End app-shell -->
+
   <!-- ===================== -->
   <!-- 依赖的JS库 -->
   <!-- ===================== -->
@@ -302,7 +415,7 @@
   <script src="../../js/annotations/custom_markdown_renderer.js"></script> <!-- Defines createCustomMarkdownRenderer -->
   <script src="../../js/annotations/annotation_highlighter.js"></script>   <!-- Defines applyPreprocessedAnnotations, uses helpers from annotation_logic.js -->
   <!-- 移除失效的注释相关脚本引用 -->
-  <script src="../../js/ui/toc_logic.js"></script>
+  <script src="../../js/ui/toc_logic_enhanced.js"></script>
   <script src="../../js/ui/toc_scroll_sync.js"></script>
   <script src="https://gcore.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
@@ -338,6 +451,10 @@
   <!-- Phase 4.2+: KaTeX 缓存持久化（localStorage 自动保存和恢复） -->
   <script src="../../js/chatbot/utils/katex-cache-persistence.js"></script>
   <script src="../../js/chatbot/prompt/prompt-constructor.js"></script> <!-- Add this line -->
+  <!-- Draw.io 布局优化模块（必须在 message-sender.js 之前加载） -->
+  <script src="../../js/chatbot/utils/drawio-layout-optimizer.js"></script>
+  <!-- Draw.io 学术增强模块（Paper Burner 专属：语义配色 + 学术规范） -->
+  <script src="../../js/chatbot/utils/drawio-academic-enhancer.js"></script>
   <script src="../../js/chatbot/utils/chatbot-utils.js"></script>
   <script src="../../js/chatbot/prompt/chatbot-preset.js"></script>
   <script src="../../js/chatbot/utils/chatbot-image-utils.js"></script> <!-- Moved up to be with other utils -->
@@ -433,7 +550,6 @@
   <script src="../../js/history/history_detail_show_tab.js"></script>
   <script src="../../js/history/history_detail_scripts.js"></script>
   <script src="../../js/ui/immersive_layout_logic.js"></script> <!-- 新增沉浸式布局JS -->
-  <script src="../../js/ui/immersive_layout_fix.js"></script> <!-- 新增沉浸式布局修复JS -->
   <script src="../../js/ui/chunk_compare_optimizer.js"></script> <!-- 分块对比性能优化器 -->
   <script src="../../js/ui/chunk_compare_integration.js"></script> <!-- 分块对比优化器集成 -->
   <script src="../../js/ui/chunk_compare_performance_tester.js"></script> <!-- 分块对比性能测试器 -->
@@ -448,6 +564,9 @@
   <script src="../../js/storage/reference-storage.js"></script>
   <script src="../../js/ui/reference-manager-ui.js"></script>
   <script src="../../js/ui/reference-manager-detail.js"></script> <!-- 详情页专用 -->
+
+  <!-- 统一侧边栏集成 (Non-Immersive Mode) -->
+  <script src="../../js/ui/sidebar-integration.js"></script>
 
 </body>
 </html>

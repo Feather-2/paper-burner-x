@@ -116,7 +116,8 @@ window.ChatbotPresetQuestionsUI = {
     // 填充预设问题按钮
     const presetQuestions = (window.ChatbotPreset && window.ChatbotPreset.PRESET_QUESTIONS) ? window.ChatbotPreset.PRESET_QUESTIONS : [
       '总结本文', '有哪些关键公式？', '研究背景与意义？', '研究方法及发现？',
-      '应用与前景？', '用通俗语言解释全文', '生成思维导图🧠', '生成流程图🔄'
+      '应用与前景？', '用通俗语言解释全文', '生成思维导图🧠', '生成流程图🔄',
+      '生成更多配图🎨'
     ];
     presetQuestions.forEach(q => {
       const button = document.createElement('button');
@@ -145,7 +146,19 @@ window.ChatbotPresetQuestionsUI = {
         this.style.color='#374151';
       };
       // 使用 encodeURIComponent/decodeURIComponent 来处理特殊字符
-      button.onclick = function() { handlePresetQuestionCallback(decodeURIComponent(encodeURIComponent(q))); };
+      button.onclick = function() {
+        const text = decodeURIComponent(encodeURIComponent(q));
+        // 对“生成更多配图”做特殊处理：只帮用户打出前缀 [加入配图]，不直接发送复杂提示
+        if (text.startsWith('生成更多配图')) {
+          const input = document.getElementById('chatbot-input');
+          if (input) {
+            input.value = '[加入配图] ';
+            input.focus();
+          }
+          return;
+        }
+        handlePresetQuestionCallback(text);
+      };
       button.textContent = q;
       newPresetBody.appendChild(button);
     });

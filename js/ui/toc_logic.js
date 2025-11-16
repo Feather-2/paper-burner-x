@@ -1117,8 +1117,18 @@
     // 递归构建TOC HTML
     function buildTocHtml(items, parentElement) {
       items.forEach(item => {
-        // 跳过id为placeholder的空项（如果有的话）
-        if (item.id && item.id.indexOf('placeholder') === 0 && !item.text) return;
+        // 跳过占位符和空标题
+        // 1. 空标题
+        // 2. "未命名章节"占位符
+        // 3. placeholder- 开头的ID（占位符标识）
+        // 4. undefined/null 文本
+        if (!item.text ||
+            item.text === '未命名章节' ||
+            item.text === 'undefined' ||
+            item.text === 'null' ||
+            (item.id && item.id.indexOf('placeholder-') === 0)) {
+          return;
+        }
 
         const li = document.createElement('li');
         const hasChildren = item.children && item.children.length > 0;

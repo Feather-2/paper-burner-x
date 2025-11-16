@@ -49,6 +49,21 @@ window.PromptConstructor = (function() {
       systemPrompt += mindMapPrompt;
     }
 
+    // 检查是否是配图（draw.io）请求：基于前缀 [加入配图]
+    let isDrawioPicturesRequest = false;
+    if (window.ChatbotPreset && typeof window.ChatbotPreset.isDrawioPicturesRequest === 'function') {
+      isDrawioPicturesRequest = window.ChatbotPreset.isDrawioPicturesRequest(plainTextInput);
+    } else if (plainTextInput) {
+      isDrawioPicturesRequest = plainTextInput.trim().startsWith('[加入配图]');
+    }
+
+    if (isDrawioPicturesRequest) {
+      const drawioPrompt = window.ChatbotPreset && window.ChatbotPreset.DRAWIO_PICTURES_PROMPT
+        ? window.ChatbotPreset.DRAWIO_PICTURES_PROMPT
+        : '\n\n请根据当前文章内容和用户要求，为读者补充所需的配图，并以 diagrams.net / draw.io 兼容的 XML 格式输出，仅输出 XML。';
+      systemPrompt += drawioPrompt;
+    }
+
     // 获取文档内容（优先翻译，没有就用OCR）
     let content = '';
     // Read the active summary source from global options, default to 'translation'

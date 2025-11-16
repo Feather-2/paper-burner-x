@@ -1,0 +1,332 @@
+/**
+ * Typography - 排版系统
+ *
+ * 职责：定义标题、段落、列表等文本元素的样式
+ * 作用域：全局与 .markdown-content 作用域
+ * 依赖：variables.css
+ */
+
+/* ==================== 标题层级 ==================== */
+
+h1 {
+  font-size: var(--font-size-xxl);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+  margin-bottom: var(--spacing-lg);
+}
+
+h2 {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  margin-bottom: var(--spacing-md);
+}
+
+h3 {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-base);
+  margin-bottom: var(--spacing-md);
+}
+
+h4 {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-base);
+  margin-bottom: var(--spacing-sm);
+}
+
+h5 {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-base);
+  margin-bottom: var(--spacing-sm);
+}
+
+h6 {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-base);
+  margin-bottom: var(--spacing-xs);
+}
+
+/* ==================== 段落与文本块 ==================== */
+
+p {
+  margin-bottom: var(--spacing-md);
+  line-height: var(--line-height-relaxed);
+}
+
+p:last-child {
+  margin-bottom: 0;
+}
+
+/* ==================== 列表 ==================== */
+
+ul,
+ol {
+  margin-bottom: var(--spacing-md);
+  padding-left: var(--spacing-lg);
+}
+
+ul {
+  list-style-type: disc;
+}
+
+ol {
+  list-style-type: decimal;
+}
+
+li {
+  margin-bottom: var(--spacing-xs);
+  line-height: var(--line-height-relaxed);
+}
+
+li:last-child {
+  margin-bottom: 0;
+}
+
+/* 嵌套列表 */
+ul ul,
+ol ul {
+  list-style-type: circle;
+  margin-top: var(--spacing-xs);
+}
+
+ul ol,
+ol ol {
+  list-style-type: lower-alpha;
+  margin-top: var(--spacing-xs);
+}
+
+/* ==================== 链接 ==================== */
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+a:hover {
+  color: var(--color-primary-hover);
+  text-decoration: underline;
+}
+
+a:active {
+  color: var(--color-primary-active);
+}
+
+/* ==================== 强调与标记 ==================== */
+
+strong,
+b {
+  font-weight: var(--font-weight-bold);
+}
+
+em,
+i {
+  font-style: italic;
+}
+
+mark {
+  background-color: var(--color-highlight-bg);
+  color: var(--color-text-primary);
+  padding: 0 var(--spacing-xs);
+}
+
+del,
+s {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+ins,
+u {
+  text-decoration: underline;
+  text-decoration-color: var(--color-primary);
+}
+
+small {
+  font-size: var(--font-size-xs);
+}
+
+/* ==================== 代码 ==================== */
+
+code {
+  font-family: var(--font-family-monospace);
+  font-size: 0.9em;
+  background-color: var(--color-bg-secondary);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--color-danger);
+}
+
+pre {
+  font-family: var(--font-family-monospace);
+  font-size: var(--font-size-sm);
+  background-color: var(--color-bg-secondary);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  margin-bottom: var(--spacing-md);
+  line-height: var(--line-height-relaxed);
+}
+
+pre code {
+  background-color: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+/* ==================== 引用 ==================== */
+
+blockquote {
+  margin: var(--spacing-md) 0;
+  padding-left: var(--spacing-md);
+  border-left: 4px solid var(--color-border-medium);
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+blockquote p {
+  margin-bottom: var(--spacing-sm);
+}
+
+blockquote cite {
+  display: block;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  font-style: normal;
+  margin-top: var(--spacing-sm);
+}
+
+blockquote cite::before {
+  content: "— ";
+}
+
+/* ==================== 水平分隔线 ==================== */
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--color-border-light);
+  margin: var(--spacing-lg) 0;
+}
+
+/* ==================== 缩写与定义 ==================== */
+
+abbr[title] {
+  text-decoration: underline dotted;
+  cursor: help;
+  border-bottom: 1px dotted var(--color-border-medium);
+}
+
+dfn {
+  font-style: italic;
+  font-weight: var(--font-weight-medium);
+}
+
+/* ==================== Markdown 内容特定样式 ==================== */
+
+.markdown-content {
+  /* 为 Markdown 渲染的内容提供额外的间距 */
+  line-height: var(--line-height-relaxed);
+}
+
+.markdown-content > *:first-child {
+  margin-top: 0;
+}
+
+.markdown-content > *:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-content h1,
+.markdown-content h2 {
+  padding-bottom: var(--spacing-sm);
+  border-bottom: 1px solid var(--color-border-light);
+  margin-top: var(--spacing-xl);
+  margin-bottom: var(--spacing-md);
+}
+
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+  margin-top: var(--spacing-lg);
+  margin-bottom: var(--spacing-sm);
+}
+
+.markdown-content img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: var(--spacing-md) auto;
+  border-radius: var(--radius-md);
+}
+
+.markdown-content table {
+  width: 100%;
+  margin: var(--spacing-md) 0;
+  border-collapse: collapse;
+}
+
+.markdown-content table th,
+.markdown-content table td {
+  padding: var(--spacing-sm);
+  border: 1px solid var(--color-border-light);
+  text-align: left;
+}
+
+.markdown-content table th {
+  background-color: var(--color-bg-secondary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.markdown-content table tr:nth-child(even) {
+  background-color: var(--color-bg-secondary);
+}
+
+/* ==================== 工具类 ==================== */
+
+.text-center {
+  text-align: center;
+}
+
+.text-left {
+  text-align: left;
+}
+
+.text-right {
+  text-align: right;
+}
+
+.text-muted {
+  color: var(--color-text-muted);
+}
+
+.text-small {
+  font-size: var(--font-size-sm);
+}
+
+.text-large {
+  font-size: var(--font-size-lg);
+}
+
+.text-bold {
+  font-weight: var(--font-weight-bold);
+}
+
+.text-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.text-nowrap {
+  white-space: nowrap;
+}
+
+.text-break {
+  word-wrap: break-word;
+  word-break: break-word;
+}

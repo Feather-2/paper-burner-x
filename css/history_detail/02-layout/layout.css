@@ -1,0 +1,74 @@
+/* ====================
+ * 页面基础与布局样式
+ * ==================== */
+body {
+  font-family: var(--font-sans);
+  background: var(--body-bg);
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 40px auto;
+  background: var(--panel-bg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 32px;
+  border: 1px solid var(--color-slate-200); /* 增加微妙的边框提升层次感 */
+}
+
+/* ====================
+ * 标签页导航样式（极简设计）
+ * 设计原则：黑白灰主色 + 蓝色重点色，与侧边栏保持一致
+ * ==================== */
+.tabs-container {
+  display: flex;
+  gap: 0.25rem; /* 4px */
+  border-bottom: 1px solid #e2e8f0; /* slate-200 */
+  margin-bottom: 1.5rem; /* 24px */
+}
+
+.tab-btn {
+  padding: 0.625rem 1rem; /* 10px 16px */
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-size: 0.875rem; /* 14px */
+  font-weight: 500;
+  color: #64748b; /* slate-500 */
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  position: relative;
+}
+
+.tab-btn:hover:not(.active) {
+  color: #0f172a; /* slate-900 */
+  background: #f8fafc; /* slate-50 */
+}
+
+.tab-btn.active {
+  color: #2563eb; /* blue-600 */
+  font-weight: 600;
+  border-bottom-color: #2563eb; /* blue-600 */
+}
+
+/* 适应较小屏幕的标签页按钮 */
+@media (max-width: 768px) {
+  .tab-btn {
+    padding: 0.5rem 0.75rem; /* 8px 12px */
+    font-size: 0.8125rem; /* 13px */
+  }
+}
+
+/* ====================
+ * 标签页内容区域样式
+ * ==================== */
+.tab-content {
+  background: var(--panel-bg);
+  padding: 8px 0;
+  min-height: 300px;
+  margin-top: 0;
+}
+

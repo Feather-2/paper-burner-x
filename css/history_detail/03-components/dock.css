@@ -1,0 +1,452 @@
+/**
+ * Dock 组件样式
+ *
+ * 职责：左下角统计信息 Dock 的完整样式
+ * 作用域：#bottom-left-dock 及其子元素
+ * 依赖：variables.css
+ *
+ * 提取自：history_detail_inline_styles.css
+ *
+ * 重构说明：
+ * 1. 使用 CSS 变量替换硬编码值
+ * 2. 使用 BEM 命名（保留 ID 选择器以兼容现有 JS）
+ * 3. 清晰的状态管理（展开/折叠）
+ * 4. 响应式设计优化
+ */
+
+/* ==================== 1. Dock 容器基础样式 ==================== */
+
+#bottom-left-dock {
+  /* 定位 */
+  position: fixed;
+  bottom: var(--dock-position-bottom);
+  left: var(--dock-position-left);
+  z-index: var(--dock-z-index);
+
+  /* 尺寸 */
+  width: auto;
+  max-width: 180px;
+
+  /* 外观 */
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.95),
+    rgba(248, 250, 252, 0.95)
+  );
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-float),
+    0 0 0 1px rgba(0, 0, 0, 0.05);
+
+  /* 布局 */
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+
+  /* 文本 */
+  color: var(--color-text-primary);
+  font-size: var(--dock-stat-font-size);
+  font-weight: var(--font-weight-medium);
+  font-family: var(--font-family-base);
+
+  /* 动画 */
+  opacity: 0;
+  transform: translateY(10px) scale(0.95);
+  transition: all var(--transition-base) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Dock 显示状态 */
+#bottom-left-dock.visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* Dock 悬停效果 */
+#bottom-left-dock:hover {
+  box-shadow: 0 20px 35px -5px rgba(0, 0, 0, 0.12),
+    0 10px 15px -8px rgba(0, 0, 0, 0.1),
+    0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+/* ==================== 2. Dock 信息栈（展开状态）==================== */
+
+#dock-info-stack {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: var(--spacing-sm) var(--spacing-md);
+  align-items: center;
+  padding: var(--spacing-sm);
+  background: rgba(248, 250, 252, 0.6);
+  border-radius: var(--radius-lg);
+  font-size: 11px;
+}
+
+/* Dock 列 */
+.dock-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+/* 标签列 */
+.dock-labels-column {
+  /* 左侧列 - 标签 */
+}
+
+/* 数值列 */
+.dock-values-column {
+  text-align: left;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.dock-values-column > div {
+  justify-content: flex-end;
+}
+
+/* ==================== 3. 统计项样式 ==================== */
+
+.dock-stat-item-wrapper-progress,
+.dock-stat-item-wrapper-highlight,
+.dock-stat-item-wrapper-annotation,
+.dock-stat-item-wrapper-img,
+.dock-stat-item-wrapper-tbl,
+.dock-stat-item-wrapper-formula,
+.dock-stat-item-wrapper-words {
+  display: flex;
+  align-items: center;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  line-height: var(--line-height-base);
+}
+
+/* 可点击统计项 */
+.stat-item-clickable {
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  padding: 2px var(--spacing-xs);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  text-decoration: underline;
+}
+
+.stat-item-clickable:hover {
+  background-color: rgba(59, 130, 246, 0.1);
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+/* ==================== 4. Dock 控制栏 ==================== */
+
+.dock-control-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background: rgba(248, 250, 252, 0.6);
+  border-radius: var(--radius-lg);
+}
+
+/* 文献引用按钮 */
+.dock-control-bar .stat-item-clickable[data-stat-type="reference"] {
+  color: #1e40af;
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-radius: var(--radius-md);
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.dock-control-bar .stat-item-clickable[data-stat-type="reference"]:hover {
+  background-color: rgba(59, 130, 246, 0.2);
+  color: #1e3a8a;
+  transform: scale(1.02);
+}
+
+/* 控制栏按钮（设置、折叠）*/
+.dock-control-bar a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+  background: transparent;
+}
+
+.dock-control-bar a:hover {
+  color: var(--color-text-primary);
+  background: rgba(226, 232, 240, 0.8);
+  transform: scale(1.05);
+}
+
+/* 设置按钮图标 */
+#settings-link i.fa-cog {
+  font-size: var(--font-size-md);
+}
+
+/* 折叠按钮 */
+#dock-toggle-btn {
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+}
+
+/* 折叠状态下的折叠按钮样式 */
+#bottom-left-dock.dock-collapsed #dock-toggle-btn {
+  margin-left: auto;
+  background: rgba(248, 250, 252, 0.8);
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+#bottom-left-dock.dock-collapsed #dock-toggle-btn:hover {
+  background: rgba(226, 232, 240, 1);
+  transform: scale(1.05);
+}
+
+/* ==================== 5. 折叠进度显示 ==================== */
+
+/* 默认隐藏折叠进度显示 */
+#bottom-left-dock:not(.dock-collapsed) #dock-collapsed-progress-display {
+  display: none;
+}
+
+#dock-collapsed-progress-display {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+/* ==================== 6. 折叠状态样式 ==================== */
+
+#bottom-left-dock.dock-collapsed {
+  /* 布局改为水平 */
+  flex-direction: row;
+  align-items: center;
+  gap: var(--spacing-sm);
+
+  /* 尺寸调整 */
+  padding: var(--spacing-sm) var(--spacing-md);
+  width: auto;
+  max-width: none;
+
+  /* 外观调整 */
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* 折叠时隐藏信息栈 */
+#bottom-left-dock.dock-collapsed #dock-info-stack {
+  display: none;
+}
+
+/* 折叠时简化控制栏 */
+#bottom-left-dock.dock-collapsed .dock-control-bar {
+  background: transparent;
+  padding: 0;
+}
+
+/* 折叠时隐藏文献徽章 */
+#bottom-left-dock.dock-collapsed .dock-control-bar .stat-item-clickable[data-stat-type="reference"] {
+  display: none;
+}
+
+/* 折叠状态下的进度显示 */
+#bottom-left-dock.dock-collapsed #dock-collapsed-progress-display {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: linear-gradient(
+    135deg,
+    rgba(59, 130, 246, 0.1),
+    rgba(37, 99, 235, 0.08)
+  );
+  border-radius: var(--radius-md);
+  color: #1e40af;
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-sm);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+/* 折叠进度显示的书本图标 */
+#bottom-left-dock.dock-collapsed #dock-collapsed-progress-display::before {
+  content: "\f02d";
+  font-family: "Font Awesome 6 Free";
+  font-weight: 900;
+  font-size: var(--font-size-xs);
+  margin-right: var(--spacing-xs);
+}
+
+/* ==================== 7. 阅读进度数值高亮 ==================== */
+
+#reading-progress-percentage-verbose,
+#reading-progress-percentage {
+  color: var(--color-primary);
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-sm);
+}
+
+/* ==================== 8. 兼容旧代码的样式 ==================== */
+
+/* 保留用于兼容性 */
+#dock-stats {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.sub-block {
+  display: inline;
+}
+
+/* ==================== 9. 响应式设计 ==================== */
+
+@media (max-width: 768px) {
+  #bottom-left-dock {
+    bottom: var(--spacing-md);
+    left: var(--spacing-md);
+    max-width: 160px;
+    font-size: 11px;
+    padding: var(--spacing-sm);
+  }
+
+  #dock-info-stack {
+    gap: var(--spacing-xs) var(--spacing-sm);
+    padding: var(--spacing-xs);
+    font-size: 10px;
+  }
+
+  .dock-control-bar {
+    gap: var(--spacing-xs);
+    padding: var(--spacing-xs);
+  }
+
+  .dock-control-bar a {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+@media (max-width: 480px) {
+  #bottom-left-dock {
+    bottom: 10px;
+    left: 10px;
+    max-width: 140px;
+    font-size: 10px;
+  }
+
+  #bottom-left-dock.dock-collapsed {
+    padding: var(--spacing-xs) var(--spacing-sm);
+  }
+
+  #dock-collapsed-progress-display {
+    font-size: 11px;
+    padding: var(--spacing-xs) var(--spacing-sm);
+  }
+}
+
+/* ==================== 10. 沉浸模式下的特殊样式 ==================== */
+
+/* 沉浸模式下 Dock 的样式由 immersive.css 控制 */
+/* 此处仅保留默认状态 */
+
+/* ==================== 11. 打印样式 ==================== */
+
+@media print {
+  #bottom-left-dock {
+    display: none !important;
+  }
+}
+
+/* ==================== 12. 暗色模式支持 ==================== */
+
+@media (prefers-color-scheme: dark) {
+  #bottom-left-dock {
+    background: linear-gradient(
+      135deg,
+      rgba(31, 41, 55, 0.95),
+      rgba(17, 24, 39, 0.95)
+    );
+    border-color: rgba(255, 255, 255, 0.1);
+    color: var(--color-text-inverse, #e5e7eb);
+  }
+
+  #dock-info-stack,
+  .dock-control-bar {
+    background: rgba(31, 41, 55, 0.6);
+  }
+
+  .dock-stat-item-wrapper-progress,
+  .dock-stat-item-wrapper-highlight,
+  .dock-stat-item-wrapper-annotation,
+  .dock-stat-item-wrapper-img,
+  .dock-stat-item-wrapper-tbl,
+  .dock-stat-item-wrapper-formula,
+  .dock-stat-item-wrapper-words {
+    color: #9ca3af;
+  }
+
+  .dock-values-column {
+    color: var(--color-text-inverse, #e5e7eb);
+  }
+
+  .stat-item-clickable {
+    color: #9ca3af;
+  }
+
+  .stat-item-clickable:hover {
+    background-color: rgba(59, 130, 246, 0.2);
+    color: #60a5fa;
+  }
+
+  #bottom-left-dock.dock-collapsed {
+    background: rgba(31, 41, 55, 0.85);
+  }
+
+  .dock-control-bar .stat-item-clickable[data-stat-type="reference"] {
+    background: rgba(59, 130, 246, 0.2);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    color: #60a5fa;
+  }
+
+  .dock-control-bar .stat-item-clickable[data-stat-type="reference"]:hover {
+    background-color: rgba(59, 130, 246, 0.3);
+    color: #93c5fd;
+  }
+
+  .dock-control-bar a {
+    color: #94a3b8;
+  }
+
+  .dock-control-bar a:hover {
+    background: rgba(51, 65, 85, 0.8);
+    color: #e2e8f0;
+  }
+
+  #bottom-left-dock.dock-collapsed #dock-collapsed-progress-display {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(37, 99, 235, 0.15));
+    color: #60a5fa;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+  }
+
+  #reading-progress-percentage-verbose,
+  #reading-progress-percentage {
+    color: #60a5fa;
+  }
+}

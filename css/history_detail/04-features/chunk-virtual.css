@@ -1,0 +1,494 @@
+/**
+ * Chunk Virtual Rendering - 分块虚拟化渲染优化
+ *
+ * 职责：分块对比虚拟化性能优化
+ * 作用域：.chunk-compare-container 及虚拟化相关元素
+ * 依赖：variables.css
+ *
+ * 提取自：chunk_compare_optimizer.css
+ *
+ * 包含：
+ * - 虚拟化占位符样式
+ * - 骨架屏加载动画
+ * - 分块优化渲染
+ * - 性能模式样式
+ * - 加载状态与错误处理
+ */
+
+/* ==================== 1. 虚拟化容器 ==================== */
+
+/* 优化后的分块容器 */
+.chunk-compare-container {
+  position: relative;
+  /* 取消内部滚动与固定高度，改由页面整体滚动 */
+  /* overflow-y: auto; */
+  /* max-height: 80vh; */
+  scroll-behavior: smooth;
+  margin: 0;
+  padding: 0;
+}
+
+/* 移除虚拟化占位符的多余空间 */
+.virtual-spacer-top,
+.virtual-spacer-bottom {
+  margin: 0;
+  padding: 0;
+  line-height: 0;
+  font-size: 0;
+  background: transparent;
+  pointer-events: none;
+}
+
+/* ==================== 2. 骨架屏样式 ==================== */
+
+.skeleton-chunk {
+  margin-bottom: var(--spacing-md);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  background: var(--color-bg-primary);
+}
+
+.skeleton-line {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s infinite;
+  border-radius: var(--radius-sm);
+  height: 12px;
+  margin-bottom: var(--spacing-sm);
+}
+
+.skeleton-title {
+  height: 16px;
+  width: 30%;
+}
+
+.skeleton-label {
+  height: 10px;
+  width: 20%;
+  margin-bottom: 6px;
+}
+
+.skeleton-stat {
+  height: 10px;
+  width: 60px;
+  display: inline-block;
+  margin-right: var(--spacing-sm);
+}
+
+.skeleton-short {
+  width: 60%;
+}
+
+.skeleton-content {
+  margin-bottom: var(--spacing-sm);
+}
+
+.skeleton-button {
+  height: 32px;
+  width: 120px;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s infinite;
+  border-radius: 6px;
+  margin: 0 auto;
+}
+
+.skeleton-stats {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* ==================== 3. 分块预览样式 ==================== */
+
+.chunk-preview-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-sm);
+}
+
+.chunk-compare-title-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1em;
+  padding: 0.5em 0;
+  border-bottom: 1px solid var(--color-border-light);
+}
+
+.chunk-controls {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+}
+
+.chunk-count {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  font-weight: normal;
+}
+
+.performance-btn {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 1.2em;
+  transition: all var(--transition-fast);
+}
+
+.performance-btn:hover {
+  background: #e0e7ff;
+  border-color: var(--color-primary);
+}
+
+.performance-btn.active {
+  background: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+}
+
+/* ==================== 4. 优化分块样式 ==================== */
+
+.optimized-chunk {
+  margin-bottom: 1.5em;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  transition: box-shadow var(--transition-fast);
+  background: var(--color-bg-primary);
+}
+
+.optimized-chunk:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.chunk-header {
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border-light);
+  padding: var(--spacing-sm) var(--spacing-md);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chunk-header h4 {
+  margin: 0;
+  font-size: 1.1em;
+  color: var(--color-text-primary);
+}
+
+.chunk-stats {
+  display: flex;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.chunk-preview-container {
+  padding: var(--spacing-md);
+}
+
+.chunk-preview {
+  margin-bottom: var(--spacing-sm);
+  border: 1px dashed var(--color-border-light);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-sm);
+  background: #fafbfc;
+}
+
+.preview-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-semibold);
+  margin-bottom: 4px;
+}
+
+.preview-content {
+  font-size: var(--font-size-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-text-secondary);
+  max-height: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ==================== 5. 加载完整内容按钮 ==================== */
+
+.load-full-content-btn {
+  background: linear-gradient(135deg, var(--color-primary), #1e40af);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 16px;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  text-align: center;
+  transition: all var(--transition-base);
+  margin-top: var(--spacing-sm);
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+}
+
+.load-full-content-btn:hover {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(59, 130, 246, 0.3);
+}
+
+.load-full-content-btn:active {
+  transform: translateY(0);
+}
+
+.load-full-content-btn:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ==================== 6. 加载状态样式 ==================== */
+
+.chunk-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-lg);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.chunk-loading::before {
+  content: '';
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--color-border-light);
+  border-top: 2px solid var(--color-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-right: var(--spacing-sm);
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.chunk-loading-indicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-lg) 30px;
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.loading-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--color-border-light);
+  border-top: 2px solid var(--color-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+/* ==================== 7. 错误状态样式 ==================== */
+
+.chunk-error {
+  padding: var(--spacing-md);
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  color: #dc2626;
+  text-align: center;
+  font-size: var(--font-size-sm);
+}
+
+/* ==================== 8. 性能模式样式 ==================== */
+
+.performance-mode .chunk-preview {
+  background: #f0f9ff;
+  border-color: #bae6fd;
+}
+
+.performance-mode .optimized-chunk {
+  border-left: 3px solid var(--color-primary);
+}
+
+/* ==================== 9. 进度条样式 ==================== */
+
+.chunk-progress-container {
+  margin: var(--spacing-sm) 0;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  height: 4px;
+}
+
+.chunk-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-primary), #06b6d4);
+  transition: width var(--transition-base);
+  border-radius: var(--radius-sm);
+}
+
+/* ==================== 10. 滚动条优化 ==================== */
+
+.chunk-compare-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chunk-compare-container::-webkit-scrollbar-track {
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-sm);
+}
+
+.chunk-compare-container::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.chunk-compare-container::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary);
+}
+
+/* ==================== 11. 响应式优化 ==================== */
+
+@media (max-width: 768px) {
+  .chunk-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-sm);
+  }
+
+  .chunk-stats {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .chunk-preview-container {
+    padding: var(--spacing-sm);
+  }
+
+  .load-full-content-btn {
+    padding: 8px 12px;
+    font-size: var(--font-size-xs);
+  }
+}
+
+/* ==================== 12. 高对比度模式 ==================== */
+
+@media (prefers-contrast: high) {
+  .optimized-chunk {
+    border: 2px solid #000;
+  }
+
+  .chunk-header {
+    background: #f0f0f0;
+    border-bottom: 2px solid #000;
+  }
+
+  .load-full-content-btn {
+    background: #000;
+    border: 2px solid #000;
+  }
+}
+
+/* ==================== 13. 减少动画偏好 ==================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .optimized-chunk,
+  .load-full-content-btn,
+  .performance-btn {
+    transition: none;
+  }
+
+  .loading-spinner {
+    animation: none;
+  }
+
+  .chunk-loading::before {
+    animation: none;
+  }
+}
+
+/* ==================== 14. 深色模式支持 ==================== */
+
+@media (prefers-color-scheme: dark) {
+  .optimized-chunk {
+    background: #1e293b;
+    border-color: #475569;
+  }
+
+  .chunk-header {
+    background: #334155;
+    border-bottom-color: #475569;
+  }
+
+  .chunk-header h4 {
+    color: #f1f5f9;
+  }
+
+  .chunk-stats {
+    color: #94a3b8;
+  }
+
+  .chunk-preview {
+    background: #0f172a;
+    border-color: #475569;
+  }
+
+  .preview-label {
+    color: #cbd5e1;
+  }
+
+  .preview-content {
+    color: #94a3b8;
+  }
+
+  .chunk-loading-indicator {
+    background: rgba(30, 41, 59, 0.95);
+    border-color: #475569;
+    color: #cbd5e1;
+  }
+}
+
+/* ==================== 15. 打印样式 ==================== */
+
+@media print {
+  .chunk-controls,
+  .load-full-content-btn,
+  .chunk-loading-indicator {
+    display: none !important;
+  }
+
+  .optimized-chunk {
+    border: 1px solid #000;
+    break-inside: avoid;
+    margin-bottom: 1em;
+  }
+
+  .chunk-preview-container {
+    padding: var(--spacing-sm);
+  }
+}

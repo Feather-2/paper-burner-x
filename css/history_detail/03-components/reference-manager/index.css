@@ -1,0 +1,24 @@
+/**
+ * Reference Manager - Main Module Entry Point
+ *
+ * 职责：参考文献管理器模块入口
+ * 作用域：整个参考文献管理系统
+ * 依赖：variables.css
+ *
+ * 模块结构：
+ * - base.css: 模态框、工具栏、表格基础样式
+ * - detail.css: 详情页、悬浮面板、引用链接样式
+ * - enrichment.css: 元数据丰富配置样式
+ *
+ * 使用方法：
+ * @import url('../03-components/reference-manager/index.css');
+ */
+
+/* 基础样式 - 模态框、工具栏、表格 */
+@import url('./base.css');
+
+/* 详情页样式 - 悬浮面板、引用链接、详情卡片 */
+@import url('./detail.css');
+
+/* 元数据丰富样式 - 配置模态框 */
+@import url('./enrichment.css');

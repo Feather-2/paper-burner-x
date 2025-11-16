@@ -212,11 +212,12 @@ window.ChatbotMessageRenderer = {
    *
    * @param {object} m - 消息对象。
    * @param {number} index - 消息索引。
-   * @param {string} docName - 文档名。
+   * @param {string} docName - 文档名（用于思维导图）。
    * @param {object} dataForMindmap - 思维导图相关数据。
+   * @param {string} docId - 完整的文档 ID（用于 draw.io 等功能，包含文档名、图片数量、OCR长度、翻译长度）。
    * @returns {string} HTML字符串。
    */
-  renderAssistantMessage: function(m, index, docName, dataForMindmap) {
+  renderAssistantMessage: function(m, index, docName, dataForMindmap, docId) {
     let renderedContent = '';
     // 思维导图消息特殊处理
     if (m.hasMindMap && m.mindMapData) {
@@ -250,6 +251,38 @@ window.ChatbotMessageRenderer = {
             </div>
             <div style="position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;z-index:2;">
               <button onclick="window.open('${mindmapUrl}','_blank')" style="padding:10px 22px;font-size:15px;background:rgba(59,130,246,0.92);color:#fff;border:none;border-radius:8px;box-shadow:0 2px 8px rgba(59,130,246,0.12);cursor:pointer;">放大查看/编辑思维导图</button>
+            </div>
+          </div>
+        `;
+      }
+    } else if (m.isDrawioPictures) {
+      // draw.io 配图消息特殊处理：渲染一个模糊预览卡片 + 打开放大按钮
+      const docIdSafe = docId || 'unknown'; // 使用完整的 docId，而不是 docName
+      const drawioUrl = (window.location.pathname.endsWith('/history_detail.html')
+        ? '../drawio/drawio.html'
+        : 'views/drawio/drawio.html') + `?docId=${encodeURIComponent(docIdSafe)}`;
+
+      if (USE_EVENT_DELEGATION) {
+        renderedContent = `
+          <div style="position:relative;">
+            <div style="width:100%;max-height:180px;overflow-y:auto;height:auto;max-width:100%;border-radius:10px;box-shadow:0 2px 12px #0001;filter:blur(2px);background:#f8fafc;padding:16px 8px 8px 8px;text-align:center;color:#64748b;font-size:13px;">
+              已生成 draw.io 兼容的配图 XML，可点击下方按钮在新窗口中查看和编辑。
+            </div>
+            <div style="position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;z-index:2;">
+              <button class="mindmap-open-btn"
+                      data-action="open-drawio"
+                      data-drawio-url="${drawioUrl}">放大查看/编辑配图</button>
+            </div>
+          </div>
+        `;
+      } else {
+        renderedContent = `
+          <div style="position:relative;">
+            <div style="width:100%;max-height:180px;overflow-y:auto;height:auto;max-width:100%;border-radius:10px;box-shadow:0 2px 12px #0001;filter:blur(2px);background:#f8fafc;padding:16px 8px 8px 8px;text-align:center;color:#64748b;font-size:13px;">
+              已生成 draw.io 兼容的配图 XML，可点击下方按钮在新窗口中查看和编辑。
+            </div>
+            <div style="position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;z-index:2;">
+              <button onclick="window.open('${drawioUrl}','_blank')" style="padding:10px 22px;font-size:15px;background:rgba(59,130,246,0.92);color:#fff;border:none;border-radius:8px;box-shadow:0 2px 8px rgba(59,130,246,0.12);cursor:pointer;">放大查看/编辑配图</button>
             </div>
           </div>
         `;
