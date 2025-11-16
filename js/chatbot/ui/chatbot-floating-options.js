@@ -253,6 +253,9 @@ if (typeof window.ChatbotFloatingOptionsScriptLoaded === 'undefined') {
       } else if (optConf.key === 'useContext') {
         currentText = currentOptionValue ? optConf.texts[1] : optConf.texts[0];
         if (currentOptionValue) { color = optConf.activeStyleColor; fontWeight = '600'; isActiveStyle = true; }
+      } else if (optConf.key === 'useReActMode') {
+        currentText = currentOptionValue ? optConf.texts[1] : optConf.texts[0];
+        if (currentOptionValue) { color = optConf.activeStyleColor; fontWeight = '600'; isActiveStyle = true; }
       } else if (optConf.key === 'contentLengthStrategy') {
         currentText = currentOptionValue === optConf.defaultKey ? optConf.texts[0] : optConf.texts[1];
         if (currentOptionValue !== optConf.defaultKey) {
