@@ -559,6 +559,7 @@ function updateChatbotUI() {
 
                   const canUseIncrementalAppend =
                     isPureExtension &&
+                    !lastMessage.isRawHtml && // 纯 HTML 内容不使用增量渲染
                     isChatbotSafePlainAppend(lastContent, appendedText);
 
                   let didIncrementalUpdate = false;
@@ -574,6 +575,7 @@ function updateChatbotUI() {
                     didIncrementalUpdate = true;
                   } else if (
                     isPureExtension &&
+                    !lastMessage.isRawHtml && // 纯 HTML 内容不使用增量渲染
                     appendedText &&
                     window.ChatbotMathStreaming &&
                     typeof window.ChatbotMathStreaming.renderIncremental === 'function'
