@@ -137,15 +137,159 @@ function doExportAsPng(messageIndex) {
 }
 
 /**
+ * 为导出优化：内联 KaTeX 关键样式
+ * 基于你的 hot-fix v3，只内联最关键的属性
+ */
+function inlineKatexStyles(container) {
+  // 首先处理顶层 KaTeX 容器
+  const katexContainers = container.querySelectorAll('.katex');
+  katexContainers.forEach(el => {
+    const computed = window.getComputedStyle(el);
+
+    // 判断是行内还是行间公式（检查父容器）
+    const parent = el.parentElement;
+    const isInline = parent && (
+      parent.classList.contains('katex-inline') ||
+      parent.getAttribute('data-formula-display') === 'inline' ||
+      parent.tagName === 'SPAN'
+    );
+
+    const containerProps = [
+      'position', 'vertical-align',
+      'font-size', 'line-height', 'font-family',
+      'margin', 'padding',
+      'text-align'
+    ];
+
+    const inlineStyles = [];
+
+    // 根据类型手动设置 display
+    if (isInline) {
+      inlineStyles.push('display: inline');
+    } else {
+      inlineStyles.push('display: block');
+    }
+
+    containerProps.forEach(prop => {
+      const value = computed.getPropertyValue(prop);
+      if (value && value !== 'auto' && value !== 'normal' && value !== 'none' && value !== '0px') {
+        inlineStyles.push(`${prop}: ${value}`);
+      }
+    });
+
+    if (inlineStyles.length > 0) {
+      const existing = el.getAttribute('style') || '';
+      el.setAttribute('style', existing + '; ' + inlineStyles.join('; '));
+    }
+  });
+
+  // 然后处理所有子元素
+  const katexElements = container.querySelectorAll('.katex *');
+  katexElements.forEach(el => {
+    const computed = window.getComputedStyle(el);
+    const critical = [
+      'display', 'position', 'vertical-align',
+      'font-size', 'line-height', 'font-family', 'font-weight', 'font-style',
+      'margin-top', 'margin-bottom', 'margin-left', 'margin-right',
+      'padding-top', 'padding-bottom', 'padding-left', 'padding-right',
+      'width', 'height',
+      'top', 'bottom', 'left', 'right',
+      'transform', 'color', 'border-bottom'
+    ];
+
+    const inlineStyles = [];
+    critical.forEach(prop => {
+      const value = computed.getPropertyValue(prop);
+      if (value && value !== 'auto' && value !== 'normal' && value !== 'none' && value !== '0px' && value !== 'rgba(0, 0, 0, 0)') {
+        inlineStyles.push(`${prop}: ${value}`);
+      }
+    });
+
+    if (inlineStyles.length > 0) {
+      const existing = el.getAttribute('style') || '';
+      el.setAttribute('style', existing + '; ' + inlineStyles.join('; '));
+    }
+  });
+}
+
+/**
+ * 智能内联关键样式（仅用于特定元素）
+ * 与旧版不同，这个版本不会盲目复制所有样式
+ * @param {HTMLElement} element 需要内联样式的元素
+ * @param {string[]} props 需要内联的属性列表
+ */
+function inlineSpecificStyles(element, props) {
+  const computed = window.getComputedStyle(element);
+  const existingStyle = element.getAttribute('style') || '';
+  const inlineStyle = [];
+
+  props.forEach(prop => {
+    const value = computed.getPropertyValue(prop);
+    if (value && value !== 'none' && value !== 'normal' && value !== 'auto' && value !== 'initial') {
+      // 避免覆盖已有的内联样式
+      if (!existingStyle.includes(prop + ':')) {
+        inlineStyle.push(`${prop}: ${value}`);
+      }
+    }
+  });
+
+  if (inlineStyle.length > 0) {
+    element.setAttribute('style', existingStyle + '; ' + inlineStyle.join('; '));
+  }
+}
+
+/**
+ * Phase 10.9: 内联部分 Markdown 元素的关键样式（简化版）
+ * 只处理不会影响垂直对齐的元素，避免破坏列表等元素的布局
+ * @param {HTMLElement} container 导出容器
+ */
+function inlineMarkdownStyles(container) {
+  // 只内联不会影响垂直对齐的元素
+  // 不处理 ul、ol、li，避免破坏列表的原生布局
+  const markdownElements = [
+    {
+      selector: 'code',
+      props: ['background-color', 'padding', 'border-radius', 'font-family', 'font-size', 'color']
+    },
+    {
+      selector: 'pre',
+      props: ['background-color', 'padding', 'border-radius', 'overflow-x', 'margin-top', 'margin-bottom']
+    },
+    {
+      selector: 'blockquote',
+      props: ['margin-left', 'margin-right', 'padding-left', 'border-left', 'color', 'font-style']
+    }
+  ];
+
+  markdownElements.forEach(({ selector, props }) => {
+    const elements = container.querySelectorAll(selector);
+    elements.forEach(el => {
+      const computed = window.getComputedStyle(el);
+      const existingStyle = el.getAttribute('style') || '';
+      const inlineStyles = [];
+
+      props.forEach(prop => {
+        const value = computed.getPropertyValue(prop);
+        if (value && value !== 'none' && value !== 'normal' && value !== 'auto' && value !== 'initial' && value !== '0px') {
+          // 避免覆盖已有的内联样式
+          if (!existingStyle.includes(prop + ':')) {
+            inlineStyles.push(`${prop}: ${value}`);
+          }
+        }
+      });
+
+      if (inlineStyles.length > 0) {
+        el.setAttribute('style', existingStyle + '; ' + inlineStyles.join('; '));
+      }
+    });
+  });
+}
+
+/**
  * 处理将消息 DOM 元素转换为 PNG 图片并下载的详细过程。
- * 1. 获取与消息相关的用户问题文本作为图片的一部分。
- * 2. 创建一个临时的、屏幕外渲染的 `div` (`exportContainer`) 用于容纳要导出的内容。
- * 3. 设置 `exportContainer` 的样式，使其在视觉上接近聊天气泡，并包含问题文本、消息内容和水印。
- * 4. 使用 `html2canvas` 将 `exportContainer` 渲染到 `<canvas>` 元素。
- * 5. 将 `<canvas>` 内容转换为 PNG 数据 URL。
- * 6. 创建一个临时的 `<a>` 标签，设置其 `href` 为数据 URL，`download` 属性为文件名，然后模拟点击以下载图片。
- * 7. 清理：移除临时的 `exportContainer`。
- * 8. 显示操作反馈 Toast。
+ *
+ * Phase 10: 修复 CSS 重构后的导出问题
+ * - 在导出容器中加载完整的 KaTeX CSS
  *
  * @param {HTMLElement} messageElement 要导出为图片的助手消息的 DOM 元素。
  */
@@ -160,6 +304,47 @@ function processExport(messageElement) {
       }
     }
   } catch (e) {}
+
+  // Phase 10.5: 检查是否有未渲染的公式占位符
+  const placeholders = messageElement.querySelectorAll('.katex-placeholder, .katex-block-placeholder, .katex-inline-placeholder');
+  if (placeholders.length > 0) {
+    showToast(`检测到 ${placeholders.length} 个公式正在渲染，请稍候...`);
+    console.log(`[Export] 检测到 ${placeholders.length} 个占位符，等待渲染完成...`);
+
+    // 等待渐进式渲染完成
+    const checkInterval = setInterval(() => {
+      const remaining = messageElement.querySelectorAll('.katex-placeholder, .katex-block-placeholder, .katex-inline-placeholder');
+      if (remaining.length === 0) {
+        clearInterval(checkInterval);
+        console.log('[Export] 公式渲染完成，开始导出');
+        showToast('开始导出...');
+        // 短暂延迟确保 DOM 稳定
+        setTimeout(() => doActualExport(messageElement), 100);
+      }
+    }, 200);
+
+    // 超时保护：最多等待 10 秒
+    setTimeout(() => {
+      clearInterval(checkInterval);
+      const remaining = messageElement.querySelectorAll('.katex-placeholder, .katex-block-placeholder, .katex-inline-placeholder');
+      if (remaining.length > 0) {
+        console.warn(`[Export] 等待超时，仍有 ${remaining.length} 个公式未渲染，强制导出`);
+      }
+      doActualExport(messageElement);
+    }, 10000);
+
+    return;
+  }
+
+  // 没有占位符，直接导出
+  doActualExport(messageElement);
+}
+
+/**
+ * 实际执行导出的函数
+ */
+function doActualExport(messageElement) {
+
   const exportContainer = document.createElement('div');
   exportContainer.style.position = 'absolute';
   exportContainer.style.left = '-9999px';
@@ -167,11 +352,15 @@ function processExport(messageElement) {
   exportContainer.style.background = 'white';
   exportContainer.style.borderRadius = '8px';
   exportContainer.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-  exportContainer.style.maxWidth = '720px';
-  exportContainer.style.width = '80vw';
+  exportContainer.style.maxWidth = '800px';
+  exportContainer.style.width = '800px';
+  exportContainer.style.boxSizing = 'border-box';
   exportContainer.style.color = '#111827';
   exportContainer.style.fontSize = '15px';
   exportContainer.style.lineHeight = '1.5';
+  exportContainer.style.overflow = 'visible';
+  exportContainer.style.height = 'auto';
+
   const watermark = document.createElement('div');
   watermark.style.position = 'absolute';
   watermark.style.bottom = '10px';
@@ -179,14 +368,79 @@ function processExport(messageElement) {
   watermark.style.fontSize = '8px';
   watermark.style.opacity = '0.4';
   watermark.textContent = 'Created with Paper Burner';
-  const contentContainer = document.createElement('div');
-  contentContainer.innerHTML = messageElement.innerHTML;
+
+  // Phase 10.5: 使用 cloneNode 而不是 innerHTML，完整保留 KaTeX 结构
+  const contentContainer = messageElement.cloneNode(true);
+
+  // 移除克隆元素的 data-message-index 避免 ID 冲突
+  contentContainer.removeAttribute('data-message-index');
+  contentContainer.style.maxWidth = 'none';
+
   exportContainer.appendChild(contentContainer);
   exportContainer.appendChild(watermark);
   document.body.appendChild(exportContainer);
 
+  // Phase 10: 内联 KaTeX 样式（hot-fix v3 优化版）
+  inlineKatexStyles(exportContainer);
+
+  // Phase 10.9: 内联所有 Markdown 元素的关键样式
+  inlineMarkdownStyles(exportContainer);
+
+  // Phase 10.10: 修复列表样式（确保列表点垂直居中）
+  const listItems = exportContainer.querySelectorAll('li');
+  listItems.forEach(li => {
+    // 确保列表项使用正确的 display 类型
+    li.style.display = 'list-item';
+    // 重置可能影响垂直对齐的属性
+    if (!li.style.lineHeight) {
+      li.style.lineHeight = '1.6';
+    }
+  });
+
+  const lists = exportContainer.querySelectorAll('ul, ol');
+  lists.forEach(list => {
+    // 确保列表有正确的样式
+    if (!list.style.listStylePosition) {
+      list.style.listStylePosition = 'outside';
+    }
+    if (!list.style.paddingLeft) {
+      list.style.paddingLeft = '2em';
+    }
+  });
+
+  // Phase 10.7: 强制修正父容器的 display 属性
+  const inlineContainers = exportContainer.querySelectorAll('.katex-inline, [data-formula-display="inline"]');
+  inlineContainers.forEach(container => {
+    container.style.display = 'inline';
+    container.style.verticalAlign = 'baseline';
+    container.style.margin = '0 2px';
+  });
+
+  const blockContainers = exportContainer.querySelectorAll('.katex-block, [data-formula-display="block"]');
+  blockContainers.forEach(container => {
+    container.style.display = 'block';
+    container.style.margin = '16px auto';
+    container.style.textAlign = 'center';
+  });
+
+  // Phase 10.6: 强制移除所有 KaTeX 的高度和溢出限制
+  const katexBlocks = exportContainer.querySelectorAll('.katex-display, .katex-display-fixed, .katex-block');
+  katexBlocks.forEach(block => {
+    block.style.overflow = 'visible';
+    block.style.overflowY = 'visible';
+    block.style.maxHeight = 'none';
+    block.style.height = 'auto';
+  });
+
+  // 移除所有 KaTeX 元素的高度限制
+  const allKatexElements = exportContainer.querySelectorAll('.katex, .katex *');
+  allKatexElements.forEach(el => {
+    if (el.style.overflow === 'hidden') el.style.overflow = 'visible';
+    if (el.style.overflowY === 'hidden') el.style.overflowY = 'visible';
+    if (el.style.maxHeight && el.style.maxHeight !== 'none') el.style.maxHeight = 'none';
+  });
+
   // Phase 3.5: 导出前临时展开所有表格，确保完整显示
-  // 保存原始样式，以便后续恢复
   const tables = exportContainer.querySelectorAll('.markdown-content table');
   const originalTableStyles = [];
   tables.forEach((table, index) => {
@@ -195,10 +449,9 @@ function processExport(messageElement) {
       maxWidth: table.style.maxWidth || '',
       display: table.style.display || ''
     };
-    // 临时移除滚动，展开完整内容
     table.style.overflow = 'visible';
     table.style.maxWidth = 'none';
-    table.style.display = 'table'; // 恢复为标准表格布局
+    table.style.display = 'table';
   });
 
   // 同时移除表格容器的宽度限制
@@ -210,7 +463,6 @@ function processExport(messageElement) {
   }
 
   // Phase 3.5: 动态计算导出容器的最大宽度
-  // 根据表格实际宽度智能调整，避免过宽或过窄
   const originalExportContainerMaxWidth = exportContainer.style.maxWidth;
   const originalExportContainerWidth = exportContainer.style.width;
 
@@ -218,47 +470,75 @@ function processExport(messageElement) {
   let maxTableWidth = 0;
   tables.forEach(table => {
     const tableWidth = table.scrollWidth || 0;
-    if (tableWidth > maxTableWidth) {
+    if (maxTableWidth < tableWidth) {
       maxTableWidth = tableWidth;
     }
   });
 
-  // 根据实际内容动态设置宽度，但设置合理的上下限
-  const config = window.PerformanceConfig?.EXPORT || { MAX_WIDTH: 1200, ABSOLUTE_MAX_WIDTH: 2000 };
-  const calculatedWidth = maxTableWidth > 0
-    ? Math.min(maxTableWidth + 40, config.ABSOLUTE_MAX_WIDTH)  // 加40px padding
-    : config.MAX_WIDTH;  // 如果没有表格，使用默认值
+  // 根据实际内容动态设置宽度
+  const config = window.PerformanceConfig?.EXPORT || { MAX_WIDTH: 800, ABSOLUTE_MAX_WIDTH: 1000 };
+  const calculatedWidth = maxTableWidth > 0 && maxTableWidth > 800
+    ? Math.min(maxTableWidth + 40, config.ABSOLUTE_MAX_WIDTH)
+    : 800;
 
   exportContainer.style.maxWidth = `${calculatedWidth}px`;
-  exportContainer.style.width = 'auto';
+  exportContainer.style.width = `${calculatedWidth}px`;
 
-  if (window.PerfLogger) {
-    window.PerfLogger.debug(`导出容器宽度: ${calculatedWidth}px (表格最大宽度: ${maxTableWidth}px)`);
-  }
+  // Phase 10: KaTeX 已完全渲染，短暂延迟让 DOM 布局稳定
+  const hasKatex = exportContainer.querySelectorAll('.katex').length > 0;
+  const layoutDelay = hasKatex ? 300 : 50;
 
-  // 等待DOM重新布局，确保获取到真实的完整宽度
-  const layoutDelay = window.PerformanceConfig?.EXPORT?.LAYOUT_DELAY || 50;
+  // 等待DOM重新布局
   setTimeout(() => {
     showToast('正在生成图片...');
+
+    // 强制重排
+    exportContainer.offsetHeight;
+
     const scale = window.PerformanceConfig?.EXPORT?.SCALE || 2;
     html2canvas(exportContainer, {
       scale: scale,
       useCORS: true,
       backgroundColor: 'white',
       logging: false,
-      width: exportContainer.scrollWidth, // 使用完整宽度
-      height: exportContainer.scrollHeight // 使用完整高度
+      allowTaint: false,
+      foreignObjectRendering: false
     }).then(canvas => {
-    try {
-      const link = document.createElement('a');
-      link.download = `paper-burner-ai-${new Date().toISOString().slice(0,10)}.png`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-      showToast('图片已导出');
-    } catch (err) {
-      showToast('导出图片失败');
-    } finally {
-      // Phase 3.5: 清理前恢复所有样式
+      try {
+        const link = document.createElement('a');
+        link.download = `paper-burner-ai-${new Date().toISOString().slice(0,10)}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        showToast('图片已导出');
+      } catch (err) {
+        showToast('导出图片失败');
+      } finally {
+        // 清理前恢复所有样式
+        tables.forEach((table, index) => {
+          if (originalTableStyles[index]) {
+            table.style.overflow = originalTableStyles[index].overflow;
+            table.style.maxWidth = originalTableStyles[index].maxWidth;
+            table.style.display = originalTableStyles[index].display;
+          }
+        });
+        if (messageContainer && originalContainerMaxWidth) {
+          messageContainer.style.maxWidth = originalContainerMaxWidth;
+        }
+        exportContainer.style.maxWidth = originalExportContainerMaxWidth;
+        exportContainer.style.width = originalExportContainerWidth;
+        document.body.removeChild(exportContainer);
+
+        // 释放导出锁
+        if (window.ChatbotRenderState) {
+          window.ChatbotRenderState.isExporting = false;
+        }
+      }
+    }).catch(err => {
+      if (window.PerfLogger) {
+        window.PerfLogger.error('生成图片失败:', err);
+      }
+      showToast('生成图片失败');
+      // 错误时也要清理所有样式
       tables.forEach((table, index) => {
         if (originalTableStyles[index]) {
           table.style.overflow = originalTableStyles[index].overflow;
@@ -273,37 +553,12 @@ function processExport(messageElement) {
       exportContainer.style.width = originalExportContainerWidth;
       document.body.removeChild(exportContainer);
 
-      // Phase 3.5: 释放导出锁
+      // 释放导出锁
       if (window.ChatbotRenderState) {
         window.ChatbotRenderState.isExporting = false;
       }
-    }
-  }).catch(err => {
-    if (window.PerfLogger) {
-      window.PerfLogger.error('生成图片失败:', err);
-    }
-    showToast('生成图片失败');
-    // Phase 3.5: 错误时也要清理所有样式
-    tables.forEach((table, index) => {
-      if (originalTableStyles[index]) {
-        table.style.overflow = originalTableStyles[index].overflow;
-        table.style.maxWidth = originalTableStyles[index].maxWidth;
-        table.style.display = originalTableStyles[index].display;
-      }
     });
-    if (messageContainer && originalContainerMaxWidth) {
-      messageContainer.style.maxWidth = originalContainerMaxWidth;
-    }
-    exportContainer.style.maxWidth = originalExportContainerMaxWidth;
-    exportContainer.style.width = originalExportContainerWidth;
-    document.body.removeChild(exportContainer);
-
-    // Phase 3.5: 释放导出锁
-    if (window.ChatbotRenderState) {
-      window.ChatbotRenderState.isExporting = false;
-    }
-  });
-  }, layoutDelay); // 使用配置的延迟时间
+  }, layoutDelay);
 }
 
 /**
