@@ -33,6 +33,7 @@ window.chatbotFloatingSize = JSON.parse(localStorage.getItem('chatbotFloatingSiz
 // 高级聊天功能选项
 window.chatbotActiveOptions = {
   useContext: true, // 是否使用上下文
+  useReActMode: false, // 是否启用ReAct框架（推理+工具调用）
   enableSemanticFeatures: true, // 是否启用意群和向量搜索功能（默认开启）
   multiHopRetrieval: false, // 是否启用多轮取材（先选片段再回答）
   contentLengthStrategy: 'default', // 内容长度策略: 'default', 'segmented'
