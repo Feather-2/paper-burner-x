@@ -92,14 +92,43 @@
      * 构建API配置
      */
     async buildApiConfig(config, modelId = null) {
-      const selectedModelId = modelId || config.selectedModelId || config.model;
+      let selectedModelId = modelId;
+
+      // 如果未指定模型ID，按优先级获取
+      if (!selectedModelId) {
+        // 检查是否为自定义源（与message-sender.js保持一致）
+        if (config.model === 'custom' ||
+            (typeof config.model === 'string' && config.model.startsWith('custom_source_'))) {
+          // 1. 最高优先级：Chatbot 专用配置的模型ID（cms.modelId）
+          if (config.cms && config.cms.modelId) {
+            selectedModelId = config.cms.modelId;
+            console.log('[LLMCaller] ✓ 使用 Chatbot 独立配置:', selectedModelId);
+          }
+          // 2. 回退：翻译模型配置
+          if (!selectedModelId && config.settings && config.settings.selectedCustomModelId) {
+            selectedModelId = config.settings.selectedCustomModelId;
+            console.log('[LLMCaller] ↩ 回退到翻译模型配置:', selectedModelId);
+          }
+          // 3. 进一步回退：可用模型列表的第一个
+          if (!selectedModelId && Array.isArray(config.siteSpecificAvailableModels) && config.siteSpecificAvailableModels.length > 0) {
+            selectedModelId = typeof config.siteSpecificAvailableModels[0] === 'object'
+              ? config.siteSpecificAvailableModels[0].id
+              : config.siteSpecificAvailableModels[0];
+            console.log('[LLMCaller] ↩ 使用可用模型列表的第一个:', selectedModelId);
+          }
+        } else {
+          // 非自定义源，直接使用 config.model
+          selectedModelId = config.selectedModelId || config.model;
+        }
+      }
 
       if (!selectedModelId) {
-        throw new Error('未指定模型ID');
+        throw new Error('未指定模型ID，请在Chatbot设置中选择一个模型');
       }
 
       // 使用 ApiConfigBuilder
       if (window.ApiConfigBuilder && window.ApiConfigBuilder.buildCustomApiConfig) {
+        console.log('[LLMCaller] 最终模型ID:', selectedModelId);
         return window.ApiConfigBuilder.buildCustomApiConfig(
           config.apiKey,
           config.cms.apiEndpoint || config.cms.apiBaseUrl,
