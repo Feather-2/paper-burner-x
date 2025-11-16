@@ -255,7 +255,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
           window.ChatbotToolTraceUI.startSession();
         }
 
-        const stream = window.streamingMultiHopRetrieve(plainTextInput, docContentInfo, config, { maxRounds: userSet.maxRounds || 3 });
+        const stream = window.streamingMultiHopRetrieve(cleanedPlainTextInput, docContentInfo, config, { maxRounds: userSet.maxRounds || 3 });
 
         let selection = null;
         for await (const event of stream) {
