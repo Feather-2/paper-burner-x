@@ -611,15 +611,29 @@ function updateChatbotUI() {
 
                   if (!didIncrementalUpdate) {
                     // 回退：完整重渲染
+                    let contentToRender = newContent;
+
+                    // 🔧 检测并修复历史数据中被转义的 HTML（向后兼容）
+                    if (!lastMessage.isRawHtml &&
+                        (contentToRender.includes('&lt;div') || contentToRender.includes('&lt;button')) &&
+                        (contentToRender.includes('配图 XML') || contentToRender.includes('手动修复'))) {
+                      console.log('[UI] 检测到被转义的 HTML，自动反转义');
+                      // 创建临时元素进行反转义
+                      const tempDiv = document.createElement('div');
+                      tempDiv.innerHTML = contentToRender;
+                      contentToRender = tempDiv.textContent || tempDiv.innerText || '';
+                      lastMessage.isRawHtml = true; // 标记为纯 HTML
+                    }
+
                     // 检查是否为纯 HTML 内容（不需要 Markdown 解析）
                     if (lastMessage.isRawHtml) {
-                      contentDiv.innerHTML = newContent;
+                      contentDiv.innerHTML = contentToRender;
                     } else if (typeof renderWithKatexStreaming === 'function') {
-                      contentDiv.innerHTML = renderWithKatexStreaming(newContent);
+                      contentDiv.innerHTML = renderWithKatexStreaming(contentToRender);
                     } else if (typeof marked !== 'undefined') {
-                      contentDiv.innerHTML = marked.parse(newContent);
+                      contentDiv.innerHTML = marked.parse(contentToRender);
                     } else {
-                      contentDiv.textContent = newContent;
+                      contentDiv.textContent = contentToRender;
                     }
                     // 重渲染后清理流式状态，避免状态与内容不一致
                     delete contentDiv.dataset.mathStreamingState;
