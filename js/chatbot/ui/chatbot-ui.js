@@ -124,12 +124,8 @@ function handleChatbotSend() {
  *
  * @param {string} q - 预设问题文本。
  */
-function handlePresetQuestion(q) {
-  const input = document.getElementById('chatbot-input');
-  if (!input) return;
-  input.value = q;
-  handleChatbotSend();
-}
+// handlePresetQuestion 已在 ChatbotPreset 中定义（包含 Mermaid 和其他 prompt 注入逻辑）
+// 不再在此重复定义，避免覆盖
 
 /**
  * 更新聊天机器人界面的核心函数。
@@ -390,7 +386,7 @@ function updateChatbotUI() {
     isCustomModel,
     currentDocId,
     updateChatbotUI,
-    window.handlePresetQuestion
+    window.ChatbotPreset?.handlePresetQuestion || window.handlePresetQuestion
   );
 
   chatbotWindow.appendChild(presetContainer);
@@ -559,6 +555,7 @@ function updateChatbotUI() {
 
                   const canUseIncrementalAppend =
                     isPureExtension &&
+                    !lastMessage.isRawHtml && // 纯 HTML 内容不使用增量渲染
                     isChatbotSafePlainAppend(lastContent, appendedText);
 
                   let didIncrementalUpdate = false;
@@ -574,6 +571,7 @@ function updateChatbotUI() {
                     didIncrementalUpdate = true;
                   } else if (
                     isPureExtension &&
+                    !lastMessage.isRawHtml && // 纯 HTML 内容不使用增量渲染
                     appendedText &&
                     window.ChatbotMathStreaming &&
                     typeof window.ChatbotMathStreaming.renderIncremental === 'function'
@@ -609,12 +607,29 @@ function updateChatbotUI() {
 
                   if (!didIncrementalUpdate) {
                     // 回退：完整重渲染
-                    if (typeof renderWithKatexStreaming === 'function') {
-                      contentDiv.innerHTML = renderWithKatexStreaming(newContent);
+                    let contentToRender = newContent;
+
+                    // 🔧 检测并修复历史数据中被转义的 HTML（向后兼容）
+                    if (!lastMessage.isRawHtml &&
+                        (contentToRender.includes('&lt;div') || contentToRender.includes('&lt;button')) &&
+                        (contentToRender.includes('配图 XML') || contentToRender.includes('手动修复'))) {
+                      console.log('[UI] 检测到被转义的 HTML，自动反转义');
+                      // 创建临时元素进行反转义
+                      const tempDiv = document.createElement('div');
+                      tempDiv.innerHTML = contentToRender;
+                      contentToRender = tempDiv.innerHTML; // 使用 innerHTML 而不是 textContent
+                      lastMessage.isRawHtml = true; // 标记为纯 HTML
+                    }
+
+                    // 检查是否为纯 HTML 内容（不需要 Markdown 解析）
+                    if (lastMessage.isRawHtml) {
+                      contentDiv.innerHTML = contentToRender;
+                    } else if (typeof renderWithKatexStreaming === 'function') {
+                      contentDiv.innerHTML = renderWithKatexStreaming(contentToRender);
                     } else if (typeof marked !== 'undefined') {
-                      contentDiv.innerHTML = marked.parse(newContent);
+                      contentDiv.innerHTML = marked.parse(contentToRender);
                     } else {
-                      contentDiv.textContent = newContent;
+                      contentDiv.textContent = contentToRender;
                     }
                     // 重渲染后清理流式状态，避免状态与内容不一致
                     delete contentDiv.dataset.mathStreamingState;
@@ -1548,7 +1563,14 @@ function initChatbotDragAndResize() {
 // 将核心函数挂载到 window 对象和 ChatbotUI 命名空间下，便于外部调用
 window.handleChatbotSend = handleChatbotSend;
 window.handleChatbotStop = handleChatbotStop;
-window.handlePresetQuestion = handlePresetQuestion;
+// handlePresetQuestion 使用 ChatbotPreset 中的版本（包含完整的 prompt 注入逻辑）
+window.handlePresetQuestion = window.ChatbotPreset?.handlePresetQuestion || function(q) {
+  // 降级方案：如果 ChatbotPreset 未加载，使用简单版本
+  const input = document.getElementById('chatbot-input');
+  if (!input) return;
+  input.value = q;
+  if (typeof window.handleChatbotSend === 'function') window.handleChatbotSend();
+};
 window.ChatbotUI = {
   updateChatbotUI,
   initChatbotUI

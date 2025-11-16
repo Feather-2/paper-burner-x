@@ -64,6 +64,23 @@ window.PromptConstructor = (function() {
       systemPrompt += drawioPrompt;
     }
 
+    // 检查是否是 Mermaid 流程图请求：基于关键词"流程图"
+    let isMermaidFlowchartRequest = false;
+    if (plainTextInput) {
+      isMermaidFlowchartRequest = plainTextInput.includes('流程图') && !plainTextInput.includes('Mermaid语法');
+    }
+
+    if (isMermaidFlowchartRequest) {
+      const mermaidPrompt = window.ChatbotPreset && window.ChatbotPreset.MERMAID_FLOWCHART_PROMPT
+        ? window.ChatbotPreset.MERMAID_FLOWCHART_PROMPT
+        : `
+请用Mermaid语法输出流程图，节点用[]包裹，箭头用-->连接。
+- 每一条流程图语句必须单独一行，不能多条语句写在一行。
+- 节点内容必须全部在一行内，不能有任何换行、不能有 <br>、不能有 \\n。
+- **节点标签内禁止使用特殊符号**：不能包含 [ ] ( ) | { } < > 等符号。`;
+      systemPrompt += mermaidPrompt;
+    }
+
     // 获取文档内容（优先翻译，没有就用OCR）
     let content = '';
     // Read the active summary source from global options, default to 'translation'
