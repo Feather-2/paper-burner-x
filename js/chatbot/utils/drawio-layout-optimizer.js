@@ -140,18 +140,24 @@ function isOverlapping(rect1, rect2, minSpacing = 20) {
  * @returns {number} 调整的节点数量
  */
 function applyDagreLayout(xmlDoc, options = {}) {
-  // 检查 dagre 是否可用
-  if (typeof dagre === 'undefined' || typeof dagre.graphlib === 'undefined') {
-    console.warn('[DrawioOptimizer] Dagre 库未加载，跳过 Dagre 布局');
+  // 检查 dagre 和 graphlib 是否可用（它们是两个独立的全局变量）
+  if (typeof window.dagre === 'undefined') {
+    console.warn('[DrawioOptimizer] ❌ Dagre 库未加载，跳过 Dagre 布局');
+    return 0;
+  }
+  if (typeof window.graphlib === 'undefined') {
+    console.warn('[DrawioOptimizer] ❌ Graphlib 库未加载，跳过 Dagre 布局');
     return 0;
   }
 
-  console.log('[DrawioOptimizer] 🎯 应用 Dagre 层次化布局算法...');
+  console.log('[DrawioOptimizer] 🎯 应用 Dagre 层次化布局算法 (LR 模式)...');
 
   const defaultOptions = {
-    rankdir: 'TB',      // 方向：TB (从上到下), LR (从左到右)
-    nodesep: 80,        // 同层节点间距
-    ranksep: 150,       // 不同层间距
+    rankdir: 'LR',      // 方向：LR (从左到右) - 层级横向展开，同层节点纵向排列
+    nodesep: 100,       // 同层节点间距（LR模式下是垂直间距）- 增加以减少交叉
+    ranksep: 180,       // 不同层间距（LR模式下是水平间距）- 增加以减少交叉
+    edgesep: 20,        // 边之间的间距
+    ranker: 'network-simplex',  // 使用 network-simplex 算法（最佳层分配）
     marginx: 20,        // 水平边距
     marginy: 20         // 垂直边距
   };
@@ -159,13 +165,8 @@ function applyDagreLayout(xmlDoc, options = {}) {
   const opts = { ...defaultOptions, ...options };
 
   try {
-    // 创建有向图
-    const g = new dagre.graphlib.Graph();
-    g.setGraph(opts);
-    g.setDefaultEdgeLabel(() => ({}));
-
-    const cells = Array.from(xmlDoc.querySelectorAll('mxCell[vertex="1"]'));
-    const edges = Array.from(xmlDoc.querySelectorAll('mxCell[edge="1"]'));
+    const allCells = Array.from(xmlDoc.querySelectorAll('mxCell[vertex="1"]'));
+    const allEdges = Array.from(xmlDoc.querySelectorAll('mxCell[edge="1"]'));
     const cellMap = new Map();
 
     // 构建 ID -> Cell 映射
@@ -173,52 +174,192 @@ function applyDagreLayout(xmlDoc, options = {}) {
       cellMap.set(cell.getAttribute('id'), cell);
     });
 
-    // 添加节点到 dagre 图
-    cells.forEach(cell => {
-      const id = cell.getAttribute('id');
-      const geo = getCellGeometry(cell);
-      if (!geo) return;
+    let adjustedCount = 0;
 
-      g.setNode(id, {
-        width: geo.width,
-        height: geo.height,
-        originalGeo: geo,
-        cell: cell
-      });
-    });
+    // 1. 识别 subgraph 容器（swimlane）和顶层节点
+    const subgraphContainers = [];
+    const topLevelCells = [];
+    const subgraphMembers = new Set(); // 记录 subgraph 内部节点
 
-    // 添加边到 dagre 图
-    edges.forEach(edge => {
-      const source = edge.getAttribute('source');
-      const target = edge.getAttribute('target');
-      if (source && target && g.hasNode(source) && g.hasNode(target)) {
-        g.setEdge(source, target);
+    allCells.forEach(cell => {
+      const style = cell.getAttribute('style') || '';
+      const parent = cell.getAttribute('parent');
+
+      if (style.includes('swimlane')) {
+        // 这是一个 subgraph 容器
+        subgraphContainers.push(cell);
+      } else {
+        // 检查是否是 subgraph 内部节点
+        const parentCell = cellMap.get(parent);
+        if (parentCell && (parentCell.getAttribute('style') || '').includes('swimlane')) {
+          // 这是 subgraph 内部的节点
+          subgraphMembers.add(cell.getAttribute('id'));
+        } else {
+          // 这是顶层节点
+          topLevelCells.push(cell);
+        }
       }
     });
 
-    // 执行布局算法
-    dagre.layout(g);
+    console.log(`[DrawioOptimizer] 📊 发现 ${subgraphContainers.length} 个子图, ${topLevelCells.length} 个顶层节点`);
 
-    let adjustedCount = 0;
+    // 2. 对每个 subgraph 内部单独进行 Dagre 布局
+    subgraphContainers.forEach(container => {
+      const containerId = container.getAttribute('id');
+      const containerGeo = getCellGeometry(container);
+      if (!containerGeo) return;
 
-    // 应用布局结果到 XML
-    g.nodes().forEach(nodeId => {
-      const node = g.node(nodeId);
-      if (!node) return;
+      // 找出属于这个 subgraph 的所有节点
+      const members = allCells.filter(cell =>
+        cell.getAttribute('parent') === containerId
+      );
 
-      const { cell, width, height } = node;
-      const newX = Math.round(node.x - width / 2); // dagre 返回的是中心点坐标
-      const newY = Math.round(node.y - height / 2);
+      if (members.length === 0) return;
 
-      setCellGeometry(cell, {
-        x: newX,
-        y: newY,
-        width: width,
-        height: height
+      console.log(`[DrawioOptimizer]   🔹 子图 "${containerId}" 内部布局 (${members.length} 个节点)...`);
+
+      // 创建子图的 Dagre 图
+      const subG = new graphlib.Graph();
+      subG.setGraph({
+        ...opts,
+        marginx: 20,
+        marginy: 30  // 顶部留空间给 swimlane 标题
+      });
+      subG.setDefaultEdgeLabel(() => ({}));
+
+      // 添加成员节点
+      members.forEach(cell => {
+        const id = cell.getAttribute('id');
+        const geo = getCellGeometry(cell);
+        if (!geo) return;
+
+        subG.setNode(id, {
+          width: geo.width,
+          height: geo.height,
+          originalGeo: geo,
+          cell: cell
+        });
       });
 
-      adjustedCount++;
+      // 添加子图内部的边
+      allEdges.forEach(edge => {
+        const source = edge.getAttribute('source');
+        const target = edge.getAttribute('target');
+        if (source && target && subG.hasNode(source) && subG.hasNode(target)) {
+          subG.setEdge(source, target);
+        }
+      });
+
+      // 执行子图布局
+      dagre.layout(subG);
+
+      // 应用布局结果（相对于 subgraph 容器的坐标）
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+      subG.nodes().forEach(nodeId => {
+        const node = subG.node(nodeId);
+        if (!node) return;
+
+        const { cell, width, height } = node;
+        const newX = Math.round(node.x - width / 2);
+        const newY = Math.round(node.y - height / 2);
+
+        // 追踪节点范围
+        minX = Math.min(minX, newX);
+        minY = Math.min(minY, newY);
+        maxX = Math.max(maxX, newX + width);
+        maxY = Math.max(maxY, newY + height);
+
+        setCellGeometry(cell, {
+          x: newX,
+          y: newY,
+          width: width,
+          height: height
+        });
+
+        adjustedCount++;
+      });
+
+      console.log(`[DrawioOptimizer]     📍 节点范围: (${minX}, ${minY}) 到 (${maxX}, ${maxY})`);
+
+      // 调整 subgraph 容器大小以包含所有成员
+      // 使用实际节点范围来计算，而不是 graphInfo（更准确）
+      if (minX !== Infinity && minY !== Infinity) {
+        // 容器需要的尺寸 = 节点最大范围 + 底部/右侧边距
+        const requiredWidth = Math.ceil(maxX + 40);   // 右侧留40px边距
+        const requiredHeight = Math.ceil(maxY + 40);  // 底部留40px边距
+
+        setCellGeometry(container, {
+          x: containerGeo.x,
+          y: containerGeo.y,
+          width: Math.max(requiredWidth, 300),   // 最小300px
+          height: Math.max(requiredHeight, 200)  // 最小200px
+        });
+
+        console.log(`[DrawioOptimizer]     📏 容器调整: ${requiredWidth}x${requiredHeight}`);
+      }
     });
+
+    // 3. 对顶层节点 + subgraph 容器进行全局 Dagre 布局
+    if (topLevelCells.length > 0 || subgraphContainers.length > 0) {
+      console.log(`[DrawioOptimizer] 🌍 全局布局 (${topLevelCells.length + subgraphContainers.length} 个顶层元素)...`);
+
+      const g = new graphlib.Graph();
+      g.setGraph(opts);
+      g.setDefaultEdgeLabel(() => ({}));
+
+      // 添加顶层节点和 subgraph 容器
+      [...topLevelCells, ...subgraphContainers].forEach(cell => {
+        const id = cell.getAttribute('id');
+        const geo = getCellGeometry(cell);
+        if (!geo) return;
+
+        g.setNode(id, {
+          width: geo.width,
+          height: geo.height,
+          originalGeo: geo,
+          cell: cell
+        });
+      });
+
+      // 添加顶层的边（不包括 subgraph 内部的边）
+      allEdges.forEach(edge => {
+        const source = edge.getAttribute('source');
+        const target = edge.getAttribute('target');
+
+        // 只添加至少有一端是顶层节点的边
+        if (source && target && g.hasNode(source) && g.hasNode(target)) {
+          g.setEdge(source, target);
+        }
+      });
+
+      // 执行全局布局
+      dagre.layout(g);
+
+      // 应用全局布局结果
+      g.nodes().forEach(nodeId => {
+        const node = g.node(nodeId);
+        if (!node) return;
+
+        const { cell, width, height } = node;
+        const newX = Math.round(node.x - width / 2);
+        const newY = Math.round(node.y - height / 2);
+
+        const geo = getCellGeometry(cell);
+        if (!geo) return;
+
+        // 直接设置容器位置
+        // 注意：subgraph 容器内的节点坐标是相对的，容器移动时会自动跟随，不需要单独调整
+        setCellGeometry(cell, {
+          x: newX,
+          y: newY,
+          width: width,
+          height: height
+        });
+
+        adjustedCount++;
+      });
+    }
 
     console.log(`[DrawioOptimizer] ✅ Dagre 布局完成: ${adjustedCount} 个节点已优化`);
     return adjustedCount;
@@ -345,11 +486,14 @@ function optimizeSpacing(xmlDoc, minSpacing = 30) {
  * 计算两个节点的最佳连接边缘
  * 根据相对位置判断应该从哪条边连接
  *
+ * 对于 LR 布局（从左到右）：强制从左右边连接，不使用上下边
+ *
  * @param {Object} sourceGeometry - 源节点几何信息
  * @param {Object} targetGeometry - 目标节点几何信息
+ * @param {string} layoutDirection - 布局方向：'LR' 或 'TB'，默认 'LR'
  * @returns {Object} {exitX, exitY, entryX, entryY} - 归一化坐标 (0-1)
  */
-function calculateOptimalConnection(sourceGeometry, targetGeometry) {
+function calculateOptimalConnection(sourceGeometry, targetGeometry, layoutDirection = 'LR') {
   if (!sourceGeometry || !targetGeometry) {
     return { exitX: 0.5, exitY: 0.5, entryX: 0.5, entryY: 0.5 };
   }
@@ -364,30 +508,39 @@ function calculateOptimalConnection(sourceGeometry, targetGeometry) {
   const dx = targetCenterX - sourceCenterX;
   const dy = targetCenterY - sourceCenterY;
 
-  // 判断主要方向（横向 vs 纵向）
-  const isHorizontal = Math.abs(dx) > Math.abs(dy);
-
   let exitX = 0.5, exitY = 0.5, entryX = 0.5, entryY = 0.5;
 
-  if (isHorizontal) {
+  if (layoutDirection === 'LR') {
+    // LR 布局：强制使用左右边连接
     if (dx > 0) {
-      // 目标在右侧
+      // 目标在右侧 - 标准流向
       exitX = 1; exitY = 0.5;   // 从右边出发
       entryX = 0; entryY = 0.5; // 从左边进入
     } else {
-      // 目标在左侧
+      // 目标在左侧 - 反向连接
       exitX = 0; exitY = 0.5;   // 从左边出发
       entryX = 1; entryY = 0.5; // 从右边进入
     }
   } else {
-    if (dy > 0) {
-      // 目标在下方
-      exitX = 0.5; exitY = 1;   // 从底部出发
-      entryX = 0.5; entryY = 0; // 从顶部进入
+    // TB 布局：根据相对位置自动选择
+    const isHorizontal = Math.abs(dx) > Math.abs(dy);
+
+    if (isHorizontal) {
+      if (dx > 0) {
+        exitX = 1; exitY = 0.5;
+        entryX = 0; entryY = 0.5;
+      } else {
+        exitX = 0; exitY = 0.5;
+        entryX = 1; entryY = 0.5;
+      }
     } else {
-      // 目标在上方
-      exitX = 0.5; exitY = 0;   // 从顶部出发
-      entryX = 0.5; entryY = 1; // 从底部进入
+      if (dy > 0) {
+        exitX = 0.5; exitY = 1;
+        entryX = 0.5; entryY = 0;
+      } else {
+        exitX = 0.5; exitY = 0;
+        entryX = 0.5; entryY = 1;
+      }
     }
   }
 
@@ -572,8 +725,9 @@ function optimizeEdgeNodeAvoidance(xmlDoc) {
  * 自动设置连接线的出入点，并尝试减少交叉
  *
  * @param {Document} xmlDoc - XML 文档对象
+ * @param {string} layoutDirection - 布局方向：'LR' 或 'TB'，默认 'LR'
  */
-function optimizeConnections(xmlDoc) {
+function optimizeConnections(xmlDoc, layoutDirection = 'LR') {
   const edges = xmlDoc.querySelectorAll('mxCell[edge="1"]');
   const cellMap = new Map();
 
@@ -634,8 +788,8 @@ function optimizeConnections(xmlDoc) {
   edgeInfos.forEach(info => {
     const { edge, sourceGeo, targetGeo } = info;
 
-    // 计算最佳连接点
-    const connection = calculateOptimalConnection(sourceGeo, targetGeo);
+    // 计算最佳连接点（传入布局方向）
+    const connection = calculateOptimalConnection(sourceGeo, targetGeo, layoutDirection);
 
     // 获取或创建 mxGeometry（必须是自闭合标签，不能有子元素）
     let geometry = edge.querySelector('mxGeometry');
@@ -796,9 +950,11 @@ function optimizeDrawioLayout(xmlString, options = {}) {
     // 0. Dagre 层次化布局（优先级最高，使用标准 Sugiyama 算法）
     if (opts.dagreLayout) {
       totalOptimized += applyDagreLayout(xmlDoc, {
-        rankdir: 'TB',
-        nodesep: 80,
-        ranksep: 150
+        rankdir: 'LR',   // 从左到右布局，层级横向展开
+        nodesep: 100,    // 同层节点垂直间距 - 增加以减少交叉
+        ranksep: 180,    // 不同层水平间距 - 增加以减少交叉
+        edgesep: 20,     // 边之间的间距
+        ranker: 'network-simplex'  // 最佳层分配算法
       });
     }
 
@@ -817,9 +973,9 @@ function optimizeDrawioLayout(xmlString, options = {}) {
       totalOptimized += optimizeEdgeNodeAvoidance(xmlDoc);
     }
 
-    // 4. 连接优化
+    // 4. 连接优化（传入布局方向）
     if (opts.connections) {
-      totalOptimized += optimizeConnections(xmlDoc);
+      totalOptimized += optimizeConnections(xmlDoc, 'LR');
     }
 
     // 5. 样式统一
@@ -838,7 +994,151 @@ function optimizeDrawioLayout(xmlString, options = {}) {
   }
 }
 
+/**
+ * 对单个 diagram 进行优化（多页支持）
+ * @param {Element} diagram - diagram 元素
+ * @param {Object} opts - 优化选项
+ * @returns {number} 优化次数
+ */
+function optimizeDiagram(diagram, opts) {
+  const diagramName = diagram.getAttribute('name') || 'Unnamed';
+
+  // 创建临时文档，只包含当前 diagram
+  const tempDoc = document.implementation.createDocument(null, 'mxfile', null);
+  const tempDiagram = diagram.cloneNode(true);
+  tempDoc.documentElement.appendChild(tempDiagram);
+
+  let optimized = 0;
+
+  // 获取布局方向（默认 TB）
+  const layoutDir = opts.layoutDirection || 'TB';
+
+  // 应用所有优化（使用临时文档）
+  if (opts.dagreLayout) {
+    // 根据布局方向调整参数
+    const dagreOpts = layoutDir === 'TB' ? {
+      rankdir: 'TB',       // 从上到下
+      nodesep: 80,         // 同层节点横向间距
+      ranksep: 120,        // 不同层纵向间距（更紧凑）
+      edgesep: 10,
+      ranker: 'network-simplex'
+    } : {
+      rankdir: 'LR',       // 从左到右
+      nodesep: 100,        // 同层节点纵向间距
+      ranksep: 180,        // 不同层横向间距
+      edgesep: 20,
+      ranker: 'network-simplex'
+    };
+
+    optimized += applyDagreLayout(tempDoc, dagreOpts);
+  }
+
+  if (opts.gridAlignment) {
+    optimized += optimizeGridAlignment(tempDoc, 10);
+  }
+
+  if (opts.spacing && !opts.dagreLayout) {
+    optimized += optimizeSpacing(tempDoc, 30);
+  }
+
+  if (opts.spacing) {
+    optimized += optimizeEdgeNodeAvoidance(tempDoc);
+  }
+
+  if (opts.connections) {
+    optimized += optimizeConnections(tempDoc, layoutDir);
+  }
+
+  if (opts.styles) {
+    optimized += optimizeStyles(tempDoc);
+  }
+
+  // 将优化后的节点同步回原始 diagram
+  const optimizedDiagram = tempDoc.querySelector('diagram');
+  const originalCells = diagram.querySelectorAll('mxCell[id]');
+  const optimizedCells = optimizedDiagram.querySelectorAll('mxCell[id]');
+
+  const cellMap = new Map();
+  optimizedCells.forEach(cell => {
+    cellMap.set(cell.getAttribute('id'), cell);
+  });
+
+  originalCells.forEach(originalCell => {
+    const id = originalCell.getAttribute('id');
+    const optimizedCell = cellMap.get(id);
+    if (!optimizedCell) return;
+
+    // 同步几何信息和样式
+    const originalGeo = originalCell.querySelector('mxGeometry');
+    const optimizedGeo = optimizedCell.querySelector('mxGeometry');
+
+    if (originalGeo && optimizedGeo) {
+      // 同步所有属性
+      ['x', 'y', 'width', 'height', 'relative', 'as', 'exitX', 'exitY', 'entryX', 'entryY'].forEach(attr => {
+        if (optimizedGeo.hasAttribute(attr)) {
+          originalGeo.setAttribute(attr, optimizedGeo.getAttribute(attr));
+        }
+      });
+    }
+
+    // 同步样式
+    if (optimizedCell.hasAttribute('style')) {
+      originalCell.setAttribute('style', optimizedCell.getAttribute('style'));
+    }
+  });
+
+  return optimized;
+}
+
+/**
+ * 主优化函数（支持多页图表）
+ * @param {string} xmlString - 原始 draw.io XML 字符串
+ * @param {Object} options - 优化选项
+ * @returns {string} 优化后的 XML 字符串
+ */
+function optimizeDrawioLayoutMultiPage(xmlString, options = {}) {
+  const defaultOptions = {
+    dagreLayout: true,
+    gridAlignment: true,
+    spacing: true,
+    connections: true,
+    styles: false
+  };
+
+  const opts = { ...defaultOptions, ...options };
+
+  try {
+    const xmlDoc = parseDrawioXml(xmlString);
+    const diagrams = Array.from(xmlDoc.querySelectorAll('diagram'));
+
+    if (diagrams.length === 0) {
+      console.warn('[DrawioOptimizer] ⚠️ 未找到 diagram 元素，使用旧版单页优化');
+      return optimizeDrawioLayout(xmlString, options);
+    }
+
+    console.log(`[DrawioOptimizer] 🎯 检测到 ${diagrams.length} 个页面，开始独立优化...`);
+
+    let totalOptimized = 0;
+
+    diagrams.forEach((diagram, index) => {
+      const name = diagram.getAttribute('name') || `Page ${index + 1}`;
+      console.log(`[DrawioOptimizer] 📄 优化页面 "${name}"...`);
+      const count = optimizeDiagram(diagram, opts);
+      console.log(`[DrawioOptimizer] ✅ 页面 "${name}" 完成，优化 ${count} 处`);
+      totalOptimized += count;
+    });
+
+    console.log(`[DrawioOptimizer] ✅ 全部完成，共优化 ${totalOptimized} 处`);
+    return serializeDrawioXml(xmlDoc);
+
+  } catch (error) {
+    console.error('[DrawioOptimizer] ❌ 多页优化失败，回退到单页模式:', error);
+    return optimizeDrawioLayout(xmlString, options);
+  }
+}
+
 // 导出到全局
 window.DrawioLayoutOptimizer = {
-  optimizeDrawioLayout
+  optimizeDrawioLayout: optimizeDrawioLayoutMultiPage,  // 使用新的多页版本
+  optimizeDrawioLayoutLegacy: optimizeDrawioLayout      // 保留旧版本
 };

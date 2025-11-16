@@ -937,6 +937,23 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         const extractAndFixDrawioXml = (raw) => {
           let text = raw || '';
 
+          // 优先检测 DrawioLite DSL 并转换
+          if (window.DrawioLitePrompt && window.DrawioLitePrompt.isDrawioLiteDSL(text)) {
+            console.log('[Draw.io] 检测到 DrawioLite DSL，开始转换...');
+            try {
+              if (window.DrawioLiteParser && window.DrawioLiteParser.convertDrawioLite) {
+                text = window.DrawioLiteParser.convertDrawioLite(text);
+                console.log('[Draw.io] ✅ DrawioLite → XML 转换成功（已包含布局优化，跳过后续优化）');
+                return text; // DSL已在parser中优化，直接返回，避免重复优化
+              } else {
+                console.error('[Draw.io] ❌ DrawioLite Parser 未加载');
+              }
+            } catch (error) {
+              console.error('[Draw.io] ❌ DrawioLite 转换失败:', error);
+              // 转换失败，继续尝试 XML 提取
+            }
+          }
+
           // 清理文本：移除 Markdown 代码块标记（如果 AI 违规使用了）
           text = text.replace(/```xml\s*/gi, '').replace(/```\s*/g, '');
 
@@ -1120,40 +1137,86 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
               const testDoc = parser.parseFromString(fixed, 'text/xml');
               const parserError = testDoc.querySelector('parsererror');
 
-              if (parserError && parserError.textContent.includes('attributes construct error')) {
+              if (parserError) {
                 const errorText = parserError.textContent;
                 const lineMatch = errorText.match(/error on line (\d+)/);
 
                 if (lineMatch) {
                   const errorLine = parseInt(lineMatch[1]);
-                  console.log(`[Draw.io] 检测到第 ${errorLine} 行属性错误，尝试修复`);
+                  console.log(`[Draw.io] 检测到第 ${errorLine} 行有错误，尝试智能修复`);
 
                   const lines = fixed.split('\n');
                   if (errorLine <= lines.length) {
                     let problematicLine = lines[errorLine - 1];
+                    const originalLine = problematicLine;
 
-                    // 修复常见的 style 属性错误
-                    // 1. 修复缺少值的属性（如 exitX=0.5;exitY=1;entryY; 应该是 entryY=0）
-                    problematicLine = problematicLine.replace(/;(\w+);/g, ';$1=0;');  // 中间的
-                    problematicLine = problematicLine.replace(/;(\w+)"/g, ';$1=0"');  // 末尾的
+                    console.log(`[Draw.io] 错误行 ${errorLine} 原始内容:`, problematicLine.substring(0, 150));
 
-                    // 2. 修复多余的分号
+                    // 通用属性格式修复策略（按顺序执行）
+
+                    // 1. 修复未闭合的引号（导致后续内容被误认为属性名）
+                    // 统计引号数量，如果是奇数则在行尾补上引号
+                    const quoteCount = (problematicLine.match(/"/g) || []).length;
+                    if (quoteCount % 2 !== 0) {
+                      // 找到最后一个 = 的位置，在该值的末尾（下一个空格或 > 之前）补引号
+                      problematicLine = problematicLine.replace(/(=")([^"]*?)(\s|>|$)/g, '$1$2"$3');
+                    }
+
+                    // 2. 移除属性名中的非法字符（属性名只能包含字母、数字、下划线、冒号、连字符）
+                    // 例如：width 220 → width220，然后后续步骤会处理
+                    problematicLine = problematicLine.replace(
+                      /\s+([a-zA-Z_:][\w:.-]*)\s+=/g,
+                      ' $1='
+                    );
+
+                    // 3. 修复属性名后直接跟数字的情况（缺少等号和引号）
+                    // 例如：width220 → width="220"
+                    problematicLine = problematicLine.replace(
+                      /\b(width|height|x|y|relative|vertex|edge)(\d+(?:\.\d+)?)/gi,
+                      '$1="$2"'
+                    );
+
+                    // 4. 修复属性名后跟字母但缺少等号的情况
+                    // 例如：as geometry → as="geometry"
+                    problematicLine = problematicLine.replace(
+                      /\s(as|value|style|id|parent|source|target)\s+([a-zA-Z_][\w.-]*)/g,
+                      ' $1="$2"'
+                    );
+
+                    // 5. 修复等号后缺少引号的情况
+                    // 例如：width=220 → width="220"
+                    problematicLine = problematicLine.replace(
+                      /\b(width|height|x|y|as|relative|vertex|edge|source|target|parent|id)=([0-9.]+|[a-zA-Z_]\w*)(?!\s*")/g,
+                      '$1="$2"'
+                    );
+
+                    // 6. 修复 style 属性中缺少值的情况
+                    problematicLine = problematicLine.replace(/;(\w+);/g, ';$1=0;');
+                    problematicLine = problematicLine.replace(/;(\w+)"/g, ';$1=0"');
+
+                    // 7. 修复多余的分号和空格
                     problematicLine = problematicLine.replace(/;;+/g, ';');
                     problematicLine = problematicLine.replace(/;"/g, '"');
+                    problematicLine = problematicLine.replace(/\s+>/g, '>');
 
-                    // 3. 修复未转义的特殊字符
-                    problematicLine = problematicLine.replace(/value="([^"]*)"/g, (match, content) => {
-                      const escaped = content
-                        .replace(/&(?!quot;|lt;|gt;|amp;)/g, '&amp;')
-                        .replace(/</g, '&lt;')
-                        .replace(/>/g, '&gt;');
-                      return `value="${escaped}"`;
-                    });
+                    // 8. 修复重复的等号
+                    problematicLine = problematicLine.replace(/="+/g, '="');
+                    problematicLine = problematicLine.replace(/=\s*=/g, '=');
+
+                    // 9. 移除孤立的引号（不在属性值内的引号）
+                    // 这一步要谨慎，只移除明显错误的引号
+                    problematicLine = problematicLine.replace(/"\s+"/g, '');
 
                     lines[errorLine - 1] = problematicLine;
                     fixed = lines.join('\n');
 
-                    console.log(`[Draw.io] 已修复第 ${errorLine} 行的属性错误`);
+                    if (originalLine !== problematicLine) {
+                      console.log(`[Draw.io] 已修复第 ${errorLine} 行`);
+                      console.log(`  修复前:`, originalLine.substring(0, 150));
+                      console.log(`  修复后:`, problematicLine.substring(0, 150));
+                    } else {
+                      console.log(`[Draw.io] 第 ${errorLine} 行无法自动修复，可能需要手动检查`);
+                    }
                   }
                 }
               }
@@ -1286,12 +1349,14 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         xml = validXml;
 
         // 🎨 应用布局优化（网格对齐、间距、连接等）
+        // 注意：DrawioLite DSL 已在 parser 中优化，这里只处理 AI 直接生成的 XML
         try {
           if (window.DrawioLayoutOptimizer && typeof window.DrawioLayoutOptimizer.optimizeDrawioLayout === 'function') {
-            console.log('[Draw.io] 正在应用布局优化...');
+            console.log('[Draw.io] 🎨 正在应用布局优化（多页支持）...');
             xml = window.DrawioLayoutOptimizer.optimizeDrawioLayout(xml, {
+              dagreLayout: true,    // 使用 Dagre 算法（现已支持多页）
               gridAlignment: true,  // 网格对齐
-              spacing: true,        // 间距优化
+              spacing: false,       // 禁用间距优化（Dagre 已处理）
               connections: true,    // 连接优化
               styles: false         // 不统一样式（保留 AI 的颜色选择）
             });
@@ -1305,6 +1370,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         }
 
         // 🎓 应用学术增强（Paper Burner 专属：语义配色 + 学术规范）
+        // 注意：由于 DrawioLite DSL 已有颜色规范，此处主要针对 AI 直接生成的 XML
         try {
           if (window.DrawioAcademicEnhancer && typeof window.DrawioAcademicEnhancer.enhanceAcademicDiagram === 'function') {
             console.log('[Draw.io] 🎓 正在应用学术增强...');
