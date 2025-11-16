@@ -1087,7 +1087,135 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
             return fixed;
           },
 
-          // 策略 4: 使用原始 XML（不做任何处理）
+          // 策略 4: 结构修复（补全缺失的结束标签）
+          (xmlStr) => {
+            let fixed = cleanDrawioXml(xmlStr);
+
+            // 检测并补全缺失的结束标签（常见错误：AI 忘记关闭结构标签）
+            const requiredEndTags = [
+              { start: '<root>', end: '</root>' },
+              { start: '<mxGraphModel', end: '</mxGraphModel>' },
+              { start: '<diagram', end: '</diagram>' },
+              { start: '<mxfile', end: '</mxfile>' }
+            ];
+
+            for (const { start, end } of requiredEndTags) {
+              // 如果有开始标签但缺少结束标签
+              if (fixed.includes(start) && !fixed.includes(end)) {
+                console.log(`[Draw.io] 检测到缺失的结束标签: ${end}，尝试自动补全`);
+                fixed = fixed + '\n' + end;
+              }
+            }
+
+            return fixed;
+          },
+
+          // 策略 5: 属性错误修复（专门处理 attributes construct error）
+          (xmlStr) => {
+            let fixed = cleanDrawioXml(xmlStr);
+
+            try {
+              // 尝试解析，捕获错误信息
+              const parser = new DOMParser();
+              const testDoc = parser.parseFromString(fixed, 'text/xml');
+              const parserError = testDoc.querySelector('parsererror');
+
+              if (parserError && parserError.textContent.includes('attributes construct error')) {
+                const errorText = parserError.textContent;
+                const lineMatch = errorText.match(/error on line (\d+)/);
+
+                if (lineMatch) {
+                  const errorLine = parseInt(lineMatch[1]);
+                  console.log(`[Draw.io] 检测到第 ${errorLine} 行属性错误，尝试修复`);
+
+                  const lines = fixed.split('\n');
+                  if (errorLine <= lines.length) {
+                    let problematicLine = lines[errorLine - 1];
+
+                    // 修复常见的 style 属性错误
+                    // 1. 修复缺少值的属性（如 exitX=0.5;exitY=1;entryY; 应该是 entryY=0）
+                    problematicLine = problematicLine.replace(/;(\w+);/g, ';$1=0;');  // 中间的
+                    problematicLine = problematicLine.replace(/;(\w+)"/g, ';$1=0"');  // 末尾的
+
+                    // 2. 修复多余的分号
+                    problematicLine = problematicLine.replace(/;;+/g, ';');
+                    problematicLine = problematicLine.replace(/;"/g, '"');
+
+                    // 3. 修复未转义的特殊字符
+                    problematicLine = problematicLine.replace(/value="([^"]*)"/g, (match, content) => {
+                      const escaped = content
+                        .replace(/&(?!quot;|lt;|gt;|amp;)/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;');
+                      return `value="${escaped}"`;
+                    });
+
+                    lines[errorLine - 1] = problematicLine;
+                    fixed = lines.join('\n');
+
+                    console.log(`[Draw.io] 已修复第 ${errorLine} 行的属性错误`);
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn('[Draw.io] 属性错误修复失败:', e.message);
+            }
+
+            return fixed;
+          },
+
+          // 策略 6: 智能截断修复（定位错误行并尝试移除）
+          (xmlStr) => {
+            try {
+              // 尝试解析，捕获错误信息
+              const parser = new DOMParser();
+              const testDoc = parser.parseFromString(xmlStr, 'text/xml');
+              const parserError = testDoc.querySelector('parsererror');
+
+              if (parserError) {
+                const errorText = parserError.textContent;
+                // 提取错误行号：error on line 142
+                const lineMatch = errorText.match(/error on line (\d+)/);
+
+                if (lineMatch) {
+                  const errorLine = parseInt(lineMatch[1]);
+                  console.log(`[Draw.io] 检测到第 ${errorLine} 行有错误，尝试智能修复`);
+
+                  // 获取所有行
+                  const lines = xmlStr.split('\n');
+
+                  // 如果错误行存在，尝试移除或修复它
+                  if (errorLine <= lines.length) {
+                    const problematicLine = lines[errorLine - 1];
+
+                    // 如果这一行只是个多余的结束标签，直接移除
+                    if (problematicLine.trim().match(/^<\/\w+>$/)) {
+                      console.log(`[Draw.io] 移除多余的结束标签: ${problematicLine.trim()}`);
+                      lines.splice(errorLine - 1, 1);
+                      let fixed = lines.join('\n');
+
+                      // 补全可能缺失的必要结束标签
+                      const requiredEndTags = ['</root>', '</mxGraphModel>', '</diagram>', '</mxfile>'];
+                      for (const tag of requiredEndTags) {
+                        if (!fixed.includes(tag)) {
+                          fixed = fixed + '\n' + tag;
+                        }
+                      }
+
+                      return fixed;
+                    }
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn('[Draw.io] 智能截断修复失败:', e.message);
+            }
+
+            // 如果智能修复失败，返回清理后的原始 XML
+            return cleanDrawioXml(xmlStr);
+          },
+
+          // 策略 7: 使用原始 XML（不做任何处理）
           (xmlStr) => xmlStr
         ];
 

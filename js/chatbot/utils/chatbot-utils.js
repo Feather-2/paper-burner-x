@@ -386,25 +386,27 @@ function doActualExport(messageElement) {
   // Phase 10.9: 内联所有 Markdown 元素的关键样式
   inlineMarkdownStyles(exportContainer);
 
-  // Phase 10.10: 修复列表样式（确保列表点垂直居中）
-  const listItems = exportContainer.querySelectorAll('li');
-  listItems.forEach(li => {
-    // 确保列表项使用正确的 display 类型
-    li.style.display = 'list-item';
-    // 重置可能影响垂直对齐的属性
-    if (!li.style.lineHeight) {
-      li.style.lineHeight = '1.6';
+  // Phase 10.10: 修复列表样式（从原始元素复制计算样式）
+  const originalLists = messageElement.querySelectorAll('ul, ol');
+  const exportLists = exportContainer.querySelectorAll('ul, ol');
+  exportLists.forEach((list, index) => {
+    if (originalLists[index]) {
+      const computed = window.getComputedStyle(originalLists[index]);
+      list.style.paddingLeft = computed.paddingLeft;
+      list.style.marginBottom = computed.marginBottom;
+      list.style.listStyleType = computed.listStyleType;
+      list.style.listStylePosition = computed.listStylePosition || 'outside';
     }
   });
 
-  const lists = exportContainer.querySelectorAll('ul, ol');
-  lists.forEach(list => {
-    // 确保列表有正确的样式
-    if (!list.style.listStylePosition) {
-      list.style.listStylePosition = 'outside';
-    }
-    if (!list.style.paddingLeft) {
-      list.style.paddingLeft = '2em';
+  const originalItems = messageElement.querySelectorAll('li');
+  const exportItems = exportContainer.querySelectorAll('li');
+  exportItems.forEach((li, index) => {
+    if (originalItems[index]) {
+      const computed = window.getComputedStyle(originalItems[index]);
+      li.style.display = 'list-item';
+      li.style.lineHeight = computed.lineHeight;
+      li.style.marginBottom = computed.marginBottom;
     }
   });
 
