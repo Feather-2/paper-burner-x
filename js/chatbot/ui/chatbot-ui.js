@@ -609,7 +609,10 @@ function updateChatbotUI() {
 
                   if (!didIncrementalUpdate) {
                     // 回退：完整重渲染
-                    if (typeof renderWithKatexStreaming === 'function') {
+                    // 检查是否为纯 HTML 内容（不需要 Markdown 解析）
+                    if (lastMessage.isRawHtml) {
+                      contentDiv.innerHTML = newContent;
+                    } else if (typeof renderWithKatexStreaming === 'function') {
                       contentDiv.innerHTML = renderWithKatexStreaming(newContent);
                     } else if (typeof marked !== 'undefined') {
                       contentDiv.innerHTML = marked.parse(newContent);

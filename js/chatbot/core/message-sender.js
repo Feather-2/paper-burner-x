@@ -1278,6 +1278,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
 
           chatHistory[assistantMsgIndex].content = errorHtml;
           chatHistory[assistantMsgIndex].isDrawioPictures = false; // 不显示成功的卡片
+          chatHistory[assistantMsgIndex].isRawHtml = true; // 标记为纯 HTML，不进行 Markdown 解析
           return; // 不抛出错误，避免进入 catch 块
         }
 
@@ -1331,6 +1332,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         console.error('[Draw.io] XML 处理失败:', error);
         chatHistory[assistantMsgIndex].content += '\n\n<div style="color:#e53e3e;background:#fee;padding:12px;border-radius:6px;margin-top:16px;">⚠️ 配图 XML 处理失败: ' + error.message + '</div>';
         chatHistory[assistantMsgIndex].isDrawioPictures = false;
+        chatHistory[assistantMsgIndex].isRawHtml = true; // 标记为纯 HTML，不进行 Markdown 解析
       }
     }
   } catch (e) {
