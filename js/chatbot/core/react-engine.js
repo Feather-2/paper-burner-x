@@ -905,10 +905,17 @@
      * 解析LLM的推理响应（支持并行工具调用）
      */
     parseReasoningResponse(response) {
+      // 添加日志：查看 LLM 原始响应
+      console.log('[ReActEngine] LLM原始响应:');
+      console.log('----------------------------------------');
+      console.log(response);
+      console.log('----------------------------------------');
+
       try {
         // 尝试提取JSON
         const jsonMatch = response.match(/\{[\s\S]*\}/);
         if (!jsonMatch) {
+          console.error('[ReActEngine] 响应中未找到JSON格式，原始响应长度:', response.length);
           throw new Error('响应中未找到JSON格式');
         }
 

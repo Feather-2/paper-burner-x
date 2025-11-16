@@ -194,9 +194,20 @@
      * 调用API（非流式）
      */
     async callApi(apiConfig, messages, options = {}) {
-      const requestBody = apiConfig.bodyBuilder
-        ? apiConfig.bodyBuilder('', [], messages[messages.length - 1].content)
-        : { messages };
+      let requestBody;
+
+      if (apiConfig.bodyBuilder) {
+        // 从 messages 数组中提取 system、history、user
+        const systemMsg = messages.find(m => m.role === 'system');
+        const systemPrompt = systemMsg ? systemMsg.content : '';
+        const historyMsgs = messages.filter(m => m.role !== 'system' && m !== messages[messages.length - 1]);
+        const userMsg = messages[messages.length - 1];
+        const userContent = userMsg ? userMsg.content : '';
+
+        requestBody = apiConfig.bodyBuilder(systemPrompt, historyMsgs, userContent);
+      } else {
+        requestBody = { messages };
+      }
 
       // 如果有自定义的请求体构建器，使用它
       if (options.customBodyBuilder) {
@@ -246,9 +257,20 @@
      * 调用API（流式）
      */
     async callApiStream(apiConfig, messages, onChunk, options = {}) {
-      const requestBody = apiConfig.streamBodyBuilder
-        ? apiConfig.streamBodyBuilder('', [], messages[messages.length - 1].content)
-        : { messages, stream: true };
+      let requestBody;
+
+      if (apiConfig.streamBodyBuilder) {
+        // 从 messages 数组中提取 system、history、user
+        const systemMsg = messages.find(m => m.role === 'system');
+        const systemPrompt = systemMsg ? systemMsg.content : '';
+        const historyMsgs = messages.filter(m => m.role !== 'system' && m !== messages[messages.length - 1]);
+        const userMsg = messages[messages.length - 1];
+        const userContent = userMsg ? userMsg.content : '';
+
+        requestBody = apiConfig.streamBodyBuilder(systemPrompt, historyMsgs, userContent);
+      } else {
+        requestBody = { messages, stream: true };
+      }
 
       if (options.customBodyBuilder) {
         Object.assign(requestBody, options.customBodyBuilder(messages));
