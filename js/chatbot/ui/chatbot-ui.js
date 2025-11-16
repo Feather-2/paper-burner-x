@@ -621,7 +621,7 @@ function updateChatbotUI() {
                       // 创建临时元素进行反转义
                       const tempDiv = document.createElement('div');
                       tempDiv.innerHTML = contentToRender;
-                      contentToRender = tempDiv.textContent || tempDiv.innerText || '';
+                      contentToRender = tempDiv.innerHTML; // 使用 innerHTML 而不是 textContent
                       lastMessage.isRawHtml = true; // 标记为纯 HTML
                     }
 
