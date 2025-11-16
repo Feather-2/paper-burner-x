@@ -571,6 +571,9 @@
   /**
    * 处理ReAct事件（新增）
    */
+  // 并行工具调用追踪（用于匹配 start 和 complete 事件）
+  var parallelCallsTracker = {};
+
   function handleReActEvent(event) {
     if (!event || !event.type) return;
 
@@ -584,6 +587,8 @@
         break;
 
       case 'iteration_start':
+        // 重置并行调用追踪
+        parallelCallsTracker = {};
         addStepHtml({
           tool: 'round',
           message: `第 ${event.iteration}/${event.maxIterations} 轮推理`,
@@ -606,25 +611,80 @@
         break;
 
       case 'tool_call_start':
+        // 并行工具调用：显示组标题（只在第一个工具时）
+        if (event.parallel && event.totalCalls > 1) {
+          const trackKey = `iter_${event.iteration}`;
+          if (!parallelCallsTracker[trackKey]) {
+            parallelCallsTracker[trackKey] = {
+              totalCalls: event.totalCalls,
+              completedCalls: 0,
+              startIndex: currentStepsHtml.length
+            };
+            addStepHtml({
+              tool: 'parallel',
+              message: `🔀 并行调用 ${event.totalCalls} 个工具`,
+              args: { totalCalls: event.totalCalls }
+            }, 'running');
+          }
+        }
+
+        // 添加工具调用步骤
+        const toolMessage = event.parallel
+          ? `  ├─ ${event.tool}`
+          : `调用工具: ${event.tool}`;
         addStepHtml({
           tool: event.tool,
-          message: `调用工具: ${event.tool}`,
-          args: event.params || {}
+          message: toolMessage,
+          args: event.params || {},
+          parallel: event.parallel || false,
+          toolName: event.tool // 用于匹配 complete 事件
         }, 'running');
         break;
 
       case 'tool_call_complete':
-        if (currentStepsHtml.length > 0) {
-          const result = event.result || {};
-          const status = result.success === false ? 'error' : 'done';
-          updateLastStepStatus(status, result);
+        // 查找对应的 tool_call_start 步骤并更新
+        const result = event.result || {};
+        const status = result.success === false ? 'error' : 'done';
+
+        // 从后往前找到匹配的工具步骤
+        for (let i = currentStepsHtml.length - 1; i >= 0; i--) {
+          const step = currentStepsHtml[i];
+          if (step.toolName === event.tool && step.status === 'running') {
+            // 更新这个步骤的状态
+            currentStepsHtml[i].status = status;
+            currentStepsHtml[i].result = result;
+
+            // 如果是并行调用，更新计数
+            if (event.parallel) {
+              const trackKey = `iter_${event.iteration}`;
+              if (parallelCallsTracker[trackKey]) {
+                parallelCallsTracker[trackKey].completedCalls++;
+
+                // 所有并行工具都完成了，更新组标题状态
+                if (parallelCallsTracker[trackKey].completedCalls === parallelCallsTracker[trackKey].totalCalls) {
+                  const groupIndex = parallelCallsTracker[trackKey].startIndex;
+                  if (currentStepsHtml[groupIndex]) {
+                    currentStepsHtml[groupIndex].status = 'done';
+                    currentStepsHtml[groupIndex].message = `🔀 并行调用完成 (${parallelCallsTracker[trackKey].totalCalls} 个工具)`;
+                  }
+                }
+              }
+            }
+
+            // 重新渲染
+            renderSteps();
+            break;
+          }
         }
         break;
 
       case 'context_updated':
+        const parallelInfo = event.parallelCallsCount > 0
+          ? ` [并行${event.parallelCallsCount}个工具]`
+          : '';
         addStepHtml({
           tool: 'info',
-          message: `上下文更新 (${event.contextSize} 字符, ~${event.estimatedTokens} tokens)`,
+          message: `上下文更新 (${event.contextSize} 字符, ~${event.estimatedTokens} tokens)${parallelInfo}`,
           args: {}
         }, 'done');
         break;
@@ -678,11 +738,14 @@
       'fetch': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>',
       'map': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 9 2 15 6 23 2 23 18 15 22 9 18 1 22 1 6"/></svg>',
       'grep': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>',
+      'parallel': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 18V6H7v12"/><path d="M17 6l4 4-4 4"/><path d="M7 18l-4-4 4-4"/></svg>',
       'preload': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
       'planning': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
       'round': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>',
       'task_status': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
-      'info': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>'
+      'info': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>',
+      'warning': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>',
+      'error': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>'
     };
     return icons[tool] || '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
   }
@@ -701,11 +764,14 @@
       'fetch': '获取意群详情',
       'map': '获取意群地图',
       'grep': '全文短语搜索',
+      'parallel': '并行工具调用',
       'preload': '预加载意群',
       'planning': 'AI规划工具调用',
       'round': '第' + ((stepInfo.round || 0) + 1) + '轮取材',
       'task_status': '任务追踪',
-      'info': '信息'
+      'info': '信息',
+      'warning': '警告',
+      'error': '错误'
     };
 
     var title = titles[stepInfo.tool || stepInfo.phase] || stepInfo.message || '执行中';
