@@ -63,13 +63,220 @@
      * 注册内置工具
      */
     registerBuiltinTools() {
-      // 1. 搜索意群
+      // === 搜索工具类 ===
+
+      // 1. 向量语义搜索（推荐优先使用）
+      this.register({
+        name: 'vector_search',
+        description: '智能语义搜索，理解同义词、相关概念、隐含关系。适合概念性、开放性、探索性问题。召回率高，不会因为换词而漏掉相关内容。',
+        parameters: {
+          query: { type: 'string', description: '语义描述或问题' },
+          limit: { type: 'number', description: '返回结果数量（概念性问题用10-15，精确查找用5）', default: 10 }
+        },
+        execute: async (params) => {
+          if (!window.SemanticVectorSearch || !window.SemanticVectorSearch.search) {
+            throw new Error('SemanticVectorSearch未加载');
+          }
+          try {
+            const results = await window.SemanticVectorSearch.search(params.query, params.limit || 10);
+            return {
+              success: true,
+              count: results.length,
+              results: results.map(r => ({
+                groupId: r.groupId,
+                score: r.score,
+                text: r.text,
+                keywords: r.keywords
+              }))
+            };
+          } catch (error) {
+            return {
+              success: false,
+              error: error.message || '向量搜索失败'
+            };
+          }
+        }
+      });
+
+      // 2. BM25关键词搜索
+      this.register({
+        name: 'keyword_search',
+        description: '多关键词加权搜索（BM25算法）。适用于精确查找特定关键词组合。',
+        parameters: {
+          keywords: { type: 'array', description: '关键词数组，如["词1", "词2"]' },
+          limit: { type: 'number', description: '返回结果数量（关键词明确用5，模糊查找用10）', default: 8 }
+        },
+        execute: async (params) => {
+          if (!window.BM25Search || !window.BM25Search.search) {
+            throw new Error('BM25Search未加载');
+          }
+          try {
+            const results = await window.BM25Search.search(params.keywords, params.limit || 8);
+            return {
+              success: true,
+              count: results.length,
+              results: results.map(r => ({
+                groupId: r.groupId,
+                score: r.score,
+                text: r.text,
+                matchedKeywords: r.matchedKeywords
+              }))
+            };
+          } catch (error) {
+            return {
+              success: false,
+              error: error.message || 'BM25搜索失败'
+            };
+          }
+        }
+      });
+
+      // 3. GREP字面文本搜索
+      this.register({
+        name: 'grep',
+        description: '字面文本搜索（精确匹配）。适合搜索专有名词、特定数字、固定术语。支持OR逻辑（用|分隔多个关键词）。',
+        parameters: {
+          query: { type: 'string', description: '搜索关键词或短语，支持 | 分隔（如"方程|公式|equation"）' },
+          limit: { type: 'number', description: '返回结果数量', default: 20 },
+          context: { type: 'number', description: '上下文长度（字符数）', default: 2000 },
+          caseInsensitive: { type: 'boolean', description: '是否忽略大小写', default: true }
+        },
+        execute: async (params) => {
+          // 在文档内容中搜索
+          const docContent = (window.data?.translation || window.data?.ocr || '');
+          if (!docContent) {
+            return { success: false, error: '文档内容为空' };
+          }
+
+          const query = params.query || '';
+          const limit = params.limit || 20;
+          const context = params.context || 2000;
+          const caseInsensitive = params.caseInsensitive !== false;
+
+          const results = [];
+          const keywords = query.split('|').map(k => k.trim()).filter(k => k);
+
+          for (const keyword of keywords) {
+            const regex = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), caseInsensitive ? 'gi' : 'g');
+            let match;
+            while ((match = regex.exec(docContent)) !== null && results.length < limit) {
+              const start = Math.max(0, match.index - context);
+              const end = Math.min(docContent.length, match.index + keyword.length + context);
+              results.push({
+                keyword: keyword,
+                position: match.index,
+                preview: docContent.slice(start, end)
+              });
+
+              if (match.index === regex.lastIndex) regex.lastIndex++;
+            }
+
+            if (results.length >= limit) break;
+          }
+
+          return {
+            success: true,
+            count: results.length,
+            matches: results
+          };
+        }
+      });
+
+      // 4. 正则表达式搜索
+      this.register({
+        name: 'regex_search',
+        description: '正则表达式搜索，匹配特定格式。适用于：日期格式、编号（如"公式3.2"）、电话邮箱、数学公式编号、图表引用等。',
+        parameters: {
+          pattern: { type: 'string', description: '正则表达式模式（需转义特殊字符，如 \\d 表示数字）' },
+          limit: { type: 'number', description: '返回结果数量', default: 10 },
+          context: { type: 'number', description: '上下文长度（字符数）', default: 1500 }
+        },
+        execute: async (params) => {
+          if (!window.AdvancedSearchTools || !window.AdvancedSearchTools.regexSearch) {
+            return { success: false, error: 'AdvancedSearchTools未加载' };
+          }
+
+          const docContent = (window.data?.translation || window.data?.ocr || '');
+          if (!docContent) {
+            return { success: false, error: '文档内容为空' };
+          }
+
+          try {
+            const results = window.AdvancedSearchTools.regexSearch(
+              params.pattern,
+              docContent,
+              {
+                limit: params.limit || 10,
+                context: params.context || 1500
+              }
+            );
+
+            return {
+              success: true,
+              count: results.length,
+              matches: results
+            };
+          } catch (error) {
+            return {
+              success: false,
+              error: error.message || '正则搜索失败'
+            };
+          }
+        }
+      });
+
+      // 5. 布尔逻辑搜索
+      this.register({
+        name: 'boolean_search',
+        description: '布尔逻辑搜索（支持AND/OR/NOT和括号）。适用于复杂逻辑查询、多概念精确组合、排除干扰信息。语法示例："(词1 OR 词2) AND 词3 NOT 词4"',
+        parameters: {
+          query: { type: 'string', description: '布尔查询表达式，如"(CNN OR RNN) AND 对比 NOT 图像"' },
+          limit: { type: 'number', description: '返回结果数量', default: 10 },
+          context: { type: 'number', description: '上下文长度（字符数）', default: 1500 }
+        },
+        execute: async (params) => {
+          if (!window.AdvancedSearchTools || !window.AdvancedSearchTools.booleanSearch) {
+            return { success: false, error: 'AdvancedSearchTools未加载' };
+          }
+
+          const docContent = (window.data?.translation || window.data?.ocr || '');
+          if (!docContent) {
+            return { success: false, error: '文档内容为空' };
+          }
+
+          try {
+            const results = window.AdvancedSearchTools.booleanSearch(
+              params.query,
+              docContent,
+              {
+                limit: params.limit || 10,
+                context: params.context || 1500
+              }
+            );
+
+            return {
+              success: true,
+              count: results.length,
+              matches: results
+            };
+          } catch (error) {
+            return {
+              success: false,
+              error: error.message || '布尔搜索失败'
+            };
+          }
+        }
+      });
+
+      // === 意群工具类 ===
+
+      // 6. 搜索意群（保留原有功能）
       this.register({
         name: 'search_semantic_groups',
-        description: '在文档的语义意群中搜索相关内容。适用于需要找到特定主题或关键词相关段落的场景。',
+        description: '在文档的语义意群中搜索相关内容。返回意群ID、摘要和关键词。',
         parameters: {
-          query: { type: 'string', description: '搜索查询，可以是关键词或问题' },
-          limit: { type: 'number', description: '返回结果数量限制', default: 5 }
+          query: { type: 'string', description: '搜索查询' },
+          limit: { type: 'number', description: '返回结果数量', default: 5 }
         },
         execute: async (params) => {
           if (!window.SemanticTools) {
@@ -88,7 +295,7 @@
         }
       });
 
-      // 2. 获取意群详细内容
+      // 7. 获取意群详细内容（简化版）
       this.register({
         name: 'fetch_group_text',
         description: '获取指定意群的详细文本内容。granularity可选：summary(摘要,800字), digest(精华,3000字), full(全文,8000字)。',
@@ -111,10 +318,82 @@
         }
       });
 
-      // 3. 列出所有意群概览
+      // 8. 获取意群详细信息（完整版，包含结构信息）
+      this.register({
+        name: 'fetch',
+        description: '获取指定意群的完整详细信息（包含完整论述、公式、数据、图表、结构信息）。当搜索到的chunk片段信息不足，需要看到完整上下文时使用。',
+        parameters: {
+          groupId: { type: 'string', description: '意群ID' }
+        },
+        execute: async (params) => {
+          if (!window.SemanticTools || !window.SemanticTools.fetchGroupDetailed) {
+            throw new Error('SemanticTools.fetchGroupDetailed未加载');
+          }
+          const result = window.SemanticTools.fetchGroupDetailed(params.groupId);
+          return {
+            success: true,
+            groupId: result.groupId,
+            text: result.text,
+            structure: result.structure,
+            keywords: result.keywords,
+            summary: result.summary,
+            digest: result.digest,
+            charCount: result.charCount
+          };
+        }
+      });
+
+      // 9. 文档结构地图
+      this.register({
+        name: 'map',
+        description: '获取文档整体结构地图（意群ID、字数、关键词、摘要、章节/图表/公式）。适用于：综合性分析问题、需要了解文档整体脉络、或需要确定重点章节时。',
+        parameters: {
+          limit: { type: 'number', description: '返回意群数量', default: 50 },
+          includeStructure: { type: 'boolean', description: '是否包含结构信息（章节、图表等）', default: true }
+        },
+        execute: async (params) => {
+          if (!window.SemanticTools) {
+            throw new Error('SemanticTools未加载');
+          }
+
+          const groups = window.data?.semanticGroups || [];
+          const limit = Math.min(params.limit || 50, groups.length);
+          const includeStructure = params.includeStructure !== false;
+
+          const mapData = groups.slice(0, limit).map(g => {
+            const entry = {
+              groupId: g.groupId,
+              charCount: g.charCount || 0,
+              keywords: g.keywords || [],
+              summary: g.summary || ''
+            };
+
+            if (includeStructure && g.structure) {
+              entry.structure = {
+                sections: g.structure.sections || [],
+                figures: g.structure.figures || [],
+                formulas: g.structure.formulas || [],
+                tables: g.structure.tables || []
+              };
+            }
+
+            return entry;
+          });
+
+          return {
+            success: true,
+            totalGroups: groups.length,
+            returnedGroups: mapData.length,
+            docGist: window.data?.semanticDocGist || '',
+            map: mapData
+          };
+        }
+      });
+
+      // 10. 列出所有意群概览（简化版）
       this.register({
         name: 'list_all_groups',
-        description: '列出文档中所有意群的概览信息（ID、关键词、摘要）。适用于需要了解文档整体结构的场景。',
+        description: '列出文档中所有意群的概览信息（ID、关键词、摘要）。与map工具类似，但不包含结构信息。',
         parameters: {
           limit: { type: 'number', description: '返回数量限制', default: 20 },
           includeDigest: { type: 'boolean', description: '是否包含精华摘要', default: false }
@@ -559,6 +838,63 @@
       }
 
       switch (toolName) {
+        case 'vector_search':
+          parts.push(`向量搜索 "${result.query || ''}"`);
+          parts.push(`找到 ${result.count || 0} 个语义相关结果:`);
+          if (result.results && result.results.length > 0) {
+            result.results.forEach((r, idx) => {
+              parts.push(`${idx + 1}. [${r.groupId}] 相关度: ${(r.score || 0).toFixed(3)}`);
+              parts.push(`   关键词: ${r.keywords?.join('、') || ''}`);
+              parts.push(`   内容片段: ${(r.text || '').slice(0, 300)}`);
+            });
+          }
+          break;
+
+        case 'keyword_search':
+          parts.push(`BM25搜索 [${result.keywords?.join(', ') || ''}]`);
+          parts.push(`找到 ${result.count || 0} 个匹配结果:`);
+          if (result.results && result.results.length > 0) {
+            result.results.forEach((r, idx) => {
+              parts.push(`${idx + 1}. [${r.groupId}] 评分: ${(r.score || 0).toFixed(2)}`);
+              parts.push(`   匹配关键词: ${r.matchedKeywords?.join('、') || ''}`);
+              parts.push(`   内容片段: ${(r.text || '').slice(0, 300)}`);
+            });
+          }
+          break;
+
+        case 'grep':
+          parts.push(`文本搜索 "${result.query || ''}"`);
+          parts.push(`找到 ${result.count || 0} 处匹配:`);
+          if (result.matches && result.matches.length > 0) {
+            result.matches.slice(0, 5).forEach((m, idx) => {
+              parts.push(`${idx + 1}. 关键词: ${m.keyword}`);
+              parts.push(`   位置: 第 ${m.position} 字符`);
+              parts.push(`   上下文: ${(m.preview || '').slice(0, 200)}`);
+            });
+          }
+          break;
+
+        case 'regex_search':
+          parts.push(`正则搜索 /${result.pattern || ''}/`);
+          parts.push(`找到 ${result.count || 0} 处匹配:`);
+          if (result.matches && result.matches.length > 0) {
+            result.matches.slice(0, 5).forEach((m, idx) => {
+              parts.push(`${idx + 1}. 匹配文本: ${m.match}`);
+              parts.push(`   上下文: ${(m.preview || '').slice(0, 200)}`);
+            });
+          }
+          break;
+
+        case 'boolean_search':
+          parts.push(`布尔搜索 "${result.query || ''}"`);
+          parts.push(`找到 ${result.count || 0} 处匹配:`);
+          if (result.matches && result.matches.length > 0) {
+            result.matches.slice(0, 5).forEach((m, idx) => {
+              parts.push(`${idx + 1}. ${(m.preview || '').slice(0, 300)}`);
+            });
+          }
+          break;
+
         case 'search_semantic_groups':
           if (result.results && result.results.length > 0) {
             parts.push(`找到 ${result.results.length} 个相关意群:`);
@@ -572,9 +908,37 @@
           break;
 
         case 'fetch_group_text':
+        case 'fetch':
           parts.push(`意群ID: ${result.groupId}`);
-          parts.push(`详细程度: ${result.granularity}`);
-          parts.push(`内容:\n${result.text}`);
+          parts.push(`详细程度: ${result.granularity || 'full'}`);
+          if (result.structure) {
+            parts.push(`结构信息: 章节${result.structure.sections?.length || 0}个, 图表${result.structure.figures?.length || 0}个`);
+          }
+          parts.push(`字符数: ${result.charCount || result.text?.length || 0}`);
+          parts.push(`内容:\n${(result.text || '').slice(0, 2000)}`);
+          break;
+
+        case 'map':
+          parts.push(`文档结构地图 (${result.returnedGroups}/${result.totalGroups} 个意群)`);
+          if (result.docGist) {
+            parts.push(`文档概要: ${result.docGist}`);
+          }
+          if (result.map && result.map.length > 0) {
+            parts.push('\n意群列表:');
+            result.map.forEach((g, idx) => {
+              parts.push(`${idx + 1}. [${g.groupId}] ${g.charCount}字 - ${g.keywords?.join('、') || ''}`);
+              if (g.structure) {
+                const structInfo = [];
+                if (g.structure.sections?.length > 0) structInfo.push(`章节${g.structure.sections.length}个`);
+                if (g.structure.figures?.length > 0) structInfo.push(`图${g.structure.figures.length}个`);
+                if (g.structure.formulas?.length > 0) structInfo.push(`公式${g.structure.formulas.length}个`);
+                if (structInfo.length > 0) {
+                  parts.push(`   结构: ${structInfo.join(', ')}`);
+                }
+              }
+              parts.push(`   摘要: ${(g.summary || '').slice(0, 150)}`);
+            });
+          }
           break;
 
         case 'list_all_groups':
@@ -597,7 +961,7 @@
           break;
 
         default:
-          parts.push(JSON.stringify(result, null, 2));
+          parts.push(JSON.stringify(result, null, 2).slice(0, 1000));
       }
 
       return parts.join('\n');
