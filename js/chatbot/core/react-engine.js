@@ -68,15 +68,28 @@
       // 1. 向量语义搜索（推荐优先使用）
       this.register({
         name: 'vector_search',
-        description: '智能语义搜索，理解同义词、相关概念、隐含关系。适合概念性、开放性、探索性问题。召回率高，不会因为换词而漏掉相关内容。',
+        description: '智能语义搜索，理解同义词、相关概念、隐含关系。适合概念性、开放性、探索性问题。【前置条件：需要已构建向量索引】',
         parameters: {
           query: { type: 'string', description: '语义描述或问题' },
           limit: { type: 'number', description: '返回结果数量（概念性问题用10-15，精确查找用5）', default: 10 }
         },
         execute: async (params) => {
+          // 前置检查：是否有向量搜索功能
           if (!window.SemanticVectorSearch || !window.SemanticVectorSearch.search) {
-            throw new Error('SemanticVectorSearch未加载');
+            return {
+              success: false,
+              error: '向量搜索功能未启用（需先构建向量索引），建议降级使用keyword_search或grep'
+            };
           }
+
+          // 检查是否有向量索引
+          if (!window.data?.vectorIndex && !window.data?.semanticGroups) {
+            return {
+              success: false,
+              error: '向量索引未构建，建议先使用map工具或降级使用keyword_search'
+            };
+          }
+
           try {
             const results = await window.SemanticVectorSearch.search(params.query, params.limit || 10);
             return {
@@ -92,7 +105,7 @@
           } catch (error) {
             return {
               success: false,
-              error: error.message || '向量搜索失败'
+              error: `向量搜索失败: ${error.message}，建议降级使用keyword_search或grep`
             };
           }
         }
@@ -101,15 +114,27 @@
       // 2. BM25关键词搜索
       this.register({
         name: 'keyword_search',
-        description: '多关键词加权搜索（BM25算法）。适用于精确查找特定关键词组合。',
+        description: '多关键词加权搜索（BM25算法）。适用于精确查找特定关键词组合。【前置条件：需要已生成意群或chunks】',
         parameters: {
           keywords: { type: 'array', description: '关键词数组，如["词1", "词2"]' },
           limit: { type: 'number', description: '返回结果数量（关键词明确用5，模糊查找用10）', default: 8 }
         },
         execute: async (params) => {
           if (!window.BM25Search || !window.BM25Search.search) {
-            throw new Error('BM25Search未加载');
+            return {
+              success: false,
+              error: 'BM25搜索功能未加载，建议降级使用grep'
+            };
           }
+
+          // 检查是否有可搜索的内容
+          if (!window.data?.semanticGroups && !window.data?.ocrChunks && !window.data?.translatedChunks) {
+            return {
+              success: false,
+              error: '文档chunks未生成，建议使用grep直接搜索原文'
+            };
+          }
+
           try {
             const results = await window.BM25Search.search(params.keywords, params.limit || 8);
             return {
@@ -125,7 +150,7 @@
           } catch (error) {
             return {
               success: false,
-              error: error.message || 'BM25搜索失败'
+              error: `BM25搜索失败: ${error.message}，建议降级使用grep`
             };
           }
         }
@@ -273,15 +298,27 @@
       // 6. 搜索意群（保留原有功能）
       this.register({
         name: 'search_semantic_groups',
-        description: '在文档的语义意群中搜索相关内容。返回意群ID、摘要和关键词。',
+        description: '在文档的语义意群中搜索相关内容。返回意群ID、摘要和关键词。【前置条件：需要已生成意群】',
         parameters: {
           query: { type: 'string', description: '搜索查询' },
           limit: { type: 'number', description: '返回结果数量', default: 5 }
         },
         execute: async (params) => {
           if (!window.SemanticTools) {
-            throw new Error('SemanticTools未加载');
+            return {
+              success: false,
+              error: 'SemanticTools未加载，意群功能不可用，建议使用grep搜索原文'
+            };
           }
+
+          // 检查是否有意群数据
+          if (!window.data?.semanticGroups || window.data.semanticGroups.length === 0) {
+            return {
+              success: false,
+              error: '文档意群未生成，建议使用grep、vector_search或keyword_search'
+            };
+          }
+
           const results = window.SemanticTools.searchGroups(params.query, params.limit || 5);
           return {
             success: true,
@@ -346,17 +383,29 @@
       // 9. 文档结构地图
       this.register({
         name: 'map',
-        description: '获取文档整体结构地图（意群ID、字数、关键词、摘要、章节/图表/公式）。适用于：综合性分析问题、需要了解文档整体脉络、或需要确定重点章节时。',
+        description: '获取文档整体结构地图（意群ID、字数、关键词、摘要、章节/图表/公式）。适用于：综合性分析问题、需要了解文档整体脉络、或需要确定重点章节时。【前置条件：需要已生成意群】',
         parameters: {
           limit: { type: 'number', description: '返回意群数量', default: 50 },
           includeStructure: { type: 'boolean', description: '是否包含结构信息（章节、图表等）', default: true }
         },
         execute: async (params) => {
           if (!window.SemanticTools) {
-            throw new Error('SemanticTools未加载');
+            return {
+              success: false,
+              error: 'SemanticTools未加载，无法获取文档地图。可尝试直接使用grep搜索'
+            };
           }
 
           const groups = window.data?.semanticGroups || [];
+
+          // 检查是否有意群数据
+          if (groups.length === 0) {
+            return {
+              success: false,
+              error: '文档意群未生成，无法提供结构地图。建议直接使用grep、vector_search或keyword_search检索具体内容'
+            };
+          }
+
           const limit = Math.min(params.limit || 50, groups.length);
           const includeStructure = params.includeStructure !== false;
 
