@@ -875,6 +875,8 @@
      * 构建推理提示词（简化版，委托给 SystemPromptBuilder）
      */
     buildReasoningPrompt(context, question, toolResults) {
+      console.log('[ReActEngine] buildReasoningPrompt - context 长度:', context?.length, '前100字:', context?.slice(0, 100));
+
       const parts = [];
 
       // 当前已知信息
@@ -907,7 +909,9 @@
       // 响应格式提醒（从 SystemPrompt 中提取的简化版）
       parts.push('请以JSON格式返回你的决策（支持单工具或并行多工具）:');
 
-      return parts.join('\n');
+      const prompt = parts.join('\n');
+      console.log('[ReActEngine] buildReasoningPrompt - 生成的 prompt 长度:', prompt.length, '包含context:', prompt.includes('【文档状态】'));
+      return prompt;
     }
 
     /**
