@@ -265,6 +265,8 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         reactSystemPrompt,
         conversationHistory
       )) {
+        console.log('[MessageSender] 收到事件:', event.type, event);
+
         // 实时更新UI
         if (window.ChatbotToolTraceUI?.handleReActEvent) {
           window.ChatbotToolTraceUI.handleReActEvent(event);
@@ -284,6 +286,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
 
         // 保存最终答案
         if (event.type === 'final_answer') {
+          console.log('[MessageSender] ✓ 收到 final_answer 事件，立即清除 loading 状态');
           finalAnswer = event.answer;
           // 立即更新UI并清除loading状态
           chatHistory[earlyAssistantMsgIndex].content = finalAnswer;
@@ -291,6 +294,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
           if (typeof updateChatbotUI === 'function') updateChatbotUI();
           saveChatHistory(getCurrentDocId(), chatHistory);
           isChatbotLoadingRef.value = false;
+          console.log('[MessageSender] ✓ loading 状态已清除，isChatbotLoadingRef.value =', isChatbotLoadingRef.value);
           return; // 立即返回，终止循环
         }
       }
