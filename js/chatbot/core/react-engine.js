@@ -559,20 +559,24 @@
       // 3. 工具选择策略
       parts.push('## 工具选择策略');
       parts.push('');
+      parts.push('⚠️ **关键原则：每次调用工具前，必须先检查【文档状态】！**');
+      parts.push('');
       parts.push('### 优先级规则（从高到低）：');
       parts.push('');
-      parts.push('1. **结构化工具优先**（如果文档已生成意群）');
+      parts.push('1. **结构化工具优先**（⚠️ 前提：意群数据已生成）');
       parts.push('   - `map`: 首次接触文档时，获取整体结构');
       parts.push('   - `search_semantic_groups`: 概念性、探索性问题');
       parts.push('   - `fetch`: 需要完整上下文（公式、图表、完整论述）');
+      parts.push('   - ❌ 如果【文档状态】显示"意群数据: 未生成"，这些工具不可用！');
       parts.push('');
-      parts.push('2. **语义搜索次之**（如果向量索引可用）');
+      parts.push('2. **语义搜索次之**（⚠️ 前提：向量索引可用）');
       parts.push('   - `vector_search`: 理解同义词、相关概念、隐含关系');
       parts.push('   - 适合：开放性问题、概念解释、主题探索');
+      parts.push('   - ❌ 如果【文档状态】显示"向量索引: 不可用"，使用 grep 代替！');
       parts.push('');
-      parts.push('3. **精确搜索作为补充**');
+      parts.push('3. **精确搜索（无前置条件，始终可用）**');
+      parts.push('   - `grep`: 精确文本搜索，无需意群或向量索引 ✓');
       parts.push('   - `keyword_search`: 多关键词组合查找（BM25）');
-      parts.push('   - `grep`: 精确文本匹配（专有名词、固定术语）');
       parts.push('   - `regex_search`: 特定格式（日期、编号、公式引用）');
       parts.push('');
       parts.push('4. **高级搜索**');
@@ -610,17 +614,20 @@
       parts.push('## 最佳实践');
       parts.push('');
       parts.push('### ✅ 推荐做法');
-      parts.push('- 首次接触文档时，先用 `map` 了解整体结构');
+      parts.push('- **第一步：检查【文档状态】**，确认哪些工具可用');
+      parts.push('- 如果意群已生成 → 用 `map` 了解整体结构');
+      parts.push('- 如果意群未生成 → **直接使用 `grep` 精确搜索**');
       parts.push('- 语义问题优先用 `vector_search`，失败时降级到 `keyword_search` 或 `grep`');
       parts.push('- 需要完整上下文时使用 `fetch(groupId)`，而非片段搜索');
       parts.push('- 合理设置 `limit` 参数：精确查找用 5，探索性查找用 10');
       parts.push('- 工具失败时检查错误信息，按建议降级使用其他工具');
       parts.push('');
       parts.push('### ❌ 避免做法');
-      parts.push('- 盲目调用工具而不分析错误信息');
-      parts.push('- 重复调用同一工具和参数');
-      parts.push('- 忽略已知信息，过度依赖工具');
-      parts.push('- 在没有必要时使用 `full` 粒度（消耗过多 token）');
+      parts.push('- **❌ 忽略【文档状态】，盲目调用 map/vector_search 等工具**');
+      parts.push('- ❌ 盲目调用工具而不分析错误信息');
+      parts.push('- ❌ 重复调用同一工具和参数');
+      parts.push('- ❌ 忽略已知信息，过度依赖工具');
+      parts.push('- ❌ 在没有必要时使用 `full` 粒度（消耗过多 token）');
       parts.push('');
 
       // 6. 响应格式
@@ -790,6 +797,8 @@
       // === 文档状态声明（关键！） ===
       const hasSemanticGroups = Array.isArray(docContent.semanticGroups) && docContent.semanticGroups.length > 0;
       const hasVectorIndex = !!(window.data?.vectorIndex || window.data?.semanticGroups);
+
+      console.log('[ReActEngine] 构建初始上下文 - hasSemanticGroups:', hasSemanticGroups, ', hasVectorIndex:', hasVectorIndex);
 
       parts.push('【文档状态】');
       parts.push(`- 意群数据: ${hasSemanticGroups ? `已生成（${docContent.semanticGroups.length}个）` : '未生成 ❌'}`);
@@ -1006,6 +1015,12 @@
       let context = this.buildInitialContext(docContent);
       const toolResults = [];
       let iterations = 0;
+
+      // 添加日志：完整初始上下文
+      console.log('[ReActEngine] 初始上下文（完整）:');
+      console.log('========================================');
+      console.log(context);
+      console.log('========================================');
 
       yield { type: 'context_initialized', context: context.slice(0, 500) + '...' };
 
