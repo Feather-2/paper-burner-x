@@ -783,12 +783,37 @@
       // 文档基本信息
       if (docContent.name) {
         parts.push(`文档名称: ${docContent.name}`);
+        parts.push('💡 提示：所有工具都针对当前文档，参数中无需指定文档名称');
+        parts.push('');
       }
 
+      // === 文档状态声明（关键！） ===
+      const hasSemanticGroups = Array.isArray(docContent.semanticGroups) && docContent.semanticGroups.length > 0;
+      const hasVectorIndex = !!(window.data?.vectorIndex || window.data?.semanticGroups);
+
+      parts.push('【文档状态】');
+      parts.push(`- 意群数据: ${hasSemanticGroups ? `已生成（${docContent.semanticGroups.length}个）` : '未生成 ❌'}`);
+      parts.push(`- 向量索引: ${hasVectorIndex ? '可用 ✓' : '不可用 ❌'}`);
+
+      if (!hasSemanticGroups) {
+        parts.push('\n⚠️ 当前文档未生成意群，以下工具不可用:');
+        parts.push('  - map（文档地图）');
+        parts.push('  - search_semantic_groups（意群搜索）');
+        parts.push('  - fetch / fetch_group_text（意群详情）');
+        parts.push('\n✅ 建议使用: grep（精确文本搜索）');
+      }
+
+      if (!hasVectorIndex) {
+        parts.push('\n⚠️ 向量索引未构建，vector_search 工具不可用');
+        parts.push('✅ 建议使用: grep、keyword_search 或 boolean_search');
+      }
+
+      parts.push('');  // 空行分隔
+
       // 如果有意群，提供概览
-      if (Array.isArray(docContent.semanticGroups) && docContent.semanticGroups.length > 0) {
+      if (hasSemanticGroups) {
         const topGroups = docContent.semanticGroups.slice(0, 8);
-        parts.push('\n文档意群概览（前8个）:');
+        parts.push('文档意群概览（前8个）:');
         topGroups.forEach((g, idx) => {
           const keywords = Array.isArray(g.keywords) ? g.keywords.join('、') : '';
           parts.push(`${idx + 1}. [${g.groupId}] ${keywords} - ${(g.summary || '').slice(0, 80)}`);
@@ -798,8 +823,8 @@
         // 没有意群，提供简短的文档片段
         const snippet = (docContent.translation || docContent.ocr || '').slice(0, 2000);
         if (snippet) {
-          parts.push('\n文档内容片段（前2000字）:\n' + snippet);
-          parts.push('\n[文档较长，如需更多内容请使用检索工具]');
+          parts.push('文档内容片段（前2000字）:\n' + snippet);
+          parts.push('\n[文档较长，如需更多内容请使用 grep 工具搜索]');
         }
       }
 
