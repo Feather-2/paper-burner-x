@@ -288,13 +288,18 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         if (event.type === 'final_answer') {
           console.log('[MessageSender] ✓ 收到 final_answer 事件，立即清除 loading 状态');
           finalAnswer = event.answer;
-          // 立即更新UI并清除loading状态
+
+          // ⚠️ 关键：必须先清除 loading 状态，再更新 UI
+          // 因为 updateChatbotUI() 会检查 isChatbotLoading 来决定是否显示 typing indicator
+          isChatbotLoadingRef.value = false;
+          console.log('[MessageSender] ✓ loading 状态已清除，isChatbotLoadingRef.value =', isChatbotLoadingRef.value);
+
+          // 更新消息内容并刷新UI
           chatHistory[earlyAssistantMsgIndex].content = finalAnswer;
           chatHistory[earlyAssistantMsgIndex].toolCallHtml = toolCallHtml;
           if (typeof updateChatbotUI === 'function') updateChatbotUI();
           saveChatHistory(getCurrentDocId(), chatHistory);
-          isChatbotLoadingRef.value = false;
-          console.log('[MessageSender] ✓ loading 状态已清除，isChatbotLoadingRef.value =', isChatbotLoadingRef.value);
+
           return; // 立即返回，终止循环
         }
       }
