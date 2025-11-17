@@ -285,10 +285,17 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         // 保存最终答案
         if (event.type === 'final_answer') {
           finalAnswer = event.answer;
+          // 立即更新UI并清除loading状态
+          chatHistory[earlyAssistantMsgIndex].content = finalAnswer;
+          chatHistory[earlyAssistantMsgIndex].toolCallHtml = toolCallHtml;
+          if (typeof updateChatbotUI === 'function') updateChatbotUI();
+          saveChatHistory(getCurrentDocId(), chatHistory);
+          isChatbotLoadingRef.value = false;
+          return; // 立即返回，终止循环
         }
       }
 
-      // 更新助手消息为最终答案
+      // 备份：如果循环正常结束但没有final_answer（不应该发生）
       if (finalAnswer) {
         chatHistory[earlyAssistantMsgIndex].content = finalAnswer;
         chatHistory[earlyAssistantMsgIndex].toolCallHtml = toolCallHtml;
