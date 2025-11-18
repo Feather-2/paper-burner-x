@@ -239,15 +239,10 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         }
       });
 
-      // 构建系统提示词（简化版，因为ReAct会动态加载上下文）
-      let reactSystemPrompt = `你是一个智能文档助手，当前正在协助用户理解文档"${docContentInfo.name || '当前文档'}"。
-
-你具备ReAct（推理+行动）能力：
-1. 当信息不足时，你可以调用工具检索更多内容
-2. 当信息充足时，你应该直接回答用户问题
-3. 每次推理都要权衡：是否需要更多信息？
-
-请始终以JSON格式返回你的决策。`;
+      // 简化系统提示词：ReActEngine 会自动注入完整的 ReAct 指令
+      // 这里只需要提供文档上下文信息
+      let reactSystemPrompt = `你正在协助用户理解文档"${docContentInfo.name || '当前文档'}"。
+严格按照 ReAct 流程工作，始终以 JSON 格式返回决策。`;
 
       // 构建对话历史
       const conversationHistory = chatHistory.slice(0, -1).map(msg => ({
