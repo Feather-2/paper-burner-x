@@ -7,299 +7,240 @@
  *
  * 组织结构：
  * 1. Z-Index 层级系统
- * 2. 颜色系统
- * 3. 尺寸系统（TOC、Dock、Immersive）
+ * 2. 颜色系统 (Modern Slate & Indigo Palette - Refined for Minimalism)
+ * 3. 尺寸系统
  * 4. 间距与圆角
  * 5. 动画与过渡
- * 6. 断点（响应式）
+ * 6. 断点
  */
 
 :root {
   /* ==================== Z-Index 层级系统 ==================== */
-  /* 原则：使用语义化命名，避免数值碰撞 */
+  --z-base: 1;
+  --z-dropdown: 1000;
+  --z-sticky: 1020;
+  --z-fixed: 1030;
+  --z-modal-backdrop: 1040;
+  --z-modal: 1050;
+  --z-popover: 1060;
+  --z-tooltip: 1070;
+  --z-immersive-container: 1999;
+  --z-immersive-controls: 2000;
+  --z-lightbox: 2010;
+  --z-critical: 9999;
 
-  --z-base: 1;                      /* 基础层 */
-  --z-dropdown: 1000;               /* 下拉菜单 */
-  --z-sticky: 1020;                 /* 粘性元素 */
-  --z-fixed: 1030;                  /* 固定定位 */
-  --z-modal-backdrop: 1040;         /* 弹窗背景遮罩 */
-  --z-modal: 1050;                  /* 弹窗主体 */
-  --z-popover: 1060;                /* 气泡提示 (TOC popup) */
-  --z-tooltip: 1070;                /* 工具提示 */
-  --z-immersive-container: 1999;    /* 沉浸模式容器 */
-  --z-immersive-controls: 2000;     /* 沉浸模式控制按钮 */
-  --z-lightbox: 2010;               /* 图片灯箱 */
-  --z-critical: 9999;               /* 关键 UI（慎用） */
+  /* ==================== 颜色系统 (Modernized & Minimalist) ==================== */
 
-  /* ==================== 颜色系统 ==================== */
+  /* Slate Palette (Neutral) - Refined for lighter, airier feel */
+  --slate-50: #f9fafb;
+  --slate-100: #f3f4f6;
+  --slate-200: #e5e7eb;
+  --slate-300: #d1d5db;
+  --slate-400: #9ca3af;
+  --slate-500: #6b7280;
+  --slate-600: #4b5563;
+  --slate-700: #374151;
+  --slate-800: #1f2937;
+  --slate-900: #111827;
 
-  /* 主色 */
-  --color-primary: #007bff;
-  --color-primary-hover: #0056b3;
-  --color-primary-active: #004085;
+  /* Indigo Palette (Primary) - Slightly more sophisticated */
+  --indigo-50: #eef2ff;
+  --indigo-100: #e0e7ff;
+  --indigo-500: #6366f1;
+  --indigo-600: #4f46e5;
+  --indigo-700: #4338ca;
 
-  /* 背景色 */
+  /* Semantic Mapping */
+  --color-primary: var(--indigo-600);
+  --color-primary-hover: var(--indigo-700);
+  --color-primary-active: var(--indigo-800);
+  --color-primary-light: var(--indigo-50);
+
+  /* Backgrounds */
   --color-bg-base: #ffffff;
-  --color-bg-secondary: #f8f9fa;
-  --color-bg-overlay: rgba(255, 255, 255, 0.95);
-  --color-bg-dark: #1a1a1a;
+  --color-bg-secondary: #fafafa; /* Lighter than slate-50 for subtle contrast */
+  --color-bg-tertiary: var(--slate-50);
+  --color-bg-overlay: rgba(255, 255, 255, 0.85); /* More translucent */
+  --color-bg-dark: var(--slate-900);
 
-  /* 文本色 */
-  --color-text-primary: #333333;
-  --color-text-secondary: #666666;
-  --color-text-muted: #999999;
+  /* Text */
+  --color-text-primary: #1f2937; /* Soft black */
+  --color-text-secondary: #6b7280;
+  --color-text-muted: #9ca3af;
   --color-text-inverse: #ffffff;
 
-  /* 边框色 */
-  --color-border-light: #e0e0e0;
-  --color-border-medium: #cccccc;
-  --color-border-dark: #999999;
+  /* Borders - Much lighter for minimalism */
+  --color-border-light: #f3f4f6; /* Very subtle */
+  --color-border-medium: #e5e7eb;
+  --color-border-dark: #d1d5db;
 
-  /* 状态色 */
-  --color-success: #28a745;
-  --color-warning: #ffc107;
-  --color-danger: #dc3545;
-  --color-info: #17a2b8;
+  /* Functional Colors */
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #3b82f6;
 
-  /* 高亮与选中 */
-  --color-highlight-bg: #fff3cd;
-  --color-highlight-border: #ffc107;
-  --color-selection-bg: #e3f2fd;
+  /* Highlights */
+  --color-highlight-bg: #fffbeb; /* Amber 50 - lighter */
+  --color-highlight-border: #fcd34d;
+  --color-selection-bg: var(--indigo-50);
 
-  /* 阴影色 */
-  --color-shadow-light: rgba(0, 0, 0, 0.05);
-  --color-shadow-medium: rgba(0, 0, 0, 0.1);
-  --color-shadow-strong: rgba(0, 0, 0, 0.2);
+  /* Shadows (Ultra Minimalist & Diffused) */
+  --color-shadow-light: rgba(0, 0, 0, 0.02);
+  --color-shadow-medium: rgba(0, 0, 0, 0.04);
+  --color-shadow-strong: rgba(0, 0, 0, 0.08);
 
-  /* ==================== Sidebar 侧边栏尺寸 ==================== */
-
+  /* ==================== Sidebar Dimensions ==================== */
   --sidebar-width: 260px;
   --sidebar-collapsed-width: 76px;
-  --sidebar-z-index: 50; /* mobile overlay */
+  --sidebar-z-index: 50;
   --sidebar-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
   --sidebar-nav-item-padding: 0.75rem 0.875rem;
-  --sidebar-nav-item-font-size: 0.9375rem; /* 15px */
+  --sidebar-nav-item-font-size: 0.9375rem;
   --sidebar-section-header-padding: 0.625rem 0.875rem;
   --sidebar-section-content-padding: 0.5rem 0;
 
-  /* ==================== TOC 组件尺寸 (Non-Immersive: 已废弃，使用 Sidebar) ==================== */
-  /* 注意：非沉浸模式下 TOC 已迁移到 Sidebar，这些变量仅供沉浸模式使用 */
-
-  --toc-button-size: 32px;  /* 与沉浸模式按钮统一 */
-  --toc-button-left: 16px;  /* 与沉浸模式按钮统一间距 */
-  --toc-button-top: 16px;   /* 与沉浸模式按钮同高度 */
+  /* ==================== Legacy/Specific Components ==================== */
+  --toc-button-size: 32px;
+  --toc-button-left: 16px;
+  --toc-button-top: 16px;
   --toc-button-z-index: var(--z-fixed);
-
-  --toc-popup-width: 160px;  /* 缩窄为原来的 57%，更紧凑 */
+  --toc-popup-width: 160px;
   --toc-popup-max-height: 70vh;
-  --toc-popup-left: 16px;   /* 与按钮对齐 */
-  --toc-popup-top: 56px;    /* 按钮高度 32px + 间距 24px */
+  --toc-popup-left: 16px;
+  --toc-popup-top: 56px;
   --toc-popup-z-index: var(--z-popover);
-
   --toc-item-height: 32px;
   --toc-item-padding-x: 12px;
   --toc-item-padding-y: 6px;
   --toc-indent-width: 20px;
 
-  /* ==================== Dock 组件尺寸 ==================== */
-
   --dock-width: 280px;
   --dock-min-width: 200px;
   --dock-max-width: 400px;
-
   --dock-collapsed-height: 40px;
   --dock-expanded-height: auto;
   --dock-max-height: 300px;
-
   --dock-position-bottom: 20px;
   --dock-position-left: 20px;
   --dock-z-index: var(--z-fixed);
-
   --dock-stat-item-height: 28px;
   --dock-stat-font-size: 13px;
-
-  /* ==================== Immersive 沉浸模式尺寸 ==================== */
 
   --immersive-toc-width: 15%;
   --immersive-toc-min-width: 200px;
   --immersive-toc-max-width: 350px;
-
   --immersive-main-flex: 1;
   --immersive-main-min-width: 400px;
-
   --immersive-chatbot-width: 20%;
   --immersive-chatbot-min-width: 280px;
   --immersive-chatbot-max-width: 500px;
-
   --immersive-resize-handle-width: 6px;
   --immersive-resize-handle-hover-width: 10px;
-
   --immersive-container-z-index: var(--z-immersive-container);
   --immersive-toggle-z-index: var(--z-immersive-controls);
 
-  /* ==================== Modal 弹窗尺寸 ==================== */
-
+  /* ==================== Modal Dimensions ==================== */
   --modal-backdrop-z-index: var(--z-modal-backdrop);
   --modal-content-z-index: var(--z-modal);
-
   --modal-width-small: 400px;
   --modal-width-medium: 600px;
   --modal-width-large: 800px;
   --modal-width-xlarge: 1000px;
-
   --modal-max-height: 85vh;
   --modal-padding: 24px;
 
-  /* ==================== Lightbox 图片灯箱 ==================== */
-
+  /* ==================== Lightbox ==================== */
   --lightbox-z-index: var(--z-lightbox);
   --lightbox-backdrop-bg: rgba(0, 0, 0, 0.9);
   --lightbox-max-width: 90vw;
   --lightbox-max-height: 90vh;
 
-  /* ==================== Chatbot 相关 ==================== */
-
-  --chatbot-config-modal-z-index: 999999; /* 临时保留旧值，后续统一到 var(--z-modal) */
+  /* ==================== Chatbot ==================== */
+  --chatbot-config-modal-z-index: 999999;
   --chatbot-message-action-z-index: var(--z-dropdown);
-
   --chatbot-input-min-height: 60px;
   --chatbot-input-max-height: 200px;
   --chatbot-message-padding: 12px 16px;
 
-  /* ==================== 间距系统 ==================== */
+  /* ==================== Spacing ==================== */
+  --spacing-xs: 0.25rem;  /* 4px */
+  --spacing-sm: 0.5rem;   /* 8px */
+  --spacing-md: 1rem;     /* 16px */
+  --spacing-lg: 1.5rem;   /* 24px */
+  --spacing-xl: 2rem;     /* 32px */
+  --spacing-xxl: 3rem;    /* 48px */
 
-  --spacing-xs: 4px;
-  --spacing-sm: 8px;
-  --spacing-md: 16px;
-  --spacing-lg: 24px;
-  --spacing-xl: 32px;
-  --spacing-xxl: 48px;
-
-  /* ==================== 圆角系统 ==================== */
-
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
+  /* ==================== Radius ==================== */
+  --radius-sm: 0.25rem;   /* 4px */
+  --radius-md: 0.375rem;  /* 6px */
+  --radius-lg: 0.5rem;    /* 8px */
+  --radius-xl: 0.75rem;   /* 12px */
+  --radius-2xl: 1rem;     /* 16px */
   --radius-round: 50%;
 
-  /* ==================== 阴影系统 ==================== */
+  /* ==================== Shadows (Refined for High-end Minimalism) ==================== */
+  /* Much lighter, more diffuse shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.04), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.04), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 10px 10px -5px rgba(0, 0, 0, 0.02);
 
-  --shadow-sm: 0 1px 2px var(--color-shadow-light);
-  --shadow-md: 0 2px 4px var(--color-shadow-medium);
-  --shadow-lg: 0 4px 8px var(--color-shadow-medium);
-  --shadow-xl: 0 8px 16px var(--color-shadow-strong);
+  --shadow-float: 0 4px 20px rgba(0, 0, 0, 0.06); /* Special soft float shadow */
+  --shadow-modal: 0 20px 50px rgba(0, 0, 0, 0.08);
 
-  --shadow-float: 0 2px 8px var(--color-shadow-medium);
-  --shadow-modal: 0 10px 40px var(--color-shadow-strong);
-
-  /* ==================== 动画与过渡 ==================== */
-
-  --transition-fast: 150ms ease;
-  --transition-base: 250ms ease;
-  --transition-slow: 350ms ease;
-
-  --transition-timing-default: ease;
-  --transition-timing-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
-  --transition-timing-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+  /* ==================== Animations ==================== */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 350ms cubic-bezier(0.4, 0, 0.2, 1);
 
   --animation-duration-short: 200ms;
   --animation-duration-base: 300ms;
-  --animation-duration-long: 500ms;
 
-  /* ==================== 字体系统 ==================== */
+  /* ==================== Typography ==================== */
+  --font-family-base: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-family-monospace: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 
-  --font-family-base: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-family-monospace: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New", monospace;
-
-  --font-size-xs: 12px;
-  --font-size-sm: 13px;
-  --font-size-base: 14px;
-  --font-size-md: 16px;
-  --font-size-lg: 18px;
-  --font-size-xl: 20px;
-  --font-size-xxl: 24px;
+  --font-size-xs: 0.75rem;    /* 12px */
+  --font-size-sm: 0.875rem;   /* 14px */
+  --font-size-base: 1rem;     /* 16px */
+  --font-size-md: 1.125rem;   /* 18px */
+  --font-size-lg: 1.25rem;    /* 20px */
+  --font-size-xl: 1.5rem;     /* 24px */
+  --font-size-xxl: 1.875rem;  /* 30px */
 
   --font-weight-normal: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
   --font-weight-bold: 700;
 
-  --line-height-tight: 1.2;
-  --line-height-base: 1.5;
-  --line-height-relaxed: 1.8;
+  --line-height-tight: 1.25;
+  --line-height-base: 1.6;
+  --line-height-relaxed: 1.75;
 
-  /* ==================== 响应式断点 ==================== */
-
+  /* ==================== Breakpoints ==================== */
   --breakpoint-mobile: 700px;
   --breakpoint-tablet: 768px;
   --breakpoint-desktop: 1024px;
   --breakpoint-wide: 1280px;
 
-  /* ==================== 按钮尺寸 ==================== */
-
+  /* ==================== Buttons ==================== */
   --button-size-tiny: 28px;
   --button-size-small: 32px;
-  --button-size-medium: 36px;
-  --button-size-large: 40px;
+  --button-size-medium: 38px;
+  --button-size-large: 44px;
 
-  --button-padding-x-small: 12px;
-  --button-padding-x-medium: 16px;
-  --button-padding-x-large: 20px;
-
-  /* ==================== 特殊用途变量 ==================== */
-
-  /* 滚动容器标识（供 JavaScript 查询） */
+  /* ==================== Utils ==================== */
   --scrollable-overflow: auto;
-
-  /* 拖拽状态 */
   --dragging-cursor: grabbing;
   --dragging-user-select: none;
-
-  /* 禁用状态 */
   --disabled-opacity: 0.5;
   --disabled-cursor: not-allowed;
 }
 
-/* ==================== 暗色模式支持（预留） ==================== */
-
 @media (prefers-color-scheme: dark) {
   :root {
-    /* 未来可在此定义暗色模式变量 */
-    /*
-    --color-bg-base: #1a1a1a;
-    --color-text-primary: #e0e0e0;
-    ...
-    */
+    /* Dark mode foundations can be added here mapping to Slate-800 etc. */
   }
 }
-
-/* ==================== 使用示例 ==================== */
-
-/*
-示例 1: TOC 按钮
-.toc__button {
-  width: var(--toc-button-size);
-  height: var(--toc-button-size);
-  left: var(--toc-button-left);
-  top: var(--toc-button-top);
-  z-index: var(--toc-button-z-index);
-}
-
-示例 2: Dock 容器
-.dock {
-  width: var(--dock-width);
-  bottom: var(--dock-position-bottom);
-  left: var(--dock-position-left);
-  z-index: var(--dock-z-index);
-  box-shadow: var(--shadow-float);
-}
-
-示例 3: 沉浸模式面板
-.immersive__toc-panel {
-  width: var(--immersive-toc-width);
-  min-width: var(--immersive-toc-min-width);
-  max-width: var(--immersive-toc-max-width);
-}
-*/

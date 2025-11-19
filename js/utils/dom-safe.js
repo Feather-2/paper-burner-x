@@ -8,10 +8,13 @@
  * 3. 禁止设置事件属性（onclick, onload 等）
  */
 
-/**
- * 安全的 DOM 操作工具集
- */
-export const DomSafe = {
+(function(window) {
+  'use strict';
+
+  /**
+   * 安全的 DOM 操作工具集
+   */
+  const DomSafe = {
   /**
    * 安全地设置文本内容（推荐）
    * @param {HTMLElement} element - 目标元素
@@ -141,39 +144,43 @@ export const DomSafe = {
       this.setText(el, content);
     });
   }
-};
+  };
 
-/**
- * 检查字符串是否包含潜在的 XSS 攻击
- * @param {string} str - 要检查的字符串
- * @returns {boolean}
- */
-export function hasPotentialXSS(str) {
-  if (typeof str !== 'string') return false;
+  /**
+   * 检查字符串是否包含潜在的 XSS 攻击
+   * @param {string} str - 要检查的字符串
+   * @returns {boolean}
+   */
+  function hasPotentialXSS(str) {
+    if (typeof str !== 'string') return false;
 
-  const patterns = [
-    /<script[^>]*>.*?<\/script>/gi,
-    /javascript:/gi,
-    /on\w+\s*=/gi, // onclick, onload, etc.
-    /<iframe/gi,
-    /<object/gi,
-    /<embed/gi
-  ];
+    const patterns = [
+      /<script[^>]*>.*?<\/script>/gi,
+      /javascript:/gi,
+      /on\w+\s*=/gi, // onclick, onload, etc.
+      /<iframe/gi,
+      /<object/gi,
+      /<embed/gi
+    ];
 
-  return patterns.some(pattern => pattern.test(str));
-}
+    return patterns.some(pattern => pattern.test(str));
+  }
 
-/**
- * 记录不安全的 innerHTML 使用（开发模式）
- * 用于迁移期间的监控
- */
-export function warnUnsafeInnerHTML(location, content) {
-  if (process.env.NODE_ENV !== 'production') {
+  /**
+   * 记录不安全的 innerHTML 使用（开发模式）
+   * 用于迁移期间的监控
+   */
+  function warnUnsafeInnerHTML(location, content) {
     if (hasPotentialXSS(content)) {
       console.warn(`⚠️  检测到潜在的 XSS 风险: ${location}`, content.substring(0, 100));
     }
   }
-}
 
-// 默认导出
-export default DomSafe;
+  // 导出到全局
+  window.DomSafe = DomSafe;
+  window.DomSafe.hasPotentialXSS = hasPotentialXSS;
+  window.DomSafe.warnUnsafeInnerHTML = warnUnsafeInnerHTML;
+
+  console.log('[DomSafe] 安全 DOM 工具已加载');
+
+})(window);

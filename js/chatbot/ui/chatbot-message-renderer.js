@@ -67,13 +67,11 @@ window.ChatbotMessageRenderer = {
       }
     } else {
       // 旧版本：内联事件（用于回滚）
+      // 为了代码简洁，这里仅保留核心功能，样式由 CSS 控制
       buttons += `
         <button class="msg-action-btn delete-msg-btn"
                 onclick="window.ChatbotActions.deleteMessage(${index})"
-                title="删除消息"
-                style="background:rgba(0,0,0,0.05);border:none;width:22px;height:22px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;margin-left:4px;box-shadow: 0 1px 3px rgba(0,0,0,0.1);transition:all 0.2s;"
-                onmouseover="this.style.background='rgba(239,68,68,0.1)';this.style.transform='scale(1.1)'"
-                onmouseout="this.style.background='rgba(0,0,0,0.05)';this.style.transform='scale(1)'">
+                title="删除消息">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="3 6 5 6 21 6"></polyline>
             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -87,10 +85,7 @@ window.ChatbotMessageRenderer = {
         buttons = `
           <button class="msg-action-btn resend-msg-btn"
                   onclick="window.ChatbotActions.resendUserMessage(${index})"
-                  title="重新发送"
-                  style="background:rgba(0,0,0,0.05);border:none;width:22px;height:22px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;box-shadow: 0 1px 3px rgba(0,0,0,0.1);transition:all 0.2s;"
-                  onmouseover="this.style.background='rgba(59,130,246,0.1)';this.style.transform='scale(1.1)'"
-                  onmouseout="this.style.background='rgba(0,0,0,0.05)';this.style.transform='scale(1)'">
+                  title="重新发送">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="23 4 23 10 17 10"></polyline>
               <polyline points="1 20 1 14 7 14"></polyline>
@@ -101,23 +96,25 @@ window.ChatbotMessageRenderer = {
       }
     }
 
-    // 按消息类型调整按钮位置，添加padding区域以便鼠标移入
+    // 按消息类型调整按钮位置
+    const positionClass = messageType === 'user' ? 'user-actions' : 'assistant-actions';
     const positionStyle = messageType === 'user'
       ? 'position:absolute;top:-28px;right:8px;display:none;gap:5px;z-index:3;padding:4px;'
       : 'position:absolute;top:-28px;left:8px;display:none;gap:5px;z-index:3;padding:4px;';
 
     // Phase 3: 移除内联 hover 事件，改用 CSS :hover
     if (USE_EVENT_DELEGATION) {
+      // 使用 CSS 类控制位置 (需要在 message-actions.css 中添加相应类，或暂时保留内联样式以确保兼容)
+      // 暂时保留内联样式以确保位置正确，后续可迁移到 CSS
       return `
-        <div class="message-actions action-buttons-container"
+        <div class="message-actions action-buttons-container ${positionClass}"
              style="${positionStyle}">
           ${buttons}
         </div>
       `;
     } else {
-      // 旧版本：保留内联事件
       return `
-        <div class="message-actions action-buttons-container"
+        <div class="message-actions action-buttons-container ${positionClass}"
              style="${positionStyle}"
              onmouseenter="this.style.display='flex'"
              onmouseleave="this.style.display='none'">
@@ -153,7 +150,7 @@ window.ChatbotMessageRenderer = {
           // Phase 3: 图片点击事件委托
           if (USE_EVENT_DELEGATION) {
             userMessageHtml += `
-              <div style="margin-bottom:5px; max-width: 200px; max-height:200px; overflow:hidden; border-radius: 8px; border: 1px solid #ddd;">
+              <div class="message-image-container">
                 <img src="${part.image_url.url}"
                      alt="用户图片"
                      class="user-message-image"
@@ -163,8 +160,8 @@ window.ChatbotMessageRenderer = {
           } else {
             // 旧版本：内联事件
             userMessageHtml += `
-              <div style="margin-bottom:5px; max-width: 200px; max-height:200px; overflow:hidden; border-radius: 8px; border: 1px solid #ddd;">
-                <img src="${part.image_url.url}" alt="用户图片" style="display:block; width:auto; height:auto; max-width:100%; max-height:100%; object-fit:contain; cursor:pointer;" onclick="window.ChatbotImageUtils.showImageModal('${imageUrlForModal}')">
+              <div class="message-image-container">
+                <img src="${part.image_url.url}" alt="用户图片" class="user-message-image" onclick="window.ChatbotImageUtils.showImageModal('${imageUrlForModal}')">
               </div>`;
           }
         }
@@ -176,29 +173,15 @@ window.ChatbotMessageRenderer = {
 
     const actionButtons = this._createActionButtonsHTML('user', index);
 
-    // Phase 3: 移除容器的内联 hover 事件，改用 CSS :hover
-    if (USE_EVENT_DELEGATION) {
-      return `
-        <div class="message-container user-message-container" style="display:flex;justify-content:flex-end;margin-bottom:16px;padding-left:20%;position:relative; margin-top: 30px;">
-          ${actionButtons}
-          <div style="background:linear-gradient(135deg, #3b82f6, #2563eb);color:white;padding:12px 16px;border-radius:18px 4px 18px 18px;font-size:15px;line-height:1.5;border:2px solid #3b82f6; max-width: 80%;">
-            ${userMessageHtml}
-          </div>
+    // CSS Refactor: 使用类名替代内联样式
+    return `
+      <div class="message-container user-message-container">
+        ${actionButtons}
+        <div class="chat-bubble user">
+          ${userMessageHtml}
         </div>
-      `;
-    } else {
-      // 旧版本：保留内联 hover 事件
-      return `
-        <div class="message-container user-message-container" style="display:flex;justify-content:flex-end;margin-bottom:16px;padding-left:20%;position:relative; margin-top: 30px;"
-             onmouseenter="this.querySelector('.action-buttons-container').style.display='flex'"
-             onmouseleave="var container=this.querySelector('.action-buttons-container'); if(!container.matches(':hover')){container.style.display='none'}">
-          ${actionButtons}
-          <div style="background:linear-gradient(135deg, #3b82f6, #2563eb);color:white;padding:12px 16px;border-radius:18px 4px 18px 18px;font-size:15px;line-height:1.5;border:2px solid #3b82f6; max-width: 80%;">
-            ${userMessageHtml}
-          </div>
-        </div>
-      `;
-    }
+      </div>
+    `;
   },
 
   /**
@@ -214,7 +197,7 @@ window.ChatbotMessageRenderer = {
    * @param {number} index - 消息索引。
    * @param {string} docName - 文档名（用于思维导图）。
    * @param {object} dataForMindmap - 思维导图相关数据。
-   * @param {string} docId - 完整的文档 ID（用于 draw.io 等功能，包含文档名、图片数量、OCR长度、翻译长度）。
+   * @param {string} docId - 完整的文档 ID。
    * @returns {string} HTML字符串。
    */
   renderAssistantMessage: function(m, index, docName, dataForMindmap, docId) {
@@ -231,11 +214,11 @@ window.ChatbotMessageRenderer = {
       // Phase 3: 思维导图按钮事件委托
       if (USE_EVENT_DELEGATION) {
         renderedContent = `
-          <div style="position:relative;">
-            <div style="width:100%;max-height:180px;overflow-y:auto;height:auto;max-width:100%;border-radius:10px;box-shadow:0 2px 12px #0001;filter:blur(2px);background:#f8fafc;padding:16px 8px 8px 8px;">
+          <div class="mindmap-preview-container">
+            <div class="mindmap-preview-content">
               ${window.ChatbotRenderingUtils.renderMindmapShadow(safeMindMapData)}
             </div>
-            <div style="position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;z-index:2;">
+            <div class="mindmap-preview-overlay">
               <button class="mindmap-open-btn"
                       data-action="open-mindmap"
                       data-mindmap-url="${mindmapUrl}">放大查看/编辑思维导图</button>
@@ -243,32 +226,31 @@ window.ChatbotMessageRenderer = {
           </div>
         `;
       } else {
-        // 旧版本：内联事件
         renderedContent = `
-          <div style="position:relative;">
-            <div style="width:100%;max-height:180px;overflow-y:auto;height:auto;max-width:100%;border-radius:10px;box-shadow:0 2px 12px #0001;filter:blur(2px);background:#f8fafc;padding:16px 8px 8px 8px;">
+          <div class="mindmap-preview-container">
+            <div class="mindmap-preview-content">
               ${window.ChatbotRenderingUtils.renderMindmapShadow(safeMindMapData)}
             </div>
-            <div style="position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;z-index:2;">
-              <button onclick="window.open('${mindmapUrl}','_blank')" style="padding:10px 22px;font-size:15px;background:rgba(59,130,246,0.92);color:#fff;border:none;border-radius:8px;box-shadow:0 2px 8px rgba(59,130,246,0.12);cursor:pointer;">放大查看/编辑思维导图</button>
+            <div class="mindmap-preview-overlay">
+              <button class="mindmap-open-btn" onclick="window.open('${mindmapUrl}','_blank')">放大查看/编辑思维导图</button>
             </div>
           </div>
         `;
       }
     } else if (m.isDrawioPictures) {
-      // draw.io 配图消息特殊处理：渲染一个模糊预览卡片 + 打开放大按钮
-      const docIdSafe = docId || 'unknown'; // 使用完整的 docId，而不是 docName
+      // draw.io 配图消息特殊处理
+      const docIdSafe = docId || 'unknown';
       const drawioUrl = (window.location.pathname.endsWith('/history_detail.html')
         ? '../drawio/drawio.html'
         : 'views/drawio/drawio.html') + `?docId=${encodeURIComponent(docIdSafe)}`;
 
       if (USE_EVENT_DELEGATION) {
         renderedContent = `
-          <div style="position:relative;">
-            <div style="width:100%;max-height:180px;overflow-y:auto;height:auto;max-width:100%;border-radius:10px;box-shadow:0 2px 12px #0001;filter:blur(2px);background:#f8fafc;padding:16px 8px 8px 8px;text-align:center;color:#64748b;font-size:13px;">
+          <div class="drawio-preview-container">
+            <div class="drawio-preview-text">
               已生成 draw.io 兼容的配图 XML，可点击下方按钮在新窗口中查看和编辑。
             </div>
-            <div style="position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;z-index:2;">
+            <div class="drawio-preview-overlay">
               <button class="mindmap-open-btn"
                       data-action="open-drawio"
                       data-drawio-url="${drawioUrl}">放大查看/编辑配图</button>
@@ -277,20 +259,31 @@ window.ChatbotMessageRenderer = {
         `;
       } else {
         renderedContent = `
-          <div style="position:relative;">
-            <div style="width:100%;max-height:180px;overflow-y:auto;height:auto;max-width:100%;border-radius:10px;box-shadow:0 2px 12px #0001;filter:blur(2px);background:#f8fafc;padding:16px 8px 8px 8px;text-align:center;color:#64748b;font-size:13px;">
+          <div class="drawio-preview-container">
+            <div class="drawio-preview-text">
               已生成 draw.io 兼容的配图 XML，可点击下方按钮在新窗口中查看和编辑。
             </div>
-            <div style="position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;z-index:2;">
-              <button onclick="window.open('${drawioUrl}','_blank')" style="padding:10px 22px;font-size:15px;background:rgba(59,130,246,0.92);color:#fff;border:none;border-radius:8px;box-shadow:0 2px 8px rgba(59,130,246,0.12);cursor:pointer;">放大查看/编辑配图</button>
+            <div class="drawio-preview-overlay">
+              <button class="mindmap-open-btn" onclick="window.open('${drawioUrl}','_blank')">放大查看/编辑配图</button>
             </div>
           </div>
         `;
       }
     } else {
       // 普通文本/Markdown/LaTeX
-      if (m.role === 'assistant' && (!m.content || String(m.content).trim() === '')) {
-        renderedContent = '<span style="color:#6b7280;">思考中...</span>';
+      // Only show the logo if there is NO content, NO reasoning, and NO tool calls.
+      // If there is reasoning or tool calls, they serve as the "activity indicator".
+      const isPurelyEmpty = (!m.content || String(m.content).trim() === '') && !m.reasoningContent && !m.toolCallHtml;
+
+      if (m.role === 'assistant' && isPurelyEmpty) {
+        // Determine the correct path for the logo based on the current page
+        const isHistoryDetail = window.location.pathname.includes('/history_detail.html');
+        const logoPath = isHistoryDetail ? '../../public/pure.svg' : 'public/pure.svg';
+        renderedContent = `
+          <div class="typing-indicator">
+            <img src="${logoPath}" class="typing-logo" alt="Thinking..." />
+          </div>
+        `;
       } else {
         try {
           if (typeof marked !== 'undefined' && typeof katex !== 'undefined') {
@@ -299,7 +292,7 @@ window.ChatbotMessageRenderer = {
             } else if (typeof renderWithKatexFailback === 'function') {
               renderedContent = renderWithKatexFailback(m.content);
             } else {
-              // XSS 防护：使用 safeRenderMarkdown 替代直接 marked.parse()
+              // XSS 防护
               if (typeof window.safeRenderMarkdown === 'function') {
                 renderedContent = window.safeRenderMarkdown(m.content);
               } else {
@@ -334,16 +327,16 @@ window.ChatbotMessageRenderer = {
       // Phase 3: 思考过程折叠按钮事件委托
       if (USE_EVENT_DELEGATION) {
         reasoningBlock = `
-          <div id="${reasoningId}" style="background:linear-gradient(90deg,#f8fafc 80%,#f1f5f9 100%);color:#475569;padding:12px 16px 12px 16px;border-radius:10px;margin-bottom:14px;margin-top:24px;box-shadow:0 1px 4px rgba(0,0,0,0.05);position:relative;transition:all 0.2s;border:1px solid #e2e8f0;">
-            <div style="display:flex;align-items:center;justify-content:space-between;">
-              <span style='font-weight:600;font-size:14px;color:#64748b;'>思考过程</span>
+          <div id="${reasoningId}" class="reasoning-block">
+            <div class="reasoning-header">
+              <span class="reasoning-title">思考过程</span>
               <button class="reasoning-toggle-btn"
                       data-action="toggle-reasoning"
                       data-index="${index}">
                 ${collapsed ? '▼' : '▲'}
               </button>
             </div>
-            <div class="reasoning-content" style="margin-top:8px;${collapsed ? 'display:none;' : ''}color:#334155;font-size:14px;line-height:1.5;">
+            <div class="reasoning-content" style="${collapsed ? 'display:none;' : ''}">
               ${renderedReasoningContent}
             </div>
           </div>
@@ -351,14 +344,14 @@ window.ChatbotMessageRenderer = {
       } else {
         // 旧版本：内联事件
         reasoningBlock = `
-          <div id="${reasoningId}" style="background:linear-gradient(90deg,#f8fafc 80%,#f1f5f9 100%);color:#475569;padding:12px 16px 12px 16px;border-radius:10px;margin-bottom:14px;margin-top:24px;box-shadow:0 1px 4px rgba(0,0,0,0.05);position:relative;transition:all 0.2s;border:1px solid #e2e8f0;">
-            <div style="display:flex;align-items:center;justify-content:space-between;">
-              <span style='font-weight:600;font-size:14px;color:#64748b;'>思考过程</span>
-              <button onclick="(function(){window['reasoningCollapsed_${index}']=!window['reasoningCollapsed_${index}'];window.ChatbotUI.updateChatbotUI();})()" style="background:none;border:none;cursor:pointer;padding:2px 6px;color:#64748b;font-size:15px;">
+          <div id="${reasoningId}" class="reasoning-block">
+            <div class="reasoning-header">
+              <span class="reasoning-title">思考过程</span>
+              <button class="reasoning-toggle-btn" onclick="(function(){window['reasoningCollapsed_${index}']=!window['reasoningCollapsed_${index}'];window.ChatbotUI.updateChatbotUI();})()">
                 ${collapsed ? '▼' : '▲'}
               </button>
             </div>
-            <div class="reasoning-content" style="margin-top:8px;${collapsed ? 'display:none;' : ''}color:#334155;font-size:14px;line-height:1.5;">
+            <div class="reasoning-content" style="${collapsed ? 'display:none;' : ''}">
               ${renderedReasoningContent}
             </div>
           </div>
@@ -366,10 +359,82 @@ window.ChatbotMessageRenderer = {
       }
     }
 
-    // 工具调用块
+    // ReAct Visualization Block
+    let reactVizBlock = '';
+    if (m.reactLog && m.reactLog.length > 0) {
+        const vizId = `react-viz-${index}`;
+        // Create a container for the visualization
+        // Note: The actual visualization will be rendered by the ReActVisualization class
+        // We just provide the container here.
+        // To make it work with the static HTML string return, we might need to trigger the render after insertion.
+        // However, since we are returning HTML string, we can't easily bind the instance here.
+        // A better approach for this specific architecture might be to render the static HTML structure
+        // that matches what ReActVisualization produces, or use a placeholder and hydrate it later.
+        
+        // Let's try to render a static snapshot of the ReAct log if available
+        let stepsHtml = '';
+        m.reactLog.forEach((step, i) => {
+            let icon = '';
+            let title = '';
+            let typeClass = '';
+            let content = '';
+
+            if (step.type === 'thought') {
+                icon = 'carbon:idea';
+                title = `Thought ${step.iteration || i+1}`;
+                typeClass = 'step-thought';
+                content = step.content;
+            } else if (step.type === 'action') {
+                icon = 'carbon:tools';
+                title = `Action ${step.iteration || i+1}`;
+                typeClass = 'step-action';
+                content = `Tool: ${step.tool}\nInput: ${JSON.stringify(step.params, null, 2)}`;
+            } else if (step.type === 'observation') {
+                icon = 'carbon:view';
+                title = `Observation ${step.iteration || i+1}`;
+                typeClass = 'step-observation';
+                content = typeof step.result === 'string' ? step.result : JSON.stringify(step.result, null, 2);
+                if (content.length > 500) content = content.slice(0, 500) + '... (truncated)';
+            }
+
+            if (content) {
+                // Escape HTML and preserve newlines
+                content = window.ChatbotUtils.escapeHtml(content);
+                content = content.replace(/\n/g, '<br>');
+
+                stepsHtml += `
+                    <div class="react-step-item ${typeClass}">
+                        <div class="react-step-header">
+                            <iconify-icon icon="${icon}"></iconify-icon>
+                            <span>${title}</span>
+                        </div>
+                        <div class="react-step-content">${content}</div>
+                    </div>
+                `;
+            }
+        });
+
+        if (stepsHtml) {
+            reactVizBlock = `
+                <div id="${vizId}" class="react-viz-container">
+                    <div class="react-viz-header">
+                        <div class="react-viz-title">
+                            <iconify-icon icon="carbon:ibm-watson-discovery" width="18"></iconify-icon>
+                            <span>ReAct Reasoning Engine</span>
+                        </div>
+                        <div class="react-status-badge react-status-completed">Completed</div>
+                    </div>
+                    <div class="react-steps-container">
+                        ${stepsHtml}
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    // 工具调用块 (Legacy or Fallback)
     let toolCallBlock = '';
-    if (m.toolCallHtml) {
-      // console.log('[MessageRenderer] 渲染工具调用块，索引:', index, 'HTML长度:', m.toolCallHtml.length);
+    if (m.toolCallHtml && !reactVizBlock) {
       toolCallBlock = m.toolCallHtml;
     }
 
@@ -407,59 +472,34 @@ window.ChatbotMessageRenderer = {
         <div class="message-actions original-actions" style="position:absolute;top:8px;left:12px;display:flex;gap:6px;opacity:0.6;transition:opacity 0.2s;z-index:2;"
              onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">
           <button class="copy-btn" onclick="window.ChatbotUtils.copyAssistantMessage(${index})"
-                  style="background:rgba(0,0,0,0.05);border:none;width:24px;height:24px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;"
                   title="复制内容">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-            </svg>
+             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
           </button>
           <button class="export-png-btn" onclick="window.ChatbotUtils.exportMessageAsPng(${index})"
-                  style="background:rgba(0,0,0,0.05);border:1px dashed #e2e8f0;width:24px;height:24px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;"
                   title="导出为PNG">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="7 10 12 15 17 10"></polyline>
-              <line x1="12" y1="15" x2="12" y2="3"></line>
-            </svg>
+             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           </button>
         </div>
       `;
     }
 
-    // Phase 3: 移除助手消息容器的内联 hover 事件，改用 CSS :hover
-    if (USE_EVENT_DELEGATION) {
-      return `
-        <div class="message-container assistant-message-container" style="display:flex;justify-content:flex-start;margin-bottom:16px;padding-right:20%;position:relative; margin-top: 30px;">
-          ${actionButtons}
-          <div style="background:linear-gradient(to bottom, #f9fafb, #f3f4f6);color:#111827;padding:12px 16px;border-radius:4px 18px 18px 18px;font-size:15px;line-height:1.5;box-shadow:0 2px 8px rgba(0,0,0,0.08);border:1px solid rgba(0,0,0,0.03);position:relative;min-width:0;overflow-x:auto;">
-            ${existingActions}
-            <div class="assistant-message" data-message-index="${index}">
-              ${toolCallBlock}
-              ${reasoningBlock}
-              <div class="markdown-content" style="padding-top:22px;">${renderedContent}</div>
-            </div>
+    // CSS Refactor: 使用类名替代内联样式
+    const isThinkingOnly = m.role === 'assistant' && (!m.content || String(m.content).trim() === '') && !m.reasoningContent && !m.toolCallHtml;
+
+    return `
+      <div class="message-container assistant-message-container">
+        ${actionButtons}
+        <div class="chat-bubble assistant ${isThinkingOnly ? 'typing-bubble' : ''}">
+          ${existingActions}
+          <div class="assistant-message" data-message-index="${index}">
+            ${reactVizBlock}
+            ${toolCallBlock}
+            ${reasoningBlock}
+            <div class="markdown-content">${renderedContent}</div>
           </div>
         </div>
-      `;
-    } else {
-      // 旧版本：保留内联 hover 事件
-      return `
-        <div class="message-container assistant-message-container" style="display:flex;justify-content:flex-start;margin-bottom:16px;padding-right:20%;position:relative; margin-top: 30px;"
-             onmouseenter="this.querySelector('.action-buttons-container').style.display='flex'"
-             onmouseleave="var container=this.querySelector('.action-buttons-container'); if(!container.matches(':hover')){container.style.display='none'}">
-          ${actionButtons}
-          <div style="background:linear-gradient(to bottom, #f9fafb, #f3f4f6);color:#111827;padding:12px 16px;border-radius:4px 18px 18px 18px;font-size:15px;line-height:1.5;box-shadow:0 2px 8px rgba(0,0,0,0.08);border:1px solid rgba(0,0,0,0.03);position:relative;min-width:0;overflow-x:auto;">
-            ${existingActions}
-            <div class="assistant-message" data-message-index="${index}">
-              ${toolCallBlock}
-              ${reasoningBlock}
-              <div class="markdown-content" style="padding-top:22px;">${renderedContent}</div>
-            </div>
-          </div>
-        </div>
-      `;
-    }
+      </div>
+    `;
   },
 
   /**
@@ -470,9 +510,9 @@ window.ChatbotMessageRenderer = {
    */
   renderFinalSummaryMessage: function(m) {
     return `
-      <div style="display:flex;justify-content:flex-start;margin-bottom:16px;padding-right:20%;">
-        <div style="background:linear-gradient(to bottom, #dbeafe, #bfdbfe);color:#1e3a8a;padding:12px 16px;border-radius:4px 18px 18px 18px;font-size:15px;line-height:1.5;box-shadow:0 2px 8px rgba(59,130,246,0.08);border:1px solid #93c5fd;position:relative;">
-          <div style="font-weight:bold;margin-bottom:4px;">最终汇总</div>
+      <div class="message-container assistant-message-container">
+        <div class="chat-bubble summary">
+          <div class="summary-title">最终汇总</div>
           <div class="markdown-content">${window.ChatbotUtils.escapeHtml(m.content).replace(/\n/g, '<br>')}</div>
         </div>
       </div>
@@ -485,22 +525,18 @@ window.ChatbotMessageRenderer = {
    * @returns {string} HTML字符串。
    */
   renderTypingIndicator: function() {
+    // Determine the correct path for the logo based on the current page
+    const isHistoryDetail = window.location.pathname.includes('/history_detail.html');
+    const logoPath = isHistoryDetail ? '../../public/pure.svg' : 'public/pure.svg';
+
     return `
-      <div style="display:flex;justify-content:flex-start;margin-bottom:16px;padding-right:80%;">
-        <div style="background:linear-gradient(to bottom, #f9fafb, #f3f4f6);color:#6b7280;padding:10px 16px;border-radius:4px 18px 18px 18px;font-size:15px;line-height:1.5;border:2px dashed #e2e8f0;">
-          <div class="typing-indicator" style="display:flex;align-items:center;gap:3px;">
-            <span style="width:6px;height:6px;border-radius:50%;background:#9ca3af;animation:typingAnimation 1.4s infinite;animation-delay:0s;"></span>
-            <span style="width:6px;height:6px;border-radius:50%;background:#9ca3af;animation:typingAnimation 1.4s infinite;animation-delay:0.2s;"></span>
-            <span style="width:6px;height:6px;border-radius:50%;background:#9ca3af;animation:typingAnimation 1.4s infinite;animation-delay:0.4s;"></span>
+      <div class="message-container assistant-message-container">
+        <div class="chat-bubble assistant typing-bubble">
+          <div class="typing-indicator">
+            <img src="${logoPath}" class="typing-logo" alt="Thinking..." />
           </div>
         </div>
       </div>
-      <style>
-        @keyframes typingAnimation {
-          0%, 100% { transform:translateY(0); opacity:0.6; }
-          50% { transform:translateY(-4px); opacity:1; }
-        }
-      </style>
     `;
   },
 
@@ -510,161 +546,8 @@ window.ChatbotMessageRenderer = {
    * @returns {string} style 标签字符串。
    */
   getMarkdownStyles: function() {
-    return `
-      <style>
-        /* Removed .message-container:hover .top-right-actions as it's handled by JS mouseover/out */
-
-        /* Phase 3.5 防溢出：确保所有内容都在容器内 */
-        .markdown-content {
-          overflow-x: auto; /* 横向滚动 */
-          word-wrap: break-word;
-          overflow-wrap: break-word;
-          max-width: 100%;
-        }
-
-        .markdown-content p {
-          margin:8px 0;
-          word-wrap: break-word;
-          overflow-wrap: break-word;
-        }
-
-        .markdown-content h1, .markdown-content h2, .markdown-content h3,
-        .markdown-content h4, .markdown-content h5, .markdown-content h6 {
-          margin-top:16px;
-          margin-bottom:8px;
-          font-weight:600;
-          word-wrap: break-word;
-          overflow-wrap: break-word;
-        }
-
-        .markdown-content h1 {font-size:1.5em;}
-        .markdown-content h2 {font-size:1.3em;}
-        .markdown-content h3 {font-size:1.2em;}
-
-        /* Phase 3.5 代码块防溢出：使用横向滚动 + 保持格式 */
-        .markdown-content code {
-          background:rgba(0,0,0,0.05);
-          padding:2px 4px;
-          border-radius:4px;
-          font-family:monospace;
-          font-size:0.9em;
-          /* 行内代码允许换行，但优先保持完整 */
-          white-space: normal;
-          word-break: break-word;
-        }
-
-        .markdown-content pre {
-          background:rgba(0,0,0,0.05);
-          padding:10px;
-          border-radius:8px;
-          overflow-x:auto; /* 横向滚动 */
-          margin:10px 0;
-          max-width: 100%;
-          /* 代码块保持原始格式，不换行 */
-          white-space: pre;
-        }
-
-        .markdown-content pre code {
-          background:transparent;
-          padding:0;
-          /* 代码块内的code保持pre格式 */
-          white-space: pre;
-          word-break: normal;
-        }
-
-        .markdown-content ul, .markdown-content ol {margin:8px 0;padding-left:20px;}
-
-        .markdown-content blockquote {
-          border-left:3px solid #cbd5e1;
-          padding-left:12px;
-          color:#4b5563;
-          margin:10px 0;
-          word-wrap: break-word;
-          overflow-wrap: break-word;
-        }
-
-        .markdown-content img {
-          max-width:100%;
-          height:auto;
-          border-radius:6px;
-          margin:8px 0;
-        }
-
-        /* Phase 3.5 链接防溢出：强制断行 */
-        .markdown-content a {
-          color:#2563eb;
-          text-decoration:underline;
-          word-break: break-all; /* URL 强制断行 */
-          overflow-wrap: break-word;
-        }
-
-        /* Phase 3.5 表格防溢出：横向滚动 + 视觉提示 */
-        .markdown-content table {
-          border-collapse:collapse;
-          width:100%;
-          margin:12px 0;
-          display: block;
-          overflow-x: auto; /* 横向滚动 */
-          max-width: 100%;
-          position: relative;
-        }
-
-        /* Phase 3.5 表格容器：添加渐变阴影提示 */
-        .markdown-content table::after {
-          content: '';
-          position: absolute;
-          top: 0;
-          right: 0;
-          bottom: 0;
-          width: 30px;
-          background: linear-gradient(to left, rgba(0,0,0,0.08), transparent);
-          pointer-events: none;
-          opacity: 1;
-          transition: opacity 0.3s;
-        }
-
-        /* 滚动到底部时隐藏渐变阴影（通过JS动态添加类） */
-        .markdown-content table.scrolled-to-end::after {
-          opacity: 0;
-        }
-
-        .markdown-content th, .markdown-content td {
-          border:1px solid #e5e7eb;
-          padding:8px;
-          /* 表格单元格内的文本优雅换行 */
-          word-wrap: break-word;
-          overflow-wrap: break-word;
-          min-width: 50px; /* 最小宽度，避免过窄 */
-          max-width: 300px; /* 最大宽度，避免过宽 */
-        }
-
-        .markdown-content th {background:#f3f4f6;}
-
-        .mermaid { margin: 12px 0; }
-
-        /* Phase 3.5 滚动条美化 + 始终可见（表格） */
-        .markdown-content pre::-webkit-scrollbar,
-        .markdown-content table::-webkit-scrollbar {
-          height: 8px; /* 增加高度使其更明显 */
-        }
-
-        .markdown-content pre::-webkit-scrollbar-track,
-        .markdown-content table::-webkit-scrollbar-track {
-          background: rgba(0,0,0,0.03);
-          border-radius: 4px;
-        }
-
-        .markdown-content pre::-webkit-scrollbar-thumb,
-        .markdown-content table::-webkit-scrollbar-thumb {
-          background: rgba(0,0,0,0.2); /* 始终可见的滚动条（半透明） */
-          border-radius: 4px;
-        }
-
-        .markdown-content pre::-webkit-scrollbar-thumb:hover,
-        .markdown-content table::-webkit-scrollbar-thumb:hover {
-          background: rgba(0,0,0,0.4); /* 悬停时加深 */
-        }
-      </style>
-    `;
+    // CSS 现已移至外部文件 (css/history_detail/03-components/chatbot/index.css)
+    // 此处返回空字符串以保持 API 兼容性，或仅返回必要的动态样式
+    return '';
   }
 };

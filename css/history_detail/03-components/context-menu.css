@@ -17,7 +17,7 @@
 /* ==================== 1. Notion 风格菜单容器 ==================== */
 
 #custom-context-menu {
-  position: absolute;
+  position: fixed;  /* 改为 fixed，相对于视口定位，避免滚动导致的位置偏移 */
   z-index: 10000;
 
   /* Notion 风格外观 */

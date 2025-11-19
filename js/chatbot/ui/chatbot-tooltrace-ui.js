@@ -10,21 +10,25 @@
   var batchBuffer = null;
   var batchTimer = null;
   var isFinished = false;
+  var isCollapsed = false; // 默认展开，避免更新时自动收起
 
   function injectStyles() {
     if (stylesInjected) return;
     var style = document.createElement('style');
     style.textContent = `
-      /* 工具调用思考块 - 匹配AI消息风格 */
+      /* 工具调用思考块 - 系统日志风格 */
       .tool-thinking-block {
-        background: linear-gradient(90deg, #f8fafc 80%, #f1f5f9 100%);
-        border: 1px solid #e2e8f0;
-        border-radius: 10px;
-        margin-bottom: 14px;
-        margin-top: 24px;
-        overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.05);
-        transition: all 0.2s;
+        background: transparent;
+        border-left: 3px solid #e2e8f0;
+        margin-bottom: 16px;
+        margin-top: 16px;
+        padding-left: 16px;
+        transition: all 0.3s ease;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+
+      .tool-thinking-block:hover {
+        border-left-color: #cbd5e1;
       }
 
       .tool-thinking-block.collapsed .tool-thinking-body {
@@ -36,42 +40,59 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 12px 16px;
+        padding: 8px 0;
         cursor: pointer;
         user-select: none;
-        transition: background 0.2s;
+        transition: all 0.2s;
+        color: #64748b;
       }
 
       .tool-thinking-header:hover {
-        background: rgba(226, 232, 240, 0.5);
+        color: #334155;
       }
 
       .tool-thinking-title {
         display: flex;
         align-items: center;
         gap: 8px;
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 600;
+      }
+
+      .tool-thinking-icon-wrapper {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        border-radius: 4px;
+        background: #f1f5f9;
         color: #64748b;
+        transition: all 0.3s;
       }
 
-      .tool-thinking-icon {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: #10b981;
-        box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+      .tool-thinking-icon-wrapper.running {
+        background: #dbeafe;
+        color: #2563eb;
+      }
+      
+      .tool-thinking-icon-wrapper.done {
+        background: #dcfce7;
+        color: #16a34a;
       }
 
-      .tool-thinking-icon.running {
-        background: #3b82f6;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
-        animation: pulse-icon 2s ease-in-out infinite;
+      .tool-thinking-icon-wrapper svg {
+        width: 12px;
+        height: 12px;
       }
 
-      @keyframes pulse-icon {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.5; }
+      .tool-thinking-icon-wrapper.running svg {
+        animation: spin 2s linear infinite;
+      }
+
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
       }
 
       .tool-thinking-toggle {
@@ -80,31 +101,49 @@
         gap: 4px;
         font-size: 11px;
         color: #94a3b8;
+        padding: 2px 6px;
+        border-radius: 4px;
+        transition: all 0.2s;
+      }
+      
+      .tool-thinking-header:hover .tool-thinking-toggle {
+        background: #f1f5f9;
+        color: #64748b;
       }
 
       .tool-thinking-toggle .toggle-arrow {
-        transition: transform 0.2s;
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         display: inline-block;
+        font-size: 10px;
       }
 
       .tool-thinking-block.collapsed .tool-thinking-toggle .toggle-arrow {
         transform: rotate(-90deg);
       }
 
-      /* 内容区 */
+      /* 内容区 - 紧凑日志布局 */
       .tool-thinking-body {
-        padding: 0 16px 12px 16px;
-        max-height: 300px;
+        padding: 8px 0;
+        max-height: 400px;
         overflow-y: auto;
+        position: relative;
       }
 
       .tool-thinking-body::-webkit-scrollbar {
-        width: 5px;
+        width: 4px;
+      }
+
+      .tool-thinking-body::-webkit-scrollbar-track {
+        background: transparent;
       }
 
       .tool-thinking-body::-webkit-scrollbar-thumb {
-        background: rgba(148, 163, 184, 0.3);
-        border-radius: 3px;
+        background: #cbd5e1;
+        border-radius: 2px;
+      }
+      
+      .tool-thinking-body::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
       }
 
       /* 步骤项 */
@@ -112,42 +151,36 @@
         display: flex;
         gap: 10px;
         margin-bottom: 8px;
-        padding: 8px 10px;
-        background: white;
+        position: relative;
+        z-index: 1;
+        animation: slideIn 0.2s ease-out forwards;
+        padding: 6px 8px;
         border-radius: 6px;
-        border-left: 2px solid transparent;
-        transition: all 0.15s;
-        font-size: 12px;
+        transition: background 0.2s;
       }
-
+      
       .tool-step:hover {
-        background: #fafafa;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        background: #f8fafc;
+      }
+      
+      @keyframes slideIn {
+        from { opacity: 0; transform: translateX(-5px); }
+        to { opacity: 1; transform: translateX(0); }
       }
 
-      .tool-step.running {
-        border-left-color: #3b82f6;
-        background: rgba(239, 246, 255, 0.4);
-      }
-
-      .tool-step.done {
-        border-left-color: #10b981;
-        background: rgba(240, 253, 244, 0.3);
-      }
-
-      .tool-step.error {
-        border-left-color: #ef4444;
-        background: rgba(254, 242, 242, 0.3);
+      .tool-step:last-child {
+        margin-bottom: 0;
       }
 
       .tool-step-indicator {
         flex-shrink: 0;
-        width: 18px;
-        height: 18px;
+        width: 16px;
+        height: 16px;
         display: flex;
         align-items: center;
         justify-content: center;
-        color: #64748b;
+        color: #94a3b8;
+        margin-top: 2px;
       }
 
       .tool-step.running .tool-step-indicator {
@@ -163,8 +196,8 @@
       }
 
       .tool-step-indicator svg {
-        width: 13px;
-        height: 13px;
+        width: 12px;
+        height: 12px;
       }
 
       .tool-step-content {
@@ -174,7 +207,7 @@
 
       .tool-step-main {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: space-between;
         gap: 8px;
       }
@@ -182,43 +215,88 @@
       .tool-step-title {
         flex: 1;
         font-weight: 500;
-        color: #334155;
+        color: #475569;
         font-size: 12px;
-        word-break: break-word;
-        line-height: 1.4;
+        line-height: 1.5;
+        font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+      }
+      
+      .tool-step.running .tool-step-title {
+        color: #2563eb;
+      }
+      
+      .tool-step.error .tool-step-title {
+        color: #dc2626;
       }
 
       .tool-step-detail-toggle {
-        background: none;
+        background: transparent;
         border: none;
         font-size: 10px;
         color: #94a3b8;
         cursor: pointer;
-        padding: 2px 5px;
-        border-radius: 3px;
-        transition: all 0.15s;
+        padding: 2px 6px;
+        border-radius: 4px;
+        transition: all 0.2s;
+        white-space: nowrap;
       }
 
       .tool-step-detail-toggle:hover {
-        background: rgba(148, 163, 184, 0.1);
-        color: #64748b;
+        background: #e2e8f0;
+        color: #475569;
+      }
+      
+      .tool-step.detail-open .tool-step-detail-toggle {
+        background: #e2e8f0;
+        color: #475569;
+        font-weight: 600;
       }
 
       .tool-step-detail {
         display: none;
         margin-top: 6px;
-        padding: 6px 8px;
-        background: #f8fafc;
+        padding: 8px;
+        background: #f1f5f9;
         border-radius: 4px;
-        font-size: 10px;
-        color: #64748b;
+        font-size: 11px;
+        color: #475569;
         white-space: pre-wrap;
         word-break: break-word;
-        border: 1px solid #e2e8f0;
+        font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+        line-height: 1.5;
+        border-left: 2px solid #cbd5e1;
       }
 
       .tool-step.detail-open .tool-step-detail {
         display: block;
+        animation: fadeIn 0.2s ease-out;
+      }
+      
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-4px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      
+      /* 状态标签 */
+      .step-tag {
+        display: inline-block;
+        padding: 0 4px;
+        border-radius: 3px;
+        font-size: 10px;
+        font-weight: normal;
+        margin-left: 6px;
+        vertical-align: middle;
+        opacity: 0.8;
+      }
+      
+      .step-tag.tokens {
+        background: #e2e8f0;
+        color: #64748b;
+      }
+      
+      .step-tag.score {
+        background: #ffedd5;
+        color: #c2410c;
       }
     `;
     document.head.appendChild(style);
@@ -233,6 +311,7 @@
     injectStyles();
     currentStepsHtml = [];
     isFinished = false;
+    isCollapsed = false; // 重置为展开
     batchBuffer = null;
     if (batchTimer) {
       clearTimeout(batchTimer);
@@ -294,8 +373,8 @@
 
     // 如果有tokens信息，更新标题添加token统计
     if (result && result._tokens && status === 'done') {
-      var tokenStr = ' (' + result._tokens + ' tokens)';
-      lastHtml = lastHtml.replace(/(<span class="tool-step-title">[^<]+)(<\/span>)/, '$1' + tokenStr + '$2');
+      var tokenHtml = ' <span class="step-tag tokens">' + result._tokens + ' tok</span>';
+      lastHtml = lastHtml.replace(/(<span class="tool-step-title">[\s\S]*?)(<\/span>)/, '$1' + tokenHtml + '$2');
     }
 
     // 更新detail
@@ -313,32 +392,47 @@
    */
   function generateBlockHtml() {
     var stepCount = currentStepsHtml.length;
-    var iconClass = isFinished ? '' : 'running';
-    var title = isFinished ? '上下文检索完成' : '正在检索上下文...';
-
-    // console.log('[ToolTraceUI] generateBlockHtml 调用：', {
-    //   stepCount: stepCount,
-    //   isFinished: isFinished,
-    //   hasSteps: currentStepsHtml.length > 0
-    // });
+    var iconClass = isFinished ? 'done' : 'running';
+    var title = isFinished ? '思考过程已完成' : '正在思考中...';
+    var collapsedClass = isCollapsed ? 'collapsed' : '';
+    
+    // 顶部图标
+    var headerIcon = isFinished
+      ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+      : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>';
 
     if (currentStepsHtml.length === 0) {
-      // 初始阶段可能尚无步骤，不必告警
-      if (console && typeof console.debug === 'function') {
-        console.debug('[ToolTraceUI] 等待步骤数据，暂不生成HTML');
-      }
       return '';
     }
 
+    // 使用全局变量 isCollapsed 控制状态，并添加 onclick 事件来切换该变量
+    // 注意：这里我们使用 window.ChatbotToolTraceUI.toggleCollapse 来切换状态，而不是直接操作 DOM
+    // 这样可以确保状态同步
+    
+    // 为了支持 onclick 调用，我们需要暴露一个 toggle 方法
+    if (!window.ChatbotToolTraceUI.toggleCollapse) {
+      window.ChatbotToolTraceUI.toggleCollapse = function(el) {
+        isCollapsed = !isCollapsed;
+        var block = el.closest('.tool-thinking-block');
+        if (isCollapsed) {
+          block.classList.add('collapsed');
+        } else {
+          block.classList.remove('collapsed');
+        }
+      };
+    }
+
     var html = `
-      <div class="tool-thinking-block collapsed">
-        <div class="tool-thinking-header" onclick="event.stopPropagation(); this.closest('.tool-thinking-block').classList.toggle('collapsed');">
+      <div class="tool-thinking-block ${collapsedClass}">
+        <div class="tool-thinking-header" onclick="window.ChatbotToolTraceUI.toggleCollapse(this)">
           <div class="tool-thinking-title">
-            <span class="tool-thinking-icon ${iconClass}"></span>
+            <div class="tool-thinking-icon-wrapper ${iconClass}">
+              ${headerIcon}
+            </div>
             <span>${title}</span>
           </div>
           <div class="tool-thinking-toggle">
-            <span>${stepCount}步</span>
+            <span>${stepCount} 步骤</span>
             <span class="toggle-arrow">▼</span>
           </div>
         </div>
@@ -348,7 +442,6 @@
       </div>
     `;
 
-    // console.log('[ToolTraceUI] 生成HTML长度:', html.length);
     return html;
   }
 
@@ -569,6 +662,164 @@
   }
 
   /**
+   * 处理ReAct事件（新增）
+   */
+  // 并行工具调用追踪（用于匹配 start 和 complete 事件）
+  var parallelCallsTracker = {};
+
+  function handleReActEvent(event) {
+    if (!event || !event.type) return;
+
+    switch (event.type) {
+      case 'context_initialized':
+        addStepHtml({
+          tool: 'preload',
+          message: '初始化上下文',
+          args: { preview: event.context ? event.context.slice(0, 100) : '' }
+        }, 'done');
+        break;
+
+      case 'iteration_start':
+        // 重置并行调用追踪
+        parallelCallsTracker = {};
+        addStepHtml({
+          tool: 'round',
+          message: `第 ${event.iteration}/${event.maxIterations} 轮推理`,
+          args: { iteration: event.iteration, maxIterations: event.maxIterations }
+        }, 'running');
+        break;
+
+      case 'reasoning_start':
+        // 静默处理，不单独显示
+        break;
+
+      case 'reasoning_complete':
+        if (currentStepsHtml.length > 0) {
+          const thoughtPreview = event.thought ? event.thought.slice(0, 100) : '';
+          updateLastStepStatus('done', {
+            thought: thoughtPreview,
+            action: event.action
+          });
+        }
+        break;
+
+      case 'tool_call_start':
+        // 并行工具调用：显示组标题（只在第一个工具时）
+        if (event.parallel && event.totalCalls > 1) {
+          const trackKey = `iter_${event.iteration}`;
+          if (!parallelCallsTracker[trackKey]) {
+            parallelCallsTracker[trackKey] = {
+              totalCalls: event.totalCalls,
+              completedCalls: 0,
+              startIndex: currentStepsHtml.length
+            };
+            addStepHtml({
+              tool: 'parallel',
+              message: `🔀 并行调用 ${event.totalCalls} 个工具`,
+              args: { totalCalls: event.totalCalls }
+            }, 'running');
+          }
+        }
+
+        // 添加工具调用步骤
+        const toolMessage = event.parallel
+          ? `  ├─ ${event.tool}`
+          : `调用工具: ${event.tool}`;
+        addStepHtml({
+          tool: event.tool,
+          message: toolMessage,
+          args: event.params || {},
+          parallel: event.parallel || false,
+          toolName: event.tool // 用于匹配 complete 事件
+        }, 'running');
+        break;
+
+      case 'tool_call_complete':
+        // 查找对应的 tool_call_start 步骤并更新
+        const result = event.result || {};
+        const status = result.success === false ? 'error' : 'done';
+
+        // 从后往前找到匹配的工具步骤
+        for (let i = currentStepsHtml.length - 1; i >= 0; i--) {
+          const step = currentStepsHtml[i];
+          if (step.toolName === event.tool && step.status === 'running') {
+            // 更新这个步骤的状态
+            currentStepsHtml[i].status = status;
+            currentStepsHtml[i].result = result;
+
+            // 如果是并行调用，更新计数
+            if (event.parallel) {
+              const trackKey = `iter_${event.iteration}`;
+              if (parallelCallsTracker[trackKey]) {
+                parallelCallsTracker[trackKey].completedCalls++;
+
+                // 所有并行工具都完成了，更新组标题状态
+                if (parallelCallsTracker[trackKey].completedCalls === parallelCallsTracker[trackKey].totalCalls) {
+                  const groupIndex = parallelCallsTracker[trackKey].startIndex;
+                  if (currentStepsHtml[groupIndex]) {
+                    currentStepsHtml[groupIndex].status = 'done';
+                    currentStepsHtml[groupIndex].message = `🔀 并行调用完成 (${parallelCallsTracker[trackKey].totalCalls} 个工具)`;
+                  }
+                }
+              }
+            }
+
+            // 重新渲染
+            renderSteps();
+            break;
+          }
+        }
+        break;
+
+      case 'context_updated':
+        const parallelInfo = event.parallelCallsCount > 0
+          ? ` [并行${event.parallelCallsCount}个工具]`
+          : '';
+        addStepHtml({
+          tool: 'info',
+          message: `上下文更新 (${event.contextSize} 字符, ~${event.estimatedTokens} tokens)${parallelInfo}`,
+          args: {}
+        }, 'done');
+        break;
+
+      case 'context_pruned':
+        addStepHtml({
+          tool: 'warning',
+          message: `上下文裁剪 (${event.before} → ${event.after} tokens)`,
+          args: {}
+        }, 'done');
+        break;
+
+      case 'final_answer':
+        isFinished = true;
+        const suffix = event.fallback ? ' (降级回答)' : '';
+        addStepHtml({
+          tool: 'info',
+          customTitle: `✓ 完成推理${suffix} (${event.iterations} 轮, ${event.toolCallCount} 次工具调用)`,
+          args: {}
+        }, 'done');
+        break;
+
+      case 'max_iterations_reached':
+        isFinished = true;
+        addStepHtml({
+          tool: 'warning',
+          message: `达到最大迭代次数 (${event.iterations} 轮, ${event.toolCallCount} 次工具调用)`,
+          args: {}
+        }, 'error');
+        break;
+
+      case 'error':
+        addStepHtml({
+          tool: 'error',
+          message: event.error || '未知错误',
+          args: {}
+        }, 'error');
+        break;
+    }
+  }
+
+  /**
    * 获取步骤图标（SVG）
    */
   function getStepIcon(tool) {
@@ -580,11 +831,14 @@
       'fetch': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>',
       'map': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 9 2 15 6 23 2 23 18 15 22 9 18 1 22 1 6"/></svg>',
       'grep': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>',
+      'parallel': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 18V6H7v12"/><path d="M17 6l4 4-4 4"/><path d="M7 18l-4-4 4-4"/></svg>',
       'preload': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
       'planning': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
       'round': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>',
       'task_status': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
-      'info': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>'
+      'info': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>',
+      'warning': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>',
+      'error': '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>'
     };
     return icons[tool] || '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
   }
@@ -603,11 +857,14 @@
       'fetch': '获取意群详情',
       'map': '获取意群地图',
       'grep': '全文短语搜索',
+      'parallel': '并行工具调用',
       'preload': '预加载意群',
       'planning': 'AI规划工具调用',
       'round': '第' + ((stepInfo.round || 0) + 1) + '轮取材',
       'task_status': '任务追踪',
-      'info': '信息'
+      'info': '信息',
+      'warning': '警告',
+      'error': '错误'
     };
 
     var title = titles[stepInfo.tool || stepInfo.phase] || stepInfo.message || '执行中';
@@ -929,6 +1186,7 @@
   window.ChatbotToolTraceUI = {
     startSession: startSession,
     handleStreamEvent: handleStreamEvent,
+    handleReActEvent: handleReActEvent,  // 新增：ReAct事件处理器
     generateBlockHtml: generateBlockHtml,
     ensureStyles: injectStyles  // 导出以便外部调用
   };

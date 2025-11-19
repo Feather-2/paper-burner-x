@@ -18,3 +18,770 @@
 
 /* 消息操作按钮样式 */
 @import url('./message-actions.css');
+
+/* ==================== Chatbot Modal Window (High-end Minimalist) ==================== */
+
+.chatbot-window {
+  background: var(--color-bg-base); /* Pure white background */
+  max-width: 720px;
+  width: 92vw;
+  min-height: 520px;
+  max-height: 85vh;
+  border-radius: 24px;
+
+  /* The Shadow Fix: Using variable for consistency and lightness */
+  box-shadow: var(--shadow-modal);
+  border: 1px solid var(--color-border-light); /* Very subtle border */
+
+  position: absolute;
+  bottom: 44px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  resize: none;
+  pointer-events: auto;
+  transition: width 0.3s ease-out, height 0.3s ease-out, top 0.3s ease-out, left 0.3s ease-out, right 0.3s ease-out, bottom 0.3s ease-out, border-radius 0.3s ease-out;
+  z-index: 1000; /* Ensure high z-index */
+}
+
+/* Floating mode style */
+.chatbot-window.floating-mode {
+  border-radius: 16px;
+  /* Soft floating shadow */
+  box-shadow: 0 12px 40px -8px rgba(0, 0, 0, 0.12), 0 4px 12px -4px rgba(0, 0, 0, 0.08);
+  /* Slightly more visible border for floating context */
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+/* Responsive adjustments for window */
+@media (max-width: 600px) {
+  .chatbot-window {
+    right: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+    border-radius: 20px 20px 0 0 !important;
+    border: none;
+    border-top: 1px solid var(--color-border-light);
+  }
+
+  /* 移动端禁用拖拽调整大小 */
+  .chatbot-resize-handles {
+    display: none !important;
+  }
+}
+
+/* ==================== Chatbot Body & Scrollbars ==================== */
+
+#chatbot-body {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 6px;
+  margin-right: -6px;
+  padding-bottom: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: #ddd transparent;
+  scroll-behavior: smooth;
+  position: relative;
+  z-index: 0;
+}
+
+/*
+  确保第一条消息与顶部有足够距离
+  (解决用户反馈：第一个用户回复的两个按钮，距离顶部的距离也不够)
+  User buttons are -28px top.
+  Padding top 50px ensures they don't hit the window edge/header.
+*/
+#chatbot-body .message-container:first-child {
+  margin-top: 50px;
+}
+
+#chatbot-body::-webkit-scrollbar {
+  width: 6px;
+  background: transparent;
+}
+
+#chatbot-body::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+}
+
+#chatbot-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+/* ==================== Preset Questions (快捷指令) ==================== */
+
+#chatbot-preset-body {
+  gap: 6px 8px !important; /* 恢复适度的间距，避免过于拥挤 */
+}
+
+.preset-btn {
+  background: var(--slate-50); /* Very light gray */
+  color: var(--slate-600);
+  border: 1px solid rgba(0,0,0,0.04); /* 增加极淡的边框，提升精致感 */
+  border-radius: 16px; /* 稍微圆润一点 */
+  padding: 4px 12px; /* 恢复适度的内边距 */
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin: 0;
+  outline: none;
+  white-space: nowrap;
+}
+
+.preset-btn:hover {
+  background: var(--slate-100);
+  color: var(--slate-800);
+  border-color: var(--slate-200); /* Subtle border on hover */
+  transform: translateY(-1px);
+}
+
+.preset-btn:active {
+  transform: translateY(0);
+  background: var(--slate-200);
+}
+
+/* ==================== Resize Handles ==================== */
+
+.chatbot-resize-handles {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 5;
+  display: none; /* 默认隐藏 */
+}
+
+/* 只有在浮动模式下才显示调整大小句柄 */
+.chatbot-window.floating-mode .chatbot-resize-handles {
+  display: block;
+}
+
+/* 浮动模式下标题栏可拖拽 */
+.chatbot-window.floating-mode .chatbot-draggable-header {
+  cursor: move;
+}
+
+.chatbot-resize-handle {
+  position: absolute;
+  pointer-events: auto;
+  background: transparent;
+  transition: background-color 0.2s ease;
+}
+
+.chatbot-resize-handle:hover {
+  background-color: rgba(59, 130, 246, 0.2);
+}
+
+/* 上下边缘 */
+.chatbot-resize-n, .chatbot-resize-s {
+  left: 8px;
+  right: 8px;
+  height: 8px;
+  cursor: ns-resize;
+}
+.chatbot-resize-n { top: 0; }
+.chatbot-resize-s { bottom: 0; }
+
+/* 左右边缘 */
+.chatbot-resize-w, .chatbot-resize-e {
+  top: 8px;
+  bottom: 8px;
+  width: 8px;
+  cursor: ew-resize;
+}
+.chatbot-resize-w { left: 0; }
+.chatbot-resize-e { right: 0; }
+
+/* 四个角 */
+.chatbot-resize-nw, .chatbot-resize-ne, .chatbot-resize-sw, .chatbot-resize-se {
+  width: 16px;
+  height: 16px;
+}
+.chatbot-resize-nw { top: 0; left: 0; cursor: nw-resize; }
+.chatbot-resize-ne { top: 0; right: 0; cursor: ne-resize; }
+.chatbot-resize-sw { bottom: 0; left: 0; cursor: sw-resize; }
+.chatbot-resize-se { bottom: 0; right: 0; cursor: se-resize; }
+
+/* 拖拽移动时的样式 */
+.chatbot-dragging {
+  user-select: none;
+  pointer-events: none;
+}
+
+.chatbot-dragging .chatbot-window {
+  pointer-events: auto;
+}
+
+/* ==================== Stop Button Animation ==================== */
+
+@keyframes chatbot-stop-pulse {
+  0%, 100% {
+    box-shadow: 0 4px 12px rgba(249, 115, 22, 0.4), 0 0 0 0 rgba(249, 115, 22, 0.7);
+  }
+  50% {
+    box-shadow: 0 4px 12px rgba(249, 115, 22, 0.4), 0 0 0 8px rgba(249, 115, 22, 0);
+  }
+}
+
+#chatbot-stop-btn {
+  animation: chatbot-stop-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+#chatbot-stop-btn:hover {
+  animation: none;
+}
+
+/* ==================== Dark Mode Support ==================== */
+
+body.dark .chatbot-window {
+  background: #1a1c23 !important;
+  color: #e5e7eb !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+body.dark #chatbot-input {
+  background: #2a2d36 !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: #e5e7eb !important;
+}
+
+body.dark #chatbot-close-btn {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #aaa !important;
+}
+
+body.dark #chatbot-preset button {
+  background: linear-gradient(to bottom, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.9)) !important;
+  color: #7dd3fc !important;
+  border-color: rgba(14, 165, 233, 0.2) !important;
+}
+
+body.dark .message-actions button {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #aaa !important;
+}
+
+body.dark #chatbot-toast {
+  background: rgba(30, 41, 59, 0.9) !important;
+}
+
+/* ==================== 消息气泡样式 (Minimalist Refine) ==================== */
+
+/* 消息容器通用样式 */
+.message-container {
+  display: flex;
+  margin-bottom: var(--spacing-md); /* 减少间距，优化空间利用 */
+  margin-top: var(--spacing-md);
+  position: relative;
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 用户消息容器 */
+.user-message-container {
+  justify-content: flex-end;
+  padding-left: 20%;
+}
+
+/* 助手消息容器 */
+.assistant-message-container {
+  justify-content: flex-start;
+  padding-right: 10%; /* 减少右侧留白，利用更多空间 */
+
+  /*
+    IMPORTANT: No top padding here anymore.
+    Padding is handled inside .assistant-message to ensure
+    content flows correctly relative to buttons.
+  */
+  padding-top: 0;
+}
+
+/*
+  助手消息内容区域
+  (解决用户反馈：复制和导出，压在思考过程)
+  Add padding-top here so ALL content (Reasoning or Markdown)
+  starts below the absolute positioned buttons.
+  Buttons are ~24px height + 8px top = 32px.
+  40px padding ensures safety.
+*/
+.assistant-message {
+  padding-top: 40px;
+  position: relative; /* Ensure context */
+}
+
+/* 消息气泡通用样式 */
+.chat-bubble {
+  padding: 12px 18px; /* 略宽的内边距 */
+  font-size: 15px;
+  line-height: 1.6;
+  max-width: 100%;
+  position: relative;
+  word-wrap: break-word;
+  transition: all var(--transition-base);
+}
+
+/* 用户消息气泡 - 极简风格：浅色背景 + 深色文字 */
+.chat-bubble.user {
+  background: var(--slate-100);
+  color: var(--slate-800);
+  border-radius: 18px 18px 4px 18px; /* 更现代的非对称圆角 */
+  border: none;
+  box-shadow: none;
+}
+
+/* 助手消息气泡 - 极简风格：纯白背景 + 极淡边框 */
+.chat-bubble.assistant {
+  background: transparent;
+  color: var(--color-text-primary);
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+/* 系统消息/输入指示器气泡 */
+.chat-bubble.system {
+  background: transparent;
+  color: var(--slate-400);
+  border: none;
+  padding: 0 16px;
+}
+
+/* 最终汇总气泡 */
+.chat-bubble.summary {
+  background: var(--slate-50);
+  color: var(--slate-800);
+  border: 1px solid var(--slate-200);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.summary-title {
+  font-weight: var(--font-weight-bold);
+  margin-bottom: 8px;
+  color: var(--slate-900);
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ==================== 思考过程块样式 (Redesigned) ==================== */
+
+.reasoning-block {
+  background: rgba(248, 250, 252, 0.6); /* Slate-50 with opacity */
+  color: var(--slate-500);
+  padding: 8px 12px;
+  border: 1px solid var(--slate-200); /* 更细腻的边框 */
+  border-radius: 8px; /* 圆角 */
+  /*
+    margin-top removed because .assistant-message padding handles the offset now.
+    margin-bottom kept for spacing before markdown.
+  */
+  margin: 0 0 16px 0;
+  position: relative;
+  font-size: 13px; /* 稍微小一点的字体 */
+}
+
+.reasoning-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.reasoning-title {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--slate-400);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reasoning-title::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: var(--slate-300);
+  border-radius: 50%;
+}
+
+.reasoning-toggle-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  color: var(--slate-400);
+  font-size: 12px;
+  transition: color var(--transition-fast);
+}
+
+.reasoning-toggle-btn:hover {
+  color: var(--slate-600);
+}
+
+.reasoning-content {
+  margin-top: 8px;
+  color: var(--slate-600);
+  font-size: 13px;
+  line-height: 1.6;
+  padding-top: 4px;
+  border-top: 1px solid var(--slate-100); /* 内部细线分隔 */
+  font-family: var(--font-family-monospace); /* 使用等宽字体或更加技术感的字体 */
+}
+
+/* ==================== 输入指示器动画 ==================== */
+
+/* Special bubble style for typing indicator */
+.chat-bubble.assistant.typing-bubble {
+  background: white;
+  border: 1px solid var(--slate-100);
+  border-radius: 16px 16px 16px 4px; /* Asymmetric like user bubble but mirrored */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  padding: 0; /* Reset padding */
+  display: inline-block; /* Wrap content */
+  min-width: auto;
+  margin-left: 2px; /* Slight offset */
+  overflow: hidden; /* Prevent scrollbars */
+}
+
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px; /* Equal padding for icon-only */
+}
+
+.typing-logo {
+  width: 28px; /* Slightly larger for icon-only */
+  height: 28px;
+  opacity: 1;
+  animation: typingLogoPulse 2s infinite ease-in-out;
+  /* Subtle shadow for depth */
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.05));
+}
+
+/* Override padding for typing bubble content */
+.typing-bubble .assistant-message {
+  padding-top: 0 !important;
+}
+
+@keyframes typingLogoPulse {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+/* ==================== Chatbot Input Area (Refined Glassmorphism) ==================== */
+
+/* 输入区容器 */
+.chatbot-input-container {
+  padding: 16px 24px 20px 24px;
+  border-top: 1px solid rgba(0, 0, 0, 0.03);
+  background: rgba(255, 255, 255, 0.8); /* 稍微降低不透明度以增强毛玻璃感 */
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+}
+
+/* 输入区内部 Wrapper */
+.chatbot-input-wrapper {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  background: rgba(249, 250, 251, 0.8); /* var(--slate-50) with opacity */
+  border: 1px solid transparent;
+  border-radius: 16px;
+  padding: 8px 8px 8px 14px;
+  transition: all var(--transition-fast);
+  backdrop-filter: blur(5px); /* 内部轻微模糊 */
+}
+
+.chatbot-input-wrapper:focus-within {
+  background: white;
+  border-color: var(--slate-200); /* 柔和的边框颜色，避免刺眼的蓝线 */
+  /*
+    使用更柔和的扩散阴影，而不是实心光晕
+    原先的 0 0 0 3px 会产生类似边框的实心线效果
+    改为 0 0 0 4px rgba(...) 并降低透明度，使其更像光晕
+  */
+  box-shadow: 0 0 0 4px rgba(224, 231, 255, 0.4);
+}
+
+/* 输入框 */
+.chatbot-input-field {
+  flex: 1;
+  width: 100%;
+  min-height: 24px;
+  max-height: 150px;
+  border: none;
+  background: transparent;
+  padding: 8px 0; /* 移除左右padding，靠容器 */
+  font-size: 14px; /* 稍微减小字体 */
+  outline: none;
+  box-shadow: none !important; /* 强制移除任何可能的阴影 */
+  box-sizing: border-box;
+  color: var(--color-text-primary);
+  line-height: 1.5;
+  resize: none;
+}
+
+.chatbot-input-field:focus {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+.chatbot-input-field::placeholder {
+  color: var(--slate-400);
+}
+
+/* 按钮通用样式 */
+.chatbot-input-btn {
+  height: 32px; /* 减小按钮尺寸 */
+  width: 32px;
+  border-radius: 8px; /* 稍微方一点 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+}
+
+/* 添加图片按钮 */
+.chatbot-add-image-btn {
+  color: var(--slate-400);
+  margin-right: 4px;
+}
+
+.chatbot-add-image-btn:hover {
+  color: var(--slate-600);
+  background: var(--slate-200);
+}
+
+/* 发送按钮 */
+.chatbot-send-btn {
+  background: var(--slate-900); /* 黑色主按钮，极简 */
+  color: white;
+}
+
+.chatbot-send-btn:hover {
+  background: black;
+  transform: translateY(-1px);
+}
+
+.chatbot-send-btn:active {
+  transform: translateY(0);
+}
+
+.chatbot-send-btn:disabled {
+  background: var(--slate-200);
+  color: var(--slate-400);
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* 停止按钮 */
+.chatbot-stop-btn {
+  background: var(--slate-900);
+  color: white;
+  display: none;
+}
+
+.chatbot-stop-btn:hover {
+  background: black;
+}
+
+/* 免责声明 */
+.chatbot-disclaimer {
+  margin-top: 6px;
+  text-align: center;
+  font-size: 10px;
+  color: var(--slate-400);
+  opacity: 0.6;
+}
+
+/* 已选图片预览 */
+.chatbot-image-preview-area {
+  display: none;
+  gap: 8px;
+  padding: 8px 12px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--slate-100);
+  margin-bottom: 4px;
+}
+
+/* ==================== Markdown 内容样式 (Refined) ==================== */
+
+.markdown-content {
+  overflow-x: auto;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  max-width: 100%;
+  font-size: 15px;
+  color: var(--slate-800); /* 更深的文字颜色 */
+}
+
+.markdown-content p {
+  margin: 10px 0;
+}
+
+.markdown-content h1, .markdown-content h2, .markdown-content h3,
+.markdown-content h4, .markdown-content h5, .markdown-content h6 {
+  margin-top: 1.4em;
+  margin-bottom: 0.6em;
+  font-weight: 600;
+  color: var(--slate-900);
+  line-height: 1.3;
+}
+
+.markdown-content h1 { font-size: 1.3em; letter-spacing: -0.02em; }
+.markdown-content h2 { font-size: 1.2em; border-bottom: none; padding-bottom: 0; letter-spacing: -0.01em; }
+.markdown-content h3 { font-size: 1.1em; }
+
+.markdown-content code {
+  background: rgba(0,0,0,0.04);
+  color: var(--slate-800);
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-family: var(--font-family-monospace);
+  font-size: 0.9em;
+  border: none; /* 移除边框 */
+}
+
+.markdown-content pre {
+  background: var(--slate-50);
+  padding: 12px 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 12px 0;
+  border: 1px solid var(--slate-200);
+}
+
+.markdown-content pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  border: none;
+  white-space: pre;
+}
+
+.markdown-content blockquote {
+  border-left: 3px solid var(--slate-300);
+  background: transparent; /* 移除背景 */
+  padding: 4px 0 4px 16px;
+  color: var(--slate-500);
+  font-style: italic;
+  margin: 12px 0;
+  border-radius: 0;
+}
+
+.markdown-content a {
+  color: var(--slate-900);
+  text-decoration: underline;
+  text-decoration-color: var(--slate-300);
+  text-underline-offset: 4px;
+  transition: all 0.2s;
+}
+
+.markdown-content a:hover {
+  text-decoration-color: var(--slate-900);
+  color: black;
+}
+
+.markdown-content ul, .markdown-content ol {
+  margin: 10px 0;
+  padding-left: 24px;
+}
+
+.markdown-content li {
+  margin-bottom: 4px;
+}
+
+.markdown-content img {
+  max-width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--slate-100);
+  margin: 12px 0;
+}
+
+/* 表格样式 */
+.markdown-content table {
+  border-collapse: collapse; /* 改回 collapse */
+  width: 100%;
+  margin: 20px 0;
+  border: 1px solid var(--slate-200);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.markdown-content th, .markdown-content td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--slate-200);
+  border-right: 1px solid var(--slate-200);
+  text-align: left;
+  font-size: 14px;
+}
+
+.markdown-content th:last-child, .markdown-content td:last-child {
+  border-right: none;
+}
+
+.markdown-content tr:last-child td {
+  border-bottom: none;
+}
+
+.markdown-content th {
+  background: var(--slate-50);
+  font-weight: 600;
+  color: var(--slate-900);
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+}
+
+.markdown-content tr:hover td {
+  background: var(--slate-50);
+}
+
+/* 滚动条美化 */
+.markdown-content pre::-webkit-scrollbar,
+.markdown-content table::-webkit-scrollbar {
+  height: 4px;
+}
+
+.markdown-content pre::-webkit-scrollbar-track,
+.markdown-content table::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.markdown-content pre::-webkit-scrollbar-thumb {
+  background: var(--slate-300);
+  border-radius: 2px;
+}
+
+.markdown-content table::-webkit-scrollbar-thumb {
+  background: var(--slate-300);
+  border-radius: 2px;
+}

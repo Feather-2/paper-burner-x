@@ -208,6 +208,119 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
   // 重要：生成后重新获取文档内容以拿到 semanticGroups（避免使用旧的 docContentInfo 快照）
   docContentInfo = getCurrentDocContent();
 
+  // ===== 新增：ReAct模式支持 =====
+  // 检查是否启用ReAct模式（优先级高于传统多轮检索）
+  const useReActMode = !!(window.chatbotActiveOptions && window.chatbotActiveOptions.useReActMode);
+
+  if (useReActMode && window.ReActEngine) {
+    console.log('[ChatbotCore] 使用 ReAct 模式');
+
+    // 提前创建助手消息占位符
+    chatHistory.push({ role: 'assistant', content: '🤔 启动 ReAct 推理引擎...' });
+    const earlyAssistantMsgIndex = chatHistory.length - 1;
+    if (typeof updateChatbotUI === 'function') updateChatbotUI();
+
+    // 开始工具调用会话
+    if (window.ChatbotToolTraceUI?.startSession) {
+      window.ChatbotToolTraceUI.startSession();
+    }
+
+    try {
+      // 创建ReAct引擎实例
+      const reactEngine = new window.ReActEngine({
+        maxIterations: (window.chatbotActiveOptions.reactMaxIterations) || 5,
+        llmConfig: config,
+        tokenBudget: {
+          totalBudget: 32000,
+          systemTokens: 2000,
+          historyTokens: 8000,
+          contextTokens: 18000,
+          responseTokens: 4000
+        }
+      });
+
+      // 简化系统提示词：ReActEngine 会自动注入完整的 ReAct 指令
+      // 这里只需要提供文档上下文信息
+      let reactSystemPrompt = `你正在协助用户理解文档"${docContentInfo.name || '当前文档'}"。
+严格按照 ReAct 流程工作，始终以 JSON 格式返回决策。`;
+
+      // 构建对话历史
+      const conversationHistory = chatHistory.slice(0, -1).map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }));
+
+      // 执行ReAct循环
+      let finalAnswer = null;
+      let toolCallHtml = '';
+
+      for await (const event of reactEngine.run(
+        cleanedPlainTextInput,
+        docContentInfo,
+        reactSystemPrompt,
+        conversationHistory
+      )) {
+        console.log('[MessageSender] 收到事件:', event.type, event);
+
+        // 1. 捕获 ReAct 日志用于新版可视化
+        if (event.reactLog) {
+          chatHistory[earlyAssistantMsgIndex].reactLog = event.reactLog;
+        }
+
+        // 2. 仍然通知旧版 UI 组件 (保持兼容性，防止报错)，但不使用其生成的 HTML
+        if (window.ChatbotToolTraceUI?.handleReActEvent) {
+          window.ChatbotToolTraceUI.handleReActEvent(event);
+        }
+
+        // 3. 强制刷新 UI
+        if (typeof updateChatbotUI === 'function') {
+          updateChatbotUI();
+        }
+
+        // 保存最终答案
+        if (event.type === 'final_answer') {
+          console.log('[MessageSender] ✓ 收到 final_answer 事件，立即清除 loading 状态');
+          finalAnswer = event.answer;
+
+          // ⚠️ 关键：必须先清除 loading 状态，再更新 UI
+          // 因为 updateChatbotUI() 会检查 isChatbotLoading 来决定是否显示 typing indicator
+          isChatbotLoadingRef.value = false;
+          console.log('[MessageSender] ✓ loading 状态已清除，isChatbotLoadingRef.value =', isChatbotLoadingRef.value);
+
+          // 更新消息内容并刷新UI
+          chatHistory[earlyAssistantMsgIndex].content = finalAnswer;
+          // chatHistory[earlyAssistantMsgIndex].toolCallHtml = toolCallHtml; // 不再使用旧版 HTML
+          if (typeof updateChatbotUI === 'function') updateChatbotUI();
+          saveChatHistory(getCurrentDocId(), chatHistory);
+
+          return; // 立即返回，终止循环
+        }
+      }
+
+      // 备份：如果循环正常结束但没有final_answer（不应该发生）
+      if (finalAnswer) {
+        chatHistory[earlyAssistantMsgIndex].content = finalAnswer;
+        chatHistory[earlyAssistantMsgIndex].toolCallHtml = toolCallHtml;
+        if (typeof updateChatbotUI === 'function') updateChatbotUI();
+        saveChatHistory(getCurrentDocId(), chatHistory);
+        isChatbotLoadingRef.value = false;
+        return; // 完成，直接返回
+      } else {
+        // 没有得到答案，降级到传统模式
+        console.warn('[ChatbotCore] ReAct模式未能产生答案，降级到传统模式');
+        chatHistory.splice(earlyAssistantMsgIndex, 1); // 移除占位消息
+      }
+
+    } catch (error) {
+      console.error('[ChatbotCore] ReAct模式执行失败:', error);
+      chatHistory[earlyAssistantMsgIndex].content = `ReAct模式执行失败: ${error.message}`;
+      if (typeof updateChatbotUI === 'function') updateChatbotUI();
+      saveChatHistory(getCurrentDocId(), chatHistory);
+      isChatbotLoadingRef.value = false;
+      return;
+    }
+  }
+
   // 如果启用多轮取材，先让模型选择意群并附加上下文
   try {
     const multiHop = !!(window.chatbotActiveOptions && window.chatbotActiveOptions.multiHopRetrieval);
@@ -1502,6 +1615,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         content: chatHistory[assistantMsgIndex].content,
         metadata: {
           toolCallHtml: chatHistory[assistantMsgIndex].toolCallHtml,
+          reactLog: chatHistory[assistantMsgIndex].reactLog, // 保存 ReAct 日志
           hasMindMap: chatHistory[assistantMsgIndex].hasMindMap,
           mindMapData: chatHistory[assistantMsgIndex].mindMapData,
           reasoningContent: chatHistory[assistantMsgIndex].reasoningContent

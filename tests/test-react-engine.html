@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ReAct Engine Test</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+    <style>
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #d1d5db;
+            border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #9ca3af;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-4xl mx-auto bg-white rounded-xl shadow-lg overflow-hidden">
+        <div class="p-6 border-b border-gray-200">
+            <h1 class="text-2xl font-bold text-gray-800">ReAct Engine Test Playground</h1>
+            <p class="text-gray-500 mt-1">Testing the Reason+Act loop with mock LLM and tools</p>
+        </div>
+
+        <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Controls -->
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Goal / Question</label>
+                    <textarea id="goal-input" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 h-32" placeholder="e.g., What is the capital of France?"></textarea>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Mock LLM Behavior</label>
+                    <select id="mock-scenario" class="w-full p-2 border border-gray-300 rounded-lg">
+                        <option value="simple">Simple QA (Direct Answer)</option>
+                        <option value="search">Search + Answer (1 Step)</option>
+                        <option value="complex">Complex (Search + Calc + Answer)</option>
+                        <option value="loop">Loop Error (Timeout)</option>
+                    </select>
+                </div>
+
+                <div class="flex gap-3">
+                    <button id="start-btn" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
+                        <iconify-icon icon="carbon:play-filled"></iconify-icon>
+                        Start Reasoning
+                    </button>
+                    <button id="abort-btn" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition-colors" disabled>
+                        Abort
+                    </button>
+                </div>
+            </div>
+
+            <!-- Visualization -->
+            <div id="viz-container"></div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="../js/processing/react_engine.js"></script>
+    <script src="../js/ui/react_visualization.js"></script>
+    <script>
+        // Mock Tools
+        const tools = {
+            search: async (query) => {
+                await new Promise(r => setTimeout(r, 1000)); // Simulate network delay
+                if (query.toLowerCase().includes('france')) return "Paris is the capital of France. Population: 2.1M.";
+                if (query.toLowerCase().includes('weather')) return "The weather in Paris is currently Sunny, 20°C.";
+                return "No results found.";
+            },
+            calculator: async (expression) => {
+                await new Promise(r => setTimeout(r, 500));
+                try {
+                    return eval(expression).toString();
+                } catch (e) {
+                    return "Error: Invalid expression";
+                }
+            }
+        };
+
+        // Mock LLM Responses
+        const mockResponses = {
+            simple: [
+                "Thought: The user is asking for a simple fact.\nFinal Answer: The capital of France is Paris."
+            ],
+            search: [
+                "Thought: I need to find out what the capital of France is.\nAction: Search\nAction Input: capital of France",
+                "Thought: The search result says Paris is the capital.\nFinal Answer: The capital of France is Paris."
+            ],
+            complex: [
+                "Thought: I need to find the population of Paris and multiply it by 2.\nAction: Search\nAction Input: population of Paris",
+                "Thought: The population is 2.1M. Now I need to calculate 2.1 * 2.\nAction: Calculator\nAction Input: 2.1 * 2",
+                "Thought: The result is 4.2. So the answer is 4.2M.\nFinal Answer: 4.2 Million."
+            ],
+            loop: [
+                "Thought: I'm confused.\nAction: Search\nAction Input: help",
+                "Thought: Still confused.\nAction: Search\nAction Input: help",
+                "Thought: Still confused.\nAction: Search\nAction Input: help",
+                "Thought: Still confused.\nAction: Search\nAction Input: help",
+                "Thought: Still confused.\nAction: Search\nAction Input: help",
+                "Thought: Still confused.\nAction: Search\nAction Input: help",
+                "Thought: Still confused.\nAction: Search\nAction Input: help",
+                "Thought: Still confused.\nAction: Search\nAction Input: help",
+                "Thought: Still confused.\nAction: Search\nAction Input: help",
+                "Thought: Still confused.\nAction: Search\nAction Input: help",
+                "Thought: Still confused.\nAction: Search\nAction Input: help",
+            ]
+        };
+
+        let currentStep = 0;
+        let currentScenario = 'simple';
+
+        // Mock LLM Caller
+        const mockLlmCaller = async (prompt) => {
+            await new Promise(r => setTimeout(r, 800)); // Simulate generation time
+            const responses = mockResponses[currentScenario];
+            const response = responses[Math.min(currentStep, responses.length - 1)];
+            currentStep++;
+            return response;
+        };
+
+        // Initialize
+        const engine = new ReActEngine({
+            maxSteps: 10,
+            llmCaller: mockLlmCaller
+        });
+
+        // Register Tools
+        engine.registerTool('Search', 'Search for information', tools.search);
+        engine.registerTool('Calculator', 'Calculate math expressions', tools.calculator);
+
+        // Initialize Viz
+        const viz = new ReActVisualization('viz-container');
+        viz.bind(engine);
+
+        // UI Logic
+        const startBtn = document.getElementById('start-btn');
+        const abortBtn = document.getElementById('abort-btn');
+        const goalInput = document.getElementById('goal-input');
+        const scenarioSelect = document.getElementById('mock-scenario');
+
+        startBtn.addEventListener('click', async () => {
+            const goal = goalInput.value.trim();
+            if (!goal) return alert('Please enter a goal');
+
+            currentScenario = scenarioSelect.value;
+            currentStep = 0;
+
+            startBtn.disabled = true;
+            abortBtn.disabled = false;
+            startBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            abortBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+
+            try {
+                await engine.run(goal);
+            } catch (e) {
+                console.error(e);
+            } finally {
+                startBtn.disabled = false;
+                abortBtn.disabled = true;
+                startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                abortBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+        });
+
+        abortBtn.addEventListener('click', () => {
+            engine.abort();
+        });
+
+        // Set default goal
+        goalInput.value = "What is the capital of France?";
+    </script>
+</body>
+</html>

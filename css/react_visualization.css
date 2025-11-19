@@ -1,0 +1,155 @@
+/* ReAct Visualization Styles */
+.react-viz-container {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.75rem;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.react-viz-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.react-viz-title {
+    font-weight: 600;
+    color: #334155;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+}
+
+.react-status-badge {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 9999px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+.react-status-idle { background-color: #f1f5f9; color: #64748b; }
+.react-status-thinking { background-color: #dbeafe; color: #2563eb; animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+.react-status-executing { background-color: #f3e8ff; color: #7c3aed; }
+.react-status-completed { background-color: #dcfce7; color: #16a34a; }
+.react-status-error { background-color: #fee2e2; color: #dc2626; }
+
+.react-steps-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-height: 400px;
+    overflow-y: auto;
+    padding-right: 0.5rem;
+}
+
+/* Custom Scrollbar */
+.react-steps-container::-webkit-scrollbar {
+    width: 6px;
+}
+.react-steps-container::-webkit-scrollbar-track {
+    background: transparent;
+}
+.react-steps-container::-webkit-scrollbar-thumb {
+    background-color: #cbd5e1;
+    border-radius: 3px;
+}
+.react-steps-container::-webkit-scrollbar-thumb:hover {
+    background-color: #94a3b8;
+}
+
+.react-step-item {
+    background-color: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    font-size: 0.875rem;
+    transition: all 0.3s ease;
+    opacity: 0;
+    transform: translateY(10px);
+    animation: slideIn 0.3s forwards;
+}
+
+@keyframes slideIn {
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .5; }
+}
+
+.react-step-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.react-step-content {
+    color: #334155;
+    line-height: 1.6;
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+
+/* Step Types */
+.step-thought { border-left: 3px solid #94a3b8; }
+.step-thought .react-step-header { color: #64748b; }
+
+.step-action { border-left: 3px solid #8b5cf6; background-color: #fbf7ff; }
+.step-action .react-step-header { color: #7c3aed; }
+
+.step-observation { border-left: 3px solid #f59e0b; background-color: #fffbeb; }
+.step-observation .react-step-header { color: #d97706; }
+.step-observation .react-step-content { font-family: 'Menlo', 'Monaco', 'Courier New', monospace; font-size: 0.8rem; }
+
+.step-answer { border-left: 3px solid #10b981; background-color: #f0fdf4; }
+.step-answer .react-step-header { color: #059669; }
+
+/* Code highlighting in content */
+.react-step-content code {
+    background-color: rgba(0, 0, 0, 0.05);
+    padding: 0.1rem 0.3rem;
+    border-radius: 0.25rem;
+    font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+    font-size: 0.9em;
+}
+
+.react-step-content pre {
+    background-color: #1e293b;
+    color: #e2e8f0;
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+    overflow-x: auto;
+    margin: 0.5rem 0;
+}
+
+.react-step-content pre code {
+    background-color: transparent;
+    padding: 0;
+    color: inherit;
+}
+
+/* System Messages */
+.react-system-message {
+    text-align: center;
+    font-size: 0.75rem;
+    color: #94a3b8;
+    font-style: italic;
+    margin: 0.5rem 0;
+}

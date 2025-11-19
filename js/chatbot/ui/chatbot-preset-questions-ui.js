@@ -16,18 +16,18 @@ window.ChatbotPresetQuestionsUI = {
     const presetContainer = document.createElement('div');
     presetContainer.id = 'chatbot-preset-container';
     presetContainer.style.position = 'absolute';
-    presetContainer.style.top = '73px'; // 初始值，可能由父级CSS或后续调整覆盖
+    presetContainer.style.top = '58px'; // 稍微增加顶部距离，避免过于拥挤 (原53px)
     presetContainer.style.left = '0px';
     presetContainer.style.right = '0px';
     presetContainer.style.zIndex = '5'; // 确保在聊天内容之上但在模态框之内
-    presetContainer.style.padding = '8px 20px'; // 默认内边距
+    presetContainer.style.padding = '6px 24px'; // 恢复适度的内边距，增加呼吸感 (原4px 20px)
 
     const newPresetHeader = document.createElement('div');
     newPresetHeader.id = 'chatbot-preset-header';
     newPresetHeader.style.display = 'flex';
     newPresetHeader.style.alignItems = 'center';
     newPresetHeader.style.justifyContent = 'space-between';
-    newPresetHeader.style.marginBottom = '8px';
+    newPresetHeader.style.marginBottom = '6px'; // 稍微增加底部间距 (原4px)
     newPresetHeader.style.padding = '0';
 
     const presetTitle = document.createElement('span');
@@ -121,30 +121,7 @@ window.ChatbotPresetQuestionsUI = {
     ];
     presetQuestions.forEach(q => {
       const button = document.createElement('button');
-      button.style.cssText = `
-        background: #f3f4f6; /* 浅灰色背景 */
-        color: #374151; /* 深灰色文字 */
-        border-radius: 12px; /* 圆角调整 */
-        border: 1px solid #e5e7eb; /* 更细的边框 */
-        box-shadow: none; /* 移除阴影 */
-        padding: 4px 10px; /* 内边距调整 */
-        font-size: 12px; /* 字体大小调整 */
-        font-weight: 500;
-        cursor: pointer;
-        transition: background-color 0.2s, color 0.2s, border-color 0.2s;
-        margin: 2px 0;
-        outline: none;
-      `;
-      button.onmouseover = function(){
-        this.style.background='#e5e7eb'; /* 悬浮时背景变深一点 */
-        this.style.borderColor='#d1d5db';
-        this.style.color='#1f2937';
-      };
-      button.onmouseout = function(){
-        this.style.background='#f3f4f6';
-        this.style.borderColor='#e5e7eb';
-        this.style.color='#374151';
-      };
+      button.className = 'preset-btn';
       // 使用 encodeURIComponent/decodeURIComponent 来处理特殊字符
       button.onclick = function() {
         const text = decodeURIComponent(encodeURIComponent(q));
@@ -198,8 +175,8 @@ window.ChatbotPresetQuestionsUI = {
       newPresetBody.style.marginBottom = '0px'; // 或者根据需要调整
       newPresetBody.style.visibility = 'visible';
       presetContainer.style.boxShadow = 'none'; // 可以设置展开时的阴影
-      presetContainer.style.paddingTop = '8px';     // 恢复垂直内边距
-      presetContainer.style.paddingBottom = '8px';
+      presetContainer.style.paddingTop = '6px';     // 恢复垂直内边距
+      presetContainer.style.paddingBottom = '6px';
 
       // 背景渐变逻辑 (依赖父窗口背景色)
       const chatWindowBgElement = document.querySelector('#chatbot-modal .chatbot-window');

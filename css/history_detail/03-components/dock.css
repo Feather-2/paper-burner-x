@@ -28,17 +28,12 @@
   max-width: 180px;
 
   /* 外观 */
-  background: linear-gradient(
-    135deg,
-    rgba(255, 255, 255, 0.95),
-    rgba(248, 250, 252, 0.95)
-  );
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--color-border-light);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-float),
-    0 0 0 1px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-float);
 
   /* 布局 */
   display: flex;
@@ -67,9 +62,8 @@
 
 /* Dock 悬停效果 */
 #bottom-left-dock:hover {
-  box-shadow: 0 20px 35px -5px rgba(0, 0, 0, 0.12),
-    0 10px 15px -8px rgba(0, 0, 0, 0.1),
-    0 0 0 1px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-xl);
+  border-color: var(--color-border-medium);
 }
 
 /* ==================== 2. Dock 信息栈（展开状态）==================== */
@@ -80,9 +74,15 @@
   gap: var(--spacing-sm) var(--spacing-md);
   align-items: center;
   padding: var(--spacing-sm);
-  background: rgba(248, 250, 252, 0.6);
+  background: var(--slate-50);
   border-radius: var(--radius-lg);
   font-size: 11px;
+  border: 1px solid transparent;
+  transition: border-color var(--transition-fast);
+}
+
+#dock-info-stack:hover {
+  border-color: var(--color-border-light);
 }
 
 /* Dock 列 */
@@ -148,27 +148,34 @@
   justify-content: space-between;
   gap: var(--spacing-sm);
   padding: var(--spacing-sm);
-  background: rgba(248, 250, 252, 0.6);
+  background: var(--slate-50);
   border-radius: var(--radius-lg);
+  border: 1px solid transparent;
+  transition: border-color var(--transition-fast);
+}
+
+.dock-control-bar:hover {
+  border-color: var(--color-border-light);
 }
 
 /* 文献引用按钮 */
 .dock-control-bar .stat-item-clickable[data-stat-type="reference"] {
-  color: #1e40af;
+  color: var(--color-primary);
   font-weight: var(--font-weight-semibold);
   font-size: var(--font-size-sm);
   cursor: pointer;
   transition: all var(--transition-fast);
   padding: var(--spacing-sm) var(--spacing-lg);
   border-radius: var(--radius-md);
-  background: rgba(59, 130, 246, 0.1);
-  border: 1px solid rgba(59, 130, 246, 0.2);
+  background: var(--indigo-50);
+  border: 1px solid transparent;
 }
 
 .dock-control-bar .stat-item-clickable[data-stat-type="reference"]:hover {
-  background-color: rgba(59, 130, 246, 0.2);
-  color: #1e3a8a;
-  transform: scale(1.02);
+  background-color: var(--indigo-100);
+  color: var(--color-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
 }
 
 /* 控制栏按钮（设置、折叠）*/
@@ -187,8 +194,8 @@
 
 .dock-control-bar a:hover {
   color: var(--color-text-primary);
-  background: rgba(226, 232, 240, 0.8);
-  transform: scale(1.05);
+  background: var(--slate-200);
+  transform: translateY(-1px);
 }
 
 /* 设置按钮图标 */

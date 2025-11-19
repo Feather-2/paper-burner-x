@@ -16,6 +16,49 @@
       this.namespace = namespace;
       this.db = null;
       this.memoryIndex = null; // 内存中的向量索引（加速检索）
+      this.worker = null; // Web Worker（后台计算）
+      this.workerReady = false;
+      this.requestCounter = 0;
+      this.pendingRequests = new Map(); // 请求队列
+      this._initWorker();
+    }
+
+    /**
+     * 初始化 Web Worker（避免主线程阻塞）
+     */
+    _initWorker() {
+      try {
+        this.worker = new Worker('js/chatbot/agents/vector-worker.js');
+
+        this.worker.onmessage = (e) => {
+          const { type, requestId, success, result, error } = e.data;
+
+          if (type === 'ready') {
+            this.workerReady = true;
+            console.log('[VectorStore] Web Worker 已就绪');
+            return;
+          }
+
+          // 处理计算结果
+          const pending = this.pendingRequests.get(requestId);
+          if (pending) {
+            if (success) {
+              pending.resolve(result);
+            } else {
+              pending.reject(new Error(error));
+            }
+            this.pendingRequests.delete(requestId);
+          }
+        };
+
+        this.worker.onerror = (error) => {
+          console.warn('[VectorStore] Worker 错误，回退到主线程:', error.message);
+          this.workerReady = false;
+        };
+      } catch (err) {
+        console.warn('[VectorStore] 无法创建 Worker，使用主线程计算:', err.message);
+        this.workerReady = false;
+      }
     }
 
     async init() {
@@ -177,20 +220,64 @@
         await this.loadMemoryIndex();
       }
 
-      // 计算相似度
-      let candidates = this.memoryIndex.map(item => ({
-        id: item.id.replace(`${this.namespace}:`, ''), // 移除namespace前缀
-        score: this.cosineSimilarity(queryVector, item.vector),
-        metadata: item.metadata,
-        vector: item.vector
-      }));
-
       // 应用过滤器
+      let itemsToSearch = this.memoryIndex;
       if (filter.docId) {
-        candidates = candidates.filter(c => c.metadata.docId === filter.docId);
+        itemsToSearch = itemsToSearch.filter(item => item.metadata?.docId === filter.docId);
       }
 
-      // 排序并返回topK
+      // 准备数据（移除 namespace 前缀）
+      const items = itemsToSearch.map(item => ({
+        id: item.id.replace(`${this.namespace}:`, ''),
+        vector: item.vector,
+        metadata: item.metadata
+      }));
+
+      // 优先使用 Web Worker 计算（避免主线程阻塞）
+      if (this.workerReady && items.length > 100) {
+        console.log(`[VectorStore] 使用 Worker 计算 ${items.length} 个向量`);
+        return this._searchWithWorker(queryVector, items, topK);
+      } else {
+        // 回退到主线程（向量数少时直接计算更快）
+        return this._searchMainThread(queryVector, items, topK);
+      }
+    }
+
+    /**
+     * 使用 Worker 进行向量检索
+     */
+    _searchWithWorker(queryVector, items, topK) {
+      return new Promise((resolve, reject) => {
+        const requestId = ++this.requestCounter;
+        this.pendingRequests.set(requestId, { resolve, reject });
+
+        this.worker.postMessage({
+          type: 'batchSearch',
+          requestId,
+          payload: { queryVector, items, topK }
+        });
+
+        // 超时保护（10秒）
+        setTimeout(() => {
+          if (this.pendingRequests.has(requestId)) {
+            this.pendingRequests.delete(requestId);
+            console.warn('[VectorStore] Worker 超时，回退到主线程');
+            resolve(this._searchMainThread(queryVector, items, topK));
+          }
+        }, 10000);
+      });
+    }
+
+    /**
+     * 主线程计算（回退方案）
+     */
+    _searchMainThread(queryVector, items, topK) {
+      const candidates = items.map(item => ({
+        id: item.id,
+        score: this.cosineSimilarity(queryVector, item.vector),
+        metadata: item.metadata
+      }));
+
       candidates.sort((a, b) => b.score - a.score);
       return candidates.slice(0, topK);
     }
@@ -261,8 +348,23 @@
         namespace: this.namespace,
         count: this.memoryIndex.length,
         dimensions: this.memoryIndex.length > 0 ? this.memoryIndex[0].vector.length : 0,
-        size: JSON.stringify(this.memoryIndex).length // 粗略估算大小
+        size: JSON.stringify(this.memoryIndex).length, // 粗略估算大小
+        workerEnabled: this.workerReady
       };
+    }
+
+    /**
+     * 清理资源（释放 Worker）
+     */
+    destroy() {
+      if (this.worker) {
+        this.worker.terminate();
+        this.worker = null;
+        this.workerReady = false;
+        console.log('[VectorStore] Worker 已终止');
+      }
+      this.memoryIndex = null;
+      this.pendingRequests.clear();
     }
   }
 

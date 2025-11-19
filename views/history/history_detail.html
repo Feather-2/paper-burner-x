@@ -495,9 +495,18 @@
   <script src="../../js/chatbot/agents/semantic-vector-search.js"></script>
   <!-- 新增：BM25检索模块（独立工具） -->
   <script src="../../js/chatbot/agents/bm25-search.js"></script>
+  <!-- ReAct 引擎（推理与工具调用框架 - 模块化版本） -->
+  <script src="../../js/chatbot/react/json-parser.js"></script>
+  <script src="../../js/chatbot/react/system-prompt.js"></script>
+  <script src="../../js/chatbot/react/context-builder.js"></script>
+  <script src="../../js/chatbot/react/tool-registry.js"></script>
+  <script src="../../js/chatbot/react/token-budget.js"></script>
+  <script src="../../js/chatbot/react/engine.js"></script>
+  <script src="../../js/chatbot/react/index.js"></script>
   <script src="../../js/chatbot/core/streaming-multi-hop.js"></script>
   <!-- Chatbot Core 模块化组件（必须在 chatbot-core.js 之前加载） -->
   <script src="../../js/chatbot/core/api-config-builder.js"></script>
+  <script src="../../js/chatbot/core/llm-caller.js"></script>
   <script src="../../js/chatbot/core/chat-history-manager.js"></script>
   <script src="../../js/chatbot/core/content-processor.js"></script>
   <script src="../../js/chatbot/core/semantic-groups-manager.js"></script>
@@ -525,7 +534,8 @@
   <script src="../../js/processing/markdown_processor_ast.js"></script>
   <script src="../../js/processing/annotation_plugin_ast.js"></script>  <!-- 注释插件 -->
   <script src="../../js/processing/markdown_processor_integration.js"></script>  <!-- 集成层 -->
-  <script src="../../js/processing/formula_post_processor.js"></script>  <!-- 公式后处理 -->
+  <script src="../../js/processing/formula_post_processor.js"></script>  <!-- 公式后处理（同步版本，用于导出） -->
+  <script src="../../js/processing/formula_post_processor_async.js"></script>  <!-- 公式后处理（异步 Worker 版本，用于页面显示） -->
   <script src="../../js/processing/markdown_text_fix.js"></script>
   <script src="../../js/processing/markdown_processor.js"></script>
   <script src="../../js/processing/sub_block_segmenter.js"></script>

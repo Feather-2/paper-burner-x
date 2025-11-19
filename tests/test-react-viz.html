@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ReAct Visualization Test</title>
+    <link rel="stylesheet" href="../css/react_visualization.css">
+    <script src="https://code.iconify.design/iconify-icon/1.0.7/iconify-icon.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f1f5f9;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 800px;
+            background: white;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        h1 { margin-bottom: 2rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ReAct Visualization Test</h1>
+        <div id="chatbot-container"></div>
+    </div>
+
+    <script>
+        // Mock ChatbotUtils (matches the real implementation)
+        window.ChatbotUtils = {
+            escapeHtml: function(str) {
+                if (!str) return '';
+                return str.replace(/[&<>"']/g, function (c) {
+                    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c];
+                });
+            }
+        };
+
+        // Mock Data
+        const mockMessage = {
+            role: 'assistant',
+            reactLog: [
+                {
+                    type: 'thought',
+                    iteration: 1,
+                    content: 'The user wants to know the weather in San Francisco. I should use the search tool.'
+                },
+                {
+                    type: 'action',
+                    iteration: 1,
+                    tool: 'Search',
+                    params: { query: 'current weather in San Francisco' }
+                },
+                {
+                    type: 'observation',
+                    iteration: 1,
+                    result: 'The current weather in San Francisco is 65°F and sunny.'
+                },
+                {
+                    type: 'thought',
+                    iteration: 2,
+                    content: 'I have the weather information. Now I can answer the user.'
+                }
+            ]
+        };
+
+        // Render Function (extracted from chatbot-message-renderer.js)
+        function renderReActViz(m) {
+            let reactVizBlock = '';
+            if (m.reactLog && m.reactLog.length > 0) {
+                const vizId = `react-viz-test`;
+                
+                let stepsHtml = '';
+                m.reactLog.forEach((step, i) => {
+                    let icon = '';
+                    let title = '';
+                    let typeClass = '';
+                    let content = '';
+
+                    if (step.type === 'thought') {
+                        icon = 'carbon:idea';
+                        title = `Thought ${step.iteration || i+1}`;
+                        typeClass = 'step-thought';
+                        content = step.content;
+                    } else if (step.type === 'action') {
+                        icon = 'carbon:tools';
+                        title = `Action ${step.iteration || i+1}`;
+                        typeClass = 'step-action';
+                        content = `Tool: ${step.tool}\nInput: ${JSON.stringify(step.params, null, 2)}`;
+                    } else if (step.type === 'observation') {
+                        icon = 'carbon:view';
+                        title = `Observation ${step.iteration || i+1}`;
+                        typeClass = 'step-observation';
+                        content = typeof step.result === 'string' ? step.result : JSON.stringify(step.result, null, 2);
+                        if (content.length > 500) content = content.slice(0, 500) + '... (truncated)';
+                    }
+
+                    if (content) {
+                        content = window.ChatbotUtils.escapeHtml(content);
+                        // Preserve newlines by converting to <br>
+                        content = content.replace(/\n/g, '<br>');
+
+                        stepsHtml += `
+                            <div class="react-step-item ${typeClass}">
+                                <div class="react-step-header">
+                                    <iconify-icon icon="${icon}"></iconify-icon>
+                                    <span>${title}</span>
+                                </div>
+                                <div class="react-step-content">${content}</div>
+                            </div>
+                        `;
+                    }
+                });
+
+                if (stepsHtml) {
+                    reactVizBlock = `
+                        <div id="${vizId}" class="react-viz-container">
+                            <div class="react-viz-header">
+                                <div class="react-viz-title">
+                                    <iconify-icon icon="carbon:ibm-watson-discovery" width="18"></iconify-icon>
+                                    <span>ReAct Reasoning Engine</span>
+                                </div>
+                                <div class="react-status-badge react-status-completed">Completed</div>
+                            </div>
+                            <div class="react-steps-container">
+                                ${stepsHtml}
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+            return reactVizBlock;
+        }
+
+        document.getElementById('chatbot-container').innerHTML = renderReActViz(mockMessage);
+    </script>
+</body>
+</html>
