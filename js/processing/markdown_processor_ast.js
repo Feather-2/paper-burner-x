@@ -783,13 +783,34 @@
                     if (currPipes < sepPipes) {
                         // 数据行列数少 → 添加空单元格
                         let fixedLine = line;
-                        while ((fixedLine.match(/\|/g) || []).length < sepPipes) {
-                            if (fixedLine.endsWith('|')) {
-                                fixedLine = fixedLine.slice(0, -1) + ' |';
-                            } else {
-                                fixedLine += ' |';
+                        let iterationCount = 0;
+                        const maxIterations = 100; // 防止死循环
+                        while ((fixedLine.match(/\|/g) || []).length < sepPipes && iterationCount < maxIterations) {
+                            // 直接在末尾添加空单元格（无论末尾是否有 |）
+                            if (!fixedLine.endsWith('|')) {
+                                fixedLine += '|';
                             }
+                            fixedLine += ' |';
+                            iterationCount++;
                         }
+                        if (iterationCount >= maxIterations) {
+                            console.warn(`[MarkdownProcessorAST] 修复数据行时达到最大迭代次数，跳过该行`);
+                            fixedLines.push(line); // 使用原始行
+                        } else {
+                            fixedLines.push(fixedLine);
+                        }
+                        continue;
+                    } else if (currPipes > sepPipes) {
+                        // 数据行列数多 → 截断多余的列
+                        const parts = line.split('|');
+                        // 保留前 sepPipes+1 个部分（因为第一个部分通常是空的）
+                        const truncatedParts = parts.slice(0, sepPipes + 1);
+                        let fixedLine = truncatedParts.join('|');
+                        // 确保结尾有 |
+                        if (!fixedLine.endsWith('|')) {
+                            fixedLine += '|';
+                        }
+                        console.log(`[MarkdownProcessorAST] 截断数据行：从 ${currPipes} 列减少到 ${sepPipes} 列`);
                         fixedLines.push(fixedLine);
                         continue;
                     }
