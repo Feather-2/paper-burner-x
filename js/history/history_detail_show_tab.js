@@ -1681,10 +1681,24 @@ function showTabImmediate(tab) {
                 // This is the onDone callback for segmentInBatches
                 // All segmentation is complete, now apply annotations and listeners
 
-                // 后处理：渲染表格和其他地方的纯文本公式
-                if (typeof FormulaPostProcessor !== 'undefined' && FormulaPostProcessor.processFormulasInElement) {
-                    console.log('[showTab] 开始后处理公式');
+                // 后处理：渲染表格和其他地方的纯文本公式（异步版本，不阻塞主线程）
+                console.log('[showTab] 开始后处理公式（异步）');
+                console.time('[性能] 公式渲染');
+
+                // 优先使用异步 Worker 版本（页面显示时）
+                if (typeof FormulaPostProcessorAsync !== 'undefined') {
+                    FormulaPostProcessorAsync.processFormulasInElement(activeContentElement, {
+                        useWorker: true,  // 页面显示时使用 Worker，避免阻塞主线程
+                        onComplete: () => {
+                            console.timeEnd('[性能] 公式渲染');
+                            console.log('[showTab] 公式渲染完成');
+                        }
+                    });
+                } else if (typeof FormulaPostProcessor !== 'undefined' && FormulaPostProcessor.processFormulasInElement) {
+                    // 回退到同步版本（如果异步版本未加载）
+                    console.warn('[showTab] 异步公式处理器不可用，使用同步版本');
                     FormulaPostProcessor.processFormulasInElement(activeContentElement);
+                    console.timeEnd('[性能] 公式渲染');
                 }
 
                 if (data && data.annotations && typeof window.applyBlockAnnotations === 'function') {
@@ -1750,10 +1764,24 @@ function showTabImmediate(tab) {
               // This is the onDone callback for segmentInBatches
               // All segmentation is complete, now apply annotations and listeners
 
-              // 后处理：渲染表格和其他地方的纯文本公式
-              if (typeof FormulaPostProcessor !== 'undefined' && FormulaPostProcessor.processFormulasInElement) {
-                  console.log('[showTab] 开始后处理公式');
+              // 后处理：渲染表格和其他地方的纯文本公式（异步版本，不阻塞主线程）
+              console.log('[showTab] 开始后处理公式（异步）');
+              console.time('[性能] 公式渲染');
+
+              // 优先使用异步 Worker 版本（页面显示时）
+              if (typeof FormulaPostProcessorAsync !== 'undefined') {
+                  FormulaPostProcessorAsync.processFormulasInElement(activeContentElement, {
+                      useWorker: true,  // 页面显示时使用 Worker，避免阻塞主线程
+                      onComplete: () => {
+                          console.timeEnd('[性能] 公式渲染');
+                          console.log('[showTab] 公式渲染完成');
+                      }
+                  });
+              } else if (typeof FormulaPostProcessor !== 'undefined' && FormulaPostProcessor.processFormulasInElement) {
+                  // 回退到同步版本（如果异步版本未加载）
+                  console.warn('[showTab] 异步公式处理器不可用，使用同步版本');
                   FormulaPostProcessor.processFormulasInElement(activeContentElement);
+                  console.timeEnd('[性能] 公式渲染');
               }
 
               if (data && data.annotations && typeof window.applyBlockAnnotations === 'function') {
