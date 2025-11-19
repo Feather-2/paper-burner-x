@@ -26,12 +26,22 @@
       parts.push('');
 
       // 2. 文档状态（决定可用工具）
-      const hasSemanticGroups = Array.isArray(docContent.semanticGroups) && docContent.semanticGroups.length > 0;
-      const hasVectorIndex = !!(window.data?.vectorIndex || window.data?.semanticGroups);
+      // 优先检查 docContent 传入的数据，回退到 window.data
+      const hasSemanticGroups = (
+        (Array.isArray(docContent.semanticGroups) && docContent.semanticGroups.length > 0) ||
+        (Array.isArray(window.data?.semanticGroups) && window.data.semanticGroups.length > 0)
+      );
+
+      const hasVectorIndex = !!(
+        window.data?.vectorIndex ||
+        (hasSemanticGroups && window.SemanticVectorSearch?.isReady)
+      );
+
+      const groupCount = docContent.semanticGroups?.length || window.data?.semanticGroups?.length || 0;
 
       parts.push('=== 可用工具 ===');
       if (hasSemanticGroups) {
-        parts.push(`✓ 结构化工具: map, search_semantic_groups, fetch (共 ${docContent.semanticGroups.length} 个意群)`);
+        parts.push(`✓ 结构化工具: map, search_semantic_groups, fetch (共 ${groupCount} 个意群)`);
       } else {
         parts.push('✗ 结构化工具不可用（意群未生成）');
       }
