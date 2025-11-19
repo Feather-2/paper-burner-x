@@ -14,7 +14,7 @@ if (typeof window.ChatbotFloatingOptionsScriptLoaded === 'undefined') {
   const _chatbotOptionsConfig = [
     { key: 'semanticGroups', texts: ['意群'], title: '查看/搜索意群', activeStyleColor: '#059669', isAction: true },
     { key: 'useContext', texts: ['上下文:关', '上下文:开'], values: [false, true], title: '切换是否使用对话历史', activeStyleColor: '#1d4ed8' },
-    { key: 'useReActMode', texts: ['ReAct:关', 'ReAct:开'], values: [false, true], defaultKey: false, title: 'ReAct框架：推理+工具调用交织，智能动态构建上下文（替代传统多轮检索）', activeStyleColor: '#8b5cf6' },
+    { key: 'useReActMode', texts: ['ReAct'], activeStyleColor: '#9ca3af', isDisabled: true, title: 'ReAct框架（开发中）：推理+工具调用交织，智能动态构建上下文' },
     { key: 'multiHopRetrieval', texts: ['检索Agent:关', '检索Agent:开'], values: [false, true], defaultKey: false, title: '开启后自动启用：多轮取材+流式显示+意群分析+向量搜索+重排', activeStyleColor: '#059669' },
     { key: 'summarySource', texts: ['提供全文:OCR', '提供全文:无', '提供全文:翻译'], values: ['ocr', 'none', 'translation'], defaultKey: 'ocr', title: '切换总结时使用的文本源 (OCR/不使用文档内容/翻译)', activeStyleColor: '#1d4ed8' },
     { key: 'interestPointsActive', texts: ['兴趣点'], activeStyleColor: '#059669', isPlaceholder: true, title: '兴趣点功能 (待实现)' },
@@ -60,6 +60,15 @@ if (typeof window.ChatbotFloatingOptionsScriptLoaded === 'undefined') {
       optionButton.title = optConf.title;
 
       optionButton.onclick = function() {
+        if (optConf.isDisabled) {
+          console.log(`${optConf.key} clicked, but is disabled.`);
+          if (typeof ChatbotUtils !== 'undefined' && ChatbotUtils.showToast) {
+            ChatbotUtils.showToast(`${optConf.texts[0]} 功能开发中，暂不可用。`, 'info', 2000);
+          } else {
+            alert(`${optConf.texts[0]} 功能开发中，暂不可用。`);
+          }
+          return; // 阻止后续逻辑执行
+        }
         if (optConf.isPlaceholder) {
           console.log(`${optConf.key} clicked, placeholder for future feature.`);
           if (typeof ChatbotUtils !== 'undefined' && ChatbotUtils.showToast) {
@@ -250,6 +259,14 @@ if (typeof window.ChatbotFloatingOptionsScriptLoaded === 'undefined') {
         if (count > 0) { color = optConf.activeStyleColor; fontWeight = '600'; isActiveStyle = true; }
       } else if (optConf.isPlaceholder) {
         currentText = optConf.texts[0];
+      } else if (optConf.isDisabled) {
+        // 禁用状态：固定显示灰色，无法切换
+        currentText = optConf.texts[0];
+        color = '#9ca3af';  // 灰色
+        fontWeight = 'normal';
+        isActiveStyle = false;
+        button.style.opacity = '0.6';  // 降低透明度
+        button.style.cursor = 'not-allowed';  // 禁用光标
       } else if (optConf.key === 'useContext') {
         currentText = currentOptionValue ? optConf.texts[1] : optConf.texts[0];
         if (currentOptionValue) { color = optConf.activeStyleColor; fontWeight = '600'; isActiveStyle = true; }
