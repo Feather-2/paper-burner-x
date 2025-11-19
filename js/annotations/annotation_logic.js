@@ -757,17 +757,28 @@ function initAnnotationSystem() {
             let canHighlight = false;
             try {
                 const sel = window.getSelection();
-                canHighlight = !!(sel && sel.rangeCount && !sel.getRangeAt(0).collapsed && targetSubBlock);
-            } catch { canHighlight = false; }
+                const hasSelection = sel && sel.rangeCount && !sel.getRangeAt(0).collapsed;
+                console.log(`[调试] 选区检测: hasSelection=${hasSelection}, targetSubBlock=${!!targetSubBlock}, annotationId=${annotationId}`);
+                if (hasSelection) {
+                    console.log(`[调试] 选中文本: "${sel.toString().substring(0, 50)}..."`);
+                }
+                canHighlight = !!(hasSelection && targetSubBlock);
+            } catch(e) {
+                console.warn('[调试] 选区检测失败:', e);
+                canHighlight = false;
+            }
             const clickedHighlighted = !!annotationId;
+            console.log(`[调试] canHighlight=${canHighlight}, clickedHighlighted=${clickedHighlighted}`);
             if (!canHighlight && !clickedHighlighted) {
+                console.log('[调试] ❌ 不显示菜单：既没有有效选区，也没有点击已有高亮');
                 hideContextMenu();
                 return; // 允许默认浏览器菜单
             }
 
             updateContextMenuOptions(isHighlighted, hasNote, false);
             event.preventDefault(); // 仅在显示自定义菜单时阻止默认菜单
-            showContextMenu(event.pageX, event.pageY);
+            // 使用 clientX/clientY（相对于视口）配合 position: fixed
+            showContextMenu(event.clientX, event.clientY);
         }, false);
     }
     // ...其余初始化逻辑...
@@ -1708,10 +1719,11 @@ function handleCrossBlockAnnotation(event, crossBlockInfo) {
     const hasNote = checkCrossBlockNote(crossBlockInfo.affectedSubBlocks);
     
     console.log(`[跨子块标注] 高亮状态: ${isHighlighted}, 有批注: ${hasNote}`);
-    
+
     window.globalCurrentHighlightStatus = isHighlighted;
     updateCrossBlockContextMenuOptions(isHighlighted, hasNote);
-    showContextMenu(event.pageX, event.pageY);
+    // 使用 clientX/clientY（相对于视口）配合 position: fixed
+    showContextMenu(event.clientX, event.clientY);
 }
 
 // ===== 修改：检查跨子块高亮状态 =====

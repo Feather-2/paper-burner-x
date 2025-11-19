@@ -159,6 +159,7 @@ self.postMessage({ type: 'ready' });
 
         /**
          * 扫描元素中的所有公式（不渲染，只收集）
+         * 包括：1. 纯文本中的 $...$ 公式  2. 渲染失败的 .katex-fallback 元素
          * @param {HTMLElement} rootElement - 要扫描的根元素
          * @returns {Array} 公式列表
          */
@@ -168,16 +169,47 @@ self.postMessage({ type: 'ready' });
             const formulas = [];
             let formulaId = 0;
 
-            /**
-             * 递归扫描节点
-             */
+            // 1. 收集渲染失败的公式（.katex-fallback 元素）
+            const fallbackElements = rootElement.querySelectorAll('.katex-fallback');
+            fallbackElements.forEach(el => {
+                const text = el.textContent.trim();
+                const isDisplay = el.classList.contains('katex-block');
+
+                // 检测不完整的环境标记（这些需要被删除，不是重新渲染）
+                if (/^\\begin\{(aligned|array|matrix|cases|split|gather)\}$/.test(text) ||
+                    /^\\end\{(aligned|array|matrix|cases|split|gather)\}$/.test(text)) {
+                    // 标记为删除
+                    formulas.push({
+                        id: formulaId++,
+                        formula: null,  // null 表示删除
+                        isDisplay: isDisplay,
+                        fallbackElement: el,
+                        shouldDelete: true
+                    });
+                    return;
+                }
+
+                // 正常的失败公式，尝试重新渲染
+                if (text.length > 0) {
+                    formulas.push({
+                        id: formulaId++,
+                        formula: text,
+                        isDisplay: isDisplay,
+                        fallbackElement: el,
+                        shouldDelete: false
+                    });
+                }
+            });
+
+            // 2. 扫描纯文本节点中的公式（不常见，但保留此功能）
             function processNode(node) {
                 // 跳过已渲染的 katex 元素
                 if (node.classList && (
                     node.classList.contains('katex') ||
                     node.classList.contains('katex-block') ||
                     node.classList.contains('katex-inline') ||
-                    node.classList.contains('katex-display')
+                    node.classList.contains('katex-display') ||
+                    node.classList.contains('katex-fallback')  // 跳过 fallback（已在上面处理）
                 )) {
                     return;
                 }
@@ -233,6 +265,11 @@ self.postMessage({ type: 'ready' });
                 useWorker = true  // 是否使用 Worker（导出时设为 false）
             } = options;
 
+            // 统计已渲染的公式（调试信息）
+            const renderedFormulas = rootElement.querySelectorAll('.katex, .katex-block, .katex-inline, .katex-display');
+            const fallbackFormulas = rootElement.querySelectorAll('.katex-fallback');
+            console.log(`[FormulaPostProcessorAsync] 📊 文档公式统计: ${renderedFormulas.length} 个已渲染, ${fallbackFormulas.length} 个失败`);
+
             // 如果不使用 Worker 或 Worker 不可用，回退到同步版本
             if (!useWorker || !this.workerReady || !this.worker) {
                 console.log('[FormulaPostProcessorAsync] Falling back to sync processing');
@@ -243,48 +280,67 @@ self.postMessage({ type: 'ready' });
                 return;
             }
 
-            // 1. 收集所有公式
+            // 1. 收集所有公式（包括失败的公式）
             const formulas = this.collectFormulas(rootElement);
 
             if (formulas.length === 0) {
-                console.log('[FormulaPostProcessorAsync] No formulas found');
+                console.log('[FormulaPostProcessorAsync] ✅ 无需后处理（所有公式已在 Markdown 阶段成功渲染）');
                 const endTime = performance.now();
                 console.log(`[FormulaPostProcessorAsync] 完成，耗时: ${(endTime - startTime).toFixed(2)}ms`);
                 if (onComplete) onComplete();
                 return;
             }
 
-            console.log(`[FormulaPostProcessorAsync] Found ${formulas.length} formulas, rendering with Worker...`);
+            console.log(`[FormulaPostProcessorAsync] Found ${formulas.length} formulas, processing...`);
 
-            // 2. 批量发送到 Worker 渲染
-            const batchSize = 20;  // 每批处理 20 个公式
-            const batches = [];
-
-            for (let i = 0; i < formulas.length; i += batchSize) {
-                batches.push(formulas.slice(i, i + batchSize));
-            }
+            // 2. 分离删除和渲染任务
+            const toDelete = formulas.filter(f => f.shouldDelete);
+            const toRender = formulas.filter(f => !f.shouldDelete);
 
             let processedCount = 0;
 
-            // 3. 逐批处理
-            for (const batch of batches) {
-                await this.renderBatch(batch, (results) => {
-                    // 替换 DOM
-                    results.forEach(result => {
-                        const formulaData = batch.find(f => f.id === result.id);
-                        if (!formulaData) return;
+            // 3a. 先处理删除任务（不需要 Worker）
+            toDelete.forEach(formulaData => {
+                this.replaceFormulaInDOM(formulaData, null);
+                processedCount++;
+                if (onProgress) {
+                    onProgress(processedCount, formulas.length);
+                }
+            });
 
-                        this.replaceFormulaInDOM(formulaData, result.html);
-                        processedCount++;
+            console.log(`[FormulaPostProcessorAsync] 删除了 ${toDelete.length} 个不完整的环境标记`);
 
-                        if (onProgress) {
-                            onProgress(processedCount, formulas.length);
-                        }
+            // 3b. 如果有需要渲染的公式，发送到 Worker
+            if (toRender.length > 0) {
+                console.log(`[FormulaPostProcessorAsync] 使用 Worker 渲染 ${toRender.length} 个失败的公式...`);
+
+                const batchSize = 20;  // 每批处理 20 个公式
+                const batches = [];
+
+                for (let i = 0; i < toRender.length; i += batchSize) {
+                    batches.push(toRender.slice(i, i + batchSize));
+                }
+
+                // 逐批渲染
+                for (const batch of batches) {
+                    await this.renderBatch(batch, (results) => {
+                        // 替换 DOM
+                        results.forEach(result => {
+                            const formulaData = batch.find(f => f.id === result.id);
+                            if (!formulaData) return;
+
+                            this.replaceFormulaInDOM(formulaData, result.html);
+                            processedCount++;
+
+                            if (onProgress) {
+                                onProgress(processedCount, formulas.length);
+                            }
+                        });
                     });
-                });
 
-                // 每批之间让出主线程，允许用户交互
-                await new Promise(resolve => setTimeout(resolve, 0));
+                    // 每批之间让出主线程，允许用户交互
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
             }
 
             const endTime = performance.now();
@@ -333,6 +389,38 @@ self.postMessage({ type: 'ready' });
          * @param {string} html - 渲染后的 HTML
          */
         replaceFormulaInDOM(formulaData, html) {
+            // 场景 1: 处理 .katex-fallback 元素（失败的公式）
+            if (formulaData.fallbackElement) {
+                const fallbackEl = formulaData.fallbackElement;
+
+                // 检查元素是否仍在 DOM 中
+                if (!fallbackEl.parentNode) {
+                    console.warn('[FormulaPostProcessorAsync] Fallback element not in DOM');
+                    return;
+                }
+
+                // 子场景 1a: 需要删除（不完整的环境标记）
+                if (formulaData.shouldDelete) {
+                    console.log(`[FormulaPostProcessorAsync] 删除不完整的 LaTeX 环境: ${fallbackEl.textContent.substring(0, 30)}...`);
+                    fallbackEl.parentNode.removeChild(fallbackEl);
+                    return;
+                }
+
+                // 子场景 1b: 重新渲染（正常的失败公式）
+                if (html) {
+                    const temp = document.createElement('span');
+                    temp.innerHTML = html;
+                    const renderedNode = temp.firstChild;
+
+                    if (renderedNode) {
+                        console.log(`[FormulaPostProcessorAsync] 修复失败的公式: ${formulaData.formula.substring(0, 30)}...`);
+                        fallbackEl.parentNode.replaceChild(renderedNode, fallbackEl);
+                    }
+                }
+                return;
+            }
+
+            // 场景 2: 处理文本节点中的公式（原有逻辑，用于 $...$ 格式）
             const { textNode, matchIndex, matchLength } = formulaData;
 
             if (!textNode || !textNode.parentNode) {
