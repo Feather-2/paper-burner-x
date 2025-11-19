@@ -3,18 +3,7 @@
  *
  * 职责：提供集成了 TOC 和 Dock 数据的统一侧边栏布局
  * 依赖：01-foundation/variables.css
- * 设计：黑白灰主色 + 蓝色重点色（极简风格）
- *
- * 功能：
- * - 响应式设计（移动端：浮层，桌面端：固定侧边栏）
- * - 可折叠（260px ↔ 76px）
- * - 集成 TOC 目录（可展开/收起）
- * - 集成 Dock 统计信息（可展开/收起）
- * - 回到工作台导航
- * - 设置入口
- * - GitHub 链接
- *
- * 注意：仅用于非沉浸模式，沉浸模式保持原有 TOC 区域设计
+ * 设计：High-end Minimalist (Ultra-light & Clean)
  */
 
 /* ==================== App Shell 容器 ==================== */
@@ -23,13 +12,14 @@
   display: flex;
   height: 100vh;
   overflow: hidden;
+  background-color: var(--color-bg-base);
 }
 
 /* ==================== 侧边栏主体 ==================== */
 
 .app-sidebar {
   width: var(--sidebar-width);
-  background-color: var(--color-bg-base);
+  background-color: var(--color-bg-secondary); /* Use the lighter secondary bg */
   border-right: 1px solid var(--color-border-light);
   display: flex;
   flex-direction: column;
@@ -48,7 +38,7 @@
 /* 移动端打开状态 */
 .app-sidebar.mobile-open {
   transform: translateX(0);
-  box-shadow: 4px 0 24px var(--color-shadow-strong);
+  box-shadow: var(--shadow-xl); /* Use variable */
 }
 
 /* 桌面端样式 */
@@ -125,6 +115,7 @@
   justify-content: space-between;
   transition: var(--sidebar-transition);
   border-bottom: 1px solid var(--color-border-light);
+  background-color: var(--color-bg-secondary); /* Consistent with sidebar bg */
 }
 
 .sidebar-logo {
@@ -144,8 +135,8 @@
 }
 
 .sidebar-toggle-btn:hover {
-  color: var(--color-text-secondary);
-  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  background: var(--slate-200);
 }
 
 @media (min-width: 768px) {
@@ -170,7 +161,7 @@
 
 .sidebar-close-btn:hover {
   color: var(--color-text-primary);
-  background: var(--color-bg-secondary);
+  background: var(--slate-200);
 }
 
 @media (min-width: 768px) {
@@ -207,7 +198,7 @@
 
 /* 自定义滚动条（应用到 TOC 内容区） */
 #sidebarTocSection .sidebar-section-content::-webkit-scrollbar {
-  width: 6px;
+  width: 4px; /* Thinner scrollbar */
 }
 
 #sidebarTocSection .sidebar-section-content::-webkit-scrollbar-track {
@@ -215,12 +206,12 @@
 }
 
 #sidebarTocSection .sidebar-section-content::-webkit-scrollbar-thumb {
-  background: var(--color-border-medium);
+  background: var(--slate-300);
   border-radius: var(--radius-sm);
 }
 
 #sidebarTocSection .sidebar-section-content::-webkit-scrollbar-thumb:hover {
-  background: var(--color-border-dark);
+  background: var(--slate-400);
 }
 
 /* ==================== 导航分组标题 ==================== */
@@ -228,10 +219,10 @@
 .nav-section-title {
   padding: 0 0.75rem;
   margin-bottom: 0.5rem;
-  margin-top: 1rem;
+  margin-top: 1.5rem; /* Increased top margin */
   font-size: 11px;
-  font-weight: 700;
-  color: #94a3b8; /* slate-400 */
+  font-weight: 600;
+  color: var(--slate-400);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   transition: opacity var(--transition-fast);
@@ -247,9 +238,9 @@
   display: flex;
   align-items: center;
   padding: var(--sidebar-nav-item-padding);
-  color: #475569; /* slate-600 */
+  color: var(--slate-600);
   text-decoration: none;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-lg);
   transition: all 0.2s ease;
   font-weight: 500;
   font-size: var(--sidebar-nav-item-font-size);
@@ -259,30 +250,31 @@
 }
 
 .nav-item:hover {
-  background-color: #f1f5f9; /* slate-100 */
-  color: #0f172a; /* slate-900 */
+  background-color: var(--slate-200); /* Slightly darker hover */
+  color: var(--slate-900);
 }
 
 .nav-item.active {
-  background-color: #eff6ff; /* blue-50 */
-  color: #2563eb; /* blue-600 */
+  background-color: var(--color-bg-base); /* White background for active */
+  color: var(--indigo-600);
   font-weight: 600;
+  box-shadow: var(--shadow-sm); /* Subtle shadow for active item */
 }
 
 .nav-icon {
   margin-right: 0.75rem;
   font-size: 1.25rem;
-  color: #94a3b8; /* slate-400 */
+  color: var(--slate-400);
   transition: color 0.2s ease;
   flex-shrink: 0;
 }
 
 .nav-item:hover .nav-icon {
-  color: #64748b; /* slate-500 */
+  color: var(--slate-600);
 }
 
 .nav-item.active .nav-icon {
-  color: #3b82f6; /* blue-500 */
+  color: var(--indigo-500);
 }
 
 .nav-text {
@@ -301,10 +293,10 @@
   justify-content: space-between;
   width: 100%;
   padding: var(--sidebar-section-header-padding);
-  color: #475569; /* slate-600 */
+  color: var(--slate-600);
   background: transparent;
   border: none;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-lg);
   font-size: 0.9375rem;
   font-weight: 500;
   text-align: left;
@@ -314,8 +306,8 @@
 }
 
 .sidebar-section-header:hover {
-  background-color: #f1f5f9; /* slate-100 */
-  color: #0f172a; /* slate-900 */
+  background-color: var(--slate-200);
+  color: var(--slate-900);
 }
 
 .sidebar-section-title {
@@ -327,22 +319,22 @@
 
 .sidebar-section-title iconify-icon {
   font-size: 1.25rem;
-  color: #94a3b8; /* slate-400 */
+  color: var(--slate-400);
   transition: color 0.2s ease;
 }
 
 .sidebar-section-header:hover .sidebar-section-title iconify-icon {
-  color: #64748b; /* slate-500 */
+  color: var(--slate-500);
 }
 
 .sidebar-section-chevron {
   font-size: 16px;
-  color: #cbd5e1; /* slate-300 */
+  color: var(--slate-400);
   transition: all 0.2s ease;
 }
 
 .sidebar-section-header:hover .sidebar-section-chevron {
-  color: #94a3b8; /* slate-400 */
+  color: var(--slate-600);
 }
 
 .sidebar-section.expanded .sidebar-section-chevron {
@@ -376,17 +368,30 @@
 
 .sidebar-toc-item {
   margin-bottom: 2px;
+  position: relative;
+}
+
+/* 增加左侧连接线效果，更像树状结构 */
+.sidebar-toc-item::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background-color: var(--slate-200);
+  display: none; /* 默认隐藏，可选开启 */
 }
 
 .sidebar-toc-link {
   display: block;
   padding: 0.5rem 0.75rem;
-  color: #64748b; /* slate-500 */
+  color: var(--slate-500);
   text-decoration: none;
   font-weight: 400;
   font-size: 0.875rem; /* 14px */
   transition: all 0.15s ease;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-md);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -394,35 +399,38 @@
 }
 
 .sidebar-toc-link:hover {
-  background: #f8fafc; /* slate-50 */
-  color: #0f172a; /* slate-900 */
+  background: var(--slate-100);
+  color: var(--slate-900);
 }
 
 .sidebar-toc-link.active {
-  background: #eff6ff; /* blue-50 */
-  color: #2563eb; /* blue-600 */
+  background: var(--color-bg-base);
+  color: var(--indigo-600);
   font-weight: 600;
+  box-shadow: var(--shadow-sm);
 }
 
-/* TOC 层级缩进 */
+/* TOC 层级缩进 - 优化层次感 */
 .sidebar-toc-item.toc-h2 .sidebar-toc-link {
   padding-left: 1.25rem; /* 20px */
   font-size: 0.875rem;
 }
 .sidebar-toc-item.toc-h3 .sidebar-toc-link {
-  padding-left: 1.75rem; /* 28px */
+  padding-left: 2rem; /* 32px */
   font-size: 0.8125rem; /* 13px */
+  color: var(--slate-400);
 }
 .sidebar-toc-item.toc-h4 .sidebar-toc-link {
-  padding-left: 2.25rem; /* 36px */
+  padding-left: 2.75rem; /* 44px */
   font-size: 0.8125rem;
+  color: var(--slate-400);
 }
 .sidebar-toc-item.toc-h5 .sidebar-toc-link {
-  padding-left: 2.75rem; /* 44px */
-  font-size: 0.75rem; /* 12px */
+  padding-left: 3.5rem;
+  font-size: 0.75rem;
 }
 .sidebar-toc-item.toc-h6 .sidebar-toc-link {
-  padding-left: 3.25rem; /* 52px */
+  padding-left: 4.25rem;
   font-size: 0.75rem;
 }
 
@@ -454,13 +462,16 @@
 .sidebar-stat-value {
   font-weight: var(--font-weight-semibold);
   color: var(--color-primary);
+  background: var(--indigo-50);
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 /* ==================== 侧边栏底部 ==================== */
 
 .sidebar-footer {
   padding: 0.75rem;
-  border-top: 1px solid #f1f5f9; /* slate-100 */
+  border-top: 1px solid var(--color-border-light);
   transition: opacity var(--transition-fast);
 }
 
@@ -468,17 +479,18 @@
 .sidebar-footer-compact {
   display: flex;
   align-items: center;
-  gap: 0.5rem; /* 缩小间距 */
-  padding: 0.625rem 0.75rem; /* 稍微缩小 padding */
-  border-top: 1px solid #f1f5f9; /* slate-100 */
-  font-size: 0.75rem; /* 12px，更小 */
+  gap: 0.5rem;
+  padding: 0.75rem 1rem; /* Increased padding */
+  border-top: 1px solid var(--color-border-light);
+  font-size: 0.75rem;
   transition: opacity var(--transition-fast);
+  background-color: var(--color-bg-secondary);
 }
 
 .sidebar-progress {
-  color: #64748b; /* slate-500 */
+  color: var(--indigo-600); /* Use primary color for progress */
   font-weight: 600;
-  font-size: 0.8125rem; /* 13px */
+  font-size: 0.8125rem;
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -487,38 +499,41 @@
   flex: 1;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.375rem; /* 6px，更紧凑 */
-  color: #94a3b8; /* slate-400 */
+  gap: 0.5rem;
+  color: var(--slate-400);
   align-items: center;
 }
 
 .sidebar-quick-stat {
   display: flex;
   align-items: center;
-  gap: 0.1875rem; /* 3px，更紧凑 */
+  gap: 0.25rem;
   cursor: pointer;
-  transition: color 0.2s ease;
+  transition: all 0.2s ease;
   user-select: none;
-  font-size: 0.75rem; /* 12px */
+  font-size: 0.75rem;
   font-weight: 500;
   white-space: nowrap;
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 .sidebar-quick-stat:hover {
-  color: #2563eb; /* blue-600 */
+  color: var(--indigo-600);
+  background: var(--slate-200);
 }
 
 /* 分隔线（高亮/批注 和 其他统计之间） */
 .sidebar-quick-stat-divider {
   width: 1px;
   height: 14px;
-  background-color: #e2e8f0; /* slate-200 */
+  background-color: var(--slate-300);
   margin: 0 0.125rem;
 }
 
 .sidebar-settings-btn {
   padding: 0.375rem;
-  color: #64748b; /* slate-500 */
+  color: var(--slate-500);
   background: transparent;
   border: none;
   border-radius: 0.5rem;
@@ -531,41 +546,8 @@
 }
 
 .sidebar-settings-btn:hover {
-  background: #f1f5f9; /* slate-100 */
-  color: #0f172a; /* slate-900 */
-}
-
-/* 旧的 GitHub 链接样式（保留以便向后兼容） */
-.sidebar-footer-link {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 1rem;
-  color: #64748b; /* slate-500 */
-  text-decoration: none;
-  font-size: var(--font-size-sm);
-  background-color: #f8fafc; /* slate-50 */
-  border: 1px solid #f1f5f9; /* slate-100 */
-  border-radius: 1rem;
-  transition: all 0.2s ease;
-}
-
-.sidebar-footer-link:hover {
-  opacity: 0.8;
-}
-
-.sidebar-footer-icon {
-  width: 2.5rem;
-  height: 2.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: white;
-  border: 1px solid #e2e8f0; /* slate-200 */
-  border-radius: 0.75rem;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-  color: #94a3b8; /* slate-400 */
-  flex-shrink: 0;
+  background: var(--slate-200);
+  color: var(--slate-900);
 }
 
 /* ==================== 移动端遮罩 ==================== */
@@ -600,6 +582,7 @@
   overflow-x: hidden;
   position: relative;
   width: 100%;
+  background-color: var(--color-bg-base);
 }
 
 /* ==================== 移动端顶部栏 ==================== */
@@ -649,7 +632,7 @@
 
 .sidebar-divider {
   height: 1px;
-  background-color: #f1f5f9; /* slate-100 */
+  background-color: var(--color-border-light);
   margin: 1rem 0.75rem;
   transition: margin var(--transition-fast);
 }
@@ -659,7 +642,7 @@
 .sidebar-empty-state {
   padding: 0.75rem 1rem;
   text-align: center;
-  color: #94a3b8; /* slate-400 */
+  color: var(--slate-400);
   font-size: 0.75rem;
 }
 
@@ -674,7 +657,7 @@
   left: 100%;
   margin-left: 0.5rem;
   padding: 0.375rem 0.75rem;
-  background-color: var(--color-bg-dark);
+  background-color: var(--slate-800);
   color: var(--color-text-inverse);
   font-size: var(--font-size-xs);
   border-radius: var(--radius-sm);
@@ -683,6 +666,7 @@
   pointer-events: none;
   transition: opacity var(--transition-fast);
   z-index: var(--z-tooltip);
+  box-shadow: var(--shadow-md);
 }
 
 .nav-item:hover .sidebar-tooltip,

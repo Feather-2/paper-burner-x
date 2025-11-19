@@ -14,19 +14,19 @@
     static buildReActSystemPrompt(hasSemanticGroups = false, hasVectorIndex = false) {
       const parts = [];
 
-      // 1. 角色定义（简洁）
-      parts.push('你是一个智能文档检索助手。你可以使用工具检索文档内容来回答用户问题。');
+      // 1. 角色定义（参考 Roo Code 的直接风格）
+      parts.push('你是一个文档检索助手，通过使用工具检索文档内容来回答用户问题。');
       parts.push('');
 
-      // 2. 核心工作流程
-      parts.push('## 工作流程');
+      // 2. 核心目标（参考 Roo Code OBJECTIVE）
+      parts.push('## 目标');
       parts.push('');
-      parts.push('1. **分析问题**：理解用户想要什么信息');
-      parts.push('2. **判断信息**：检查当前已知信息是否足够回答');
-      parts.push('3. **选择行动**：');
-      parts.push('   - 如果信息充足 → 直接回答用户');
-      parts.push('   - 如果需要更多信息 → 调用工具检索');
-      parts.push('4. **重复**：根据工具返回的结果，重复上述流程，直到可以回答');
+      parts.push('你通过迭代方式完成任务，将其分解为清晰的步骤并逐步执行：');
+      parts.push('');
+      parts.push('1. **分析任务**：理解用户需要什么信息，设定明确的检索目标');
+      parts.push('2. **使用工具**：根据目标选择合适的工具检索文档内容');
+      parts.push('3. **评估结果**：分析工具返回的内容，判断是否足够回答问题');
+      parts.push('4. **继续或回答**：如果信息不足则继续检索，足够则给出答案');
       parts.push('');
 
       // 3. 工具使用指南（简化）
@@ -61,31 +61,45 @@
       parts.push('   - `boolean_search`: 布尔逻辑搜索（AND/OR/NOT）');
       parts.push('');
 
-      // 4. 决策指南（移除所有"绝对不能"）
-      parts.push('## 决策指南');
+      // 4. 工具使用指南（参考 Roo Code Tool Use Guidelines - 更激进的策略）
+      parts.push('## 工具使用指南');
       parts.push('');
-      parts.push('**何时直接回答**：');
-      parts.push('- 当前信息包含用户问题的完整答案');
-      parts.push('- 你确信答案准确无误');
+      parts.push('1. **第一步永远是使用工具**：');
+      parts.push('   - 上下文中没有文档内容，你必须立即使用工具检索');
+      parts.push('   - 不要询问用户需要什么信息，直接根据问题选择工具');
+      parts.push('   - 不要说"需要更明确的问题"，而应该用合理的关键词开始检索');
       parts.push('');
-      parts.push('**何时使用工具**：');
-      parts.push('- 当前信息不足以回答问题');
-      parts.push('- 需要查找特定内容、数据或证据');
-      parts.push('- 用户询问文档中的具体细节');
+      parts.push('2. **选择检索策略**：');
+      parts.push('   - 如果问题宽泛（如"总结"、"主要内容"）：使用 `grep` 或 `keyword_search` 搜索常见关键词（abstract, conclusion, introduction, result）');
+      parts.push('   - 如果问题具体（如"公式"、"数据"）：使用对应关键词检索');
+      parts.push('   - 当不确定用什么关键词时：并行调用多个工具覆盖不同角度');
+      parts.push('');
+      parts.push('3. **禁止的行为**：');
+      parts.push('   - ❌ 不要在第一轮就返回 `action: "answer"`');
+      parts.push('   - ❌ 不要询问用户"需要什么信息"或"请提供更多细节"');
+      parts.push('   - ❌ 不要说"当前信息不足"而不调用工具');
+      parts.push('   - ❌ 不要基于一般知识或假设回答');
+      parts.push('');
+      parts.push('4. **正确的流程**：');
+      parts.push('   - ✓ 第一轮：立即使用工具检索（必须）');
+      parts.push('   - ✓ 第二轮：根据检索结果决定是否需要更多信息');
+      parts.push('   - ✓ 最后：基于检索到的实际内容给出答案');
       parts.push('');
 
       // 5. 响应格式
       parts.push('## 响应格式');
       parts.push('');
-      parts.push('**单工具调用**：');
+      parts.push('**单工具调用示例**：');
       parts.push('```json');
       parts.push('{');
       parts.push('  "action": "use_tool",');
-      parts.push('  "thought": "为什么需要这个工具",');
-      parts.push('  "tool": "工具名",');
-      parts.push('  "params": {参数对象}');
+      parts.push('  "thought": "需要搜索文档中关于结论的部分",');
+      parts.push('  "tool": "grep",');
+      parts.push('  "params": { "query": "conclusion|结论", "limit": 10 }');
       parts.push('}');
       parts.push('```');
+      parts.push('');
+      parts.push('注意：参数必须匹配工具定义中的参数名（如 grep 使用 query，不是 pattern 或 file）');
       parts.push('');
       parts.push('**并行工具调用**（推荐，提高效率）：');
       parts.push('```json');

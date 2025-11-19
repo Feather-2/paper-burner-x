@@ -45,49 +45,11 @@
       parts.push('✓ 精确搜索: grep, keyword_search, regex_search, boolean_search (始终可用)');
       parts.push('');
 
-      // 3. 文档摘要或概览（新增：不再是完全空白的初始上下文）
-      if (hasSemanticGroups && docContent.semanticGroups.length > 0) {
-        parts.push('=== 文档概览 ===');
-
-        // 如果有文档总体摘要
-        if (docContent.semanticDocGist) {
-          parts.push('文档概要：');
-          parts.push(docContent.semanticDocGist);
-          parts.push('');
-        }
-
-        // 列出前 5 个意群的关键词（提供结构线索）
-        parts.push('主要意群（前 5 个）：');
-        const topGroups = docContent.semanticGroups.slice(0, 5);
-        topGroups.forEach((g, idx) => {
-          const keywords = Array.isArray(g.keywords) ? g.keywords.slice(0, 5).join(', ') : '';
-          const charCount = g.charCount || 0;
-          parts.push(`${idx + 1}. [${g.groupId}] (${charCount} 字) - ${keywords}`);
-          if (g.summary && g.summary.length > 0) {
-            parts.push(`   ${g.summary.slice(0, 100)}...`);
-          }
-        });
-
-        if (docContent.semanticGroups.length > 5) {
-          parts.push(`... 还有 ${docContent.semanticGroups.length - 5} 个意群`);
-        }
-        parts.push('');
-      } else if (docContent.ocr || docContent.translation) {
-        // 如果没有意群但有原文，提供前 500 字作为上下文
-        parts.push('=== 文档开头预览 ===');
-        const preview = (docContent.translation || docContent.ocr || '').slice(0, 500);
-        parts.push(preview);
-        if ((docContent.translation || docContent.ocr || '').length > 500) {
-          parts.push('...(使用工具检索完整内容)');
-        }
-        parts.push('');
-      }
-
-      // 4. 使用建议（简化，移除强制性指令）
-      parts.push('=== 提示 ===');
-      parts.push('- 如果上述信息足够回答用户问题，可以直接回答');
-      parts.push('- 如果需要更详细的内容，使用工具检索');
-      parts.push('- 建议并行调用多个工具以提高效率');
+      // 3. 强制检索说明（参考 Roo Code 风格）
+      parts.push('=== 当前状态 ===');
+      parts.push('文档内容尚未加载到上下文中。');
+      parts.push('');
+      parts.push('你必须使用上述工具检索文档内容。在检索到相关内容之前，不要尝试回答用户问题。');
       parts.push('');
 
       return parts.join('\n');

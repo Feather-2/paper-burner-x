@@ -63,6 +63,9 @@
 /* Chatbot 聊天机器人 */
 @import url('./history_detail/03-components/chatbot/index.css');
 
+/* ReAct Visualization (ReAct 推理可视化) */
+@import url('./react_visualization.css');
+
 /* ==================== 4. Features Layer - 功能层 ==================== */
 
 /* Markdown 内容渲染 */

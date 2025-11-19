@@ -219,10 +219,15 @@
       // ===== 智能警告系统 =====
       const warnings = [];
 
-      // 检测 1：首轮空上下文
-      if (iteration === 1 && this.isContextEmpty(context)) {
-        warnings.push('⚠️ Context is empty or contains only metadata. You MUST use a tool to retrieve information before answering.');
-        console.log('[ReActEngine] 检测到首轮空上下文，添加强制检索警告');
+      // 检测 1：首轮强制检索（更严格）
+      if (iteration === 1) {
+        warnings.push('🚨 CRITICAL - FIRST ITERATION:');
+        warnings.push('   - The context contains NO document content, only metadata');
+        warnings.push('   - You MUST call a tool in this iteration');
+        warnings.push('   - DO NOT return action: "answer" in the first iteration');
+        warnings.push('   - DO NOT ask the user for more details');
+        warnings.push('   - Choose appropriate search keywords based on the question and start retrieving');
+        console.log('[ReActEngine] 首轮迭代，强制要求调用工具');
       }
 
       // 检测 2：重复工具调用
@@ -262,13 +267,19 @@
       parts.push(this.getToolGuidelines(this.hasSemanticGroups, this.hasVectorIndex));
       parts.push('');
 
-      // 5. 决策提示（简洁）
+      // 5. 决策提示（根据迭代轮次调整）
       parts.push('---');
-      parts.push('请根据上述信息决定下一步行动：');
-      parts.push('- 如果当前信息足够回答问题 → 返回答案');
-      parts.push('- 如果需要更多信息 → 调用工具检索');
-      parts.push('');
-      parts.push('返回 JSON 格式的决策：');
+      if (iteration === 1) {
+        parts.push('**第一轮决策（必须调用工具）**：');
+        parts.push('- 分析用户问题，提取关键概念');
+        parts.push('- 选择合适的工具和检索关键词');
+        parts.push('- 返回 JSON 格式：{ "action": "use_tool", "thought": "...", "tool": "...", "params": {...} }');
+      } else {
+        parts.push('**后续轮次决策**：');
+        parts.push('- 如果检索到的内容足够回答问题 → 返回答案');
+        parts.push('- 如果需要更多信息 → 继续调用工具检索');
+        parts.push('- 返回 JSON 格式的决策');
+      }
       parts.push('');
 
       return parts.join('\n');
@@ -309,10 +320,11 @@
       let context = this.buildInitialContext(docContent);
       const toolResults = [];
       let iterations = 0;
+      const reactLog = []; // Store the execution log
 
       console.log('[ReActEngine] 初始上下文长度:', context.length);
 
-      yield { type: 'context_initialized', context: context.slice(0, 500) + '...' };
+      yield { type: 'context_initialized', context: context.slice(0, 500) + '...', reactLog };
 
       while (iterations < this.maxIterations) {
         iterations++;
@@ -338,11 +350,20 @@
           break;
         }
 
+        if (decision.thought) {
+            reactLog.push({
+                type: 'thought',
+                iteration: iterations,
+                content: decision.thought
+            });
+        }
+
         yield {
           type: 'reasoning_complete',
           iteration: iterations,
           thought: decision.thought,
-          action: decision.action
+          action: decision.action,
+          reactLog
         };
 
         // 判断是回答还是使用工具
@@ -351,9 +372,10 @@
             type: 'final_answer',
             answer: decision.answer,
             iterations: iterations,
-            toolCallCount: toolResults.length
+            toolCallCount: toolResults.length,
+            reactLog
           };
-          this.emit('session_complete', { answer: decision.answer, iterations });
+          this.emit('session_complete', { answer: decision.answer, iterations, reactLog });
           return;
         }
 
@@ -365,13 +387,21 @@
 
           // 发送工具调用开始事件
           for (const call of toolCalls) {
+            reactLog.push({
+                type: 'action',
+                iteration: iterations,
+                tool: call.tool,
+                params: call.params
+            });
+
             yield {
               type: 'tool_call_start',
               iteration: iterations,
               tool: call.tool,
               params: call.params,
               parallel: decision.parallel,
-              totalCalls: toolCalls.length
+              totalCalls: toolCalls.length,
+              reactLog
             };
           }
 
@@ -398,13 +428,20 @@
 
           // 发送工具调用完成事件
           for (const call of completedCalls) {
+            reactLog.push({
+                type: 'observation',
+                iteration: iterations,
+                result: call.result
+            });
+
             yield {
               type: 'tool_call_complete',
               iteration: iterations,
               tool: call.tool,
               params: call.params,
               result: call.result,
-              parallel: decision.parallel
+              parallel: decision.parallel,
+              reactLog
             };
           }
 
@@ -458,10 +495,11 @@
         answer: fallbackAnswer,
         iterations: iterations,
         toolCallCount: toolResults.length,
-        fallback: true
+        fallback: true,
+        reactLog
       };
 
-      this.emit('session_complete', { answer: fallbackAnswer, iterations, fallback: true });
+      this.emit('session_complete', { answer: fallbackAnswer, iterations, fallback: true, reactLog });
     }
   }
 

@@ -262,21 +262,19 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
       )) {
         console.log('[MessageSender] 收到事件:', event.type, event);
 
-        // 实时更新UI
+        // 1. 捕获 ReAct 日志用于新版可视化
+        if (event.reactLog) {
+          chatHistory[earlyAssistantMsgIndex].reactLog = event.reactLog;
+        }
+
+        // 2. 仍然通知旧版 UI 组件 (保持兼容性，防止报错)，但不使用其生成的 HTML
         if (window.ChatbotToolTraceUI?.handleReActEvent) {
           window.ChatbotToolTraceUI.handleReActEvent(event);
         }
 
-        // 更新工具调用HTML
-        if (window.ChatbotToolTraceUI?.generateBlockHtml) {
-          toolCallHtml = window.ChatbotToolTraceUI.generateBlockHtml();
-          if (toolCallHtml && toolCallHtml.length > 0) {
-            chatHistory[earlyAssistantMsgIndex].toolCallHtml = toolCallHtml;
-            chatHistory[earlyAssistantMsgIndex].content = '';
-            if (typeof updateChatbotUI === 'function') {
-              updateChatbotUI();
-            }
-          }
+        // 3. 强制刷新 UI
+        if (typeof updateChatbotUI === 'function') {
+          updateChatbotUI();
         }
 
         // 保存最终答案
@@ -291,7 +289,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
 
           // 更新消息内容并刷新UI
           chatHistory[earlyAssistantMsgIndex].content = finalAnswer;
-          chatHistory[earlyAssistantMsgIndex].toolCallHtml = toolCallHtml;
+          // chatHistory[earlyAssistantMsgIndex].toolCallHtml = toolCallHtml; // 不再使用旧版 HTML
           if (typeof updateChatbotUI === 'function') updateChatbotUI();
           saveChatHistory(getCurrentDocId(), chatHistory);
 
@@ -1617,6 +1615,7 @@ async function sendChatbotMessage(userInput, updateChatbotUI, externalConfig = n
         content: chatHistory[assistantMsgIndex].content,
         metadata: {
           toolCallHtml: chatHistory[assistantMsgIndex].toolCallHtml,
+          reactLog: chatHistory[assistantMsgIndex].reactLog, // 保存 ReAct 日志
           hasMindMap: chatHistory[assistantMsgIndex].hasMindMap,
           mindMapData: chatHistory[assistantMsgIndex].mindMapData,
           reasoningContent: chatHistory[assistantMsgIndex].reasoningContent

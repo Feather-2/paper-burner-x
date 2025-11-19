@@ -10,21 +10,25 @@
   var batchBuffer = null;
   var batchTimer = null;
   var isFinished = false;
+  var isCollapsed = false; // 默认展开，避免更新时自动收起
 
   function injectStyles() {
     if (stylesInjected) return;
     var style = document.createElement('style');
     style.textContent = `
-      /* 工具调用思考块 - 匹配AI消息风格 */
+      /* 工具调用思考块 - 系统日志风格 */
       .tool-thinking-block {
-        background: linear-gradient(90deg, #f8fafc 80%, #f1f5f9 100%);
-        border: 1px solid #e2e8f0;
-        border-radius: 10px;
-        margin-bottom: 14px;
-        margin-top: 24px;
-        overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.05);
-        transition: all 0.2s;
+        background: transparent;
+        border-left: 3px solid #e2e8f0;
+        margin-bottom: 16px;
+        margin-top: 16px;
+        padding-left: 16px;
+        transition: all 0.3s ease;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+
+      .tool-thinking-block:hover {
+        border-left-color: #cbd5e1;
       }
 
       .tool-thinking-block.collapsed .tool-thinking-body {
@@ -36,42 +40,59 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 12px 16px;
+        padding: 8px 0;
         cursor: pointer;
         user-select: none;
-        transition: background 0.2s;
+        transition: all 0.2s;
+        color: #64748b;
       }
 
       .tool-thinking-header:hover {
-        background: rgba(226, 232, 240, 0.5);
+        color: #334155;
       }
 
       .tool-thinking-title {
         display: flex;
         align-items: center;
         gap: 8px;
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 600;
+      }
+
+      .tool-thinking-icon-wrapper {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        border-radius: 4px;
+        background: #f1f5f9;
         color: #64748b;
+        transition: all 0.3s;
       }
 
-      .tool-thinking-icon {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: #10b981;
-        box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+      .tool-thinking-icon-wrapper.running {
+        background: #dbeafe;
+        color: #2563eb;
+      }
+      
+      .tool-thinking-icon-wrapper.done {
+        background: #dcfce7;
+        color: #16a34a;
       }
 
-      .tool-thinking-icon.running {
-        background: #3b82f6;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
-        animation: pulse-icon 2s ease-in-out infinite;
+      .tool-thinking-icon-wrapper svg {
+        width: 12px;
+        height: 12px;
       }
 
-      @keyframes pulse-icon {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.5; }
+      .tool-thinking-icon-wrapper.running svg {
+        animation: spin 2s linear infinite;
+      }
+
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
       }
 
       .tool-thinking-toggle {
@@ -80,31 +101,49 @@
         gap: 4px;
         font-size: 11px;
         color: #94a3b8;
+        padding: 2px 6px;
+        border-radius: 4px;
+        transition: all 0.2s;
+      }
+      
+      .tool-thinking-header:hover .tool-thinking-toggle {
+        background: #f1f5f9;
+        color: #64748b;
       }
 
       .tool-thinking-toggle .toggle-arrow {
-        transition: transform 0.2s;
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         display: inline-block;
+        font-size: 10px;
       }
 
       .tool-thinking-block.collapsed .tool-thinking-toggle .toggle-arrow {
         transform: rotate(-90deg);
       }
 
-      /* 内容区 */
+      /* 内容区 - 紧凑日志布局 */
       .tool-thinking-body {
-        padding: 0 16px 12px 16px;
-        max-height: 300px;
+        padding: 8px 0;
+        max-height: 400px;
         overflow-y: auto;
+        position: relative;
       }
 
       .tool-thinking-body::-webkit-scrollbar {
-        width: 5px;
+        width: 4px;
+      }
+
+      .tool-thinking-body::-webkit-scrollbar-track {
+        background: transparent;
       }
 
       .tool-thinking-body::-webkit-scrollbar-thumb {
-        background: rgba(148, 163, 184, 0.3);
-        border-radius: 3px;
+        background: #cbd5e1;
+        border-radius: 2px;
+      }
+      
+      .tool-thinking-body::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
       }
 
       /* 步骤项 */
@@ -112,42 +151,36 @@
         display: flex;
         gap: 10px;
         margin-bottom: 8px;
-        padding: 8px 10px;
-        background: white;
+        position: relative;
+        z-index: 1;
+        animation: slideIn 0.2s ease-out forwards;
+        padding: 6px 8px;
         border-radius: 6px;
-        border-left: 2px solid transparent;
-        transition: all 0.15s;
-        font-size: 12px;
+        transition: background 0.2s;
       }
-
+      
       .tool-step:hover {
-        background: #fafafa;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        background: #f8fafc;
+      }
+      
+      @keyframes slideIn {
+        from { opacity: 0; transform: translateX(-5px); }
+        to { opacity: 1; transform: translateX(0); }
       }
 
-      .tool-step.running {
-        border-left-color: #3b82f6;
-        background: rgba(239, 246, 255, 0.4);
-      }
-
-      .tool-step.done {
-        border-left-color: #10b981;
-        background: rgba(240, 253, 244, 0.3);
-      }
-
-      .tool-step.error {
-        border-left-color: #ef4444;
-        background: rgba(254, 242, 242, 0.3);
+      .tool-step:last-child {
+        margin-bottom: 0;
       }
 
       .tool-step-indicator {
         flex-shrink: 0;
-        width: 18px;
-        height: 18px;
+        width: 16px;
+        height: 16px;
         display: flex;
         align-items: center;
         justify-content: center;
-        color: #64748b;
+        color: #94a3b8;
+        margin-top: 2px;
       }
 
       .tool-step.running .tool-step-indicator {
@@ -163,8 +196,8 @@
       }
 
       .tool-step-indicator svg {
-        width: 13px;
-        height: 13px;
+        width: 12px;
+        height: 12px;
       }
 
       .tool-step-content {
@@ -174,7 +207,7 @@
 
       .tool-step-main {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: space-between;
         gap: 8px;
       }
@@ -182,43 +215,88 @@
       .tool-step-title {
         flex: 1;
         font-weight: 500;
-        color: #334155;
+        color: #475569;
         font-size: 12px;
-        word-break: break-word;
-        line-height: 1.4;
+        line-height: 1.5;
+        font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+      }
+      
+      .tool-step.running .tool-step-title {
+        color: #2563eb;
+      }
+      
+      .tool-step.error .tool-step-title {
+        color: #dc2626;
       }
 
       .tool-step-detail-toggle {
-        background: none;
+        background: transparent;
         border: none;
         font-size: 10px;
         color: #94a3b8;
         cursor: pointer;
-        padding: 2px 5px;
-        border-radius: 3px;
-        transition: all 0.15s;
+        padding: 2px 6px;
+        border-radius: 4px;
+        transition: all 0.2s;
+        white-space: nowrap;
       }
 
       .tool-step-detail-toggle:hover {
-        background: rgba(148, 163, 184, 0.1);
-        color: #64748b;
+        background: #e2e8f0;
+        color: #475569;
+      }
+      
+      .tool-step.detail-open .tool-step-detail-toggle {
+        background: #e2e8f0;
+        color: #475569;
+        font-weight: 600;
       }
 
       .tool-step-detail {
         display: none;
         margin-top: 6px;
-        padding: 6px 8px;
-        background: #f8fafc;
+        padding: 8px;
+        background: #f1f5f9;
         border-radius: 4px;
-        font-size: 10px;
-        color: #64748b;
+        font-size: 11px;
+        color: #475569;
         white-space: pre-wrap;
         word-break: break-word;
-        border: 1px solid #e2e8f0;
+        font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+        line-height: 1.5;
+        border-left: 2px solid #cbd5e1;
       }
 
       .tool-step.detail-open .tool-step-detail {
         display: block;
+        animation: fadeIn 0.2s ease-out;
+      }
+      
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-4px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      
+      /* 状态标签 */
+      .step-tag {
+        display: inline-block;
+        padding: 0 4px;
+        border-radius: 3px;
+        font-size: 10px;
+        font-weight: normal;
+        margin-left: 6px;
+        vertical-align: middle;
+        opacity: 0.8;
+      }
+      
+      .step-tag.tokens {
+        background: #e2e8f0;
+        color: #64748b;
+      }
+      
+      .step-tag.score {
+        background: #ffedd5;
+        color: #c2410c;
       }
     `;
     document.head.appendChild(style);
@@ -233,6 +311,7 @@
     injectStyles();
     currentStepsHtml = [];
     isFinished = false;
+    isCollapsed = false; // 重置为展开
     batchBuffer = null;
     if (batchTimer) {
       clearTimeout(batchTimer);
@@ -294,8 +373,8 @@
 
     // 如果有tokens信息，更新标题添加token统计
     if (result && result._tokens && status === 'done') {
-      var tokenStr = ' (' + result._tokens + ' tokens)';
-      lastHtml = lastHtml.replace(/(<span class="tool-step-title">[^<]+)(<\/span>)/, '$1' + tokenStr + '$2');
+      var tokenHtml = ' <span class="step-tag tokens">' + result._tokens + ' tok</span>';
+      lastHtml = lastHtml.replace(/(<span class="tool-step-title">[\s\S]*?)(<\/span>)/, '$1' + tokenHtml + '$2');
     }
 
     // 更新detail
@@ -313,32 +392,47 @@
    */
   function generateBlockHtml() {
     var stepCount = currentStepsHtml.length;
-    var iconClass = isFinished ? '' : 'running';
-    var title = isFinished ? '上下文检索完成' : '正在检索上下文...';
-
-    // console.log('[ToolTraceUI] generateBlockHtml 调用：', {
-    //   stepCount: stepCount,
-    //   isFinished: isFinished,
-    //   hasSteps: currentStepsHtml.length > 0
-    // });
+    var iconClass = isFinished ? 'done' : 'running';
+    var title = isFinished ? '思考过程已完成' : '正在思考中...';
+    var collapsedClass = isCollapsed ? 'collapsed' : '';
+    
+    // 顶部图标
+    var headerIcon = isFinished
+      ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+      : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>';
 
     if (currentStepsHtml.length === 0) {
-      // 初始阶段可能尚无步骤，不必告警
-      if (console && typeof console.debug === 'function') {
-        console.debug('[ToolTraceUI] 等待步骤数据，暂不生成HTML');
-      }
       return '';
     }
 
+    // 使用全局变量 isCollapsed 控制状态，并添加 onclick 事件来切换该变量
+    // 注意：这里我们使用 window.ChatbotToolTraceUI.toggleCollapse 来切换状态，而不是直接操作 DOM
+    // 这样可以确保状态同步
+    
+    // 为了支持 onclick 调用，我们需要暴露一个 toggle 方法
+    if (!window.ChatbotToolTraceUI.toggleCollapse) {
+      window.ChatbotToolTraceUI.toggleCollapse = function(el) {
+        isCollapsed = !isCollapsed;
+        var block = el.closest('.tool-thinking-block');
+        if (isCollapsed) {
+          block.classList.add('collapsed');
+        } else {
+          block.classList.remove('collapsed');
+        }
+      };
+    }
+
     var html = `
-      <div class="tool-thinking-block collapsed">
-        <div class="tool-thinking-header" onclick="event.stopPropagation(); this.closest('.tool-thinking-block').classList.toggle('collapsed');">
+      <div class="tool-thinking-block ${collapsedClass}">
+        <div class="tool-thinking-header" onclick="window.ChatbotToolTraceUI.toggleCollapse(this)">
           <div class="tool-thinking-title">
-            <span class="tool-thinking-icon ${iconClass}"></span>
+            <div class="tool-thinking-icon-wrapper ${iconClass}">
+              ${headerIcon}
+            </div>
             <span>${title}</span>
           </div>
           <div class="tool-thinking-toggle">
-            <span>${stepCount}步</span>
+            <span>${stepCount} 步骤</span>
             <span class="toggle-arrow">▼</span>
           </div>
         </div>
@@ -348,7 +442,6 @@
       </div>
     `;
 
-    // console.log('[ToolTraceUI] 生成HTML长度:', html.length);
     return html;
   }
 

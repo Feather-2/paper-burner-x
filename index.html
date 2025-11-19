@@ -24,6 +24,8 @@
     <!-- docx-preview.js for Word preview -->
     <script src="https://gcore.jsdelivr.net/npm/docx-preview@0.3.7/dist/docx-preview.min.js"></script>
     <link rel="stylesheet" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <link rel="stylesheet" href="css/history_detail/01-foundation/variables.css">
+    <link rel="stylesheet" href="css/history_detail/05-utilities/buttons.css">
     <link rel="stylesheet" href="css/history_detail/04-features/markdown-enhancements.css">
     <link rel="stylesheet" href="css/history_detail/04-features/math-display.css">
     <link rel="stylesheet" href="css/_deprecated/chatbot-model-config-modal.css">
@@ -55,9 +57,9 @@
             overflow: hidden;
         }
         .app-sidebar {
-            width: 260px;
-            background-color: #ffffff;
-            border-right: 1px solid #e2e8f0;
+            width: var(--sidebar-width);
+            background-color: var(--color-bg-base);
+            border-right: 1px solid var(--color-border-light);
             display: flex;
             flex-direction: column;
             flex-shrink: 0;
@@ -158,22 +160,22 @@
         .nav-item {
             display: flex;
             align-items: center;
-            padding: 0.75rem 0.875rem;
-            color: #475569; /* slate-600 */
-            border-radius: 0.5rem;
+            padding: var(--sidebar-nav-item-padding);
+            color: var(--slate-600);
+            border-radius: var(--radius-lg);
             transition: all 0.2s ease;
             font-weight: 500;
-            font-size: 0.9375rem; /* 15px */
+            font-size: var(--sidebar-nav-item-font-size);
             margin-bottom: 0.25rem;
             user-select: none;
         }
         .nav-item:hover {
-            background-color: #f1f5f9; /* slate-100 */
-            color: #0f172a; /* slate-900 */
+            background-color: var(--slate-100);
+            color: var(--slate-900);
         }
         .nav-item.active {
-            background-color: #eff6ff; /* blue-50 */
-            color: #2563eb; /* blue-600 */
+            background-color: var(--indigo-50);
+            color: var(--indigo-600);
             font-weight: 600;
         }
         .nav-item .nav-icon {
@@ -186,7 +188,7 @@
             color: #64748b; /* slate-500 */
         }
         .nav-item.active .nav-icon {
-            color: #3b82f6; /* blue-500 */
+            color: var(--color-primary);
         }
         /* 侧边栏子菜单项 */
         .nav-sub-item {
@@ -209,11 +211,11 @@
 
         /* Workspace Header */
         .workspace-header {
-            background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
+            background: linear-gradient(135deg, var(--indigo-50) 0%, var(--slate-50) 100%);
             border-radius: 1.5rem;
             padding: 2.5rem;
             margin-bottom: 2.5rem;
-            border: 1px solid #e2e8f0;
+            border: 1px solid var(--slate-200);
             position: relative;
             overflow: hidden;
         }
@@ -224,7 +226,7 @@
             right: -10%;
             width: 400px;
             height: 400px;
-            background: radial-gradient(circle, rgba(59,130,246,0.06) 0%, rgba(255,255,255,0) 70%);
+            background: radial-gradient(circle, rgba(99, 102, 241, 0.06) 0%, rgba(255,255,255,0) 70%);
             border-radius: 50%;
             pointer-events: none;
         }
@@ -347,22 +349,22 @@
         }
         .copyright-card-ani h2 {
           letter-spacing: 0.02em;
-          background: linear-gradient(90deg, #2563eb 30%, #60a5fa 100%);
+          background: linear-gradient(90deg, var(--indigo-600) 30%, var(--indigo-400) 100%);
           -webkit-background-clip: text;
           -webkit-text-fill-color: transparent;
           background-clip: text;
         }
         .copyright-card-ani .main-btn {
-          background: linear-gradient(90deg, #2563eb 60%, #38bdf8 100%);
-          color: #fff;
+          background: var(--color-primary);
+          color: white;
           font-weight: 600;
-          box-shadow: 0 2px 8px 0 rgba(59,130,246,0.10);
-          border-radius: 0.75rem;
-          transition: background 0.2s, box-shadow 0.2s;
+          box-shadow: var(--shadow-sm);
+          border-radius: var(--radius-lg);
+          transition: all 0.2s ease;
         }
         .copyright-card-ani .main-btn:hover {
-          background: linear-gradient(90deg, #1d4ed8 60%, #0ea5e9 100%);
-          box-shadow: 0 4px 16px 0 rgba(59,130,246,0.18);
+          background: var(--color-primary-hover);
+          box-shadow: var(--shadow-md);
         }
         .copyright-card-ani .iconify-icon {
           vertical-align: middle;
@@ -372,22 +374,22 @@
           overflow: hidden;
           border-radius: 20px;
           padding: clamp(16px, 2vw, 20px);
-          background: linear-gradient(130deg, rgba(87,130,243,0.08), rgba(255,255,255,0.98));
-          border: 1px solid rgba(87,130,243,0.14);
-          box-shadow: 0 12px 28px rgba(70,96,168,0.12);
+          background: linear-gradient(130deg, rgba(99, 102, 241, 0.08), rgba(255,255,255,0.98));
+          border: 1px solid rgba(99, 102, 241, 0.14);
+          box-shadow: var(--shadow-lg);
           transition: transform 0.25s ease, box-shadow 0.25s ease;
         }
         .feature-card-modern::before {
           content: '';
           position: absolute;
           inset: 0;
-          background: linear-gradient(135deg, rgba(255,255,255,0.32), rgba(87,130,243,0.18));
+          background: linear-gradient(135deg, rgba(255,255,255,0.32), rgba(99, 102, 241, 0.18));
           opacity: 0;
           transition: opacity 0.3s ease;
         }
         .feature-card-modern:hover {
           transform: translateY(-4px);
-          box-shadow: 0 18px 36px rgba(70,96,168,0.16);
+          box-shadow: var(--shadow-xl);
         }
         .feature-card-modern:hover::before {
           opacity: 1;
@@ -403,7 +405,7 @@
           width: 42px;
           height: 42px;
           border-radius: 14px;
-          background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(87,130,243,0.16));
+          background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(99, 102, 241, 0.16));
           box-shadow: inset 0 1px 0 rgba(255,255,255,0.5);
         }
         .feature-meta {
@@ -453,48 +455,56 @@
 
         /* Phase 2.3: Core Workflow Enhancements */
         .modern-card {
-            background: #ffffff;
-            border: 1px solid #f1f5f9;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-            border-radius: 1rem; /* 16px */
+            background: var(--color-bg-base);
+            border: 1px solid var(--color-border-light);
+            box-shadow: var(--shadow-sm);
+            border-radius: var(--radius-xl);
             transition: box-shadow 0.3s ease, border-color 0.3s ease;
         }
         .modern-card:hover {
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025);
-            border-color: #e2e8f0;
+            box-shadow: var(--shadow-md);
+            border-color: var(--color-border-medium);
         }
         .section-header {
             display: flex;
             align-items: center;
             margin-bottom: 1.5rem;
             padding-bottom: 1rem;
-            border-bottom: 1px solid #f1f5f9;
+            border-bottom: 1px solid var(--color-border-light);
         }
         .section-title {
-            font-size: 1.125rem; /* 18px */
-            font-weight: 600;
-            color: #1e293b; /* slate-800 */
+            font-size: var(--font-size-md);
+            font-weight: var(--font-weight-semibold);
+            color: var(--slate-800);
             display: flex;
             align-items: center;
             gap: 0.5rem;
         }
         .upload-zone-modern {
-            border: 2px dashed #cbd5e1; /* slate-300 */
-            border-radius: 1rem;
-            background-color: #f8fafc; /* slate-50 */
+            border: 2px dashed var(--slate-300);
+            border-radius: var(--radius-xl);
+            background-color: var(--slate-50);
             transition: all 0.2s ease;
         }
         .upload-zone-modern:hover, .upload-zone-modern.drag-over {
-            border-color: #3b82f6; /* blue-500 */
-            background-color: #eff6ff; /* blue-50 */
+            border-color: var(--color-primary);
+            background-color: var(--indigo-50);
         }
         .btn-primary-large {
-            background: linear-gradient(to right, #2563eb, #3b82f6);
-            box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2), 0 2px 4px -1px rgba(37, 99, 235, 0.1);
+            background: var(--color-primary);
+            color: white;
+            border-radius: var(--radius-lg);
+            transition: all 0.2s ease;
+            box-shadow: var(--shadow-sm);
         }
         .btn-primary-large:hover {
-            background: linear-gradient(to right, #1d4ed8, #2563eb);
-            box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.3), 0 4px 6px -2px rgba(37, 99, 235, 0.15);
+            background: var(--color-primary-hover);
+            box-shadow: var(--shadow-md);
+            transform: translateY(-1px);
+        }
+        .btn-primary-large:active {
+            background: var(--color-primary-active);
+            transform: translateY(0);
         }
         /* 全局入场动画 */
         @keyframes fadeInUp {
@@ -510,31 +520,7 @@
             bottom: 2rem;
             right: 2rem;
             z-index: 40;
-            width: 3rem;
-            height: 3rem;
-            border-radius: 9999px;
-            background-color: rgba(255, 255, 255, 0.9);
-            backdrop-filter: blur(4px);
-            color: #94a3b8; /* slate-400 */
-            border: 1px solid #e2e8f0;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.2s ease;
-            cursor: pointer;
-            opacity: 0.6; /* 默认低透明度，减少视觉干扰 */
-        }
-        .floating-history-btn:hover {
-            opacity: 1;
-            color: #3b82f6; /* blue-500 */
-            border-color: #bfdbfe; /* blue-200 */
-            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
-            transform: translateY(-2px);
-        }
-        .floating-history-btn:active {
-            transform: translateY(0);
-            background-color: #f8fafc;
+            /* 使用 buttons.css 中的样式，这里只保留定位 */
         }
         @media (max-width: 768px) {
             .floating-history-btn {
@@ -687,10 +673,10 @@
             <!-- ===================== -->
             <div class="workspace-header">
                 <div class="workspace-header-content">
-                    <h1 class="text-3xl md:text-4xl font-bold text-slate-900 mb-4 tracking-tight">
+                    <h1 class="text-3xl md:text-4xl font-bold text-slate-900 mb-4 tracking-tight" style="color: var(--slate-900);">
                         开始新的任务
                     </h1>
-                    <p class="text-lg text-slate-600 leading-relaxed">
+                    <p class="text-lg text-slate-600 leading-relaxed" style="color: var(--slate-600);">
                         配置多种OCR 引擎与 AI 翻译模型。上传文档后，Paper Burner X将给您流畅的阅读与处理体验。
                     </p>
                 </div>
@@ -710,20 +696,20 @@
                 <!--
                 <div class="mb-6">
                     <h2 class="text-xl font-semibold text-gray-800 mb-4 flex items-center">
-                        <iconify-icon icon="carbon:api" class="mr-2 text-blue-500" width="24"></iconify-icon>
+                        <iconify-icon icon="carbon:api" class="mr-2 text-indigo-500" width="24"></iconify-icon>
                         API 密钥设置
                     </h2>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
                             <label for="mistralApiKeys" class="block text-sm font-medium text-gray-700 mb-1">Mistral API Keys <span class="text-red-500">*</span> (每行一个)</label>
                             <div class="relative">
-                                <textarea id="mistralApiKeys" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all api-key-input" placeholder="输入您的 Mistral API Key(s)，每行一个"></textarea>
+                                <textarea id="mistralApiKeys" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all api-key-input" placeholder="输入您的 Mistral API Key(s)，每行一个"></textarea>
                             </div>
                         </div>
                         <div>
                             <label for="translationApiKeys" class="block text-sm font-medium text-gray-700 mb-1">翻译 API Keys (可选, 每行一个)</label>
                             <div class="relative">
-                                <textarea id="translationApiKeys" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all api-key-input" placeholder="输入翻译服务 API Key(s)，每行一个 (可选)"></textarea>
+                                <textarea id="translationApiKeys" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all api-key-input" placeholder="输入翻译服务 API Key(s)，每行一个 (可选)"></textarea>
                             </div>
                         </div>
                     </div>
@@ -736,13 +722,13 @@
                 <div>
                     <div class="section-header justify-between">
                         <h2 class="section-title">
-                            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-50 to-purple-100/80 border border-purple-100 text-purple-600 flex items-center justify-center mr-3 shadow-sm">
+                            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-50 to-indigo-100/80 border border-indigo-100 text-indigo-600 flex items-center justify-center mr-3 shadow-sm" style="background: var(--indigo-50); color: var(--color-primary); border-color: var(--indigo-100);">
                                 <iconify-icon icon="carbon:scan" width="20"></iconify-icon>
                             </div>
                             OCR 文档解析
                         </h2>
                         <div class="flex items-center">
-                            <span id="flashConfigTip" class="flash-tip-anim text-sm text-blue-600 font-medium mr-2">配置模型与Key</span>
+                            <span id="flashConfigTip" class="flash-tip-anim text-sm font-medium mr-2" style="color: var(--color-primary);">配置模型与Key</span>
                             <button id="modelKeyManagerBtn" class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors" title="模型与Key管理">
                                 <iconify-icon icon="carbon:settings" width="18"></iconify-icon>
                                 <span>设置</span>
@@ -753,7 +739,7 @@
                     <!-- OCR 引擎选择（简化版） -->
                     <div>
                         <label for="ocrEngine" class="block text-sm font-medium text-gray-700 mb-1">OCR 引擎</label>
-                        <select id="ocrEngine" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
+                        <select id="ocrEngine" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all" style="border-color: var(--color-border-medium); outline-color: var(--color-primary);">
                             <option value="none">不需要 OCR（仅文本）</option>
                             <option value="local">本地解析（仅文本 PDF）</option>
                             <option value="mistral">Mistral OCR</option>
@@ -796,7 +782,7 @@
                 <div class="modern-card p-4 md:p-6">
                     <div class="section-header">
                         <h2 class="section-title">
-                            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-50 to-blue-100/80 border border-blue-100 text-blue-600 flex items-center justify-center mr-3 shadow-sm">
+                            <div class="w-9 h-9 rounded-xl border flex items-center justify-center mr-3 shadow-sm" style="background: var(--indigo-50); color: var(--color-primary); border-color: var(--indigo-100);">
                                 <iconify-icon icon="carbon:language" width="20"></iconify-icon>
                             </div>
                             翻译与分析
@@ -806,7 +792,7 @@
                         <!-- 翻译模型选择 -->
                         <div>
                             <label for="translationModel" class="block text-sm font-medium text-gray-700 mb-1">翻译和分析模型</label>
-                            <select id="translationModel" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
+                            <select id="translationModel" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all" style="border-color: var(--color-border-medium); outline-color: var(--color-primary);">
                                 <option value="none">不需要翻译</option>
                                 <option value="mistral">Mistral Large</option>
                                 <option value="deepseek">deepseek</option>
@@ -821,7 +807,7 @@
                         <!-- 目标语言选择 -->
                         <div>
                             <label for="targetLanguage" class="block text-sm font-medium text-gray-700 mb-1">目标语言</label>
-                            <select id="targetLanguage" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
+                            <select id="targetLanguage" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all" style="border-color: var(--color-border-medium); outline-color: var(--color-primary);">
                                 <option value="chinese">中文</option>
                                 <option value="english">English</option>
                                 <option value="japanese">日本語</option>
@@ -832,7 +818,7 @@
                             <!-- 自定义目标语言名称输入区域 -->
                             <div id="customTargetLanguageContainer" class="hidden mt-2">
                                  <label for="customTargetLanguageInput" class="block text-sm font-medium text-gray-700 mb-1">自定义目标语言名称</label>
-                                 <input type="text" id="customTargetLanguageInput" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" placeholder="例如: Spanish">
+                                 <input type="text" id="customTargetLanguageInput" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all" placeholder="例如: Spanish" style="border-color: var(--color-border-medium); outline-color: var(--color-primary);">
                             </div>
                         </div>
                         <!-- Gemini 模型信息（选择 Gemini 时显示） -->
@@ -847,10 +833,10 @@
                                 </div>
                                 <div class="mt-2 space-y-2">
                                     <div class="flex flex-col sm:flex-row sm:items-center sm:gap-2">
-                                        <select id="geminiModelSelect" class="flex-1 px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors">
+                                        <select id="geminiModelSelect" class="flex-1 px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-colors" style="border-color: var(--color-border-medium); outline-color: var(--color-primary);">
                                            <!-- 动态填充，可为空则仅显示占位提示 -->
                                         </select>
-                                        <button id="geminiModelSearchBtn" type="button" class="mt-2 sm:mt-0 px-3 py-1.5 text-sm border border-gray-300 rounded-md text-gray-600 hover:text-blue-600 hover:border-blue-400 transition-colors flex items-center gap-1 disabled:opacity-60 disabled:cursor-not-allowed">
+                                        <button id="geminiModelSearchBtn" type="button" class="mt-2 sm:mt-0 px-3 py-1.5 text-sm border border-gray-300 rounded-md text-gray-600 hover:text-indigo-600 hover:border-indigo-400 transition-colors flex items-center gap-1 disabled:opacity-60 disabled:cursor-not-allowed" style="border-color: var(--color-border-medium); color: var(--slate-600);">
                                             <iconify-icon icon="carbon:search" width="16"></iconify-icon>
                                             搜索模型
                                         </button>
@@ -874,7 +860,7 @@
                                         <button id="deeplxEndpointResetBtn" type="button" class="px-2 py-1 text-xs border rounded hover:bg-white">恢复默认</button>
                                     </div>
                                     <p class="text-xs text-gray-500 leading-5">默认模板会在占位符位置插入当前使用的 API Key，例如 <code>https://api.deeplx.org/&lt;api-key&gt;/translate</code>。如需自建代理，可在此输入自定义地址。</p>
-                                    <p id="deeplxTargetLangHint" class="text-xs text-blue-700 leading-5"></p>
+                                    <p id="deeplxTargetLangHint" class="text-xs leading-5" style="color: var(--indigo-700);"></p>
                                     <div id="deeplxLangTable" class="mt-2 text-xs text-gray-600 leading-5"></div>
                                 </div>
                             </div>
@@ -892,8 +878,8 @@
                                 </div>
                                 <div class="mt-2 space-y-2">
                                     <div class="flex flex-col sm:flex-row sm:items-center sm:gap-2">
-                                        <select id="deepseekModelSelect" class="flex-1 px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"></select>
-                                        <button id="deepseekModelSearchBtn" type="button" class="mt-2 sm:mt-0 px-3 py-1.5 text-sm border border-gray-300 rounded-md text-gray-600 hover:text-blue-600 hover:border-blue-400 transition-colors flex items-center gap-1 disabled:opacity-60 disabled:cursor-not-allowed">
+                                        <select id="deepseekModelSelect" class="flex-1 px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-colors" style="border-color: var(--color-border-medium); outline-color: var(--color-primary);"></select>
+                                        <button id="deepseekModelSearchBtn" type="button" class="mt-2 sm:mt-0 px-3 py-1.5 text-sm border border-gray-300 rounded-md text-gray-600 hover:text-indigo-600 hover:border-indigo-400 transition-colors flex items-center gap-1 disabled:opacity-60 disabled:cursor-not-allowed" style="border-color: var(--color-border-medium); color: var(--slate-600);">
                                             <iconify-icon icon="carbon:search" width="16"></iconify-icon>
                                             搜索模型
                                         </button>
@@ -916,8 +902,8 @@
                                 </div>
                                 <div class="mt-2 space-y-2">
                                     <div class="flex flex-col sm:flex-row sm:items-center sm:gap-2">
-                                        <select id="tongyiModelSelect" class="flex-1 px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"></select>
-                                        <button id="tongyiModelSearchBtn" type="button" class="mt-2 sm:mt-0 px-3 py-1.5 text-sm border border-gray-300 rounded-md text-gray-600 hover:text-blue-600 hover:border-blue-400 transition-colors flex items-center gap-1 disabled:opacity-60 disabled:cursor-not-allowed">
+                                        <select id="tongyiModelSelect" class="flex-1 px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-colors" style="border-color: var(--color-border-medium); outline-color: var(--color-primary);"></select>
+                                        <button id="tongyiModelSearchBtn" type="button" class="mt-2 sm:mt-0 px-3 py-1.5 text-sm border border-gray-300 rounded-md text-gray-600 hover:text-indigo-600 hover:border-indigo-400 transition-colors flex items-center gap-1 disabled:opacity-60 disabled:cursor-not-allowed" style="border-color: var(--color-border-medium); color: var(--slate-600);">
                                             <iconify-icon icon="carbon:search" width="16"></iconify-icon>
                                             搜索模型
                                         </button>
@@ -938,7 +924,7 @@
                                     </div>
                                 </div>
                                 <div class="mt-2">
-                                    <select id="volcanoModelSelect" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"></select>
+                                    <select id="volcanoModelSelect" class="w-full px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-colors" style="border-color: var(--color-border-medium); outline-color: var(--color-primary);"></select>
                                     <p id="volcanoModelHint" class="mt-1 text-xs text-gray-500">若列表为空，请手动输入或在设置中选择。</p>
                                 </div>
                             </div>
@@ -958,7 +944,7 @@
                                         <!-- 选择已保存的自定义源站点 -->
                                         <div>
                                             <label for="customSourceSiteSelect" class="block text-sm font-medium text-gray-700 mb-1">选择自定义源站点</label>
-                                            <select id="customSourceSiteSelect" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all">
+                                            <select id="customSourceSiteSelect" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all" style="border-color: var(--color-border-medium); outline-color: var(--color-primary);">
                                                 <!-- Options will be populated by JavaScript -->
                                             </select>
                                         </div>
@@ -968,11 +954,11 @@
                                         </div>
                                         <!-- 管理API Key及检测模型的按钮（通常根据选择的源站点动态显示/隐藏） -->
                                         <div class="mt-2 flex justify-end w-full md:col-span-2">
-                                            <button id="manageSourceSiteKeyBtn" class="px-3 py-1.5 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded transition-colors flex items-center hidden">
+                                            <button id="manageSourceSiteKeyBtn" class="px-3 py-1.5 text-sm text-white rounded transition-colors flex items-center hidden" style="background-color: var(--color-primary);">
                                                 <iconify-icon icon="carbon:api" class="mr-1" width="16"></iconify-icon>
                                                 管理该站点 API Key
                                             </button>
-                                            <button id="detectModelsBtn" type="button" class="hidden px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors flex items-center">
+                                            <button id="detectModelsBtn" type="button" class="hidden px-3 py-1.5 text-sm text-white rounded transition-colors flex items-center" style="background-color: var(--color-primary);">
                                                 <iconify-icon icon="carbon:model-alt" class="mr-1" width="16"></iconify-icon>
                                                 检测可用模型
                                             </button>
@@ -984,33 +970,33 @@
 
                         <!-- ===== 翻译备择库管理（多术语库） ===== -->
                         <div id="glossaryManagerSection" class="md:col-span-2 hidden">
-                            <div class="bg-white/90 backdrop-blur-sm border-2 border-dashed border-blue-200 rounded-2xl shadow-sm p-5 md:p-6 space-y-5">
+                            <div class="bg-white/90 backdrop-blur-sm border border-dashed rounded-2xl shadow-sm p-5 md:p-6 space-y-5" style="border-color: var(--color-border-light);">
                                 <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
                                     <div>
                                         <div class="flex items-center gap-2 text-lg font-semibold text-slate-800">
-                                            <iconify-icon icon="carbon:dictionary" class="text-blue-500" width="22"></iconify-icon>
+                                            <iconify-icon icon="carbon:dictionary" width="22" style="color: var(--color-primary);"></iconify-icon>
                                             <span>翻译备择库管理</span>
-                                            <span id="glossarySetsCountHint" class="ml-1 inline-flex items-center text-xs font-medium text-blue-600 bg-blue-50 border border-blue-100 rounded-full px-2 py-0.5">启用 0 / 0</span>
+                                            <span id="glossarySetsCountHint" class="ml-1 inline-flex items-center text-xs font-medium rounded-full px-2 py-0.5" style="color: var(--color-primary); background-color: var(--indigo-50); border-color: var(--indigo-100);">启用 0 / 0</span>
                                         </div>
                                         <p class="mt-2 text-sm text-slate-500 leading-relaxed">
                                             支持维护多套术语库，命中时自动注入翻译提示，帮助保持术语一致性。可按项目导入导出，灵活协同。
                                         </p>
                                     </div>
                                     <label class="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-full px-4 py-2 text-sm text-slate-600 select-none">
-                                        <input id="enableGlossaryToggle" type="checkbox" class="h-4 w-4 text-blue-600 border-slate-300 rounded">
+                                        <input id="enableGlossaryToggle" type="checkbox" class="h-4 w-4 border-slate-300 rounded" style="color: var(--color-primary); accent-color: var(--color-primary);">
                                         <span>启用翻译备择库</span>
                                     </label>
                                 </div>
 
                                 <div class="flex flex-wrap items-center gap-2 md:gap-3">
-                                    <button id="addGlossarySetBtn" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:border-blue-300 hover:text-blue-600 hover:shadow-sm transition-all">
+                                    <button id="addGlossarySetBtn" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:text-indigo-600 hover:shadow-sm transition-all" style="border-color: var(--color-border-medium);">
                                         <iconify-icon icon="carbon:add-alt" width="18"></iconify-icon>新增术语库
                                     </button>
-                                    <button id="importGlossarySetBtn" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:border-blue-300 hover:text-blue-600 hover:shadow-sm transition-all">
+                                    <button id="importGlossarySetBtn" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:text-indigo-600 hover:shadow-sm transition-all" style="border-color: var(--color-border-medium);">
                                         <iconify-icon icon="carbon:import" width="18"></iconify-icon>导入术语库
                                     </button>
                                     <input id="importGlossarySetFile" type="file" accept="application/json" class="hidden">
-                                    <button id="exportAllGlossarySetsBtn" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:border-blue-300 hover:text-blue-600 hover:shadow-sm transition-all">
+                                    <button id="exportAllGlossarySetsBtn" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:text-indigo-600 hover:shadow-sm transition-all" style="border-color: var(--color-border-medium);">
                                         <iconify-icon icon="carbon:export" width="18"></iconify-icon>导出全部术语库
                                     </button>
                                 </div>
@@ -1052,7 +1038,7 @@
                     <div id="advancedSettings" class="hidden pt-4">
                         <div class="pt-2">
                             <h3 class="text-base font-semibold text-slate-800 mb-4 flex items-center">
-                                <iconify-icon icon="carbon:settings-check" class="mr-2 text-blue-500"></iconify-icon>
+                                <iconify-icon icon="carbon:settings-check" class="mr-2" style="color: var(--color-primary);"></iconify-icon>
                                 性能与流程
                             </h3>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
@@ -1060,26 +1046,26 @@
                                 <div>
                                     <label for="concurrencyLevel" class="block text-sm font-medium text-gray-700 mb-1">文件处理并发数</label>
                                     <input type="number" id="concurrencyLevel" min="1" max="50" value="1"
-                                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-all text-sm">
+                                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-all text-sm" style="border-color: var(--color-border-medium); outline-color: var(--color-primary);">
                                     <p class="text-xs text-gray-500 mt-1">同时处理的文件数量。默认 1。</p>
                                 </div>
                                 <!-- 翻译任务并发数 -->
                                 <div>
                                     <label for="translationConcurrencyLevel" class="block text-sm font-medium text-gray-700 mb-1">翻译任务并发数</label>
                                     <input type="number" id="translationConcurrencyLevel" min="1" max="150" value="15"
-                                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-all text-sm">
+                                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-all text-sm" style="border-color: var(--color-border-medium); outline-color: var(--color-primary);">
                                     <p class="text-xs text-gray-500 mt-1">同时进行的翻译 API 调用数量。默认 15。</p>
                                 </div>
                                 <!-- 翻译分段最大Token数 -->
                                 <div class="md:col-span-2">
                                     <label for="maxTokensPerChunk" class="block text-sm font-medium text-gray-700 mb-1">翻译分段最大Token数 (<span id="maxTokensPerChunkValue">2000</span>)</label>
                                     <input type="range" id="maxTokensPerChunk" min="500" max="10000" step="100" value="1000"
-                                           class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+                                           class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer" style="accent-color: var(--color-primary);">
                                     <p class="text-xs text-gray-500 mt-1">长文档翻译时，按此限制分段。默认 2000。</p>
                                 </div>
                                 <!-- 跳过已处理文件选项 -->
                                 <div class="md:col-span-2 flex items-center mt-2">
-                                    <input type="checkbox" id="skipProcessedFiles" class="rounded text-blue-500 focus:ring-blue-500 h-4 w-4 mr-2 flex-shrink-0">
+                                    <input type="checkbox" id="skipProcessedFiles" class="rounded focus:ring-indigo-500 h-4 w-4 mr-2 flex-shrink-0" style="color: var(--color-primary); accent-color: var(--color-primary);">
                                     <label for="skipProcessedFiles" class="text-sm text-gray-600">跳过已处理过的文件 (基于文件名和大小)</label>
                                 </div>
                             </div>
@@ -1090,15 +1076,15 @@
                             <div class="mb-4">
                                 <div class="flex items-center space-x-6 mb-3">
                                     <label class="flex items-center">
-                                        <input type="radio" name="promptMode" value="pool" id="promptModePool" class="rounded text-blue-500 focus:ring-blue-500 h-4 w-4 mr-2">
+                                        <input type="radio" name="promptMode" value="pool" id="promptModePool" class="rounded focus:ring-indigo-500 h-4 w-4 mr-2" style="color: var(--color-primary); accent-color: var(--color-primary);">
                                         <span class="text-sm font-medium text-gray-700">提示词池</span>
                                     </label>
                                     <label class="flex items-center">
-                                        <input type="radio" name="promptMode" value="builtin" id="promptModeBuiltin" class="rounded text-blue-500 focus:ring-blue-500 h-4 w-4 mr-2" checked>
+                                        <input type="radio" name="promptMode" value="builtin" id="promptModeBuiltin" class="rounded focus:ring-indigo-500 h-4 w-4 mr-2" checked style="color: var(--color-primary); accent-color: var(--color-primary);">
                                         <span class="text-sm font-medium text-gray-700">内置提示词</span>
                                     </label>
                                     <label class="flex items-center">
-                                        <input type="radio" name="promptMode" value="custom" id="promptModeCustom" class="rounded text-blue-500 focus:ring-blue-500 h-4 w-4 mr-2">
+                                        <input type="radio" name="promptMode" value="custom" id="promptModeCustom" class="rounded focus:ring-indigo-500 h-4 w-4 mr-2" style="color: var(--color-primary); accent-color: var(--color-primary);">
                                         <span class="text-sm font-medium text-gray-700">单个自定义</span>
                                     </label>
                                 </div>
@@ -1109,11 +1095,11 @@
                             <div id="customPromptsContainer" class="hidden space-y-4 mb-6">
                                 <div>
                                     <label for="defaultSystemPrompt" class="block text-sm font-medium text-gray-700 mb-1">自定义系统提示</label>
-                                    <textarea id="defaultSystemPrompt" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-all api-key-input text-sm" placeholder="输入系统提示词..."></textarea>
+                                    <textarea id="defaultSystemPrompt" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-all api-key-input text-sm" placeholder="输入系统提示词..." style="border-color: var(--color-border-medium);"></textarea>
                                 </div>
                                 <div>
                                     <label for="defaultUserPromptTemplate" class="block text-sm font-medium text-gray-700 mb-1">自定义用户提示模板</label>
-                                    <textarea id="defaultUserPromptTemplate" rows="6" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-all api-key-input text-sm" placeholder="请将以下内容翻译为${targetLangName}：&#10;&#10;${content}"></textarea>
+                                    <textarea id="defaultUserPromptTemplate" rows="6" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-all api-key-input text-sm" placeholder="请将以下内容翻译为${targetLangName}：&#10;&#10;${content}" style="border-color: var(--color-border-medium);"></textarea>
                                     <p class="text-xs text-gray-500 mt-1">可用占位符：<code>${targetLangName}</code>, <code>${content}</code></p>
                                 </div>
                             </div>
@@ -1124,32 +1110,32 @@
                                 <!-- 参考提示词输入（去除橙色，改为中性） -->
                                 <div id="ppRefSection" class="bg-gray-50 rounded-lg p-4 mb-4 border border-gray-200">
                                     <h4 class="font-medium text-gray-800 mb-3 flex items-center">
-                                        <iconify-icon icon="carbon:template" class="text-blue-600 mr-2" width="18"></iconify-icon>
+                                        <iconify-icon icon="carbon:template" class="mr-2" width="18" style="color: var(--color-primary);"></iconify-icon>
                                         参考提示词 (AI生成基础)
                                     </h4>
                                     <div class="space-y-3">
                                         <div>
                                             <label class="block text-sm font-medium text-gray-700 mb-1">参考系统提示词</label>
-                                            <textarea id="referenceSystemPrompt" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 text-sm" placeholder="你是专业的翻译助手，请准确翻译用户提供的内容。"></textarea>
+                                            <textarea id="referenceSystemPrompt" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-indigo-500 text-sm" placeholder="你是专业的翻译助手，请准确翻译用户提供的内容。" style="border-color: var(--color-border-medium); outline-color: var(--color-primary);"></textarea>
                                         </div>
                                         <div>
                                             <label class="block text-sm font-medium text-gray-700 mb-1">参考用户提示模板</label>
-                                            <textarea id="referenceUserPrompt" rows="4" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 text-sm" placeholder="请将以下内容翻译为${targetLangName}：&#10;&#10;${content}"></textarea>
+                                            <textarea id="referenceUserPrompt" rows="4" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-indigo-500 text-sm" placeholder="请将以下内容翻译为${targetLangName}：&#10;&#10;${content}" style="border-color: var(--color-border-medium); outline-color: var(--color-primary);"></textarea>
                                             <p class="text-xs text-gray-500 mt-1">必须包含 <code>${targetLangName}</code> 和 <code>${content}</code> 占位符</p>
                                         </div>
                                     </div>
                                 </div>
 
                                 <!-- 提示词池控制面板 -->
-                                <div class="bg-blue-50 rounded-lg p-4 mb-4">
+                                <div class="rounded-lg p-4 mb-4" style="background-color: var(--indigo-50);">
                                     <div id="ppControlHeader" class="flex justify-between items-center mb-3">
                                         <div class="flex items-center">
-                                            <iconify-icon icon="carbon:ai-status-running" class="text-blue-600 mr-2" width="20"></iconify-icon>
-                                            <span class="font-medium text-blue-800">AI生成提示词池</span>
-                                            <span id="poolStatsText" class="ml-2 text-sm text-blue-600">(0 个已选)</span>
+                                            <iconify-icon icon="carbon:ai-status-running" class="mr-2" width="20" style="color: var(--color-primary);"></iconify-icon>
+                                            <span class="font-medium" style="color: var(--indigo-800);">AI生成提示词池</span>
+                                            <span id="poolStatsText" class="ml-2 text-sm" style="color: var(--color-primary);">(0 个已选)</span>
                                         </div>
                                         <div class="flex items-center space-x-2">
-                                            <select id="promptPoolMode" class="text-sm border border-blue-200 rounded px-2 py-1 bg-white">
+                                            <select id="promptPoolMode" class="text-sm border rounded px-2 py-1 bg-white" style="border-color: var(--indigo-100);">
                                                 <option value="random">智能随机</option>
                                                 <option value="rotation">健康轮换</option>
                                             </select>
@@ -1159,10 +1145,10 @@
                                     </div>
 
                                     <!-- 健康状态概览 -->
-                                    <div id="healthOverview" class="bg-white rounded-md p-3 mb-3 border border-blue-200">
+                                    <div id="healthOverview" class="bg-white rounded-md p-3 mb-3 border border-indigo-200" style="border-color: var(--indigo-100);">
                                         <div class="flex items-center justify-between mb-2">
                                             <span class="text-sm font-medium text-gray-700">健康状态概览</span>
-                                            <button id="healthSettingsBtn" class="text-xs text-blue-600 hover:text-blue-800">
+                                            <button id="healthSettingsBtn" class="text-xs text-indigo-600 hover:text-indigo-800" style="color: var(--color-primary);">
                                                 <iconify-icon icon="carbon:settings" width="14"></iconify-icon> 设置
                                             </button>
                                         </div>
@@ -1180,7 +1166,7 @@
                                                 <div class="text-gray-500">失活</div>
                                             </div>
                                             <div class="text-xs">
-                                                <div class="text-blue-600 font-medium" id="successRate">0%</div>
+                                                <div class="text-indigo-600 font-medium" id="successRate" style="color: var(--color-primary);">0%</div>
                                                 <div class="text-gray-500">成功率</div>
                                             </div>
                                         </div>
@@ -1239,7 +1225,7 @@
                                     <!-- 生成控制按钮 -->
                                     <div class="flex items-center justify-between">
                                         <div class="flex items-center space-x-3">
-                                            <button id="generateVariationsBtn" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm flex items-center disabled:opacity-50 disabled:cursor-not-allowed">
+                                            <button id="generateVariationsBtn" class="px-4 py-2 text-white rounded-md transition-colors text-sm flex items-center disabled:opacity-50 disabled:cursor-not-allowed" style="background-color: var(--color-primary);">
                                                 <iconify-icon icon="carbon:ai-status" class="mr-2" width="16"></iconify-icon>
                                                 AI生成变体
                                             </button>
@@ -1282,13 +1268,13 @@
                 <div class="modern-card p-4 md:p-6">
                     <div class="section-header justify-between">
                         <h2 class="section-title">
-                            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 text-white flex items-center justify-center mr-3 shadow-md shadow-blue-500/20">
+                            <div class="w-9 h-9 rounded-xl text-white flex items-center justify-center mr-3 shadow-md" style="background: var(--color-primary); box-shadow: var(--shadow-sm);">
                                 <iconify-icon icon="carbon:cloud-upload" width="20"></iconify-icon>
                             </div>
                             文件上传
                         </h2>
                         <label id="batchModeToggleWrapper" class="hidden flex items-center space-x-2 text-sm text-slate-600 bg-slate-100 px-3 py-1.5 rounded-full cursor-pointer hover:bg-slate-200 transition-colors">
-                            <input type="checkbox" id="batchModeToggle" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4">
+                            <input type="checkbox" id="batchModeToggle" class="rounded border-slate-300 focus:ring-indigo-500 h-4 w-4" style="color: var(--color-primary); accent-color: var(--color-primary);">
                             <span class="select-none font-medium">批量模式</span>
                         </label>
                     </div>
@@ -1298,7 +1284,7 @@
                         <input type="file" id="pdfFileInput" accept=".pdf,.md,.txt,.docx,.pptx,.html,.htm,.epub,.yaml,.yml,.zip" class="hidden" multiple>
                         <input type="file" id="folderInput" class="hidden" webkitdirectory mozdirectory multiple>
 
-                        <div class="mx-auto mb-4 w-20 h-20 flex items-center justify-center rounded-full bg-blue-50 text-blue-500 group-hover:scale-110 group-hover:bg-blue-100 transition-all duration-300">
+                        <div class="mx-auto mb-4 w-20 h-20 flex items-center justify-center rounded-full transition-all duration-300" style="background-color: var(--indigo-50); color: var(--color-primary);">
                             <iconify-icon icon="carbon:cloud-upload" width="40"></iconify-icon>
                         </div>
                         <h3 class="text-lg font-semibold text-slate-700 mb-2">点击或拖拽文件到此处</h3>
@@ -1307,11 +1293,11 @@
                         </p>
 
                         <div class="flex flex-wrap justify-center gap-3">
-                            <button id="browseFilesBtn" class="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl hover:border-blue-500 hover:text-blue-600 transition-all flex items-center gap-2 font-medium shadow-sm">
+                            <button id="browseFilesBtn" class="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl hover:text-indigo-600 transition-all flex items-center gap-2 font-medium shadow-sm" style="border-color: var(--color-border-medium); color: var(--slate-700);">
                                 <iconify-icon icon="carbon:document-add" width="18"></iconify-icon>
                                 选择文件
                             </button>
-                            <button id="browseFolderBtn" class="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl hover:border-indigo-500 hover:text-indigo-600 transition-all flex items-center gap-2 font-medium shadow-sm">
+                            <button id="browseFolderBtn" class="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl hover:text-indigo-600 transition-all flex items-center gap-2 font-medium shadow-sm" style="border-color: var(--color-border-medium); color: var(--slate-700);">
                                 <iconify-icon icon="carbon:folder-add" width="18"></iconify-icon>
                                 选择文件夹
                             </button>
@@ -1352,10 +1338,10 @@
                     </div>
 
                     <!-- 批量配置 (保持原有逻辑，仅微调样式) -->
-                    <div id="batchModeConfig" class="hidden mt-4 border border-blue-100 bg-blue-50/30 rounded-xl overflow-hidden">
-                        <div class="flex items-center justify-between px-4 py-3 border-b border-blue-100">
-                            <span class="text-sm font-semibold text-blue-700">批量导出配置</span>
-                            <button type="button" id="batchModeConfigToggle" class="text-xs text-blue-600 hover:text-blue-700 flex items-center space-x-1">
+                    <div id="batchModeConfig" class="hidden mt-4 border rounded-xl overflow-hidden" style="border-color: var(--indigo-100); background-color: var(--indigo-50);">
+                        <div class="flex items-center justify-between px-4 py-3 border-b" style="border-color: var(--indigo-100);">
+                            <span class="text-sm font-semibold" style="color: var(--indigo-700);">批量导出配置</span>
+                            <button type="button" id="batchModeConfigToggle" class="text-xs hover:opacity-80 flex items-center space-x-1" style="color: var(--color-primary);">
                                 <iconify-icon id="batchModeConfigToggleIcon" icon="carbon:chevron-down" width="14"></iconify-icon>
                                 <span id="batchModeConfigToggleLabel">展开设置</span>
                             </button>
@@ -1364,7 +1350,7 @@
                             <div class="flex flex-col md:flex-row md:items-start md:space-x-6 space-y-4 md:space-y-0">
                                 <div class="flex-1 min-w-0">
                                     <label for="batchModeTemplate" class="block text-sm font-medium text-gray-700 mb-1">命名模板</label>
-                                    <input type="text" id="batchModeTemplate" class="w-full rounded-md border border-blue-200 bg-white px-3 py-2 text-sm text-gray-800 focus:border-blue-400 focus:ring-2 focus:ring-blue-200" placeholder="例如 {original_name}_{output_language}_{processing_time:YYYYMMDD-HHmmss}.{original_type}">
+                                    <input type="text" id="batchModeTemplate" class="w-full rounded-md border bg-white px-3 py-2 text-sm text-gray-800 focus:ring-2" placeholder="例如 {original_name}_{output_language}_{processing_time:YYYYMMDD-HHmmss}.{original_type}" style="border-color: var(--indigo-200); outline-color: var(--color-primary);">
                                     <p class="text-xs text-gray-600 mt-2 leading-4">
                                         可用变量：<span class="font-mono text-[11px]">{original_name}</span>、<span class="font-mono text-[11px]">{original_type}</span>、<span class="font-mono text-[11px]">{output_language}</span>、<span class="font-mono text-[11px]">{processing_time}</span> (支持 <span class="font-mono text-[11px]">{processing_time:YYYYMMDD-HHmmss}</span> 等格式)。
                                     </p>
@@ -1373,24 +1359,24 @@
                                     <span class="block text-sm font-medium text-gray-700 mb-1">批量导出格式</span>
                                     <div class="flex flex-wrap items-center gap-3 text-sm text-gray-700">
                                         <label class="inline-flex items-center space-x-2">
-                                            <input type="checkbox" data-batch-format="original" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" checked>
+                                            <input type="checkbox" data-batch-format="original" class="rounded border-gray-300 focus:ring-indigo-500" checked style="color: var(--color-primary); accent-color: var(--color-primary);">
                                             <span>原格式</span>
                                         </label>
                                         <label class="inline-flex items-center space-x-2">
-                                            <input type="checkbox" data-batch-format="markdown" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" checked>
+                                            <input type="checkbox" data-batch-format="markdown" class="rounded border-gray-300 focus:ring-indigo-500" checked style="color: var(--color-primary); accent-color: var(--color-primary);">
                                             <span>Markdown</span>
                                         </label>
                                         <label class="inline-flex items-center space-x-2">
-                                            <input type="checkbox" data-batch-format="html" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                            <input type="checkbox" data-batch-format="html" class="rounded border-gray-300 focus:ring-indigo-500" style="color: var(--color-primary); accent-color: var(--color-primary);">
                                             <span>HTML</span>
                                         </label>
                                         <label class="inline-flex items-center space-x-2">
-                                            <input type="checkbox" data-batch-format="docx" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                            <input type="checkbox" data-batch-format="docx" class="rounded border-gray-300 focus:ring-indigo-500" style="color: var(--color-primary); accent-color: var(--color-primary);">
                                             <span>DOCX</span>
                                         </label>
-                                        <span class="hidden w-px h-4 bg-blue-100 md:block"></span>
+                                        <span class="hidden w-px h-4 md:block" style="background-color: var(--indigo-100);"></span>
                                         <label class="inline-flex items-center space-x-2">
-                                            <input type="checkbox" id="batchModeZipToggle" data-batch-zip class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                            <input type="checkbox" id="batchModeZipToggle" data-batch-zip class="rounded border-gray-300 focus:ring-indigo-500" style="color: var(--color-primary); accent-color: var(--color-primary);">
                                             <span>导出时打包为 ZIP</span>
                                         </label>
                                     </div>
@@ -1419,7 +1405,7 @@
 
                 <!-- 处理按钮 -->
                 <div class="flex justify-center mt-8 mb-12">
-                    <button id="processBtn" class="btn-primary-large px-10 py-4 text-lg font-semibold text-white rounded-2xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-3 hover:scale-[1.02] active:scale-[0.98]">
+                    <button id="processBtn" class="btn-primary-large px-10 py-4 text-lg font-semibold text-white rounded-2xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-3 hover:scale-[1.02] active:scale-[0.98]" style="background: var(--color-primary);">
                         <iconify-icon icon="carbon:rocket" width="24"></iconify-icon>
                         <span>开始智能处理</span>
                     </button>
@@ -1438,7 +1424,7 @@
             <div id="progressSection" class="modern-card p-4 md:p-6 hidden">
                 <div class="section-header">
                     <h2 class="section-title">
-                        <div class="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center mr-3">
+                        <div class="w-8 h-8 rounded-lg flex items-center justify-center mr-3" style="background-color: var(--indigo-100); color: var(--color-primary);">
                             <iconify-icon icon="carbon:progress-bar-round" width="20"></iconify-icon>
                         </div>
                         处理进度
@@ -1456,10 +1442,10 @@
                     <div>
                         <div class="flex justify-between mb-2">
                             <span id="progressStep" class="text-sm font-medium text-slate-700">等待开始...</span>
-                            <span id="progressPercentage" class="text-sm font-bold text-blue-600">0%</span>
+                            <span id="progressPercentage" class="text-sm font-bold" style="color: var(--color-primary);">0%</span>
                         </div>
                         <div class="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
-                            <div id="progressBar" class="bg-gradient-to-r from-blue-500 to-indigo-600 h-full rounded-full transition-all duration-300" style="width: 0%"></div>
+                            <div id="progressBar" class="h-full rounded-full transition-all duration-300" style="width: 0%; background: var(--color-primary);"></div>
                         </div>
                     </div>
 
@@ -1518,8 +1504,8 @@
     <div id="notification-container" class="fixed top-4 right-4 z-50 flex flex-col items-end space-y-2 pointer-events-none max-w-lg"></div>
 
     <!-- 悬浮历史记录按钮 -->
-    <button id="floatingHistoryBtn" class="floating-history-btn" title="查看历史记录">
-        <iconify-icon icon="carbon:time" width="24"></iconify-icon>
+    <button id="floatingHistoryBtn" class="floating-history-btn tiny-round-btn" title="查看历史记录">
+        <iconify-icon icon="carbon:time"></iconify-icon>
     </button>
 
     <!-- ===================== -->
@@ -1706,7 +1692,7 @@
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[85vh] flex flex-col overflow-hidden border border-slate-100">
         <div class="flex justify-between items-center p-5 border-b border-slate-100 bg-slate-50/50">
           <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
+              <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background-color: var(--indigo-100); color: var(--color-primary);">
                   <iconify-icon icon="carbon:time" width="24"></iconify-icon>
               </div>
               <div>
@@ -1722,7 +1708,7 @@
           <aside class="hidden md:flex w-64 shrink-0 border-r border-slate-100 bg-slate-50 p-4 flex-col" id="historySidebar">
             <div class="flex items-center justify-between mb-4">
               <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">文件夹</span>
-              <button id="historyAddFolderBtn" class="text-blue-600 hover:bg-blue-50 p-1.5 rounded-md transition-colors" title="新建文件夹">
+              <button id="historyAddFolderBtn" class="hover:bg-slate-100 p-1.5 rounded-md transition-colors" title="新建文件夹" style="color: var(--color-primary);">
                 <iconify-icon icon="carbon:add" width="16"></iconify-icon>
               </button>
             </div>
@@ -1732,7 +1718,7 @@
             <!-- Mobile Folder Controls -->
             <div class="md:hidden mb-4 flex gap-2">
                  <select id="historyFolderSelectMobile" class="flex-1 rounded-xl border-slate-200 text-sm py-2 pl-3 pr-8"></select>
-                 <button id="historyAddFolderBtnMobile" class="p-2 border border-slate-200 rounded-xl text-blue-600"><iconify-icon icon="carbon:add" width="20"></iconify-icon></button>
+                 <button id="historyAddFolderBtnMobile" class="p-2 border border-slate-200 rounded-xl" style="color: var(--color-primary);"><iconify-icon icon="carbon:add" width="20"></iconify-icon></button>
                  <button id="historyRenameFolderBtnMobile" class="p-2 border border-slate-200 rounded-xl text-slate-600"><iconify-icon icon="carbon:edit" width="20"></iconify-icon></button>
                  <button id="historyDeleteFolderBtnMobile" class="p-2 border border-slate-200 rounded-xl text-red-500"><iconify-icon icon="carbon:trash-can" width="20"></iconify-icon></button>
             </div>
@@ -1740,7 +1726,7 @@
             <div class="mb-4 relative">
                 <iconify-icon icon="carbon:search" class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" width="20"></iconify-icon>
                 <input id="historySearchInput" type="search" placeholder="搜索文档标题、内容或 OCR 结果..."
-                       class="w-full pl-11 pr-4 py-3 bg-slate-50 border-transparent rounded-xl focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all text-sm">
+                       class="w-full pl-11 pr-4 py-3 bg-slate-50 border-transparent rounded-xl focus:bg-white focus:ring-2 transition-all text-sm" style="border-color: var(--color-border-medium); outline-color: var(--color-primary);">
             </div>
 
             <div id="historyList" class="flex-1 overflow-y-auto space-y-3 pr-1"></div>
@@ -1831,7 +1817,7 @@
         <div class="p-5 flex flex-col flex-1 min-h-0 gap-4">
           <div class="relative shrink-0">
             <iconify-icon icon="carbon:search" class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" width="20"></iconify-icon>
-            <input id="modelSearchInput" type="search" class="w-full pl-11 pr-4 py-3 bg-slate-50 border-transparent rounded-xl focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all text-sm" placeholder="输入关键词搜索模型..." autocomplete="off" />
+            <input id="modelSearchInput" type="search" class="w-full pl-11 pr-4 py-3 bg-slate-50 border-transparent rounded-xl focus:bg-white focus:ring-2 transition-all text-sm" placeholder="输入关键词搜索模型..." autocomplete="off" style="border-color: var(--color-border-medium); outline-color: var(--color-primary);">
           </div>
           <div class="flex-1 overflow-y-auto min-h-0 -mr-2 pr-2">
             <div id="modelSearchList" class="space-y-2">
@@ -1905,22 +1891,22 @@
             <p class="text-sm md:text-base text-gray-700 font-normal">
               它为需要进行精细、长文本阅读的研究人员和深度学习者设计，致力于将复杂的文档处理、翻译和分析流程整合到单一、流畅的体验中。
             </p>
-            <div class="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-r-lg">
+            <div class="border-l-4 p-4 rounded-r-lg" style="background-color: var(--indigo-50); border-color: var(--color-primary);">
               <p class="text-sm text-gray-700">
-                <strong class="text-blue-700">GitHub:</strong> <a href="https://github.com/Feather-2/paper-burner" target="_blank" class="text-blue-600 hover:text-blue-700 underline">github.com/Feather-2/paper-burner</a><br>
-                <strong class="text-blue-700">在线体验:</strong> <a href="https://paperburner.viwoplus.site/" target="_blank" class="text-blue-600 hover:text-blue-700 underline">paperburner.viwoplus.site</a>
+                <strong style="color: var(--indigo-700);">GitHub:</strong> <a href="https://github.com/Feather-2/paper-burner" target="_blank" class="underline" style="color: var(--color-primary);">github.com/Feather-2/paper-burner</a><br>
+                <strong style="color: var(--indigo-700);">在线体验:</strong> <a href="https://paperburner.viwoplus.site/" target="_blank" class="underline" style="color: var(--color-primary);">paperburner.viwoplus.site</a>
               </p>
             </div>
           </div>
           <div>
-            <h3 class="text-base md:text-lg font-bold text-blue-700 mb-3 flex items-center">
-              <iconify-icon icon="carbon:checkmark-outline" class="mr-2 text-blue-500" width="20"></iconify-icon>
+            <h3 class="text-base md:text-lg font-bold mb-3 flex items-center" style="color: var(--indigo-700);">
+              <iconify-icon icon="carbon:checkmark-outline" class="mr-2" width="20" style="color: var(--color-primary);"></iconify-icon>
               目前实现了：
             </h3>
             <div class="space-y-4">
-              <div class="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg border border-blue-100">
+              <div class="bg-gradient-to-r to-slate-50 p-4 rounded-lg border" style="from: var(--indigo-50); border-color: var(--indigo-100);">
                 <h4 class="text-base font-semibold text-gray-800 mb-2 flex items-center">
-                  <iconify-icon icon="carbon:ai-status" class="mr-2 text-blue-600" width="18"></iconify-icon>
+                  <iconify-icon icon="carbon:ai-status" class="mr-2" width="18" style="color: var(--color-primary);"></iconify-icon>
                   前端 Agent 驱动的智能检索
                 </h4>
                 <p class="text-sm text-gray-700 leading-relaxed">
@@ -1951,8 +1937,8 @@
             </p>
           </div>
           <div>
-            <h3 class="text-base md:text-lg font-bold text-blue-700 mb-3 flex items-center">
-              <iconify-icon icon="carbon:document" class="mr-2 text-blue-500" width="20"></iconify-icon>
+            <h3 class="text-base md:text-lg font-bold mb-3 flex items-center" style="color: var(--indigo-700);">
+              <iconify-icon icon="carbon:document" class="mr-2" width="20" style="color: var(--color-primary);"></iconify-icon>
               具体介绍
             </h3>
             <div class="space-y-4">
@@ -1987,8 +1973,8 @@
             </div>
           </div>
           <div>
-            <h3 class="text-base md:text-lg font-bold text-blue-700 mb-3 flex items-center">
-              <iconify-icon icon="carbon:road" class="mr-2 text-blue-500" width="20"></iconify-icon>
+            <h3 class="text-base md:text-lg font-bold mb-3 flex items-center" style="color: var(--indigo-700);">
+              <iconify-icon icon="carbon:road" class="mr-2" width="20" style="color: var(--color-primary);"></iconify-icon>
               项目正在活跃地迭代
             </h3>
             <ul class="list-disc pl-5 text-sm text-gray-600 space-y-2 leading-relaxed">
@@ -2002,20 +1988,20 @@
               基于 AGPL 3.0 开源
             </h3>
             <p class="text-sm text-gray-600 leading-relaxed">
-              本项目基于 <a href="https://github.com/baoyudu/paper-burner" target="_blank" class="text-blue-600 hover:text-blue-700 underline">baoyudu/paper-burner</a>（该项目是基于mistral ocr的pdf极简翻译工具），并已在原始项目上进行了重构和各方面极多内容的扩充。为避免和Paper Burner原项目名称产生重复，为示尊重和区分，该分支项目改名Paper Burner X。
+              本项目基于 <a href="https://github.com/baoyudu/paper-burner" target="_blank" class="underline" style="color: var(--color-primary);">baoyudu/paper-burner</a>（该项目是基于mistral ocr的pdf极简翻译工具），并已在原始项目上进行了重构和各方面极多内容的扩充。为避免和Paper Burner原项目名称产生重复，为示尊重和区分，该分支项目改名Paper Burner X。
             </p>
           </div>
-          <div class="border-t-2 border-dashed border-blue-200 pt-5 mt-5 text-center space-y-3">
+          <div class="border-t-2 border-dashed pt-5 mt-5 text-center space-y-3" style="border-color: var(--indigo-200);">
             <p class="text-sm md:text-base text-gray-600 font-normal">探索本分支的更多细节或贡献您的智慧：</p>
-            <a href="https://github.com/Feather-2/paper-burner" target="_blank" class="main-btn inline-flex items-center justify-center px-7 py-3 text-sm md:text-base font-bold shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+            <a href="https://github.com/Feather-2/paper-burner" target="_blank" class="main-btn inline-flex items-center justify-center px-7 py-3 text-sm md:text-base font-bold shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2" style="background-color: var(--color-primary); color: white;">
               <iconify-icon icon="carbon:logo-github" class="mr-2" width="20"></iconify-icon>
               访问新分支 (Feather-2/paper-burner)
             </a>
             <p class="text-xs text-gray-400 font-normal pt-1">
-              您的每一个建议对我们都至关重要！欢迎前往新分支的 <a href="https://github.com/Feather-2/paper-burner/issues" target="_blank" class="text-blue-600 hover:text-blue-700 underline font-semibold">Issue 区</a> 分享您的想法或参与讨论。
+              您的每一个建议对我们都至关重要！欢迎前往新分支的 <a href="https://github.com/Feather-2/paper-burner/issues" target="_blank" class="underline font-semibold" style="color: var(--color-primary);">Issue 区</a> 分享您的想法或参与讨论。
             </p>
             <p class="text-xs text-gray-400 italic">
-              致敬 <a href="https://github.com/baoyudu/paper-burner" target="_blank" class="text-blue-500 hover:text-blue-600 underline">Paper Burner</a> 开源项目，Paper Burner X 在社区基础上持续扩展与迭代。
+              致敬 <a href="https://github.com/baoyudu/paper-burner" target="_blank" class="underline" style="color: var(--color-primary);">Paper Burner</a> 开源项目，Paper Burner X 在社区基础上持续扩展与迭代。
             </p>
           </div>
         </div>

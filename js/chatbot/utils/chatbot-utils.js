@@ -198,8 +198,33 @@ function inlineKatexStyles(container) {
     ];
 
     const inlineStyles = [];
+    const existing = el.getAttribute('style') || '';
+
+    // Special fix for html2canvas vertical alignment issue
+    const verticalAlign = computed.getPropertyValue('vertical-align');
+    if (verticalAlign && verticalAlign.endsWith('em')) {
+        // Convert vertical-align to relative positioning for html2canvas
+        const val = parseFloat(verticalAlign);
+        if (!isNaN(val) && val !== 0) {
+            // Negative vertical-align means "down", so positive top
+            // However, html2canvas often renders text slightly lower, making elements look "high"
+            // Experimentally, we add a small offset if it's baseline aligned or negative
+            // Phase 10.15: 终极调整
+            // 用户反馈"好了点，但还没完全好"，且"不够朝下"
+            // 1. 进一步加大 KaTeX 下沉倍率到 1.7 (从 1.4)
+
+            inlineStyles.push(`position: relative`);
+            inlineStyles.push(`top: ${-1 * val * 1.7}em`);
+            inlineStyles.push(`vertical-align: baseline`); // 保持基线重置
+        }
+    }
+
     critical.forEach(prop => {
       const value = computed.getPropertyValue(prop);
+      // Skip vertical-align if we handled it above, or just let it be overwritten if we push it?
+      // Actually, let's just copy everything else.
+      if (prop === 'vertical-align') return;
+
       if (value && value !== 'auto' && value !== 'normal' && value !== 'none' && value !== '0px' && value !== 'rgba(0, 0, 0, 0)') {
         inlineStyles.push(`${prop}: ${value}`);
       }
@@ -357,7 +382,10 @@ function doActualExport(messageElement) {
   exportContainer.style.boxSizing = 'border-box';
   exportContainer.style.color = '#111827';
   exportContainer.style.fontSize = '15px';
-  exportContainer.style.lineHeight = '1.5';
+  exportContainer.style.lineHeight = '1.6';
+  // 显式设置字体，确保 html2canvas 渲染时度量一致
+  // 使用与 variables.css 中 --font-family-base 一致的字体栈
+  exportContainer.style.fontFamily = 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
   exportContainer.style.overflow = 'visible';
   exportContainer.style.height = 'auto';
 
@@ -395,7 +423,7 @@ function doActualExport(messageElement) {
       list.style.paddingLeft = computed.paddingLeft;
       list.style.marginBottom = computed.marginBottom;
       list.style.listStyleType = computed.listStyleType;
-      list.style.listStylePosition = computed.listStylePosition || 'outside';
+      list.style.listStylePosition = 'inside'; // 改回 inside
     }
   });
 
@@ -407,6 +435,13 @@ function doActualExport(messageElement) {
       li.style.display = 'list-item';
       li.style.lineHeight = computed.lineHeight;
       li.style.marginBottom = computed.marginBottom;
+      // Fix for list number alignment:
+      // Phase 10.15: 继续微调
+      // 1. 保持 line-height 1.6 和 vertical-align baseline
+      // 2. 加大 padding-top 到 4px，确保明显下移
+      li.style.lineHeight = '1.6';
+      li.style.verticalAlign = 'baseline';
+      li.style.paddingTop = '4px'; // 加大物理下推力度
     }
   });
 
@@ -414,7 +449,7 @@ function doActualExport(messageElement) {
   const inlineContainers = exportContainer.querySelectorAll('.katex-inline, [data-formula-display="inline"]');
   inlineContainers.forEach(container => {
     container.style.display = 'inline';
-    container.style.verticalAlign = 'baseline';
+    // container.style.verticalAlign = 'baseline'; // 移除强制基线对齐，保留 KaTeX 原生对齐 (通常是负值)
     container.style.margin = '0 2px';
   });
 
