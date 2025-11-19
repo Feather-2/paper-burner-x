@@ -754,16 +754,24 @@
                         } else {
                             // 表头列数多，分隔符列数少 → 给分隔符添加列
                             let fixedSep = line;
-                            while ((fixedSep.match(/\|/g) || []).length < prevPipes) {
+                            let iterationCount = 0;
+                            const maxIterations = 100; // 防止死循环
+                            while ((fixedSep.match(/\|/g) || []).length < prevPipes && iterationCount < maxIterations) {
                                 // 在结尾 | 之前添加 ---
                                 if (fixedSep.endsWith('|')) {
                                     fixedSep = fixedSep.slice(0, -1) + '---|';
                                 } else {
                                     fixedSep += '---|';
                                 }
+                                iterationCount++;
                             }
-                            console.log(`[MarkdownProcessorAST] 修复分隔符：从 ${currPipes} 列增加到 ${prevPipes} 列`);
-                            fixedLines.push(fixedSep);
+                            if (iterationCount >= maxIterations) {
+                                console.warn(`[MarkdownProcessorAST] 修复分隔符时达到最大迭代次数，跳过该行`);
+                                fixedLines.push(line); // 使用原始行
+                            } else {
+                                console.log(`[MarkdownProcessorAST] 修复分隔符：从 ${currPipes} 列增加到 ${prevPipes} 列`);
+                                fixedLines.push(fixedSep);
+                            }
                             continue;
                         }
                     }
@@ -830,8 +838,13 @@
     function extractAllRows(text, pipesPerRow) {
         const rows = [];
         let remaining = text.trim();
+        let iterationCount = 0;
+        const maxIterations = 10000; // 防止死循环（大文档可能有很多行）
 
-        while (remaining.length > 0) {
+        while (remaining.length > 0 && iterationCount < maxIterations) {
+            iterationCount++;
+            const previousLength = remaining.length;
+
             // 跳过开头的空白和单个 |
             remaining = remaining.trimStart();
             if (remaining.startsWith('|')) {
@@ -857,6 +870,12 @@
 
             // 移动到下一行
             remaining = remaining.substring(result.endIndex).trim();
+
+            // 检测是否有进展（防止死循环）
+            if (remaining.length >= previousLength) {
+                console.error('[MarkdownProcessorAST] extractAllRows 检测到无进展，退出循环');
+                break;
+            }
 
             // 防止无限循环
             if (rows.length > 100) {
