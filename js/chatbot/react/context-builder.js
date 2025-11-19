@@ -6,6 +6,19 @@
 
   class ContextBuilder {
     /**
+     * 简单字符串哈希（用于内容去重）
+     */
+    static simpleHash(str) {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32bit integer
+      }
+      return hash.toString(36);
+    }
+
+    /**
      * 构建初始上下文（改进策略：包含文档摘要）
      * @param {Object} docContent - 文档内容对象
      * @returns {string} 初始上下文
@@ -66,12 +79,14 @@
     }
 
     /**
-     * 格式化工具结果为上下文
+     * 格式化工具结果为上下文（支持去重）
      * @param {string} toolName - 工具名称
      * @param {Object} result - 工具执行结果
+     * @param {Set} seenHashes - 已见过的内容哈希
+     * @param {Map} seenSummaries - 哈希 -> 摘要映射
      * @returns {string} 格式化后的上下文
      */
-    static formatToolResult(toolName, result) {
+    static formatToolResult(toolName, result, seenHashes = new Set(), seenSummaries = new Map()) {
       const parts = [`【工具: ${toolName}】`];
 
       if (!result.success) {
@@ -103,9 +118,29 @@
         case 'grep':
           parts.push(`找到 ${result.count || 0} 处匹配:`);
           if (result.matches && result.matches.length > 0) {
-            result.matches.slice(0, 5).forEach((m, idx) => {
-              parts.push(`${idx + 1}. ${(m.preview || '').slice(0, 300)}`);
+            let newCount = 0;
+            let duplicateCount = 0;
+
+            result.matches.slice(0, 10).forEach((m) => {
+              const preview = (m.preview || '').slice(0, 300);
+              const hash = this.simpleHash(preview);
+
+              if (seenHashes.has(hash)) {
+                // 已见过此内容，只显示引用
+                duplicateCount++;
+              } else {
+                // 新内容，展示并记录
+                newCount++;
+                seenHashes.add(hash);
+                const summary = preview.slice(0, 80) + '...';
+                seenSummaries.set(hash, summary);
+                parts.push(`${newCount}. ${preview}`);
+              }
             });
+
+            if (duplicateCount > 0) {
+              parts.push(`\n[已省略 ${duplicateCount} 个重复片段]`);
+            }
           }
           break;
 

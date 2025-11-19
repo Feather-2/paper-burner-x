@@ -19,6 +19,10 @@
       // 文档状态（由 buildInitialContext 设置）
       this.hasSemanticGroups = false;
       this.hasVectorIndex = false;
+
+      // 去重：记录已检索过的内容片段（避免重复展示）
+      this.seenContentHashes = new Set();
+      this.seenContentSummaries = new Map(); // hash -> summary
     }
 
     /**
@@ -445,9 +449,14 @@
             };
           }
 
-          // 更新上下文
+          // 更新上下文（支持去重）
           for (const call of completedCalls) {
-            const newContext = window.ContextBuilder.formatToolResult(call.tool, call.result);
+            const newContext = window.ContextBuilder.formatToolResult(
+              call.tool,
+              call.result,
+              this.seenContentHashes,
+              this.seenContentSummaries
+            );
             context += '\n\n' + newContext;
 
             toolResults.push({
