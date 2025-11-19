@@ -80,10 +80,12 @@
       parts.push('   - 不要反复调用已失败的工具');
       parts.push('   - 示例：`keyword_search` 失败建议用 `grep` → 下一轮只用 `grep`');
       parts.push('');
-      parts.push('4. **利用已检索到的信息**：');
+      parts.push('4. **利用已检索到的信息**（CRITICAL）：');
       parts.push('   - 如果工具返回了有效内容，立即分析并基于此内容决策');
       parts.push('   - 不要忽略已获得的信息继续盲目搜索');
       parts.push('   - 示例：第一轮 grep 找到了摘要内容 → 直接分析，不要再搜索同样的东西');
+      parts.push('   - **CRITICAL**: 如果你在 Observation 中看到了文档内容（标题、摘要、正文等），这意味着文档已成功加载');
+      parts.push('   - **禁止说谎**: 不要说"文档内容尚未加载"如果 Observation 中明显包含文档内容');
       parts.push('');
       parts.push('5. **禁止的行为**：');
       parts.push('   - ❌ 不要在第一轮就返回 `action: "answer"`');
@@ -91,11 +93,12 @@
       parts.push('   - ❌ 不要说"当前信息不足"而不调用工具');
       parts.push('   - ❌ 不要基于一般知识或假设回答');
       parts.push('   - ❌ 不要在一轮调用 4-5 个相同功能的工具（浪费资源）');
+      parts.push('   - ❌ **绝对禁止**: 不要在检索到内容后还说"文档内容尚未加载"');
       parts.push('');
       parts.push('6. **正确的流程**：');
       parts.push('   - ✓ 第一轮：使用 1-2 个工具检索（grep 优先）');
       parts.push('   - ✓ 第二轮：分析结果，如果足够则回答，否则补充检索');
-      parts.push('   - ✓ 最后：基于检索到的实际内容给出答案');
+      parts.push('   - ✓ 最后：基于检索到的实际内容给出答案（即使只有部分信息）');
       parts.push('');
 
       // 5. 响应格式

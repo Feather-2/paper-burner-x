@@ -134,7 +134,7 @@
     }
 
     /**
-     * 分析信息充足性
+     * 分析信息充足性（修复：支持 grep 的 matches 字段）
      */
     analyzeInformationSufficiency(toolResults, question) {
       if (toolResults.length === 0) return 'insufficient';
@@ -142,26 +142,75 @@
       // 计算总检索内容长度
       let totalContentLength = 0;
       let successfulCalls = 0;
+      let itemsFound = 0;
 
       for (const result of toolResults) {
-        if (result.result && result.result.success && result.result.results) {
-          totalContentLength += JSON.stringify(result.result.results).length;
-          if (result.result.results.length > 0) {
-            successfulCalls++;
-          }
+        if (!result.result || !result.result.success) continue;
+
+        // 支持不同工具的返回格式
+        let items = null;
+        if (result.result.results) {
+          // vector_search, keyword_search, search_semantic_groups
+          items = result.result.results;
+        } else if (result.result.matches) {
+          // grep, regex_search
+          items = result.result.matches;
+        } else if (result.result.text) {
+          // fetch, fetch_group_text
+          items = [{ text: result.result.text }];
+        }
+
+        if (items && items.length > 0) {
+          totalContentLength += JSON.stringify(items).length;
+          successfulCalls++;
+          itemsFound += items.length;
         }
       }
 
-      console.log(`[ReActEngine] 信息充足性分析 - 总内容长度: ${totalContentLength}, 成功调用: ${successfulCalls}/${toolResults.length}`);
+      console.log(`[ReActEngine] 信息充足性分析 - 总内容长度: ${totalContentLength}, 成功调用: ${successfulCalls}/${toolResults.length}, 检索到 ${itemsFound} 条结果`);
 
-      // 启发式判断
-      if (successfulCalls >= 2 && totalContentLength > 2000) {
+      // 启发式判断（更宽松的阈值，因为去重后内容会减少）
+      if (successfulCalls >= 2 && totalContentLength > 1500) {
         return 'likely_sufficient'; // 很可能足够
-      } else if (successfulCalls >= 1 && totalContentLength > 1000) {
+      } else if (successfulCalls >= 1 && totalContentLength > 800) {
         return 'maybe_sufficient'; // 可能足够
       } else {
         return 'insufficient'; // 不足
       }
+    }
+
+    /**
+     * 总结已检索的内容（用于警告提示）
+     */
+    summarizeRetrievedContent(toolResults) {
+      const summaryParts = [];
+      let totalItems = 0;
+
+      for (const result of toolResults) {
+        if (!result.result || !result.result.success) continue;
+
+        const tool = result.tool;
+        let count = 0;
+
+        if (result.result.results) {
+          count = result.result.results.length;
+        } else if (result.result.matches) {
+          count = result.result.matches.length;
+        } else if (result.result.text) {
+          count = 1;
+        }
+
+        if (count > 0) {
+          totalItems += count;
+          summaryParts.push(`${count} items from ${tool}`);
+        }
+      }
+
+      if (summaryParts.length === 0) {
+        return 'No content retrieved yet';
+      }
+
+      return `${totalItems} total items (${summaryParts.join(', ')})`;
     }
 
     /**
@@ -246,16 +295,26 @@
         console.log('[ReActEngine] 检测到空结果，添加提示');
       }
 
-      // 检测 4：信息充足性
+      // 检测 4：信息充足性（强化版 - 明确告诉 LLM 已检索到什么）
       const sufficiency = this.analyzeInformationSufficiency(toolResults, question);
-      if (sufficiency === 'likely_sufficient') {
-        warnings.push(`💡 You have retrieved substantial information (${toolResults.length} successful tool calls, significant content). Consider whether you can answer the question now.`);
-        console.log('[ReActEngine] 信息可能充足，添加提示');
+      if (sufficiency === 'likely_sufficient' || sufficiency === 'maybe_sufficient') {
+        const summary = this.summarizeRetrievedContent(toolResults);
+        warnings.push(`💡 INFORMATION RETRIEVED SUMMARY:`);
+        warnings.push(`   - You have made ${toolResults.length} tool calls`);
+        warnings.push(`   - Retrieved content includes: ${summary}`);
+        warnings.push(`   - CRITICAL: Review the "当前已知信息" section above`);
+        warnings.push(`   - If the information is sufficient to answer the question, provide an answer NOW`);
+        warnings.push(`   - DO NOT say "文档内容尚未加载" if you can see content above`);
+        console.log('[ReActEngine] 信息可能充足，添加强化提示');
       }
 
       // 检测 5：接近迭代上限
       if (iteration >= this.maxIterations - 1) {
-        warnings.push(`🚨 You are approaching the iteration limit (${iteration}/${this.maxIterations}). If you have sufficient information, provide an answer NOW.`);
+        warnings.push(`🚨 FINAL ITERATION WARNING:`);
+        warnings.push(`   - This is iteration ${iteration}/${this.maxIterations}`);
+        warnings.push(`   - You MUST provide an answer based on available information`);
+        warnings.push(`   - Even partial information is better than no answer`);
+        warnings.push(`   - DO NOT end without attempting to answer`);
         console.log('[ReActEngine] 接近迭代上限，添加紧急警告');
       }
 
