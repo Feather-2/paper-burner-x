@@ -19,18 +19,26 @@
         }
 
         /**
-         * 初始化 Web Worker
+         * 初始化 Web Worker（使用 Blob URL 支持 file:// 协议）
          */
         initWorker() {
             try {
-                this.worker = new Worker('js/workers/katex-worker.js');
+                // 创建内联 Worker 代码（Blob URL 方案，支持 file:// 协议）
+                const workerCode = this.getWorkerCode();
+                const blob = new Blob([workerCode], { type: 'application/javascript' });
+                const workerUrl = URL.createObjectURL(blob);
+
+                this.worker = new Worker(workerUrl);
+
+                // 清理 Blob URL（Worker 已创建，不再需要）
+                URL.revokeObjectURL(workerUrl);
 
                 this.worker.onmessage = (e) => {
                     const { type } = e.data;
 
                     if (type === 'ready') {
                         this.workerReady = true;
-                        console.log('[FormulaPostProcessorAsync] Worker ready');
+                        console.log('[FormulaPostProcessorAsync] Worker ready (Blob URL)');
                         return;
                     }
 
@@ -59,6 +67,94 @@
                 console.warn('[FormulaPostProcessorAsync] Failed to create Worker, falling back to sync:', error);
                 this.workerReady = false;
             }
+        }
+
+        /**
+         * 获取 Worker 代码（内联版本，避免 file:// 协议限制）
+         */
+        getWorkerCode() {
+            return `
+'use strict';
+
+// 导入 KaTeX 库
+try {
+    importScripts('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js');
+} catch (error) {
+    self.postMessage({ type: 'error', error: 'Failed to load KaTeX library' });
+}
+
+// 修复公式错误
+function fixFormulaErrors(formula, isDisplay) {
+    let fixed = formula;
+    if (!isDisplay && /\\\\tag\\{[^}]*\\}/.test(fixed)) {
+        fixed = fixed.replace(/\\\\tag\\{[^}]*\\}/g, '');
+    }
+    if (/\\\\;\\s*\\^\\\\circ/.test(fixed)) {
+        fixed = fixed.replace(/\\\\;\\s*\\^\\\\circ/g, '\\\\,^{\\\\circ}');
+    }
+    if (/\\\\;\\s*\\^([^{])/.test(fixed)) {
+        fixed = fixed.replace(/\\\\;\\s*\\^([^{])/g, (match, char) => \`\\\\,^{\${char}}\`);
+    }
+    if (/\\{\\{/.test(fixed)) {
+        while (/\\{\\{/.test(fixed)) {
+            fixed = fixed.replace(/\\{\\{([^}]*)\\}\\}/g, '{$1}');
+        }
+    }
+    if (/\\\\mathrm\\{[^}]*\\\\;[^}]*\\^\\s*\\\\circ[^}]*\\}/.test(fixed)) {
+        fixed = fixed.replace(/\\\\mathrm\\{\\s*\\\\;\\s*\\^\\s*\\\\circ\\s+([^}]+)\\}/g, '\\\\,^{\\\\circ}\\\\mathrm{$1}');
+    }
+    fixed = fixed.replace(/\\^([a-zA-Z]{2,})/g, '^{$1}');
+    return fixed.trim();
+}
+
+// 渲染单个公式
+function renderFormula(id, formula, options) {
+    try {
+        if (typeof katex === 'undefined') {
+            throw new Error('KaTeX is not available');
+        }
+        const fixed = fixFormulaErrors(formula, options.displayMode || false);
+        const html = katex.renderToString(fixed, {
+            displayMode: options.displayMode || false,
+            throwOnError: false,
+            strict: 'ignore',
+            output: 'html',
+            ...options
+        });
+        return { type: 'success', id, html, originalFormula: formula };
+    } catch (error) {
+        return {
+            type: 'error',
+            id,
+            error: error.message,
+            originalFormula: formula,
+            html: \`<span class="katex-fallback" title="\${error.message}">\${formula}</span>\`
+        };
+    }
+}
+
+// 批量渲染
+function renderBatch(batchId, formulas) {
+    const results = formulas.map(item => renderFormula(item.id, item.formula, item.options || {}));
+    return { type: 'batch_complete', batchId, results };
+}
+
+// 消息处理
+self.onmessage = function(e) {
+    const { type, id, formula, options, batchId, formulas } = e.data;
+    if (type === 'render') {
+        self.postMessage(renderFormula(id, formula, options || {}));
+    } else if (type === 'batch') {
+        self.postMessage(renderBatch(batchId, formulas));
+    } else if (type === 'ping') {
+        self.postMessage({ type: 'pong' });
+    } else {
+        self.postMessage({ type: 'error', error: \`Unknown message type: \${type}\` });
+    }
+};
+
+self.postMessage({ type: 'ready' });
+            `.trim();
         }
 
         /**
