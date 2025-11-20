@@ -280,6 +280,9 @@
             const modal = document.getElementById('reference-manager-modal');
             if (modal) {
                 modal.style.display = 'flex';
+                // 锁定背景滚动，避免模态框打开时页面抖动
+                this._prevBodyOverflow = document.body.style.overflow;
+                document.body.style.overflow = 'hidden';
             }
         }
 
@@ -290,6 +293,10 @@
             const modal = document.getElementById('reference-manager-modal');
             if (modal) {
                 modal.style.display = 'none';
+            }
+            if (this._prevBodyOverflow !== undefined) {
+                document.body.style.overflow = this._prevBodyOverflow;
+                this._prevBodyOverflow = undefined;
             }
         }
 
@@ -427,17 +434,17 @@
          * 更新统计信息
          */
         updateStats() {
-            const stats = global.ReferenceStorage.getStatistics(this.currentDocumentId);
-            if (!stats) return;
-
             const statsEl = document.getElementById('ref-stats');
-            if (statsEl) {
-                statsEl.innerHTML = `
-                    <span>总计: <strong>${stats.total}</strong></span>
-                    <span>已验证: <strong>${stats.withDOI}</strong></span>
-                    <span>有DOI: <strong>${stats.withDOI}</strong></span>
-                `;
-            }
+            if (!statsEl) return;
+
+            const total = this.references.length;
+            const withDOI = this.references.filter(ref => !!ref.doi).length;
+
+            statsEl.innerHTML = `
+                <span>总计: <strong>${total}</strong></span>
+                <span>已验证: <strong>${withDOI}</strong></span>
+                <span>有DOI: <strong>${withDOI}</strong></span>
+            `;
         }
 
         /**

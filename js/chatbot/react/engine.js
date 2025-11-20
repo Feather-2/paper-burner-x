@@ -19,6 +19,7 @@
       // 文档状态（由 buildInitialContext 设置）
       this.hasSemanticGroups = false;
       this.hasVectorIndex = false;
+      this.hasChunks = false;
 
       // 去重：记录已检索过的内容片段（避免重复展示）
       this.seenContentHashes = new Set();
@@ -38,8 +39,8 @@
     /**
      * 获取工具使用指南
      */
-    getToolGuidelines(hasSemanticGroups = false, hasVectorIndex = false) {
-      const availableTools = this.toolRegistry.getAvailableToolDefinitions(hasSemanticGroups, hasVectorIndex);
+    getToolGuidelines(hasSemanticGroups = false, hasVectorIndex = false, hasChunks = false) {
+      const availableTools = this.toolRegistry.getAvailableToolDefinitions(hasSemanticGroups, hasVectorIndex, hasChunks);
       const availableToolNames = availableTools.map(t => t.name).join(', ');
 
       console.log(`[ReActEngine] 可用工具(${availableTools.length}个): ${availableToolNames}`);
@@ -74,8 +75,26 @@
      */
     buildInitialContext(docContent) {
       // 检测文档状态
-      this.hasSemanticGroups = Array.isArray(docContent.semanticGroups) && docContent.semanticGroups.length > 0;
-      this.hasVectorIndex = !!(window.data?.vectorIndex || window.data?.semanticGroups);
+      this.hasSemanticGroups = (
+        (Array.isArray(docContent.semanticGroups) && docContent.semanticGroups.length > 0) ||
+        (Array.isArray(window.data?.semanticGroups) && window.data.semanticGroups.length > 0)
+      );
+      this.hasVectorIndex = !!(
+        docContent.vectorIndexReady ||
+        docContent.vectorIndex ||
+        window.data?.vectorIndexReady ||
+        window.data?.vectorIndex
+      );
+      this.hasChunks = !!(
+        (Array.isArray(docContent.translatedChunks) && docContent.translatedChunks.length > 0) ||
+        (Array.isArray(docContent.ocrChunks) && docContent.ocrChunks.length > 0) ||
+        (docContent.translation && docContent.translation.length > 0) ||
+        (docContent.ocr && docContent.ocr.length > 0) ||
+        (Array.isArray(window.data?.translatedChunks) && window.data.translatedChunks.length > 0) ||
+        (Array.isArray(window.data?.ocrChunks) && window.data.ocrChunks.length > 0) ||
+        (window.data?.translation && window.data.translation.length > 0) ||
+        (window.data?.ocr && window.data.ocr.length > 0)
+      );
 
       console.log('[ReActEngine] 文档状态 - 意群:', this.hasSemanticGroups, ', 向量:', this.hasVectorIndex);
 
@@ -327,7 +346,7 @@
       }
 
       // 4. 工具指南
-      parts.push(this.getToolGuidelines(this.hasSemanticGroups, this.hasVectorIndex));
+      parts.push(this.getToolGuidelines(this.hasSemanticGroups, this.hasVectorIndex, this.hasChunks));
       parts.push('');
 
       // 5. 决策提示（根据迭代轮次调整）
@@ -392,7 +411,9 @@
       while (iterations < this.maxIterations) {
         iterations++;
 
-        yield { type: 'iteration_start', iteration: iterations, maxIterations: this.maxIterations };
+        const iterationPayload = { type: 'iteration_start', iteration: iterations, maxIterations: this.maxIterations };
+        yield iterationPayload;
+        this.emit('iteration_start', iterationPayload);
         yield { type: 'reasoning_start', iteration: iterations };
 
         let decision;
@@ -405,6 +426,7 @@
             toolResults
           );
         } catch (error) {
+          this.emit('error', { error: error.message || String(error), iteration: iterations });
           yield {
             type: 'error',
             error: '推理失败: ' + (error.message || String(error)),
@@ -431,13 +453,15 @@
 
         // 判断是回答还是使用工具
         if (decision.action === 'answer') {
-          yield {
+          const finalPayload = {
             type: 'final_answer',
             answer: decision.answer,
             iterations: iterations,
             toolCallCount: toolResults.length,
             reactLog
           };
+          yield finalPayload;
+          this.emit('final_answer', finalPayload);
           this.emit('session_complete', { answer: decision.answer, iterations, reactLog });
           return;
         }
@@ -457,7 +481,7 @@
                 params: call.params
             });
 
-            yield {
+            const startPayload = {
               type: 'tool_call_start',
               iteration: iterations,
               tool: call.tool,
@@ -466,6 +490,8 @@
               totalCalls: toolCalls.length,
               reactLog
             };
+            yield startPayload;
+            this.emit('tool_call_start', startPayload);
           }
 
           // 并行执行所有工具
@@ -497,7 +523,7 @@
                 result: call.result
             });
 
-            yield {
+            const completePayload = {
               type: 'tool_call_complete',
               iteration: iterations,
               tool: call.tool,
@@ -506,6 +532,8 @@
               parallel: decision.parallel,
               reactLog
             };
+            yield completePayload;
+            this.emit('tool_call_complete', completePayload);
           }
 
           // 更新上下文（支持去重）
@@ -530,12 +558,14 @@
           const budgetLimit = this.budgetManager.allocation.context;
 
           if (contextTokens > budgetLimit) {
-            yield {
+            const prunedPayload = {
               type: 'context_pruned',
               before: contextTokens,
               after: budgetLimit,
               iteration: iterations
             };
+            yield prunedPayload;
+            this.emit('context_pruned', prunedPayload);
             context = window.ContextBuilder.pruneContext(context, budgetLimit);
           }
 
@@ -558,7 +588,7 @@
 
       const fallbackAnswer = `经过 ${iterations} 轮推理，我收集到了一些信息，但未能在迭代限制内得出完整答案。\n\n基于当前信息：\n\n${context.slice(0, 2000)}\n\n建议：\n1. 提供更具体的问题\n2. 或尝试增加迭代次数限制`;
 
-      yield {
+      const fallbackPayload = {
         type: 'final_answer',
         answer: fallbackAnswer,
         iterations: iterations,
@@ -566,6 +596,8 @@
         fallback: true,
         reactLog
       };
+      yield fallbackPayload;
+      this.emit('final_answer', fallbackPayload);
 
       this.emit('session_complete', { answer: fallbackAnswer, iterations, fallback: true, reactLog });
     }
