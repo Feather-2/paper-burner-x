@@ -46,8 +46,10 @@
       );
 
       const hasVectorIndex = !!(
+        window.data?.vectorIndexReady ||
         window.data?.vectorIndex ||
-        (hasSemanticGroups && window.SemanticVectorSearch?.isReady)
+        docContent.vectorIndexReady ||
+        docContent.vectorIndex
       );
 
       const groupCount = docContent.semanticGroups?.length || window.data?.semanticGroups?.length || 0;

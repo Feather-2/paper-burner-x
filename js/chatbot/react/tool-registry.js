@@ -434,7 +434,7 @@
     /**
      * 根据文档状态获取可用的工具定义（动态过滤）
      */
-    getAvailableToolDefinitions(hasSemanticGroups = false, hasVectorIndex = false) {
+    getAvailableToolDefinitions(hasSemanticGroups = false, hasVectorIndex = false, hasChunks = false) {
       const allTools = Array.from(this.tools.values());
 
       const requiresSemanticGroups = ['search_semantic_groups', 'fetch_group_text', 'fetch', 'map', 'list_all_groups'];
@@ -449,7 +449,7 @@
           return hasVectorIndex;
         }
         if (requiresChunks.includes(tool.name)) {
-          return hasSemanticGroups;
+          return hasSemanticGroups || hasChunks;
         }
         return true;
       });

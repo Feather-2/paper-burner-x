@@ -25,7 +25,8 @@
     top: 0;
     width: 100%;
     height: 100%;
-    background-color: rgba(0, 0, 0, 0.5);
+    background-color: rgba(15, 23, 42, 0.45);
+    backdrop-filter: blur(6px);
     align-items: center;
     justify-content: center;
     animation: fadeIn var(--transition-base) ease;
@@ -37,14 +38,15 @@
 }
 
 .reference-modal-content {
-    background-color: var(--color-bg-primary);
+    background: linear-gradient(180deg, var(--color-bg-primary), var(--color-bg-secondary));
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
     width: 90%;
     max-width: 1400px;
     max-height: 90vh;
     display: flex;
     flex-direction: column;
-    box-shadow: var(--shadow-xl);
+    box-shadow: var(--shadow-2xl);
     animation: slideUp var(--transition-base) ease;
 }
 
@@ -71,6 +73,7 @@
     align-items: center;
     padding: var(--spacing-lg) 30px;
     border-bottom: 1px solid var(--color-border);
+    background: linear-gradient(135deg, var(--color-primary-light), #eef2ff);
 }
 
 .reference-modal-header h2 {
@@ -111,7 +114,8 @@
     align-items: center;
     padding: 15px 30px;
     border-bottom: 1px solid var(--color-border);
-    background-color: var(--color-bg-secondary);
+    background: linear-gradient(90deg, var(--color-bg-primary), var(--color-bg-secondary));
+    backdrop-filter: blur(4px);
 }
 
 .reference-toolbar-left,
@@ -132,6 +136,8 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    font-weight: var(--font-weight-medium);
+    box-shadow: var(--shadow-sm);
 }
 
 .ref-btn:hover {
@@ -146,28 +152,28 @@
 }
 
 .ref-btn-primary:hover {
-    background-color: #2563eb;
+    background-color: var(--color-primary-hover);
 }
 
 .ref-btn-success {
-    background-color: #10b981;
+    background-color: var(--color-success);
     color: white;
-    border-color: #10b981;
+    border-color: var(--color-success);
 }
 
 .ref-btn-success:hover {
-    background-color: #059669;
-    border-color: #059669;
+    background-color: #0ea873;
+    border-color: #0ea873;
 }
 
 .ref-btn-danger {
-    background-color: #f44336;
+    background-color: var(--color-danger);
     color: white;
-    border-color: #f44336;
+    border-color: var(--color-danger);
 }
 
 .ref-btn-danger:hover {
-    background-color: #da190b;
+    background-color: #dc2626;
 }
 
 .ref-btn:disabled {
@@ -177,17 +183,19 @@
 
 #ref-search-input {
     padding: var(--spacing-sm) var(--spacing-md);
-    border: 1px solid var(--color-border-light);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     width: 250px;
     font-size: var(--font-size-sm);
+    background: var(--color-bg-primary);
 }
 
 #ref-filter-select {
     padding: var(--spacing-sm) var(--spacing-md);
-    border: 1px solid var(--color-border-light);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     font-size: var(--font-size-sm);
+    background: var(--color-bg-primary);
     cursor: pointer;
 }
 
@@ -197,7 +205,7 @@
     display: flex;
     gap: 30px;
     padding: 15px 30px;
-    background-color: #f0f4f8;
+    background: linear-gradient(90deg, #f8fafc, #eef2ff);
     border-bottom: 1px solid var(--color-border);
     font-size: var(--font-size-sm);
     color: var(--color-text-secondary);
@@ -261,14 +269,19 @@
 }
 
 .reference-table tbody tr:hover {
+    background-color: var(--color-primary-light);
+}
+
+.reference-table tbody tr:nth-child(even) {
     background-color: var(--color-bg-secondary);
 }
 
 .ref-empty-state {
     text-align: center;
-    color: var(--color-text-tertiary);
+    color: var(--color-text-secondary);
     padding: 40px !important;
     font-style: italic;
+    background: var(--color-bg-secondary);
 }
 
 /* ==================== 7. 表格特定列样式 ==================== */
@@ -284,7 +297,7 @@
 }
 
 .ref-doi {
-    color: #2196F3;
+    color: var(--color-primary);
     text-decoration: none;
 }
 
@@ -295,8 +308,8 @@
 .ref-tag {
     display: inline-block;
     padding: 2px var(--spacing-sm);
-    background-color: #e3f2fd;
-    color: #1976d2;
+    background-color: var(--color-primary-light);
+    color: var(--color-primary);
     border-radius: var(--radius-full);
     font-size: var(--font-size-xs);
     margin-right: 4px;

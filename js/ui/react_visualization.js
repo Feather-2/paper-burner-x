@@ -172,11 +172,11 @@ class ReActVisualization {
 
     formatContent(text) {
         if (!text) return '';
-        // Basic escaping
-        let safe = text.replace(/&/g, "&")
-            .replace(/</g, "<")
-            .replace(/>/g, ">")
-            .replace(/"/g, """)
+        // Basic escaping to avoid XSS while preserving display
+        let safe = text.replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
             .replace(/'/g, "&#039;");
         
         // Highlight code blocks roughly

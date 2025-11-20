@@ -20,13 +20,13 @@
   --z-dropdown: 1000;
   --z-sticky: 1020;
   --z-fixed: 1030;
-  --z-modal-backdrop: 1040;
-  --z-modal: 1050;
-  --z-popover: 1060;
-  --z-tooltip: 1070;
   --z-immersive-container: 1999;
   --z-immersive-controls: 2000;
-  --z-lightbox: 2010;
+  --z-modal-backdrop: 2100; /* Keep overlays above immersive layout */
+  --z-modal: 2110;
+  --z-popover: 2120;
+  --z-tooltip: 2130;
+  --z-lightbox: 2300;
   --z-critical: 9999;
 
   /* ==================== 颜色系统 (Modernized & Minimalist) ==================== */
@@ -57,6 +57,7 @@
   --color-primary-light: var(--indigo-50);
 
   /* Backgrounds */
+  --color-bg-primary: #ffffff; /* Primary surface (alias of base for legacy vars) */
   --color-bg-base: #ffffff;
   --color-bg-secondary: #fafafa; /* Lighter than slate-50 for subtle contrast */
   --color-bg-tertiary: var(--slate-50);
