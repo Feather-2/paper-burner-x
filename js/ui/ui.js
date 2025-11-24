@@ -2173,11 +2173,17 @@ document.addEventListener('DOMContentLoaded', function() {
             let successfulKey = null;
 
             const requestFormat = site.requestFormat || 'openai';
+            const endpointMode = site.endpointMode || 'auto';
 
             for (const key of validKeys) {
                 try {
                     showNotification(`正在尝试使用Key (${key.value.substring(0, 4)}...) 检测模型`, 'info');
-                    modelsDetected = await window.modelDetector.detectModelsForSite(site.apiBaseUrl, key.value, requestFormat);
+                    modelsDetected = await window.modelDetector.detectModelsForSite(
+                        site.apiBaseUrl,
+                        key.value,
+                        requestFormat,
+                        endpointMode
+                    );
 
                     if (modelsDetected && modelsDetected.length > 0) {
                         successfulKey = key;
