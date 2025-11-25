@@ -158,6 +158,53 @@ class MinerUOcrAdapter extends OcrAdapter {
   }
 
   /**
+   * 使用 XMLHttpRequest 下载文件（更可靠的二进制下载）
+   * @param {string} url - 文件 URL
+   * @param {Object} headers - 请求头
+   * @param {number} timeout - 超时时间（毫秒，默认 5 分钟）
+   * @returns {Promise<Blob>} 文件 Blob
+   */
+  downloadWithXHR(url, headers = {}, timeout = 300000) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.responseType = 'blob';
+      xhr.timeout = timeout;
+
+      // 设置请求头
+      for (const [key, value] of Object.entries(headers)) {
+        xhr.setRequestHeader(key, value);
+      }
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          console.log(`[MinerU OCR] XHR download completed: ${(xhr.response.size / 1024 / 1024).toFixed(2)} MB`);
+          resolve(xhr.response);
+        } else {
+          reject(new Error(`XHR download failed: ${xhr.status} ${xhr.statusText}`));
+        }
+      };
+
+      xhr.onerror = () => {
+        reject(new Error('XHR network error - 网络错误，请检查代理服务器是否正常运行'));
+      };
+
+      xhr.ontimeout = () => {
+        reject(new Error('XHR timeout - 下载超时'));
+      };
+
+      xhr.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percent = ((event.loaded / event.total) * 100).toFixed(1);
+          console.log(`[MinerU OCR] Download progress: ${percent}% (${(event.loaded / 1024 / 1024).toFixed(2)} MB)`);
+        }
+      };
+
+      xhr.send();
+    });
+  }
+
+  /**
    * 分片下载大文件
    * @param {string} url - 文件 URL
    * @param {Object} headers - 请求头
@@ -180,12 +227,10 @@ class MinerUOcrAdapter extends OcrAdapter {
 
     console.log(`[MinerU OCR] File size: ${(contentLength / 1024 / 1024).toFixed(2)} MB`);
 
-    // 如果文件小于 20MB，直接下载
+    // 如果文件小于 20MB，直接下载（但使用 XMLHttpRequest 以获得更好的进度和错误处理）
     if (contentLength < 20 * 1024 * 1024) {
       console.log('[MinerU OCR] File is small enough, using direct download');
-      const response = await fetch(url, { headers });
-      if (!response.ok) throw new Error(`Download failed: ${response.status}`);
-      return await response.blob();
+      return await this.downloadWithXHR(url, headers);
     }
 
     // 2. 计算分片数量
