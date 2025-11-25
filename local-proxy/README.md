@@ -2,6 +2,10 @@
 
 轻量级本地代理服务器，功能完全等同于 Cloudflare Worker，让你无需部署到云端即可使用。
 
+> **重要提示**：此本地代理仅支持 HTTP 协议，必须配合**本地运行的 Paper Burner 前端**使用。
+> 如果你从 HTTPS 网站（如 `https://paperburner.viwoplus.site`）访问，由于浏览器安全限制（Mixed Content），无法连接到本地 HTTP 服务。
+> 请使用我们提供的 Cloudflare Worker 或自行部署 HTTPS 代理。
+
 ## 功能
 
 - **OCR 代理**: MinerU / Doc2X
@@ -10,7 +14,7 @@
 
 ## 快速开始
 
-### 方式一：直接运行（推荐）
+### 1. 启动本地代理
 
 ```bash
 cd local-proxy
@@ -18,13 +22,26 @@ npm install
 npm start
 ```
 
-### 方式二：全局安装
+### 2. 启动本地前端
+
+在项目根目录启动一个本地服务器：
 
 ```bash
-cd local-proxy
-npm install -g .
-paper-burner-proxy
+# 方式一：使用 npx serve
+npx serve -p 8080
+
+# 方式二：使用 Python
+python -m http.server 8080
+
+# 方式三：使用 VS Code Live Server 插件
 ```
+
+### 3. 配置使用
+
+1. 访问 `http://localhost:8080`
+2. 进入设置页面
+3. 将代理地址设置为：`http://localhost:3456`
+4. 保存设置
 
 ## 配置
 
@@ -43,13 +60,6 @@ paper-burner-proxy
    ```bash
    npm start
    ```
-
-## 在 Paper Burner 中使用
-
-1. 启动本地代理服务器后，打开 Paper Burner
-2. 进入设置页面
-3. 将代理地址设置为：`http://localhost:3456`
-4. 保存设置
 
 ## API 路由
 
@@ -95,15 +105,23 @@ paper-burner-proxy
 
 - Node.js >= 18.0.0
 
-## 与 Cloudflare Worker 的区别
+## 使用场景对比
 
-| 特性 | 本地代理 | CF Worker |
-|------|----------|-----------|
-| 部署 | 本地运行 | 云端部署 |
-| 费用 | 免费 | 免费额度有限 |
-| 延迟 | 取决于网络 | 边缘节点低延迟 |
-| 可用性 | 需要保持运行 | 24/7 可用 |
-| 配置 | .env 文件 | 环境变量 |
+| 场景 | 推荐方案 |
+|------|----------|
+| 本地开发/测试 | 本地代理 + 本地前端 |
+| 日常使用（线上） | Cloudflare Worker |
+| 私有部署 | 自建 HTTPS 代理服务器 |
+
+## 为什么不支持 HTTPS 网站？
+
+浏览器的 **Mixed Content** 安全策略禁止 HTTPS 页面请求 HTTP 资源。虽然可以通过自签名证书启用 HTTPS，但：
+
+1. 自签名证书需要手动信任，用户体验差
+2. 杀毒软件（如卡巴斯基）可能拦截自签名 HTTPS 流量
+3. 每次证书过期都需要重新配置
+
+因此，本地代理仅推荐用于**本地开发和测试**场景。
 
 ## License
 
