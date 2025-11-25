@@ -1,0 +1,19 @@
+{
+  "name": "paper-burner-local-proxy",
+  "version": "1.0.0",
+  "description": "Paper Burner 本地代理服务器 - 替代 Cloudflare Worker",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": ["paper-burner", "proxy", "ocr", "academic-search"],
+  "license": "GPL-2.0",
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
