@@ -1410,6 +1410,8 @@ if (typeof window !== 'undefined') {
     window.loadAllCustomSourceSites = loadAllCustomSourceSites;
     // 纠正导出名称：函数为 saveCustomSourceSite（单数）
     window.saveCustomSourceSite = saveCustomSourceSite;
+    window.saveModelConfig = saveModelConfig;
+    window.loadModelConfig = loadModelConfig;
     window.loadKeys = loadModelKeys;  // 为了兼容性，使用 loadKeys 作为别名
     window.loadModelKeys = loadModelKeys;
     window.loadSettings = loadSettings;
@@ -1417,6 +1419,8 @@ if (typeof window !== 'undefined') {
     console.log('[Storage] 函数已暴露到全局作用域:', {
         loadAllCustomSourceSites: typeof window.loadAllCustomSourceSites,
         saveCustomSourceSite: typeof window.saveCustomSourceSite,
+        saveModelConfig: typeof window.saveModelConfig,
+        loadModelConfig: typeof window.loadModelConfig,
         loadKeys: typeof window.loadKeys,
         loadModelKeys: typeof window.loadModelKeys,
         loadSettings: typeof window.loadSettings,

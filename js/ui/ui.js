@@ -189,6 +189,12 @@ document.addEventListener('DOMContentLoaded', function() {
         } else if (modelKey === 'doc2x') {
             title.textContent = `${modelDefinition.name} - 配置`;
             renderDoc2XConfig();
+        } else if (modelKey === 'gemini-image') {
+            title.textContent = `${modelDefinition.name} - 配置`;
+            renderGeminiImageConfig();
+        } else if (modelKey === 'image') {
+            title.textContent = `${modelDefinition.name} - 配置`;
+            renderGenericImageConfig();
         } else {
             title.textContent = `${modelDefinition.name} - 配置`;
         }
@@ -365,6 +371,126 @@ document.addEventListener('DOMContentLoaded', function() {
         if (window.UIModelOcrConfigRenderer) {
             window.UIModelOcrConfigRenderer.renderDoc2XConfig(modelConfigColumn);
         }
+    }
+
+    // ==== 生图模型配置 ====
+    function createLabeledInput(label, placeholder, value, type = 'text') {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'mb-3';
+        const l = document.createElement('label');
+        l.className = 'block text-sm font-medium text-slate-700 mb-1';
+        l.textContent = label;
+        const input = document.createElement('input');
+        input.type = type;
+        input.placeholder = placeholder;
+        input.value = value || '';
+        input.className = 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm';
+        wrapper.appendChild(l);
+        wrapper.appendChild(input);
+        return { wrapper, input };
+    }
+
+    function renderGeminiImageConfig() {
+        const cfg = typeof loadModelConfig === 'function' ? (loadModelConfig('gemini-image') || {}) : {};
+        const defaultBase = 'https://generativelanguage.googleapis.com';
+        const defaultModel = 'gemini-2.5-flash-image';
+
+        const baseRow = createLabeledInput('API Base URL', defaultBase, cfg.apiBaseUrl || defaultBase);
+        const modelRow = createLabeledInput('模型 ID', defaultModel, cfg.modelId || defaultModel);
+
+        const hint = document.createElement('p');
+        hint.className = 'text-xs text-slate-500 mb-3 bg-slate-50 border border-slate-200 rounded px-3 py-2';
+        hint.innerHTML = '使用 Google Gemini 文生图接口，需在模型 Key 管理中添加 Gemini API Key。留空则使用默认地址/模型。';
+
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded';
+        saveBtn.textContent = '保存配置';
+        saveBtn.onclick = () => {
+            try {
+                if (typeof saveModelConfig === 'function') {
+                    saveModelConfig('gemini-image', {
+                        apiBaseUrl: (baseRow.input.value || defaultBase).trim(),
+                        modelId: (modelRow.input.value || defaultModel).trim()
+                    });
+                }
+                if (typeof showNotification === 'function') showNotification('Gemini 生图配置已保存', 'success');
+                else alert('Gemini 生图配置已保存');
+            } catch (e) {
+                console.error(e);
+                if (typeof showNotification === 'function') showNotification('保存失败，请重试', 'error');
+                else alert('保存失败，请重试');
+            }
+        };
+
+        modelConfigColumn.appendChild(baseRow.wrapper);
+        modelConfigColumn.appendChild(modelRow.wrapper);
+        modelConfigColumn.appendChild(hint);
+        modelConfigColumn.appendChild(saveBtn);
+    }
+
+    function renderGenericImageConfig() {
+        const cfg = typeof loadModelConfig === 'function' ? (loadModelConfig('image') || {}) : {};
+        const defaultBase = 'https://api.openai.com';
+        const defaultEndpoint = '/v1/images/generations';
+        const defaultChatEndpoint = '/v1/chat/completions';
+        const defaultModel = 'gpt-image-1';
+        const defaultResp = 'b64_json';
+
+        const baseRow = createLabeledInput('API Base URL', defaultBase, cfg.apiBaseUrl || defaultBase);
+        const epRow = createLabeledInput('图片接口路径 (images/generations)', defaultEndpoint, cfg.apiEndpoint || '');
+        const chatRow = createLabeledInput('Chat 接口路径 (可选，用于 chat 出图)', defaultChatEndpoint, cfg.apiEndpointChat || '');
+        const modelRow = createLabeledInput('模型 ID', defaultModel, cfg.modelId || defaultModel);
+        const respRow = createLabeledInput('response_format (b64_json/url)', defaultResp, cfg.responseFormat || defaultResp);
+
+        const chatModeToggle = document.createElement('div');
+        chatModeToggle.className = 'flex items-center gap-2 mb-3';
+        const chatCheckbox = document.createElement('input');
+        chatCheckbox.type = 'checkbox';
+        chatCheckbox.checked = !!cfg.chatImageMode;
+        chatCheckbox.id = 'imageChatModeToggle';
+        const chatLabel = document.createElement('label');
+        chatLabel.setAttribute('for', 'imageChatModeToggle');
+        chatLabel.className = 'text-sm text-slate-700';
+        chatLabel.textContent = '使用 Chat 接口返回图片（仅当供应商在 chat 响应中返回图片 URL/base64 时勾选）';
+        chatModeToggle.appendChild(chatCheckbox);
+        chatModeToggle.appendChild(chatLabel);
+
+        const hint = document.createElement('p');
+        hint.className = 'text-xs text-slate-500 mb-3 bg-slate-50 border border-slate-200 rounded px-3 py-2';
+        hint.innerHTML = '通用生图：默认走 /v1/images/generations，若供应商只暴露 chat/completions 且会返回图片，可勾选 Chat 模式并填写 Chat 路径。';
+
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded';
+        saveBtn.textContent = '保存配置';
+        saveBtn.onclick = () => {
+            try {
+                if (typeof saveModelConfig === 'function') {
+                    saveModelConfig('image', {
+                        apiBaseUrl: (baseRow.input.value || defaultBase).trim(),
+                        apiEndpoint: (epRow.input.value || '').trim(),
+                        apiEndpointChat: (chatRow.input.value || '').trim(),
+                        modelId: (modelRow.input.value || defaultModel).trim(),
+                        responseFormat: (respRow.input.value || defaultResp).trim(),
+                        chatImageMode: chatCheckbox.checked
+                    });
+                }
+                if (typeof showNotification === 'function') showNotification('通用生图配置已保存', 'success');
+                else alert('通用生图配置已保存');
+            } catch (e) {
+                console.error(e);
+                if (typeof showNotification === 'function') showNotification('保存失败，请重试', 'error');
+                else alert('保存失败，请重试');
+            }
+        };
+
+        modelConfigColumn.appendChild(baseRow.wrapper);
+        modelConfigColumn.appendChild(epRow.wrapper);
+        modelConfigColumn.appendChild(chatRow.wrapper);
+        modelConfigColumn.appendChild(modelRow.wrapper);
+        modelConfigColumn.appendChild(respRow.wrapper);
+        modelConfigColumn.appendChild(chatModeToggle);
+        modelConfigColumn.appendChild(hint);
+        modelConfigColumn.appendChild(saveBtn);
     }
 
     function renderAcademicSearchConfig() {
@@ -1652,6 +1778,33 @@ document.addEventListener('DOMContentLoaded', function() {
                 } catch (e) {
                     isValid = false;
                 }
+            } else if (modelName === 'gemini-image' || modelName === 'image' || modelName === 'openai-image' || modelName === 'sora-image' || modelName === 'jimeng-image') {
+                // 生图模型测试：尝试生成一张小图，使用当前配置的模型 ID
+                if (typeof window.ImageGeneration === 'undefined' || typeof window.ImageGeneration.generateImage !== 'function') {
+                    throw new Error('生图适配器未加载');
+                }
+                const cfg = modelConfigForTest || {};
+                const modelId = cfg.modelId || (modelName === 'gemini-image' ? 'gemini-2.5-flash-image' : 'gpt-image-1');
+                const chatStream = !!cfg.chatImageMode;
+                try {
+                    const imgResult = await window.ImageGeneration.generateImage({
+                        provider: modelName,
+                        model: modelId,
+                        prompt: 'health check image',
+                        width: 512,
+                        height: 512,
+                        maxKB: 400,
+                        apiKey: keyObject.value,
+                        chatStream,
+                        onStreamMessage: (msg) => appendImageTestLog(modelName, msg),
+                        onStreamImages: (imgs) => renderImageTestPreview(modelName, imgs[0], modelDisplayNameForNotification, imgs)
+                    });
+                    renderImageTestPreview(modelName, imgResult, modelDisplayNameForNotification);
+                    isValid = true;
+                } catch (e) {
+                    console.warn('Image model key test failed:', e);
+                    isValid = false;
+                }
             } else {
                 const r = await testModelKey(modelName, keyObject.value, modelConfigForTest, apiEndpointForTest);
                 isValid = !!r;
@@ -1697,6 +1850,75 @@ document.addEventListener('DOMContentLoaded', function() {
             currentManagerUI.updateKeyStatus(keyId, newStatus);
         }
     };
+
+    function renderImageTestPreview(modelKey, imgResult, displayName, allImages) {
+        if (!keyManagerColumn || !imgResult) return;
+        let panel = document.getElementById('imageTestPreviewPanel');
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = 'imageTestPreviewPanel';
+            panel.className = 'mt-4 p-3 border rounded-md bg-slate-50';
+            keyManagerColumn.appendChild(panel);
+        }
+        panel.innerHTML = '';
+        const title = document.createElement('div');
+        title.className = 'text-sm font-semibold text-slate-800 mb-1';
+        title.textContent = `${displayName || modelKey} 测试图预览`;
+
+        const meta = document.createElement('div');
+        meta.className = 'text-xs text-slate-500 mb-2';
+        meta.textContent = `模型: ${imgResult.model || ''} · 尺寸: ${imgResult.width || '?'}x${imgResult.height || '?'} · MIME: ${imgResult.mimeType || ''}`;
+
+        const logArea = document.createElement('div');
+        logArea.id = 'imageTestPreviewLogs';
+        logArea.className = 'text-xs text-slate-600 mb-2 space-y-1 max-h-28 overflow-y-auto';
+
+        const imgContainer = document.createElement('div');
+        imgContainer.className = 'grid grid-cols-2 gap-2';
+
+        const imagesToShow = Array.isArray(allImages) && allImages.length > 0 ? allImages : [imgResult];
+        imagesToShow.forEach((imgRes, idx) => {
+            const img = document.createElement('img');
+            img.src = imgRes.base64 || imgRes.url || '';
+            img.alt = 'image test preview';
+            img.style.maxWidth = '100%';
+            img.style.maxHeight = '220px';
+            img.style.objectFit = 'contain';
+            img.style.borderRadius = '8px';
+            img.style.border = '1px solid #e2e8f0';
+            const wrapper = document.createElement('div');
+            wrapper.appendChild(img);
+            imgContainer.appendChild(wrapper);
+        });
+
+        panel.appendChild(title);
+        panel.appendChild(meta);
+        panel.appendChild(logArea);
+        panel.appendChild(imgContainer);
+    }
+
+    function appendImageTestLog(modelKey, text) {
+        if (!text) return;
+        let panel = document.getElementById('imageTestPreviewPanel');
+        if (!panel && keyManagerColumn) {
+            panel = document.createElement('div');
+            panel.id = 'imageTestPreviewPanel';
+            panel.className = 'mt-4 p-3 border rounded-md bg-slate-50';
+            keyManagerColumn.appendChild(panel);
+        }
+        if (!panel) return;
+        let logs = document.getElementById('imageTestPreviewLogs');
+        if (!logs) {
+            logs = document.createElement('div');
+            logs.id = 'imageTestPreviewLogs';
+            logs.className = 'text-xs text-slate-600 mb-2 space-y-1 max-h-28 overflow-y-auto';
+            panel.insertBefore(logs, panel.lastChild);
+        }
+        const item = document.createElement('div');
+        item.textContent = text;
+        logs.appendChild(item);
+        logs.scrollTop = logs.scrollHeight;
+    }
 
     // 新增: Event-Listener für das customSourceSiteSelect Dropdown-Menü
     if (customSourceSiteSelect) {

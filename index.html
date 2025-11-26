@@ -18,6 +18,8 @@
     <script src="https://gcore.jsdelivr.net/npm/js-base64@3.7.5/base64.min.js"></script>
     <script src="https://gcore.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
     <script src="https://gcore.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <!-- PptxGenJS for PowerPoint Export -->
+    <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
     <!-- dagre.js for graph layout (层次化图布局算法) -->
     <script src="https://gcore.jsdelivr.net/npm/graphlib@2.1.8/dist/graphlib.min.js"></script>
     <script src="https://gcore.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
@@ -29,6 +31,7 @@
     <link rel="stylesheet" href="css/history_detail/04-features/markdown-enhancements.css">
     <link rel="stylesheet" href="css/history_detail/04-features/math-display.css">
     <link rel="stylesheet" href="css/_deprecated/chatbot-model-config-modal.css">
+    <link rel="stylesheet" href="css/ppt/ppt_generation.css">
     <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script src="https://gcore.jsdelivr.net/npm/marked/marked.min.js"></script>
     <!-- Markdown-it for AST-based processing (新架构) -->
@@ -585,6 +588,11 @@
         <div class="nav-item active cursor-pointer" title="工作台">
           <iconify-icon icon="carbon:dashboard" class="nav-icon"></iconify-icon>
           <span class="nav-text transition-opacity">工作台</span>
+        </div>
+
+        <div id="sidebarPptBtn" class="nav-item cursor-pointer" title="PPT 生成器">
+          <iconify-icon icon="carbon:presentation-file" class="nav-icon"></iconify-icon>
+          <span class="nav-text transition-opacity">PPT 生成器</span>
         </div>
 
         <!-- 可折叠的历史记录菜单 (Split Action) -->
@@ -1263,6 +1271,35 @@
                 </div><!-- /.modern-card (Advanced) -->
 
                 <!-- ===================== -->
+                <!-- 卡片 3.5: PPT 生成 (New) -->
+                <!-- ===================== -->
+                <div class="modern-card p-4 md:p-6">
+                    <div class="section-header justify-between">
+                        <h2 class="section-title">
+                            <div class="w-9 h-9 rounded-xl text-white flex items-center justify-center mr-3 shadow-md" style="background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); box-shadow: var(--shadow-sm);">
+                                <iconify-icon icon="carbon:presentation-file" width="20"></iconify-icon>
+                            </div>
+                            PPT 智能生成
+                        </h2>
+                        <span class="text-xs font-medium px-2 py-1 bg-orange-100 text-orange-700 rounded-full">Beta</span>
+                    </div>
+                    <div class="flex flex-col md:flex-row gap-4 items-center">
+                        <div class="flex-1 text-sm text-slate-600">
+                            <p class="mb-2">基于文档内容或自定义主题，一键生成结构化 PPT 大纲与幻灯片。</p>
+                            <ul class="list-disc pl-5 space-y-1 text-xs text-slate-500">
+                                <li>支持从历史文档导入素材</li>
+                                <li>AI 自动生成大纲与演讲备注</li>
+                                <li>集成文生图模型自动配图</li>
+                            </ul>
+                        </div>
+                        <button id="openPptGeneratorBtn" class="px-5 py-2.5 bg-white border border-orange-200 text-orange-700 rounded-xl hover:bg-orange-50 hover:border-orange-300 transition-all flex items-center gap-2 font-medium shadow-sm whitespace-nowrap">
+                            <iconify-icon icon="carbon:launch" width="18"></iconify-icon>
+                            进入生成器
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ===================== -->
                 <!-- 卡片 4: 文件上传 -->
                 <!-- ===================== -->
                 <div class="modern-card p-4 md:p-6">
@@ -1643,10 +1680,12 @@
     <script src="js/process/index.js"></script>
     <script src="js/process/prompt-pool-api.js"></script>
     <script src="js/process/prompt-pool.js"></script>
+    <script src="js/process/image-generation.js"></script> <!-- 文生图适配器 (Gemini / OpenAI 兼容) -->
     <script src="js/process/mineru-structured-translation.js"></script> <!-- MinerU 结构化翻译 -->
     <script src="js/ui/prompt-pool-ui.js"></script>
     <script src="js/api/model-detector.js"></script>
     <script src="js/app.js"></script>
+    <script src="js/ppt/ppt_model_config_modal.js"></script>
     <script src="js/processing/markdown_processor_enhanced.js"></script>
     <!-- AST-based processor (新架构) -->
     <script src="js/processing/annotation_plugin_ast.js"></script>  <!-- 注释插件 -->
@@ -1681,6 +1720,7 @@
     <script src="js/history/exporter/history_exporter_docx.js"></script>
     <script src="js/history/history_exporter.js"></script>
     <script src="js/history/history.js"></script>
+    <script src="js/ppt/ppt_generation.js"></script>
 
     <script src="https://gcore.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
 
@@ -1873,6 +1913,151 @@
     </div>
 
     <!-- ===================== -->
+    <!-- PPT 生成器全屏覆盖层 -->
+    <!-- ===================== -->
+    <div id="pptGeneratorOverlay" class="hidden">
+        <!-- Header -->
+        <header class="ppt-header">
+            <div class="ppt-header-title">
+                <div class="w-8 h-8 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center">
+                    <iconify-icon icon="carbon:presentation-file" width="20"></iconify-icon>
+                </div>
+                <span>PPT 智能生成器</span>
+            </div>
+            <div class="ppt-header-actions">
+                <button id="pptSaveBtn" class="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-md transition-colors flex items-center gap-1">
+                    <iconify-icon icon="carbon:save" width="16"></iconify-icon> 保存草稿
+                </button>
+                <button id="pptExportBtn" class="px-3 py-1.5 text-sm text-white bg-orange-600 hover:bg-orange-700 rounded-md transition-colors flex items-center gap-1 shadow-sm">
+                    <iconify-icon icon="carbon:export" width="16"></iconify-icon> 导出 PPTX
+                </button>
+                <div class="w-px h-6 bg-slate-200 mx-1"></div>
+                <button id="pptCloseBtn" class="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors">
+                    <iconify-icon icon="carbon:close" width="20"></iconify-icon>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content (3 Columns) -->
+        <div class="ppt-main-container">
+            <!-- Left: Materials & Outline -->
+            <div class="ppt-col-left">
+                <div class="ppt-section-header">
+                    <span>素材与提纲</span>
+                    <button class="text-xs text-blue-600 hover:underline" id="pptImportBtn">+ 导入素材</button>
+                </div>
+                <div class="ppt-scroll-content">
+                    <!-- Material List -->
+                    <div class="mb-6">
+                        <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">当前素材</h4>
+                        <div id="pptMaterialList" class="space-y-2">
+                            <div class="text-sm text-slate-400 italic text-center py-4 border border-dashed border-slate-200 rounded-md">
+                                暂无素材，请导入或输入
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Outline Tree -->
+                    <div>
+                        <div class="flex justify-between items-center mb-3">
+                            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider">演示提纲</h4>
+                            <button id="pptGenOutlineBtn" class="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded hover:bg-blue-100 transition-colors">
+                                <iconify-icon icon="carbon:magic-wand" class="inline mr-1"></iconify-icon>AI 生成
+                            </button>
+                        </div>
+                        <div id="pptOutlineTree" class="space-y-1">
+                            <!-- Demo Items -->
+                            <div class="text-sm p-2 bg-slate-50 rounded border border-slate-200 text-slate-600">
+                                1. 封面页
+                            </div>
+                            <div class="text-sm p-2 hover:bg-slate-50 rounded cursor-pointer text-slate-600">
+                                2. 目录
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Center: Canvas & Thumbnails -->
+            <div class="ppt-col-center">
+                <!-- Toolbar -->
+                <div class="ppt-canvas-toolbar">
+                    <button class="p-1.5 text-slate-500 hover:bg-slate-100 rounded" title="添加页面">
+                        <iconify-icon icon="carbon:add-alt" width="20"></iconify-icon>
+                    </button>
+                    <div class="w-px h-5 bg-slate-300"></div>
+                    <button class="p-1.5 text-slate-500 hover:bg-slate-100 rounded" title="版式：图文">
+                        <iconify-icon icon="carbon:template" width="20"></iconify-icon>
+                    </button>
+                    <button class="p-1.5 text-slate-500 hover:bg-slate-100 rounded" title="版式：全图">
+                        <iconify-icon icon="carbon:image" width="20"></iconify-icon>
+                    </button>
+                </div>
+
+                <!-- Preview Area -->
+                <div class="ppt-slide-preview-area" id="pptSlideCanvas">
+                    <!-- Slide Card injected by JS -->
+                </div>
+
+                <!-- Thumbnails Strip -->
+                <div class="ppt-thumbnails-strip" id="pptThumbnails">
+                    <!-- Thumbnails injected by JS -->
+                </div>
+            </div>
+
+            <!-- Right: Config & Log -->
+            <div class="ppt-col-right">
+                <div class="ppt-section-header">
+                    <span>生成配置</span>
+                </div>
+                <div class="ppt-scroll-content flex flex-col h-full">
+                    <!-- Model Config -->
+                    <div class="ppt-config-group">
+                        <label class="ppt-config-label">文字模型</label>
+                        <select id="pptLanguageModelSelect" class="w-full text-sm border-slate-200 rounded-md p-2 bg-slate-50 mb-2">
+                            <option value="">加载中...</option>
+                        </select>
+                        <div id="pptLanguageModelHint" class="text-xs text-slate-500"></div>
+                    </div>
+
+                    <div class="ppt-config-group">
+                        <label class="ppt-config-label">配图模型</label>
+                        <select id="pptImageModelSelect" class="w-full text-sm border-slate-200 rounded-md p-2 bg-slate-50">
+                            <option value="">加载中...</option>
+                        </select>
+                        <div id="pptImageModelHint" class="text-xs text-slate-500 mt-1"></div>
+                    </div>
+
+                    <button id="pptModelConfigBtn" class="w-full mt-2 px-3 py-2 text-sm bg-white border border-slate-200 rounded-md hover:bg-slate-50 flex items-center justify-center gap-2">
+                        <iconify-icon icon="carbon:settings" width="16"></iconify-icon> 模型配置
+                    </button>
+
+                    <div class="ppt-config-group">
+                        <label class="ppt-config-label">风格预设</label>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button class="text-xs border border-blue-500 bg-blue-50 text-blue-700 py-1.5 rounded">商务简约</button>
+                            <button class="text-xs border border-slate-200 hover:bg-slate-50 py-1.5 rounded">学术论文</button>
+                            <button class="text-xs border border-slate-200 hover:bg-slate-50 py-1.5 rounded">深色科技</button>
+                            <button class="text-xs border border-slate-200 hover:bg-slate-50 py-1.5 rounded">清新插画</button>
+                        </div>
+                    </div>
+
+                    <!-- Log Console -->
+                    <div class="mt-auto">
+                        <label class="ppt-config-label flex justify-between">
+                            <span>运行日志</span>
+                            <span class="text-xs text-slate-400 font-normal">Real-time</span>
+                        </label>
+                        <div class="ppt-log-console custom-scrollbar" id="pptLogConsole">
+                            <div><span style="color:#64748b">[System]</span> Ready.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================== -->
     <!-- 版权声明浮动卡片 -->
     <!-- ===================== -->
     <div id="copyrightModal" class="fixed inset-0 z-50 bg-black bg-opacity-30 flex items-center justify-center hidden px-4 py-8">
@@ -2016,6 +2201,26 @@
 
           // Desktop Sidebar Buttons
           const sidebarSettingsBtn = document.getElementById('sidebarSettingsBtn');
+
+          // PPT Generator Entry (Card)
+          const openPptGeneratorBtn = document.getElementById('openPptGeneratorBtn');
+          if (openPptGeneratorBtn) {
+              openPptGeneratorBtn.addEventListener('click', () => {
+                  if (window.PPTGenerator) window.PPTGenerator.show();
+              });
+          }
+
+          // PPT Generator Entry (Sidebar)
+          const sidebarPptBtn = document.getElementById('sidebarPptBtn');
+          if (sidebarPptBtn) {
+              sidebarPptBtn.addEventListener('click', () => {
+                  // Remove active class from other nav items
+                  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+                  sidebarPptBtn.classList.add('active');
+                  
+                  if (window.PPTGenerator) window.PPTGenerator.show();
+              });
+          }
 
           if (sidebarSettingsBtn && modelKeyManagerModal) {
               sidebarSettingsBtn.addEventListener('click', () => {

@@ -18,6 +18,8 @@
     { key: 'volcano', name: '火山引擎', group: 'translation' },
     { key: 'deeplx', name: 'DeepLX (DeepL 接口)', group: 'translation' },
     { key: 'custom', name: '自定义翻译模型', group: 'translation' },
+    { key: 'gemini-image', name: 'Gemini 生图', group: 'image' },
+    { key: 'image', name: '通用生图 (OpenAI 兼容/Chat)', group: 'image' },
     { key: 'embedding', name: '向量搜索与重排', group: 'search' },
     { key: 'academicSearch', name: '学术搜索与代理', group: 'search' }
   ];
@@ -26,6 +28,7 @@
   const MODEL_SECTIONS = [
     { title: '所有 OCR 方式', group: 'ocr', className: 'mt-4 mb-2' },
     { title: '翻译和分析 API', group: 'translation', className: 'mt-5 mb-2' },
+    { title: '生图模型', group: 'image', className: 'mt-5 mb-2' },
     { title: '搜索和检索', group: 'search', className: 'mt-5 mb-2' }
   ];
 

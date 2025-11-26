@@ -328,6 +328,25 @@ async function testModelKey(modelName, keyValue, modelConfig) {
             }
         }
 
+        // 生图模型的测活，直接调用 ImageGeneration 生成一张小图，避免走翻译路径
+        if (modelName === 'gemini-image' || modelName === 'openai-image') {
+            if (!window.ImageGeneration || typeof window.ImageGeneration.generateImage !== 'function') {
+                throw new Error('生图适配器未加载，无法测试 Key');
+            }
+            const cfg = modelConfig || {};
+            const modelId = cfg.modelId || (modelName === 'gemini-image' ? 'gemini-2.5-flash-image' : 'gpt-image-1');
+            await window.ImageGeneration.generateImage({
+                provider: modelName,
+                model: modelId,
+                prompt: 'health check image',
+                width: 512,
+                height: 512,
+                maxKB: 400,
+                apiKey: keyValue
+            });
+            return true;
+        }
+
         // 构造最小请求内容
         const testText = 'Hello'; // 使用更短的文本进行测试
         const targetLang = 'zh'; // 使用语言代码，假设 translateMarkdown 内部能处理
