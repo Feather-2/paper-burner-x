@@ -1955,6 +1955,20 @@
                                 暂无素材，请导入或输入
                             </div>
                         </div>
+                        <div class="mt-3 flex items-center justify-between text-xs text-slate-500">
+                            <button id="pptImportBtn" class="text-blue-600 hover:underline">从历史/文件导入素材</button>
+                            <span>素材用于背景，但不直接生成文案</span>
+                        </div>
+                    </div>
+
+                    <!-- Draft Editor -->
+                    <div class="mb-6">
+                        <div class="flex items-center justify-between mb-2">
+                            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider">文案草稿</h4>
+                            <button id="pptSyncDraftBtn" class="text-xs text-blue-600 hover:underline">用素材填充</button>
+                        </div>
+                        <textarea id="pptDraftEditor" class="w-full h-32 text-sm border border-slate-200 rounded-md p-3 bg-white focus:outline-none focus:ring-1 focus:ring-blue-300" placeholder="根据素材生成的文案草稿会出现在这里，也可直接手动编辑"></textarea>
+                        <p class="text-xs text-slate-400 mt-1">导入素材后自动汇总首段文字，或点击“用素材填充”。</p>
                     </div>
                     
                     <!-- Outline Tree -->
@@ -1962,8 +1976,12 @@
                         <div class="flex justify-between items-center mb-3">
                             <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider">演示提纲</h4>
                             <button id="pptGenOutlineBtn" class="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded hover:bg-blue-100 transition-colors">
-                                <iconify-icon icon="carbon:magic-wand" class="inline mr-1"></iconify-icon>AI 生成
+                                <iconify-icon icon="carbon:magic-wand" class="inline mr-1"></iconify-icon>生成提纲
                             </button>
+                        </div>
+                        <div class="mb-2">
+                            <textarea id="pptThemeInput" class="w-full text-sm border border-slate-200 rounded-md p-2 bg-white" placeholder="告诉助手要做的主题和目标受众，例如：为产品发布会制作 10 页 PPT，突出卖点与对比优势。"></textarea>
+                            <p class="text-xs text-slate-400 mt-1">不会直接使用素材生成文案，而是先出提纲再提问。</p>
                         </div>
                         <div id="pptOutlineTree" class="space-y-1">
                             <!-- Demo Items -->
@@ -1974,6 +1992,8 @@
                                 2. 目录
                             </div>
                         </div>
+                        <div id="pptOutlineQuestions" class="mt-4 space-y-3 hidden"></div>
+                        <button id="pptSubmitAnswersBtn" class="mt-2 hidden w-full text-sm bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 transition-colors">提交回答并生成草稿</button>
                     </div>
                 </div>
             </div>

@@ -10,6 +10,10 @@ class PPTGenerator {
         this.currentSlideIndex = 0;
         this.slides = []; // Array of slide objects { title, content, image, notes }
         this.materials = [];
+        this.historyCache = [];
+        this.manualDraftEdited = false;
+        this.outlineItems = [];
+        this.outlineQuestions = [];
         this.selectedLanguageModel = '';
         this.selectedImageModel = '';
         
@@ -23,7 +27,8 @@ class PPTGenerator {
             thumbnailsContainer: null,
             logConsole: null,
             generateBtn: null,
-            exportBtn: null
+            exportBtn: null,
+            draftEditor: null
         };
     }
 
@@ -68,6 +73,10 @@ class PPTGenerator {
         if (genOutlineBtn) {
             genOutlineBtn.addEventListener('click', () => this.generateOutline());
         }
+        const submitAnswersBtn = document.getElementById('pptSubmitAnswersBtn');
+        if (submitAnswersBtn) {
+            submitAnswersBtn.addEventListener('click', () => this.applyAnswersToDraft());
+        }
 
         // Export Button
         const exportBtn = document.getElementById('pptExportBtn');
@@ -105,6 +114,24 @@ class PPTGenerator {
                 this.log(`配图模型已切换为: ${this.selectedImageModel || '默认'}`);
                 this.updateModelHints();
             });
+        }
+
+        const importBtn = document.getElementById('pptImportBtn');
+        if (importBtn) {
+            importBtn.addEventListener('click', () => this.openImportModal());
+        }
+
+        const draftEditor = document.getElementById('pptDraftEditor');
+        if (draftEditor) {
+            this.elements.draftEditor = draftEditor;
+            draftEditor.addEventListener('input', () => {
+                this.manualDraftEdited = true;
+            });
+        }
+
+        const syncDraftBtn = document.getElementById('pptSyncDraftBtn');
+        if (syncDraftBtn) {
+            syncDraftBtn.addEventListener('click', () => this.updateDraftFromMaterials(true));
         }
 
         const modelConfigBtn = document.getElementById('pptModelConfigBtn');
@@ -170,6 +197,7 @@ class PPTGenerator {
                     summary: (item.summary || item.translatedText || item.markdown || '').slice(0, 500)
                 })).slice(0, 5);
                 this.renderMaterials();
+                this.updateDraftFromMaterials();
                 this.log(`Loaded ${this.materials.length} materials from current session.`);
             }
         } catch (e) {
@@ -189,6 +217,7 @@ class PPTGenerator {
                 this.renderThumbnails();
                 this.renderCurrentSlide();
                 this.renderMaterials();
+                this.updateDraftFromMaterials();
                 this.log('草稿已加载。');
                 return true;
             }
@@ -297,21 +326,220 @@ class PPTGenerator {
         `).join('');
     }
 
-    loadMaterialsFromHistory(historyItem) {
-        // TODO: Load content from a specific history item (PDF/Doc analysis result)
-        this.log(`Loading materials from: ${historyItem.title}`);
-        // Populate left column
+    updateDraftFromMaterials(force = false) {
+        const editor = this.elements.draftEditor || document.getElementById('pptDraftEditor');
+        if (!editor) return;
+        if (this.manualDraftEdited && !force) return;
+        const merged = this.materials
+            .map(m => (m.summary || m.content || '').trim())
+            .filter(Boolean)
+            .join('\n\n');
+        editor.value = merged || editor.value || '';
+        if (merged) this.manualDraftEdited = false;
+    }
+
+    // ===== 导入素材与文案草稿 =====
+    ensureImportModal() {
+        if (document.getElementById('pptImportModal')) return;
+        const wrapper = document.createElement('div');
+        wrapper.id = 'pptImportModal';
+        wrapper.style.cssText = 'position:fixed;inset:0;z-index:80;display:none;align-items:center;justify-content:center;';
+        wrapper.innerHTML = `
+          <div style="position:absolute;inset:0;background:rgba(0,0,0,0.4);" data-close="1"></div>
+          <div style="position:relative;z-index:1;width:92vw;max-width:960px;max-height:90vh;background:#fff;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.2);display:flex;flex-direction:column;overflow:hidden;">
+            <div style="padding:14px 18px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">
+              <div>
+                <div style="font-weight:700;color:#0f172a;">导入素材</div>
+                <div style="font-size:12px;color:#6b7280;">可从历史记录、文件或粘贴的文本生成初步文案</div>
+              </div>
+              <button data-close="1" style="border:none;background:transparent;font-size:18px;color:#94a3b8;cursor:pointer;">×</button>
+            </div>
+            <div style="padding:16px;overflow:auto;flex:1;display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+              <div>
+                <div style="font-weight:600;color:#0f172a;margin-bottom:6px;">历史记录</div>
+                <div id="pptImportHistoryList" style="border:1px solid #e5e7eb;border-radius:10px;padding:10px;height:340px;overflow:auto;font-size:13px;color:#475569;">
+                  <div style="text-align:center;color:#94a3b8;">加载中...</div>
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:10px;">
+                <div style="font-weight:600;color:#0f172a;">粘贴/文件</div>
+                <textarea id="pptImportText" style="flex:1;border:1px solid #e5e7eb;border-radius:10px;padding:10px;font-size:13px;min-height:160px;" placeholder="在此粘贴文本，将作为一条素材"></textarea>
+                <input id="pptImportFileInput" type="file" accept=".txt,.md,.doc,.docx,.pdf" style="font-size:13px;">
+                <div style="display:flex;gap:8px;justify-content:flex-end;">
+                  <button id="pptImportAddText" class="ppt-model-refresh-btn" style="padding:8px 12px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;">添加粘贴内容</button>
+                </div>
+              </div>
+            </div>
+            <div style="padding:12px 16px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:10px;">
+              <button data-close="1" style="padding:8px 12px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;">取消</button>
+              <button id="pptImportConfirm" style="padding:8px 14px;border:none;border-radius:8px;background:linear-gradient(90deg,#6366f1,#8b5cf6);color:#fff;font-weight:600;cursor:pointer;">加入素材</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(wrapper);
+
+        wrapper.addEventListener('click', (e) => {
+            if (e.target && e.target.dataset && e.target.dataset.close) {
+                this.closeImportModal();
+            }
+        });
+
+        const addTextBtn = wrapper.querySelector('#pptImportAddText');
+        if (addTextBtn) {
+            addTextBtn.addEventListener('click', () => {
+                const text = (wrapper.querySelector('#pptImportText')?.value || '').trim();
+                if (!text) return;
+                this.addMaterials([{ title: '粘贴内容', summary: text.slice(0, 800) }]);
+                wrapper.querySelector('#pptImportText').value = '';
+                this.renderMaterials();
+                this.updateDraftFromMaterials();
+                this.log('已添加粘贴内容为素材。');
+            });
+        }
+
+        const fileInput = wrapper.querySelector('#pptImportFileInput');
+        if (fileInput) {
+            fileInput.addEventListener('change', async (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+                try {
+                    const text = await file.text();
+                    this.addMaterials([{ title: file.name, summary: text.slice(0, 1200) }]);
+                    this.renderMaterials();
+                    this.updateDraftFromMaterials();
+                    this.log(`已从文件导入素材：${file.name}`);
+                } catch (err) {
+                    console.warn('[PPT] 读取文件失败', err);
+                    alert('读取文件失败，请重试');
+                }
+                e.target.value = '';
+            });
+        }
+
+        const confirmBtn = wrapper.querySelector('#pptImportConfirm');
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', () => {
+                const selected = Array.from(wrapper.querySelectorAll('input[data-history-id]:checked'));
+                if (selected.length > 0) {
+                    const items = selected.map((el) => {
+                        const rec = this.historyCache.find(r => r.id === el.dataset.historyId);
+                        return this.materialFromHistory(rec);
+                    }).filter(Boolean);
+                    this.addMaterials(items);
+                    this.renderMaterials();
+                    this.updateDraftFromMaterials();
+                    this.log(`已从历史记录添加 ${items.length} 条素材。`);
+                }
+                this.closeImportModal();
+            });
+        }
+    }
+
+    openImportModal() {
+        this.ensureImportModal();
+        this.loadHistoryIntoModal();
+        const modal = document.getElementById('pptImportModal');
+        if (modal) modal.style.display = 'flex';
+    }
+
+    closeImportModal() {
+        const modal = document.getElementById('pptImportModal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    async loadHistoryIntoModal() {
+        const listEl = document.getElementById('pptImportHistoryList');
+        if (!listEl) return;
+        listEl.innerHTML = `<div style="text-align:center;color:#94a3b8;">加载中...</div>`;
+        try {
+            const loader = (typeof window.getAllResultsFromDB === 'function') ? window.getAllResultsFromDB : null;
+            if (!loader) {
+                listEl.innerHTML = `<div style="text-align:center;color:#94a3b8;">未能加载历史：缺少存储模块</div>`;
+                return;
+            }
+            const records = await loader();
+            this.historyCache = (Array.isArray(records) ? records : []).sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0)).slice(0, 30);
+            if (!this.historyCache.length) {
+                listEl.innerHTML = `<div style="text-align:center;color:#94a3b8;">暂无历史记录</div>`;
+                return;
+            }
+            listEl.innerHTML = this.historyCache.map(rec => {
+                const title = rec.name || (rec.file && rec.file.name) || '未命名文件';
+                const time = rec.time ? new Date(rec.time).toLocaleString() : '';
+                const preview = (rec.translation || rec.ocr || '').replace(/\s+/g, ' ').slice(0, 80);
+                return `
+                  <label style="display:block;padding:8px;border-bottom:1px solid #e5e7eb;cursor:pointer;">
+                    <input type="checkbox" data-history-id="${rec.id}" style="margin-right:8px;">
+                    <span style="font-weight:600;color:#0f172a;">${title}</span>
+                    <span style="font-size:12px;color:#94a3b8;margin-left:6px;">${time}</span>
+                    <div style="font-size:12px;color:#475569;margin-top:4px;">${preview || '无摘要'}</div>
+                  </label>
+                `;
+            }).join('');
+        } catch (e) {
+            console.warn('[PPT] 加载历史记录失败', e);
+            listEl.innerHTML = `<div style="text-align:center;color:#f97316;">加载历史记录失败，请检查浏览器存储权限</div>`;
+        }
+    }
+
+    materialFromHistory(rec) {
+        if (!rec) return null;
+        const text = (rec.translation || rec.ocr || rec.markdown || rec.originalContent || '').toString();
+        const clean = text.replace(/<[^>]+>/g, '').trim();
+        return {
+            title: rec.name || '历史记录素材',
+            summary: clean.slice(0, 1200)
+        };
+    }
+
+    addMaterials(items) {
+        if (!Array.isArray(items)) return;
+        items.forEach(it => {
+            if (it && (it.summary || it.content)) {
+                this.materials.push({
+                    title: it.title || `素材 ${this.materials.length + 1}`,
+                    summary: it.summary || it.content
+                });
+            }
+        });
+        this.renderMaterials();
+        this.updateDraftFromMaterials();
     }
 
     generateOutline() {
-        this.log('Generating outline via Agent...');
-        // TODO: Call LLM Agent to generate outline based on selected materials
-        // Mockup:
-        setTimeout(() => {
-            this.log('Outline generated.');
-            // Update slides array
-            this.renderThumbnails();
-        }, 1000);
+        const themeInput = document.getElementById('pptThemeInput');
+        const theme = themeInput ? themeInput.value.trim() : '';
+        if (!theme) {
+            alert('请先填写主题/目标，再生成提纲');
+            return;
+        }
+
+        // 简易 Agent 逻辑：根据主题 + 素材摘要生成 5 段提纲和提问
+        const materialHints = this.materials.map(m => m.summary || '').filter(Boolean).slice(0, 3);
+        const baseOutline = [
+            '目标与受众',
+            '核心卖点 / 关键结论',
+            '证据与案例',
+            '方案 / 行动路径',
+            '收尾与号召'
+        ];
+        this.outlineItems = baseOutline.map((title, idx) => ({
+            id: `outline-${idx + 1}`,
+            title: `${idx + 1}. ${title}`,
+            hint: materialHints[idx] || ''
+        }));
+
+        this.outlineQuestions = this.outlineItems.map(item => ({
+            id: `${item.id}-q1`,
+            outlineId: item.id,
+            title: item.title,
+            question: `请填写「${item.title.replace(/^\d+\.?\s*/, '')}」需要呈现的要点、数据或例子：`,
+            value: ''
+        }));
+
+        this.renderOutline();
+        this.renderOutlineQuestions();
+        this.log('已生成提纲草稿，请回答问题以生成文案。');
     }
 
     switchToSlide(index) {
@@ -381,6 +609,64 @@ class PPTGenerator {
             if (idx === this.currentSlideIndex) t.classList.add('active');
             else t.classList.remove('active');
         });
+    }
+
+    renderOutline() {
+        const tree = document.getElementById('pptOutlineTree');
+        if (!tree) return;
+        if (!this.outlineItems.length) {
+            tree.innerHTML = `<div class="text-sm p-2 bg-slate-50 rounded border border-slate-200 text-slate-600">请先填写主题并点击生成提纲。</div>`;
+            return;
+        }
+        tree.innerHTML = this.outlineItems.map(item => `
+            <div class="text-sm p-2 bg-slate-50 rounded border border-slate-200 text-slate-700">
+                ${item.title}
+                ${item.hint ? `<div class="text-xs text-slate-400 mt-1">素材提示：${item.hint.slice(0,120)}</div>` : ''}
+            </div>
+        `).join('');
+    }
+
+    renderOutlineQuestions() {
+        const wrap = document.getElementById('pptOutlineQuestions');
+        const submitBtn = document.getElementById('pptSubmitAnswersBtn');
+        if (!wrap || !submitBtn) return;
+        if (!this.outlineQuestions.length) {
+            wrap.classList.add('hidden');
+            submitBtn.classList.add('hidden');
+            return;
+        }
+        wrap.classList.remove('hidden');
+        submitBtn.classList.remove('hidden');
+        wrap.innerHTML = this.outlineQuestions.map(q => `
+            <div>
+                <div class="text-sm font-semibold text-slate-700 mb-1">${q.title}</div>
+                <label class="text-xs text-slate-500">${q.question}</label>
+                <textarea data-qid="${q.id}" class="w-full mt-1 text-sm border border-slate-200 rounded-md p-2" rows="3" placeholder="请输入要点、数字、案例">${q.value || ''}</textarea>
+            </div>
+        `).join('');
+    }
+
+    applyAnswersToDraft() {
+        const wrap = document.getElementById('pptOutlineQuestions');
+        if (wrap) {
+            const inputs = wrap.querySelectorAll('textarea[data-qid]');
+            inputs.forEach((ta) => {
+                const qid = ta.dataset.qid;
+                const val = ta.value.trim();
+                const target = this.outlineQuestions.find(q => q.id === qid);
+                if (target) target.value = val;
+            });
+        }
+        const merged = this.outlineQuestions
+            .map(q => q.value ? `${q.title}\n${q.value}` : '')
+            .filter(Boolean)
+            .join('\n\n');
+        const editor = this.elements.draftEditor || document.getElementById('pptDraftEditor');
+        if (editor) {
+            editor.value = merged || editor.value || '';
+            this.manualDraftEdited = false;
+        }
+        this.log('已根据回答更新文案草稿，可继续编辑或生成幻灯片。');
     }
 
     triggerImageGen(slideIndex) {

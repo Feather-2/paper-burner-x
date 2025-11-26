@@ -1416,6 +1416,9 @@ if (typeof window !== 'undefined') {
     window.loadModelKeys = loadModelKeys;
     window.loadSettings = loadSettings;
     window.saveSettings = saveSettings;
+    // 暴露历史结果查询（PPT 素材导入使用）
+    window.getAllResultsFromDB = getAllResultsFromDB;
+    window.getResultFromDB = getResultFromDB;
     console.log('[Storage] 函数已暴露到全局作用域:', {
         loadAllCustomSourceSites: typeof window.loadAllCustomSourceSites,
         saveCustomSourceSite: typeof window.saveCustomSourceSite,
@@ -1424,7 +1427,9 @@ if (typeof window !== 'undefined') {
         loadKeys: typeof window.loadKeys,
         loadModelKeys: typeof window.loadModelKeys,
         loadSettings: typeof window.loadSettings,
-        saveSettings: typeof window.saveSettings
+        saveSettings: typeof window.saveSettings,
+        getAllResultsFromDB: typeof window.getAllResultsFromDB,
+        getResultFromDB: typeof window.getResultFromDB
     });
 }
 // export { updateApiKeyStorage, loadProcessedFilesRecord, saveProcessedFilesRecord, isAlreadyProcessed, markFileAsProcessed, saveSettings, loadSettings };
