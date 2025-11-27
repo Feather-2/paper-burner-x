@@ -275,7 +275,143 @@
     justify-content: center;
     padding: 40px;
     background: radial-gradient(circle at center, #fff 0%, #f8fafc 100%);
-    overflow-y: auto; /* Allow scrolling if content is too tall */
+    overflow-y: auto;
+    position: relative;
+}
+
+/* Upload Zone */
+.ppt-upload-zone {
+    width: 100%;
+    max-width: 600px;
+    height: 300px;
+    border: 2px dashed var(--ppt-border);
+    border-radius: 20px;
+    background: white;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+}
+
+.ppt-upload-zone:hover, .ppt-upload-zone.dragover {
+    border-color: var(--ppt-accent);
+    background: var(--ppt-accent-light);
+}
+
+.ppt-upload-icon {
+    font-size: 48px;
+    color: var(--ppt-text-muted);
+    margin-bottom: 16px;
+    transition: all 0.2s;
+}
+
+.ppt-upload-zone:hover .ppt-upload-icon {
+    color: var(--ppt-accent);
+    transform: scale(1.1);
+}
+
+.ppt-upload-text {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--ppt-text-main);
+    margin-bottom: 8px;
+}
+
+.ppt-upload-subtext {
+    font-size: 13px;
+    color: var(--ppt-text-secondary);
+}
+
+.ppt-file-input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.ppt-upload-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 24px;
+    width: 100%;
+    max-width: 600px;
+}
+
+.ppt-upload-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px solid var(--ppt-border);
+    background: white;
+    color: var(--ppt-text-main);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.ppt-upload-btn:hover {
+    background: var(--ppt-bg-hover);
+    border-color: var(--ppt-accent);
+    color: var(--ppt-accent);
+}
+
+.ppt-upload-list {
+    width: 100%;
+    max-width: 600px;
+    margin-top: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.ppt-upload-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: white;
+    border: 1px solid var(--ppt-border);
+    border-radius: 8px;
+}
+
+.ppt-upload-item-icon {
+    color: var(--ppt-accent);
+    font-size: 20px;
+}
+
+.ppt-upload-item-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.ppt-upload-item-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ppt-text-main);
+}
+
+.ppt-upload-item-meta {
+    font-size: 11px;
+    color: var(--ppt-text-secondary);
+}
+
+.ppt-upload-item-remove {
+    color: var(--ppt-text-muted);
+    cursor: pointer;
+    padding: 4px;
+}
+
+.ppt-upload-item-remove:hover {
+    color: #ef4444;
 }
 
 /* Progress Stepper */
@@ -645,6 +781,53 @@
     overflow: hidden;
 }
 
+.pres-sidebar {
+    width: 300px;
+    background: white;
+    border-right: 1px solid var(--ppt-border);
+    display: flex;
+    flex-direction: column;
+    z-index: 10;
+}
+
+.pres-sidebar-header {
+    padding: 16px;
+    border-bottom: 1px solid var(--ppt-border);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ppt-text-main);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pres-script-content {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--ppt-text-secondary);
+}
+
+.pres-source-ref {
+    margin-top: 24px;
+    padding: 12px;
+    background: var(--ppt-bg-app);
+    border-radius: 8px;
+    font-size: 12px;
+    border: 1px solid var(--ppt-border);
+}
+
+.pres-source-title {
+    font-weight: 600;
+    color: var(--ppt-text-main);
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
 .pres-canvas-wrapper {
     flex: 1;
     display: flex;
@@ -653,6 +836,7 @@
     justify-content: center;
     padding: 40px;
     overflow: auto;
+    background: #eef2f6;
 }
 
 .pres-slide {

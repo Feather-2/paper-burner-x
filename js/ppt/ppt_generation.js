@@ -23,9 +23,11 @@ class PPTGenerator {
 
         // Workflow Data
         this.workflowData = {
-            summary: '',
+            files: [],
+            projectSummary: '',
             questions: [],
             userAnswers: {},
+            outline: [], // Mind map structure
             script: [], // { id, content, sourceRef }
             segments: [], // { slideId, scriptIds, layout, visual }
             designDecisions: []
@@ -173,7 +175,13 @@ class PPTGenerator {
         }
         this.processLogs = this.currentProject.logs || [];
         this.todos = this.currentProject.todos || [];
+        
+        // Ensure workflowData and its children are initialized
         this.workflowData = this.currentProject.workflowData || {};
+        if (!this.workflowData.files) this.workflowData.files = [];
+        if (!this.workflowData.questions) this.workflowData.questions = [];
+        if (!this.workflowData.outline) this.workflowData.outline = [];
+
         this.state = this.currentProject.status || 'idle';
         this.enterWorkspace();
     }
@@ -184,8 +192,7 @@ class PPTGenerator {
         this.renderPreviewArea();
         
         if (this.state === 'idle' && this.processLogs.length === 0) {
-            this.addChatMessage('ai', '智能助手就绪。请上传资料以开始生成演示文稿。',
-                `<button class="ppt-btn-primary" onclick="window.PPTGenerator.startMultiAgentWorkflow()">模拟多源资料上传</button>`);
+            this.addChatMessage('ai', '智能助手就绪。请上传资料以开始生成演示文稿。');
         }
     }
 
@@ -271,8 +278,12 @@ class PPTGenerator {
         // Determine what to show in the central visualization area based on state
         let visContent = '';
         
-        if (this.state === 'questioning') {
+        if (this.state === 'idle') {
+            visContent = this._renderUploadView();
+        } else if (this.state === 'questioning') {
             visContent = this._renderQuestionForm();
+        } else if (this.state === 'outline_review') {
+            visContent = this._renderOutlineReview();
         } else {
             // Default: Simplified Generation View
             visContent = `
@@ -283,9 +294,11 @@ class PPTGenerator {
                         <div class="gen-step-line"></div>
                         ${this._renderStep('questioning', '2', '分析')}
                         <div class="gen-step-line"></div>
-                        ${this._renderStep('scripting', '3', '创作')}
+                        ${this._renderStep('outline_review', '3', '大纲')}
                         <div class="gen-step-line"></div>
-                        ${this._renderStep('designer', '4', '设计')}
+                        ${this._renderStep('scripting', '4', '创作')}
+                        <div class="gen-step-line"></div>
+                        ${this._renderStep('designer', '5', '设计')}
                     </div>
 
                     <!-- Main Visualizer -->
@@ -320,13 +333,91 @@ class PPTGenerator {
         }
     }
 
+    _renderUploadView() {
+        const files = this.workflowData.files || [];
+        const hasFiles = files.length > 0;
+        
+        return `
+            <div class="generation-container">
+                <div class="ppt-upload-zone" id="pptUploadZone">
+                    <iconify-icon icon="carbon:cloud-upload" class="ppt-upload-icon"></iconify-icon>
+                    <div class="ppt-upload-text">点击或拖拽上传文档</div>
+                    <div class="ppt-upload-subtext">支持 PDF, DOCX, MD, TXT (最大 50MB)</div>
+                    <input type="file" id="pptFileInput" class="ppt-file-input" multiple onchange="window.PPTGenerator.handleFileUpload(this.files)">
+                </div>
+
+                <div class="ppt-upload-actions">
+                    <button class="ppt-upload-btn" onclick="window.PPTGenerator.openHistorySelector()">
+                        <iconify-icon icon="carbon:time"></iconify-icon> 从历史项目选择
+                    </button>
+                    <button class="ppt-upload-btn" onclick="window.PPTGenerator.openUrlInput()">
+                        <iconify-icon icon="carbon:link"></iconify-icon> 添加链接资源
+                    </button>
+                </div>
+
+                ${hasFiles ? `
+                    <div class="ppt-upload-list">
+                        ${files.map((f, i) => `
+                            <div class="ppt-upload-item">
+                                <iconify-icon icon="${f.type === 'history' ? 'carbon:time' : 'carbon:document'}" class="ppt-upload-item-icon"></iconify-icon>
+                                <div class="ppt-upload-item-info">
+                                    <div class="ppt-upload-item-name">${f.name}</div>
+                                    <div class="ppt-upload-item-meta">${f.size || 'History Project'}</div>
+                                </div>
+                                <iconify-icon icon="carbon:close" class="ppt-upload-item-remove" onclick="window.PPTGenerator.removeFile(${i})"></iconify-icon>
+                            </div>
+                        `).join('')}
+                    </div>
+                    <button class="ppt-btn-primary" style="margin-top: 24px; width: 100%; max-width: 600px; justify-content: center;" onclick="window.PPTGenerator.startMultiAgentWorkflow()">
+                        开始分析 (${files.length} 个资源)
+                    </button>
+                ` : `
+                    <div style="margin-top: 24px; text-align: center; color: var(--ppt-text-secondary); font-size: 13px;">
+                        <p>AI 将自动分析文档结构、提取关键信息并生成演示大纲</p>
+                    </div>
+                `}
+            </div>
+        `;
+    }
+
+    openHistorySelector() {
+        // Ensure files array exists
+        if (!this.workflowData.files) this.workflowData.files = [];
+
+        // Mock adding a history project
+        this.workflowData.files.push({
+            name: "Q3 财务报表分析 (History)",
+            type: "history",
+            size: "Project"
+        });
+        this.renderPreviewArea();
+    }
+
+    openUrlInput() {
+        const url = prompt("请输入文章或文档链接:");
+        if (url && url.trim()) {
+            if (!this.workflowData.files) this.workflowData.files = [];
+            this.workflowData.files.push({
+                name: url,
+                type: "link",
+                size: "URL"
+            });
+            this.renderPreviewArea();
+        }
+    }
+
+    removeFile(index) {
+        this.workflowData.files.splice(index, 1);
+        this.renderPreviewArea();
+    }
+
     _renderQuestionForm() {
         const questions = this.workflowData.questions || [];
         return `
             <div class="ppt-question-form">
                 <div class="form-header">
                     <h3><iconify-icon icon="carbon:user-speaker"></iconify-icon> 需求确认</h3>
-                    <p>为了生成更符合您预期的演示文稿，请确认以下关键点：</p>
+                    <p>AI 已分析文档，请确认以下关键策略以定制演示文稿：</p>
                 </div>
                 <div class="form-body custom-scrollbar">
                     ${questions.map((q, i) => `
@@ -339,12 +430,21 @@ class PPTGenerator {
                                         <span>${opt}</span>
                                     </label>
                                 `).join('')}
-                                <input type="text" class="text-option" placeholder="或输入自定义回答..." name="q_${i}_custom">
+                                <div style="display: flex; gap: 8px; margin-top: 8px;">
+                                    <input type="text" class="ppt-input-field" placeholder="或输入自定义回答..." name="q_${i}_custom">
+                                    <button class="ppt-icon-btn" title="咨询 AI 助手" onclick="window.PPTGenerator.askAssistantAboutQuestion(${i})">
+                                        <iconify-icon icon="carbon:chat-bot"></iconify-icon>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     `).join('')}
                 </div>
                 <div class="form-footer">
+                    <div style="flex: 1; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ppt-text-secondary);">
+                        <iconify-icon icon="carbon:information"></iconify-icon>
+                        <span>您也可以在右侧聊天栏直接提出修改意见</span>
+                    </div>
                     <button class="ppt-btn-secondary" onclick="window.PPTGenerator.autoFillAnswers()">
                         <iconify-icon icon="carbon:magic-wand"></iconify-icon> AI 自动决策
                     </button>
@@ -356,9 +456,157 @@ class PPTGenerator {
         `;
     }
 
+    askAssistantAboutQuestion(index) {
+        const question = this.workflowData.questions[index];
+        this.addChatMessage('ai', `关于问题 **"${question.text}"**，根据文档分析，我建议选择 **"${question.default}"**，因为文档主要侧重于...`);
+    }
+
+    _renderOutlineReview() {
+        // Mock outline data if not present or empty
+        let outline = this.workflowData.outline;
+        if (!outline || outline.length === 0) {
+            outline = [
+                { title: "项目背景与痛点", subs: ["当前文档处理效率低下", "非结构化数据提取困难"] },
+                { title: "核心解决方案", subs: ["AI 深度阅读引擎", "多智能体协同架构"] },
+                { title: "技术优势", subs: ["上下文语义理解", "跨文档知识融合"] },
+                { title: "商业价值", subs: ["降低 80% 人力成本", "提升 40% 准确率"] }
+            ];
+            // Save the mock outline so edits are preserved
+            this.workflowData.outline = outline;
+        }
+
+        return `
+            <div class="ppt-question-form">
+                <div class="form-header">
+                    <h3><iconify-icon icon="carbon:tree-view-alt"></iconify-icon> 大纲确认</h3>
+                    <p>AI 已根据您的需求生成演示大纲，请确认或调整：</p>
+                </div>
+                <div class="form-body custom-scrollbar">
+                    <div class="ppt-outline-toolbar" style="margin-bottom: 16px; display: flex; gap: 8px;">
+                        <button class="ppt-btn-secondary" onclick="window.PPTGenerator.addOutlineItem()" style="font-size: 12px; padding: 6px 12px;">
+                            <iconify-icon icon="carbon:add-alt"></iconify-icon> 添加新章节
+                        </button>
+                        <button class="ppt-btn-secondary" onclick="window.PPTGenerator.toggleOutlineEditMode()" style="font-size: 12px; padding: 6px 12px;">
+                            <iconify-icon icon="carbon:edit"></iconify-icon> Markdown 编辑
+                        </button>
+                    </div>
+                    
+                    <div id="pptOutlineVisualEditor" class="ppt-outline-editor">
+                        ${outline.map((item, i) => `
+                            <div class="outline-node-card" style="margin-bottom: 16px; padding: 16px; border: 1px solid var(--ppt-border); border-radius: 8px; position: relative;">
+                                <button class="ppt-icon-btn" onclick="window.PPTGenerator.removeOutlineItem(${i})" title="删除章节" style="position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; padding: 4px;">
+                                    <iconify-icon icon="carbon:trash-can"></iconify-icon>
+                                </button>
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                    <span style="font-weight: 600; color: var(--ppt-accent);">${i + 1}.</span>
+                                    <input type="text" class="ppt-input-field" value="${item.title}" style="font-weight: 600;" onchange="window.PPTGenerator.updateOutlineTitle(${i}, this.value)">
+                                </div>
+                                <div style="padding-left: 24px;">
+                                    ${item.subs.map((sub, j) => `
+                                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                                            <iconify-icon icon="carbon:dot-mark" style="color: var(--ppt-text-muted); font-size: 10px;"></iconify-icon>
+                                            <input type="text" class="ppt-input-field" value="${sub}" style="font-size: 13px; padding: 6px 8px;" onchange="window.PPTGenerator.updateOutlineSub(${i}, ${j}, this.value)">
+                                            <button class="ppt-icon-btn" onclick="window.PPTGenerator.removeOutlineSub(${i}, ${j})" title="删除子项" style="padding: 4px; width: 24px; height: 24px;">
+                                                <iconify-icon icon="carbon:close"></iconify-icon>
+                                            </button>
+                                        </div>
+                                    `).join('')}
+                                    <button class="ppt-btn-secondary" onclick="window.PPTGenerator.addOutlineSub(${i})" style="margin-top: 8px; padding: 4px 12px; font-size: 12px;">
+                                        <iconify-icon icon="carbon:add"></iconify-icon> 添加子项
+                                    </button>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <div id="pptOutlineMarkdownEditor" class="hidden" style="height: 100%;">
+                        <textarea id="pptOutlineMarkdownInput" class="w-full h-full p-4 border border-slate-200 rounded-lg font-mono text-sm" style="min-height: 400px; resize: none;" placeholder="# 章节标题&#10;- 子项内容"></textarea>
+                        <div style="margin-top: 8px; text-align: right;">
+                            <button class="ppt-btn-primary" onclick="window.PPTGenerator.saveMarkdownOutline()">
+                                <iconify-icon icon="carbon:save"></iconify-icon> 保存并返回
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-footer">
+                    <button class="ppt-btn-secondary" onclick="window.PPTGenerator.regenerateOutline()">
+                        <iconify-icon icon="carbon:renew"></iconify-icon> 重新生成
+                    </button>
+                    <button class="ppt-btn-primary" onclick="window.PPTGenerator.confirmOutline()">
+                        确认大纲 <iconify-icon icon="carbon:arrow-right"></iconify-icon>
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+
+    addOutlineItem() {
+        if (!this.workflowData.outline) this.workflowData.outline = [];
+        this.workflowData.outline.push({ title: "新章节", subs: ["新子项"] });
+        this.renderPreviewArea();
+    }
+
+    removeOutlineItem(index) {
+        if (!this.workflowData.outline) return;
+        this.workflowData.outline.splice(index, 1);
+        this.renderPreviewArea();
+    }
+
+    toggleOutlineEditMode() {
+        const visualEditor = document.getElementById('pptOutlineVisualEditor');
+        const mdEditor = document.getElementById('pptOutlineMarkdownEditor');
+        const mdInput = document.getElementById('pptOutlineMarkdownInput');
+        
+        if (visualEditor && mdEditor) {
+            if (mdEditor.classList.contains('hidden')) {
+                // Switch to Markdown
+                const mdText = this.workflowData.outline.map(item => {
+                    return `# ${item.title}\n${item.subs.map(sub => `- ${sub}`).join('\n')}`;
+                }).join('\n\n');
+                
+                mdInput.value = mdText;
+                visualEditor.classList.add('hidden');
+                mdEditor.classList.remove('hidden');
+            } else {
+                // Switch to Visual (Cancel)
+                mdEditor.classList.add('hidden');
+                visualEditor.classList.remove('hidden');
+            }
+        }
+    }
+
+    saveMarkdownOutline() {
+        const mdInput = document.getElementById('pptOutlineMarkdownInput');
+        if (!mdInput) return;
+
+        const text = mdInput.value;
+        const lines = text.split('\n');
+        const newOutline = [];
+        let currentItem = null;
+
+        lines.forEach(line => {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('#')) {
+                if (currentItem) newOutline.push(currentItem);
+                currentItem = { title: trimmed.replace(/^#+\s*/, ''), subs: [] };
+            } else if (trimmed.startsWith('-') || trimmed.startsWith('*')) {
+                if (currentItem) {
+                    currentItem.subs.push(trimmed.replace(/^[-*]\s*/, ''));
+                }
+            } else if (trimmed.length > 0 && currentItem) {
+                 // Treat plain text as sub item if under a header
+                 currentItem.subs.push(trimmed);
+            }
+        });
+        if (currentItem) newOutline.push(currentItem);
+
+        this.workflowData.outline = newOutline;
+        this.renderPreviewArea();
+    }
+
     _renderStep(stepState, num, label) {
         // Simple logic to determine active/completed state
-        const states = ['idle', 'reading', 'questioning', 'scripting', 'designer', 'reviewer', 'completed'];
+        const states = ['idle', 'reading', 'questioning', 'outline_review', 'scripting', 'designer', 'reviewer', 'completed'];
         const currentIndex = states.indexOf(this.state);
         const stepIndex = states.indexOf(stepState);
         
@@ -387,6 +635,7 @@ class PPTGenerator {
     _getCurrentStatusTitle() {
         if (this.state === 'reading') return '正在深度阅读文档...';
         if (this.state === 'questioning') return '需要您的确认';
+        if (this.state === 'outline_review') return '大纲确认';
         if (this.state === 'scripting') return '正在构建演示大纲...';
         if (this.state === 'designer') return '正在进行视觉设计...';
         return '准备就绪';
@@ -395,6 +644,7 @@ class PPTGenerator {
     _getCurrentStatusDesc() {
         if (this.state === 'reading') return 'AI 正在分析文档结构并提取关键信息';
         if (this.state === 'questioning') return '请确认几个关键选项以定制演示风格';
+        if (this.state === 'outline_review') return 'AI 已根据您的需求生成演示大纲，请确认或调整';
         if (this.state === 'scripting') return '正在梳理逻辑结构并撰写演讲备注';
         if (this.state === 'designer') return '正在匹配最佳模板并生成页面布局';
         return '请上传文档或输入主题开始';
@@ -403,6 +653,24 @@ class PPTGenerator {
     // ============================================================
     // Workflow Logic: Multi-Agent Orchestration
     // ============================================================
+
+    handleFileUpload(fileList) {
+        // Convert FileList to array and mock processing
+        const newFiles = Array.from(fileList).map(f => ({ name: f.name, size: this._formatSize(f.size), type: 'file' }));
+        if (newFiles.length === 0) return;
+
+        if (!this.workflowData.files) this.workflowData.files = [];
+        this.workflowData.files = [...this.workflowData.files, ...newFiles];
+        this.renderPreviewArea();
+    }
+
+    _formatSize(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
 
     async startMultiAgentWorkflow() {
         this.state = 'reading';
@@ -423,17 +691,20 @@ class PPTGenerator {
     async phase1_DeepReading() {
         this._setAgentStatus('reader', 'active', 'Analyzing document structure...');
         
-        const files = [
-            { name: 'Project_Nebula_Specs.pdf', size: '2.4MB' },
-            { name: 'Market_Research_2025.docx', size: '1.1MB' },
-            { name: 'Technical_Architecture_v2.md', size: '15KB' }
+        const files = (this.workflowData.files && this.workflowData.files.length > 0) ? this.workflowData.files : [
+            { name: 'Project_Nebula_Specs.pdf', size: '2.4MB', type: 'file' },
+            { name: 'Market_Research_2025.docx', size: '1.1MB', type: 'file' }
         ];
         this._renderFileGrid(files);
 
         // Step 1.1: Initial 3000 chars scan
-        await this.logTerminal('AI 阅读', '正在进行初步扫描 (前 3000 字符)...', 'normal');
+        await this.logTerminal('AI 阅读', `正在并行扫描 ${files.length} 个资源 (前 3000 字符)...`, 'normal');
         await this._simulateParallelReading(files, 30); // 30% progress
-        await this.logTerminal('AI 阅读', '提示: "Project_Nebula_Specs.pdf" 摘要不完整，正在深入扫描...', 'warning');
+        
+        // Simulate finding incomplete info
+        await new Promise(r => setTimeout(r, 800));
+        const firstFile = files[0] || { name: 'Document' };
+        await this.logTerminal('AI 阅读', `提示: "${firstFile.name}" 摘要不完整，正在深入扫描...`, 'warning');
 
         // Step 1.2: Extended 10000 chars scan
         await new Promise(r => setTimeout(r, 800));
@@ -441,7 +712,7 @@ class PPTGenerator {
         await this._simulateParallelReading(files, 70); // 70% progress
         await this.logTerminal('AI 阅读', '信息确认: 已定位 "预算" 相关章节。上下文置信度: 85%。', 'normal');
 
-        // Step 1.3: Search Agent fallback
+        // Step 1.3: Search Agent fallback (Simulated)
         await new Promise(r => setTimeout(r, 800));
         await this.logTerminal('AI 阅读', '正在调用搜索助手补充 "竞品分析" 数据...', 'highlight');
         await this.logTerminal('AI 搜索', '正在查询内部知识库...', 'normal');
@@ -503,19 +774,53 @@ class PPTGenerator {
 
     async submitAnswers() {
         // In a real app, we'd gather form data here.
-        this.state = 'scripting';
-        this.renderPreviewArea(); // Switch back to terminal view
+        this.state = 'outline_review';
+        this.renderPreviewArea(); // Show Outline Review
         
         this.updateTodos([
             { text: '深度阅读与信息提取', status: 'completed' },
             { text: '关键需求分析与确认', status: 'completed' },
-            { text: '生成演示大纲与脚本', status: 'active' },
+            { text: '生成演示大纲与脚本', status: 'active' }, // Still active as outline is part of this
             { text: '智能分段与内容映射', status: 'pending' },
             { text: '视觉设计与排版优化', status: 'pending' },
             { text: '最终渲染与质量检查', status: 'pending' }
         ]);
+    }
 
+    confirmOutline() {
+        this.state = 'scripting';
+        this.renderPreviewArea(); // Switch back to terminal view
         this.phase3_Scripting();
+    }
+
+    regenerateOutline() {
+        this.addChatMessage('ai', '正在重新生成大纲，请稍候...');
+        // Mock regeneration delay
+        setTimeout(() => {
+            this.renderPreviewArea();
+        }, 1000);
+    }
+
+    updateOutlineTitle(index, value) {
+        if (!this.workflowData.outline) return;
+        this.workflowData.outline[index].title = value;
+    }
+
+    updateOutlineSub(parentIndex, subIndex, value) {
+        if (!this.workflowData.outline) return;
+        this.workflowData.outline[parentIndex].subs[subIndex] = value;
+    }
+
+    addOutlineSub(parentIndex) {
+        if (!this.workflowData.outline) return;
+        this.workflowData.outline[parentIndex].subs.push("新子项");
+        this.renderPreviewArea();
+    }
+
+    removeOutlineSub(parentIndex, subIndex) {
+        if (!this.workflowData.outline) return;
+        this.workflowData.outline[parentIndex].subs.splice(subIndex, 1);
+        this.renderPreviewArea();
     }
 
     // --- Phase 3: Analyst Agent (Scripting) ---
@@ -557,8 +862,13 @@ class PPTGenerator {
         // Simulate segmentation
         await new Promise(r => setTimeout(r, 1000));
         await this.logTerminal('AI 设计', '已生成 12 个幻灯片分段。', 'success');
-        await this.logTerminal('AI 设计', '分段 3 已关联至 "Market_Research_2025.docx" (p.14)', 'normal');
-        await this.logTerminal('AI 设计', '分段 7 已关联至 "Technical_Architecture_v2.md" (line 45)', 'normal');
+        
+        // Mock Source Mapping
+        const sourceFiles = this.workflowData.files.length > 0 ? this.workflowData.files : [{name: 'Project_Nebula_Specs.pdf'}];
+        await this.logTerminal('AI 设计', `分段 3 已关联至 "${sourceFiles[0].name}" (p.14)`, 'normal');
+        if (sourceFiles.length > 1) {
+            await this.logTerminal('AI 设计', `分段 7 已关联至 "${sourceFiles[1].name}" (line 45)`, 'normal');
+        }
 
         this.updateTodos([
             { text: '深度阅读与信息提取', status: 'completed' },
@@ -578,16 +888,16 @@ class PPTGenerator {
         
         // Simulate batch design decision making (JSON output)
         const designSteps = [
-            '正在评估幻灯片 1-12 的文本密度...',
-            '决策: 幻灯片 4 需要柱状图 (检测到数据)。',
-            '决策: 幻灯片 2 需要首图 (概念性内容)。',
-            '决策: 幻灯片 8 使用分栏布局 (检测到对比内容)。',
-            '正在应用 "深色科技" 风格主题...'
+            { msg: '正在评估幻灯片 1-12 的文本密度...', type: 'normal' },
+            { msg: '决策: 幻灯片 4 需要柱状图 (检测到数据)。', type: 'highlight' },
+            { msg: '决策: 幻灯片 2 需要首图 (概念性内容)。', type: 'highlight' },
+            { msg: '决策: 幻灯片 8 使用分栏布局 (检测到对比内容)。', type: 'highlight' },
+            { msg: '正在应用 "深色科技" 风格主题...', type: 'normal' }
         ];
 
         for (const step of designSteps) {
             await new Promise(r => setTimeout(r, 800));
-            await this.logTerminal('AI 设计', step, 'highlight');
+            await this.logTerminal('AI 设计', step.msg, step.type);
         }
 
         this._setAgentStatus('designer', 'idle', 'Design Complete');
@@ -793,33 +1103,65 @@ class PPTGenerator {
         if (slide.type === 'cover') {
             return `
                 <div class="slide-modern-cover">
-                    <h1 style="font-size: 48px; font-weight: 800; margin-bottom: 20px;">${slide.title}</h1>
-                    <p style="font-size: 24px; opacity: 0.8;">${slide.subtitle}</p>
+                    <h1 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 48px; font-weight: 800; margin-bottom: 20px;">${slide.title}</h1>
+                    <p contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'subtitle', this.innerText)" style="font-size: 24px; opacity: 0.8;">${slide.subtitle}</p>
                     <div style="margin-top: 40px; font-size: 14px; opacity: 0.6;">Generated by Paper Burner X</div>
                 </div>
             `;
         } else if (slide.type === 'list') {
             return `
                 <div style="padding: 60px; height: 100%; display: flex; flex-direction: column;">
-                    <h2 style="font-size: 36px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 40px;">${slide.title}</h2>
+                    <h2 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 36px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 40px;">${slide.title}</h2>
                     <ul style="font-size: 24px; color: var(--ppt-text-secondary); line-height: 1.8; padding-left: 40px;">
-                        ${slide.items.map(item => `<li>${item}</li>`).join('')}
+                        ${slide.items.map((item, i) => `<li contenteditable="true" onblur="window.PPTGenerator.updateSlideItem(${this.currentSlideIndex}, ${i}, this.innerText)">${item}</li>`).join('')}
                     </ul>
                 </div>
             `;
         } else {
             return `
                 <div style="padding: 60px; height: 100%; display: flex; flex-direction: column; justify-content: center;">
-                    <h2 style="font-size: 36px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 24px;">${slide.title}</h2>
-                    <p style="font-size: 24px; color: var(--ppt-text-secondary); line-height: 1.6;">${slide.content}</p>
+                    <h2 contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'title', this.innerText)" style="font-size: 36px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: 24px;">${slide.title}</h2>
+                    <p contenteditable="true" onblur="window.PPTGenerator.updateSlideContent(${this.currentSlideIndex}, 'content', this.innerText)" style="font-size: 24px; color: var(--ppt-text-secondary); line-height: 1.6;">${slide.content}</p>
                 </div>
             `;
+        }
+    }
+
+    updateSlideContent(slideIndex, field, value) {
+        if (this.slides[slideIndex]) {
+            this.slides[slideIndex][field] = value;
+            // Also update outline view if visible
+            if (this.viewMode === 'outline') {
+                this.renderPresentationMode(document.getElementById('pptPreviewArea'));
+            } else {
+                // Update thumbnails
+                this._updateSlideView();
+            }
+        }
+    }
+
+    updateSlideItem(slideIndex, itemIndex, value) {
+        if (this.slides[slideIndex] && this.slides[slideIndex].items) {
+            this.slides[slideIndex].items[itemIndex] = value;
+            this._updateSlideView();
         }
     }
 
     toggleViewMode(mode) {
         this.viewMode = mode;
         this.renderPresentationMode(document.getElementById('pptPreviewArea'));
+    }
+
+    _getScriptForSlide(index) {
+        const scripts = [
+            "各位好，今天我将为大家介绍 Project Nebula，这是我们下一代的文档智能处理平台。",
+            "首先，让我们快速浏览一下今天的议程。我们将从市场痛点切入，深入探讨我们的解决方案和核心架构。",
+            "在深入技术细节之前，我们必须正视当前的市场现状。数据显示，超过 85% 的企业数据是非结构化的。",
+            "针对这一挑战，我们提出了基于 AI 深度协同的全新模式。不仅仅是 OCR，更是理解。",
+            "这是我们的核心架构图。可以看到，语义理解引擎处于中心位置，连接着各个处理模块。",
+            "最后，用数据说话。在与传统 OCR 方案的对比测试中，我们的准确率实现了质的飞跃。"
+        ];
+        return scripts[index] || "暂无演讲备注。";
     }
 
     _renderOutlineContent() {
