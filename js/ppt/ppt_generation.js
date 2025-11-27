@@ -50,112 +50,300 @@ class PPTGenerator {
 
         // 示例 HTML - AI 会输出类似这样的结构 (支持 freeform 自由布局)
         this.sampleHTML = `
-            <!-- 1. 封面页：极简科技风 -->
-            <section data-type="freeform" id="slide-cover" data-gradient="linear-gradient(120deg, #0B1120 0%, #1E293B 100%)">
-                <!-- 背景装饰 -->
-                <div data-el="shape" data-shape="circle" data-x="65%" data-y="-20%" data-w="60%" data-h="100%" data-fill="#3B82F6" data-opacity="0.05"></div>
-                <div data-el="shape" data-shape="circle" data-x="-10%" data-y="40%" data-w="40%" data-h="70%" data-fill="#8B5CF6" data-opacity="0.05"></div>
-                
-                <!-- 标题区 -->
-                <div data-el="text" data-x="8%" data-y="35%" data-w="80%" data-h="auto" data-font="56" data-color="#F8FAFC" data-bold="true" data-spacing="2">FUTURE VISION</div>
-                <div data-el="text" data-x="8%" data-y="52%" data-w="60%" data-h="auto" data-font="24" data-color="#94A3B8" data-spacing="1">下一代智能演示系统发布会</div>
-                
-                <!-- 装饰线与信息 -->
-                <div data-el="line" data-x1="8%" data-y1="65%" data-x2="18%" data-y2="65%" data-stroke="#3B82F6" data-stroke-width="4"></div>
-                <div data-el="text" data-x="8%" data-y="72%" data-w="30%" data-h="auto" data-font="14" data-color="#64748B">2025.11.27 · San Francisco</div>
+            <!-- 1. 封面页：Project Aurora -->
+            <section data-type="freeform" id="slide-1" data-gradient="linear-gradient(135deg, #0B1120 0%, #111827 100%)">
+                <!-- Background Accents -->
+                <div data-el="shape" data-shape="circle" data-x="55%" data-y="-30%" data-w="80%" data-h="140%" data-fill="#6366F1" data-opacity="0.08" data-blur="80"></div>
+                <div data-el="shape" data-shape="circle" data-x="-20%" data-y="40%" data-w="60%" data-h="100%" data-fill="#8B5CF6" data-opacity="0.06" data-blur="60"></div>
+
+                <!-- Main Content -->
+                <div data-el="text" data-x="8%" data-y="25%" data-w="80%" data-h="auto" data-font="64" data-color="#F9FAFB" data-bold="true" data-spacing="2" data-shadow="0 4px 12px rgba(0,0,0,0.3)">PROJECT<br><span style="color: #818CF8">AURORA</span></div>
+                <div data-el="line" data-x1="8%" data-y1="58%" data-x2="18%" data-y2="58%" data-stroke="#818CF8" data-stroke-width="4"></div>
+                <div data-el="text" data-x="8%" data-y="62%" data-w="60%" data-h="auto" data-font="22" data-color="#D1D5DB" data-spacing="1">Next-Gen AI Platform Launch Strategy</div>
+
+                <!-- Footer Info -->
+                <div data-el="shape" data-shape="rounded" data-x="8%" data-y="82%" data-w="22%" data-h="8%" data-fill="#1F2937" data-radius="4" data-opacity="0.6"></div>
+                <div data-el="text" data-x="10%" data-y="84%" data-w="20%" data-h="auto" data-font="14" data-color="#9CA3AF">Q3 2025 Strategic Review</div>
+                <div data-el="icon" data-icon="carbon:security" data-x="90%" data-y="85%" data-size="24" data-color="#4B5563"></div>
             </section>
 
-            <!-- 2. 目录页：左图右文 -->
-            <section data-type="freeform" id="slide-agenda" data-bg="#FFFFFF">
-                <!-- 左侧色块 -->
-                <div data-el="shape" data-shape="rect" data-x="0" data-y="0" data-w="35%" data-h="100%" data-fill="#F1F5F9"></div>
-                <div data-el="text" data-x="5%" data-y="10%" data-w="25%" data-h="auto" data-font="16" data-color="#64748B" data-bold="true">AGENDA</div>
-                <div data-el="text" data-x="5%" data-y="18%" data-w="25%" data-h="auto" data-font="32" data-color="#0F172A" data-bold="true">今日议程</div>
+            <!-- 2. 议程页：核心模块 -->
+            <section data-type="freeform" id="slide-2" data-bg="#FFFFFF">
+                <div data-el="text" data-x="5%" data-y="8%" data-w="40%" data-h="auto" data-font="36" data-color="#111827" data-bold="true">Strategic Agenda</div>
+                <div data-el="text" data-x="5%" data-y="16%" data-w="40%" data-h="auto" data-font="16" data-color="#6B7280">Key pillars of our launch roadmap</div>
+
+                <!-- Agenda Items -->
+                <!-- Item 1 -->
+                <div data-el="shape" data-shape="rounded" data-x="5%" data-y="25%" data-w="20%" data-h="65%" data-fill="#F3F4F6" data-radius="16"></div>
+                <div data-el="shape" data-shape="circle" data-x="9%" data-y="30%" data-w="12%" data-h="12%" data-fill="#FFFFFF" data-shadow="true"></div>
+                <div data-el="icon" data-icon="carbon:chart-line" data-x="11.5%" data-y="32.5%" data-size="32" data-color="#4F46E5"></div>
+                <div data-el="text" data-x="5%" data-y="45%" data-w="20%" data-h="auto" data-font="18" data-color="#1F2937" data-bold="true" data-align="center">Market<br>Analysis</div>
+                <div data-el="text" data-x="5%" data-y="58%" data-w="20%" data-h="auto" data-font="12" data-color="#6B7280" data-align="center">TAM expansion &<br>growth vectors</div>
+
+                <!-- Item 2 -->
+                <div data-el="shape" data-shape="rounded" data-x="28%" data-y="25%" data-w="20%" data-h="65%" data-fill="#EEF2FF" data-radius="16" data-border="#C7D2FE"></div>
+                <div data-el="shape" data-shape="circle" data-x="32%" data-y="30%" data-w="12%" data-h="12%" data-fill="#FFFFFF" data-shadow="true"></div>
+                <div data-el="icon" data-icon="carbon:network-4" data-x="34.5%" data-y="32.5%" data-size="32" data-color="#4F46E5"></div>
+                <div data-el="text" data-x="28%" data-y="45%" data-w="20%" data-h="auto" data-font="18" data-color="#1F2937" data-bold="true" data-align="center">Product<br>Architecture</div>
+                <div data-el="text" data-x="28%" data-y="58%" data-w="20%" data-h="auto" data-font="12" data-color="#6B7280" data-align="center">Core stack &<br>integration layers</div>
+
+                <!-- Item 3 -->
+                <div data-el="shape" data-shape="rounded" data-x="51%" data-y="25%" data-w="20%" data-h="65%" data-fill="#F3F4F6" data-radius="16"></div>
+                <div data-el="shape" data-shape="circle" data-x="55%" data-y="30%" data-w="12%" data-h="12%" data-fill="#FFFFFF" data-shadow="true"></div>
+                <div data-el="icon" data-icon="carbon:rocket" data-x="57.5%" data-y="32.5%" data-size="32" data-color="#4F46E5"></div>
+                <div data-el="text" data-x="51%" data-y="45%" data-w="20%" data-h="auto" data-font="18" data-color="#1F2937" data-bold="true" data-align="center">GTM<br>Strategy</div>
+                <div data-el="text" data-x="51%" data-y="58%" data-w="20%" data-h="auto" data-font="12" data-color="#6B7280" data-align="center">Phased rollout &<br>acquisition</div>
+
+                <!-- Item 4 -->
+                <div data-el="shape" data-shape="rounded" data-x="74%" data-y="25%" data-w="20%" data-h="65%" data-fill="#F3F4F6" data-radius="16"></div>
+                <div data-el="shape" data-shape="circle" data-x="78%" data-y="30%" data-w="12%" data-h="12%" data-fill="#FFFFFF" data-shadow="true"></div>
+                <div data-el="icon" data-icon="carbon:finance" data-x="80.5%" data-y="32.5%" data-size="32" data-color="#4F46E5"></div>
+                <div data-el="text" data-x="74%" data-y="45%" data-w="20%" data-h="auto" data-font="18" data-color="#1F2937" data-bold="true" data-align="center">Financial<br>Outlook</div>
+                <div data-el="text" data-x="74%" data-y="58%" data-w="20%" data-h="auto" data-font="12" data-color="#6B7280" data-align="center">Revenue forecast<br>& ROI</div>
+            </section>
+
+            <!-- 3. 市场趋势：折线图 -->
+            <section data-type="freeform" id="slide-3" data-bg="#FFFFFF">
+                <div data-el="text" data-x="5%" data-y="8%" data-w="90%" data-h="auto" data-font="28" data-color="#111827" data-bold="true">Global AI Market Acceleration</div>
+                <div data-el="text" data-x="5%" data-y="15%" data-w="90%" data-h="auto" data-font="14" data-color="#6B7280">Projected market size 2023-2028 (CAGR 37.3%)</div>
+
+                <div data-el="chart" data-x="5%" data-y="25%" data-w="90%" data-h="60%"
+                     data-chart-type="line"
+                     data-chart-data="2023:150,2024:210,2025:320,2026:480,2027:750,2028:1100"
+                     data-colors="#6366F1"
+                     data-labels="Billion USD"></div>
                 
-                <!-- 右侧列表 -->
-                <div data-el="shape" data-shape="rounded" data-x="42%" data-y="15%" data-w="50%" data-h="14%" data-fill="#FFFFFF" data-stroke="#E2E8F0" data-radius="8"></div>
-                <div data-el="text" data-x="45%" data-y="19%" data-w="40%" data-h="auto" data-font="18" data-color="#0F172A" data-bold="true">01. 行业洞察</div>
-                <div data-el="text" data-x="45%" data-y="24%" data-w="40%" data-h="auto" data-font="14" data-color="#64748B">Market Insights</div>
-
-                <div data-el="shape" data-shape="rounded" data-x="42%" data-y="33%" data-w="50%" data-h="14%" data-fill="#F8FAFC" data-radius="8"></div>
-                <div data-el="text" data-x="45%" data-y="37%" data-w="40%" data-h="auto" data-font="18" data-color="#0F172A" data-bold="true">02. 核心产品</div>
-                <div data-el="text" data-x="45%" data-y="42%" data-w="40%" data-h="auto" data-font="14" data-color="#64748B">Core Products</div>
-
-                <div data-el="shape" data-shape="rounded" data-x="42%" data-y="51%" data-w="50%" data-h="14%" data-fill="#FFFFFF" data-stroke="#E2E8F0" data-radius="8"></div>
-                <div data-el="text" data-x="45%" data-y="55%" data-w="40%" data-h="auto" data-font="18" data-color="#0F172A" data-bold="true">03. 解决方案</div>
-                <div data-el="text" data-x="45%" data-y="60%" data-w="40%" data-h="auto" data-font="14" data-color="#64748B">Solutions</div>
-
-                <div data-el="shape" data-shape="rounded" data-x="42%" data-y="69%" data-w="50%" data-h="14%" data-fill="#FFFFFF" data-stroke="#E2E8F0" data-radius="8"></div>
-                <div data-el="text" data-x="45%" data-y="73%" data-w="40%" data-h="auto" data-font="18" data-color="#0F172A" data-bold="true">04. 战略规划</div>
-                <div data-el="text" data-x="45%" data-y="78%" data-w="40%" data-h="auto" data-font="14" data-color="#64748B">Strategic Plan</div>
+                <!-- Annotations -->
+                <div data-el="shape" data-shape="rounded" data-x="55%" data-y="30%" data-w="20%" data-h="12%" data-fill="#EEF2FF" data-stroke="#6366F1" data-radius="8" data-shadow="true"></div>
+                <div data-el="text" data-x="57%" data-y="33%" data-w="16%" data-h="auto" data-font="14" data-color="#4338CA" data-bold="true">Inflection Point</div>
+                <div data-el="text" data-x="57%" data-y="38%" data-w="16%" data-h="auto" data-font="11" data-color="#6366F1">Enterprise adoption scales</div>
+                <div data-el="line" data-x1="55%" data-y1="36%" data-x2="48%" data-y2="45%" data-stroke="#6366F1" data-stroke-width="2" data-stroke-dash="4"></div>
             </section>
 
-            <!-- 3. 数据页：深色卡片 -->
-            <section data-type="freeform" id="slide-stats" data-bg="#0F172A">
-                <div data-el="text" data-x="5%" data-y="8%" data-w="90%" data-h="auto" data-font="28" data-color="#FFFFFF" data-bold="true">市场增长趋势</div>
-                <div data-el="text" data-x="5%" data-y="16%" data-w="90%" data-h="auto" data-font="14" data-color="#94A3B8">2024 Q3 季度核心数据概览</div>
+            <!-- 4. 问题陈述：图文对比 -->
+            <section data-type="freeform" id="slide-4" data-bg="#F9FAFB">
+                <div data-el="text" data-x="5%" data-y="8%" data-w="90%" data-h="auto" data-font="28" data-color="#111827" data-bold="true">The Efficiency Gap</div>
 
-                <!-- Card 1 -->
-                <div data-el="shape" data-shape="rounded" data-x="5%" data-y="25%" data-w="28%" data-h="55%" data-fill="#1E293B" data-radius="12"></div>
-                <div data-el="icon" data-icon="carbon:chart-line-data" data-x="10%" data-y="32%" data-size="32" data-color="#3B82F6"></div>
-                <div data-el="text" data-x="10%" data-y="45%" data-w="20%" data-h="auto" data-font="36" data-color="#FFFFFF" data-bold="true">+125%</div>
-                <div data-el="text" data-x="10%" data-y="58%" data-w="20%" data-h="auto" data-font="16" data-color="#94A3B8">用户增长</div>
-                <div data-el="text" data-x="10%" data-y="65%" data-w="20%" data-h="auto" data-font="12" data-color="#64748B">同比去年同期</div>
+                <!-- Left: Text -->
+                <div data-el="text" data-x="5%" data-y="22%" data-w="40%" data-h="auto" data-font="18" data-color="#374151" data-line-height="1.6">
+                    Current enterprise workflows are fragmented. Data silos prevent real-time intelligence, leading to:
+                </div>
 
-                <!-- Card 2 -->
-                <div data-el="shape" data-shape="rounded" data-x="36%" data-y="25%" data-w="28%" data-h="55%" data-fill="#1E293B" data-radius="12"></div>
-                <div data-el="icon" data-icon="carbon:currency" data-x="41%" data-y="32%" data-size="32" data-color="#10B981"></div>
-                <div data-el="text" data-x="41%" data-y="45%" data-w="20%" data-h="auto" data-font="36" data-color="#FFFFFF" data-bold="true">$8.5M</div>
-                <div data-el="text" data-x="41%" data-y="58%" data-w="20%" data-h="auto" data-font="16" data-color="#94A3B8">季度营收</div>
-                <div data-el="text" data-x="41%" data-y="65%" data-w="20%" data-h="auto" data-font="12" data-color="#64748B">超出预期 15%</div>
+                <!-- Card 1: Time Lost - 使用新的 card 组件 -->
+                <div data-el="card" data-x="5%" data-y="42%" data-w="40%" data-h="15%"
+                     data-layout="horizontal" data-fill="#FEE2E2" data-radius="12"
+                     data-icon="carbon:time" data-icon-size="28" data-icon-color="#DC2626" data-icon-bg="#FECACA"
+                     data-title="40% Time Lost" data-title-size="18" data-title-color="#991B1B"
+                     data-subtitle="Manual data reconciliation" data-subtitle-size="14" data-subtitle-color="#B91C1C">
+                </div>
 
-                <!-- Card 3 -->
-                <div data-el="shape" data-shape="rounded" data-x="67%" data-y="25%" data-w="28%" data-h="55%" data-fill="#1E293B" data-radius="12"></div>
-                <div data-el="icon" data-icon="carbon:user-favorite" data-x="72%" data-y="32%" data-size="32" data-color="#F59E0B"></div>
-                <div data-el="text" data-x="72%" data-y="45%" data-w="20%" data-h="auto" data-font="36" data-color="#FFFFFF" data-bold="true">98.5%</div>
-                <div data-el="text" data-x="72%" data-y="58%" data-w="20%" data-h="auto" data-font="16" data-color="#94A3B8">客户满意度</div>
-                <div data-el="text" data-x="72%" data-y="65%" data-w="20%" data-h="auto" data-font="12" data-color="#64748B">行业领先水平</div>
+                <!-- Card 2: High Error Rate - 使用新的 card 组件 -->
+                <div data-el="card" data-x="5%" data-y="60%" data-w="40%" data-h="15%"
+                     data-layout="horizontal" data-fill="#FEF3C7" data-radius="12"
+                     data-icon="carbon:warning-alt" data-icon-size="28" data-icon-color="#D97706" data-icon-bg="#FDE68A"
+                     data-title="High Error Rate" data-title-size="18" data-title-color="#92400E"
+                     data-subtitle="Inconsistent decision making" data-subtitle-size="14" data-subtitle-color="#B45309">
+                </div>
+
+                <!-- Right: Visual -->
+                <div data-el="shape" data-shape="rounded" data-x="50%" data-y="20%" data-w="45%" data-h="65%" data-fill="#E0E7FF" data-radius="16"></div>
+                <div data-el="icon" data-icon="carbon:flow-stream" data-x="68%" data-y="42%" data-size="64" data-color="#6366F1"></div>
+                <div data-el="text" data-x="50%" data-y="62%" data-w="45%" data-h="auto" data-font="16" data-color="#4F46E5" data-align="center" data-bold="true">Fragmented Workflow Diagram</div>
+                <div data-el="text" data-x="50%" data-y="70%" data-w="45%" data-h="auto" data-font="13" data-color="#6B7280" data-align="center">Disconnected Systems</div>
             </section>
 
-            <!-- 4. 架构图：中心辐射 -->
-            <section data-type="freeform" id="slide-arch" data-bg="#F8FAFC">
-                <div data-el="text" data-x="0%" data-y="8%" data-w="100%" data-h="auto" data-font="28" data-color="#0F172A" data-bold="true" data-align="center">核心技术架构</div>
-                <div data-el="text" data-x="0%" data-y="15%" data-w="100%" data-h="auto" data-font="14" data-color="#64748B" data-align="center">基于 AI Agent 的分布式处理系统</div>
+            <!-- 5. 解决方案：中心辐射图 -->
+            <section data-type="freeform" id="slide-5" data-bg="#FFFFFF">
+                <div data-el="text" data-x="5%" data-y="8%" data-w="90%" data-h="auto" data-font="28" data-color="#111827" data-bold="true">Introducing Aurora Core</div>
 
-                <!-- Center Core -->
-                <div data-el="shape" data-shape="circle" data-x="42%" data-y="40%" data-w="16%" data-h="28%" data-fill="#3B82F6" data-shadow="true"></div>
-                <div data-el="icon" data-icon="carbon:machine-learning-model" data-x="46%" data-y="46%" data-size="48" data-color="#FFFFFF"></div>
-                <div data-el="text" data-x="42%" data-y="70%" data-w="16%" data-h="auto" data-font="14" data-color="#0F172A" data-bold="true" data-align="center">AI Core</div>
+                <!-- Center Node -->
+                <div data-el="shape" data-shape="circle" data-x="40%" data-y="35%" data-w="20%" data-h="35%" data-fill="#4F46E5" data-shadow="true"></div>
+                <div data-el="icon" data-icon="carbon:ibm-watson-discovery" data-x="46%" data-y="39%" data-size="48" data-color="#FFFFFF"></div>
+                <div data-el="text" data-x="40%" data-y="52%" data-w="20%" data-h="auto" data-font="14" data-color="#FFFFFF" data-align="center" data-bold="true">Unified<br>Intelligence</div>
 
-                <!-- Orbit Items -->
+                <!-- Connecting Lines -->
+                <div data-el="line" data-x1="50%" data-y1="35%" data-x2="50%" data-y2="20%" data-stroke="#C7D2FE" data-stroke-width="2"></div>
+                <div data-el="line" data-x1="50%" data-y1="70%" data-x2="50%" data-y2="85%" data-stroke="#C7D2FE" data-stroke-width="2"></div>
+                <div data-el="line" data-x1="30%" data-y1="52.5%" data-x2="40%" data-y2="52.5%" data-stroke="#C7D2FE" data-stroke-width="2"></div>
+                <div data-el="line" data-x1="60%" data-y1="52.5%" data-x2="70%" data-y2="52.5%" data-stroke="#C7D2FE" data-stroke-width="2"></div>
+
+                <!-- Outer Nodes -->
                 <!-- Top -->
-                <div data-el="line" data-x1="50%" data-y1="40%" data-x2="50%" data-y2="28%" data-stroke="#CBD5E1" data-stroke-width="2" data-stroke-dash="4"></div>
-                <div data-el="shape" data-shape="rounded" data-x="44%" data-y="18%" data-w="12%" data-h="10%" data-fill="#FFFFFF" data-stroke="#E2E8F0" data-radius="8"></div>
-                <div data-el="text" data-x="44%" data-y="21%" data-w="12%" data-h="auto" data-font="12" data-color="#475569" data-align="center">数据接入</div>
-
-                <!-- Right -->
-                <div data-el="line" data-x1="58%" data-y1="54%" data-x2="70%" data-y2="54%" data-stroke="#CBD5E1" data-stroke-width="2" data-stroke-dash="4"></div>
-                <div data-el="shape" data-shape="rounded" data-x="70%" data-y="49%" data-w="12%" data-h="10%" data-fill="#FFFFFF" data-stroke="#E2E8F0" data-radius="8"></div>
-                <div data-el="text" data-x="70%" data-y="52%" data-w="12%" data-h="auto" data-font="12" data-color="#475569" data-align="center">实时分析</div>
+                <div data-el="shape" data-shape="rounded" data-x="40%" data-y="10%" data-w="20%" data-h="10%" data-fill="#EEF2FF" data-stroke="#818CF8" data-radius="8"></div>
+                <div data-el="text" data-x="40%" data-y="13%" data-w="20%" data-h="auto" data-font="14" data-color="#4338CA" data-align="center" data-bold="true">Data Ingestion</div>
 
                 <!-- Bottom -->
-                <div data-el="line" data-x1="50%" data-y1="68%" data-x2="50%" data-y2="80%" data-stroke="#CBD5E1" data-stroke-width="2" data-stroke-dash="4"></div>
-                <div data-el="shape" data-shape="rounded" data-x="44%" data-y="80%" data-w="12%" data-h="10%" data-fill="#FFFFFF" data-stroke="#E2E8F0" data-radius="8"></div>
-                <div data-el="text" data-x="44%" data-y="83%" data-w="12%" data-h="auto" data-font="12" data-color="#475569" data-align="center">决策输出</div>
+                <div data-el="shape" data-shape="rounded" data-x="40%" data-y="85%" data-w="20%" data-h="10%" data-fill="#EEF2FF" data-stroke="#818CF8" data-radius="8"></div>
+                <div data-el="text" data-x="40%" data-y="88%" data-w="20%" data-h="auto" data-font="14" data-color="#4338CA" data-align="center" data-bold="true">Actionable Insights</div>
 
                 <!-- Left -->
-                <div data-el="line" data-x1="42%" data-y1="54%" data-x2="30%" data-y2="54%" data-stroke="#CBD5E1" data-stroke-width="2" data-stroke-dash="4"></div>
-                <div data-el="shape" data-shape="rounded" data-x="18%" data-y="49%" data-w="12%" data-h="10%" data-fill="#FFFFFF" data-stroke="#E2E8F0" data-radius="8"></div>
-                <div data-el="text" data-x="18%" data-y="52%" data-w="12%" data-h="auto" data-font="12" data-color="#475569" data-align="center">安全风控</div>
+                <div data-el="shape" data-shape="rounded" data-x="10%" data-y="47.5%" data-w="20%" data-h="10%" data-fill="#EEF2FF" data-stroke="#818CF8" data-radius="8"></div>
+                <div data-el="text" data-x="10%" data-y="50.5%" data-w="20%" data-h="auto" data-font="14" data-color="#4338CA" data-align="center" data-bold="true">Real-time Sync</div>
+
+                <!-- Right -->
+                <div data-el="shape" data-shape="rounded" data-x="70%" data-y="47.5%" data-w="20%" data-h="10%" data-fill="#EEF2FF" data-stroke="#818CF8" data-radius="8"></div>
+                <div data-el="text" data-x="70%" data-y="50.5%" data-w="20%" data-h="auto" data-font="14" data-color="#4338CA" data-align="center" data-bold="true">Predictive Models</div>
             </section>
 
-            <!-- 5. 结束页 -->
-            <section data-type="freeform" id="slide-end" data-gradient="linear-gradient(180deg, #1E293B 0%, #0F172A 100%)">
-                <div data-el="text" data-x="0%" data-y="35%" data-w="100%" data-h="auto" data-font="48" data-color="#FFFFFF" data-bold="true" data-align="center">Thank You</div>
-                <div data-el="text" data-x="0%" data-y="50%" data-w="100%" data-h="auto" data-font="18" data-color="#94A3B8" data-align="center">期待与您共创未来</div>
+            <!-- 6. 技术架构：层级图 -->
+            <section data-type="freeform" id="slide-6" data-bg="#111827">
+                <div data-el="text" data-x="5%" data-y="8%" data-w="90%" data-h="auto" data-font="28" data-color="#F9FAFB" data-bold="true">Technical Architecture</div>
                 
-                <div data-el="shape" data-shape="rounded" data-x="35%" data-y="65%" data-w="30%" data-h="12%" data-fill="#334155" data-opacity="0.5" data-radius="30"></div>
-                <div data-el="text" data-x="35%" data-y="69%" data-w="30%" data-h="auto" data-font="14" data-color="#E2E8F0" data-align="center">contact@paperburner.com</div>
+                <!-- Layer 3: Application -->
+                <div data-el="shape" data-shape="rect" data-x="15%" data-y="25%" data-w="70%" data-h="15%" data-fill="#1F2937" data-stroke="#374151" data-radius="8"></div>
+                <div data-el="text" data-x="18%" data-y="30%" data-w="20%" data-h="auto" data-font="18" data-color="#60A5FA" data-bold="true">Application Layer</div>
+                <div data-el="text" data-x="40%" data-y="31%" data-w="40%" data-h="auto" data-font="14" data-color="#9CA3AF">Web Dashboard • Mobile SDK • API Gateway</div>
+
+                <!-- Connector -->
+                <div data-el="line" data-x1="50%" data-y1="40%" data-x2="50%" data-y2="45%" data-stroke="#4B5563" data-stroke-width="2"></div>
+
+                <!-- Layer 2: Intelligence -->
+                <div data-el="shape" data-shape="rect" data-x="15%" data-y="45%" data-w="70%" data-h="20%" data-fill="#1F2937" data-stroke="#6366F1" data-stroke-width="2" data-radius="8" data-shadow="true"></div>
+                <div data-el="text" data-x="18%" data-y="52%" data-w="20%" data-h="auto" data-font="18" data-color="#818CF8" data-bold="true">Intelligence Core</div>
+                <div data-el="shape" data-shape="rounded" data-x="40%" data-y="50%" data-w="12%" data-h="10%" data-fill="#312E81" data-radius="4"></div>
+                <div data-el="text" data-x="41%" data-y="53%" data-w="10%" data-h="auto" data-font="12" data-color="#E0E7FF" data-align="center">NLP Engine</div>
+                <div data-el="shape" data-shape="rounded" data-x="55%" data-y="50%" data-w="12%" data-h="10%" data-fill="#312E81" data-radius="4"></div>
+                <div data-el="text" data-x="56%" data-y="53%" data-w="10%" data-h="auto" data-font="12" data-color="#E0E7FF" data-align="center">Vector DB</div>
+
+                <!-- Connector -->
+                <div data-el="line" data-x1="50%" data-y1="65%" data-x2="50%" data-y2="70%" data-stroke="#4B5563" data-stroke-width="2"></div>
+
+                <!-- Layer 1: Infrastructure -->
+                <div data-el="shape" data-shape="rect" data-x="15%" data-y="70%" data-w="70%" data-h="15%" data-fill="#1F2937" data-stroke="#374151" data-radius="8"></div>
+                <div data-el="text" data-x="18%" data-y="75%" data-w="20%" data-h="auto" data-font="18" data-color="#34D399" data-bold="true">Infrastructure</div>
+                <div data-el="text" data-x="40%" data-y="76%" data-w="40%" data-h="auto" data-font="14" data-color="#9CA3AF">Multi-Cloud (AWS/Azure) • Kubernetes • Edge Nodes</div>
+            </section>
+
+            <!-- 7. 用户画像：环形图 -->
+            <section data-type="freeform" id="slide-7" data-bg="#FFFFFF">
+                <div data-el="text" data-x="5%" data-y="8%" data-w="90%" data-h="auto" data-font="28" data-color="#111827" data-bold="true">Target Audience Breakdown</div>
+                
+                <div data-el="chart" data-x="5%" data-y="20%" data-w="50%" data-h="70%"
+                     data-chart-type="doughnut"
+                     data-chart-data="Enterprise:45,SME:30,Startups:15,Gov:10"
+                     data-colors="#4F46E5,#818CF8,#C7D2FE,#E0E7FF"></div>
+
+                <!-- Legend/Details -->
+                <div data-el="shape" data-shape="rect" data-x="60%" data-y="30%" data-w="35%" data-h="50%" data-fill="#F9FAFB" data-radius="8"></div>
+                <div data-el="text" data-x="62%" data-y="35%" data-w="30%" data-h="auto" data-font="18" data-color="#111827" data-bold="true">Primary Focus: Enterprise</div>
+                <div data-el="text" data-x="62%" data-y="45%" data-w="30%" data-h="auto" data-font="14" data-color="#4B5563" data-line-height="1.6">
+                    Large enterprises (5000+ employees) represent the largest opportunity due to complex data integration needs.
+                </div>
+                <div data-el="shape" data-shape="rounded" data-x="62%" data-y="65%" data-w="12%" data-h="8%" data-fill="#4F46E5" data-radius="4"></div>
+                <div data-el="text" data-x="63%" data-y="67%" data-w="10%" data-h="auto" data-font="14" data-color="#FFFFFF" data-align="center">45%</div>
+            </section>
+
+            <!-- 8. 竞品分析：自定义表格 -->
+            <section data-type="freeform" id="slide-8" data-bg="#FFFFFF">
+                <div data-el="text" data-x="5%" data-y="8%" data-w="90%" data-h="auto" data-font="28" data-color="#111827" data-bold="true">Competitive Advantage</div>
+                
+                <!-- Header Row -->
+                <div data-el="shape" data-shape="rect" data-x="5%" data-y="25%" data-w="90%" data-h="10%" data-fill="#F3F4F6" data-radius="8 8 0 0"></div>
+                <div data-el="text" data-x="10%" data-y="28%" data-w="20%" data-h="auto" data-font="16" data-color="#374151" data-bold="true">Feature</div>
+                <div data-el="text" data-x="40%" data-y="28%" data-w="20%" data-h="auto" data-font="16" data-color="#4F46E5" data-bold="true">Aurora (Us)</div>
+                <div data-el="text" data-x="70%" data-y="28%" data-w="20%" data-h="auto" data-font="16" data-color="#6B7280" data-bold="true">Competitor X</div>
+
+                <!-- Row 1 -->
+                <div data-el="line" data-x1="5%" data-y1="45%" data-x2="95%" data-y2="45%" data-stroke="#E5E7EB" data-stroke-width="1"></div>
+                <div data-el="text" data-x="10%" data-y="38%" data-w="25%" data-h="auto" data-font="16" data-color="#111827">Real-time Processing</div>
+                <div data-el="icon" data-icon="carbon:checkmark-filled" data-x="45%" data-y="38%" data-size="24" data-color="#10B981"></div>
+                <div data-el="icon" data-icon="carbon:close-filled" data-x="75%" data-y="38%" data-size="24" data-color="#EF4444"></div>
+
+                <!-- Row 2 -->
+                <div data-el="line" data-x1="5%" data-y1="55%" data-x2="95%" data-y2="55%" data-stroke="#E5E7EB" data-stroke-width="1"></div>
+                <div data-el="text" data-x="10%" data-y="48%" data-w="25%" data-h="auto" data-font="16" data-color="#111827">Custom LLM Support</div>
+                <div data-el="icon" data-icon="carbon:checkmark-filled" data-x="45%" data-y="48%" data-size="24" data-color="#10B981"></div>
+                <div data-el="text" data-x="72%" data-y="48%" data-w="15%" data-h="auto" data-font="14" data-color="#6B7280">Limited</div>
+
+                <!-- Row 3 -->
+                <div data-el="line" data-x1="5%" data-y1="65%" data-x2="95%" data-y2="65%" data-stroke="#E5E7EB" data-stroke-width="1"></div>
+                <div data-el="text" data-x="10%" data-y="58%" data-w="25%" data-h="auto" data-font="16" data-color="#111827">Deployment Time</div>
+                <div data-el="text" data-x="42%" data-y="58%" data-w="15%" data-h="auto" data-font="16" data-color="#111827" data-bold="true">< 2 Weeks</div>
+                <div data-el="text" data-x="72%" data-y="58%" data-w="15%" data-h="auto" data-font="16" data-color="#6B7280">3-6 Months</div>
+            </section>
+
+            <!-- 9. 路线图：时间轴 -->
+            <section data-type="freeform" id="slide-9" data-bg="#FFFFFF">
+                <div data-el="text" data-x="5%" data-y="8%" data-w="90%" data-h="auto" data-font="28" data-color="#111827" data-bold="true">Launch Roadmap 2025</div>
+                
+                <!-- Timeline Line -->
+                <div data-el="line" data-x1="10%" data-y1="50%" data-x2="90%" data-y2="50%" data-stroke="#E5E7EB" data-stroke-width="4"></div>
+
+                <!-- Q1 -->
+                <div data-el="shape" data-shape="circle" data-x="18%" data-y="48%" data-w="4%" data-h="7%" data-fill="#10B981" data-stroke="#FFFFFF" data-stroke-width="4"></div>
+                <div data-el="text" data-x="15%" data-y="35%" data-w="10%" data-h="auto" data-font="20" data-color="#059669" data-bold="true" data-align="center">Q1</div>
+                <div data-el="text" data-x="12%" data-y="60%" data-w="16%" data-h="auto" data-font="14" data-color="#4B5563" data-align="center">Beta Release<br>Partner Onboarding</div>
+
+                <!-- Q2 -->
+                <div data-el="shape" data-shape="circle" data-x="38%" data-y="48%" data-w="4%" data-h="7%" data-fill="#3B82F6" data-stroke="#FFFFFF" data-stroke-width="4"></div>
+                <div data-el="text" data-x="35%" data-y="35%" data-w="10%" data-h="auto" data-font="20" data-color="#2563EB" data-bold="true" data-align="center">Q2</div>
+                <div data-el="text" data-x="32%" data-y="60%" data-w="16%" data-h="auto" data-font="14" data-color="#4B5563" data-align="center">Public Launch<br>US Market</div>
+
+                <!-- Q3 -->
+                <div data-el="shape" data-shape="circle" data-x="58%" data-y="48%" data-w="4%" data-h="7%" data-fill="#8B5CF6" data-stroke="#FFFFFF" data-stroke-width="4"></div>
+                <div data-el="text" data-x="55%" data-y="35%" data-w="10%" data-h="auto" data-font="20" data-color="#7C3AED" data-bold="true" data-align="center">Q3</div>
+                <div data-el="text" data-x="52%" data-y="60%" data-w="16%" data-h="auto" data-font="14" data-color="#4B5563" data-align="center">Enterprise Features<br>EU Expansion</div>
+
+                <!-- Q4 -->
+                <div data-el="shape" data-shape="circle" data-x="78%" data-y="48%" data-w="4%" data-h="7%" data-fill="#F59E0B" data-stroke="#FFFFFF" data-stroke-width="4"></div>
+                <div data-el="text" data-x="75%" data-y="35%" data-w="10%" data-h="auto" data-font="20" data-color="#D97706" data-bold="true" data-align="center">Q4</div>
+                <div data-el="text" data-x="72%" data-y="60%" data-w="16%" data-h="auto" data-font="14" data-color="#4B5563" data-align="center">Ecosystem API<br>Global Scale</div>
+            </section>
+
+            <!-- 10. 财务预测：柱状图 -->
+            <section data-type="freeform" id="slide-10" data-bg="#FFFFFF">
+                <div data-el="text" data-x="5%" data-y="8%" data-w="90%" data-h="auto" data-font="28" data-color="#111827" data-bold="true">Revenue Forecast</div>
+                
+                <div data-el="chart" data-x="5%" data-y="25%" data-w="60%" data-h="65%"
+                     data-chart-type="bar"
+                     data-chart-data="2025:12,2026:28,2027:55,2028:92"
+                     data-colors="#4F46E5"
+                     data-labels="Million USD"></div>
+
+                <!-- Key Metrics -->
+                <div data-el="shape" data-shape="rounded" data-x="70%" data-y="25%" data-w="25%" data-h="20%" data-fill="#F0FDF4" data-radius="8"></div>
+                <div data-el="text" data-x="72%" data-y="30%" data-w="21%" data-h="auto" data-font="24" data-color="#15803D" data-bold="true">125%</div>
+                <div data-el="text" data-x="72%" data-y="40%" data-w="21%" data-h="auto" data-font="14" data-color="#166534">YoY Growth Rate</div>
+
+                <div data-el="shape" data-shape="rounded" data-x="70%" data-y="50%" data-w="25%" data-h="20%" data-fill="#EFF6FF" data-radius="8"></div>
+                <div data-el="text" data-x="72%" data-y="55%" data-w="21%" data-h="auto" data-font="24" data-color="#1D4ED8" data-bold="true">85%</div>
+                <div data-el="text" data-x="72%" data-y="65%" data-w="21%" data-h="auto" data-font="14" data-color="#1E40AF">Gross Margin</div>
+            </section>
+
+            <!-- 11. 风险管理：矩阵 -->
+            <section data-type="freeform" id="slide-11" data-bg="#FFFFFF">
+                <div data-el="text" data-x="5%" data-y="8%" data-w="90%" data-h="auto" data-font="28" data-color="#111827" data-bold="true">Risk Mitigation Matrix</div>
+                
+                <!-- Matrix Grid -->
+                <div data-el="shape" data-shape="rect" data-x="10%" data-y="25%" data-w="38%" data-h="30%" data-fill="#FEF2F2" data-radius="4"></div>
+                <div data-el="text" data-x="12%" data-y="28%" data-w="30%" data-h="auto" data-font="14" data-color="#991B1B" data-bold="true">High Impact / Low Prob</div>
+                <div data-el="text" data-x="12%" data-y="35%" data-w="34%" data-h="auto" data-font="12" data-color="#7F1D1D">• Regulatory Changes<br>• Major Security Breach</div>
+
+                <div data-el="shape" data-shape="rect" data-x="52%" data-y="25%" data-w="38%" data-h="30%" data-fill="#FEFCE8" data-radius="4"></div>
+                <div data-el="text" data-x="54%" data-y="28%" data-w="30%" data-h="auto" data-font="14" data-color="#92400E" data-bold="true">High Impact / High Prob</div>
+                <div data-el="text" data-x="54%" data-y="35%" data-w="34%" data-h="auto" data-font="12" data-color="#78350F">• Talent Shortage<br>• Competitor Price War</div>
+
+                <div data-el="shape" data-shape="rect" data-x="10%" data-y="58%" data-w="38%" data-h="30%" data-fill="#F0FDF4" data-radius="4"></div>
+                <div data-el="text" data-x="12%" data-y="61%" data-w="30%" data-h="auto" data-font="14" data-color="#166534" data-bold="true">Low Impact / Low Prob</div>
+                <div data-el="text" data-x="12%" data-y="68%" data-w="34%" data-h="auto" data-font="12" data-color="#14532D">• Minor Bugs<br>• Vendor Delays</div>
+
+                <div data-el="shape" data-shape="rect" data-x="52%" data-y="58%" data-w="38%" data-h="30%" data-fill="#EFF6FF" data-radius="4"></div>
+                <div data-el="text" data-x="54%" data-y="61%" data-w="30%" data-h="auto" data-font="14" data-color="#1E40AF" data-bold="true">Low Impact / High Prob</div>
+                <div data-el="text" data-x="54%" data-y="68%" data-w="34%" data-h="auto" data-font="12" data-color="#1E3A8A">• Feature Creep<br>• UI Inconsistencies</div>
+            </section>
+
+            <!-- 12. 结束页 -->
+            <section data-type="freeform" id="slide-12" data-gradient="linear-gradient(135deg, #0B1120 0%, #111827 100%)">
+                <div data-el="shape" data-shape="circle" data-x="30%" data-y="20%" data-w="40%" data-h="60%" data-fill="#4F46E5" data-opacity="0.1" data-blur="100"></div>
+                
+                <div data-el="text" data-x="0%" data-y="35%" data-w="100%" data-h="auto" data-font="48" data-color="#FFFFFF" data-bold="true" data-align="center">Ready to Launch?</div>
+                <div data-el="text" data-x="0%" data-y="50%" data-w="100%" data-h="auto" data-font="18" data-color="#9CA3AF" data-align="center">Join us in shaping the future of enterprise AI.</div>
+                
+                <div data-el="shape" data-shape="rounded" data-x="35%" data-y="65%" data-w="30%" data-h="12%" data-fill="#1F2937" data-opacity="0.8" data-radius="30" data-border="#374151"></div>
+                <div data-el="icon" data-icon="carbon:email" data-x="38%" data-y="69%" data-size="20" data-color="#E5E7EB"></div>
+                <div data-el="text" data-x="42%" data-y="69%" data-w="20%" data-h="auto" data-font="14" data-color="#E5E7EB">partners@aurora.ai</div>
+                
+                <div data-el="text" data-x="0%" data-y="90%" data-w="100%" data-h="auto" data-font="12" data-color="#4B5563" data-align="center">© 2025 Aurora Platform Inc. Confidential.</div>
             </section>
         `;
 
@@ -179,23 +367,18 @@ class PPTGenerator {
 
         // Fallback: 直接使用 Schema 数据
         return [
-            { title: "FUTURE VISION", subtitle: "下一代智能演示系统发布会", type: "cover" },
-            { title: "今日议程", items: ["行业洞察 (Market Insights)", "核心产品 (Core Products)", "解决方案 (Solutions)", "战略规划 (Strategic Plan)"], type: "toc" },
-            {
-                title: "市场增长趋势", type: "stats",
-                stats: [
-                    { value: "+125%", label: "用户增长" },
-                    { value: "$8.5M", label: "季度营收" },
-                    { value: "98.5%", label: "客户满意度" }
-                ]
-            },
-            {
-                title: "核心技术架构",
-                type: "image_text",
-                content: "基于 AI Agent 的分布式处理系统，以 AI Core 为中心，无缝连接数据接入、实时分析、决策输出与安全风控四大模块，构建全链路智能闭环。",
-                imagePlaceholder: "AI Core Architecture"
-            },
-            { title: "Thank You", subtitle: "期待与您共创未来", email: "contact@paperburner.com", type: "end" }
+            { title: "PROJECT AURORA", subtitle: "Next-Gen AI Platform Launch Strategy", type: "cover" },
+            { title: "Strategic Agenda", items: ["Market Analysis", "Product Architecture", "GTM Strategy", "Financial Outlook"], type: "toc" },
+            { title: "Global AI Market Acceleration", type: "chart", content: "Projected market size 2023-2028 (CAGR 37.3%)" },
+            { title: "The Efficiency Gap", type: "image_text", content: "Current enterprise workflows are fragmented. Data silos prevent real-time intelligence." },
+            { title: "Introducing Aurora Core", type: "diagram", content: "Unified Intelligence connecting Data Ingestion, Real-time Sync, and Predictive Models" },
+            { title: "Technical Architecture", type: "diagram", content: "Layered architecture: Infrastructure, Intelligence Core, Application Layer" },
+            { title: "Target Audience Breakdown", type: "chart", content: "Primary Focus: Enterprise (45%), SME (30%)" },
+            { title: "Competitive Advantage", type: "comparison", content: "Aurora vs Competitor X: Real-time Processing, Custom LLM Support, Deployment Time" },
+            { title: "Launch Roadmap 2025", type: "timeline", content: "Q1 Beta, Q2 Public Launch, Q3 Enterprise Features, Q4 Global Scale" },
+            { title: "Revenue Forecast", type: "chart", content: "125% YoY Growth Rate, 85% Gross Margin" },
+            { title: "Risk Mitigation Matrix", type: "matrix", content: "High Impact/Low Prob vs Low Impact/High Prob" },
+            { title: "Ready to Launch?", subtitle: "Join us in shaping the future of enterprise AI.", email: "partners@aurora.ai", type: "end" }
         ];
     }
 
@@ -1867,13 +2050,20 @@ class PPTGenerator {
 
     _getScriptForSlide(index) {
         const scripts = [
-            "各位来宾，欢迎来到 Future Vision 发布会。今天，我们将共同见证下一代智能演示系统的诞生。",
-            "这是今天的议程概览。我们将从行业洞察出发，为您揭示核心产品与解决方案，最后分享我们的战略规划。",
-            "让我们先看一组激动人心的数据。在过去的一个季度，我们实现了 125% 的用户增长，客户满意度达到了行业领先的 98.5%。",
-            "这一切的背后，是我们强大的核心技术架构。以 AI Core 为大脑，实时连接数据、分析与决策，构建了完整的智能闭环。",
-            "感谢各位的聆听。Future Vision 不仅仅是一个工具，更是我们共同创造未来的伙伴。期待与您携手同行。"
+            "Welcome everyone. Today we are unveiling Project Aurora, our strategic initiative to redefine the Next-Gen AI Platform landscape.",
+            "Our agenda is focused on four pillars: Market Analysis, our unique Product Architecture, the Go-To-Market Strategy, and our Financial Outlook.",
+            "The market opportunity is massive. We are projecting a CAGR of 37.3% through 2028, reaching over $1 Trillion. We are at a critical inflection point.",
+            "But why now? Because the Efficiency Gap is widening. Fragmented workflows and data silos are costing enterprises 40% of their time and leading to high error rates.",
+            "Enter Aurora Core. It's not just a tool; it's a Unified Intelligence engine. It connects data ingestion with actionable insights through real-time synchronization.",
+            "Technically, we've built a robust three-layer architecture. From a multi-cloud infrastructure base, up through our Intelligence Core with Vector DBs, to the Application layer.",
+            "Our primary target is the Enterprise sector, representing 45% of our focus. These large organizations have the complex needs that Aurora solves best.",
+            "Compared to the competition, our advantages are clear. Real-time processing, full custom LLM support, and a deployment time of under 2 weeks versus months.",
+            "Our roadmap for 2025 is aggressive but achievable. We start with Beta in Q1, move to Public Launch in the US by Q2, and scale globally by Q4.",
+            "Financially, this translates to a 125% year-over-year growth rate with healthy 85% gross margins as we scale our SaaS model.",
+            "We are also mindful of risks. We have mapped out mitigation strategies for high-impact scenarios like talent shortages and security breaches.",
+            "We are ready to launch. Project Aurora is the future of enterprise AI, and we invite you to join us in shaping it. Thank you."
         ];
-        return scripts[index] || "暂无演讲备注。";
+        return scripts[index] || "No speaker notes available.";
     }
 
     _renderOutlineContent() {

@@ -124,6 +124,26 @@
  * icon:  data-icon(carbon:xxx), data-size, data-color
  * line:  data-x1, data-y1, data-x2, data-y2, data-stroke, data-stroke-width, data-dash
  * group: 包含子元素，统一定位
+ * card:  自动布局卡片组件，支持图标+标题+描述的组合布局
+ *        data-layout: horizontal(水平，图标在左) | vertical(垂直，图标在上) | icon-right(图标在右)
+ *        data-fill: 背景色
+ *        data-icon: 图标名称
+ *        data-icon-color: 图标颜色
+ *        data-icon-bg: 图标背景色
+ *        data-title: 主标题
+ *        data-title-color: 标题颜色
+ *        data-subtitle: 副标题/描述
+ *        data-subtitle-color: 副标题颜色
+ *        data-radius: 圆角
+ *        data-padding: 内边距(px)
+ *
+ * 【Card 组件示例】
+ * <div data-el="card" data-x="5%" data-y="40%" data-w="40%" data-h="18%"
+ *      data-layout="horizontal" data-fill="#FEE2E2" data-radius="12"
+ *      data-icon="carbon:time" data-icon-color="#DC2626" data-icon-bg="#FECACA"
+ *      data-title="40% Time Lost" data-title-color="#991B1B"
+ *      data-subtitle="Manual data reconciliation" data-subtitle-color="#B91C1C">
+ * </div>
  *
  * 通用属性: data-x, data-y, data-w, data-h, data-z, data-rotate, data-opacity
  * 坐标支持: 百分比(50%), 像素(200px), 英寸(2in)
@@ -219,23 +239,31 @@ class SlideParser {
      * 解析 HTML 字符串或 DOM 元素，返回 SlideSchema 数组
      */
     static parse(htmlInput) {
+        console.log('[SlideParser] Starting parse...');
         let container;
 
         if (typeof htmlInput === 'string') {
             container = document.createElement('div');
             container.innerHTML = htmlInput;
+            console.log('[SlideParser] Input is string, length:', htmlInput.length);
         } else {
             container = htmlInput;
+            console.log('[SlideParser] Input is element');
         }
 
         const sections = container.querySelectorAll('section[data-type]');
+        console.log('[SlideParser] Found', sections.length, 'sections');
         const slides = [];
 
         sections.forEach((section, index) => {
             const slide = this.parseSection(section, index);
-            if (slide) slides.push(slide);
+            if (slide) {
+                console.log(`[SlideParser] Slide ${index}: type=${slide.type}, elements=${slide.elements?.length || 0}`);
+                slides.push(slide);
+            }
         });
 
+        console.log('[SlideParser] Total parsed slides:', slides.length);
         return slides;
     }
 
@@ -429,8 +457,8 @@ class SlideParser {
         slide.backgroundGradient = section.dataset.gradient || null;
         slide.backgroundImage = section.dataset.bgImage || null;
 
-        // 解析所有元素
-        const elements = section.querySelectorAll('[data-el]');
+        // 只解析直接子元素，避免嵌套元素被重复解析
+        const elements = section.querySelectorAll(':scope > [data-el]');
         slide.elements = Array.from(elements).map((el, i) => this.parseElement(el, i));
 
         return slide;
@@ -459,9 +487,21 @@ class SlideParser {
 
         switch (type) {
             case 'text':
+                // 获取 HTML 内容，同时处理可能被转义的标签
+                let textContent = el.innerHTML?.trim() || '';
+                // 如果内容包含转义的 HTML 实体，反转义它们
+                if (textContent.includes('&lt;') || textContent.includes('&gt;')) {
+                    const temp = document.createElement('textarea');
+                    temp.innerHTML = textContent;
+                    textContent = temp.value;
+                }
+                // DEBUG: 检查解析结果
+                if (textContent.includes('GLOBAL') || textContent.includes('br')) {
+                    console.log('[SlideParser] Text content:', JSON.stringify(textContent));
+                }
                 return {
                     ...base,
-                    content: el.textContent?.trim() || '',
+                    content: textContent,
                     // 文字样式
                     font: parseFloat(el.dataset.font) || 18,
                     color: el.dataset.color || '#333333',
@@ -538,6 +578,34 @@ class SlideParser {
                 return {
                     ...base,
                     children: Array.from(children).map((child, i) => this.parseElement(child, i)),
+                };
+
+            case 'card':
+                // 卡片组件 - 自动布局图标+标题+描述
+                return {
+                    ...base,
+                    layout: el.dataset.layout || 'horizontal', // horizontal, vertical, icon-right
+                    fill: el.dataset.fill || '#ffffff',
+                    radius: parseFloat(el.dataset.radius) || 12,
+                    padding: parseFloat(el.dataset.padding) || 16,
+                    shadow: el.dataset.shadow === 'true',
+                    // 图标
+                    icon: el.dataset.icon || null,
+                    iconSize: parseFloat(el.dataset.iconSize) || 24,
+                    iconColor: el.dataset.iconColor || '#4f46e5',
+                    iconBg: el.dataset.iconBg || null,
+                    // 标题
+                    title: el.dataset.title || '',
+                    titleSize: parseFloat(el.dataset.titleSize) || 16,
+                    titleColor: el.dataset.titleColor || '#1f2937',
+                    titleBold: el.dataset.titleBold !== 'false', // 默认加粗
+                    // 副标题
+                    subtitle: el.dataset.subtitle || '',
+                    subtitleSize: parseFloat(el.dataset.subtitleSize) || 13,
+                    subtitleColor: el.dataset.subtitleColor || '#6b7280',
+                    // 边框
+                    stroke: el.dataset.stroke || null,
+                    strokeWidth: parseFloat(el.dataset.strokeWidth) || 1,
                 };
 
             default:
@@ -860,21 +928,40 @@ class HTMLSlideRenderer {
     }
 
     /**
+     * 格式化 CSS 值，保留原始单位（百分比/px/auto）
+     * 避免转换为像素导致的精度损失
+     */
+    formatCSSValue(value) {
+        if (value === 'auto' || value === undefined || value === null) return 'auto';
+        const str = String(value).trim();
+        // 已有单位（%, px, in, em, rem 等），直接返回
+        if (/(%|px|in|em|rem|vh|vw)$/.test(str)) {
+            return str;
+        }
+        // 纯数字，默认当作像素
+        const num = parseFloat(str);
+        if (isNaN(num)) return 'auto';
+        return num + 'px';
+    }
+
+    /**
      * 渲染单个自由元素
+     * 优化：直接使用百分比值，让浏览器计算精确位置，避免转换精度损失
      */
     renderFreeformElement(el, containerW, containerH) {
-        const x = this.parseCoord(el.x, containerW);
-        const y = this.parseCoord(el.y, containerH);
-        const w = this.parseCoord(el.w, containerW);
-        const h = this.parseCoord(el.h, containerH);
+        // 直接使用原始值（百分比/px/auto），不转换
+        const x = this.formatCSSValue(el.x);
+        const y = this.formatCSSValue(el.y);
+        const w = this.formatCSSValue(el.w);
+        const h = this.formatCSSValue(el.h);
 
-        // 基础定位样式
+        // 基础定位样式 - 保留原始单位
         const baseStyle = `
             position: absolute;
-            left: ${typeof x === 'number' ? x + 'px' : x};
-            top: ${typeof y === 'number' ? y + 'px' : y};
-            ${w !== 'auto' ? `width: ${w}px;` : ''}
-            ${h !== 'auto' ? `height: ${h}px;` : ''}
+            left: ${x};
+            top: ${y};
+            ${w !== 'auto' ? `width: ${w};` : ''}
+            ${h !== 'auto' ? `height: ${h};` : ''}
             ${el.rotate ? `transform: rotate(${el.rotate}deg);` : ''}
             ${el.opacity !== 1 ? `opacity: ${el.opacity};` : ''}
             z-index: ${el.z || 0};
@@ -895,25 +982,46 @@ class HTMLSlideRenderer {
                 return this.renderFreeformChart(el, baseStyle);
             case 'group':
                 return this.renderFreeformGroup(el, baseStyle, containerW, containerH);
+            case 'card':
+                return this.renderFreeformCard(el, baseStyle);
             default:
                 return '';
         }
     }
 
     renderFreeformText(el, baseStyle) {
+        // 垂直对齐使用 flexbox，但文字本身不用 flex 布局
+        const needsVerticalAlign = el.valign && el.valign !== 'top';
+
         const textStyle = `
             ${baseStyle}
             font-size: ${this.px(el.font)}px;
             color: ${el.color};
             ${el.bold ? 'font-weight: 700;' : ''}
             ${el.italic ? 'font-style: italic;' : ''}
-            text-align: ${el.align};
-            line-height: ${el.lineHeight};
-            ${el.bgColor ? `background: ${el.bgColor}; padding: 8px; border-radius: ${el.bgRadius}px;` : ''}
-            display: flex;
-            align-items: ${el.valign === 'middle' ? 'center' : el.valign === 'bottom' ? 'flex-end' : 'flex-start'};
-            justify-content: ${el.align === 'center' ? 'center' : el.align === 'right' ? 'flex-end' : 'flex-start'};
+            text-align: ${el.align || 'left'};
+            line-height: ${el.lineHeight || 1.4};
+            ${el.bgColor ? `background: ${el.bgColor}; padding: 8px; border-radius: ${el.bgRadius || 0}px;` : ''}
+            overflow-wrap: break-word;
+            word-break: break-word;
+            hyphens: auto;
         `.replace(/\s+/g, ' ').trim();
+
+        // DEBUG: 检查内容是否包含 HTML 标签
+        if (el.content && (el.content.includes('<br') || el.content.includes('<span'))) {
+            console.log('[HTMLRenderer] Text with HTML tags:', el.content.substring(0, 100));
+        }
+
+        // 如果需要垂直对齐，使用嵌套容器避免 flex 影响 <br> 的行为
+        if (needsVerticalAlign) {
+            const wrapperStyle = `
+                ${baseStyle}
+                display: flex;
+                flex-direction: column;
+                justify-content: ${el.valign === 'middle' ? 'center' : 'flex-end'};
+            `.replace(/\s+/g, ' ').trim();
+            return `<div style="${wrapperStyle}"><div contenteditable="true" style="font-size: ${this.px(el.font)}px; color: ${el.color}; ${el.bold ? 'font-weight: 700;' : ''} ${el.italic ? 'font-style: italic;' : ''} text-align: ${el.align || 'left'}; line-height: ${el.lineHeight || 1.4};">${el.content}</div></div>`;
+        }
 
         return `<div contenteditable="true" style="${textStyle}">${el.content}</div>`;
     }
@@ -989,10 +1097,11 @@ class HTMLSlideRenderer {
     }
 
     renderFreeformLine(el, containerW, containerH) {
-        const x1 = this.parseCoord(el.x1, containerW);
-        const y1 = this.parseCoord(el.y1, containerH);
-        const x2 = this.parseCoord(el.x2, containerW);
-        const y2 = this.parseCoord(el.y2, containerH);
+        // SVG 支持百分比坐标，直接使用原始值
+        const x1 = this.formatSVGCoord(el.x1);
+        const y1 = this.formatSVGCoord(el.y1);
+        const x2 = this.formatSVGCoord(el.x2);
+        const y2 = this.formatSVGCoord(el.y2);
 
         const dashStyle = el.dash ? `stroke-dasharray: ${el.dash};` : '';
 
@@ -1005,6 +1114,24 @@ class HTMLSlideRenderer {
         `;
     }
 
+    /**
+     * 格式化 SVG 坐标值，保留百分比
+     */
+    formatSVGCoord(value) {
+        if (value === undefined || value === null) return '0';
+        const str = String(value).trim();
+        // 百分比直接返回
+        if (str.endsWith('%')) {
+            return str;
+        }
+        // 已有 px 单位，转为纯数字
+        if (str.endsWith('px')) {
+            return parseFloat(str) || 0;
+        }
+        // 纯数字
+        return parseFloat(str) || 0;
+    }
+
     renderFreeformGroup(el, baseStyle, containerW, containerH) {
         const children = (el.children || [])
             .map(child => this.renderFreeformElement(child, containerW, containerH))
@@ -1014,33 +1141,103 @@ class HTMLSlideRenderer {
     }
 
     /**
+     * 渲染卡片组件 - 自动布局图标+标题+描述
+     * 支持三种布局：horizontal(水平), vertical(垂直), icon-right(图标在右)
+     */
+    renderFreeformCard(el, baseStyle) {
+        const layout = el.layout || 'horizontal';
+        const padding = el.padding || 16;
+        const radius = el.radius || 12;
+
+        // 容器样式
+        let containerStyle = `
+            ${baseStyle}
+            background: ${el.fill || '#ffffff'};
+            border-radius: ${radius}px;
+            padding: ${padding}px;
+            box-sizing: border-box;
+            ${el.shadow ? 'box-shadow: 0 4px 12px rgba(0,0,0,0.1);' : ''}
+            ${el.stroke ? `border: ${el.strokeWidth || 1}px solid ${el.stroke};` : ''}
+        `.replace(/\s+/g, ' ').trim();
+
+        // 图标部分
+        const iconSize = el.iconSize || 24;
+        const iconBgSize = iconSize + 12; // 图标背景比图标大一些
+        let iconHtml = '';
+        if (el.icon) {
+            const iconBgStyle = el.iconBg
+                ? `background: ${el.iconBg}; width: ${iconBgSize}px; height: ${iconBgSize}px; border-radius: ${iconBgSize / 3}px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;`
+                : `width: ${iconSize}px; height: ${iconSize}px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;`;
+            iconHtml = `
+                <div style="${iconBgStyle}">
+                    <iconify-icon icon="${el.icon}" style="font-size: ${iconSize}px; color: ${el.iconColor || '#4f46e5'};"></iconify-icon>
+                </div>
+            `;
+        }
+
+        // 文字部分
+        const titleHtml = el.title
+            ? `<div style="font-size: ${el.titleSize || 16}px; color: ${el.titleColor || '#1f2937'}; ${el.titleBold !== false ? 'font-weight: 600;' : ''} line-height: 1.3; margin-bottom: ${el.subtitle ? '4px' : '0'};">${el.title}</div>`
+            : '';
+        const subtitleHtml = el.subtitle
+            ? `<div style="font-size: ${el.subtitleSize || 13}px; color: ${el.subtitleColor || '#6b7280'}; line-height: 1.4;">${el.subtitle}</div>`
+            : '';
+        const textHtml = `<div style="flex: 1; min-width: 0;">${titleHtml}${subtitleHtml}</div>`;
+
+        // 根据布局组织内容
+        let innerStyle = '';
+        let content = '';
+
+        switch (layout) {
+            case 'vertical':
+                // 垂直布局：图标在上，文字在下，居中对齐
+                innerStyle = 'display: flex; flex-direction: column; align-items: center; text-align: center; height: 100%; justify-content: center; gap: 12px;';
+                content = `${iconHtml}${textHtml}`;
+                break;
+            case 'icon-right':
+                // 图标在右：文字在左，图标在右
+                innerStyle = 'display: flex; flex-direction: row; align-items: center; height: 100%; gap: 12px;';
+                content = `${textHtml}${iconHtml}`;
+                break;
+            case 'horizontal':
+            default:
+                // 水平布局：图标在左，文字在右
+                innerStyle = 'display: flex; flex-direction: row; align-items: center; height: 100%; gap: 12px;';
+                content = `${iconHtml}${textHtml}`;
+                break;
+        }
+
+        return `<div style="${containerStyle}"><div style="${innerStyle}">${content}</div></div>`;
+    }
+
+    /**
      * 渲染简单图表 (SVG)
+     * 使用 viewBox 实现响应式缩放，图表会自动填满容器
      */
     renderFreeformChart(el, baseStyle) {
         const data = this.parseChartData(el.chartData);
         const colors = (el.colors || '').split(',').map(c => c.trim());
         const chartType = el.chartType || 'bar';
+        const labels = el.labels || '';
 
-        // 图表容器尺寸（从样式中提取或使用默认值）
+        // 图表容器 - 使用 flex 布局让 SVG 填满可用空间
         const chartStyle = `
             ${baseStyle}
             display: flex;
             flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            background: #f8fafc;
-            border-radius: 12px;
-            padding: 16px;
+            background: transparent;
+            padding: 0;
+            overflow: hidden;
         `.replace(/\s+/g, ' ').trim();
 
         let chartSvg = '';
 
         if (chartType === 'bar') {
-            chartSvg = this.renderBarChart(data, colors);
+            chartSvg = this.renderBarChart(data, colors, labels);
         } else if (chartType === 'pie' || chartType === 'doughnut') {
             chartSvg = this.renderPieChart(data, colors, chartType === 'doughnut');
         } else if (chartType === 'line') {
-            chartSvg = this.renderLineChart(data, colors);
+            chartSvg = this.renderLineChart(data, colors, labels);
         }
 
         const titleHtml = el.title ? `<div style="font-size: 14px; font-weight: 600; color: #1e293b; margin-bottom: 8px;">${el.title}</div>` : '';
@@ -1056,35 +1253,70 @@ class HTMLSlideRenderer {
         });
     }
 
-    renderBarChart(data, colors) {
+    renderBarChart(data, colors, labels = '') {
         if (!data.length) return '<div style="color: #94a3b8;">No data</div>';
 
+        // 使用固定的 viewBox 坐标系，SVG 会自动缩放填满容器
+        const viewBoxWidth = 400;
+        const viewBoxHeight = 200;
+        const padding = { top: 20, right: 20, bottom: 40, left: 50 };
+        const chartWidth = viewBoxWidth - padding.left - padding.right;
+        const chartHeight = viewBoxHeight - padding.top - padding.bottom;
+
         const maxValue = Math.max(...data.map(d => d.value));
-        const barWidth = Math.min(40, 200 / data.length);
-        const chartWidth = data.length * (barWidth + 8);
-        const chartHeight = 120;
+        const barWidth = Math.min(50, (chartWidth - (data.length - 1) * 10) / data.length);
+        const barGap = (chartWidth - barWidth * data.length) / (data.length + 1);
+
+        // Y轴刻度
+        const yTicks = 5;
+        const yTickStep = maxValue / yTicks;
+        let yAxisHtml = '';
+        for (let i = 0; i <= yTicks; i++) {
+            const value = i * yTickStep;
+            const y = padding.top + chartHeight - (i / yTicks) * chartHeight;
+            yAxisHtml += `
+                <line x1="${padding.left}" y1="${y}" x2="${viewBoxWidth - padding.right}" y2="${y}" stroke="#e5e7eb" stroke-width="1" stroke-dasharray="4"/>
+                <text x="${padding.left - 8}" y="${y + 4}" text-anchor="end" font-size="11" fill="#6b7280">${Math.round(value)}</text>
+            `;
+        }
+
+        // Y轴标签
+        const yLabelHtml = labels ? `
+            <text x="12" y="${viewBoxHeight / 2}" text-anchor="middle" font-size="12" fill="#6b7280" transform="rotate(-90, 12, ${viewBoxHeight / 2})">${labels}</text>
+        ` : '';
 
         const bars = data.map((d, i) => {
             const color = colors[i % colors.length] || '#4f46e5';
-            const barHeight = (d.value / maxValue) * (chartHeight - 20);
-            const x = i * (barWidth + 8);
-            const y = chartHeight - barHeight - 15;
+            const barHeight = (d.value / maxValue) * chartHeight;
+            const x = padding.left + barGap + i * (barWidth + barGap);
+            const y = padding.top + chartHeight - barHeight;
 
             return `
                 <rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" fill="${color}" rx="4"/>
-                <text x="${x + barWidth/2}" y="${chartHeight}" text-anchor="middle" font-size="10" fill="#64748b">${d.label}</text>
+                <text x="${x + barWidth/2}" y="${y - 8}" text-anchor="middle" font-size="11" fill="#374151" font-weight="500">${d.value}</text>
+                <text x="${x + barWidth/2}" y="${viewBoxHeight - 10}" text-anchor="middle" font-size="11" fill="#6b7280">${d.label}</text>
             `;
         }).join('');
 
-        return `<svg width="${chartWidth}" height="${chartHeight}" style="overflow: visible;">${bars}</svg>`;
+        return `
+            <svg viewBox="0 0 ${viewBoxWidth} ${viewBoxHeight}" preserveAspectRatio="xMidYMid meet" style="width: 100%; height: 100%; flex: 1;">
+                <!-- Grid and Y-axis -->
+                ${yAxisHtml}
+                ${yLabelHtml}
+                <!-- Bars -->
+                ${bars}
+            </svg>
+        `;
     }
 
     renderPieChart(data, colors, isDoughnut = false) {
         if (!data.length) return '<div style="color: #94a3b8;">No data</div>';
 
         const total = data.reduce((sum, d) => sum + d.value, 0);
-        const size = 100;
-        const cx = size / 2, cy = size / 2, r = size / 2 - 5;
+        // 使用固定的 viewBox，SVG 会自动缩放
+        const viewBoxSize = 200;
+        const cx = viewBoxSize / 2, cy = viewBoxSize / 2;
+        const r = viewBoxSize / 2 - 10;
         const innerR = isDoughnut ? r * 0.6 : 0;
 
         let startAngle = -90;
@@ -1108,7 +1340,7 @@ class HTMLSlideRenderer {
             return `<path d="${path}" fill="${color}"/>`;
         }).join('');
 
-        return `<svg width="${size}" height="${size}">${paths}</svg>`;
+        return `<svg viewBox="0 0 ${viewBoxSize} ${viewBoxSize}" preserveAspectRatio="xMidYMid meet" style="width: 100%; height: 100%; max-width: 300px; flex: 1;">${paths}</svg>`;
     }
 
     polarToCartesian(cx, cy, r, angleDeg) {
@@ -1119,31 +1351,81 @@ class HTMLSlideRenderer {
         };
     }
 
-    renderLineChart(data, colors) {
+    renderLineChart(data, colors, labels = '') {
         if (!data.length) return '<div style="color: #94a3b8;">No data</div>';
 
+        // 使用固定的 viewBox 坐标系，SVG 会自动缩放填满容器
+        const viewBoxWidth = 400;
+        const viewBoxHeight = 200;
+        const padding = { top: 20, right: 30, bottom: 40, left: 50 };
+        const chartWidth = viewBoxWidth - padding.left - padding.right;
+        const chartHeight = viewBoxHeight - padding.top - padding.bottom;
+
         const maxValue = Math.max(...data.map(d => d.value));
-        const chartWidth = Math.max(200, data.length * 50);
-        const chartHeight = 100;
-        const padding = 20;
-        const color = colors[0] || '#4f46e5';
+        const minValue = 0;
+        const color = colors[0] || '#6366F1';
 
+        // 计算数据点坐标
         const points = data.map((d, i) => {
-            const x = padding + (i / (data.length - 1 || 1)) * (chartWidth - 2 * padding);
-            const y = chartHeight - padding - (d.value / maxValue) * (chartHeight - 2 * padding);
-            return `${x},${y}`;
-        }).join(' ');
+            const x = padding.left + (i / (data.length - 1 || 1)) * chartWidth;
+            const y = padding.top + chartHeight - ((d.value - minValue) / (maxValue - minValue || 1)) * chartHeight;
+            return { x, y, value: d.value, label: d.label };
+        });
 
-        const dots = data.map((d, i) => {
-            const x = padding + (i / (data.length - 1 || 1)) * (chartWidth - 2 * padding);
-            const y = chartHeight - padding - (d.value / maxValue) * (chartHeight - 2 * padding);
-            return `<circle cx="${x}" cy="${y}" r="4" fill="${color}"/>`;
-        }).join('');
+        // 生成折线路径
+        const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+
+        // 生成填充区域路径（带渐变）
+        const areaPath = `${linePath} L ${points[points.length - 1].x} ${padding.top + chartHeight} L ${padding.left} ${padding.top + chartHeight} Z`;
+
+        // Y轴刻度
+        const yTicks = 5;
+        const yTickStep = (maxValue - minValue) / yTicks;
+        let yAxisHtml = '';
+        for (let i = 0; i <= yTicks; i++) {
+            const value = minValue + i * yTickStep;
+            const y = padding.top + chartHeight - (i / yTicks) * chartHeight;
+            yAxisHtml += `
+                <line x1="${padding.left}" y1="${y}" x2="${viewBoxWidth - padding.right}" y2="${y}" stroke="#e5e7eb" stroke-width="1" stroke-dasharray="4"/>
+                <text x="${padding.left - 8}" y="${y + 4}" text-anchor="end" font-size="11" fill="#6b7280">${Math.round(value)}</text>
+            `;
+        }
+
+        // X轴标签
+        let xAxisHtml = points.map((p, i) => `
+            <text x="${p.x}" y="${viewBoxHeight - 10}" text-anchor="middle" font-size="11" fill="#6b7280">${p.label}</text>
+        `).join('');
+
+        // 数据点和悬停效果
+        const dotsHtml = points.map((p, i) => `
+            <circle cx="${p.x}" cy="${p.y}" r="5" fill="${color}" stroke="white" stroke-width="2"/>
+            <text x="${p.x}" y="${p.y - 12}" text-anchor="middle" font-size="11" fill="#374151" font-weight="500">${p.value}</text>
+        `).join('');
+
+        // Y轴标签
+        const yLabelHtml = labels ? `
+            <text x="12" y="${viewBoxHeight / 2}" text-anchor="middle" font-size="12" fill="#6b7280" transform="rotate(-90, 12, ${viewBoxHeight / 2})">${labels}</text>
+        ` : '';
 
         return `
-            <svg width="${chartWidth}" height="${chartHeight}">
-                <polyline points="${points}" fill="none" stroke="${color}" stroke-width="2"/>
-                ${dots}
+            <svg viewBox="0 0 ${viewBoxWidth} ${viewBoxHeight}" preserveAspectRatio="xMidYMid meet" style="width: 100%; height: 100%; flex: 1;">
+                <defs>
+                    <linearGradient id="lineGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" style="stop-color:${color};stop-opacity:0.3"/>
+                        <stop offset="100%" style="stop-color:${color};stop-opacity:0.05"/>
+                    </linearGradient>
+                </defs>
+                <!-- Grid and Y-axis -->
+                ${yAxisHtml}
+                ${yLabelHtml}
+                <!-- Area fill -->
+                <path d="${areaPath}" fill="url(#lineGradient)"/>
+                <!-- Line -->
+                <path d="${linePath}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                <!-- X-axis labels -->
+                ${xAxisHtml}
+                <!-- Data points -->
+                ${dotsHtml}
             </svg>
         `;
     }
@@ -1252,7 +1534,9 @@ class PPTXSlideRenderer {
             // 如果是对象，尝试提取 color 属性
             return value.color ? String(value.color).replace('#', '') : null;
         }
-        return String(value).trim().replace('#', '');
+        const color = String(value).trim().replace('#', '');
+        // 确保返回有效的颜色值或 null
+        return color && /^[0-9a-fA-F]{3,8}$/.test(color) ? color : null;
     }
 
     // 尺寸常量 - 与 SlideStyles 同步
@@ -1782,6 +2066,9 @@ class PPTXSlideRenderer {
                         this.renderFreeformElementPPTX(slide, child);
                     });
                     break;
+                case 'card':
+                    this.renderFreeformCardPPTX(slide, el, x, y, w, h);
+                    break;
             }
         } catch (e) {
             console.error(`Error rendering freeform element type "${el.type}":`, e);
@@ -1791,10 +2078,33 @@ class PPTXSlideRenderer {
     }
 
     renderFreeformTextPPTX(slide, el, x, y, w, h) {
-        // 计算合适的高度 - 根据字号估算
-        const fontSize = el.font || 18;
-        const lineCount = Math.ceil((el.content || '').length / 20) || 1; // 粗略估算行数
-        const estimatedHeight = (fontSize / 72) * lineCount * 1.4; // pt to inch, 1.4 行高
+        // AI 输出的 font 是像素值，需要转换为点 (pt)
+        // 标准转换: pt = px * 72 / 96 = px * 0.75
+        // 但实测 PPTX 渲染略大，所以用 0.72 微调
+        const fontSizePx = el.font || 18;
+        const fontSize = Math.round(fontSizePx * 0.72);
+
+        // 处理 HTML 内容，转换为 PptxGenJS 支持的格式
+        let textContent = el.content || '';
+        textContent = textContent
+            .replace(/\r?\n/g, ' ')                  // 先把源码中的换行符替换为空格
+            .replace(/<br\s*\/?>/gi, '\n')           // <br> -> 换行
+            .replace(/<\/?(strong|b)>/gi, '')        // 移除 strong/b 标签
+            .replace(/<\/?(em|i)>/gi, '')            // 移除 em/i 标签
+            .replace(/<[^>]+>/g, '')                 // 移除其他 HTML 标签
+            .replace(/&nbsp;/g, ' ')                 // HTML 空格
+            .replace(/&amp;/g, '&')                  // &
+            .replace(/&lt;/g, '<')                   // <
+            .replace(/&gt;/g, '>')                   // >
+            .replace(/&quot;/g, '"')                 // "
+            .replace(/&#39;/g, "'")                  // '
+            .replace(/[ \t]+/g, ' ')                 // 多个空格/制表符合并（保留换行）
+            .replace(/ ?\n ?/g, '\n')                // 清理换行符周围的空格
+            .trim();                                 // 去除首尾空白
+
+        // 计算合适的高度 - 根据字号和行数估算
+        const lineCount = (textContent.match(/\n/g) || []).length + 1;
+        const estimatedHeight = (fontSize / 72) * lineCount * 1.5; // pt to inch, 1.5 行高
 
         const textOptions = {
             x: x || 0,
@@ -1828,7 +2138,11 @@ class PPTXSlideRenderer {
             }
         }
 
-        this.addText(slide,el.content || '', textOptions);
+        try {
+            this.addText(slide, textContent, textOptions);
+        } catch (e) {
+            console.warn('Failed to add text:', e, textContent, textOptions);
+        }
     }
 
     renderFreeformShapePPTX(slide, el, x, y, w, h) {
@@ -1880,7 +2194,11 @@ class PPTXSlideRenderer {
         //     };
         // }
 
-        slide.addShape(shapeType, shapeOptions);
+        try {
+            slide.addShape(shapeType, shapeOptions);
+        } catch (e) {
+            console.warn('Failed to add shape:', e, shapeOptions);
+        }
     }
 
     renderFreeformImagePPTX(slide, el, x, y, w, h) {
@@ -2093,16 +2411,24 @@ class PPTXSlideRenderer {
     }
 
     renderFreeformLinePPTX(slide, el) {
-        const x1 = this.parseCoordToInch(el.x1, this.SLIDE_W) || 0;
-        const y1 = this.parseCoordToInch(el.y1, this.SLIDE_H) || 0;
-        const x2 = this.parseCoordToInch(el.x2, this.SLIDE_W) || this.SLIDE_W;
-        const y2 = this.parseCoordToInch(el.y2, this.SLIDE_H) || y1;
+        let x1 = this.parseCoordToInch(el.x1, this.SLIDE_W) || 0;
+        let y1 = this.parseCoordToInch(el.y1, this.SLIDE_H) || 0;
+        let x2 = this.parseCoordToInch(el.x2, this.SLIDE_W) || this.SLIDE_W;
+        let y2 = this.parseCoordToInch(el.y2, this.SLIDE_H) || y1;
+
+        // 确保 w 和 h 非负（PptxGenJS 要求）
+        if (x2 < x1) { [x1, x2] = [x2, x1]; }
+        if (y2 < y1) { [y1, y2] = [y2, y1]; }
+
+        // 避免零宽度/高度的线条
+        const w = Math.max(x2 - x1, 0.01);
+        const h = Math.max(y2 - y1, 0.01);
 
         const lineOptions = {
             x: x1,
             y: y1,
-            w: x2 - x1,
-            h: y2 - y1,
+            w: w,
+            h: h,
             line: {
                 color: this.safeColor(el.stroke) || 'CCCCCC',
                 width: el.strokeWidth || 2,
@@ -2114,7 +2440,192 @@ class PPTXSlideRenderer {
             lineOptions.line.dashType = 'dash';
         }
 
-        slide.addShape('line', lineOptions);
+        try {
+            slide.addShape('line', lineOptions);
+        } catch (e) {
+            console.warn('Failed to add line:', e, lineOptions);
+        }
+    }
+
+    /**
+     * 渲染卡片组件到 PPTX - 自动布局图标+标题+描述
+     * 将卡片分解为背景形状 + 图标 + 文字元素
+     */
+    renderFreeformCardPPTX(slide, el, x, y, w, h) {
+        const layout = el.layout || 'horizontal';
+        const padding = (el.padding || 16) / this.styles.dimensions.pxPerInch; // px to inch
+        const radius = (el.radius || 12) / this.styles.dimensions.pxPerInch;
+
+        // 1. 渲染背景形状
+        const bgOptions = {
+            x: x || 0,
+            y: y || 0,
+            w: w || 2,
+            h: h || 1,
+            fill: { color: this.safeColor(el.fill) || 'FFFFFF' },
+            line: el.stroke ? {
+                color: this.safeColor(el.stroke) || 'E2E8F0',
+                width: el.strokeWidth || 1
+            } : { color: 'FFFFFF', transparency: 100 },
+        };
+
+        if (radius > 0) {
+            bgOptions.rectRadius = radius;
+        }
+
+        try {
+            slide.addShape(radius > 0 ? 'roundRect' : 'rect', bgOptions);
+        } catch (e) {
+            console.warn('Failed to add card background:', e);
+        }
+
+        // 计算内部布局
+        const innerX = x + padding;
+        const innerY = y + padding;
+        const innerW = w - padding * 2;
+        const innerH = h - padding * 2;
+
+        const iconSize = (el.iconSize || 24) / this.styles.dimensions.pxPerInch;
+        const iconBgSize = iconSize * 1.5;
+        const gap = 0.12; // 12px gap in inches
+
+        // px to pt 转换（与 renderFreeformTextPPTX 保持一致）
+        const titleSize = Math.round((el.titleSize || 16) * 0.72);
+        const subtitleSize = Math.round((el.subtitleSize || 13) * 0.72);
+
+        if (layout === 'vertical') {
+            // 垂直布局：图标在上，文字在下，居中
+            const contentH = iconBgSize + gap + 0.3 + (el.subtitle ? 0.25 : 0);
+            const startY = innerY + (innerH - contentH) / 2;
+
+            // 图标背景（如果有）
+            if (el.icon && el.iconBg) {
+                const iconBgX = innerX + (innerW - iconBgSize) / 2;
+                slide.addShape('roundRect', {
+                    x: iconBgX,
+                    y: startY,
+                    w: iconBgSize,
+                    h: iconBgSize,
+                    fill: { color: this.safeColor(el.iconBg) },
+                    line: { color: 'FFFFFF', transparency: 100 },
+                    rectRadius: iconBgSize / 4,
+                });
+            }
+
+            // 图标（用 emoji fallback）
+            if (el.icon) {
+                const emoji = this.getIconEmoji(el.icon);
+                this.addText(slide, emoji, {
+                    x: innerX,
+                    y: startY,
+                    w: innerW,
+                    h: iconBgSize,
+                    fontSize: Math.round(el.iconSize || 24),
+                    color: this.safeColor(el.iconColor) || '4f46e5',
+                    align: 'center',
+                    valign: 'middle',
+                });
+            }
+
+            // 标题
+            if (el.title) {
+                this.addText(slide, el.title, {
+                    x: innerX,
+                    y: startY + iconBgSize + gap,
+                    w: innerW,
+                    h: 0.3,
+                    fontSize: titleSize,
+                    color: this.safeColor(el.titleColor) || '1f2937',
+                    bold: el.titleBold !== false,
+                    align: 'center',
+                    valign: 'top',
+                });
+            }
+
+            // 副标题
+            if (el.subtitle) {
+                this.addText(slide, el.subtitle, {
+                    x: innerX,
+                    y: startY + iconBgSize + gap + 0.3,
+                    w: innerW,
+                    h: 0.25,
+                    fontSize: subtitleSize,
+                    color: this.safeColor(el.subtitleColor) || '6b7280',
+                    align: 'center',
+                    valign: 'top',
+                });
+            }
+        } else {
+            // 水平布局（horizontal 或 icon-right）
+            const isIconRight = layout === 'icon-right';
+            const iconAreaW = el.icon ? iconBgSize + gap : 0;
+            const textAreaW = innerW - iconAreaW;
+            const textX = isIconRight ? innerX : innerX + iconAreaW;
+            const iconX = isIconRight ? innerX + textAreaW + gap : innerX;
+
+            // 图标背景（如果有）
+            if (el.icon && el.iconBg) {
+                const iconBgY = innerY + (innerH - iconBgSize) / 2;
+                slide.addShape('roundRect', {
+                    x: iconX,
+                    y: iconBgY,
+                    w: iconBgSize,
+                    h: iconBgSize,
+                    fill: { color: this.safeColor(el.iconBg) },
+                    line: { color: 'FFFFFF', transparency: 100 },
+                    rectRadius: iconBgSize / 4,
+                });
+            }
+
+            // 图标
+            if (el.icon) {
+                const emoji = this.getIconEmoji(el.icon);
+                this.addText(slide, emoji, {
+                    x: iconX,
+                    y: innerY,
+                    w: iconBgSize,
+                    h: innerH,
+                    fontSize: Math.round(el.iconSize || 24),
+                    color: this.safeColor(el.iconColor) || '4f46e5',
+                    align: 'center',
+                    valign: 'middle',
+                });
+            }
+
+            // 文字区域 - 标题和副标题
+            const hasSubtitle = !!el.subtitle;
+            const titleH = hasSubtitle ? innerH * 0.5 : innerH;
+            const subtitleH = innerH * 0.5;
+
+            // 标题
+            if (el.title) {
+                this.addText(slide, el.title, {
+                    x: textX,
+                    y: innerY,
+                    w: textAreaW - gap,
+                    h: titleH,
+                    fontSize: titleSize,
+                    color: this.safeColor(el.titleColor) || '1f2937',
+                    bold: el.titleBold !== false,
+                    align: 'left',
+                    valign: hasSubtitle ? 'bottom' : 'middle',
+                });
+            }
+
+            // 副标题
+            if (el.subtitle) {
+                this.addText(slide, el.subtitle, {
+                    x: textX,
+                    y: innerY + titleH,
+                    w: textAreaW - gap,
+                    h: subtitleH,
+                    fontSize: subtitleSize,
+                    color: this.safeColor(el.subtitleColor) || '6b7280',
+                    align: 'left',
+                    valign: 'top',
+                });
+            }
+        }
     }
 }
 
