@@ -1,0 +1,2169 @@
+/**
+ * Slide Schema & Renderer System v2.0
+ *
+ * 让 AI 输出标准化 HTML，自动同步渲染到预览和 PPTX
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * 模式 1: 预设模板 (data-type="cover|toc|stats|...")
+ * ═══════════════════════════════════════════════════════════════
+ * 支持的 HTML 结构 → 自动映射到 PPTX 元素：
+ * - <section data-type="cover|toc|stats|..."> → Slide
+ * - <h1>, <h2> → Title
+ * - <p> → Paragraph
+ * - <ul>, <ol> → List
+ * - <div class="stats-grid"> → Stats layout
+ * - <div class="comparison"> → Two-column comparison
+ * - <blockquote> → Quote
+ * - <div class="timeline"> → Timeline
+ * - <img> → Image (placeholder in PPTX)
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * 模式 2: 自由元素 (data-type="freeform") - Fancy 设计模式
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * 【示例 1: 渐变几何封面】
+ * <section data-type="freeform" data-gradient="linear-gradient(135deg, #667eea 0%, #764ba2 100%)">
+ *   <div data-el="shape" data-shape="circle" data-x="70%" data-y="-20%" data-w="60%" data-h="100%" data-fill="#ffffff" data-opacity="0.08"></div>
+ *   <div data-el="shape" data-shape="circle" data-x="-10%" data-y="60%" data-w="30%" data-h="50%" data-fill="#feca57" data-opacity="0.6"></div>
+ *   <div data-el="shape" data-shape="rounded" data-x="75%" data-y="70%" data-w="20%" data-h="25%" data-fill="#ff6b6b" data-opacity="0.4" data-radius="20" data-rotate="15"></div>
+ *   <div data-el="text" data-x="8%" data-y="30%" data-w="55%" data-h="auto" data-font="52" data-color="#ffffff" data-bold="true">创新驱动未来</div>
+ *   <div data-el="text" data-x="8%" data-y="52%" data-w="50%" data-h="auto" data-font="20" data-color="#ffffff" data-opacity="0.85">2024 年度战略报告 · 探索无限可能</div>
+ *   <div data-el="line" data-x1="8%" data-y1="68%" data-x2="35%" data-y2="68%" data-stroke="#feca57" data-stroke-width="4"></div>
+ *   <div data-el="icon" data-icon="carbon:rocket" data-x="8%" data-y="75%" data-size="28" data-color="#ffffff"></div>
+ *   <div data-el="text" data-x="13%" data-y="76%" data-w="30%" data-h="auto" data-font="14" data-color="#ffffff" data-opacity="0.7">Paper Burner X</div>
+ * </section>
+ *
+ * 【示例 2: 玻璃拟态数据卡片】
+ * <section data-type="freeform" data-gradient="linear-gradient(180deg, #1a1a2e 0%, #16213e 100%)">
+ *   <div data-el="shape" data-shape="circle" data-x="80%" data-y="10%" data-w="25%" data-h="40%" data-fill="#4f46e5" data-opacity="0.3"></div>
+ *   <div data-el="shape" data-shape="circle" data-x="-5%" data-y="50%" data-w="20%" data-h="35%" data-fill="#f472b6" data-opacity="0.25"></div>
+ *   <div data-el="text" data-x="5%" data-y="8%" data-w="90%" data-h="auto" data-font="32" data-color="#ffffff" data-bold="true" data-align="center">核心业务指标</div>
+ *   <div data-el="text" data-x="5%" data-y="18%" data-w="90%" data-h="auto" data-font="14" data-color="#94a3b8" data-align="center">实时数据监控面板</div>
+ *   <div data-el="shape" data-shape="rounded" data-x="4%" data-y="28%" data-w="29%" data-h="62%" data-fill="#ffffff" data-opacity="0.08" data-radius="16"></div>
+ *   <div data-el="icon" data-icon="carbon:growth" data-x="13%" data-y="35%" data-size="40" data-color="#10b981"></div>
+ *   <div data-el="text" data-x="4%" data-y="52%" data-w="29%" data-h="auto" data-font="42" data-color="#10b981" data-bold="true" data-align="center">+127%</div>
+ *   <div data-el="text" data-x="4%" data-y="68%" data-w="29%" data-h="auto" data-font="14" data-color="#94a3b8" data-align="center">营收增长率</div>
+ *   <div data-el="line" data-x1="8%" data-y1="78%" data-x2="29%" data-y2="78%" data-stroke="#10b981" data-stroke-width="3"></div>
+ *   <div data-el="text" data-x="4%" data-y="82%" data-w="29%" data-h="auto" data-font="11" data-color="#6b7280" data-align="center">↑ 较去年同期</div>
+ *   <div data-el="shape" data-shape="rounded" data-x="36%" data-y="28%" data-w="29%" data-h="62%" data-fill="#ffffff" data-opacity="0.08" data-radius="16"></div>
+ *   <div data-el="icon" data-icon="carbon:user-multiple" data-x="45%" data-y="35%" data-size="40" data-color="#3b82f6"></div>
+ *   <div data-el="text" data-x="36%" data-y="52%" data-w="29%" data-h="auto" data-font="42" data-color="#3b82f6" data-bold="true" data-align="center">2.5M</div>
+ *   <div data-el="text" data-x="36%" data-y="68%" data-w="29%" data-h="auto" data-font="14" data-color="#94a3b8" data-align="center">活跃用户数</div>
+ *   <div data-el="line" data-x1="40%" data-y1="78%" data-x2="61%" data-y2="78%" data-stroke="#3b82f6" data-stroke-width="3"></div>
+ *   <div data-el="text" data-x="36%" data-y="82%" data-w="29%" data-h="auto" data-font="11" data-color="#6b7280" data-align="center">日均活跃</div>
+ *   <div data-el="shape" data-shape="rounded" data-x="68%" data-y="28%" data-w="29%" data-h="62%" data-fill="#ffffff" data-opacity="0.08" data-radius="16"></div>
+ *   <div data-el="icon" data-icon="carbon:star-filled" data-x="77%" data-y="35%" data-size="40" data-color="#f59e0b"></div>
+ *   <div data-el="text" data-x="68%" data-y="52%" data-w="29%" data-h="auto" data-font="42" data-color="#f59e0b" data-bold="true" data-align="center">4.9</div>
+ *   <div data-el="text" data-x="68%" data-y="68%" data-w="29%" data-h="auto" data-font="14" data-color="#94a3b8" data-align="center">用户满意度</div>
+ *   <div data-el="line" data-x1="72%" data-y1="78%" data-x2="93%" data-y2="78%" data-stroke="#f59e0b" data-stroke-width="3"></div>
+ *   <div data-el="text" data-x="68%" data-y="82%" data-w="29%" data-h="auto" data-font="11" data-color="#6b7280" data-align="center">满分 5.0</div>
+ * </section>
+ *
+ * 【示例 3: 左右分栏图文】
+ * <section data-type="freeform" data-bg="#fafafa">
+ *   <div data-el="shape" data-shape="rect" data-x="0%" data-y="0%" data-w="45%" data-h="100%" data-fill="#4f46e5"></div>
+ *   <div data-el="shape" data-shape="circle" data-x="30%" data-y="60%" data-w="25%" data-h="45%" data-fill="#ffffff" data-opacity="0.1"></div>
+ *   <div data-el="text" data-x="5%" data-y="25%" data-w="35%" data-h="auto" data-font="14" data-color="#a5b4fc" data-bold="true">CHAPTER 01</div>
+ *   <div data-el="text" data-x="5%" data-y="33%" data-w="35%" data-h="auto" data-font="36" data-color="#ffffff" data-bold="true">产品愿景</div>
+ *   <div data-el="text" data-x="5%" data-y="50%" data-w="35%" data-h="auto" data-font="14" data-color="#c7d2fe" data-line-height="1.6">我们致力于打造下一代智能协作平台，让团队协作更加高效、创意更加自由。</div>
+ *   <div data-el="line" data-x1="5%" data-y1="75%" data-x2="25%" data-y2="75%" data-stroke="#feca57" data-stroke-width="3"></div>
+ *   <div data-el="image" data-x="50%" data-y="10%" data-w="45%" data-h="80%" data-radius="16" data-alt="产品展示"></div>
+ *   <div data-el="shape" data-shape="rounded" data-x="52%" data-y="75%" data-w="40%" data-h="18%" data-fill="#ffffff" data-shadow="true" data-radius="12"></div>
+ *   <div data-el="icon" data-icon="carbon:checkmark-filled" data-x="55%" data-y="80%" data-size="24" data-color="#10b981"></div>
+ *   <div data-el="text" data-x="62%" data-y="79%" data-w="28%" data-h="auto" data-font="12" data-color="#374151" data-bold="true">已服务 500+ 企业客户</div>
+ *   <div data-el="text" data-x="62%" data-y="86%" data-w="28%" data-h="auto" data-font="11" data-color="#6b7280">覆盖金融、科技、制造等行业</div>
+ * </section>
+ *
+ * 【示例 4: 时间轴流程】
+ * <section data-type="freeform" data-gradient="linear-gradient(135deg, #fdf2f8 0%, #fce7f3 50%, #fbcfe8 100%)">
+ *   <div data-el="text" data-x="5%" data-y="8%" data-w="90%" data-h="auto" data-font="32" data-color="#831843" data-bold="true" data-align="center">产品演进路线</div>
+ *   <div data-el="line" data-x1="10%" data-y1="55%" data-x2="90%" data-y2="55%" data-stroke="#f9a8d4" data-stroke-width="4"></div>
+ *   <div data-el="shape" data-shape="circle" data-x="8%" data-y="48%" data-w="6%" data-h="10%" data-fill="#ec4899"></div>
+ *   <div data-el="text" data-x="6%" data-y="49%" data-w="10%" data-h="auto" data-font="14" data-color="#ffffff" data-bold="true" data-align="center">1</div>
+ *   <div data-el="text" data-x="3%" data-y="62%" data-w="16%" data-h="auto" data-font="14" data-color="#9d174d" data-bold="true" data-align="center">概念验证</div>
+ *   <div data-el="text" data-x="3%" data-y="70%" data-w="16%" data-h="auto" data-font="11" data-color="#be185d" data-align="center">Q1 2024</div>
+ *   <div data-el="shape" data-shape="circle" data-x="30%" data-y="48%" data-w="6%" data-h="10%" data-fill="#ec4899"></div>
+ *   <div data-el="text" data-x="28%" data-y="49%" data-w="10%" data-h="auto" data-font="14" data-color="#ffffff" data-bold="true" data-align="center">2</div>
+ *   <div data-el="text" data-x="25%" data-y="62%" data-w="16%" data-h="auto" data-font="14" data-color="#9d174d" data-bold="true" data-align="center">MVP 发布</div>
+ *   <div data-el="text" data-x="25%" data-y="70%" data-w="16%" data-h="auto" data-font="11" data-color="#be185d" data-align="center">Q2 2024</div>
+ *   <div data-el="shape" data-shape="circle" data-x="52%" data-y="48%" data-w="6%" data-h="10%" data-fill="#ec4899"></div>
+ *   <div data-el="text" data-x="50%" data-y="49%" data-w="10%" data-h="auto" data-font="14" data-color="#ffffff" data-bold="true" data-align="center">3</div>
+ *   <div data-el="text" data-x="47%" data-y="62%" data-w="16%" data-h="auto" data-font="14" data-color="#9d174d" data-bold="true" data-align="center">规模扩展</div>
+ *   <div data-el="text" data-x="47%" data-y="70%" data-w="16%" data-h="auto" data-font="11" data-color="#be185d" data-align="center">Q3 2024</div>
+ *   <div data-el="shape" data-shape="circle" data-x="74%" data-y="48%" data-w="6%" data-h="10%" data-fill="#ec4899"></div>
+ *   <div data-el="text" data-x="72%" data-y="49%" data-w="10%" data-h="auto" data-font="14" data-color="#ffffff" data-bold="true" data-align="center">4</div>
+ *   <div data-el="text" data-x="69%" data-y="62%" data-w="16%" data-h="auto" data-font="14" data-color="#9d174d" data-bold="true" data-align="center">全球上线</div>
+ *   <div data-el="text" data-x="69%" data-y="70%" data-w="16%" data-h="auto" data-font="11" data-color="#be185d" data-align="center">Q4 2024</div>
+ *   <div data-el="shape" data-shape="rounded" data-x="25%" data-y="80%" data-w="50%" data-h="14%" data-fill="#fdf2f8" data-stroke="#f9a8d4" data-stroke-width="2" data-radius="24"></div>
+ *   <div data-el="icon" data-icon="carbon:rocket" data-x="30%" data-y="83%" data-size="24" data-color="#ec4899"></div>
+ *   <div data-el="text" data-x="37%" data-y="84%" data-w="35%" data-h="auto" data-font="13" data-color="#9d174d" data-bold="true">预计 2025 年覆盖 100+ 国家和地区</div>
+ * </section>
+ *
+ * 【示例 5: 深色结束页】
+ * <section data-type="freeform" data-gradient="linear-gradient(135deg, #0f0f23 0%, #1a1a3e 50%, #0f172a 100%)">
+ *   <div data-el="shape" data-shape="circle" data-x="60%" data-y="-30%" data-w="80%" data-h="130%" data-fill="#4f46e5" data-opacity="0.08"></div>
+ *   <div data-el="shape" data-shape="circle" data-x="-20%" data-y="50%" data-w="40%" data-h="70%" data-fill="#ec4899" data-opacity="0.06"></div>
+ *   <div data-el="shape" data-shape="rounded" data-x="35%" data-y="20%" data-w="30%" data-h="8%" data-fill="#4f46e5" data-opacity="0.3" data-radius="20"></div>
+ *   <div data-el="text" data-x="35%" data-y="21%" data-w="30%" data-h="auto" data-font="12" data-color="#a5b4fc" data-bold="true" data-align="center">THANK YOU</div>
+ *   <div data-el="text" data-x="10%" data-y="38%" data-w="80%" data-h="auto" data-font="48" data-color="#ffffff" data-bold="true" data-align="center">感谢聆听</div>
+ *   <div data-el="text" data-x="15%" data-y="55%" data-w="70%" data-h="auto" data-font="18" data-color="#94a3b8" data-align="center">期待与您携手，共创美好未来</div>
+ *   <div data-el="line" data-x1="40%" data-y1="68%" data-x2="60%" data-y2="68%" data-stroke="#4f46e5" data-stroke-width="3"></div>
+ *   <div data-el="shape" data-shape="rounded" data-x="30%" data-y="75%" data-w="40%" data-h="15%" data-fill="#ffffff" data-opacity="0.05" data-radius="12"></div>
+ *   <div data-el="icon" data-icon="carbon:email" data-x="33%" data-y="79%" data-size="20" data-color="#94a3b8"></div>
+ *   <div data-el="text" data-x="39%" data-y="78%" data-w="30%" data-h="auto" data-font="13" data-color="#cbd5e1">contact@example.com</div>
+ *   <div data-el="icon" data-icon="carbon:logo-github" data-x="33%" data-y="85%" data-size="20" data-color="#94a3b8"></div>
+ *   <div data-el="text" data-x="39%" data-y="84%" data-w="30%" data-h="auto" data-font="13" data-color="#cbd5e1">github.com/your-project</div>
+ * </section>
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * 元素类型参考
+ * ═══════════════════════════════════════════════════════════════
+ * text:  data-font, data-color, data-bold, data-italic, data-align(left/center/right), data-valign(top/middle/bottom), data-bg-color, data-bg-radius
+ * shape: data-shape(rect/circle/rounded/triangle), data-fill, data-stroke, data-stroke-width, data-radius, data-shadow, data-gradient
+ * image: data-src, data-fit(cover/contain/fill), data-radius, data-alt, data-border
+ * icon:  data-icon(carbon:xxx), data-size, data-color
+ * line:  data-x1, data-y1, data-x2, data-y2, data-stroke, data-stroke-width, data-dash
+ * group: 包含子元素，统一定位
+ *
+ * 通用属性: data-x, data-y, data-w, data-h, data-z, data-rotate, data-opacity
+ * 坐标支持: 百分比(50%), 像素(200px), 英寸(2in)
+ */
+
+// ============================================================
+// 1. 样式配置 - 单一数据源，HTML 和 PPTX 共享
+// ============================================================
+const SlideStyles = {
+    // 尺寸 (PPTX uses inches, HTML uses px)
+    // 统一使用 960x540 (16:9 标准比例)
+    dimensions: {
+        width: 10,      // inches (PPTX)
+        height: 5.625,  // inches (PPTX)
+        pxPerInch: 96,
+        htmlWidth: 960,  // HTML 预览宽度 (统一标准)
+        htmlHeight: 540, // HTML 预览高度 (统一标准)
+    },
+
+    // 字体家族
+    fontFamily: {
+        // 中文优先使用思源黑体
+        main: '"Source Han Sans SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif',
+        // PPTX 字体 (需要系统安装或嵌入)
+        pptx: 'Source Han Sans SC',      // 思源黑体
+        pptxFallback: 'Microsoft YaHei', // 备选：微软雅黑
+    },
+
+    // 间距 (以 PPTX 英寸为基准)
+    padding: {
+        normal: 0.5,    // 标准内边距
+        large: 0.6,     // 封面页内边距
+    },
+
+    // 颜色
+    colors: {
+        primary: '#4f46e5',
+        primaryLight: '#e0e7ff',
+        primarySubtle: '#eef2ff',
+        secondary: '#3b82f6',
+
+        textMain: '#0f172a',
+        textSecondary: '#475569',
+        textMuted: '#94a3b8',
+
+        success: '#16a34a',
+        successBg: '#dcfce7',
+        danger: '#dc2626',
+        dangerBg: '#fee2e2',
+
+        border: '#e2e8f0',
+        bgSubtle: '#f8fafc',
+        bgPurple: '#faf5ff',
+
+        white: '#ffffff',
+        dark: '#0f172a',
+        darkSecondary: '#1e293b',
+    },
+
+    // 字体大小 (PPTX pt 值，HTML 会自动按比例缩放)
+    // PPTX 标准: 10" x 5.625" (约 960x540px @96dpi)
+    // HTML 预览: 864x486px
+    fonts: {
+        coverTitle: 44,      // 封面标题
+        coverSubtitle: 22,   // 封面副标题
+        title: 32,           // 普通页标题
+        subtitle: 20,        // 小标题/对比框标题
+        body: 18,            // 正文
+        bodySmall: 16,       // 小正文/列表项
+        caption: 14,         // 注释/标签
+        small: 12,           // 最小文字
+        stat: 48,            // 统计数字
+    },
+
+    // 圆角 (PPTX 英寸)
+    radius: {
+        small: 0.08,
+        medium: 0.12,
+        large: 0.2,
+    },
+
+    // HTML 预览缩放比例
+    get htmlScale() {
+        return this.dimensions.htmlWidth / (this.dimensions.width * this.dimensions.pxPerInch);
+    }
+};
+
+// ============================================================
+// 2. SlideParser - 从 HTML 解析出 Schema
+// ============================================================
+class SlideParser {
+    /**
+     * 解析 HTML 字符串或 DOM 元素，返回 SlideSchema 数组
+     */
+    static parse(htmlInput) {
+        let container;
+
+        if (typeof htmlInput === 'string') {
+            container = document.createElement('div');
+            container.innerHTML = htmlInput;
+        } else {
+            container = htmlInput;
+        }
+
+        const sections = container.querySelectorAll('section[data-type]');
+        const slides = [];
+
+        sections.forEach((section, index) => {
+            const slide = this.parseSection(section, index);
+            if (slide) slides.push(slide);
+        });
+
+        return slides;
+    }
+
+    /**
+     * 解析单个 section 元素
+     */
+    static parseSection(section, index) {
+        const type = section.dataset.type || 'content';
+        const baseSlide = {
+            id: section.id || `slide-${index}`,
+            type,
+            elements: [],
+        };
+
+        // 根据类型使用不同的解析策略
+        switch (type) {
+            case 'cover':
+                return this.parseCover(section, baseSlide);
+            case 'toc':
+                return this.parseToc(section, baseSlide);
+            case 'stats':
+                return this.parseStats(section, baseSlide);
+            case 'comparison':
+                return this.parseComparison(section, baseSlide);
+            case 'image_text':
+                return this.parseImageText(section, baseSlide);
+            case 'icon_grid':
+                return this.parseIconGrid(section, baseSlide);
+            case 'quote':
+                return this.parseQuote(section, baseSlide);
+            case 'timeline':
+                return this.parseTimeline(section, baseSlide);
+            case 'end':
+                return this.parseEnd(section, baseSlide);
+            case 'list':
+                return this.parseList(section, baseSlide);
+            case 'freeform':
+                return this.parseFreeform(section, baseSlide);
+            default:
+                return this.parseContent(section, baseSlide);
+        }
+    }
+
+    // --- 具体类型解析器 ---
+
+    static parseCover(section, slide) {
+        const h1 = section.querySelector('h1');
+        const subtitle = section.querySelector('p, .subtitle');
+
+        slide.title = h1?.textContent?.trim() || '';
+        slide.subtitle = subtitle?.textContent?.trim() || '';
+        slide.background = 'gradient-primary';
+
+        return slide;
+    }
+
+    static parseToc(section, slide) {
+        const h2 = section.querySelector('h2');
+        const items = section.querySelectorAll('li, .toc-item');
+
+        slide.title = h2?.textContent?.trim() || '目录';
+        slide.items = Array.from(items).map(li => li.textContent.trim());
+
+        return slide;
+    }
+
+    static parseStats(section, slide) {
+        const h2 = section.querySelector('h2');
+        const statElements = section.querySelectorAll('.stat, [data-stat]');
+
+        slide.title = h2?.textContent?.trim() || '';
+        slide.stats = Array.from(statElements).map(el => ({
+            value: el.querySelector('.stat-value, .value')?.textContent?.trim() || el.dataset.value || '',
+            label: el.querySelector('.stat-label, .label')?.textContent?.trim() || el.dataset.label || '',
+        }));
+
+        return slide;
+    }
+
+    static parseComparison(section, slide) {
+        const h2 = section.querySelector('h2');
+        const leftCol = section.querySelector('.left, [data-side="left"]');
+        const rightCol = section.querySelector('.right, [data-side="right"]');
+
+        slide.title = h2?.textContent?.trim() || '';
+        slide.left = {
+            title: leftCol?.querySelector('h3, .title')?.textContent?.trim() || '',
+            items: Array.from(leftCol?.querySelectorAll('li') || []).map(li => li.textContent.trim()),
+        };
+        slide.right = {
+            title: rightCol?.querySelector('h3, .title')?.textContent?.trim() || '',
+            items: Array.from(rightCol?.querySelectorAll('li') || []).map(li => li.textContent.trim()),
+        };
+
+        return slide;
+    }
+
+    static parseImageText(section, slide) {
+        const h2 = section.querySelector('h2');
+        const p = section.querySelector('p:not(.caption)');
+        const img = section.querySelector('img, .image-placeholder');
+
+        slide.title = h2?.textContent?.trim() || '';
+        slide.content = p?.textContent?.trim() || '';
+        slide.image = img?.src || null;
+        slide.imagePlaceholder = img?.alt || img?.textContent?.trim() || '图片';
+
+        return slide;
+    }
+
+    static parseIconGrid(section, slide) {
+        const h2 = section.querySelector('h2');
+        const cards = section.querySelectorAll('.card, .grid-item, [data-icon]');
+
+        slide.title = h2?.textContent?.trim() || '';
+        slide.items = Array.from(cards).map(card => ({
+            icon: card.dataset.icon || card.querySelector('[data-icon]')?.dataset.icon || 'carbon:star',
+            title: card.querySelector('h3, h4, .title')?.textContent?.trim() || '',
+            desc: card.querySelector('p, .desc')?.textContent?.trim() || '',
+        }));
+
+        return slide;
+    }
+
+    static parseQuote(section, slide) {
+        const blockquote = section.querySelector('blockquote, .quote');
+        const author = section.querySelector('.author, cite');
+        const company = section.querySelector('.company, .org');
+
+        slide.quote = blockquote?.textContent?.trim()?.replace(/^[""]|[""]$/g, '') || '';
+        slide.author = author?.textContent?.trim() || '';
+        slide.company = company?.textContent?.trim() || '';
+        slide.background = 'purple';
+
+        return slide;
+    }
+
+    static parseTimeline(section, slide) {
+        const h2 = section.querySelector('h2');
+        const nodes = section.querySelectorAll('.timeline-item, [data-phase]');
+
+        slide.title = h2?.textContent?.trim() || '';
+        slide.items = Array.from(nodes).map(node => ({
+            phase: node.dataset.phase || node.querySelector('.phase')?.textContent?.trim() || '',
+            title: node.querySelector('h3, h4, .title')?.textContent?.trim() || '',
+            desc: node.querySelector('p, .desc')?.textContent?.trim() || '',
+        }));
+
+        return slide;
+    }
+
+    static parseEnd(section, slide) {
+        const h1 = section.querySelector('h1, h2');
+        const subtitle = section.querySelector('p, .subtitle');
+        const email = section.querySelector('.email, [data-email]');
+
+        slide.title = h1?.textContent?.trim() || '';
+        slide.subtitle = subtitle?.textContent?.trim() || '';
+        slide.email = email?.textContent?.trim() || email?.dataset?.email || '';
+        slide.background = 'dark';
+
+        return slide;
+    }
+
+    static parseList(section, slide) {
+        const h2 = section.querySelector('h2');
+        const items = section.querySelectorAll('li');
+
+        slide.title = h2?.textContent?.trim() || '';
+        slide.items = Array.from(items).map(li => li.textContent.trim());
+
+        return slide;
+    }
+
+    static parseContent(section, slide) {
+        const h2 = section.querySelector('h2, h1');
+        const p = section.querySelector('p');
+
+        slide.title = h2?.textContent?.trim() || '';
+        slide.content = p?.textContent?.trim() || '';
+
+        return slide;
+    }
+
+    /**
+     * 解析自由布局幻灯片 - AI 可以精确控制每个元素
+     */
+    static parseFreeform(section, slide) {
+        // 解析幻灯片级别属性
+        slide.background = section.dataset.bg || '#ffffff';
+        slide.backgroundGradient = section.dataset.gradient || null;
+        slide.backgroundImage = section.dataset.bgImage || null;
+
+        // 解析所有元素
+        const elements = section.querySelectorAll('[data-el]');
+        slide.elements = Array.from(elements).map((el, i) => this.parseElement(el, i));
+
+        return slide;
+    }
+
+    /**
+     * 解析单个自由元素
+     */
+    static parseElement(el, index) {
+        const type = el.dataset.el;
+        const base = {
+            id: el.id || `el-${index}`,
+            type,
+            // 位置和大小 (支持 %, px, in)
+            x: el.dataset.x || '0%',
+            y: el.dataset.y || '0%',
+            w: el.dataset.w || 'auto',
+            h: el.dataset.h || 'auto',
+            // 层级
+            z: parseInt(el.dataset.z) || index,
+            // 旋转
+            rotate: parseFloat(el.dataset.rotate) || 0,
+            // 透明度
+            opacity: parseFloat(el.dataset.opacity) ?? 1,
+        };
+
+        switch (type) {
+            case 'text':
+                return {
+                    ...base,
+                    content: el.textContent?.trim() || '',
+                    // 文字样式
+                    font: parseFloat(el.dataset.font) || 18,
+                    color: el.dataset.color || '#333333',
+                    bold: el.dataset.bold === 'true',
+                    italic: el.dataset.italic === 'true',
+                    align: el.dataset.align || 'left',       // left, center, right
+                    valign: el.dataset.valign || 'top',      // top, middle, bottom
+                    lineHeight: parseFloat(el.dataset.lineHeight) || 1.4,
+                    // 背景
+                    bgColor: el.dataset.bgColor || null,
+                    bgRadius: parseFloat(el.dataset.bgRadius) || 0,
+                };
+
+            case 'shape':
+                return {
+                    ...base,
+                    shape: el.dataset.shape || 'rect',       // rect, circle, rounded, triangle
+                    fill: el.dataset.fill || '#4f46e5',
+                    stroke: el.dataset.stroke || null,
+                    strokeWidth: parseFloat(el.dataset.strokeWidth) || 0,
+                    radius: parseFloat(el.dataset.radius) || 0,
+                    // 渐变支持
+                    gradient: el.dataset.gradient || null,   // "linear(#ff0, #f00)" or "radial(...)"
+                    // 阴影
+                    shadow: el.dataset.shadow === 'true',
+                };
+
+            case 'image':
+                return {
+                    ...base,
+                    src: el.dataset.src || '',
+                    alt: el.dataset.alt || '图片',
+                    fit: el.dataset.fit || 'cover',          // cover, contain, fill
+                    radius: parseFloat(el.dataset.radius) || 0,
+                    // 边框
+                    border: el.dataset.border || null,
+                };
+
+            case 'icon':
+                return {
+                    ...base,
+                    icon: el.dataset.icon || 'carbon:star',
+                    size: parseFloat(el.dataset.size) || 24,
+                    color: el.dataset.color || '#333333',
+                };
+
+            case 'line':
+                return {
+                    ...base,
+                    x1: el.dataset.x1 || '0%',
+                    y1: el.dataset.y1 || '0%',
+                    x2: el.dataset.x2 || '100%',
+                    y2: el.dataset.y2 || '0%',
+                    stroke: el.dataset.stroke || '#cccccc',
+                    strokeWidth: parseFloat(el.dataset.strokeWidth) || 2,
+                    dash: el.dataset.dash || null,           // "5,5" for dashed
+                };
+
+            case 'chart':
+                // 图表类型：支持 bar, line, pie, doughnut
+                return {
+                    ...base,
+                    chartType: el.dataset.chartType || 'bar',
+                    // 数据格式: "Label1:Value1,Label2:Value2,..."
+                    chartData: el.dataset.chartData || '',
+                    // 颜色数组: "#ff0000,#00ff00,#0000ff"
+                    colors: el.dataset.colors || '#4f46e5,#10b981,#f59e0b,#ec4899,#6366f1',
+                    title: el.textContent?.trim() || '',
+                };
+
+            case 'group':
+                // 递归解析子元素
+                const children = el.querySelectorAll(':scope > [data-el]');
+                return {
+                    ...base,
+                    children: Array.from(children).map((child, i) => this.parseElement(child, i)),
+                };
+
+            default:
+                return base;
+        }
+    }
+}
+
+// ============================================================
+// 3. HTMLSlideRenderer - 渲染到 HTML (浏览器预览)
+// 使用与 PPTX 相同的参数，自动缩放到预览尺寸
+// ============================================================
+class HTMLSlideRenderer {
+    constructor(options = {}) {
+        this.styles = SlideStyles;
+        // 缩放因子: HTML预览尺寸 / PPTX原始尺寸
+        // 现在统一使用 960x540，scale = 1 (无需缩放)
+        this.scale = this.styles.htmlScale;
+    }
+
+    // 工具方法：将 PPTX pt 转换为 HTML px
+    px(pt) { return Math.round(pt * this.scale); }
+    // 工具方法：将 PPTX 英寸转换为 HTML px
+    inch(val) { return Math.round(val * this.styles.dimensions.pxPerInch * this.scale); }
+
+    // 获取标准 padding (px)
+    get padding() { return this.inch(this.styles.padding.normal); }
+    get paddingLarge() { return this.inch(this.styles.padding.large); }
+
+    // 字体家族
+    get fontFamily() { return this.styles.fontFamily.main; }
+
+    // 字体大小
+    get fonts() {
+        const f = this.styles.fonts;
+        return {
+            coverTitle: this.px(f.coverTitle),
+            coverSubtitle: this.px(f.coverSubtitle),
+            title: this.px(f.title),
+            subtitle: this.px(f.subtitle),
+            body: this.px(f.body),
+            bodySmall: this.px(f.bodySmall),
+            caption: this.px(f.caption),
+            small: this.px(f.small),
+            stat: this.px(f.stat),
+        };
+    }
+
+    renderAll(slides) {
+        return slides.map((slide, i) => this.render(slide, i)).join('');
+    }
+
+    render(slide, index = 0) {
+        const method = `render${this.capitalize(slide.type)}`;
+        if (typeof this[method] === 'function') {
+            return this[method](slide, index);
+        }
+        return this.renderContent(slide, index);
+    }
+
+    capitalize(str) {
+        return str.replace(/_(\w)/g, (_, c) => c.toUpperCase())
+                  .replace(/^(\w)/, (_, c) => c.toUpperCase());
+    }
+
+    // --- 渲染方法 ---
+
+    renderCover(slide, index) {
+        const f = this.fonts;
+        const p = this.paddingLarge;
+        return `
+            <div class="slide-modern-cover" style="padding: ${p}px;">
+                <h1 contenteditable="true" onblur="window.PPTGenerator?.updateSlideContent(${index}, 'title', this.innerText)" style="font-size: ${f.coverTitle}px; font-weight: 800; margin-bottom: ${this.px(12)}px;">${slide.title || ''}</h1>
+                <p contenteditable="true" onblur="window.PPTGenerator?.updateSlideContent(${index}, 'subtitle', this.innerText)" style="font-size: ${f.coverSubtitle}px; opacity: 0.8;">${slide.subtitle || ''}</p>
+                <div style="margin-top: ${this.px(24)}px; font-size: ${f.small}px; opacity: 0.6;">Generated by Paper Burner X</div>
+            </div>
+        `;
+    }
+
+    renderToc(slide, index) {
+        const f = this.fonts;
+        const p = this.padding;
+        const circleSize = this.px(32);
+        const items = (slide.items || []).map((item, i) => `
+            <div style="display: flex; align-items: center; gap: ${this.px(12)}px;">
+                <span style="width: ${circleSize}px; height: ${circleSize}px; background: var(--ppt-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: ${f.bodySmall}px; flex-shrink: 0;">${i + 1}</span>
+                <span contenteditable="true" onblur="window.PPTGenerator?.updateSlideItem(${index}, ${i}, this.innerText)" style="font-size: ${f.body}px; color: var(--ppt-text-secondary);">${item}</span>
+            </div>
+        `).join('');
+
+        return `
+            <div style="padding: ${p}px; height: 100%; display: flex; flex-direction: column; box-sizing: border-box;">
+                <h2 contenteditable="true" onblur="window.PPTGenerator?.updateSlideContent(${index}, 'title', this.innerText)" style="font-size: ${f.title}px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: ${this.px(24)}px; flex-shrink: 0;">${slide.title || ''}</h2>
+                <div style="display: flex; flex-direction: column; gap: ${this.px(12)}px; overflow: auto;">${items}</div>
+            </div>
+        `;
+    }
+
+    renderStats(slide, index) {
+        const f = this.fonts;
+        const p = this.padding;
+        const stats = (slide.stats || []).map((stat, i) => `
+            <div style="text-align: center; padding: ${this.px(12)}px;">
+                <div contenteditable="true" onblur="window.PPTGenerator?.updateSlideStat(${index}, ${i}, 'value', this.innerText)" style="font-size: ${f.stat}px; font-weight: 800; color: var(--ppt-primary); margin-bottom: ${this.px(6)}px;">${stat.value}</div>
+                <div contenteditable="true" onblur="window.PPTGenerator?.updateSlideStat(${index}, ${i}, 'label', this.innerText)" style="font-size: ${f.caption}px; color: var(--ppt-text-secondary);">${stat.label}</div>
+            </div>
+        `).join('');
+
+        const cols = Math.min((slide.stats || []).length, 4);
+
+        return `
+            <div style="padding: ${p}px; height: 100%; display: flex; flex-direction: column; box-sizing: border-box;">
+                <h2 contenteditable="true" onblur="window.PPTGenerator?.updateSlideContent(${index}, 'title', this.innerText)" style="font-size: ${f.title}px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: ${this.px(24)}px; flex-shrink: 0;">${slide.title || ''}</h2>
+                <div style="flex: 1; display: grid; grid-template-columns: repeat(${cols}, 1fr); gap: ${this.px(16)}px; align-items: center;">${stats}</div>
+            </div>
+        `;
+    }
+
+    renderComparison(slide, index) {
+        const f = this.fonts;
+        const p = this.padding;
+        const leftItems = (slide.left?.items || []).map(item => `
+            <li style="display: flex; align-items: flex-start; gap: ${this.px(6)}px; margin-bottom: ${this.px(8)}px; font-size: ${f.bodySmall}px; color: #991b1b;">
+                <iconify-icon icon="carbon:close-filled" style="color: #dc2626; flex-shrink: 0; margin-top: 2px;"></iconify-icon>
+                <span contenteditable="true">${item}</span>
+            </li>
+        `).join('');
+
+        const rightItems = (slide.right?.items || []).map(item => `
+            <li style="display: flex; align-items: flex-start; gap: ${this.px(6)}px; margin-bottom: ${this.px(8)}px; font-size: ${f.bodySmall}px; color: #166534;">
+                <iconify-icon icon="carbon:checkmark-filled" style="color: #16a34a; flex-shrink: 0; margin-top: 2px;"></iconify-icon>
+                <span contenteditable="true">${item}</span>
+            </li>
+        `).join('');
+
+        return `
+            <div style="padding: ${p}px; height: 100%; display: flex; flex-direction: column; box-sizing: border-box;">
+                <h2 contenteditable="true" onblur="window.PPTGenerator?.updateSlideContent(${index}, 'title', this.innerText)" style="font-size: ${f.title}px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: ${this.px(16)}px; flex-shrink: 0;">${slide.title || ''}</h2>
+                <div style="flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: ${this.px(16)}px; min-height: 0;">
+                    <div style="background: #fee2e2; border-radius: ${this.px(12)}px; padding: ${this.px(16)}px; overflow: auto;">
+                        <h3 contenteditable="true" style="font-size: ${f.subtitle}px; font-weight: 600; color: #dc2626; margin-bottom: ${this.px(12)}px;">${slide.left?.title || ''}</h3>
+                        <ul style="list-style: none; padding: 0; margin: 0;">${leftItems}</ul>
+                    </div>
+                    <div style="background: #dcfce7; border-radius: ${this.px(12)}px; padding: ${this.px(16)}px; overflow: auto;">
+                        <h3 contenteditable="true" style="font-size: ${f.subtitle}px; font-weight: 600; color: #16a34a; margin-bottom: ${this.px(12)}px;">${slide.right?.title || ''}</h3>
+                        <ul style="list-style: none; padding: 0; margin: 0;">${rightItems}</ul>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    renderImageText(slide, index) {
+        const f = this.fonts;
+        const p = this.padding;
+        return `
+            <div style="padding: ${p}px; height: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: ${this.px(24)}px; align-items: center; box-sizing: border-box;">
+                <div>
+                    <h2 contenteditable="true" onblur="window.PPTGenerator?.updateSlideContent(${index}, 'title', this.innerText)" style="font-size: ${f.title}px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: ${this.px(12)}px;">${slide.title || ''}</h2>
+                    <p contenteditable="true" onblur="window.PPTGenerator?.updateSlideContent(${index}, 'content', this.innerText)" style="font-size: ${f.body}px; color: var(--ppt-text-secondary); line-height: 1.5;">${slide.content || ''}</p>
+                </div>
+                <div style="background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%); border-radius: ${this.px(12)}px; height: ${this.inch(2.5)}px; display: flex; align-items: center; justify-content: center; color: var(--ppt-primary); font-size: ${f.bodySmall}px;">
+                    ${slide.image
+                        ? `<img src="${slide.image}" style="max-width: 100%; max-height: 100%; object-fit: contain;">`
+                        : `<iconify-icon icon="carbon:image" style="font-size: ${this.px(32)}px; opacity: 0.5; margin-right: 8px;"></iconify-icon>${slide.imagePlaceholder || '图片占位'}`
+                    }
+                </div>
+            </div>
+        `;
+    }
+
+    renderIconGrid(slide, index) {
+        const f = this.fonts;
+        const p = this.padding;
+        const iconBoxSize = this.px(40);
+        const items = (slide.items || []).map(item => `
+            <div style="background: var(--ppt-bg-subtle); border-radius: ${this.px(10)}px; padding: ${this.px(16)}px; text-align: center;">
+                <div style="width: ${iconBoxSize}px; height: ${iconBoxSize}px; background: var(--ppt-primary-subtle); border-radius: ${this.px(10)}px; display: flex; align-items: center; justify-content: center; margin: 0 auto ${this.px(10)}px auto;">
+                    <iconify-icon icon="${item.icon || 'carbon:star'}" style="font-size: ${this.px(20)}px; color: var(--ppt-primary);"></iconify-icon>
+                </div>
+                <h4 contenteditable="true" style="font-size: ${f.body}px; font-weight: 600; color: var(--ppt-text-main); margin-bottom: ${this.px(4)}px;">${item.title}</h4>
+                <p contenteditable="true" style="font-size: ${f.caption}px; color: var(--ppt-text-secondary); margin: 0; line-height: 1.3;">${item.desc}</p>
+            </div>
+        `).join('');
+
+        const cols = Math.min((slide.items || []).length, 4);
+
+        return `
+            <div style="padding: ${p}px; height: 100%; display: flex; flex-direction: column; box-sizing: border-box;">
+                <h2 contenteditable="true" onblur="window.PPTGenerator?.updateSlideContent(${index}, 'title', this.innerText)" style="font-size: ${f.title}px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: ${this.px(20)}px; flex-shrink: 0;">${slide.title || ''}</h2>
+                <div style="flex: 1; display: grid; grid-template-columns: repeat(${cols}, 1fr); gap: ${this.px(16)}px; align-content: center;">${items}</div>
+            </div>
+        `;
+    }
+
+    renderQuote(slide, index) {
+        const f = this.fonts;
+        const p = this.paddingLarge;
+        return `
+            <div style="padding: ${p}px; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%); box-sizing: border-box;">
+                <iconify-icon icon="carbon:quotes" style="font-size: ${this.px(48)}px; color: var(--ppt-primary); opacity: 0.3; margin-bottom: ${this.px(16)}px;"></iconify-icon>
+                <p contenteditable="true" onblur="window.PPTGenerator?.updateSlideContent(${index}, 'quote', this.innerText)" style="font-size: ${f.subtitle}px; color: var(--ppt-text-main); line-height: 1.5; max-width: 90%; margin-bottom: ${this.px(20)}px; font-style: italic;">"${slide.quote || ''}"</p>
+                <div>
+                    <div contenteditable="true" style="font-size: ${f.body}px; font-weight: 600; color: var(--ppt-text-main);">${slide.author || ''}</div>
+                    <div contenteditable="true" style="font-size: ${f.caption}px; color: var(--ppt-text-secondary); margin-top: ${this.px(4)}px;">${slide.company || ''}</div>
+                </div>
+            </div>
+        `;
+    }
+
+    renderTimeline(slide, index) {
+        const f = this.fonts;
+        const p = this.padding;
+        const circleSize = this.px(36);
+        const items = (slide.items || []).map(item => `
+            <div style="text-align: center;">
+                <div style="width: ${circleSize}px; height: ${circleSize}px; background: var(--ppt-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: ${f.caption}px; margin: 0 auto ${this.px(10)}px auto; position: relative; z-index: 1;">${item.phase}</div>
+                <div contenteditable="true" style="font-size: ${f.bodySmall}px; font-weight: 600; color: var(--ppt-text-main); margin-bottom: ${this.px(4)}px;">${item.title}</div>
+                <div contenteditable="true" style="font-size: ${f.small}px; color: var(--ppt-text-secondary); line-height: 1.3;">${item.desc}</div>
+            </div>
+        `).join('');
+
+        const cols = (slide.items || []).length;
+
+        return `
+            <div style="padding: ${p}px; height: 100%; display: flex; flex-direction: column; box-sizing: border-box;">
+                <h2 contenteditable="true" onblur="window.PPTGenerator?.updateSlideContent(${index}, 'title', this.innerText)" style="font-size: ${f.title}px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: ${this.px(20)}px; flex-shrink: 0;">${slide.title || ''}</h2>
+                <div style="flex: 1; display: flex; align-items: center; position: relative;">
+                    <div style="position: absolute; top: 50%; left: 0; right: 0; height: 3px; background: var(--ppt-border); transform: translateY(-50%);"></div>
+                    <div style="display: grid; grid-template-columns: repeat(${cols}, 1fr); gap: ${this.px(12)}px; width: 100%; position: relative;">${items}</div>
+                </div>
+            </div>
+        `;
+    }
+
+    renderEnd(slide, index) {
+        const f = this.fonts;
+        const p = this.paddingLarge;
+        return `
+            <div class="slide-modern-cover" style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: ${p}px;">
+                <h1 contenteditable="true" onblur="window.PPTGenerator?.updateSlideContent(${index}, 'title', this.innerText)" style="font-size: ${f.coverTitle}px; font-weight: 800; margin-bottom: ${this.px(10)}px;">${slide.title || ''}</h1>
+                <p contenteditable="true" onblur="window.PPTGenerator?.updateSlideContent(${index}, 'subtitle', this.innerText)" style="font-size: ${f.coverSubtitle}px; opacity: 0.7; margin-bottom: ${this.px(20)}px;">${slide.subtitle || ''}</p>
+                ${slide.email ? `<div style="font-size: ${f.bodySmall}px; opacity: 0.5;"><iconify-icon icon="carbon:email"></iconify-icon> ${slide.email}</div>` : ''}
+                <div style="margin-top: ${this.px(32)}px; font-size: ${f.small}px; opacity: 0.4;">Generated by Paper Burner X</div>
+            </div>
+        `;
+    }
+
+    renderList(slide, index) {
+        const f = this.fonts;
+        const p = this.padding;
+        const items = (slide.items || []).map((item, i) => `
+            <li contenteditable="true" onblur="window.PPTGenerator?.updateSlideItem(${index}, ${i}, this.innerText)" style="margin-bottom: ${this.px(6)}px;">${item}</li>
+        `).join('');
+
+        return `
+            <div style="padding: ${p}px; height: 100%; display: flex; flex-direction: column; box-sizing: border-box;">
+                <h2 contenteditable="true" onblur="window.PPTGenerator?.updateSlideContent(${index}, 'title', this.innerText)" style="font-size: ${f.title}px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: ${this.px(20)}px; flex-shrink: 0;">${slide.title || ''}</h2>
+                <ul style="font-size: ${f.body}px; color: var(--ppt-text-secondary); line-height: 1.5; padding-left: ${this.px(24)}px; margin: 0; overflow: auto;">${items}</ul>
+            </div>
+        `;
+    }
+
+    renderContent(slide, index) {
+        const f = this.fonts;
+        const p = this.padding;
+        return `
+            <div style="padding: ${p}px; height: 100%; display: flex; flex-direction: column; justify-content: center; box-sizing: border-box;">
+                <h2 contenteditable="true" onblur="window.PPTGenerator?.updateSlideContent(${index}, 'title', this.innerText)" style="font-size: ${f.title}px; font-weight: 700; color: var(--ppt-text-main); margin-bottom: ${this.px(16)}px;">${slide.title || ''}</h2>
+                <p contenteditable="true" onblur="window.PPTGenerator?.updateSlideContent(${index}, 'content', this.innerText)" style="font-size: ${f.body}px; color: var(--ppt-text-secondary); line-height: 1.5;">${slide.content || ''}</p>
+            </div>
+        `;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Freeform 自由布局渲染
+    // ═══════════════════════════════════════════════════════════════
+
+    renderFreeform(slide, index) {
+        const { htmlWidth, htmlHeight } = this.styles.dimensions;
+
+        // 背景样式
+        let bgStyle = `background: ${slide.background};`;
+        if (slide.backgroundGradient) {
+            bgStyle = `background: ${slide.backgroundGradient};`;
+        }
+        if (slide.backgroundImage) {
+            bgStyle = `background: url('${slide.backgroundImage}') center/cover;`;
+        }
+
+        // 渲染所有元素
+        const elements = (slide.elements || [])
+            .sort((a, b) => (a.z || 0) - (b.z || 0))
+            .map(el => this.renderFreeformElement(el, htmlWidth, htmlHeight))
+            .join('');
+
+        return `
+            <div style="position: relative; width: 100%; height: 100%; ${bgStyle} overflow: hidden; box-sizing: border-box; font-family: ${this.fontFamily};">
+                ${elements}
+            </div>
+        `;
+    }
+
+    /**
+     * 解析坐标值，支持 %, px, in
+     */
+    parseCoord(value, total) {
+        if (typeof value === 'number') return value;
+        const str = String(value).trim();
+        if (str.endsWith('%')) {
+            return (parseFloat(str) / 100) * total;
+        } else if (str.endsWith('in')) {
+            return parseFloat(str) * this.styles.dimensions.pxPerInch * this.scale;
+        } else if (str.endsWith('px')) {
+            return parseFloat(str) * this.scale;
+        } else if (str === 'auto') {
+            return 'auto';
+        }
+        return parseFloat(str) || 0;
+    }
+
+    /**
+     * 渲染单个自由元素
+     */
+    renderFreeformElement(el, containerW, containerH) {
+        const x = this.parseCoord(el.x, containerW);
+        const y = this.parseCoord(el.y, containerH);
+        const w = this.parseCoord(el.w, containerW);
+        const h = this.parseCoord(el.h, containerH);
+
+        // 基础定位样式
+        const baseStyle = `
+            position: absolute;
+            left: ${typeof x === 'number' ? x + 'px' : x};
+            top: ${typeof y === 'number' ? y + 'px' : y};
+            ${w !== 'auto' ? `width: ${w}px;` : ''}
+            ${h !== 'auto' ? `height: ${h}px;` : ''}
+            ${el.rotate ? `transform: rotate(${el.rotate}deg);` : ''}
+            ${el.opacity !== 1 ? `opacity: ${el.opacity};` : ''}
+            z-index: ${el.z || 0};
+        `.replace(/\s+/g, ' ').trim();
+
+        switch (el.type) {
+            case 'text':
+                return this.renderFreeformText(el, baseStyle);
+            case 'shape':
+                return this.renderFreeformShape(el, baseStyle);
+            case 'image':
+                return this.renderFreeformImage(el, baseStyle);
+            case 'icon':
+                return this.renderFreeformIcon(el, baseStyle);
+            case 'line':
+                return this.renderFreeformLine(el, containerW, containerH);
+            case 'chart':
+                return this.renderFreeformChart(el, baseStyle);
+            case 'group':
+                return this.renderFreeformGroup(el, baseStyle, containerW, containerH);
+            default:
+                return '';
+        }
+    }
+
+    renderFreeformText(el, baseStyle) {
+        const textStyle = `
+            ${baseStyle}
+            font-size: ${this.px(el.font)}px;
+            color: ${el.color};
+            ${el.bold ? 'font-weight: 700;' : ''}
+            ${el.italic ? 'font-style: italic;' : ''}
+            text-align: ${el.align};
+            line-height: ${el.lineHeight};
+            ${el.bgColor ? `background: ${el.bgColor}; padding: 8px; border-radius: ${el.bgRadius}px;` : ''}
+            display: flex;
+            align-items: ${el.valign === 'middle' ? 'center' : el.valign === 'bottom' ? 'flex-end' : 'flex-start'};
+            justify-content: ${el.align === 'center' ? 'center' : el.align === 'right' ? 'flex-end' : 'flex-start'};
+        `.replace(/\s+/g, ' ').trim();
+
+        return `<div contenteditable="true" style="${textStyle}">${el.content}</div>`;
+    }
+
+    renderFreeformShape(el, baseStyle) {
+        let shapeStyle = baseStyle;
+
+        // 形状类型
+        if (el.shape === 'circle') {
+            shapeStyle += ' border-radius: 50%;';
+        } else if (el.shape === 'rounded' || el.radius) {
+            shapeStyle += ` border-radius: ${el.radius || 12}px;`;
+        }
+
+        // 填充
+        if (el.gradient) {
+            shapeStyle += ` background: ${el.gradient};`;
+        } else {
+            shapeStyle += ` background: ${el.fill};`;
+        }
+
+        // 边框
+        if (el.stroke) {
+            shapeStyle += ` border: ${el.strokeWidth || 1}px solid ${el.stroke};`;
+        }
+
+        // 阴影
+        if (el.shadow) {
+            shapeStyle += ' box-shadow: 0 4px 12px rgba(0,0,0,0.15);';
+        }
+
+        return `<div style="${shapeStyle}"></div>`;
+    }
+
+    renderFreeformImage(el, baseStyle) {
+        let imgStyle = baseStyle;
+
+        if (el.radius) {
+            imgStyle += ` border-radius: ${el.radius}px; overflow: hidden;`;
+        }
+        if (el.border) {
+            imgStyle += ` border: ${el.border};`;
+        }
+
+        const fitStyle = el.fit === 'contain' ? 'object-fit: contain;' :
+                         el.fit === 'fill' ? 'object-fit: fill;' :
+                         'object-fit: cover;';
+
+        if (el.src) {
+            return `<div style="${imgStyle}"><img src="${el.src}" alt="${el.alt}" style="width: 100%; height: 100%; ${fitStyle}"></div>`;
+        } else {
+            // 占位符
+            return `
+                <div style="${imgStyle} background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%); display: flex; align-items: center; justify-content: center; color: #4f46e5;">
+                    <iconify-icon icon="carbon:image" style="font-size: 32px; opacity: 0.5; margin-right: 8px;"></iconify-icon>
+                    ${el.alt}
+                </div>
+            `;
+        }
+    }
+
+    renderFreeformIcon(el, baseStyle) {
+        const iconStyle = `
+            ${baseStyle}
+            font-size: ${this.px(el.size)}px;
+            color: ${el.color};
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        `.replace(/\s+/g, ' ').trim();
+
+        return `<div style="${iconStyle}"><iconify-icon icon="${el.icon}"></iconify-icon></div>`;
+    }
+
+    renderFreeformLine(el, containerW, containerH) {
+        const x1 = this.parseCoord(el.x1, containerW);
+        const y1 = this.parseCoord(el.y1, containerH);
+        const x2 = this.parseCoord(el.x2, containerW);
+        const y2 = this.parseCoord(el.y2, containerH);
+
+        const dashStyle = el.dash ? `stroke-dasharray: ${el.dash};` : '';
+
+        return `
+            <svg style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; z-index: ${el.z || 0};">
+                <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
+                      stroke="${el.stroke}" stroke-width="${el.strokeWidth}"
+                      style="${dashStyle}" />
+            </svg>
+        `;
+    }
+
+    renderFreeformGroup(el, baseStyle, containerW, containerH) {
+        const children = (el.children || [])
+            .map(child => this.renderFreeformElement(child, containerW, containerH))
+            .join('');
+
+        return `<div style="${baseStyle}">${children}</div>`;
+    }
+
+    /**
+     * 渲染简单图表 (SVG)
+     */
+    renderFreeformChart(el, baseStyle) {
+        const data = this.parseChartData(el.chartData);
+        const colors = (el.colors || '').split(',').map(c => c.trim());
+        const chartType = el.chartType || 'bar';
+
+        // 图表容器尺寸（从样式中提取或使用默认值）
+        const chartStyle = `
+            ${baseStyle}
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #f8fafc;
+            border-radius: 12px;
+            padding: 16px;
+        `.replace(/\s+/g, ' ').trim();
+
+        let chartSvg = '';
+
+        if (chartType === 'bar') {
+            chartSvg = this.renderBarChart(data, colors);
+        } else if (chartType === 'pie' || chartType === 'doughnut') {
+            chartSvg = this.renderPieChart(data, colors, chartType === 'doughnut');
+        } else if (chartType === 'line') {
+            chartSvg = this.renderLineChart(data, colors);
+        }
+
+        const titleHtml = el.title ? `<div style="font-size: 14px; font-weight: 600; color: #1e293b; margin-bottom: 8px;">${el.title}</div>` : '';
+
+        return `<div style="${chartStyle}">${titleHtml}${chartSvg}</div>`;
+    }
+
+    parseChartData(dataStr) {
+        if (!dataStr) return [];
+        return dataStr.split(',').map(item => {
+            const [label, value] = item.split(':');
+            return { label: label?.trim() || '', value: parseFloat(value) || 0 };
+        });
+    }
+
+    renderBarChart(data, colors) {
+        if (!data.length) return '<div style="color: #94a3b8;">No data</div>';
+
+        const maxValue = Math.max(...data.map(d => d.value));
+        const barWidth = Math.min(40, 200 / data.length);
+        const chartWidth = data.length * (barWidth + 8);
+        const chartHeight = 120;
+
+        const bars = data.map((d, i) => {
+            const color = colors[i % colors.length] || '#4f46e5';
+            const barHeight = (d.value / maxValue) * (chartHeight - 20);
+            const x = i * (barWidth + 8);
+            const y = chartHeight - barHeight - 15;
+
+            return `
+                <rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" fill="${color}" rx="4"/>
+                <text x="${x + barWidth/2}" y="${chartHeight}" text-anchor="middle" font-size="10" fill="#64748b">${d.label}</text>
+            `;
+        }).join('');
+
+        return `<svg width="${chartWidth}" height="${chartHeight}" style="overflow: visible;">${bars}</svg>`;
+    }
+
+    renderPieChart(data, colors, isDoughnut = false) {
+        if (!data.length) return '<div style="color: #94a3b8;">No data</div>';
+
+        const total = data.reduce((sum, d) => sum + d.value, 0);
+        const size = 100;
+        const cx = size / 2, cy = size / 2, r = size / 2 - 5;
+        const innerR = isDoughnut ? r * 0.6 : 0;
+
+        let startAngle = -90;
+        const paths = data.map((d, i) => {
+            const color = colors[i % colors.length] || '#4f46e5';
+            const angle = (d.value / total) * 360;
+            const endAngle = startAngle + angle;
+
+            const start = this.polarToCartesian(cx, cy, r, startAngle);
+            const end = this.polarToCartesian(cx, cy, r, endAngle);
+            const innerStart = this.polarToCartesian(cx, cy, innerR, startAngle);
+            const innerEnd = this.polarToCartesian(cx, cy, innerR, endAngle);
+
+            const largeArc = angle > 180 ? 1 : 0;
+
+            const path = isDoughnut
+                ? `M ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 1 ${end.x} ${end.y} L ${innerEnd.x} ${innerEnd.y} A ${innerR} ${innerR} 0 ${largeArc} 0 ${innerStart.x} ${innerStart.y} Z`
+                : `M ${cx} ${cy} L ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 1 ${end.x} ${end.y} Z`;
+
+            startAngle = endAngle;
+            return `<path d="${path}" fill="${color}"/>`;
+        }).join('');
+
+        return `<svg width="${size}" height="${size}">${paths}</svg>`;
+    }
+
+    polarToCartesian(cx, cy, r, angleDeg) {
+        const angleRad = (angleDeg * Math.PI) / 180;
+        return {
+            x: cx + r * Math.cos(angleRad),
+            y: cy + r * Math.sin(angleRad)
+        };
+    }
+
+    renderLineChart(data, colors) {
+        if (!data.length) return '<div style="color: #94a3b8;">No data</div>';
+
+        const maxValue = Math.max(...data.map(d => d.value));
+        const chartWidth = Math.max(200, data.length * 50);
+        const chartHeight = 100;
+        const padding = 20;
+        const color = colors[0] || '#4f46e5';
+
+        const points = data.map((d, i) => {
+            const x = padding + (i / (data.length - 1 || 1)) * (chartWidth - 2 * padding);
+            const y = chartHeight - padding - (d.value / maxValue) * (chartHeight - 2 * padding);
+            return `${x},${y}`;
+        }).join(' ');
+
+        const dots = data.map((d, i) => {
+            const x = padding + (i / (data.length - 1 || 1)) * (chartWidth - 2 * padding);
+            const y = chartHeight - padding - (d.value / maxValue) * (chartHeight - 2 * padding);
+            return `<circle cx="${x}" cy="${y}" r="4" fill="${color}"/>`;
+        }).join('');
+
+        return `
+            <svg width="${chartWidth}" height="${chartHeight}">
+                <polyline points="${points}" fill="none" stroke="${color}" stroke-width="2"/>
+                ${dots}
+            </svg>
+        `;
+    }
+}
+
+// ============================================================
+// 4. PPTXSlideRenderer - 渲染到 PPTX
+// 使用与 HTMLSlideRenderer 相同的 SlideStyles 配置
+// ============================================================
+class PPTXSlideRenderer {
+    constructor(options = {}) {
+        this.styles = SlideStyles;
+
+        // 图标到 Emoji 的映射表
+        this.iconEmoji = {
+            'carbon:machine-learning': '🧠',
+            'carbon:paint-brush': '🎨',
+            'carbon:flash': '⚡',
+            'carbon:data-check': '✅',
+            'carbon:analytics': '📊',
+            'carbon:data-vis-1': '📈',
+            'carbon:template': '📋',
+            'carbon:security': '🔒',
+            'carbon:star': '⭐',
+            'carbon:checkmark-filled': '✓',
+            'carbon:close-filled': '✕',
+            'carbon:quotes': '"',
+            'carbon:email': '✉',
+            'carbon:image': '🖼',
+            'carbon:user': '👤',
+            'carbon:bot': '🤖',
+            'carbon:add-alt': '+',
+            'carbon:edit': '✏',
+            'carbon:tree-view-alt': '🌲',
+            'carbon:warning-alt': '⚠',
+            'carbon:warning-filled': '⚠',
+            'default': '●'
+        };
+    }
+
+    getIconEmoji(iconName) {
+        return this.iconEmoji[iconName] || this.iconEmoji['default'];
+    }
+
+    async render(slides, filename = 'presentation.pptx') {
+        if (typeof PptxGenJS === 'undefined') {
+            throw new Error('PptxGenJS 未加载');
+        }
+
+        console.log('[PPTXSlideRenderer] Starting render with', slides.length, 'slides');
+
+        // 预加载所有图标
+        await this.preloadAllIcons(slides);
+
+        const pres = new PptxGenJS();
+        pres.layout = 'LAYOUT_16x9';
+        pres.title = filename.replace('.pptx', '');
+
+        // 设置默认字体为思源黑体
+        pres.theme = { headFontFace: this.styles.fontFamily.pptx, bodyFontFace: this.styles.fontFamily.pptx };
+
+        slides.forEach((slideData, index) => {
+            console.log(`[PPTXSlideRenderer] Rendering slide ${index + 1}/${slides.length}: type="${slideData.type}", id="${slideData.id}"`);
+            this.renderSlide(pres, slideData);
+        });
+
+        console.log('[PPTXSlideRenderer] All slides rendered, writing file...');
+        return pres.writeFile({ fileName: filename });
+    }
+
+    renderSlide(pres, slideData) {
+        const slide = pres.addSlide();
+        const method = `render${this.capitalize(slideData.type)}`;
+
+        try {
+            if (typeof this[method] === 'function') {
+                this[method](slide, slideData);
+            } else {
+                this.renderContent(slide, slideData);
+            }
+        } catch (e) {
+            console.error(`Error rendering slide type "${slideData.type}":`, e);
+            console.error('Slide data:', JSON.stringify(slideData, null, 2));
+            throw e;
+        }
+    }
+
+    capitalize(str) {
+        return str.replace(/_(\w)/g, (_, c) => c.toUpperCase())
+                  .replace(/^(\w)/, (_, c) => c.toUpperCase());
+    }
+
+    color(name) {
+        if (!name) return '333333'; // 默认颜色
+        const c = this.styles.colors[name] || name;
+        return String(c).replace('#', '');
+    }
+
+    /**
+     * 安全地转换颜色值为 PPTX 格式 (去掉 # 前缀)
+     * 处理各种输入情况：null, undefined, 对象, 字符串
+     */
+    safeColor(value) {
+        if (!value) return null;
+        if (typeof value === 'object') {
+            // 如果是对象，尝试提取 color 属性
+            return value.color ? String(value.color).replace('#', '') : null;
+        }
+        return String(value).trim().replace('#', '');
+    }
+
+    // 尺寸常量 - 与 SlideStyles 同步
+    get SLIDE_W() { return this.styles.dimensions.width; }
+    get SLIDE_H() { return this.styles.dimensions.height; }
+    get PADDING() { return this.styles.padding.normal; }
+    get PADDING_LARGE() { return this.styles.padding.large; }
+    get CONTENT_W() { return this.SLIDE_W - this.PADDING * 2; }
+
+    // 字体大小 - 直接使用 SlideStyles
+    get fonts() { return this.styles.fonts; }
+
+    // 字体家族
+    get fontFace() { return this.styles.fontFamily.pptx; }
+
+    /**
+     * 添加文本到幻灯片（自动应用默认字体）
+     */
+    addText(slide, text, options) {
+        slide.addText(text, {
+            fontFace: this.fontFace,
+            ...options
+        });
+    }
+
+    // --- 渲染方法 ---
+
+    renderCover(slide, data) {
+        const p = this.PADDING_LARGE;
+        const f = this.fonts;
+
+        slide.background = { color: this.color('primary') };
+
+        slide.addShape('rect', {
+            x: 0, y: 0, w: '100%', h: '100%',
+            fill: { type: 'solid', color: this.color('secondary'), transparency: 50 },
+            line: { color: 'FFFFFF', transparency: 100 }
+        });
+
+        slide.addShape('ellipse', {
+            x: this.SLIDE_W - 3.5, y: -1.4, w: 4.6, h: 4.6,
+            fill: { type: 'solid', color: 'FFFFFF', transparency: 90 },
+            line: { color: 'FFFFFF', transparency: 100 }
+        });
+
+        const startY = this.SLIDE_H * 0.35;
+        this.addText(slide, data.title, {
+            x: p, y: startY, w: this.SLIDE_W - p * 2, h: 0.8,
+            fontSize: f.coverTitle, color: 'FFFFFF', bold: true, align: 'left'
+        });
+        this.addText(slide, data.subtitle || '', {
+            x: p, y: startY + 0.7, w: this.SLIDE_W - p * 2, h: 0.5,
+            fontSize: f.coverSubtitle, color: 'FFFFFF', transparency: 20, align: 'left'
+        });
+        this.addText(slide, 'Generated by Paper Burner X', {
+            x: p, y: this.SLIDE_H - 0.5, w: this.SLIDE_W - p * 2, h: 0.3,
+            fontSize: f.small, color: 'FFFFFF', transparency: 50, align: 'left'
+        });
+    }
+
+    renderToc(slide, data) {
+        const p = this.PADDING;
+        const f = this.fonts;
+        slide.background = { color: 'FFFFFF' };
+
+        this.addText(slide, data.title, {
+            x: p, y: p, w: this.CONTENT_W, h: 0.5,
+            fontSize: f.title, color: this.color('textMain'), bold: true
+        });
+
+        const items = data.items || [];
+        const startY = p + 0.7;
+        const itemHeight = 0.45;
+
+        items.forEach((item, i) => {
+            const y = startY + i * itemHeight;
+            slide.addShape('ellipse', {
+                x: p, y: y, w: 0.35, h: 0.35,
+                fill: { color: this.color('primary') },
+                line: { color: 'FFFFFF', transparency: 100 }
+            });
+            this.addText(slide,String(i + 1), {
+                x: p, y: y, w: 0.35, h: 0.35,
+                fontSize: f.bodySmall, color: 'FFFFFF', bold: true, align: 'center', valign: 'middle'
+            });
+            this.addText(slide,item, {
+                x: p + 0.5, y: y, w: this.CONTENT_W - 0.5, h: 0.35,
+                fontSize: f.body, color: this.color('textSecondary'), valign: 'middle'
+            });
+        });
+    }
+
+    renderStats(slide, data) {
+        const p = this.PADDING;
+        const f = this.fonts;
+        slide.background = { color: 'FFFFFF' };
+
+        this.addText(slide, data.title, {
+            x: p, y: p, w: this.CONTENT_W, h: 0.5,
+            fontSize: f.title, color: this.color('textMain'), bold: true
+        });
+
+        const stats = data.stats || [];
+        const cols = Math.min(stats.length, 4);
+        const cardW = (this.CONTENT_W - 0.25 * (cols - 1)) / cols;
+        const startY = (this.SLIDE_H - 1.5) / 2;
+
+        stats.forEach((stat, i) => {
+            const x = p + i * (cardW + 0.25);
+            this.addText(slide,stat.value, {
+                x: x, y: startY, w: cardW, h: 0.8,
+                fontSize: f.stat, color: this.color('primary'), bold: true, align: 'center', valign: 'bottom'
+            });
+            this.addText(slide,stat.label, {
+                x: x, y: startY + 0.9, w: cardW, h: 0.4,
+                fontSize: f.caption, color: this.color('textSecondary'), align: 'center', valign: 'top'
+            });
+        });
+    }
+
+    renderComparison(slide, data) {
+        const p = this.PADDING;
+        const f = this.fonts;
+        slide.background = { color: 'FFFFFF' };
+
+        this.addText(slide, data.title, {
+            x: p, y: p, w: this.CONTENT_W, h: 0.5,
+            fontSize: f.title, color: this.color('textMain'), bold: true
+        });
+
+        const boxW = (this.CONTENT_W - 0.3) / 2;
+        const boxH = this.SLIDE_H - p * 2 - 0.8;
+        const boxY = p + 0.65;
+
+        // 左侧
+        slide.addShape('roundRect', {
+            x: p, y: boxY, w: boxW, h: boxH,
+            fill: { color: this.color('dangerBg') },
+            line: { color: 'FFFFFF', transparency: 100 },
+            rectRadius: 0.12
+        });
+        this.addText(slide,data.left?.title || '', {
+            x: p + 0.2, y: boxY + 0.15, w: boxW - 0.4, h: 0.35,
+            fontSize: f.subtitle, color: this.color('danger'), bold: true
+        });
+        const leftItems = (data.left?.items || []).map(item => ({
+            text: '✕  ' + item,
+            options: { fontSize: f.bodySmall, color: '991b1b', breakLine: true }
+        }));
+        this.addText(slide,leftItems, {
+            x: p + 0.2, y: boxY + 0.55, w: boxW - 0.4, h: boxH - 0.7,
+            lineSpacing: 26, valign: 'top'
+        });
+
+        // 右侧
+        const rightX = p + boxW + 0.3;
+        slide.addShape('roundRect', {
+            x: rightX, y: boxY, w: boxW, h: boxH,
+            fill: { color: this.color('successBg') },
+            line: { color: 'FFFFFF', transparency: 100 },
+            rectRadius: 0.12
+        });
+        this.addText(slide,data.right?.title || '', {
+            x: rightX + 0.2, y: boxY + 0.15, w: boxW - 0.4, h: 0.35,
+            fontSize: f.subtitle, color: this.color('success'), bold: true
+        });
+        const rightItems = (data.right?.items || []).map(item => ({
+            text: '✓  ' + item,
+            options: { fontSize: f.bodySmall, color: '166534', breakLine: true }
+        }));
+        this.addText(slide,rightItems, {
+            x: rightX + 0.2, y: boxY + 0.55, w: boxW - 0.4, h: boxH - 0.7,
+            lineSpacing: 26, valign: 'top'
+        });
+    }
+
+    renderImageText(slide, data) {
+        const p = this.PADDING;
+        const f = this.fonts;
+        slide.background = { color: 'FFFFFF' };
+
+        const halfW = (this.CONTENT_W - 0.4) / 2;
+        const centerY = this.SLIDE_H / 2;
+
+        this.addText(slide,data.title, {
+            x: p, y: centerY - 1, w: halfW, h: 0.5,
+            fontSize: f.title, color: this.color('textMain'), bold: true
+        });
+        this.addText(slide,data.content || '', {
+            x: p, y: centerY - 0.35, w: halfW, h: 1.2,
+            fontSize: f.body, color: this.color('textSecondary'), lineSpacing: 24
+        });
+
+        const imgX = p + halfW + 0.4;
+        const imgH = 2.5;
+        const imgY = (this.SLIDE_H - imgH) / 2;
+
+        if (data.image) {
+            try {
+                slide.addImage({ path: data.image, x: imgX, y: imgY, w: halfW, h: imgH });
+            } catch (e) {
+                this.addImagePlaceholder(slide, imgX, imgY, halfW, imgH, data.imagePlaceholder);
+            }
+        } else {
+            this.addImagePlaceholder(slide, imgX, imgY, halfW, imgH, data.imagePlaceholder);
+        }
+    }
+
+    addImagePlaceholder(slide, x, y, w, h, text) {
+        const f = this.fonts;
+        slide.addShape('roundRect', {
+            x, y, w, h,
+            fill: { color: this.color('primaryLight') },
+            line: { color: 'FFFFFF', transparency: 100 },
+            rectRadius: 0.12
+        });
+        this.addText(slide,text || '图片', {
+            x, y, w, h,
+            fontSize: f.bodySmall, color: this.color('primary'), align: 'center', valign: 'middle'
+        });
+    }
+
+    renderIconGrid(slide, data) {
+        const p = this.PADDING;
+        const f = this.fonts;
+        slide.background = { color: 'FFFFFF' };
+
+        this.addText(slide, data.title, {
+            x: p, y: p, w: this.CONTENT_W, h: 0.5,
+            fontSize: f.title, color: this.color('textMain'), bold: true
+        });
+
+        const items = data.items || [];
+        const cols = Math.min(items.length, 4);
+        const cardW = (this.CONTENT_W - 0.2 * (cols - 1)) / cols;
+        const cardH = 1.8;
+        const startY = p + 0.75;
+
+        items.forEach((item, i) => {
+            const x = p + i * (cardW + 0.2);
+
+            slide.addShape('roundRect', {
+                x, y: startY, w: cardW, h: cardH,
+                fill: { color: this.color('bgSubtle') },
+                line: { color: 'FFFFFF', transparency: 100 },
+                rectRadius: 0.1
+            });
+
+            const iconSize = 0.45;
+            const iconX = x + (cardW - iconSize) / 2;
+            slide.addShape('roundRect', {
+                x: iconX, y: startY + 0.2, w: iconSize, h: iconSize,
+                fill: { color: this.color('primaryLight') },
+                line: { color: 'FFFFFF', transparency: 100 },
+                rectRadius: 0.08
+            });
+
+            const emoji = this.getIconEmoji(item.icon);
+            this.addText(slide,emoji, {
+                x: iconX, y: startY + 0.2, w: iconSize, h: iconSize,
+                fontSize: 20, color: this.color('primary'), align: 'center', valign: 'middle'
+            });
+
+            this.addText(slide,item.title, {
+                x, y: startY + 0.8, w: cardW, h: 0.3,
+                fontSize: f.body, color: this.color('textMain'), bold: true, align: 'center'
+            });
+
+            this.addText(slide,item.desc, {
+                x: x + 0.08, y: startY + 1.15, w: cardW - 0.16, h: 0.5,
+                fontSize: f.caption, color: this.color('textSecondary'), align: 'center'
+            });
+        });
+    }
+
+    renderQuote(slide, data) {
+        const p = this.PADDING_LARGE;
+        const f = this.fonts;
+        slide.background = { color: this.color('bgPurple') };
+
+        this.addText(slide,'"', {
+            x: p, y: 0.6, w: 0.8, h: 0.8,
+            fontSize: 60, color: this.color('primary'), transparency: 70
+        });
+
+        this.addText(slide,`"${data.quote}"`, {
+            x: p + 0.3, y: (this.SLIDE_H - 1.2) / 2, w: this.CONTENT_W - 0.6, h: 1.2,
+            fontSize: f.subtitle, color: this.color('textMain'), align: 'center', valign: 'middle', italic: true
+        });
+
+        this.addText(slide,data.author || '', {
+            x: p, y: this.SLIDE_H - 1, w: this.CONTENT_W, h: 0.3,
+            fontSize: f.body, color: this.color('textMain'), bold: true, align: 'center'
+        });
+        this.addText(slide,data.company || '', {
+            x: p, y: this.SLIDE_H - 0.65, w: this.CONTENT_W, h: 0.25,
+            fontSize: f.caption, color: this.color('textSecondary'), align: 'center'
+        });
+    }
+
+    renderTimeline(slide, data) {
+        const p = this.PADDING;
+        const f = this.fonts;
+        slide.background = { color: 'FFFFFF' };
+
+        this.addText(slide, data.title, {
+            x: p, y: p, w: this.CONTENT_W, h: 0.5,
+            fontSize: f.title, color: this.color('textMain'), bold: true
+        });
+
+        const items = data.items || [];
+        const cols = items.length;
+        const nodeW = this.CONTENT_W / cols;
+        const lineY = this.SLIDE_H / 2;
+
+        slide.addShape('rect', {
+            x: p, y: lineY - 0.02, w: this.CONTENT_W, h: 0.04,
+            fill: { color: this.color('border') },
+            line: { color: 'FFFFFF', transparency: 100 }
+        });
+
+        items.forEach((item, i) => {
+            const centerX = p + nodeW * i + nodeW / 2;
+            const circleR = 0.22;
+
+            slide.addShape('ellipse', {
+                x: centerX - circleR, y: lineY - circleR, w: circleR * 2, h: circleR * 2,
+                fill: { color: this.color('primary') },
+                line: { color: 'FFFFFF', transparency: 100 }
+            });
+            this.addText(slide,item.phase, {
+                x: centerX - circleR, y: lineY - circleR, w: circleR * 2, h: circleR * 2,
+                fontSize: f.caption, color: 'FFFFFF', bold: true, align: 'center', valign: 'middle'
+            });
+
+            this.addText(slide,item.title, {
+                x: centerX - nodeW / 2 + 0.05, y: lineY + 0.35, w: nodeW - 0.1, h: 0.3,
+                fontSize: f.bodySmall, color: this.color('textMain'), bold: true, align: 'center'
+            });
+
+            this.addText(slide,item.desc, {
+                x: centerX - nodeW / 2 + 0.05, y: lineY + 0.65, w: nodeW - 0.1, h: 0.35,
+                fontSize: f.small, color: this.color('textSecondary'), align: 'center'
+            });
+        });
+    }
+
+    renderEnd(slide, data) {
+        const p = this.PADDING_LARGE;
+        const f = this.fonts;
+        slide.background = { color: this.color('dark') };
+
+        slide.addShape('rect', {
+            x: 0, y: 0, w: '100%', h: '100%',
+            fill: { type: 'solid', color: this.color('darkSecondary'), transparency: 50 },
+            line: { color: 'FFFFFF', transparency: 100 }
+        });
+
+        slide.addShape('ellipse', {
+            x: this.SLIDE_W - 3.5, y: -1.4, w: 4.6, h: 4.6,
+            fill: { type: 'solid', color: 'FFFFFF', transparency: 95 },
+            line: { color: 'FFFFFF', transparency: 100 }
+        });
+
+        const centerY = this.SLIDE_H * 0.38;
+        this.addText(slide,data.title, {
+            x: p, y: centerY, w: this.CONTENT_W, h: 0.7,
+            fontSize: f.coverTitle, color: 'FFFFFF', bold: true, align: 'left'
+        });
+        this.addText(slide,data.subtitle || '', {
+            x: p, y: centerY + 0.7, w: this.CONTENT_W, h: 0.4,
+            fontSize: f.coverSubtitle, color: 'FFFFFF', transparency: 30, align: 'left'
+        });
+        if (data.email) {
+            this.addText(slide,data.email, {
+                x: p, y: centerY + 1.2, w: this.CONTENT_W, h: 0.3,
+                fontSize: f.bodySmall, color: 'FFFFFF', transparency: 50, align: 'left'
+            });
+        }
+        this.addText(slide,'Generated by Paper Burner X', {
+            x: p, y: this.SLIDE_H - 0.5, w: this.CONTENT_W, h: 0.25,
+            fontSize: f.small, color: 'FFFFFF', transparency: 60, align: 'left'
+        });
+    }
+
+    renderList(slide, data) {
+        const p = this.PADDING;
+        const f = this.fonts;
+        slide.background = { color: 'FFFFFF' };
+
+        this.addText(slide, data.title, {
+            x: p, y: p, w: this.CONTENT_W, h: 0.5,
+            fontSize: f.title, color: this.color('textMain'), bold: true
+        });
+
+        if (data.items && data.items.length > 0) {
+            const listY = p + 0.7;
+            const items = data.items.map(item => ({
+                text: item,
+                options: { fontSize: f.body, color: this.color('textSecondary'), breakLine: true }
+            }));
+            this.addText(slide,items, {
+                x: p, y: listY, w: this.CONTENT_W, h: this.SLIDE_H - listY - p,
+                bullet: { type: 'bullet', code: '2022' },
+                lineSpacing: 32, valign: 'top'
+            });
+        }
+    }
+
+    renderContent(slide, data) {
+        const p = this.PADDING;
+        const f = this.fonts;
+        slide.background = { color: 'FFFFFF' };
+
+        const titleH = 0.5;
+        const contentH = 1.2;
+        const totalH = titleH + 0.2 + contentH;
+        const startY = (this.SLIDE_H - totalH) / 2;
+
+        this.addText(slide,data.title, {
+            x: p, y: startY, w: this.CONTENT_W, h: titleH,
+            fontSize: f.title, color: this.color('textMain'), bold: true
+        });
+        this.addText(slide,data.content || '', {
+            x: p, y: startY + titleH + 0.2, w: this.CONTENT_W, h: contentH,
+            fontSize: f.body, color: this.color('textSecondary'), lineSpacing: 26
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Freeform 自由布局渲染 (PPTX)
+    // ═══════════════════════════════════════════════════════════════
+
+    renderFreeform(slide, data) {
+        // 背景
+        if (data.backgroundGradient) {
+            // 解析渐变 "linear-gradient(135deg, #ff6b6b 0%, #feca57 100%)"
+            // 支持多种格式
+            const gradMatch = data.backgroundGradient.match(/linear-gradient\((\d+)deg,\s*([^,]+?)(?:\s+\d+%)?,\s*([^,)]+?)(?:\s+\d+%)?(?:,\s*([^)]+))?\)/);
+            if (gradMatch) {
+                const angle = parseInt(gradMatch[1]) || 135;
+                const color1 = this.safeColor(gradMatch[2]) || '4f46e5';
+                const color2 = this.safeColor(gradMatch[3]) || '3b82f6';
+
+                // PptxGenJS 渐变方向映射 (CSS deg → PPTX rotation)
+                // CSS: 0deg = 向上, 90deg = 向右, 135deg = 右下
+                // PPTX: 0 = 向右, 90 = 向下, 180 = 向左, 270 = 向上
+                const cssToOoxml = (cssDeg) => {
+                    return (90 - cssDeg + 360) % 360;
+                };
+
+                // PptxGenJS 渐变背景格式 - 使用纯色
+                slide.background = { color: color1 };
+            } else {
+                // 解析失败，尝试提取第一个颜色
+                const colorMatch = data.backgroundGradient.match(/#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})/);
+                slide.background = { color: colorMatch ? colorMatch[1] : 'FFFFFF' };
+            }
+        } else if (data.backgroundImage) {
+            try {
+                slide.background = { path: data.backgroundImage };
+            } catch (e) {
+                slide.background = { color: 'FFFFFF' };
+            }
+        } else {
+            slide.background = { color: this.safeColor(data.background) || 'FFFFFF' };
+        }
+
+        // 按 z-index 排序渲染元素
+        const elements = (data.elements || []).sort((a, b) => (a.z || 0) - (b.z || 0));
+
+        elements.forEach(el => {
+            this.renderFreeformElementPPTX(slide, el);
+        });
+    }
+
+    /**
+     * 解析坐标值为英寸 (PPTX 单位)
+     */
+    parseCoordToInch(value, totalInch) {
+        if (typeof value === 'number') return value;
+        const str = String(value).trim();
+        if (str.endsWith('%')) {
+            return (parseFloat(str) / 100) * totalInch;
+        } else if (str.endsWith('in')) {
+            return parseFloat(str);
+        } else if (str.endsWith('px')) {
+            return parseFloat(str) / this.styles.dimensions.pxPerInch;
+        } else if (str === 'auto') {
+            return null;
+        }
+        return parseFloat(str) / this.styles.dimensions.pxPerInch || 0;
+    }
+
+    /**
+     * 渲染单个自由元素到 PPTX
+     */
+    renderFreeformElementPPTX(slide, el) {
+        const x = this.parseCoordToInch(el.x, this.SLIDE_W);
+        const y = this.parseCoordToInch(el.y, this.SLIDE_H);
+        const w = this.parseCoordToInch(el.w, this.SLIDE_W);
+        const h = this.parseCoordToInch(el.h, this.SLIDE_H);
+
+        try {
+            switch (el.type) {
+                case 'text':
+                    this.renderFreeformTextPPTX(slide, el, x, y, w, h);
+                    break;
+                case 'shape':
+                    this.renderFreeformShapePPTX(slide, el, x, y, w, h);
+                    break;
+                case 'image':
+                    this.renderFreeformImagePPTX(slide, el, x, y, w, h);
+                    break;
+                case 'icon':
+                    this.renderFreeformIconPPTX(slide, el, x, y, w, h);
+                    break;
+                case 'line':
+                    this.renderFreeformLinePPTX(slide, el);
+                    break;
+                case 'chart':
+                    this.renderFreeformChartPPTX(slide, el, x, y, w, h);
+                    break;
+                case 'group':
+                    // 递归渲染子元素
+                    (el.children || []).forEach(child => {
+                        this.renderFreeformElementPPTX(slide, child);
+                    });
+                    break;
+            }
+        } catch (e) {
+            console.error(`Error rendering freeform element type "${el.type}":`, e);
+            console.error('Element data:', JSON.stringify(el, null, 2));
+            throw e;
+        }
+    }
+
+    renderFreeformTextPPTX(slide, el, x, y, w, h) {
+        // 计算合适的高度 - 根据字号估算
+        const fontSize = el.font || 18;
+        const lineCount = Math.ceil((el.content || '').length / 20) || 1; // 粗略估算行数
+        const estimatedHeight = (fontSize / 72) * lineCount * 1.4; // pt to inch, 1.4 行高
+
+        const textOptions = {
+            x: x || 0,
+            y: y || 0,
+            w: w || 2,
+            h: h || Math.max(estimatedHeight, 0.4), // 至少 0.4 英寸
+            fontSize: fontSize,
+            fontFace: this.fontFace, // 思源黑体
+            color: this.safeColor(el.color) || '333333',
+            bold: el.bold || false,
+            italic: el.italic || false,
+            align: el.align || 'left',
+            valign: el.valign === 'middle' ? 'middle' : el.valign === 'bottom' ? 'bottom' : 'top',
+        };
+
+        // 旋转
+        if (el.rotate) {
+            textOptions.rotate = el.rotate;
+        }
+
+        // 透明度
+        if (el.opacity !== undefined && el.opacity < 1) {
+            textOptions.transparency = Math.round((1 - el.opacity) * 100);
+        }
+
+        // 背景
+        if (el.bgColor) {
+            const bgColor = this.safeColor(el.bgColor);
+            if (bgColor) {
+                textOptions.fill = { color: bgColor };
+            }
+        }
+
+        this.addText(slide,el.content || '', textOptions);
+    }
+
+    renderFreeformShapePPTX(slide, el, x, y, w, h) {
+        // 形状类型映射
+        const shapeTypeMap = {
+            'rect': 'rect',
+            'circle': 'ellipse',
+            'rounded': 'roundRect',
+            'triangle': 'triangle',
+        };
+        const shapeType = shapeTypeMap[el.shape] || 'rect';
+
+        const shapeOptions = {
+            x: x || 0,
+            y: y || 0,
+            w: w || 1,
+            h: h || 1,
+            fill: { color: this.safeColor(el.fill) || '4f46e5' },
+            line: el.stroke ? {
+                color: this.safeColor(el.stroke) || 'CCCCCC',
+                width: el.strokeWidth || 1
+            } : { color: 'FFFFFF', transparency: 100 },
+        };
+
+        // 圆角
+        if (shapeType === 'roundRect' && el.radius) {
+            shapeOptions.rectRadius = el.radius / 96; // px to inch
+        }
+
+        // 透明度
+        if (el.opacity !== undefined && el.opacity < 1) {
+            shapeOptions.fill.transparency = Math.round((1 - el.opacity) * 100);
+        }
+
+        // 旋转
+        if (el.rotate) {
+            shapeOptions.rotate = el.rotate;
+        }
+
+        // 阴影 - 暂时禁用，PptxGenJS shadow 格式可能有问题
+        // if (el.shadow) {
+        //     shapeOptions.shadow = {
+        //         type: 'outer',
+        //         blur: 4,
+        //         offset: 2,
+        //         angle: 45,
+        //         color: '000000',
+        //         opacity: 30
+        //     };
+        // }
+
+        slide.addShape(shapeType, shapeOptions);
+    }
+
+    renderFreeformImagePPTX(slide, el, x, y, w, h) {
+        if (el.src) {
+            try {
+                const imgOptions = {
+                    path: el.src,
+                    x: x || 0,
+                    y: y || 0,
+                    w: w || 2,
+                    h: h || 2,
+                };
+
+                // 旋转
+                if (el.rotate) {
+                    imgOptions.rotate = el.rotate;
+                }
+
+                // 圆角 (通过裁剪实现)
+                if (el.radius) {
+                    imgOptions.rounding = true;
+                }
+
+                slide.addImage(imgOptions);
+            } catch (e) {
+                // 图片加载失败，添加占位符
+                this.addImagePlaceholder(slide, x, y, w, h, el.alt);
+            }
+        } else {
+            // 占位符
+            this.addImagePlaceholder(slide, x || 0, y || 0, w || 2, h || 2, el.alt);
+        }
+    }
+
+    renderFreeformIconPPTX(slide, el, x, y, w, h) {
+        const iconSize = (el.size || 24) / 72; // pt to inch
+        const color = this.safeColor(el.color) || '333333';
+
+        // 尝试使用 SVG 图标（如果已缓存）
+        const iconKey = `${el.icon}_${color}`;
+        if (this.iconCache && this.iconCache[iconKey]) {
+            slide.addImage({
+                data: this.iconCache[iconKey],
+                x: x || 0,
+                y: y || 0,
+                w: iconSize,
+                h: iconSize,
+            });
+            return;
+        }
+
+        // Fallback: 使用 emoji
+        const emoji = this.getIconEmoji(el.icon);
+        this.addText(slide,emoji, {
+            x: x || 0,
+            y: y || 0,
+            w: iconSize * 2,
+            h: iconSize * 2,
+            fontSize: el.size || 24,
+            color: color,
+            align: 'center',
+            valign: 'middle',
+        });
+    }
+
+    /**
+     * 预加载图标为 Base64 图片
+     * @param {string} iconName - 图标名称，如 "carbon:rocket"
+     * @param {string} color - 颜色，如 "4f46e5"
+     * @returns {Promise<string>} Base64 数据 URL
+     */
+    async preloadIcon(iconName, color = '333333') {
+        if (!this.iconCache) this.iconCache = {};
+
+        const iconKey = `${iconName}_${color}`;
+        if (this.iconCache[iconKey]) return this.iconCache[iconKey];
+
+        try {
+            // 使用 Iconify API 获取 SVG
+            const [prefix, name] = iconName.split(':');
+            const svgUrl = `https://api.iconify.design/${prefix}/${name}.svg?color=%23${color}`;
+
+            const response = await fetch(svgUrl);
+            if (!response.ok) throw new Error('Failed to fetch icon');
+
+            const svgText = await response.text();
+
+            // 转换 SVG 为 Base64
+            const base64 = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgText)));
+            this.iconCache[iconKey] = base64;
+
+            return base64;
+        } catch (e) {
+            console.warn(`Failed to preload icon ${iconName}:`, e);
+            return null;
+        }
+    }
+
+    /**
+     * 预加载所有幻灯片中的图标
+     */
+    async preloadAllIcons(slides) {
+        const iconPromises = [];
+
+        slides.forEach(slide => {
+            if (slide.type === 'freeform' && slide.elements) {
+                slide.elements.forEach(el => {
+                    if (el.type === 'icon' && el.icon) {
+                        const color = this.safeColor(el.color) || '333333';
+                        iconPromises.push(this.preloadIcon(el.icon, color));
+                    }
+                });
+            }
+        });
+
+        if (iconPromises.length > 0) {
+            console.log(`[PPTXSlideRenderer] Preloading ${iconPromises.length} icons...`);
+            await Promise.all(iconPromises);
+            console.log('[PPTXSlideRenderer] Icons preloaded');
+        }
+    }
+
+    /**
+     * 渲染图表到 PPTX (使用 PptxGenJS 原生图表)
+     */
+    renderFreeformChartPPTX(slide, el, x, y, w, h) {
+        const data = this.parseChartDataPPTX(el.chartData);
+        if (!data.length) return;
+
+        const colors = (el.colors || '#4f46e5,#10b981,#f59e0b,#ec4899,#6366f1')
+            .split(',')
+            .map(c => this.safeColor(c.trim()) || '4f46e5');
+
+        const chartType = el.chartType || 'bar';
+
+        // PptxGenJS 图表类型映射
+        const chartTypeMap = {
+            'bar': 'bar',
+            'line': 'line',
+            'pie': 'pie',
+            'doughnut': 'doughnut',
+        };
+
+        const pptxChartType = chartTypeMap[chartType] || 'bar';
+
+        // 构建图表数据
+        const chartData = [{
+            name: el.title || 'Data',
+            labels: data.map(d => d.label),
+            values: data.map(d => d.value),
+        }];
+
+        const chartOptions = {
+            x: x || 0.5,
+            y: y || 0.5,
+            w: w || 4,
+            h: h || 3,
+            chartColors: colors,
+            showTitle: !!el.title,
+            title: el.title || '',
+            showLegend: false,
+        };
+
+        // 根据图表类型添加特定选项
+        if (pptxChartType === 'bar') {
+            chartOptions.barDir = 'bar';
+            chartOptions.barGrouping = 'clustered';
+        } else if (pptxChartType === 'pie' || pptxChartType === 'doughnut') {
+            chartOptions.showPercent = true;
+            if (pptxChartType === 'doughnut') {
+                chartOptions.holeSize = 50;
+            }
+        }
+
+        try {
+            slide.addChart(pptxChartType, chartData, chartOptions);
+        } catch (e) {
+            console.warn('Failed to add chart, using placeholder:', e);
+            // Fallback: 添加占位符
+            slide.addShape('roundRect', {
+                x: x || 0.5,
+                y: y || 0.5,
+                w: w || 4,
+                h: h || 3,
+                fill: { color: 'F8FAFC' },
+                line: { color: 'E2E8F0', width: 1 },
+            });
+            this.addText(slide,`📊 ${el.title || 'Chart'}`, {
+                x: x || 0.5,
+                y: y || 0.5,
+                w: w || 4,
+                h: h || 3,
+                fontSize: 14,
+                color: '64748B',
+                align: 'center',
+                valign: 'middle',
+            });
+        }
+    }
+
+    parseChartDataPPTX(dataStr) {
+        if (!dataStr) return [];
+        return dataStr.split(',').map(item => {
+            const parts = item.split(':');
+            return {
+                label: parts[0]?.trim() || '',
+                value: parseFloat(parts[1]) || 0
+            };
+        });
+    }
+
+    renderFreeformLinePPTX(slide, el) {
+        const x1 = this.parseCoordToInch(el.x1, this.SLIDE_W) || 0;
+        const y1 = this.parseCoordToInch(el.y1, this.SLIDE_H) || 0;
+        const x2 = this.parseCoordToInch(el.x2, this.SLIDE_W) || this.SLIDE_W;
+        const y2 = this.parseCoordToInch(el.y2, this.SLIDE_H) || y1;
+
+        const lineOptions = {
+            x: x1,
+            y: y1,
+            w: x2 - x1,
+            h: y2 - y1,
+            line: {
+                color: this.safeColor(el.stroke) || 'CCCCCC',
+                width: el.strokeWidth || 2,
+            }
+        };
+
+        // 虚线
+        if (el.dash) {
+            lineOptions.line.dashType = 'dash';
+        }
+
+        slide.addShape('line', lineOptions);
+    }
+}
+
+// ============================================================
+// 5. 导出
+// ============================================================
+window.SlideStyles = SlideStyles;
+window.SlideParser = SlideParser;
+window.HTMLSlideRenderer = HTMLSlideRenderer;
+window.PPTXSlideRenderer = PPTXSlideRenderer;
+
+// 便捷方法
+window.SlideSystem = {
+    styles: SlideStyles,
+
+    /**
+     * 从 HTML 解析并渲染
+     */
+    parseAndRender(html, targetElement) {
+        const slides = SlideParser.parse(html);
+        const renderer = new HTMLSlideRenderer();
+        targetElement.innerHTML = renderer.renderAll(slides);
+        return slides;
+    },
+
+    /**
+     * 从 HTML 解析并导出 PPTX
+     */
+    async parseAndExport(html, filename = 'presentation.pptx') {
+        const slides = SlideParser.parse(html);
+        const renderer = new PPTXSlideRenderer();
+        return renderer.render(slides, filename);
+    },
+
+    /**
+     * 从 Schema 渲染 HTML
+     */
+    renderHTML(slides) {
+        const renderer = new HTMLSlideRenderer();
+        return renderer.renderAll(slides);
+    },
+
+    /**
+     * 从 Schema 导出 PPTX
+     */
+    async exportPPTX(slides, filename = 'presentation.pptx') {
+        const renderer = new PPTXSlideRenderer();
+        return renderer.render(slides, filename);
+    }
+};
+
+console.log('SlideSystem loaded - HTML ↔ PPTX unified rendering');
