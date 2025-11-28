@@ -2487,85 +2487,41 @@ class PPTXSlideRenderer {
             // 确保 html2canvas 已加载
             await this.loadHtml2Canvas();
 
-            // 使用 KaTeX 渲染为 HTML
+            // 使用 KaTeX 渲染为 HTML - 使用行内模式，布局更简单
             const katexHtml = katex.renderToString(latex, {
-                displayMode: displayMode,
+                displayMode: false, // 强制使用行内模式，避免复杂布局
                 throwOnError: false,
                 output: 'html',
             });
 
-            // 创建渲染容器 - 使用足够大的初始尺寸，避免裁剪
+            // 创建渲染容器
             const container = document.createElement('div');
             container.style.cssText = `
-                position: fixed;
-                left: -9999px;
+                position: absolute;
+                left: 0;
                 top: 0;
-                background: transparent;
-                padding: 20px 24px;
+                background: white;
                 font-size: ${fontSize}px;
                 color: ${color};
                 display: inline-block;
                 white-space: nowrap;
-                z-index: -9999;
-                overflow: visible;
+                padding: 8px;
+                line-height: 1.2;
             `;
-            container.innerHTML = `<span style="display: inline-block; overflow: visible;">${katexHtml}</span>`;
+            container.innerHTML = katexHtml;
             document.body.appendChild(container);
 
             // 等待 KaTeX 字体加载和渲染
             await new Promise(resolve => setTimeout(resolve, 300));
 
-            // 内联所有关键样式，确保 html2canvas 正确渲染
-            this.inlineKatexStylesForCapture(container);
-
-            // 获取实际尺寸 - 使用多种方法确保获取完整内容尺寸
-            const katexEl = container.querySelector('.katex') || container.firstChild;
-            const rect = katexEl.getBoundingClientRect();
-
-            // 同时检查 scrollWidth/scrollHeight，取最大值
-            const scrollW = katexEl.scrollWidth || rect.width;
-            const scrollH = katexEl.scrollHeight || rect.height;
-            const actualW = Math.max(rect.width, scrollW);
-            const actualH = Math.max(rect.height, scrollH);
-
-            // 考虑 KaTeX 的上标和下标可能超出 bounding box
-            // 增加更大的额外空间确保不被裁剪
-            const padding = 32; // 增加 padding
-            const extraHorizontal = fontSize * 0.8; // 额外的水平空间（括号等）
-            const extraVertical = fontSize * 0.8; // 额外的垂直空间用于上下标
-            const width = Math.ceil(actualW) + padding * 2 + extraHorizontal;
-            const height = Math.ceil(actualH) + padding * 2 + extraVertical;
-
-            // 设置容器尺寸
-            container.style.width = `${width}px`;
-            container.style.height = `${height}px`;
-            container.style.padding = `${padding + extraVertical / 2}px ${padding + extraHorizontal / 2}px`;
-            container.style.display = 'flex';
-            container.style.alignItems = 'center';
-            container.style.justifyContent = 'center';
-            container.style.overflow = 'visible';
-            container.style.boxSizing = 'content-box';
-
-            // 使用 html2canvas 截图
-            // 必须明确设置 width/height，否则 html2canvas 可能裁剪内容
-            // 注意：html2canvas 的 width/height 是 CSS 像素，scale 会自动应用
+            // 使用 html2canvas 直接截取整个容器
             const scale = 3;
             const canvas = await html2canvas(container, {
-                scale: scale, // 高分辨率
-                backgroundColor: null, // 透明背景
+                scale: scale,
+                backgroundColor: null,
                 logging: false,
                 useCORS: true,
                 allowTaint: true,
-                width: width,  // 明确指定截图宽度（CSS 像素）
-                height: height, // 明确指定截图高度（CSS 像素）
-                windowWidth: width * 2, // 确保窗口足够大
-                windowHeight: height * 2,
-                x: 0, // 从容器左上角开始
-                y: 0,
-                scrollX: 0,
-                scrollY: 0,
-                // 忽略某些可能导致问题的元素
-                ignoreElements: (el) => el.tagName === 'SCRIPT' || el.tagName === 'STYLE',
             });
 
             // 清理容器
@@ -2574,14 +2530,18 @@ class PPTXSlideRenderer {
             // 转换为 Base64
             const dataUrl = canvas.toDataURL('image/png');
 
+            // 使用 canvas 实际尺寸计算英寸（考虑 scale）
+            const actualCanvasW = canvas.width / scale;
+            const actualCanvasH = canvas.height / scale;
+
             const result = {
                 data: dataUrl,
-                width: width / this.styles.dimensions.pxPerInch,
-                height: height / this.styles.dimensions.pxPerInch,
+                width: actualCanvasW / this.styles.dimensions.pxPerInch,
+                height: actualCanvasH / this.styles.dimensions.pxPerInch,
             };
 
             this.formulaCache[cacheKey] = result;
-            console.log(`[PPTXSlideRenderer] Formula rendered via html2canvas: ${latex.substring(0, 30)}... (${width}x${height}px)`);
+            console.log(`[PPTXSlideRenderer] Formula rendered: ${latex.substring(0, 30)}... canvas=${canvas.width}x${canvas.height}px, display=${actualCanvasW}x${actualCanvasH}px, inch=${result.width.toFixed(2)}x${result.height.toFixed(2)}`);
 
             return result;
 
@@ -2603,19 +2563,19 @@ class PPTXSlideRenderer {
             const computed = window.getComputedStyle(el);
             const styles = [];
 
-            // 关键样式属性
+            // 关键样式属性 - 不包含 height, max-height, overflow 等可能导致裁剪的属性
             const props = [
                 'display', 'position', 'top', 'left', 'right', 'bottom',
-                'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height',
+                'width', 'min-width',
                 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
                 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
                 'font-family', 'font-size', 'font-weight', 'font-style',
                 'line-height', 'text-align', 'vertical-align',
-                'color', 'background-color', 'background',
+                'color',
                 'border', 'border-top', 'border-right', 'border-bottom', 'border-left',
                 'border-width', 'border-style', 'border-color',
                 'transform', 'opacity',
-                'box-sizing', 'overflow',
+                'box-sizing',
             ];
 
             props.forEach(prop => {
@@ -2831,50 +2791,11 @@ class PPTXSlideRenderer {
         const fontSizePx = el.font || 24;
         const color = el.color || '#333333';
 
-        // 尝试从缓存获取预渲染的公式图片
-        const cacheKey = `formula_${el.latex}_${fontSizePx}_${color}_${el.displayMode !== false}`;
-        const cachedImage = this.formulaCache?.[cacheKey];
-
-        if (cachedImage && cachedImage.data) {
-            // 使用图片方式插入公式
-            console.log('[PPTX Formula] Using image for:', el.latex?.substring(0, 30));
-
-            // 计算图片位置，保持居中
-            const imgW = cachedImage.width;
-            const imgH = cachedImage.height;
-
-            // 根据对齐方式计算 x 偏移
-            let imgX = x || 0;
-            const containerW = w || imgW;
-            if (el.align === 'center') {
-                imgX = (x || 0) + (containerW - imgW) / 2;
-            } else if (el.align === 'right') {
-                imgX = (x || 0) + containerW - imgW;
-            }
-
-            // 垂直居中
-            const containerH = h || imgH;
-            const imgY = (y || 0) + (containerH - imgH) / 2;
-
-            try {
-                slide.addImage({
-                    data: cachedImage.data,
-                    x: imgX,
-                    y: imgY,
-                    w: imgW,
-                    h: imgH,
-                });
-                return;
-            } catch (e) {
-                console.warn('[PPTX Formula] Failed to add image, falling back to text:', e);
-            }
-        }
-
-        // Fallback: 使用 Unicode 文本
+        // 直接使用 Unicode 文本渲染公式（html2canvas 对 KaTeX 支持不好）
         const fontSize = Math.round(fontSizePx * 0.72);
         let displayText = this.latexToUnicode(el.latex || '');
 
-        console.log('[PPTX Formula] Fallback to text:', el.latex, '->', displayText);
+        console.log('[PPTX Formula] Using Unicode text:', el.latex?.substring(0, 30), '->', displayText?.substring(0, 30));
 
         const textOptions = {
             x: x || 0,
@@ -2886,7 +2807,6 @@ class PPTXSlideRenderer {
             color: this.safeColor(color) || '333333',
             align: el.align || 'center',
             valign: 'middle',
-            italic: true,
         };
 
         if (el.rotate) {

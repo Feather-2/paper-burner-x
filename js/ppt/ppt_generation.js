@@ -2377,6 +2377,11 @@ class PPTGenerator {
     }
 
     async _exportPPTX() {
+        // 动态加载 PptxGenJS（如果未加载）
+        if (typeof PptxGenJS === 'undefined') {
+            await this._loadScript('https://cdn.jsdelivr.net/gh/gitbrent/PptxGenJS@3.12.0/dist/pptxgen.bundle.js');
+        }
+
         if (typeof PPTXSlideRenderer !== 'undefined') {
             const renderer = new PPTXSlideRenderer();
             const filename = `${this.currentProject?.title || 'presentation'}.pptx`;
