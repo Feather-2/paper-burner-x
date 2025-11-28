@@ -455,7 +455,7 @@ ${renderedSlides}
 
     async _exportImages() {
         if (typeof html2canvas === 'undefined') {
-            await this._loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+            await this._loadScript('https://gcore.jsdelivr.net/npm/html2canvas-pro@1.5.13/dist/html2canvas-pro.min.js');
         }
         if (typeof JSZip === 'undefined') {
             await this._loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');

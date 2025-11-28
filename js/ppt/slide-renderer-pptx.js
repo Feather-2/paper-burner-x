@@ -901,7 +901,7 @@ class PPTXSlideRenderer {
         // 动态加载
         return new Promise((resolve, reject) => {
             const script = document.createElement('script');
-            script.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+            script.src = 'https://gcore.jsdelivr.net/npm/html2canvas-pro@1.5.13/dist/html2canvas-pro.min.js';
             script.onload = () => {
                 console.log('[PPTXSlideRenderer] html2canvas loaded');
                 resolve(window.html2canvas);
