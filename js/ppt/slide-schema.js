@@ -964,8 +964,22 @@ class HTMLSlideRenderer {
         // 直接使用原始值（百分比/px/auto），不转换
         const x = this.formatCSSValue(el.x);
         const y = this.formatCSSValue(el.y);
-        const w = this.formatCSSValue(el.w);
+        let w = this.formatCSSValue(el.w);
         const h = this.formatCSSValue(el.h);
+
+        // 对于公式元素，如果没有指定宽度，根据 x 位置计算合适的宽度以支持居中对齐
+        if (el.type === 'formula' && w === 'auto') {
+            // 解析 x 值，计算剩余宽度
+            const xStr = String(el.x || '0%').trim();
+            if (xStr.endsWith('%')) {
+                const xPercent = parseFloat(xStr) || 0;
+                // 宽度 = 100% - x位置，确保不会超出右边界
+                w = `${Math.max(100 - xPercent, 10)}%`;
+            } else {
+                // 非百分比情况，使用固定宽度
+                w = '80%';
+            }
+        }
 
         // 基础定位样式 - 保留原始单位
         const baseStyle = `
@@ -975,7 +989,7 @@ class HTMLSlideRenderer {
             ${w !== 'auto' ? `width: ${w};` : ''}
             ${h !== 'auto' ? `height: ${h};` : ''}
             ${el.rotate ? `transform: rotate(${el.rotate}deg);` : ''}
-            ${el.opacity !== 1 ? `opacity: ${el.opacity};` : ''}
+            ${(el.opacity !== undefined && el.opacity !== null && !isNaN(el.opacity) && el.opacity !== 1) ? `opacity: ${el.opacity};` : ''}
             z-index: ${el.z || 0};
         `.replace(/\s+/g, ' ').trim();
 
@@ -1226,13 +1240,24 @@ class HTMLSlideRenderer {
 
     /**
      * 渲染数学公式 - 使用 KaTeX
+     * 注意：公式居中需要确保容器有宽度，且使用 flex 对齐
      */
     renderFreeformFormula(el, baseStyle) {
+        // 确定对齐方式，默认居中
+        const align = el.align || 'center';
+        let justifyContent = 'center';
+        if (align === 'left') {
+            justifyContent = 'flex-start';
+        } else if (align === 'right') {
+            justifyContent = 'flex-end';
+        }
+
+        // 容器样式 - 使用 flex 布局实现居中
         const formulaStyle = `
             ${baseStyle}
             display: flex;
             align-items: center;
-            justify-content: ${el.align === 'left' ? 'flex-start' : el.align === 'right' ? 'flex-end' : 'center'};
+            justify-content: ${justifyContent};
             color: ${el.color || '#333333'};
             font-size: ${this.px(el.font)}px;
             overflow: visible;
@@ -1244,20 +1269,19 @@ class HTMLSlideRenderer {
 
         if (typeof katex !== 'undefined' && latex) {
             try {
+                // 使用 inline 模式渲染，避免 display 模式的额外垂直间距
                 formulaHtml = katex.renderToString(latex, {
-                    displayMode: el.displayMode !== false,
+                    displayMode: false,
                     throwOnError: false,
                     output: 'html',
                 });
-                // 包装 KaTeX 输出，确保不被裁剪
-                formulaHtml = `<span style="display: inline-block; overflow: visible;">${formulaHtml}</span>`;
+                // 清除 KaTeX 默认的 margin，确保垂直居中
+                formulaHtml = `<span class="formula-wrapper" style="display: inline-block; line-height: 1; margin: 0; padding: 0;">${formulaHtml}</span>`;
             } catch (e) {
                 console.warn('[HTMLRenderer] KaTeX render error:', e);
-                // Fallback: 显示原始 LaTeX
                 formulaHtml = `<code style="font-family: 'Times New Roman', serif; font-style: italic;">${latex}</code>`;
             }
         } else {
-            // KaTeX 不可用，显示原始 LaTeX
             formulaHtml = `<code style="font-family: 'Times New Roman', serif; font-style: italic;">${latex}</code>`;
         }
 

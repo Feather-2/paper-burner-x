@@ -2443,11 +2443,34 @@ class PPTGenerator {
         // 等待 KaTeX 渲染
         await new Promise(resolve => setTimeout(resolve, 200));
 
-        // 获取所有 KaTeX 元素
-        const katexElements = container.querySelectorAll('.katex');
-        if (katexElements.length === 0) return;
+        // ═══════════════════════════════════════════════════════════════
+        // 1. 清理 KaTeX 元素的默认 margin/padding
+        // ═══════════════════════════════════════════════════════════════
+        container.querySelectorAll('.katex').forEach(katex => {
+            katex.style.margin = '0';
+            katex.style.padding = '0';
+            katex.style.lineHeight = '1';
+        });
+        container.querySelectorAll('.katex-html').forEach(el => {
+            el.style.margin = '0';
+            el.style.padding = '0';
+        });
+        container.querySelectorAll('.formula-wrapper').forEach(el => {
+            el.style.margin = '0';
+            el.style.padding = '0';
+            el.style.lineHeight = '1';
+        });
 
-        // 首先确保所有公式容器都允许溢出
+        // ═══════════════════════════════════════════════════════════════
+        // 2. 处理 KaTeX 公式样式
+        // ═══════════════════════════════════════════════════════════════
+        const katexElements = container.querySelectorAll('.katex');
+        if (katexElements.length === 0) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+            return;
+        }
+
+        // 确保所有公式容器都允许溢出
         container.querySelectorAll('[data-el="formula"]').forEach(el => {
             el.style.overflow = 'visible';
         });
