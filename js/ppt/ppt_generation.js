@@ -2392,10 +2392,11 @@ class PPTGenerator {
     }
 
     async _exportPDF() {
-        // 使用 html2canvas + jsPDF
+        // 使用 html2canvas-pro + jsPDF
+        // html2canvas-pro 是 html2canvas 的增强版，修复了一些已知问题
         if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
-            // 动态加载库
-            await this._loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+            // 动态加载库 - 使用 html2canvas-pro 替代原版（gcore CDN 更快）
+            await this._loadScript('https://gcore.jsdelivr.net/npm/html2canvas-pro@1.5.13/dist/html2canvas-pro.min.js');
             await this._loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
         }
 
@@ -2419,12 +2420,35 @@ class PPTGenerator {
             // 等待 KaTeX 渲染并内联样式
             await this._waitForKatexAndInlineStyles(slideContainer);
 
+            // ═══════════════════════════════════════════════════════════════
+            // 修复 html2canvas 的 line-height 继承问题
+            // 参考: https://github.com/nicktomlin/html2canvas/issues/2775
+            // Tailwind CSS 的 preflight 样式会导致 line-height 继承问题
+            // ═══════════════════════════════════════════════════════════════
+            const innerContent = slideContainer.firstChild;
+            if (innerContent) {
+                // 重置所有元素的 line-height 为 initial
+                innerContent.style.lineHeight = 'initial';
+                innerContent.querySelectorAll('*').forEach(el => {
+                    el.style.lineHeight = 'initial';
+                    // 修复图片的 display: block 问题
+                    if (el.tagName === 'IMG') {
+                        el.style.display = 'inline-block';
+                    }
+                });
+            }
+
             const canvas = await html2canvas(slideContainer.firstChild, {
                 scale: 2,
                 useCORS: true,
                 allowTaint: true,
                 backgroundColor: '#ffffff',
                 logging: false,
+                // 防止滚动偏移问题
+                scrollX: 0,
+                scrollY: 0,
+                x: 0,
+                y: 0,
             });
 
             const imgData = canvas.toDataURL('image/jpeg', 0.95);
@@ -2539,14 +2563,13 @@ class PPTGenerator {
             inlineStyles(katex);
         });
 
-        // 特殊处理分数线
+        // 特殊处理分数线 - 保持 KaTeX 原有布局，只修复边框样式
         container.querySelectorAll('.frac-line').forEach(el => {
             const computed = window.getComputedStyle(el);
-            el.style.borderBottomWidth = computed.borderBottomWidth || '1px';
+            // KaTeX 使用 border-bottom 绘制分数线
+            el.style.borderBottomWidth = computed.borderBottomWidth || '0.04em';
             el.style.borderBottomStyle = 'solid';
             el.style.borderBottomColor = computed.color || 'currentColor';
-            el.style.width = '100%';
-            el.style.display = 'block';
         });
 
         // 特殊处理根号线
