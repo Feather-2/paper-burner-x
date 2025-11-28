@@ -123,6 +123,7 @@
  * image: data-src, data-fit(cover/contain/fill), data-radius, data-alt, data-border
  * icon:  data-icon(carbon:xxx), data-size, data-color
  * line:  data-x1, data-y1, data-x2, data-y2, data-stroke, data-stroke-width, data-dash
+ * formula: data-latex(LaTeX公式), data-font, data-color, data-align - 使用 KaTeX 渲染数学公式
  * group: 包含子元素，统一定位
  * card:  自动布局卡片组件，支持图标+标题+描述的组合布局
  *        data-layout: horizontal(水平，图标在左) | vertical(垂直，图标在上) | icon-right(图标在右)
@@ -572,6 +573,17 @@ class SlideParser {
                     title: el.textContent?.trim() || '',
                 };
 
+            case 'formula':
+                // 数学公式 - 使用 KaTeX 渲染
+                return {
+                    ...base,
+                    latex: el.dataset.latex || el.textContent?.trim() || '',
+                    font: parseFloat(el.dataset.font) || 24,
+                    color: el.dataset.color || '#333333',
+                    align: el.dataset.align || 'center',
+                    displayMode: el.dataset.displayMode !== 'false', // 默认为 display 模式
+                };
+
             case 'group':
                 // 递归解析子元素
                 const children = el.querySelectorAll(':scope > [data-el]');
@@ -980,6 +992,8 @@ class HTMLSlideRenderer {
                 return this.renderFreeformLine(el, containerW, containerH);
             case 'chart':
                 return this.renderFreeformChart(el, baseStyle);
+            case 'formula':
+                return this.renderFreeformFormula(el, baseStyle);
             case 'group':
                 return this.renderFreeformGroup(el, baseStyle, containerW, containerH);
             case 'card':
@@ -1208,6 +1222,46 @@ class HTMLSlideRenderer {
         }
 
         return `<div style="${containerStyle}"><div style="${innerStyle}">${content}</div></div>`;
+    }
+
+    /**
+     * 渲染数学公式 - 使用 KaTeX
+     */
+    renderFreeformFormula(el, baseStyle) {
+        const formulaStyle = `
+            ${baseStyle}
+            display: flex;
+            align-items: center;
+            justify-content: ${el.align === 'left' ? 'flex-start' : el.align === 'right' ? 'flex-end' : 'center'};
+            color: ${el.color || '#333333'};
+            font-size: ${this.px(el.font)}px;
+            overflow: visible;
+        `.replace(/\s+/g, ' ').trim();
+
+        // 尝试使用 KaTeX 渲染
+        let formulaHtml = '';
+        const latex = el.latex || '';
+
+        if (typeof katex !== 'undefined' && latex) {
+            try {
+                formulaHtml = katex.renderToString(latex, {
+                    displayMode: el.displayMode !== false,
+                    throwOnError: false,
+                    output: 'html',
+                });
+                // 包装 KaTeX 输出，确保不被裁剪
+                formulaHtml = `<span style="display: inline-block; overflow: visible;">${formulaHtml}</span>`;
+            } catch (e) {
+                console.warn('[HTMLRenderer] KaTeX render error:', e);
+                // Fallback: 显示原始 LaTeX
+                formulaHtml = `<code style="font-family: 'Times New Roman', serif; font-style: italic;">${latex}</code>`;
+            }
+        } else {
+            // KaTeX 不可用，显示原始 LaTeX
+            formulaHtml = `<code style="font-family: 'Times New Roman', serif; font-style: italic;">${latex}</code>`;
+        }
+
+        return `<div style="${formulaStyle}">${formulaHtml}</div>`;
     }
 
     /**
@@ -1477,8 +1531,11 @@ class PPTXSlideRenderer {
 
         console.log('[PPTXSlideRenderer] Starting render with', slides.length, 'slides');
 
-        // 预加载所有图标
-        await this.preloadAllIcons(slides);
+        // 预加载所有图标和公式
+        await Promise.all([
+            this.preloadAllIcons(slides),
+            this.preloadAllFormulas(slides),
+        ]);
 
         const pres = new PptxGenJS();
         pres.layout = 'LAYOUT_16x9';
@@ -2060,6 +2117,9 @@ class PPTXSlideRenderer {
                 case 'chart':
                     this.renderFreeformChartPPTX(slide, el, x, y, w, h);
                     break;
+                case 'formula':
+                    this.renderFreeformFormulaPPTX(slide, el, x, y, w, h);
+                    break;
                 case 'group':
                     // 递归渲染子元素
                     (el.children || []).forEach(child => {
@@ -2322,6 +2382,322 @@ class PPTXSlideRenderer {
     }
 
     /**
+     * 动态加载 html2canvas 库
+     */
+    async loadHtml2Canvas() {
+        if (typeof html2canvas !== 'undefined') {
+            return html2canvas;
+        }
+
+        // 动态加载
+        return new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+            script.onload = () => {
+                console.log('[PPTXSlideRenderer] html2canvas loaded');
+                resolve(window.html2canvas);
+            };
+            script.onerror = () => {
+                console.warn('[PPTXSlideRenderer] Failed to load html2canvas');
+                reject(new Error('Failed to load html2canvas'));
+            };
+            document.head.appendChild(script);
+        });
+    }
+
+    /**
+     * 内联 KaTeX 样式以确保 html2canvas 正确渲染
+     * 复制计算样式到内联样式，修复 vertical-align 问题
+     */
+    inlineKatexStylesForExport(container) {
+        // 处理所有 KaTeX 元素
+        const katexElements = container.querySelectorAll('.katex, .katex *');
+        katexElements.forEach(el => {
+            const computed = window.getComputedStyle(el);
+            const critical = [
+                'display', 'position',
+                'font-size', 'line-height', 'font-family', 'font-weight', 'font-style',
+                'margin', 'padding',
+                'width', 'height', 'min-width', 'min-height',
+                'top', 'bottom', 'left', 'right',
+                'transform', 'color', 'border-bottom', 'border-color'
+            ];
+
+            const inlineStyles = [];
+
+            // 特殊处理 vertical-align - html2canvas 不支持 em 单位
+            const verticalAlign = computed.getPropertyValue('vertical-align');
+            if (verticalAlign && verticalAlign.endsWith('em')) {
+                const val = parseFloat(verticalAlign);
+                if (!isNaN(val) && val !== 0) {
+                    inlineStyles.push('position: relative');
+                    inlineStyles.push(`top: ${-val * 1.5}em`);
+                    inlineStyles.push('vertical-align: baseline');
+                }
+            } else if (verticalAlign) {
+                inlineStyles.push(`vertical-align: ${verticalAlign}`);
+            }
+
+            critical.forEach(prop => {
+                const value = computed.getPropertyValue(prop);
+                if (value && value !== 'auto' && value !== 'normal' && value !== 'none' &&
+                    value !== '0px' && value !== 'rgba(0, 0, 0, 0)') {
+                    inlineStyles.push(`${prop}: ${value}`);
+                }
+            });
+
+            if (inlineStyles.length > 0) {
+                const existing = el.getAttribute('style') || '';
+                el.setAttribute('style', existing + '; ' + inlineStyles.join('; '));
+            }
+        });
+
+        // 特殊处理分数线
+        const fracLines = container.querySelectorAll('.frac-line');
+        fracLines.forEach(el => {
+            el.style.borderBottom = '1px solid currentColor';
+            el.style.width = '100%';
+        });
+    }
+
+    /**
+     * 将 KaTeX 公式渲染为 Base64 图片
+     * 使用 html2canvas 截图方式，确保公式完整渲染
+     * @param {string} latex - LaTeX 公式
+     * @param {object} options - 渲染选项 { fontSize, color, displayMode }
+     * @returns {Promise<{data: string, width: number, height: number}>} Base64 图片数据和尺寸
+     */
+    async renderFormulaToImage(latex, options = {}) {
+        const { fontSize = 24, color = '#333333', displayMode = true } = options;
+
+        // 生成缓存键
+        const cacheKey = `formula_${latex}_${fontSize}_${color}_${displayMode}`;
+        if (!this.formulaCache) this.formulaCache = {};
+        if (this.formulaCache[cacheKey]) {
+            return this.formulaCache[cacheKey];
+        }
+
+        try {
+            // 检查 KaTeX 是否可用
+            if (typeof katex === 'undefined') {
+                console.warn('[PPTXSlideRenderer] KaTeX not available');
+                return null;
+            }
+
+            // 确保 html2canvas 已加载
+            await this.loadHtml2Canvas();
+
+            // 使用 KaTeX 渲染为 HTML
+            const katexHtml = katex.renderToString(latex, {
+                displayMode: displayMode,
+                throwOnError: false,
+                output: 'html',
+            });
+
+            // 创建渲染容器 - 使用足够大的初始尺寸，避免裁剪
+            const container = document.createElement('div');
+            container.style.cssText = `
+                position: fixed;
+                left: -9999px;
+                top: 0;
+                background: transparent;
+                padding: 20px 24px;
+                font-size: ${fontSize}px;
+                color: ${color};
+                display: inline-block;
+                white-space: nowrap;
+                z-index: -9999;
+                overflow: visible;
+            `;
+            container.innerHTML = `<span style="display: inline-block; overflow: visible;">${katexHtml}</span>`;
+            document.body.appendChild(container);
+
+            // 等待 KaTeX 字体加载和渲染
+            await new Promise(resolve => setTimeout(resolve, 300));
+
+            // 内联所有关键样式，确保 html2canvas 正确渲染
+            this.inlineKatexStylesForCapture(container);
+
+            // 获取实际尺寸 - 使用多种方法确保获取完整内容尺寸
+            const katexEl = container.querySelector('.katex') || container.firstChild;
+            const rect = katexEl.getBoundingClientRect();
+
+            // 同时检查 scrollWidth/scrollHeight，取最大值
+            const scrollW = katexEl.scrollWidth || rect.width;
+            const scrollH = katexEl.scrollHeight || rect.height;
+            const actualW = Math.max(rect.width, scrollW);
+            const actualH = Math.max(rect.height, scrollH);
+
+            // 考虑 KaTeX 的上标和下标可能超出 bounding box
+            // 增加更大的额外空间确保不被裁剪
+            const padding = 32; // 增加 padding
+            const extraHorizontal = fontSize * 0.8; // 额外的水平空间（括号等）
+            const extraVertical = fontSize * 0.8; // 额外的垂直空间用于上下标
+            const width = Math.ceil(actualW) + padding * 2 + extraHorizontal;
+            const height = Math.ceil(actualH) + padding * 2 + extraVertical;
+
+            // 设置容器尺寸
+            container.style.width = `${width}px`;
+            container.style.height = `${height}px`;
+            container.style.padding = `${padding + extraVertical / 2}px ${padding + extraHorizontal / 2}px`;
+            container.style.display = 'flex';
+            container.style.alignItems = 'center';
+            container.style.justifyContent = 'center';
+            container.style.overflow = 'visible';
+            container.style.boxSizing = 'content-box';
+
+            // 使用 html2canvas 截图
+            // 必须明确设置 width/height，否则 html2canvas 可能裁剪内容
+            // 注意：html2canvas 的 width/height 是 CSS 像素，scale 会自动应用
+            const scale = 3;
+            const canvas = await html2canvas(container, {
+                scale: scale, // 高分辨率
+                backgroundColor: null, // 透明背景
+                logging: false,
+                useCORS: true,
+                allowTaint: true,
+                width: width,  // 明确指定截图宽度（CSS 像素）
+                height: height, // 明确指定截图高度（CSS 像素）
+                windowWidth: width * 2, // 确保窗口足够大
+                windowHeight: height * 2,
+                x: 0, // 从容器左上角开始
+                y: 0,
+                scrollX: 0,
+                scrollY: 0,
+                // 忽略某些可能导致问题的元素
+                ignoreElements: (el) => el.tagName === 'SCRIPT' || el.tagName === 'STYLE',
+            });
+
+            // 清理容器
+            document.body.removeChild(container);
+
+            // 转换为 Base64
+            const dataUrl = canvas.toDataURL('image/png');
+
+            const result = {
+                data: dataUrl,
+                width: width / this.styles.dimensions.pxPerInch,
+                height: height / this.styles.dimensions.pxPerInch,
+            };
+
+            this.formulaCache[cacheKey] = result;
+            console.log(`[PPTXSlideRenderer] Formula rendered via html2canvas: ${latex.substring(0, 30)}... (${width}x${height}px)`);
+
+            return result;
+
+        } catch (e) {
+            console.warn('[PPTXSlideRenderer] Failed to render formula:', e);
+            return null;
+        }
+    }
+
+    /**
+     * 内联 KaTeX 样式用于截图
+     * 确保所有关键样式都内联，避免 html2canvas 丢失样式
+     */
+    inlineKatexStylesForCapture(container) {
+        // 递归处理所有元素
+        const processElement = (el) => {
+            if (el.nodeType !== 1) return; // 只处理元素节点
+
+            const computed = window.getComputedStyle(el);
+            const styles = [];
+
+            // 关键样式属性
+            const props = [
+                'display', 'position', 'top', 'left', 'right', 'bottom',
+                'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height',
+                'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+                'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+                'font-family', 'font-size', 'font-weight', 'font-style',
+                'line-height', 'text-align', 'vertical-align',
+                'color', 'background-color', 'background',
+                'border', 'border-top', 'border-right', 'border-bottom', 'border-left',
+                'border-width', 'border-style', 'border-color',
+                'transform', 'opacity',
+                'box-sizing', 'overflow',
+            ];
+
+            props.forEach(prop => {
+                const value = computed.getPropertyValue(prop);
+                if (value && value !== 'none' && value !== 'auto' && value !== 'normal' &&
+                    value !== '0px' && value !== 'rgba(0, 0, 0, 0)' && value !== 'transparent') {
+                    styles.push(`${prop}: ${value}`);
+                }
+            });
+
+            // 特殊处理 vertical-align（KaTeX 大量使用）
+            const va = computed.getPropertyValue('vertical-align');
+            if (va && va !== 'baseline') {
+                // 将 em 单位转换为 px
+                if (va.endsWith('em')) {
+                    const emVal = parseFloat(va);
+                    const fontSizePx = parseFloat(computed.getPropertyValue('font-size'));
+                    const pxVal = emVal * fontSizePx;
+                    styles.push(`vertical-align: ${pxVal}px`);
+                } else {
+                    styles.push(`vertical-align: ${va}`);
+                }
+            }
+
+            // 应用内联样式
+            if (styles.length > 0) {
+                el.style.cssText = styles.join('; ') + ';';
+            }
+
+            // 递归处理子元素
+            Array.from(el.children).forEach(processElement);
+        };
+
+        processElement(container);
+
+        // 特殊处理分数线
+        container.querySelectorAll('.frac-line').forEach(el => {
+            const computed = window.getComputedStyle(el);
+            el.style.borderBottomWidth = computed.borderBottomWidth || '1px';
+            el.style.borderBottomStyle = 'solid';
+            el.style.borderBottomColor = computed.color || 'currentColor';
+            el.style.width = '100%';
+            el.style.display = 'block';
+        });
+
+        // 特殊处理根号
+        container.querySelectorAll('.sqrt-line').forEach(el => {
+            el.style.borderTopWidth = '1px';
+            el.style.borderTopStyle = 'solid';
+        });
+    }
+
+    /**
+     * 预加载所有幻灯片中的公式为图片
+     */
+    async preloadAllFormulas(slides) {
+        const formulaPromises = [];
+
+        slides.forEach(slide => {
+            if (slide.type === 'freeform' && slide.elements) {
+                slide.elements.forEach(el => {
+                    if (el.type === 'formula' && el.latex) {
+                        formulaPromises.push(
+                            this.renderFormulaToImage(el.latex, {
+                                fontSize: el.font || 24,
+                                color: el.color || '#333333',
+                                displayMode: el.displayMode !== false,
+                            })
+                        );
+                    }
+                });
+            }
+        });
+
+        if (formulaPromises.length > 0) {
+            console.log(`[PPTXSlideRenderer] Preloading ${formulaPromises.length} formulas...`);
+            await Promise.all(formulaPromises);
+            console.log('[PPTXSlideRenderer] Formulas preloaded');
+        }
+    }
+
+    /**
      * 渲染图表到 PPTX (使用 PptxGenJS 原生图表)
      */
     renderFreeformChartPPTX(slide, el, x, y, w, h) {
@@ -2445,6 +2821,261 @@ class PPTXSlideRenderer {
         } catch (e) {
             console.warn('Failed to add line:', e, lineOptions);
         }
+    }
+
+    /**
+     * 渲染数学公式到 PPTX
+     * 优先使用预渲染的图片，fallback 到 Unicode 文本
+     */
+    renderFreeformFormulaPPTX(slide, el, x, y, w, h) {
+        const fontSizePx = el.font || 24;
+        const color = el.color || '#333333';
+
+        // 尝试从缓存获取预渲染的公式图片
+        const cacheKey = `formula_${el.latex}_${fontSizePx}_${color}_${el.displayMode !== false}`;
+        const cachedImage = this.formulaCache?.[cacheKey];
+
+        if (cachedImage && cachedImage.data) {
+            // 使用图片方式插入公式
+            console.log('[PPTX Formula] Using image for:', el.latex?.substring(0, 30));
+
+            // 计算图片位置，保持居中
+            const imgW = cachedImage.width;
+            const imgH = cachedImage.height;
+
+            // 根据对齐方式计算 x 偏移
+            let imgX = x || 0;
+            const containerW = w || imgW;
+            if (el.align === 'center') {
+                imgX = (x || 0) + (containerW - imgW) / 2;
+            } else if (el.align === 'right') {
+                imgX = (x || 0) + containerW - imgW;
+            }
+
+            // 垂直居中
+            const containerH = h || imgH;
+            const imgY = (y || 0) + (containerH - imgH) / 2;
+
+            try {
+                slide.addImage({
+                    data: cachedImage.data,
+                    x: imgX,
+                    y: imgY,
+                    w: imgW,
+                    h: imgH,
+                });
+                return;
+            } catch (e) {
+                console.warn('[PPTX Formula] Failed to add image, falling back to text:', e);
+            }
+        }
+
+        // Fallback: 使用 Unicode 文本
+        const fontSize = Math.round(fontSizePx * 0.72);
+        let displayText = this.latexToUnicode(el.latex || '');
+
+        console.log('[PPTX Formula] Fallback to text:', el.latex, '->', displayText);
+
+        const textOptions = {
+            x: x || 0,
+            y: y || 0,
+            w: w || 2,
+            h: h || 0.5,
+            fontSize: fontSize,
+            fontFace: 'Cambria Math',
+            color: this.safeColor(color) || '333333',
+            align: el.align || 'center',
+            valign: 'middle',
+            italic: true,
+        };
+
+        if (el.rotate) {
+            textOptions.rotate = el.rotate;
+        }
+
+        if (el.opacity !== undefined && el.opacity < 1) {
+            textOptions.transparency = Math.round((1 - el.opacity) * 100);
+        }
+
+        try {
+            this.addText(slide, displayText, textOptions);
+        } catch (e) {
+            console.warn('Failed to add formula:', e, displayText);
+        }
+    }
+
+    /**
+     * LaTeX 转 Unicode 映射
+     * 用于 PPTX 导出时的显示
+     * 使用 Unicode 数学字符尽量还原公式外观
+     */
+    latexToUnicode(latex) {
+        if (!latex) return '';
+
+        let result = latex;
+
+        // 首先标准化反斜杠：将双反斜杠转为单反斜杠
+        result = result.replace(/\\\\/g, '\\');
+
+        // Unicode 上标字符映射
+        const superscripts = {
+            '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+            '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
+            '+': '⁺', '-': '⁻', '=': '⁼', '(': '⁽', ')': '⁾',
+            'n': 'ⁿ', 'i': 'ⁱ', 'x': 'ˣ', 'y': 'ʸ',
+            'a': 'ᵃ', 'b': 'ᵇ', 'c': 'ᶜ', 'd': 'ᵈ', 'e': 'ᵉ',
+            'f': 'ᶠ', 'g': 'ᵍ', 'h': 'ʰ', 'j': 'ʲ', 'k': 'ᵏ',
+            'l': 'ˡ', 'm': 'ᵐ', 'o': 'ᵒ', 'p': 'ᵖ', 'r': 'ʳ',
+            's': 'ˢ', 't': 'ᵗ', 'u': 'ᵘ', 'v': 'ᵛ', 'w': 'ʷ', 'z': 'ᶻ',
+            'N': 'ᴺ', '/': 'ᐟ',
+        };
+
+        // Unicode 下标字符映射
+        const subscripts = {
+            '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄',
+            '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
+            '+': '₊', '-': '₋', '=': '₌', '(': '₍', ')': '₎',
+            'a': 'ₐ', 'e': 'ₑ', 'h': 'ₕ', 'i': 'ᵢ', 'j': 'ⱼ',
+            'k': 'ₖ', 'l': 'ₗ', 'm': 'ₘ', 'n': 'ₙ', 'o': 'ₒ',
+            'p': 'ₚ', 'r': 'ᵣ', 's': 'ₛ', 't': 'ₜ', 'u': 'ᵤ',
+            'v': 'ᵥ', 'x': 'ₓ',
+            'th': 'ₜₕ',
+        };
+
+        // 转换上标内容
+        const toSuperscript = (str) => {
+            return str.split('').map(c => superscripts[c] || c).join('');
+        };
+
+        // 转换下标内容
+        const toSubscript = (str) => {
+            return str.split('').map(c => subscripts[c] || c).join('');
+        };
+
+        const replacements = [
+            // 量子态 bra-ket 记号
+            [/\|([^|⟩\s{}]+)\\rangle/g, '|$1⟩'],
+            [/\\langle([^|⟨\s{}]+)\|/g, '⟨$1|'],
+            [/\\ket\{([^}]*)\}/g, '|$1⟩'],
+            [/\\bra\{([^}]*)\}/g, '⟨$1|'],
+            [/\\rangle/g, '⟩'],
+            [/\\langle/g, '⟨'],
+            [/\\vert/g, '|'],
+
+            // 分数 - 使用斜杠表示
+            [/\\frac\{([^}]*)\}\{([^}]*)\}/g, '($1)/($2)'],
+
+            // 根号
+            [/\\sqrt\[(\d+)\]\{([^}]*)\}/g, '∜($2)'], // n次根号简化
+            [/\\sqrt\{([^}]*)\}/g, '√($1)'],
+            [/\\sqrt/g, '√'],
+
+            // 希腊字母（小写）
+            [/\\alpha/g, 'α'], [/\\beta/g, 'β'], [/\\gamma/g, 'γ'], [/\\delta/g, 'δ'],
+            [/\\epsilon/g, 'ε'], [/\\varepsilon/g, 'ε'], [/\\zeta/g, 'ζ'], [/\\eta/g, 'η'],
+            [/\\theta/g, 'θ'], [/\\vartheta/g, 'ϑ'], [/\\iota/g, 'ι'], [/\\kappa/g, 'κ'],
+            [/\\lambda/g, 'λ'], [/\\mu/g, 'μ'], [/\\nu/g, 'ν'], [/\\xi/g, 'ξ'],
+            [/\\pi/g, 'π'], [/\\varpi/g, 'ϖ'], [/\\rho/g, 'ρ'], [/\\varrho/g, 'ϱ'],
+            [/\\sigma/g, 'σ'], [/\\varsigma/g, 'ς'], [/\\tau/g, 'τ'], [/\\upsilon/g, 'υ'],
+            [/\\phi/g, 'φ'], [/\\varphi/g, 'φ'], [/\\chi/g, 'χ'], [/\\psi/g, 'ψ'],
+            [/\\omega/g, 'ω'],
+
+            // 希腊字母（大写）
+            [/\\Gamma/g, 'Γ'], [/\\Delta/g, 'Δ'], [/\\Theta/g, 'Θ'], [/\\Lambda/g, 'Λ'],
+            [/\\Xi/g, 'Ξ'], [/\\Pi/g, 'Π'], [/\\Sigma/g, 'Σ'], [/\\Upsilon/g, 'Υ'],
+            [/\\Phi/g, 'Φ'], [/\\Psi/g, 'Ψ'], [/\\Omega/g, 'Ω'],
+
+            // 数学运算符
+            [/\\infty/g, '∞'], [/\\pm/g, '±'], [/\\mp/g, '∓'],
+            [/\\times/g, '×'], [/\\div/g, '÷'], [/\\cdot/g, '·'], [/\\ast/g, '∗'],
+            [/\\star/g, '⋆'], [/\\circ/g, '∘'], [/\\bullet/g, '•'],
+            [/\\oplus/g, '⊕'], [/\\otimes/g, '⊗'], [/\\odot/g, '⊙'],
+
+            // 关系运算符
+            [/\\leq/g, '≤'], [/\\geq/g, '≥'], [/\\neq/g, '≠'], [/\\ne/g, '≠'],
+            [/\\approx/g, '≈'], [/\\equiv/g, '≡'], [/\\sim/g, '∼'], [/\\simeq/g, '≃'],
+            [/\\cong/g, '≅'], [/\\propto/g, '∝'], [/\\ll/g, '≪'], [/\\gg/g, '≫'],
+            [/\\prec/g, '≺'], [/\\succ/g, '≻'], [/\\preceq/g, '⪯'], [/\\succeq/g, '⪰'],
+
+            // 集合运算符
+            [/\\subset/g, '⊂'], [/\\supset/g, '⊃'], [/\\subseteq/g, '⊆'], [/\\supseteq/g, '⊇'],
+            [/\\in/g, '∈'], [/\\notin/g, '∉'], [/\\ni/g, '∋'],
+            [/\\cup/g, '∪'], [/\\cap/g, '∩'], [/\\setminus/g, '∖'],
+            [/\\emptyset/g, '∅'], [/\\varnothing/g, '∅'],
+
+            // 逻辑运算符
+            [/\\forall/g, '∀'], [/\\exists/g, '∃'], [/\\nexists/g, '∄'],
+            [/\\land/g, '∧'], [/\\lor/g, '∨'], [/\\lnot/g, '¬'], [/\\neg/g, '¬'],
+            [/\\implies/g, '⟹'], [/\\iff/g, '⟺'],
+
+            // 微积分
+            [/\\nabla/g, '∇'], [/\\partial/g, '∂'],
+            [/\\sum/g, '∑'], [/\\prod/g, '∏'], [/\\coprod/g, '∐'],
+            [/\\int/g, '∫'], [/\\iint/g, '∬'], [/\\iiint/g, '∭'], [/\\oint/g, '∮'],
+
+            // 箭头
+            [/\\rightarrow/g, '→'], [/\\leftarrow/g, '←'], [/\\leftrightarrow/g, '↔'],
+            [/\\Rightarrow/g, '⇒'], [/\\Leftarrow/g, '⇐'], [/\\Leftrightarrow/g, '⇔'],
+            [/\\uparrow/g, '↑'], [/\\downarrow/g, '↓'], [/\\updownarrow/g, '↕'],
+            [/\\to/g, '→'], [/\\gets/g, '←'], [/\\mapsto/g, '↦'],
+            [/\\longrightarrow/g, '⟶'], [/\\longleftarrow/g, '⟵'],
+
+            // 括号
+            [/\\left\(/g, '('], [/\\right\)/g, ')'],
+            [/\\left\[/g, '['], [/\\right\]/g, ']'],
+            [/\\left\{/g, '{'], [/\\right\}/g, '}'],
+            [/\\left\|/g, '‖'], [/\\right\|/g, '‖'],
+            [/\\left</g, '⟨'], [/\\right>/g, '⟩'],
+            [/\\lfloor/g, '⌊'], [/\\rfloor/g, '⌋'],
+            [/\\lceil/g, '⌈'], [/\\rceil/g, '⌉'],
+
+            // 其他符号
+            [/\\hbar/g, 'ℏ'], [/\\ell/g, 'ℓ'], [/\\wp/g, '℘'],
+            [/\\Re/g, 'ℜ'], [/\\Im/g, 'ℑ'], [/\\aleph/g, 'ℵ'],
+            [/\\prime/g, '′'], [/\\angle/g, '∠'], [/\\perp/g, '⊥'],
+            [/\\parallel/g, '∥'], [/\\triangle/g, '△'],
+            [/\\square/g, '□'], [/\\diamond/g, '◇'],
+
+            // \text{...} 处理
+            [/\\text\{([^}]*)\}/g, '$1'],
+            [/\\mathrm\{([^}]*)\}/g, '$1'],
+            [/\\mathbf\{([^}]*)\}/g, '$1'],
+            [/\\mathit\{([^}]*)\}/g, '$1'],
+
+            // 数学函数名
+            [/\\log/g, 'log'], [/\\ln/g, 'ln'], [/\\lg/g, 'lg'],
+            [/\\sin/g, 'sin'], [/\\cos/g, 'cos'], [/\\tan/g, 'tan'],
+            [/\\cot/g, 'cot'], [/\\sec/g, 'sec'], [/\\csc/g, 'csc'],
+            [/\\arcsin/g, 'arcsin'], [/\\arccos/g, 'arccos'], [/\\arctan/g, 'arctan'],
+            [/\\sinh/g, 'sinh'], [/\\cosh/g, 'cosh'], [/\\tanh/g, 'tanh'],
+            [/\\exp/g, 'exp'], [/\\lim/g, 'lim'], [/\\max/g, 'max'], [/\\min/g, 'min'],
+            [/\\sup/g, 'sup'], [/\\inf/g, 'inf'], [/\\det/g, 'det'], [/\\dim/g, 'dim'],
+
+            // 移除其他未知 LaTeX 命令
+            [/\\[a-zA-Z]+/g, ''],
+        ];
+
+        // 应用基本替换
+        for (const [pattern, replacement] of replacements) {
+            result = result.replace(pattern, replacement);
+        }
+
+        // 处理上标 ^{...} 和 ^x
+        result = result.replace(/\^\{([^}]+)\}/g, (match, content) => toSuperscript(content));
+        result = result.replace(/\^([0-9a-zA-Z+\-])/g, (match, char) => toSuperscript(char));
+
+        // 处理下标 _{...} 和 _x
+        result = result.replace(/_\{([^}]+)\}/g, (match, content) => toSubscript(content));
+        result = result.replace(/_([0-9a-zA-Z+\-])/g, (match, char) => toSubscript(char));
+
+        // 清理花括号
+        result = result.replace(/\{([^{}]*)\}/g, '$1');
+        result = result.replace(/[{}]/g, '');
+
+        // 清理多余空格
+        result = result.replace(/\s+/g, ' ').trim();
+
+        return result;
     }
 
     /**
