@@ -119,6 +119,169 @@ const PPT_SAMPLE_HTML = `
                 <div data-el="formula" data-x="55%" data-y="68%" data-w="40%" data-h="10%" data-font="18" data-color="#22D3EE" data-latex="O((\\log N)^3) \\text{ vs } O(e^{N^{1/3}})"></div>
             </section>
 
+            <!-- 6b. Layered Effects Demo -->
+            <section data-type="freeform" id="slide-6b" data-bg="#0A0F1A">
+                <!-- SVG Mask Definition (hidden, used for CSS mask reference) -->
+                <svg style="position: absolute; width: 0; height: 0; overflow: hidden;">
+                    <defs>
+                        <linearGradient id="maskGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="white" stop-opacity="1" />
+                            <stop offset="100%" stop-color="white" stop-opacity="0.2" />
+                        </linearGradient>
+                        <mask id="layer-mask" maskUnits="objectBoundingBox" maskContentUnits="objectBoundingBox">
+                            <rect x="0" y="0" width="1" height="1" fill="url(#maskGradient)" />
+                        </mask>
+                    </defs>
+                </svg>
+
+                <!-- Background glow -->
+                <div data-el="shape" data-shape="circle" data-x="-10%" data-y="-20%" data-w="70%" data-h="120%" data-fill="#7c3aed" data-opacity="0.35"></div>
+                <div data-el="shape" data-shape="circle" data-x="50%" data-y="50%" data-w="70%" data-h="120%" data-fill="#22d3ee" data-opacity="0.28"></div>
+
+                <!-- Blended image with blur effect (mask removed for better compatibility) -->
+                <div data-el="image"
+                     data-x="10%" data-y="18%" data-w="80%" data-h="64%"
+                     data-src="https://placehold.co/1600x900/0b1220/8b5cf6?text=AI+Render"
+                     data-blend="screen"
+                     data-filter="blur(4px)"
+                     data-opacity="0.85"></div>
+
+                <!-- Foreground content -->
+                <div data-el="text" data-x="12%" data-y="22%" data-w="60%" data-font="42" data-color="#F8FAFC" data-bold="true">
+                    Layered Effects Demo
+                </div>
+                <div data-el="text" data-x="12%" data-y="32%" data-w="60%" data-font="18" data-color="#cbd5e1" data-line-height="1.6">
+                    使用 data-blend、data-mask、data-filter 组合打造复杂视觉效果。PPTX 导出会自动提示不可用的混合/遮罩效果。
+                </div>
+
+                <!-- Callout card with outline -->
+                <div data-el="card"
+                     data-x="12%" data-y="55%" data-w="30%" data-h="28%"
+                     data-layout="vertical"
+                     data-fill="#0f172a"
+                     data-outline="#22d3ee55"
+                     data-radius="14"
+                     data-icon="carbon:magic-wand"
+                     data-icon-bg="#1e293b"
+                     data-icon-color="#22d3ee"
+                     data-title="可控图层"
+                     data-title-color="#e2e8f0"
+                     data-subtitle="用 blend/mask/filter 精细描述视觉" data-subtitle-color="#94a3b8">
+                </div>
+
+                <div data-el="card"
+                     data-x="46%" data-y="55%" data-w="30%" data-h="28%"
+                     data-layout="vertical"
+                     data-fill="#0f172a"
+                     data-outline="#a855f755"
+                     data-radius="14"
+                     data-icon="carbon:unknown-filled"
+                     data-icon-bg="#1e1b4b"
+                     data-icon-color="#a855f7"
+                     data-title="PPTX 降级提示"
+                     data-title-color="#e2e8f0"
+                     data-subtitle="导出时标记未支持的效果" data-subtitle-color="#cbd5e1">
+                </div>
+            </section>
+
+            <!-- 6c. SVG & Table Demo -->
+            <section data-type="freeform" id="slide-6c" data-bg="#0F172A">
+                <div data-el="text" data-x="5%" data-y="6%" data-w="90%" data-h="auto" data-font="28" data-color="#F8FAFC" data-bold="true">SVG Graphics & Data Tables</div>
+                <div data-el="text" data-x="5%" data-y="13%" data-w="90%" data-h="auto" data-font="14" data-color="#94A3B8">AI 可以直接输出 SVG 图形和结构化表格数据</div>
+
+                <!-- 左侧：内联 SVG 流程图 -->
+                <div data-el="text" data-x="5%" data-y="22%" data-w="40%" data-h="auto" data-font="16" data-color="#22D3EE" data-bold="true">Process Flow (SVG)</div>
+                <div data-el="svg" data-x="5%" data-y="28%" data-w="40%" data-h="35%" data-bg-color="#1E293B" data-radius="12">
+                    <svg viewBox="0 0 400 180" xmlns="http://www.w3.org/2000/svg">
+                        <!-- 节点 -->
+                        <rect x="20" y="70" width="80" height="40" rx="8" fill="#4f46e5"/>
+                        <text x="60" y="95" fill="white" font-size="12" text-anchor="middle" font-family="system-ui">Input</text>
+                        
+                        <rect x="160" y="70" width="80" height="40" rx="8" fill="#10b981"/>
+                        <text x="200" y="95" fill="white" font-size="12" text-anchor="middle" font-family="system-ui">Process</text>
+                        
+                        <rect x="300" y="70" width="80" height="40" rx="8" fill="#f59e0b"/>
+                        <text x="340" y="95" fill="white" font-size="12" text-anchor="middle" font-family="system-ui">Output</text>
+                        
+                        <!-- 箭头 -->
+                        <path d="M100 90 L155 90" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+                        <path d="M240 90 L295 90" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+                        
+                        <!-- 箭头定义 -->
+                        <defs>
+                            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                                <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+                            </marker>
+                        </defs>
+                        
+                        <!-- 子流程 -->
+                        <rect x="160" y="130" width="80" height="30" rx="6" fill="#1e293b" stroke="#64748b"/>
+                        <text x="200" y="150" fill="#94a3b8" font-size="10" text-anchor="middle" font-family="system-ui">Validate</text>
+                        <path d="M200 110 L200 125" stroke="#64748b" stroke-width="1" stroke-dasharray="4"/>
+                    </svg>
+                </div>
+
+                <!-- 右侧：数据表格 -->
+                <div data-el="text" data-x="52%" data-y="22%" data-w="43%" data-h="auto" data-font="16" data-color="#A78BFA" data-bold="true">Quantum Hardware Comparison</div>
+                <div data-el="table" data-x="52%" data-y="28%" data-w="43%" data-h="35%"
+                     data-data='[["Platform", "Qubits", "Coherence", "Gate Speed"],["Superconducting", "100+", "~100μs", "~20ns"],["Trapped Ion", "32", "~10s", "~1ms"],["Photonic", "216", "N/A", "~1ps"],["Neutral Atom", "256", "~1s", "~1μs"]]'
+                     data-header-bg="#4f46e5"
+                     data-header-color="#ffffff"
+                     data-row-bg="#1E293B"
+                     data-alt-row-bg="#0F172A"
+                     data-cell-color="#E2E8F0"
+                     data-border-color="#334155"
+                     data-font-size="12"
+                     data-radius="8">
+                </div>
+
+                <!-- 底部：复杂 SVG 图形 -->
+                <div data-el="text" data-x="5%" data-y="68%" data-w="90%" data-h="auto" data-font="16" data-color="#F472B6" data-bold="true">Neural Network Architecture (SVG)</div>
+                <div data-el="svg" data-x="5%" data-y="74%" data-w="90%" data-h="22%" data-bg-color="#1E293B" data-radius="12">
+                    <svg viewBox="0 0 800 120" xmlns="http://www.w3.org/2000/svg">
+                        <!-- 输入层 -->
+                        <circle cx="80" cy="30" r="12" fill="#22d3ee"/>
+                        <circle cx="80" cy="60" r="12" fill="#22d3ee"/>
+                        <circle cx="80" cy="90" r="12" fill="#22d3ee"/>
+                        <text x="80" y="115" fill="#64748b" font-size="10" text-anchor="middle">Input</text>
+                        
+                        <!-- 隐藏层 1 -->
+                        <circle cx="240" cy="20" r="10" fill="#8b5cf6"/>
+                        <circle cx="240" cy="45" r="10" fill="#8b5cf6"/>
+                        <circle cx="240" cy="70" r="10" fill="#8b5cf6"/>
+                        <circle cx="240" cy="95" r="10" fill="#8b5cf6"/>
+                        <text x="240" y="115" fill="#64748b" font-size="10" text-anchor="middle">Hidden 1</text>
+                        
+                        <!-- 隐藏层 2 -->
+                        <circle cx="400" cy="25" r="10" fill="#a855f7"/>
+                        <circle cx="400" cy="55" r="10" fill="#a855f7"/>
+                        <circle cx="400" cy="85" r="10" fill="#a855f7"/>
+                        <text x="400" y="115" fill="#64748b" font-size="10" text-anchor="middle">Hidden 2</text>
+                        
+                        <!-- 隐藏层 3 -->
+                        <circle cx="560" cy="35" r="10" fill="#ec4899"/>
+                        <circle cx="560" cy="70" r="10" fill="#ec4899"/>
+                        <text x="560" y="115" fill="#64748b" font-size="10" text-anchor="middle">Hidden 3</text>
+                        
+                        <!-- 输出层 -->
+                        <circle cx="720" cy="55" r="14" fill="#10b981"/>
+                        <text x="720" y="115" fill="#64748b" font-size="10" text-anchor="middle">Output</text>
+                        
+                        <!-- 连接线 -->
+                        <g stroke="#64748b" stroke-width="1.5" opacity="0.8">
+                            <line x1="92" y1="30" x2="230" y2="20"/><line x1="92" y1="30" x2="230" y2="45"/>
+                            <line x1="92" y1="60" x2="230" y2="45"/><line x1="92" y1="60" x2="230" y2="70"/>
+                            <line x1="92" y1="90" x2="230" y2="70"/><line x1="92" y1="90" x2="230" y2="95"/>
+                            <line x1="250" y1="20" x2="390" y2="25"/><line x1="250" y1="45" x2="390" y2="55"/>
+                            <line x1="250" y1="70" x2="390" y2="55"/><line x1="250" y1="95" x2="390" y2="85"/>
+                            <line x1="410" y1="25" x2="550" y2="35"/><line x1="410" y1="55" x2="550" y2="35"/>
+                            <line x1="410" y1="55" x2="550" y2="70"/><line x1="410" y1="85" x2="550" y2="70"/>
+                            <line x1="570" y1="35" x2="706" y2="55"/><line x1="570" y1="70" x2="706" y2="55"/>
+                        </g>
+                    </svg>
+                </div>
+            </section>
+
             <!-- 7. Hardware -->
             <section data-type="freeform" id="slide-7" data-bg="#0F172A">
                 <div data-el="text" data-x="5%" data-y="8%" data-w="90%" data-h="auto" data-font="28" data-color="#F8FAFC" data-bold="true">Inside the Chandelier</div>

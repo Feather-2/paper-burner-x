@@ -221,9 +221,13 @@ class SlideParser {
         slide.backgroundGradient = section.dataset.gradient || null;
         slide.backgroundImage = section.dataset.bgImage || null;
 
-        // 只解析直接子元素，避免嵌套元素被重复解析
-        const elements = section.querySelectorAll(':scope > [data-el]');
-        slide.elements = Array.from(elements).map((el, i) => this.parseElement(el, i));
+        // 解析支持深层 data-el：允许嵌套，优先尊重 data-group 分层
+        const elements = section.querySelectorAll('[data-el]');
+        const topLevel = Array.from(elements).filter(el => {
+            const parentWithEl = el.parentElement?.closest('[data-el]');
+            return !parentWithEl; // 只收集顶层 data-el，其子元素由 group 递归解析
+        });
+        slide.elements = topLevel.map((el, i) => this.parseElement(el, i));
 
         return slide;
     }
@@ -247,6 +251,11 @@ class SlideParser {
             rotate: parseFloat(el.dataset.rotate) || 0,
             // 透明度
             opacity: parseFloat(el.dataset.opacity) ?? 1,
+            // 混合与效果
+            blend: el.dataset.blend || 'normal',
+            filter: el.dataset.filter || null,
+            mask: el.dataset.mask || null,          // id 或 url/base64
+            outline: el.dataset.outline || null,    // 外描边颜色（降级提示）
         };
 
         switch (type) {
@@ -381,6 +390,44 @@ class SlideParser {
                     // 边框
                     stroke: el.dataset.stroke || null,
                     strokeWidth: parseFloat(el.dataset.strokeWidth) || 1,
+                };
+
+            case 'svg':
+                // 内联 SVG 元素 - AI 可以画复杂图形、表格、流程图等
+                return {
+                    ...base,
+                    // SVG 内容：可以是完整的 SVG 代码或 data-svg 属性
+                    content: el.dataset.svg || el.innerHTML?.trim() || '',
+                    // 背景色（可选）
+                    bgColor: el.dataset.bgColor || null,
+                    // 边框圆角
+                    radius: parseFloat(el.dataset.radius) || 0,
+                    // 保持宽高比
+                    preserveAspectRatio: el.dataset.preserveAspectRatio || 'xMidYMid meet',
+                };
+
+            case 'table':
+                // 表格元素 - 结构化数据，自动生成 SVG 表格
+                return {
+                    ...base,
+                    // 表格数据：JSON 格式 [["Header1", "Header2"], ["Row1Col1", "Row1Col2"], ...]
+                    data: (() => {
+                        try {
+                            return JSON.parse(el.dataset.data || '[]');
+                        } catch (e) {
+                            console.warn('[SlideParser] Invalid table data:', e);
+                            return [];
+                        }
+                    })(),
+                    // 样式
+                    headerBg: el.dataset.headerBg || '#4f46e5',
+                    headerColor: el.dataset.headerColor || '#ffffff',
+                    rowBg: el.dataset.rowBg || '#ffffff',
+                    altRowBg: el.dataset.altRowBg || '#f8fafc',
+                    cellColor: el.dataset.cellColor || '#1f2937',
+                    borderColor: el.dataset.borderColor || '#e2e8f0',
+                    fontSize: parseFloat(el.dataset.fontSize) || 14,
+                    radius: parseFloat(el.dataset.radius) || 8,
                 };
 
             default:

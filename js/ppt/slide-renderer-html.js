@@ -350,6 +350,14 @@ class HTMLSlideRenderer {
         }
 
         // 基础定位样式 - 保留原始单位
+        // 组合层效果（混合/滤镜/遮罩/描边）共用的样式片段
+        const effectStyle = `
+            ${el.blend && el.blend !== 'normal' ? `mix-blend-mode: ${el.blend};` : ''}
+            ${el.filter ? `filter: ${el.filter};` : ''}
+            ${el.mask ? this._buildMaskStyle(el.mask) : ''}
+            ${el.outline ? `outline: 2px solid ${el.outline}; outline-offset: 2px;` : ''}
+        `;
+
         const baseStyle = `
             position: absolute;
             left: ${x};
@@ -359,6 +367,7 @@ class HTMLSlideRenderer {
             ${el.rotate ? `transform: rotate(${el.rotate}deg);` : ''}
             ${(el.opacity !== undefined && el.opacity !== null && !isNaN(el.opacity) && el.opacity !== 1) ? `opacity: ${el.opacity};` : ''}
             z-index: ${el.z || 0};
+            ${effectStyle}
         `.replace(/\s+/g, ' ').trim();
 
         switch (el.type) {
@@ -380,6 +389,10 @@ class HTMLSlideRenderer {
                 return this.renderFreeformGroup(el, baseStyle, containerW, containerH);
             case 'card':
                 return this.renderFreeformCard(el, baseStyle);
+            case 'svg':
+                return this.renderFreeformSvg(el, baseStyle);
+            case 'table':
+                return this.renderFreeformTable(el, baseStyle);
             default:
                 return '';
         }
@@ -402,11 +415,6 @@ class HTMLSlideRenderer {
             word-break: break-word;
             hyphens: auto;
         `.replace(/\s+/g, ' ').trim();
-
-        // DEBUG: 检查内容是否包含 HTML 标签
-        if (el.content && (el.content.includes('<br') || el.content.includes('<span'))) {
-            console.log('[HTMLRenderer] Text with HTML tags:', el.content.substring(0, 100));
-        }
 
         // 如果需要垂直对齐，使用嵌套容器避免 flex 影响 <br> 的行为
         if (needsVerticalAlign) {
@@ -453,25 +461,41 @@ class HTMLSlideRenderer {
     }
 
     renderFreeformImage(el, baseStyle) {
-        let imgStyle = baseStyle;
+        // 重要：filter 会创建新的堆叠上下文，阻止 mix-blend-mode 与外部元素混合
+        // 解决方案：外层 div 只处理定位/尺寸/blend/opacity，内层 img 处理 filter
+        // 这样 blend 可以正确与页面其他元素混合，filter 只影响图片本身
+
+        // 从 baseStyle 中移除 filter，让它只应用在 img 上
+        // baseStyle 已经包含了 position, left, top, width, height, z-index, blend, opacity
+        let containerStyle = baseStyle;
+
+        // 如果 baseStyle 中包含 filter，需要移除它（filter 应该只在 img 上）
+        // 通过正则移除 filter 属性
+        containerStyle = containerStyle.replace(/filter:\s*[^;]+;?/gi, '');
 
         if (el.radius) {
-            imgStyle += ` border-radius: ${el.radius}px; overflow: hidden;`;
+            containerStyle += ` border-radius: ${el.radius}px; overflow: hidden;`;
         }
         if (el.border) {
-            imgStyle += ` border: ${el.border};`;
+            containerStyle += ` border: ${el.border};`;
         }
 
         const fitStyle = el.fit === 'contain' ? 'object-fit: contain;' :
                          el.fit === 'fill' ? 'object-fit: fill;' :
                          'object-fit: cover;';
 
+        // 内层 img 样式：只应用 filter，不应用 blend（blend 在外层容器上生效）
+        let innerImgStyle = `width: 100%; height: 100%; ${fitStyle}`;
+        if (el.filter) {
+            innerImgStyle += ` filter: ${el.filter};`;
+        }
+
         if (el.src) {
-            return `<div style="${imgStyle}"><img src="${el.src}" alt="${el.alt}" style="width: 100%; height: 100%; ${fitStyle}"></div>`;
+            return `<div style="${containerStyle}"><img src="${el.src}" alt="${el.alt}" style="${innerImgStyle}"></div>`;
         } else {
             // 占位符
             return `
-                <div style="${imgStyle} background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%); display: flex; align-items: center; justify-content: center; color: #4f46e5;">
+                <div style="${containerStyle} background: linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%); display: flex; align-items: center; justify-content: center; color: #4f46e5;">
                     <iconify-icon icon="carbon:image" style="font-size: 32px; opacity: 0.5; margin-right: 8px;"></iconify-icon>
                     ${el.alt}
                 </div>
@@ -874,6 +898,172 @@ class HTMLSlideRenderer {
                 ${dotsHtml}
             </svg>
         `;
+        }
+
+    /**
+     * 渲染内联 SVG - AI 可以画复杂图形、流程图、示意图等
+     */
+    renderFreeformSvg(el, baseStyle) {
+        let containerStyle = `
+            ${baseStyle}
+            ${el.bgColor ? `background: ${el.bgColor};` : ''}
+            ${el.radius ? `border-radius: ${el.radius}px; overflow: hidden;` : ''}
+        `.replace(/\s+/g, ' ').trim();
+
+        // SVG 内容可能包含完整的 <svg> 标签，或者只是内部元素
+        let svgContent = el.content || '';
+        
+        // 如果不是以 <svg 开头，包装一个 svg 标签
+        if (!svgContent.trim().toLowerCase().startsWith('<svg')) {
+            svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" preserveAspectRatio="${el.preserveAspectRatio || 'xMidYMid meet'}">${svgContent}</svg>`;
+        } else {
+            // 确保 SVG 有正确的尺寸属性
+            svgContent = svgContent.replace(/<svg([^>]*)>/, (match, attrs) => {
+                if (!attrs.includes('width=')) attrs += ' width="100%"';
+                if (!attrs.includes('height=')) attrs += ' height="100%"';
+                if (!attrs.includes('preserveAspectRatio=')) attrs += ` preserveAspectRatio="${el.preserveAspectRatio || 'xMidYMid meet'}"`;
+                return `<svg${attrs}>`;
+            });
+        }
+
+        return `<div style="${containerStyle}">${svgContent}</div>`;
+    }
+
+    /**
+     * 渲染表格 - 自动生成 SVG 表格
+     * 支持表头高亮、斑马纹、圆角等样式
+     */
+    renderFreeformTable(el, baseStyle) {
+        const data = el.data || [];
+        if (data.length === 0) {
+            return `<div style="${baseStyle}; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 14px;">空表格</div>`;
+        }
+
+        const cols = Math.max(...data.map(row => (row || []).length));
+        const rows = data.length;
+        
+        // 解析容器尺寸
+        const containerW = this.parseCoord(el.w, this.styles.dimensions.htmlWidth) || 400;
+        const containerH = this.parseCoord(el.h, this.styles.dimensions.htmlHeight) || 200;
+        
+        const cellPadding = 12;
+        const fontSize = el.fontSize || 14;
+        const rowHeight = fontSize + cellPadding * 2;
+        const colWidth = containerW / cols;
+        const tableHeight = rows * rowHeight;
+        const radius = el.radius || 8;
+
+        // 构建 SVG 表格
+        let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 ${containerW} ${tableHeight}" preserveAspectRatio="xMidYMid meet">`;
+        
+        // 定义圆角裁剪
+        svgContent += `
+            <defs>
+                <clipPath id="table-clip-${el.id || Math.random().toString(36).substr(2, 9)}">
+                    <rect x="0" y="0" width="${containerW}" height="${tableHeight}" rx="${radius}" ry="${radius}"/>
+                </clipPath>
+            </defs>
+            <g clip-path="url(#table-clip-${el.id || ''})">
+        `;
+
+        // 绘制行背景和单元格
+        data.forEach((row, rowIndex) => {
+            const y = rowIndex * rowHeight;
+            const isHeader = rowIndex === 0;
+            const isAltRow = !isHeader && rowIndex % 2 === 0;
+            
+            // 行背景
+            const bgColor = isHeader ? el.headerBg : (isAltRow ? el.altRowBg : el.rowBg);
+            svgContent += `<rect x="0" y="${y}" width="${containerW}" height="${rowHeight}" fill="${bgColor}"/>`;
+            
+            // 单元格内容
+            (row || []).forEach((cell, colIndex) => {
+                const x = colIndex * colWidth;
+                const textColor = isHeader ? el.headerColor : el.cellColor;
+                const fontWeight = isHeader ? 'bold' : 'normal';
+                
+                // 垂直居中文字
+                const textY = y + rowHeight / 2;
+                const textX = x + colWidth / 2;
+                
+                svgContent += `
+                    <text x="${textX}" y="${textY}" 
+                          fill="${textColor}" 
+                          font-size="${fontSize}" 
+                          font-weight="${fontWeight}"
+                          font-family="system-ui, -apple-system, sans-serif"
+                          text-anchor="middle" 
+                          dominant-baseline="central">${this._escapeHtml(String(cell || ''))}</text>
+                `;
+                
+                // 垂直分隔线（除了最后一列）
+                if (colIndex < cols - 1) {
+                    svgContent += `<line x1="${x + colWidth}" y1="${y}" x2="${x + colWidth}" y2="${y + rowHeight}" stroke="${el.borderColor}" stroke-width="1"/>`;
+                }
+            });
+            
+            // 水平分隔线（除了最后一行）
+            if (rowIndex < rows - 1) {
+                svgContent += `<line x1="0" y1="${y + rowHeight}" x2="${containerW}" y2="${y + rowHeight}" stroke="${el.borderColor}" stroke-width="1"/>`;
+            }
+        });
+
+        // 外边框
+        svgContent += `<rect x="0" y="0" width="${containerW}" height="${tableHeight}" rx="${radius}" ry="${radius}" fill="none" stroke="${el.borderColor}" stroke-width="1"/>`;
+        svgContent += '</g></svg>';
+
+        const containerStyle = `${baseStyle}`.replace(/\s+/g, ' ').trim();
+        return `<div style="${containerStyle}">${svgContent}</div>`;
+    }
+
+    /**
+     * HTML 转义
+     */
+    _escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    /**
+     * 根据 mask 值构建 CSS mask 片段
+     * - #id：引用同页元素的 mask
+     * - url(...) 或 data:...：直接用作 mask-image
+     */
+    _buildMaskStyle(mask) {
+        if (!mask) return '';
+        const val = String(mask).trim();
+        // 引用同页元素 id
+        if (val.startsWith('#')) {
+            const id = val.slice(1);
+            // 尝试 clip-path + mask-image 双保险
+            return `
+                mask-image: url(#${id});
+                -webkit-mask-image: url(#${id});
+                mask-size: contain;
+                -webkit-mask-size: contain;
+                mask-repeat: no-repeat;
+                -webkit-mask-repeat: no-repeat;
+                mask-position: center;
+                -webkit-mask-position: center;
+                clip-path: url(#${id});
+            `;
+        }
+        // 直接 url 或 base64
+        if (val.startsWith('url(') || val.startsWith('data:')) {
+            return `
+                mask-image: ${val.startsWith('url(') ? val : `url(${val})`};
+                -webkit-mask-image: ${val.startsWith('url(') ? val : `url(${val})`};
+                mask-size: cover;
+                -webkit-mask-size: cover;
+                mask-repeat: no-repeat;
+                -webkit-mask-repeat: no-repeat;
+                mask-position: center;
+                -webkit-mask-position: center;
+            `;
+        }
+        // 未知格式，不生成 mask
+        return '';
     }
 }
 

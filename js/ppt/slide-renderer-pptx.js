@@ -67,7 +67,9 @@ class PPTXSlideRenderer {
         const method = `render${this.capitalize(slideData.type)}`;
 
         try {
-            if (typeof this[method] === 'function') {
+            if (slideData.type === 'baked_image' && slideData.image) {
+                this.renderBakedImage(slide, slideData);
+            } else if (typeof this[method] === 'function') {
                 this[method](slide, slideData);
             } else {
                 this.renderContent(slide, slideData);
@@ -403,6 +405,35 @@ class PPTXSlideRenderer {
         });
     }
 
+
+    renderBakedImage(slide, data) {
+        slide.addImage({
+            data: data.image,
+            x: 0,
+            y: 0,
+            w: this.SLIDE_W,
+            h: this.SLIDE_H,
+        });
+    }
+
+    /**
+     * 渲染烘焙后的单个元素（带特效的元素已转为图片）
+     * 图片是整个幻灯片尺寸的截图，直接全屏放置即可
+     */
+    renderBakedElementPPTX(slide, el, x, y, w, h) {
+        try {
+            slide.addImage({
+                data: el.image,
+                x: 0,  // 图片是整个幻灯片的截图，从 0,0 开始
+                y: 0,
+                w: this.SLIDE_W,
+                h: this.SLIDE_H,
+            });
+        } catch (e) {
+            console.warn('[renderBakedElementPPTX] Failed to add baked element image:', e);
+        }
+    }
+
     renderTimeline(slide, data) {
         const p = this.PADDING;
         const f = this.fonts;
@@ -638,6 +669,19 @@ class PPTXSlideRenderer {
                 case 'card':
                     this.renderFreeformCardPPTX(slide, el, x, y, w, h);
                     break;
+                case 'svg':
+                    this.renderFreeformSvgPPTX(slide, el, x, y, w, h);
+                    break;
+                case 'table':
+                    this.renderFreeformTablePPTX(slide, el, x, y, w, h);
+                    break;
+                case 'baked_element':
+                    // 烘焙后的特效元素，作为图片插入
+                    this.renderBakedElementPPTX(slide, el, x, y, w, h);
+                    break;
+            }
+            if (this._needsEffectHint(el)) {
+                this._addEffectHint(slide, el, x, y);
             }
         } catch (e) {
             console.error(`Error rendering freeform element type "${el.type}":`, e);
@@ -730,10 +774,13 @@ class PPTXSlideRenderer {
             w: w || 1,
             h: h || 1,
             fill: { color: this.safeColor(el.fill) || '4f46e5' },
-            line: el.stroke ? {
-                color: this.safeColor(el.stroke) || 'CCCCCC',
-                width: el.strokeWidth || 1
-            } : { color: 'FFFFFF', transparency: 100 },
+            line: (() => {
+                const strokeColor = this.safeColor(el.outline || el.stroke);
+                if (strokeColor) {
+                    return { color: strokeColor, width: el.strokeWidth || 1 };
+                }
+                return { color: 'FFFFFF', transparency: 100 };
+            })(),
         };
 
         // 圆角
@@ -1685,6 +1732,146 @@ class PPTXSlideRenderer {
                     valign: 'top',
                 });
             }
+        }
+    }
+
+    /**
+     * 判断是否需要效果降级提示
+     */
+    _needsEffectHint(el) {
+        return (el.blend && el.blend !== 'normal') || el.mask || el.filter;
+    }
+
+    /**
+     * 在 PPTX 中添加轻量提示，说明混合/遮罩/滤镜已降级
+     */
+    _addEffectHint(slide, el, x = 0, y = 0) {
+        const hints = [];
+        if (el.blend && el.blend !== 'normal') hints.push(`blend:${el.blend}`);
+        if (el.mask) hints.push('mask');
+        if (el.filter) hints.push('filter');
+        if (hints.length === 0) return;
+
+        slide.addText(`[效果降级: ${hints.join(', ')}]`, {
+            x,
+            y: y + 0.05,
+            w: 2.4,
+            h: 0.2,
+            fontSize: 8,
+            color: '999999',
+            italic: true,
+            align: 'left',
+        });
+    }
+
+    /**
+     * 渲染 SVG 到 PPTX
+     * SVG 需要转换为图片才能嵌入 PPTX
+     */
+    async renderFreeformSvgPPTX(slide, el, x, y, w, h) {
+        try {
+            // 将 SVG 转换为 Base64 图片
+            const svgDataUrl = await this.svgToBase64(el.content, w, h);
+            if (svgDataUrl) {
+                slide.addImage({
+                    data: svgDataUrl,
+                    x: x || 0,
+                    y: y || 0,
+                    w: w || 2,
+                    h: h || 2,
+                });
+            } else {
+                // 降级：添加占位符
+                this.addImagePlaceholder(slide, x, y, w, h, 'SVG 图形');
+            }
+        } catch (e) {
+            console.warn('[renderFreeformSvgPPTX] Failed to render SVG:', e);
+            this.addImagePlaceholder(slide, x, y, w, h, 'SVG 图形');
+        }
+    }
+
+    /**
+     * 将 SVG 内容转换为 Base64 图片
+     */
+    async svgToBase64(svgContent, width, height) {
+        if (!svgContent) return null;
+
+        try {
+            // 确保 SVG 有正确的尺寸
+            let svg = svgContent.trim();
+            if (!svg.toLowerCase().startsWith('<svg')) {
+                svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width * 96}" height="${height * 96}">${svg}</svg>`;
+            }
+
+            // 创建 Blob 和图片
+            const blob = new Blob([svg], { type: 'image/svg+xml' });
+            const url = URL.createObjectURL(blob);
+
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => {
+                    // 使用 canvas 转换为 PNG
+                    const canvas = document.createElement('canvas');
+                    const scale = 2; // 提高清晰度
+                    canvas.width = (width * 96) * scale;
+                    canvas.height = (height * 96) * scale;
+                    const ctx = canvas.getContext('2d');
+                    ctx.scale(scale, scale);
+                    ctx.drawImage(img, 0, 0, width * 96, height * 96);
+                    URL.revokeObjectURL(url);
+                    resolve(canvas.toDataURL('image/png'));
+                };
+                img.onerror = () => {
+                    URL.revokeObjectURL(url);
+                    resolve(null);
+                };
+                img.src = url;
+            });
+        } catch (e) {
+            console.warn('[svgToBase64] Failed:', e);
+            return null;
+        }
+    }
+
+    /**
+     * 渲染表格到 PPTX
+     * 使用 PptxGenJS 原生表格功能
+     */
+    renderFreeformTablePPTX(slide, el, x, y, w, h) {
+        const data = el.data || [];
+        if (data.length === 0) return;
+
+        const cols = Math.max(...data.map(row => (row || []).length));
+        const colW = w / cols;
+
+        // 构建 PptxGenJS 表格数据
+        const tableRows = data.map((row, rowIndex) => {
+            const isHeader = rowIndex === 0;
+            return (row || []).map(cell => ({
+                text: String(cell || ''),
+                options: {
+                    fill: { color: this.safeColor(isHeader ? el.headerBg : (rowIndex % 2 === 0 ? el.altRowBg : el.rowBg)) },
+                    color: this.safeColor(isHeader ? el.headerColor : el.cellColor),
+                    bold: isHeader,
+                    align: 'center',
+                    valign: 'middle',
+                    fontSize: Math.round((el.fontSize || 14) * 0.72),
+                    fontFace: this.fontFace,
+                }
+            }));
+        });
+
+        try {
+            slide.addTable(tableRows, {
+                x: x || 0,
+                y: y || 0,
+                w: w || 4,
+                colW: Array(cols).fill(colW),
+                border: { pt: 1, color: this.safeColor(el.borderColor) || 'E2E8F0' },
+                fontFace: this.fontFace,
+            });
+        } catch (e) {
+            console.warn('[renderFreeformTablePPTX] Failed to render table:', e);
         }
     }
 }

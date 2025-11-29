@@ -74,9 +74,10 @@ const PPTGeneratorExport = {
             throw new Error('PPTX 渲染器未加载');
         }
 
+        const slidesForExport = await this._bakeEffectsForPPTX(this.slides);
         const renderer = new PPTXSlideRenderer();
         const filename = `${this.currentProject?.title || 'presentation'}.pptx`;
-        await renderer.render(this.slides, filename);
+        await renderer.render(slidesForExport, filename);
     },
 
     async _exportPDF() {
@@ -88,6 +89,7 @@ const PPTGeneratorExport = {
         // Target 1920x1080 exports (double the preview base) to improve fidelity.
         const EXPORT_WIDTH = 1920;
         const EXPORT_HEIGHT = 1080;
+        const EXPORT_SCALE = 3; // higher scale to improve sharpness in final PDF
 
         const { jsPDF } = window.jspdf;
         const pdf = new jsPDF({ orientation: 'landscape', unit: 'px', format: [EXPORT_WIDTH, EXPORT_HEIGHT] });
@@ -97,13 +99,15 @@ const PPTGeneratorExport = {
         document.body.appendChild(slideContainer);
 
         const renderer = new HTMLSlideRenderer();
+        const slidesForExport = await this._bakeEffectsForPPTX(this.slides);
 
-        for (let i = 0; i < this.slides.length; i++) {
+        for (let i = 0; i < slidesForExport.length; i++) {
             if (i > 0) pdf.addPage([EXPORT_WIDTH, EXPORT_HEIGHT], 'landscape');
 
-            slideContainer.innerHTML = `<div style="width: 960px; height: 540px; overflow: hidden;">${renderer.render(this.slides[i], i)}</div>`;
+            slideContainer.innerHTML = `<div style="width: 960px; height: 540px; overflow: hidden;">${renderer.render(slidesForExport[i], i)}</div>`;
 
             await this._waitForIconsToLoad(slideContainer);
+            await this._waitForImagesToLoad(slideContainer);
             await this._waitForKatexAndInlineStyles(slideContainer);
 
             const innerContent = slideContainer.firstChild;
@@ -117,16 +121,23 @@ const PPTGeneratorExport = {
                 });
             }
 
-            const canvas = await html2canvas(slideContainer.firstChild, {
-                scale: 2,
+            const hasEffects = this._slideHasEffects(slidesForExport[i]);
+            const canvas = await this._captureToCanvas(slideContainer.firstChild, {
+                scale: EXPORT_SCALE,
                 useCORS: true,
-                allowTaint: true,
+                allowTaint: false,
                 backgroundColor: '#ffffff',
-                logging: false,
+                logging: hasEffects,  // 仅在有特效时打印日志
                 scrollX: 0,
                 scrollY: 0,
                 x: 0,
                 y: 0,
+                foreignObjectRendering: hasEffects,  // 特效场景启用 foreignObject 以保留 filter/blend
+                removeContainer: true,
+            }, {
+                // 回退：禁用 foreignObject 以避免某些浏览器崩溃
+                foreignObjectRendering: false,
+                logging: false,
             });
 
             const imgData = canvas.toDataURL('image/jpeg', 0.95);
@@ -467,17 +478,26 @@ ${renderedSlides}
         document.body.appendChild(slideContainer);
 
         const renderer = new HTMLSlideRenderer();
+        const slidesForExport = await this._bakeEffectsForPPTX(this.slides);
 
-        for (let i = 0; i < this.slides.length; i++) {
-            slideContainer.innerHTML = `<div style="width: 960px; height: 540px; overflow: hidden;">${renderer.render(this.slides[i], i)}</div>`;
+        const EXPORT_SCALE = 3; // capture at higher scale for sharper images
+
+        for (let i = 0; i < slidesForExport.length; i++) {
+            slideContainer.innerHTML = `<div style="width: 960px; height: 540px; overflow: hidden;">${renderer.render(slidesForExport[i], i)}</div>`;
 
             await this._waitForIconsToLoad(slideContainer);
+            await this._waitForImagesToLoad(slideContainer);
+            await this._waitForKatexAndInlineStyles(slideContainer);
 
-            const canvas = await html2canvas(slideContainer.firstChild, {
-                scale: 2,
+            const hasEffects = this._slideHasEffects(slidesForExport[i]);
+            const canvas = await this._captureToCanvas(slideContainer.firstChild, {
+                scale: EXPORT_SCALE,
                 useCORS: true,
-                allowTaint: true,
-                backgroundColor: '#ffffff'
+                allowTaint: false,
+                backgroundColor: '#ffffff',
+                foreignObjectRendering: hasEffects,
+            }, {
+                foreignObjectRendering: false,
             });
 
             const imgData = canvas.toDataURL('image/png').split(',')[1];
@@ -503,6 +523,551 @@ ${renderedSlides}
             script.onerror = reject;
             document.head.appendChild(script);
         });
+    },
+
+    /**
+     * 等待容器内所有图片加载完成，并将跨域图片转为 base64。
+     * 同时将 CSS filter (如 blur) 烘焙到图片像素，避免 html2canvas 丢失效果。
+     */
+    async _waitForImagesToLoad(container, timeout = 10000) {
+        const images = Array.from(container.querySelectorAll('img'));
+        if (images.length === 0) return;
+
+        const loadPromises = images.map(async (img) => {
+            try {
+                if (img.dataset.filterBaked === 'true') return;
+
+                // 提前设置跨域策略，方便 html2canvas 重新拉取资源
+                if (!img.crossOrigin) {
+                    img.crossOrigin = 'anonymous';
+                }
+                if (!img.referrerPolicy) {
+                    img.referrerPolicy = 'no-referrer';
+                }
+
+                // 等待图片加载
+                if (!img.complete || img.naturalHeight === 0) {
+                    await new Promise((resolve) => {
+                        img.onload = resolve;
+                        img.onerror = resolve;
+                        setTimeout(resolve, timeout);
+                    });
+                }
+
+                // 尝试将跨域图片转为 base64
+                try {
+                    const src = img.src;
+                    // 跳过已经是 base64 或 blob 的图片
+                    if (src.startsWith('data:') || src.startsWith('blob:')) return;
+
+                    // 跳过同源图片
+                    const imgUrl = new URL(src, window.location.href);
+                    if (imgUrl.origin === window.location.origin) return;
+
+                    // 使用 fetch + canvas 转换为 base64
+                    const response = await fetch(src, { mode: 'cors' });
+                    const blob = await response.blob();
+                    const base64 = await new Promise((resolve) => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => resolve(reader.result);
+                        reader.readAsDataURL(blob);
+                    });
+
+                    // 替换为 base64
+                    img.src = base64;
+                    // 等待新图片加载
+                    await new Promise(resolve => {
+                        if (img.complete) resolve();
+                        else img.onload = resolve;
+                    });
+                } catch (e) {
+                    console.warn('[_waitForImagesToLoad] Failed to convert image to base64:', img.src, e);
+                }
+
+                const { filter, sourceEl } = this._getImageFilterForExport(img);
+                if (filter && filter !== 'none') {
+                    await this._bakeFilterIntoImage(img, filter);
+                    if (sourceEl) {
+                        sourceEl.style.filter = 'none';
+                    }
+                    img.dataset.filterBaked = 'true';
+                }
+            } catch (err) {
+                console.warn('[_waitForImagesToLoad] image handling skipped due to error:', err);
+            }
+        });
+
+        await Promise.all(loadPromises);
+        // 额外等待确保渲染完成
+        await new Promise(resolve => setTimeout(resolve, 100));
+    },
+
+    _getImageFilterForExport(img) {
+        const readFilter = (el) => {
+            if (!el) return null;
+            const inline = (el.style?.filter || '').trim();
+            if (inline && inline !== 'none') return inline;
+            const computed = window.getComputedStyle(el).filter;
+            if (computed && computed !== 'none') return computed;
+            return null;
+        };
+
+        let sourceEl = img;
+        let filter = readFilter(img);
+
+        if (!filter) {
+            filter = readFilter(img.parentElement);
+            if (filter) {
+                sourceEl = img.parentElement;
+            }
+        }
+
+        return { filter, sourceEl: filter ? sourceEl : null };
+    },
+
+    async _bakeFilterIntoImage(img, filter) {
+        if (!filter || filter === 'none') return;
+
+        try {
+            const width = Math.max(img.naturalWidth || img.width || 0, 1);
+            const height = Math.max(img.naturalHeight || img.height || 0, 1);
+            if (!width || !height) return;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+
+            ctx.filter = filter;
+            ctx.drawImage(img, 0, 0, width, height);
+
+            img.src = canvas.toDataURL('image/png');
+
+            await new Promise(resolve => {
+                if (img.complete) resolve();
+                else img.onload = resolve;
+                setTimeout(resolve, 200);
+            });
+        } catch (e) {
+            console.warn('[_bakeFilterIntoImage] Failed to apply filter into image:', e);
+        }
+    },
+
+    async _captureToCanvas(target, options, fallbackOptions) {
+        const attempts = [];
+        // 1) 主配置
+        attempts.push(options);
+        // 2) 如果启用了 foreignObject，再尝试允许 taint 保留混合效果
+        if (options?.foreignObjectRendering) {
+            attempts.push({
+                ...options,
+                allowTaint: true,
+                useCORS: true,
+            });
+        }
+        // 3) 显式降级配置
+        if (fallbackOptions) {
+            attempts.push({ ...options, ...fallbackOptions });
+        }
+
+        for (let i = 0; i < attempts.length; i++) {
+            const attempt = attempts[i];
+            try {
+                return await html2canvas(target, attempt);
+            } catch (err) {
+                const hint = err?.target?.src || err?.message || err;
+                console.warn(`[html2canvas] capture attempt ${i + 1}/${attempts.length} failed:`, hint, err);
+            }
+        }
+
+        // 全部失败时返回空白画布，保证流程不中断
+        const rect = target?.getBoundingClientRect?.();
+        const width = Math.max(Math.round(rect?.width || options?.width || 1), 1);
+        const height = Math.max(Math.round(rect?.height || options?.height || 1), 1);
+        const blank = document.createElement('canvas');
+        blank.width = width;
+        blank.height = height;
+        const ctx = blank.getContext('2d');
+        if (ctx && options?.backgroundColor) {
+            ctx.fillStyle = options.backgroundColor;
+            ctx.fillRect(0, 0, width, height);
+        }
+        return blank;
+    },
+
+    /**
+     * 智能分层烘焙：将连续的特效元素合并为"智能对象"，保持层叠关系。
+     * 类似 Photoshop 的智能对象概念：
+     * - 连续的特效层合并烘焙为一张图片
+     * - 普通元素（文字、图表）保持原生可编辑
+     * - 层叠顺序不变
+     */
+    async _bakeEffectsForPPTX(slides) {
+        const needsBaking = slides.some(slide => this._slideHasEffects(slide));
+        if (!needsBaking) return slides;
+
+        // 需要 html2canvas 才能烘焙
+        if (typeof html2canvas === 'undefined') {
+            await this._loadScript('https://gcore.jsdelivr.net/npm/html2canvas-pro@1.5.13/dist/html2canvas-pro.min.js');
+        }
+
+        const renderer = new HTMLSlideRenderer();
+        const bakedSlides = [];
+
+        // 隐藏容器用于截图
+        const container = document.createElement('div');
+        container.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 960px; height: 540px; z-index: -9999;';
+        document.body.appendChild(container);
+
+        for (let i = 0; i < slides.length; i++) {
+            const slide = slides[i];
+
+            // 非 freeform 或无特效元素，直接保留
+            if (!this._slideHasEffects(slide)) {
+                bakedSlides.push(slide);
+                continue;
+            }
+
+            // 按 z-index 排序元素
+            const sortedElements = [...(slide.elements || [])].sort((a, b) => (a.z || 0) - (b.z || 0));
+
+            // 找出有 blend 效果的元素
+            const blendElements = sortedElements.filter(el => el.blend && el.blend !== 'normal');
+            
+            if (blendElements.length > 0) {
+                // 有 blend 效果：找到最高 blend 元素的 z-index
+                const maxBlendZ = Math.max(...blendElements.map(el => el.z || 0));
+                
+                // backdrop = blend 元素及其下方所有元素（需要一起烘焙以正确混合）
+                const elementsTosBake = sortedElements.filter(el => (el.z || 0) <= maxBlendZ);
+                // foreground = blend 元素之上的元素（保持原生）
+                const foregroundElements = sortedElements.filter(el => (el.z || 0) > maxBlendZ);
+                
+                // 烘焙 backdrop + blend 元素
+                const bakedEl = await this._bakeElementGroupToImage(
+                    elementsTosBake.filter(el => this._elementHasEffects(el)), // 特效元素
+                    renderer, 
+                    container, 
+                    elementsTosBake.filter(el => !this._elementHasEffects(el)), // backdrop
+                    slide.background
+                );
+                
+                const processedElements = [];
+                if (bakedEl) {
+                    processedElements.push(bakedEl);
+                } else {
+                    // 烘焙失败，保留原始元素
+                    processedElements.push(...elementsTosBake);
+                }
+                // 前景元素保持原生
+                processedElements.push(...foregroundElements);
+                
+                bakedSlides.push({
+                    ...slide,
+                    elements: processedElements,
+                });
+            } else {
+                // 无 blend 效果，使用原来的分组逻辑处理 filter/mask
+                const groups = this._groupElementsForBaking(sortedElements);
+                const processedElements = [];
+                
+                for (const group of groups) {
+                    if (group.type === 'normal') {
+                        processedElements.push(...group.elements);
+                    } else if (group.type === 'effect') {
+                        // filter/mask 效果不需要与背景混合，直接烘焙特效元素
+                        const minZ = Math.min(...group.elements.map(el => el.z || 0));
+                        const bakedEl = await this._bakeElementGroupToImage(
+                            group.elements, 
+                            renderer, 
+                            container, 
+                            [], // 无需 backdrop
+                            'transparent'
+                        );
+                        if (bakedEl) {
+                            bakedEl.z = minZ; // 保持层叠顺序
+                            processedElements.push(bakedEl);
+                        } else {
+                            processedElements.push(...group.elements);
+                        }
+                    }
+                }
+                
+                bakedSlides.push({
+                    ...slide,
+                    elements: processedElements,
+                });
+            }
+        }
+
+        document.body.removeChild(container);
+        return bakedSlides;
+    },
+
+    /**
+     * 将元素按层叠顺序分组：
+     * - 连续的特效元素合并为一组（effect）
+     * - 普通元素各自独立或连续合并为一组（normal）
+     *
+     * 例如：[text, shape+blend, circle+filter, text, image+mask]
+     * 分组为：[{normal: [text]}, {effect: [shape, circle]}, {normal: [text]}, {effect: [image]}]
+     */
+    _groupElementsForBaking(sortedElements) {
+        const groups = [];
+        let currentGroup = null;
+
+        for (const el of sortedElements) {
+            const hasEffect = this._elementHasEffects(el);
+            const groupType = hasEffect ? 'effect' : 'normal';
+
+            if (!currentGroup || currentGroup.type !== groupType) {
+                // 开始新分组
+                currentGroup = { type: groupType, elements: [] };
+                groups.push(currentGroup);
+            }
+
+            currentGroup.elements.push(el);
+        }
+
+        return groups;
+    },
+
+    /**
+     * 将一组元素烘焙为单张图片（智能对象）
+     * 关键改进：对于有 blend 效果的元素，必须在完整的 DOM 上下文中渲染，
+     * 然后截图，而不是分层合成。这样 CSS 的 mix-blend-mode 才能正确工作。
+     */
+    async _bakeElementGroupToImage(elements, renderer, container, backdropElements = [], backgroundFill = 'transparent') {
+        if (!elements || elements.length === 0) return null;
+
+        try {
+            const minZ = Math.min(...elements.map(el => el.z || 0));
+            const hasBlend = elements.some(el => el.blend && el.blend !== 'normal');
+
+            // 合并所有元素（背景 + 特效元素），按 z-index 排序
+            const combinedElements = [...backdropElements, ...elements].sort((a, b) => (a.z || 0) - (b.z || 0));
+
+            // 重要：对于有 blend 效果的场景，必须让浏览器完成 CSS 混合模式的渲染，
+            // 然后用 html2canvas 截取最终结果。不要尝试分层合成。
+            const tempSlide = {
+                type: 'freeform',
+                background: backgroundFill || 'transparent',
+                elements: combinedElements,
+            };
+
+            // 渲染完整的幻灯片到容器
+            const bgStyle = backgroundFill ? `background: ${backgroundFill};` : 'background: transparent;';
+            container.innerHTML = `<div style="width: 960px; height: 540px; overflow: visible; ${bgStyle}">${renderer.render(tempSlide, 0)}</div>`;
+
+            // 等待所有资源加载
+            await this._waitForIconsToLoad(container);
+            await this._waitForImagesToLoad(container);
+            await this._waitForKatexAndInlineStyles(container);
+
+            // 额外等待确保 CSS 动画和过渡完成
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            // 使用 html2canvas 截图，foreignObjectRendering 模式更好地支持 CSS 效果
+            const scale = 3;
+            const canvas = await this._captureToCanvas(container.firstChild, {
+                scale,
+                useCORS: true,
+                allowTaint: false,
+                backgroundColor: backgroundFill || null,
+                logging: hasBlend,  // blend 场景打印日志便于调试
+                foreignObjectRendering: true,  // 启用以更好支持 CSS 效果
+            }, {
+                // 回退配置
+                foreignObjectRendering: false,
+                allowTaint: true,
+            });
+
+            const dataUrl = canvas ? canvas.toDataURL('image/png') : null;
+            if (!dataUrl) return null;
+
+            if (hasBlend) {
+                console.info('[_bakeElementGroupToImage] blend effects captured:', 
+                    elements.filter(e => e.blend && e.blend !== 'normal').map(e => `${e.type}:${e.blend}`).join(', '));
+            }
+
+            return {
+                type: 'baked_element',
+                image: dataUrl,
+                // 全屏放置，因为元素位置已经在截图中
+                x: '0%',
+                y: '0%',
+                w: '100%',
+                h: '100%',
+                z: minZ,
+                originalElements: elements.length,
+                originalTypes: elements.map(el => el.type).join(','),
+            };
+        } catch (e) {
+            console.warn('[_bakeElementGroupToImage] Failed to bake element group:', e);
+            return null;
+        }
+    },
+
+    async _renderElementsToCanvas(elements, renderer, container, opts = {}) {
+        if (!elements) return null;
+        const sanitized = opts.disableBlend ? this._cloneElementsWithoutBlend(elements) : elements;
+        const tempSlide = {
+            type: 'freeform',
+            background: opts.backgroundColor ?? 'transparent',
+            elements: sanitized || [],
+        };
+
+        const bgStyle = opts.backgroundColor ? `background: ${opts.backgroundColor};` : 'background: transparent;';
+        container.innerHTML = `<div style="width: 960px; height: 540px; overflow: visible; ${bgStyle}">${renderer.render(tempSlide, 0)}</div>`;
+        await this._waitForIconsToLoad(container);
+        await this._waitForImagesToLoad(container);
+        await this._waitForKatexAndInlineStyles(container);
+
+        const scale = opts.scale ?? 3;
+        const canvas = await this._captureToCanvas(container.firstChild, {
+            scale,
+            useCORS: true,
+            allowTaint: opts.allowTaint ?? false,
+            backgroundColor: opts.backgroundColor ?? null,
+            logging: false,
+            foreignObjectRendering: opts.foreignObjectRendering ?? true,
+        }, {
+            foreignObjectRendering: false,
+            allowTaint: true,
+        });
+
+        return canvas;
+    },
+
+    _cloneElementsWithoutBlend(elements) {
+        return (elements || []).map(el => {
+            const cloned = { ...el };
+            if (cloned.blend && cloned.blend !== 'normal') {
+                cloned._origBlend = cloned.blend;
+                cloned.blend = 'normal';
+            }
+            if (cloned.children) {
+                cloned.children = this._cloneElementsWithoutBlend(cloned.children);
+            }
+            return cloned;
+        });
+    },
+
+    _mapBlendToComposite(blend) {
+        if (!blend || blend === 'normal') return 'source-over';
+        const map = {
+            multiply: 'multiply',
+            screen: 'screen',
+            overlay: 'overlay',
+            darken: 'darken',
+            lighten: 'lighten',
+            color_dodge: 'color-dodge',
+            'color-dodge': 'color-dodge',
+            color_burn: 'color-burn',
+            'color-burn': 'color-burn',
+            hard_light: 'hard-light',
+            'hard-light': 'hard-light',
+            soft_light: 'soft-light',
+            'soft-light': 'soft-light',
+            difference: 'difference',
+            exclusion: 'exclusion',
+        };
+        return map[blend] || 'source-over';
+    },
+
+    async _manualBlendComposite(elements, backdropElements, renderer, container, scale = 3, backgroundFill = 'transparent') {
+        try {
+            const width = Math.round(960 * scale);
+            const height = Math.round(540 * scale);
+            const baseCanvas = document.createElement('canvas');
+            baseCanvas.width = width;
+            baseCanvas.height = height;
+            const ctx = baseCanvas.getContext('2d');
+            if (!ctx) return null;
+
+            if (backgroundFill && backgroundFill !== 'transparent') {
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.fillStyle = backgroundFill;
+                ctx.fillRect(0, 0, width, height);
+            }
+
+            // 背景
+            const backdropCanvas = await this._renderElementsToCanvas(backdropElements, renderer, container, {
+                scale,
+                backgroundColor: backgroundFill || 'transparent',
+                foreignObjectRendering: true,
+                allowTaint: false,
+            });
+            if (backdropCanvas) {
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.drawImage(backdropCanvas, 0, 0);
+            }
+
+            // 按 z 顺序叠加特效元素，使用 canvas 的合成模式
+            const sorted = [...elements].sort((a, b) => (a.z || 0) - (b.z || 0));
+            for (const el of sorted) {
+                const elCanvas = await this._renderElementsToCanvas([el], renderer, container, {
+                    scale,
+                    backgroundColor: null,
+                    foreignObjectRendering: true,
+                    allowTaint: false,
+                    disableBlend: true, // 手动处理 blend，避免 html2canvas 先混一次
+                });
+                if (!elCanvas) continue;
+                ctx.globalCompositeOperation = this._mapBlendToComposite(el.blend);
+                ctx.drawImage(elCanvas, 0, 0);
+            }
+
+            ctx.globalCompositeOperation = 'source-over';
+            return baseCanvas.toDataURL('image/png');
+        } catch (e) {
+            console.warn('[_manualBlendComposite] fallback failed:', e);
+            return null;
+        }
+    },
+
+    /**
+     * 计算一组元素的边界框
+     */
+    _calculateGroupBounds(elements) {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+        for (const el of elements) {
+            const x = this._parsePercent(el.x) || 0;
+            const y = this._parsePercent(el.y) || 0;
+            const w = this._parsePercent(el.w) || 10;
+            const h = this._parsePercent(el.h) || 10;
+
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x + w);
+            maxY = Math.max(maxY, y + h);
+        }
+
+        return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+    },
+
+    _parsePercent(value) {
+        if (typeof value === 'number') return value;
+        const str = String(value).trim();
+        if (str.endsWith('%')) return parseFloat(str);
+        return parseFloat(str) || 0;
+    },
+
+    _slideHasEffects(slide) {
+        if (!slide) return false;
+        // freeform: 检查 elements
+        if (slide.elements && slide.elements.some(el => this._elementHasEffects(el))) return true;
+        // 其他类型不检查
+        return false;
+    },
+
+    _elementHasEffects(el) {
+        if (!el) return false;
+        if ((el.blend && el.blend !== 'normal') || el.mask || el.filter) return true;
+        if (el.children && el.children.some(child => this._elementHasEffects(child))) return true;
+        return false;
     },
 
     exportPPTX() {

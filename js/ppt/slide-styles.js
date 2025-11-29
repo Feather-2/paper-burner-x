@@ -146,6 +146,37 @@
  *      data-subtitle="Manual data reconciliation" data-subtitle-color="#B91C1C">
  * </div>
  *
+ * svg:   内联 SVG 图形 - AI 可以画复杂图形、流程图、示意图等
+ *        data-bg-color: 背景色
+ *        data-radius: 圆角
+ *        data-preserve-aspect-ratio: SVG 缩放模式 (默认 xMidYMid meet)
+ *        内容: 直接在标签内写 SVG 代码，或使用 data-svg 属性
+ *
+ * 【SVG 示例】
+ * <div data-el="svg" data-x="5%" data-y="30%" data-w="40%" data-h="30%" data-bg-color="#1E293B" data-radius="12">
+ *     <svg viewBox="0 0 400 200">
+ *         <rect x="50" y="50" width="100" height="60" rx="8" fill="#4f46e5"/>
+ *         <text x="100" y="85" fill="white" text-anchor="middle">Node</text>
+ *     </svg>
+ * </div>
+ *
+ * table: 结构化数据表格 - 自动生成 SVG 表格，支持表头高亮、斑马纹
+ *        data-data: JSON 格式的二维数组 [["Header1","Header2"],["Cell1","Cell2"],...]
+ *        data-header-bg: 表头背景色 (默认 #4f46e5)
+ *        data-header-color: 表头文字颜色 (默认 #ffffff)
+ *        data-row-bg: 行背景色 (默认 #ffffff)
+ *        data-alt-row-bg: 交替行背景色 (默认 #f8fafc)
+ *        data-cell-color: 单元格文字颜色 (默认 #1f2937)
+ *        data-border-color: 边框颜色 (默认 #e2e8f0)
+ *        data-font-size: 字体大小 (默认 14)
+ *        data-radius: 圆角 (默认 8)
+ *
+ * 【Table 示例】
+ * <div data-el="table" data-x="50%" data-y="30%" data-w="45%" data-h="40%"
+ *      data-data='[["Name","Value","Status"],["Alpha","100","Active"],["Beta","200","Pending"]]'
+ *      data-header-bg="#4f46e5" data-radius="8">
+ * </div>
+ *
  * 通用属性: data-x, data-y, data-w, data-h, data-z, data-rotate, data-opacity
  * 坐标支持: 百分比(50%), 像素(200px), 英寸(2in)
  */
