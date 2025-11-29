@@ -68,8 +68,14 @@ const PPTGeneratorUtilities = {
         this._scrollToBottom();
     },
 
-    addChatMessage(role, content, actionHtml = null) {
-        const msg = { role, content, action: actionHtml, timestamp: Date.now() };
+    addChatMessage(role, content, actionHtml = null, attachments = []) {
+        const msg = { 
+            role, 
+            content, 
+            action: actionHtml, 
+            attachments: attachments.map(a => ({ name: a.name, type: a.type, preview: a.preview })),
+            timestamp: Date.now() 
+        };
         this.currentProject.chatHistory.push(msg);
         this._saveProject();
         this._appendMessageToDOM(msg);
@@ -104,10 +110,29 @@ const PPTGeneratorUtilities = {
             `;
         }
 
+        // 渲染附件
+        let attachmentsHtml = '';
+        if (msg.attachments && msg.attachments.length > 0) {
+            attachmentsHtml = `
+                <div class="ppt-msg-attachments">
+                    ${msg.attachments.map(att => `
+                        <div class="ppt-msg-attachment">
+                            ${att.preview 
+                                ? `<img src="${att.preview}" alt="${att.name}">` 
+                                : `<iconify-icon icon="carbon:document"></iconify-icon>`
+                            }
+                            <span>${att.name}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
         div.innerHTML = `
             ${avatarHtml}
             <div class="ppt-bubble">
-                ${marked.parse(msg.content)}
+                ${attachmentsHtml}
+                ${msg.content ? marked.parse(msg.content) : ''}
                 ${msg.action ? `<div class="ppt-bubble-action">${msg.action}</div>` : ''}
             </div>
         `;
@@ -119,10 +144,21 @@ const PPTGeneratorUtilities = {
         if (container) container.scrollTop = container.scrollHeight;
     },
 
-    async handleUserMessage(text) {
-        this.addChatMessage('user', text);
+    async handleUserMessage(text, attachments = []) {
+        // 构建消息内容
+        let content = text;
+        if (!content && attachments.length > 0) {
+            content = `上传了 ${attachments.length} 个文件`;
+        }
+        
+        this.addChatMessage('user', content, null, attachments);
+        
         setTimeout(() => {
-            this.addChatMessage('ai', '指令已接收。正在为您安排任务...');
+            const fileNames = attachments.map(a => a.name).join(', ');
+            const response = attachments.length > 0 
+                ? `已收到文件: ${fileNames}。正在分析内容...`
+                : '指令已接收。正在为您安排任务...';
+            this.addChatMessage('ai', response);
         }, 1000);
     },
 

@@ -1,0 +1,458 @@
+/* PPT Generation - Chat Sidebar Styles */
+/* Chat messages, input, attachments */
+
+/* ==================== Chat Sidebar ==================== */
+.ppt-chat-sidebar {
+    width: 400px;
+    min-width: 400px;
+    max-width: 400px;
+    background: #fafbfc;
+    border-left: 1px solid var(--ppt-border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: all 0.3s var(--ppt-ease);
+}
+
+.ppt-chat-sidebar.collapsed {
+    width: 0;
+    min-width: 0;
+    max-width: 0;
+    opacity: 0;
+    pointer-events: none;
+    padding: 0;
+    border: none;
+}
+
+.ppt-chat-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--ppt-border);
+    background: white;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.ppt-chat-header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.ppt-chat-header-icon {
+    width: 32px;
+    height: 32px;
+    background: var(--ppt-primary-subtle);
+    color: var(--ppt-primary);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+}
+
+.ppt-chat-header-text h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ppt-text-main);
+    margin: 0;
+}
+
+.ppt-chat-header-text span {
+    font-size: 11px;
+    color: var(--ppt-text-muted);
+}
+
+.ppt-chat-toggle {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--ppt-text-muted);
+    padding: 6px;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.ppt-chat-toggle:hover {
+    color: var(--ppt-text-main);
+    background: var(--ppt-bg-subtle);
+}
+
+/* ==================== Messages ==================== */
+.ppt-chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    background: #fafbfc;
+}
+
+.ppt-message {
+    display: flex;
+    flex-direction: column;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.ppt-message.user {
+    align-items: flex-end;
+}
+
+.ppt-message.ai {
+    align-items: flex-start;
+}
+
+.ppt-avatar {
+    display: none;
+}
+
+.ppt-bubble {
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--ppt-text-main);
+    max-width: 88%;
+}
+
+/* AI 消息 */
+.ppt-message.ai .ppt-bubble {
+    background: white;
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.ppt-message.ai .ppt-bubble p {
+    margin: 0 0 8px 0;
+}
+
+.ppt-message.ai .ppt-bubble p:last-child {
+    margin-bottom: 0;
+}
+
+/* 用户消息 */
+.ppt-message.user .ppt-bubble {
+    background: #eef2ff;
+    color: #3730a3;
+    padding: 10px 16px;
+    border-radius: 12px;
+    border: 1px solid #c7d2fe;
+}
+
+/* 消息中的附件 */
+.ppt-msg-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.ppt-msg-attachment {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: rgba(255, 255, 255, 0.6);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 6px;
+    font-size: 12px;
+}
+
+.ppt-msg-attachment img {
+    width: 40px;
+    height: 40px;
+    object-fit: cover;
+    border-radius: 4px;
+}
+
+.ppt-msg-attachment iconify-icon {
+    font-size: 18px;
+    color: #64748b;
+}
+
+.ppt-msg-attachment span {
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ==================== Input Area ==================== */
+.ppt-chat-input-area {
+    padding: 16px 20px;
+    border-top: 1px solid var(--ppt-border);
+    background: var(--ppt-surface);
+}
+
+/* 附件预览区 */
+.ppt-chat-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.ppt-chat-attachments:empty {
+    display: none;
+}
+
+.ppt-attachment-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--ppt-text-secondary);
+    max-width: 160px;
+}
+
+.ppt-attachment-item img {
+    width: 32px;
+    height: 32px;
+    object-fit: cover;
+    border-radius: 4px;
+}
+
+.ppt-attachment-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ppt-attachment-remove {
+    cursor: pointer;
+    color: #94a3b8;
+    padding: 2px;
+    border-radius: 4px;
+    transition: all 0.15s;
+}
+
+.ppt-attachment-remove:hover {
+    color: #ef4444;
+    background: #fee2e2;
+}
+
+.ppt-chat-input-wrapper {
+    background: white;
+    border-radius: 12px;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid #e2e8f0;
+    transition: all 0.2s;
+}
+
+.ppt-chat-input-wrapper:focus-within {
+    border-color: var(--ppt-primary);
+    box-shadow: 0 0 0 3px var(--ppt-primary-light);
+}
+
+.ppt-attach-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: #94a3b8;
+    padding: 6px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    font-size: 20px;
+}
+
+.ppt-attach-btn:hover {
+    color: var(--ppt-primary);
+    background: var(--ppt-primary-subtle);
+}
+
+#pptChatInput {
+    flex: 1;
+    border: none;
+    background: transparent;
+    resize: none;
+    height: 24px;
+    font-family: var(--ppt-font-sans);
+    font-size: 14px;
+    padding: 0;
+    color: var(--ppt-text-main);
+}
+
+#pptChatInput:focus {
+    outline: none;
+}
+
+#pptChatInput::placeholder {
+    color: #94a3b8;
+}
+
+.ppt-send-btn {
+    background: var(--ppt-primary);
+    border: none;
+    cursor: pointer;
+    color: white;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    font-size: 16px;
+}
+
+.ppt-send-btn:hover {
+    background: var(--ppt-primary-hover);
+    transform: scale(1.05);
+}
+
+.ppt-send-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* ==================== Typing Indicator ==================== */
+.ppt-typing-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 16px;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    max-width: fit-content;
+}
+
+.ppt-typing-dots {
+    display: flex;
+    gap: 4px;
+}
+
+.ppt-typing-dot {
+    width: 6px;
+    height: 6px;
+    background: #94a3b8;
+    border-radius: 50%;
+    animation: typingBounce 1.4s infinite both;
+}
+
+.ppt-typing-dot:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.ppt-typing-dot:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+@keyframes typingBounce {
+    0%, 80%, 100% {
+        transform: translateY(0);
+        opacity: 0.5;
+    }
+    40% {
+        transform: translateY(-6px);
+        opacity: 1;
+    }
+}
+
+/* ==================== Message Actions ==================== */
+.ppt-msg-actions {
+    display: flex;
+    gap: 4px;
+    margin-top: 6px;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.ppt-message:hover .ppt-msg-actions {
+    opacity: 1;
+}
+
+.ppt-msg-action-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--ppt-text-muted);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.15s;
+}
+
+.ppt-msg-action-btn:hover {
+    color: var(--ppt-primary);
+    background: var(--ppt-primary-subtle);
+}
+
+/* ==================== Welcome Screen ==================== */
+.ppt-chat-welcome {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    text-align: center;
+}
+
+.ppt-chat-welcome-icon {
+    width: 64px;
+    height: 64px;
+    background: var(--ppt-primary-subtle);
+    color: var(--ppt-primary);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    margin-bottom: 20px;
+}
+
+.ppt-chat-welcome h4 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--ppt-text-main);
+    margin: 0 0 8px 0;
+}
+
+.ppt-chat-welcome p {
+    font-size: 13px;
+    color: var(--ppt-text-secondary);
+    margin: 0 0 20px 0;
+    line-height: 1.6;
+}
+
+.ppt-chat-suggestions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+}
+
+.ppt-chat-suggestion {
+    background: white;
+    border: 1px solid var(--ppt-border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: var(--ppt-text-secondary);
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.2s;
+}
+
+.ppt-chat-suggestion:hover {
+    border-color: var(--ppt-primary);
+    color: var(--ppt-primary);
+    background: var(--ppt-primary-subtle);
+}

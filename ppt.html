@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto PPT - Paper Burner X</title>
+    <link rel="icon" type="image/svg+xml" href="public/pure.svg">
+
+    <!-- CDN 预连接 -->
+    <link rel="dns-prefetch" href="https://gcore.jsdelivr.net">
+    <link rel="preconnect" href="https://gcore.jsdelivr.net" crossorigin>
+
+    <!-- Tailwind CSS & 核心依赖 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://gcore.jsdelivr.net/npm/iconify-icon@2.0.0/dist/iconify-icon.min.js"></script>
+    <script src="https://gcore.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://gcore.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://gcore.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+
+    <!-- PptxGenJS -->
+    <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+
+    <!-- KaTeX -->
+    <link rel="stylesheet" href="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+
+    <!-- Marked -->
+    <script src="https://gcore.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <!-- PPT 样式模块 -->
+    <link rel="stylesheet" href="css/ppt/ppt_generation_variables.css">
+    <link rel="stylesheet" href="css/ppt/ppt_generation_layout.css">
+    <link rel="stylesheet" href="css/ppt/ppt_generation_components.css">
+    <link rel="stylesheet" href="css/ppt/ppt_generation_chat.css">
+    <link rel="stylesheet" href="css/ppt/ppt_generation_presentation.css">
+    <link rel="stylesheet" href="css/ppt/ppt_generation.css">
+
+    <style>
+        /* 独立页面样式 */
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+        }
+        #pptGeneratorOverlay {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        #pptGeneratorOverlay.hidden {
+            display: flex;
+        }
+    </style>
+</head>
+<body>
+    <!-- PPT Generator Overlay -->
+    <div id="pptGeneratorOverlay">
+        <!-- 由 JS 动态生成内容 -->
+    </div>
+
+    <!-- PPT JS 模块 -->
+    <script src="js/ppt/slide-styles.js"></script>
+    <script src="js/ppt/slide-parser.js"></script>
+    <script src="js/ppt/slide-renderer-html.js"></script>
+    <script src="js/ppt/math-converter.js"></script>
+    
+    <!-- PPTX Renderer 子模块 -->
+    <script src="js/ppt/slide-renderer-pptx-templates.js"></script>
+    <script src="js/ppt/slide-renderer-pptx-freeform.js"></script>
+    <script src="js/ppt/slide-renderer-pptx-utils.js"></script>
+    <script src="js/ppt/slide-renderer-pptx-omml.js"></script>
+    <script src="js/ppt/slide-renderer-pptx.js"></script>
+    
+    <script src="js/ppt/slide-system.js"></script>
+    <script src="js/ppt/ppt_generator.sample.js"></script>
+    <script src="js/ppt/ppt_generator_core.js"></script>
+    <script src="js/ppt/ppt_generator_navigation.js"></script>
+    <script src="js/ppt/ppt_generator_agent_dashboard.js"></script>
+    <script src="js/ppt/ppt_generator_workflow.js"></script>
+    <script src="js/ppt/ppt_generator_presentation.js"></script>
+    <script src="js/ppt/ppt_generator_utilities.js"></script>
+    <script src="js/ppt/ppt_generator_deletion.js"></script>
+    
+    <!-- Export 子模块 -->
+    <script src="js/ppt/ppt_generator_export_baking.js"></script>
+    <script src="js/ppt/ppt_generator_export_legacy.js"></script>
+    <script src="js/ppt/ppt_generator_export.js"></script>
+    
+    <script src="js/ppt/ppt_generation.js"></script>
+    <script src="js/ppt/ppt_storage.js"></script>
+    <script src="js/ppt/ppt_model_config_modal.js"></script>
+
+    <script>
+        // 独立页面初始化
+        document.addEventListener('DOMContentLoaded', async () => {
+            // 等待 ppt_generation.js 初始化完成
+            setTimeout(() => {
+                if (window.PPTGenerator && window.PPTGenerator.show) {
+                    // 直接显示项目列表
+                    window.PPTGenerator.show();
+                } else {
+                    console.error('PPTGenerator not loaded');
+                }
+            }, 100);
+        });
+    </script>
+</body>
+</html>

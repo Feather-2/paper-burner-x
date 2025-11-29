@@ -1,0 +1,394 @@
+/* PPT Generation - Layout Styles */
+/* Header, Main Layout, Sidebar, Toolbar */
+
+/* ==================== Header (Glass) ==================== */
+.ppt-header {
+    height: 64px;
+    background-color: var(--ppt-surface-glass);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--ppt-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    flex-shrink: 0;
+    z-index: 20;
+}
+
+.ppt-header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.ppt-logo {
+    font-weight: 700;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--ppt-text-main);
+    letter-spacing: -0.02em;
+}
+
+.ppt-logo-img {
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
+}
+
+.ppt-project-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ppt-text-secondary);
+    padding-left: 20px;
+    border-left: 1px solid var(--ppt-border);
+    height: 24px;
+    display: flex;
+    align-items: center;
+}
+
+.ppt-header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.ppt-header-right .ppt-icon-btn {
+    color: var(--ppt-text-secondary);
+    border-radius: var(--ppt-radius-sm);
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    transition: all 0.2s var(--ppt-ease);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+}
+
+.ppt-header-right .ppt-icon-btn:hover {
+    background: var(--ppt-bg-subtle);
+    color: var(--ppt-text-main);
+    transform: translateY(-1px);
+}
+
+.ppt-header-divider {
+    width: 1px;
+    height: 24px;
+    background: var(--ppt-border);
+    margin: 0 8px;
+}
+
+/* ==================== Main Layout ==================== */
+.ppt-app-shell {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+}
+
+.ppt-main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* ==================== Thumbnail Sidebar ==================== */
+.ppt-thumb-sidebar {
+    width: 180px;
+    min-width: 180px;
+    background: var(--ppt-surface);
+    border-right: 1px solid var(--ppt-border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: width 0.3s var(--ppt-ease), min-width 0.3s var(--ppt-ease), opacity 0.3s var(--ppt-ease);
+}
+
+.ppt-thumb-sidebar.collapsed {
+    width: 0;
+    min-width: 0;
+    opacity: 0;
+    pointer-events: none;
+    padding: 0;
+    border: none;
+}
+
+.ppt-thumb-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.ppt-thumb-item {
+    position: relative;
+    cursor: pointer;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 2px solid transparent;
+    transition: all 0.15s;
+    flex-shrink: 0;
+}
+
+.ppt-thumb-item:hover {
+    border-color: var(--ppt-border-hover);
+}
+
+.ppt-thumb-item.active {
+    border-color: var(--ppt-primary);
+    box-shadow: 0 0 0 2px var(--ppt-primary-light);
+}
+
+.ppt-thumb-preview {
+    aspect-ratio: 16/9;
+    background: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: var(--ppt-text-muted);
+    text-align: center;
+    padding: 8px;
+    overflow: hidden;
+}
+
+.ppt-thumb-preview > * {
+    width: 100%;
+    height: 100%;
+    transform-origin: center center;
+    pointer-events: none;
+}
+
+.ppt-thumb-number {
+    position: absolute;
+    bottom: 4px;
+    left: 4px;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+/* ==================== Toolbar ==================== */
+.pres-toolbar {
+    height: 56px;
+    background: var(--ppt-surface);
+    border-bottom: 1px solid var(--ppt-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    flex-shrink: 0;
+    z-index: 10;
+}
+
+.pres-toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pres-title-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.pres-title-input {
+    border: 1px solid transparent;
+    background: transparent;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--ppt-text-main);
+    padding: 6px 30px 6px 10px;
+    border-radius: 6px;
+    min-width: 200px;
+    transition: all 0.2s;
+}
+
+.pres-title-input:hover {
+    background: var(--ppt-bg-subtle);
+}
+
+.pres-title-input:focus {
+    background: white;
+    border-color: var(--ppt-primary);
+    outline: none;
+    box-shadow: 0 0 0 2px var(--ppt-primary-light);
+}
+
+.pres-title-icon {
+    position: absolute;
+    right: 10px;
+    font-size: 14px;
+    color: var(--ppt-text-muted);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.pres-title-wrapper:hover .pres-title-icon {
+    opacity: 1;
+}
+
+.pres-title-input:focus + .pres-title-icon {
+    opacity: 0;
+}
+
+.pres-toolbar-center {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--ppt-bg-subtle);
+    padding: 4px;
+    border-radius: 10px;
+}
+
+.pres-view-toggle {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    background: var(--ppt-bg-subtle);
+    padding: 3px;
+    border-radius: 8px;
+    margin-left: 16px;
+}
+
+.pres-view-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--ppt-text-secondary);
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.pres-view-btn iconify-icon {
+    font-size: 16px;
+}
+
+.pres-view-btn:hover {
+    color: var(--ppt-text-main);
+}
+
+.pres-view-btn.active {
+    background: white;
+    color: var(--ppt-primary);
+    box-shadow: var(--ppt-shadow-sm);
+    font-weight: 600;
+}
+
+/* Main Canvas Area */
+.pres-main-area {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    background: #f1f5f9;
+    background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+    background-size: 24px 24px;
+    position: relative;
+    z-index: 1;
+}
+
+.pres-canvas-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    overflow: auto;
+}
+
+.pres-slide {
+    width: 960px;
+    height: 540px;
+    background: white;
+    box-shadow: 0 24px 48px -12px rgba(0,0,0,0.15);
+    border-radius: 4px;
+    position: relative;
+    transition: transform 0.2s;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+/* Editable Visual Cues */
+[contenteditable="true"] {
+    transition: all 0.2s;
+    border-radius: 4px;
+    padding: 2px 4px;
+    margin: -2px -4px;
+}
+
+[contenteditable="true"]:hover {
+    background-color: rgba(79, 70, 229, 0.05);
+    outline: 1px dashed var(--ppt-primary);
+    cursor: text;
+}
+
+[contenteditable="true"]:focus {
+    background-color: white;
+    color: var(--ppt-text-main) !important;
+    outline: 2px solid var(--ppt-primary);
+    box-shadow: 0 0 0 4px var(--ppt-primary-light);
+}
+
+.slide-modern-cover [contenteditable="true"]:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+    outline-color: rgba(255, 255, 255, 0.5);
+}
+
+/* ==================== Toolbar Buttons ==================== */
+.pres-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pres-toolbar-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid transparent;
+    background: var(--ppt-bg-subtle);
+    color: var(--ppt-text-secondary);
+}
+
+.pres-toolbar-btn:hover {
+    background: white;
+    border-color: var(--ppt-border);
+    color: var(--ppt-text-main);
+}
+
+.pres-toolbar-btn.primary {
+    background: var(--ppt-primary);
+    color: white;
+    border-color: var(--ppt-primary);
+}
+
+.pres-toolbar-btn.primary:hover {
+    background: var(--ppt-primary-hover);
+    border-color: var(--ppt-primary-hover);
+}

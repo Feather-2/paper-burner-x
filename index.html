@@ -41,7 +41,7 @@
     <link rel="stylesheet" href="css/history_detail/04-features/markdown-enhancements.css">
     <link rel="stylesheet" href="css/history_detail/04-features/math-display.css">
     <link rel="stylesheet" href="css/_deprecated/chatbot-model-config-modal.css">
-    <link rel="stylesheet" href="css/ppt/ppt_generation.css">
+    <!-- PPT 已独立为 ppt.html -->
     <script src="https://gcore.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script src="https://gcore.jsdelivr.net/npm/marked/marked.min.js"></script>
 
@@ -1731,23 +1731,7 @@
     <script src="js/history/exporter/history_exporter_docx.js"></script>
     <script src="js/history/history_exporter.js"></script>
     <script src="js/history/history.js"></script>
-    <script src="js/ppt/slide-styles.js"></script>
-    <script src="js/ppt/slide-parser.js"></script>
-    <script src="js/ppt/slide-renderer-html.js"></script>
-    <script src="js/ppt/math-converter.js"></script>
-    <script src="js/ppt/slide-renderer-pptx.js"></script>
-    <script src="js/ppt/slide-system.js"></script>
-    <script src="js/ppt/ppt_generator.sample.js"></script>
-    <script src="js/ppt/ppt_generator_core.js"></script>
-    <script src="js/ppt/ppt_generator_navigation.js"></script>
-    <script src="js/ppt/ppt_generator_agent_dashboard.js"></script>
-    <script src="js/ppt/ppt_generator_workflow.js"></script>
-    <script src="js/ppt/ppt_generator_presentation.js"></script>
-    <script src="js/ppt/ppt_generator_utilities.js"></script>
-    <script src="js/ppt/ppt_generator_deletion.js"></script>
-    <script src="js/ppt/ppt_generator_export.js"></script>
-    <script src="js/ppt/ppt_generation.js"></script>
-    <script src="js/ppt/ppt_storage.js"></script>
+    <!-- PPT 模块已移至独立页面 ppt.html -->
 
     <script src="https://gcore.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
 
@@ -1939,170 +1923,7 @@
       </div>
     </div>
 
-    <!-- ===================== -->
-    <!-- PPT 生成器全屏覆盖层 -->
-    <!-- ===================== -->
-    <div id="pptGeneratorOverlay" class="hidden">
-        <!-- Header -->
-        <header class="ppt-header">
-            <div class="ppt-header-title">
-                <div class="w-8 h-8 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center">
-                    <iconify-icon icon="carbon:presentation-file" width="20"></iconify-icon>
-                </div>
-                <span>PPT 智能生成器</span>
-            </div>
-            <div class="ppt-header-actions">
-                <button id="pptSaveBtn" class="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-md transition-colors flex items-center gap-1">
-                    <iconify-icon icon="carbon:save" width="16"></iconify-icon> 保存草稿
-                </button>
-                <button id="pptExportBtn" class="px-3 py-1.5 text-sm text-white bg-orange-600 hover:bg-orange-700 rounded-md transition-colors flex items-center gap-1 shadow-sm">
-                    <iconify-icon icon="carbon:export" width="16"></iconify-icon> 导出 PPTX
-                </button>
-                <div class="w-px h-6 bg-slate-200 mx-1"></div>
-                <button id="pptCloseBtn" class="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors">
-                    <iconify-icon icon="carbon:close" width="20"></iconify-icon>
-                </button>
-            </div>
-        </header>
-
-        <!-- Main Content (3 Columns) -->
-        <div class="ppt-main-container">
-            <!-- Left: Materials & Outline -->
-            <div class="ppt-col-left">
-                <div class="ppt-section-header">
-                    <span>素材与提纲</span>
-                    <button class="text-xs text-blue-600 hover:underline" id="pptImportBtn">+ 导入素材</button>
-                </div>
-                <div class="ppt-scroll-content">
-                    <!-- Material List -->
-                    <div class="mb-6">
-                        <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">当前素材</h4>
-                        <div id="pptMaterialList" class="space-y-2">
-                            <div class="text-sm text-slate-400 italic text-center py-4 border border-dashed border-slate-200 rounded-md">
-                                暂无素材，请导入或输入
-                            </div>
-                        </div>
-                        <div class="mt-3 flex items-center justify-between text-xs text-slate-500">
-                            <button id="pptImportBtn" class="text-blue-600 hover:underline">从历史/文件导入素材</button>
-                            <span>素材用于背景，但不直接生成文案</span>
-                        </div>
-                    </div>
-
-                    <!-- Draft Editor -->
-                    <div class="mb-6">
-                        <div class="flex items-center justify-between mb-2">
-                            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider">文案草稿</h4>
-                            <button id="pptSyncDraftBtn" class="text-xs text-blue-600 hover:underline">用素材填充</button>
-                        </div>
-                        <textarea id="pptDraftEditor" class="w-full h-32 text-sm border border-slate-200 rounded-md p-3 bg-white focus:outline-none focus:ring-1 focus:ring-blue-300" placeholder="根据素材生成的文案草稿会出现在这里，也可直接手动编辑"></textarea>
-                        <p class="text-xs text-slate-400 mt-1">导入素材后自动汇总首段文字，或点击“用素材填充”。</p>
-                    </div>
-                    
-                    <!-- Outline Tree -->
-                    <div>
-                        <div class="flex justify-between items-center mb-3">
-                            <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider">演示提纲</h4>
-                            <button id="pptGenOutlineBtn" class="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded hover:bg-blue-100 transition-colors">
-                                <iconify-icon icon="carbon:magic-wand" class="inline mr-1"></iconify-icon>生成提纲
-                            </button>
-                        </div>
-                        <div class="mb-2">
-                            <textarea id="pptThemeInput" class="w-full text-sm border border-slate-200 rounded-md p-2 bg-white" placeholder="告诉助手要做的主题和目标受众，例如：为产品发布会制作 10 页 PPT，突出卖点与对比优势。"></textarea>
-                            <p class="text-xs text-slate-400 mt-1">不会直接使用素材生成文案，而是先出提纲再提问。</p>
-                        </div>
-                        <div id="pptOutlineTree" class="space-y-1">
-                            <!-- Demo Items -->
-                            <div class="text-sm p-2 bg-slate-50 rounded border border-slate-200 text-slate-600">
-                                1. 封面页
-                            </div>
-                            <div class="text-sm p-2 hover:bg-slate-50 rounded cursor-pointer text-slate-600">
-                                2. 目录
-                            </div>
-                        </div>
-                        <div id="pptOutlineQuestions" class="mt-4 space-y-3 hidden"></div>
-                        <button id="pptSubmitAnswersBtn" class="mt-2 hidden w-full text-sm bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 transition-colors">提交回答并生成草稿</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Center: Canvas & Thumbnails -->
-            <div class="ppt-col-center">
-                <!-- Toolbar -->
-                <div class="ppt-canvas-toolbar">
-                    <button class="p-1.5 text-slate-500 hover:bg-slate-100 rounded" title="添加页面">
-                        <iconify-icon icon="carbon:add-alt" width="20"></iconify-icon>
-                    </button>
-                    <div class="w-px h-5 bg-slate-300"></div>
-                    <button class="p-1.5 text-slate-500 hover:bg-slate-100 rounded" title="版式：图文">
-                        <iconify-icon icon="carbon:template" width="20"></iconify-icon>
-                    </button>
-                    <button class="p-1.5 text-slate-500 hover:bg-slate-100 rounded" title="版式：全图">
-                        <iconify-icon icon="carbon:image" width="20"></iconify-icon>
-                    </button>
-                </div>
-
-                <!-- Preview Area -->
-                <div class="ppt-slide-preview-area" id="pptSlideCanvas">
-                    <!-- Slide Card injected by JS -->
-                </div>
-
-                <!-- Thumbnails Strip -->
-                <div class="ppt-thumbnails-strip" id="pptThumbnails">
-                    <!-- Thumbnails injected by JS -->
-                </div>
-            </div>
-
-            <!-- Right: Config & Log -->
-            <div class="ppt-col-right">
-                <div class="ppt-section-header">
-                    <span>生成配置</span>
-                </div>
-                <div class="ppt-scroll-content flex flex-col h-full">
-                    <!-- Model Config -->
-                    <div class="ppt-config-group">
-                        <label class="ppt-config-label">文字模型</label>
-                        <select id="pptLanguageModelSelect" class="w-full text-sm border-slate-200 rounded-md p-2 bg-slate-50 mb-2">
-                            <option value="">加载中...</option>
-                        </select>
-                        <div id="pptLanguageModelHint" class="text-xs text-slate-500"></div>
-                    </div>
-
-                    <div class="ppt-config-group">
-                        <label class="ppt-config-label">配图模型</label>
-                        <select id="pptImageModelSelect" class="w-full text-sm border-slate-200 rounded-md p-2 bg-slate-50">
-                            <option value="">加载中...</option>
-                        </select>
-                        <div id="pptImageModelHint" class="text-xs text-slate-500 mt-1"></div>
-                    </div>
-
-                    <button id="pptModelConfigBtn" class="w-full mt-2 px-3 py-2 text-sm bg-white border border-slate-200 rounded-md hover:bg-slate-50 flex items-center justify-center gap-2">
-                        <iconify-icon icon="carbon:settings" width="16"></iconify-icon> 模型配置
-                    </button>
-
-                    <div class="ppt-config-group">
-                        <label class="ppt-config-label">风格预设</label>
-                        <div class="grid grid-cols-2 gap-2">
-                            <button class="text-xs border border-blue-500 bg-blue-50 text-blue-700 py-1.5 rounded">商务简约</button>
-                            <button class="text-xs border border-slate-200 hover:bg-slate-50 py-1.5 rounded">学术论文</button>
-                            <button class="text-xs border border-slate-200 hover:bg-slate-50 py-1.5 rounded">深色科技</button>
-                            <button class="text-xs border border-slate-200 hover:bg-slate-50 py-1.5 rounded">清新插画</button>
-                        </div>
-                    </div>
-
-                    <!-- Log Console -->
-                    <div class="mt-auto">
-                        <label class="ppt-config-label flex justify-between">
-                            <span>运行日志</span>
-                            <span class="text-xs text-slate-400 font-normal">Real-time</span>
-                        </label>
-                        <div class="ppt-log-console custom-scrollbar" id="pptLogConsole">
-                            <div><span style="color:#64748b">[System]</span> Ready.</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+    <!-- PPT 生成器已移至独立页面 ppt.html -->
 
     <!-- ===================== -->
     <!-- 版权声明浮动卡片 -->
@@ -2249,23 +2070,19 @@
           // Desktop Sidebar Buttons
           const sidebarSettingsBtn = document.getElementById('sidebarSettingsBtn');
 
-          // PPT Generator Entry (Card)
+          // PPT Generator Entry (Card) - 跳转到独立页面
           const openPptGeneratorBtn = document.getElementById('openPptGeneratorBtn');
           if (openPptGeneratorBtn) {
               openPptGeneratorBtn.addEventListener('click', () => {
-                  if (window.PPTGenerator) window.PPTGenerator.show();
+                  window.location.href = 'ppt.html';
               });
           }
 
-          // PPT Generator Entry (Sidebar)
+          // PPT Generator Entry (Sidebar) - 跳转到独立页面
           const sidebarPptBtn = document.getElementById('sidebarPptBtn');
           if (sidebarPptBtn) {
               sidebarPptBtn.addEventListener('click', () => {
-                  // Remove active class from other nav items
-                  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-                  sidebarPptBtn.classList.add('active');
-                  
-                  if (window.PPTGenerator) window.PPTGenerator.show();
+                  window.location.href = 'ppt.html';
               });
           }
 

@@ -168,8 +168,8 @@ const PPTGeneratorPresentation = {
                 <button class="ppt-icon-btn" onclick="window.PPTGenerator.showProjectList()" title="项目列表">
                     <iconify-icon icon="carbon:grid"></iconify-icon>
                 </button>
-                <button class="ppt-icon-btn" onclick="window.PPTGenerator.hide()" title="关闭">
-                    <iconify-icon icon="carbon:close"></iconify-icon>
+                <button class="ppt-icon-btn" onclick="window.location.href='index.html'" title="返回主页">
+                    <iconify-icon icon="carbon:home"></iconify-icon>
                 </button>
             </div>
         `;
@@ -641,6 +641,15 @@ const PPTGeneratorPresentation = {
         // 双击退出
         overlay.addEventListener('dblclick', () => this.exitSlideshow());
         
+        // 监听全屏变化（用户按 ESC 退出全屏时触发）
+        this._slideshowFullscreenHandler = () => {
+            if (!document.fullscreenElement) {
+                // 用户通过浏览器 ESC 退出了全屏，同时退出 slideshow
+                this.exitSlideshow();
+            }
+        };
+        document.addEventListener('fullscreenchange', this._slideshowFullscreenHandler);
+        
         // 请求全屏
         if (overlay.requestFullscreen) {
             overlay.requestFullscreen().catch(() => {});
@@ -651,12 +660,17 @@ const PPTGeneratorPresentation = {
      * 退出展示模式
      */
     exitSlideshow() {
+        // 防止重复调用
+        if (this._exitingSlidshow) return;
+        this._exitingSlidshow = true;
+        
         const overlay = document.getElementById('slideshowOverlay');
         if (overlay) {
             overlay.remove();
         }
         document.removeEventListener('keydown', this._slideshowKeyHandler);
         window.removeEventListener('resize', this._slideshowResizeHandler);
+        document.removeEventListener('fullscreenchange', this._slideshowFullscreenHandler);
         
         // 退出全屏
         if (document.fullscreenElement) {
@@ -666,6 +680,9 @@ const PPTGeneratorPresentation = {
         // 同步当前页
         this.currentSlideIndex = this._slideshowIndex;
         this._updateSlideView();
+        
+        // 重置标志
+        setTimeout(() => { this._exitingSlidshow = false; }, 100);
     },
 
     /**

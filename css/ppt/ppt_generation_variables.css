@@ -1,0 +1,45 @@
+/* PPT Generation - CSS Variables */
+/* 必须首先加载此文件 */
+
+:root {
+    /* Modern Palette - Refined */
+    --ppt-bg-app: #f8fafc;       /* Slate 50 */
+    --ppt-bg-subtle: #f1f5f9;    /* Slate 100 */
+    --ppt-surface: #ffffff;      /* White */
+    --ppt-surface-glass: rgba(255, 255, 255, 0.85);
+    
+    --ppt-border: #e2e8f0;       /* Slate 200 */
+    --ppt-border-hover: #cbd5e1; /* Slate 300 */
+    
+    --ppt-text-main: #0f172a;    /* Slate 900 */
+    --ppt-text-secondary: #475569; /* Slate 600 */
+    --ppt-text-muted: #94a3b8;   /* Slate 400 */
+    
+    /* Brand Colors - Vibrant yet Professional */
+    --ppt-primary: #4f46e5;       /* Indigo 600 */
+    --ppt-primary-hover: #4338ca; /* Indigo 700 */
+    --ppt-primary-light: #e0e7ff; /* Indigo 100 */
+    --ppt-primary-subtle: #eef2ff; /* Indigo 50 */
+    
+    --ppt-success: #10b981;      /* Emerald 500 */
+    --ppt-success-bg: #ecfdf5;   /* Emerald 50 */
+    --ppt-warning: #f59e0b;      /* Amber 500 */
+    --ppt-danger: #ef4444;       /* Red 500 */
+    
+    --ppt-font-sans: "Source Han Sans SC", "Noto Sans SC", 'Inter', "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    
+    /* Modern Shadows */
+    --ppt-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --ppt-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.04);
+    --ppt-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.04);
+    --ppt-shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.08), 0 8px 10px -6px rgb(0 0 0 / 0.02);
+    
+    /* Radius */
+    --ppt-radius-sm: 6px;
+    --ppt-radius-md: 12px;
+    --ppt-radius-lg: 16px;
+    --ppt-radius-xl: 24px;
+    
+    /* Transitions */
+    --ppt-ease: cubic-bezier(0.4, 0, 0.2, 1);
+}

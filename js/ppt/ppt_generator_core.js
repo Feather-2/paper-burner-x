@@ -36,7 +36,7 @@ class PPTGenerator {
         this.processLogs = [];
         this.todos = [];
         
-        this.isTodoListExpanded = true;
+        this.isTodoListExpanded = false;
         
         // DOM Elements
         this.elements = {

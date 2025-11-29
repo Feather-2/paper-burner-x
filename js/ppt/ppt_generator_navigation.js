@@ -18,8 +18,8 @@ const PPTGeneratorNavigation = {
                         </div>
                     </div>
                     <div class="ppt-header-right">
-                        <button class="ppt-icon-btn" onclick="window.PPTGenerator.hide()">
-                            <iconify-icon icon="carbon:close"></iconify-icon>
+                        <button class="ppt-icon-btn" onclick="window.location.href='index.html'" title="返回主页">
+                            <iconify-icon icon="carbon:home"></iconify-icon>
                         </button>
                     </div>
                 </header>
@@ -113,11 +113,11 @@ const PPTGeneratorNavigation = {
                         <div class="ppt-project-title">${this.currentProject.title}</div>
                     </div>
                     <div class="ppt-header-right">
-                        <button class="ppt-icon-btn" onclick="window.PPTGenerator.showProjectList()">
+                        <button class="ppt-icon-btn" onclick="window.PPTGenerator.showProjectList()" title="项目列表">
                             <iconify-icon icon="carbon:grid"></iconify-icon>
                         </button>
-                        <button class="ppt-icon-btn" onclick="window.PPTGenerator.hide()">
-                            <iconify-icon icon="carbon:close"></iconify-icon>
+                        <button class="ppt-icon-btn" onclick="window.location.href='index.html'" title="返回主页">
+                            <iconify-icon icon="carbon:home"></iconify-icon>
                         </button>
                     </div>
                 </header>
@@ -131,14 +131,17 @@ const PPTGeneratorNavigation = {
                         <div class="ppt-todo-tracker" id="pptTodoTracker"></div>
                         <div class="ppt-chat-history" id="pptChatHistory"></div>
                         <div class="ppt-chat-input-area">
+                            <div class="ppt-chat-attachments" id="pptChatAttachments"></div>
                             <div class="ppt-chat-input-wrapper">
+                                <button class="ppt-attach-btn" id="pptAttachBtn" title="上传文件或图片">
+                                    <iconify-icon icon="carbon:attachment"></iconify-icon>
+                                </button>
                                 <textarea id="pptChatInput" placeholder="输入您的指令或反馈..."></textarea>
-                                <div class="ppt-chat-actions">
-                                    <button class="ppt-btn-primary" id="pptSendBtn">
-                                        <iconify-icon icon="carbon:send-alt"></iconify-icon> 发送
-                                    </button>
-                                </div>
+                                <button class="ppt-send-btn" id="pptSendBtn">
+                                    <iconify-icon icon="carbon:send-alt"></iconify-icon>
+                                </button>
                             </div>
+                            <input type="file" id="pptFileInput" multiple accept="image/*,.pdf,.docx,.pptx,.txt,.md" hidden>
                         </div>
                     </div>
                 </div>
@@ -194,12 +197,20 @@ const PPTGeneratorNavigation = {
     _bindChatEvents() {
         const input = document.getElementById('pptChatInput');
         const sendBtn = document.getElementById('pptSendBtn');
+        const attachBtn = document.getElementById('pptAttachBtn');
+        const fileInput = document.getElementById('pptFileInput');
+        const attachmentsContainer = document.getElementById('pptChatAttachments');
+
+        // 存储待发送的附件
+        this.pendingAttachments = [];
 
         const sendMessage = () => {
             const text = input.value.trim();
-            if (!text) return;
-            this.handleUserMessage(text);
+            if (!text && this.pendingAttachments.length === 0) return;
+            this.handleUserMessage(text, this.pendingAttachments);
             input.value = '';
+            this.pendingAttachments = [];
+            this._renderAttachments();
         };
 
         sendBtn.addEventListener('click', sendMessage);
@@ -209,6 +220,55 @@ const PPTGeneratorNavigation = {
                 sendMessage();
             }
         });
+
+        // 附件按钮点击
+        attachBtn.addEventListener('click', () => fileInput.click());
+
+        // 文件选择处理
+        fileInput.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files);
+            files.forEach(file => {
+                this.pendingAttachments.push({
+                    file,
+                    name: file.name,
+                    type: file.type,
+                    preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : null
+                });
+            });
+            this._renderAttachments();
+            fileInput.value = ''; // 重置以允许重复选择
+        });
+    },
+
+    _renderAttachments() {
+        const container = document.getElementById('pptChatAttachments');
+        if (!container) return;
+
+        if (!this.pendingAttachments || this.pendingAttachments.length === 0) {
+            container.innerHTML = '';
+            return;
+        }
+
+        container.innerHTML = this.pendingAttachments.map((att, index) => `
+            <div class="ppt-attachment-item">
+                ${att.preview 
+                    ? `<img src="${att.preview}" alt="${att.name}">` 
+                    : `<iconify-icon icon="carbon:document" style="font-size: 20px; color: #64748b;"></iconify-icon>`
+                }
+                <span class="ppt-attachment-name">${att.name}</span>
+                <span class="ppt-attachment-remove" onclick="window.PPTGenerator.removeAttachment(${index})">
+                    <iconify-icon icon="carbon:close"></iconify-icon>
+                </span>
+            </div>
+        `).join('');
+    },
+
+    removeAttachment(index) {
+        if (this.pendingAttachments[index]?.preview) {
+            URL.revokeObjectURL(this.pendingAttachments[index].preview);
+        }
+        this.pendingAttachments.splice(index, 1);
+        this._renderAttachments();
     }
 };
 
