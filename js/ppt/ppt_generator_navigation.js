@@ -8,52 +8,147 @@ const PPTGeneratorNavigation = {
             projects = await window.pptStorage.loadProjects();
         }
 
+        // Sort projects by updatedAt desc
+        projects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+        // Check model status
+        const langConfig = window.PPTModelConfigModal ? window.PPTModelConfigModal.loadConfig('lang') : null;
+        const imgConfig = window.PPTModelConfigModal ? window.PPTModelConfigModal.loadConfig('img') : null;
+        
+        const hasLangModel = langConfig && langConfig.modelKey;
+        const hasImgModel = imgConfig && imgConfig.modelKey;
+        
+        const langStatusColor = hasLangModel ? 'var(--ppt-success)' : 'var(--ppt-warning)';
+        const imgStatusColor = hasImgModel ? 'var(--ppt-success)' : 'var(--ppt-text-muted)';
+
+        // View mode state (default to grid)
+        if (!this.projectListViewMode) this.projectListViewMode = 'grid';
+
         this.elements.overlay.innerHTML = `
             <div class="ppt-app-shell">
                 <header class="ppt-header">
                     <div class="ppt-header-left">
                         <div class="ppt-logo">
                             <img src="public/pure.svg" alt="Logo" class="ppt-logo-img">
-                            <span>智能演示文稿生成</span>
+                            <span>Auto PPT</span>
                         </div>
                     </div>
                     <div class="ppt-header-right">
+                        <button class="ppt-icon-btn" onclick="if(window.PPTModelConfigModal) window.PPTModelConfigModal.openModal()" title="模型配置">
+                            <iconify-icon icon="carbon:settings"></iconify-icon>
+                        </button>
                         <button class="ppt-icon-btn" onclick="window.location.href='index.html'" title="返回主页">
                             <iconify-icon icon="carbon:home"></iconify-icon>
                         </button>
                     </div>
                 </header>
                 <main class="ppt-project-list-view">
+                    <!-- Hero Section -->
                     <div class="ppt-welcome-hero">
                         <div class="ppt-hero-logo">
                             <img src="public/pure.svg" alt="Logo">
                         </div>
                         <h1>智能演示文稿生成</h1>
                         <p>从文档到精美演示，只需一键。AI 驱动的专业 PPT 制作助手。</p>
-                        <button class="ppt-btn-primary" onclick="window.PPTGenerator.createNewProject()">
-                            <iconify-icon icon="carbon:add"></iconify-icon>
-                            开始创作
-                        </button>
                     </div>
-                    <div class="ppt-project-grid">
-                        ${projects.map(p => `
-                            <div class="ppt-project-card" onclick="window.PPTGenerator.loadProject('${p.id}')">
-                                <div class="ppt-card-icon">
-                                    <iconify-icon icon="carbon:presentation-file"></iconify-icon>
+                    
+                    <!-- New Creation Card -->
+                    <div class="ppt-create-card-wrapper">
+                        <div class="ppt-create-card">
+                            <div class="ppt-create-card-main">
+                                <div class="ppt-create-card-icon">
+                                    <iconify-icon icon="carbon:add-large"></iconify-icon>
                                 </div>
-                                <div class="ppt-card-info">
-                                    <h3>${p.title || '未命名项目'}</h3>
-                                    <span>${new Date(p.updatedAt).toLocaleDateString()}</span>
+                                <div class="ppt-create-card-content">
+                                    <h3>开始新创作</h3>
+                                    <p>上传文档，让 AI 为你生成专业演示文稿</p>
                                 </div>
-                                <button class="ppt-card-delete-btn" onclick="event.stopPropagation(); window.PPTGenerator.confirmDeleteProject('${p.id}')" title="删除项目">
-                                    <iconify-icon icon="carbon:trash-can"></iconify-icon>
+                            </div>
+                            <div class="ppt-create-card-status">
+                                <div class="ppt-status-item" title="文字生成模型">
+                                    <iconify-icon icon="carbon:model-alt" style="color: ${langStatusColor}"></iconify-icon>
+                                    <span>${hasLangModel ? '语言模型就绪' : '需配置语言模型'}</span>
+                                </div>
+                                <div class="ppt-status-item" title="配图生成模型">
+                                    <iconify-icon icon="carbon:image" style="color: ${imgStatusColor}"></iconify-icon>
+                                    <span>${hasImgModel ? '图像模型就绪' : '图像模型可选'}</span>
+                                </div>
+                            </div>
+                            <div class="ppt-create-card-action">
+                                <button class="ppt-create-btn" onclick="window.PPTGenerator.createNewProject()">
+                                    <iconify-icon icon="carbon:arrow-right" style="font-size: 20px;"></iconify-icon>
                                 </button>
                             </div>
-                        `).join('')}
+                        </div>
                     </div>
+
+                    ${projects.length > 0 ? `
+                        <!-- Recent Projects Section -->
+                        <div class="ppt-projects-section">
+                            <div class="ppt-section-header">
+                                <h3>
+                                    <iconify-icon icon="carbon:recently-viewed"></iconify-icon>
+                                    最近项目
+                                </h3>
+                                <div class="ppt-view-toggle">
+                                    <button class="ppt-icon-btn ${this.projectListViewMode === 'grid' ? 'active' : ''}" onclick="window.PPTGenerator.toggleProjectView('grid')" title="网格视图">
+                                        <iconify-icon icon="carbon:grid"></iconify-icon>
+                                    </button>
+                                    <button class="ppt-icon-btn ${this.projectListViewMode === 'list' ? 'active' : ''}" onclick="window.PPTGenerator.toggleProjectView('list')" title="列表视图">
+                                        <iconify-icon icon="carbon:list"></iconify-icon>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            ${this.projectListViewMode === 'grid' ? `
+                                <div class="ppt-project-grid">
+                                    ${projects.map(p => `
+                                        <div class="ppt-project-card" onclick="window.PPTGenerator.loadProject('${p.id}')">
+                                            <div class="ppt-card-icon">
+                                                <iconify-icon icon="carbon:presentation-file"></iconify-icon>
+                                            </div>
+                                            <div class="ppt-card-info">
+                                                <h3>${p.title || '未命名项目'}</h3>
+                                                <span>${new Date(p.updatedAt).toLocaleDateString()}</span>
+                                            </div>
+                                            <button class="ppt-card-delete-btn" onclick="event.stopPropagation(); window.PPTGenerator.confirmDeleteProject('${p.id}')" title="删除项目">
+                                                <iconify-icon icon="carbon:trash-can"></iconify-icon>
+                                            </button>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            ` : `
+                                <div class="ppt-project-list">
+                                    ${projects.map(p => `
+                                        <div class="ppt-project-list-item" onclick="window.PPTGenerator.loadProject('${p.id}')">
+                                            <div class="ppt-list-icon">
+                                                <iconify-icon icon="carbon:presentation-file"></iconify-icon>
+                                            </div>
+                                            <div class="ppt-list-info">
+                                                <div class="ppt-list-title">${p.title || '未命名项目'}</div>
+                                                <div class="ppt-list-meta">
+                                                    更新于 ${new Date(p.updatedAt).toLocaleString()}
+                                                </div>
+                                            </div>
+                                            <div class="ppt-list-actions">
+                                                <button class="ppt-icon-btn" onclick="event.stopPropagation(); window.PPTGenerator.confirmDeleteProject('${p.id}')" title="删除项目">
+                                                    <iconify-icon icon="carbon:trash-can"></iconify-icon>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            `}
+                        </div>
+                    ` : ''}
                 </main>
             </div>
         `;
+    },
+
+    toggleProjectView(mode) {
+        this.projectListViewMode = mode;
+        this.showProjectList();
     },
 
     async createNewProject() {

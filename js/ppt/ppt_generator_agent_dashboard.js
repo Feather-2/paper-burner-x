@@ -75,9 +75,9 @@ const PPTGeneratorAgentDashboard = {
         const hasFiles = files.length > 0;
 
         return `
-            <div class="generation-container">
-                <div class="ppt-upload-zone" id="pptUploadZone">
-                    <iconify-icon icon="carbon:cloud-upload" class="ppt-upload-icon"></iconify-icon>
+            <div class="generation-container" style="background: transparent;">
+                <div class="ppt-upload-zone" id="pptUploadZone" style="background: rgba(255,255,255,0.6); backdrop-filter: blur(12px); border: 2px dashed var(--ppt-primary-light);">
+                    <iconify-icon icon="carbon:cloud-upload" class="ppt-upload-icon" style="color: var(--ppt-primary);"></iconify-icon>
                     <div class="ppt-upload-text">点击或拖拽上传文档</div>
                     <div class="ppt-upload-subtext">支持 PDF, DOCX, MD, TXT (最大 50MB)</div>
                     <input type="file" id="pptFileInput" class="ppt-file-input" multiple onchange="window.PPTGenerator.handleFileUpload(this.files)">
@@ -105,8 +105,8 @@ const PPTGeneratorAgentDashboard = {
                             </div>
                         `).join('')}
                     </div>
-                    <button class="ppt-btn-primary" style="margin-top: 24px; width: 100%; max-width: 600px; justify-content: center;" onclick="window.PPTGenerator.startMultiAgentWorkflow()">
-                        开始分析 (${files.length} 个资源)
+                    <button class="ppt-btn-primary" style="margin-top: 24px; width: 100%; max-width: 600px; justify-content: center; padding: 16px; font-size: 16px;" onclick="window.PPTGenerator.startMultiAgentWorkflow()">
+                        <iconify-icon icon="carbon:rocket"></iconify-icon> 开始分析 (${files.length} 个资源)
                     </button>
                 ` : `
                     <div style="margin-top: 24px; text-align: center; color: var(--ppt-text-secondary); font-size: 13px;">

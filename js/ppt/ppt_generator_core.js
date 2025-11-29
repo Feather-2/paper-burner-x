@@ -107,7 +107,11 @@ class PPTGenerator {
         if (this.elements.overlay) {
             this.elements.overlay.classList.remove('hidden');
             this.isVisible = true;
-            this.showProjectList();
+            if (typeof this.showProjectList === 'function') {
+                this.showProjectList();
+            } else {
+                console.error('showProjectList is not defined on PPTGenerator instance');
+            }
         }
     }
 
