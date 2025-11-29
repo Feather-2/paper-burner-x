@@ -40,10 +40,11 @@ class PPTXSlideRenderer {
 
         console.log('[PPTXSlideRenderer] Starting render with', slides.length, 'slides');
 
-        // 预加载所有图标和公式
+        // 预加载所有资源（图标、公式、SVG）
         await Promise.all([
             this.preloadAllIcons(slides),
             this.preloadAllFormulas(slides),
+            this.preloadAllSvgs(slides),
         ]);
 
         const pres = new PptxGenJS();
@@ -602,8 +603,10 @@ class PPTXSlideRenderer {
             slide.background = { color: this.safeColor(data.background) || 'FFFFFF' };
         }
 
-        // 按 z-index 排序渲染元素
-        const elements = (data.elements || []).sort((a, b) => (a.z || 0) - (b.z || 0));
+        // 按 z-index 排序渲染元素（稳定排序：z 相同时保持原始顺序）
+        const elements = (data.elements || [])
+            .map((el, i) => ({ ...el, _originalIndex: i }))
+            .sort((a, b) => (a.z || 0) - (b.z || 0) || a._originalIndex - b._originalIndex);
 
         elements.forEach(el => {
             this.renderFreeformElementPPTX(slide, el);
@@ -914,19 +917,121 @@ class PPTXSlideRenderer {
     }
 
     /**
-     * 预加载所有幻灯片中的图标
+     * 预加载所有幻灯片中的 SVG 图形
+     */
+    async preloadAllSvgs(slides) {
+        if (!this.svgCache) this.svgCache = {};
+        const svgPromises = [];
+
+        const collectSvgs = (elements) => {
+            if (!elements) return;
+            elements.forEach(el => {
+                if (el.type === 'svg' && el.content) {
+                    svgPromises.push(this.preloadSvg(el));
+                }
+                if (el.children) {
+                    collectSvgs(el.children);
+                }
+            });
+        };
+
+        slides.forEach(slide => {
+            if (slide.type === 'freeform' && slide.elements) {
+                collectSvgs(slide.elements);
+            }
+        });
+
+        if (svgPromises.length > 0) {
+            console.log(`[PPTXSlideRenderer] Preloading ${svgPromises.length} SVGs...`);
+            await Promise.all(svgPromises);
+            console.log('[PPTXSlideRenderer] SVGs preloaded');
+        }
+    }
+
+    /**
+     * 预加载单个 SVG 为 Base64 图片
+     */
+    async preloadSvg(el) {
+        if (!el.content) return null;
+        
+        // 使用 content 的 hash 作为 key
+        const key = this._hashString(el.content);
+        if (this.svgCache[key]) return this.svgCache[key];
+
+        try {
+            // 获取元素尺寸（转换为像素）
+            const w = this._parseSizeToPixels(el.w, false) || 200;
+            const h = this._parseSizeToPixels(el.h, true) || 200;
+            
+            console.log(`[preloadSvg] Converting SVG: ${w}x${h}px`);
+            const dataUrl = await this.svgToBase64(el.content, w / 96, h / 96);
+            if (dataUrl) {
+                this.svgCache[key] = dataUrl;
+                console.log(`[preloadSvg] SVG cached: ${key}`);
+            } else {
+                console.warn(`[preloadSvg] Failed to convert SVG: ${key}`);
+            }
+            return dataUrl;
+        } catch (e) {
+            console.warn('[preloadSvg] Failed:', e);
+            return null;
+        }
+    }
+
+    _hashString(str) {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash;
+        }
+        return 'svg_' + Math.abs(hash).toString(16);
+    }
+
+    _parseSizeToPixels(value, isHeight = false) {
+        if (!value) return null;
+        const str = String(value).trim();
+        if (str.endsWith('%')) {
+            // 百分比转换为像素（基于 960x540）
+            const base = isHeight ? 540 : 960;
+            return (parseFloat(str) / 100) * base;
+        } else if (str.endsWith('px')) {
+            return parseFloat(str);
+        } else if (str.endsWith('in')) {
+            return parseFloat(str) * 96;
+        }
+        return parseFloat(str) || null;
+    }
+
+    /**
+     * 预加载所有幻灯片中的图标（包括 card 组件中的图标）
      */
     async preloadAllIcons(slides) {
         const iconPromises = [];
 
+        const collectIcons = (elements) => {
+            if (!elements) return;
+            elements.forEach(el => {
+                // icon 元素
+                if (el.type === 'icon' && el.icon) {
+                    const color = this.safeColor(el.color) || '333333';
+                    iconPromises.push(this.preloadIcon(el.icon, color));
+                }
+                // card 组件中的图标
+                if (el.type === 'card' && el.icon) {
+                    const color = this.safeColor(el.iconColor) || '333333';
+                    iconPromises.push(this.preloadIcon(el.icon, color));
+                }
+                // group 中的子元素
+                if (el.children) {
+                    collectIcons(el.children);
+                }
+            });
+        };
+
         slides.forEach(slide => {
             if (slide.type === 'freeform' && slide.elements) {
-                slide.elements.forEach(el => {
-                    if (el.type === 'icon' && el.icon) {
-                        const color = this.safeColor(el.color) || '333333';
-                        iconPromises.push(this.preloadIcon(el.icon, color));
-                    }
-                });
+                collectIcons(slide.elements);
             }
         });
 
@@ -1602,7 +1707,10 @@ class PPTXSlideRenderer {
 
         if (layout === 'vertical') {
             // 垂直布局：图标在上，文字在下，居中
-            const contentH = iconBgSize + gap + 0.3 + (el.subtitle ? 0.25 : 0);
+            const titleLineH = titleSize / 72 * 1.3;
+            const subtitleLineH = subtitleSize / 72 * 1.3;
+            const textGap = 0.05;
+            const contentH = iconBgSize + gap + titleLineH + (el.subtitle ? textGap + subtitleLineH : 0);
             const startY = innerY + (innerH - contentH) / 2;
 
             // 图标背景（如果有）
@@ -1619,19 +1727,35 @@ class PPTXSlideRenderer {
                 });
             }
 
-            // 图标（用 emoji fallback）
+            // 图标
             if (el.icon) {
-                const emoji = this.getIconEmoji(el.icon);
-                this.addText(slide, emoji, {
-                    x: innerX,
-                    y: startY,
-                    w: innerW,
-                    h: iconBgSize,
-                    fontSize: Math.round(el.iconSize || 24),
-                    color: this.safeColor(el.iconColor) || '4f46e5',
-                    align: 'center',
-                    valign: 'middle',
-                });
+                const iconColor = this.safeColor(el.iconColor) || '4f46e5';
+                const iconKey = `${el.icon}_${iconColor}`;
+                const iconX = innerX + (innerW - iconSize) / 2;
+                
+                if (this.iconCache && this.iconCache[iconKey]) {
+                    // 使用预加载的 SVG 图标
+                    slide.addImage({
+                        data: this.iconCache[iconKey],
+                        x: iconX,
+                        y: startY + (iconBgSize - iconSize) / 2,
+                        w: iconSize,
+                        h: iconSize,
+                    });
+                } else {
+                    // Fallback: emoji
+                    const emoji = this.getIconEmoji(el.icon);
+                    this.addText(slide, emoji, {
+                        x: innerX,
+                        y: startY,
+                        w: innerW,
+                        h: iconBgSize,
+                        fontSize: Math.round(el.iconSize || 24),
+                        color: iconColor,
+                        align: 'center',
+                        valign: 'middle',
+                    });
+                }
             }
 
             // 标题
@@ -1640,12 +1764,12 @@ class PPTXSlideRenderer {
                     x: innerX,
                     y: startY + iconBgSize + gap,
                     w: innerW,
-                    h: 0.3,
+                    h: titleLineH,
                     fontSize: titleSize,
                     color: this.safeColor(el.titleColor) || '1f2937',
                     bold: el.titleBold !== false,
                     align: 'center',
-                    valign: 'top',
+                    valign: 'middle',
                 });
             }
 
@@ -1653,13 +1777,13 @@ class PPTXSlideRenderer {
             if (el.subtitle) {
                 this.addText(slide, el.subtitle, {
                     x: innerX,
-                    y: startY + iconBgSize + gap + 0.3,
+                    y: startY + iconBgSize + gap + titleLineH + textGap,
                     w: innerW,
-                    h: 0.25,
+                    h: subtitleLineH,
                     fontSize: subtitleSize,
                     color: this.safeColor(el.subtitleColor) || '6b7280',
                     align: 'center',
-                    valign: 'top',
+                    valign: 'middle',
                 });
             }
         } else {
@@ -1686,36 +1810,59 @@ class PPTXSlideRenderer {
 
             // 图标
             if (el.icon) {
-                const emoji = this.getIconEmoji(el.icon);
-                this.addText(slide, emoji, {
-                    x: iconX,
-                    y: innerY,
-                    w: iconBgSize,
-                    h: innerH,
-                    fontSize: Math.round(el.iconSize || 24),
-                    color: this.safeColor(el.iconColor) || '4f46e5',
-                    align: 'center',
-                    valign: 'middle',
-                });
+                const iconColor = this.safeColor(el.iconColor) || '4f46e5';
+                const iconKey = `${el.icon}_${iconColor}`;
+                const iconImgX = iconX + (iconBgSize - iconSize) / 2;
+                const iconImgY = innerY + (innerH - iconSize) / 2;
+                
+                if (this.iconCache && this.iconCache[iconKey]) {
+                    // 使用预加载的 SVG 图标
+                    slide.addImage({
+                        data: this.iconCache[iconKey],
+                        x: iconImgX,
+                        y: iconImgY,
+                        w: iconSize,
+                        h: iconSize,
+                    });
+                } else {
+                    // Fallback: emoji
+                    const emoji = this.getIconEmoji(el.icon);
+                    this.addText(slide, emoji, {
+                        x: iconX,
+                        y: innerY,
+                        w: iconBgSize,
+                        h: innerH,
+                        fontSize: Math.round(el.iconSize || 24),
+                        color: iconColor,
+                        align: 'center',
+                        valign: 'middle',
+                    });
+                }
             }
 
-            // 文字区域 - 标题和副标题
+            // 文字区域 - 标题和副标题垂直居中
             const hasSubtitle = !!el.subtitle;
-            const titleH = hasSubtitle ? innerH * 0.5 : innerH;
-            const subtitleH = innerH * 0.5;
+            // 估算文字高度（pt 转 inch: pt / 72）
+            const titleLineH = titleSize / 72 * 1.3; // 1.3 行高
+            const subtitleLineH = subtitleSize / 72 * 1.3;
+            const textGap = hasSubtitle ? 0.05 : 0; // 标题副标题间距
+            const totalTextH = titleLineH + (hasSubtitle ? textGap + subtitleLineH : 0);
+            
+            // 垂直居中起始位置
+            const textStartY = innerY + (innerH - totalTextH) / 2;
 
             // 标题
             if (el.title) {
                 this.addText(slide, el.title, {
                     x: textX,
-                    y: innerY,
+                    y: textStartY,
                     w: textAreaW - gap,
-                    h: titleH,
+                    h: titleLineH,
                     fontSize: titleSize,
                     color: this.safeColor(el.titleColor) || '1f2937',
                     bold: el.titleBold !== false,
                     align: 'left',
-                    valign: hasSubtitle ? 'bottom' : 'middle',
+                    valign: 'middle',
                 });
             }
 
@@ -1723,13 +1870,13 @@ class PPTXSlideRenderer {
             if (el.subtitle) {
                 this.addText(slide, el.subtitle, {
                     x: textX,
-                    y: innerY + titleH,
+                    y: textStartY + titleLineH + textGap,
                     w: textAreaW - gap,
-                    h: subtitleH,
+                    h: subtitleLineH,
                     fontSize: subtitleSize,
                     color: this.safeColor(el.subtitleColor) || '6b7280',
                     align: 'left',
-                    valign: 'top',
+                    valign: 'middle',
                 });
             }
         }
@@ -1765,13 +1912,14 @@ class PPTXSlideRenderer {
     }
 
     /**
-     * 渲染 SVG 到 PPTX
-     * SVG 需要转换为图片才能嵌入 PPTX
+     * 渲染 SVG 到 PPTX（使用预加载的缓存）
      */
-    async renderFreeformSvgPPTX(slide, el, x, y, w, h) {
+    renderFreeformSvgPPTX(slide, el, x, y, w, h) {
         try {
-            // 将 SVG 转换为 Base64 图片
-            const svgDataUrl = await this.svgToBase64(el.content, w, h);
+            // 从缓存获取预加载的 SVG
+            const key = this._hashString(el.content || '');
+            const svgDataUrl = this.svgCache?.[key];
+            
             if (svgDataUrl) {
                 slide.addImage({
                     data: svgDataUrl,
@@ -1781,12 +1929,13 @@ class PPTXSlideRenderer {
                     h: h || 2,
                 });
             } else {
+                console.warn('[renderFreeformSvgPPTX] SVG not in cache, key:', key);
                 // 降级：添加占位符
-                this.addImagePlaceholder(slide, x, y, w, h, 'SVG 图形');
+                this.addImagePlaceholder(slide, x, y, w, h, 'SVG');
             }
         } catch (e) {
             console.warn('[renderFreeformSvgPPTX] Failed to render SVG:', e);
-            this.addImagePlaceholder(slide, x, y, w, h, 'SVG 图形');
+            this.addImagePlaceholder(slide, x, y, w, h, 'SVG');
         }
     }
 
@@ -1797,14 +1946,29 @@ class PPTXSlideRenderer {
         if (!svgContent) return null;
 
         try {
-            // 确保 SVG 有正确的尺寸
+            const pxWidth = Math.round(width * 96);
+            const pxHeight = Math.round(height * 96);
+            
+            // 确保 SVG 有正确的尺寸和 xmlns
             let svg = svgContent.trim();
             if (!svg.toLowerCase().startsWith('<svg')) {
-                svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width * 96}" height="${height * 96}">${svg}</svg>`;
+                svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pxWidth}" height="${pxHeight}" viewBox="0 0 ${pxWidth} ${pxHeight}">${svg}</svg>`;
+            } else {
+                // 确保有 xmlns 和正确的尺寸
+                svg = svg.replace(/<svg([^>]*)>/, (match, attrs) => {
+                    if (!attrs.includes('xmlns=')) {
+                        attrs = ` xmlns="http://www.w3.org/2000/svg"` + attrs;
+                    }
+                    // 移除原有的 width/height，使用新的
+                    attrs = attrs.replace(/\s*width\s*=\s*["'][^"']*["']/gi, '');
+                    attrs = attrs.replace(/\s*height\s*=\s*["'][^"']*["']/gi, '');
+                    attrs += ` width="${pxWidth}" height="${pxHeight}"`;
+                    return `<svg${attrs}>`;
+                });
             }
 
             // 创建 Blob 和图片
-            const blob = new Blob([svg], { type: 'image/svg+xml' });
+            const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
             const url = URL.createObjectURL(blob);
 
             return new Promise((resolve) => {
@@ -1813,15 +1977,16 @@ class PPTXSlideRenderer {
                     // 使用 canvas 转换为 PNG
                     const canvas = document.createElement('canvas');
                     const scale = 2; // 提高清晰度
-                    canvas.width = (width * 96) * scale;
-                    canvas.height = (height * 96) * scale;
+                    canvas.width = pxWidth * scale;
+                    canvas.height = pxHeight * scale;
                     const ctx = canvas.getContext('2d');
                     ctx.scale(scale, scale);
-                    ctx.drawImage(img, 0, 0, width * 96, height * 96);
+                    ctx.drawImage(img, 0, 0, pxWidth, pxHeight);
                     URL.revokeObjectURL(url);
                     resolve(canvas.toDataURL('image/png'));
                 };
-                img.onerror = () => {
+                img.onerror = (e) => {
+                    console.warn('[svgToBase64] Image load error:', e);
                     URL.revokeObjectURL(url);
                     resolve(null);
                 };

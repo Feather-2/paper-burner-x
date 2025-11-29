@@ -276,9 +276,10 @@ class HTMLSlideRenderer {
             bgStyle = `background: url('${slide.backgroundImage}') center/cover;`;
         }
 
-        // 渲染所有元素
+        // 渲染所有元素（稳定排序：z 相同时保持原始顺序）
         const elements = (slide.elements || [])
-            .sort((a, b) => (a.z || 0) - (b.z || 0))
+            .map((el, i) => ({ ...el, _originalIndex: i }))
+            .sort((a, b) => (a.z || 0) - (b.z || 0) || a._originalIndex - b._originalIndex)
             .map(el => this.renderFreeformElement(el, htmlWidth, htmlHeight))
             .join('');
 

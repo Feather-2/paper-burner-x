@@ -656,32 +656,46 @@ ${renderedSlides}
 
     async _captureToCanvas(target, options, fallbackOptions) {
         const attempts = [];
-        // 1) 主配置
-        attempts.push(options);
-        // 2) 如果启用了 foreignObject，再尝试允许 taint 保留混合效果
+        
+        // 尝试顺序（从最可能成功到最兼容）:
+        // 1) 禁用 foreignObject - 最稳定，适用于大多数场景
+        attempts.push({
+            ...options,
+            foreignObjectRendering: false,
+            allowTaint: true,
+            useCORS: true,
+        });
+        
+        // 2) 如果需要 blend 效果，再尝试 foreignObject 模式
         if (options?.foreignObjectRendering) {
             attempts.push({
                 ...options,
+                foreignObjectRendering: true,
                 allowTaint: true,
-                useCORS: true,
             });
         }
+        
         // 3) 显式降级配置
         if (fallbackOptions) {
-            attempts.push({ ...options, ...fallbackOptions });
+            attempts.push({ ...options, ...fallbackOptions, foreignObjectRendering: false });
         }
 
         for (let i = 0; i < attempts.length; i++) {
             const attempt = attempts[i];
             try {
-                return await html2canvas(target, attempt);
+                const canvas = await html2canvas(target, attempt);
+                // 验证画布不是空的
+                if (canvas && canvas.width > 0 && canvas.height > 0) {
+                    return canvas;
+                }
             } catch (err) {
-                const hint = err?.target?.src || err?.message || err;
-                console.warn(`[html2canvas] capture attempt ${i + 1}/${attempts.length} failed:`, hint, err);
+                const hint = err?.target?.src?.substring?.(0, 100) || err?.message || err;
+                console.warn(`[html2canvas] capture attempt ${i + 1}/${attempts.length} failed:`, hint);
             }
         }
 
         // 全部失败时返回空白画布，保证流程不中断
+        console.error('[html2canvas] All capture attempts failed, returning blank canvas');
         const rect = target?.getBoundingClientRect?.();
         const width = Math.max(Math.round(rect?.width || options?.width || 1), 1);
         const height = Math.max(Math.round(rect?.height || options?.height || 1), 1);
@@ -729,10 +743,13 @@ ${renderedSlides}
                 continue;
             }
 
-            // 按 z-index 排序元素
-            const sortedElements = [...(slide.elements || [])].sort((a, b) => (a.z || 0) - (b.z || 0));
+            // 按 z-index 排序元素（稳定排序：z 相同时保持原始顺序）
+            const sortedElements = [...(slide.elements || [])]
+                .map((el, i) => ({ ...el, _originalIndex: i }))
+                .sort((a, b) => (a.z || 0) - (b.z || 0) || a._originalIndex - b._originalIndex);
 
-            // 找出有 blend 效果的元素
+            // 区分 blend 效果和 filter/mask 效果
+            // blend 需要和背景一起烘焙；filter/mask 可以单独烘焙
             const blendElements = sortedElements.filter(el => el.blend && el.blend !== 'normal');
             
             if (blendElements.length > 0) {
@@ -746,10 +763,10 @@ ${renderedSlides}
                 
                 // 烘焙 backdrop + blend 元素
                 const bakedEl = await this._bakeElementGroupToImage(
-                    elementsTosBake.filter(el => this._elementHasEffects(el)), // 特效元素
+                    elementsTosBake.filter(el => this._elementNeedsBaking(el)), // blend 元素
                     renderer, 
                     container, 
-                    elementsTosBake.filter(el => !this._elementHasEffects(el)), // backdrop
+                    elementsTosBake.filter(el => !this._elementNeedsBaking(el)), // backdrop
                     slide.background
                 );
                 
@@ -818,8 +835,8 @@ ${renderedSlides}
         let currentGroup = null;
 
         for (const el of sortedElements) {
-            const hasEffect = this._elementHasEffects(el);
-            const groupType = hasEffect ? 'effect' : 'normal';
+            const needsBaking = this._elementNeedsBaking(el);
+            const groupType = needsBaking ? 'effect' : 'normal';
 
             if (!currentGroup || currentGroup.type !== groupType) {
                 // 开始新分组
@@ -1057,12 +1074,33 @@ ${renderedSlides}
 
     _slideHasEffects(slide) {
         if (!slide) return false;
-        // freeform: 检查 elements
-        if (slide.elements && slide.elements.some(el => this._elementHasEffects(el))) return true;
-        // 其他类型不检查
+        // freeform: 只检查需要烘焙的效果（blend 模式）
+        // filter 和 mask 在 PPTX 中不支持，但不需要烘焙，直接跳过即可
+        if (slide.elements && slide.elements.some(el => this._elementNeedsBaking(el))) return true;
         return false;
     },
 
+    /**
+     * 检查元素是否需要烘焙
+     * - blend: 需要和背景混合，必须一起烘焙
+     * - filter: blur 等效果需要单独烘焙成图片
+     * - mask: 遮罩效果需要烘焙
+     */
+    _elementNeedsBaking(el) {
+        if (!el) return false;
+        // blend 效果需要和背景一起烘焙
+        if (el.blend && el.blend !== 'normal') return true;
+        // filter 效果（如 blur）需要单独烘焙
+        if (el.filter) return true;
+        // mask 效果需要烘焙
+        if (el.mask) return true;
+        if (el.children && el.children.some(child => this._elementNeedsBaking(child))) return true;
+        return false;
+    },
+
+    /**
+     * 检查元素是否有任何视觉效果（用于其他场景）
+     */
     _elementHasEffects(el) {
         if (!el) return false;
         if ((el.blend && el.blend !== 'normal') || el.mask || el.filter) return true;

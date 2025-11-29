@@ -34,25 +34,25 @@ const PPT_SAMPLE_HTML = `
                 </div>
                 
                 <!-- 主标题带渐变效果 -->
-                <div data-el="text" data-x="8%" data-y="28%" data-w="84%" data-h="auto" data-font="80" data-color="#F8FAFC" data-bold="true">QUANTUM</div>
-                <div data-el="text" data-x="8%" data-y="45%" data-w="84%" data-h="auto" data-font="80" data-color="#22D3EE" data-bold="true">LEAP</div>
+                <div data-el="text" data-x="8%" data-y="20%" data-w="84%" data-h="auto" data-font="80" data-color="#F8FAFC" data-bold="true">QUANTUM</div>
+                <div data-el="text" data-x="8%" data-y="36%" data-w="84%" data-h="auto" data-font="80" data-color="#22D3EE" data-bold="true">LEAP</div>
                 
                 <!-- 装饰线条 -->
-                <div data-el="line" data-x1="8%" data-y1="62%" data-x2="25%" data-y2="62%" data-stroke="#22D3EE" data-stroke-width="4"></div>
-                <div data-el="line" data-x1="26%" data-y1="62%" data-x2="35%" data-y2="62%" data-stroke="#8B5CF6" data-stroke-width="4"></div>
-                <div data-el="line" data-x1="36%" data-y1="62%" data-x2="40%" data-y2="62%" data-stroke="#F472B6" data-stroke-width="4"></div>
+                <div data-el="line" data-x1="8%" data-y1="52%" data-x2="25%" data-y2="52%" data-stroke="#22D3EE" data-stroke-width="4"></div>
+                <div data-el="line" data-x1="26%" data-y1="52%" data-x2="35%" data-y2="52%" data-stroke="#8B5CF6" data-stroke-width="4"></div>
+                <div data-el="line" data-x1="36%" data-y1="52%" data-x2="40%" data-y2="52%" data-stroke="#F472B6" data-stroke-width="4"></div>
                 
                 <!-- 副标题 -->
-                <div data-el="text" data-x="8%" data-y="68%" data-w="60%" data-h="auto" data-font="24" data-color="#94A3B8">Unlocking the Universe's Compute Power</div>
+                <div data-el="text" data-x="8%" data-y="58%" data-w="60%" data-h="auto" data-font="24" data-color="#94A3B8">Unlocking the Universe's Compute Power</div>
                 
                 <!-- 统计卡片 -->
-                <div data-el="card" data-x="8%" data-y="78%" data-w="18%" data-h="14%" data-layout="vertical" data-fill="#0f172a" data-radius="12" data-stroke="#334155"
+                <div data-el="card" data-x="8%" data-y="70%" data-w="18%" data-h="16%" data-layout="vertical" data-fill="#0f172a" data-radius="12" data-stroke="#334155"
                      data-icon="carbon:chip" data-icon-color="#22d3ee" data-title="1000+ Qubits" data-title-color="#f8fafc" data-title-size="14"
                      data-subtitle="by 2025" data-subtitle-color="#64748b" data-subtitle-size="11"></div>
-                <div data-el="card" data-x="28%" data-y="78%" data-w="18%" data-h="14%" data-layout="vertical" data-fill="#0f172a" data-radius="12" data-stroke="#334155"
+                <div data-el="card" data-x="28%" data-y="70%" data-w="18%" data-h="16%" data-layout="vertical" data-fill="#0f172a" data-radius="12" data-stroke="#334155"
                      data-icon="carbon:growth" data-icon-color="#10b981" data-title="$8.5B Market" data-title-color="#f8fafc" data-title-size="14"
                      data-subtitle="projected" data-subtitle-color="#64748b" data-subtitle-size="11"></div>
-                <div data-el="card" data-x="48%" data-y="78%" data-w="18%" data-h="14%" data-layout="vertical" data-fill="#0f172a" data-radius="12" data-stroke="#334155"
+                <div data-el="card" data-x="48%" data-y="70%" data-w="18%" data-h="16%" data-layout="vertical" data-fill="#0f172a" data-radius="12" data-stroke="#334155"
                      data-icon="carbon:enterprise" data-icon-color="#a855f7" data-title="500+ Labs" data-title-color="#f8fafc" data-title-size="14"
                      data-subtitle="worldwide" data-subtitle-color="#64748b" data-subtitle-size="11"></div>
                 
