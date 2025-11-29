@@ -910,7 +910,7 @@
     justify-content: space-between;
     padding: 0 32px;
     box-shadow: var(--ppt-shadow-sm);
-    z-index: 10;
+    z-index: 1000;
 }
 
 .pres-toolbar-left {
@@ -1006,6 +1006,8 @@
     background: #f1f5f9;
     background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
     background-size: 24px 24px;
+    position: relative;
+    z-index: 1; /* 低于工具栏，确保导出菜单不被遮挡 */
 }
 
 .pres-canvas-wrapper {
@@ -1113,7 +1115,7 @@
     visibility: hidden;
     transform: translateY(-8px);
     transition: all 0.2s var(--ppt-ease);
-    z-index: 100;
+    z-index: 9999;
 }
 
 .ppt-export-dropdown.open .ppt-export-menu {
@@ -1167,6 +1169,20 @@
     height: 1px;
     background: var(--ppt-border);
     margin: 8px 0;
+}
+
+.ppt-export-group-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ppt-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 8px 12px 4px;
+    margin-top: 4px;
+}
+
+.ppt-export-group-label:first-child {
+    margin-top: 0;
 }
 
 /* Slide Content Placeholders */

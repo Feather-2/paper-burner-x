@@ -30,7 +30,13 @@ const PPTGeneratorExport = {
 
             switch (format) {
                 case 'pptx':
-                    await this._exportPPTX();
+                    await this._exportPPTX('unicode');
+                    break;
+                case 'pptx-omml':
+                    await this._exportPPTX('omml');
+                    break;
+                case 'pptx-image':
+                    await this._exportPPTX('image');
                     break;
                 case 'pdf':
                     await this._exportPDF();
@@ -65,7 +71,11 @@ const PPTGeneratorExport = {
         }
     },
 
-    async _exportPPTX() {
+    /**
+     * 导出 PPTX
+     * @param {string} mode - 导出模式：'unicode' | 'omml' | 'image'
+     */
+    async _exportPPTX(mode = 'unicode') {
         if (typeof PptxGenJS === 'undefined') {
             await this._loadScript('https://cdn.jsdelivr.net/gh/gitbrent/PptxGenJS@3.12.0/dist/pptxgen.bundle.js');
         }
@@ -74,28 +84,105 @@ const PPTGeneratorExport = {
             throw new Error('PPTX 渲染器未加载');
         }
 
-        // 加载 JSZip 用于后处理（如果需要原生公式）
+        // 加载 JSZip 用于后处理
         if (typeof JSZip === 'undefined') {
             await this._loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
         }
 
+        const filename = `${this.currentProject?.title || 'presentation'}.pptx`;
+
+        // 图片模式：每页幻灯片都渲染成图片
+        if (mode === 'image') {
+            console.log('[PPTX Export] Using image mode (best quality, not editable)');
+            await this._exportPPTXAsImages(filename);
+            return;
+        }
+
         const slidesForExport = await this._bakeEffectsForPPTX(this.slides);
         const renderer = new PPTXSlideRenderer();
-        const filename = `${this.currentProject?.title || 'presentation'}.pptx`;
         
-        // OMML 公式功能暂时禁用（XML 结构问题待修复）
-        // TODO: 修复 OMML 嵌入后恢复
-        // const hasFormulas = slidesForExport.some(slide => 
-        //     slide.elements?.some(el => el.type === 'formula')
-        // );
-        // if (hasFormulas && typeof MathConverter !== 'undefined') {
-        //     await renderer.renderWithOMML(slidesForExport, filename, new MathConverter());
-        // } else {
-        //     await renderer.render(slidesForExport, filename);
-        // }
-        
-        // 标准导出（使用 Unicode 公式）
-        await renderer.render(slidesForExport, filename);
+        const hasFormulas = slidesForExport.some(slide => 
+            slide.elements?.some(el => el.type === 'formula')
+        );
+
+        if (mode === 'omml' && hasFormulas && typeof MathConverter !== 'undefined') {
+            // 使用原生 OMML 公式：生成 PPTX 后用 DOM 操作替换
+            console.log('[PPTX Export] Using OMML formula mode (editable, may require repair)');
+            await renderer.renderWithOMML(slidesForExport, filename, new MathConverter());
+        } else {
+            // 标准导出（使用 Unicode 公式）
+            console.log('[PPTX Export] Using Unicode formula mode');
+            await renderer.render(slidesForExport, filename);
+        }
+    },
+
+    /**
+     * 图片模式导出 PPTX：每页幻灯片渲染成图片
+     */
+    async _exportPPTXAsImages(filename) {
+        if (typeof html2canvas === 'undefined') {
+            await this._loadScript('https://gcore.jsdelivr.net/npm/html2canvas-pro@1.5.13/dist/html2canvas-pro.min.js');
+        }
+
+        const pres = new PptxGenJS();
+        pres.layout = 'LAYOUT_16x9';
+        pres.title = filename.replace('.pptx', '');
+
+        // 获取或创建临时渲染容器
+        const container = document.createElement('div');
+        container.style.cssText = `
+            position: absolute;
+            left: -9999px;
+            top: 0;
+            width: 1920px;
+            height: 1080px;
+            overflow: hidden;
+            background: white;
+        `;
+        document.body.appendChild(container);
+
+        const htmlRenderer = new HTMLSlideRenderer();
+
+        try {
+            for (let i = 0; i < this.slides.length; i++) {
+                const slideData = this.slides[i];
+                console.log(`[PPTX Image] Rendering slide ${i + 1}/${this.slides.length}`);
+
+                // 渲染 HTML
+                container.innerHTML = htmlRenderer.render(slideData, i);
+                
+                // 等待资源加载
+                await new Promise(resolve => setTimeout(resolve, 100));
+
+                // 截图
+                const canvas = await html2canvas(container, {
+                    scale: 1,
+                    width: 1920,
+                    height: 1080,
+                    backgroundColor: null,
+                    useCORS: true,
+                    allowTaint: true,
+                    logging: false,
+                });
+
+                const dataUrl = canvas.toDataURL('image/png');
+
+                // 添加到 PPTX
+                const slide = pres.addSlide();
+                slide.addImage({
+                    data: dataUrl,
+                    x: 0,
+                    y: 0,
+                    w: '100%',
+                    h: '100%',
+                });
+            }
+
+            await pres.writeFile({ fileName: filename });
+            console.log('[PPTX Image] Export complete');
+        } finally {
+            document.body.removeChild(container);
+        }
     },
 
     async _exportPDF() {

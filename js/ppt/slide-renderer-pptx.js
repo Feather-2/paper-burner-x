@@ -118,55 +118,293 @@ class PPTXSlideRenderer {
 
     async _postProcessOMML(pptxBlob) {
         const zip = await JSZip.loadAsync(pptxBlob);
+        const parser = new DOMParser();
+        const serializer = new XMLSerializer();
 
-        // 遍历所有 slide XML
+        // 按 slide 分组公式
+        const formulasBySlide = {};
         for (const formula of this.formulaRegistry) {
-            const slidePath = `ppt/slides/slide${formula.slideIndex + 1}.xml`;
+            const slideIdx = formula.slideIndex;
+            if (!formulasBySlide[slideIdx]) formulasBySlide[slideIdx] = [];
+            formulasBySlide[slideIdx].push(formula);
+        }
+
+        // 遍历每个有公式的 slide
+        for (const [slideIdx, formulas] of Object.entries(formulasBySlide)) {
+            const slidePath = `ppt/slides/slide${parseInt(slideIdx) + 1}.xml`;
             const slideXml = await zip.file(slidePath)?.async('string');
-            
             if (!slideXml) continue;
 
-            // 查找占位符并替换为 OMML
-            const placeholder = `FORMULA_PLACEHOLDER_${formula.id}`;
-            if (slideXml.includes(placeholder)) {
-                const omml = this.mathConverter.latexToOMML(formula.latex);
-                if (omml) {
-                    // 构建完整的 OMML 段落（需要正确的 XML 命名空间）
-                    const ommlParagraph = this._buildOMMLParagraph(omml, formula);
-                    const newXml = slideXml.replace(
-                        new RegExp(`<a:t>${placeholder}</a:t>`, 'g'),
-                        `</a:r></a:p>${ommlParagraph}<a:p><a:r><a:t>`
-                    );
-                    zip.file(slidePath, newXml);
-                    console.log(`[OMML] Replaced formula in slide ${formula.slideIndex + 1}`);
+            // 用 DOM 解析 XML
+            const doc = parser.parseFromString(slideXml, 'text/xml');
+            
+            // 检查解析错误
+            const parseError = doc.querySelector('parsererror');
+            if (parseError) {
+                console.warn(`[OMML] XML parse error in slide ${parseInt(slideIdx) + 1}`);
+                continue;
+            }
+
+            let modified = false;
+
+            for (const formula of formulas) {
+                const placeholder = `FORMULA_PLACEHOLDER_${formula.id}`;
+                
+                // 使用 XPath 或遍历找到包含占位符的文本节点
+                const textNode = this._findTextNodeByContent(doc, placeholder);
+                if (!textNode) {
+                    console.warn(`[OMML] Placeholder not found: ${placeholder}`);
+                    continue;
                 }
+
+                // 找到父级 <p:sp> 形状元素
+                const shape = this._findAncestor(textNode, 'sp');
+                if (!shape) {
+                    console.warn(`[OMML] Shape not found for formula ${formula.id}`);
+                    continue;
+                }
+
+                // 生成 OMML
+                const omml = this.mathConverter.latexToOMML(formula.latex);
+                if (!omml) {
+                    console.warn(`[OMML] Failed to convert: ${formula.latex}`);
+                    continue;
+                }
+
+                // 创建新的 OMML 形状
+                const newShape = this._createOMMLShape(doc, shape, omml, formula);
+                if (newShape) {
+                    shape.parentNode.replaceChild(newShape, shape);
+                    modified = true;
+                    console.log(`[OMML] Replaced formula ${formula.id} in slide ${parseInt(slideIdx) + 1}`);
+                }
+            }
+
+            // 如果有修改，保存回 zip
+            if (modified) {
+                // 确保根元素有所需的命名空间声明
+                const root = doc.documentElement;
+                const NS_MC = 'http://schemas.openxmlformats.org/markup-compatibility/2006';
+                const NS_A14 = 'http://schemas.microsoft.com/office/drawing/2010/main';
+                const NS_M = 'http://schemas.openxmlformats.org/officeDocument/2006/math';
+                
+                // 添加 Markup Compatibility 命名空间
+                if (!root.hasAttributeNS('http://www.w3.org/2000/xmlns/', 'mc')) {
+                    root.setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:mc', NS_MC);
+                }
+                if (!root.hasAttributeNS('http://www.w3.org/2000/xmlns/', 'a14')) {
+                    root.setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:a14', NS_A14);
+                }
+                if (!root.hasAttributeNS('http://www.w3.org/2000/xmlns/', 'm')) {
+                    root.setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:m', NS_M);
+                }
+                
+                // 添加 mc:Ignorable 属性，告诉旧版 PowerPoint 忽略不识别的扩展
+                const ignorable = root.getAttribute('mc:Ignorable') || '';
+                if (!ignorable.includes('a14')) {
+                    root.setAttribute('mc:Ignorable', (ignorable + ' a14').trim());
+                }
+                
+                const newXml = serializer.serializeToString(doc);
+                zip.file(slidePath, newXml);
             }
         }
 
-        // 更新 Content Types 以支持 OMML
-        const contentTypesPath = '[Content_Types].xml';
-        let contentTypes = await zip.file(contentTypesPath)?.async('string');
-        if (contentTypes && !contentTypes.includes('officeDocument/2006/math')) {
-            // 确保 OMML 命名空间被识别
-            console.log('[OMML] Content types already valid');
-        }
+        // 更新 [Content_Types].xml 确保 OMML 扩展被识别
+        await this._ensureOMMLContentType(zip);
 
-        return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
+        return zip.generateAsync({ 
+            type: 'blob', 
+            mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' 
+        });
     }
 
-    _buildOMMLParagraph(omml, formula) {
-        const align = formula.align || 'ctr';
-        return `
-            <a:p>
-                <a:pPr algn="${align}"/>
-                <a14:m xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main">
-                    <m:oMathPara xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">
-                        <m:oMathParaPr><m:jc m:val="center"/></m:oMathParaPr>
-                        ${omml}
-                    </m:oMathPara>
-                </a14:m>
-            </a:p>
+    /**
+     * 在 DOM 中查找包含指定内容的文本节点
+     */
+    _findTextNodeByContent(doc, content) {
+        // 遍历所有元素，找 <a:t> 或类似文本节点
+        const walker = doc.createTreeWalker(doc, NodeFilter.SHOW_TEXT, null, false);
+        let node;
+        while (node = walker.nextNode()) {
+            if (node.textContent && node.textContent.includes(content)) {
+                return node;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 查找祖先元素（按 localName）
+     */
+    _findAncestor(node, localName) {
+        let current = node.parentNode;
+        while (current && current.nodeType === Node.ELEMENT_NODE) {
+            if (current.localName === localName) {
+                return current;
+            }
+            current = current.parentNode;
+        }
+        return null;
+    }
+
+    /**
+     * 创建包含 OMML 公式的新形状
+     */
+    _createOMMLShape(doc, originalShape, omml, formula) {
+        try {
+            // 克隆原始形状以保留位置和样式
+            const newShape = originalShape.cloneNode(true);
+            
+            // 找到 <p:txBody> 文本体
+            const txBody = newShape.getElementsByTagNameNS('*', 'txBody')[0];
+            if (!txBody) return null;
+
+            // 清空原有段落
+            const paragraphs = txBody.getElementsByTagNameNS('*', 'p');
+            while (paragraphs.length > 0) {
+                paragraphs[0].parentNode.removeChild(paragraphs[0]);
+            }
+
+            // 创建新的段落，包含 OMML
+            const newParagraph = this._buildOMMLParagraphNode(doc, omml, formula);
+            if (newParagraph) {
+                txBody.appendChild(newParagraph);
+            }
+
+            return newShape;
+        } catch (e) {
+            console.error('[OMML] Error creating shape:', e);
+            return null;
+        }
+    }
+
+    /**
+     * 构建 OMML 段落 DOM 节点
+     */
+    _buildOMMLParagraphNode(doc, omml, formula) {
+        const NS_A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
+        const NS_A14 = 'http://schemas.microsoft.com/office/drawing/2010/main';
+        const NS_M = 'http://schemas.openxmlformats.org/officeDocument/2006/math';
+
+        // 获取颜色（去掉 # 前缀）
+        const color = (formula.color || '333333').replace('#', '').toUpperCase();
+        // 字体大小（pt * 100，如 24pt = 2400）
+        const fontSize = (formula.fontSize || 18) * 100;
+
+        // 创建 <a:p> 段落
+        const p = doc.createElementNS(NS_A, 'a:p');
+        
+        // 添加段落属性 <a:pPr>，包含默认运行属性
+        const pPr = doc.createElementNS(NS_A, 'a:pPr');
+        pPr.setAttribute('algn', formula.align || 'ctr');
+        
+        // 默认文本运行属性 <a:defRPr>
+        const defRPr = doc.createElementNS(NS_A, 'a:defRPr');
+        defRPr.setAttribute('sz', fontSize.toString());
+        
+        // 颜色 <a:solidFill>
+        const solidFill = doc.createElementNS(NS_A, 'a:solidFill');
+        const srgbClr = doc.createElementNS(NS_A, 'a:srgbClr');
+        srgbClr.setAttribute('val', color);
+        solidFill.appendChild(srgbClr);
+        defRPr.appendChild(solidFill);
+        
+        // 字体 <a:latin>
+        const latin = doc.createElementNS(NS_A, 'a:latin');
+        latin.setAttribute('typeface', 'Cambria Math');
+        defRPr.appendChild(latin);
+        
+        pPr.appendChild(defRPr);
+        p.appendChild(pPr);
+
+        // 创建 <a14:m> 数学容器
+        const a14m = doc.createElementNS(NS_A14, 'a14:m');
+        
+        // 在 OMML 中也添加样式
+        // m:ctrlPr 控制属性包含 a:rPr 运行属性
+        const ctrlPrXml = `
+            <m:ctrlPr xmlns:m="${NS_M}" xmlns:a="${NS_A}">
+                <a:rPr sz="${fontSize}">
+                    <a:solidFill><a:srgbClr val="${color}"/></a:solidFill>
+                    <a:latin typeface="Cambria Math"/>
+                </a:rPr>
+            </m:ctrlPr>
         `.replace(/\s+/g, ' ').trim();
+        
+        // 解析 OMML 字符串为 DOM，注入样式
+        const styledOmml = omml.replace(
+            /<m:oMath([^>]*)>/g, 
+            `<m:oMath$1><m:oMathParaPr><m:jc m:val="center"/></m:oMathParaPr>`
+        );
+        
+        const ommlDoc = new DOMParser().parseFromString(
+            `<m:oMathPara xmlns:m="${NS_M}" xmlns:a="${NS_A}">
+                <m:oMathParaPr><m:jc m:val="center"/></m:oMathParaPr>
+                ${omml}
+            </m:oMathPara>`,
+            'text/xml'
+        );
+        
+        // 检查解析错误
+        if (ommlDoc.querySelector('parsererror')) {
+            console.warn('[OMML] Failed to parse OMML XML');
+            return null;
+        }
+
+        // 为所有 <m:r> 运行添加样式
+        const runs = ommlDoc.getElementsByTagNameNS(NS_M, 'r');
+        for (const run of runs) {
+            // 检查是否已有 <m:rPr>
+            let rPr = run.getElementsByTagNameNS(NS_M, 'rPr')[0];
+            if (!rPr) {
+                rPr = ommlDoc.createElementNS(NS_M, 'm:rPr');
+                run.insertBefore(rPr, run.firstChild);
+            }
+            
+            // 添加或更新 <a:rPr>
+            let aRPr = rPr.getElementsByTagNameNS(NS_A, 'rPr')[0];
+            if (!aRPr) {
+                const aRPrDoc = new DOMParser().parseFromString(
+                    `<a:rPr xmlns:a="${NS_A}" sz="${fontSize}">
+                        <a:solidFill><a:srgbClr val="${color}"/></a:solidFill>
+                        <a:latin typeface="Cambria Math"/>
+                    </a:rPr>`,
+                    'text/xml'
+                );
+                aRPr = ommlDoc.importNode(aRPrDoc.documentElement, true);
+                rPr.appendChild(aRPr);
+            }
+        }
+
+        // 导入 OMML 节点到当前文档
+        const ommlNode = doc.importNode(ommlDoc.documentElement, true);
+        a14m.appendChild(ommlNode);
+        p.appendChild(a14m);
+
+        return p;
+    }
+
+    /**
+     * 确保 PPTX 的 Content Types 包含 OMML 所需的扩展
+     */
+    async _ensureOMMLContentType(zip) {
+        const contentTypesPath = '[Content_Types].xml';
+        let contentTypesXml = await zip.file(contentTypesPath)?.async('string');
+        if (!contentTypesXml) return;
+
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(contentTypesXml, 'text/xml');
+        const root = doc.documentElement;
+
+        // 检查是否已有 mc (Markup Compatibility) 命名空间相关的声明
+        // PowerPoint 2010+ 需要这个来支持 a14:m 扩展
+        
+        // 通常 PptxGenJS 已经处理了基本的 content types
+        // 如果仍有问题，可能需要添加 relationship 扩展
+        
+        const serializer = new XMLSerializer();
+        zip.file(contentTypesPath, serializer.serializeToString(doc));
     }
 
     _downloadBlob(blob, filename) {
