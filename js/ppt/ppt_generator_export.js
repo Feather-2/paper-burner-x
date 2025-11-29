@@ -74,9 +74,27 @@ const PPTGeneratorExport = {
             throw new Error('PPTX 渲染器未加载');
         }
 
+        // 加载 JSZip 用于后处理（如果需要原生公式）
+        if (typeof JSZip === 'undefined') {
+            await this._loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
+        }
+
         const slidesForExport = await this._bakeEffectsForPPTX(this.slides);
         const renderer = new PPTXSlideRenderer();
         const filename = `${this.currentProject?.title || 'presentation'}.pptx`;
+        
+        // OMML 公式功能暂时禁用（XML 结构问题待修复）
+        // TODO: 修复 OMML 嵌入后恢复
+        // const hasFormulas = slidesForExport.some(slide => 
+        //     slide.elements?.some(el => el.type === 'formula')
+        // );
+        // if (hasFormulas && typeof MathConverter !== 'undefined') {
+        //     await renderer.renderWithOMML(slidesForExport, filename, new MathConverter());
+        // } else {
+        //     await renderer.render(slidesForExport, filename);
+        // }
+        
+        // 标准导出（使用 Unicode 公式）
         await renderer.render(slidesForExport, filename);
     },
 

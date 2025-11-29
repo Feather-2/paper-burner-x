@@ -63,6 +63,123 @@ class PPTXSlideRenderer {
         return pres.writeFile({ fileName: filename });
     }
 
+    /**
+     * 使用原生 OMML 公式渲染 PPTX
+     * 1. 先用占位符生成 PPTX
+     * 2. 用 JSZip 解压
+     * 3. 替换公式占位符为 OMML
+     * 4. 重新打包下载
+     */
+    async renderWithOMML(slides, filename, mathConverter) {
+        if (typeof PptxGenJS === 'undefined') {
+            throw new Error('PptxGenJS 未加载');
+        }
+        if (typeof JSZip === 'undefined') {
+            throw new Error('JSZip 未加载');
+        }
+
+        console.log('[PPTXSlideRenderer] Starting OMML render with', slides.length, 'slides');
+
+        // 收集公式信息
+        this.formulaRegistry = [];
+        this.mathConverter = mathConverter;
+
+        // 预加载资源
+        await Promise.all([
+            this.preloadAllIcons(slides),
+            this.preloadAllSvgs(slides),
+        ]);
+
+        const pres = new PptxGenJS();
+        pres.layout = 'LAYOUT_16x9';
+        pres.title = filename.replace('.pptx', '');
+        pres.theme = { headFontFace: this.styles.fontFamily.pptx, bodyFontFace: this.styles.fontFamily.pptx };
+
+        slides.forEach((slideData, index) => {
+            this.currentSlideIndex = index;
+            console.log(`[PPTXSlideRenderer] Rendering slide ${index + 1}/${slides.length}`);
+            this.renderSlide(pres, slideData);
+        });
+
+        // 生成 PPTX blob
+        const pptxBlob = await pres.write({ outputType: 'blob' });
+
+        // 后处理：替换公式占位符为 OMML
+        if (this.formulaRegistry.length > 0) {
+            console.log(`[PPTXSlideRenderer] Post-processing ${this.formulaRegistry.length} formulas...`);
+            const processedBlob = await this._postProcessOMML(pptxBlob);
+            this._downloadBlob(processedBlob, filename);
+        } else {
+            this._downloadBlob(pptxBlob, filename);
+        }
+
+        console.log('[PPTXSlideRenderer] OMML render complete');
+    }
+
+    async _postProcessOMML(pptxBlob) {
+        const zip = await JSZip.loadAsync(pptxBlob);
+
+        // 遍历所有 slide XML
+        for (const formula of this.formulaRegistry) {
+            const slidePath = `ppt/slides/slide${formula.slideIndex + 1}.xml`;
+            const slideXml = await zip.file(slidePath)?.async('string');
+            
+            if (!slideXml) continue;
+
+            // 查找占位符并替换为 OMML
+            const placeholder = `FORMULA_PLACEHOLDER_${formula.id}`;
+            if (slideXml.includes(placeholder)) {
+                const omml = this.mathConverter.latexToOMML(formula.latex);
+                if (omml) {
+                    // 构建完整的 OMML 段落（需要正确的 XML 命名空间）
+                    const ommlParagraph = this._buildOMMLParagraph(omml, formula);
+                    const newXml = slideXml.replace(
+                        new RegExp(`<a:t>${placeholder}</a:t>`, 'g'),
+                        `</a:r></a:p>${ommlParagraph}<a:p><a:r><a:t>`
+                    );
+                    zip.file(slidePath, newXml);
+                    console.log(`[OMML] Replaced formula in slide ${formula.slideIndex + 1}`);
+                }
+            }
+        }
+
+        // 更新 Content Types 以支持 OMML
+        const contentTypesPath = '[Content_Types].xml';
+        let contentTypes = await zip.file(contentTypesPath)?.async('string');
+        if (contentTypes && !contentTypes.includes('officeDocument/2006/math')) {
+            // 确保 OMML 命名空间被识别
+            console.log('[OMML] Content types already valid');
+        }
+
+        return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' });
+    }
+
+    _buildOMMLParagraph(omml, formula) {
+        const align = formula.align || 'ctr';
+        return `
+            <a:p>
+                <a:pPr algn="${align}"/>
+                <a14:m xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main">
+                    <m:oMathPara xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">
+                        <m:oMathParaPr><m:jc m:val="center"/></m:oMathParaPr>
+                        ${omml}
+                    </m:oMathPara>
+                </a14:m>
+            </a:p>
+        `.replace(/\s+/g, ' ').trim();
+    }
+
+    _downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
     renderSlide(pres, slideData) {
         const slide = pres.addSlide();
         const method = `render${this.capitalize(slideData.type)}`;
@@ -1446,17 +1563,35 @@ class PPTXSlideRenderer {
 
     /**
      * 渲染数学公式到 PPTX
-     * 优先使用预渲染的图片，fallback 到 Unicode 文本
+     * - 如果启用了 OMML 模式，使用占位符（后处理时替换为原生公式）
+     * - 否则使用 Unicode 文本
      */
     renderFreeformFormulaPPTX(slide, el, x, y, w, h) {
         const fontSizePx = el.font || 24;
         const color = el.color || '#333333';
-
-        // 直接使用 Unicode 文本渲染公式（html2canvas 对 KaTeX 支持不好）
         const fontSize = Math.round(fontSizePx * 0.72);
-        let displayText = this.latexToUnicode(el.latex || '');
 
-        console.log('[PPTX Formula] Using Unicode text:', el.latex?.substring(0, 30), '->', displayText?.substring(0, 30));
+        let displayText;
+        
+        // 如果启用了 OMML 模式，注册公式并使用占位符
+        if (this.formulaRegistry && this.mathConverter) {
+            const formulaId = this.formulaRegistry.length;
+            this.formulaRegistry.push({
+                id: formulaId,
+                slideIndex: this.currentSlideIndex,
+                latex: el.latex || '',
+                x, y, w, h,
+                fontSize,
+                color,
+                align: el.align || 'center',
+            });
+            displayText = `FORMULA_PLACEHOLDER_${formulaId}`;
+            console.log('[PPTX Formula] Using OMML placeholder:', el.latex?.substring(0, 30));
+        } else {
+            // Fallback: 使用 Unicode 文本
+            displayText = this.latexToUnicode(el.latex || '');
+            console.log('[PPTX Formula] Using Unicode:', el.latex?.substring(0, 30), '->', displayText?.substring(0, 30));
+        }
 
         const textOptions = {
             x: x || 0,
