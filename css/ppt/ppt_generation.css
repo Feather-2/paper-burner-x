@@ -161,13 +161,59 @@
 
 /* Right: Chat/Sidebar */
 .ppt-chat-sidebar {
-    width: 380px;
+    width: 360px;
+    min-width: 280px;
+    max-width: 500px;
     background-color: var(--ppt-surface);
     border-left: 1px solid var(--ppt-border);
     display: flex;
     flex-direction: column;
     z-index: 10;
     box-shadow: -4px 0 24px rgba(0,0,0,0.02);
+    flex-shrink: 0;
+}
+
+/* Resizable Divider for Workspace */
+.ppt-resizer {
+    width: 6px;
+    cursor: col-resize;
+    background: transparent;
+    position: relative;
+    flex-shrink: 0;
+    z-index: 10;
+    transition: background 0.15s;
+}
+
+.ppt-resizer::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 2px;
+    height: 40px;
+    background: var(--ppt-border);
+    border-radius: 2px;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.ppt-resizer:hover {
+    background: var(--ppt-primary-light);
+}
+
+.ppt-resizer:hover::after {
+    opacity: 1;
+    background: var(--ppt-primary);
+}
+
+.ppt-resizer.dragging {
+    background: var(--ppt-primary-light);
+}
+
+.ppt-resizer.dragging::after {
+    opacity: 1;
+    background: var(--ppt-primary);
 }
 
 /* ==================== Project List View ==================== */
@@ -1206,49 +1252,94 @@
     right: 0;
     width: 400px;
     height: 400px;
-    background: rgba(255,255,255,0.1);
-    border-radius: 50%;
-    transform: translate(30%, -30%);
 }
 
-/* Bottom Thumbnail Strip */
-.pres-bottom-strip {
-    height: 100px;
-    background: white;
-    border-top: 1px solid var(--ppt-border);
-    display: flex;
-    flex-direction: column;
-    z-index: 10;
-    box-shadow: 0 -4px 20px rgba(0,0,0,0.05);
-    flex-shrink: 0;
+/* Left Sidebar: Thumbnail Strip */
+.pres-sidebar {
+width: 140px;
+min-width: 100px;
+max-width: 280px;
+background: white;
+border-right: 1px solid var(--ppt-border);
+display: flex;
+flex-direction: column;
+flex-shrink: 0;
+box-shadow: 4px 0 20px rgba(0,0,0,0.03);
 }
 
-.pres-strip-header {
-    padding: 6px 24px;
-    font-size: 11px;
+/* Resizable Divider */
+.pres-resizer {
+width: 6px;
+cursor: col-resize;
+background: transparent;
+position: relative;
+flex-shrink: 0;
+z-index: 10;
+transition: background 0.15s;
+}
+
+.pres-resizer::after {
+content: '';
+position: absolute;
+top: 50%;
+left: 50%;
+transform: translate(-50%, -50%);
+width: 2px;
+height: 40px;
+background: var(--ppt-border);
+border-radius: 2px;
+opacity: 0;
+transition: opacity 0.15s;
+}
+
+.pres-resizer:hover {
+background: var(--ppt-primary-light);
+}
+
+.pres-resizer:hover::after {
+opacity: 1;
+background: var(--ppt-primary);
+}
+
+.pres-resizer.dragging {
+background: var(--ppt-primary-light);
+}
+
+.pres-resizer.dragging::after {
+opacity: 1;
+background: var(--ppt-primary);
+}
+
+.pres-sidebar-header {
+padding: 12px 16px;
+font-size: 12px;
+font-weight: 600;
+color: var(--ppt-text-muted);
+text-transform: uppercase;
+letter-spacing: 0.05em;
+border-bottom: 1px solid var(--ppt-border);
     font-weight: 600;
     color: var(--ppt-text-muted);
     text-transform: uppercase;
-    display: flex;
-    justify-content: space-between;
     letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--ppt-border);
 }
 
 .pres-thumbnails {
     flex: 1;
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: 12px;
-    padding: 0 24px 8px 24px;
-    overflow-x: auto;
+    padding: 12px;
+    overflow-y: auto;
 }
 
 .pres-thumb-card {
-    width: 100px;
+    width: 100%;
     aspect-ratio: 16/9;
     background: white;
-    border: 2px solid transparent;
-    border-radius: 4px;
+    border: 2px solid var(--ppt-border);
+    border-radius: 6px;
     cursor: pointer;
     position: relative;
     flex-shrink: 0;
@@ -1258,7 +1349,7 @@
 }
 
 .pres-thumb-card:hover {
-    transform: translateY(-4px);
+    border-color: var(--ppt-primary-light);
     box-shadow: var(--ppt-shadow-md);
 }
 
@@ -1270,25 +1361,34 @@
 .pres-thumb-preview {
     width: 100%;
     height: 100%;
-    background: #f8fafc;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 11px;
-    color: var(--ppt-text-muted);
-    font-weight: 500;
+    background: #ffffff;
+    overflow: hidden;
+    position: relative;
+}
+
+/* 缩略图内容缩放 */
+.pres-thumb-content {
+    width: 960px;
+    height: 540px;
+    transform: scale(0.162);
+    transform-origin: top left;
+    pointer-events: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    background: white;
 }
 
 .pres-thumb-num {
     position: absolute;
-    bottom: 6px;
-    left: 6px;
-    background: rgba(0,0,0,0.6);
+    bottom: 4px;
+    left: 4px;
+    background: rgba(0,0,0,0.7);
     backdrop-filter: blur(4px);
     color: white;
-    font-size: 11px;
-    padding: 2px 8px;
-    border-radius: 4px;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
     font-weight: 600;
 }
 

@@ -117,7 +117,7 @@ const PPTGeneratorExport = {
     },
 
     /**
-     * 图片模式导出 PPTX：每页幻灯片渲染成图片
+     * 图片模式导出 PPTX：复用 _renderSlidesToImages 公共方法
      */
     async _exportPPTXAsImages(filename) {
         if (typeof html2canvas === 'undefined') {
@@ -128,61 +128,85 @@ const PPTGeneratorExport = {
         pres.layout = 'LAYOUT_16x9';
         pres.title = filename.replace('.pptx', '');
 
-        // 获取或创建临时渲染容器
-        const container = document.createElement('div');
-        container.style.cssText = `
-            position: absolute;
-            left: -9999px;
-            top: 0;
-            width: 1920px;
-            height: 1080px;
-            overflow: hidden;
-            background: white;
-        `;
-        document.body.appendChild(container);
+        // 复用公共截图方法
+        const images = await this._renderSlidesToImages({ scale: 2, format: 'png' });
 
-        const htmlRenderer = new HTMLSlideRenderer();
+        for (const imgData of images) {
+            const slide = pres.addSlide();
+            slide.addImage({
+                data: imgData,
+                x: 0,
+                y: 0,
+                w: '100%',
+                h: '100%',
+            });
+        }
+
+        await pres.writeFile({ fileName: filename });
+        console.log('[PPTX Image] Export complete');
+    },
+
+    /**
+     * 公共方法：将所有幻灯片渲染为图片
+     * @param {object} options - { scale, format: 'png'|'jpeg', quality }
+     * @returns {Promise<string[]>} - Base64 图片数组
+     */
+    async _renderSlidesToImages(options = {}) {
+        const { scale = 2, format = 'png', quality = 0.95 } = options;
+
+        const slideContainer = document.createElement('div');
+        slideContainer.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 960px; height: 540px; z-index: -9999;';
+        document.body.appendChild(slideContainer);
+
+        const renderer = new HTMLSlideRenderer();
+        const slidesForExport = await this._bakeEffectsForPPTX(this.slides);
+        const images = [];
 
         try {
-            for (let i = 0; i < this.slides.length; i++) {
-                const slideData = this.slides[i];
-                console.log(`[PPTX Image] Rendering slide ${i + 1}/${this.slides.length}`);
+            for (let i = 0; i < slidesForExport.length; i++) {
+                console.log(`[RenderImages] Slide ${i + 1}/${slidesForExport.length}`);
 
                 // 渲染 HTML
-                container.innerHTML = htmlRenderer.render(slideData, i);
-                
-                // 等待资源加载
-                await new Promise(resolve => setTimeout(resolve, 100));
+                slideContainer.innerHTML = `<div style="width: 960px; height: 540px; overflow: hidden;">${renderer.render(slidesForExport[i], i)}</div>`;
 
-                // 截图
-                const canvas = await html2canvas(container, {
-                    scale: 1,
-                    width: 1920,
-                    height: 1080,
-                    backgroundColor: null,
+                // 等待资源加载
+                await this._waitForIconsToLoad(slideContainer);
+                await this._waitForImagesToLoad(slideContainer);
+                await this._waitForKatexAndInlineStyles(slideContainer);
+
+                // 修复行高
+                const innerContent = slideContainer.firstChild;
+                if (innerContent) {
+                    innerContent.style.lineHeight = 'initial';
+                    innerContent.querySelectorAll('*').forEach(el => {
+                        el.style.lineHeight = 'initial';
+                        if (el.tagName === 'IMG') el.style.display = 'inline-block';
+                    });
+                }
+
+                // 截图（带回退）
+                const hasEffects = this._slideHasEffects(slidesForExport[i]);
+                const canvas = await this._captureToCanvas(slideContainer.firstChild, {
+                    scale,
                     useCORS: true,
-                    allowTaint: true,
+                    allowTaint: false,
+                    backgroundColor: '#ffffff',
+                    logging: false,
+                    foreignObjectRendering: hasEffects,
+                    removeContainer: true,
+                }, {
+                    foreignObjectRendering: false,
                     logging: false,
                 });
 
-                const dataUrl = canvas.toDataURL('image/png');
-
-                // 添加到 PPTX
-                const slide = pres.addSlide();
-                slide.addImage({
-                    data: dataUrl,
-                    x: 0,
-                    y: 0,
-                    w: '100%',
-                    h: '100%',
-                });
+                const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+                images.push(canvas.toDataURL(mimeType, quality));
             }
-
-            await pres.writeFile({ fileName: filename });
-            console.log('[PPTX Image] Export complete');
         } finally {
-            document.body.removeChild(container);
+            document.body.removeChild(slideContainer);
         }
+
+        return images;
     },
 
     async _exportPDF() {

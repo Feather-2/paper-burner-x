@@ -55,20 +55,6 @@ const PPTGeneratorPresentation = {
                                         <span class="ppt-export-item-desc">.pdf 便于分享</span>
                                     </div>
                                 </button>
-                                <button class="ppt-export-item" onclick="window.PPTGenerator.exportAs('html-raw')">
-                                    <iconify-icon icon="carbon:code"></iconify-icon>
-                                    <div class="ppt-export-item-info">
-                                        <span class="ppt-export-item-title">原始 HTML</span>
-                                        <span class="ppt-export-item-desc">AI 输出的 data-* 格式</span>
-                                    </div>
-                                </button>
-                                <button class="ppt-export-item" onclick="window.PPTGenerator.exportAs('html-rendered')">
-                                    <iconify-icon icon="carbon:view"></iconify-icon>
-                                    <div class="ppt-export-item-info">
-                                        <span class="ppt-export-item-title">渲染后 HTML</span>
-                                        <span class="ppt-export-item-desc">经过样式处理的 HTML</span>
-                                    </div>
-                                </button>
                                 <div class="ppt-export-divider"></div>
                                 <button class="ppt-export-item" onclick="window.PPTGenerator.exportAs('images')">
                                     <iconify-icon icon="carbon:image"></iconify-icon>
@@ -84,6 +70,25 @@ const PPTGeneratorPresentation = {
 
                 <!-- Main Area -->
                 <div class="pres-main-area">
+                    <!-- Left Sidebar: Thumbnail Strip -->
+                    <div class="pres-sidebar" id="presSidebar" style="width: 140px;">
+                        <div class="pres-sidebar-header">
+                            <span>幻灯片</span>
+                        </div>
+                        <div class="pres-thumbnails custom-scrollbar" id="presThumbnails">
+                            ${this.slides.map((slide, index) => `
+                                <div class="pres-thumb-card ${index === this.currentSlideIndex ? 'active' : ''}" onclick="window.PPTGenerator.goToSlide(${index})">
+                                    <div class="pres-thumb-preview">
+                                        ${this._renderThumbnail(slide, index)}
+                                    </div>
+                                    <div class="pres-thumb-num">${index + 1}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    <!-- Left Resizer -->
+                    <div class="pres-resizer" id="presLeftResizer" data-target="presSidebar" data-min="100" data-max="280"></div>
+
                     <!-- Canvas -->
                     <div class="pres-canvas-wrapper">
                         ${this.viewMode === 'slide' ? `
@@ -104,24 +109,11 @@ const PPTGeneratorPresentation = {
                         `}
                     </div>
                 </div>
-
-                <!-- Bottom Thumbnail Strip -->
-                <div class="pres-bottom-strip">
-                    <div class="pres-strip-header">
-                        <span>幻灯片概览</span>
-                        <span style="cursor: pointer"><iconify-icon icon="carbon:maximize"></iconify-icon></span>
-                    </div>
-                    <div class="pres-thumbnails custom-scrollbar" id="presThumbnails">
-                        ${this.slides.map((slide, index) => `
-                            <div class="pres-thumb-card ${index === this.currentSlideIndex ? 'active' : ''}" onclick="window.PPTGenerator.goToSlide(${index})">
-                                <div class="pres-thumb-preview" style="${index === 0 ? 'background: #eff6ff; color: #3b82f6;' : ''}">${slide.title}</div>
-                                <div class="pres-thumb-num">${index + 1}</div>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
             </div>
         `;
+        
+        // 初始化可拖动分隔条
+        setTimeout(() => this.initResizers(), 0);
     },
 
     // ============================================================
@@ -138,6 +130,24 @@ const PPTGeneratorPresentation = {
         }
         // Fallback
         return this._renderSlideContentLegacy(slide);
+    },
+
+    /**
+     * 渲染缩略图预览（缩小版的幻灯片内容）
+     */
+    _renderThumbnail(slide, index) {
+        // 检查 HTMLSlideRenderer 是否可用
+        if (typeof HTMLSlideRenderer === 'undefined') {
+            // Fallback: 显示幻灯片类型和序号
+            const title = slide.title || slide.type || `幻灯片 ${index + 1}`;
+            return `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:10px;color:#666;">${title}</div>`;
+        }
+        if (!this._htmlRenderer) {
+            this._htmlRenderer = new HTMLSlideRenderer();
+        }
+        // 渲染完整内容，然后用 CSS 缩放
+        const content = this._htmlRenderer.render(slide, index);
+        return `<div class="pres-thumb-content">${content}</div>`;
     },
 
     _renderSlideContentLegacy(slide) {
@@ -426,6 +436,65 @@ const PPTGeneratorPresentation = {
                 }
             });
         }
+    },
+
+    /**
+     * 初始化可拖动分隔条
+     */
+    initResizers() {
+        const resizers = document.querySelectorAll('.pres-resizer');
+        resizers.forEach(resizer => {
+            const targetId = resizer.dataset.target;
+            const target = document.getElementById(targetId);
+            const minWidth = parseInt(resizer.dataset.min) || 100;
+            const maxWidth = parseInt(resizer.dataset.max) || 400;
+            
+            if (!target) return;
+
+            let startX, startWidth;
+
+            const onMouseDown = (e) => {
+                startX = e.clientX;
+                startWidth = target.offsetWidth;
+                resizer.classList.add('dragging');
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+                
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            };
+
+            const onMouseMove = (e) => {
+                const dx = e.clientX - startX;
+                const newWidth = Math.min(maxWidth, Math.max(minWidth, startWidth + dx));
+                target.style.width = newWidth + 'px';
+                
+                // 更新缩略图缩放比例
+                this._updateThumbnailScale(newWidth);
+            };
+
+            const onMouseUp = () => {
+                resizer.classList.remove('dragging');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            };
+
+            resizer.addEventListener('mousedown', onMouseDown);
+        });
+    },
+
+    /**
+     * 根据侧边栏宽度更新缩略图缩放比例
+     */
+    _updateThumbnailScale(sidebarWidth) {
+        const thumbWidth = sidebarWidth - 24; // 减去 padding
+        const scale = thumbWidth / 960;
+        const thumbContents = document.querySelectorAll('.pres-thumb-content');
+        thumbContents.forEach(el => {
+            el.style.transform = `scale(${scale})`;
+        });
     }
 };
 

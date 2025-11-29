@@ -125,7 +125,9 @@ const PPTGeneratorNavigation = {
                     <div class="ppt-preview-area" id="pptPreviewArea">
                         <!-- Dynamic Agent Dashboard -->
                     </div>
-                    <div class="ppt-chat-sidebar">
+                        <!-- Right Resizer -->
+                    <div class="ppt-resizer" id="pptRightResizer" data-target="pptChatSidebar" data-min="280" data-max="500"></div>
+                    <div class="ppt-chat-sidebar" id="pptChatSidebar">
                         <div class="ppt-todo-tracker" id="pptTodoTracker"></div>
                         <div class="ppt-chat-history" id="pptChatHistory"></div>
                         <div class="ppt-chat-input-area">
@@ -145,6 +147,48 @@ const PPTGeneratorNavigation = {
 
         this.renderTodoList();
         this._bindChatEvents();
+        this._initWorkspaceResizer();
+    },
+
+    /**
+     * 初始化工作区右侧分隔条
+     */
+    _initWorkspaceResizer() {
+        const resizer = document.getElementById('pptRightResizer');
+        const target = document.getElementById('pptChatSidebar');
+        if (!resizer || !target) return;
+
+        const minWidth = parseInt(resizer.dataset.min) || 280;
+        const maxWidth = parseInt(resizer.dataset.max) || 500;
+        let startX, startWidth;
+
+        const onMouseDown = (e) => {
+            startX = e.clientX;
+            startWidth = target.offsetWidth;
+            resizer.classList.add('dragging');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        };
+
+        const onMouseMove = (e) => {
+            // 右侧边栏：向左拖动增加宽度
+            const dx = startX - e.clientX;
+            const newWidth = Math.min(maxWidth, Math.max(minWidth, startWidth + dx));
+            target.style.width = newWidth + 'px';
+        };
+
+        const onMouseUp = () => {
+            resizer.classList.remove('dragging');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+
+        resizer.addEventListener('mousedown', onMouseDown);
     },
 
     _bindChatEvents() {
