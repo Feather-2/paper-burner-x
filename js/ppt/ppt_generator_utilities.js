@@ -16,6 +16,15 @@ const PPTGeneratorUtilities = {
         }
         container.style.display = 'block';
 
+        const completedCount = this.todos.filter(t => t.status === 'completed').length;
+        const totalCount = this.todos.length;
+        const allCompleted = completedCount === totalCount;
+
+        // 默认收起
+        if (this.isTodoListExpanded === undefined) {
+            this.isTodoListExpanded = false;
+        }
+
         const listHtml = this.todos.map(todo => `
             <div class="ppt-todo-item ${todo.status}">
                 <div class="ppt-todo-icon">
@@ -27,9 +36,7 @@ const PPTGeneratorUtilities = {
             </div>
         `).join('');
 
-        const completedCount = this.todos.filter(t => t.status === 'completed').length;
-        const totalCount = this.todos.length;
-        const progressText = !this.isTodoListExpanded ? `<span style="font-weight: normal; color: var(--ppt-text-muted); margin-left: 8px;">(${completedCount}/${totalCount})</span>` : '';
+        const progressText = !this.isTodoListExpanded ? `<span style="font-weight: normal; color: var(--ppt-text-muted); margin-left: 8px;">${allCompleted ? '✓ 已完成' : `(${completedCount}/${totalCount})`}</span>` : '';
 
         const chevronIcon = this.isTodoListExpanded ? 'carbon:chevron-up' : 'carbon:chevron-down';
         const contentStyle = this.isTodoListExpanded ? '' : 'display: none;';

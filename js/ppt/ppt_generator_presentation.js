@@ -1,73 +1,10 @@
 const PPTGeneratorPresentation = {
     renderPresentationMode(container) {
+        // 更新外层 header，整合工具栏内容
+        this._updateHeaderForPresentation();
+
         container.innerHTML = `
             <div class="pres-container">
-                <!-- Top Toolbar -->
-                <div class="pres-toolbar">
-                    <div class="pres-toolbar-left">
-                        <button class="ppt-icon-btn" onclick="window.PPTGenerator.enterWorkspace()">
-                            <iconify-icon icon="carbon:arrow-left"></iconify-icon>
-                        </button>
-                        <div class="pres-title-wrapper">
-                            <input type="text" class="pres-title-input" value="${this.currentProject.title}" onblur="window.PPTGenerator.updateProjectTitle(this.value)" onkeydown="if(event.key === 'Enter') this.blur()">
-                            <iconify-icon icon="carbon:edit" class="pres-title-icon"></iconify-icon>
-                        </div>
-                    </div>
-                    <div class="pres-toolbar-center">
-                        <button class="pres-view-btn ${this.viewMode === 'slide' ? 'active' : ''}" onclick="window.PPTGenerator.toggleViewMode('slide')">幻灯片</button>
-                        <button class="pres-view-btn ${this.viewMode === 'outline' ? 'active' : ''}" onclick="window.PPTGenerator.toggleViewMode('outline')">大纲视图</button>
-                    </div>
-                    <div class="ppt-header-right">
-                        <div class="ppt-export-dropdown">
-                            <button class="ppt-export-btn" onclick="window.PPTGenerator.toggleExportMenu()">
-                                <iconify-icon icon="carbon:export"></iconify-icon>
-                                <span>导出</span>
-                                <iconify-icon icon="carbon:chevron-down" class="ppt-export-chevron"></iconify-icon>
-                            </button>
-                            <div class="ppt-export-menu" id="pptExportMenu">
-                                <div class="ppt-export-group-label">PowerPoint 导出</div>
-                                <button class="ppt-export-item" onclick="window.PPTGenerator.exportAs('pptx')">
-                                    <iconify-icon icon="carbon:document"></iconify-icon>
-                                    <div class="ppt-export-item-info">
-                                        <span class="ppt-export-item-title">标准导出</span>
-                                        <span class="ppt-export-item-desc">可编辑，公式用文本</span>
-                                    </div>
-                                </button>
-                                <button class="ppt-export-item" onclick="window.PPTGenerator.exportAs('pptx-omml')">
-                                    <iconify-icon icon="carbon:function-math"></iconify-icon>
-                                    <div class="ppt-export-item-info">
-                                        <span class="ppt-export-item-title">原生公式</span>
-                                        <span class="ppt-export-item-desc">公式可编辑（实验性）</span>
-                                    </div>
-                                </button>
-                                <button class="ppt-export-item" onclick="window.PPTGenerator.exportAs('pptx-image')">
-                                    <iconify-icon icon="carbon:image"></iconify-icon>
-                                    <div class="ppt-export-item-info">
-                                        <span class="ppt-export-item-title">图片模式</span>
-                                        <span class="ppt-export-item-desc">效果最好，不可编辑</span>
-                                    </div>
-                                </button>
-                                <div class="ppt-export-divider"></div>
-                                <button class="ppt-export-item" onclick="window.PPTGenerator.exportAs('pdf')">
-                                    <iconify-icon icon="carbon:document-pdf"></iconify-icon>
-                                    <div class="ppt-export-item-info">
-                                        <span class="ppt-export-item-title">PDF 文档</span>
-                                        <span class="ppt-export-item-desc">.pdf 便于分享</span>
-                                    </div>
-                                </button>
-                                <div class="ppt-export-divider"></div>
-                                <button class="ppt-export-item" onclick="window.PPTGenerator.exportAs('images')">
-                                    <iconify-icon icon="carbon:image"></iconify-icon>
-                                    <div class="ppt-export-item-info">
-                                        <span class="ppt-export-item-title">图片打包</span>
-                                        <span class="ppt-export-item-desc">.zip 每页一张 PNG</span>
-                                    </div>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- Main Area -->
                 <div class="pres-main-area">
                     <!-- Left Sidebar: Thumbnail Strip -->
@@ -92,15 +29,37 @@ const PPTGeneratorPresentation = {
                     <!-- Canvas -->
                     <div class="pres-canvas-wrapper">
                         ${this.viewMode === 'slide' ? `
-                            <div class="pres-slide" id="presSlideCanvas">
-                                ${this._renderSlideContent(this.slides[this.currentSlideIndex])}
-                            </div>
-
-                            <!-- Floating Pagination -->
-                            <div class="pres-pagination">
-                                <button class="pres-page-btn" onclick="window.PPTGenerator.prevSlide()"><iconify-icon icon="carbon:chevron-left"></iconify-icon></button>
-                                <span class="pres-page-info" id="presPageInfo">${this.currentSlideIndex + 1} / ${this.slides.length}</span>
-                                <button class="pres-page-btn" onclick="window.PPTGenerator.nextSlide()"><iconify-icon icon="carbon:chevron-right"></iconify-icon></button>
+                            <div class="pres-slide-container">
+                                <div class="pres-slide" id="presSlideCanvas">
+                                    ${this._renderSlideContent(this.slides[this.currentSlideIndex])}
+                                </div>
+                                <!-- Floating Toolbar -->
+                                <div class="pres-toolbar-float">
+                                    <div class="pres-toolbar-group">
+                                        <button class="pres-tool-btn" onclick="window.PPTGenerator.prevSlide()" title="上一页">
+                                            <iconify-icon icon="carbon:chevron-left"></iconify-icon>
+                                        </button>
+                                        <span class="pres-page-info" id="presPageInfo">${this.currentSlideIndex + 1} / ${this.slides.length}</span>
+                                        <button class="pres-tool-btn" onclick="window.PPTGenerator.nextSlide()" title="下一页">
+                                            <iconify-icon icon="carbon:chevron-right"></iconify-icon>
+                                        </button>
+                                    </div>
+                                    <div class="pres-toolbar-divider"></div>
+                                    <div class="pres-toolbar-group">
+                                        <button class="pres-tool-btn" onclick="window.PPTGenerator.addSlideWithAI()" title="AI 新增幻灯片">
+                                            <iconify-icon icon="carbon:add"></iconify-icon>
+                                        </button>
+                                        <button class="pres-tool-btn" onclick="window.PPTGenerator.editCurrentSlide()" title="编辑当前页">
+                                            <iconify-icon icon="carbon:edit"></iconify-icon>
+                                        </button>
+                                        <button class="pres-tool-btn" onclick="window.PPTGenerator.duplicateSlide()" title="复制当前页">
+                                            <iconify-icon icon="carbon:copy"></iconify-icon>
+                                        </button>
+                                        <button class="pres-tool-btn danger" onclick="window.PPTGenerator.deleteCurrentSlide()" title="删除当前页">
+                                            <iconify-icon icon="carbon:trash-can"></iconify-icon>
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         ` : `
                             <div class="pres-outline-view custom-scrollbar">
@@ -114,6 +73,106 @@ const PPTGeneratorPresentation = {
         
         // 初始化可拖动分隔条
         setTimeout(() => this.initResizers(), 0);
+    },
+
+    // ============================================================
+    // Header Integration for Presentation Mode
+    // ============================================================
+
+    /**
+     * 更新外层 header，整合视图切换和导出按钮
+     */
+    _updateHeaderForPresentation() {
+        const header = document.querySelector('.ppt-header');
+        if (!header) return;
+
+        header.innerHTML = `
+            <div class="ppt-header-left">
+                <button class="ppt-icon-btn" onclick="window.PPTGenerator.enterWorkspace()">
+                    <iconify-icon icon="carbon:arrow-left"></iconify-icon>
+                </button>
+                <div class="ppt-logo">
+                    <img src="public/pure.svg" alt="Logo" class="ppt-logo-img">
+                    <span>智能演示文稿生成</span>
+                </div>
+                <div class="ppt-header-divider"></div>
+                <div class="pres-title-wrapper">
+                    <input type="text" class="pres-title-input" value="${this.currentProject.title}" 
+                           onblur="window.PPTGenerator.updateProjectTitle(this.value)" 
+                           onkeydown="if(event.key === 'Enter') this.blur()">
+                    <iconify-icon icon="carbon:edit" class="pres-title-icon"></iconify-icon>
+                </div>
+                <div class="pres-view-toggle">
+                    <button class="pres-view-btn ${this.viewMode === 'slide' ? 'active' : ''}" onclick="window.PPTGenerator.toggleViewMode('slide')">
+                        <iconify-icon icon="carbon:presentation-file"></iconify-icon>
+                        <span>幻灯片</span>
+                    </button>
+                    <button class="pres-view-btn ${this.viewMode === 'outline' ? 'active' : ''}" onclick="window.PPTGenerator.toggleViewMode('outline')">
+                        <iconify-icon icon="carbon:list"></iconify-icon>
+                        <span>大纲</span>
+                    </button>
+                </div>
+            </div>
+            <div class="ppt-header-right">
+                <button class="ppt-play-btn" onclick="window.PPTGenerator.startSlideshow()">
+                    <iconify-icon icon="carbon:play-filled"></iconify-icon>
+                    <span>播放</span>
+                </button>
+                <div class="ppt-export-dropdown">
+                    <button class="ppt-export-btn" onclick="window.PPTGenerator.toggleExportMenu()">
+                        <iconify-icon icon="carbon:export"></iconify-icon>
+                        <span>导出</span>
+                        <iconify-icon icon="carbon:chevron-down" class="ppt-export-chevron"></iconify-icon>
+                    </button>
+                    <div class="ppt-export-menu" id="pptExportMenu">
+                        <div class="ppt-export-group-label">PowerPoint 导出</div>
+                        <button class="ppt-export-item" onclick="window.PPTGenerator.exportAs('pptx')">
+                            <iconify-icon icon="carbon:document"></iconify-icon>
+                            <div class="ppt-export-item-info">
+                                <span class="ppt-export-item-title">标准导出</span>
+                                <span class="ppt-export-item-desc">可编辑，公式用文本</span>
+                            </div>
+                        </button>
+                        <button class="ppt-export-item" onclick="window.PPTGenerator.exportAs('pptx-omml')">
+                            <iconify-icon icon="carbon:function-math"></iconify-icon>
+                            <div class="ppt-export-item-info">
+                                <span class="ppt-export-item-title">原生公式</span>
+                                <span class="ppt-export-item-desc">公式可编辑（实验性）</span>
+                            </div>
+                        </button>
+                        <button class="ppt-export-item" onclick="window.PPTGenerator.exportAs('pptx-image')">
+                            <iconify-icon icon="carbon:image"></iconify-icon>
+                            <div class="ppt-export-item-info">
+                                <span class="ppt-export-item-title">图片模式</span>
+                                <span class="ppt-export-item-desc">效果最好，不可编辑</span>
+                            </div>
+                        </button>
+                        <div class="ppt-export-divider"></div>
+                        <button class="ppt-export-item" onclick="window.PPTGenerator.exportAs('pdf')">
+                            <iconify-icon icon="carbon:document-pdf"></iconify-icon>
+                            <div class="ppt-export-item-info">
+                                <span class="ppt-export-item-title">PDF 文档</span>
+                                <span class="ppt-export-item-desc">.pdf 便于分享</span>
+                            </div>
+                        </button>
+                        <div class="ppt-export-divider"></div>
+                        <button class="ppt-export-item" onclick="window.PPTGenerator.exportAs('images')">
+                            <iconify-icon icon="carbon:image"></iconify-icon>
+                            <div class="ppt-export-item-info">
+                                <span class="ppt-export-item-title">图片打包</span>
+                                <span class="ppt-export-item-desc">.zip 每页一张 PNG</span>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+                <button class="ppt-icon-btn" onclick="window.PPTGenerator.showProjectList()" title="项目列表">
+                    <iconify-icon icon="carbon:grid"></iconify-icon>
+                </button>
+                <button class="ppt-icon-btn" onclick="window.PPTGenerator.hide()" title="关闭">
+                    <iconify-icon icon="carbon:close"></iconify-icon>
+                </button>
+            </div>
+        `;
     },
 
     // ============================================================
@@ -365,23 +424,58 @@ const PPTGeneratorPresentation = {
     _renderOutlineContent() {
         return `
             <div class="ppt-outline-container">
-                ${this.slides.map((slide, index) => `
+                ${this.slides.map((slide, index) => {
+                    // 从 elements 中提取标题和内容
+                    const info = this._extractSlideInfo(slide);
+                    return `
                     <div class="ppt-outline-item" onclick="window.PPTGenerator.goToSlideFromOutline(${index})">
                         <div class="ppt-outline-num">${index + 1}</div>
                         <div class="ppt-outline-content">
-                            <div class="ppt-outline-title">${slide.title}</div>
-                            ${slide.subtitle ? `<div class="ppt-outline-text">${slide.subtitle}</div>` : ''}
-                            ${slide.content ? `<div class="ppt-outline-text">${slide.content}</div>` : ''}
-                            ${slide.items ? `
+                            <div class="ppt-outline-title">${info.title || `幻灯片 ${index + 1}`}</div>
+                            ${info.subtitle ? `<div class="ppt-outline-text">${info.subtitle}</div>` : ''}
+                            ${info.bullets.length > 0 ? `
                                 <ul class="ppt-outline-list">
-                                    ${slide.items.map(item => `<li>${item}</li>`).join('')}
+                                    ${info.bullets.slice(0, 5).map(b => `<li>${b}</li>`).join('')}
+                                    ${info.bullets.length > 5 ? `<li>... 还有 ${info.bullets.length - 5} 项</li>` : ''}
                                 </ul>
                             ` : ''}
                         </div>
                     </div>
-                `).join('')}
+                `;}).join('')}
             </div>
         `;
+    },
+
+    /**
+     * 从幻灯片数据中提取标题、副标题和要点
+     */
+    _extractSlideInfo(slide) {
+        const info = { title: '', subtitle: '', bullets: [] };
+        
+        // 直接属性（旧格式）
+        if (slide.title) info.title = slide.title;
+        if (slide.subtitle) info.subtitle = slide.subtitle;
+        if (slide.items) info.bullets = slide.items;
+        
+        // 从 elements 数组提取（新格式）
+        if (slide.elements && Array.isArray(slide.elements)) {
+            for (const el of slide.elements) {
+                const type = el['data-el'] || el.type;
+                const text = el['data-text'] || el.text || '';
+                
+                if (type === 'title' && !info.title) {
+                    info.title = text;
+                } else if (type === 'subtitle' && !info.subtitle) {
+                    info.subtitle = text;
+                } else if (type === 'bullet' || type === 'text') {
+                    // 从 bullet 文本中提取要点
+                    const lines = text.split('\n').filter(l => l.trim());
+                    info.bullets.push(...lines);
+                }
+            }
+        }
+        
+        return info;
     },
 
     goToSlideFromOutline(index) {
@@ -495,6 +589,248 @@ const PPTGeneratorPresentation = {
         thumbContents.forEach(el => {
             el.style.transform = `scale(${scale})`;
         });
+    },
+
+    // ============================================================
+    // Slideshow Mode (Full Screen Presentation)
+    // ============================================================
+
+    /**
+     * 启动全屏展示模式
+     */
+    startSlideshow(startIndex = null) {
+        if (!this.slides || this.slides.length === 0) return;
+        
+        this._slideshowIndex = startIndex !== null ? startIndex : this.currentSlideIndex;
+        this._slideshowKeyHandler = this._handleSlideshowKeydown.bind(this);
+        
+        // 创建全屏容器
+        const overlay = document.createElement('div');
+        overlay.id = 'slideshowOverlay';
+        overlay.className = 'slideshow-overlay';
+        overlay.innerHTML = `
+            <div class="slideshow-container">
+                <div class="slideshow-slide" id="slideshowSlide">
+                    ${this._renderSlideContent(this.slides[this._slideshowIndex])}
+                    <div class="slideshow-controls">
+                        <span id="slideshowPageInfo">${this._slideshowIndex + 1} / ${this.slides.length}</span>
+                        <span class="slideshow-hint">← → 翻页 · ESC 退出</span>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(overlay);
+        document.addEventListener('keydown', this._slideshowKeyHandler);
+        
+        // 动态计算缩放比例，使幻灯片尽可能大
+        this._updateSlideshowScale();
+        window.addEventListener('resize', this._slideshowResizeHandler = () => this._updateSlideshowScale());
+        
+        // 点击左右区域翻页
+        overlay.addEventListener('click', (e) => {
+            const rect = overlay.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            if (x < rect.width / 3) {
+                this._slideshowPrev();
+            } else if (x > rect.width * 2 / 3) {
+                this._slideshowNext();
+            }
+        });
+        
+        // 双击退出
+        overlay.addEventListener('dblclick', () => this.exitSlideshow());
+        
+        // 请求全屏
+        if (overlay.requestFullscreen) {
+            overlay.requestFullscreen().catch(() => {});
+        }
+    },
+
+    /**
+     * 退出展示模式
+     */
+    exitSlideshow() {
+        const overlay = document.getElementById('slideshowOverlay');
+        if (overlay) {
+            overlay.remove();
+        }
+        document.removeEventListener('keydown', this._slideshowKeyHandler);
+        window.removeEventListener('resize', this._slideshowResizeHandler);
+        
+        // 退出全屏
+        if (document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+        }
+        
+        // 同步当前页
+        this.currentSlideIndex = this._slideshowIndex;
+        this._updateSlideView();
+    },
+
+    /**
+     * 动态计算并应用幻灯片缩放
+     */
+    _updateSlideshowScale() {
+        const overlay = document.getElementById('slideshowOverlay');
+        const slide = document.getElementById('slideshowSlide');
+        if (!overlay || !slide) return;
+        
+        // 使用 overlay 的实际尺寸
+        const rect = overlay.getBoundingClientRect();
+        const availableWidth = rect.width;
+        const availableHeight = rect.height;
+        const slideWidth = 960;
+        const slideHeight = 540;
+        
+        // 计算缩放比例，完全填满
+        const scaleX = availableWidth / slideWidth;
+        const scaleY = availableHeight / slideHeight;
+        const scale = Math.min(scaleX, scaleY);
+        
+        slide.style.transform = `scale(${scale})`;
+    },
+
+    /**
+     * 处理展示模式键盘事件
+     */
+    _handleSlideshowKeydown(e) {
+        switch (e.key) {
+            case 'ArrowRight':
+            case 'ArrowDown':
+            case ' ':
+            case 'Enter':
+                e.preventDefault();
+                this._slideshowNext();
+                break;
+            case 'ArrowLeft':
+            case 'ArrowUp':
+                e.preventDefault();
+                this._slideshowPrev();
+                break;
+            case 'Escape':
+                this.exitSlideshow();
+                break;
+            case 'Home':
+                e.preventDefault();
+                this._slideshowGoTo(0);
+                break;
+            case 'End':
+                e.preventDefault();
+                this._slideshowGoTo(this.slides.length - 1);
+                break;
+        }
+    },
+
+    _slideshowNext() {
+        if (this._slideshowIndex < this.slides.length - 1) {
+            this._slideshowIndex++;
+            this._updateSlideshowView();
+        }
+    },
+
+    _slideshowPrev() {
+        if (this._slideshowIndex > 0) {
+            this._slideshowIndex--;
+            this._updateSlideshowView();
+        }
+    },
+
+    _slideshowGoTo(index) {
+        this._slideshowIndex = Math.max(0, Math.min(this.slides.length - 1, index));
+        this._updateSlideshowView();
+    },
+
+    _updateSlideshowView() {
+        const slideEl = document.getElementById('slideshowSlide');
+        if (slideEl) {
+            slideEl.innerHTML = `
+                ${this._renderSlideContent(this.slides[this._slideshowIndex])}
+                <div class="slideshow-controls">
+                    <span id="slideshowPageInfo">${this._slideshowIndex + 1} / ${this.slides.length}</span>
+                    <span class="slideshow-hint">← → 翻页 · ESC 退出</span>
+                </div>
+            `;
+        }
+    },
+
+    // ============================================================
+    // Slide Editing Actions (Toolbar)
+    // ============================================================
+
+    /**
+     * 通过 AI 新增幻灯片
+     */
+    addSlideWithAI() {
+        // 聚焦到聊天输入框，并填充提示
+        const chatInput = document.getElementById('pptChatInput');
+        if (chatInput) {
+            chatInput.value = `在第 ${this.currentSlideIndex + 1} 页后新增一页幻灯片，内容是：`;
+            chatInput.focus();
+            chatInput.setSelectionRange(chatInput.value.length, chatInput.value.length);
+        }
+    },
+
+    /**
+     * 编辑当前幻灯片
+     */
+    editCurrentSlide() {
+        const chatInput = document.getElementById('pptChatInput');
+        if (chatInput) {
+            chatInput.value = `修改第 ${this.currentSlideIndex + 1} 页：`;
+            chatInput.focus();
+            chatInput.setSelectionRange(chatInput.value.length, chatInput.value.length);
+        }
+    },
+
+    /**
+     * 复制当前幻灯片
+     */
+    duplicateSlide() {
+        if (!this.slides || this.slides.length === 0) return;
+        
+        const currentSlide = this.slides[this.currentSlideIndex];
+        const duplicated = JSON.parse(JSON.stringify(currentSlide));
+        
+        // 插入到当前页之后
+        this.slides.splice(this.currentSlideIndex + 1, 0, duplicated);
+        this.currentSlideIndex++;
+        
+        this._saveProject();
+        this._refreshPresentation();
+        this.addChatMessage('ai', `已复制第 ${this.currentSlideIndex} 页到第 ${this.currentSlideIndex + 1} 页。`);
+    },
+
+    /**
+     * 删除当前幻灯片
+     */
+    deleteCurrentSlide() {
+        if (!this.slides || this.slides.length <= 1) {
+            this.addChatMessage('ai', '至少需要保留一页幻灯片。');
+            return;
+        }
+        
+        const deletedIndex = this.currentSlideIndex + 1;
+        this.slides.splice(this.currentSlideIndex, 1);
+        
+        // 调整当前索引
+        if (this.currentSlideIndex >= this.slides.length) {
+            this.currentSlideIndex = this.slides.length - 1;
+        }
+        
+        this._saveProject();
+        this._refreshPresentation();
+        this.addChatMessage('ai', `已删除第 ${deletedIndex} 页。`);
+    },
+
+    /**
+     * 刷新演示界面
+     */
+    _refreshPresentation() {
+        const container = document.getElementById('pptPreviewArea');
+        if (container) {
+            this.renderPresentationMode(container);
+        }
     }
 };
 
