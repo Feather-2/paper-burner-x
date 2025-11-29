@@ -23,14 +23,14 @@ const PPTGeneratorNavigation = {
 
         // View mode state (default to grid)
         if (!this.projectListViewMode) this.projectListViewMode = 'grid';
+        if (!this.activeTab) this.activeTab = 'recent'; // 'recent' or 'examples'
 
         this.elements.overlay.innerHTML = `
             <div class="ppt-app-shell">
                 <header class="ppt-header">
                     <div class="ppt-header-left">
                         <div class="ppt-logo">
-                            <img src="public/pure.svg" alt="Logo" class="ppt-logo-img">
-                            <span>Auto PPT</span>
+                            <img src="public/h_with_name.svg" alt="Logo" class="ppt-logo-img" style="width: 100px; height: auto;">
                         </div>
                     </div>
                     <div class="ppt-header-right">
@@ -43,53 +43,87 @@ const PPTGeneratorNavigation = {
                     </div>
                 </header>
                 <main class="ppt-project-list-view">
-                    <!-- Hero Section -->
-                    <div class="ppt-welcome-hero">
-                        <div class="ppt-hero-logo">
-                            <img src="public/pure.svg" alt="Logo">
-                        </div>
-                        <h1>智能演示文稿生成</h1>
-                        <p>从文档到精美演示，只需一键。AI 驱动的专业 PPT 制作助手。</p>
-                    </div>
-                    
-                    <!-- New Creation Card -->
-                    <div class="ppt-create-card-wrapper">
-                        <div class="ppt-create-card">
-                            <div class="ppt-create-card-main">
-                                <div class="ppt-create-card-icon">
+                    <!-- Modern Hero Section (Split Layout) -->
+                    <div class="ppt-hero-section">
+                        <div class="ppt-hero-content">
+                            <div class="ppt-hero-badge">
+                                <iconify-icon icon="carbon:sparkle" style="color: var(--ppt-primary)"></iconify-icon>
+                                <span>AI 驱动的演示文稿生成器</span>
+                            </div>
+                            
+                            <h1 class="ppt-hero-title">
+                                从文档到精美演示<br>只需一键
+                            </h1>
+                            
+                            <p class="ppt-hero-subtitle">
+                                上传您的文档，让 AI 助手为您自动提取大纲、撰写内容、设计排版，生成专业的 PPT 演示文稿。
+                            </p>
+
+                            <!-- Hero Actions -->
+                            <div class="ppt-hero-actions">
+                                <button class="ppt-cta-btn" onclick="window.PPTGenerator.createNewProject()">
                                     <iconify-icon icon="carbon:add-large"></iconify-icon>
-                                </div>
-                                <div class="ppt-create-card-content">
-                                    <h3>开始新创作</h3>
-                                    <p>上传文档，让 AI 为你生成专业演示文稿</p>
-                                </div>
-                            </div>
-                            <div class="ppt-create-card-status">
-                                <div class="ppt-status-item" title="文字生成模型">
-                                    <iconify-icon icon="carbon:model-alt" style="color: ${langStatusColor}"></iconify-icon>
-                                    <span>${hasLangModel ? '语言模型就绪' : '需配置语言模型'}</span>
-                                </div>
-                                <div class="ppt-status-item" title="配图生成模型">
-                                    <iconify-icon icon="carbon:image" style="color: ${imgStatusColor}"></iconify-icon>
-                                    <span>${hasImgModel ? '图像模型就绪' : '图像模型可选'}</span>
-                                </div>
-                            </div>
-                            <div class="ppt-create-card-action">
-                                <button class="ppt-create-btn" onclick="window.PPTGenerator.createNewProject()">
-                                    <iconify-icon icon="carbon:arrow-right" style="font-size: 20px;"></iconify-icon>
+                                    开始新创作
                                 </button>
+                                
+                                <div class="ppt-status-row">
+                                    <div class="ppt-status-pill-minimal">
+                                        <iconify-icon icon="carbon:model-alt" style="color: ${langStatusColor}"></iconify-icon>
+                                        <span>${hasLangModel ? '语言模型就绪' : '需配置语言模型'}</span>
+                                    </div>
+                                    <div class="ppt-status-pill-minimal">
+                                        <iconify-icon icon="carbon:image" style="color: ${imgStatusColor}"></iconify-icon>
+                                        <span>${hasImgModel ? '图像模型就绪' : '图像模型可选'}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Hero Visual Preview -->
+                        <div class="ppt-hero-visual">
+                            <div class="ppt-visual-card main">
+                                <div class="ppt-visual-header">
+                                    <div class="ppt-visual-dots">
+                                        <span></span><span></span><span></span>
+                                    </div>
+                                    <div class="ppt-visual-title">Quantum Computing.pptx</div>
+                                </div>
+                                <div class="ppt-visual-content">
+                                    <div class="ppt-slide-preview-hero">
+                                        <h1>QUANTUM LEAP</h1>
+                                        <p style="font-size: 18px; opacity: 0.8; margin-top: 16px;">Unlocking the Universe's Compute Power</p>
+                                        <div class="ppt-slide-hero-grid" style="margin-top: 40px;">
+                                            <div class="ppt-hero-grid-item" style="display: flex; align-items: center; justify-content: center; color: white; font-size: 12px;">Foundations</div>
+                                            <div class="ppt-hero-grid-item" style="display: flex; align-items: center; justify-content: center; color: white; font-size: 12px;">Algorithms</div>
+                                            <div class="ppt-hero-grid-item" style="display: flex; align-items: center; justify-content: center; color: white; font-size: 12px;">Hardware</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="ppt-visual-card back-1"></div>
+                            <div class="ppt-visual-card back-2"></div>
+                            
+                            <!-- Floating Elements -->
+                            <div class="ppt-float-badge badge-1">
+                                <iconify-icon icon="carbon:magic-wand-filled"></iconify-icon>
+                                <span>AI Auto-Layout</span>
+                            </div>
+                            <div class="ppt-float-badge badge-2">
+                                <iconify-icon icon="carbon:document-export"></iconify-icon>
+                                <span>Export to PPTX</span>
                             </div>
                         </div>
                     </div>
 
                     ${projects.length > 0 ? `
-                        <!-- Recent Projects Section -->
+                        <!-- Projects Section with Tabs -->
                         <div class="ppt-projects-section">
                             <div class="ppt-section-header">
-                                <h3>
-                                    <iconify-icon icon="carbon:recently-viewed"></iconify-icon>
-                                    最近项目
-                                </h3>
+                                <div class="ppt-section-tabs">
+                                    <button class="ppt-section-tab active">
+                                        最近项目
+                                    </button>
+                                </div>
                                 <div class="ppt-view-toggle">
                                     <button class="ppt-icon-btn ${this.projectListViewMode === 'grid' ? 'active' : ''}" onclick="window.PPTGenerator.toggleProjectView('grid')" title="网格视图">
                                         <iconify-icon icon="carbon:grid"></iconify-icon>
@@ -100,7 +134,7 @@ const PPTGeneratorNavigation = {
                                 </div>
                             </div>
                             
-                            ${this.projectListViewMode === 'grid' ? `
+                            ${projects.length > 0 ? (this.projectListViewMode === 'grid' ? `
                                 <div class="ppt-project-grid">
                                     ${projects.map(p => `
                                         <div class="ppt-project-card" onclick="window.PPTGenerator.loadProject('${p.id}')">
@@ -138,6 +172,11 @@ const PPTGeneratorNavigation = {
                                         </div>
                                     `).join('')}
                                 </div>
+                            `) : `
+                                <div style="text-align: center; padding: 40px; color: var(--ppt-text-muted);">
+                                    <iconify-icon icon="carbon:folder-open" style="font-size: 48px; margin-bottom: 16px; opacity: 0.5;"></iconify-icon>
+                                    <p>暂无最近项目，点击上方按钮开始创作</p>
+                                </div>
                             `}
                         </div>
                     ` : ''}
@@ -148,6 +187,11 @@ const PPTGeneratorNavigation = {
 
     toggleProjectView(mode) {
         this.projectListViewMode = mode;
+        this.showProjectList();
+    },
+
+    switchTab(tab) {
+        this.activeTab = tab;
         this.showProjectList();
     },
 
@@ -202,8 +246,7 @@ const PPTGeneratorNavigation = {
                 <header class="ppt-header">
                     <div class="ppt-header-left">
                         <div class="ppt-logo">
-                            <img src="public/pure.svg" alt="Logo" class="ppt-logo-img">
-                            <span>智能演示文稿生成</span>
+                            <img src="public/h_with_name.svg" alt="Logo" class="ppt-logo-img" style="width: 100px; height: auto;">
                         </div>
                         <div class="ppt-project-title">${this.currentProject.title}</div>
                     </div>
