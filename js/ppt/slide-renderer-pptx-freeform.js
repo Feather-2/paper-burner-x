@@ -277,8 +277,8 @@ const PPTXFreeformMixin = {
         const innerX = x + padding, innerY = y + padding;
         const innerW = w - padding * 2, innerH = h - padding * 2;
         const iconSize = (el.iconSize || 24) / this.styles.dimensions.pxPerInch;
-        const iconBgSize = iconSize * 1.5;
-        const gap = 0.12;
+        const iconBgSize = iconSize + 12 / this.styles.dimensions.pxPerInch; // 与 HTML 一致: iconSize + 12px
+        const gap = 12 / this.styles.dimensions.pxPerInch; // 12px gap
         const titleSize = Math.round((el.titleSize || 16) * 0.72);
         const subtitleSize = Math.round((el.subtitleSize || 13) * 0.72);
 
@@ -292,14 +292,14 @@ const PPTXFreeformMixin = {
     _renderVerticalCard(slide, el, innerX, innerY, innerW, innerH, iconSize, iconBgSize, gap, titleSize, subtitleSize) {
         const titleLineH = titleSize / 72 * 1.3;
         const subtitleLineH = subtitleSize / 72 * 1.3;
-        const textGap = 0.05;
+        const textGap = 4 / this.styles.dimensions.pxPerInch; // 4px，与 HTML 一致
         const contentH = iconBgSize + gap + titleLineH + (el.subtitle ? textGap + subtitleLineH : 0);
         const startY = innerY + (innerH - contentH) / 2;
 
         if (el.icon && el.iconBg) {
             slide.addShape('roundRect', {
                 x: innerX + (innerW - iconBgSize) / 2, y: startY, w: iconBgSize, h: iconBgSize,
-                fill: { color: this.safeColor(el.iconBg) }, line: { color: 'FFFFFF', transparency: 100 }, rectRadius: iconBgSize / 4,
+                fill: { color: this.safeColor(el.iconBg) }, line: { color: 'FFFFFF', transparency: 100 }, rectRadius: iconBgSize / 3, // 与 HTML 一致
             });
         }
 
@@ -327,7 +327,7 @@ const PPTXFreeformMixin = {
         if (el.icon && el.iconBg) {
             slide.addShape('roundRect', {
                 x: iconX, y: innerY + (innerH - iconBgSize) / 2, w: iconBgSize, h: iconBgSize,
-                fill: { color: this.safeColor(el.iconBg) }, line: { color: 'FFFFFF', transparency: 100 }, rectRadius: iconBgSize / 4,
+                fill: { color: this.safeColor(el.iconBg) }, line: { color: 'FFFFFF', transparency: 100 }, rectRadius: iconBgSize / 3, // 与 HTML 一致
             });
         }
 
@@ -344,7 +344,7 @@ const PPTXFreeformMixin = {
         const hasSubtitle = !!el.subtitle;
         const titleLineH = titleSize / 72 * 1.3;
         const subtitleLineH = subtitleSize / 72 * 1.3;
-        const textGap = hasSubtitle ? 0.05 : 0;
+        const textGap = hasSubtitle ? 4 / this.styles.dimensions.pxPerInch : 0; // 4px，与 HTML 一致
         const totalTextH = titleLineH + (hasSubtitle ? textGap + subtitleLineH : 0);
         const textStartY = innerY + (innerH - totalTextH) / 2;
 
