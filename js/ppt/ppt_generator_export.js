@@ -786,23 +786,23 @@ ${renderedSlides}
     async _captureToCanvas(target, options, fallbackOptions) {
         const attempts = [];
         
-        // 尝试顺序（从最可能成功到最兼容）:
-        // 1) 禁用 foreignObject - 最稳定，适用于大多数场景
-        attempts.push({
-            ...options,
-            foreignObjectRendering: false,
-            allowTaint: true,
-            useCORS: true,
-        });
-        
-        // 2) 如果需要 blend 效果，再尝试 foreignObject 模式
+        // 尝试顺序根据是否需要 blend 效果调整:
         if (options?.foreignObjectRendering) {
+            // blend 效果需要 foreignObject，优先尝试
             attempts.push({
                 ...options,
                 foreignObjectRendering: true,
                 allowTaint: true,
             });
         }
+        
+        // 回退: 禁用 foreignObject - 最稳定
+        attempts.push({
+            ...options,
+            foreignObjectRendering: false,
+            allowTaint: true,
+            useCORS: true,
+        });
         
         // 3) 显式降级配置
         if (fallbackOptions) {
@@ -812,9 +812,11 @@ ${renderedSlides}
         for (let i = 0; i < attempts.length; i++) {
             const attempt = attempts[i];
             try {
+                console.log(`[html2canvas] attempt ${i + 1}/${attempts.length}, foreignObject=${attempt.foreignObjectRendering}`);
                 const canvas = await html2canvas(target, attempt);
                 // 验证画布不是空的
                 if (canvas && canvas.width > 0 && canvas.height > 0) {
+                    console.log(`[html2canvas] attempt ${i + 1} succeeded, foreignObject=${attempt.foreignObjectRendering}`);
                     return canvas;
                 }
             } catch (err) {
@@ -837,6 +839,130 @@ ${renderedSlides}
             ctx.fillRect(0, 0, width, height);
         }
         return blank;
+    },
+
+    /**
+     * 手动实现 blend 效果捕获
+     * 分层渲染 + Canvas globalCompositeOperation 合成
+     */
+    async _captureWithBlend(container, elements, backgroundFill, scale = 2) {
+        const width = 960;
+        const height = 540;
+        
+        // 分离 backdrop 和 blend 元素
+        const backdropEls = elements.filter(el => !el.blend || el.blend === 'normal');
+        const blendEls = elements.filter(el => el.blend && el.blend !== 'normal');
+        
+        console.log(`[_captureWithBlend] backdrop=${backdropEls.length}, blend=${blendEls.length}, bg=${backgroundFill}`);
+        
+        const renderer = new HTMLSlideRenderer();
+        
+        // 创建最终合成 canvas
+        const finalCanvas = document.createElement('canvas');
+        finalCanvas.width = width * scale;
+        finalCanvas.height = height * scale;
+        const ctx = finalCanvas.getContext('2d');
+        ctx.scale(scale, scale);
+        
+        // 1. 填充背景（支持渐变和纯色）
+        if (backgroundFill && backgroundFill !== 'transparent') {
+            const isGradient = backgroundFill.includes('gradient');
+            if (isGradient) {
+                // 渐变背景需要用 HTML 渲染再截图
+                container.innerHTML = `<div style="width: ${width}px; height: ${height}px; background: ${backgroundFill};"></div>`;
+                const bgCanvas = await this._captureToCanvas(container.firstChild, {
+                    scale,
+                    backgroundColor: null,
+                    foreignObjectRendering: false,
+                });
+                if (bgCanvas) {
+                    ctx.drawImage(bgCanvas, 0, 0, width, height);
+                    bgCanvas.width = 0;
+                    bgCanvas.height = 0;
+                }
+            } else {
+                ctx.fillStyle = backgroundFill;
+                ctx.fillRect(0, 0, width, height);
+            }
+        }
+        
+        // 2. 渲染 backdrop 元素（无 blend）
+        if (backdropEls.length > 0) {
+            const backdropSlide = {
+                type: 'freeform',
+                background: 'transparent',
+                elements: backdropEls,
+            };
+            container.innerHTML = `<div style="width: ${width}px; height: ${height}px; overflow: visible; background: transparent;">${renderer.render(backdropSlide, 0)}</div>`;
+            await this._waitForIconsToLoad(container);
+            await this._waitForImagesToLoad(container);
+            await new Promise(r => setTimeout(r, 50));
+            
+            const backdropCanvas = await this._captureToCanvas(container.firstChild, {
+                scale,
+                backgroundColor: null,
+                foreignObjectRendering: false,
+                allowTaint: true,
+            });
+            if (backdropCanvas) {
+                ctx.drawImage(backdropCanvas, 0, 0, width, height);
+                backdropCanvas.width = 0;
+                backdropCanvas.height = 0;
+            }
+        }
+        
+        // 3. 渲染 blend 元素并用 globalCompositeOperation 合成
+        for (const el of blendEls) {
+            const blendSlide = {
+                type: 'freeform',
+                background: 'transparent',
+                elements: [{ ...el, blend: 'normal' }], // 去掉 blend，单独渲染
+            };
+            container.innerHTML = `<div style="width: ${width}px; height: ${height}px; overflow: visible; background: transparent;">${renderer.render(blendSlide, 0)}</div>`;
+            await this._waitForIconsToLoad(container);
+            await this._waitForImagesToLoad(container);
+            await new Promise(r => setTimeout(r, 50));
+            
+            const blendCanvas = await this._captureToCanvas(container.firstChild, {
+                scale,
+                backgroundColor: null,
+                foreignObjectRendering: false,
+                allowTaint: true,
+            });
+            
+            if (blendCanvas) {
+                // 设置 blend 模式
+                const blendMode = el.blend || 'normal';
+                // Canvas 支持的 blend 模式映射
+                const canvasBlendMap = {
+                    'screen': 'screen',
+                    'multiply': 'multiply',
+                    'overlay': 'overlay',
+                    'darken': 'darken',
+                    'lighten': 'lighten',
+                    'color-dodge': 'color-dodge',
+                    'color-burn': 'color-burn',
+                    'hard-light': 'hard-light',
+                    'soft-light': 'soft-light',
+                    'difference': 'difference',
+                    'exclusion': 'exclusion',
+                    'hue': 'hue',
+                    'saturation': 'saturation',
+                    'color': 'color',
+                    'luminosity': 'luminosity',
+                };
+                
+                ctx.globalCompositeOperation = canvasBlendMap[blendMode] || 'source-over';
+                console.log(`[_captureWithBlend] Applying blend mode: ${blendMode} -> ${ctx.globalCompositeOperation}`);
+                ctx.drawImage(blendCanvas, 0, 0, width, height);
+                ctx.globalCompositeOperation = 'source-over'; // 恢复默认
+                
+                blendCanvas.width = 0;
+                blendCanvas.height = 0;
+            }
+        }
+        
+        return finalCanvas;
     },
 
     /**
@@ -885,21 +1011,33 @@ ${renderedSlides}
             console.log(`[_bakeEffectsForPPTX] Slide ${i + 1}: ${blendElements.length} blend, ${filterElements.length} filter elements`);
             
             if (blendElements.length > 0) {
-                // 有 blend 效果：找到最高 blend 元素的 z-index
+                // 有 blend 效果：只烘焙视觉元素（shape/image/svg），保留文字等可编辑
+                const visualTypes = ['shape', 'image', 'svg', 'line'];
                 const maxBlendZ = Math.max(...blendElements.map(el => el.z || 0));
                 
-                // backdrop = blend 元素及其下方所有元素（需要一起烘焙以正确混合）
-                const elementsTosBake = sortedElements.filter(el => (el.z || 0) <= maxBlendZ);
-                // foreground = blend 元素之上的元素（保持原生）
-                const foregroundElements = sortedElements.filter(el => (el.z || 0) > maxBlendZ);
+                // 只烘焙 blend 元素及其下方的视觉元素
+                const elementsTosBake = sortedElements.filter(el => 
+                    (el.z || 0) <= maxBlendZ && visualTypes.includes(el.type)
+                );
+                // 保持原生的元素：blend 之上的 + 非视觉元素（text/icon/card等）
+                const nativeElements = sortedElements.filter(el => 
+                    (el.z || 0) > maxBlendZ || !visualTypes.includes(el.type)
+                );
                 
-                // 烘焙 backdrop + blend 元素
+                const effectEls = elementsTosBake.filter(el => this._elementNeedsBaking(el));
+                const backdropEls = elementsTosBake.filter(el => !this._elementNeedsBaking(el));
+                console.log(`[_bakeEffectsForPPTX] Blend bake: effect=${effectEls.length}, backdrop=${backdropEls.length}, native=${nativeElements.length}, bg=${slide.gradient || slide.background}`);
+                console.log(`[_bakeEffectsForPPTX] Effect types:`, effectEls.map(e => `${e.type}${e.blend ? ':' + e.blend : ''}${e.filter ? ':filter' : ''}`));
+                console.log(`[_bakeEffectsForPPTX] Backdrop types:`, backdropEls.map(e => e.type));
+                console.log(`[_bakeEffectsForPPTX] Native types:`, nativeElements.map(e => e.type));
+                
+                // 烘焙视觉元素
                 const bakedEl = await this._bakeElementGroupToImage(
-                    elementsTosBake.filter(el => this._elementNeedsBaking(el)), // blend 元素
+                    effectEls,
                     renderer, 
                     container, 
-                    elementsTosBake.filter(el => !this._elementNeedsBaking(el)), // backdrop
-                    slide.background
+                    backdropEls,
+                    slide.gradient || slide.background
                 );
                 
                 const processedElements = [];
@@ -909,8 +1047,8 @@ ${renderedSlides}
                     // 烘焙失败，保留原始元素
                     processedElements.push(...elementsTosBake);
                 }
-                // 前景元素保持原生
-                processedElements.push(...foregroundElements);
+                // 原生元素（文字等）保持可编辑
+                processedElements.push(...nativeElements);
                 
                 bakedSlides.push({
                     ...slide,
@@ -999,6 +1137,10 @@ ${renderedSlides}
 
             // 合并所有元素（背景 + 特效元素），按 z-index 排序
             const combinedElements = [...backdropElements, ...elements].sort((a, b) => (a.z || 0) - (b.z || 0));
+            
+            console.log(`[_bakeElementGroupToImage] Combined ${combinedElements.length} elements:`, 
+                combinedElements.map(e => `${e.type}${e.blend ? ':' + e.blend : ''}${e.filter ? ':filter' : ''}`));
+            console.log(`[_bakeElementGroupToImage] Background: ${backgroundFill}`);
 
             // 重要：对于有 blend 效果的场景，必须让浏览器完成 CSS 混合模式的渲染，
             // 然后用 html2canvas 截取最终结果。不要尝试分层合成。
@@ -1011,29 +1153,71 @@ ${renderedSlides}
             // 渲染完整的幻灯片到容器
             const bgStyle = backgroundFill ? `background: ${backgroundFill};` : 'background: transparent;';
             container.innerHTML = `<div style="width: 960px; height: 540px; overflow: visible; ${bgStyle}">${renderer.render(tempSlide, 0)}</div>`;
+            
+            // 移除隐藏的 SVG defs（它们会导致 foreignObjectRendering 失败）
+            container.querySelectorAll('svg[style*="width: 0"], svg[style*="height: 0"]').forEach(svg => svg.remove());
 
             // 等待所有资源加载
             await this._waitForIconsToLoad(container);
             await this._waitForImagesToLoad(container);
+            
+            // 将 SVG data URL 图片转为 PNG（避免 foreignObjectRendering 失败）
+            if (hasBlend) {
+                const svgImgs = container.querySelectorAll('img[src^="data:image/svg"]');
+                console.log(`[_bakeElementGroupToImage] Found ${svgImgs.length} SVG images to convert`);
+                for (const img of svgImgs) {
+                    try {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.naturalWidth || img.width || 100;
+                        canvas.height = img.naturalHeight || img.height || 100;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        const pngUrl = canvas.toDataURL('image/png');
+                        img.src = pngUrl;
+                        console.log(`[_bakeElementGroupToImage] SVG to PNG converted: ${canvas.width}x${canvas.height}`);
+                        // 等待新图片加载
+                        await new Promise(r => { img.onload = r; setTimeout(r, 100); });
+                    } catch (e) {
+                        console.warn('[_bakeElementGroupToImage] SVG to PNG failed:', e);
+                    }
+                }
+            }
             await this._waitForKatexAndInlineStyles(container);
+
+            // DEBUG: 检查图片和 SVG 元素
+            const imgs = container.querySelectorAll('img');
+            const svgEls = container.querySelectorAll('svg');
+            if (imgs.length > 0) {
+                console.log(`[_bakeElementGroupToImage] Found ${imgs.length} images:`, 
+                    [...imgs].map(i => ({ src: i.src?.substring(0, 50), complete: i.complete, w: i.naturalWidth })));
+            }
+            if (svgEls.length > 0) {
+                console.log(`[_bakeElementGroupToImage] Found ${svgEls.length} inline SVGs`);
+            }
 
             // 额外等待确保 CSS 动画和过渡完成
             await new Promise(resolve => setTimeout(resolve, 100));
 
-            // 使用 html2canvas 截图，foreignObjectRendering 模式更好地支持 CSS 效果
+            // 使用 html2canvas 截图
             const scale = 2; // 平衡清晰度和内存使用
-            const canvas = await this._captureToCanvas(container.firstChild, {
-                scale,
-                useCORS: true,
-                allowTaint: false,
-                backgroundColor: backgroundFill || null,
-                logging: false,
-                foreignObjectRendering: false,  // 禁用以提高稳定性
-            }, {
-                // 回退配置
-                foreignObjectRendering: false,
-                allowTaint: true,
-            });
+            
+            let canvas;
+            if (hasBlend) {
+                // 手动实现 blend 效果，因为 html2canvas 对 mix-blend-mode 支持不佳
+                canvas = await this._captureWithBlend(container, combinedElements, backgroundFill, scale);
+            } else {
+                canvas = await this._captureToCanvas(container.firstChild, {
+                    scale,
+                    useCORS: true,
+                    allowTaint: false,
+                    backgroundColor: backgroundFill || null,
+                    logging: false,
+                    foreignObjectRendering: false,
+                }, {
+                    foreignObjectRendering: false,
+                    allowTaint: true,
+                });
+            }
 
             let dataUrl = null;
             if (canvas) {
