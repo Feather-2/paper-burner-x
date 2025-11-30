@@ -39,83 +39,51 @@ const PPTGeneratorExportBaking = {
 
             console.log(`[_bakeEffectsForPPTX] Slide ${i + 1}: Processing elements with effects`);
 
-            // 分离需要烘焙和不需要烘焙的元素
+            // 简单策略：只烘焙需要特效的元素，保留所有普通元素
             const sortedElements = [...slide.elements].sort((a, b) => (a.z || 0) - (b.z || 0));
-            const hasBlend = sortedElements.some(el => el.blend && el.blend !== 'normal');
-            const hasFilterOnly = sortedElements.some(el => el.filter && !el.blend);
+            const bakingElements = sortedElements.filter(el => this._elementNeedsBaking(el));
+            const normalElements = sortedElements.filter(el => !this._elementNeedsBaking(el));
             
+            console.log(`[_bakeEffectsForPPTX] Baking ${bakingElements.length} effect elements, keeping ${normalElements.length} normal elements`);
+            
+            if (bakingElements.length === 0) {
+                processedSlides.push(slide);
+                continue;
+            }
+
             slideContainer.innerHTML = '';
             const wrapper = document.createElement('div');
             wrapper.style.cssText = 'width: 960px; height: 540px; position: relative; overflow: hidden;';
             
-            if (hasBlend) {
-                // Blend 模式需要和背景一起渲染
-                // 找到最高层的 blend 元素的 z-index
-                const blendElements = sortedElements.filter(el => el.blend && el.blend !== 'normal');
-                const maxBlendZ = Math.max(...blendElements.map(el => el.z || 0));
-                
-                // 需要烘焙的元素：z <= maxBlendZ 的所有元素（包括背景）
-                const elementsTosBake = sortedElements.filter(el => (el.z || 0) <= maxBlendZ);
-                const foregroundElements = sortedElements.filter(el => (el.z || 0) > maxBlendZ);
-                
-                // 渲染背景 + 需要烘焙的元素
-                const bakingSlide = { ...slide, elements: elementsTosBake };
-                wrapper.innerHTML = renderer.render(bakingSlide, i);
-                slideContainer.appendChild(wrapper);
+            // 只渲染需要烘焙的元素（带 filter/blend/mask）
+            const bakingSlide = { ...slide, elements: bakingElements };
+            wrapper.innerHTML = renderer.render(bakingSlide, i);
+            slideContainer.appendChild(wrapper);
 
-                await this._waitForIconsToLoad(slideContainer);
-                await this._waitForImagesToLoad(slideContainer);
-                await this._waitForKatexAndInlineStyles(slideContainer);
-                await new Promise(r => setTimeout(r, 200));
+            await this._waitForIconsToLoad(slideContainer);
+            await this._waitForImagesToLoad(slideContainer);
+            await this._waitForKatexAndInlineStyles(slideContainer);
+            await new Promise(r => setTimeout(r, 200));
 
-                const bakedImage = await this._bakeElementGroup(slideContainer.firstChild, elementsTosBake, 0, elementsTosBake.length - 1);
-                
-                const newElements = [];
-                if (bakedImage) {
-                    newElements.push({
-                        type: 'baked_element',
-                        image: bakedImage,
-                        z: -1, // 作为背景层
-                    });
-                }
-                newElements.push(...foregroundElements);
-                newElements.sort((a, b) => (a.z || 0) - (b.z || 0));
-                
-                slide.elements = newElements;
-                // 清除背景，因为已经烘焙进图片了
-                slide.background = null;
-                slide.backgroundGradient = null;
-                slide.backgroundImage = null;
-            } else {
-                // 只有 filter/mask，可以单独渲染
-                const bakingElements = sortedElements.filter(el => this._elementNeedsBaking(el));
-                const normalElements = sortedElements.filter(el => !this._elementNeedsBaking(el));
-                
-                const bakingSlide = { ...slide, elements: bakingElements };
-                wrapper.innerHTML = renderer.render(bakingSlide, i);
-                slideContainer.appendChild(wrapper);
-
-                await this._waitForIconsToLoad(slideContainer);
-                await this._waitForImagesToLoad(slideContainer);
-                await this._waitForKatexAndInlineStyles(slideContainer);
-                await new Promise(r => setTimeout(r, 200));
-
-                const bakedImage = await this._bakeElementGroup(slideContainer.firstChild, bakingElements, 0, bakingElements.length - 1);
-                
-                const newElements = [];
-                if (bakedImage) {
-                    newElements.push({
-                        type: 'baked_element',
-                        image: bakedImage,
-                        z: Math.min(...bakingElements.map(el => el.z || 0)) - 1,
-                    });
-                }
-                newElements.push(...normalElements);
-                newElements.sort((a, b) => (a.z || 0) - (b.z || 0));
-                
-                slide.elements = newElements;
+            const bakedImage = await this._bakeElementGroup(slideContainer.firstChild, bakingElements, 0, bakingElements.length - 1);
+            
+            const newElements = [];
+            
+            // 烘焙后的图片放在最底层
+            if (bakedImage) {
+                const minZ = Math.min(...bakingElements.map(el => el.z || 0));
+                newElements.push({
+                    type: 'baked_element',
+                    image: bakedImage,
+                    z: minZ - 0.5, // 略低于原始特效元素
+                });
             }
             
+            // 保留所有普通元素（文字、图表等）
+            newElements.push(...normalElements);
+            newElements.sort((a, b) => (a.z || 0) - (b.z || 0));
+            
+            slide.elements = newElements;
             processedSlides.push(slide);
         }
 
