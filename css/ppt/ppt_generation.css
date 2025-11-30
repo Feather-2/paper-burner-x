@@ -1,50 +1,6 @@
 /* PPT Generation Interface Styles (v6.0 - Modern Aesthetic) */
 /* Clean, Sophisticated, Glassmorphism, Depth */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
-:root {
-    /* Modern Palette - Refined */
-    --ppt-bg-app: #f8fafc;       /* Slate 50 */
-    --ppt-bg-subtle: #f1f5f9;    /* Slate 100 */
-    --ppt-surface: #ffffff;      /* White */
-    --ppt-surface-glass: rgba(255, 255, 255, 0.7);
-    
-    --ppt-border: #e2e8f0;       /* Slate 200 */
-    --ppt-border-hover: #cbd5e1; /* Slate 300 */
-    
-    --ppt-text-main: #0f172a;    /* Slate 900 */
-    --ppt-text-secondary: #475569; /* Slate 600 */
-    --ppt-text-muted: #94a3b8;   /* Slate 400 */
-    
-    /* Brand Colors - Vibrant yet Professional */
-    --ppt-primary: #4f46e5;       /* Indigo 600 */
-    --ppt-primary-hover: #4338ca; /* Indigo 700 */
-    --ppt-primary-light: #e0e7ff; /* Indigo 100 */
-    --ppt-primary-subtle: #eef2ff; /* Indigo 50 */
-    
-    --ppt-success: #10b981;      /* Emerald 500 */
-    --ppt-success-bg: #ecfdf5;   /* Emerald 50 */
-    --ppt-warning: #f59e0b;      /* Amber 500 */
-    --ppt-danger: #ef4444;       /* Red 500 */
-    
-    --ppt-font-sans: 'Inter', "Source Han Sans SC", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    
-    /* Modern Shadows */
-    --ppt-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-    --ppt-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.04);
-    --ppt-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.04);
-    --ppt-shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.08), 0 8px 10px -6px rgb(0 0 0 / 0.02);
-    
-    /* Radius */
-    --ppt-radius-sm: 6px;
-    --ppt-radius-md: 12px;
-    --ppt-radius-lg: 16px;
-    --ppt-radius-xl: 24px;
-    
-    /* Transitions */
-    --ppt-ease: cubic-bezier(0.4, 0, 0.2, 1);
-}
 
 /* Premium Commercial Gradient Background */
 .ocean-gradient-bg {
@@ -75,159 +31,8 @@
     display: none;
 }
 
-/* ==================== Header (Glass) ==================== */
-.ppt-header {
-    height: 72px;
-    background: transparent;
-    border-bottom: none;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 32px;
-    flex-shrink: 0;
-    z-index: 20;
-    box-shadow: none;
-}
-
-.ppt-header-left {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-}
-
-.ppt-logo {
-    font-weight: 700;
-    font-size: 18px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    color: var(--ppt-text-main);
-    letter-spacing: -0.02em;
-}
-
-.ppt-logo-img {
-    width: 32px;
-    height: 32px;
-    object-fit: contain;
-}
-
-.ppt-project-title {
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--ppt-text-secondary);
-    padding-left: 20px;
-    border-left: 1px solid var(--ppt-border);
-    height: 24px;
-    display: flex;
-    align-items: center;
-}
-
-.ppt-header-right .ppt-icon-btn {
-    color: var(--ppt-text-secondary);
-    border-radius: var(--ppt-radius-sm);
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    transition: all 0.2s var(--ppt-ease);
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 20px;
-}
-
-.ppt-header-right .ppt-icon-btn:hover {
-    background: var(--ppt-bg-subtle);
-    color: var(--ppt-text-main);
-    transform: translateY(-1px);
-}
-
-/* ==================== Main Layout ==================== */
-.ppt-app-shell {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    background: transparent;
-}
-
-.ppt-workspace {
-    display: flex;
-    flex: 1;
-    overflow: hidden;
-    position: relative;
-}
-
-/* Left: Main Content Area */
-.ppt-preview-area {
-    flex: 1;
-    position: relative;
-    z-index: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    padding: 0;
-}
-
-/* Right: Chat/Sidebar */
-.ppt-chat-sidebar {
-    width: 360px;
-    min-width: 280px;
-    max-width: 500px;
-    background-color: var(--ppt-surface);
-    border-left: 1px solid var(--ppt-border);
-    display: flex;
-    flex-direction: column;
-    z-index: 10;
-    box-shadow: -4px 0 24px rgba(0,0,0,0.02);
-    flex-shrink: 0;
-}
-
-/* Resizable Divider for Workspace */
-.ppt-resizer {
-    width: 6px;
-    cursor: col-resize;
-    background: transparent;
-    position: relative;
-    flex-shrink: 0;
-    z-index: 10;
-    transition: background 0.15s;
-}
-
-.ppt-resizer::after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 2px;
-    height: 40px;
-    background: var(--ppt-border);
-    border-radius: 2px;
-    opacity: 0;
-    transition: opacity 0.15s;
-}
-
-.ppt-resizer:hover {
-    background: var(--ppt-primary-light);
-}
-
-.ppt-resizer:hover::after {
-    opacity: 1;
-    background: var(--ppt-primary);
-}
-
-.ppt-resizer.dragging {
-    background: var(--ppt-primary-light);
-}
-
-.ppt-resizer.dragging::after {
-    opacity: 1;
-    background: var(--ppt-primary);
-}
-
 /* ==================== Project List View ==================== */
+/* 注意: Header 和 Main Layout 样式在 ppt_generation_layout.css 中 */
 .ppt-project-list-view {
     flex: 1;
     padding: 24px 0;
@@ -298,7 +103,7 @@
     letter-spacing: -0.03em;
     color: var(--ppt-text-main);
     margin-bottom: 24px;
-    background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+    background: linear-gradient(135deg, #151C4B 0%, #334155 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
 }
@@ -864,1552 +669,169 @@
     white-space: nowrap;
 }
 
-.ppt-card-info span {
+.ppt-card-info p {
     font-size: 12px;
     color: var(--ppt-text-muted);
 }
 
-/* ==================== Generation Process View ==================== */
-.generation-container {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 40px;
-    background: radial-gradient(circle at center, #fff 0%, #f8fafc 100%);
-    overflow: hidden;
-    position: relative;
-}
+/* 注意: Generation Process View 在 ppt_generation_components.css */
+/* 注意: Requirements Form 在 ppt_generation_components.css */
+/* 注意: Outline View 在 ppt_generation_presentation.css */
+/* 注意: Context Menu 在 ppt_generation_components.css */
 
-/* Upload Zone */
-.ppt-upload-zone {
+/* ==================== Hero Features & Empty State ==================== */
+
+/* Feature Highlights in Hero */
+.ppt-hero-features {
+    display: flex;
+    gap: 32px;
+    margin-top: 48px;
+    padding-top: 32px;
+    border-top: 1px solid rgba(0,0,0,0.05);
     width: 100%;
-    max-width: 640px;
-    height: 320px;
-    border: 2px dashed var(--ppt-border);
-    border-radius: var(--ppt-radius-xl);
-    background: rgba(255, 255, 255, 0.6);
-    backdrop-filter: blur(4px);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: all 0.3s var(--ppt-ease);
-    position: relative;
-    overflow: hidden;
 }
 
-.ppt-upload-zone:hover, .ppt-upload-zone.dragover {
-    border-color: var(--ppt-primary);
-    background: var(--ppt-primary-subtle);
-    transform: scale(1.01);
-}
-
-.ppt-upload-icon {
-    font-size: 56px;
-    color: var(--ppt-text-muted);
-    margin-bottom: 20px;
-    transition: all 0.3s var(--ppt-ease);
-}
-
-.ppt-upload-zone:hover .ppt-upload-icon {
-    color: var(--ppt-primary);
-    transform: translateY(-4px);
-}
-
-.ppt-upload-text {
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--ppt-text-main);
-    margin-bottom: 8px;
-}
-
-.ppt-upload-subtext {
-    font-size: 14px;
-    color: var(--ppt-text-secondary);
-}
-
-.ppt-file-input {
-    position: absolute;
-    inset: 0;
-    opacity: 0;
-    cursor: pointer;
-}
-
-.ppt-upload-actions {
-    display: flex;
-    gap: 16px;
-    margin-top: 32px;
-    width: 100%;
-    max-width: 640px;
-}
-
-.ppt-upload-btn {
-    flex: 1;
+.ppt-feature-item {
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 10px;
-    padding: 14px;
-    border-radius: var(--ppt-radius-md);
-    border: 1px solid var(--ppt-border);
-    background: white;
-    color: var(--ppt-text-main);
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-    box-shadow: var(--ppt-shadow-sm);
-}
-
-.ppt-upload-btn:hover {
-    background: var(--ppt-bg-subtle);
-    border-color: var(--ppt-primary);
-    color: var(--ppt-primary);
-    transform: translateY(-1px);
-    box-shadow: var(--ppt-shadow-md);
-}
-
-.ppt-upload-list {
-    width: 100%;
-    max-width: 640px;
-    margin-top: 32px;
-    display: flex;
-    flex-direction: column;
     gap: 12px;
 }
 
-.ppt-upload-item {
+.ppt-feature-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: white;
+    color: var(--ppt-primary);
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 16px 20px;
-    background: white;
-    border: 1px solid var(--ppt-border);
-    border-radius: var(--ppt-radius-md);
+    justify-content: center;
+    font-size: 20px;
     box-shadow: var(--ppt-shadow-sm);
-    transition: all 0.2s;
+    border: 1px solid var(--ppt-border);
 }
 
-.ppt-upload-item:hover {
-    border-color: var(--ppt-primary-light);
-    box-shadow: var(--ppt-shadow-md);
-}
-
-.ppt-upload-item-icon {
-    color: var(--ppt-primary);
-    font-size: 24px;
-    background: var(--ppt-primary-subtle);
-    padding: 8px;
-    border-radius: 8px;
-}
-
-.ppt-upload-item-info {
-    flex: 1;
+.ppt-feature-text {
     display: flex;
     flex-direction: column;
     gap: 2px;
 }
 
-.ppt-upload-item-name {
+.ppt-feature-text strong {
     font-size: 14px;
     font-weight: 600;
     color: var(--ppt-text-main);
 }
 
-.ppt-upload-item-meta {
+.ppt-feature-text span {
     font-size: 12px;
     color: var(--ppt-text-secondary);
 }
 
-.ppt-upload-item-remove {
-    color: var(--ppt-text-muted);
-    cursor: pointer;
-    padding: 8px;
-    border-radius: 6px;
-    transition: all 0.2s;
-}
-
-.ppt-upload-item-remove:hover {
-    color: var(--ppt-danger);
-    background: #fee2e2;
-}
-
-/* Progress Stepper */
-.gen-stepper {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 64px;
-}
-
-.gen-step {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    opacity: 0.5;
-    transition: all 0.4s var(--ppt-ease);
-}
-
-.gen-step.active {
-    opacity: 1;
-    transform: scale(1.05);
-}
-
-.gen-step-icon {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    background: white;
-    border: 2px solid var(--ppt-border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-    color: var(--ppt-text-muted);
-    font-weight: 700;
-    transition: all 0.3s;
-}
-
-.gen-step.active .gen-step-icon {
-    border-color: var(--ppt-primary);
-    color: var(--ppt-primary);
-    background: var(--ppt-primary-subtle);
-    box-shadow: 0 0 0 4px var(--ppt-primary-light);
-}
-
-.gen-step.completed .gen-step-icon {
-    background: var(--ppt-success);
-    border-color: var(--ppt-success);
-    color: white;
-}
-
-.gen-step-label {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--ppt-text-main);
-}
-
-.gen-step-line {
-    width: 48px;
-    height: 2px;
-    background: var(--ppt-border);
-    border-radius: 2px;
-}
-
-/* Main Visualizer */
-.gen-visualizer {
+/* Empty State Templates */
+.ppt-empty-templates {
     width: 100%;
-    max-width: 800px;
-    background: rgba(255, 255, 255, 0.9);
-    backdrop-filter: blur(20px);
-    border-radius: var(--ppt-radius-xl);
-    padding: 48px;
-    box-shadow: var(--ppt-shadow-xl);
-    text-align: center;
-    border: 1px solid rgba(255, 255, 255, 0.5);
+    padding: 20px 0;
+    animation: slideUp 0.5s ease-out;
 }
 
-.gen-status-icon {
-    width: 80px;
-    height: 80px;
-    background: var(--ppt-primary-subtle);
+.ppt-empty-header {
+    text-align: center;
+    margin-bottom: 32px;
+}
+
+.ppt-empty-label {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 600;
     color: var(--ppt-primary);
-    border-radius: 24px;
+    background: var(--ppt-primary-subtle);
+    padding: 4px 12px;
+    border-radius: 100px;
+    margin-bottom: 12px;
+}
+
+.ppt-empty-header p {
+    font-size: 15px;
+    color: var(--ppt-text-secondary);
+    margin: 0;
+}
+
+.ppt-template-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+}
+
+.ppt-template-card {
+    background: white;
+    border: 1px solid var(--ppt-border);
+    border-radius: 16px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+}
+
+.ppt-template-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--ppt-shadow-lg);
+    border-color: var(--ppt-primary-light);
+}
+
+.ppt-template-preview {
+    height: 120px;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 40px;
-    margin: 0 auto 32px auto;
     position: relative;
-    box-shadow: 0 10px 20px rgba(79, 70, 229, 0.15);
+    overflow: hidden;
 }
 
-.gen-status-icon::after {
+.ppt-template-preview::after {
     content: '';
     position: absolute;
-    inset: -6px;
-    border-radius: 30px;
-    border: 2px solid var(--ppt-primary);
-    opacity: 0.2;
-    animation: ripple 2s infinite;
-}
-
-@keyframes ripple {
-    0% { transform: scale(1); opacity: 0.4; }
-    100% { transform: scale(1.3); opacity: 0; }
-}
-
-.gen-title {
-    font-size: 24px;
-    font-weight: 700;
-    color: var(--ppt-text-main);
-    margin-bottom: 12px;
-}
-
-.gen-subtitle {
-    font-size: 16px;
-    color: var(--ppt-text-secondary);
-    margin-bottom: 40px;
-    line-height: 1.5;
-}
-
-/* Simple File List */
-.gen-file-list {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    text-align: left;
-    margin-bottom: 32px;
-}
-
-.gen-file-item {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 16px;
-    background: var(--ppt-bg-app);
-    border-radius: var(--ppt-radius-md);
-    font-size: 14px;
-    border: 1px solid transparent;
-    transition: all 0.2s;
-}
-
-.gen-file-item:hover {
-    background: white;
-    border-color: var(--ppt-border);
-    box-shadow: var(--ppt-shadow-sm);
-}
-
-.gen-file-icon {
-    color: var(--ppt-text-muted);
-    font-size: 20px;
-}
-
-.gen-file-name {
-    flex: 1;
-    font-weight: 500;
-    color: var(--ppt-text-main);
-}
-
-.gen-file-status {
-    font-size: 13px;
-    color: var(--ppt-text-secondary);
-    font-weight: 500;
-}
-
-/* Minimal Log */
-.gen-log-ticker {
-    margin-top: 32px;
-    padding-top: 24px;
-    border-top: 1px solid var(--ppt-border);
-    font-family: 'JetBrains Mono', 'Fira Code', monospace;
-    font-size: 13px;
-    color: var(--ppt-text-secondary);
-    text-align: left;
-    min-height: 28px;
-    height: auto;
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    background: var(--ppt-bg-subtle);
-    padding: 16px;
-    border-radius: var(--ppt-radius-md);
-}
-
-.gen-log-dot {
-    width: 8px;
-    height: 8px;
-    background: var(--ppt-success);
-    border-radius: 50%;
-    animation: blink 1s infinite;
-    margin-top: 6px;
-    flex-shrink: 0;
-    box-shadow: 0 0 8px var(--ppt-success);
-}
-
-.gen-log-content {
-    flex: 1;
-    word-break: break-word;
-    line-height: 1.5;
-}
-
-@keyframes blink {
-    50% { opacity: 0.5; }
-}
-
-/* ==================== Requirements Form ==================== */
-.ppt-question-form {
-    width: 95%;
-    max-width: 1000px;
-    height: 90%;
-    margin: auto;
-    background: var(--ppt-surface);
-    border-radius: var(--ppt-radius-xl);
-    padding: 40px;
-    box-shadow: var(--ppt-shadow-xl);
-    display: flex;
-    flex-direction: column;
-    border: 1px solid var(--ppt-border);
-    animation: slideUp 0.4s ease-out;
-}
-
-.form-header {
-    margin-bottom: 32px;
-    display: flex;
-    align-items: flex-start;
-    gap: 20px;
-    padding-bottom: 24px;
-    border-bottom: 1px solid var(--ppt-border);
-    flex-shrink: 0;
-}
-
-.form-header-text h3 {
-    font-size: 22px;
-    font-weight: 700;
-    color: var(--ppt-text-main);
-    margin: 0 0 6px 0;
-}
-
-.form-header-text p {
-    font-size: 15px;
-    color: var(--ppt-text-secondary);
-    margin: 0;
-}
-
-.form-body {
-    flex: 1;
-    overflow-y: auto;
-    min-height: 0;
-    padding-right: 16px;
-    margin-bottom: 32px;
-    display: flex;
-    flex-direction: column;
-    gap: 32px;
-}
-
-.form-footer {
-    flex-shrink: 0;
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    gap: 16px;
-    padding-top: 24px;
-    border-top: 1px solid var(--ppt-border);
-}
-
-.form-group {
-    background: var(--ppt-bg-app);
-    padding: 28px;
-    border-radius: var(--ppt-radius-lg);
-    border: 1px solid var(--ppt-border);
-    transition: all 0.2s;
-}
-
-.form-group:hover {
-    border-color: var(--ppt-border-hover);
-    background: white;
-    box-shadow: var(--ppt-shadow-sm);
-}
-
-.form-group label {
-    display: block;
-    font-size: 17px;
-    font-weight: 600;
-    color: var(--ppt-text-main);
-    margin-bottom: 20px;
-}
-
-/* Radio Group Grid */
-.form-radio-group {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 16px;
-    margin-bottom: 20px;
-}
-
-/* Radio Option Card */
-.radio-option {
-    position: relative;
-    display: flex;
-    align-items: center;
-    padding: 20px;
-    background: white;
-    border: 2px solid transparent;
-    border-radius: var(--ppt-radius-md);
-    cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: var(--ppt-shadow-sm);
-}
-
-.radio-option:hover {
-    border-color: var(--ppt-primary-light);
-    transform: translateY(-2px);
-    box-shadow: var(--ppt-shadow-md);
-}
-
-/* Hide default radio */
-.radio-option input[type="radio"] {
-    position: absolute;
-    opacity: 0;
-    width: 0;
-    height: 0;
-}
-
-.radio-content {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    gap: 12px;
-}
-
-.radio-label {
-    font-size: 15px;
-    color: var(--ppt-text-secondary);
-    font-weight: 500;
-    line-height: 1.4;
-}
-
-.radio-check-icon {
-    font-size: 22px;
-    color: var(--ppt-primary);
-    opacity: 0;
-    transform: scale(0.5);
-    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    flex-shrink: 0;
-}
-
-/* Checked State */
-.radio-option:has(input:checked) {
-    border-color: var(--ppt-primary);
-    background: var(--ppt-primary-subtle);
-    box-shadow: 0 4px 12px -2px rgba(79, 70, 229, 0.15);
-}
-
-.radio-option input:checked + .radio-content .radio-label {
-    color: var(--ppt-primary);
-    font-weight: 600;
-}
-
-.radio-option input:checked + .radio-content .radio-check-icon {
-    opacity: 1;
-    transform: scale(1);
-}
-
-/* Custom Input Wrapper */
-.form-custom-input-wrapper {
-    display: flex;
-    gap: 12px;
-    padding-top: 20px;
-    border-top: 1px dashed var(--ppt-border);
-}
-
-.form-custom-input-wrapper .ppt-input-field {
-    background: white;
-    border: 1px solid var(--ppt-border);
-    transition: all 0.2s;
-    height: 44px;
-    border-radius: var(--ppt-radius-md);
-    padding: 0 16px;
-}
-
-.form-custom-input-wrapper .ppt-input-field:focus {
-    border-color: var(--ppt-primary);
-    box-shadow: 0 0 0 3px var(--ppt-primary-light);
-}
-
-.form-custom-input-wrapper .ppt-icon-btn {
-    width: 44px;
-    height: 44px;
-    background: white;
-    border: 1px solid var(--ppt-border);
-    color: var(--ppt-primary);
-    border-radius: var(--ppt-radius-md);
-}
-
-.form-custom-input-wrapper .ppt-icon-btn:hover {
-    background: var(--ppt-primary);
-    color: white;
-    border-color: var(--ppt-primary);
-}
-
-/* ==================== Presentation Mode ==================== */
-.pres-container {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    background: #eef2f6;
-}
-
-/* Top Toolbar */
-.pres-toolbar {
-    height: 64px;
-    background: white;
-    border-bottom: 1px solid var(--ppt-border);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 32px;
-    box-shadow: var(--ppt-shadow-sm);
-    z-index: 1000;
-}
-
-.pres-toolbar-left {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-}
-
-.pres-title-wrapper {
-    display: flex;
-    align-items: center;
-    position: relative;
-}
-
-.pres-title-input {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--ppt-text-main);
-    border: 1px solid transparent;
-    background: transparent;
-    padding: 6px 12px;
-    border-radius: var(--ppt-radius-sm);
-    width: 280px;
-    transition: all 0.2s;
-}
-
-.pres-title-input:hover {
-    background: var(--ppt-bg-subtle);
-}
-
-.pres-title-input:focus {
-    background: white;
-    border-color: var(--ppt-primary);
-    outline: none;
-    box-shadow: 0 0 0 2px var(--ppt-primary-light);
-}
-
-.pres-title-icon {
-    position: absolute;
-    right: 10px;
-    font-size: 14px;
-    color: var(--ppt-text-muted);
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.2s;
-}
-
-.pres-title-wrapper:hover .pres-title-icon {
-    opacity: 1;
-}
-
-.pres-title-input:focus + .pres-title-icon {
-    opacity: 0;
-}
-
-.pres-toolbar-center {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    background: var(--ppt-bg-subtle);
-    padding: 4px;
-    border-radius: 10px;
-}
-
-.pres-view-btn {
-    padding: 8px 16px;
-    border-radius: 8px;
-    font-size: 14px;
-    color: var(--ppt-text-secondary);
-    cursor: pointer;
-    border: none;
-    background: transparent;
-    font-weight: 500;
-    transition: all 0.2s;
-}
-
-.pres-view-btn:hover {
-    color: var(--ppt-text-main);
-}
-
-.pres-view-btn.active {
-    background: white;
-    color: var(--ppt-primary);
-    box-shadow: var(--ppt-shadow-sm);
-    font-weight: 600;
-}
-
-/* Main Canvas Area */
-.pres-main-area {
-    flex: 1;
-    display: flex;
-    overflow: hidden;
-    background: #f1f5f9;
-    background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
-    background-size: 24px 24px;
-    position: relative;
-    z-index: 1; /* 低于工具栏，确保导出菜单不被遮挡 */
-}
-
-.pres-canvas-wrapper {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-    overflow: auto;
-}
-
-.pres-slide {
-    width: 960px;  /* 统一标准尺寸 */
-    height: 540px; /* 固定高度，避免 aspect-ratio 计算误差 */
-    background: white;
-    box-shadow: 0 24px 48px -12px rgba(0,0,0,0.15);
-    border-radius: 4px;
-    position: relative;
-    transition: transform 0.2s;
-    overflow: hidden;
-    flex-shrink: 0;
-}
-
-/* Editable Visual Cues */
-[contenteditable="true"] {
-    transition: all 0.2s;
-    border-radius: 4px;
-    padding: 2px 4px;
-    margin: -2px -4px;
-}
-
-[contenteditable="true"]:hover {
-    background-color: rgba(79, 70, 229, 0.05);
-    outline: 1px dashed var(--ppt-primary);
-    cursor: text;
-}
-
-[contenteditable="true"]:focus {
-    background-color: white;
-    color: var(--ppt-text-main) !important;
-    outline: 2px solid var(--ppt-primary);
-    box-shadow: 0 0 0 4px var(--ppt-primary-light);
-}
-
-/* Cover页面编辑时的特殊处理 */
-.slide-modern-cover [contenteditable="true"]:hover {
-    background-color: rgba(255, 255, 255, 0.15);
-    outline-color: rgba(255, 255, 255, 0.5);
-}
-
-/* ═══════════════════════════════════════════════════════════════ */
-/* Export Dropdown Button */
-/* ═══════════════════════════════════════════════════════════════ */
-
-.ppt-export-dropdown {
-    position: relative;
-}
-
-.ppt-export-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
-    background: linear-gradient(135deg, var(--ppt-primary) 0%, #6366f1 100%);
-    color: white;
-    border: none;
-    border-radius: var(--ppt-radius-md);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s var(--ppt-ease);
-    box-shadow: 0 2px 8px rgba(79, 70, 229, 0.3);
-}
-
-.ppt-export-btn:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
-}
-
-.ppt-export-btn:active {
-    transform: translateY(0);
-}
-
-.ppt-export-chevron {
-    font-size: 12px;
-    transition: transform 0.2s var(--ppt-ease);
-}
-
-.ppt-export-dropdown.open .ppt-export-chevron {
-    transform: rotate(180deg);
-}
-
-.ppt-export-menu {
-    position: absolute;
-    top: calc(100% + 8px);
-    right: 0;
-    min-width: 240px;
-    background: var(--ppt-surface);
-    border: 1px solid var(--ppt-border);
-    border-radius: var(--ppt-radius-md);
-    box-shadow: var(--ppt-shadow-xl);
-    padding: 8px;
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(-8px);
-    transition: all 0.2s var(--ppt-ease);
-    z-index: 9999;
-}
-
-.ppt-export-dropdown.open .ppt-export-menu {
-    opacity: 1;
-    visibility: visible;
-    transform: translateY(0);
-}
-
-.ppt-export-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    width: 100%;
-    padding: 12px;
-    background: transparent;
-    border: none;
-    border-radius: var(--ppt-radius-sm);
-    cursor: pointer;
-    transition: all 0.15s var(--ppt-ease);
-    text-align: left;
-}
-
-.ppt-export-item:hover {
-    background: var(--ppt-bg-subtle);
-}
-
-.ppt-export-item iconify-icon {
-    font-size: 20px;
-    color: var(--ppt-primary);
-    flex-shrink: 0;
-}
-
-.ppt-export-item-info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.ppt-export-item-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--ppt-text-main);
-}
-
-.ppt-export-item-desc {
-    font-size: 12px;
-    color: var(--ppt-text-muted);
-}
-
-.ppt-export-divider {
-    height: 1px;
-    background: var(--ppt-border);
-    margin: 8px 0;
-}
-
-.ppt-export-group-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--ppt-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    padding: 8px 12px 4px;
-    margin-top: 4px;
-}
-
-.ppt-export-group-label:first-child {
-    margin-top: 0;
-}
-
-/* Slide Content Placeholders */
-.slide-modern-cover {
-    height: 100%;
-    background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
-    color: white;
-    padding: 48px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    position: relative;
-    overflow: hidden;
-    box-sizing: border-box;
-}
-
-.slide-modern-cover::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 400px;
-    height: 400px;
-}
-
-/* Left Sidebar: Thumbnail Strip */
-.pres-sidebar {
-width: 140px;
-min-width: 100px;
-max-width: 280px;
-background: white;
-border-right: 1px solid var(--ppt-border);
-display: flex;
-flex-direction: column;
-flex-shrink: 0;
-box-shadow: 4px 0 20px rgba(0,0,0,0.03);
-}
-
-/* Resizable Divider */
-.pres-resizer {
-width: 6px;
-cursor: col-resize;
-background: transparent;
-position: relative;
-flex-shrink: 0;
-z-index: 10;
-transition: background 0.15s;
-}
-
-.pres-resizer::after {
-content: '';
-position: absolute;
-top: 50%;
-left: 50%;
-transform: translate(-50%, -50%);
-width: 2px;
-height: 40px;
-background: var(--ppt-border);
-border-radius: 2px;
-opacity: 0;
-transition: opacity 0.15s;
-}
-
-.pres-resizer:hover {
-background: var(--ppt-primary-light);
-}
-
-.pres-resizer:hover::after {
-opacity: 1;
-background: var(--ppt-primary);
-}
-
-.pres-resizer.dragging {
-background: var(--ppt-primary-light);
-}
-
-.pres-resizer.dragging::after {
-opacity: 1;
-background: var(--ppt-primary);
-}
-
-.pres-sidebar-header {
-padding: 12px 16px;
-font-size: 12px;
-font-weight: 600;
-color: var(--ppt-text-muted);
-text-transform: uppercase;
-letter-spacing: 0.05em;
-border-bottom: 1px solid var(--ppt-border);
-    font-weight: 600;
-    color: var(--ppt-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    border-bottom: 1px solid var(--ppt-border);
-}
-
-.pres-thumbnails {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 12px;
-    overflow-y: auto;
-}
-
-.pres-thumb-card {
-    width: 100%;
-    aspect-ratio: 16/9;
-    background: white;
-    border: 2px solid var(--ppt-border);
-    border-radius: 6px;
-    cursor: pointer;
-    position: relative;
-    flex-shrink: 0;
-    box-shadow: var(--ppt-shadow-sm);
-    transition: all 0.2s;
-    overflow: hidden;
-}
-
-.pres-thumb-card:hover {
-    border-color: var(--ppt-primary-light);
-    box-shadow: var(--ppt-shadow-md);
-}
-
-.pres-thumb-card.active {
-    border-color: var(--ppt-primary);
-    box-shadow: 0 0 0 3px var(--ppt-primary-light);
-}
-
-.pres-thumb-preview {
-    width: 100%;
-    height: 100%;
-    background: #ffffff;
-    overflow: hidden;
-    position: relative;
-}
-
-/* 缩略图内容缩放 */
-.pres-thumb-content {
-    width: 960px;
-    height: 540px;
-    transform: scale(0.162);
-    transform-origin: top left;
-    pointer-events: none;
-    position: absolute;
-    top: 0;
-    left: 0;
-    background: white;
-}
-
-.pres-thumb-num {
-    position: absolute;
-    bottom: 4px;
-    left: 4px;
-    background: rgba(0,0,0,0.7);
-    backdrop-filter: blur(4px);
-    color: white;
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 3px;
-    font-weight: 600;
-}
-
-/* Pagination Controls (Floating) */
-.pres-pagination {
-    position: absolute;
-    bottom: 32px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(255, 255, 255, 0.9);
-    backdrop-filter: blur(12px);
-    padding: 8px 16px;
-    border-radius: 24px;
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    box-shadow: var(--ppt-shadow-lg);
-    border: 1px solid rgba(255,255,255,0.5);
-    z-index: 20;
-}
-
-.pres-page-btn {
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    color: var(--ppt-text-main);
-    display: flex;
-    align-items: center;
-    padding: 6px;
-    border-radius: 50%;
-    transition: background 0.2s;
-}
-
-.pres-page-btn:hover {
-    background: var(--ppt-bg-subtle);
-    color: var(--ppt-primary);
-}
-
-.pres-page-info {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--ppt-text-secondary);
-    font-variant-numeric: tabular-nums;
-    min-width: 48px;
-    text-align: center;
-}
-
-/* ==================== Chat Sidebar (Clean) ==================== */
-.ppt-chat-history {
-    flex: 1;
-    overflow-y: auto;
-    padding: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 28px;
-}
-
-.ppt-message {
-    display: flex;
-    gap: 16px;
-    animation: fadeIn 0.3s ease-out;
-}
-
-.ppt-message.user {
-    flex-direction: row-reverse;
-}
-
-.ppt-avatar {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    font-size: 18px;
-}
-
-.ppt-avatar.ai {
-    background: var(--ppt-primary);
-    color: white;
-    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
-}
-
-.ppt-avatar.ai-minimal {
-    background: var(--ppt-primary-subtle);
-    color: var(--ppt-primary);
-    width: 28px;
-    height: 28px;
-    margin-top: 4px;
-    border-radius: 8px;
-}
-
-.ppt-avatar.user {
-    background: var(--ppt-bg-subtle);
-    color: var(--ppt-text-secondary);
-}
-
-.ppt-bubble {
-    padding: 0;
-    font-size: 15px;
-    line-height: 1.6;
-    color: var(--ppt-text-main);
-    max-width: 85%;
-}
-
-.ppt-message.user .ppt-bubble {
-    background: var(--ppt-primary);
-    color: white;
-    padding: 12px 20px;
-    border-radius: 16px;
-    border-top-right-radius: 4px;
-    box-shadow: var(--ppt-shadow-md);
-}
-
-.ppt-chat-input-area {
-    padding: 24px;
-    border-top: 1px solid var(--ppt-border);
-    background: var(--ppt-surface);
-}
-
-.ppt-chat-input-wrapper {
-    background: var(--ppt-bg-app);
-    border-radius: 28px;
-    padding: 10px 20px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    border: 1px solid transparent;
-    transition: all 0.2s;
-    box-shadow: inset 0 2px 4px rgba(0,0,0,0.03);
-}
-
-.ppt-chat-input-wrapper:focus-within {
-    background: white;
-    border-color: var(--ppt-primary);
-    box-shadow: 0 0 0 3px var(--ppt-primary-light);
-}
-
-#pptChatInput {
-    flex: 1;
-    border: none;
-    background: transparent;
-    resize: none;
-    height: 24px;
-    font-family: var(--ppt-font-sans);
-    font-size: 15px;
-    padding: 0;
-    color: var(--ppt-text-main);
-}
-
-#pptChatInput:focus {
-    outline: none;
-}
-
-#pptSendBtn {
-    min-width: 88px;
-    justify-content: center;
-    border-radius: 20px;
-}
-
-/* Buttons */
-.ppt-btn-primary {
-    background: var(--ppt-primary);
-    color: white;
-    border: none;
-    padding: 10px 20px;
-    border-radius: var(--ppt-radius-md);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    transition: all 0.2s;
-    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
-}
-
-.ppt-btn-primary:hover {
-    background: var(--ppt-primary-hover);
-    box-shadow: 0 6px 16px rgba(79, 70, 229, 0.35);
-    transform: translateY(-1px);
-}
-
-.ppt-btn-secondary {
-    background: white;
-    border: 1px solid var(--ppt-border);
-    color: var(--ppt-text-secondary);
-    padding: 10px 20px;
-    border-radius: var(--ppt-radius-md);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    transition: all 0.2s;
-}
-
-.ppt-btn-secondary:hover {
-    background: var(--ppt-bg-subtle);
-    border-color: var(--ppt-text-muted);
-    color: var(--ppt-text-main);
-    transform: translateY(-1px);
-}
-
-/* Todo List */
-.ppt-todo-tracker {
-    background: var(--ppt-surface);
-    border-bottom: 1px solid var(--ppt-border);
-    padding: 24px;
-}
-
-.ppt-todo-header {
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--ppt-text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    cursor: pointer;
-    user-select: none;
-}
-
-.ppt-todo-header:hover {
-    color: var(--ppt-primary);
-}
-
-.ppt-todo-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 14px;
-    color: var(--ppt-text-secondary);
-    margin-bottom: 12px;
-    padding: 10px 14px;
-    border-radius: var(--ppt-radius-md);
-    transition: all 0.2s;
-    border: 1px solid transparent;
-}
-
-.ppt-todo-item:last-child {
-    margin-bottom: 0;
-}
-
-.ppt-todo-item.active {
-    color: var(--ppt-primary);
-    background: var(--ppt-primary-subtle);
-    border-color: var(--ppt-primary-light);
-    font-weight: 600;
-}
-
-.ppt-todo-item.completed {
-    color: var(--ppt-text-muted);
-    text-decoration: line-through;
-}
-
-.ppt-todo-item.completed .ppt-todo-icon {
-    color: var(--ppt-success);
-}
-
-.ppt-todo-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    margin-top: 0;
-}
-
-.animate-spin {
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-}
-
-/* Scrollbar */
-.custom-scrollbar::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
-    border-radius: 3px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
-}
-
-/* ==================== Modal (Delete Confirmation) ==================== */
-.ppt-modal-overlay {
-    position: fixed;
     inset: 0;
-    z-index: 100;
-    background: rgba(15, 23, 42, 0.6);
-    backdrop-filter: blur(8px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    animation: fadeIn 0.2s ease-out;
+    background: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.02) 100%);
 }
 
-.ppt-modal-overlay.hidden {
-    display: none;
-}
+.ppt-template-preview.t-academic { background: #e0e7ff; color: #4f46e5; }
+.ppt-template-preview.t-business { background: #ecfdf5; color: #10b981; }
+.ppt-template-preview.t-creative { background: #fdf4ff; color: #d946ef; }
+.ppt-template-preview.t-minimal { background: #f8fafc; color: #64748b; }
 
-.ppt-modal-card {
-    background: white;
-    border-radius: var(--ppt-radius-xl);
-    width: 100%;
-    max-width: 440px;
-    box-shadow: var(--ppt-shadow-xl);
-    overflow: hidden;
-    animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-    border: 1px solid rgba(255,255,255,0.1);
-}
-
-.ppt-modal-header {
-    padding: 24px 32px;
-    border-bottom: 1px solid var(--ppt-border);
-    background: #fef2f2;
-}
-
-.ppt-modal-header h3 {
-    font-size: 18px;
-    font-weight: 700;
-    color: var(--ppt-danger);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 0;
-}
-
-.ppt-modal-body {
-    padding: 32px;
-}
-
-.ppt-modal-body p {
-    font-size: 15px;
-    color: var(--ppt-text-secondary);
-    line-height: 1.6;
-    margin-bottom: 20px;
-}
-
-.ppt-input-field {
-    width: 100%;
-    padding: 12px 16px;
-    border: 1px solid var(--ppt-border);
-    border-radius: var(--ppt-radius-md);
-    font-size: 15px;
-    outline: none;
-    transition: border-color 0.2s;
-}
-
-.ppt-input-field:focus {
-    border-color: var(--ppt-primary);
-    box-shadow: 0 0 0 3px var(--ppt-primary-light);
-}
-
-.ppt-modal-footer {
-    padding: 20px 32px;
-    background: var(--ppt-bg-app);
+.ppt-template-info {
+    padding: 16px;
     border-top: 1px solid var(--ppt-border);
-    display: flex;
-    justify-content: flex-end;
-    gap: 16px;
 }
 
-.ppt-btn-danger {
-    background: var(--ppt-danger);
-    color: white;
-    border: none;
-    padding: 10px 20px;
-    border-radius: var(--ppt-radius-md);
-    font-size: 14px;
+.ppt-template-info h4 {
+    font-size: 15px;
     font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);
-}
-
-.ppt-btn-danger:hover {
-    background: #dc2626;
-    box-shadow: 0 6px 16px rgba(239, 68, 68, 0.35);
-    transform: translateY(-1px);
-}
-
-.ppt-btn-danger:disabled {
-    background: #fca5a5;
-    cursor: not-allowed;
-    box-shadow: none;
-    transform: none;
-}
-
-@keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
-
-@keyframes slideUp {
-    from { transform: translateY(20px); opacity: 0; }
-    to { transform: translateY(0); opacity: 1; }
-}
-
-/* ==================== Outline View ==================== */
-.pres-outline-view {
-    width: 100%;
-    max-width: 1200px;
-    height: 100%;
-    padding: 48px;
-    overflow-y: auto;
-    margin: 0 auto;
-}
-
-.ppt-outline-container {
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-}
-
-.ppt-outline-item {
-    display: flex;
-    gap: 24px;
-    padding: 32px;
-    background: white;
-    border-radius: var(--ppt-radius-lg);
-    border: 1px solid var(--ppt-border);
-    cursor: pointer;
-    transition: all 0.2s;
-    box-shadow: var(--ppt-shadow-sm);
-}
-
-.ppt-outline-item:hover {
-    border-color: var(--ppt-primary);
-    box-shadow: var(--ppt-shadow-md);
-    transform: translateY(-2px);
-}
-
-.ppt-outline-num {
-    font-size: 28px;
-    font-weight: 800;
-    color: var(--ppt-text-muted);
-    opacity: 0.3;
-    min-width: 48px;
-}
-
-.ppt-outline-content {
-    flex: 1;
-}
-
-.ppt-outline-title {
-    font-size: 20px;
-    font-weight: 700;
     color: var(--ppt-text-main);
-    margin-bottom: 10px;
+    margin: 0 0 4px 0;
 }
 
-.ppt-outline-text {
-    font-size: 15px;
+.ppt-template-info p {
+    font-size: 12px;
     color: var(--ppt-text-secondary);
-    line-height: 1.6;
-    margin-bottom: 10px;
-}
-
-.ppt-outline-list {
     margin: 0;
-    padding-left: 20px;
-    color: var(--ppt-text-secondary);
-    font-size: 15px;
-    line-height: 1.7;
 }
 
-/* ==================== Context Menu ==================== */
-.ppt-context-menu {
-    position: fixed;
-    background: white;
-    border: 1px solid var(--ppt-border);
-    border-radius: var(--ppt-radius-md);
-    box-shadow: var(--ppt-shadow-lg);
-    padding: 8px;
-    z-index: 1000;
-    min-width: 160px;
-    display: none;
-    animation: fadeIn 0.1s ease-out;
+@media (max-width: 1024px) {
+    .ppt-template-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .ppt-hero-features {
+        justify-content: center;
+        flex-wrap: wrap;
+    }
 }
 
-.ppt-context-menu-item {
-    padding: 10px 14px;
-    font-size: 14px;
-    color: var(--ppt-text-main);
-    cursor: pointer;
-    border-radius: var(--ppt-radius-sm);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    transition: all 0.1s;
-}
-
-.ppt-context-menu-item:hover {
-    background: var(--ppt-bg-subtle);
-    color: var(--ppt-primary);
-}
-
-.ppt-context-menu-item.danger {
-    color: var(--ppt-danger);
-}
-
-.ppt-context-menu-item.danger:hover {
-    background: #fee2e2;
-}
-
-.ppt-context-menu-divider {
-    height: 1px;
-    background: var(--ppt-border);
-    margin: 6px 0;
+@media (max-width: 640px) {
+    .ppt-template-grid {
+        grid-template-columns: 1fr;
+    }
 }

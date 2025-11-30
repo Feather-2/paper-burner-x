@@ -24,7 +24,7 @@ const PPTGeneratorAgentDashboard = {
         } else {
             // Default: Simplified Generation View
             visContent = `
-                <div class="generation-container">
+                <div class="generation-container" style="background: transparent;">
                     <!-- Progress Stepper -->
                     <div class="gen-stepper">
                         ${this._renderStep('reading', '1', '阅读')}
@@ -39,7 +39,7 @@ const PPTGeneratorAgentDashboard = {
                     </div>
 
                     <!-- Main Visualizer -->
-                    <div class="gen-visualizer">
+                    <div class="gen-visualizer" style="background: white; border: 1px solid var(--ppt-border); box-shadow: var(--ppt-shadow-lg);">
                         <div class="gen-status-icon">
                             <iconify-icon icon="${this._getCurrentStatusIcon()}"></iconify-icon>
                         </div>
@@ -76,7 +76,7 @@ const PPTGeneratorAgentDashboard = {
 
         return `
             <div class="generation-container" style="background: transparent;">
-                <div class="ppt-upload-zone" id="pptUploadZone" style="background: rgba(255,255,255,0.6); backdrop-filter: blur(12px); border: 2px dashed var(--ppt-primary-light);">
+                <div class="ppt-upload-zone" id="pptUploadZone" style="background: var(--ppt-bg-app); border: 2px dashed var(--ppt-primary-light);">
                     <iconify-icon icon="carbon:cloud-upload" class="ppt-upload-icon" style="color: var(--ppt-primary);"></iconify-icon>
                     <div class="ppt-upload-text">点击或拖拽上传文档</div>
                     <div class="ppt-upload-subtext">支持 PDF, DOCX, MD, TXT (最大 50MB)</div>

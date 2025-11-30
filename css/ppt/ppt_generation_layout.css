@@ -86,9 +86,17 @@
 
 /* ==================== Main Layout ==================== */
 .ppt-app-shell {
-    flex: 1;
     display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: transparent;
+}
+
+.ppt-workspace {
+    display: flex;
+    flex: 1;
     overflow: hidden;
+    position: relative;
 }
 
 .ppt-main-content {
@@ -96,6 +104,84 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+}
+
+/* Left: Main Content Area */
+.ppt-preview-area {
+    flex: 1;
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0;
+    margin-right: 450px; /* Match sidebar width */
+    transition: margin-right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ppt-preview-area.expanded {
+    margin-right: 0;
+}
+
+/* Right: Chat/Sidebar - Fixed Position */
+.ppt-chat-sidebar {
+    width: 450px;
+    min-width: 300px;
+    max-width: 800px;
+    background-color: var(--ppt-surface);
+    border-left: 1px solid var(--ppt-border);
+    display: flex;
+    flex-direction: column;
+    z-index: 10;
+    box-shadow: -4px 0 24px rgba(0,0,0,0.02);
+    flex-shrink: 0;
+    position: fixed;
+    top: 72px; /* Height of header */
+    bottom: 24px; /* Bottom margin */
+    right: 24px; /* Right margin */
+    border-radius: 24px; /* Rounded corners */
+    transform: translateX(0);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden; /* Ensure content respects border radius */
+}
+
+.ppt-chat-sidebar.collapsed {
+    transform: translateX(calc(100% + 24px));
+}
+
+/* Resizable Divider for Workspace */
+.ppt-resizer {
+    position: fixed;
+    top: 72px;
+    bottom: 24px;
+    right: 474px; /* 450px width + 24px margin */
+    width: 12px;
+    cursor: col-resize;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ppt-resizer::after {
+    content: '';
+    width: 4px;
+    height: 48px;
+    background: var(--ppt-border);
+    border-radius: 2px;
+    transition: all 0.2s;
+}
+
+.ppt-resizer:hover::after, .ppt-resizer.dragging::after {
+    background: var(--ppt-primary);
+    height: 64px;
+    width: 4px;
+}
+
+.ppt-chat-sidebar.collapsed + .ppt-resizer,
+.ppt-resizer.collapsed {
+    display: none;
 }
 
 /* ==================== Thumbnail Sidebar ==================== */

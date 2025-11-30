@@ -2,27 +2,8 @@
 /* Chat messages, input, attachments */
 
 /* ==================== Chat Sidebar ==================== */
-.ppt-chat-sidebar {
-    width: 400px;
-    min-width: 400px;
-    max-width: 400px;
-    background: #fafbfc;
-    border-left: 1px solid var(--ppt-border);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    transition: all 0.3s var(--ppt-ease);
-}
-
-.ppt-chat-sidebar.collapsed {
-    width: 0;
-    min-width: 0;
-    max-width: 0;
-    opacity: 0;
-    pointer-events: none;
-    padding: 0;
-    border: none;
-}
+/* 注意: 布局和定位样式在 ppt_generation_layout.css 中 */
+/* 这里只包含内容和样式相关的属性 */
 
 .ppt-chat-header {
     padding: 16px 20px;

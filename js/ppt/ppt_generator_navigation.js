@@ -77,6 +77,37 @@ const PPTGeneratorNavigation = {
                                     </div>
                                 </div>
                             </div>
+
+                            <!-- Feature Highlights (New) -->
+                            <div class="ppt-hero-features">
+                                <div class="ppt-feature-item">
+                                    <div class="ppt-feature-icon">
+                                        <iconify-icon icon="carbon:ibm-watson-discovery"></iconify-icon>
+                                    </div>
+                                    <div class="ppt-feature-text">
+                                        <strong>智能大纲</strong>
+                                        <span>一键生成结构</span>
+                                    </div>
+                                </div>
+                                <div class="ppt-feature-item">
+                                    <div class="ppt-feature-icon">
+                                        <iconify-icon icon="carbon:template"></iconify-icon>
+                                    </div>
+                                    <div class="ppt-feature-text">
+                                        <strong>自动排版</strong>
+                                        <span>智能布局设计</span>
+                                    </div>
+                                </div>
+                                <div class="ppt-feature-item">
+                                    <div class="ppt-feature-icon">
+                                        <iconify-icon icon="carbon:document-export"></iconify-icon>
+                                    </div>
+                                    <div class="ppt-feature-text">
+                                        <strong>原生导出</strong>
+                                        <span>可编辑 PPTX</span>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Hero Visual Preview -->
@@ -173,9 +204,50 @@ const PPTGeneratorNavigation = {
                                     `).join('')}
                                 </div>
                             `) : `
-                                <div style="text-align: center; padding: 40px; color: var(--ppt-text-muted);">
-                                    <iconify-icon icon="carbon:folder-open" style="font-size: 48px; margin-bottom: 16px; opacity: 0.5;"></iconify-icon>
-                                    <p>暂无最近项目，点击上方按钮开始创作</p>
+                                <!-- Empty State Templates -->
+                                <div class="ppt-empty-templates">
+                                    <div class="ppt-empty-header">
+                                        <span class="ppt-empty-label">快速开始</span>
+                                        <p>选择一个场景或直接开始新创作</p>
+                                    </div>
+                                    <div class="ppt-template-grid">
+                                        <div class="ppt-template-card" onclick="window.PPTGenerator.createNewProject('academic')">
+                                            <div class="ppt-template-preview t-academic">
+                                                <iconify-icon icon="carbon:education"></iconify-icon>
+                                            </div>
+                                            <div class="ppt-template-info">
+                                                <h4>学术报告</h4>
+                                                <p>论文答辩、研究分享</p>
+                                            </div>
+                                        </div>
+                                        <div class="ppt-template-card" onclick="window.PPTGenerator.createNewProject('business')">
+                                            <div class="ppt-template-preview t-business">
+                                                <iconify-icon icon="carbon:chart-line"></iconify-icon>
+                                            </div>
+                                            <div class="ppt-template-info">
+                                                <h4>商业计划</h4>
+                                                <p>项目路演、市场分析</p>
+                                            </div>
+                                        </div>
+                                        <div class="ppt-template-card" onclick="window.PPTGenerator.createNewProject('creative')">
+                                            <div class="ppt-template-preview t-creative">
+                                                <iconify-icon icon="carbon:palette"></iconify-icon>
+                                            </div>
+                                            <div class="ppt-template-info">
+                                                <h4>创意设计</h4>
+                                                <p>作品集、视觉展示</p>
+                                            </div>
+                                        </div>
+                                        <div class="ppt-template-card" onclick="window.PPTGenerator.createNewProject('minimal')">
+                                            <div class="ppt-template-preview t-minimal">
+                                                <iconify-icon icon="carbon:clean"></iconify-icon>
+                                            </div>
+                                            <div class="ppt-template-info">
+                                                <h4>极简风格</h4>
+                                                <p>通用汇报、简单演示</p>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             `}
                         </div>
@@ -195,10 +267,19 @@ const PPTGeneratorNavigation = {
         this.showProjectList();
     },
 
-    async createNewProject() {
+    async createNewProject(template = 'default') {
+        const titles = {
+            'academic': '未命名学术报告',
+            'business': '未命名商业计划',
+            'creative': '未命名创意演示',
+            'minimal': '未命名演示文稿',
+            'default': 'New Mission'
+        };
+
         const newProject = {
             id: crypto.randomUUID(),
-            title: 'New Mission',
+            title: titles[template] || titles['default'],
+            template: template,
             status: 'idle',
             chatHistory: [],
             logs: [],
@@ -251,6 +332,9 @@ const PPTGeneratorNavigation = {
                         <div class="ppt-project-title">${this.currentProject.title}</div>
                     </div>
                     <div class="ppt-header-right">
+                        <button class="ppt-icon-btn" onclick="window.PPTGenerator.toggleChatSidebar()" title="切换侧边栏">
+                            <iconify-icon icon="carbon:side-panel-open"></iconify-icon>
+                        </button>
                         <button class="ppt-icon-btn" onclick="window.PPTGenerator.showProjectList()" title="项目列表">
                             <iconify-icon icon="carbon:grid"></iconify-icon>
                         </button>
@@ -263,8 +347,6 @@ const PPTGeneratorNavigation = {
                     <div class="ppt-preview-area" id="pptPreviewArea">
                         <!-- Dynamic Agent Dashboard -->
                     </div>
-                        <!-- Right Resizer -->
-                    <div class="ppt-resizer" id="pptRightResizer" data-target="pptChatSidebar" data-min="280" data-max="500"></div>
                     <div class="ppt-chat-sidebar" id="pptChatSidebar">
                         <div class="ppt-todo-tracker" id="pptTodoTracker"></div>
                         <div class="ppt-chat-history" id="pptChatHistory"></div>
@@ -282,51 +364,76 @@ const PPTGeneratorNavigation = {
                             <input type="file" id="pptFileInput" multiple accept="image/*,.pdf,.docx,.pptx,.txt,.md" hidden>
                         </div>
                     </div>
+                    <div class="ppt-resizer" id="pptResizer"></div>
                 </div>
             </div>
         `;
 
         this.renderTodoList();
         this._bindChatEvents();
-        this._initWorkspaceResizer();
+        this._bindResizerEvents();
     },
 
-    /**
-     * 初始化工作区右侧分隔条
-     */
-    _initWorkspaceResizer() {
-        const resizer = document.getElementById('pptRightResizer');
-        const target = document.getElementById('pptChatSidebar');
-        if (!resizer || !target) return;
+    toggleChatSidebar() {
+        const sidebar = document.getElementById('pptChatSidebar');
+        const previewArea = document.getElementById('pptPreviewArea');
+        
+        if (sidebar && previewArea) {
+            const isCollapsed = sidebar.classList.toggle('collapsed');
+            previewArea.classList.toggle('expanded');
+            
+            if (isCollapsed) {
+                previewArea.style.marginRight = '';
+            } else {
+                if (sidebar.style.width) {
+                    previewArea.style.marginRight = sidebar.style.width;
+                }
+            }
+        }
+    },
 
-        const minWidth = parseInt(resizer.dataset.min) || 280;
-        const maxWidth = parseInt(resizer.dataset.max) || 500;
+    _bindResizerEvents() {
+        const resizer = document.getElementById('pptResizer');
+        const sidebar = document.getElementById('pptChatSidebar');
+        const previewArea = document.getElementById('pptPreviewArea');
+        
+        if (!resizer || !sidebar || !previewArea) return;
+
         let startX, startWidth;
 
-        const onMouseDown = (e) => {
-            startX = e.clientX;
-            startWidth = target.offsetWidth;
-            resizer.classList.add('dragging');
-            document.body.style.cursor = 'col-resize';
-            document.body.style.userSelect = 'none';
-            
-            document.addEventListener('mousemove', onMouseMove);
-            document.addEventListener('mouseup', onMouseUp);
-        };
-
         const onMouseMove = (e) => {
-            // 右侧边栏：向左拖动增加宽度
-            const dx = startX - e.clientX;
-            const newWidth = Math.min(maxWidth, Math.max(minWidth, startWidth + dx));
-            target.style.width = newWidth + 'px';
+            // Calculate new width (Right side is fixed, so moving left increases width)
+            const deltaX = startX - e.clientX;
+            let newWidth = startWidth + deltaX;
+            
+            // Constraints
+            if (newWidth < 300) newWidth = 300;
+            if (newWidth > 800) newWidth = 800;
+            
+            sidebar.style.width = `${newWidth}px`;
+            previewArea.style.marginRight = `${newWidth}px`;
+            resizer.style.right = `${newWidth + 24}px`; // 24px is the right margin of sidebar
         };
 
         const onMouseUp = () => {
             resizer.classList.remove('dragging');
             document.body.style.cursor = '';
             document.body.style.userSelect = '';
+            
             document.removeEventListener('mousemove', onMouseMove);
             document.removeEventListener('mouseup', onMouseUp);
+        };
+
+        const onMouseDown = (e) => {
+            startX = e.clientX;
+            startWidth = sidebar.getBoundingClientRect().width;
+            
+            resizer.classList.add('dragging');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
         };
 
         resizer.addEventListener('mousedown', onMouseDown);

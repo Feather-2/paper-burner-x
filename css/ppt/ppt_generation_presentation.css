@@ -497,3 +497,71 @@
     color: rgba(255, 255, 255, 0.6);
     font-size: 12px;
 }
+
+/* ==================== Outline View ==================== */
+.pres-outline-view {
+    width: 100%;
+    max-width: 1200px;
+    height: 100%;
+    padding: 48px;
+    overflow-y: auto;
+    margin: 0 auto;
+}
+
+.ppt-outline-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.ppt-outline-item {
+    display: flex;
+    gap: 24px;
+    padding: 32px;
+    background: white;
+    border-radius: var(--ppt-radius-lg);
+    border: 1px solid var(--ppt-border);
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: var(--ppt-shadow-sm);
+}
+
+.ppt-outline-item:hover {
+    border-color: var(--ppt-primary);
+    box-shadow: var(--ppt-shadow-md);
+    transform: translateY(-2px);
+}
+
+.ppt-outline-num {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--ppt-text-muted);
+    opacity: 0.3;
+    min-width: 48px;
+}
+
+.ppt-outline-content {
+    flex: 1;
+}
+
+.ppt-outline-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--ppt-text-main);
+    margin-bottom: 10px;
+}
+
+.ppt-outline-text {
+    font-size: 15px;
+    color: var(--ppt-text-secondary);
+    line-height: 1.6;
+    margin-bottom: 10px;
+}
+
+.ppt-outline-list {
+    margin: 0;
+    padding-left: 20px;
+    color: var(--ppt-text-secondary);
+    font-size: 15px;
+    line-height: 1.7;
+}
