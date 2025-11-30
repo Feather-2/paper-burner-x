@@ -510,7 +510,7 @@ const PPT_SAMPLE_HTML = `
                         <rect x="90" y="280" width="100" height="60" rx="4" fill="#0c0a09" stroke="#22d3ee" stroke-width="2"/><text x="140" y="315" fill="#22d3ee" font-size="14" font-weight="bold" text-anchor="middle">15mK</text>
                         <!-- 量子处理器 -->
                         <rect x="105" y="295" width="70" height="30" rx="4" fill="#1e293b" stroke="#a855f7" stroke-width="2"/>
-                        <text x="140" y="330" fill="#a855f7" font-size="10" text-anchor="middle">QPU</text>
+                        <text x="140" y="314" fill="#a855f7" font-size="10" text-anchor="middle">QPU</text>
                         <!-- 标签 -->
                         <text x="140" y="370" fill="#64748b" font-size="10" text-anchor="middle">Dilution Refrigerator</text>
                     </svg>
