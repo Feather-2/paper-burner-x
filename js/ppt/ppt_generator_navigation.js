@@ -418,6 +418,10 @@ const PPTGeneratorNavigation = {
             resizer.style.right = `${newWidth + RIGHT_MARGIN}px`;
             // 预览区 margin 跟随
             previewArea.style.marginRight = `${newWidth + RIGHT_MARGIN + 16}px`;
+            // 更新 canvas 尺寸（如果在 presentation 模式）
+            if (this._updateCanvasSize) {
+                this._updateCanvasSize();
+            }
         };
 
         const onMouseMove = (e) => {

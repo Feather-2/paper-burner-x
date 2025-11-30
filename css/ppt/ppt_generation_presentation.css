@@ -650,14 +650,16 @@
 }
 
 .pres-slide {
-    width: 960px;
+    /* 尺寸由 JS 动态计算，保持 16:9 并最大化 */
+    width: 960px; /* 默认值，JS 会覆盖 */
     height: 540px;
     background: white;
     box-shadow: 0 24px 48px -12px rgba(0,0,0,0.15);
-    border-radius: 4px;
+    border-radius: 8px;
     position: relative;
     overflow: hidden;
     flex-shrink: 0;
+    transition: width 0.15s ease-out, height 0.15s ease-out;
 }
 
 /* Main Area - 确保给 canvas 足够宽度 */

@@ -69,6 +69,54 @@ const PPTGeneratorPresentation = {
         
         // 初始化缩略图 resizer
         this._bindThumbResizerEvents();
+        // 初始化 canvas 自适应尺寸
+        this._updateCanvasSize();
+        // 监听窗口大小变化
+        this._resizeHandler = () => this._updateCanvasSize();
+        window.addEventListener('resize', this._resizeHandler);
+    },
+
+    /**
+     * 计算并更新 canvas 尺寸，保持 16:9 比例并最大化利用可用空间
+     */
+    _updateCanvasSize() {
+        const slide = document.getElementById('presSlideCanvas');
+        const canvasWrapper = document.querySelector('.pres-canvas-wrapper');
+        const thumbSidebar = document.getElementById('presSidebar');
+        
+        if (!slide || !canvasWrapper) return;
+        
+        // 获取可用空间
+        const wrapperRect = canvasWrapper.getBoundingClientRect();
+        const padding = 40; // wrapper 的 padding
+        const toolbarHeight = 80; // 底部工具栏预留空间
+        
+        const availableWidth = wrapperRect.width - padding * 2;
+        const availableHeight = wrapperRect.height - padding * 2 - toolbarHeight;
+        
+        // 16:9 比例
+        const aspectRatio = 16 / 9;
+        
+        let width, height;
+        
+        // 根据可用空间计算最大尺寸
+        if (availableWidth / availableHeight > aspectRatio) {
+            // 高度受限
+            height = availableHeight;
+            width = height * aspectRatio;
+        } else {
+            // 宽度受限
+            width = availableWidth;
+            height = width / aspectRatio;
+        }
+        
+        // 设置最小尺寸
+        width = Math.max(width, 640);
+        height = Math.max(height, 360);
+        
+        // 应用尺寸
+        slide.style.width = `${width}px`;
+        slide.style.height = `${height}px`;
     },
 
     /**
@@ -89,6 +137,8 @@ const PPTGeneratorPresentation = {
             let newWidth = startWidth + deltaX;
             newWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth));
             sidebar.style.width = `${newWidth}px`;
+            // 更新 canvas 尺寸
+            this._updateCanvasSize();
         };
 
         const onMouseUp = () => {
