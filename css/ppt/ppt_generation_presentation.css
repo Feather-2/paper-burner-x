@@ -565,3 +565,110 @@
     font-size: 15px;
     line-height: 1.7;
 }
+
+/* ==================== Floating Toolbar (幻灯片编辑工具栏) ==================== */
+.pres-slide-container {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.pres-toolbar-float {
+    position: absolute;
+    bottom: -60px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: white;
+    border-radius: 12px;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    box-shadow: var(--ppt-shadow-lg);
+    border: 1px solid var(--ppt-border);
+    z-index: 100;
+}
+
+.pres-toolbar-group {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.pres-toolbar-divider {
+    width: 1px;
+    height: 24px;
+    background: var(--ppt-border);
+    margin: 0 8px;
+}
+
+.pres-tool-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    color: var(--ppt-text-secondary);
+    font-size: 18px;
+    transition: all 0.15s;
+}
+
+.pres-tool-btn:hover {
+    background: var(--ppt-bg-subtle);
+    color: var(--ppt-text-main);
+}
+
+.pres-tool-btn.danger:hover {
+    background: #fee2e2;
+    color: #ef4444;
+}
+
+.pres-page-info {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ppt-text-main);
+    min-width: 50px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ==================== Canvas Wrapper ==================== */
+.pres-canvas-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    overflow: auto;
+    position: relative;
+}
+
+.pres-slide {
+    width: 960px;
+    height: 540px;
+    background: white;
+    box-shadow: 0 24px 48px -12px rgba(0,0,0,0.15);
+    border-radius: 4px;
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+/* Main Area - 确保给 canvas 足够宽度 */
+.pres-main-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #f1f5f9;
+    background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+    background-size: 24px 24px;
+    position: relative;
+    min-width: 0; /* 允许收缩 */
+}

@@ -4,10 +4,8 @@
 /* ==================== Header (Glass) ==================== */
 .ppt-header {
     height: 64px;
-    background-color: var(--ppt-surface-glass);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-bottom: 1px solid var(--ppt-border);
+    background-color: transparent;
+    border-bottom: none;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -49,10 +47,38 @@
     align-items: center;
 }
 
+.ppt-header-center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+}
+
 .ppt-header-right {
     display: flex;
     align-items: center;
     gap: 12px;
+}
+
+/* 播放按钮 */
+.ppt-play-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: var(--ppt-primary);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.ppt-play-btn:hover {
+    background: var(--ppt-primary-hover);
+    transform: translateY(-1px);
 }
 
 .ppt-header-right .ppt-icon-btn {
@@ -107,6 +133,7 @@
 }
 
 /* Left: Main Content Area */
+/* 默认比例 1:7:1.5，canvas 占更多空间 */
 .ppt-preview-area {
     flex: 1;
     position: relative;
@@ -115,60 +142,81 @@
     flex-direction: column;
     overflow: hidden;
     padding: 0;
-    margin-right: 450px; /* Match sidebar width */
-    transition: margin-right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    margin-right: calc(19% + 40px); /* chat宽度 + margin + gap */
+    transition: margin-right 0.05s ease-out;
 }
 
 .ppt-preview-area.expanded {
     margin-right: 0;
 }
 
-/* Right: Chat/Sidebar - Fixed Position */
+/* Right: Chat/Sidebar - Floating Card Style */
+/* chat 占 19% */
 .ppt-chat-sidebar {
-    width: 450px;
-    min-width: 300px;
-    max-width: 800px;
-    background-color: var(--ppt-surface);
-    border-left: 1px solid var(--ppt-border);
+    width: 19%;
+    min-width: 260px;
+    max-width: 360px;
+    background-color: transparent;
+    border-left: none;
     display: flex;
     flex-direction: column;
     z-index: 10;
-    box-shadow: -4px 0 24px rgba(0,0,0,0.02);
+    box-shadow: none;
     flex-shrink: 0;
     position: fixed;
-    top: 72px; /* Height of header */
+    top: 80px; /* Height of header + margin */
     bottom: 24px; /* Bottom margin */
     right: 24px; /* Right margin */
-    border-radius: 24px; /* Rounded corners */
+    border-radius: 24px;
     transform: translateX(0);
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    overflow: hidden; /* Ensure content respects border radius */
+    transition: width 0.05s ease-out, transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+    pointer-events: none; /* Allow clicks to pass through gaps */
+}
+
+/* Wrapper for Chat + Input to act as one card */
+.ppt-chat-wrapper {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    background: white;
+    border-radius: 24px;
+    border: 1px solid var(--ppt-border);
+    box-shadow: var(--ppt-shadow-sm);
+    pointer-events: auto;
+    overflow: hidden;
 }
 
 .ppt-chat-sidebar.collapsed {
-    transform: translateX(calc(100% + 24px));
+    transform: translateX(calc(100% + 48px));
 }
 
 /* Resizable Divider for Workspace */
 .ppt-resizer {
     position: fixed;
-    top: 72px;
+    top: 80px;
     bottom: 24px;
-    right: 474px; /* 450px width + 24px margin */
-    width: 12px;
+    right: calc(19% + 24px); /* chat宽度 + margin = 紧贴 chat 左边缘 */
+    width: 16px;
     cursor: col-resize;
-    z-index: 20;
+    z-index: 25;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: right 0.05s ease-out;
+    opacity: 0; /* Hide by default, show on hover */
+}
+
+.ppt-resizer:hover {
+    opacity: 1;
 }
 
 .ppt-resizer::after {
     content: '';
     width: 4px;
     height: 48px;
-    background: var(--ppt-border);
+    background: rgba(0,0,0,0.1);
     border-radius: 2px;
     transition: all 0.2s;
 }
@@ -185,15 +233,19 @@
 }
 
 /* ==================== Thumbnail Sidebar ==================== */
+/* 默认比例 1:6:2，缩略图占 1/9 ≈ 11.1% */
 .ppt-thumb-sidebar {
-    width: 180px;
-    min-width: 180px;
-    background: var(--ppt-surface);
-    border-right: 1px solid var(--ppt-border);
+    width: 11.1%; /* 1/9 */
+    min-width: 120px;
+    max-width: 240px;
+    background: transparent;
+    border-right: none;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    transition: width 0.3s var(--ppt-ease), min-width 0.3s var(--ppt-ease), opacity 0.3s var(--ppt-ease);
+    transition: width 0.05s ease-out;
+    padding: 16px 0 16px 16px;
+    position: relative;
 }
 
 .ppt-thumb-sidebar.collapsed {
@@ -208,29 +260,85 @@
 .ppt-thumb-list {
     flex: 1;
     overflow-y: auto;
-    padding: 16px 12px;
+    overflow-x: hidden;
+    padding: 8px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
+    background: white;
+    border-radius: 16px;
+    border: 1px solid var(--ppt-border);
+    box-shadow: var(--ppt-shadow-sm);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0,0,0,0.1) transparent;
+}
+
+.ppt-thumb-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.ppt-thumb-list::-webkit-scrollbar-thumb {
+    background: rgba(0,0,0,0.1);
+    border-radius: 2px;
 }
 
 .ppt-thumb-item {
     position: relative;
     cursor: pointer;
-    border-radius: 6px;
+    border-radius: 8px;
     overflow: hidden;
     border: 2px solid transparent;
     transition: all 0.15s;
     flex-shrink: 0;
+    background: white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
 
 .ppt-thumb-item:hover {
     border-color: var(--ppt-border-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.12);
 }
 
 .ppt-thumb-item.active {
     border-color: var(--ppt-primary);
     box-shadow: 0 0 0 2px var(--ppt-primary-light);
+}
+
+/* 缩略图侧边栏 Resizer */
+.ppt-thumb-resizer {
+    position: absolute;
+    top: 16px;
+    bottom: 16px;
+    right: 0;
+    width: 12px;
+    cursor: col-resize;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.ppt-thumb-resizer:hover,
+.ppt-thumb-resizer.dragging {
+    opacity: 1;
+}
+
+.ppt-thumb-resizer::after {
+    content: '';
+    width: 3px;
+    height: 40px;
+    background: rgba(0,0,0,0.15);
+    border-radius: 2px;
+    transition: all 0.2s;
+}
+
+.ppt-thumb-resizer:hover::after,
+.ppt-thumb-resizer.dragging::after {
+    background: var(--ppt-primary);
+    height: 56px;
 }
 
 .ppt-thumb-preview {
@@ -242,15 +350,46 @@
     font-size: 10px;
     color: var(--ppt-text-muted);
     text-align: center;
-    padding: 8px;
+    padding: 0;
     overflow: hidden;
+    position: relative;
 }
 
 .ppt-thumb-preview > * {
     width: 100%;
     height: 100%;
-    transform-origin: center center;
     pointer-events: none;
+}
+
+/* 缩略图内容容器 - 缩放显示完整幻灯片 */
+.ppt-thumb-preview .pres-thumb-content {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 960px;
+    height: 540px;
+    transform-origin: top left;
+    transform: scale(0.115); /* ~110px / 960px (140px - padding) */
+}
+
+.ppt-thumb-preview .pres-thumb-content > * {
+    width: 100%;
+    height: 100%;
+}
+
+/* 缩略图中的 cover 幻灯片样式 */
+.ppt-thumb-preview .slide-modern-cover {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+    color: white;
+    padding: 20px;
+    box-sizing: border-box;
 }
 
 .ppt-thumb-number {

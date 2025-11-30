@@ -4,28 +4,24 @@ const PPTGeneratorPresentation = {
         this._updateHeaderForPresentation();
 
         container.innerHTML = `
-            <div class="pres-container">
+            <div class="pres-container" style="display: flex; height: 100%; width: 100%;">
+                <!-- Left Sidebar: Thumbnail Strip -->
+                <div class="ppt-thumb-sidebar" id="presSidebar">
+                    <div class="ppt-thumb-list custom-scrollbar" id="presThumbnails">
+                        ${this.slides.map((slide, index) => `
+                            <div class="ppt-thumb-item ${index === this.currentSlideIndex ? 'active' : ''}" onclick="window.PPTGenerator.goToSlide(${index})">
+                                <div class="ppt-thumb-preview">
+                                    ${this._renderThumbnail(slide, index)}
+                                </div>
+                                <div class="ppt-thumb-number">${index + 1}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div class="ppt-thumb-resizer" id="presThumbResizer"></div>
+                </div>
+                
                 <!-- Main Area -->
                 <div class="pres-main-area">
-                    <!-- Left Sidebar: Thumbnail Strip -->
-                    <div class="pres-sidebar" id="presSidebar" style="width: 140px;">
-                        <div class="pres-sidebar-header">
-                            <span>幻灯片</span>
-                        </div>
-                        <div class="pres-thumbnails custom-scrollbar" id="presThumbnails">
-                            ${this.slides.map((slide, index) => `
-                                <div class="pres-thumb-card ${index === this.currentSlideIndex ? 'active' : ''}" onclick="window.PPTGenerator.goToSlide(${index})">
-                                    <div class="pres-thumb-preview">
-                                        ${this._renderThumbnail(slide, index)}
-                                    </div>
-                                    <div class="pres-thumb-num">${index + 1}</div>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                    <!-- Left Resizer -->
-                    <div class="pres-resizer" id="presLeftResizer" data-target="presSidebar" data-min="100" data-max="280"></div>
-
                     <!-- Canvas -->
                     <div class="pres-canvas-wrapper">
                         ${this.viewMode === 'slide' ? `
@@ -71,8 +67,48 @@ const PPTGeneratorPresentation = {
             </div>
         `;
         
-        // 初始化可拖动分隔条
-        setTimeout(() => this.initResizers(), 0);
+        // 初始化缩略图 resizer
+        this._bindThumbResizerEvents();
+    },
+
+    /**
+     * 绑定缩略图侧边栏 resizer 事件
+     */
+    _bindThumbResizerEvents() {
+        const resizer = document.getElementById('presThumbResizer');
+        const sidebar = document.getElementById('presSidebar');
+        
+        if (!resizer || !sidebar) return;
+
+        const MIN_WIDTH = 100;
+        const MAX_WIDTH = 240;
+        let startX, startWidth;
+
+        const onMouseMove = (e) => {
+            const deltaX = e.clientX - startX;
+            let newWidth = startWidth + deltaX;
+            newWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth));
+            sidebar.style.width = `${newWidth}px`;
+        };
+
+        const onMouseUp = () => {
+            resizer.classList.remove('dragging');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+
+        resizer.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            startX = e.clientX;
+            startWidth = sidebar.getBoundingClientRect().width;
+            resizer.classList.add('dragging');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
     },
 
     // ============================================================
@@ -97,11 +133,13 @@ const PPTGeneratorPresentation = {
                 </div>
                 <div class="ppt-header-divider"></div>
                 <div class="pres-title-wrapper">
-                    <input type="text" class="pres-title-input" value="${this.currentProject.title}" 
-                           onblur="window.PPTGenerator.updateProjectTitle(this.value)" 
+                    <input type="text" class="pres-title-input" value="${this.currentProject.title}"
+                           onblur="window.PPTGenerator.updateProjectTitle(this.value)"
                            onkeydown="if(event.key === 'Enter') this.blur()">
                     <iconify-icon icon="carbon:edit" class="pres-title-icon"></iconify-icon>
                 </div>
+            </div>
+            <div class="ppt-header-center">
                 <div class="pres-view-toggle">
                     <button class="pres-view-btn ${this.viewMode === 'slide' ? 'active' : ''}" onclick="window.PPTGenerator.toggleViewMode('slide')">
                         <iconify-icon icon="carbon:presentation-file"></iconify-icon>
@@ -520,7 +558,7 @@ const PPTGeneratorPresentation = {
         // Update Thumbnails
         const thumbsContainer = document.getElementById('presThumbnails');
         if (thumbsContainer) {
-            const thumbs = thumbsContainer.querySelectorAll('.pres-thumb-card');
+            const thumbs = thumbsContainer.querySelectorAll('.ppt-thumb-item');
             thumbs.forEach((thumb, index) => {
                 if (index === this.currentSlideIndex) {
                     thumb.classList.add('active');

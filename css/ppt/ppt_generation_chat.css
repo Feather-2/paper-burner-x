@@ -5,75 +5,155 @@
 /* 注意: 布局和定位样式在 ppt_generation_layout.css 中 */
 /* 这里只包含内容和样式相关的属性 */
 
-.ppt-chat-header {
-    padding: 16px 20px;
+/* ==================== Todo Tracker ==================== */
+.ppt-todo-tracker {
+    padding: 8px 16px;
     border-bottom: 1px solid var(--ppt-border);
     background: white;
+    flex-shrink: 0;
+    overflow: hidden; /* 不产生独立滚动条 */
+    container-type: inline-size; /* 启用容器查询 */
+}
+
+.ppt-todo-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-}
-
-.ppt-chat-header-left {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.ppt-chat-header-icon {
-    width: 32px;
-    height: 32px;
-    background: var(--ppt-primary-subtle);
-    color: var(--ppt-primary);
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
-}
-
-.ppt-chat-header-text h3 {
-    font-size: 14px;
+    cursor: pointer;
+    font-size: 12px;
     font-weight: 600;
     color: var(--ppt-text-main);
-    margin: 0;
+    user-select: none;
+    padding-bottom: 6px;
 }
 
-.ppt-chat-header-text span {
+.ppt-todo-header:hover {
+    color: var(--ppt-primary);
+}
+
+.ppt-todo-content {
+    margin-top: 4px;
+    display: grid;
+    grid-template-columns: 1fr 1fr; /* Two columns */
+    gap: 4px 6px;
+    animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.ppt-todo-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 11px;
-    color: var(--ppt-text-muted);
+    color: var(--ppt-text-secondary);
+    padding: 4px 6px;
+    border-radius: 4px;
+    transition: all 0.15s;
+    line-height: 1.3;
 }
 
-.ppt-chat-toggle {
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    color: var(--ppt-text-muted);
-    padding: 6px;
-    border-radius: 6px;
-    transition: all 0.2s;
-}
-
-.ppt-chat-toggle:hover {
-    color: var(--ppt-text-main);
+.ppt-todo-item:hover {
     background: var(--ppt-bg-subtle);
 }
 
-/* ==================== Messages ==================== */
-.ppt-chat-messages {
+.ppt-todo-item.completed {
+    color: var(--ppt-text-muted);
+    text-decoration: line-through;
+    opacity: 0.7;
+}
+
+.ppt-todo-item.active {
+    color: var(--ppt-text-main);
+    background: var(--ppt-primary-subtle);
+    font-weight: 500;
+}
+
+.ppt-todo-icon {
+    flex-shrink: 0;
+    font-size: 12px;
+}
+
+.ppt-todo-item.completed .ppt-todo-icon {
+    color: var(--ppt-success);
+}
+
+.ppt-todo-item.active .ppt-todo-icon {
+    color: var(--ppt-primary);
+}
+
+/* 窄宽度时保持两列，但更紧凑 */
+@container (max-width: 360px) {
+    .ppt-todo-content {
+        grid-template-columns: 1fr 1fr; /* 保持两列 */
+        gap: 2px 4px;
+    }
+    
+    .ppt-todo-item {
+        font-size: 10px;
+        padding: 2px 4px;
+        gap: 3px;
+    }
+    
+    .ppt-todo-icon {
+        font-size: 10px;
+    }
+}
+
+/* 极窄宽度时隐藏图标，保持两列 */
+@container (max-width: 300px) {
+    .ppt-todo-icon {
+        display: none;
+    }
+    
+    .ppt-todo-item {
+        padding: 2px 3px;
+        font-size: 9px;
+    }
+}
+
+/* ==================== Chat History (Messages) ==================== */
+.ppt-chat-history {
     flex: 1;
     overflow-y: auto;
-    padding: 20px;
+    overflow-x: hidden;
+    padding: 16px 20px;
     display: flex;
     flex-direction: column;
     gap: 16px;
-    background: #fafbfc;
+    background: white;
+    min-height: 0; /* Important for flex scrolling */
+    border-top: none;
+    /* 美化滚动条 */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0,0,0,0.15) transparent;
+}
+
+.ppt-chat-history::-webkit-scrollbar {
+    width: 6px;
+}
+
+.ppt-chat-history::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.ppt-chat-history::-webkit-scrollbar-thumb {
+    background: rgba(0,0,0,0.15);
+    border-radius: 3px;
+}
+
+.ppt-chat-history::-webkit-scrollbar-thumb:hover {
+    background: rgba(0,0,0,0.25);
 }
 
 .ppt-message {
     display: flex;
     flex-direction: column;
     animation: fadeIn 0.2s ease-out;
+    gap: 8px;
 }
 
 .ppt-message.user {
@@ -85,23 +165,23 @@
 }
 
 .ppt-avatar {
-    display: none;
+    display: none; /* Hide avatars as per request */
 }
 
 .ppt-bubble {
     font-size: 14px;
-    line-height: 1.65;
+    line-height: 1.6;
     color: var(--ppt-text-main);
-    max-width: 88%;
+    max-width: 92%;
+    position: relative;
 }
 
 /* AI 消息 */
 .ppt-message.ai .ppt-bubble {
-    background: white;
-    padding: 12px 16px;
-    border-radius: 12px;
-    border: 1px solid #e5e7eb;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    background: #f8fafc;
+    padding: 16px;
+    border-radius: 16px;
+    border: 1px solid transparent;
 }
 
 .ppt-message.ai .ppt-bubble p {
@@ -114,11 +194,11 @@
 
 /* 用户消息 */
 .ppt-message.user .ppt-bubble {
-    background: #eef2ff;
-    color: #3730a3;
-    padding: 10px 16px;
-    border-radius: 12px;
-    border: 1px solid #c7d2fe;
+    background: var(--ppt-primary);
+    color: white;
+    padding: 12px 16px;
+    border-radius: 16px 16px 0 16px;
+    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2);
 }
 
 /* 消息中的附件 */
@@ -161,9 +241,11 @@
 
 /* ==================== Input Area ==================== */
 .ppt-chat-input-area {
-    padding: 16px 20px;
-    border-top: 1px solid var(--ppt-border);
-    background: var(--ppt-surface);
+    padding: 12px 16px 16px;
+    border-top: none;
+    background: white;
+    flex-shrink: 0;
+    container-type: inline-size;
 }
 
 /* 附件预览区 */
@@ -219,19 +301,20 @@
 }
 
 .ppt-chat-input-wrapper {
-    background: white;
-    border-radius: 12px;
-    padding: 8px 12px;
+    background: #f8fafc;
+    border-radius: 100px;
+    padding: 8px 8px 8px 20px;
     display: flex;
     align-items: center;
-    gap: 8px;
-    border: 1px solid #e2e8f0;
+    gap: 12px;
+    border: 1px solid transparent;
     transition: all 0.2s;
 }
 
 .ppt-chat-input-wrapper:focus-within {
+    background: white;
     border-color: var(--ppt-primary);
-    box-shadow: 0 0 0 3px var(--ppt-primary-light);
+    box-shadow: 0 0 0 4px var(--ppt-primary-light);
 }
 
 .ppt-attach-btn {
@@ -240,7 +323,7 @@
     cursor: pointer;
     color: #94a3b8;
     padding: 6px;
-    border-radius: 6px;
+    border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -249,8 +332,8 @@
 }
 
 .ppt-attach-btn:hover {
-    color: var(--ppt-primary);
-    background: var(--ppt-primary-subtle);
+    color: var(--ppt-text-main);
+    background: rgba(0,0,0,0.05);
 }
 
 #pptChatInput {
@@ -278,14 +361,15 @@
     border: none;
     cursor: pointer;
     color: white;
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     transition: all 0.15s;
-    font-size: 16px;
+    font-size: 18px;
+    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
 }
 
 .ppt-send-btn:hover {
@@ -297,6 +381,53 @@
     opacity: 0.5;
     cursor: not-allowed;
     transform: none;
+}
+
+/* 窄宽度输入区适配 */
+@container (max-width: 320px) {
+    .ppt-chat-input-wrapper {
+        padding: 6px 6px 6px 12px;
+        gap: 6px;
+        border-radius: 24px;
+    }
+    
+    .ppt-attach-btn {
+        padding: 4px;
+        font-size: 16px;
+    }
+    
+    #pptChatInput {
+        font-size: 13px;
+        height: 20px;
+    }
+    
+    .ppt-send-btn {
+        width: 32px;
+        height: 32px;
+        font-size: 14px;
+        flex-shrink: 0;
+    }
+}
+
+@container (max-width: 280px) {
+    .ppt-chat-input-wrapper {
+        padding: 4px 4px 4px 10px;
+        gap: 4px;
+    }
+    
+    .ppt-attach-btn {
+        display: none; /* 极窄时隐藏附件按钮 */
+    }
+    
+    #pptChatInput {
+        font-size: 12px;
+    }
+    
+    .ppt-send-btn {
+        width: 28px;
+        height: 28px;
+        font-size: 12px;
+    }
 }
 
 /* ==================== Typing Indicator ==================== */

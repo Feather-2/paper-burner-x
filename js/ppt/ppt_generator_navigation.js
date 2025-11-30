@@ -348,20 +348,22 @@ const PPTGeneratorNavigation = {
                         <!-- Dynamic Agent Dashboard -->
                     </div>
                     <div class="ppt-chat-sidebar" id="pptChatSidebar">
-                        <div class="ppt-todo-tracker" id="pptTodoTracker"></div>
-                        <div class="ppt-chat-history" id="pptChatHistory"></div>
-                        <div class="ppt-chat-input-area">
-                            <div class="ppt-chat-attachments" id="pptChatAttachments"></div>
-                            <div class="ppt-chat-input-wrapper">
-                                <button class="ppt-attach-btn" id="pptAttachBtn" title="上传文件或图片">
-                                    <iconify-icon icon="carbon:attachment"></iconify-icon>
-                                </button>
-                                <textarea id="pptChatInput" placeholder="输入您的指令或反馈..."></textarea>
-                                <button class="ppt-send-btn" id="pptSendBtn">
-                                    <iconify-icon icon="carbon:send-alt"></iconify-icon>
-                                </button>
+                        <div class="ppt-chat-wrapper">
+                            <div class="ppt-todo-tracker" id="pptTodoTracker"></div>
+                            <div class="ppt-chat-history" id="pptChatHistory"></div>
+                            <div class="ppt-chat-input-area">
+                                <div class="ppt-chat-attachments" id="pptChatAttachments"></div>
+                                <div class="ppt-chat-input-wrapper">
+                                    <button class="ppt-attach-btn" id="pptAttachBtn" title="上传文件或图片">
+                                        <iconify-icon icon="carbon:attachment"></iconify-icon>
+                                    </button>
+                                    <textarea id="pptChatInput" placeholder="输入您的指令或反馈..."></textarea>
+                                    <button class="ppt-send-btn" id="pptSendBtn">
+                                        <iconify-icon icon="carbon:send-alt"></iconify-icon>
+                                    </button>
+                                </div>
+                                <input type="file" id="pptFileInput" multiple accept="image/*,.pdf,.docx,.pptx,.txt,.md" hidden>
                             </div>
-                            <input type="file" id="pptFileInput" multiple accept="image/*,.pdf,.docx,.pptx,.txt,.md" hidden>
                         </div>
                     </div>
                     <div class="ppt-resizer" id="pptResizer"></div>
@@ -377,17 +379,21 @@ const PPTGeneratorNavigation = {
     toggleChatSidebar() {
         const sidebar = document.getElementById('pptChatSidebar');
         const previewArea = document.getElementById('pptPreviewArea');
+        const resizer = document.getElementById('pptResizer');
         
         if (sidebar && previewArea) {
             const isCollapsed = sidebar.classList.toggle('collapsed');
             previewArea.classList.toggle('expanded');
             
+            if (resizer) {
+                resizer.classList.toggle('collapsed', isCollapsed);
+            }
+            
             if (isCollapsed) {
-                previewArea.style.marginRight = '';
+                previewArea.style.marginRight = '0';
             } else {
-                if (sidebar.style.width) {
-                    previewArea.style.marginRight = sidebar.style.width;
-                }
+                const sidebarWidth = sidebar.style.width ? parseInt(sidebar.style.width) : 400;
+                previewArea.style.marginRight = `${sidebarWidth + 40}px`;
             }
         }
     },
@@ -399,20 +405,30 @@ const PPTGeneratorNavigation = {
         
         if (!resizer || !sidebar || !previewArea) return;
 
+        const RIGHT_MARGIN = 24; // chat sidebar 右边距
+        const MIN_WIDTH = 260;
+        const MAX_WIDTH = 360;
+
         let startX, startWidth;
 
+        const updatePositions = (newWidth) => {
+            // 更新 sidebar 宽度
+            sidebar.style.width = `${newWidth}px`;
+            // resizer 紧贴 chat 左边缘: right = sidebarWidth + rightMargin
+            resizer.style.right = `${newWidth + RIGHT_MARGIN}px`;
+            // 预览区 margin 跟随
+            previewArea.style.marginRight = `${newWidth + RIGHT_MARGIN + 16}px`;
+        };
+
         const onMouseMove = (e) => {
-            // Calculate new width (Right side is fixed, so moving left increases width)
+            // 向左拖动增加宽度，向右拖动减少宽度
             const deltaX = startX - e.clientX;
             let newWidth = startWidth + deltaX;
             
-            // Constraints
-            if (newWidth < 300) newWidth = 300;
-            if (newWidth > 800) newWidth = 800;
+            // 限制范围
+            newWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth));
             
-            sidebar.style.width = `${newWidth}px`;
-            previewArea.style.marginRight = `${newWidth}px`;
-            resizer.style.right = `${newWidth + 24}px`; // 24px is the right margin of sidebar
+            updatePositions(newWidth);
         };
 
         const onMouseUp = () => {
@@ -425,6 +441,7 @@ const PPTGeneratorNavigation = {
         };
 
         const onMouseDown = (e) => {
+            e.preventDefault();
             startX = e.clientX;
             startWidth = sidebar.getBoundingClientRect().width;
             
@@ -437,6 +454,10 @@ const PPTGeneratorNavigation = {
         };
 
         resizer.addEventListener('mousedown', onMouseDown);
+        
+        // 初始化位置
+        const initialWidth = sidebar.getBoundingClientRect().width || 400;
+        resizer.style.right = `${initialWidth + RIGHT_MARGIN}px`;
     },
 
     _bindChatEvents() {

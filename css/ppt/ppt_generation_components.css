@@ -29,14 +29,16 @@
 }
 
 .ppt-btn-secondary {
-    background: var(--ppt-surface);
-    color: var(--ppt-text-main);
+    background: transparent;
+    color: var(--ppt-text-secondary);
     border: 1px solid var(--ppt-border);
+    box-shadow: none;
 }
 
 .ppt-btn-secondary:hover {
     background: var(--ppt-bg-subtle);
     border-color: var(--ppt-border-hover);
+    color: var(--ppt-text-main);
 }
 
 .ppt-btn-ghost {
@@ -137,281 +139,7 @@
     margin: 4px 0;
 }
 
-/* ==================== Upload Area ==================== */
-.ppt-upload-zone {
-    padding: 64px 48px;
-    border: 2px dashed var(--ppt-border);
-    border-radius: var(--ppt-radius-lg);
-    text-align: center;
-    cursor: pointer;
-    transition: all 0.3s var(--ppt-ease);
-    background: var(--ppt-surface);
-    width: 100%;
-    max-width: 800px;
-    margin: 0 auto;
-}
-
-.ppt-upload-zone:hover,
-.ppt-upload-zone.dragover {
-    border-color: var(--ppt-primary);
-    background: var(--ppt-primary-subtle);
-}
-
-.ppt-upload-zone-content {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 16px;
-}
-
-.ppt-upload-icon {
-    width: 80px;
-    height: 80px;
-    background: var(--ppt-primary-light);
-    color: var(--ppt-primary);
-    border-radius: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 36px;
-    transition: all 0.3s;
-}
-
-.ppt-upload-zone:hover .ppt-upload-icon {
-    transform: scale(1.1);
-    box-shadow: 0 8px 20px rgba(79, 70, 229, 0.2);
-}
-
-.ppt-upload-title {
-    font-size: 24px;
-    font-weight: 700;
-    color: var(--ppt-text-main);
-    margin-bottom: 8px;
-}
-
-.ppt-upload-desc {
-    font-size: 16px;
-    color: var(--ppt-text-secondary);
-    max-width: 480px;
-    line-height: 1.6;
-}
-
-.ppt-upload-item {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 16px 20px;
-    background: white;
-    border: 1px solid var(--ppt-border);
-    border-radius: var(--ppt-radius-md);
-    box-shadow: var(--ppt-shadow-sm);
-    transition: all 0.2s;
-}
-
-.ppt-upload-item:hover {
-    border-color: var(--ppt-primary-light);
-    box-shadow: var(--ppt-shadow-md);
-}
-
-.ppt-upload-item-icon {
-    color: var(--ppt-primary);
-    font-size: 24px;
-    background: var(--ppt-primary-subtle);
-    padding: 8px;
-    border-radius: 8px;
-}
-
-.ppt-upload-item-info {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.ppt-upload-item-name {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--ppt-text-main);
-}
-
-.ppt-upload-item-meta {
-    font-size: 12px;
-    color: var(--ppt-text-secondary);
-}
-
-.ppt-upload-item-remove {
-    color: var(--ppt-text-muted);
-    cursor: pointer;
-    padding: 8px;
-    border-radius: 6px;
-    transition: all 0.2s;
-}
-
-.ppt-upload-item-remove:hover {
-    color: var(--ppt-danger);
-    background: #fee2e2;
-}
-
-/* ==================== Progress Stepper ==================== */
-.gen-stepper {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 64px;
-}
-
-.gen-step {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    opacity: 0.5;
-    transition: all 0.4s var(--ppt-ease);
-}
-
-.gen-step.active {
-    opacity: 1;
-    transform: scale(1.05);
-}
-
-.gen-step-icon {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    background: white;
-    border: 2px solid var(--ppt-border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-    color: var(--ppt-text-muted);
-    font-weight: 700;
-    transition: all 0.3s;
-}
-
-.gen-step.active .gen-step-icon {
-    border-color: var(--ppt-primary);
-    color: var(--ppt-primary);
-    background: var(--ppt-primary-subtle);
-    box-shadow: 0 0 0 4px var(--ppt-primary-light);
-}
-
-.gen-step.completed .gen-step-icon {
-    background: var(--ppt-success);
-    border-color: var(--ppt-success);
-    color: white;
-}
-
-.gen-step-label {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--ppt-text-main);
-}
-
-.gen-step-line {
-    width: 48px;
-    height: 2px;
-    background: var(--ppt-border);
-    border-radius: 2px;
-}
-
-/* ==================== Visualizer ==================== */
-.gen-visualizer {
-    width: 100%;
-    max-width: 800px;
-    background: rgba(255, 255, 255, 0.9);
-    backdrop-filter: blur(20px);
-    border-radius: var(--ppt-radius-xl);
-    padding: 48px;
-    box-shadow: var(--ppt-shadow-xl);
-    text-align: center;
-    border: 1px solid rgba(255, 255, 255, 0.5);
-}
-
-.gen-status-icon {
-    width: 80px;
-    height: 80px;
-    background: var(--ppt-primary-subtle);
-    color: var(--ppt-primary);
-    border-radius: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 40px;
-    margin: 0 auto 32px auto;
-    position: relative;
-    box-shadow: 0 10px 20px rgba(79, 70, 229, 0.15);
-}
-
-.gen-status-icon::after {
-    content: '';
-    position: absolute;
-    inset: -6px;
-    border-radius: 30px;
-    border: 2px solid var(--ppt-primary-light);
-    animation: pulse 2s infinite;
-}
-
-.gen-status-title {
-    font-size: 24px;
-    font-weight: 700;
-    color: var(--ppt-text-main);
-    margin-bottom: 8px;
-}
-
-.gen-status-desc {
-    font-size: 15px;
-    color: var(--ppt-text-secondary);
-    margin-bottom: 32px;
-}
-
-.gen-progress-ring {
-    width: 200px;
-    height: 200px;
-    margin: 0 auto 32px auto;
-    position: relative;
-}
-
-.gen-progress-ring svg {
-    transform: rotate(-90deg);
-}
-
-.gen-progress-ring .progress-bg {
-    fill: none;
-    stroke: var(--ppt-border);
-    stroke-width: 8;
-}
-
-.gen-progress-ring .progress-fill {
-    fill: none;
-    stroke: var(--ppt-primary);
-    stroke-width: 8;
-    stroke-linecap: round;
-    stroke-dasharray: 565;
-    stroke-dashoffset: 565;
-    transition: stroke-dashoffset 0.5s ease;
-}
-
-.gen-progress-text {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-}
-
-.gen-progress-percent {
-    font-size: 48px;
-    font-weight: 700;
-    color: var(--ppt-primary);
-    line-height: 1;
-}
-
-.gen-progress-label {
-    font-size: 14px;
-    color: var(--ppt-text-secondary);
-    margin-top: 8px;
-}
+/* (Removed duplicate Upload Area, Progress Stepper, and Visualizer styles) */
 
 /* ==================== Modals ==================== */
 .ppt-modal-overlay {
@@ -776,8 +504,10 @@
 .gen-stepper {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 16px;
-    margin-bottom: 64px;
+    margin-bottom: 48px;
+    width: 100%;
 }
 
 .gen-step {
@@ -786,6 +516,7 @@
     gap: 10px;
     opacity: 0.5;
     transition: all 0.4s var(--ppt-ease);
+    position: relative;
 }
 
 .gen-step.active {
@@ -794,8 +525,8 @@
 }
 
 .gen-step-icon {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     background: white;
     border: 2px solid var(--ppt-border);
@@ -806,6 +537,7 @@
     color: var(--ppt-text-muted);
     font-weight: 700;
     transition: all 0.3s;
+    z-index: 2;
 }
 
 .gen-step.active .gen-step-icon {
@@ -822,16 +554,19 @@
 }
 
 .gen-step-label {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--ppt-text-main);
+    white-space: nowrap;
 }
 
 .gen-step-line {
-    width: 48px;
+    flex: 1;
     height: 2px;
     background: var(--ppt-border);
     border-radius: 2px;
+    min-width: 24px;
+    max-width: 64px;
 }
 
 /* Main Visualizer */
@@ -977,27 +712,28 @@
 
 /* ==================== Requirements Form ==================== */
 .ppt-question-form {
-    width: 95%;
-    max-width: 1000px;
-    height: calc(100vh - 96px);
-    margin: 0 auto;
+    width: 100%;
+    max-width: 900px;
+    height: calc(100vh - 120px); /* Account for header and margins */
+    margin: 24px auto;
     background: var(--ppt-surface);
     border-radius: var(--ppt-radius-xl);
-    padding: 40px;
+    padding: 32px 40px;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
     display: flex;
     flex-direction: column;
     border: 1px solid var(--ppt-border);
     animation: slideUp 0.4s ease-out;
     box-sizing: border-box;
+    overflow: hidden; /* Prevent content overflow */
 }
 
 .form-header {
-    margin-bottom: 32px;
+    margin-bottom: 20px;
     display: flex;
     align-items: flex-start;
-    gap: 20px;
-    padding-bottom: 24px;
+    gap: 16px;
+    padding-bottom: 16px;
     border-bottom: 1px solid var(--ppt-border);
     flex-shrink: 0;
 }
@@ -1019,11 +755,11 @@
     flex: 1;
     overflow-y: auto;
     min-height: 0;
-    padding-right: 16px;
-    margin-bottom: 32px;
+    padding-right: 8px;
+    margin-bottom: 0;
     display: flex;
     flex-direction: column;
-    gap: 32px;
+    gap: 24px;
 }
 
 .form-footer {
@@ -1031,14 +767,62 @@
     display: flex;
     justify-content: flex-end;
     align-items: center;
-    gap: 16px;
-    padding-top: 24px;
+    gap: 12px;
+    padding-top: 20px;
     border-top: 1px solid var(--ppt-border);
+    margin-top: auto; /* Push to bottom */
+}
+
+.form-footer .ppt-btn,
+.form-footer .ppt-btn-primary,
+.form-footer .ppt-btn-secondary {
+    white-space: nowrap; /* Prevent button text wrapping */
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: var(--ppt-radius-md);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s var(--ppt-ease);
+    border: none;
+    font-family: var(--ppt-font-sans);
+}
+
+.form-footer .ppt-btn-primary {
+    background: var(--ppt-primary);
+    color: white;
+    box-shadow: var(--ppt-shadow-sm), 0 4px 12px rgba(79, 70, 229, 0.2);
+}
+
+.form-footer .ppt-btn-primary:hover {
+    background: var(--ppt-primary-hover);
+    transform: translateY(-2px);
+    box-shadow: var(--ppt-shadow-md), 0 6px 16px rgba(79, 70, 229, 0.25);
+}
+
+.form-footer .ppt-btn-secondary {
+    background: transparent;
+    color: var(--ppt-text-secondary);
+    border: 1px solid var(--ppt-border);
+    box-shadow: none;
+}
+
+.form-footer .ppt-btn-secondary:hover {
+    background: var(--ppt-bg-subtle);
+    border-color: var(--ppt-border-hover);
+    color: var(--ppt-text-main);
+}
+
+.form-footer .ppt-btn-primary iconify-icon,
+.form-footer .ppt-btn-secondary iconify-icon {
+    font-size: 16px;
 }
 
 .form-group {
     background: white;
-    padding: 28px;
+    padding: 20px 24px;
     border-radius: var(--ppt-radius-lg);
     border: 1px solid var(--ppt-border);
     transition: all 0.2s;
