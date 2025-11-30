@@ -1665,4 +1665,12 @@ ${renderedSlides}
     },
 };
 
+// 合并顺序：主模块 → legacy → baking（后者覆盖前者的同名方法）
 Object.assign(PPTGenerator.prototype, PPTGeneratorExport);
+if (typeof PPTGeneratorExportLegacy !== 'undefined') {
+    Object.assign(PPTGenerator.prototype, PPTGeneratorExportLegacy);
+}
+// baking 模块最后合并，其 _bakeEffectsForPPTX 会覆盖主模块的版本
+if (typeof PPTGeneratorExportBaking !== 'undefined') {
+    Object.assign(PPTGenerator.prototype, PPTGeneratorExportBaking);
+}
