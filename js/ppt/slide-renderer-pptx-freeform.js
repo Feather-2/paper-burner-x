@@ -68,7 +68,7 @@ const PPTXFreeformMixin = {
 
     renderFreeformTextPPTX(slide, el, x, y, w, h) {
         const fontSizePx = el.font || 18;
-        const fontSize = Math.round(fontSizePx * 0.72);
+        const fontSize = Math.round(fontSizePx * 0.75);
 
         let textContent = (el.content || '')
             .replace(/\r?\n/g, ' ')
@@ -237,7 +237,7 @@ const PPTXFreeformMixin = {
     renderFreeformFormulaPPTX(slide, el, x, y, w, h) {
         const fontSizePx = el.font || 24;
         const color = el.color || '#333333';
-        const fontSize = Math.round(fontSizePx * 0.72);
+        const fontSize = Math.round(fontSizePx * 0.75);
 
         let displayText;
         if (this.formulaRegistry && this.mathConverter) {
@@ -279,8 +279,8 @@ const PPTXFreeformMixin = {
         const iconSize = (el.iconSize || 24) / this.styles.dimensions.pxPerInch;
         const iconBgSize = iconSize + 12 / this.styles.dimensions.pxPerInch; // 与 HTML 一致: iconSize + 12px
         const gap = 12 / this.styles.dimensions.pxPerInch; // 12px gap
-        const titleSize = Math.round((el.titleSize || 16) * 0.72);
-        const subtitleSize = Math.round((el.subtitleSize || 13) * 0.72);
+        const titleSize = Math.round((el.titleSize || 16) * 0.75);
+        const subtitleSize = Math.round((el.subtitleSize || 13) * 0.75);
 
         if (layout === 'vertical') {
             this._renderVerticalCard(slide, el, innerX, innerY, innerW, innerH, iconSize, iconBgSize, gap, titleSize, subtitleSize);
@@ -383,7 +383,7 @@ const PPTXFreeformMixin = {
                     fill: { color: this.safeColor(isHeader ? el.headerBg : (rowIndex % 2 === 0 ? el.altRowBg : el.rowBg)) },
                     color: this.safeColor(isHeader ? el.headerColor : el.cellColor),
                     bold: isHeader, align: 'center', valign: 'middle',
-                    fontSize: Math.round((el.fontSize || 14) * 0.72), fontFace: this.fontFace,
+                    fontSize: Math.round((el.fontSize || 14) * 0.75), fontFace: this.fontFace,
                 }
             }));
         });
