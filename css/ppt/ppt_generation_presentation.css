@@ -572,22 +572,27 @@
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
+    /* 尺寸由 JS 动态设置，跟随缩放后的幻灯片尺寸 */
+    transition: width 0.1s ease-out, height 0.1s ease-out;
 }
 
 .pres-toolbar-float {
     position: absolute;
-    bottom: -60px;
+    bottom: 12px;
     left: 50%;
     transform: translateX(-50%);
-    background: white;
-    border-radius: 12px;
-    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(8px);
+    border-radius: 10px;
+    padding: 6px 10px;
     display: flex;
     align-items: center;
-    gap: 4px;
-    box-shadow: var(--ppt-shadow-lg);
+    gap: 2px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.1);
     border: 1px solid var(--ppt-border);
     z-index: 100;
+    white-space: nowrap;
 }
 
 .pres-toolbar-group {
@@ -598,23 +603,23 @@
 
 .pres-toolbar-divider {
     width: 1px;
-    height: 24px;
+    height: 18px;
     background: var(--ppt-border);
-    margin: 0 8px;
+    margin: 0 6px;
 }
 
 .pres-tool-btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    height: 36px;
+    width: 28px;
+    height: 28px;
     border: none;
     background: transparent;
-    border-radius: 8px;
+    border-radius: 5px;
     cursor: pointer;
     color: var(--ppt-text-secondary);
-    font-size: 18px;
+    font-size: 16px;
     transition: all 0.15s;
 }
 
@@ -629,10 +634,10 @@
 }
 
 .pres-page-info {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     color: var(--ppt-text-main);
-    min-width: 50px;
+    min-width: 44px;
     text-align: center;
     font-variant-numeric: tabular-nums;
 }
@@ -643,15 +648,16 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    padding: 40px;
-    overflow: auto;
+    justify-content: flex-start; /* 靠上对齐 */
+    padding: 12px 20px;
+    overflow: hidden;
     position: relative;
+    min-height: 0; /* 重要：让 flex 子元素可以收缩 */
 }
 
 .pres-slide {
-    /* 尺寸由 JS 动态计算，保持 16:9 并最大化 */
-    width: 960px; /* 默认值，JS 会覆盖 */
+    /* 基准尺寸 960x540，通过 transform scale 整体缩放 */
+    width: 960px;
     height: 540px;
     background: white;
     box-shadow: 0 24px 48px -12px rgba(0,0,0,0.15);
@@ -659,7 +665,8 @@
     position: relative;
     overflow: hidden;
     flex-shrink: 0;
-    transition: width 0.15s ease-out, height 0.15s ease-out;
+    transform-origin: center center;
+    transition: transform 0.1s ease-out;
 }
 
 /* Main Area - 确保给 canvas 足够宽度 */
@@ -674,3 +681,4 @@
     position: relative;
     min-width: 0; /* 允许收缩 */
 }
+

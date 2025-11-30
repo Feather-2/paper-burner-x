@@ -139,6 +139,66 @@
     margin: 4px 0;
 }
 
+/* Export Item (新样式，匹配 JS 中的类名) */
+.ppt-export-group-label {
+    padding: 8px 16px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ppt-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.ppt-export-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    cursor: pointer;
+    transition: background 0.15s;
+    background: transparent;
+    border: none;
+    width: 100%;
+    text-align: left;
+    font-family: var(--ppt-font-sans);
+}
+
+.ppt-export-item:hover {
+    background: var(--ppt-bg-subtle);
+}
+
+.ppt-export-item iconify-icon {
+    font-size: 20px;
+    color: var(--ppt-primary);
+    flex-shrink: 0;
+}
+
+.ppt-export-item-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.ppt-export-item-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ppt-text-main);
+}
+
+.ppt-export-item-desc {
+    font-size: 11px;
+    color: var(--ppt-text-muted);
+}
+
+.ppt-export-chevron {
+    font-size: 14px;
+    transition: transform 0.2s;
+}
+
+.ppt-export-dropdown.open .ppt-export-chevron {
+    transform: rotate(180deg);
+}
+
 /* (Removed duplicate Upload Area, Progress Stepper, and Visualizer styles) */
 
 /* ==================== Modals ==================== */

@@ -29,39 +29,35 @@ const PPTGeneratorPresentation = {
                                 <div class="pres-slide" id="presSlideCanvas">
                                     ${this._renderSlideContent(this.slides[this.currentSlideIndex])}
                                 </div>
-                                <!-- Floating Toolbar -->
-                                <div class="pres-toolbar-float">
-                                    <div class="pres-toolbar-group">
-                                        <button class="pres-tool-btn" onclick="window.PPTGenerator.prevSlide()" title="上一页">
-                                            <iconify-icon icon="carbon:chevron-left"></iconify-icon>
-                                        </button>
-                                        <span class="pres-page-info" id="presPageInfo">${this.currentSlideIndex + 1} / ${this.slides.length}</span>
-                                        <button class="pres-tool-btn" onclick="window.PPTGenerator.nextSlide()" title="下一页">
-                                            <iconify-icon icon="carbon:chevron-right"></iconify-icon>
-                                        </button>
-                                    </div>
-                                    <div class="pres-toolbar-divider"></div>
-                                    <div class="pres-toolbar-group">
-                                        <button class="pres-tool-btn" onclick="window.PPTGenerator.addSlideWithAI()" title="AI 新增幻灯片">
-                                            <iconify-icon icon="carbon:add"></iconify-icon>
-                                        </button>
-                                        <button class="pres-tool-btn" onclick="window.PPTGenerator.editCurrentSlide()" title="编辑当前页">
-                                            <iconify-icon icon="carbon:edit"></iconify-icon>
-                                        </button>
-                                        <button class="pres-tool-btn" onclick="window.PPTGenerator.duplicateSlide()" title="复制当前页">
-                                            <iconify-icon icon="carbon:copy"></iconify-icon>
-                                        </button>
-                                        <button class="pres-tool-btn danger" onclick="window.PPTGenerator.deleteCurrentSlide()" title="删除当前页">
-                                            <iconify-icon icon="carbon:trash-can"></iconify-icon>
-                                        </button>
-                                    </div>
-                                </div>
                             </div>
                         ` : `
                             <div class="pres-outline-view custom-scrollbar">
                                 ${this._renderOutlineContent()}
                             </div>
                         `}
+                    </div>
+                    <!-- Floating Toolbar - 移到 main-area 底部 -->
+                    <div class="pres-toolbar-float">
+                        <button class="pres-tool-btn" onclick="window.PPTGenerator.prevSlide()" title="上一页">
+                            <iconify-icon icon="carbon:chevron-left"></iconify-icon>
+                        </button>
+                        <span class="pres-page-info" id="presPageInfo">${this.currentSlideIndex + 1} / ${this.slides.length}</span>
+                        <button class="pres-tool-btn" onclick="window.PPTGenerator.nextSlide()" title="下一页">
+                            <iconify-icon icon="carbon:chevron-right"></iconify-icon>
+                        </button>
+                        <div class="pres-toolbar-divider"></div>
+                        <button class="pres-tool-btn" onclick="window.PPTGenerator.addSlideWithAI()" title="AI 新增">
+                            <iconify-icon icon="carbon:add"></iconify-icon>
+                        </button>
+                        <button class="pres-tool-btn" onclick="window.PPTGenerator.editCurrentSlide()" title="编辑">
+                            <iconify-icon icon="carbon:edit"></iconify-icon>
+                        </button>
+                        <button class="pres-tool-btn" onclick="window.PPTGenerator.duplicateSlide()" title="复制">
+                            <iconify-icon icon="carbon:copy"></iconify-icon>
+                        </button>
+                        <button class="pres-tool-btn danger" onclick="window.PPTGenerator.deleteCurrentSlide()" title="删除">
+                            <iconify-icon icon="carbon:trash-can"></iconify-icon>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -78,45 +74,45 @@ const PPTGeneratorPresentation = {
 
     /**
      * 计算并更新 canvas 尺寸，保持 16:9 比例并最大化利用可用空间
+     * 使用 transform scale 整体缩放，保持元素相对位置不变
      */
     _updateCanvasSize() {
+        const slideContainer = document.querySelector('.pres-slide-container');
         const slide = document.getElementById('presSlideCanvas');
         const canvasWrapper = document.querySelector('.pres-canvas-wrapper');
-        const thumbSidebar = document.getElementById('presSidebar');
         
-        if (!slide || !canvasWrapper) return;
+        if (!slide || !canvasWrapper || !slideContainer) return;
+        
+        // 基准尺寸（幻灯片设计尺寸）
+        const BASE_WIDTH = 960;
+        const BASE_HEIGHT = 540;
         
         // 获取可用空间
         const wrapperRect = canvasWrapper.getBoundingClientRect();
-        const padding = 40; // wrapper 的 padding
-        const toolbarHeight = 80; // 底部工具栏预留空间
+        const paddingH = 20; // 水平 padding
+        const paddingV = 12; // 垂直 padding
+        const toolbarSpace = 50; // 底部工具栏预留空间
         
-        const availableWidth = wrapperRect.width - padding * 2;
-        const availableHeight = wrapperRect.height - padding * 2 - toolbarHeight;
+        const availableWidth = wrapperRect.width - paddingH * 2;
+        const availableHeight = wrapperRect.height - paddingV * 2 - toolbarSpace;
         
-        // 16:9 比例
-        const aspectRatio = 16 / 9;
+        // 计算缩放比例（保持 16:9，取较小的缩放值）
+        const scaleX = availableWidth / BASE_WIDTH;
+        const scaleY = availableHeight / BASE_HEIGHT;
+        const scale = Math.min(scaleX, scaleY, 1.8); // 最大放大 1.8 倍
         
-        let width, height;
+        // 确保最小缩放
+        const finalScale = Math.max(scale, 0.5);
         
-        // 根据可用空间计算最大尺寸
-        if (availableWidth / availableHeight > aspectRatio) {
-            // 高度受限
-            height = availableHeight;
-            width = height * aspectRatio;
-        } else {
-            // 宽度受限
-            width = availableWidth;
-            height = width / aspectRatio;
-        }
+        // 幻灯片始终保持基准尺寸，通过 transform 缩放
+        slide.style.width = `${BASE_WIDTH}px`;
+        slide.style.height = `${BASE_HEIGHT}px`;
+        slide.style.transform = `scale(${finalScale})`;
+        slide.style.transformOrigin = 'center center';
         
-        // 设置最小尺寸
-        width = Math.max(width, 640);
-        height = Math.max(height, 360);
-        
-        // 应用尺寸
-        slide.style.width = `${width}px`;
-        slide.style.height = `${height}px`;
+        // 容器尺寸跟随缩放后的实际显示尺寸
+        slideContainer.style.width = `${BASE_WIDTH * finalScale}px`;
+        slideContainer.style.height = `${BASE_HEIGHT * finalScale}px`;
     },
 
     /**

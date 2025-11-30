@@ -931,8 +931,8 @@ class HTMLSlideRenderer {
     }
 
     /**
-     * 渲染表格 - 自动生成 SVG 表格
-     * 支持表头高亮、斑马纹、圆角等样式
+     * 渲染表格 - 使用 HTML 原生表格
+     * 自动缩放以适应容器
      */
     renderFreeformTable(el, baseStyle) {
         const data = el.data || [];
@@ -940,81 +940,60 @@ class HTMLSlideRenderer {
             return `<div style="${baseStyle}; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 14px;">空表格</div>`;
         }
 
-        const cols = Math.max(...data.map(row => (row || []).length));
-        const rows = data.length;
+        const fontSize = el.fontSize || 10;
+        const radius = el.radius || 6;
         
-        // 解析容器尺寸
-        const containerW = this.parseCoord(el.w, this.styles.dimensions.htmlWidth) || 400;
-        const containerH = this.parseCoord(el.h, this.styles.dimensions.htmlHeight) || 200;
+        // 容器样式
+        const containerStyle = `
+            ${baseStyle}
+            overflow: hidden;
+            border-radius: ${radius}px;
+            border: 1px solid ${el.borderColor || '#374151'};
+        `.replace(/\s+/g, ' ').trim();
         
-        const cellPadding = 12;
-        const fontSize = el.fontSize || 14;
-        const rowHeight = fontSize + cellPadding * 2;
-        const colWidth = containerW / cols;
-        const tableHeight = rows * rowHeight;
-        const radius = el.radius || 8;
+        // 表格样式 - 100% 宽高，自动适应容器
+        const tableStyle = `
+            width: 100%;
+            height: 100%;
+            border-collapse: collapse;
+            font-size: ${fontSize}px;
+            font-family: system-ui, -apple-system, sans-serif;
+            table-layout: fixed;
+        `.replace(/\s+/g, ' ').trim();
 
-        // 构建 SVG 表格
-        let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 ${containerW} ${tableHeight}" preserveAspectRatio="xMidYMid meet">`;
+        // 构建表格 HTML
+        let tableHtml = `<table style="${tableStyle}">`;
         
-        // 定义圆角裁剪
-        svgContent += `
-            <defs>
-                <clipPath id="table-clip-${el.id || Math.random().toString(36).substr(2, 9)}">
-                    <rect x="0" y="0" width="${containerW}" height="${tableHeight}" rx="${radius}" ry="${radius}"/>
-                </clipPath>
-            </defs>
-            <g clip-path="url(#table-clip-${el.id || ''})">
-        `;
-
-        // 绘制行背景和单元格
         data.forEach((row, rowIndex) => {
-            const y = rowIndex * rowHeight;
             const isHeader = rowIndex === 0;
             const isAltRow = !isHeader && rowIndex % 2 === 0;
-            
-            // 行背景
             const bgColor = isHeader ? el.headerBg : (isAltRow ? el.altRowBg : el.rowBg);
-            svgContent += `<rect x="0" y="${y}" width="${containerW}" height="${rowHeight}" fill="${bgColor}"/>`;
+            const textColor = isHeader ? el.headerColor : el.cellColor;
+            const fontWeight = isHeader ? '600' : '400';
             
-            // 单元格内容
+            tableHtml += `<tr style="background: ${bgColor};">`;
+            
             (row || []).forEach((cell, colIndex) => {
-                const x = colIndex * colWidth;
-                const textColor = isHeader ? el.headerColor : el.cellColor;
-                const fontWeight = isHeader ? 'bold' : 'normal';
+                const cellStyle = `
+                    padding: 4px 6px;
+                    color: ${textColor};
+                    font-weight: ${fontWeight};
+                    text-align: center;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    border-right: ${colIndex < row.length - 1 ? `1px solid ${el.borderColor || '#374151'}` : 'none'};
+                    border-bottom: ${rowIndex < data.length - 1 ? `1px solid ${el.borderColor || '#374151'}` : 'none'};
+                `.replace(/\s+/g, ' ').trim();
                 
-                // 垂直居中文字
-                const textY = y + rowHeight / 2;
-                const textX = x + colWidth / 2;
-                
-                svgContent += `
-                    <text x="${textX}" y="${textY}" 
-                          fill="${textColor}" 
-                          font-size="${fontSize}" 
-                          font-weight="${fontWeight}"
-                          font-family="system-ui, -apple-system, sans-serif"
-                          text-anchor="middle" 
-                          dominant-baseline="central">${this._escapeHtml(String(cell || ''))}</text>
-                `;
-                
-                // 垂直分隔线（除了最后一列）
-                if (colIndex < cols - 1) {
-                    svgContent += `<line x1="${x + colWidth}" y1="${y}" x2="${x + colWidth}" y2="${y + rowHeight}" stroke="${el.borderColor}" stroke-width="1"/>`;
-                }
+                tableHtml += `<td style="${cellStyle}">${this._escapeHtml(String(cell || ''))}</td>`;
             });
             
-            // 水平分隔线（除了最后一行）
-            if (rowIndex < rows - 1) {
-                svgContent += `<line x1="0" y1="${y + rowHeight}" x2="${containerW}" y2="${y + rowHeight}" stroke="${el.borderColor}" stroke-width="1"/>`;
-            }
+            tableHtml += '</tr>';
         });
+        
+        tableHtml += '</table>';
 
-        // 外边框
-        svgContent += `<rect x="0" y="0" width="${containerW}" height="${tableHeight}" rx="${radius}" ry="${radius}" fill="none" stroke="${el.borderColor}" stroke-width="1"/>`;
-        svgContent += '</g></svg>';
-
-        const containerStyle = `${baseStyle}`.replace(/\s+/g, ' ').trim();
-        return `<div style="${containerStyle}">${svgContent}</div>`;
+        return `<div style="${containerStyle}">${tableHtml}</div>`;
     }
 
     /**
