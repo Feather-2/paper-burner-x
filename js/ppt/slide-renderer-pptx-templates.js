@@ -1,9 +1,10 @@
 /**
- * PPTXSlideRenderer 模板渲染方法
- * 包含: cover, toc, stats, comparison, image_text, icon_grid, quote, timeline, end, list, content
+ * PPTX 模板渲染方法
+ * 包含: 预设幻灯片模板的渲染方法 (cover, toc, stats, comparison 等)
+ * 通过 mixin 合并到 PPTXSlideRenderer 类
  */
 
-const PPTXSlideRendererTemplates = {
+const PPTXTemplatesMixin = {
     renderCover(slide, data) {
         const p = this.PADDING_LARGE;
         const f = this.fonts;
@@ -111,7 +112,6 @@ const PPTXSlideRendererTemplates = {
         const boxH = this.SLIDE_H - p * 2 - 0.8;
         const boxY = p + 0.65;
 
-        // 左侧
         slide.addShape('roundRect', {
             x: p, y: boxY, w: boxW, h: boxH,
             fill: { color: this.color('dangerBg') },
@@ -131,7 +131,6 @@ const PPTXSlideRendererTemplates = {
             lineSpacing: 26, valign: 'top'
         });
 
-        // 右侧
         const rightX = p + boxW + 0.3;
         slide.addShape('roundRect', {
             x: rightX, y: boxY, w: boxW, h: boxH,
@@ -183,6 +182,20 @@ const PPTXSlideRendererTemplates = {
         } else {
             this.addImagePlaceholder(slide, imgX, imgY, halfW, imgH, data.imagePlaceholder);
         }
+    },
+
+    addImagePlaceholder(slide, x, y, w, h, text) {
+        const f = this.fonts;
+        slide.addShape('roundRect', {
+            x, y, w, h,
+            fill: { color: this.color('primaryLight') },
+            line: { color: 'FFFFFF', transparency: 100 },
+            rectRadius: 0.12
+        });
+        this.addText(slide, text || '图片', {
+            x, y, w, h,
+            fontSize: f.bodySmall, color: this.color('primary'), align: 'center', valign: 'middle'
+        });
     },
 
     renderIconGrid(slide, data) {
@@ -265,25 +278,15 @@ const PPTXSlideRendererTemplates = {
 
     renderBakedImage(slide, data) {
         slide.addImage({
-            data: data.image,
-            x: 0,
-            y: 0,
-            w: this.SLIDE_W,
-            h: this.SLIDE_H,
+            data: data.image, x: 0, y: 0, w: this.SLIDE_W, h: this.SLIDE_H,
         });
     },
 
     renderBakedElementPPTX(slide, el, x, y, w, h) {
         try {
-            slide.addImage({
-                data: el.image,
-                x: 0,
-                y: 0,
-                w: this.SLIDE_W,
-                h: this.SLIDE_H,
-            });
+            slide.addImage({ data: el.image, x: 0, y: 0, w: this.SLIDE_W, h: this.SLIDE_H });
         } catch (e) {
-            console.warn('[renderBakedElementPPTX] Failed to add baked element image:', e);
+            console.warn('[renderBakedElementPPTX] Failed:', e);
         }
     },
 
@@ -415,23 +418,9 @@ const PPTXSlideRendererTemplates = {
             fontSize: f.body, color: this.color('textSecondary'), lineSpacing: 26
         });
     },
-
-    addImagePlaceholder(slide, x, y, w, h, text) {
-        const f = this.fonts;
-        slide.addShape('roundRect', {
-            x, y, w, h,
-            fill: { color: this.color('primaryLight') },
-            line: { color: 'FFFFFF', transparency: 100 },
-            rectRadius: 0.12
-        });
-        this.addText(slide, text || '图片', {
-            x, y, w, h,
-            fontSize: f.bodySmall, color: this.color('primary'), align: 'center', valign: 'middle'
-        });
-    },
 };
 
-// 导出
+// 导出供主类使用
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = PPTXSlideRendererTemplates;
+    module.exports = PPTXTemplatesMixin;
 }
