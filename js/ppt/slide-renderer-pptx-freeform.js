@@ -357,7 +357,12 @@ const PPTXFreeformMixin = {
             const key = this._hashString(el.content || '');
             const svgDataUrl = this.svgCache?.[key];
             if (svgDataUrl) {
-                slide.addImage({ data: svgDataUrl, x: x || 0, y: y || 0, w: w || 2, h: h || 2 });
+                const imgOptions = { data: svgDataUrl, x: x || 0, y: y || 0, w: w || 2, h: h || 2 };
+                // 应用透明度 (PptxGenJS: transparency 0-100, 100=完全透明)
+                if (el.opacity !== undefined && el.opacity < 1) {
+                    imgOptions.transparency = Math.round((1 - el.opacity) * 100);
+                }
+                slide.addImage(imgOptions);
             } else {
                 console.warn('[renderFreeformSvgPPTX] SVG not in cache');
                 this.addImagePlaceholder(slide, x, y, w, h, 'SVG');

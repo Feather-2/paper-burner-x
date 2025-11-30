@@ -848,6 +848,7 @@ ${renderedSlides}
      */
     async _bakeEffectsForPPTX(slides) {
         const needsBaking = slides.some(slide => this._slideHasEffects(slide));
+        console.log('[_bakeEffectsForPPTX] Checking if baking needed:', needsBaking);
         if (!needsBaking) return slides;
 
         // 需要 html2canvas 才能烘焙
@@ -880,6 +881,8 @@ ${renderedSlides}
             // 区分 blend 效果和 filter/mask 效果
             // blend 需要和背景一起烘焙；filter/mask 可以单独烘焙
             const blendElements = sortedElements.filter(el => el.blend && el.blend !== 'normal');
+            const filterElements = sortedElements.filter(el => el.filter);
+            console.log(`[_bakeEffectsForPPTX] Slide ${i + 1}: ${blendElements.length} blend, ${filterElements.length} filter elements`);
             
             if (blendElements.length > 0) {
                 // 有 blend 效果：找到最高 blend 元素的 z-index
@@ -916,6 +919,7 @@ ${renderedSlides}
             } else {
                 // 无 blend 效果，使用原来的分组逻辑处理 filter/mask
                 const groups = this._groupElementsForBaking(sortedElements);
+                console.log(`[_bakeEffectsForPPTX] Slide ${i + 1}: ${groups.length} groups, effect groups: ${groups.filter(g => g.type === 'effect').length}`);
                 const processedElements = [];
                 
                 for (const group of groups) {
@@ -924,6 +928,7 @@ ${renderedSlides}
                     } else if (group.type === 'effect') {
                         // filter/mask 效果不需要与背景混合，直接烘焙特效元素
                         const minZ = Math.min(...group.elements.map(el => el.z || 0));
+                        console.log(`[_bakeEffectsForPPTX] Baking effect group with ${group.elements.length} elements`);
                         const bakedEl = await this._bakeElementGroupToImage(
                             group.elements, 
                             renderer, 
@@ -931,6 +936,7 @@ ${renderedSlides}
                             [], // 无需 backdrop
                             'transparent'
                         );
+                        console.log(`[_bakeEffectsForPPTX] Bake result:`, bakedEl ? 'success' : 'failed');
                         if (bakedEl) {
                             bakedEl.z = minZ; // 保持层叠顺序
                             processedElements.push(bakedEl);
@@ -1015,21 +1021,27 @@ ${renderedSlides}
             await new Promise(resolve => setTimeout(resolve, 100));
 
             // 使用 html2canvas 截图，foreignObjectRendering 模式更好地支持 CSS 效果
-            const scale = 3;
+            const scale = 2; // 平衡清晰度和内存使用
             const canvas = await this._captureToCanvas(container.firstChild, {
                 scale,
                 useCORS: true,
                 allowTaint: false,
                 backgroundColor: backgroundFill || null,
-                logging: hasBlend,  // blend 场景打印日志便于调试
-                foreignObjectRendering: true,  // 启用以更好支持 CSS 效果
+                logging: false,
+                foreignObjectRendering: false,  // 禁用以提高稳定性
             }, {
                 // 回退配置
                 foreignObjectRendering: false,
                 allowTaint: true,
             });
 
-            const dataUrl = canvas ? canvas.toDataURL('image/png') : null;
+            let dataUrl = null;
+            if (canvas) {
+                dataUrl = canvas.toDataURL('image/png');
+                // 释放 canvas 内存
+                canvas.width = 0;
+                canvas.height = 0;
+            }
             if (!dataUrl) return null;
 
             if (hasBlend) {
@@ -1214,6 +1226,7 @@ ${renderedSlides}
      * - blend: 需要和背景混合，必须一起烘焙
      * - filter: blur 等效果需要单独烘焙成图片
      * - mask: 遮罩效果需要烘焙
+     * - 复杂 SVG: 含 pattern、defs、linearGradient 等无法直接转换的
      */
     _elementNeedsBaking(el) {
         if (!el) return false;
@@ -1223,6 +1236,19 @@ ${renderedSlides}
         if (el.filter) return true;
         // mask 效果需要烘焙
         if (el.mask) return true;
+        // 复杂 SVG 需要烘焙（pattern、defs 等在直接转换时可能丢失）
+        // 但含有 <text> 的 SVG 保持可编辑，不烘焙
+        if (el.type === 'svg' && el.content) {
+            const content = el.content.toLowerCase();
+            const hasComplexFeatures = content.includes('<pattern') || content.includes('<defs') || 
+                content.includes('<lineargradient') || content.includes('<radialgradient') ||
+                content.includes('<clippath') || content.includes('<mask') ||
+                content.includes('marker-end') || content.includes('marker-start');
+            // 含复杂特性的 SVG 都烘焙，确保 pattern/marker 等效果不丢失
+            if (hasComplexFeatures) {
+                return true;
+            }
+        }
         if (el.children && el.children.some(child => this._elementNeedsBaking(child))) return true;
         return false;
     },
@@ -1665,12 +1691,4 @@ ${renderedSlides}
     },
 };
 
-// 合并顺序：主模块 → legacy → baking（后者覆盖前者的同名方法）
 Object.assign(PPTGenerator.prototype, PPTGeneratorExport);
-if (typeof PPTGeneratorExportLegacy !== 'undefined') {
-    Object.assign(PPTGenerator.prototype, PPTGeneratorExportLegacy);
-}
-// baking 模块最后合并，其 _bakeEffectsForPPTX 会覆盖主模块的版本
-if (typeof PPTGeneratorExportBaking !== 'undefined') {
-    Object.assign(PPTGenerator.prototype, PPTGeneratorExportBaking);
-}

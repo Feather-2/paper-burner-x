@@ -39,25 +39,10 @@ const PPTGeneratorExportBaking = {
 
             console.log(`[_bakeEffectsForPPTX] Slide ${i + 1}: Processing elements with effects`);
 
-            // 简单策略：只烘焙需要特效的元素，保留所有普通元素
-            const sortedElements = [...slide.elements].sort((a, b) => (a.z || 0) - (b.z || 0));
-            const bakingElements = sortedElements.filter(el => this._elementNeedsBaking(el));
-            const normalElements = sortedElements.filter(el => !this._elementNeedsBaking(el));
-            
-            console.log(`[_bakeEffectsForPPTX] Baking ${bakingElements.length} effect elements, keeping ${normalElements.length} normal elements`);
-            
-            if (bakingElements.length === 0) {
-                processedSlides.push(slide);
-                continue;
-            }
-
             slideContainer.innerHTML = '';
             const wrapper = document.createElement('div');
             wrapper.style.cssText = 'width: 960px; height: 540px; position: relative; overflow: hidden;';
-            
-            // 只渲染需要烘焙的元素（带 filter/blend/mask）
-            const bakingSlide = { ...slide, elements: bakingElements };
-            wrapper.innerHTML = renderer.render(bakingSlide, i);
+            wrapper.innerHTML = renderer.render(slide, i);
             slideContainer.appendChild(wrapper);
 
             await this._waitForIconsToLoad(slideContainer);
@@ -65,24 +50,44 @@ const PPTGeneratorExportBaking = {
             await this._waitForKatexAndInlineStyles(slideContainer);
             await new Promise(r => setTimeout(r, 200));
 
-            const bakedImage = await this._bakeElementGroup(slideContainer.firstChild, bakingElements, 0, bakingElements.length - 1);
-            
             const newElements = [];
+            const sortedElements = [...slide.elements].sort((a, b) => (a.z || 0) - (b.z || 0));
             
-            // 烘焙后的图片放在最底层
-            if (bakedImage) {
-                const minZ = Math.min(...bakingElements.map(el => el.z || 0));
-                newElements.push({
-                    type: 'baked_element',
-                    image: bakedImage,
-                    z: minZ - 0.5, // 略低于原始特效元素
-                });
+            let groupStart = -1;
+
+            for (let j = 0; j < sortedElements.length; j++) {
+                const el = sortedElements[j];
+                const needsBaking = this._elementNeedsBaking(el);
+
+                if (needsBaking) {
+                    if (groupStart === -1) groupStart = j;
+                } else {
+                    if (groupStart !== -1) {
+                        const bakedImage = await this._bakeElementGroup(slideContainer.firstChild, sortedElements, groupStart, j - 1);
+                        if (bakedImage) {
+                            newElements.push({
+                                type: 'baked_element',
+                                image: bakedImage,
+                                z: sortedElements[groupStart].z || 0,
+                            });
+                        }
+                        groupStart = -1;
+                    }
+                    newElements.push(el);
+                }
             }
-            
-            // 保留所有普通元素（文字、图表等）
-            newElements.push(...normalElements);
-            newElements.sort((a, b) => (a.z || 0) - (b.z || 0));
-            
+
+            if (groupStart !== -1) {
+                const bakedImage = await this._bakeElementGroup(slideContainer.firstChild, sortedElements, groupStart, sortedElements.length - 1);
+                if (bakedImage) {
+                    newElements.push({
+                        type: 'baked_element',
+                        image: bakedImage,
+                        z: sortedElements[groupStart].z || 0,
+                    });
+                }
+            }
+
             slide.elements = newElements;
             processedSlides.push(slide);
         }
@@ -93,7 +98,7 @@ const PPTGeneratorExportBaking = {
     },
 
     async _bakeElementGroup(container, elements, startIdx, endIdx) {
-        console.log(`[_bakeElementGroup] Baking ${endIdx - startIdx + 1} elements with effects`);
+        console.log(`[_bakeElementGroup] Baking elements ${startIdx} to ${endIdx}`);
         
         try {
             const canvas = await this._captureToCanvas(container, {
