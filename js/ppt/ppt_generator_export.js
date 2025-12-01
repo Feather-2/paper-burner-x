@@ -1863,43 +1863,75 @@ ${renderedSlides}
                     
                     const fitMode = el.fit || 'cover';
                     
-                    // 对于 cover 模式，用 canvas 裁剪实现正确效果
-                    if (fitMode === 'cover' && el.w && el.h) {
+                    // 对于 cover/contain 模式，手动计算实现正确效果
+                    if ((fitMode === 'cover' || fitMode === 'contain') && el.w && el.h) {
                         const containerW = parseFloat(el.w) / 100 * SLIDE_W;
                         const containerH = parseFloat(el.h) / 100 * SLIDE_H;
                         const containerRatio = containerW / containerH;
                         const imgRatio = img.naturalWidth / img.naturalHeight;
                         
-                        // 如果比例不同，需要裁剪
+                        // 如果比例不同，需要处理
                         if (Math.abs(imgRatio - containerRatio) > 0.01) {
-                            const canvas = document.createElement('canvas');
-                            const ctx = canvas.getContext('2d');
-                            
-                            let sx, sy, sw, sh;
-                            if (imgRatio > containerRatio) {
-                                // 图片更宽，裁剪左右
-                                sh = img.naturalHeight;
-                                sw = sh * containerRatio;
-                                sx = (img.naturalWidth - sw) / 2;
-                                sy = 0;
+                            if (fitMode === 'cover') {
+                                // Cover: 用 canvas 裁剪图片
+                                const canvas = document.createElement('canvas');
+                                const ctx = canvas.getContext('2d');
+                                
+                                let sx, sy, sw, sh;
+                                if (imgRatio > containerRatio) {
+                                    // 图片更宽，裁剪左右
+                                    sh = img.naturalHeight;
+                                    sw = sh * containerRatio;
+                                    sx = (img.naturalWidth - sw) / 2;
+                                    sy = 0;
+                                } else {
+                                    // 图片更高，裁剪上下
+                                    sw = img.naturalWidth;
+                                    sh = sw / containerRatio;
+                                    sx = 0;
+                                    sy = (img.naturalHeight - sh) / 2;
+                                }
+                                
+                                canvas.width = sw;
+                                canvas.height = sh;
+                                ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+                                
+                                const croppedBase64 = canvas.toDataURL('image/png');
+                                canvas.width = 0;
+                                canvas.height = 0;
+                                
+                                return { ...el, src: croppedBase64, fit: 'fill' };
                             } else {
-                                // 图片更高，裁剪上下
-                                sw = img.naturalWidth;
-                                sh = sw / containerRatio;
-                                sx = 0;
-                                sy = (img.naturalHeight - sh) / 2;
+                                // Contain: 调整元素位置和尺寸来居中显示
+                                const elX = parseFloat(el.x) / 100 * SLIDE_W;
+                                const elY = parseFloat(el.y) / 100 * SLIDE_H;
+                                let newW, newH, newX, newY;
+                                
+                                if (imgRatio > containerRatio) {
+                                    // 图片更宽，以宽度为准，高度留白
+                                    newW = containerW;
+                                    newH = containerW / imgRatio;
+                                    newX = elX;
+                                    newY = elY + (containerH - newH) / 2;
+                                } else {
+                                    // 图片更高，以高度为准，宽度留白
+                                    newH = containerH;
+                                    newW = containerH * imgRatio;
+                                    newX = elX + (containerW - newW) / 2;
+                                    newY = elY;
+                                }
+                                
+                                // 转换回百分比
+                                return { 
+                                    ...el, 
+                                    src: base64,
+                                    x: (newX / SLIDE_W * 100) + '%',
+                                    y: (newY / SLIDE_H * 100) + '%',
+                                    w: (newW / SLIDE_W * 100) + '%',
+                                    h: (newH / SLIDE_H * 100) + '%',
+                                    fit: 'fill'  // 已调整尺寸，使用 fill
+                                };
                             }
-                            
-                            canvas.width = sw;
-                            canvas.height = sh;
-                            ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-                            
-                            const croppedBase64 = canvas.toDataURL('image/png');
-                            canvas.width = 0;
-                            canvas.height = 0;
-                            
-                            // 裁剪后的图片不再需要 cover，使用 fill 即可
-                            return { ...el, src: croppedBase64, fit: 'fill' };
                         }
                     }
                     
