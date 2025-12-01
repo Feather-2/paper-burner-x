@@ -142,10 +142,13 @@ const PPTXFreeformMixin = {
                 
                 if (el.rotate) imgOptions.rotate = el.rotate;
                 if (el.radius) imgOptions.rounding = true;
-                // 支持 fit 模式：contain 保持比例居中，cover 填充裁剪
+                // 支持 fit 模式：默认 cover（与 HTML 一致）
                 if (el.fit === 'contain') {
                     imgOptions.sizing = { type: 'contain', w: w || 2, h: h || 2 };
-                } else if (el.fit === 'cover') {
+                } else if (el.fit === 'fill') {
+                    // fill = 拉伸填充，不设置 sizing
+                } else {
+                    // 默认 cover：裁剪填充，保持比例
                     imgOptions.sizing = { type: 'cover', w: w || 2, h: h || 2 };
                 }
                 slide.addImage(imgOptions);
