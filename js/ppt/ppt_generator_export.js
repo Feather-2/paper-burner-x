@@ -1305,9 +1305,11 @@ ${renderedSlides}
 
         // 处理单个 slide
         const processSlide = async (slide, index) => {
-            // 非 freeform 或无特效元素，直接返回
+            // 非 freeform 或无特效元素，也需要预加载图片转 base64
             if (!this._slideHasEffects(slide)) {
-                return { index, slide };
+                // 预加载图片并转为 base64
+                const processedSlide = await this._preloadSlideImages(slide);
+                return { index, slide: processedSlide };
             }
 
             // 等待获取容器
@@ -1825,6 +1827,36 @@ ${renderedSlides}
         if ((el.blend && el.blend !== 'normal') || el.mask || el.filter) return true;
         if (el.children && el.children.some(child => this._elementHasEffects(child))) return true;
         return false;
+    },
+
+    /**
+     * 预加载页面中的所有图片，将 URL 转为 base64
+     * 用于没有特效的页面，确保图片能正确嵌入 PPTX
+     */
+    async _preloadSlideImages(slide) {
+        if (!slide.elements) return slide;
+        
+        const processedElements = await Promise.all(slide.elements.map(async (el) => {
+            if (el.type === 'image' && el.src && !el.src.startsWith('data:')) {
+                try {
+                    const response = await fetch(el.src);
+                    const blob = await response.blob();
+                    const base64 = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(blob);
+                    });
+                    return { ...el, src: base64 };
+                } catch (e) {
+                    console.warn('[_preloadSlideImages] Failed to convert image:', el.src, e);
+                    return el;
+                }
+            }
+            return el;
+        }));
+        
+        return { ...slide, elements: processedElements };
     },
 
     exportPPTX() {

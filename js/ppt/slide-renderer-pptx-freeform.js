@@ -131,7 +131,15 @@ const PPTXFreeformMixin = {
     renderFreeformImagePPTX(slide, el, x, y, w, h) {
         if (el.src) {
             try {
-                const imgOptions = { path: el.src, x: x || 0, y: y || 0, w: w || 2, h: h || 2 };
+                const imgOptions = { x: x || 0, y: y || 0, w: w || 2, h: h || 2 };
+                
+                // 区分 base64 和 URL
+                if (el.src.startsWith('data:')) {
+                    imgOptions.data = el.src;
+                } else {
+                    imgOptions.path = el.src;
+                }
+                
                 if (el.rotate) imgOptions.rotate = el.rotate;
                 if (el.radius) imgOptions.rounding = true;
                 // 支持 fit 模式：contain 保持比例居中，cover 填充裁剪
