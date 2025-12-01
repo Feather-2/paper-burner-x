@@ -324,15 +324,13 @@ class PPTXSlideRenderer {
 
     renderSlide(pres, slideData) {
         const slide = pres.addSlide();
-        const method = `render${this.capitalize(slideData.type)}`;
 
         try {
             if (slideData.type === 'baked_image' && slideData.image) {
                 this.renderBakedImage(slide, slideData);
-            } else if (typeof this[method] === 'function') {
-                this[method](slide, slideData);
             } else {
-                this.renderContent(slide, slideData);
+                // 统一使用 freeform 渲染
+                this.renderFreeform(slide, slideData);
             }
         } catch (e) {
             console.error(`Error rendering slide type "${slideData.type}":`, e);
@@ -692,10 +690,7 @@ class PPTXSlideRenderer {
 // Mixin 合并: 将模块方法混入主类
 // ═══════════════════════════════════════════════════════════════
 
-if (typeof PPTXTemplatesMixin !== 'undefined') {
-    Object.assign(PPTXSlideRenderer.prototype, PPTXTemplatesMixin);
-}
-
+// Freeform mixin 提供所有元素渲染能力
 if (typeof PPTXFreeformMixin !== 'undefined') {
     Object.assign(PPTXSlideRenderer.prototype, PPTXFreeformMixin);
 }
