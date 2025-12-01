@@ -935,45 +935,36 @@
             </section>
 
             <!-- Mask Effects Showcase (Gallery) -->
+            <!-- 元素顺序：效果元素在前（会被烘焙），文字在后（保持可编辑） -->
             <section data-type="freeform" id="slide-mask" data-bg="#18181B">
-                <div data-el="text" data-x="5%" data-y="8%" data-w="90%" data-font="32" data-color="#F4F4F5" data-bold="true">Visual Masking</div>
-                <div data-el="text" data-x="5%" data-y="15%" data-w="90%" data-font="14" data-color="#A1A1AA">Non-destructive image shaping techniques</div>
-
-                <!-- Grid Layout -->
-                <!-- Item 1: Gradient Fade -->
+                <!-- 1. 先声明所有带 mask 的图片（会被烘焙成图片） -->
                 <div data-el="image" data-x="5%" data-y="25%" data-w="20%" data-h="30%"
                      data-src="https://placehold.co/400x600/1a1a2e/666?text=Image+105"
                      data-mask="fade-bottom" data-fit="cover" data-radius="8"></div>
-                <div data-el="text" data-x="5%" data-y="57%" data-w="20%" data-font="12" data-color="#71717A" data-align="center">Fade Bottom</div>
-
-                <!-- Item 2: Circle -->
                 <div data-el="image" data-x="28%" data-y="25%" data-w="20%" data-h="30%"
                      data-src="https://placehold.co/400x600/1a1a2e/666?text=Image+106"
                      data-mask="circle" data-fit="cover"></div>
-                <div data-el="text" data-x="28%" data-y="57%" data-w="20%" data-font="12" data-color="#71717A" data-align="center">Circle</div>
-
-                <!-- Item 3: Polygon -->
                 <div data-el="image" data-x="51%" data-y="25%" data-w="20%" data-h="30%"
                      data-src="https://placehold.co/400x600/1a1a2e/666?text=Image+107"
                      data-mask="polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)" data-fit="cover"></div>
-                <div data-el="text" data-x="51%" data-y="57%" data-w="20%" data-font="12" data-color="#71717A" data-align="center">Diamond</div>
-
-                <!-- Item 4: Spotlight -->
                 <div data-el="image" data-x="74%" data-y="25%" data-w="20%" data-h="30%"
                      data-src="https://placehold.co/400x600/1a1a2e/666?text=Image+108"
                      data-mask="spotlight" data-fit="cover" data-radius="8"></div>
-                <div data-el="text" data-x="74%" data-y="57%" data-w="20%" data-font="12" data-color="#71717A" data-align="center">Spotlight</div>
-
-                <!-- Bottom Row: Complex Masks -->
-                <div data-el="text" data-x="5%" data-y="68%" data-w="90%" data-font="16" data-color="#E4E4E7" data-bold="true">Advanced Composition</div>
-                
                 <div data-el="image" data-x="5%" data-y="75%" data-w="43%" data-h="20%"
                      data-src="https://placehold.co/800x300/1a1a2e/666?text=Image+109"
                      data-mask="fade-right" data-fit="cover" data-radius="8"></div>
-                     
                 <div data-el="image" data-x="52%" data-y="75%" data-w="43%" data-h="20%"
                      data-src="https://placehold.co/800x300/1a1a2e/666?text=Image+110"
                      data-mask="vignette" data-fit="cover" data-radius="8"></div>
+
+                <!-- 2. 后声明所有文字（保持可编辑，显示在烘焙图片上方） -->
+                <div data-el="text" data-x="5%" data-y="8%" data-w="90%" data-font="32" data-color="#F4F4F5" data-bold="true">Visual Masking</div>
+                <div data-el="text" data-x="5%" data-y="15%" data-w="90%" data-font="14" data-color="#A1A1AA">Non-destructive image shaping techniques</div>
+                <div data-el="text" data-x="5%" data-y="57%" data-w="20%" data-font="12" data-color="#71717A" data-align="center">Fade Bottom</div>
+                <div data-el="text" data-x="28%" data-y="57%" data-w="20%" data-font="12" data-color="#71717A" data-align="center">Circle</div>
+                <div data-el="text" data-x="51%" data-y="57%" data-w="20%" data-font="12" data-color="#71717A" data-align="center">Diamond</div>
+                <div data-el="text" data-x="74%" data-y="57%" data-w="20%" data-font="12" data-color="#71717A" data-align="center">Spotlight</div>
+                <div data-el="text" data-x="5%" data-y="68%" data-w="90%" data-font="16" data-color="#E4E4E7" data-bold="true">Advanced Composition</div>
             </section>
 
             <!-- Complex Example 1: Hero Banner (Modern SaaS) - 简化版 -->
