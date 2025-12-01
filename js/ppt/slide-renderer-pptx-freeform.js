@@ -147,6 +147,15 @@ const PPTXFreeformMixin = {
         }
     },
 
+    // 渲染 baked 元素（预渲染的图片，通常来自 html2canvas）
+    renderBakedElementPPTX(slide, el, x, y, w, h) {
+        if (el.image) {
+            try {
+                slide.addImage({ data: el.image, x: x || 0, y: y || 0, w: w || 2, h: h || 2 });
+            } catch (e) { console.warn('Failed to add baked element:', e); }
+        }
+    },
+
     renderFreeformIconPPTX(slide, el, x, y, w, h) {
         const iconSize = (el.size || 24) / 72;
         const color = this.safeColor(el.color) || '333333';
