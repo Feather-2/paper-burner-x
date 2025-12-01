@@ -1,13 +1,13 @@
-const PPT_SAMPLE_HTML = `
+﻿const PPT_SAMPLE_HTML = `
 
-            <!-- 1. 封面页：Quantum Leap - 极限复杂�?-->
+            <!-- 1. 封面页：Quantum Leap - 极限复杂版 -->
             <section data-type="freeform" id="slide-1" data-gradient="linear-gradient(135deg, #020617 0%, #0F172A 50%, #1e1b4b 100%)">
                 <!-- 多层背景效果 -->
                 <div data-el="shape" data-shape="circle" data-x="60%" data-y="-30%" data-w="100%" data-h="160%" data-fill="#06B6D4" data-opacity="0.12" data-filter="blur(80px)"></div>
                 <div data-el="shape" data-shape="circle" data-x="-20%" data-y="40%" data-w="60%" data-h="100%" data-fill="#8B5CF6" data-opacity="0.15" data-filter="blur(60px)"></div>
                 <div data-el="shape" data-shape="circle" data-x="80%" data-y="70%" data-w="40%" data-h="70%" data-fill="#F472B6" data-opacity="0.1" data-filter="blur(50px)"></div>
                 
-                <!-- 装饰�?SVG 网格 -->
+                <!-- 装饰性 SVG 网格 -->
                 <div data-el="svg" data-x="0%" data-y="0%" data-w="100%" data-h="100%" data-opacity="0.15">
                     <svg viewBox="0 0 960 540" xmlns="http://www.w3.org/2000/svg">
                         <defs>
@@ -19,7 +19,7 @@ const PPT_SAMPLE_HTML = `
                     </svg>
                 </div>
                 
-                <!-- 动态粒子效�?SVG -->
+                <!-- 动态粒子效果 SVG -->
                 <div data-el="svg" data-x="0%" data-y="0%" data-w="100%" data-h="100%" data-opacity="0.4">
                     <svg viewBox="0 0 960 540" xmlns="http://www.w3.org/2000/svg">
                         <circle cx="120" cy="80" r="3" fill="#22d3ee"/><circle cx="340" cy="120" r="2" fill="#8b5cf6"/>
@@ -42,7 +42,7 @@ const PPT_SAMPLE_HTML = `
                 <div data-el="line" data-x1="26%" data-y1="52%" data-x2="35%" data-y2="52%" data-stroke="#8B5CF6" data-stroke-width="4"></div>
                 <div data-el="line" data-x1="36%" data-y1="52%" data-x2="40%" data-y2="52%" data-stroke="#F472B6" data-stroke-width="4"></div>
                 
-                <!-- 副标�?-->
+                <!-- 副标题 -->
                 <div data-el="text" data-x="8%" data-y="58%" data-w="60%" data-h="auto" data-font="24" data-color="#94A3B8">Unlocking the Universe's Compute Power</div>
                 
                 <!-- 统计卡片 -->
@@ -62,7 +62,7 @@ const PPT_SAMPLE_HTML = `
                 <div data-el="icon" data-x="92%" data-y="92%" data-icon="carbon:logo-twitter" data-size="20" data-color="#475569"></div>
             </section>
 
-            <!-- 2. 议程�?- 极限复杂�?-->
+            <!-- 2. 议程页 - 极限复杂版 -->
             <section data-type="freeform" id="slide-2" data-gradient="linear-gradient(180deg, #0F172A 0%, #1e1b4b 100%)">
                 <!-- 背景装饰 -->
                 <div data-el="shape" data-shape="circle" data-x="85%" data-y="-20%" data-w="40%" data-h="70%" data-fill="#22d3ee" data-opacity="0.08" data-filter="blur(60px)"></div>
@@ -111,13 +111,13 @@ const PPT_SAMPLE_HTML = `
                      data-title="06. Roadmap" data-title-color="#a78bfa" data-title-size="18"
                      data-subtitle="NISQ Era, Fault Tolerance, Quantum Advantage" data-subtitle-color="#94a3b8" data-subtitle-size="12"></div>
                 
-                <!-- 底部进度�?-->
+                <!-- 底部进度条 -->
                 <div data-el="shape" data-shape="rounded" data-x="5%" data-y="88%" data-w="90%" data-h="2%" data-fill="#1e293b" data-radius="4"></div>
                 <div data-el="shape" data-shape="rounded" data-x="5%" data-y="88%" data-w="15%" data-h="2%" data-fill="#22d3ee" data-radius="4"></div>
                 <div data-el="text" data-x="5%" data-y="92%" data-w="20%" data-h="auto" data-font="11" data-color="#64748b">Page 2 of 14</div>
             </section>
 
-            <!-- 3. Bit vs Qubit - 极限复杂�?-->
+            <!-- 3. Bit vs Qubit - 极限复杂版 -->
             <section data-type="freeform" id="slide-3" data-gradient="linear-gradient(135deg, #0F172A 0%, #1e1b4b 100%)">
                 <!-- 背景效果 -->
                 <div data-el="shape" data-shape="circle" data-x="20%" data-y="30%" data-w="30%" data-h="50%" data-fill="#64748b" data-opacity="0.06" data-filter="blur(40px)"></div>
@@ -130,7 +130,7 @@ const PPT_SAMPLE_HTML = `
                 <div data-el="shape" data-shape="rounded" data-x="5%" data-y="22%" data-w="42%" data-h="70%" data-fill="#1e293b" data-radius="16" data-stroke="#334155"></div>
                 <div data-el="text" data-x="8%" data-y="26%" data-w="36%" data-h="auto" data-font="20" data-color="#94A3B8" data-bold="true">Classical Bit</div>
                 
-                <!-- Bit 可视�?SVG -->
+                <!-- Bit 可视化 SVG -->
                 <div data-el="svg" data-x="8%" data-y="34%" data-w="36%" data-h="30%">
                     <svg viewBox="0 0 300 120" xmlns="http://www.w3.org/2000/svg">
                         <rect x="50" y="20" width="80" height="80" rx="12" fill="#334155" stroke="#475569" stroke-width="2"/>
@@ -142,7 +142,7 @@ const PPT_SAMPLE_HTML = `
                 </div>
                 
                 <div data-el="text" data-x="8%" data-y="68%" data-w="36%" data-h="auto" data-font="13" data-color="#94a3b8" data-line-height="1.5">
-                    �?Deterministic state<br>�?Binary: exactly 0 or 1<br>�?No uncertainty<br>�?Classical logic gates
+                    • Deterministic state<br>• Binary: exactly 0 or 1<br>• No uncertainty<br>• Classical logic gates
                 </div>
                 
                 <!-- VS Divider -->
@@ -160,23 +160,23 @@ const PPT_SAMPLE_HTML = `
                         <ellipse cx="150" cy="60" rx="50" ry="15" fill="none" stroke="#334155" stroke-width="1"/>
                         <line x1="150" y1="10" x2="150" y2="110" stroke="#334155" stroke-width="1"/>
                         <circle cx="150" cy="15" r="6" fill="#22d3ee"/>
-                        <text x="165" y="20" fill="#22d3ee" font-size="12">|0�?/text>
+                        <text x="165" y="20" fill="#22d3ee" font-size="12">|0⟩</text>
                         <circle cx="150" cy="105" r="6" fill="#f472b6"/>
-                        <text x="165" y="110" fill="#f472b6" font-size="12">|1�?/text>
+                        <text x="165" y="110" fill="#f472b6" font-size="12">|1⟩</text>
                         <line x1="150" y1="60" x2="185" y2="35" stroke="#a855f7" stroke-width="2"/>
                         <circle cx="185" cy="35" r="5" fill="#a855f7"/>
-                        <text x="195" y="40" fill="#a855f7" font-size="10">|ψ�?/text>
+                        <text x="195" y="40" fill="#a855f7" font-size="10">|ψ⟩</text>
                     </svg>
                 </div>
                 
                 <div data-el="formula" data-x="56%" data-y="64%" data-w="36%" data-h="8%" data-font="18" data-color="#22d3ee" data-latex="|\\psi\\rangle = \\alpha|0\\rangle + \\beta|1\\rangle"></div>
                 
                 <div data-el="text" data-x="56%" data-y="74%" data-w="36%" data-h="auto" data-font="13" data-color="#94a3b8" data-line-height="1.5">
-                    �?Superposition state<br>�?Both 0 AND 1 simultaneously<br>�?Probabilistic outcomes<br>�?Quantum parallelism
+                    • Superposition state<br>• Both 0 AND 1 simultaneously<br>• Probabilistic outcomes<br>• Quantum parallelism
                 </div>
             </section>
 
-            <!-- 4. Mathematical Foundation - 极限复杂�?-->
+            <!-- 4. Mathematical Foundation - 极限复杂版 -->
             <section data-type="freeform" id="slide-4" data-gradient="linear-gradient(135deg, #0F172A 0%, #1e1b4b 100%)">
                 <!-- 背景 -->
                 <div data-el="shape" data-shape="circle" data-x="70%" data-y="-10%" data-w="50%" data-h="80%" data-fill="#22d3ee" data-opacity="0.06" data-filter="blur(60px)"></div>
@@ -185,14 +185,14 @@ const PPT_SAMPLE_HTML = `
                 <div data-el="text" data-x="5%" data-y="6%" data-w="90%" data-h="auto" data-font="28" data-color="#F8FAFC" data-bold="true">Mathematical Foundation</div>
                 <div data-el="text" data-x="5%" data-y="13%" data-w="90%" data-h="auto" data-font="14" data-color="#64748b">Linear algebra meets quantum mechanics</div>
 
-                <!-- 左侧：基本公�?-->
+                <!-- 左侧：基本公式 -->
                 <div data-el="shape" data-shape="rounded" data-x="3%" data-y="20%" data-w="45%" data-h="36%" data-fill="#1e293b" data-radius="12" data-stroke="#334155"></div>
                 <div data-el="text" data-x="5%" data-y="23%" data-w="41%" data-h="auto" data-font="16" data-color="#22d3ee" data-bold="true">Qubit State Vector</div>
                 <div data-el="formula" data-x="5%" data-y="30%" data-w="41%" data-h="10%" data-font="28" data-color="#f8fafc" data-latex="|\\psi\\rangle = \\alpha|0\\rangle + \\beta|1\\rangle"></div>
                 <div data-el="text" data-x="5%" data-y="42%" data-w="41%" data-h="auto" data-font="12" data-color="#94a3b8">Normalization condition:</div>
                 <div data-el="formula" data-x="5%" data-y="48%" data-w="41%" data-h="6%" data-font="18" data-color="#a855f7" data-latex="|\\alpha|^2 + |\\beta|^2 = 1"></div>
 
-                <!-- 右侧：矩阵表�?-->
+                <!-- 右侧：矩阵表示 -->
                 <div data-el="shape" data-shape="rounded" data-x="52%" data-y="20%" data-w="45%" data-h="36%" data-fill="#1e293b" data-radius="12" data-stroke="#334155"></div>
                 <div data-el="text" data-x="54%" data-y="23%" data-w="41%" data-h="auto" data-font="16" data-color="#f472b6" data-bold="true">Matrix Representation</div>
                 <div data-el="formula" data-x="54%" data-y="30%" data-w="41%" data-h="10%" data-font="22" data-color="#f8fafc" data-latex="|0\\rangle = \\begin{pmatrix} 1 \\\\ 0 \\end{pmatrix}, |1\\rangle = \\begin{pmatrix} 0 \\\\ 1 \\end{pmatrix}"></div>
@@ -202,7 +202,7 @@ const PPT_SAMPLE_HTML = `
                 <!-- 底部：量子门表格 -->
                 <div data-el="text" data-x="3%" data-y="60%" data-w="94%" data-h="auto" data-font="16" data-color="#fbbf24" data-bold="true">Common Quantum Gates</div>
                 <div data-el="table" data-x="3%" data-y="66%" data-w="94%" data-h="28%"
-                     data-data='[["Gate","Symbol","Matrix","Effect"],["Pauli-X","X","[[0,1],[1,0]]","Bit flip"],["Pauli-Z","Z","[[1,0],[0,-1]]","Phase flip"],["Hadamard","H","1/�?[[1,1],[1,-1]]","Superposition"],["CNOT","CX","Controlled NOT","Entanglement"]]'
+                     data-data='[["Gate","Symbol","Matrix","Effect"],["Pauli-X","X","[[0,1],[1,0]]","Bit flip"],["Pauli-Z","Z","[[1,0],[0,-1]]","Phase flip"],["Hadamard","H","1/√2[[1,1],[1,-1]]","Superposition"],["CNOT","CX","Controlled NOT","Entanglement"]]'
                      data-header-bg="#4f46e5"
                      data-header-color="#ffffff"
                      data-row-bg="#1e293b"
@@ -214,7 +214,7 @@ const PPT_SAMPLE_HTML = `
                 </div>
             </section>
 
-            <!-- 5. Entanglement - 极限复杂�?-->
+            <!-- 5. Entanglement - 极限复杂版 -->
             <section data-type="freeform" id="slide-5" data-gradient="linear-gradient(135deg, #0F172A 0%, #2e1065 100%)">
                 <!-- 背景效果 -->
                 <div data-el="shape" data-shape="circle" data-x="40%" data-y="20%" data-w="40%" data-h="70%" data-fill="#f472b6" data-opacity="0.08" data-filter="blur(80px)"></div>
@@ -224,7 +224,7 @@ const PPT_SAMPLE_HTML = `
                 <div data-el="text" data-x="5%" data-y="6%" data-w="90%" data-h="auto" data-font="28" data-color="#F8FAFC" data-bold="true">Quantum Entanglement</div>
                 <div data-el="text" data-x="5%" data-y="13%" data-w="90%" data-h="auto" data-font="14" data-color="#f472b6" data-italic="true">"Spooky action at a distance" - Albert Einstein</div>
 
-                <!-- 纠缠可视�?SVG -->
+                <!-- 纠缠可视化 SVG -->
                 <div data-el="svg" data-x="5%" data-y="22%" data-w="90%" data-h="35%">
                     <svg viewBox="0 0 800 180" xmlns="http://www.w3.org/2000/svg">
                         <!-- 粒子 A -->
@@ -232,7 +232,7 @@ const PPT_SAMPLE_HTML = `
                         <text x="150" y="80" fill="#f472b6" font-size="32" font-weight="bold" text-anchor="middle">A</text>
                         <text x="150" y="105" fill="#94a3b8" font-size="12" text-anchor="middle">Particle</text>
                         
-                        <!-- 纠缠�?-->
+                        <!-- 纠缠线 -->
                         <path d="M200 90 Q400 30 400 90 Q400 150 600 90" stroke="url(#entangle-grad)" stroke-width="3" fill="none" stroke-dasharray="8,4">
                             <animate attributeName="stroke-dashoffset" from="0" to="24" dur="1s" repeatCount="indefinite"/>
                         </path>
@@ -246,7 +246,7 @@ const PPT_SAMPLE_HTML = `
                         
                         <!-- 纠缠符号 -->
                         <circle cx="400" cy="90" r="25" fill="#0f172a" stroke="#a855f7" stroke-width="2"/>
-                        <text x="400" y="96" fill="#a855f7" font-size="20" text-anchor="middle">�?/text>
+                        <text x="400" y="96" fill="#a855f7" font-size="20" text-anchor="middle">⊗</text>
                         
                         <!-- 粒子 B -->
                         <circle cx="650" cy="90" r="50" fill="#1e293b" stroke="#22d3ee" stroke-width="3"/>
@@ -278,7 +278,7 @@ const PPT_SAMPLE_HTML = `
                 <div data-el="formula" data-x="78%" data-y="80%" data-w="16%" data-h="10%" data-font="12" data-color="#f8fafc" data-latex="\\frac{|01\\rangle - |10\\rangle}{\\sqrt{2}}"></div>
             </section>
 
-            <!-- 6. Algorithms - 极限复杂�?-->
+            <!-- 6. Algorithms - 极限复杂版 -->
             <section data-type="freeform" id="slide-6" data-gradient="linear-gradient(135deg, #0F172A 0%, #1e1b4b 100%)">
                 <!-- 背景 -->
                 <div data-el="shape" data-shape="circle" data-x="80%" data-y="-20%" data-w="50%" data-h="80%" data-fill="#22d3ee" data-opacity="0.06" data-filter="blur(60px)"></div>
@@ -357,7 +357,7 @@ const PPT_SAMPLE_HTML = `
                     Layered Effects Demo
                 </div>
                 <div data-el="text" data-x="12%" data-y="32%" data-w="60%" data-font="18" data-color="#cbd5e1" data-line-height="1.6">
-                    使用 data-blend、data-mask、data-filter 组合打造复杂视觉效果。PPTX 导出会自动提示不可用的混�?遮罩效果�?
+                    使用 data-blend、data-mask、data-filter 组合打造复杂视觉效果。PPTX 导出会自动提示不可用的混合/遮罩效果。
                 </div>
 
                 <!-- Callout card with outline -->
@@ -372,7 +372,7 @@ const PPT_SAMPLE_HTML = `
                      data-icon-color="#22d3ee"
                      data-title="可控图层"
                      data-title-color="#e2e8f0"
-                     data-subtitle="�?blend/mask/filter 精细描述视觉" data-subtitle-color="#94a3b8">
+                     data-subtitle="用 blend/mask/filter 精细描述视觉" data-subtitle-color="#94a3b8">
                 </div>
 
                 <div data-el="card"
@@ -386,7 +386,7 @@ const PPT_SAMPLE_HTML = `
                      data-icon-color="#a855f7"
                      data-title="PPTX 降级提示"
                      data-title-color="#e2e8f0"
-                     data-subtitle="导出时标记未支持的效�? data-subtitle-color="#cbd5e1">
+                     data-subtitle="导出时标记未支持的效果" data-subtitle-color="#cbd5e1">
                 </div>
             </section>
 
@@ -395,7 +395,7 @@ const PPT_SAMPLE_HTML = `
                 <div data-el="text" data-x="5%" data-y="6%" data-w="90%" data-h="auto" data-font="28" data-color="#F8FAFC" data-bold="true">SVG Graphics & Data Tables</div>
                 <div data-el="text" data-x="5%" data-y="13%" data-w="90%" data-h="auto" data-font="14" data-color="#94A3B8">AI 可以直接输出 SVG 图形和结构化表格数据</div>
 
-                <!-- 左侧：内�?SVG 流程�?-->
+                <!-- 左侧：内联 SVG 流程图 -->
                 <div data-el="text" data-x="5%" data-y="22%" data-w="40%" data-h="auto" data-font="16" data-color="#22D3EE" data-bold="true">Process Flow (SVG)</div>
                 <div data-el="svg" data-x="5%" data-y="28%" data-w="40%" data-h="35%" data-bg-color="#1E293B" data-radius="12">
                     <svg viewBox="0 0 400 180" xmlns="http://www.w3.org/2000/svg">
@@ -420,14 +420,14 @@ const PPT_SAMPLE_HTML = `
                             </marker>
                         </defs>
                         
-                        <!-- 子流�?-->
+                        <!-- 子流程 -->
                         <rect x="160" y="130" width="80" height="30" rx="6" fill="#1e293b" stroke="#64748b"/>
                         <text x="200" y="150" fill="#94a3b8" font-size="10" text-anchor="middle" font-family="system-ui">Validate</text>
                         <path d="M200 110 L200 125" stroke="#64748b" stroke-width="1" stroke-dasharray="4"/>
                     </svg>
                 </div>
 
-                <!-- 右侧：数据表�?-->
+                <!-- 右侧：数据表格 -->
                 <div data-el="text" data-x="52%" data-y="22%" data-w="43%" data-h="auto" data-font="16" data-color="#A78BFA" data-bold="true">Quantum Hardware Comparison</div>
                 <div data-el="table" data-x="52%" data-y="28%" data-w="43%" data-h="35%"
                      data-data='[["Platform", "Qubits", "Coherence", "Gate Speed"],["Superconducting", "100+", "~100μs", "~20ns"],["Trapped Ion", "32", "~10s", "~1ms"],["Photonic", "216", "N/A", "~1ps"],["Neutral Atom", "256", "~1s", "~1μs"]]'
@@ -441,39 +441,39 @@ const PPT_SAMPLE_HTML = `
                      data-radius="8">
                 </div>
 
-                <!-- 底部：复�?SVG 图形 -->
+                <!-- 底部：复杂 SVG 图形 -->
                 <div data-el="text" data-x="5%" data-y="68%" data-w="90%" data-h="auto" data-font="16" data-color="#F472B6" data-bold="true">Neural Network Architecture (SVG)</div>
                 <div data-el="svg" data-x="5%" data-y="74%" data-w="90%" data-h="22%" data-bg-color="#1E293B" data-radius="12">
                     <svg viewBox="0 0 800 120" xmlns="http://www.w3.org/2000/svg">
-                        <!-- 输入�?-->
+                        <!-- 输入层 -->
                         <circle cx="80" cy="30" r="12" fill="#22d3ee"/>
                         <circle cx="80" cy="60" r="12" fill="#22d3ee"/>
                         <circle cx="80" cy="90" r="12" fill="#22d3ee"/>
                         <text x="80" y="115" fill="#64748b" font-size="10" text-anchor="middle">Input</text>
                         
-                        <!-- 隐藏�?1 -->
+                        <!-- 隐藏层 1 -->
                         <circle cx="240" cy="20" r="10" fill="#8b5cf6"/>
                         <circle cx="240" cy="45" r="10" fill="#8b5cf6"/>
                         <circle cx="240" cy="70" r="10" fill="#8b5cf6"/>
                         <circle cx="240" cy="95" r="10" fill="#8b5cf6"/>
                         <text x="240" y="115" fill="#64748b" font-size="10" text-anchor="middle">Hidden 1</text>
                         
-                        <!-- 隐藏�?2 -->
+                        <!-- 隐藏层 2 -->
                         <circle cx="400" cy="25" r="10" fill="#a855f7"/>
                         <circle cx="400" cy="55" r="10" fill="#a855f7"/>
                         <circle cx="400" cy="85" r="10" fill="#a855f7"/>
                         <text x="400" y="115" fill="#64748b" font-size="10" text-anchor="middle">Hidden 2</text>
                         
-                        <!-- 隐藏�?3 -->
+                        <!-- 隐藏层 3 -->
                         <circle cx="560" cy="35" r="10" fill="#ec4899"/>
                         <circle cx="560" cy="70" r="10" fill="#ec4899"/>
                         <text x="560" y="115" fill="#64748b" font-size="10" text-anchor="middle">Hidden 3</text>
                         
-                        <!-- 输出�?-->
+                        <!-- 输出层 -->
                         <circle cx="720" cy="55" r="14" fill="#10b981"/>
                         <text x="720" y="115" fill="#64748b" font-size="10" text-anchor="middle">Output</text>
                         
-                        <!-- 连接�?-->
+                        <!-- 连接线 -->
                         <g stroke="#64748b" stroke-width="1.5" opacity="0.8">
                             <line x1="92" y1="30" x2="230" y2="20"/><line x1="92" y1="30" x2="230" y2="45"/>
                             <line x1="92" y1="60" x2="230" y2="45"/><line x1="92" y1="60" x2="230" y2="70"/>
@@ -488,7 +488,7 @@ const PPT_SAMPLE_HTML = `
                 </div>
             </section>
 
-            <!-- 7. Hardware - 极限复杂�?-->
+            <!-- 7. Hardware - 极限复杂版 -->
             <section data-type="freeform" id="slide-7" data-gradient="linear-gradient(180deg, #0F172A 0%, #1e1b4b 100%)">
                 <!-- 背景 -->
                 <div data-el="shape" data-shape="circle" data-x="-15%" data-y="20%" data-w="50%" data-h="80%" data-fill="#22d3ee" data-opacity="0.05" data-filter="blur(60px)"></div>
@@ -497,18 +497,18 @@ const PPT_SAMPLE_HTML = `
                 <div data-el="text" data-x="5%" data-y="5%" data-w="90%" data-h="auto" data-font="28" data-color="#F8FAFC" data-bold="true">Quantum Hardware Platforms</div>
                 <div data-el="text" data-x="5%" data-y="11%" data-w="90%" data-h="auto" data-font="13" data-color="#64748b">Engineering at the edge of physics</div>
                 
-                <!-- 稀释制冷机 SVG 示意�?-->
+                <!-- 稀释制冷机 SVG 示意图 -->
                 <div data-el="svg" data-x="3%" data-y="18%" data-w="35%" data-h="76%" data-bg-color="#1e293b" data-radius="12">
                     <svg viewBox="0 0 280 380" xmlns="http://www.w3.org/2000/svg">
-                        <!-- 制冷机外�?-->
+                        <!-- 制冷机外壳 -->
                         <rect x="80" y="20" width="120" height="340" rx="8" fill="#0f172a" stroke="#334155" stroke-width="2"/>
-                        <!-- 温度�?-->
+                        <!-- 温度层 -->
                         <rect x="90" y="40" width="100" height="50" rx="4" fill="#334155"/><text x="140" y="70" fill="#f87171" font-size="12" text-anchor="middle">300K</text>
                         <rect x="90" y="100" width="100" height="50" rx="4" fill="#374151"/><text x="140" y="130" fill="#fbbf24" font-size="12" text-anchor="middle">50K</text>
                         <rect x="90" y="160" width="100" height="50" rx="4" fill="#1f2937"/><text x="140" y="190" fill="#a3e635" font-size="12" text-anchor="middle">4K</text>
                         <rect x="90" y="220" width="100" height="50" rx="4" fill="#111827"/><text x="140" y="250" fill="#22d3ee" font-size="12" text-anchor="middle">1K</text>
                         <rect x="90" y="280" width="100" height="60" rx="4" fill="#0c0a09" stroke="#22d3ee" stroke-width="2"/><text x="140" y="315" fill="#22d3ee" font-size="14" font-weight="bold" text-anchor="middle">15mK</text>
-                        <!-- 量子处理�?-->
+                        <!-- 量子处理器 -->
                         <rect x="105" y="295" width="70" height="30" rx="4" fill="#1e293b" stroke="#a855f7" stroke-width="2"/>
                         <text x="140" y="314" fill="#a855f7" font-size="10" text-anchor="middle">QPU</text>
                         <!-- 标签 -->
@@ -525,7 +525,7 @@ const PPT_SAMPLE_HTML = `
                      data-font-size="10" data-radius="8">
                 </div>
                 
-                <!-- 技术卡�?-->
+                <!-- 技术卡片 -->
                 <div data-el="card" data-x="40%" data-y="56%" data-w="27%" data-h="18%" data-layout="horizontal" data-fill="#1e293b" data-radius="10" data-stroke="#22d3ee"
                      data-icon="carbon:temperature-frigid" data-icon-color="#22d3ee" data-icon-size="28"
                      data-title="Superconducting" data-title-color="#22d3ee" data-title-size="14"
@@ -544,7 +544,7 @@ const PPT_SAMPLE_HTML = `
                      data-subtitle="Scalable arrays" data-subtitle-color="#94a3b8" data-subtitle-size="10"></div>
             </section>
 
-            <!-- 8. Applications - 极限复杂�?-->
+            <!-- 8. Applications - 极限复杂版 -->
             <section data-type="freeform" id="slide-8" data-gradient="linear-gradient(135deg, #0F172A 0%, #1e1b4b 100%)">
                 <div data-el="shape" data-shape="circle" data-x="70%" data-y="-20%" data-w="50%" data-h="80%" data-fill="#10b981" data-opacity="0.06" data-filter="blur(60px)"></div>
                 <div data-el="shape" data-shape="circle" data-x="-10%" data-y="60%" data-w="40%" data-h="70%" data-fill="#f472b6" data-opacity="0.06" data-filter="blur(50px)"></div>
@@ -585,14 +585,14 @@ const PPT_SAMPLE_HTML = `
             </section>
 
 
-            <!-- 9. Market Growth - 极限复杂�?-->
+            <!-- 9. Market Growth - 极限复杂版 -->
             <section data-type="freeform" id="slide-9" data-gradient="linear-gradient(135deg, #fafafa 0%, #f1f5f9 100%)">
                 <div data-el="shape" data-shape="circle" data-x="80%" data-y="-30%" data-w="50%" data-h="80%" data-fill="#4f46e5" data-opacity="0.05" data-filter="blur(80px)"></div>
                 
                 <div data-el="text" data-x="5%" data-y="5%" data-w="60%" data-h="auto" data-font="28" data-color="#0F172A" data-bold="true">Investment Landscape</div>
                 <div data-el="text" data-x="5%" data-y="11%" data-w="60%" data-h="auto" data-font="13" data-color="#64748b">Quantum computing market is experiencing exponential growth</div>
                 
-                <!-- 主图�?-->
+                <!-- 主图表 -->
                 <div data-el="chart" data-x="3%" data-y="18%" data-w="55%" data-h="50%"
                      data-chart-type="line"
                      data-chart-data="2020:0.7,2021:1.4,2022:2.3,2023:3.8,2024:5.2,2025:8.5"
@@ -631,7 +631,7 @@ const PPT_SAMPLE_HTML = `
                 <div data-el="text" data-x="86%" data-y="81%" data-w="11%" data-h="auto" data-font="10" data-color="#0f172a" data-align="center" data-bold="true">Quantinuum</div>
             </section>
 
-            <!-- 10. Challenges - 极限复杂�?-->
+            <!-- 10. Challenges - 极限复杂版 -->
             <section data-type="freeform" id="slide-10" data-gradient="linear-gradient(135deg, #0F172A 0%, #1e1b4b 100%)">
                 <div data-el="shape" data-shape="circle" data-x="70%" data-y="-20%" data-w="50%" data-h="80%" data-fill="#f87171" data-opacity="0.06" data-filter="blur(60px)"></div>
                 <div data-el="shape" data-shape="circle" data-x="-10%" data-y="60%" data-w="40%" data-h="70%" data-fill="#10b981" data-opacity="0.06" data-filter="blur(50px)"></div>
@@ -639,7 +639,7 @@ const PPT_SAMPLE_HTML = `
                 <div data-el="text" data-x="5%" data-y="5%" data-w="90%" data-h="auto" data-font="28" data-color="#F8FAFC" data-bold="true">Quantum Challenges</div>
                 <div data-el="text" data-x="5%" data-y="11%" data-w="90%" data-h="auto" data-font="13" data-color="#64748b">The obstacles on the path to practical quantum computing</div>
 
-                <!-- 退相干可视�?SVG -->
+                <!-- 退相干可视化 SVG -->
                 <div data-el="svg" data-x="3%" data-y="18%" data-w="45%" data-h="35%" data-bg-color="#1e293b" data-radius="12">
                     <svg viewBox="0 0 400 180" xmlns="http://www.w3.org/2000/svg">
                         <text x="200" y="20" fill="#f87171" font-size="14" font-weight="bold" text-anchor="middle">Decoherence Timeline</text>
@@ -649,8 +649,8 @@ const PPT_SAMPLE_HTML = `
                         <path d="M30 90 Q60 65 90 90 Q120 110 150 90 Q180 75 210 90 Q240 100 270 90 Q300 85 330 90 Q360 92 380 90" 
                               stroke="#a855f7" stroke-width="2" fill="none" opacity="0.6" stroke-dasharray="4"/>
                         <text x="30" y="140" fill="#64748b" font-size="10">t=0</text>
-                        <text x="200" y="140" fill="#64748b" font-size="10">T�?(Dephasing)</text>
-                        <text x="350" y="140" fill="#64748b" font-size="10">T�?/text>
+                        <text x="200" y="140" fill="#64748b" font-size="10">T₂ (Dephasing)</text>
+                        <text x="350" y="140" fill="#64748b" font-size="10">T₁</text>
                         <line x1="30" y1="145" x2="380" y2="145" stroke="#334155" stroke-width="1"/>
                         <text x="200" y="170" fill="#94a3b8" font-size="11" text-anchor="middle">Quantum state loses coherence over time</text>
                     </svg>
@@ -672,13 +672,13 @@ const PPT_SAMPLE_HTML = `
                     <svg viewBox="0 0 850 150" xmlns="http://www.w3.org/2000/svg">
                         <!-- 物理量子比特 -->
                         <text x="100" y="20" fill="#64748b" font-size="12" text-anchor="middle">Physical Qubits</text>
-                        <circle cx="40" cy="60" r="15" fill="#334155" stroke="#f87171" stroke-width="2"/><text x="40" y="65" fill="#f8fafc" font-size="10" text-anchor="middle">P�?/text>
-                        <circle cx="80" cy="60" r="15" fill="#334155" stroke="#f87171" stroke-width="2"/><text x="80" y="65" fill="#f8fafc" font-size="10" text-anchor="middle">P�?/text>
-                        <circle cx="120" cy="60" r="15" fill="#334155" stroke="#f87171" stroke-width="2"/><text x="120" y="65" fill="#f8fafc" font-size="10" text-anchor="middle">P�?/text>
-                        <circle cx="60" cy="100" r="15" fill="#334155" stroke="#f87171" stroke-width="2"/><text x="60" y="105" fill="#f8fafc" font-size="10" text-anchor="middle">P�?/text>
-                        <circle cx="100" cy="100" r="15" fill="#334155" stroke="#f87171" stroke-width="2"/><text x="100" y="105" fill="#f8fafc" font-size="10" text-anchor="middle">P�?/text>
-                        <circle cx="80" cy="140" r="15" fill="#334155" stroke="#f87171" stroke-width="2"/><text x="80" y="145" fill="#f8fafc" font-size="10" text-anchor="middle">P�?/text>
-                        <circle cx="140" cy="100" r="15" fill="#334155" stroke="#f87171" stroke-width="2"/><text x="140" y="105" fill="#f8fafc" font-size="10" text-anchor="middle">P�?/text>
+                        <circle cx="40" cy="60" r="15" fill="#334155" stroke="#f87171" stroke-width="2"/><text x="40" y="65" fill="#f8fafc" font-size="10" text-anchor="middle">P₁</text>
+                        <circle cx="80" cy="60" r="15" fill="#334155" stroke="#f87171" stroke-width="2"/><text x="80" y="65" fill="#f8fafc" font-size="10" text-anchor="middle">P₂</text>
+                        <circle cx="120" cy="60" r="15" fill="#334155" stroke="#f87171" stroke-width="2"/><text x="120" y="65" fill="#f8fafc" font-size="10" text-anchor="middle">P₃</text>
+                        <circle cx="60" cy="100" r="15" fill="#334155" stroke="#f87171" stroke-width="2"/><text x="60" y="105" fill="#f8fafc" font-size="10" text-anchor="middle">P₄</text>
+                        <circle cx="100" cy="100" r="15" fill="#334155" stroke="#f87171" stroke-width="2"/><text x="100" y="105" fill="#f8fafc" font-size="10" text-anchor="middle">P₅</text>
+                        <circle cx="80" cy="140" r="15" fill="#334155" stroke="#f87171" stroke-width="2"/><text x="80" y="145" fill="#f8fafc" font-size="10" text-anchor="middle">P₆</text>
+                        <circle cx="140" cy="100" r="15" fill="#334155" stroke="#f87171" stroke-width="2"/><text x="140" y="105" fill="#f8fafc" font-size="10" text-anchor="middle">P₇</text>
                         
                         <!-- 箭头 -->
                         <path d="M180 80 L280 80" stroke="#64748b" stroke-width="2" marker-end="url(#arrow-ec)"/>
@@ -688,7 +688,7 @@ const PPT_SAMPLE_HTML = `
                         <!-- 逻辑量子比特 -->
                         <text x="380" y="20" fill="#64748b" font-size="12" text-anchor="middle">Logical Qubit</text>
                         <rect x="310" y="40" width="140" height="100" rx="12" fill="#0f172a" stroke="#10b981" stroke-width="3"/>
-                        <text x="380" y="95" fill="#10b981" font-size="24" font-weight="bold" text-anchor="middle">|L�?/text>
+                        <text x="380" y="95" fill="#10b981" font-size="24" font-weight="bold" text-anchor="middle">|L⟩</text>
                         <text x="380" y="120" fill="#94a3b8" font-size="10" text-anchor="middle">Error Protected</text>
                         
                         <!-- Surface Code 示意 -->
@@ -707,14 +707,14 @@ const PPT_SAMPLE_HTML = `
                 </div>
             </section>
 
-            <!-- 11. Roadmap - 极限复杂�?-->
+            <!-- 11. Roadmap - 极限复杂版 -->
             <section data-type="freeform" id="slide-11" data-gradient="linear-gradient(135deg, #0F172A 0%, #1e1b4b 100%)">
                 <div data-el="shape" data-shape="circle" data-x="50%" data-y="30%" data-w="40%" data-h="70%" data-fill="#8b5cf6" data-opacity="0.06" data-filter="blur(60px)"></div>
                 
                 <div data-el="text" data-x="5%" data-y="5%" data-w="90%" data-h="auto" data-font="28" data-color="#F8FAFC" data-bold="true">Roadmap to Quantum Advantage</div>
                 <div data-el="text" data-x="5%" data-y="11%" data-w="90%" data-h="auto" data-font="13" data-color="#64748b">The path from NISQ to fault-tolerant quantum computing</div>
                 
-                <!-- 时间�?SVG -->
+                <!-- 时间线 SVG -->
                 <div data-el="svg" data-x="3%" data-y="18%" data-w="94%" data-h="75%">
                     <svg viewBox="0 0 850 350" xmlns="http://www.w3.org/2000/svg">
                         <!-- 主时间线 -->
@@ -733,10 +733,10 @@ const PPT_SAMPLE_HTML = `
                         <text x="120" y="145" fill="#f8fafc" font-size="14" font-weight="bold" text-anchor="middle">2023-24</text>
                         <rect x="50" y="210" width="140" height="120" rx="8" fill="#1e293b" stroke="#64748b"/>
                         <text x="120" y="235" fill="#64748b" font-size="12" font-weight="bold" text-anchor="middle">NISQ Era</text>
-                        <text x="120" y="255" fill="#94a3b8" font-size="10" text-anchor="middle">�?100-1000 qubits</text>
-                        <text x="120" y="270" fill="#94a3b8" font-size="10" text-anchor="middle">�?High error rates</text>
-                        <text x="120" y="285" fill="#94a3b8" font-size="10" text-anchor="middle">�?Limited algorithms</text>
-                        <text x="120" y="300" fill="#94a3b8" font-size="10" text-anchor="middle">�?Proof of concepts</text>
+                        <text x="120" y="255" fill="#94a3b8" font-size="10" text-anchor="middle">• 100-1000 qubits</text>
+                        <text x="120" y="270" fill="#94a3b8" font-size="10" text-anchor="middle">• High error rates</text>
+                        <text x="120" y="285" fill="#94a3b8" font-size="10" text-anchor="middle">• Limited algorithms</text>
+                        <text x="120" y="300" fill="#94a3b8" font-size="10" text-anchor="middle">• Proof of concepts</text>
                         
                         <!-- 2025-26 -->
                         <circle cx="320" cy="180" r="20" fill="#22d3ee" stroke="#f8fafc" stroke-width="2"/>
@@ -744,10 +744,10 @@ const PPT_SAMPLE_HTML = `
                         <text x="320" y="145" fill="#22d3ee" font-size="14" font-weight="bold" text-anchor="middle">Error Mitigation</text>
                         <rect x="250" y="210" width="140" height="120" rx="8" fill="#1e293b" stroke="#22d3ee"/>
                         <text x="320" y="235" fill="#22d3ee" font-size="12" font-weight="bold" text-anchor="middle">Scaling Up</text>
-                        <text x="320" y="255" fill="#94a3b8" font-size="10" text-anchor="middle">�?1000+ qubits</text>
-                        <text x="320" y="270" fill="#94a3b8" font-size="10" text-anchor="middle">�?Better coherence</text>
-                        <text x="320" y="285" fill="#94a3b8" font-size="10" text-anchor="middle">�?Hybrid algorithms</text>
-                        <text x="320" y="300" fill="#94a3b8" font-size="10" text-anchor="middle">�?Early advantage</text>
+                        <text x="320" y="255" fill="#94a3b8" font-size="10" text-anchor="middle">• 1000+ qubits</text>
+                        <text x="320" y="270" fill="#94a3b8" font-size="10" text-anchor="middle">• Better coherence</text>
+                        <text x="320" y="285" fill="#94a3b8" font-size="10" text-anchor="middle">• Hybrid algorithms</text>
+                        <text x="320" y="300" fill="#94a3b8" font-size="10" text-anchor="middle">• Early advantage</text>
                         
                         <!-- 2028-30 -->
                         <circle cx="520" cy="180" r="20" fill="#8b5cf6" stroke="#f8fafc" stroke-width="2"/>
@@ -755,10 +755,10 @@ const PPT_SAMPLE_HTML = `
                         <text x="520" y="145" fill="#8b5cf6" font-size="14" font-weight="bold" text-anchor="middle">Logical Qubits</text>
                         <rect x="450" y="210" width="140" height="120" rx="8" fill="#1e293b" stroke="#8b5cf6"/>
                         <text x="520" y="235" fill="#8b5cf6" font-size="12" font-weight="bold" text-anchor="middle">Error Correction</text>
-                        <text x="520" y="255" fill="#94a3b8" font-size="10" text-anchor="middle">�?Logical qubits</text>
-                        <text x="520" y="270" fill="#94a3b8" font-size="10" text-anchor="middle">�?Surface codes</text>
-                        <text x="520" y="285" fill="#94a3b8" font-size="10" text-anchor="middle">�?Quantum networks</text>
-                        <text x="520" y="300" fill="#94a3b8" font-size="10" text-anchor="middle">�?Industry adoption</text>
+                        <text x="520" y="255" fill="#94a3b8" font-size="10" text-anchor="middle">• Logical qubits</text>
+                        <text x="520" y="270" fill="#94a3b8" font-size="10" text-anchor="middle">• Surface codes</text>
+                        <text x="520" y="285" fill="#94a3b8" font-size="10" text-anchor="middle">• Quantum networks</text>
+                        <text x="520" y="300" fill="#94a3b8" font-size="10" text-anchor="middle">• Industry adoption</text>
                         
                         <!-- 2035+ -->
                         <circle cx="720" cy="180" r="20" fill="#10b981" stroke="#f8fafc" stroke-width="2"/>
@@ -766,12 +766,12 @@ const PPT_SAMPLE_HTML = `
                         <text x="720" y="145" fill="#10b981" font-size="14" font-weight="bold" text-anchor="middle">Fault Tolerant</text>
                         <rect x="650" y="210" width="140" height="120" rx="8" fill="#1e293b" stroke="#10b981"/>
                         <text x="720" y="235" fill="#10b981" font-size="12" font-weight="bold" text-anchor="middle">Full Scale QC</text>
-                        <text x="720" y="255" fill="#94a3b8" font-size="10" text-anchor="middle">�?Million+ qubits</text>
-                        <text x="720" y="270" fill="#94a3b8" font-size="10" text-anchor="middle">�?Universal QC</text>
-                        <text x="720" y="285" fill="#94a3b8" font-size="10" text-anchor="middle">�?Cryptanalysis</text>
-                        <text x="720" y="300" fill="#94a3b8" font-size="10" text-anchor="middle">�?Drug discovery</text>
+                        <text x="720" y="255" fill="#94a3b8" font-size="10" text-anchor="middle">• Million+ qubits</text>
+                        <text x="720" y="270" fill="#94a3b8" font-size="10" text-anchor="middle">• Universal QC</text>
+                        <text x="720" y="285" fill="#94a3b8" font-size="10" text-anchor="middle">• Cryptanalysis</text>
+                        <text x="720" y="300" fill="#94a3b8" font-size="10" text-anchor="middle">• Drug discovery</text>
                         
-                        <!-- 上方里程�?-->
+                        <!-- 上方里程碑 -->
                         <text x="220" y="80" fill="#22d3ee" font-size="11" text-anchor="middle">Google Willow</text>
                         <text x="220" y="95" fill="#64748b" font-size="9" text-anchor="middle">Below threshold</text>
                         <line x1="220" y1="100" x2="220" y2="160" stroke="#22d3ee" stroke-width="1" stroke-dasharray="4"/>
@@ -787,7 +787,7 @@ const PPT_SAMPLE_HTML = `
                 </div>
             </section>
 
-            <!-- 12. 结束�?- 极限复杂�?-->
+            <!-- 12. 结束页 - 极限复杂版 -->
             <section data-type="freeform" id="slide-12" data-gradient="linear-gradient(135deg, #020617 0%, #0F172A 50%, #1e1b4b 100%)">
                 <!-- 多层背景效果 -->
                 <div data-el="shape" data-shape="circle" data-x="50%" data-y="30%" data-w="60%" data-h="100%" data-fill="#22d3ee" data-opacity="0.08" data-filter="blur(100px)"></div>
@@ -872,7 +872,7 @@ const PPT_SAMPLE_HTML = `
                 <div data-el="text" data-x="5%" data-y="10%" data-w="90%" data-font="80" data-color="#FFFFFF" data-bold="true" data-align="center" data-opacity="0.1">OVERLAY</div>
                 <div data-el="text" data-x="5%" data-y="12%" data-w="90%" data-font="42" data-color="#F8FAFC" data-bold="true" data-align="center">Overlay Mode</div>
 
-                <!-- 图片展示�?-->
+                <!-- 图片展示区 -->
                 <div data-el="shape" data-shape="rect" data-x="20%" data-y="30%" data-w="60%" data-h="50%" data-fill="#18181B" data-radius="16" data-stroke="#27272A"></div>
                 
                 <!-- 底层图片 -->
@@ -883,7 +883,7 @@ const PPT_SAMPLE_HTML = `
                      data-opacity="0.6"
                      data-filter="grayscale(100%)"></div>
 
-                <!-- 叠加�?- Overlay -->
+                <!-- 叠加层 - Overlay -->
                 <div data-el="shape" data-shape="rect" data-x="20%" data-y="30%" data-w="60%" data-h="50%"
                      data-fill="linear-gradient(45deg, #7C3AED, #06B6D4)"
                      data-blend="overlay"
@@ -896,7 +896,7 @@ const PPT_SAMPLE_HTML = `
 
             <!-- Blend Effects Showcase 3: Color Dodge (Energy) -->
             <section data-type="freeform" id="slide-blend-3" data-bg="#000000">
-                <!-- 能量�?-->
+                <!-- 能量流 -->
                 <div data-el="shape" data-shape="circle" data-x="30%" data-y="30%" data-w="40%" data-h="60%" data-fill="#EC4899" data-opacity="0.5" data-filter="blur(60px)"></div>
                 <div data-el="shape" data-shape="circle" data-x="50%" data-y="40%" data-w="30%" data-h="50%" data-fill="#3B82F6" data-opacity="0.5" data-filter="blur(50px)"></div>
 
@@ -978,11 +978,11 @@ const PPT_SAMPLE_HTML = `
 
             <!-- Complex Example 1: Hero Banner (Modern SaaS) - 简化版 -->
             <section data-type="freeform" id="slide-complex-hero" data-bg="#0F172A">
-                <!-- 背景渐变装饰（无 filter，使用透明度代�?blur�?-->
+                <!-- 背景渐变装饰（无 filter，使用透明度代替 blur） -->
                 <div data-el="shape" data-shape="circle" data-x="60%" data-y="-20%" data-w="60%" data-h="100%" data-fill="#3B82F6" data-opacity="0.08"></div>
                 <div data-el="shape" data-shape="circle" data-x="-10%" data-y="40%" data-w="50%" data-h="80%" data-fill="#8B5CF6" data-opacity="0.06"></div>
 
-                <!-- 右侧 Hero Image（保�?mask 效果�?-->
+                <!-- 右侧 Hero Image（保留 mask 效果） -->
                 <div data-el="image" data-x="50%" data-y="15%" data-w="45%" data-h="70%"
                      data-src="https://placehold.co/800x1000/1a1a2e/666?text=Image+111"
                      data-mask="fade-left" data-fit="cover" data-radius="12"></div>
@@ -1006,7 +1006,7 @@ const PPT_SAMPLE_HTML = `
 
             <!-- Complex Example 2: Data Visualization (Fintech) -->
             <section data-type="freeform" id="slide-complex-data" data-bg="#111827">
-                <!-- 顶部标题�?-->
+                <!-- 顶部标题栏 -->
                 <div data-el="text" data-x="5%" data-y="8%" data-w="50%" data-font="24" data-color="#F9FAFB" data-bold="true">Market Analytics</div>
                 <div data-el="text" data-x="5%" data-y="14%" data-w="50%" data-font="14" data-color="#9CA3AF">Q4 Performance Overview</div>
                 
@@ -1034,7 +1034,7 @@ const PPT_SAMPLE_HTML = `
                 <div data-el="text" data-x="69%" data-y="35%" data-font="28" data-color="#F9FAFB" data-bold="true">3.8%</div>
                 <div data-el="text" data-x="84%" data-y="36%" data-font="12" data-color="#EF4444" data-bg="#7F1D1D" data-padding="2 6" data-radius="4">-1.1%</div>
 
-                <!-- 主图表区�?-->
+                <!-- 主图表区域 -->
                 <div data-el="shape" data-shape="rect" data-x="5%" data-y="50%" data-w="90%" data-h="45%" data-fill="#1F2937" data-radius="12" data-stroke="#374151"></div>
                 <div data-el="text" data-x="8%" data-y="55%" data-font="16" data-color="#F9FAFB" data-bold="true">Revenue Growth</div>
                 
@@ -1063,7 +1063,7 @@ const PPT_SAMPLE_HTML = `
                     "Less is more" is not just a phrase, it's a philosophy. By stripping away the unnecessary, we reveal the essential.
                 </div>
 
-                <!-- 底部小图组（移除 grayscale filter�?-->
+                <!-- 底部小图组（移除 grayscale filter） -->
                 <div data-el="image" data-x="50%" data-y="60%" data-w="20%" data-h="30%"
                      data-src="https://placehold.co/400x400/1a1a2e/666?text=Image+113"
                      data-fit="cover"></div>
@@ -1075,14 +1075,14 @@ const PPT_SAMPLE_HTML = `
 
             <!-- Complex Example 4: Product Showcase - 简化版 -->
             <section data-type="freeform" id="slide-complex-product" data-bg="#000000">
-                <!-- 聚光灯效果（使用透明度代�?blur�?-->
+                <!-- 聚光灯效果（使用透明度代替 blur） -->
                 <div data-el="shape" data-shape="circle" data-x="25%" data-y="5%" data-w="50%" data-h="60%" data-fill="#FFFFFF" data-opacity="0.05"></div>
                 
                 <!-- 产品标题 -->
                 <div data-el="text" data-x="0%" data-y="15%" data-w="100%" data-font="16" data-color="#71717A" data-align="center" data-letter-spacing="4">INTRODUCING</div>
                 <div data-el="text" data-x="0%" data-y="22%" data-w="100%" data-font="56" data-color="#FFFFFF" data-bold="true" data-align="center">Lumina X</div>
                 
-                <!-- 产品主图（移�?drop-shadow filter�?-->
+                <!-- 产品主图（移除 drop-shadow filter） -->
                 <div data-el="image" data-x="25%" data-y="35%" data-w="50%" data-h="40%"
                      data-src="https://placehold.co/800x600/1a1a2e/666?text=Image+115"
                      data-fit="contain"></div>
@@ -1098,7 +1098,7 @@ const PPT_SAMPLE_HTML = `
             <!-- CSS Mode Example: AI 直接使用标准 CSS 控制样式 -->
             <section data-type="freeform" id="slide-css-mode" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);">
                 
-                <!-- 使用�?CSS 的形�?-->
+                <!-- 使用纯 CSS 的形状 -->
                 <div data-el="shape" style="
                     left: 10%; top: 15%; width: 35%; height: 70%;
                     background: linear-gradient(180deg, #0f3460 0%, #1a1a2e 100%);
@@ -1106,7 +1106,7 @@ const PPT_SAMPLE_HTML = `
                     border: 1px solid #e94560;
                 "></div>
                 
-                <!-- 使用�?CSS 的文�?-->
+                <!-- 使用纯 CSS 的文字 -->
                 <div data-el="text" style="
                     left: 13%; top: 20%; width: 29%;
                     color: #e94560;
@@ -1130,7 +1130,7 @@ const PPT_SAMPLE_HTML = `
                     line-height: 1.6;
                 ">No more guessing defaults. AI writes standard CSS, renderer follows.</div>
                 
-                <!-- 右侧卡片�?-->
+                <!-- 右侧卡片组 -->
                 <div data-el="shape" style="
                     left: 52%; top: 15%; width: 40%; height: 30%;
                     background: rgba(233, 69, 96, 0.1);
@@ -1166,3 +1166,4 @@ const PPT_SAMPLE_HTML = `
 `;
 
 window.PPT_SAMPLE_HTML = PPT_SAMPLE_HTML;
+

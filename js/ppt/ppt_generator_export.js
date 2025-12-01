@@ -1172,11 +1172,20 @@ ${renderedSlides}
         }
         
         // 2. 渲染 backdrop 元素
+        // 检查是否有 filter 效果（如 blur），需要使用 foreignObjectRendering: true
+        const hasFilterEffects = backdropEls.some(el => el.filter && el.filter.includes('blur'));
+        
         if (backdropEls.length > 0) {
             container.innerHTML = `<div style="width: ${width}px; height: ${height}px; overflow: visible; background: transparent;">${renderer.render({ type: 'freeform', background: 'transparent', elements: backdropEls }, 0)}</div>`;
             await Promise.all([this._waitForIconsToLoad(container), this._waitForImagesToLoad(container)]);
             
-            const backdropCanvas = await this._captureToCanvas(container.firstChild, { scale, backgroundColor: null, foreignObjectRendering: false, allowTaint: true });
+            // 如果有 blur 效果，使用 foreignObjectRendering: true 以支持 CSS filter
+            const backdropCanvas = await this._captureToCanvas(container.firstChild, { 
+                scale, 
+                backgroundColor: null, 
+                foreignObjectRendering: hasFilterEffects, 
+                allowTaint: true 
+            });
             if (backdropCanvas) {
                 ctx.drawImage(backdropCanvas, 0, 0, width, height);
                 backdropCanvas.width = 0; backdropCanvas.height = 0;
@@ -1545,15 +1554,17 @@ ${renderedSlides}
                 // 手动实现 blend 效果，因为 html2canvas 对 mix-blend-mode 支持不佳
                 canvas = await this._captureWithBlend(container, combinedElements, backgroundFill, scale);
             } else {
+                // 检查是否有 blur 效果，需要 foreignObjectRendering: true
+                const hasBlurFilter = elements.some(el => el.filter && el.filter.includes('blur'));
                 canvas = await this._captureToCanvas(container.firstChild, {
                     scale,
                     useCORS: true,
                     allowTaint: false,
                     backgroundColor: backgroundFill || null,
                     logging: false,
-                    foreignObjectRendering: false,
+                    foreignObjectRendering: hasBlurFilter,
                 }, {
-                    foreignObjectRendering: false,
+                    foreignObjectRendering: hasBlurFilter,
                     allowTaint: true,
                 });
             }
