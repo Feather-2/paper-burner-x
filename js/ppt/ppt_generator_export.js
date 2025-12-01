@@ -1612,14 +1612,53 @@ ${renderedSlides}
             if (!dataUrl) return null;
 
 
+            // 计算元素的精确边界框，避免全屏遮挡
+            const bounds = this._calculateGroupBounds(elements);
+            
+            // 如果边界框有效，裁剪 canvas 到边界框区域
+            let finalDataUrl = dataUrl;
+            if (bounds.w > 0 && bounds.h > 0 && bounds.w < 100 && bounds.h < 100) {
+                try {
+                    // 将百分比转换为像素
+                    const cropX = Math.floor(bounds.x / 100 * 960 * scale);
+                    const cropY = Math.floor(bounds.y / 100 * 540 * scale);
+                    const cropW = Math.ceil(bounds.w / 100 * 960 * scale);
+                    const cropH = Math.ceil(bounds.h / 100 * 540 * scale);
+                    
+                    // 创建裁剪后的 canvas
+                    const croppedCanvas = document.createElement('canvas');
+                    croppedCanvas.width = cropW;
+                    croppedCanvas.height = cropH;
+                    const croppedCtx = croppedCanvas.getContext('2d');
+                    
+                    // 从原始 canvas 数据创建图片并裁剪
+                    const img = new Image();
+                    await new Promise((resolve, reject) => {
+                        img.onload = resolve;
+                        img.onerror = reject;
+                        img.src = dataUrl;
+                    });
+                    croppedCtx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+                    finalDataUrl = croppedCanvas.toDataURL('image/png');
+                    
+                    // 释放内存
+                    croppedCanvas.width = 0;
+                    croppedCanvas.height = 0;
+                } catch (cropErr) {
+                    console.warn('[_bakeElementGroupToImage] Crop failed, using full image:', cropErr);
+                }
+            }
+            
+            // 使用精确边界框或全屏（如果边界框无效）
+            const useFullScreen = bounds.w >= 100 || bounds.h >= 100 || bounds.w <= 0 || bounds.h <= 0;
+            
             return {
                 type: 'baked_element',
-                image: dataUrl,
-                // 全屏放置，因为元素位置已经在截图中
-                x: '0%',
-                y: '0%',
-                w: '100%',
-                h: '100%',
+                image: finalDataUrl,
+                x: useFullScreen ? '0%' : `${bounds.x}%`,
+                y: useFullScreen ? '0%' : `${bounds.y}%`,
+                w: useFullScreen ? '100%' : `${bounds.w}%`,
+                h: useFullScreen ? '100%' : `${bounds.h}%`,
                 z: minZ,
                 originalElements: elements.length,
                 originalTypes: elements.map(el => el.type).join(','),
