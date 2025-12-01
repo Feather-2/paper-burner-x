@@ -1187,22 +1187,11 @@ ${renderedSlides}
         
         // 2. 渲染 backdrop 元素
         // 分离带 blur 的元素，使用 canvas filter 手动应用模糊
+        // 重要：blur 元素通常是背景光效，需要先渲染（底层），普通元素后渲染（上层）
         const blurEls = backdropEls.filter(el => el.filter && el.filter.includes('blur'));
         const normalEls = backdropEls.filter(el => !el.filter || !el.filter.includes('blur'));
         
-        // 2a. 渲染普通 backdrop 元素
-        if (normalEls.length > 0) {
-            container.innerHTML = `<div style="width: ${width}px; height: ${height}px; overflow: visible; background: transparent;">${renderer.render({ type: 'freeform', background: 'transparent', elements: normalEls }, 0)}</div>`;
-            await Promise.all([this._waitForIconsToLoad(container), this._waitForImagesToLoad(container)]);
-            
-            const normalCanvas = await this._captureToCanvas(container.firstChild, { scale, backgroundColor: null, foreignObjectRendering: false, allowTaint: true });
-            if (normalCanvas) {
-                ctx.drawImage(normalCanvas, 0, 0, width, height);
-                normalCanvas.width = 0; normalCanvas.height = 0;
-            }
-        }
-        
-        // 2b. 单独渲染每个带 blur 的元素，使用 canvas filter 应用模糊
+        // 2a. 先渲染带 blur 的元素（底层背景光效）
         for (const el of blurEls) {
             // 提取 blur 值
             const blurMatch = el.filter.match(/blur\((\d+)px\)/);
@@ -1220,6 +1209,18 @@ ${renderedSlides}
                 ctx.drawImage(elCanvas, 0, 0, width, height);
                 ctx.restore();
                 elCanvas.width = 0; elCanvas.height = 0;
+            }
+        }
+        
+        // 2b. 后渲染普通 backdrop 元素（上层，如卡片、图片）
+        if (normalEls.length > 0) {
+            container.innerHTML = `<div style="width: ${width}px; height: ${height}px; overflow: visible; background: transparent;">${renderer.render({ type: 'freeform', background: 'transparent', elements: normalEls }, 0)}</div>`;
+            await Promise.all([this._waitForIconsToLoad(container), this._waitForImagesToLoad(container)]);
+            
+            const normalCanvas = await this._captureToCanvas(container.firstChild, { scale, backgroundColor: null, foreignObjectRendering: false, allowTaint: true });
+            if (normalCanvas) {
+                ctx.drawImage(normalCanvas, 0, 0, width, height);
+                normalCanvas.width = 0; normalCanvas.height = 0;
             }
         }
         
