@@ -350,8 +350,47 @@ class HTMLSlideRenderer {
             }
         }
 
-        // 基础定位样式 - 保留原始单位
-        // 组合层效果（混合/滤镜/遮罩/描边）共用的样式片段
+        // 如果元素有 rawStyle（AI 直接写的 CSS），优先使用
+        // 只补充必要的定位属性（position, left, top, z-index）
+        if (el.rawStyle) {
+            const positionStyle = `
+                position: absolute;
+                left: ${x};
+                top: ${y};
+                z-index: ${el.z || 0};
+            `.replace(/\s+/g, ' ').trim();
+            // 合并：rawStyle 优先，positionStyle 补充缺失的定位
+            const baseStyle = `${positionStyle} ${el.rawStyle}`;
+            
+            switch (el.type) {
+                case 'text':
+                    return this.renderFreeformText(el, baseStyle);
+                case 'shape':
+                    return this.renderFreeformShape(el, baseStyle);
+                case 'image':
+                    return this.renderFreeformImage(el, baseStyle);
+                case 'icon':
+                    return this.renderFreeformIcon(el, baseStyle);
+                case 'line':
+                    return this.renderFreeformLine(el, containerW, containerH);
+                case 'chart':
+                    return this.renderFreeformChart(el, baseStyle);
+                case 'formula':
+                    return this.renderFreeformFormula(el, baseStyle);
+                case 'group':
+                    return this.renderFreeformGroup(el, baseStyle, containerW, containerH);
+                case 'card':
+                    return this.renderFreeformCard(el, baseStyle);
+                case 'svg':
+                    return this.renderFreeformSvg(el, baseStyle);
+                case 'table':
+                    return this.renderFreeformTable(el, baseStyle);
+                default:
+                    return '';
+            }
+        }
+
+        // 兼容模式：从 data-* 属性构建样式
         const effectStyle = `
             ${el.blend && el.blend !== 'normal' ? `mix-blend-mode: ${el.blend};` : ''}
             ${el.filter ? `filter: ${el.filter};` : ''}

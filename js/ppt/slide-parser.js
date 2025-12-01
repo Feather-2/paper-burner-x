@@ -1,5 +1,65 @@
 class SlideParser {
     /**
+     * 解析 CSS style 字符串为对象
+     * "color: red; font-size: 16px;" => { color: "red", fontSize: "16px" }
+     */
+    static parseStyleString(styleStr) {
+        if (!styleStr) return {};
+        const result = {};
+        styleStr.split(';').forEach(rule => {
+            const [prop, ...valueParts] = rule.split(':');
+            if (prop && valueParts.length) {
+                // 转换 kebab-case 为 camelCase
+                const camelProp = prop.trim().replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+                result[camelProp] = valueParts.join(':').trim();
+            }
+        });
+        return result;
+    }
+
+    /**
+     * 从 CSS 值中提取数字（支持 px, %, em 等单位）
+     */
+    static parseCSSNumber(value, defaultVal = 0) {
+        if (value === undefined || value === null) return defaultVal;
+        const num = parseFloat(value);
+        return isNaN(num) ? defaultVal : num;
+    }
+
+    /**
+     * 从 transform 属性解析 rotate 角度
+     * "rotate(45deg)" => 45
+     */
+    static parseRotateFromTransform(transform) {
+        if (!transform) return null;
+        const match = transform.match(/rotate\(([^)]+)\)/);
+        if (match) {
+            return parseFloat(match[1]) || 0;
+        }
+        return null;
+    }
+
+    /**
+     * 从 border 属性解析颜色
+     * "1px solid #333" => "#333"
+     */
+    static parseBorderColor(border) {
+        if (!border) return null;
+        const colorMatch = border.match(/#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|[a-z]+$/i);
+        return colorMatch ? colorMatch[0] : null;
+    }
+
+    /**
+     * 从 border 属性解析宽度
+     * "1px solid #333" => 1
+     */
+    static parseBorderWidth(border) {
+        if (!border) return 0;
+        const widthMatch = border.match(/(\d+(?:\.\d+)?)\s*px/);
+        return widthMatch ? parseFloat(widthMatch[1]) : 0;
+    }
+
+    /**
      * 解析 HTML 字符串或 DOM 元素，返回 SlideSchema 数组
      */
     static parse(htmlInput) {
@@ -234,28 +294,36 @@ class SlideParser {
 
     /**
      * 解析单个自由元素
+     * 优先级：style 属性 > data-* 属性 > 默认值
      */
     static parseElement(el, index) {
         const type = el.dataset.el;
+        // 解析 style 属性（标准 CSS）
+        const css = this.parseStyleString(el.getAttribute('style'));
+        // 保留原始 style 字符串，供 HTML 渲染器直接使用
+        const rawStyle = el.getAttribute('style') || '';
+        
         const base = {
             id: el.id || `el-${index}`,
             type,
-            // 位置和大小 (支持 %, px, in)
-            x: el.dataset.x || '0%',
-            y: el.dataset.y || '0%',
-            w: el.dataset.w || 'auto',
-            h: el.dataset.h || 'auto',
+            // 原始 CSS 样式（HTML 渲染器直接使用）
+            rawStyle,
+            // 位置和大小：优先从 CSS 读取
+            x: css.left || el.dataset.x || '0%',
+            y: css.top || el.dataset.y || '0%',
+            w: css.width || el.dataset.w || 'auto',
+            h: css.height || el.dataset.h || 'auto',
             // 层级
-            z: parseInt(el.dataset.z) || index,
-            // 旋转
-            rotate: parseFloat(el.dataset.rotate) || 0,
+            z: this.parseCSSNumber(css.zIndex, null) ?? (parseInt(el.dataset.z) || index),
+            // 旋转（从 transform 解析或 data-rotate）
+            rotate: this.parseRotateFromTransform(css.transform) ?? (parseFloat(el.dataset.rotate) || 0),
             // 透明度
-            opacity: parseFloat(el.dataset.opacity) ?? 1,
+            opacity: this.parseCSSNumber(css.opacity, null) ?? parseFloat(el.dataset.opacity) ?? 1,
             // 混合与效果
-            blend: el.dataset.blend || 'normal',
-            filter: el.dataset.filter || null,
-            mask: el.dataset.mask || null,          // id 或 url/base64
-            outline: el.dataset.outline || null,    // 外描边颜色（降级提示）
+            blend: css.mixBlendMode || el.dataset.blend || 'normal',
+            filter: css.filter || el.dataset.filter || null,
+            mask: css.maskImage || css.webkitMaskImage || el.dataset.mask || null,
+            outline: el.dataset.outline || null,
         };
 
         switch (type) {
@@ -275,39 +343,40 @@ class SlideParser {
                 return {
                     ...base,
                     content: textContent,
-                    // 文字样式
-                    font: parseFloat(el.dataset.font) || 18,
-                    color: el.dataset.color || '#333333',
-                    bold: el.dataset.bold === 'true',
-                    italic: el.dataset.italic === 'true',
-                    align: el.dataset.align || 'left',       // left, center, right
-                    valign: el.dataset.valign || 'top',      // top, middle, bottom
-                    lineHeight: parseFloat(el.dataset.lineHeight) || 1.4,
+                    // 文字样式：CSS 优先
+                    font: this.parseCSSNumber(css.fontSize) || parseFloat(el.dataset.font) || 18,
+                    color: css.color || el.dataset.color || '#333333',
+                    bold: css.fontWeight === 'bold' || css.fontWeight === '700' || el.dataset.bold === 'true',
+                    italic: css.fontStyle === 'italic' || el.dataset.italic === 'true',
+                    align: css.textAlign || el.dataset.align || 'left',
+                    valign: el.dataset.valign || 'top',
+                    lineHeight: this.parseCSSNumber(css.lineHeight) || parseFloat(el.dataset.lineHeight) || 1.4,
+                    fontFamily: css.fontFamily || el.dataset.fontFamily || null,
+                    letterSpacing: css.letterSpacing || el.dataset.letterSpacing || null,
                     // 背景
-                    bgColor: el.dataset.bgColor || null,
-                    bgRadius: parseFloat(el.dataset.bgRadius) || 0,
+                    bgColor: css.backgroundColor || el.dataset.bgColor || null,
+                    bgRadius: this.parseCSSNumber(css.borderRadius) || parseFloat(el.dataset.bgRadius) || 0,
                 };
 
             case 'shape':
                 return {
                     ...base,
-                    shape: el.dataset.shape || 'rect',       // rect, circle, rounded, triangle
-                    fill: el.dataset.fill || '#4f46e5',
-                    stroke: el.dataset.stroke || null,
-                    strokeWidth: parseFloat(el.dataset.strokeWidth) || 0,
-                    radius: parseFloat(el.dataset.radius) || 0,
-                    // 渐变支持
-                    gradient: el.dataset.gradient || null,   // "linear(#ff0, #f00)" or "radial(...)"
-                    // 阴影
-                    shadow: el.dataset.shadow === 'true',
+                    shape: el.dataset.shape || 'rect',
+                    // CSS 优先
+                    fill: css.background || css.backgroundColor || el.dataset.fill || '#4f46e5',
+                    stroke: this.parseBorderColor(css.border) || el.dataset.stroke || null,
+                    strokeWidth: this.parseBorderWidth(css.border) || parseFloat(el.dataset.strokeWidth) || 0,
+                    radius: this.parseCSSNumber(css.borderRadius) || parseFloat(el.dataset.radius) || 0,
+                    gradient: el.dataset.gradient || null,
+                    shadow: css.boxShadow ? true : el.dataset.shadow === 'true',
                 };
 
             case 'image':
                 return {
                     ...base,
-                    src: el.dataset.src || '',
-                    alt: el.dataset.alt || '图片',
-                    fit: el.dataset.fit || 'cover',          // cover, contain, fill
+                    src: el.dataset.src || el.getAttribute('src') || '',
+                    alt: el.dataset.alt || el.getAttribute('alt') || '图片',
+                    fit: css.objectFit || el.dataset.fit || 'cover',
                     radius: parseFloat(el.dataset.radius) || 0,
                     // 边框
                     border: el.dataset.border || null,

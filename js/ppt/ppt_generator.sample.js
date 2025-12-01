@@ -1094,6 +1094,74 @@ const PPT_SAMPLE_HTML = `
                 <div data-el="text" data-x="42%" data-y="86%" data-w="17%" data-font="14" data-color="#FFFFFF" data-align="center" data-bold="true">8K Video</div>
                 <div data-el="text" data-x="60%" data-y="86%" data-w="17%" data-font="14" data-color="#FFFFFF" data-align="center" data-bold="true">All Day Battery</div>
             </section>
+
+            <!-- CSS Mode Example: AI 直接使用标准 CSS 控制样式 -->
+            <section data-type="freeform" id="slide-css-mode" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);">
+                
+                <!-- 使用纯 CSS 的形状 -->
+                <div data-el="shape" style="
+                    left: 10%; top: 15%; width: 35%; height: 70%;
+                    background: linear-gradient(180deg, #0f3460 0%, #1a1a2e 100%);
+                    border-radius: 16px;
+                    border: 1px solid #e94560;
+                "></div>
+                
+                <!-- 使用纯 CSS 的文字 -->
+                <div data-el="text" style="
+                    left: 13%; top: 20%; width: 29%;
+                    color: #e94560;
+                    font-size: 14px;
+                    font-weight: bold;
+                    letter-spacing: 2px;
+                ">CSS MODE</div>
+                
+                <div data-el="text" style="
+                    left: 13%; top: 28%; width: 29%;
+                    color: #ffffff;
+                    font-size: 36px;
+                    font-weight: bold;
+                    line-height: 1.2;
+                ">AI Controls<br>Everything</div>
+                
+                <div data-el="text" style="
+                    left: 13%; top: 50%; width: 29%;
+                    color: #a0a0a0;
+                    font-size: 14px;
+                    line-height: 1.6;
+                ">No more guessing defaults. AI writes standard CSS, renderer follows.</div>
+                
+                <!-- 右侧卡片组 -->
+                <div data-el="shape" style="
+                    left: 52%; top: 15%; width: 40%; height: 30%;
+                    background: rgba(233, 69, 96, 0.1);
+                    border-radius: 12px;
+                    border: 1px solid rgba(233, 69, 96, 0.3);
+                "></div>
+                <div data-el="text" style="
+                    left: 55%; top: 22%; width: 34%;
+                    color: #e94560; font-size: 18px; font-weight: bold;
+                ">Standard CSS</div>
+                <div data-el="text" style="
+                    left: 55%; top: 30%; width: 34%;
+                    color: #cccccc; font-size: 13px;
+                ">font-size, color, border-radius, background...</div>
+                
+                <div data-el="shape" style="
+                    left: 52%; top: 50%; width: 40%; height: 30%;
+                    background: rgba(15, 52, 96, 0.5);
+                    border-radius: 12px;
+                    border: 1px solid #0f3460;
+                "></div>
+                <div data-el="text" style="
+                    left: 55%; top: 57%; width: 34%;
+                    color: #4fbdba; font-size: 18px; font-weight: bold;
+                ">CSS Variables</div>
+                <div data-el="text" style="
+                    left: 55%; top: 65%; width: 34%;
+                    color: #cccccc; font-size: 13px;
+                ">var(--primary), var(--bg), var(--radius)...</div>
+                
+            </section>
         
 `;
 
