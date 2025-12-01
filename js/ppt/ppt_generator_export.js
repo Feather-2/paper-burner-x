@@ -1832,10 +1832,14 @@ ${renderedSlides}
     /**
      * 预加载页面中的所有图片，将 URL 转为 base64
      * 用于没有特效的页面，确保图片能正确嵌入 PPTX
-     * 同时获取图片原始尺寸，用于计算 cover/contain
+     * 对于 cover 模式，直接用 canvas 裁剪实现正确效果
      */
     async _preloadSlideImages(slide) {
         if (!slide.elements) return slide;
+        
+        // 幻灯片尺寸（用于计算容器比例）
+        const SLIDE_W = 10;    // inches
+        const SLIDE_H = 5.625; // inches
         
         const processedElements = await Promise.all(slide.elements.map(async (el) => {
             if (el.type === 'image' && el.src && !el.src.startsWith('data:')) {
@@ -1849,7 +1853,7 @@ ${renderedSlides}
                         reader.readAsDataURL(blob);
                     });
                     
-                    // 获取图片原始尺寸
+                    // 加载图片获取原始尺寸
                     const img = new Image();
                     await new Promise((resolve, reject) => {
                         img.onload = resolve;
@@ -1857,12 +1861,49 @@ ${renderedSlides}
                         img.src = base64;
                     });
                     
-                    return { 
-                        ...el, 
-                        src: base64,
-                        _naturalWidth: img.naturalWidth,
-                        _naturalHeight: img.naturalHeight,
-                    };
+                    const fitMode = el.fit || 'cover';
+                    
+                    // 对于 cover 模式，用 canvas 裁剪实现正确效果
+                    if (fitMode === 'cover' && el.w && el.h) {
+                        const containerW = parseFloat(el.w) / 100 * SLIDE_W;
+                        const containerH = parseFloat(el.h) / 100 * SLIDE_H;
+                        const containerRatio = containerW / containerH;
+                        const imgRatio = img.naturalWidth / img.naturalHeight;
+                        
+                        // 如果比例不同，需要裁剪
+                        if (Math.abs(imgRatio - containerRatio) > 0.01) {
+                            const canvas = document.createElement('canvas');
+                            const ctx = canvas.getContext('2d');
+                            
+                            let sx, sy, sw, sh;
+                            if (imgRatio > containerRatio) {
+                                // 图片更宽，裁剪左右
+                                sh = img.naturalHeight;
+                                sw = sh * containerRatio;
+                                sx = (img.naturalWidth - sw) / 2;
+                                sy = 0;
+                            } else {
+                                // 图片更高，裁剪上下
+                                sw = img.naturalWidth;
+                                sh = sw / containerRatio;
+                                sx = 0;
+                                sy = (img.naturalHeight - sh) / 2;
+                            }
+                            
+                            canvas.width = sw;
+                            canvas.height = sh;
+                            ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+                            
+                            const croppedBase64 = canvas.toDataURL('image/png');
+                            canvas.width = 0;
+                            canvas.height = 0;
+                            
+                            // 裁剪后的图片不再需要 cover，使用 fill 即可
+                            return { ...el, src: croppedBase64, fit: 'fill' };
+                        }
+                    }
+                    
+                    return { ...el, src: base64 };
                 } catch (e) {
                     console.warn('[_preloadSlideImages] Failed to convert image:', el.src, e);
                     return el;

@@ -147,32 +147,14 @@ const PPTXFreeformMixin = {
                 // 默认使用 cover（与 HTML 一致）
                 const fitMode = el.fit || 'cover';
                 
-                // 如果有图片原始尺寸，手动计算 crop 来实现 cover/contain
-                if (el._naturalWidth && el._naturalHeight && (fitMode === 'cover' || fitMode === 'contain')) {
-                    const imgRatio = el._naturalWidth / el._naturalHeight;
-                    const containerRatio = (w || 2) / (h || 2);
-                    
-                    if (fitMode === 'cover') {
-                        // Cover: 图片填满容器，可能裁剪
-                        if (imgRatio > containerRatio) {
-                            // 图片更宽，裁剪左右
-                            const cropW = (containerRatio / imgRatio) * 100;
-                            const cropX = (100 - cropW) / 2;
-                            imgOptions.sizing = { type: 'crop', x: cropX, y: 0, w: cropW, h: 100 };
-                        } else {
-                            // 图片更高，裁剪上下
-                            const cropH = (imgRatio / containerRatio) * 100;
-                            const cropY = (100 - cropH) / 2;
-                            imgOptions.sizing = { type: 'crop', x: 0, y: cropY, w: 100, h: cropH };
-                        }
-                    } else {
-                        // Contain: 使用 PptxGenJS 原生支持
-                        imgOptions.sizing = { type: 'contain', w: w || 2, h: h || 2 };
-                    }
-                } else if (fitMode === 'contain' || fitMode === 'cover') {
-                    // 回退到 PptxGenJS 原生 sizing
-                    imgOptions.sizing = { type: fitMode, w: w || 2, h: h || 2 };
+                // PptxGenJS 的 sizing 支持 contain/cover
+                // 注意：cover 可能在某些版本有问题，如果图片显示异常可以尝试不设置 sizing
+                if (fitMode === 'contain') {
+                    imgOptions.sizing = { type: 'contain', w: w || 2, h: h || 2 };
+                } else if (fitMode === 'cover') {
+                    imgOptions.sizing = { type: 'cover', w: w || 2, h: h || 2 };
                 }
+                // fill 模式不设置 sizing，使用默认拉伸行为
                 
                 slide.addImage(imgOptions);
             } catch (e) { this.addImagePlaceholder(slide, x, y, w, h, el.alt); }
