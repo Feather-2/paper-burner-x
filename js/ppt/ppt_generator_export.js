@@ -1832,6 +1832,7 @@ ${renderedSlides}
     /**
      * 预加载页面中的所有图片，将 URL 转为 base64
      * 用于没有特效的页面，确保图片能正确嵌入 PPTX
+     * 同时获取图片原始尺寸，用于计算 cover/contain
      */
     async _preloadSlideImages(slide) {
         if (!slide.elements) return slide;
@@ -1847,7 +1848,21 @@ ${renderedSlides}
                         reader.onerror = reject;
                         reader.readAsDataURL(blob);
                     });
-                    return { ...el, src: base64 };
+                    
+                    // 获取图片原始尺寸
+                    const img = new Image();
+                    await new Promise((resolve, reject) => {
+                        img.onload = resolve;
+                        img.onerror = reject;
+                        img.src = base64;
+                    });
+                    
+                    return { 
+                        ...el, 
+                        src: base64,
+                        _naturalWidth: img.naturalWidth,
+                        _naturalHeight: img.naturalHeight,
+                    };
                 } catch (e) {
                     console.warn('[_preloadSlideImages] Failed to convert image:', el.src, e);
                     return el;
