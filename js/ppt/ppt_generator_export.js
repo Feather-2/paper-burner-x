@@ -862,7 +862,6 @@ ${renderedSlides}
             }
             
             // 检查图片是否可用于 canvas（跨域检测）
-            let canDraw = true;
             if (img.src && !img.src.startsWith('data:') && !img.src.startsWith('blob:')) {
                 // 尝试绘制测试（快速检测是否跨域）
                 try {
@@ -871,8 +870,23 @@ ${renderedSlides}
                     testCanvas.getContext('2d').drawImage(img, 0, 0);
                     testCanvas.toDataURL(); // 如果跨域会抛出异常
                 } catch (e) {
-                    // 跨域图片，跳过 mask 处理（html2canvas 会处理）
-                    return;
+                    // 跨域图片，先转换为 base64
+                    console.log('[_bakeMaskIntoElement] Converting cross-origin image to base64:', img.src);
+                    try {
+                        const response = await fetch(img.src);
+                        const blob = await response.blob();
+                        const base64 = await new Promise((resolve, reject) => {
+                            const reader = new FileReader();
+                            reader.onload = () => resolve(reader.result);
+                            reader.onerror = reject;
+                            reader.readAsDataURL(blob);
+                        });
+                        img.src = base64;
+                        await new Promise(r => { img.onload = r; setTimeout(r, 100); });
+                    } catch (fetchErr) {
+                        console.warn('[_bakeMaskIntoElement] Failed to convert cross-origin image:', fetchErr);
+                        return;
+                    }
                 }
             }
             
