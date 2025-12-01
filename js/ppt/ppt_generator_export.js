@@ -1435,6 +1435,7 @@ ${renderedSlides}
                 processedElements.push(...group.elements);
             } else {
                 const minZ = Math.min(...group.elements.map(el => el.z || 0));
+                const minOriginalIndex = Math.min(...group.elements.map(el => el._originalIndex ?? Infinity));
                 const bakedEl = await this._bakeElementGroupToImage(
                     group.elements, 
                     renderer, 
@@ -1444,6 +1445,7 @@ ${renderedSlides}
                 );
                 if (bakedEl) {
                     bakedEl.z = minZ;
+                    bakedEl._originalIndex = minOriginalIndex;
                     processedElements.push(bakedEl);
                 } else {
                     processedElements.push(...group.elements);
