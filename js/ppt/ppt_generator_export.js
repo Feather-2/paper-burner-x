@@ -1172,23 +1172,40 @@ ${renderedSlides}
         }
         
         // 2. 渲染 backdrop 元素
-        // 检查是否有 filter 效果（如 blur），需要使用 foreignObjectRendering: true
-        const hasFilterEffects = backdropEls.some(el => el.filter && el.filter.includes('blur'));
+        // 分离带 blur 的元素，使用 canvas filter 手动应用模糊
+        const blurEls = backdropEls.filter(el => el.filter && el.filter.includes('blur'));
+        const normalEls = backdropEls.filter(el => !el.filter || !el.filter.includes('blur'));
         
-        if (backdropEls.length > 0) {
-            container.innerHTML = `<div style="width: ${width}px; height: ${height}px; overflow: visible; background: transparent;">${renderer.render({ type: 'freeform', background: 'transparent', elements: backdropEls }, 0)}</div>`;
+        // 2a. 渲染普通 backdrop 元素
+        if (normalEls.length > 0) {
+            container.innerHTML = `<div style="width: ${width}px; height: ${height}px; overflow: visible; background: transparent;">${renderer.render({ type: 'freeform', background: 'transparent', elements: normalEls }, 0)}</div>`;
             await Promise.all([this._waitForIconsToLoad(container), this._waitForImagesToLoad(container)]);
             
-            // 如果有 blur 效果，使用 foreignObjectRendering: true 以支持 CSS filter
-            const backdropCanvas = await this._captureToCanvas(container.firstChild, { 
-                scale, 
-                backgroundColor: null, 
-                foreignObjectRendering: hasFilterEffects, 
-                allowTaint: true 
-            });
-            if (backdropCanvas) {
-                ctx.drawImage(backdropCanvas, 0, 0, width, height);
-                backdropCanvas.width = 0; backdropCanvas.height = 0;
+            const normalCanvas = await this._captureToCanvas(container.firstChild, { scale, backgroundColor: null, foreignObjectRendering: false, allowTaint: true });
+            if (normalCanvas) {
+                ctx.drawImage(normalCanvas, 0, 0, width, height);
+                normalCanvas.width = 0; normalCanvas.height = 0;
+            }
+        }
+        
+        // 2b. 单独渲染每个带 blur 的元素，使用 canvas filter 应用模糊
+        for (const el of blurEls) {
+            // 提取 blur 值
+            const blurMatch = el.filter.match(/blur\((\d+)px\)/);
+            const blurPx = blurMatch ? parseInt(blurMatch[1]) : 0;
+            
+            // 渲染元素（不带 blur filter）
+            const elWithoutBlur = { ...el, filter: el.filter.replace(/blur\([^)]+\)/g, '').trim() || undefined };
+            container.innerHTML = `<div style="width: ${width}px; height: ${height}px; overflow: visible; background: transparent;">${renderer.render({ type: 'freeform', background: 'transparent', elements: [elWithoutBlur] }, 0)}</div>`;
+            
+            const elCanvas = await this._captureToCanvas(container.firstChild, { scale, backgroundColor: null, foreignObjectRendering: false, allowTaint: true });
+            if (elCanvas) {
+                // 应用 canvas blur filter
+                ctx.save();
+                ctx.filter = `blur(${blurPx}px)`;
+                ctx.drawImage(elCanvas, 0, 0, width, height);
+                ctx.restore();
+                elCanvas.width = 0; elCanvas.height = 0;
             }
         }
         
