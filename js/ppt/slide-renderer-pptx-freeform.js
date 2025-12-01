@@ -104,7 +104,12 @@ const PPTXFreeformMixin = {
 
     renderFreeformShapePPTX(slide, el, x, y, w, h) {
         const shapeTypeMap = { 'rect': 'rect', 'circle': 'ellipse', 'rounded': 'roundRect', 'triangle': 'triangle' };
-        const shapeType = shapeTypeMap[el.shape] || 'rect';
+        let shapeType = shapeTypeMap[el.shape] || 'rect';
+        
+        // 如果有圆角且是矩形，使用 roundRect
+        if (el.radius && (shapeType === 'rect' || el.shape === 'rounded')) {
+            shapeType = 'roundRect';
+        }
 
         const shapeOptions = {
             x: x || 0, y: y || 0, w: w || 1, h: h || 1,
@@ -129,6 +134,12 @@ const PPTXFreeformMixin = {
                 const imgOptions = { path: el.src, x: x || 0, y: y || 0, w: w || 2, h: h || 2 };
                 if (el.rotate) imgOptions.rotate = el.rotate;
                 if (el.radius) imgOptions.rounding = true;
+                // 支持 fit 模式：contain 保持比例居中，cover 填充裁剪
+                if (el.fit === 'contain') {
+                    imgOptions.sizing = { type: 'contain', w: w || 2, h: h || 2 };
+                } else if (el.fit === 'cover') {
+                    imgOptions.sizing = { type: 'cover', w: w || 2, h: h || 2 };
+                }
                 slide.addImage(imgOptions);
             } catch (e) { this.addImagePlaceholder(slide, x, y, w, h, el.alt); }
         } else {

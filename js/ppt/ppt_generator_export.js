@@ -1,4 +1,61 @@
 const PPTGeneratorExport = {
+    // 进度显示相关
+    _progressOverlay: null,
+    
+    _showProgress(text, percent = 0) {
+        if (!this._progressOverlay) {
+            this._progressOverlay = document.createElement('div');
+            this._progressOverlay.className = 'export-progress-overlay';
+            this._progressOverlay.innerHTML = `
+                <div class="export-progress-modal">
+                    <div class="export-progress-title">导出中...</div>
+                    <div class="export-progress-text"></div>
+                    <div class="export-progress-bar-bg">
+                        <div class="export-progress-bar"></div>
+                    </div>
+                    <div class="export-progress-percent">0%</div>
+                </div>
+            `;
+            this._progressOverlay.style.cssText = `
+                position: fixed; inset: 0; background: rgba(0,0,0,0.5); 
+                display: flex; align-items: center; justify-content: center; z-index: 10000;
+            `;
+            const modal = this._progressOverlay.querySelector('.export-progress-modal');
+            modal.style.cssText = `
+                background: white; border-radius: 12px; padding: 24px 32px; min-width: 320px;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.3); text-align: center;
+            `;
+            this._progressOverlay.querySelector('.export-progress-title').style.cssText = `
+                font-size: 18px; font-weight: 600; margin-bottom: 12px; color: #1f2937;
+            `;
+            this._progressOverlay.querySelector('.export-progress-text').style.cssText = `
+                font-size: 14px; color: #6b7280; margin-bottom: 16px;
+            `;
+            this._progressOverlay.querySelector('.export-progress-bar-bg').style.cssText = `
+                height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden;
+            `;
+            this._progressOverlay.querySelector('.export-progress-bar').style.cssText = `
+                height: 100%; background: linear-gradient(90deg, #3b82f6, #8b5cf6); 
+                border-radius: 4px; transition: width 0.3s ease; width: 0%;
+            `;
+            this._progressOverlay.querySelector('.export-progress-percent').style.cssText = `
+                font-size: 14px; color: #3b82f6; margin-top: 8px; font-weight: 500;
+            `;
+            document.body.appendChild(this._progressOverlay);
+        }
+        
+        this._progressOverlay.querySelector('.export-progress-text').textContent = text;
+        this._progressOverlay.querySelector('.export-progress-bar').style.width = `${percent}%`;
+        this._progressOverlay.querySelector('.export-progress-percent').textContent = `${Math.round(percent)}%`;
+    },
+    
+    _hideProgress() {
+        if (this._progressOverlay) {
+            this._progressOverlay.remove();
+            this._progressOverlay = null;
+        }
+    },
+
     toggleExportMenu() {
         const dropdown = document.querySelector('.ppt-export-dropdown');
         if (!dropdown) return;
@@ -54,6 +111,9 @@ const PPTGeneratorExport = {
                     throw new Error('不支持的导出格式');
             }
 
+            this._showProgress('导出完成！', 100);
+            setTimeout(() => this._hideProgress(), 500);
+            
             if (btn) {
                 btn.innerHTML = '<iconify-icon icon="carbon:checkmark"></iconify-icon> 导出成功';
                 setTimeout(() => {
@@ -63,6 +123,7 @@ const PPTGeneratorExport = {
             }
         } catch (e) {
             console.error('Export error:', e);
+            this._hideProgress();
             alert('导出失败: ' + e.message);
             if (btn) {
                 btn.disabled = false;
@@ -76,6 +137,8 @@ const PPTGeneratorExport = {
      * @param {string} mode - 导出模式：'unicode' | 'omml' | 'image'
      */
     async _exportPPTX(mode = 'unicode') {
+        this._showProgress('正在加载依赖...', 5);
+        
         if (typeof PptxGenJS === 'undefined') {
             await this._loadScript('https://cdn.jsdelivr.net/gh/gitbrent/PptxGenJS@3.12.0/dist/pptxgen.bundle.js');
         }
@@ -98,7 +161,12 @@ const PPTGeneratorExport = {
             return;
         }
 
-        const slidesForExport = await this._bakeEffectsForPPTX(this.slides);
+        this._showProgress('正在处理特效...', 10);
+        const slidesForExport = await this._bakeEffectsForPPTX(this.slides, (p, msg) => {
+            this._showProgress(msg || '正在烘焙特效...', 10 + p * 0.5); // 10-60%
+        });
+        
+        this._showProgress('正在生成幻灯片...', 65);
         const renderer = new PPTXSlideRenderer();
         
         const hasFormulas = slidesForExport.some(slide => 
@@ -106,14 +174,15 @@ const PPTGeneratorExport = {
         );
 
         if (mode === 'omml' && hasFormulas && typeof MathConverter !== 'undefined') {
-            // 使用原生 OMML 公式：生成 PPTX 后用 DOM 操作替换
             console.log('[PPTX Export] Using OMML formula mode (editable, may require repair)');
+            this._showProgress('正在渲染公式...', 70);
             await renderer.renderWithOMML(slidesForExport, filename, new MathConverter());
         } else {
-            // 标准导出（使用 Unicode 公式）
             console.log('[PPTX Export] Using Unicode formula mode');
             await renderer.render(slidesForExport, filename);
         }
+        
+        this._showProgress('正在保存文件...', 95);
     },
 
     /**
@@ -278,7 +347,11 @@ const PPTGeneratorExport = {
     },
 
     async _waitForKatexAndInlineStyles(container) {
-        await new Promise(resolve => setTimeout(resolve, 200));
+        // 快速检查是否有 katex 元素
+        const katexElements = container.querySelectorAll('.katex');
+        if (katexElements.length === 0) return; // 无公式，直接返回
+        
+        await new Promise(resolve => setTimeout(resolve, 50)); // 减少等待时间
 
         container.querySelectorAll('.katex').forEach(katex => {
             katex.style.margin = '0';
@@ -295,11 +368,7 @@ const PPTGeneratorExport = {
             el.style.lineHeight = '1';
         });
 
-        const katexElements = container.querySelectorAll('.katex');
-        if (katexElements.length === 0) {
-            await new Promise(resolve => setTimeout(resolve, 50));
-            return;
-        }
+        if (katexElements.length === 0) return;
 
         container.querySelectorAll('[data-el="formula"]').forEach(el => {
             el.style.overflow = 'visible';
@@ -384,16 +453,16 @@ const PPTGeneratorExport = {
             el.style.overflow = 'visible';
         });
 
-        await new Promise(resolve => setTimeout(resolve, 50));
     },
 
-    async _waitForIconsToLoad(container, timeout = 5000) {
+    async _waitForIconsToLoad(container, timeout = 1000) {
         const icons = Array.from(container.querySelectorAll('iconify-icon'));
         if (icons.length === 0) return;
 
-        for (const icon of icons) {
+        // 并发处理所有 icons
+        await Promise.all(icons.map(async (icon) => {
             const iconName = icon.getAttribute('icon');
-            if (!iconName) continue;
+            if (!iconName) return;
 
             try {
                 const computedStyle = window.getComputedStyle(icon);
@@ -402,46 +471,34 @@ const PPTGeneratorExport = {
                 const [prefix, name] = iconName.includes(':') ? iconName.split(':') : ['carbon', iconName];
                 const apiUrl = `https://api.iconify.design/${prefix}/${name}.svg?color=${encodeURIComponent(color)}`;
 
-                const response = await fetch(apiUrl);
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), timeout);
+                
+                const response = await fetch(apiUrl, { signal: controller.signal });
+                clearTimeout(timeoutId);
+                
                 if (response.ok) {
                     const svgText = await response.text();
                     const wrapper = document.createElement('span');
                     wrapper.innerHTML = svgText;
                     const svg = wrapper.querySelector('svg');
                     if (svg) {
-                        svg.style.width = size;
-                        svg.style.height = size;
-                        svg.style.display = 'inline-block';
-                        svg.style.verticalAlign = 'middle';
-                        svg.style.flexShrink = '0';
+                        svg.style.cssText = `width:${size};height:${size};display:inline-block;vertical-align:middle;flex-shrink:0`;
                         icon.replaceWith(svg);
-                        continue;
+                        return;
                     }
                 }
-            } catch (e) {
-                console.warn('Failed to fetch icon from API:', e);
-            }
+            } catch (e) { /* ignore timeout/abort */ }
 
-            const startTime = Date.now();
-            while (Date.now() - startTime < timeout) {
-                const svg = icon.shadowRoot?.querySelector('svg');
-                if (svg) {
-                    const clonedSvg = svg.cloneNode(true);
-                    const computedStyle = window.getComputedStyle(icon);
-                    clonedSvg.style.width = computedStyle.fontSize || '1em';
-                    clonedSvg.style.height = computedStyle.fontSize || '1em';
-                    clonedSvg.style.color = computedStyle.color;
-                    clonedSvg.style.fill = 'currentColor';
-                    clonedSvg.style.display = 'inline-block';
-                    clonedSvg.style.verticalAlign = 'middle';
-                    icon.replaceWith(clonedSvg);
-                    break;
-                }
-                await new Promise(resolve => setTimeout(resolve, 100));
+            // 回退：从 shadowRoot 获取
+            const svg = icon.shadowRoot?.querySelector('svg');
+            if (svg) {
+                const clonedSvg = svg.cloneNode(true);
+                const computedStyle = window.getComputedStyle(icon);
+                clonedSvg.style.cssText = `width:${computedStyle.fontSize || '1em'};height:${computedStyle.fontSize || '1em'};color:${computedStyle.color};fill:currentColor;display:inline-block;vertical-align:middle`;
+                icon.replaceWith(clonedSvg);
             }
-        }
-
-        await new Promise(resolve => setTimeout(resolve, 100));
+        }));
     },
 
     _exportHTMLRaw() {
@@ -658,7 +715,7 @@ ${renderedSlides}
      * 等待容器内所有图片加载完成，并将跨域图片转为 base64。
      * 同时将 CSS filter (如 blur) 烘焙到图片像素，避免 html2canvas 丢失效果。
      */
-    async _waitForImagesToLoad(container, timeout = 10000) {
+    async _waitForImagesToLoad(container, timeout = 1500) {
         const images = Array.from(container.querySelectorAll('img'));
         if (images.length === 0) return;
 
@@ -727,8 +784,6 @@ ${renderedSlides}
         });
 
         await Promise.all(loadPromises);
-        // 额外等待确保渲染完成
-        await new Promise(resolve => setTimeout(resolve, 100));
     },
 
     _getImageFilterForExport(img) {
@@ -776,11 +831,249 @@ ${renderedSlides}
             await new Promise(resolve => {
                 if (img.complete) resolve();
                 else img.onload = resolve;
-                setTimeout(resolve, 200);
+                setTimeout(resolve, 50);
             });
         } catch (e) {
             console.warn('[_bakeFilterIntoImage] Failed to apply filter into image:', e);
         }
+    },
+
+    /**
+     * 将 CSS mask/clip-path 效果烘焙到元素中
+     * html2canvas 不支持 mask-image，需要手动处理
+     */
+    async _bakeMaskIntoElement(el) {
+        try {
+            const img = el.tagName === 'IMG' ? el : el.querySelector('img');
+            if (!img) return;
+            
+            const style = window.getComputedStyle(el);
+            const maskImage = style.maskImage || style.webkitMaskImage;
+            const clipPath = style.clipPath;
+            
+            // 如果没有 mask 或 clip-path，直接返回
+            if ((!maskImage || maskImage === 'none') && (!clipPath || clipPath === 'none')) {
+                return;
+            }
+            
+            // 等待图片加载（短超时）
+            if (!img.complete) {
+                await new Promise(r => { img.onload = r; img.onerror = r; setTimeout(r, 500); });
+            }
+            
+            // 检查图片是否可用于 canvas（跨域检测）
+            let canDraw = true;
+            if (img.src && !img.src.startsWith('data:') && !img.src.startsWith('blob:')) {
+                // 尝试绘制测试（快速检测是否跨域）
+                try {
+                    const testCanvas = document.createElement('canvas');
+                    testCanvas.width = testCanvas.height = 1;
+                    testCanvas.getContext('2d').drawImage(img, 0, 0);
+                    testCanvas.toDataURL(); // 如果跨域会抛出异常
+                } catch (e) {
+                    // 跨域图片，跳过 mask 处理（html2canvas 会处理）
+                    return;
+                }
+            }
+            
+            const width = img.naturalWidth || img.width || el.offsetWidth || 200;
+            const height = img.naturalHeight || img.height || el.offsetHeight || 150;
+            if (width <= 0 || height <= 0) return;
+            
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+            
+            // 处理 clip-path（形状遮罩）
+            if (clipPath && clipPath !== 'none') {
+                const path = this._parseClipPathToPath2D(clipPath, width, height);
+                if (path) {
+                    ctx.clip(path);
+                }
+            }
+            
+            // 处理 mask-image（渐变遮罩）
+            if (maskImage && maskImage !== 'none') {
+                // 先绘制图片
+                ctx.drawImage(img, 0, 0, width, height);
+                
+                // 创建遮罩 canvas
+                const maskCanvas = document.createElement('canvas');
+                maskCanvas.width = width;
+                maskCanvas.height = height;
+                const maskCtx = maskCanvas.getContext('2d');
+                
+                // 解析并绘制渐变遮罩
+                const gradient = this._parseMaskGradient(maskCtx, maskImage, width, height);
+                if (gradient) {
+                    maskCtx.fillStyle = gradient;
+                    maskCtx.fillRect(0, 0, width, height);
+                    
+                    // 使用 destination-in 合成模式应用遮罩
+                    ctx.globalCompositeOperation = 'destination-in';
+                    ctx.drawImage(maskCanvas, 0, 0);
+                    ctx.globalCompositeOperation = 'source-over';
+                }
+            } else {
+                // 只有 clip-path，直接绘制
+                ctx.drawImage(img, 0, 0, width, height);
+            }
+            
+            // 替换原图片
+            img.src = canvas.toDataURL('image/png');
+            // 移除 mask/clip-path 样式（已烘焙）
+            el.style.maskImage = 'none';
+            el.style.webkitMaskImage = 'none';
+            el.style.clipPath = 'none';
+            
+            await new Promise(r => { img.onload = r; setTimeout(r, 50); });
+        } catch (e) {
+            console.warn('[_bakeMaskIntoElement] Failed:', e);
+        }
+    },
+    
+    /**
+     * 解析 clip-path 为 Path2D
+     */
+    _parseClipPathToPath2D(clipPath, width, height) {
+        const path = new Path2D();
+        
+        // circle(50%) 或 circle(50% at center)
+        const circleMatch = clipPath.match(/circle\(([^)]+)\)/);
+        if (circleMatch) {
+            const params = circleMatch[1].split(/\s+at\s+/);
+            const radius = parseFloat(params[0]) / 100 * Math.min(width, height);
+            let cx = width / 2, cy = height / 2;
+            if (params[1]) {
+                const pos = params[1].split(/\s+/);
+                cx = pos[0] === 'center' ? width / 2 : parseFloat(pos[0]) / 100 * width;
+                cy = pos[1] === 'center' ? height / 2 : parseFloat(pos[1] || pos[0]) / 100 * height;
+            }
+            path.arc(cx, cy, radius, 0, Math.PI * 2);
+            return path;
+        }
+        
+        // ellipse(50% 40%)
+        const ellipseMatch = clipPath.match(/ellipse\(([^)]+)\)/);
+        if (ellipseMatch) {
+            const params = ellipseMatch[1].split(/\s+at\s+/);
+            const radii = params[0].split(/\s+/);
+            const rx = parseFloat(radii[0]) / 100 * width;
+            const ry = parseFloat(radii[1] || radii[0]) / 100 * height;
+            let cx = width / 2, cy = height / 2;
+            path.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+            return path;
+        }
+        
+        // polygon(x1% y1%, x2% y2%, ...)
+        const polygonMatch = clipPath.match(/polygon\(([^)]+)\)/);
+        if (polygonMatch) {
+            const points = polygonMatch[1].split(',').map(p => {
+                const [x, y] = p.trim().split(/\s+/);
+                return [parseFloat(x) / 100 * width, parseFloat(y) / 100 * height];
+            });
+            if (points.length > 0) {
+                path.moveTo(points[0][0], points[0][1]);
+                for (let i = 1; i < points.length; i++) {
+                    path.lineTo(points[i][0], points[i][1]);
+                }
+                path.closePath();
+            }
+            return path;
+        }
+        
+        // inset(10%)
+        const insetMatch = clipPath.match(/inset\(([^)]+)\)/);
+        if (insetMatch) {
+            const inset = parseFloat(insetMatch[1]) / 100;
+            const x = inset * width;
+            const y = inset * height;
+            path.rect(x, y, width - 2 * x, height - 2 * y);
+            return path;
+        }
+        
+        return null;
+    },
+    
+    /**
+     * 解析 mask-image 渐变为 CanvasGradient
+     * 支持 transparent, black, white, rgb(), rgba() 等颜色格式
+     */
+    _parseMaskGradient(ctx, maskImage, width, height) {
+        // 颜色正则：匹配 transparent, black, white, rgb(...), rgba(...)
+        const colorPattern = /(transparent|black|white|rgba?\s*\([^)]+\))/gi;
+        
+        // linear-gradient(to right, transparent 0%, black 60%)
+        const linearMatch = maskImage.match(/linear-gradient\((.+)\)/s);
+        if (linearMatch) {
+            const params = linearMatch[1];
+            let x0 = 0, y0 = 0, x1 = width, y1 = 0;
+            
+            if (params.includes('to right')) { x0 = 0; y0 = 0; x1 = width; y1 = 0; }
+            else if (params.includes('to left')) { x0 = width; y0 = 0; x1 = 0; y1 = 0; }
+            else if (params.includes('to bottom')) { x0 = 0; y0 = 0; x1 = 0; y1 = height; }
+            else if (params.includes('to top')) { x0 = 0; y0 = height; x1 = 0; y1 = 0; }
+            
+            const gradient = ctx.createLinearGradient(x0, y0, x1, y1);
+            
+            // 解析颜色停止点：找到所有 "颜色 位置%" 对
+            const stopPattern = /(transparent|black|white|rgba?\s*\([^)]+\))\s*(\d+%)?/gi;
+            const stops = [];
+            let match;
+            while ((match = stopPattern.exec(params)) !== null) {
+                const color = this._normalizeColor(match[1]);
+                const pos = match[2] ? parseFloat(match[2]) / 100 : null;
+                stops.push({ color, pos });
+            }
+            
+            // 填充缺失的位置
+            stops.forEach((s, i) => {
+                if (s.pos === null) s.pos = i / Math.max(stops.length - 1, 1);
+            });
+            
+            stops.forEach(s => gradient.addColorStop(s.pos, s.color));
+            return gradient;
+        }
+        
+        // radial-gradient(...)
+        const radialMatch = maskImage.match(/radial-gradient\((.+)\)/s);
+        if (radialMatch) {
+            const params = radialMatch[1];
+            const gradient = ctx.createRadialGradient(width/2, height/2, 0, width/2, height/2, Math.max(width, height) * 0.7);
+            
+            const stopPattern = /(transparent|black|white|rgba?\s*\([^)]+\))\s*(\d+%)?/gi;
+            const stops = [];
+            let match;
+            while ((match = stopPattern.exec(params)) !== null) {
+                const color = this._normalizeColor(match[1]);
+                const pos = match[2] ? parseFloat(match[2]) / 100 : null;
+                stops.push({ color, pos });
+            }
+            
+            stops.forEach((s, i) => {
+                if (s.pos === null) s.pos = i / Math.max(stops.length - 1, 1);
+            });
+            
+            stops.forEach(s => gradient.addColorStop(s.pos, s.color));
+            return gradient;
+        }
+        
+        return null;
+    },
+    
+    /**
+     * 标准化颜色值
+     */
+    _normalizeColor(color) {
+        if (!color) return 'black';
+        const c = color.trim().toLowerCase();
+        if (c === 'transparent') return 'rgba(0,0,0,0)';
+        if (c === 'black') return 'rgba(0,0,0,1)';
+        if (c === 'white') return 'rgba(255,255,255,1)';
+        // rgba(0, 0, 0, 0) -> 保持原样
+        return color.replace(/\s+/g, '');
     },
 
     async _captureToCanvas(target, options, fallbackOptions) {
@@ -796,12 +1089,15 @@ ${renderedSlides}
             });
         }
         
-        // 回退: 禁用 foreignObject - 最稳定
+        // 回退: 禁用 foreignObject - 最稳定，添加性能优化参数
         attempts.push({
             ...options,
             foreignObjectRendering: false,
             allowTaint: true,
             useCORS: true,
+            logging: false,
+            imageTimeout: 3000,
+            removeContainer: true,
         });
         
         // 3) 显式降级配置
@@ -810,23 +1106,13 @@ ${renderedSlides}
         }
 
         for (let i = 0; i < attempts.length; i++) {
-            const attempt = attempts[i];
             try {
-                console.log(`[html2canvas] attempt ${i + 1}/${attempts.length}, foreignObject=${attempt.foreignObjectRendering}`);
-                const canvas = await html2canvas(target, attempt);
-                // 验证画布不是空的
-                if (canvas && canvas.width > 0 && canvas.height > 0) {
-                    console.log(`[html2canvas] attempt ${i + 1} succeeded, foreignObject=${attempt.foreignObjectRendering}`);
-                    return canvas;
-                }
-            } catch (err) {
-                const hint = err?.target?.src?.substring?.(0, 100) || err?.message || err;
-                console.warn(`[html2canvas] capture attempt ${i + 1}/${attempts.length} failed:`, hint);
-            }
+                const canvas = await html2canvas(target, attempts[i]);
+                if (canvas && canvas.width > 0 && canvas.height > 0) return canvas;
+            } catch (err) { /* try next */ }
         }
 
-        // 全部失败时返回空白画布，保证流程不中断
-        console.error('[html2canvas] All capture attempts failed, returning blank canvas');
+        // 全部失败时返回空白画布
         const rect = target?.getBoundingClientRect?.();
         const width = Math.max(Math.round(rect?.width || options?.width || 1), 1);
         const height = Math.max(Math.round(rect?.height || options?.height || 1), 1);
@@ -845,15 +1131,21 @@ ${renderedSlides}
      * 手动实现 blend 效果捕获
      * 分层渲染 + Canvas globalCompositeOperation 合成
      */
-    async _captureWithBlend(container, elements, backgroundFill, scale = 2) {
+    // Canvas blend 模式映射（静态）
+    _canvasBlendMap: {
+        'screen': 'screen', 'multiply': 'multiply', 'overlay': 'overlay',
+        'darken': 'darken', 'lighten': 'lighten', 'color-dodge': 'color-dodge',
+        'color-burn': 'color-burn', 'hard-light': 'hard-light', 'soft-light': 'soft-light',
+        'difference': 'difference', 'exclusion': 'exclusion', 'hue': 'hue',
+        'saturation': 'saturation', 'color': 'color', 'luminosity': 'luminosity',
+    },
+
+    async _captureWithBlend(container, elements, backgroundFill, scale = 1.5) {
         const width = 960;
         const height = 540;
         
-        // 分离 backdrop 和 blend 元素
         const backdropEls = elements.filter(el => !el.blend || el.blend === 'normal');
         const blendEls = elements.filter(el => el.blend && el.blend !== 'normal');
-        
-        console.log(`[_captureWithBlend] backdrop=${backdropEls.length}, blend=${blendEls.length}, bg=${backgroundFill}`);
         
         const renderer = new HTMLSlideRenderer();
         
@@ -866,19 +1158,12 @@ ${renderedSlides}
         
         // 1. 填充背景（支持渐变和纯色）
         if (backgroundFill && backgroundFill !== 'transparent') {
-            const isGradient = backgroundFill.includes('gradient');
-            if (isGradient) {
-                // 渐变背景需要用 HTML 渲染再截图
+            if (backgroundFill.includes('gradient')) {
                 container.innerHTML = `<div style="width: ${width}px; height: ${height}px; background: ${backgroundFill};"></div>`;
-                const bgCanvas = await this._captureToCanvas(container.firstChild, {
-                    scale,
-                    backgroundColor: null,
-                    foreignObjectRendering: false,
-                });
+                const bgCanvas = await this._captureToCanvas(container.firstChild, { scale, backgroundColor: null, foreignObjectRendering: false });
                 if (bgCanvas) {
                     ctx.drawImage(bgCanvas, 0, 0, width, height);
-                    bgCanvas.width = 0;
-                    bgCanvas.height = 0;
+                    bgCanvas.width = 0; bgCanvas.height = 0;
                 }
             } else {
                 ctx.fillStyle = backgroundFill;
@@ -886,79 +1171,42 @@ ${renderedSlides}
             }
         }
         
-        // 2. 渲染 backdrop 元素（无 blend）
+        // 2. 渲染 backdrop 元素
         if (backdropEls.length > 0) {
-            const backdropSlide = {
-                type: 'freeform',
-                background: 'transparent',
-                elements: backdropEls,
-            };
-            container.innerHTML = `<div style="width: ${width}px; height: ${height}px; overflow: visible; background: transparent;">${renderer.render(backdropSlide, 0)}</div>`;
-            await this._waitForIconsToLoad(container);
-            await this._waitForImagesToLoad(container);
-            await new Promise(r => setTimeout(r, 50));
+            container.innerHTML = `<div style="width: ${width}px; height: ${height}px; overflow: visible; background: transparent;">${renderer.render({ type: 'freeform', background: 'transparent', elements: backdropEls }, 0)}</div>`;
+            await Promise.all([this._waitForIconsToLoad(container), this._waitForImagesToLoad(container)]);
             
-            const backdropCanvas = await this._captureToCanvas(container.firstChild, {
-                scale,
-                backgroundColor: null,
-                foreignObjectRendering: false,
-                allowTaint: true,
-            });
+            const backdropCanvas = await this._captureToCanvas(container.firstChild, { scale, backgroundColor: null, foreignObjectRendering: false, allowTaint: true });
             if (backdropCanvas) {
                 ctx.drawImage(backdropCanvas, 0, 0, width, height);
-                backdropCanvas.width = 0;
-                backdropCanvas.height = 0;
+                backdropCanvas.width = 0; backdropCanvas.height = 0;
             }
         }
         
-        // 3. 渲染 blend 元素并用 globalCompositeOperation 合成
-        for (const el of blendEls) {
-            const blendSlide = {
-                type: 'freeform',
-                background: 'transparent',
-                elements: [{ ...el, blend: 'normal' }], // 去掉 blend，单独渲染
-            };
-            container.innerHTML = `<div style="width: ${width}px; height: ${height}px; overflow: visible; background: transparent;">${renderer.render(blendSlide, 0)}</div>`;
-            await this._waitForIconsToLoad(container);
-            await this._waitForImagesToLoad(container);
-            await new Promise(r => setTimeout(r, 50));
+        // 3. 并发预渲染所有 blend 元素
+        const blendCanvases = await Promise.all(blendEls.map(async (el) => {
+            const tempContainer = document.createElement('div');
+            tempContainer.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 960px; height: 540px;';
+            document.body.appendChild(tempContainer);
             
-            const blendCanvas = await this._captureToCanvas(container.firstChild, {
-                scale,
-                backgroundColor: null,
-                foreignObjectRendering: false,
-                allowTaint: true,
-            });
-            
-            if (blendCanvas) {
-                // 设置 blend 模式
-                const blendMode = el.blend || 'normal';
-                // Canvas 支持的 blend 模式映射
-                const canvasBlendMap = {
-                    'screen': 'screen',
-                    'multiply': 'multiply',
-                    'overlay': 'overlay',
-                    'darken': 'darken',
-                    'lighten': 'lighten',
-                    'color-dodge': 'color-dodge',
-                    'color-burn': 'color-burn',
-                    'hard-light': 'hard-light',
-                    'soft-light': 'soft-light',
-                    'difference': 'difference',
-                    'exclusion': 'exclusion',
-                    'hue': 'hue',
-                    'saturation': 'saturation',
-                    'color': 'color',
-                    'luminosity': 'luminosity',
-                };
+            try {
+                tempContainer.innerHTML = `<div style="width: ${width}px; height: ${height}px; overflow: visible; background: transparent;">${renderer.render({ type: 'freeform', background: 'transparent', elements: [{ ...el, blend: 'normal' }] }, 0)}</div>`;
+                await Promise.all([this._waitForIconsToLoad(tempContainer), this._waitForImagesToLoad(tempContainer)]);
                 
-                ctx.globalCompositeOperation = canvasBlendMap[blendMode] || 'source-over';
-                console.log(`[_captureWithBlend] Applying blend mode: ${blendMode} -> ${ctx.globalCompositeOperation}`);
-                ctx.drawImage(blendCanvas, 0, 0, width, height);
-                ctx.globalCompositeOperation = 'source-over'; // 恢复默认
-                
-                blendCanvas.width = 0;
-                blendCanvas.height = 0;
+                const canvas = await this._captureToCanvas(tempContainer.firstChild, { scale, backgroundColor: null, foreignObjectRendering: false, allowTaint: true });
+                return { canvas, blend: el.blend };
+            } finally {
+                document.body.removeChild(tempContainer);
+            }
+        }));
+        
+        // 4. 按顺序合成 blend 效果
+        for (const { canvas, blend } of blendCanvases) {
+            if (canvas) {
+                ctx.globalCompositeOperation = this._canvasBlendMap[blend] || 'source-over';
+                ctx.drawImage(canvas, 0, 0, width, height);
+                ctx.globalCompositeOperation = 'source-over';
+                canvas.width = 0; canvas.height = 0;
             }
         }
         
@@ -967,15 +1215,17 @@ ${renderedSlides}
 
     /**
      * 智能分层烘焙：将连续的特效元素合并为"智能对象"，保持层叠关系。
-     * 类似 Photoshop 的智能对象概念：
-     * - 连续的特效层合并烘焙为一张图片
-     * - 普通元素（文字、图表）保持原生可编辑
-     * - 层叠顺序不变
+     * 使用并发处理提升性能
      */
-    async _bakeEffectsForPPTX(slides) {
+    async _bakeEffectsForPPTX(slides, onProgress) {
         const needsBaking = slides.some(slide => this._slideHasEffects(slide));
-        console.log('[_bakeEffectsForPPTX] Checking if baking needed:', needsBaking);
-        if (!needsBaking) return slides;
+        if (!needsBaking) {
+            onProgress?.(100, '无需处理特效');
+            return slides;
+        }
+        
+        let completed = 0;
+        const total = slides.length;
 
         // 需要 html2canvas 才能烘焙
         if (typeof html2canvas === 'undefined') {
@@ -983,116 +1233,216 @@ ${renderedSlides}
         }
 
         const renderer = new HTMLSlideRenderer();
-        const bakedSlides = [];
+        const startTime = performance.now();
+        
+        // 并发限制（根据 CPU 核心数调整）
+        const CONCURRENCY = Math.min(navigator.hardwareConcurrency || 4, 8);
+        
+        // 创建容器池
+        const containerPool = [];
+        for (let i = 0; i < CONCURRENCY; i++) {
+            const container = document.createElement('div');
+            container.style.cssText = `position: fixed; left: -9999px; top: ${i * 550}px; width: 960px; height: 540px; z-index: -9999;`;
+            document.body.appendChild(container);
+            containerPool.push({ container, inUse: false });
+        }
+        
+        // 获取空闲容器
+        const getContainer = () => {
+            const available = containerPool.find(c => !c.inUse);
+            if (available) {
+                available.inUse = true;
+                return available;
+            }
+            return null;
+        };
+        
+        // 释放容器
+        const releaseContainer = (poolItem) => {
+            poolItem.inUse = false;
+        };
 
-        // 隐藏容器用于截图
-        const container = document.createElement('div');
-        container.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 960px; height: 540px; z-index: -9999;';
-        document.body.appendChild(container);
-
-        for (let i = 0; i < slides.length; i++) {
-            const slide = slides[i];
-
-            // 非 freeform 或无特效元素，直接保留
+        // 处理单个 slide
+        const processSlide = async (slide, index) => {
+            // 非 freeform 或无特效元素，直接返回
             if (!this._slideHasEffects(slide)) {
-                bakedSlides.push(slide);
-                continue;
+                return { index, slide };
             }
 
-            // 按 z-index 排序元素（稳定排序：z 相同时保持原始顺序）
-            const sortedElements = [...(slide.elements || [])]
-                .map((el, i) => ({ ...el, _originalIndex: i }))
-                .sort((a, b) => (a.z || 0) - (b.z || 0) || a._originalIndex - b._originalIndex);
+            // 等待获取容器
+            let poolItem;
+            while (!(poolItem = getContainer())) {
+                await new Promise(r => setTimeout(r, 10));
+            }
+            const container = poolItem.container;
 
-            // 区分 blend 效果和 filter/mask 效果
-            // blend 需要和背景一起烘焙；filter/mask 可以单独烘焙
-            const blendElements = sortedElements.filter(el => el.blend && el.blend !== 'normal');
-            const filterElements = sortedElements.filter(el => el.filter);
-            console.log(`[_bakeEffectsForPPTX] Slide ${i + 1}: ${blendElements.length} blend, ${filterElements.length} filter elements`);
-            
-            if (blendElements.length > 0) {
-                // 有 blend 效果：只烘焙视觉元素（shape/image/svg），保留文字等可编辑
-                const visualTypes = ['shape', 'image', 'svg', 'line'];
-                const maxBlendZ = Math.max(...blendElements.map(el => el.z || 0));
+            try {
+                const sortedElements = [...(slide.elements || [])]
+                    .map((el, i) => ({ ...el, _originalIndex: i }))
+                    .sort((a, b) => (a.z || 0) - (b.z || 0) || a._originalIndex - b._originalIndex);
+
+                const blendElements = sortedElements.filter(el => el.blend && el.blend !== 'normal');
+                const filterElements = sortedElements.filter(el => el.filter);
                 
-                // 只烘焙 blend 元素及其下方的视觉元素
-                const elementsTosBake = sortedElements.filter(el => 
-                    (el.z || 0) <= maxBlendZ && visualTypes.includes(el.type)
-                );
-                // 保持原生的元素：blend 之上的 + 非视觉元素（text/icon/card等）
-                const nativeElements = sortedElements.filter(el => 
-                    (el.z || 0) > maxBlendZ || !visualTypes.includes(el.type)
-                );
+                let processedElements;
                 
-                const effectEls = elementsTosBake.filter(el => this._elementNeedsBaking(el));
-                const backdropEls = elementsTosBake.filter(el => !this._elementNeedsBaking(el));
-                console.log(`[_bakeEffectsForPPTX] Blend bake: effect=${effectEls.length}, backdrop=${backdropEls.length}, native=${nativeElements.length}, bg=${slide.gradient || slide.background}`);
-                console.log(`[_bakeEffectsForPPTX] Effect types:`, effectEls.map(e => `${e.type}${e.blend ? ':' + e.blend : ''}${e.filter ? ':filter' : ''}`));
-                console.log(`[_bakeEffectsForPPTX] Backdrop types:`, backdropEls.map(e => e.type));
-                console.log(`[_bakeEffectsForPPTX] Native types:`, nativeElements.map(e => e.type));
-                
-                // 烘焙视觉元素
-                const bakedEl = await this._bakeElementGroupToImage(
-                    effectEls,
-                    renderer, 
-                    container, 
-                    backdropEls,
-                    slide.gradient || slide.background
-                );
-                
-                const processedElements = [];
-                if (bakedEl) {
-                    processedElements.push(bakedEl);
+                if (blendElements.length > 0) {
+                    processedElements = await this._bakeBlendSlide(slide, sortedElements, blendElements, renderer, container);
                 } else {
-                    // 烘焙失败，保留原始元素
-                    processedElements.push(...elementsTosBake);
+                    processedElements = await this._bakeFilterSlide(slide, sortedElements, renderer, container, index);
                 }
-                // 原生元素（文字等）保持可编辑
-                processedElements.push(...nativeElements);
                 
-                bakedSlides.push({
-                    ...slide,
-                    elements: processedElements,
-                });
+                return {
+                    index,
+                    slide: { ...slide, elements: processedElements }
+                };
+            } finally {
+                releaseContainer(poolItem);
+            }
+        };
+
+        // 并发处理所有 slides，带进度更新
+        const results = await Promise.all(
+            slides.map(async (slide, index) => {
+                const result = await processSlide(slide, index);
+                completed++;
+                onProgress?.((completed / total) * 100, `处理幻灯片 ${completed}/${total}`);
+                return result;
+            })
+        );
+        
+        // 按原始顺序排列
+        results.sort((a, b) => a.index - b.index);
+        const bakedSlides = results.map(r => r.slide);
+
+        // 清理容器
+        containerPool.forEach(p => document.body.removeChild(p.container));
+        
+        const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+        console.log(`[Baking] Completed in ${elapsed}s (${CONCURRENCY} concurrent)`);
+        
+        return bakedSlides;
+    },
+    
+    /**
+     * 烘焙含 blend 效果的 slide
+     */
+    async _bakeBlendSlide(slide, sortedElements, blendElements, renderer, container) {
+        const visualTypes = ['shape', 'image', 'svg', 'line'];
+        const maxBlendZ = Math.max(...blendElements.map(el => el.z || 0));
+        
+        const elementsTosBake = sortedElements.filter(el => 
+            (el.z || 0) <= maxBlendZ && visualTypes.includes(el.type)
+        );
+        const nativeElements = sortedElements.filter(el => 
+            (el.z || 0) > maxBlendZ || !visualTypes.includes(el.type)
+        );
+        
+        const effectEls = elementsTosBake.filter(el => this._elementNeedsBaking(el));
+        const backdropEls = elementsTosBake.filter(el => !this._elementNeedsBaking(el));
+        
+        const bakedEl = await this._bakeElementGroupToImage(
+            effectEls,
+            renderer, 
+            container, 
+            backdropEls,
+            slide.gradient || slide.background
+        );
+        
+        const processedElements = [];
+        if (bakedEl) {
+            processedElements.push(bakedEl);
+        } else {
+            processedElements.push(...elementsTosBake);
+        }
+        processedElements.push(...nativeElements);
+        
+        return processedElements;
+    },
+    
+    /**
+     * 烘焙含 filter/mask 效果的 slide（无 blend）
+     * 使用分组逻辑：连续的特效元素合并烘焙，保持文字层级
+     */
+    async _bakeFilterSlide(slide, sortedElements, renderer, container, slideIndex) {
+        const visualTypes = ['shape', 'image', 'svg', 'line'];
+        const groups = [];
+        let currentGroup = null;
+        
+        // 按层级分组：连续的需要烘焙的视觉元素合并
+        for (const el of sortedElements) {
+            const needsBaking = this._elementNeedsBaking(el) && visualTypes.includes(el.type);
+            
+            if (needsBaking) {
+                if (!currentGroup || currentGroup.type !== 'effect') {
+                    currentGroup = { type: 'effect', elements: [] };
+                    groups.push(currentGroup);
+                }
+                currentGroup.elements.push(el);
             } else {
-                // 无 blend 效果，使用原来的分组逻辑处理 filter/mask
-                const groups = this._groupElementsForBaking(sortedElements);
-                console.log(`[_bakeEffectsForPPTX] Slide ${i + 1}: ${groups.length} groups, effect groups: ${groups.filter(g => g.type === 'effect').length}`);
-                const processedElements = [];
-                
-                for (const group of groups) {
-                    if (group.type === 'normal') {
-                        processedElements.push(...group.elements);
-                    } else if (group.type === 'effect') {
-                        // filter/mask 效果不需要与背景混合，直接烘焙特效元素
-                        const minZ = Math.min(...group.elements.map(el => el.z || 0));
-                        console.log(`[_bakeEffectsForPPTX] Baking effect group with ${group.elements.length} elements`);
-                        const bakedEl = await this._bakeElementGroupToImage(
-                            group.elements, 
-                            renderer, 
-                            container, 
-                            [], // 无需 backdrop
-                            'transparent'
-                        );
-                        console.log(`[_bakeEffectsForPPTX] Bake result:`, bakedEl ? 'success' : 'failed');
-                        if (bakedEl) {
-                            bakedEl.z = minZ; // 保持层叠顺序
-                            processedElements.push(bakedEl);
-                        } else {
-                            processedElements.push(...group.elements);
-                        }
-                    }
+                if (!currentGroup || currentGroup.type !== 'normal') {
+                    currentGroup = { type: 'normal', elements: [] };
+                    groups.push(currentGroup);
                 }
-                
-                bakedSlides.push({
-                    ...slide,
-                    elements: processedElements,
-                });
+                currentGroup.elements.push(el);
             }
         }
-
-        document.body.removeChild(container);
-        return bakedSlides;
+        
+        // 处理每个分组
+        const processedElements = [];
+        for (const group of groups) {
+            if (group.type === 'normal') {
+                processedElements.push(...group.elements);
+            } else {
+                const minZ = Math.min(...group.elements.map(el => el.z || 0));
+                const bakedEl = await this._bakeElementGroupToImage(
+                    group.elements, 
+                    renderer, 
+                    container, 
+                    [],
+                    'transparent'
+                );
+                if (bakedEl) {
+                    bakedEl.z = minZ;
+                    processedElements.push(bakedEl);
+                } else {
+                    processedElements.push(...group.elements);
+                }
+            }
+        }
+        
+        return processedElements;
+    },
+    
+    /**
+     * 旧版分组烘焙逻辑（已弃用，保留备用）
+     */
+    async _bakeFilterSlideGrouped(slide, sortedElements, renderer, container, slideIndex) {
+        const groups = this._groupElementsForBaking(sortedElements);
+        const processedElements = [];
+        
+        for (const group of groups) {
+            if (group.type === 'normal') {
+                processedElements.push(...group.elements);
+            } else if (group.type === 'effect') {
+                const minZ = Math.min(...group.elements.map(el => el.z || 0));
+                const bakedEl = await this._bakeElementGroupToImage(
+                    group.elements, 
+                    renderer, 
+                    container, 
+                    [],
+                    'transparent'
+                );
+                if (bakedEl) {
+                    bakedEl.z = minZ;
+                    processedElements.push(bakedEl);
+                } else {
+                    processedElements.push(...group.elements);
+                }
+            }
+        }
+        
+        return processedElements;
     },
 
     /**
@@ -1138,9 +1488,6 @@ ${renderedSlides}
             // 合并所有元素（背景 + 特效元素），按 z-index 排序
             const combinedElements = [...backdropElements, ...elements].sort((a, b) => (a.z || 0) - (b.z || 0));
             
-            console.log(`[_bakeElementGroupToImage] Combined ${combinedElements.length} elements:`, 
-                combinedElements.map(e => `${e.type}${e.blend ? ':' + e.blend : ''}${e.filter ? ':filter' : ''}`));
-            console.log(`[_bakeElementGroupToImage] Background: ${backgroundFill}`);
 
             // 重要：对于有 blend 效果的场景，必须让浏览器完成 CSS 混合模式的渲染，
             // 然后用 html2canvas 截取最终结果。不要尝试分层合成。
@@ -1154,52 +1501,44 @@ ${renderedSlides}
             const bgStyle = backgroundFill ? `background: ${backgroundFill};` : 'background: transparent;';
             container.innerHTML = `<div style="width: 960px; height: 540px; overflow: visible; ${bgStyle}">${renderer.render(tempSlide, 0)}</div>`;
             
+            // 检查是否有 mask 元素需要预烘焙（html2canvas 不支持 CSS mask-image）
+            // 只检查包含图片的 div（优化：不遍历所有元素）
+            const imgDivs = container.querySelectorAll('div > img');
+            const maskedElements = [...imgDivs]
+                .map(img => img.parentElement)
+                .filter(div => {
+                    const s = div.getAttribute('style') || '';
+                    return s.includes('mask-image') || s.includes('clip-path');
+                });
+            if (maskedElements.length > 0) {
+                console.log(`[_bakeElementGroupToImage] Found ${maskedElements.length} masked elements`);
+                await Promise.all(maskedElements.map(el => this._bakeMaskIntoElement(el)));
+            }
+            
             // 移除隐藏的 SVG defs（它们会导致 foreignObjectRendering 失败）
             container.querySelectorAll('svg[style*="width: 0"], svg[style*="height: 0"]').forEach(svg => svg.remove());
 
-            // 等待所有资源加载
-            await this._waitForIconsToLoad(container);
-            await this._waitForImagesToLoad(container);
+            // 并发等待所有资源加载
+            await Promise.all([this._waitForIconsToLoad(container), this._waitForImagesToLoad(container)]);
             
             // 将 SVG data URL 图片转为 PNG（避免 foreignObjectRendering 失败）
             if (hasBlend) {
                 const svgImgs = container.querySelectorAll('img[src^="data:image/svg"]');
-                console.log(`[_bakeElementGroupToImage] Found ${svgImgs.length} SVG images to convert`);
-                for (const img of svgImgs) {
+                await Promise.all([...svgImgs].map(async img => {
                     try {
                         const canvas = document.createElement('canvas');
                         canvas.width = img.naturalWidth || img.width || 100;
                         canvas.height = img.naturalHeight || img.height || 100;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                        const pngUrl = canvas.toDataURL('image/png');
-                        img.src = pngUrl;
-                        console.log(`[_bakeElementGroupToImage] SVG to PNG converted: ${canvas.width}x${canvas.height}`);
-                        // 等待新图片加载
-                        await new Promise(r => { img.onload = r; setTimeout(r, 100); });
-                    } catch (e) {
-                        console.warn('[_bakeElementGroupToImage] SVG to PNG failed:', e);
-                    }
-                }
+                        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+                        img.src = canvas.toDataURL('image/png');
+                        await new Promise(r => { img.onload = r; setTimeout(r, 50); });
+                    } catch (e) { /* ignore */ }
+                }));
             }
             await this._waitForKatexAndInlineStyles(container);
 
-            // DEBUG: 检查图片和 SVG 元素
-            const imgs = container.querySelectorAll('img');
-            const svgEls = container.querySelectorAll('svg');
-            if (imgs.length > 0) {
-                console.log(`[_bakeElementGroupToImage] Found ${imgs.length} images:`, 
-                    [...imgs].map(i => ({ src: i.src?.substring(0, 50), complete: i.complete, w: i.naturalWidth })));
-            }
-            if (svgEls.length > 0) {
-                console.log(`[_bakeElementGroupToImage] Found ${svgEls.length} inline SVGs`);
-            }
-
-            // 额外等待确保 CSS 动画和过渡完成
-            await new Promise(resolve => setTimeout(resolve, 100));
-
             // 使用 html2canvas 截图
-            const scale = 2; // 平衡清晰度和内存使用
+            const scale = 1.2; // 降低 scale 提升性能
             
             let canvas;
             if (hasBlend) {
@@ -1228,10 +1567,6 @@ ${renderedSlides}
             }
             if (!dataUrl) return null;
 
-            if (hasBlend) {
-                console.info('[_bakeElementGroupToImage] blend effects captured:', 
-                    elements.filter(e => e.blend && e.blend !== 'normal').map(e => `${e.type}:${e.blend}`).join(', '));
-            }
 
             return {
                 type: 'baked_element',

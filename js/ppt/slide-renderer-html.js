@@ -1007,16 +1007,24 @@ class HTMLSlideRenderer {
 
     /**
      * 根据 mask 值构建 CSS mask 片段
-     * - #id：引用同页元素的 mask
-     * - url(...) 或 data:...：直接用作 mask-image
+     * 支持格式：
+     * - #id：引用同页 SVG 元素作为 mask
+     * - url(...) 或 data:...：图片作为 mask
+     * - circle / circle(50%) / circle(50% at center)：圆形遮罩
+     * - ellipse / ellipse(50% 30%)：椭圆遮罩
+     * - polygon(...)：多边形遮罩
+     * - inset(10%)：内边距矩形遮罩
+     * - linear-gradient(...) / radial-gradient(...)：渐变遮罩
+     * - fade-left / fade-right / fade-top / fade-bottom：预设渐变方向
+     * - fade-center / spotlight：预设径向渐变
      */
     _buildMaskStyle(mask) {
         if (!mask) return '';
         const val = String(mask).trim();
-        // 引用同页元素 id
+        
+        // 1. 引用同页元素 id
         if (val.startsWith('#')) {
             const id = val.slice(1);
-            // 尝试 clip-path + mask-image 双保险
             return `
                 mask-image: url(#${id});
                 -webkit-mask-image: url(#${id});
@@ -1029,7 +1037,45 @@ class HTMLSlideRenderer {
                 clip-path: url(#${id});
             `;
         }
-        // 直接 url 或 base64
+        
+        // 2. 预设渐变遮罩（快捷方式）- 更强烈的效果
+        const presets = {
+            'fade-left': 'linear-gradient(to right, transparent 0%, black 60%)',
+            'fade-right': 'linear-gradient(to left, transparent 0%, black 60%)',
+            'fade-top': 'linear-gradient(to bottom, transparent 0%, black 60%)',
+            'fade-bottom': 'linear-gradient(to top, transparent 0%, black 60%)',
+            'fade-center': 'radial-gradient(circle, black 0%, black 40%, transparent 70%)',
+            'spotlight': 'radial-gradient(ellipse 50% 60% at center, black 0%, black 30%, transparent 70%)',
+            'vignette': 'radial-gradient(ellipse at center, black 0%, black 30%, transparent 80%)',
+            'fade-edges': 'linear-gradient(to right, transparent 0%, black 15%, black 85%, transparent 100%)',
+        };
+        if (presets[val]) {
+            return `
+                mask-image: ${presets[val]};
+                -webkit-mask-image: ${presets[val]};
+            `;
+        }
+        
+        // 3. 渐变遮罩
+        if (val.includes('gradient(')) {
+            return `
+                mask-image: ${val};
+                -webkit-mask-image: ${val};
+            `;
+        }
+        
+        // 4. 预定义形状遮罩（使用 clip-path）
+        // circle, ellipse, polygon, inset
+        if (val.startsWith('circle') || val.startsWith('ellipse') || 
+            val.startsWith('polygon') || val.startsWith('inset')) {
+            // 如果只写 "circle" 没有括号，默认 circle(50%)
+            let clipValue = val;
+            if (val === 'circle') clipValue = 'circle(50%)';
+            if (val === 'ellipse') clipValue = 'ellipse(50% 40%)';
+            return `clip-path: ${clipValue};`;
+        }
+        
+        // 5. 直接 url 或 base64 图片
         if (val.startsWith('url(') || val.startsWith('data:')) {
             return `
                 mask-image: ${val.startsWith('url(') ? val : `url(${val})`};
@@ -1042,6 +1088,7 @@ class HTMLSlideRenderer {
                 -webkit-mask-position: center;
             `;
         }
+        
         // 未知格式，不生成 mask
         return '';
     }

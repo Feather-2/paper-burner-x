@@ -825,152 +825,274 @@ const PPT_SAMPLE_HTML = `
                 <div data-el="text" data-x="0%" data-y="92%" data-w="100%" data-h="auto" data-font="11" data-color="#475569" data-align="center">© 2025 Quantum Research Institute. All rights reserved.</div>
             </section>
 
-            <!-- Blend Effects Showcase 1: Multiply -->
-            <section data-type="freeform" id="slide-blend-1" data-bg="#F8FAFC">
-                <!-- 背景装饰 -->
-                <div data-el="shape" data-shape="circle" data-x="-10%" data-y="-20%" data-w="60%" data-h="100%" data-fill="#fbbf24" data-opacity="0.3"></div>
-                <div data-el="shape" data-shape="circle" data-x="60%" data-y="40%" data-w="50%" data-h="90%" data-fill="#f472b6" data-opacity="0.25"></div>
-                
-                <!-- Multiply blend 图片 -->
-                <div data-el="image"
-                     data-x="10%" data-y="15%" data-w="35%" data-h="60%"
-                     data-src="https://picsum.photos/800/600?random=1"
-                     data-blend="multiply"
-                     data-opacity="0.9"></div>
-                
-                <div data-el="text" data-x="50%" data-y="18%" data-w="45%" data-font="36" data-color="#1e293b" data-bold="true">Multiply Blend</div>
-                <div data-el="text" data-x="50%" data-y="28%" data-w="45%" data-font="16" data-color="#64748b" data-line-height="1.6">
-                    Multiply 混合模式将图片与背景相乘，产生更暗的效果。适合用于创建阴影和深色叠加效果。
-                </div>
-                
-                <div data-el="shape" data-shape="rounded" data-x="50%" data-y="50%" data-w="45%" data-h="25%" data-fill="#1e293b" data-radius="12"></div>
-                <div data-el="text" data-x="52%" data-y="54%" data-w="41%" data-font="14" data-color="#fbbf24" data-bold="true">💡 使用场景</div>
-                <div data-el="text" data-x="52%" data-y="60%" data-w="41%" data-font="12" data-color="#94a3b8" data-line-height="1.5">
-                    • 创建复古/胶片风格效果\n• 将纹理与照片混合\n• 增强对比度和饱和度
-                </div>
-            </section>
-
-            <!-- Blend Effects Showcase 2: Overlay -->
-            <section data-type="freeform" id="slide-blend-2" data-gradient="linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%)">
-                <!-- 背景光晕 -->
-                <div data-el="shape" data-shape="circle" data-x="0%" data-y="10%" data-w="45%" data-h="80%" data-fill="#8b5cf6" data-opacity="0.2" data-filter="blur(40px)"></div>
-                <div data-el="shape" data-shape="circle" data-x="55%" data-y="20%" data-w="50%" data-h="90%" data-fill="#06b6d4" data-opacity="0.15" data-filter="blur(50px)"></div>
-                
-                <!-- Overlay blend 图片 -->
-                <div data-el="image"
-                     data-x="55%" data-y="15%" data-w="40%" data-h="55%"
-                     data-src="https://picsum.photos/800/600?random=2"
-                     data-blend="overlay"
-                     data-filter="saturate(1.2)"
-                     data-opacity="0.85"></div>
-                
-                <div data-el="text" data-x="5%" data-y="18%" data-w="45%" data-font="36" data-color="#f8fafc" data-bold="true">Overlay Blend</div>
-                <div data-el="text" data-x="5%" data-y="28%" data-w="45%" data-font="16" data-color="#a5b4fc" data-line-height="1.6">
-                    Overlay 结合了 Multiply 和 Screen，保留高光和阴影，增强对比度。
-                </div>
-                
-                <div data-el="card" data-x="5%" data-y="50%" data-w="40%" data-h="35%" data-layout="vertical" 
-                     data-fill="#0f172a" data-radius="16" data-stroke="#8b5cf6"
-                     data-icon="carbon:image" data-icon-color="#8b5cf6" data-icon-size="32"
-                     data-title="增强视觉冲击" data-title-color="#f8fafc" data-title-size="18"
-                     data-subtitle="Overlay 让暗部更暗、亮部更亮，创造戏剧性效果" data-subtitle-color="#94a3b8" data-subtitle-size="12"></div>
-            </section>
-
-            <!-- Blend Effects Showcase 3: Color Dodge + Soft Light -->
-            <section data-type="freeform" id="slide-blend-3" data-bg="#0a0a0a">
-                <!-- 多层 blend 效果 -->
-                <div data-el="shape" data-shape="circle" data-x="20%" data-y="20%" data-w="30%" data-h="50%" data-fill="#ec4899" data-opacity="0.6"></div>
-                <div data-el="shape" data-shape="circle" data-x="50%" data-y="30%" data-w="35%" data-h="55%" data-fill="#3b82f6" data-opacity="0.5"></div>
-                
-                <!-- Color Dodge 图片 - 强烈发光效果 -->
-                <div data-el="image"
-                     data-x="5%" data-y="10%" data-w="45%" data-h="50%"
-                     data-src="https://picsum.photos/800/600?random=3"
-                     data-blend="color-dodge"
-                     data-opacity="0.7"></div>
-                
-                <!-- Soft Light 图片 - 柔和叠加 -->
-                <div data-el="image"
-                     data-x="50%" data-y="35%" data-w="45%" data-h="50%"
-                     data-src="https://picsum.photos/800/600?random=4"
-                     data-blend="soft-light"
-                     data-opacity="0.8"></div>
-                
-                <div data-el="text" data-x="5%" data-y="65%" data-w="40%" data-font="28" data-color="#ec4899" data-bold="true">Color Dodge</div>
-                <div data-el="text" data-x="5%" data-y="73%" data-w="40%" data-font="12" data-color="#f9a8d4">产生强烈的发光和高光效果</div>
-                
-                <div data-el="text" data-x="55%" data-y="65%" data-w="40%" data-font="28" data-color="#60a5fa" data-bold="true">Soft Light</div>
-                <div data-el="text" data-x="55%" data-y="73%" data-w="40%" data-font="12" data-color="#93c5fd">柔和的光照效果，类似漫射光</div>
-                
-                <div data-el="text" data-x="0%" data-y="85%" data-w="100%" data-font="16" data-color="#6b7280" data-align="center">组合多种 blend 模式可以创造出独特的视觉效果</div>
-            </section>
-
-            <!-- Blend Effects Showcase 4: Difference + Exclusion -->
-            <section data-type="freeform" id="slide-blend-4" data-gradient="linear-gradient(180deg, #18181b 0%, #27272a 100%)">
-                <!-- 背景网格 -->
-                <div data-el="svg" data-x="0%" data-y="0%" data-w="100%" data-h="100%" data-opacity="0.1">
-                    <svg viewBox="0 0 960 540" xmlns="http://www.w3.org/2000/svg">
-                        <defs>
-                            <pattern id="grid-blend" width="40" height="40" patternUnits="userSpaceOnUse">
-                                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#ffffff" stroke-width="1"/>
-                            </pattern>
-                        </defs>
-                        <rect width="100%" height="100%" fill="url(#grid-blend)"/>
+            <!-- Blend Effects Showcase 1: Multiply (Vintage) -->
+            <section data-type="freeform" id="slide-blend-1" data-bg="#FDFBF7">
+                <!-- 纹理背景 -->
+                <div data-el="svg" data-x="0%" data-y="0%" data-w="100%" data-h="100%" data-opacity="0.05">
+                    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                        <filter id="noise">
+                            <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" stitchTiles="stitch"/>
+                        </filter>
+                        <rect width="100%" height="100%" filter="url(#noise)"/>
                     </svg>
                 </div>
-                
-                <div data-el="text" data-x="0%" data-y="5%" data-w="100%" data-font="32" data-color="#f4f4f5" data-bold="true" data-align="center">Artistic Blend Modes</div>
-                
-                <!-- Difference 效果 -->
-                <div data-el="shape" data-shape="circle" data-x="5%" data-y="18%" data-w="40%" data-h="70%" data-fill="#facc15" data-opacity="0.8"></div>
+
+                <!-- 装饰色块 -->
+                <div data-el="shape" data-shape="circle" data-x="55%" data-y="10%" data-w="40%" data-h="70%" data-fill="#FCD34D" data-opacity="0.6"></div>
+                <div data-el="shape" data-shape="circle" data-x="45%" data-y="40%" data-w="30%" data-h="50%" data-fill="#F87171" data-opacity="0.5"></div>
+
+                <!-- 主图 - Multiply 混合 -->
                 <div data-el="image"
-                     data-x="10%" data-y="22%" data-w="30%" data-h="45%"
-                     data-src="https://picsum.photos/600/600?random=5"
-                     data-blend="difference"
-                     data-opacity="0.9"></div>
-                <div data-el="text" data-x="5%" data-y="75%" data-w="40%" data-font="20" data-color="#facc15" data-bold="true" data-align="center">Difference</div>
-                <div data-el="text" data-x="5%" data-y="82%" data-w="40%" data-font="11" data-color="#a1a1aa" data-align="center">反转颜色，创造迷幻效果</div>
+                     data-x="10%" data-y="15%" data-w="35%" data-h="70%"
+                     data-src="https://picsum.photos/800/1200?random=101"
+                     data-blend="multiply"
+                     data-radius="4"
+                     data-filter="sepia(0.5) contrast(1.1)"></div>
+
+                <!-- 文字内容 -->
+                <div data-el="text" data-x="55%" data-y="25%" data-w="40%" data-font="48" data-color="#1C1917" data-bold="true" data-font-family="serif">Multiply</div>
+                <div data-el="text" data-x="55%" data-y="38%" data-w="40%" data-font="18" data-color="#57534E" data-line-height="1.6">
+                    The Multiply mode multiplies the numbers for each pixel of the top layer with the corresponding pixel for the bottom layer. The result is a darker picture.
+                </div>
                 
-                <!-- Exclusion 效果 -->
-                <div data-el="shape" data-shape="circle" data-x="55%" data-y="18%" data-w="40%" data-h="70%" data-fill="#a78bfa" data-opacity="0.7"></div>
-                <div data-el="image"
-                     data-x="60%" data-y="22%" data-w="30%" data-h="45%"
-                     data-src="https://picsum.photos/600/600?random=6"
-                     data-blend="exclusion"
-                     data-opacity="0.85"></div>
-                <div data-el="text" data-x="55%" data-y="75%" data-w="40%" data-font="20" data-color="#a78bfa" data-bold="true" data-align="center">Exclusion</div>
-                <div data-el="text" data-x="55%" data-y="82%" data-w="40%" data-font="11" data-color="#a1a1aa" data-align="center">类似 Difference 但对比度更低</div>
+                <div data-el="line" data-x1="55%" data-y1="55%" data-x2="65%" data-y2="55%" data-stroke="#D97706" data-stroke-width="3"></div>
+                
+                <div data-el="text" data-x="55%" data-y="62%" data-w="40%" data-font="14" data-color="#78716C" data-italic="true">
+                    "Perfect for creating vintage effects, shadows, and darkening images without losing detail."
+                </div>
             </section>
 
-            <!-- Blend Effects Showcase 5: Darken + Lighten -->
-            <section data-type="freeform" id="slide-blend-5" data-bg="#e5e7eb">
-                <div data-el="text" data-x="0%" data-y="3%" data-w="100%" data-font="28" data-color="#1f2937" data-bold="true" data-align="center">Darken vs Lighten</div>
+            <!-- Blend Effects Showcase 2: Overlay (Neon) -->
+            <section data-type="freeform" id="slide-blend-2" data-bg="#09090B">
+                <!-- 背景光效 -->
+                <div data-el="shape" data-shape="circle" data-x="-10%" data-y="20%" data-w="60%" data-h="100%" data-fill="#7C3AED" data-opacity="0.4" data-filter="blur(80px)"></div>
+                <div data-el="shape" data-shape="circle" data-x="60%" data-y="-20%" data-w="60%" data-h="100%" data-fill="#06B6D4" data-opacity="0.3" data-filter="blur(80px)"></div>
+
+                <!-- 标题 -->
+                <div data-el="text" data-x="5%" data-y="10%" data-w="90%" data-font="80" data-color="#FFFFFF" data-bold="true" data-align="center" data-opacity="0.1">OVERLAY</div>
+                <div data-el="text" data-x="5%" data-y="12%" data-w="90%" data-font="42" data-color="#F8FAFC" data-bold="true" data-align="center">Overlay Mode</div>
+
+                <!-- 图片展示区 -->
+                <div data-el="shape" data-shape="rect" data-x="20%" data-y="30%" data-w="60%" data-h="50%" data-fill="#18181B" data-radius="16" data-stroke="#27272A"></div>
                 
-                <!-- Darken - 需要亮背景才能看到效果 -->
-                <div data-el="shape" data-shape="rounded" data-x="3%" data-y="14%" data-w="44%" data-h="75%" data-fill="#fef3c7" data-radius="16"></div>
-                <div data-el="shape" data-shape="circle" data-x="8%" data-y="25%" data-w="20%" data-h="35%" data-fill="#fbbf24" data-opacity="0.9"></div>
-                <div data-el="shape" data-shape="circle" data-x="22%" data-y="35%" data-w="18%" data-h="30%" data-fill="#f59e0b" data-opacity="0.8"></div>
+                <!-- 底层图片 -->
                 <div data-el="image"
-                     data-x="8%" data-y="20%" data-w="34%" data-h="40%"
-                     data-src="https://picsum.photos/700/500?random=7"
-                     data-blend="darken"></div>
-                <div data-el="text" data-x="3%" data-y="65%" data-w="44%" data-font="22" data-color="#b45309" data-bold="true" data-align="center">Darken</div>
-                <div data-el="text" data-x="5%" data-y="72%" data-w="40%" data-font="11" data-color="#78716c" data-align="center" data-line-height="1.4">
-                    只保留更暗的像素\n图片暗部与亮色背景混合
+                     data-x="20%" data-y="30%" data-w="60%" data-h="50%"
+                     data-src="https://picsum.photos/1200/600?random=102"
+                     data-radius="16"
+                     data-opacity="0.6"
+                     data-filter="grayscale(100%)"></div>
+
+                <!-- 叠加层 - Overlay -->
+                <div data-el="shape" data-shape="rect" data-x="20%" data-y="30%" data-w="60%" data-h="50%"
+                     data-fill="linear-gradient(45deg, #7C3AED, #06B6D4)"
+                     data-blend="overlay"
+                     data-radius="16"></div>
+
+                <div data-el="text" data-x="25%" data-y="85%" data-w="50%" data-font="16" data-color="#A1A1AA" data-align="center">
+                    Combines Multiply and Screen modes. Parts of the image that are light become lighter, and parts that are dark become darker.
+                </div>
+            </section>
+
+            <!-- Blend Effects Showcase 3: Color Dodge (Energy) -->
+            <section data-type="freeform" id="slide-blend-3" data-bg="#000000">
+                <!-- 能量流 -->
+                <div data-el="shape" data-shape="circle" data-x="30%" data-y="30%" data-w="40%" data-h="60%" data-fill="#EC4899" data-opacity="0.5" data-filter="blur(60px)"></div>
+                <div data-el="shape" data-shape="circle" data-x="50%" data-y="40%" data-w="30%" data-h="50%" data-fill="#3B82F6" data-opacity="0.5" data-filter="blur(50px)"></div>
+
+                <!-- 主体图片 -->
+                <div data-el="image"
+                     data-x="15%" data-y="15%" data-w="70%" data-h="70%"
+                     data-src="https://picsum.photos/1000/800?random=103"
+                     data-blend="color-dodge"
+                     data-filter="contrast(1.2) brightness(1.1)"></div>
+
+                <div data-el="text" data-x="10%" data-y="80%" data-w="40%" data-font="36" data-color="#F472B6" data-bold="true">Color Dodge</div>
+                <div data-el="line" data-x1="10%" data-y1="88%" data-x2="30%" data-y2="88%" data-stroke="#F472B6" data-stroke-width="2"></div>
+                <div data-el="text" data-x="10%" data-y="90%" data-w="40%" data-font="14" data-color="#FBCFE8">
+                    Creates intense, glowing highlights by decreasing the contrast between the base and blend colors.
+                </div>
+            </section>
+
+            <!-- Blend Effects Showcase 4: Difference (Avant-Garde) -->
+            <section data-type="freeform" id="slide-blend-4" data-bg="#FFFFFF">
+                <!-- 几何图形 -->
+                <div data-el="shape" data-shape="rect" data-x="10%" data-y="10%" data-w="30%" data-h="80%" data-fill="#000000"></div>
+                
+                <!-- 图片 - Difference -->
+                <div data-el="image"
+                     data-x="25%" data-y="20%" data-w="50%" data-h="60%"
+                     data-src="https://picsum.photos/800/800?random=104"
+                     data-blend="difference"></div>
+
+                <div data-el="text" data-x="60%" data-y="15%" data-w="30%" data-font="48" data-color="#000000" data-bold="true" data-align="right">DIFF<br>ERENCE</div>
+                
+                <div data-el="shape" data-shape="circle" data-x="65%" data-y="60%" data-w="20%" data-h="35%" data-fill="#FACC15" data-blend="exclusion"></div>
+                
+                <div data-el="text" data-x="60%" data-y="45%" data-w="30%" data-font="14" data-color="#404040" data-align="right" data-line-height="1.5">
+                    Subtracts the darker color from the lighter color. White inverts the colors of the base layer.
+                </div>
+            </section>
+
+            <!-- Mask Effects Showcase (Gallery) -->
+            <section data-type="freeform" id="slide-mask" data-bg="#18181B">
+                <div data-el="text" data-x="5%" data-y="8%" data-w="90%" data-font="32" data-color="#F4F4F5" data-bold="true">Visual Masking</div>
+                <div data-el="text" data-x="5%" data-y="15%" data-w="90%" data-font="14" data-color="#A1A1AA">Non-destructive image shaping techniques</div>
+
+                <!-- Grid Layout -->
+                <!-- Item 1: Gradient Fade -->
+                <div data-el="image" data-x="5%" data-y="25%" data-w="20%" data-h="30%"
+                     data-src="https://picsum.photos/400/600?random=105"
+                     data-mask="fade-bottom" data-fit="cover" data-radius="8"></div>
+                <div data-el="text" data-x="5%" data-y="57%" data-w="20%" data-font="12" data-color="#71717A" data-align="center">Fade Bottom</div>
+
+                <!-- Item 2: Circle -->
+                <div data-el="image" data-x="28%" data-y="25%" data-w="20%" data-h="30%"
+                     data-src="https://picsum.photos/400/600?random=106"
+                     data-mask="circle" data-fit="cover"></div>
+                <div data-el="text" data-x="28%" data-y="57%" data-w="20%" data-font="12" data-color="#71717A" data-align="center">Circle</div>
+
+                <!-- Item 3: Polygon -->
+                <div data-el="image" data-x="51%" data-y="25%" data-w="20%" data-h="30%"
+                     data-src="https://picsum.photos/400/600?random=107"
+                     data-mask="polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)" data-fit="cover"></div>
+                <div data-el="text" data-x="51%" data-y="57%" data-w="20%" data-font="12" data-color="#71717A" data-align="center">Diamond</div>
+
+                <!-- Item 4: Spotlight -->
+                <div data-el="image" data-x="74%" data-y="25%" data-w="20%" data-h="30%"
+                     data-src="https://picsum.photos/400/600?random=108"
+                     data-mask="spotlight" data-fit="cover" data-radius="8"></div>
+                <div data-el="text" data-x="74%" data-y="57%" data-w="20%" data-font="12" data-color="#71717A" data-align="center">Spotlight</div>
+
+                <!-- Bottom Row: Complex Masks -->
+                <div data-el="text" data-x="5%" data-y="68%" data-w="90%" data-font="16" data-color="#E4E4E7" data-bold="true">Advanced Composition</div>
+                
+                <div data-el="image" data-x="5%" data-y="75%" data-w="43%" data-h="20%"
+                     data-src="https://picsum.photos/800/300?random=109"
+                     data-mask="fade-right" data-fit="cover" data-radius="8"></div>
+                     
+                <div data-el="image" data-x="52%" data-y="75%" data-w="43%" data-h="20%"
+                     data-src="https://picsum.photos/800/300?random=110"
+                     data-mask="vignette" data-fit="cover" data-radius="8"></div>
+            </section>
+
+            <!-- Complex Example 1: Hero Banner (Modern SaaS) - 简化版 -->
+            <section data-type="freeform" id="slide-complex-hero" data-bg="#0F172A">
+                <!-- 背景渐变装饰（无 filter，使用透明度代替 blur） -->
+                <div data-el="shape" data-shape="circle" data-x="60%" data-y="-20%" data-w="60%" data-h="100%" data-fill="#3B82F6" data-opacity="0.08"></div>
+                <div data-el="shape" data-shape="circle" data-x="-10%" data-y="40%" data-w="50%" data-h="80%" data-fill="#8B5CF6" data-opacity="0.06"></div>
+
+                <!-- 右侧 Hero Image（保留 mask 效果） -->
+                <div data-el="image" data-x="50%" data-y="15%" data-w="45%" data-h="70%"
+                     data-src="https://picsum.photos/800/1000?random=111"
+                     data-mask="fade-left" data-fit="cover" data-radius="12"></div>
+
+                <!-- 左侧内容 -->
+                <div data-el="text" data-x="8%" data-y="25%" data-w="45%" data-font="14" data-color="#38BDF8" data-bold="true" data-letter-spacing="2">FUTURE VISION</div>
+                <div data-el="text" data-x="8%" data-y="32%" data-w="50%" data-font="48" data-color="#F8FAFC" data-bold="true" data-line-height="1.1">
+                    Design Without Boundaries
+                </div>
+                <div data-el="text" data-x="8%" data-y="55%" data-w="40%" data-font="16" data-color="#94A3B8" data-line-height="1.6">
+                    Experience the next generation of presentation design.
+                </div>
+
+                <!-- 按钮/CTA -->
+                <div data-el="shape" data-shape="rect" data-x="8%" data-y="75%" data-w="16%" data-h="8%" data-fill="#38BDF8" data-radius="6"></div>
+                <div data-el="text" data-x="8%" data-y="77%" data-w="16%" data-font="14" data-color="#0F172A" data-bold="true" data-align="center">Get Started</div>
+                
+                <div data-el="shape" data-shape="rect" data-x="26%" data-y="75%" data-w="16%" data-h="8%" data-fill="transparent" data-stroke="#475569" data-radius="6"></div>
+                <div data-el="text" data-x="26%" data-y="77%" data-w="16%" data-font="14" data-color="#E2E8F0" data-align="center">Learn More</div>
+            </section>
+
+            <!-- Complex Example 2: Data Visualization (Fintech) -->
+            <section data-type="freeform" id="slide-complex-data" data-bg="#111827">
+                <!-- 顶部标题栏 -->
+                <div data-el="text" data-x="5%" data-y="8%" data-w="50%" data-font="24" data-color="#F9FAFB" data-bold="true">Market Analytics</div>
+                <div data-el="text" data-x="5%" data-y="14%" data-w="50%" data-font="14" data-color="#9CA3AF">Q4 Performance Overview</div>
+                
+                <div data-el="shape" data-shape="rect" data-x="85%" data-y="8%" data-w="10%" data-h="6%" data-fill="#1F2937" data-radius="4" data-stroke="#374151"></div>
+                <div data-el="text" data-x="85%" data-y="9.5%" data-w="10%" data-font="12" data-color="#D1D5DB" data-align="center">Export</div>
+
+                <!-- 卡片 1: 总览 -->
+                <div data-el="shape" data-shape="rect" data-x="5%" data-y="22%" data-w="28%" data-h="24%" data-fill="#1F2937" data-radius="12" data-stroke="#374151"></div>
+                <div data-el="icon" data-x="7%" data-y="24%" data-icon="carbon:chart-line" data-size="24" data-color="#10B981"></div>
+                <div data-el="text" data-x="7%" data-y="31%" data-font="12" data-color="#9CA3AF">Total Revenue</div>
+                <div data-el="text" data-x="7%" data-y="35%" data-font="28" data-color="#F9FAFB" data-bold="true">$2.4M</div>
+                <div data-el="text" data-x="22%" data-y="36%" data-font="12" data-color="#10B981" data-bg="#064E3B" data-padding="2 6" data-radius="4">+12.5%</div>
+
+                <!-- 卡片 2: 用户 -->
+                <div data-el="shape" data-shape="rect" data-x="36%" data-y="22%" data-w="28%" data-h="24%" data-fill="#1F2937" data-radius="12" data-stroke="#374151"></div>
+                <div data-el="icon" data-x="38%" data-y="24%" data-icon="carbon:user-multiple" data-size="24" data-color="#6366F1"></div>
+                <div data-el="text" data-x="38%" data-y="31%" data-font="12" data-color="#9CA3AF">Active Users</div>
+                <div data-el="text" data-x="38%" data-y="35%" data-font="28" data-color="#F9FAFB" data-bold="true">85.2K</div>
+                <div data-el="text" data-x="53%" data-y="36%" data-font="12" data-color="#6366F1" data-bg="#312E81" data-padding="2 6" data-radius="4">+5.2%</div>
+
+                <!-- 卡片 3: 转化 -->
+                <div data-el="shape" data-shape="rect" data-x="67%" data-y="22%" data-w="28%" data-h="24%" data-fill="#1F2937" data-radius="12" data-stroke="#374151"></div>
+                <div data-el="icon" data-x="69%" data-y="24%" data-icon="carbon:flash" data-size="24" data-color="#F59E0B"></div>
+                <div data-el="text" data-x="69%" data-y="31%" data-font="12" data-color="#9CA3AF">Conversion</div>
+                <div data-el="text" data-x="69%" data-y="35%" data-font="28" data-color="#F9FAFB" data-bold="true">3.8%</div>
+                <div data-el="text" data-x="84%" data-y="36%" data-font="12" data-color="#EF4444" data-bg="#7F1D1D" data-padding="2 6" data-radius="4">-1.1%</div>
+
+                <!-- 主图表区域 -->
+                <div data-el="shape" data-shape="rect" data-x="5%" data-y="50%" data-w="90%" data-h="45%" data-fill="#1F2937" data-radius="12" data-stroke="#374151"></div>
+                <div data-el="text" data-x="8%" data-y="55%" data-font="16" data-color="#F9FAFB" data-bold="true">Revenue Growth</div>
+                
+                <!-- 模拟图表 -->
+                <div data-el="image" data-x="8%" data-y="58%" data-w="84%" data-h="35%"
+                     data-src="https://quickchart.io/chart?c={type:'line',data:{labels:['Jan','Feb','Mar','Apr','May','Jun'],datasets:[{label:'2024',data:[120,132,101,134,190,230],borderColor:'rgb(99,102,241)',backgroundColor:'rgba(99,102,241,0.1)',fill:true}]},options:{legend:{display:false}}}&w=800&h=300"
+                     data-fit="contain"></div>
+            </section>
+
+            <!-- Complex Example 3: Magazine Style Layout - 简化版 -->
+            <section data-type="freeform" id="slide-complex-magazine" data-bg="#F3F4F6">
+                <!-- 左侧大图 -->
+                <div data-el="image" data-x="5%" data-y="5%" data-w="40%" data-h="90%"
+                     data-src="https://picsum.photos/600/1200?random=112"
+                     data-fit="cover"></div>
+
+                <!-- 右侧内容 -->
+                <div data-el="text" data-x="50%" data-y="10%" data-w="45%" data-font="12" data-color="#EF4444" data-bold="true" data-letter-spacing="2">FEATURED STORY</div>
+                <div data-el="text" data-x="50%" data-y="15%" data-w="45%" data-font="48" data-color="#111827" data-bold="true" data-line-height="1.1">
+                    The Art of Minimalism
                 </div>
                 
-                <!-- Lighten - 需要暗背景才能看到效果 -->
-                <div data-el="shape" data-shape="rounded" data-x="53%" data-y="14%" data-w="44%" data-h="75%" data-fill="#1e293b" data-radius="16"></div>
-                <div data-el="shape" data-shape="circle" data-x="58%" data-y="25%" data-w="20%" data-h="35%" data-fill="#7c3aed" data-opacity="0.7"></div>
-                <div data-el="shape" data-shape="circle" data-x="72%" data-y="35%" data-w="18%" data-h="30%" data-fill="#4f46e5" data-opacity="0.6"></div>
-                <div data-el="image"
-                     data-x="58%" data-y="20%" data-w="34%" data-h="40%"
-                     data-src="https://picsum.photos/700/500?random=8"
-                     data-blend="lighten"></div>
-                <div data-el="text" data-x="53%" data-y="65%" data-w="44%" data-font="22" data-color="#a78bfa" data-bold="true" data-align="center">Lighten</div>
-                <div data-el="text" data-x="55%" data-y="72%" data-w="40%" data-font="11" data-color="#9ca3af" data-align="center" data-line-height="1.4">
-                    只保留更亮的像素\n图片亮部与暗色背景混合
+                <div data-el="line" data-x1="50%" data-y1="30%" data-x2="60%" data-y2="30%" data-stroke="#111827" data-stroke-width="4"></div>
+                
+                <div data-el="text" data-x="50%" data-y="35%" data-w="45%" data-font="16" data-color="#374151" data-line-height="1.6">
+                    "Less is more" is not just a phrase, it's a philosophy. By stripping away the unnecessary, we reveal the essential.
                 </div>
+
+                <!-- 底部小图组（移除 grayscale filter） -->
+                <div data-el="image" data-x="50%" data-y="60%" data-w="20%" data-h="30%"
+                     data-src="https://picsum.photos/400/400?random=113"
+                     data-fit="cover"></div>
+                     
+                <div data-el="image" data-x="72%" data-y="60%" data-w="23%" data-h="30%"
+                     data-src="https://picsum.photos/400/400?random=114"
+                     data-fit="cover"></div>
+            </section>
+
+            <!-- Complex Example 4: Product Showcase - 简化版 -->
+            <section data-type="freeform" id="slide-complex-product" data-bg="#000000">
+                <!-- 聚光灯效果（使用透明度代替 blur） -->
+                <div data-el="shape" data-shape="circle" data-x="25%" data-y="5%" data-w="50%" data-h="60%" data-fill="#FFFFFF" data-opacity="0.05"></div>
+                
+                <!-- 产品标题 -->
+                <div data-el="text" data-x="0%" data-y="15%" data-w="100%" data-font="16" data-color="#71717A" data-align="center" data-letter-spacing="4">INTRODUCING</div>
+                <div data-el="text" data-x="0%" data-y="22%" data-w="100%" data-font="56" data-color="#FFFFFF" data-bold="true" data-align="center">Lumina X</div>
+                
+                <!-- 产品主图（移除 drop-shadow filter） -->
+                <div data-el="image" data-x="25%" data-y="35%" data-w="50%" data-h="40%"
+                     data-src="https://picsum.photos/800/600?random=115"
+                     data-fit="contain"></div>
+
+                <!-- 底部参数 -->
+                <div data-el="shape" data-shape="rect" data-x="20%" data-y="82%" data-w="60%" data-h="12%" data-fill="#18181B" data-radius="100" data-stroke="#27272A"></div>
+                
+                <div data-el="text" data-x="23%" data-y="86%" data-w="17%" data-font="14" data-color="#FFFFFF" data-align="center" data-bold="true">5G Ready</div>
+                <div data-el="text" data-x="42%" data-y="86%" data-w="17%" data-font="14" data-color="#FFFFFF" data-align="center" data-bold="true">8K Video</div>
+                <div data-el="text" data-x="60%" data-y="86%" data-w="17%" data-font="14" data-color="#FFFFFF" data-align="center" data-bold="true">All Day Battery</div>
             </section>
         
 `;
