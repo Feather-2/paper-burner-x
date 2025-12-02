@@ -442,22 +442,27 @@ const PPTXFreeformMixin = {
                     // 使用精确测量的边界框位置
                     let textX = containerX + txt.xPct * containerW;
                     const textY = containerY + txt.yPct * containerH;
-                    const textW = txt.wPct ? txt.wPct * containerW : 0.5;
                     const textH = txt.hPct ? txt.hPct * containerH : 0.3;
                     
-                    // 根据 text-anchor 设置对齐和宽度
+                    // 估算文字宽度（基于字号和字符数）
+                    const estCharWidth = fontPt * 0.02;  // 英寸每字符
+                    const estTextW = txt.text.length * estCharWidth + 0.1;
+                    
+                    // 根据 text-anchor 设置对齐和调整位置
                     let align = 'left';
-                    let finalW = textW + 0.1;
+                    let finalX = textX;
+                    let finalW = estTextW;
                     
                     if (txt.textAnchor === 'middle') {
                         align = 'center';
-                        finalW = textW;  // 居中对齐时不需要额外宽度
+                        finalX = textX - estTextW / 2;  // 文字框向左移动半个宽度
                     } else if (txt.textAnchor === 'end') {
                         align = 'right';
+                        finalX = textX - estTextW;  // 文字框向左移动整个宽度
                     }
                     
                     this.addText(slide, txt.text, {
-                        x: textX,
+                        x: finalX,
                         y: textY,
                         w: finalW,
                         h: textH * 1.2,

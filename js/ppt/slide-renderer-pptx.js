@@ -512,33 +512,33 @@ class PPTXSlideRenderer {
         
         // 解析 viewBox
         const viewBox = svg.getAttribute('viewBox');
-        let vbWidth = containerW, vbHeight = containerH;
+        let vbX = 0, vbY = 0, vbWidth = containerW, vbHeight = containerH;
         if (viewBox) {
             const parts = viewBox.split(/[\s,]+/).map(Number);
             if (parts.length >= 4) {
+                vbX = parts[0];
+                vbY = parts[1];
                 vbWidth = parts[2];
                 vbHeight = parts[3];
             }
         }
         
-        // 创建临时容器测量真实位置
-        const tempDiv = document.createElement('div');
-        tempDiv.style.cssText = `position:absolute;left:0;top:0;width:${containerW}px;height:${containerH}px;visibility:hidden;`;
-        const tempSvg = svg.cloneNode(true);
-        tempSvg.setAttribute('width', containerW);
-        tempSvg.setAttribute('height', containerH);
-        tempSvg.style.cssText = 'display:block;';
-        tempDiv.appendChild(tempSvg);
-        document.body.appendChild(tempDiv);
+        // 考虑 preserveAspectRatio="xMidYMid meet" 的影响
+        // 实际缩放比例是 min(scaleX, scaleY)，内容居中显示
+        const rawScaleX = containerW / vbWidth;
+        const rawScaleY = containerH / vbHeight;
+        const scale = Math.min(rawScaleX, rawScaleY);  // meet 模式使用较小的缩放比
         
-        // 获取 SVG 容器的精确位置
-        const svgRect = tempSvg.getBoundingClientRect();
+        // 计算居中偏移
+        const scaledW = vbWidth * scale;
+        const scaledH = vbHeight * scale;
+        const offsetX = (containerW - scaledW) / 2;  // X 方向居中偏移
+        const offsetY = (containerH - scaledH) / 2;  // Y 方向居中偏移
         
-        // 提取所有 text 元素，测量实际像素位置
+        // 提取所有 text 元素，使用数学计算位置
         const textNodes = svg.querySelectorAll('text');
-        const tempTextNodes = tempSvg.querySelectorAll('text');
         
-        textNodes.forEach((textNode, i) => {
+        textNodes.forEach((textNode) => {
             const text = textNode.textContent || '';
             if (!text.trim()) return;
             
@@ -547,35 +547,53 @@ class PPTXSlideRenderer {
             const fontWeight = textNode.getAttribute('font-weight') || 'normal';
             const textAnchor = textNode.getAttribute('text-anchor') || 'start';
             
-            const tempTextNode = tempTextNodes[i];
-            if (!tempTextNode) return;
+            // 直接从 SVG 属性获取坐标
+            let x = parseFloat(textNode.getAttribute('x')) || 0;
+            let y = parseFloat(textNode.getAttribute('y')) || 0;
             
-            // 使用 getBoundingClientRect 获取相对于视口的精确位置
-            const textRect = tempTextNode.getBoundingClientRect();
+            // 处理 transform 属性（如 rotate）
+            const transform = textNode.getAttribute('transform');
+            let rotation = 0;
+            if (transform) {
+                const rotateMatch = transform.match(/rotate\(([^)]+)\)/);
+                if (rotateMatch) {
+                    const rotateParams = rotateMatch[1].split(/[\s,]+/).map(Number);
+                    rotation = rotateParams[0] || 0;
+                    // 如果有旋转中心点，使用它
+                    if (rotateParams.length >= 3) {
+                        x = rotateParams[1];
+                        y = rotateParams[2];
+                    }
+                }
+            }
             
-            // 计算相对于 SVG 容器的位置（像素）
-            const relX = textRect.left - svgRect.left;
-            const relY = textRect.top - svgRect.top;
+            // 估算文字尺寸
+            const scaledFontSize = fontSize * scale;
+            const textHeight = scaledFontSize * 1.2;
+            
+            // 将 viewBox 坐标转换为容器像素（考虑居中偏移）
+            let xPx = offsetX + (x - vbX) * scale;
+            let yPx = offsetY + (y - vbY) * scale;
+            
+            // SVG 的 y 是基线位置，需要向上偏移到顶部
+            yPx -= scaledFontSize * 0.85;
             
             textElements.push({
-                // 转换为相对于容器的百分比
-                xPct: relX / containerW,
-                yPct: relY / containerH,
-                wPct: textRect.width / containerW,
-                hPct: textRect.height / containerH,
+                xPct: xPx / containerW,
+                yPct: yPx / containerH,
+                wPct: 0,  // 让渲染器自动计算宽度
+                hPct: textHeight / containerH,
                 text: text.trim(),
-                fontSize,
+                fontSize: scaledFontSize,
                 color: fill,
                 bold: fontWeight === 'bold',
-                textAnchor
+                textAnchor,
+                rotation
             });
             
             // 从 SVG 中移除文字
             textNode.remove();
         });
-        
-        // 清理临时元素
-        document.body.removeChild(tempDiv);
         
         // 序列化为无文字的 SVG
         const serializer = new XMLSerializer();
