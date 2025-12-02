@@ -199,6 +199,84 @@
     transform: rotate(180deg);
 }
 
+/* Export Options (复选式导出设置) */
+.ppt-export-options {
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.ppt-export-option-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ppt-export-option-label {
+    font-size: 12px;
+    color: var(--ppt-text-muted);
+    min-width: 36px;
+}
+
+.ppt-export-option-btns {
+    display: flex;
+    gap: 4px;
+    flex: 1;
+}
+
+.ppt-option-btn {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid var(--ppt-border);
+    background: transparent;
+    color: var(--ppt-text-secondary);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: var(--ppt-font-sans);
+}
+
+.ppt-option-btn:hover {
+    background: var(--ppt-bg-subtle);
+    border-color: var(--ppt-text-muted);
+}
+
+.ppt-option-btn.active {
+    background: var(--ppt-primary);
+    border-color: var(--ppt-primary);
+    color: white;
+}
+
+.ppt-export-action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 8px 12px;
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    background: var(--ppt-primary);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: var(--ppt-font-sans);
+}
+
+.ppt-export-action-btn:hover {
+    background: var(--ppt-primary-hover, #4338ca);
+    transform: translateY(-1px);
+}
+
+.ppt-export-action-btn iconify-icon {
+    font-size: 16px;
+}
+
 /* (Removed duplicate Upload Area, Progress Stepper, and Visualizer styles) */
 
 /* ==================== Modals ==================== */

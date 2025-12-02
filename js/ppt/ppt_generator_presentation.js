@@ -209,27 +209,27 @@ const PPTGeneratorPresentation = {
                         <iconify-icon icon="carbon:chevron-down" class="ppt-export-chevron"></iconify-icon>
                     </button>
                     <div class="ppt-export-menu" id="pptExportMenu">
-                        <div class="ppt-export-group-label">PowerPoint 导出</div>
-                        <button class="ppt-export-item" onclick="window.PPTGenerator.exportAs('pptx')">
-                            <iconify-icon icon="carbon:document"></iconify-icon>
-                            <div class="ppt-export-item-info">
-                                <span class="ppt-export-item-title">标准导出</span>
-                                <span class="ppt-export-item-desc">可编辑，公式用文本</span>
+                        <div class="ppt-export-group-label">PPTX 导出设置</div>
+                        <div class="ppt-export-options">
+                            <div class="ppt-export-option-group">
+                                <span class="ppt-export-option-label">公式</span>
+                                <div class="ppt-export-option-btns">
+                                    <button class="ppt-option-btn active" data-option="formula" data-value="unicode" title="Unicode 文本">文本</button>
+                                    <button class="ppt-option-btn" data-option="formula" data-value="omml" title="原生公式（实验性）">原生</button>
+                                    <button class="ppt-option-btn" data-option="formula" data-value="image" title="图片模式">图片</button>
+                                </div>
                             </div>
-                        </button>
-                        <button class="ppt-export-item" onclick="window.PPTGenerator.exportAs('pptx-omml')">
-                            <iconify-icon icon="carbon:function-math"></iconify-icon>
-                            <div class="ppt-export-item-info">
-                                <span class="ppt-export-item-title">原生公式</span>
-                                <span class="ppt-export-item-desc">公式可编辑（实验性）</span>
+                            <div class="ppt-export-option-group">
+                                <span class="ppt-export-option-label">图表</span>
+                                <div class="ppt-export-option-btns">
+                                    <button class="ppt-option-btn active" data-option="chart" data-value="native" title="PPT 原生图表">原生</button>
+                                    <button class="ppt-option-btn" data-option="chart" data-value="svg" title="SVG 图表（文字可编辑）">SVG</button>
+                                </div>
                             </div>
-                        </button>
-                        <button class="ppt-export-item" onclick="window.PPTGenerator.exportAs('pptx-image')">
-                            <iconify-icon icon="carbon:image"></iconify-icon>
-                            <div class="ppt-export-item-info">
-                                <span class="ppt-export-item-title">图片模式</span>
-                                <span class="ppt-export-item-desc">效果最好，不可编辑</span>
-                            </div>
+                        </div>
+                        <button class="ppt-export-action-btn" onclick="window.PPTGenerator.exportPPTX()">
+                            <iconify-icon icon="carbon:document-export"></iconify-icon>
+                            <span>导出 PPTX</span>
                         </button>
                         <div class="ppt-export-divider"></div>
                         <button class="ppt-export-item" onclick="window.PPTGenerator.exportAs('pdf')">

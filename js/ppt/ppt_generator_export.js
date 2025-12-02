@@ -56,12 +56,21 @@ const PPTGeneratorExport = {
         }
     },
 
+    // 导出选项状态
+    exportOptions: {
+        formula: 'unicode',  // unicode | omml | image
+        chart: 'native',     // native | svg
+    },
+
     toggleExportMenu() {
         const dropdown = document.querySelector('.ppt-export-dropdown');
         if (!dropdown) return;
 
         dropdown.classList.toggle('open');
         if (dropdown.classList.contains('open')) {
+            // 初始化选项按钮事件
+            this._initExportOptionButtons();
+            
             const closeHandler = (e) => {
                 if (!dropdown.contains(e.target)) {
                     dropdown.classList.remove('open');
@@ -69,6 +78,60 @@ const PPTGeneratorExport = {
                 }
             };
             setTimeout(() => document.addEventListener('click', closeHandler), 0);
+        }
+    },
+
+    _initExportOptionButtons() {
+        const menu = document.getElementById('pptExportMenu');
+        if (!menu || menu._optionsInitialized) return;
+        
+        menu.querySelectorAll('.ppt-option-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const option = btn.dataset.option;
+                const value = btn.dataset.value;
+                
+                // 更新状态
+                this.exportOptions[option] = value;
+                
+                // 更新 UI
+                btn.parentElement.querySelectorAll('.ppt-option-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            });
+        });
+        
+        menu._optionsInitialized = true;
+    },
+
+    /**
+     * 使用当前选项导出 PPTX
+     */
+    async exportPPTX() {
+        const dropdown = document.querySelector('.ppt-export-dropdown');
+        if (dropdown) dropdown.classList.remove('open');
+
+        const btn = document.querySelector('.ppt-export-btn');
+        const originalContent = btn?.innerHTML;
+
+        try {
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<iconify-icon icon="carbon:circle-dash" class="animate-spin"></iconify-icon> 导出中...';
+            }
+
+            await this._exportPPTX(this.exportOptions.formula, this.exportOptions.chart);
+
+            this._showProgress('导出完成！', 100);
+            setTimeout(() => this._hideProgress(), 1500);
+        } catch (e) {
+            console.error('Export failed:', e);
+            this._showProgress(`导出失败: ${e.message}`, 0);
+            setTimeout(() => this._hideProgress(), 3000);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = originalContent;
+            }
         }
     },
 
@@ -134,9 +197,10 @@ const PPTGeneratorExport = {
 
     /**
      * 导出 PPTX
-     * @param {string} mode - 导出模式：'unicode' | 'omml' | 'image'
+     * @param {string} formulaMode - 公式模式：'unicode' | 'omml' | 'image'
+     * @param {string} chartMode - 图表模式：'native' | 'svg'
      */
-    async _exportPPTX(mode = 'unicode') {
+    async _exportPPTX(formulaMode = 'unicode', chartMode = 'native') {
         this._showProgress('正在加载依赖...', 5);
         
         if (typeof PptxGenJS === 'undefined') {
@@ -155,25 +219,28 @@ const PPTGeneratorExport = {
         const filename = `${this.currentProject?.title || 'presentation'}.pptx`;
 
         // 图片模式：每页幻灯片都渲染成图片
-        if (mode === 'image') {
+        if (formulaMode === 'image') {
             console.log('[PPTX Export] Using image mode (best quality, not editable)');
             await this._exportPPTXAsImages(filename);
             return;
         }
 
         this._showProgress('正在处理特效...', 10);
+        
+        // 如果图表模式是 SVG，需要在 baking 时将图表转为 SVG
+        const bakeOptions = { chartMode };
         const slidesForExport = await this._bakeEffectsForPPTX(this.slides, (p, msg) => {
             this._showProgress(msg || '正在烘焙特效...', 10 + p * 0.5); // 10-60%
-        });
+        }, bakeOptions);
         
         this._showProgress('正在生成幻灯片...', 65);
-        const renderer = new PPTXSlideRenderer();
+        const renderer = new PPTXSlideRenderer({ chartMode });
         
         const hasFormulas = slidesForExport.some(slide => 
             slide.elements?.some(el => el.type === 'formula')
         );
 
-        if (mode === 'omml' && hasFormulas && typeof MathConverter !== 'undefined') {
+        if (formulaMode === 'omml' && hasFormulas && typeof MathConverter !== 'undefined') {
             console.log('[PPTX Export] Using OMML formula mode (editable, may require repair)');
             this._showProgress('正在渲染公式...', 70);
             await renderer.renderWithOMML(slidesForExport, filename, new MathConverter());
@@ -182,6 +249,7 @@ const PPTGeneratorExport = {
             await renderer.render(slidesForExport, filename);
         }
         
+        console.log(`[PPTX Export] chartMode: ${chartMode}`);
         this._showProgress('正在保存文件...', 95);
     },
 
