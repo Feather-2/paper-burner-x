@@ -85,14 +85,17 @@ const PPTGeneratorExport = {
         const menu = document.getElementById('pptExportMenu');
         if (!menu || menu._optionsInitialized) return;
         
+        const self = this;  // 保存 this 引用
+        console.log('[_initExportOptionButtons] this:', this, 'exportOptions:', this.exportOptions);
         menu.querySelectorAll('.ppt-option-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const option = btn.dataset.option;
                 const value = btn.dataset.value;
                 
-                // 更新状态
-                this.exportOptions[option] = value;
+                // 更新状态 - 使用 PPTGeneratorExport 上的共享对象
+                PPTGeneratorExport.exportOptions[option] = value;
+                console.log('[ExportOptions] Updated:', option, '=', value, PPTGeneratorExport.exportOptions);
                 
                 // 更新 UI
                 btn.parentElement.querySelectorAll('.ppt-option-btn').forEach(b => b.classList.remove('active'));
@@ -119,7 +122,9 @@ const PPTGeneratorExport = {
                 btn.innerHTML = '<iconify-icon icon="carbon:circle-dash" class="animate-spin"></iconify-icon> 导出中...';
             }
 
-            await this._exportPPTX(this.exportOptions.formula, this.exportOptions.chart);
+            const opts = PPTGeneratorExport.exportOptions;
+            console.log('[exportPPTX] options:', opts);
+            await this._exportPPTX(opts.formula, opts.chart);
 
             this._showProgress('导出完成！', 100);
             setTimeout(() => this._hideProgress(), 1500);
@@ -150,14 +155,14 @@ const PPTGeneratorExport = {
 
             switch (format) {
                 case 'pptx':
-                    await this._exportPPTX('unicode');
-                    break;
                 case 'pptx-omml':
-                    await this._exportPPTX('omml');
+                case 'pptx-image': {
+                    // 使用当前选项
+                    const opts = PPTGeneratorExport.exportOptions;
+                    console.log('[exportAs] Using options:', opts);
+                    await this._exportPPTX(opts.formula, opts.chart);
                     break;
-                case 'pptx-image':
-                    await this._exportPPTX('image');
-                    break;
+                }
                 case 'pdf':
                     await this._exportPDF();
                     break;
@@ -201,6 +206,7 @@ const PPTGeneratorExport = {
      * @param {string} chartMode - 图表模式：'native' | 'svg'
      */
     async _exportPPTX(formulaMode = 'unicode', chartMode = 'native') {
+        console.log('[_exportPPTX] Called with formulaMode:', formulaMode, 'chartMode:', chartMode);
         this._showProgress('正在加载依赖...', 5);
         
         if (typeof PptxGenJS === 'undefined') {
@@ -1325,8 +1331,18 @@ ${renderedSlides}
     /**
      * 智能分层烘焙：将连续的特效元素合并为"智能对象"，保持层叠关系。
      * 使用并发处理提升性能
+     * @param {Array} slides - 幻灯片数组
+     * @param {Function} onProgress - 进度回调
+     * @param {Object} options - 选项 { chartMode: 'native' | 'svg' }
      */
-    async _bakeEffectsForPPTX(slides, onProgress) {
+    async _bakeEffectsForPPTX(slides, onProgress, options = {}) {
+        // 如果图表模式是 SVG，先转换所有 chart 元素
+        console.log('[bakeEffects] chartMode:', options.chartMode);
+        if (options.chartMode === 'svg') {
+            console.log('[bakeEffects] Converting charts to SVG...');
+            slides = this._convertChartsToSvg(slides);
+        }
+        
         const needsBaking = slides.some(slide => this._slideHasEffects(slide));
         if (!needsBaking) {
             onProgress?.(100, '无需处理特效');
@@ -2445,6 +2461,49 @@ ${renderedSlides}
             btn.disabled = false;
             btn.innerHTML = originalContent;
         }
+    },
+
+    /**
+     * 将所有 chart 元素转换为 svg 元素
+     * 使用 HTMLSlideRenderer 生成 SVG 内容
+     */
+    _convertChartsToSvg(slides) {
+        if (!window.HTMLSlideRenderer) {
+            console.warn('[convertChartsToSvg] HTMLSlideRenderer not available');
+            return slides;
+        }
+        
+        const renderer = new HTMLSlideRenderer();
+        
+        return slides.map(slide => {
+            if (!slide.elements) return slide;
+            
+            const convertedElements = slide.elements.map(el => {
+                if (el.type !== 'chart') return el;
+                
+                // 使用 HTMLSlideRenderer 生成图表 SVG
+                const chartHtml = renderer.renderFreeformChart(el, '');
+                
+                // 提取 SVG 内容
+                const svgMatch = chartHtml.match(/<svg[^>]*>[\s\S]*?<\/svg>/i);
+                if (!svgMatch) {
+                    console.warn('[convertChartsToSvg] No SVG found in chart HTML');
+                    return el;
+                }
+                
+                // 转换为 svg 元素
+                return {
+                    ...el,
+                    type: 'svg',
+                    content: svgMatch[0],
+                    // 保留原始 chart 数据以便调试
+                    _originalType: 'chart',
+                    _chartData: el.chartData,
+                };
+            });
+            
+            return { ...slide, elements: convertedElements };
+        });
     },
 };
 
