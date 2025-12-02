@@ -507,10 +507,10 @@
                         <rect x="90" y="100" width="100" height="50" rx="4" fill="#374151"/><text x="140" y="130" fill="#fbbf24" font-size="12" text-anchor="middle">50K</text>
                         <rect x="90" y="160" width="100" height="50" rx="4" fill="#1f2937"/><text x="140" y="190" fill="#a3e635" font-size="12" text-anchor="middle">4K</text>
                         <rect x="90" y="220" width="100" height="50" rx="4" fill="#111827"/><text x="140" y="250" fill="#22d3ee" font-size="12" text-anchor="middle">1K</text>
-                        <rect x="90" y="280" width="100" height="60" rx="4" fill="#0c0a09" stroke="#22d3ee" stroke-width="2"/><text x="140" y="315" fill="#22d3ee" font-size="14" font-weight="bold" text-anchor="middle">15mK</text>
+                        <rect x="90" y="280" width="100" height="60" rx="4" fill="#0c0a09" stroke="#22d3ee" stroke-width="2"/>
                         <!-- 量子处理器 -->
-                        <rect x="105" y="295" width="70" height="30" rx="4" fill="#1e293b" stroke="#a855f7" stroke-width="2"/>
-                        <text x="140" y="314" fill="#a855f7" font-size="10" text-anchor="middle">QPU</text>
+                        <rect x="105" y="290" width="70" height="35" rx="4" fill="#1e293b" stroke="#a855f7" stroke-width="2"/>
+                        <text x="140" y="312" fill="#a855f7" font-size="11" font-weight="bold" text-anchor="middle">QPU</text>
                         <!-- 标签 -->
                         <text x="140" y="370" fill="#64748b" font-size="10" text-anchor="middle">Dilution Refrigerator</text>
                     </svg>

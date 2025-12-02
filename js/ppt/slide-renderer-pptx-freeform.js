@@ -68,7 +68,8 @@ const PPTXFreeformMixin = {
 
     renderFreeformTextPPTX(slide, el, x, y, w, h) {
         const fontSizePx = el.font || 18;
-        const fontSize = Math.round(fontSizePx * 0.75);
+        // px→pt: 理论值 0.75，但实际视觉效果需要 ~0.82 才能匹配
+        const fontSize = Math.round(fontSizePx * 0.82);
 
         let textContent = (el.content || '')
             .replace(/\r?\n/g, ' ')
@@ -435,8 +436,8 @@ const PPTXFreeformMixin = {
                 const containerH = h || 2;
                 
                 textElements.forEach(txt => {
-                    // PPTX 字号 pt
-                    const fontPt = Math.round(txt.fontSize * 0.75);
+                    // PPTX 字号 pt（0.82 匹配 HTML 视觉效果）
+                    const fontPt = Math.round(txt.fontSize * 0.82);
                     
                     // 使用精确测量的边界框位置
                     let textX = containerX + txt.xPct * containerW;

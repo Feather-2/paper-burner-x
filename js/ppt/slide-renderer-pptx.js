@@ -373,7 +373,8 @@ class PPTXSlideRenderer {
     get fontFace() { return this.styles.fontFamily.pptx; }
 
     addText(slide, text, options) {
-        slide.addText(text, { fontFace: this.fontFace, ...options });
+        // inset: 0 去除默认内边距，使位置与 HTML 一致
+        slide.addText(text, { fontFace: this.fontFace, inset: 0, ...options });
     }
 
     // ═══════════════════════════════════════════════════════════════
