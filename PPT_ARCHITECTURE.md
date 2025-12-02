@@ -1,6 +1,6 @@
 # PPT 模块架构文档
 
-> 最后更新: 2024-12-02
+> 最后更新: 2024-12-03
 
 ## 📁 文件结构概览
 
@@ -19,21 +19,24 @@ js/ppt/
 ├── PPT 生成器 (Mixin 架构)
 │   ├── ppt_generator_core.js    # 核心类定义 (5KB)
 │   ├── ppt_generator_presentation.js  # 演示界面 UI (48KB)
-│   ├── ppt_generator_export.js  # 导出逻辑 (107KB) ⚠️ 最大
 │   ├── ppt_generator_navigation.js    # 幻灯片导航 (28KB)
 │   ├── ppt_generator_workflow.js      # AI 工作流 (16KB)
 │   ├── ppt_generator_utilities.js     # 工具函数 (7KB)
 │   └── ppt_generator_deletion.js      # 删除逻辑 (4KB)
+│
+├── 导出模块 (按依赖顺序加载)
+│   ├── ppt_generator_export_image.js   # 图片处理、Mask烘焙、Canvas截图 (20KB)
+│   ├── ppt_generator_export_baking.js  # 特效检测、分层烘焙 (24KB)
+│   ├── ppt_generator_export_formats.js # PDF/HTML/图片导出 (18KB)
+│   └── ppt_generator_export_core.js    # UI进度、选项、PPTX核心 (15KB)
 │
 ├── 辅助模块
 │   ├── math-converter.js        # LaTeX → OMML 转换 (13KB)
 │   ├── ppt_storage.js           # 项目存储 (4KB)
 │   └── ppt_model_config_modal.js  # AI 模型配置 (24KB)
 │
-└── 遗留/备份
-    ├── ppt_generator_export_legacy.js  # 旧导出逻辑 (19KB)
-    ├── ppt_generator_export_baking.js  # 烘焙逻辑备份 (16KB)
-    └── ppt_generator.sample.js         # 示例数据 (96KB)
+└── 示例数据
+    └── ppt_generator.sample.js  # 示例数据 (96KB)
 ```
 
 ---
