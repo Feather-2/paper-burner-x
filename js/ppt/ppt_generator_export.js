@@ -1803,14 +1803,19 @@ ${renderedSlides}
         // mask 效果需要烘焙
         if (el.mask) return true;
         // 复杂 SVG 需要烘焙（pattern、defs 等在直接转换时可能丢失）
-        // 但含有 <text> 的 SVG 保持可编辑，不烘焙
+        // 但含有 <text> 的 SVG 保持可编辑，不烘焙（文字提取在 PPTX 渲染器中处理）
         if (el.type === 'svg' && el.content) {
             const content = el.content.toLowerCase();
-            const hasComplexFeatures = content.includes('<pattern') || content.includes('<defs') || 
-                content.includes('<lineargradient') || content.includes('<radialgradient') ||
+            
+            // 如果 SVG 包含 text 元素，不烘焙，保持文字可编辑
+            if (content.includes('<text')) {
+                return false;
+            }
+            
+            const hasComplexFeatures = content.includes('<pattern') || 
                 content.includes('<clippath') || content.includes('<mask') ||
                 content.includes('marker-end') || content.includes('marker-start');
-            // 含复杂特性的 SVG 都烘焙，确保 pattern/marker 等效果不丢失
+            // 只有真正复杂的特性才烘焙（渐变可以在 PPTX 中保留）
             if (hasComplexFeatures) {
                 return true;
             }

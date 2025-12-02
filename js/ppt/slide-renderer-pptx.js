@@ -459,13 +459,139 @@ class PPTXSlideRenderer {
             const w = this._parseSizeToPixels(el.w, false) || 200;
             const h = this._parseSizeToPixels(el.h, true) || 200;
             
-            const dataUrl = await this.svgToBase64(el.content, w / 96, h / 96);
-            if (dataUrl) this.svgCache[key] = dataUrl;
-            return dataUrl;
+            // 分层处理：提取文字，生成无文字的图形层
+            let graphicsSvg, textElements;
+            try {
+                const result = this._extractSvgTexts(el.content, w, h);
+                graphicsSvg = result.graphicsSvg;
+                textElements = result.textElements;
+                console.log(`[preloadSvg] Extracted ${textElements.length} texts from SVG`);
+            } catch (e) {
+                console.warn('[preloadSvg] Text extraction failed:', e);
+                graphicsSvg = el.content;
+                textElements = [];
+            }
+            
+            // 图形层转图片
+            const dataUrl = await this.svgToBase64(graphicsSvg, w / 96, h / 96);
+            
+            this.svgCache[key] = {
+                graphics: dataUrl,
+                texts: textElements,
+                viewBox: this._parseSvgViewBox(el.content),
+                width: w,
+                height: h
+            };
+            return this.svgCache[key];
         } catch (e) {
             console.warn('[preloadSvg] Failed:', e);
             return null;
         }
+    }
+
+    _extractSvgTexts(svgContent, containerW, containerH) {
+        const textElements = [];
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(svgContent, 'image/svg+xml');
+        const svg = doc.querySelector('svg');
+        
+        if (!svg) {
+            console.warn('[_extractSvgTexts] No SVG element found');
+            return { graphicsSvg: svgContent, textElements: [] };
+        }
+        
+        // 检查原始 text 元素数量
+        const originalTextCount = svg.querySelectorAll('text').length;
+        console.log(`[_extractSvgTexts] Found ${originalTextCount} text elements, SVG length: ${svgContent.length}, hasText: ${svgContent.includes('<text')}`);
+        
+        // 如果 SVG 内容本身就没有 text 标签，可能是被 bake 过了
+        if (!svgContent.includes('<text') && originalTextCount === 0) {
+            console.log('[_extractSvgTexts] SVG has no text elements (may be baked)');
+        }
+        
+        // 解析 viewBox
+        const viewBox = svg.getAttribute('viewBox');
+        let vbWidth = containerW, vbHeight = containerH;
+        if (viewBox) {
+            const parts = viewBox.split(/[\s,]+/).map(Number);
+            if (parts.length >= 4) {
+                vbWidth = parts[2];
+                vbHeight = parts[3];
+            }
+        }
+        
+        // 创建临时容器测量真实位置
+        const tempDiv = document.createElement('div');
+        tempDiv.style.cssText = `position:absolute;left:0;top:0;width:${containerW}px;height:${containerH}px;visibility:hidden;`;
+        const tempSvg = svg.cloneNode(true);
+        tempSvg.setAttribute('width', containerW);
+        tempSvg.setAttribute('height', containerH);
+        tempSvg.style.cssText = 'display:block;';
+        tempDiv.appendChild(tempSvg);
+        document.body.appendChild(tempDiv);
+        
+        // 获取 SVG 容器的精确位置
+        const svgRect = tempSvg.getBoundingClientRect();
+        
+        // 提取所有 text 元素，测量实际像素位置
+        const textNodes = svg.querySelectorAll('text');
+        const tempTextNodes = tempSvg.querySelectorAll('text');
+        
+        textNodes.forEach((textNode, i) => {
+            const text = textNode.textContent || '';
+            if (!text.trim()) return;
+            
+            const fill = textNode.getAttribute('fill') || '#000000';
+            const fontSize = parseFloat(textNode.getAttribute('font-size')) || 12;
+            const fontWeight = textNode.getAttribute('font-weight') || 'normal';
+            const textAnchor = textNode.getAttribute('text-anchor') || 'start';
+            
+            const tempTextNode = tempTextNodes[i];
+            if (!tempTextNode) return;
+            
+            // 使用 getBoundingClientRect 获取相对于视口的精确位置
+            const textRect = tempTextNode.getBoundingClientRect();
+            
+            // 计算相对于 SVG 容器的位置（像素）
+            const relX = textRect.left - svgRect.left;
+            const relY = textRect.top - svgRect.top;
+            
+            textElements.push({
+                // 转换为相对于容器的百分比
+                xPct: relX / containerW,
+                yPct: relY / containerH,
+                wPct: textRect.width / containerW,
+                hPct: textRect.height / containerH,
+                text: text.trim(),
+                fontSize,
+                color: fill,
+                bold: fontWeight === 'bold',
+                textAnchor
+            });
+            
+            // 从 SVG 中移除文字
+            textNode.remove();
+        });
+        
+        // 清理临时元素
+        document.body.removeChild(tempDiv);
+        
+        // 序列化为无文字的 SVG
+        const serializer = new XMLSerializer();
+        const graphicsSvg = serializer.serializeToString(svg);
+        
+        return { graphicsSvg, textElements };
+    }
+
+    _parseSvgViewBox(svgContent) {
+        const match = svgContent.match(/viewBox=["']([^"']+)["']/);
+        if (match) {
+            const parts = match[1].split(/[\s,]+/).map(Number);
+            if (parts.length >= 4) {
+                return { x: parts[0], y: parts[1], width: parts[2], height: parts[3] };
+            }
+        }
+        return null;
     }
 
     async preloadAllImages(slides) {

@@ -405,17 +405,70 @@ const PPTXFreeformMixin = {
     renderFreeformSvgPPTX(slide, el, x, y, w, h) {
         try {
             const key = this._hashString(el.content || '');
-            const svgDataUrl = this.svgCache?.[key];
-            if (svgDataUrl) {
-                const imgOptions = { data: svgDataUrl, x: x || 0, y: y || 0, w: w || 2, h: h || 2 };
-                // 应用透明度 (PptxGenJS: transparency 0-100, 100=完全透明)
+            const cached = this.svgCache?.[key];
+            
+            if (!cached) {
+                console.warn('[renderFreeformSvgPPTX] SVG not in cache');
+                this.addImagePlaceholder(slide, x, y, w, h, 'SVG');
+                return;
+            }
+            
+            // 兼容旧格式（纯 dataUrl）和新格式（对象）
+            const graphicsData = typeof cached === 'string' ? cached : cached.graphics;
+            const textElements = typeof cached === 'object' ? (cached.texts || []) : [];
+            console.log(`[renderSvg] texts: ${textElements.length}, cached type: ${typeof cached}`);
+            
+            // 1. 渲染图形层
+            if (graphicsData) {
+                const imgOptions = { data: graphicsData, x: x || 0, y: y || 0, w: w || 2, h: h || 2 };
                 if (el.opacity !== undefined && el.opacity < 1) {
                     imgOptions.transparency = Math.round((1 - el.opacity) * 100);
                 }
                 slide.addImage(imgOptions);
-            } else {
-                console.warn('[renderFreeformSvgPPTX] SVG not in cache');
-                this.addImagePlaceholder(slide, x, y, w, h, 'SVG');
+            }
+            
+            // 2. 渲染文字层（原生可编辑文字）
+            if (textElements && textElements.length > 0) {
+                const containerX = x || 0;
+                const containerY = y || 0;
+                const containerW = w || 2;
+                const containerH = h || 2;
+                
+                textElements.forEach(txt => {
+                    // PPTX 字号 pt
+                    const fontPt = Math.round(txt.fontSize * 0.75);
+                    
+                    // 使用精确测量的边界框位置
+                    let textX = containerX + txt.xPct * containerW;
+                    const textY = containerY + txt.yPct * containerH;
+                    const textW = txt.wPct ? txt.wPct * containerW : 0.5;
+                    const textH = txt.hPct ? txt.hPct * containerH : 0.3;
+                    
+                    // 根据 text-anchor 设置对齐和宽度
+                    let align = 'left';
+                    let finalW = textW + 0.1;
+                    
+                    if (txt.textAnchor === 'middle') {
+                        align = 'center';
+                        finalW = textW;  // 居中对齐时不需要额外宽度
+                    } else if (txt.textAnchor === 'end') {
+                        align = 'right';
+                    }
+                    
+                    this.addText(slide, txt.text, {
+                        x: textX,
+                        y: textY,
+                        w: finalW,
+                        h: textH * 1.2,
+                        fontSize: fontPt,
+                        color: this.safeColor(txt.color),
+                        bold: txt.bold,
+                        align: align,
+                        valign: 'top',
+                        wrap: false,
+                        inset: 0,
+                    });
+                });
             }
         } catch (e) {
             console.warn('[renderFreeformSvgPPTX] Failed:', e);
