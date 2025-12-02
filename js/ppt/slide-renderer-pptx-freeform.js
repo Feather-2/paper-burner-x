@@ -131,30 +131,44 @@ const PPTXFreeformMixin = {
     renderFreeformImagePPTX(slide, el, x, y, w, h) {
         if (el.src) {
             try {
-                const imgOptions = { x: x || 0, y: y || 0, w: w || 2, h: h || 2 };
+                const fitMode = el.fit || 'cover';
+                const cached = this.imageCache && this.imageCache[el.src];
                 
-                // 区分 base64 和 URL
+                // 计算最终位置和尺寸
+                let finalX = x || 0, finalY = y || 0, finalW = w || 2, finalH = h || 2;
+                
+                // 如果是 contain 模式且有缓存的尺寸信息，手动计算居中位置
+                if (fitMode === 'contain' && cached && cached.ratio) {
+                    const containerRatio = (w || 2) / (h || 2);
+                    const imgRatio = cached.ratio;
+                    
+                    if (imgRatio > containerRatio) {
+                        // 图片更宽，以宽度为准
+                        finalW = w || 2;
+                        finalH = finalW / imgRatio;
+                        finalY = (y || 0) + ((h || 2) - finalH) / 2;
+                    } else {
+                        // 图片更高，以高度为准
+                        finalH = h || 2;
+                        finalW = finalH * imgRatio;
+                        finalX = (x || 0) + ((w || 2) - finalW) / 2;
+                    }
+                    console.log('[renderImage] Contain calc:', el.src, 'ratio:', imgRatio.toFixed(2), '→', finalW.toFixed(2), 'x', finalH.toFixed(2));
+                }
+                
+                const imgOptions = { x: finalX, y: finalY, w: finalW, h: finalH };
+                
+                // 设置图片数据
                 if (el.src.startsWith('data:')) {
                     imgOptions.data = el.src;
+                } else if (cached) {
+                    imgOptions.data = cached.data;
                 } else {
                     imgOptions.path = el.src;
                 }
                 
                 if (el.rotate) imgOptions.rotate = el.rotate;
                 if (el.radius) imgOptions.rounding = true;
-                
-                // 支持 fit 模式：contain 保持比例居中，cover 填充裁剪
-                // 默认使用 cover（与 HTML 一致）
-                const fitMode = el.fit || 'cover';
-                
-                // PptxGenJS 的 sizing 支持 contain/cover
-                // 注意：cover 可能在某些版本有问题，如果图片显示异常可以尝试不设置 sizing
-                if (fitMode === 'contain') {
-                    imgOptions.sizing = { type: 'contain', w: w || 2, h: h || 2 };
-                } else if (fitMode === 'cover') {
-                    imgOptions.sizing = { type: 'cover', w: w || 2, h: h || 2 };
-                }
-                // fill 模式不设置 sizing，使用默认拉伸行为
                 
                 slide.addImage(imgOptions);
             } catch (e) { this.addImagePlaceholder(slide, x, y, w, h, el.alt); }

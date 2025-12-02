@@ -57,6 +57,7 @@ class PPTXSlideRenderer {
             this.preloadAllIcons(slides),
             this.preloadAllFormulas(slides),
             this.preloadAllSvgs(slides),
+            this.preloadAllImages(slides),
         ]);
 
         const pres = new PptxGenJS();
@@ -85,6 +86,7 @@ class PPTXSlideRenderer {
         await Promise.all([
             this.preloadAllIcons(slides),
             this.preloadAllSvgs(slides),
+            this.preloadAllImages(slides),
         ]);
 
         const pres = new PptxGenJS();
@@ -464,6 +466,80 @@ class PPTXSlideRenderer {
             console.warn('[preloadSvg] Failed:', e);
             return null;
         }
+    }
+
+    async preloadAllImages(slides) {
+        if (!this.imageCache) this.imageCache = {};
+        const imagePromises = [];
+
+        const collectImages = (elements) => {
+            if (!elements) return;
+            elements.forEach(el => {
+                if (el.type === 'image' && el.src && !el.src.startsWith('data:')) {
+                    imagePromises.push(this.preloadImage(el.src));
+                }
+                if (el.children) collectImages(el.children);
+            });
+        };
+
+        slides.forEach(slide => {
+            if (slide.type === 'freeform' && slide.elements) collectImages(slide.elements);
+        });
+
+        if (imagePromises.length > 0) {
+            console.log(`[PPTXSlideRenderer] Preloading ${imagePromises.length} images...`);
+            await Promise.all(imagePromises);
+        }
+    }
+
+    async preloadImage(src) {
+        if (this.imageCache[src]) {
+            return this.imageCache[src];
+        }
+        
+        console.log('[preloadImage] Loading:', src);
+        try {
+            const response = await fetch(src);
+            if (!response.ok) {
+                console.warn('[preloadImage] Fetch failed:', src, response.status);
+                return null;
+            }
+            const blob = await response.blob();
+            const base64 = await this._blobToBase64(blob);
+            
+            // 获取图片原始尺寸
+            const dimensions = await this._getImageDimensions(base64);
+            
+            this.imageCache[src] = {
+                data: base64,
+                width: dimensions.width,
+                height: dimensions.height,
+                ratio: dimensions.width / dimensions.height
+            };
+            console.log('[preloadImage] Cached:', src, dimensions.width, 'x', dimensions.height);
+            return this.imageCache[src];
+        } catch (e) {
+            console.warn('[preloadImage] Failed:', src, e);
+            return null;
+        }
+    }
+
+    _blobToBase64(blob) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+        });
+    }
+
+    _getImageDimensions(base64) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+            img.onerror = () => resolve({ width: 100, height: 100 });
+            img.src = base64;
+        });
     }
 
     async preloadAllFormulas(slides) {
