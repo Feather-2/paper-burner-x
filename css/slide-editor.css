@@ -526,3 +526,34 @@
     font-size: 12px;
     color: #9ca3af;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   编辑模式按钮
+   ═══════════════════════════════════════════════════════════════ */
+
+.pres-tool-btn.active {
+    background: #3b82f6 !important;
+    color: white !important;
+}
+
+.editor-tools {
+    display: flex;
+    gap: 2px;
+    align-items: center;
+}
+
+/* 编辑器右侧面板动画 */
+.editor-right-panel {
+    animation: slideInRight 0.2s ease;
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}

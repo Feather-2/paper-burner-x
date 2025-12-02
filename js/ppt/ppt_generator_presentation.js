@@ -46,18 +46,44 @@ const PPTGeneratorPresentation = {
                             <iconify-icon icon="carbon:chevron-right"></iconify-icon>
                         </button>
                         <div class="pres-toolbar-divider"></div>
-                        <button class="pres-tool-btn" onclick="window.PPTGenerator.addSlideWithAI()" title="AI 新增">
+                        <button class="pres-tool-btn" onclick="window.PPTGenerator.addSlideWithAI()" title="AI 新增幻灯片">
                             <iconify-icon icon="carbon:add"></iconify-icon>
                         </button>
-                        <button class="pres-tool-btn" onclick="window.PPTGenerator.editCurrentSlide()" title="编辑">
-                            <iconify-icon icon="carbon:edit"></iconify-icon>
-                        </button>
-                        <button class="pres-tool-btn" onclick="window.PPTGenerator.duplicateSlide()" title="复制">
+                        <button class="pres-tool-btn" onclick="window.PPTGenerator.duplicateSlide()" title="复制幻灯片">
                             <iconify-icon icon="carbon:copy"></iconify-icon>
                         </button>
-                        <button class="pres-tool-btn danger" onclick="window.PPTGenerator.deleteCurrentSlide()" title="删除">
+                        <button class="pres-tool-btn danger" onclick="window.PPTGenerator.deleteCurrentSlide()" title="删除幻灯片">
                             <iconify-icon icon="carbon:trash-can"></iconify-icon>
                         </button>
+                        <div class="pres-toolbar-divider"></div>
+                        <button class="pres-tool-btn" id="editorModeBtn" onclick="window.PPTGenerator.toggleEditorMode()" title="编辑模式">
+                            <iconify-icon icon="carbon:touch-interaction"></iconify-icon>
+                        </button>
+                        <!-- 编辑模式工具（初始隐藏） -->
+                        <div class="editor-tools" id="editorTools" style="display: none;">
+                            <button class="pres-tool-btn" onclick="window.PPTGenerator.addText()" title="添加文本">
+                                <iconify-icon icon="carbon:text-font"></iconify-icon>
+                            </button>
+                            <button class="pres-tool-btn" onclick="window.PPTGenerator.addImage()" title="添加图片">
+                                <iconify-icon icon="carbon:image"></iconify-icon>
+                            </button>
+                            <button class="pres-tool-btn" onclick="window.PPTGenerator.addShape()" title="添加形状">
+                                <iconify-icon icon="carbon:shape-join"></iconify-icon>
+                            </button>
+                            <button class="pres-tool-btn" onclick="window.PPTGenerator.addChart()" title="添加图表">
+                                <iconify-icon icon="carbon:chart-bar"></iconify-icon>
+                            </button>
+                            <button class="pres-tool-btn" onclick="window.PPTGenerator.addIcon()" title="添加图标">
+                                <iconify-icon icon="carbon:face-satisfied"></iconify-icon>
+                            </button>
+                            <div class="pres-toolbar-divider"></div>
+                            <button class="pres-tool-btn" onclick="window.PPTGenerator.undo()" title="撤销 (Ctrl+Z)">
+                                <iconify-icon icon="carbon:undo"></iconify-icon>
+                            </button>
+                            <button class="pres-tool-btn" onclick="window.PPTGenerator.redo()" title="重做 (Ctrl+Y)">
+                                <iconify-icon icon="carbon:redo"></iconify-icon>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

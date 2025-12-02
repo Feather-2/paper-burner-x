@@ -39,6 +39,7 @@
     <link rel="stylesheet" href="css/ppt/ppt_generation_chat.css">
     <link rel="stylesheet" href="css/ppt/ppt_generation_presentation.css">
     <link rel="stylesheet" href="css/ppt/ppt_generation.css">
+    <link rel="stylesheet" href="css/slide-editor.css">
 
     <style>
         /* 独立页面样式 */
@@ -90,6 +91,19 @@
     <script src="js/ppt/ppt_generator_export_baking.js"></script>
     <script src="js/ppt/ppt_generator_export_formats.js"></script>
     <script src="js/ppt/ppt_generator_export_core.js"></script>
+    
+    <!-- Editor 模块（按依赖顺序加载） -->
+    <script src="js/ppt/editor/event-emitter.js"></script>
+    <script src="js/ppt/editor/storage-manager.js"></script>
+    <script src="js/ppt/editor/document.js"></script>
+    <script src="js/ppt/editor/history-manager.js"></script>
+    <script src="js/ppt/editor/selection-manager.js"></script>
+    <script src="js/ppt/editor/transform-controller.js"></script>
+    <script src="js/ppt/editor/task-queue.js"></script>
+    <script src="js/ppt/editor/slide-editor.js"></script>
+    <script src="js/ppt/editor/panels/property-panel.js"></script>
+    <script src="js/ppt/editor/panels/layer-panel.js"></script>
+    <script src="js/ppt/ppt_generator_editor.js"></script>
     
     <script src="js/ppt/ppt_generation.js"></script>
     <script src="js/ppt/ppt_storage.js"></script>
