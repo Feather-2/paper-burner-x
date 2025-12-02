@@ -11,6 +11,8 @@ const PPTGeneratorExportFormats = {
     // ═══════════════════════════════════════════════════════════════
     
     async _exportPDF() {
+        this._showProgress?.('正在加载依赖...', 5);
+        
         if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
             await this._loadScript('https://gcore.jsdelivr.net/npm/html2canvas-pro@1.5.13/dist/html2canvas-pro.min.js');
             await this._loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
@@ -18,60 +20,115 @@ const PPTGeneratorExportFormats = {
 
         const EXPORT_WIDTH = 1920;
         const EXPORT_HEIGHT = 1080;
-        const EXPORT_SCALE = 3;
+        const EXPORT_SCALE = 1.5;
+        const CONCURRENCY = 3;  // 并发数
 
         const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF({ orientation: 'landscape', unit: 'px', format: [EXPORT_WIDTH, EXPORT_HEIGHT] });
+        const total = this.slides.length;
+        
+        // 并发渲染所有幻灯片
+        this._showProgress?.('正在并发渲染幻灯片...', 10);
+        const imageDataArray = new Array(total);
+        let completed = 0;
+        
+        const renderSlide = async (index) => {
+            const slide = this.slides[index];
+            const container = document.createElement('div');
+            container.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 960px; height: 540px; z-index: -9999;';
+            document.body.appendChild(container);
+            
+            try {
+                const renderer = new HTMLSlideRenderer();
+                const bgFill = this._getSlideBackground(slide);
+                const bgStyle = bgFill ? `background: ${bgFill};` : 'background: #ffffff;';
+                container.innerHTML = `<div style="width: 960px; height: 540px; overflow: hidden; ${bgStyle}">${renderer.render(slide, index)}</div>`;
 
-        const slideContainer = document.createElement('div');
-        slideContainer.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 960px; height: 540px; z-index: -9999;';
-        document.body.appendChild(slideContainer);
+                // 处理 mask 元素
+                const maskedElements = [...container.querySelectorAll('div > img')]
+                    .map(img => img.parentElement)
+                    .filter(div => {
+                        const s = div.getAttribute('style') || '';
+                        return s.includes('mask-image') || s.includes('clip-path');
+                    });
+                if (maskedElements.length > 0) {
+                    await Promise.all(maskedElements.map(el => this._bakeMaskIntoElement(el)));
+                }
 
-        const renderer = new HTMLSlideRenderer();
-        const slidesForExport = await this._bakeEffectsForPPTX(this.slides);
+                container.querySelectorAll('svg[style*="width: 0"], svg[style*="height: 0"]').forEach(svg => svg.remove());
 
-        for (let i = 0; i < slidesForExport.length; i++) {
-            if (i > 0) pdf.addPage([EXPORT_WIDTH, EXPORT_HEIGHT], 'landscape');
+                await Promise.all([
+                    this._waitForIconsToLoad(container),
+                    this._waitForImagesToLoad(container),
+                    this._waitForKatexAndInlineStyles(container),
+                ]);
 
-            slideContainer.innerHTML = `<div style="width: 960px; height: 540px; overflow: hidden;">${renderer.render(slidesForExport[i], i)}</div>`;
+                const hasBlend = slide.elements?.some(el => el.blend && el.blend !== 'normal');
+                const hasBlurFilter = slide.elements?.some(el => el.filter && el.filter.includes('blur'));
+                
+                let canvas;
+                if (hasBlend && slide.elements) {
+                    canvas = await this._captureWithBlend(container, slide.elements, bgFill, EXPORT_SCALE);
+                } else {
+                    canvas = await this._captureToCanvas(container.firstChild, {
+                        scale: EXPORT_SCALE,
+                        useCORS: true,
+                        allowTaint: false,
+                        backgroundColor: null,
+                        logging: false,
+                        foreignObjectRendering: hasBlurFilter,
+                    }, {
+                        foreignObjectRendering: false,
+                        allowTaint: true,
+                    });
+                }
 
-            await this._waitForIconsToLoad(slideContainer);
-            await this._waitForImagesToLoad(slideContainer);
-            await this._waitForKatexAndInlineStyles(slideContainer);
-
-            const innerContent = slideContainer.firstChild;
-            if (innerContent) {
-                innerContent.style.lineHeight = 'initial';
-                innerContent.querySelectorAll('*').forEach(el => {
-                    el.style.lineHeight = 'initial';
-                    if (el.tagName === 'IMG') el.style.display = 'inline-block';
-                });
+                const imgData = canvas.toDataURL('image/jpeg', 0.92);
+                canvas.width = 0;
+                canvas.height = 0;
+                
+                imageDataArray[index] = imgData;
+                completed++;
+                this._showProgress?.(`正在渲染 ${completed}/${total}...`, 10 + (completed / total) * 80);
+            } finally {
+                document.body.removeChild(container);
             }
-
-            const hasEffects = this._slideHasEffects(slidesForExport[i]);
-            const canvas = await this._captureToCanvas(slideContainer.firstChild, {
-                scale: EXPORT_SCALE,
-                useCORS: true,
-                allowTaint: false,
-                backgroundColor: '#ffffff',
-                logging: hasEffects,
-                scrollX: 0,
-                scrollY: 0,
-                x: 0,
-                y: 0,
-                foreignObjectRendering: hasEffects,
-                removeContainer: true,
-            }, {
-                foreignObjectRendering: false,
-                logging: false,
-            });
-
-            const imgData = canvas.toDataURL('image/jpeg', 0.95);
-            pdf.addImage(imgData, 'JPEG', 0, 0, EXPORT_WIDTH, EXPORT_HEIGHT);
+        };
+        
+        // 并发控制
+        const queue = [...Array(total).keys()];
+        const workers = [];
+        for (let i = 0; i < Math.min(CONCURRENCY, total); i++) {
+            workers.push((async () => {
+                while (queue.length > 0) {
+                    const idx = queue.shift();
+                    if (idx !== undefined) await renderSlide(idx);
+                }
+            })());
+        }
+        await Promise.all(workers);
+        
+        // 按顺序生成 PDF
+        this._showProgress?.('正在生成 PDF...', 92);
+        const pdf = new jsPDF({ orientation: 'landscape', unit: 'px', format: [EXPORT_WIDTH, EXPORT_HEIGHT] });
+        
+        for (let i = 0; i < total; i++) {
+            if (i > 0) pdf.addPage([EXPORT_WIDTH, EXPORT_HEIGHT], 'landscape');
+            pdf.addImage(imageDataArray[i], 'JPEG', 0, 0, EXPORT_WIDTH, EXPORT_HEIGHT);
         }
 
-        document.body.removeChild(slideContainer);
         pdf.save(`${this.currentProject?.title || 'presentation'}.pdf`);
+    },
+    
+    /**
+     * 获取幻灯片背景样式
+     */
+    _getSlideBackground(slide) {
+        if (!slide) return '#ffffff';
+        if (slide.backgroundGradient) return slide.backgroundGradient;
+        if (slide.backgroundImage) return `url('${slide.backgroundImage}') center/cover`;
+        if (slide.gradient) return slide.gradient;
+        if (slide.background && slide.background !== 'transparent') return slide.background;
+        return '#ffffff';
     },
 
     // ═══════════════════════════════════════════════════════════════
@@ -389,6 +446,8 @@ ${renderedSlides}
     // ═══════════════════════════════════════════════════════════════
 
     async _exportImages() {
+        this._showProgress?.('正在加载依赖...', 5);
+        
         if (typeof html2canvas === 'undefined') {
             await this._loadScript('https://gcore.jsdelivr.net/npm/html2canvas-pro@1.5.13/dist/html2canvas-pro.min.js');
         }
@@ -397,38 +456,93 @@ ${renderedSlides}
         }
 
         const zip = new JSZip();
-        const slideContainer = document.createElement('div');
-        slideContainer.style.cssText = 'position: fixed; left: -9999px; width: 960px; height: 540px;';
-        document.body.appendChild(slideContainer);
+        const EXPORT_SCALE = 2;
+        const CONCURRENCY = 3;
+        const total = this.slides.length;
+        
+        this._showProgress?.('正在并发渲染图片...', 10);
+        const imageResults = new Array(total);
+        let completed = 0;
+        
+        const renderSlide = async (index) => {
+            const slide = this.slides[index];
+            const container = document.createElement('div');
+            container.style.cssText = 'position: fixed; left: -9999px; width: 960px; height: 540px; z-index: -9999;';
+            document.body.appendChild(container);
+            
+            try {
+                const renderer = new HTMLSlideRenderer();
+                const bgFill = this._getSlideBackground(slide);
+                const bgStyle = bgFill ? `background: ${bgFill};` : 'background: #ffffff;';
+                container.innerHTML = `<div style="width: 960px; height: 540px; overflow: hidden; ${bgStyle}">${renderer.render(slide, index)}</div>`;
 
-        const renderer = new HTMLSlideRenderer();
-        const slidesForExport = await this._bakeEffectsForPPTX(this.slides);
+                const maskedElements = [...container.querySelectorAll('div > img')]
+                    .map(img => img.parentElement)
+                    .filter(div => {
+                        const s = div.getAttribute('style') || '';
+                        return s.includes('mask-image') || s.includes('clip-path');
+                    });
+                if (maskedElements.length > 0) {
+                    await Promise.all(maskedElements.map(el => this._bakeMaskIntoElement(el)));
+                }
 
-        const EXPORT_SCALE = 3;
+                container.querySelectorAll('svg[style*="width: 0"], svg[style*="height: 0"]').forEach(svg => svg.remove());
 
-        for (let i = 0; i < slidesForExport.length; i++) {
-            slideContainer.innerHTML = `<div style="width: 960px; height: 540px; overflow: hidden;">${renderer.render(slidesForExport[i], i)}</div>`;
+                await Promise.all([
+                    this._waitForIconsToLoad(container),
+                    this._waitForImagesToLoad(container),
+                    this._waitForKatexAndInlineStyles(container),
+                ]);
 
-            await this._waitForIconsToLoad(slideContainer);
-            await this._waitForImagesToLoad(slideContainer);
-            await this._waitForKatexAndInlineStyles(slideContainer);
+                const hasBlend = slide.elements?.some(el => el.blend && el.blend !== 'normal');
+                const hasBlurFilter = slide.elements?.some(el => el.filter && el.filter.includes('blur'));
+                
+                let canvas;
+                if (hasBlend && slide.elements) {
+                    canvas = await this._captureWithBlend(container, slide.elements, bgFill, EXPORT_SCALE);
+                } else {
+                    canvas = await this._captureToCanvas(container.firstChild, {
+                        scale: EXPORT_SCALE,
+                        useCORS: true,
+                        allowTaint: false,
+                        backgroundColor: null,
+                        foreignObjectRendering: hasBlurFilter,
+                    }, {
+                        foreignObjectRendering: false,
+                        allowTaint: true,
+                    });
+                }
 
-            const hasEffects = this._slideHasEffects(slidesForExport[i]);
-            const canvas = await this._captureToCanvas(slideContainer.firstChild, {
-                scale: EXPORT_SCALE,
-                useCORS: true,
-                allowTaint: false,
-                backgroundColor: '#ffffff',
-                foreignObjectRendering: hasEffects,
-            }, {
-                foreignObjectRendering: false,
-            });
-
-            const imgData = canvas.toDataURL('image/png').split(',')[1];
-            zip.file(`slide-${String(i + 1).padStart(2, '0')}.png`, imgData, { base64: true });
+                const imgData = canvas.toDataURL('image/png').split(',')[1];
+                canvas.width = 0;
+                canvas.height = 0;
+                
+                imageResults[index] = imgData;
+                completed++;
+                this._showProgress?.(`正在渲染 ${completed}/${total}...`, 10 + (completed / total) * 80);
+            } finally {
+                document.body.removeChild(container);
+            }
+        };
+        
+        // 并发控制
+        const queue = [...Array(total).keys()];
+        const workers = [];
+        for (let i = 0; i < Math.min(CONCURRENCY, total); i++) {
+            workers.push((async () => {
+                while (queue.length > 0) {
+                    const idx = queue.shift();
+                    if (idx !== undefined) await renderSlide(idx);
+                }
+            })());
         }
-
-        document.body.removeChild(slideContainer);
+        await Promise.all(workers);
+        
+        // 打包 ZIP
+        this._showProgress?.('正在打包 ZIP...', 92);
+        for (let i = 0; i < total; i++) {
+            zip.file(`slide-${String(i + 1).padStart(2, '0')}.png`, imageResults[i], { base64: true });
+        }
 
         const content = await zip.generateAsync({ type: 'blob' });
         const url = URL.createObjectURL(content);
