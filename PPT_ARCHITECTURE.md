@@ -225,10 +225,10 @@ css/ppt/
 1. **`ppt_generator_export.js` 过大 (107KB)**
    - 可拆分：烘焙逻辑、图片处理、PDF 导出
 
-2. **遗留文件清理**
-   - `ppt_generator_export_legacy.js` - 评估是否还需要
-   - `ppt_generator_export_baking.js` - 已合并到 export.js
-   - `slide-renderer-pptx-new.js` - 空文件，可删除
+2. **已清理文件：**
+- ~~`slide-renderer-pptx-new.js`~~ (已删除)
+- ~~`ppt_generator_export_legacy.js`~~ (已删除)
+- ~~`ppt_generator_export_baking.js`~~ (已删除) - 已合并到 export.js
 
 3. **SVG 文字位置精度**
    - 当前使用数学估算，可考虑 Canvas 测量实际宽度
