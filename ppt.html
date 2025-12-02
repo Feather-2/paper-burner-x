@@ -85,8 +85,11 @@
     <script src="js/ppt/ppt_generator_utilities.js"></script>
     <script src="js/ppt/ppt_generator_deletion.js"></script>
     
-    <!-- Export 模块 -->
-    <script src="js/ppt/ppt_generator_export.js"></script>
+    <!-- Export 模块（按依赖顺序加载） -->
+    <script src="js/ppt/ppt_generator_export_image.js"></script>
+    <script src="js/ppt/ppt_generator_export_baking.js"></script>
+    <script src="js/ppt/ppt_generator_export_formats.js"></script>
+    <script src="js/ppt/ppt_generator_export_core.js"></script>
     
     <script src="js/ppt/ppt_generation.js"></script>
     <script src="js/ppt/ppt_storage.js"></script>
