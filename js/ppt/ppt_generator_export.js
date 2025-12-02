@@ -1,5 +1,24 @@
+/**
+ * PPTGenerator 导出模块
+ * 
+ * 结构分区：
+ * ├── [1] UI & 进度 (5-60)
+ * ├── [2] 导出选项 & 入口 (60-210)
+ * ├── [3] PPTX 核心导出 (210-360)
+ * ├── [4] PDF 导出 (360-580)
+ * ├── [5] HTML/图片导出 (580-790)
+ * ├── [6] 工具函数 (790-920)
+ * ├── [7] 图片处理 & Mask (920-1170)
+ * ├── [8] Canvas 截图 (1170-1340)
+ * ├── [9] 特效烘焙 (1340-1870)
+ * ├── [10] 图片预加载 (1870-2040)
+ * └── [11] 图表转换 (2040-end)
+ */
+
 const PPTGeneratorExport = {
-    // 进度显示相关
+    // ═══════════════════════════════════════════════════════════════
+    // [1] UI & 进度显示
+    // ═══════════════════════════════════════════════════════════════
     _progressOverlay: null,
     
     _showProgress(text, percent = 0) {
@@ -56,7 +75,9 @@ const PPTGeneratorExport = {
         }
     },
 
-    // 导出选项状态
+    // ═══════════════════════════════════════════════════════════════
+    // [2] 导出选项 & 入口
+    // ═══════════════════════════════════════════════════════════════
     exportOptions: {
         formula: 'unicode',  // unicode | omml | image
         chart: 'native',     // native | svg
@@ -205,6 +226,9 @@ const PPTGeneratorExport = {
      * @param {string} formulaMode - 公式模式：'unicode' | 'omml' | 'image'
      * @param {string} chartMode - 图表模式：'native' | 'svg'
      */
+    // ═══════════════════════════════════════════════════════════════
+    // [3] PPTX 核心导出
+    // ═══════════════════════════════════════════════════════════════
     async _exportPPTX(formulaMode = 'unicode', chartMode = 'native') {
         console.log('[_exportPPTX] Called with formulaMode:', formulaMode, 'chartMode:', chartMode);
         this._showProgress('正在加载依赖...', 5);
@@ -352,6 +376,9 @@ const PPTGeneratorExport = {
         return images;
     },
 
+    // ═══════════════════════════════════════════════════════════════
+    // [4] PDF 导出
+    // ═══════════════════════════════════════════════════════════════
     async _exportPDF() {
         if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
             await this._loadScript('https://gcore.jsdelivr.net/npm/html2canvas-pro@1.5.13/dist/html2canvas-pro.min.js');
@@ -575,6 +602,9 @@ const PPTGeneratorExport = {
         }));
     },
 
+    // ═══════════════════════════════════════════════════════════════
+    // [5] HTML & 图片导出
+    // ═══════════════════════════════════════════════════════════════
     _exportHTMLRaw() {
         const htmlContent = this.sampleHTML || '';
 
@@ -775,6 +805,9 @@ ${renderedSlides}
         URL.revokeObjectURL(url);
     },
 
+    // ═══════════════════════════════════════════════════════════════
+    // [6] 工具函数
+    // ═══════════════════════════════════════════════════════════════
     _loadScript(src) {
         return new Promise((resolve, reject) => {
             const script = document.createElement('script');
@@ -916,6 +949,9 @@ ${renderedSlides}
      * 将 CSS mask/clip-path 效果烘焙到元素中
      * html2canvas 不支持 mask-image，需要手动处理
      */
+    // ═══════════════════════════════════════════════════════════════
+    // [7] 图片处理 & Mask
+    // ═══════════════════════════════════════════════════════════════
     async _bakeMaskIntoElement(el) {
         try {
             const img = el.tagName === 'IMG' ? el : el.querySelector('img');
@@ -1164,6 +1200,9 @@ ${renderedSlides}
         return color.replace(/\s+/g, '');
     },
 
+    // ═══════════════════════════════════════════════════════════════
+    // [8] Canvas 截图
+    // ═══════════════════════════════════════════════════════════════
     async _captureToCanvas(target, options, fallbackOptions) {
         const attempts = [];
         
@@ -1335,6 +1374,9 @@ ${renderedSlides}
      * @param {Function} onProgress - 进度回调
      * @param {Object} options - 选项 { chartMode: 'native' | 'svg' }
      */
+    // ═══════════════════════════════════════════════════════════════
+    // [9] 特效烘焙
+    // ═══════════════════════════════════════════════════════════════
     async _bakeEffectsForPPTX(slides, onProgress, options = {}) {
         // 如果图表模式是 SVG，先转换所有 chart 元素
         console.log('[bakeEffects] chartMode:', options.chartMode);
@@ -1863,6 +1905,9 @@ ${renderedSlides}
         return parseFloat(str) || 0;
     },
 
+    // ═══════════════════════════════════════════════════════════════
+    // [10] 效果检测 & 图片预加载
+    // ═══════════════════════════════════════════════════════════════
     _slideHasEffects(slide) {
         if (!slide) return false;
         // freeform: 只检查需要烘焙的效果（blend 模式）
@@ -2463,8 +2508,11 @@ ${renderedSlides}
         }
     },
 
+    // ═══════════════════════════════════════════════════════════════
+    // [11] 图表转换
+    // ═══════════════════════════════════════════════════════════════
     /**
-     * 将所有 chart 元素转换为 svg 元素
+     * 将 chart 元素转换为 svg 元素
      * 使用 HTMLSlideRenderer 生成 SVG 内容
      */
     _convertChartsToSvg(slides) {
