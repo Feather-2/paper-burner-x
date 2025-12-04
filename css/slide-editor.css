@@ -3,6 +3,30 @@
  */
 
 /* ═══════════════════════════════════════════════════════════════
+   非编辑模式：禁用内容编辑
+   ═══════════════════════════════════════════════════════════════ */
+
+/* 默认情况下禁用 contenteditable */
+#presSlideCanvas [contenteditable] {
+    cursor: default !important;
+    -webkit-user-modify: read-only !important;
+    -moz-user-modify: read-only !important;
+    user-modify: read-only !important;
+}
+
+#presSlideCanvas [contenteditable]:focus {
+    outline: none !important;
+}
+
+/* 编辑模式下启用 */
+#presSlideCanvas.editor-enabled [contenteditable] {
+    cursor: text !important;
+    -webkit-user-modify: read-write !important;
+    -moz-user-modify: read-write !important;
+    user-modify: read-write !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    编辑器覆盖层
    ═══════════════════════════════════════════════════════════════ */
 
@@ -295,6 +319,27 @@
     color: #3b82f6;
 }
 
+/* 隐藏图层的可见性按钮始终显示 */
+.layer-btn.visible-toggle {
+    opacity: 1 !important;
+}
+
+/* 隐藏的图层样式 */
+.layer-item.hidden-layer {
+    opacity: 0.5;
+}
+
+.layer-item.hidden-layer .layer-icon,
+.layer-item.hidden-layer .layer-label {
+    text-decoration: line-through;
+    color: #9ca3af;
+}
+
+/* 锁定的图层样式 */
+.layer-item.locked-layer {
+    background: #fef3c7;
+}
+
 .layer-badge {
     font-size: 9px;
     padding: 2px 6px;
@@ -335,10 +380,53 @@
     font-size: 11px;
     color: #d97706;
     font-weight: 500;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s;
+}
+
+.layer-group-header:hover {
+    background: #fef3c7;
+}
+
+.layer-group-header .group-chevron {
+    font-size: 16px;
+    transition: transform 0.2s;
+}
+
+.layer-group.collapsed .group-chevron {
+    transform: rotate(-90deg);
+}
+
+.layer-group-header .group-reason-icon {
+    font-size: 14px;
+    color: #f59e0b;
+}
+
+.layer-group-header .group-title {
+    flex: 1;
+}
+
+.layer-group-header .group-actions {
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.layer-group-header:hover .group-actions {
+    opacity: 1;
 }
 
 .layer-group-content {
     padding: 4px;
+    overflow: hidden;
+    transition: max-height 0.2s ease-out;
+}
+
+.layer-group.collapsed .layer-group-content {
+    max-height: 0;
+    padding: 0 4px;
 }
 
 .layer-group-content .layer-item {

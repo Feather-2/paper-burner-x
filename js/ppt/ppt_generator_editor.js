@@ -87,6 +87,9 @@ const PPTGeneratorEditor = {
         // 启用编辑器交互
         if (this.editor) this.editor.enabled = true;
         
+        // 添加编辑模式类（用于 CSS 控制 contenteditable）
+        viewport?.classList.add('editor-enabled');
+        
         this.editorEnabled = true;
         console.log('[PPTGeneratorEditor] 编辑模式已启用');
     },
@@ -140,6 +143,10 @@ const PPTGeneratorEditor = {
         
         // 禁用编辑器交互
         if (this.editor) this.editor.enabled = false;
+        
+        // 移除编辑模式类
+        const viewport = document.getElementById('presSlideCanvas');
+        viewport?.classList.remove('editor-enabled');
 
         // 触发 canvas 尺寸更新
         this._updateCanvasSize?.();
@@ -164,9 +171,29 @@ const PPTGeneratorEditor = {
      */
     _showEditorUI() {
         const panel = document.getElementById('editorRightPanel');
+        const container = document.querySelector('.pres-container');
+        const chatSidebar = document.getElementById('pptChatSidebar');
+        const chatResizer = document.getElementById('pptResizer');
+        const previewArea = document.querySelector('.ppt-preview-area');
+        
+        // 隐藏聊天侧边栏和拖拽条，让预览区域扩展
+        if (chatSidebar) {
+            chatSidebar.style.display = 'none';
+        }
+        if (chatResizer) {
+            chatResizer.style.display = 'none';
+        }
+        if (previewArea) {
+            previewArea.classList.add('expanded');
+        }
         if (panel) {
             panel.style.display = 'flex';
         }
+        if (container) {
+            container.classList.add('editor-active');
+        }
+        // 触发画布尺寸更新
+        setTimeout(() => this._updateCanvasSize?.(), 50);
     },
 
     /**
@@ -174,9 +201,29 @@ const PPTGeneratorEditor = {
      */
     _hideEditorUI() {
         const panel = document.getElementById('editorRightPanel');
+        const container = document.querySelector('.pres-container');
+        const chatSidebar = document.getElementById('pptChatSidebar');
+        const chatResizer = document.getElementById('pptResizer');
+        const previewArea = document.querySelector('.ppt-preview-area');
+        
+        // 隐藏编辑器面板，恢复聊天侧边栏和预览区域
         if (panel) {
             panel.style.display = 'none';
         }
+        if (previewArea) {
+            previewArea.classList.remove('expanded');
+        }
+        if (chatSidebar) {
+            chatSidebar.style.display = '';
+        }
+        if (chatResizer) {
+            chatResizer.style.display = '';
+        }
+        if (container) {
+            container.classList.remove('editor-active');
+        }
+        // 触发画布尺寸更新
+        setTimeout(() => this._updateCanvasSize?.(), 50);
     },
 
     // 保留样式注入（首次使用时）
@@ -186,50 +233,79 @@ const PPTGeneratorEditor = {
         const style = document.createElement('style');
         style.id = 'editorPanelStyle';
         style.textContent = `
+            /* 编辑模式下的容器布局 */
             .pres-container {
                 display: flex !important;
+                width: 100%;
+                height: 100%;
             }
             .pres-main-area {
                 flex: 1;
                 min-width: 0;
+                transition: margin-right 0.2s ease;
             }
+            /* 编辑模式启用时，主区域右侧留出面板空间 */
+            .pres-container.editor-active .pres-main-area {
+                margin-right: 0;
+            }
+            
+            /* 右侧编辑面板 - 与聊天栏风格一致 */
             .editor-right-panel {
                 width: 280px;
+                min-width: 280px;
                 background: white;
-                border-left: 1px solid #e5e7eb;
+                border: 1px solid var(--ppt-border, #e5e7eb);
+                border-radius: 24px;
                 display: flex;
                 flex-direction: column;
                 flex-shrink: 0;
+                margin: 16px;
+                margin-left: 0;
+                height: calc(100% - 32px);
+                box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+                z-index: 50;
+                overflow: hidden;
             }
+            
+            /* 面板标签 */
             .editor-panel-tabs {
                 display: flex;
                 border-bottom: 1px solid #e5e7eb;
                 background: #f9fafb;
+                flex-shrink: 0;
+                border-radius: 24px 24px 0 0;
             }
             .panel-tab {
                 flex: 1;
-                padding: 10px;
+                padding: 12px 16px;
                 background: transparent;
                 border: none;
                 cursor: pointer;
-                font-size: 12px;
+                font-size: 13px;
+                font-weight: 500;
                 color: #6b7280;
                 border-bottom: 2px solid transparent;
                 transition: all 0.15s;
             }
             .panel-tab:hover {
                 background: #f3f4f6;
+                color: #374151;
             }
             .panel-tab.active {
                 color: #3b82f6;
                 border-bottom-color: #3b82f6;
+                background: white;
             }
+            
+            /* 面板内容区 */
             .editor-panel-content {
                 flex: 1;
                 overflow-y: auto;
+                overflow-x: hidden;
             }
             .panel-pane {
                 display: none;
+                padding: 16px;
             }
             .panel-pane.active {
                 display: block;
@@ -509,6 +585,74 @@ const PPTGeneratorEditor = {
     align(type) {
         if (!this.editor || !this.editorEnabled) return;
         this.editor.alignElements(type);
+    },
+
+    /**
+     * 删除选中元素
+     */
+    deleteSelected() {
+        if (!this.editor || !this.editorEnabled) return;
+        this.editor.deleteSelected();
+    },
+
+    /**
+     * 移动到最前
+     */
+    bringToFront() {
+        if (!this.editor || !this.editorEnabled) return;
+        this.editor.bringToFront();
+    },
+
+    /**
+     * 移动到最后
+     */
+    sendToBack() {
+        if (!this.editor || !this.editorEnabled) return;
+        this.editor.sendToBack();
+    },
+
+    /**
+     * 图层上移
+     */
+    moveElementUp(elementId) {
+        if (!this.editor || !this.editorEnabled) return;
+        const id = elementId || this.editor.selection.getSelectedIds()[0];
+        if (!id) return;
+        
+        const slide = this.slides?.[this.editor.currentSlideIndex];
+        if (!slide?.elements) return;
+        
+        const index = slide.elements.findIndex(el => el.id === id);
+        if (index < slide.elements.length - 1) {
+            // 交换位置
+            [slide.elements[index], slide.elements[index + 1]] = 
+                [slide.elements[index + 1], slide.elements[index]];
+            // 同步 document
+            this.editor.document.reorderElement?.(id, index + 1);
+            this.editor.renderCurrentSlide();
+        }
+    },
+
+    /**
+     * 图层下移
+     */
+    moveElementDown(elementId) {
+        if (!this.editor || !this.editorEnabled) return;
+        const id = elementId || this.editor.selection.getSelectedIds()[0];
+        if (!id) return;
+        
+        const slide = this.slides?.[this.editor.currentSlideIndex];
+        if (!slide?.elements) return;
+        
+        const index = slide.elements.findIndex(el => el.id === id);
+        if (index > 0) {
+            // 交换位置
+            [slide.elements[index], slide.elements[index - 1]] = 
+                [slide.elements[index - 1], slide.elements[index]];
+            // 同步 document
+            this.editor.document.reorderElement?.(id, index - 1);
+            this.editor.renderCurrentSlide();
+        }
     },
 };
 

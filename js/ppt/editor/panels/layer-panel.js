@@ -33,7 +33,9 @@ class LayerPanel extends EventEmitter {
     refresh() {
         if (!this.container) return;
 
-        const elements = this.editor.document.getElements(this.editor.currentSlideIndex);
+        // 优先使用 PPTGenerator.slides 数据（与渲染一致）
+        const slide = window.PPTGenerator?.slides?.[this.editor.currentSlideIndex];
+        const elements = slide?.elements || [];
         
         if (elements.length === 0) {
             this.container.innerHTML = `
@@ -80,11 +82,21 @@ class LayerPanel extends EventEmitter {
                     html += '</div></div>'; // 关闭上一个组
                 }
                 currentGroup = group;
+                const reasonIcon = this._getBakingReasonIcon(group.reason);
                 html += `
                     <div class="layer-group" data-group="${group.id}">
-                        <div class="layer-group-header">
-                            <iconify-icon icon="mdi:layers-triple"></iconify-icon>
-                            <span>烘焙组 (${group.reason})</span>
+                        <div class="layer-group-header" data-action="toggle-group">
+                            <iconify-icon icon="mdi:chevron-down" class="group-chevron"></iconify-icon>
+                            <iconify-icon icon="${reasonIcon}" class="group-reason-icon"></iconify-icon>
+                            <span class="group-title">烘焙组 (${group.reason})</span>
+                            <div class="group-actions">
+                                <button class="layer-btn" data-action="select-group" title="全选组内元素">
+                                    <iconify-icon icon="mdi:select-all"></iconify-icon>
+                                </button>
+                                <button class="layer-btn" data-action="toggle-group-visible" title="显示/隐藏整组">
+                                    <iconify-icon icon="mdi:eye"></iconify-icon>
+                                </button>
+                            </div>
                         </div>
                         <div class="layer-group-content">
                 `;
@@ -114,8 +126,13 @@ class LayerPanel extends EventEmitter {
         const isLocked = el.locked;
         const isHidden = el.hidden;
 
+        const classes = ['layer-item'];
+        if (isSelected) classes.push('selected');
+        if (isHidden) classes.push('hidden-layer');
+        if (isLocked) classes.push('locked-layer');
+
         return `
-            <div class="layer-item ${isSelected ? 'selected' : ''}" 
+            <div class="${classes.join(' ')}" 
                  data-element-id="${el.id}"
                  draggable="true">
                 <div class="layer-drag-handle">
@@ -130,12 +147,12 @@ class LayerPanel extends EventEmitter {
                 <div class="layer-actions">
                     <button class="layer-btn ${isLocked ? 'active' : ''}" 
                             data-action="toggle-lock" 
-                            title="锁定">
+                            title="${isLocked ? '解锁' : '锁定'}">
                         <iconify-icon icon="${isLocked ? 'mdi:lock' : 'mdi:lock-open-outline'}"></iconify-icon>
                     </button>
-                    <button class="layer-btn ${isHidden ? 'active' : ''}" 
+                    <button class="layer-btn ${isHidden ? 'active visible-toggle' : ''}" 
                             data-action="toggle-visible" 
-                            title="可见性">
+                            title="${isHidden ? '显示' : '隐藏'}">
                         <iconify-icon icon="${isHidden ? 'mdi:eye-off' : 'mdi:eye'}"></iconify-icon>
                     </button>
                 </div>
@@ -235,6 +252,13 @@ class LayerPanel extends EventEmitter {
         return '特效';
     }
 
+    _getBakingReasonIcon(reason) {
+        if (reason.includes('blur') || reason === '模糊') return 'mdi:blur';
+        if (reason.includes('blend')) return 'mdi:layers-outline';
+        if (reason === '遮罩') return 'mdi:crop';
+        return 'mdi:auto-fix';
+    }
+
     _hasOverlapWithGroup(el, group, allElements) {
         // 简化：检查 z-index 是否在组范围内
         return false;
@@ -276,14 +300,89 @@ class LayerPanel extends EventEmitter {
                     const el = this.editor.document.getElementById(elementId);
                     this.editor.updateElement(elementId, { locked: !el.locked });
                 } else if (action === 'toggle-visible') {
-                    const el = this.editor.document.getElementById(elementId);
-                    this.editor.updateElement(elementId, { hidden: !el.hidden });
+                    // 从 slides 获取元素（确保数据一致）
+                    const slide = window.PPTGenerator?.slides?.[this.editor.currentSlideIndex];
+                    const slideEl = slide?.elements?.find(e => e.id === elementId);
+                    if (!slideEl) return;
+                    
+                    const newHidden = !slideEl.hidden;
+                    slideEl.hidden = newHidden;
+                    
+                    // 同步到 document
+                    this.editor.updateElement(elementId, { hidden: newHidden });
+                    
+                    // 刷新图层面板
+                    this.refresh();
                 }
             });
         });
 
+        // 烘焙组事件
+        this._bindGroupEvents();
+
         // 拖拽排序
         this._bindDragEvents();
+    }
+
+    _bindGroupEvents() {
+        // 折叠/展开组
+        this.container.querySelectorAll('.layer-group-header').forEach(header => {
+            header.addEventListener('click', (e) => {
+                // 如果点击的是操作按钮，不折叠
+                if (e.target.closest('.group-actions')) return;
+                
+                const group = header.closest('.layer-group');
+                group.classList.toggle('collapsed');
+            });
+        });
+
+        // 全选组内元素
+        this.container.querySelectorAll('[data-action="select-group"]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const group = btn.closest('.layer-group');
+                const elementIds = Array.from(group.querySelectorAll('.layer-item'))
+                    .map(item => item.dataset.elementId);
+                this.editor.selection.selectMultiple(elementIds);
+            });
+        });
+
+        // 整组可见性切换
+        this.container.querySelectorAll('[data-action="toggle-group-visible"]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const group = btn.closest('.layer-group');
+                const elementIds = Array.from(group.querySelectorAll('.layer-item'))
+                    .map(item => item.dataset.elementId);
+                
+                const slide = window.PPTGenerator?.slides?.[this.editor.currentSlideIndex];
+                if (!slide) return;
+
+                // 检查是否全部隐藏
+                const allHidden = elementIds.every(id => {
+                    const el = slide.elements?.find(e => e.id === id);
+                    return el?.hidden;
+                });
+
+                // 切换：全部隐藏则全部显示，否则全部隐藏
+                const newHidden = !allHidden;
+                elementIds.forEach(id => {
+                    const el = slide.elements?.find(e => e.id === id);
+                    if (el) {
+                        el.hidden = newHidden;
+                        this.editor.updateElement(id, { hidden: newHidden });
+                    }
+                });
+
+                // 更新按钮图标
+                const icon = btn.querySelector('iconify-icon');
+                if (icon) {
+                    icon.setAttribute('icon', newHidden ? 'mdi:eye-off' : 'mdi:eye');
+                }
+                
+                this.refresh();
+            });
+        });
     }
 
     _bindDragEvents() {

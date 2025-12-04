@@ -98,10 +98,17 @@ class TransformController extends EventEmitter {
      * 应用变换
      */
     _applyTransform(mousePos) {
-        const delta = {
+        let delta = {
             x: mousePos.x - this.startMouse.x,
             y: mousePos.y - this.startMouse.y,
         };
+
+        // 多选移动时，只对偏移量进行一次网格吸附，保持元素间相对位置
+        const isMultiMove = this.handleType === TransformController.HANDLE.MOVE && this.startElements.size > 1;
+        if (isMultiMove && this.snapToGrid) {
+            delta.x = Math.round(delta.x / this.gridSize) * this.gridSize;
+            delta.y = Math.round(delta.y / this.gridSize) * this.gridSize;
+        }
 
         const updates = [];
 
@@ -133,8 +140,8 @@ class TransformController extends EventEmitter {
                 newState = this._calculateResize(start, delta, this.handleType);
             }
 
-            // 网格吸附
-            if (this.snapToGrid) {
+            // 网格吸附（单选时或非移动操作时）
+            if (this.snapToGrid && !isMultiMove) {
                 newState.x = Math.round(newState.x / this.gridSize) * this.gridSize;
                 newState.y = Math.round(newState.y / this.gridSize) * this.gridSize;
                 newState.w = Math.round(newState.w / this.gridSize) * this.gridSize;
@@ -399,6 +406,9 @@ class TransformController extends EventEmitter {
                 }
             }
         }
+        
+        // 强制浏览器重排，确保 getBoundingClientRect 返回最新值
+        viewport.offsetHeight;
         
         // 更新选择覆盖层
         this.editor._updateOverlay?.();

@@ -561,20 +561,21 @@
     margin: -2px -4px;
 }
 
-[contenteditable="true"]:hover {
+/* 仅在编辑模式下显示编辑提示 */
+.editor-enabled [contenteditable="true"]:hover {
     background-color: rgba(79, 70, 229, 0.05);
     outline: 1px dashed var(--ppt-primary);
     cursor: text;
 }
 
-[contenteditable="true"]:focus {
+.editor-enabled [contenteditable="true"]:focus {
     background-color: white;
     color: var(--ppt-text-main) !important;
     outline: 2px solid var(--ppt-primary);
     box-shadow: 0 0 0 4px var(--ppt-primary-light);
 }
 
-.slide-modern-cover [contenteditable="true"]:hover {
+.editor-enabled .slide-modern-cover [contenteditable="true"]:hover {
     background-color: rgba(255, 255, 255, 0.15);
     outline-color: rgba(255, 255, 255, 0.5);
 }

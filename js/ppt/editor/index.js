@@ -160,15 +160,15 @@ function createEditorUI(containerId) {
                     </div>
                 </div>
                 
-                <!-- 右侧：属性面板 -->
+                <!-- 右侧：图层/属性面板 -->
                 <div class="editor-sidebar-right">
                     <div class="editor-panel-tabs">
-                        <button class="panel-tab active" data-panel="property">属性</button>
-                        <button class="panel-tab" data-panel="layer">图层</button>
+                        <button class="panel-tab active" data-panel="layer">图层</button>
+                        <button class="panel-tab" data-panel="property">属性</button>
                     </div>
                     <div class="editor-panel-content">
-                        <div id="property-panel" class="panel-pane active"></div>
-                        <div id="layer-panel" class="panel-pane"></div>
+                        <div id="layer-panel" class="panel-pane active"></div>
+                        <div id="property-panel" class="panel-pane"></div>
                     </div>
                 </div>
             </div>

@@ -109,12 +109,12 @@ const PPTGeneratorPresentation = {
                 <!-- 编辑器右侧面板（初始隐藏） -->
                 <div class="editor-right-panel" id="editorRightPanel" style="display: none;">
                     <div class="editor-panel-tabs">
-                        <button class="panel-tab active" data-panel="property">属性</button>
-                        <button class="panel-tab" data-panel="layer">图层</button>
+                        <button class="panel-tab active" data-panel="layer">图层</button>
+                        <button class="panel-tab" data-panel="property">属性</button>
                     </div>
                     <div class="editor-panel-content">
-                        <div id="editorPropertyPanel" class="panel-pane active"></div>
-                        <div id="editorLayerPanel" class="panel-pane"></div>
+                        <div id="editorLayerPanel" class="panel-pane active"></div>
+                        <div id="editorPropertyPanel" class="panel-pane"></div>
                     </div>
                 </div>
             </div>
@@ -704,6 +704,11 @@ const PPTGeneratorPresentation = {
             this.editor.viewport = canvas;
             this.editor._createOverlayContainer();
             this.editor._addElementIds();
+            
+            // 刷新图层面板
+            if (this.layerPanel) {
+                this.layerPanel.refresh();
+            }
         }
     },
 

@@ -113,6 +113,9 @@ class HTMLSlideRenderer {
      * 优化：直接使用百分比值，让浏览器计算精确位置，避免转换精度损失
      */
     renderFreeformElement(el, containerW, containerH) {
+        // 隐藏的元素不渲染
+        if (el.hidden) return '';
+        
         // 直接使用原始值（百分比/px/auto），不转换
         const x = this.formatCSSValue(el.x);
         const y = this.formatCSSValue(el.y);
@@ -225,9 +228,11 @@ class HTMLSlideRenderer {
         // 垂直对齐使用 flexbox，但文字本身不用 flex 布局
         const needsVerticalAlign = el.valign && el.valign !== 'top';
 
+        // 优先使用 fontSize，兼容旧的 font 属性
+        const fontSizeVal = el.fontSize || el.font;
         const textStyle = `
             ${baseStyle}
-            font-size: ${this.px(el.font)}px;
+            font-size: ${this.px(fontSizeVal)}px;
             color: ${el.color};
             ${el.bold ? 'font-weight: 700;' : ''}
             ${el.italic ? 'font-style: italic;' : ''}
@@ -247,7 +252,7 @@ class HTMLSlideRenderer {
                 flex-direction: column;
                 justify-content: ${el.valign === 'middle' ? 'center' : 'flex-end'};
             `.replace(/\s+/g, ' ').trim();
-            return `<div style="${wrapperStyle}"><div contenteditable="true" style="font-size: ${this.px(el.font)}px; color: ${el.color}; ${el.bold ? 'font-weight: 700;' : ''} ${el.italic ? 'font-style: italic;' : ''} text-align: ${el.align || 'left'}; line-height: ${el.lineHeight || 1.4};">${el.content}</div></div>`;
+            return `<div style="${wrapperStyle}"><div contenteditable="true" style="font-size: ${this.px(fontSizeVal)}px; color: ${el.color}; ${el.bold ? 'font-weight: 700;' : ''} ${el.italic ? 'font-style: italic;' : ''} text-align: ${el.align || 'left'}; line-height: ${el.lineHeight || 1.4};">${el.content}</div></div>`;
         }
 
         return `<div contenteditable="true" style="${textStyle}">${el.content}</div>`;
@@ -386,6 +391,7 @@ class HTMLSlideRenderer {
     /**
      * 渲染卡片组件 - 自动布局图标+标题+描述
      * 支持三种布局：horizontal(水平), vertical(垂直), icon-right(图标在右)
+     * 如果有 content 属性，直接使用该 HTML（支持编辑后保存）
      */
     renderFreeformCard(el, baseStyle) {
         const layout = el.layout || 'horizontal';
@@ -402,7 +408,7 @@ class HTMLSlideRenderer {
             ${el.shadow ? 'box-shadow: 0 4px 12px rgba(0,0,0,0.1);' : ''}
             ${el.stroke ? `border: ${el.strokeWidth || 1}px solid ${el.stroke};` : ''}
         `.replace(/\s+/g, ' ').trim();
-
+        
         // 图标部分
         const iconSize = el.iconSize || 24;
         const iconBgSize = iconSize + 12; // 图标背景比图标大一些
@@ -430,21 +436,17 @@ class HTMLSlideRenderer {
         // 根据布局组织内容
         let innerStyle = '';
         let content = '';
-
         switch (layout) {
             case 'vertical':
-                // 垂直布局：图标在上，文字在下，居中对齐
                 innerStyle = 'display: flex; flex-direction: column; align-items: center; text-align: center; height: 100%; justify-content: center; gap: 12px;';
                 content = `${iconHtml}${textHtml}`;
                 break;
             case 'icon-right':
-                // 图标在右：文字在左，图标在右
                 innerStyle = 'display: flex; flex-direction: row; align-items: center; height: 100%; gap: 12px;';
                 content = `${textHtml}${iconHtml}`;
                 break;
             case 'horizontal':
             default:
-                // 水平布局：图标在左，文字在右
                 innerStyle = 'display: flex; flex-direction: row; align-items: center; height: 100%; gap: 12px;';
                 content = `${iconHtml}${textHtml}`;
                 break;
@@ -468,13 +470,15 @@ class HTMLSlideRenderer {
         }
 
         // 容器样式 - 使用 flex 布局实现居中
+        // 支持 fontSize 和 font 两种属性名
+        const fontSize = el.fontSize || el.font || 18;
         const formulaStyle = `
             ${baseStyle}
             display: flex;
             align-items: center;
             justify-content: ${justifyContent};
             color: ${el.color || '#333333'};
-            font-size: ${this.px(el.font)}px;
+            font-size: ${fontSize}px;
             overflow: visible;
         `.replace(/\s+/g, ' ').trim();
 
@@ -755,14 +759,9 @@ class HTMLSlideRenderer {
     /**
      * 渲染表格 - 使用 HTML 原生表格
      * 自动缩放以适应容器
+     * 如果有 content 属性（编辑后保存的），直接使用
      */
     renderFreeformTable(el, baseStyle) {
-        const data = el.data || [];
-        if (data.length === 0) {
-            return `<div style="${baseStyle}; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 14px;">空表格</div>`;
-        }
-
-        const fontSize = el.fontSize || 10;
         const radius = el.radius || 6;
         
         // 容器样式
@@ -772,6 +771,18 @@ class HTMLSlideRenderer {
             border-radius: ${radius}px;
             border: 1px solid ${el.borderColor || '#374151'};
         `.replace(/\s+/g, ' ').trim();
+        
+        // 如果有 content 属性（编辑后保存的 HTML），直接使用
+        if (el.content) {
+            return `<div style="${containerStyle}">${el.content}</div>`;
+        }
+        
+        const data = el.data || [];
+        if (data.length === 0) {
+            return `<div style="${containerStyle}; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 14px;">空表格</div>`;
+        }
+
+        const fontSize = el.fontSize || 10;
         
         // 表格样式 - 100% 宽高，自动适应容器
         const tableStyle = `

@@ -431,10 +431,13 @@ class SlideEditor extends EventEmitter {
                     color: `color: ${value};`,
                     fill: `background: ${value};`,
                     opacity: `opacity: ${value};`,
-                    font: `font-size: ${value}px;`,
+                    fontSize: `font-size: ${value}px;`,
                 };
                 if (cssMap[key]) {
-                    const regex = new RegExp(`${key === 'fill' ? 'background' : key}:\\s*[^;]+;?`, 'gi');
+                    // 将属性名映射到 CSS 属性名
+                    const cssPropMap = { fill: 'background', fontSize: 'font-size' };
+                    const cssProp = cssPropMap[key] || key;
+                    const regex = new RegExp(`${cssProp}:\\s*[^;]+;?`, 'gi');
                     if (regex.test(newRawStyle)) {
                         newRawStyle = newRawStyle.replace(regex, cssMap[key]);
                     } else {
@@ -465,6 +468,85 @@ class SlideEditor extends EventEmitter {
         });
         
         this.renderCurrentSlide();
+        
+        // 触发自动保存
+        this._scheduleAutoSave();
+    }
+    
+    /**
+     * 防抖自动保存（2秒后保存）
+     */
+    _scheduleAutoSave() {
+        if (this._autoSaveTimer) {
+            clearTimeout(this._autoSaveTimer);
+        }
+        this._autoSaveTimer = setTimeout(() => {
+            this._saveToStorage();
+        }, 2000);
+    }
+    
+    /**
+     * 保存到 IndexedDB
+     */
+    async _saveToStorage() {
+        const project = window.PPTGenerator?.currentProject;
+        if (!project?.id || !window.pptStorage) return;
+        
+        try {
+            // 更新 slides 数据
+            project.slides = window.PPTGenerator.slides;
+            project.updatedAt = Date.now();
+            await window.pptStorage.saveProject(project);
+            console.log('[SlideEditor] 自动保存成功');
+            
+            // 显示保存提示
+            this._showSaveIndicator();
+        } catch (e) {
+            console.error('[SlideEditor] 自动保存失败:', e);
+        }
+    }
+    
+    /**
+     * 显示保存成功提示
+     */
+    _showSaveIndicator() {
+        // 移除旧提示
+        const old = document.querySelector('.save-indicator');
+        if (old) old.remove();
+        
+        const indicator = document.createElement('div');
+        indicator.className = 'save-indicator';
+        indicator.textContent = '✓ 已保存';
+        indicator.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #10b981;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 14px;
+            z-index: 10000;
+            animation: fadeInOut 2s ease;
+        `;
+        
+        // 添加动画样式
+        if (!document.querySelector('#save-indicator-style')) {
+            const style = document.createElement('style');
+            style.id = 'save-indicator-style';
+            style.textContent = `
+                @keyframes fadeInOut {
+                    0% { opacity: 0; transform: translateY(10px); }
+                    20% { opacity: 1; transform: translateY(0); }
+                    80% { opacity: 1; }
+                    100% { opacity: 0; }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        
+        document.body.appendChild(indicator);
+        setTimeout(() => indicator.remove(), 2000);
     }
 
     /**
@@ -550,11 +632,12 @@ class SlideEditor extends EventEmitter {
         const minY = Math.min(...elements.map(e => e.y));
         const maxY = Math.max(...elements.map(e => e.y + e.h));
         
-        this.history.beginBatch('对齐');
+        // 收集所有更新
+        const updates = [];
         
         for (const elem of elements) {
             let newX = elem.x, newY = elem.y;
-            let textAlign = null; // 文字内部对齐
+            let textAlign = null;
             
             switch (type) {
                 case 'left':
@@ -580,14 +663,13 @@ class SlideEditor extends EventEmitter {
                     break;
             }
             
-            if (newX !== elem.x || newY !== elem.y) {
-                elem.el.x = `${newX}%`;
-                elem.el.y = `${newY}%`;
-            }
+            const update = {};
+            if (newX !== elem.x) update.x = `${newX}%`;
+            if (newY !== elem.y) update.y = `${newY}%`;
+            if (textAlign && elem.el.type === 'text') update.align = textAlign;
             
-            // 对于文本元素，同时设置内部文字对齐
-            if (textAlign && elem.el.type === 'text') {
-                elem.el.align = textAlign;
+            if (Object.keys(update).length > 0) {
+                updates.push({ id: elem.id, update, elem });
             }
         }
         
@@ -598,7 +680,12 @@ class SlideEditor extends EventEmitter {
             const space = (maxX - minX - totalWidth) / (elements.length - 1);
             let currentX = minX;
             for (const elem of elements) {
-                elem.el.x = `${currentX}%`;
+                const existing = updates.find(u => u.id === elem.id);
+                if (existing) {
+                    existing.update.x = `${currentX}%`;
+                } else {
+                    updates.push({ id: elem.id, update: { x: `${currentX}%` } });
+                }
                 currentX += elem.w + space;
             }
         }
@@ -609,13 +696,20 @@ class SlideEditor extends EventEmitter {
             const space = (maxY - minY - totalHeight) / (elements.length - 1);
             let currentY = minY;
             for (const elem of elements) {
-                elem.el.y = `${currentY}%`;
+                const existing = updates.find(u => u.id === elem.id);
+                if (existing) {
+                    existing.update.y = `${currentY}%`;
+                } else {
+                    updates.push({ id: elem.id, update: { y: `${currentY}%` } });
+                }
                 currentY += elem.h + space;
             }
         }
         
-        this.history.commitBatch();
-        this.renderCurrentSlide();
+        // 通过 updateElement 应用所有更新（会记录历史）
+        for (const { id, update } of updates) {
+            this.updateElement(id, update);
+        }
         
         // 从 PPTGenerator.slides 获取最新元素数据来刷新属性面板
         const currentSlide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
@@ -787,8 +881,9 @@ class SlideEditor extends EventEmitter {
         const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
         if (!slide?.elements) return;
         
-        // 按 z-index 排序（与 HTMLSlideRenderer 一致）
+        // 按 z-index 排序，并过滤隐藏元素（与渲染一致）
         const elements = [...slide.elements]
+            .filter(el => !el.hidden)  // 隐藏的元素不渲染，也不参与 ID 绑定
             .map((el, i) => ({ el, originalIndex: i }))
             .sort((a, b) => (a.el.z || 0) - (b.el.z || 0) || a.originalIndex - b.originalIndex)
             .map(item => item.el);
@@ -924,14 +1019,16 @@ class SlideEditor extends EventEmitter {
             }
         }
         
-        // 如果内容边界与 DOM 边界差异较大，显示两个边框
-        const showBothBorders = contentRect && (
-            Math.abs(contentRect.width - elementRect.width) > 10 ||
-            Math.abs(contentRect.height - elementRect.height) > 10
+        // 只在内容边界在两个方向上都明显小于 DOM 边界时才显示双边框
+        // （用于提示用户容器比内容大，可能有多余空间）
+        // 必须两个方向都满足，避免一个方向溢出时显示奇怪的边框
+        const contentSmaller = contentRect && (
+            contentRect.width < elementRect.width - 10 &&
+            contentRect.height < elementRect.height - 10
         );
         
-        if (showBothBorders && contentRect) {
-            // DOM 边界（虚线）
+        if (contentSmaller && contentRect) {
+            // DOM 边界（虚线，外层）
             const domBox = document.createElement('div');
             domBox.className = 'editor-selection-box editor-dom-boundary';
             domBox.style.cssText = `
@@ -940,7 +1037,7 @@ class SlideEditor extends EventEmitter {
                 top: ${y}%;
                 width: ${w}%;
                 height: ${h}%;
-                border: 1px dashed rgba(59, 130, 246, 0.5);
+                border: 1px dashed rgba(59, 130, 246, 0.4);
                 background: transparent;
                 pointer-events: none;
                 box-sizing: border-box;
@@ -948,7 +1045,7 @@ class SlideEditor extends EventEmitter {
             `;
             this.overlayContainer?.appendChild(domBox);
             
-            // 内容边界（实线）
+            // 内容边界（实线，内层）
             const cx = ((contentRect.left - containerRect.left) / containerRect.width) * 100;
             const cy = ((contentRect.top - containerRect.top) / containerRect.height) * 100;
             const cw = (contentRect.width / containerRect.width) * 100;
@@ -1066,11 +1163,13 @@ class SlideEditor extends EventEmitter {
         if (ctrl && e.key === 'z' && !e.shiftKey) {
             e.preventDefault();
             this.history.undo();
+            this.renderCurrentSlide();
         }
         // Ctrl+Shift+Z 或 Ctrl+Y 重做
         else if ((ctrl && e.shiftKey && e.key === 'z') || (ctrl && e.key === 'y')) {
             e.preventDefault();
             this.history.redo();
+            this.renderCurrentSlide();
         }
         // Ctrl+S 保存
         else if (ctrl && e.key === 's') {
@@ -1130,15 +1229,37 @@ class SlideEditor extends EventEmitter {
     _bindViewportEvents() {
         if (!this.viewport) return;
         
-        // 避免重复绑定
-        if (this.viewport._editorBound) return;
-        this.viewport._editorBound = true;
-
-        console.log('[SlideEditor] 绑定视口事件');
+        // 保存当前编辑器实例到全局
+        window._currentSlideEditor = this;
         
-        this.viewport.addEventListener('mousedown', (e) => this._handleMouseDown(e));
-        this.viewport.addEventListener('click', (e) => this._handleClick(e));
-        this.viewport.addEventListener('dblclick', (e) => this._handleDblClick(e));
+        // 避免重复绑定到 window
+        if (window._slideEditorBound) return;
+        window._slideEditorBound = true;
+
+        console.log('[SlideEditor] 绑定全局事件');
+        
+        // 使用 window 监听，确保能捕获所有事件
+        // 通过全局变量访问当前编辑器，确保始终使用最新的实例
+        window.addEventListener('mousedown', (e) => {
+            const editor = window._currentSlideEditor;
+            if (!editor?.enabled) return;
+            
+            const viewport = document.getElementById('presSlideCanvas');
+            if (viewport && viewport.contains(e.target)) {
+                editor._handleMouseDown(e);
+            }
+        }, true);
+        
+        window.addEventListener('dblclick', (e) => {
+            const editor = window._currentSlideEditor;
+            if (!editor?.enabled) return;
+            
+            const viewport = document.getElementById('presSlideCanvas');
+            if (viewport && viewport.contains(e.target)) {
+                console.log('[SlideEditor] 捕获到双击事件:', e.target.tagName);
+                editor._handleDblClick(e);
+            }
+        }, true);
     }
 
     _handleMouseDown(e) {
@@ -1170,20 +1291,44 @@ class SlideEditor extends EventEmitter {
         
         if (elementDom) {
             const elementId = elementDom.dataset.elementId;
+            const isAlreadySelected = this.selection.isSelected(elementId);
             
             if (e.ctrlKey || e.metaKey) {
                 this.selection.toggle(elementId);
-            } else {
+            } else if (!isAlreadySelected) {
+                // 只有点击未选中的元素时才单选，避免破坏多选
                 this.selection.select(elementId);
             }
 
-            // 开始移动
+            // 延迟开始移动，避免影响双击检测
             const rect = this.viewport.getBoundingClientRect();
-            const mousePos = {
-                x: ((e.clientX - rect.left) / rect.width) * 100,
-                y: ((e.clientY - rect.top) / rect.height) * 100,
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const DRAG_THRESHOLD = 5; // 移动超过 5px 才开始拖动
+            
+            const onMouseMove = (moveE) => {
+                const dx = Math.abs(moveE.clientX - startX);
+                const dy = Math.abs(moveE.clientY - startY);
+                if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
+                    // 超过阈值，开始拖动
+                    document.removeEventListener('mousemove', onMouseMove);
+                    document.removeEventListener('mouseup', onMouseUp);
+                    const mousePos = {
+                        x: ((startX - rect.left) / rect.width) * 100,
+                        y: ((startY - rect.top) / rect.height) * 100,
+                    };
+                    this.transform.start(TransformController.HANDLE.MOVE, mousePos);
+                }
             };
-            this.transform.start(TransformController.HANDLE.MOVE, mousePos);
+            
+            const onMouseUp = () => {
+                // 没有移动足够距离，不触发拖动
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            };
+            
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
             e.preventDefault();
             return;
         }
@@ -1197,41 +1342,659 @@ class SlideEditor extends EventEmitter {
     }
 
     _handleDblClick(e) {
+        console.log('[SlideEditor] dblclick 事件触发:', e.target.tagName, e.target.className);
+        
         // 非编辑模式下不处理
-        if (!this.enabled) return;
+        if (!this.enabled) {
+            console.log('[SlideEditor] 编辑模式未启用');
+            return;
+        }
         
         const elementDom = e.target.closest('[data-element-id]');
         if (elementDom) {
             const elementId = elementDom.dataset.elementId;
-            const element = this.document.getElementById(elementId);
+            // 从 slides 获取元素（确保数据一致）
+            const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
+            const element = slide?.elements?.find(el => el.id === elementId);
             if (element) {
                 this.emit('element:dblclick', { element, dom: elementDom });
-                // 文本元素进入编辑模式
+                
+                // 根据元素类型处理
                 if (element.type === 'text') {
-                    this._startTextEditing(element, elementDom);
+                    this._startTextEditing(element, elementDom, e.target);
+                } else if (element.type === 'table') {
+                    this._startTableCellEditing(element, elementDom, e.target);
+                } else if (element.type === 'svg') {
+                    this._startSvgTextEditing(element, elementDom, e.target);
+                } else if (element.type === 'card') {
+                    // 卡片内的文本块编辑
+                    this._startCardTextEditing(element, elementDom, e.target);
+                } else if (element.type === 'formula') {
+                    // 公式快捷编辑
+                    this._startFormulaEditing(element, elementDom);
+                } else if (element.type === 'chart') {
+                    // 图表数据编辑
+                    this._startChartEditing(element, elementDom);
                 }
             }
         }
     }
 
-    _startTextEditing(element, dom) {
-        // TODO: 实现文本编辑
+    _startTextEditing(element, dom, target) {
         console.log('[SlideEditor] 开始编辑文本:', element.id);
+        
+        // 让目标元素可编辑
+        // 隐藏选择框
+        this._hideSelectionDuringEdit();
+        
+        dom.contentEditable = 'true';
+        dom.focus();
+        
+        // 选中所有文本
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(dom);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        
+        // 失焦时保存
+        const saveAndExit = () => {
+            dom.contentEditable = 'false';
+            const newContent = dom.innerHTML;
+            if (newContent !== element.content) {
+                this.updateElement(element.id, { content: newContent });
+            }
+            dom.removeEventListener('blur', saveAndExit);
+            dom.removeEventListener('keydown', handleKeyDown);
+            // 恢复选择框
+            this._showSelectionAfterEdit();
+        };
+        
+        const handleKeyDown = (e) => {
+            if (e.key === 'Escape') {
+                dom.innerHTML = element.content; // 还原
+                dom.blur();
+            } else if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                dom.blur();
+            }
+        };
+        
+        dom.addEventListener('blur', saveAndExit);
+        dom.addEventListener('keydown', handleKeyDown);
+        
         this.emit('text:edit', { element, dom });
+    }
+
+    _startTableCellEditing(element, dom, target) {
+        // 找到点击的单元格
+        const cell = target.closest('td, th');
+        if (!cell) return;
+        
+        console.log('[SlideEditor] 开始编辑表格单元格:', element.id);
+        
+        // 隐藏选择框
+        this._hideSelectionDuringEdit();
+        
+        cell.contentEditable = 'true';
+        cell.focus();
+        
+        // 选中单元格内容
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(cell);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        
+        const saveAndExit = () => {
+            cell.contentEditable = 'false';
+            // 更新整个表格的 HTML
+            const table = dom.querySelector('table');
+            if (table) {
+                this.updateElement(element.id, { content: table.outerHTML });
+            }
+            cell.removeEventListener('blur', saveAndExit);
+            cell.removeEventListener('keydown', handleKeyDown);
+            // 恢复选择框
+            this._showSelectionAfterEdit();
+        };
+        
+        const handleKeyDown = (e) => {
+            if (e.key === 'Escape') {
+                cell.blur();
+            } else if (e.key === 'Tab') {
+                e.preventDefault();
+                cell.blur();
+                // 移到下一个单元格
+                const nextCell = cell.nextElementSibling || 
+                    cell.parentElement.nextElementSibling?.firstElementChild;
+                if (nextCell) {
+                    this._startTableCellEditing(element, dom, nextCell);
+                }
+            } else if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                cell.blur();
+            }
+        };
+        
+        cell.addEventListener('blur', saveAndExit);
+        cell.addEventListener('keydown', handleKeyDown);
+    }
+
+    _startSvgTextEditing(element, dom, target) {
+        // 找到点击的 text 或 tspan
+        const textEl = target.closest('text, tspan');
+        if (!textEl) return;
+        
+        console.log('[SlideEditor] 开始编辑 SVG 文本:', element.id);
+        
+        // SVG text 不支持 contentEditable，使用 input 覆盖
+        const rect = textEl.getBoundingClientRect();
+        const containerRect = this.viewport.getBoundingClientRect();
+        
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = textEl.textContent;
+        input.style.cssText = `
+            position: absolute;
+            left: ${rect.left - containerRect.left}px;
+            top: ${rect.top - containerRect.top}px;
+            width: ${Math.max(rect.width + 20, 60)}px;
+            height: ${rect.height + 4}px;
+            font-size: ${window.getComputedStyle(textEl).fontSize || '14px'};
+            font-family: ${window.getComputedStyle(textEl).fontFamily || 'inherit'};
+            border: 2px solid #3b82f6;
+            border-radius: 4px;
+            padding: 0 4px;
+            background: white;
+            z-index: 10000;
+            outline: none;
+        `;
+        
+        this.viewport.appendChild(input);
+        input.focus();
+        input.select();
+        
+        const saveAndExit = () => {
+            const newText = input.value;
+            if (newText !== textEl.textContent) {
+                textEl.textContent = newText;
+                // 更新整个 SVG 的内容
+                const svg = dom.querySelector('svg');
+                if (svg) {
+                    this.updateElement(element.id, { content: svg.outerHTML });
+                }
+            }
+            input.remove();
+        };
+        
+        input.addEventListener('blur', saveAndExit);
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                input.value = textEl.textContent; // 还原
+                input.blur();
+            } else if (e.key === 'Enter') {
+                input.blur();
+            }
+        });
+    }
+
+    _startCardTextEditing(element, dom, target) {
+        // 找到包含文本的最近块元素
+        let textBlock = target;
+        
+        // 如果点击的是空白区域，不处理
+        if (!textBlock.textContent?.trim()) return;
+        
+        // 向上查找合适的可编辑块（避免编辑整个卡片）
+        while (textBlock && textBlock !== dom) {
+            const display = window.getComputedStyle(textBlock).display;
+            if (display === 'block' || display === 'flex' || 
+                textBlock.tagName === 'P' || textBlock.tagName === 'SPAN' ||
+                textBlock.tagName === 'H1' || textBlock.tagName === 'H2' ||
+                textBlock.tagName === 'H3' || textBlock.tagName === 'H4' ||
+                textBlock.tagName === 'DIV') {
+                // 检查是不是文本容器（有文本内容但没有太多子元素）
+                if (textBlock.childElementCount <= 2) {
+                    break;
+                }
+            }
+            textBlock = textBlock.parentElement;
+        }
+        
+        if (!textBlock || textBlock === dom) {
+            textBlock = target;
+        }
+        
+        console.log('[SlideEditor] 开始编辑卡片文本:', element.id, textBlock.tagName);
+        
+        // 判断是标题还是副标题（根据字体大小或位置）
+        const fontSize = parseInt(window.getComputedStyle(textBlock).fontSize);
+        const isTitle = fontSize >= 14 || textBlock.style.fontWeight === '600' || 
+                        textBlock.previousElementSibling === null;
+        
+        // 隐藏选择框
+        this._hideSelectionDuringEdit();
+        
+        const originalText = textBlock.textContent;
+        textBlock.contentEditable = 'true';
+        textBlock.focus();
+        
+        // 选中所有文本
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(textBlock);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        
+        const saveAndExit = () => {
+            textBlock.contentEditable = 'false';
+            const newText = textBlock.textContent;
+            if (newText !== originalText) {
+                // 根据位置更新 title 或 subtitle
+                if (isTitle) {
+                    this.updateElement(element.id, { title: newText });
+                } else {
+                    this.updateElement(element.id, { subtitle: newText });
+                }
+            }
+            textBlock.removeEventListener('blur', saveAndExit);
+            textBlock.removeEventListener('keydown', handleKeyDown);
+            // 恢复选择框
+            this._showSelectionAfterEdit();
+        };
+        
+        const handleKeyDown = (e) => {
+            if (e.key === 'Escape') {
+                textBlock.textContent = originalText;
+                textBlock.blur();
+            } else if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                textBlock.blur();
+            }
+        };
+        
+        textBlock.addEventListener('blur', saveAndExit);
+        textBlock.addEventListener('keydown', handleKeyDown);
+    }
+
+    _startFormulaEditing(element, dom) {
+        console.log('[SlideEditor] 开始编辑公式:', element.id);
+        
+        // 隐藏选择框
+        this._hideSelectionDuringEdit();
+        
+        const rect = dom.getBoundingClientRect();
+        const containerRect = this.viewport.getBoundingClientRect();
+        
+        // 创建编辑弹窗
+        const overlay = document.createElement('div');
+        overlay.className = 'formula-edit-overlay';
+        overlay.style.cssText = `
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        `;
+        
+        const dialog = document.createElement('div');
+        dialog.style.cssText = `
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            min-width: 400px;
+            max-width: 600px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+        `;
+        
+        const title = document.createElement('div');
+        title.textContent = '编辑 LaTeX 公式';
+        title.style.cssText = 'font-weight: 600; font-size: 16px; margin-bottom: 12px;';
+        
+        const textarea = document.createElement('textarea');
+        textarea.value = element.latex || element.content || '';
+        textarea.style.cssText = `
+            width: 100%;
+            height: 120px;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 14px;
+            padding: 12px;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            resize: vertical;
+            outline: none;
+            box-sizing: border-box;
+        `;
+        textarea.placeholder = '输入 LaTeX 公式，如: E = mc^2';
+        
+        // 预览区
+        const preview = document.createElement('div');
+        preview.style.cssText = `
+            margin-top: 12px;
+            padding: 16px;
+            background: #f9fafb;
+            border-radius: 8px;
+            min-height: 40px;
+            text-align: center;
+        `;
+        
+        // 实时预览
+        const updatePreview = () => {
+            try {
+                if (window.katex) {
+                    preview.innerHTML = '';
+                    katex.render(textarea.value, preview, { 
+                        throwOnError: false,
+                        displayMode: true 
+                    });
+                } else {
+                    preview.textContent = textarea.value;
+                }
+            } catch (e) {
+                preview.innerHTML = `<span style="color:#ef4444">公式错误: ${e.message}</span>`;
+            }
+        };
+        textarea.addEventListener('input', updatePreview);
+        updatePreview();
+        
+        // 按钮区
+        const buttons = document.createElement('div');
+        buttons.style.cssText = 'display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;';
+        
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = '取消';
+        cancelBtn.style.cssText = `
+            padding: 8px 16px;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            background: white;
+            cursor: pointer;
+        `;
+        
+        const saveBtn = document.createElement('button');
+        saveBtn.textContent = '保存';
+        saveBtn.style.cssText = `
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            background: #3b82f6;
+            color: white;
+            cursor: pointer;
+        `;
+        
+        const close = () => {
+            overlay.remove();
+            this._showSelectionAfterEdit();
+        };
+        
+        cancelBtn.onclick = close;
+        saveBtn.onclick = () => {
+            const newLatex = textarea.value;
+            if (newLatex !== (element.latex || element.content)) {
+                this.updateElement(element.id, { 
+                    latex: newLatex,
+                    content: newLatex 
+                });
+                // 重新渲染公式
+                if (window.katex && dom) {
+                    try {
+                        dom.innerHTML = '';
+                        katex.render(newLatex, dom, { 
+                            throwOnError: false,
+                            displayMode: element.displayMode !== false
+                        });
+                    } catch (e) {
+                        dom.textContent = newLatex;
+                    }
+                }
+            }
+            close();
+        };
+        
+        // Esc 关闭
+        overlay.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') close();
+            if (e.key === 'Enter' && e.ctrlKey) {
+                e.preventDefault();
+                saveBtn.click();
+            }
+        });
+        
+        buttons.appendChild(cancelBtn);
+        buttons.appendChild(saveBtn);
+        
+        dialog.appendChild(title);
+        dialog.appendChild(textarea);
+        dialog.appendChild(preview);
+        dialog.appendChild(buttons);
+        overlay.appendChild(dialog);
+        document.body.appendChild(overlay);
+        
+        textarea.focus();
+        textarea.select();
+    }
+
+    /**
+     * 图表数据编辑弹窗
+     */
+    _startChartEditing(element, dom) {
+        console.log('[SlideEditor] 开始编辑图表:', element.id);
+        
+        this._hideSelectionDuringEdit();
+        
+        // 解析当前数据
+        const chartData = element.chartData || '';
+        const dataItems = chartData.split(',').map(item => {
+            const [label, value] = item.split(':');
+            return { label: label?.trim() || '', value: value?.trim() || '' };
+        }).filter(item => item.label || item.value);
+        
+        // 创建编辑弹窗
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10001;
+        `;
+        
+        const dialog = document.createElement('div');
+        dialog.style.cssText = `
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            width: 480px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+        `;
+        
+        const title = document.createElement('h3');
+        title.textContent = '编辑图表数据';
+        title.style.cssText = 'margin: 0 0 16px 0; font-size: 18px; color: #1e293b;';
+        
+        const typeRow = document.createElement('div');
+        typeRow.style.cssText = 'margin-bottom: 16px;';
+        typeRow.innerHTML = `
+            <label style="font-size: 14px; color: #64748b; margin-bottom: 4px; display: block;">图表类型</label>
+            <select id="chartTypeSelect" style="width: 100%; padding: 8px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px;">
+                <option value="bar" ${element.chartType === 'bar' ? 'selected' : ''}>柱状图</option>
+                <option value="line" ${element.chartType === 'line' ? 'selected' : ''}>折线图</option>
+                <option value="pie" ${element.chartType === 'pie' ? 'selected' : ''}>饼图</option>
+                <option value="doughnut" ${element.chartType === 'doughnut' ? 'selected' : ''}>环形图</option>
+            </select>
+        `;
+        
+        const dataContainer = document.createElement('div');
+        dataContainer.style.cssText = 'margin-bottom: 16px;';
+        
+        const dataLabel = document.createElement('label');
+        dataLabel.textContent = '数据项（标签:数值）';
+        dataLabel.style.cssText = 'font-size: 14px; color: #64748b; margin-bottom: 8px; display: block;';
+        
+        const dataList = document.createElement('div');
+        dataList.id = 'chartDataList';
+        dataList.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
+        
+        // 渲染数据行
+        const renderDataRows = (items) => {
+            dataList.innerHTML = '';
+            items.forEach((item, i) => {
+                const row = document.createElement('div');
+                row.style.cssText = 'display: flex; gap: 8px; align-items: center;';
+                row.innerHTML = `
+                    <input type="text" placeholder="标签" value="${item.label}" style="flex: 1; padding: 8px; border: 1px solid #e2e8f0; border-radius: 6px;" data-field="label" data-index="${i}">
+                    <input type="number" placeholder="数值" value="${item.value}" style="width: 100px; padding: 8px; border: 1px solid #e2e8f0; border-radius: 6px;" data-field="value" data-index="${i}">
+                    <button style="padding: 6px 10px; border: none; background: #fee2e2; color: #dc2626; border-radius: 6px; cursor: pointer;" data-delete="${i}">✕</button>
+                `;
+                dataList.appendChild(row);
+            });
+        };
+        
+        let currentItems = dataItems.length ? dataItems : [{ label: '', value: '' }];
+        renderDataRows(currentItems);
+        
+        // 添加新行按钮
+        const addBtn = document.createElement('button');
+        addBtn.textContent = '+ 添加数据';
+        addBtn.style.cssText = `
+            margin-top: 8px;
+            padding: 8px 16px;
+            border: 1px dashed #e2e8f0;
+            background: transparent;
+            border-radius: 6px;
+            cursor: pointer;
+            color: #64748b;
+            width: 100%;
+        `;
+        addBtn.onclick = () => {
+            currentItems.push({ label: '', value: '' });
+            renderDataRows(currentItems);
+        };
+        
+        // 事件委托处理输入和删除
+        dataList.addEventListener('input', (e) => {
+            const input = e.target;
+            const index = parseInt(input.dataset.index);
+            const field = input.dataset.field;
+            if (!isNaN(index) && field) {
+                currentItems[index][field] = input.value;
+            }
+        });
+        
+        dataList.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-delete]');
+            if (btn) {
+                const index = parseInt(btn.dataset.delete);
+                currentItems.splice(index, 1);
+                if (currentItems.length === 0) currentItems.push({ label: '', value: '' });
+                renderDataRows(currentItems);
+            }
+        });
+        
+        dataContainer.appendChild(dataLabel);
+        dataContainer.appendChild(dataList);
+        dataContainer.appendChild(addBtn);
+        
+        // 按钮
+        const buttons = document.createElement('div');
+        buttons.style.cssText = 'display: flex; justify-content: flex-end; gap: 12px; margin-top: 16px;';
+        
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = '取消';
+        cancelBtn.style.cssText = `
+            padding: 8px 16px;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            background: white;
+            cursor: pointer;
+        `;
+        
+        const saveBtn = document.createElement('button');
+        saveBtn.textContent = '保存';
+        saveBtn.style.cssText = `
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            background: #3b82f6;
+            color: white;
+            cursor: pointer;
+        `;
+        
+        const close = () => {
+            overlay.remove();
+            this._showSelectionAfterEdit();
+        };
+        
+        cancelBtn.onclick = close;
+        saveBtn.onclick = () => {
+            // 构建 chartData 字符串
+            const newChartData = currentItems
+                .filter(item => item.label && item.value)
+                .map(item => `${item.label}:${item.value}`)
+                .join(',');
+            
+            const newChartType = dialog.querySelector('#chartTypeSelect').value;
+            
+            // 保存更新
+            this.updateElement(element.id, { 
+                chartData: newChartData,
+                chartType: newChartType
+            });
+            
+            close();
+        };
+        
+        overlay.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') close();
+            if (e.key === 'Enter' && e.ctrlKey) {
+                e.preventDefault();
+                saveBtn.click();
+            }
+        });
+        
+        buttons.appendChild(cancelBtn);
+        buttons.appendChild(saveBtn);
+        
+        dialog.appendChild(title);
+        dialog.appendChild(typeRow);
+        dialog.appendChild(dataContainer);
+        dialog.appendChild(buttons);
+        overlay.appendChild(dialog);
+        document.body.appendChild(overlay);
     }
 
     // ═══════════════════════════════════════════════════════════════
     // 辅助方法
     // ═══════════════════════════════════════════════════════════════
 
+    _hideSelectionDuringEdit() {
+        // 编辑时隐藏选择框
+        if (this.overlayContainer) {
+            this.overlayContainer.style.display = 'none';
+        }
+    }
+    
+    _showSelectionAfterEdit() {
+        // 编辑结束后恢复选择框
+        if (this.overlayContainer) {
+            this.overlayContainer.style.display = '';
+        }
+        // 重绘选择框
+        this._updateOverlay();
+    }
+
     _createOverlayContainer() {
-        console.log('[SlideEditor] 创建覆盖层...');
-        
         // 移除旧的覆盖层
         const oldOverlay = document.querySelector('.editor-overlay');
         if (oldOverlay) {
             oldOverlay.remove();
-            console.log('[SlideEditor] 移除旧覆盖层');
         }
         
         this.overlayContainer = document.createElement('div');
@@ -1252,9 +2015,6 @@ class SlideEditor extends EventEmitter {
         if (this.viewport) {
             this.viewport.style.position = 'relative';
             this.viewport.appendChild(this.overlayContainer);
-            console.log('[SlideEditor] 覆盖层已添加到 viewport');
-        } else {
-            console.error('[SlideEditor] viewport 不存在，无法添加覆盖层');
         }
     }
 

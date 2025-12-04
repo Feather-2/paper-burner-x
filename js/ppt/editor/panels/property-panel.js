@@ -1,6 +1,7 @@
 /**
  * 属性面板
  * 显示和编辑选中元素的属性
+ * 支持多选批量编辑
  */
 class PropertyPanel extends EventEmitter {
     constructor(editor, containerId) {
@@ -8,6 +9,7 @@ class PropertyPanel extends EventEmitter {
         this.editor = editor;
         this.container = document.getElementById(containerId);
         this.currentElement = null;
+        this.selectedElements = []; // 所有选中的元素
 
         if (!this.container) {
             console.warn('[PropertyPanel] 容器不存在:', containerId);
@@ -16,22 +18,28 @@ class PropertyPanel extends EventEmitter {
 
         // 监听选择变化
         this.editor.selection.on('change', (data) => {
-            this.refresh(data.elements[0] || null);
+            this.selectedElements = data.elements || [];
+            this.currentElement = this.selectedElements[0] || null;
+            this.refresh();
         });
     }
 
     /**
      * 刷新面板
      */
-    refresh(element = null) {
-        this.currentElement = element;
-
-        if (!element) {
+    refresh() {
+        if (this.selectedElements.length === 0) {
             this.container.innerHTML = this._renderEmpty();
             return;
         }
 
-        this.container.innerHTML = this._renderElement(element);
+        if (this.selectedElements.length > 1) {
+            // 多选模式
+            this.container.innerHTML = this._renderMultiSelect();
+        } else {
+            // 单选模式
+            this.container.innerHTML = this._renderElement(this.currentElement);
+        }
         this._bindEvents();
     }
 
@@ -41,6 +49,89 @@ class PropertyPanel extends EventEmitter {
                 <p style="color: #9ca3af; text-align: center; padding: 20px;">
                     选择一个元素以编辑属性
                 </p>
+            </div>
+        `;
+    }
+
+    /**
+     * 渲染多选编辑面板
+     */
+    _renderMultiSelect() {
+        const count = this.selectedElements.length;
+        const types = [...new Set(this.selectedElements.map(e => e.type))];
+        const sameType = types.length === 1;
+        
+        // 获取共同属性的当前值（如果相同则显示，否则显示混合）
+        const getCommonValue = (prop, defaultVal) => {
+            const values = this.selectedElements.map(e => e[prop]);
+            const firstVal = values[0];
+            return values.every(v => v === firstVal) ? (firstVal ?? defaultVal) : null;
+        };
+        
+        const opacity = getCommonValue('opacity', 1);
+        
+        let typeSpecificHtml = '';
+        
+        // 如果所有元素类型相同，显示类型特定属性
+        if (sameType) {
+            const type = types[0];
+            if (type === 'text' || type === 'formula') {
+                const fontSize = getCommonValue('fontSize', null) || getCommonValue('font', 24);
+                const color = getCommonValue('color', '#1f2937');
+                typeSpecificHtml = `
+                    <div class="property-section">
+                        <div class="property-section-title">文本样式</div>
+                        <div class="property-row">
+                            <label>字号</label>
+                            <input type="number" data-prop="fontSize" value="${fontSize || ''}" placeholder="混合" min="8" max="200">
+                            <span>px</span>
+                        </div>
+                        <div class="property-row">
+                            <label>颜色</label>
+                            <input type="color" data-prop="color" value="${color || '#000000'}">
+                        </div>
+                    </div>
+                `;
+            } else if (type === 'image' || type === 'shape') {
+                typeSpecificHtml = `
+                    <div class="property-section">
+                        <div class="property-section-title">外观</div>
+                        <div class="property-row">
+                            <label>填充</label>
+                            <input type="color" data-prop="fill" value="${getCommonValue('fill', '#ffffff') || '#ffffff'}">
+                        </div>
+                    </div>
+                `;
+            }
+        }
+        
+        return `
+            <div class="property-panel-content">
+                <div class="property-section">
+                    <div class="property-section-title">
+                        多选编辑 <span style="color: #6b7280; font-weight: normal;">(${count} 个元素)</span>
+                    </div>
+                    <p style="color: #9ca3af; font-size: 12px; margin: 8px 0;">
+                        ${sameType ? `类型: ${types[0]}` : `混合类型: ${types.join(', ')}`}
+                    </p>
+                </div>
+                <div class="property-section">
+                    <div class="property-section-title">通用属性</div>
+                    <div class="property-row">
+                        <label>透明度</label>
+                        <input type="range" data-prop="opacity" value="${(opacity ?? 1) * 100}" min="0" max="100">
+                        <span>${Math.round((opacity ?? 1) * 100)}%</span>
+                    </div>
+                </div>
+                ${typeSpecificHtml}
+                <div class="property-section">
+                    <div class="property-section-title">批量操作</div>
+                    <div class="property-row" style="flex-direction: column; gap: 8px;">
+                        <button class="property-btn" data-action="delete-selected" style="width: 100%; background: #fee2e2; color: #dc2626;">
+                            删除选中 (${count})
+                        </button>
+                    </div>
+                </div>
             </div>
         `;
     }
@@ -159,12 +250,14 @@ class PropertyPanel extends EventEmitter {
     }
 
     _renderTextProperties(el) {
+        // 兼容旧的 font 属性
+        const fontSizeVal = el.fontSize || el.font || 24;
         return `
             <div class="property-section">
                 <div class="property-section-title">文本</div>
                 <div class="property-row">
                     <label>字号</label>
-                    <input type="number" data-prop="fontSize" value="${el.fontSize || 24}" min="8" max="200">
+                    <input type="number" data-prop="fontSize" value="${fontSizeVal}" min="8" max="200">
                     <span>px</span>
                 </div>
                 <div class="property-row">
@@ -281,19 +374,29 @@ class PropertyPanel extends EventEmitter {
     }
 
     _renderFormulaProperties(el) {
+        const fontSize = el.fontSize || 18;
         return `
             <div class="property-section">
                 <div class="property-section-title">公式</div>
-                <div class="property-row full-width">
-                    <label>LaTeX 代码</label>
-                    <textarea data-prop="latex" rows="3">${el.latex || ''}</textarea>
+                <div class="property-row">
+                    <label>字号</label>
+                    <input type="number" data-prop="fontSize" value="${fontSize}" min="8" max="100">
+                    <span>px</span>
+                </div>
+                <div class="property-row">
+                    <label>颜色</label>
+                    <input type="color" data-prop="color" value="${el.color || '#1e293b'}">
                 </div>
                 <div class="property-row">
                     <label>显示模式</label>
                     <select data-prop="displayMode">
-                        <option value="true" ${el.displayMode ? 'selected' : ''}>块级</option>
-                        <option value="false" ${!el.displayMode ? 'selected' : ''}>行内</option>
+                        <option value="true" ${el.displayMode !== false ? 'selected' : ''}>块级</option>
+                        <option value="false" ${el.displayMode === false ? 'selected' : ''}>行内</option>
                     </select>
+                </div>
+                <div class="property-row full-width">
+                    <label>LaTeX 代码</label>
+                    <textarea data-prop="latex" rows="3">${el.latex || el.content || ''}</textarea>
                 </div>
             </div>
         `;
@@ -316,7 +419,9 @@ class PropertyPanel extends EventEmitter {
     }
 
     _bindEvents() {
-        if (!this.container || !this.currentElement) return;
+        if (!this.container || this.selectedElements.length === 0) return;
+
+        const isMultiSelect = this.selectedElements.length > 1;
 
         // 输入框变化
         this.container.querySelectorAll('input, select, textarea').forEach(input => {
@@ -329,20 +434,27 @@ class PropertyPanel extends EventEmitter {
                 // 类型转换
                 if (input.type === 'number' || input.type === 'range') {
                     value = parseFloat(value);
+                    if (isNaN(value)) return; // 空值不更新
                 }
                 if (prop === 'opacity') {
                     value = value / 100;
                 }
                 if (prop === 'blur') {
                     value = value > 0 ? `blur(${value}px)` : '';
-                    this.editor.updateElement(this.currentElement.id, { filter: value });
+                    // 批量更新
+                    for (const el of this.selectedElements) {
+                        this.editor.updateElement(el.id, { filter: value });
+                    }
                     return;
                 }
                 if (prop === 'displayMode') {
                     value = value === 'true';
                 }
 
-                this.editor.updateElement(this.currentElement.id, { [prop]: value });
+                // 批量更新所有选中元素
+                for (const el of this.selectedElements) {
+                    this.editor.updateElement(el.id, { [prop]: value });
+                }
             };
 
             input.addEventListener('change', handler);
@@ -355,7 +467,15 @@ class PropertyPanel extends EventEmitter {
         this.container.querySelectorAll('[data-action]').forEach(btn => {
             btn.addEventListener('click', () => {
                 const action = btn.dataset.action;
-                this.emit('action', { action, element: this.currentElement });
+                if (action === 'delete-selected') {
+                    // 批量删除
+                    for (const el of this.selectedElements) {
+                        this.editor.removeElement(el.id);
+                    }
+                    this.editor.selection.deselectAll();
+                } else {
+                    this.emit('action', { action, element: this.currentElement, elements: this.selectedElements });
+                }
             });
         });
     }
