@@ -110,29 +110,13 @@ const PPTGeneratorNavigation = {
                             </div>
                         </div>
 
-                        <!-- Hero Visual Preview -->
-                        <div class="ppt-hero-visual">
-                            <div class="ppt-visual-card main">
-                                <div class="ppt-visual-header">
-                                    <div class="ppt-visual-dots">
-                                        <span></span><span></span><span></span>
-                                    </div>
-                                    <div class="ppt-visual-title">Quantum Computing.pptx</div>
-                                </div>
-                                <div class="ppt-visual-content">
-                                    <div class="ppt-slide-preview-hero">
-                                        <h1>QUANTUM LEAP</h1>
-                                        <p style="font-size: 18px; opacity: 0.8; margin-top: 16px;">Unlocking the Universe's Compute Power</p>
-                                        <div class="ppt-slide-hero-grid" style="margin-top: 40px;">
-                                            <div class="ppt-hero-grid-item" style="display: flex; align-items: center; justify-content: center; color: white; font-size: 12px;">Foundations</div>
-                                            <div class="ppt-hero-grid-item" style="display: flex; align-items: center; justify-content: center; color: white; font-size: 12px;">Algorithms</div>
-                                            <div class="ppt-hero-grid-item" style="display: flex; align-items: center; justify-content: center; color: white; font-size: 12px;">Hardware</div>
-                                        </div>
-                                    </div>
-                                </div>
+                        <!-- Hero Visual Preview - 直接展示幻灯片 -->
+                        <div class="ppt-hero-visual direct">
+                            <div id="heroSlideCarousel" class="ppt-hero-carousel">
+                                <!-- 由 JS 渲染实际幻灯片 -->
                             </div>
-                            <div class="ppt-visual-card back-1"></div>
-                            <div class="ppt-visual-card back-2"></div>
+                            <!-- 轮播指示器 -->
+                            <div id="heroCarouselDots" class="ppt-carousel-dots"></div>
                             
                             <!-- Floating Elements -->
                             <div class="ppt-float-badge badge-1">
@@ -255,6 +239,134 @@ const PPTGeneratorNavigation = {
                 </main>
             </div>
         `;
+        
+        // 初始化 Hero 幻灯片轮播
+        this._initHeroCarousel();
+    },
+
+    /**
+     * 初始化 Hero 区域的幻灯片轮播
+     */
+    _initHeroCarousel() {
+        const carousel = document.getElementById('heroSlideCarousel');
+        const dotsContainer = document.getElementById('heroCarouselDots');
+        if (!carousel || !dotsContainer) return;
+        
+        // 解析示例 HTML 获取 slides（优先使用 Landing 示例）
+        const sampleHTML = window.PPT_LANDING_SAMPLE_HTML || window.PPT_SAMPLE_HTML;
+        if (!sampleHTML || typeof SlideParser === 'undefined') {
+            console.warn('[HeroCarousel] 示例数据或解析器未加载');
+            return;
+        }
+        
+        try {
+            const slides = SlideParser.parse(sampleHTML);
+            
+            if (!slides || slides.length === 0) {
+                console.warn('[HeroCarousel] 没有解析到幻灯片');
+                return;
+            }
+            
+            // 只取前 5 张幻灯片
+            const displaySlides = slides.slice(0, 5);
+            const renderer = new HTMLSlideRenderer();
+            
+            // 延迟获取容器尺寸，确保 DOM 已渲染
+            requestAnimationFrame(() => {
+                // 渲染所有幻灯片
+                carousel.innerHTML = displaySlides.map((slide, i) => `
+                    <div class="ppt-carousel-slide ${i === 0 ? 'active' : ''}" data-index="${i}">
+                        <div class="ppt-carousel-slide-inner">
+                            ${renderer.render(slide, i)}
+                        </div>
+                    </div>
+                `).join('');
+                
+                // 渲染指示器
+                dotsContainer.innerHTML = displaySlides.map((_, i) => `
+                    <span class="ppt-carousel-dot ${i === 0 ? 'active' : ''}" data-index="${i}"></span>
+                `).join('');
+                
+                // 点击指示器切换
+                dotsContainer.querySelectorAll('.ppt-carousel-dot').forEach(dot => {
+                    dot.addEventListener('click', () => {
+                        this._goToSlide(parseInt(dot.dataset.index));
+                    });
+                });
+                
+                // 初始计算缩放
+                this._updateCarouselScale();
+                
+                // 监听窗口大小变化（节流）
+                if (!this._resizeHandler) {
+                    let resizeTimer;
+                    this._resizeHandler = () => {
+                        clearTimeout(resizeTimer);
+                        resizeTimer = setTimeout(() => this._updateCarouselScale(), 100);
+                    };
+                    window.addEventListener('resize', this._resizeHandler);
+                }
+                
+                // 自动轮播
+                this._carouselIndex = 0;
+                this._carouselSlides = displaySlides.length;
+                this._startCarouselAutoPlay();
+            });
+            
+        } catch (e) {
+            console.error('[HeroCarousel] 初始化失败:', e);
+        }
+    },
+    
+    _updateCarouselScale() {
+        const carousel = document.getElementById('heroSlideCarousel');
+        if (!carousel) return;
+        
+        const containerWidth = carousel.offsetWidth || 400;
+        const containerHeight = carousel.offsetHeight || 225;
+        // 取宽高缩放比例的较小值，确保完整显示
+        const scaleW = containerWidth / 960;
+        const scaleH = containerHeight / 540;
+        const scale = Math.min(scaleW, scaleH);
+        // 计算居中偏移
+        const offsetX = (containerWidth - 960 * scale) / 2;
+        const offsetY = (containerHeight - 540 * scale) / 2;
+        
+        // 更新所有 slide-inner 的缩放
+        carousel.querySelectorAll('.ppt-carousel-slide-inner').forEach(inner => {
+            inner.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+            inner.style.transformOrigin = 'top left';
+        });
+    },
+    
+    _goToSlide(index) {
+        const carousel = document.getElementById('heroSlideCarousel');
+        const dotsContainer = document.getElementById('heroCarouselDots');
+        if (!carousel || !dotsContainer) return;
+        
+        // 更新 slides
+        carousel.querySelectorAll('.ppt-carousel-slide').forEach((slide, i) => {
+            slide.classList.toggle('active', i === index);
+        });
+        
+        // 更新 dots
+        dotsContainer.querySelectorAll('.ppt-carousel-dot').forEach((dot, i) => {
+            dot.classList.toggle('active', i === index);
+        });
+        
+        this._carouselIndex = index;
+    },
+    
+    _startCarouselAutoPlay() {
+        // 清除旧的定时器
+        if (this._carouselTimer) {
+            clearInterval(this._carouselTimer);
+        }
+        
+        this._carouselTimer = setInterval(() => {
+            const next = (this._carouselIndex + 1) % this._carouselSlides;
+            this._goToSlide(next);
+        }, 4000); // 4秒切换
     },
 
     toggleProjectView(mode) {

@@ -170,11 +170,15 @@
 .ppt-hero-visual {
     position: relative;
     width: 100%;
-    height: 500px;
-    perspective: 1000px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    aspect-ratio: 16 / 9;
+    max-height: 70vh;
+}
+
+.ppt-hero-visual.direct .ppt-hero-carousel {
+    width: 100%;
+    height: 100%;
+    border-radius: 12px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.2);
 }
 
 .ppt-visual-card {
@@ -234,11 +238,12 @@
 
 .ppt-visual-content {
     flex: 1;
-    padding: 40px;
+    padding: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
     background: radial-gradient(circle at top right, rgba(79, 70, 229, 0.15), transparent 40%);
+    overflow: hidden;
 }
 
 .ppt-slide-preview-hero {
@@ -325,8 +330,8 @@
 }
 
 .badge-2 {
-    bottom: 20%;
-    right: -20px;
+    bottom: 15%;
+    right: 10px;
     animation-delay: 2s;
 }
 
@@ -426,21 +431,14 @@
     .ppt-hero-content {
         align-items: center;
     }
-
     .ppt-hero-actions {
         align-items: center;
     }
 
     .ppt-hero-visual {
-        height: 400px;
+        max-height: 50vh;
     }
-    
-    .ppt-visual-card.main {
-        transform: none;
-    }
-}
 
-@media (max-width: 1024px) {
     .ppt-project-grid {
         grid-template-columns: repeat(2, 1fr);
     }
@@ -834,4 +832,86 @@
     .ppt-template-grid {
         grid-template-columns: 1fr;
     }
+}
+
+/* ==================== Hero Carousel ==================== */
+.ppt-hero-carousel {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.ppt-carousel-slide {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    transition: opacity 0.6s ease;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+.ppt-carousel-slide.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* 幻灯片内部容器 - 固定 960x540，由 JS 计算缩放 */
+.ppt-carousel-slide-inner {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 960px;
+    height: 540px;
+    overflow: hidden;
+    border-radius: 8px;
+}
+
+.ppt-carousel-slide-inner .slide-container {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+/* 指示器 - 放在幻灯片下方 */
+.ppt-carousel-dots {
+    position: absolute;
+    bottom: -30px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 10px;
+    z-index: 10;
+}
+
+.ppt-carousel-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.2);
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.ppt-carousel-dot:hover {
+    background: rgba(0, 0, 0, 0.4);
+}
+
+.ppt-carousel-dot.active {
+    background: #4F46E5;
+    border-color: #4F46E5;
+    transform: scale(1.3);
+}
+
+/* 调整 visual-content 以适应轮播 */
+.ppt-visual-content {
+    padding: 12px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
 }
