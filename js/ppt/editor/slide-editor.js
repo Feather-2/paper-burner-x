@@ -15,6 +15,9 @@ class SlideEditor extends EventEmitter {
         // 项目状态
         this.currentProject = null;
         this.currentSlideIndex = 0;
+        
+        // 编辑模式状态
+        this.enabled = false;
 
         // UI 元素
         this.viewport = null;
@@ -407,18 +410,60 @@ class SlideEditor extends EventEmitter {
      * 更新元素属性
      */
     updateElement(elementId, updates) {
-        const element = this.document.getElementById(elementId);
+        // 直接在 PPTGenerator.slides 中查找元素
+        const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
+        if (!slide?.elements) return;
+        
+        const element = slide.elements.find(el => el.id === elementId);
         if (!element) return;
 
-        // 记录变更
+        // 记录旧值用于撤销
+        const oldValues = {};
+        for (const key of Object.keys(updates)) {
+            oldValues[key] = element[key];
+        }
+
+        // 如果元素有 rawStyle，需要同时更新 rawStyle 中的对应样式
+        if (element.rawStyle && updates) {
+            let newRawStyle = element.rawStyle;
+            for (const [key, value] of Object.entries(updates)) {
+                const cssMap = {
+                    color: `color: ${value};`,
+                    fill: `background: ${value};`,
+                    opacity: `opacity: ${value};`,
+                    font: `font-size: ${value}px;`,
+                };
+                if (cssMap[key]) {
+                    const regex = new RegExp(`${key === 'fill' ? 'background' : key}:\\s*[^;]+;?`, 'gi');
+                    if (regex.test(newRawStyle)) {
+                        newRawStyle = newRawStyle.replace(regex, cssMap[key]);
+                    } else {
+                        newRawStyle += ' ' + cssMap[key];
+                    }
+                }
+            }
+            updates.rawStyle = newRawStyle;
+        }
+
+        // 直接更新元素属性
+        Object.assign(element, updates);
+        
+        // 同步到 document
+        this.document.updateElement(elementId, updates);
+        
+        // 记录历史（用于撤销/重做）
         const changes = Object.keys(updates).map(key => ({
             path: key,
-            oldValue: element[key],
-            newValue: updates[key],
+            oldValue: oldValues[key],
+            newValue: updates[key]
         }));
-
-        this.history.push(HistoryManager.createUpdateOp(elementId, changes));
-        this.document.updateElement(elementId, updates);
+        this.history.push({
+            type: 'element.update',
+            elementId,
+            slideIndex: this.currentSlideIndex,
+            changes
+        });
+        
         this.renderCurrentSlide();
     }
 
@@ -466,6 +511,118 @@ class SlideEditor extends EventEmitter {
             this.document.sendToBack(id);
         }
         this.renderCurrentSlide();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 对齐功能
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * 对齐选中的元素
+     * @param {string} type - 对齐类型: left, center, right, top, middle, bottom, distributeH, distributeV
+     */
+    alignElements(type) {
+        const selectedIds = this.selection.getSelectedIds();
+        if (selectedIds.length < 2 && !['left', 'center', 'right', 'top', 'middle', 'bottom'].includes(type)) {
+            return; // 分布对齐需要至少2个元素
+        }
+        if (selectedIds.length < 1) return;
+        
+        const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
+        if (!slide?.elements) return;
+        
+        // 获取选中元素的边界
+        const elements = selectedIds.map(id => {
+            const el = slide.elements.find(e => e.id === id);
+            if (!el) return null;
+            const x = parseFloat(el.x) || 0;
+            const y = parseFloat(el.y) || 0;
+            const w = parseFloat(el.w) || 10;
+            const h = parseFloat(el.h) || 10;
+            return { id, x, y, w, h, el };
+        }).filter(Boolean);
+        
+        if (elements.length === 0) return;
+        
+        // 计算边界
+        const minX = Math.min(...elements.map(e => e.x));
+        const maxX = Math.max(...elements.map(e => e.x + e.w));
+        const minY = Math.min(...elements.map(e => e.y));
+        const maxY = Math.max(...elements.map(e => e.y + e.h));
+        
+        this.history.beginBatch('对齐');
+        
+        for (const elem of elements) {
+            let newX = elem.x, newY = elem.y;
+            let textAlign = null; // 文字内部对齐
+            
+            switch (type) {
+                case 'left':
+                    newX = minX;
+                    textAlign = 'left';
+                    break;
+                case 'center':
+                    newX = (minX + maxX) / 2 - elem.w / 2;
+                    textAlign = 'center';
+                    break;
+                case 'right':
+                    newX = maxX - elem.w;
+                    textAlign = 'right';
+                    break;
+                case 'top':
+                    newY = minY;
+                    break;
+                case 'middle':
+                    newY = (minY + maxY) / 2 - elem.h / 2;
+                    break;
+                case 'bottom':
+                    newY = maxY - elem.h;
+                    break;
+            }
+            
+            if (newX !== elem.x || newY !== elem.y) {
+                elem.el.x = `${newX}%`;
+                elem.el.y = `${newY}%`;
+            }
+            
+            // 对于文本元素，同时设置内部文字对齐
+            if (textAlign && elem.el.type === 'text') {
+                elem.el.align = textAlign;
+            }
+        }
+        
+        // 分布对齐
+        if (type === 'distributeH' && elements.length >= 3) {
+            elements.sort((a, b) => a.x - b.x);
+            const totalWidth = elements.reduce((sum, e) => sum + e.w, 0);
+            const space = (maxX - minX - totalWidth) / (elements.length - 1);
+            let currentX = minX;
+            for (const elem of elements) {
+                elem.el.x = `${currentX}%`;
+                currentX += elem.w + space;
+            }
+        }
+        
+        if (type === 'distributeV' && elements.length >= 3) {
+            elements.sort((a, b) => a.y - b.y);
+            const totalHeight = elements.reduce((sum, e) => sum + e.h, 0);
+            const space = (maxY - minY - totalHeight) / (elements.length - 1);
+            let currentY = minY;
+            for (const elem of elements) {
+                elem.el.y = `${currentY}%`;
+                currentY += elem.h + space;
+            }
+        }
+        
+        this.history.commitBatch();
+        this.renderCurrentSlide();
+        
+        // 从 PPTGenerator.slides 获取最新元素数据来刷新属性面板
+        const currentSlide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
+        const freshElements = selectedIds
+            .map(id => currentSlide?.elements?.find(e => e.id === id))
+            .filter(Boolean);
+        this.selection.emit('change', { elements: freshElements });
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -588,24 +745,31 @@ class SlideEditor extends EventEmitter {
     renderCurrentSlide() {
         if (!this.viewport) return;
 
-        const slide = this.document.getSlide(this.currentSlideIndex);
+        // 直接使用 PPTGenerator.slides
+        const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
         if (!slide) {
             this.viewport.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#999;">没有幻灯片</div>';
             return;
         }
 
-        // 使用现有的 HTMLSlideRenderer
-        if (!this.renderer && window.HTMLSlideRenderer) {
-            this.renderer = new HTMLSlideRenderer();
+        // 渲染
+        let html;
+        if (window.PPTGenerator && typeof window.PPTGenerator._renderSlideContent === 'function') {
+            html = window.PPTGenerator._renderSlideContent(slide);
+        } else if (window.HTMLSlideRenderer) {
+            if (!this.renderer) this.renderer = new HTMLSlideRenderer();
+            html = this.renderer.render(slide, this.currentSlideIndex);
         }
-
-        if (this.renderer) {
-            const html = this.renderer.render(slide, this.currentSlideIndex);
+        
+        if (html) {
             this.viewport.innerHTML = html;
-
-            // 为每个元素添加 data-element-id
-            this._addElementIds();
         }
+
+        // 重新创建覆盖层
+        this._createOverlayContainer();
+        
+        // 绑定元素 ID
+        this._addElementIds();
 
         // 更新选择覆盖层
         this._updateOverlay();
@@ -617,12 +781,46 @@ class SlideEditor extends EventEmitter {
      * 为 DOM 元素添加 ID 属性
      */
     _addElementIds() {
-        const elements = this.document.getElements(this.currentSlideIndex);
-        const domElements = this.viewport.querySelectorAll('[data-element-index]');
+        if (!this.viewport) return;
+        
+        // 直接从 PPTGenerator 获取当前幻灯片数据
+        const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
+        if (!slide?.elements) return;
+        
+        // 按 z-index 排序（与 HTMLSlideRenderer 一致）
+        const elements = [...slide.elements]
+            .map((el, i) => ({ el, originalIndex: i }))
+            .sort((a, b) => (a.el.z || 0) - (b.el.z || 0) || a.originalIndex - b.originalIndex)
+            .map(item => item.el);
+        
+        // 获取外层容器
+        const container = this.viewport.firstElementChild;
+        if (!container) return;
+        
+        // 获取所有直接子元素（排除覆盖层）
+        const domElements = Array.from(container.children).filter(el => {
+            return !el.classList.contains('editor-overlay');
+        });
 
+        // 绑定元素 ID
         domElements.forEach((dom, index) => {
             if (elements[index]) {
                 dom.setAttribute('data-element-id', elements[index].id);
+                
+                // SVG 元素特殊处理：保持容器 pointer-events: none，让 line 可点击
+                if (dom.tagName.toLowerCase() === 'svg') {
+                    dom.style.pointerEvents = 'none';
+                    // 给 line 子元素添加 pointer-events
+                    const line = dom.querySelector('line');
+                    if (line) {
+                        line.style.pointerEvents = 'stroke';
+                        line.style.cursor = 'pointer';
+                        line.setAttribute('data-element-id', elements[index].id);
+                    }
+                } else {
+                    dom.style.cursor = 'pointer';
+                    dom.style.pointerEvents = 'auto';
+                }
             }
         });
     }
@@ -636,35 +834,159 @@ class SlideEditor extends EventEmitter {
         // 清空
         this.overlayContainer.innerHTML = '';
 
-        const selected = this.selection.getSelection();
-        if (selected.length === 0) return;
+        const selectedIds = this.selection.getSelectedIds();
+        
+        if (selectedIds.length === 0) return;
 
         // 绘制选择框
-        for (const element of selected) {
-            this._drawSelectionBox(element);
+        for (const id of selectedIds) {
+            this._drawSelectionBox(id);
         }
 
         // 绘制变换手柄
-        const bounds = this.selection.getSelectionBounds();
+        const bounds = this._getSelectionBounds(selectedIds);
         if (bounds) {
             this._drawTransformHandles(bounds);
         }
     }
+    
+    /**
+     * 计算选中元素的边界（使用 DOM 实际位置）
+     */
+    _getSelectionBounds(elementIds) {
+        if (!this.viewport) return null;
+        
+        const containerRect = this.viewport.getBoundingClientRect();
+        
+        let minX = Infinity, minY = Infinity;
+        let maxX = -Infinity, maxY = -Infinity;
+        
+        for (const id of elementIds) {
+            const domElement = this.viewport.querySelector(`[data-element-id="${id}"]`);
+            if (!domElement) continue;
+            
+            const rect = domElement.getBoundingClientRect();
+            const x = ((rect.left - containerRect.left) / containerRect.width) * 100;
+            const y = ((rect.top - containerRect.top) / containerRect.height) * 100;
+            const w = (rect.width / containerRect.width) * 100;
+            const h = (rect.height / containerRect.height) * 100;
+            
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x + w);
+            maxY = Math.max(maxY, y + h);
+        }
+        
+        if (minX === Infinity) return null;
+        
+        return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+    }
 
-    _drawSelectionBox(element) {
-        const box = document.createElement('div');
-        box.className = 'editor-selection-box';
-        box.style.cssText = `
-            position: absolute;
-            left: ${element.x}%;
-            top: ${element.y}%;
-            width: ${element.w}%;
-            height: ${element.h}%;
-            border: 2px solid #3b82f6;
-            pointer-events: none;
-            box-sizing: border-box;
-        `;
-        this.overlayContainer.appendChild(box);
+    _drawSelectionBox(elementId) {
+        // 从 DOM 获取元素的实际位置
+        const domElement = this.viewport?.querySelector(`[data-element-id="${elementId}"]`);
+        if (!domElement) return;
+        
+        const containerRect = this.viewport.getBoundingClientRect();
+        const elementRect = domElement.getBoundingClientRect();
+        
+        // 计算 DOM 元素边界（百分比）
+        const x = ((elementRect.left - containerRect.left) / containerRect.width) * 100;
+        const y = ((elementRect.top - containerRect.top) / containerRect.height) * 100;
+        const w = (elementRect.width / containerRect.width) * 100;
+        const h = (elementRect.height / containerRect.height) * 100;
+        
+        // 尝试获取内容的实际边界（文本、图片等）
+        let contentRect = null;
+        const tagName = domElement.tagName.toLowerCase();
+        
+        if (tagName === 'div' && domElement.textContent?.trim()) {
+            // 对于文本元素，使用 Range 获取实际文本边界
+            const range = document.createRange();
+            range.selectNodeContents(domElement);
+            const rects = range.getClientRects();
+            if (rects.length > 0) {
+                // 合并所有文本行的边界
+                let minLeft = Infinity, minTop = Infinity;
+                let maxRight = -Infinity, maxBottom = -Infinity;
+                for (const rect of rects) {
+                    minLeft = Math.min(minLeft, rect.left);
+                    minTop = Math.min(minTop, rect.top);
+                    maxRight = Math.max(maxRight, rect.right);
+                    maxBottom = Math.max(maxBottom, rect.bottom);
+                }
+                contentRect = {
+                    left: minLeft,
+                    top: minTop,
+                    width: maxRight - minLeft,
+                    height: maxBottom - minTop
+                };
+            }
+        }
+        
+        // 如果内容边界与 DOM 边界差异较大，显示两个边框
+        const showBothBorders = contentRect && (
+            Math.abs(contentRect.width - elementRect.width) > 10 ||
+            Math.abs(contentRect.height - elementRect.height) > 10
+        );
+        
+        if (showBothBorders && contentRect) {
+            // DOM 边界（虚线）
+            const domBox = document.createElement('div');
+            domBox.className = 'editor-selection-box editor-dom-boundary';
+            domBox.style.cssText = `
+                position: absolute;
+                left: ${x}%;
+                top: ${y}%;
+                width: ${w}%;
+                height: ${h}%;
+                border: 1px dashed rgba(59, 130, 246, 0.5);
+                background: transparent;
+                pointer-events: none;
+                box-sizing: border-box;
+                z-index: 9998;
+            `;
+            this.overlayContainer?.appendChild(domBox);
+            
+            // 内容边界（实线）
+            const cx = ((contentRect.left - containerRect.left) / containerRect.width) * 100;
+            const cy = ((contentRect.top - containerRect.top) / containerRect.height) * 100;
+            const cw = (contentRect.width / containerRect.width) * 100;
+            const ch = (contentRect.height / containerRect.height) * 100;
+            
+            const contentBox = document.createElement('div');
+            contentBox.className = 'editor-selection-box editor-content-boundary';
+            contentBox.style.cssText = `
+                position: absolute;
+                left: ${cx}%;
+                top: ${cy}%;
+                width: ${cw}%;
+                height: ${ch}%;
+                border: 2px solid #3b82f6;
+                background: rgba(59, 130, 246, 0.1);
+                pointer-events: none;
+                box-sizing: border-box;
+                z-index: 9999;
+            `;
+            this.overlayContainer?.appendChild(contentBox);
+        } else {
+            // 只显示一个边框
+            const box = document.createElement('div');
+            box.className = 'editor-selection-box';
+            box.style.cssText = `
+                position: absolute;
+                left: ${x}%;
+                top: ${y}%;
+                width: ${w}%;
+                height: ${h}%;
+                border: 2px solid #3b82f6;
+                background: rgba(59, 130, 246, 0.1);
+                pointer-events: none;
+                box-sizing: border-box;
+                z-index: 9999;
+            `;
+            this.overlayContainer?.appendChild(box);
+        }
     }
 
     _drawTransformHandles(bounds) {
@@ -673,13 +995,14 @@ class SlideEditor extends EventEmitter {
 
         const handleStyle = `
             position: absolute;
-            width: 8px;
-            height: 8px;
+            width: 10px;
+            height: 10px;
             background: white;
             border: 2px solid #3b82f6;
             border-radius: 2px;
-            cursor: pointer;
             transform: translate(-50%, -50%);
+            pointer-events: auto;
+            z-index: 1001;
         `;
 
         for (const [type, pos] of Object.entries(handles)) {
@@ -690,9 +1013,9 @@ class SlideEditor extends EventEmitter {
 
             // 设置光标
             const cursors = {
-                nw: 'nw-resize', n: 'n-resize', ne: 'ne-resize',
-                w: 'w-resize', e: 'e-resize',
-                sw: 'sw-resize', s: 's-resize', se: 'se-resize',
+                nw: 'nwse-resize', n: 'ns-resize', ne: 'nesw-resize',
+                w: 'ew-resize', e: 'ew-resize',
+                sw: 'nesw-resize', s: 'ns-resize', se: 'nwse-resize',
                 rotate: 'grab',
             };
             handle.style.cursor = cursors[type] || 'move';
@@ -806,16 +1129,28 @@ class SlideEditor extends EventEmitter {
 
     _bindViewportEvents() {
         if (!this.viewport) return;
+        
+        // 避免重复绑定
+        if (this.viewport._editorBound) return;
+        this.viewport._editorBound = true;
 
+        console.log('[SlideEditor] 绑定视口事件');
+        
         this.viewport.addEventListener('mousedown', (e) => this._handleMouseDown(e));
         this.viewport.addEventListener('click', (e) => this._handleClick(e));
         this.viewport.addEventListener('dblclick', (e) => this._handleDblClick(e));
     }
 
     _handleMouseDown(e) {
+        // 非编辑模式下不处理
+        if (!this.enabled) return;
+        
+        // 确保点击在 viewport 内
+        if (!this.viewport.contains(e.target)) return;
+        
         // 检查是否点击了手柄
         const handle = e.target.closest('.editor-handle');
-        if (handle) {
+        if (handle && this.viewport.contains(handle)) {
             const handleType = handle.dataset.handleType;
             const rect = this.viewport.getBoundingClientRect();
             const mousePos = {
@@ -827,14 +1162,18 @@ class SlideEditor extends EventEmitter {
             return;
         }
 
-        // 检查是否点击了元素
-        const elementDom = e.target.closest('[data-element-id]');
+        // 检查是否点击了元素（必须在 viewport 内）
+        let elementDom = e.target.closest('[data-element-id]');
+        if (elementDom && !this.viewport.contains(elementDom)) {
+            elementDom = null;
+        }
+        
         if (elementDom) {
             const elementId = elementDom.dataset.elementId;
             
             if (e.ctrlKey || e.metaKey) {
                 this.selection.toggle(elementId);
-            } else if (!this.selection.isSelected(elementId)) {
+            } else {
                 this.selection.select(elementId);
             }
 
@@ -858,6 +1197,9 @@ class SlideEditor extends EventEmitter {
     }
 
     _handleDblClick(e) {
+        // 非编辑模式下不处理
+        if (!this.enabled) return;
+        
         const elementDom = e.target.closest('[data-element-id]');
         if (elementDom) {
             const elementId = elementDom.dataset.elementId;
@@ -883,23 +1225,37 @@ class SlideEditor extends EventEmitter {
     // ═══════════════════════════════════════════════════════════════
 
     _createOverlayContainer() {
+        console.log('[SlideEditor] 创建覆盖层...');
+        
+        // 移除旧的覆盖层
+        const oldOverlay = document.querySelector('.editor-overlay');
+        if (oldOverlay) {
+            oldOverlay.remove();
+            console.log('[SlideEditor] 移除旧覆盖层');
+        }
+        
         this.overlayContainer = document.createElement('div');
         this.overlayContainer.className = 'editor-overlay';
         this.overlayContainer.style.cssText = `
             position: absolute;
-            inset: 0;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
             pointer-events: none;
-            z-index: 100;
+            z-index: 9999;
+            overflow: visible;
         `;
-        // 手柄需要响应事件
-        this.overlayContainer.addEventListener('mousedown', (e) => {
-            if (e.target.classList.contains('editor-handle')) {
-                e.target.style.pointerEvents = 'auto';
-            }
-        });
 
-        this.viewport.style.position = 'relative';
-        this.viewport.appendChild(this.overlayContainer);
+        // 直接添加到 viewport (presSlideCanvas)
+        // 不添加到内部容器，避免被 overflow: hidden 裁剪
+        if (this.viewport) {
+            this.viewport.style.position = 'relative';
+            this.viewport.appendChild(this.overlayContainer);
+            console.log('[SlideEditor] 覆盖层已添加到 viewport');
+        } else {
+            console.error('[SlideEditor] viewport 不存在，无法添加覆盖层');
+        }
     }
 
     _createDefaultSlide() {

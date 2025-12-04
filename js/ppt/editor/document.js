@@ -13,7 +13,18 @@ class SlideDocument extends EventEmitter {
      * 加载幻灯片数据
      */
     load(slides) {
-        this.slides = slides || [];
+        this.slides = JSON.parse(JSON.stringify(slides || [])); // 深拷贝
+        
+        // 确保所有幻灯片和元素都有 ID
+        this.slides.forEach(slide => {
+            if (!slide.id) slide.id = this._generateId();
+            if (slide.elements) {
+                slide.elements.forEach(el => {
+                    if (!el.id) el.id = this._generateId();
+                });
+            }
+        });
+        
         this._rebuildIndex();
         this.emit('load', { slides: this.slides });
     }
@@ -134,9 +145,14 @@ class SlideDocument extends EventEmitter {
      * 通过 ID 获取元素
      */
     getElementById(elementId) {
-        const location = this._elementIndex.get(elementId);
-        if (!location) return null;
-        return this.slides[location.slideIndex]?.elements?.[location.elementIndex] || null;
+        // 直接遍历查找，避免索引不同步问题
+        for (const slide of this.slides) {
+            if (slide.elements) {
+                const element = slide.elements.find(el => el.id === elementId);
+                if (element) return element;
+            }
+        }
+        return null;
     }
 
     /**

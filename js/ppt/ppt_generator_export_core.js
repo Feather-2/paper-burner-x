@@ -281,8 +281,21 @@ const PPTGeneratorExport = {
             });
         }
 
-        await pres.writeFile({ fileName: filename });
+        // 使用 blob 方式下载，确保文件名正确
+        const blob = await pres.write({ outputType: 'blob' });
+        this._downloadBlob(blob, filename);
         console.log('[PPTX Image] Export complete');
+    },
+    
+    _downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     },
 
     async _renderSlidesToImages(options = {}) {

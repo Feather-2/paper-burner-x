@@ -33,6 +33,17 @@ class TransformController extends EventEmitter {
     }
 
     /**
+     * 解析百分比或数字值
+     */
+    _parseValue(val, defaultVal = 0) {
+        if (val === undefined || val === null || val === 'auto') return defaultVal;
+        if (typeof val === 'number') return val;
+        // 解析百分比字符串如 "8%" -> 8
+        const num = parseFloat(val);
+        return isNaN(num) ? defaultVal : num;
+    }
+    
+    /**
      * 开始变换
      */
     start(handleType, mousePos) {
@@ -43,14 +54,14 @@ class TransformController extends EventEmitter {
         this.handleType = handleType;
         this.startMouse = { ...mousePos };
 
-        // 保存初始状态
+        // 保存初始状态（解析百分比为数字）
         this.startElements = new Map();
         for (const el of selection) {
             this.startElements.set(el.id, {
-                x: el.x,
-                y: el.y,
-                w: el.w,
-                h: el.h,
+                x: this._parseValue(el.x, 0),
+                y: this._parseValue(el.y, 0),
+                w: this._parseValue(el.w, 10),
+                h: this._parseValue(el.h, 10),
                 rotation: el.rotation || 0,
             });
         }
@@ -147,15 +158,37 @@ class TransformController extends EventEmitter {
         }
 
         // 批量更新（不记录历史，在 end 时统一记录）
+        // 同时更新 document 和 PPTGenerator.slides
+        const slideIndex = this.editor.currentSlideIndex;
+        const pptSlide = window.PPTGenerator?.slides?.[slideIndex];
+        
         for (const { id, changes } of updates) {
+            // 将数字转换为百分比字符串
+            const formattedChanges = {
+                x: `${changes.x}%`,
+                y: `${changes.y}%`,
+                w: `${changes.w}%`,
+                h: `${changes.h}%`,
+                rotation: changes.rotation
+            };
+            
+            // 更新 document
             const element = this.editor.document.getElementById(id);
             if (element) {
-                Object.assign(element, changes);
+                Object.assign(element, formattedChanges);
+            }
+            
+            // 更新 PPTGenerator.slides
+            if (pptSlide?.elements) {
+                const pptElement = pptSlide.elements.find(el => el.id === id);
+                if (pptElement) {
+                    Object.assign(pptElement, formattedChanges);
+                }
             }
         }
 
-        // 触发重新渲染
-        this.editor.renderCurrentSlide?.();
+        // 拖拽过程中只更新 DOM 样式，不完全重新渲染（性能优化）
+        this._updateDOMPositions(updates);
         this.emit('transform', { updates });
     }
 
@@ -258,26 +291,47 @@ class TransformController extends EventEmitter {
         document.removeEventListener('mousemove', this._onMouseMove);
         document.removeEventListener('mouseup', this._onMouseUp);
 
-        // 记录历史操作
-        const changes = [];
+        // 记录历史操作 - 使用百分比字符串格式
+        const slideIndex = this.editor.currentSlideIndex;
+        const pptSlide = window.PPTGenerator?.slides?.[slideIndex];
+        
         for (const [id, start] of this.startElements) {
-            const element = this.editor.document.getElementById(id);
-            if (!element) continue;
+            const pptElement = pptSlide?.elements?.find(el => el.id === id);
+            if (!pptElement) continue;
+
+            // 转换 start 为百分比字符串格式
+            const oldX = `${start.x}%`;
+            const oldY = `${start.y}%`;
+            const oldW = `${start.w}%`;
+            const oldH = `${start.h}%`;
 
             const elementChanges = [];
-            if (start.x !== element.x) elementChanges.push({ path: 'x', oldValue: start.x, newValue: element.x });
-            if (start.y !== element.y) elementChanges.push({ path: 'y', oldValue: start.y, newValue: element.y });
-            if (start.w !== element.w) elementChanges.push({ path: 'w', oldValue: start.w, newValue: element.w });
-            if (start.h !== element.h) elementChanges.push({ path: 'h', oldValue: start.h, newValue: element.h });
-            if (start.rotation !== element.rotation) elementChanges.push({ path: 'rotation', oldValue: start.rotation, newValue: element.rotation });
+            if (oldX !== pptElement.x) elementChanges.push({ path: 'x', oldValue: oldX, newValue: pptElement.x });
+            if (oldY !== pptElement.y) elementChanges.push({ path: 'y', oldValue: oldY, newValue: pptElement.y });
+            if (oldW !== pptElement.w) elementChanges.push({ path: 'w', oldValue: oldW, newValue: pptElement.w });
+            if (oldH !== pptElement.h) elementChanges.push({ path: 'h', oldValue: oldH, newValue: pptElement.h });
+            if (start.rotation !== pptElement.rotation) elementChanges.push({ path: 'rotation', oldValue: start.rotation, newValue: pptElement.rotation });
 
             if (elementChanges.length > 0) {
-                this.editor.history.push(HistoryManager.createUpdateOp(id, elementChanges));
+                this.editor.history.push({
+                    type: 'element.update',
+                    elementId: id,
+                    slideIndex: slideIndex,
+                    changes: elementChanges
+                });
             }
         }
 
         // 提交批量操作
         this.editor.history.commitBatch();
+        
+        // 拖拽结束后做一次完整渲染以确保同步
+        this.editor.renderCurrentSlide?.();
+        
+        // 触发自动保存
+        if (typeof window.PPTGenerator?.setAutoSaveNeeded === 'function') {
+            window.PPTGenerator.setAutoSaveNeeded();
+        }
 
         this.active = false;
         this.handleType = null;
@@ -323,6 +377,31 @@ class TransformController extends EventEmitter {
         if (options.gridSize !== undefined) this.gridSize = options.gridSize;
         if (options.keepAspectRatio !== undefined) this.keepAspectRatio = options.keepAspectRatio;
         if (options.centerOrigin !== undefined) this.centerOrigin = options.centerOrigin;
+    }
+
+    /**
+     * 直接更新 DOM 元素位置（拖拽时性能优化）
+     */
+    _updateDOMPositions(updates) {
+        const viewport = this.editor.viewport;
+        if (!viewport) return;
+        
+        for (const { id, changes } of updates) {
+            // 查找对应的 DOM 元素
+            const domEl = viewport.querySelector(`[data-element-id="${id}"]`);
+            if (domEl) {
+                domEl.style.left = `${changes.x}%`;
+                domEl.style.top = `${changes.y}%`;
+                domEl.style.width = `${changes.w}%`;
+                domEl.style.height = `${changes.h}%`;
+                if (changes.rotation !== undefined) {
+                    domEl.style.transform = `rotate(${changes.rotation}deg)`;
+                }
+            }
+        }
+        
+        // 更新选择覆盖层
+        this.editor._updateOverlay?.();
     }
 
     /**

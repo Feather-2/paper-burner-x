@@ -83,11 +83,45 @@ const PPTGeneratorPresentation = {
                             <button class="pres-tool-btn" onclick="window.PPTGenerator.redo()" title="重做 (Ctrl+Y)">
                                 <iconify-icon icon="carbon:redo"></iconify-icon>
                             </button>
+                            <div class="pres-toolbar-divider"></div>
+                            <div class="pres-tool-dropdown">
+                                <button class="pres-tool-btn" title="对齐" id="alignDropdownBtn">
+                                    <iconify-icon icon="carbon:align-horizontal-left"></iconify-icon>
+                                    <iconify-icon icon="carbon:chevron-down" style="font-size: 10px; margin-left: 2px;"></iconify-icon>
+                                </button>
+                                <div class="pres-tool-dropdown-menu" id="alignDropdownMenu" style="display: none;">
+                                    <button onclick="window.PPTGenerator.align('left')" title="左对齐"><iconify-icon icon="carbon:align-horizontal-left"></iconify-icon> 左对齐</button>
+                                    <button onclick="window.PPTGenerator.align('center')" title="水平居中"><iconify-icon icon="carbon:align-horizontal-center"></iconify-icon> 水平居中</button>
+                                    <button onclick="window.PPTGenerator.align('right')" title="右对齐"><iconify-icon icon="carbon:align-horizontal-right"></iconify-icon> 右对齐</button>
+                                    <div class="dropdown-divider"></div>
+                                    <button onclick="window.PPTGenerator.align('top')" title="顶部对齐"><iconify-icon icon="carbon:align-vertical-top"></iconify-icon> 顶部对齐</button>
+                                    <button onclick="window.PPTGenerator.align('middle')" title="垂直居中"><iconify-icon icon="carbon:align-vertical-center"></iconify-icon> 垂直居中</button>
+                                    <button onclick="window.PPTGenerator.align('bottom')" title="底部对齐"><iconify-icon icon="carbon:align-vertical-bottom"></iconify-icon> 底部对齐</button>
+                                    <div class="dropdown-divider"></div>
+                                    <button onclick="window.PPTGenerator.align('distributeH')" title="水平分布"><iconify-icon icon="carbon:distribute-horizontal-center"></iconify-icon> 水平分布</button>
+                                    <button onclick="window.PPTGenerator.align('distributeV')" title="垂直分布"><iconify-icon icon="carbon:distribute-vertical-center"></iconify-icon> 垂直分布</button>
+                                </div>
+                            </div>
                         </div>
+                    </div>
+                </div>
+                
+                <!-- 编辑器右侧面板（初始隐藏） -->
+                <div class="editor-right-panel" id="editorRightPanel" style="display: none;">
+                    <div class="editor-panel-tabs">
+                        <button class="panel-tab active" data-panel="property">属性</button>
+                        <button class="panel-tab" data-panel="layer">图层</button>
+                    </div>
+                    <div class="editor-panel-content">
+                        <div id="editorPropertyPanel" class="panel-pane active"></div>
+                        <div id="editorLayerPanel" class="panel-pane"></div>
                     </div>
                 </div>
             </div>
         `;
+        
+        // 绑定面板标签切换
+        this._bindEditorPanelTabs();
         
         // 初始化缩略图 resizer
         this._bindThumbResizerEvents();
@@ -139,6 +173,25 @@ const PPTGeneratorPresentation = {
         // 容器尺寸跟随缩放后的实际显示尺寸
         slideContainer.style.width = `${BASE_WIDTH * finalScale}px`;
         slideContainer.style.height = `${BASE_HEIGHT * finalScale}px`;
+    },
+
+    /**
+     * 绑定编辑面板标签切换事件
+     */
+    _bindEditorPanelTabs() {
+        const panel = document.getElementById('editorRightPanel');
+        if (!panel) return;
+
+        panel.querySelectorAll('.panel-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const panelName = tab.dataset.panel;
+                panel.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
+                panel.querySelectorAll('.panel-pane').forEach(p => p.classList.remove('active'));
+                tab.classList.add('active');
+                const targetId = `editor${panelName.charAt(0).toUpperCase() + panelName.slice(1)}Panel`;
+                document.getElementById(targetId)?.classList.add('active');
+            });
+        });
     },
 
     /**
@@ -639,6 +692,18 @@ const PPTGeneratorPresentation = {
                     thumb.classList.remove('active');
                 }
             });
+        }
+        
+        // 同步编辑器（如果启用）
+        if (this.editorEnabled && this.editor) {
+            // 只同步索引，不重新加载数据
+            this.editor.currentSlideIndex = this.currentSlideIndex;
+            // 清除选择
+            this.editor.selection.deselectAll();
+            // 重新绑定视口
+            this.editor.viewport = canvas;
+            this.editor._createOverlayContainer();
+            this.editor._addElementIds();
         }
     },
 

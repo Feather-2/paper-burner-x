@@ -164,8 +164,29 @@ const PPTGeneratorUtilities = {
 
     async _saveProject() {
         if (window.pptStorage && this.currentProject) {
+            // 同步 slides 数据到 currentProject
+            if (this.slides) {
+                this.currentProject.slides = this.slides;
+            }
             await window.pptStorage.saveProject(this.currentProject);
         }
+    },
+    
+    /**
+     * 标记需要自动保存
+     */
+    setAutoSaveNeeded() {
+        // 同步 slides 数据
+        if (this.slides && this.currentProject) {
+            this.currentProject.slides = this.slides;
+        }
+        // 触发自动保存（使用防抖）
+        if (this._autoSaveTimer) {
+            clearTimeout(this._autoSaveTimer);
+        }
+        this._autoSaveTimer = setTimeout(() => {
+            this._saveProject();
+        }, 2000);
     },
 
     async updateProjectTitle(newTitle) {

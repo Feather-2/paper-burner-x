@@ -71,7 +71,9 @@ class PPTXSlideRenderer {
         });
 
         console.log('[PPTXSlideRenderer] All slides rendered, writing file...');
-        return pres.writeFile({ fileName: filename });
+        // 使用 blob 方式下载，确保文件名正确
+        const blob = await pres.write({ outputType: 'blob' });
+        this._downloadBlob(blob, filename);
     }
 
     async renderWithOMML(slides, filename, mathConverter) {

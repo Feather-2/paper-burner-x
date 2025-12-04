@@ -57,7 +57,6 @@ class SelectionManager extends EventEmitter {
      * 取消全部选择
      */
     deselectAll() {
-        if (this.selected.size === 0) return;
         this.selected.clear();
         this._emitChange();
     }
@@ -84,13 +83,20 @@ class SelectionManager extends EventEmitter {
     }
 
     /**
-     * 获取选中的元素
+     * 获取选中的元素（只返回当前页面的）
      */
     getSelection() {
         const doc = this.editor.document;
         if (!doc) return [];
+        
+        const slideIndex = this.editor.currentSlideIndex;
+        const currentElements = doc.getElements(slideIndex) || [];
+        const currentIds = new Set(currentElements.map(el => el.id));
+        
+        // 只返回当前页面中存在的选中元素
         return [...this.selected]
-            .map(id => doc.getElementById(id))
+            .filter(id => currentIds.has(id))
+            .map(id => currentElements.find(el => el.id === id))
             .filter(Boolean);
     }
 
@@ -129,14 +135,40 @@ class SelectionManager extends EventEmitter {
         const elements = this.getSelection();
         if (elements.length === 0) return null;
 
+        // 解析数值（可能是字符串如 "10%"）
+        const parseNum = (val, def = 0) => {
+            if (val === undefined || val === null) return def;
+            const num = typeof val === 'string' ? parseFloat(val) : val;
+            return isNaN(num) ? def : num;
+        };
+
         let minX = Infinity, minY = Infinity;
         let maxX = -Infinity, maxY = -Infinity;
 
         for (const el of elements) {
-            minX = Math.min(minX, el.x);
-            minY = Math.min(minY, el.y);
-            maxX = Math.max(maxX, el.x + el.w);
-            maxY = Math.max(maxY, el.y + el.h);
+            let x, y, w, h;
+            
+            // Line 元素使用 x1,y1,x2,y2
+            if (el.type === 'line') {
+                const x1 = parseNum(el.x1, 0);
+                const y1 = parseNum(el.y1, 0);
+                const x2 = parseNum(el.x2, 0);
+                const y2 = parseNum(el.y2, 0);
+                x = Math.min(x1, x2);
+                y = Math.min(y1, y2);
+                w = Math.abs(x2 - x1) || 2;
+                h = Math.abs(y2 - y1) || 2;
+            } else {
+                x = parseNum(el.x, 0);
+                y = parseNum(el.y, 0);
+                w = parseNum(el.w, 10);
+                h = parseNum(el.h, 10);
+            }
+            
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x + w);
+            maxY = Math.max(maxY, y + h);
         }
 
         return {

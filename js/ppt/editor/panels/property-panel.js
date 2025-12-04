@@ -65,35 +65,49 @@ class PropertyPanel extends EventEmitter {
     }
 
     _renderCommonProperties(el) {
+        // 解析数值（可能是字符串如 "10%" 或数字）
+        const parseNum = (val, def = 0) => {
+            if (val === undefined || val === null) return def;
+            const num = typeof val === 'string' ? parseFloat(val) : val;
+            return isNaN(num) ? def : num;
+        };
+
+        const x = parseNum(el.x, 0).toFixed(1);
+        const y = parseNum(el.y, 0).toFixed(1);
+        const w = parseNum(el.w, 10).toFixed(1);
+        const h = parseNum(el.h, 10).toFixed(1);
+        const rotation = parseNum(el.rotation, 0);
+        const z = parseNum(el.z, 0);
+
         return `
             <div class="property-row">
                 <label>X</label>
-                <input type="number" data-prop="x" value="${(el.x || 0).toFixed(1)}" step="0.5">
+                <input type="number" data-prop="x" value="${x}" step="0.5">
                 <span>%</span>
             </div>
             <div class="property-row">
                 <label>Y</label>
-                <input type="number" data-prop="y" value="${(el.y || 0).toFixed(1)}" step="0.5">
+                <input type="number" data-prop="y" value="${y}" step="0.5">
                 <span>%</span>
             </div>
             <div class="property-row">
                 <label>宽度</label>
-                <input type="number" data-prop="w" value="${(el.w || 10).toFixed(1)}" step="0.5" min="1">
+                <input type="number" data-prop="w" value="${w}" step="0.5" min="1">
                 <span>%</span>
             </div>
             <div class="property-row">
                 <label>高度</label>
-                <input type="number" data-prop="h" value="${(el.h || 10).toFixed(1)}" step="0.5" min="1">
+                <input type="number" data-prop="h" value="${h}" step="0.5" min="1">
                 <span>%</span>
             </div>
             <div class="property-row">
                 <label>旋转</label>
-                <input type="number" data-prop="rotation" value="${el.rotation || 0}" step="5">
+                <input type="number" data-prop="rotation" value="${rotation}" step="5">
                 <span>°</span>
             </div>
             <div class="property-row">
                 <label>层级</label>
-                <input type="number" data-prop="z" value="${el.z || 0}" step="1">
+                <input type="number" data-prop="z" value="${z}" step="1">
             </div>
         `;
     }

@@ -45,22 +45,30 @@ const PPTGeneratorEditor = {
         await this.initEditor();
         if (!this.editor) return;
 
-        // 修改 UI 布局，添加右侧面板
-        this._injectEditorUI();
+        // 注入样式（首次）
+        this._injectEditorStyles();
+
+        // 显示右侧面板
+        this._showEditorUI();
+
+        // 同步数据到编辑器
+        this._syncToEditor();
 
         // 绑定视口
         const viewport = document.getElementById('presSlideCanvas');
+        console.log('[PPTGeneratorEditor] viewport:', viewport);
+        
         if (viewport) {
+            // 强制重新绑定
+            viewport._editorBound = false;
             this.editor.viewport = viewport;
             this.editor._createOverlayContainer();
             this.editor._bindViewportEvents();
+            this.editor._addElementIds();
         }
 
         // 初始化面板
         this._initPanels();
-
-        // 渲染当前幻灯片
-        this.editor.renderCurrentSlide();
 
         // 显示编辑工具栏
         const editorTools = document.getElementById('editorTools');
@@ -70,8 +78,37 @@ const PPTGeneratorEditor = {
         const editorModeBtn = document.getElementById('editorModeBtn');
         if (editorModeBtn) editorModeBtn.classList.add('active');
 
+        // 绑定工具栏按钮事件
+        this._bindToolbarEvents();
+
+        // 触发 canvas 尺寸更新
+        this._updateCanvasSize?.();
+
+        // 启用编辑器交互
+        if (this.editor) this.editor.enabled = true;
+        
         this.editorEnabled = true;
         console.log('[PPTGeneratorEditor] 编辑模式已启用');
+    },
+    
+    /**
+     * 绑定工具栏按钮事件
+     */
+    _bindToolbarEvents() {
+        if (this._toolbarBound) return;
+        this._toolbarBound = true;
+        
+        // 撤销按钮
+        document.querySelector('[title*="撤销"]')?.addEventListener('click', () => {
+            this.editor?.history?.undo();
+            this.editor?.renderCurrentSlide?.();
+        });
+        
+        // 重做按钮
+        document.querySelector('[title*="重做"]')?.addEventListener('click', () => {
+            this.editor?.history?.redo();
+            this.editor?.renderCurrentSlide?.();
+        });
     },
 
     /**
@@ -80,16 +117,14 @@ const PPTGeneratorEditor = {
     disableEditorMode() {
         if (!this.editorEnabled) return;
 
-        // 移除编辑器 UI
-        const editorPanel = document.getElementById('editorRightPanel');
-        if (editorPanel) {
-            editorPanel.remove();
-        }
+        // 隐藏编辑器 UI
+        this._hideEditorUI();
 
         // 移除覆盖层
         if (this.editor?.overlayContainer) {
             this.editor.overlayContainer.remove();
             this.editor.overlayContainer = null;
+            this.editor.viewport = null;
         }
 
         // 隐藏编辑工具栏
@@ -102,6 +137,12 @@ const PPTGeneratorEditor = {
 
         // 清除选择
         this.editor?.selection?.deselectAll();
+        
+        // 禁用编辑器交互
+        if (this.editor) this.editor.enabled = false;
+
+        // 触发 canvas 尺寸更新
+        this._updateCanvasSize?.();
 
         this.editorEnabled = false;
         console.log('[PPTGeneratorEditor] 编辑模式已禁用');
@@ -119,38 +160,36 @@ const PPTGeneratorEditor = {
     },
 
     /**
-     * 注入编辑器 UI
+     * 显示编辑器 UI（面板已在模板中预留）
      */
-    _injectEditorUI() {
-        // 检查是否已存在
-        if (document.getElementById('editorRightPanel')) return;
+    _showEditorUI() {
+        const panel = document.getElementById('editorRightPanel');
+        if (panel) {
+            panel.style.display = 'flex';
+        }
+    },
 
-        const mainArea = document.querySelector('.pres-main-area');
-        if (!mainArea) return;
+    /**
+     * 隐藏编辑器 UI
+     */
+    _hideEditorUI() {
+        const panel = document.getElementById('editorRightPanel');
+        if (panel) {
+            panel.style.display = 'none';
+        }
+    },
 
-        // 创建右侧面板
-        const panel = document.createElement('div');
-        panel.id = 'editorRightPanel';
-        panel.className = 'editor-right-panel';
-        panel.innerHTML = `
-            <div class="editor-panel-tabs">
-                <button class="panel-tab active" data-panel="property">属性</button>
-                <button class="panel-tab" data-panel="layer">图层</button>
-            </div>
-            <div class="editor-panel-content">
-                <div id="editorPropertyPanel" class="panel-pane active"></div>
-                <div id="editorLayerPanel" class="panel-pane"></div>
-            </div>
-        `;
+    // 保留样式注入（首次使用时）
+    _injectEditorStyles() {
+        if (document.getElementById('editorPanelStyle')) return;
 
-        // 添加样式
         const style = document.createElement('style');
         style.id = 'editorPanelStyle';
         style.textContent = `
-            .pres-main-area {
+            .pres-container {
                 display: flex !important;
             }
-            .pres-canvas-wrapper {
+            .pres-main-area {
                 flex: 1;
                 min-width: 0;
             }
@@ -195,23 +234,74 @@ const PPTGeneratorEditor = {
             .panel-pane.active {
                 display: block;
             }
+            /* 对齐下拉菜单 */
+            .pres-tool-dropdown {
+                position: relative;
+            }
+            .pres-tool-dropdown-menu {
+                position: absolute;
+                bottom: 100%;
+                left: 0;
+                margin-bottom: 4px;
+                background: white;
+                border: 1px solid #e5e7eb;
+                border-radius: 6px;
+                box-shadow: 0 -4px 12px rgba(0,0,0,0.15);
+                min-width: 140px;
+                z-index: 1000;
+                padding: 4px 0;
+            }
+            .pres-tool-dropdown-menu button {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                width: 100%;
+                padding: 8px 12px;
+                border: none;
+                background: transparent;
+                cursor: pointer;
+                font-size: 12px;
+                color: #374151;
+                text-align: left;
+            }
+            .pres-tool-dropdown-menu button:hover {
+                background: #f3f4f6;
+            }
+            .pres-tool-dropdown-menu .dropdown-divider {
+                height: 1px;
+                background: #e5e7eb;
+                margin: 4px 0;
+            }
         `;
-
-        if (!document.getElementById('editorPanelStyle')) {
-            document.head.appendChild(style);
-        }
-
-        mainArea.appendChild(panel);
-
-        // 绑定标签切换
-        panel.querySelectorAll('.panel-tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                const panelName = tab.dataset.panel;
-                panel.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
-                panel.querySelectorAll('.panel-pane').forEach(p => p.classList.remove('active'));
-                tab.classList.add('active');
-                document.getElementById(`editor${panelName.charAt(0).toUpperCase() + panelName.slice(1)}Panel`).classList.add('active');
-            });
+        document.head.appendChild(style);
+        
+        // 绑定对齐下拉菜单
+        this._bindAlignDropdown();
+    },
+    
+    /**
+     * 绑定对齐下拉菜单事件
+     */
+    _bindAlignDropdown() {
+        const btn = document.getElementById('alignDropdownBtn');
+        const menu = document.getElementById('alignDropdownMenu');
+        if (!btn || !menu) return;
+        
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        });
+        
+        // 点击菜单项后关闭
+        menu.addEventListener('click', () => {
+            menu.style.display = 'none';
+        });
+        
+        // 点击其他地方关闭
+        document.addEventListener('click', (e) => {
+            if (!btn.contains(e.target) && !menu.contains(e.target)) {
+                menu.style.display = 'none';
+            }
         });
     },
 
@@ -238,14 +328,10 @@ const PPTGeneratorEditor = {
      */
     _setupSync() {
         if (!this.editor) return;
-
-        // editor → PPTGenerator
-        this.editor.document.on('element.add', () => this._syncToGenerator());
-        this.editor.document.on('element.remove', () => this._syncToGenerator());
-        this.editor.document.on('element.update', () => this._syncToGenerator());
-        this.editor.document.on('slide.add', () => this._syncToGenerator());
-        this.editor.document.on('slide.remove', () => this._syncToGenerator());
-        this.editor.document.on('slide.update', () => this._syncToGenerator());
+        
+        // 注意：不再自动监听 document 事件触发渲染
+        // 渲染由各个操作方法（updateElement 等）自行控制
+        // 这样可以避免无限循环渲染问题
 
         // 幻灯片切换同步
         this.editor.on('slide:change', ({ index }) => {
@@ -257,9 +343,10 @@ const PPTGeneratorEditor = {
     },
 
     /**
-     * 同步数据到 PPTGenerator
+     * 同步数据到 PPTGenerator（不触发渲染）
      */
     _syncToGenerator() {
+        if (!this.editor?.document) return;
         this.slides = this.editor.document.toJSON();
         // 标记为需要保存
         if (typeof this.setAutoSaveNeeded === 'function') {
@@ -272,10 +359,36 @@ const PPTGeneratorEditor = {
      */
     _syncToEditor() {
         if (!this.editor) return;
+        
+        // 加载数据到编辑器
         this.editor.document.load(this.slides || []);
         this.editor.currentSlideIndex = this.currentSlideIndex || 0;
-        if (this.editorEnabled) {
-            this.editor.renderCurrentSlide();
+        
+        // 绑定视口
+        const viewport = document.getElementById('presSlideCanvas');
+        if (viewport) {
+            this.editor.viewport = viewport;
+            this.editor._createOverlayContainer();
+            this.editor._addElementIds();
+        }
+    },
+    
+    /**
+     * 重新渲染当前幻灯片（使用 PPTGenerator 的渲染器）
+     */
+    _rerenderSlide() {
+        const viewport = document.getElementById('presSlideCanvas');
+        if (!viewport || !this.slides || !this.slides[this.currentSlideIndex]) return;
+        
+        const slide = this.slides[this.currentSlideIndex];
+        const html = this._renderSlideContent(slide);
+        viewport.innerHTML = html;
+        
+        // 重新添加元素 ID
+        if (this.editor) {
+            this.editor.viewport = viewport;
+            this.editor._addElementIds();
+            this.editor._updateOverlay();
         }
     },
 
@@ -376,6 +489,8 @@ const PPTGeneratorEditor = {
     undo() {
         if (!this.editor) return;
         this.editor.history.undo();
+        // 重新渲染视图
+        this.editor.renderCurrentSlide?.();
     },
 
     /**
@@ -384,10 +499,23 @@ const PPTGeneratorEditor = {
     redo() {
         if (!this.editor) return;
         this.editor.history.redo();
+        // 重新渲染视图
+        this.editor.renderCurrentSlide?.();
+    },
+    
+    /**
+     * 对齐选中元素
+     */
+    align(type) {
+        if (!this.editor || !this.editorEnabled) return;
+        this.editor.alignElements(type);
     },
 };
 
 // 混入到 PPTGenerator
-if (typeof PPTGenerator !== 'undefined') {
-    Object.assign(PPTGenerator, PPTGeneratorEditor);
+if (typeof window.PPTGenerator !== 'undefined') {
+    Object.assign(window.PPTGenerator, PPTGeneratorEditor);
+    console.log('[PPTGeneratorEditor] 已混入到 PPTGenerator');
+} else {
+    console.warn('[PPTGeneratorEditor] PPTGenerator 未定义，混入失败');
 }

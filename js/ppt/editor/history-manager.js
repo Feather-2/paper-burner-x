@@ -3,7 +3,7 @@
  * 支持撤销/重做，操作合并，自动快照
  */
 class HistoryManager extends EventEmitter {
-    static MAX_UNDO_STACK = 100;        // 最大撤销步数
+    static MAX_UNDO_STACK = 500;        // 最大撤销步数
     static SNAPSHOT_INTERVAL = 30000;   // 快照间隔 (30秒)
     static AUTO_SAVE_INTERVAL = 30000;  // 自动保存间隔
 
@@ -178,9 +178,8 @@ class HistoryManager extends EventEmitter {
         } else {
             this._applySingleOperation(operation, reverse);
         }
-
-        // 触发重新渲染
-        this.editor.renderCurrentSlide?.();
+        
+        // 注意：不在这里调用 renderCurrentSlide，由外部 _syncToGenerator 处理
     }
 
     _applySingleOperation(op, reverse) {
@@ -189,12 +188,27 @@ class HistoryManager extends EventEmitter {
 
         switch (op.type) {
             case 'element.update': {
-                const element = doc.getElementById(op.elementId);
-                if (!element) return;
-
-                for (const change of op.changes) {
-                    const value = reverse ? change.oldValue : change.newValue;
-                    this._setByPath(element, change.path, value);
+                // 使用操作记录中的 slideIndex
+                const slideIndex = op.slideIndex ?? this.editor.currentSlideIndex;
+                
+                // 更新 PPTGenerator.slides 中的元素（主数据源）
+                const pptSlide = window.PPTGenerator?.slides?.[slideIndex];
+                const pptElement = pptSlide?.elements?.find(el => el.id === op.elementId);
+                if (pptElement) {
+                    for (const change of op.changes) {
+                        const value = reverse ? change.oldValue : change.newValue;
+                        this._setByPath(pptElement, change.path, value);
+                    }
+                }
+                
+                // 同步更新 editor.document 中的元素
+                const docSlide = doc.slides?.[slideIndex];
+                const docElement = docSlide?.elements?.find(el => el.id === op.elementId);
+                if (docElement) {
+                    for (const change of op.changes) {
+                        const value = reverse ? change.oldValue : change.newValue;
+                        this._setByPath(docElement, change.path, value);
+                    }
                 }
                 break;
             }

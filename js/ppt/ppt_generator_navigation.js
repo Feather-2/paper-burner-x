@@ -298,6 +298,9 @@ const PPTGeneratorNavigation = {
         if (window.pptStorage) {
             this.currentProject = await window.pptStorage.getProject(id);
         }
+        if (!this.currentProject) {
+            this.currentProject = { id, logs: [], todos: [], workflowData: {} };
+        }
         this.processLogs = this.currentProject.logs || [];
         this.todos = this.currentProject.todos || [];
 
@@ -306,6 +309,11 @@ const PPTGeneratorNavigation = {
         if (!this.workflowData.files) this.workflowData.files = [];
         if (!this.workflowData.questions) this.workflowData.questions = [];
         if (!this.workflowData.outline) this.workflowData.outline = [];
+
+        // 加载保存的 slides 数据
+        if (this.currentProject.slides && this.currentProject.slides.length > 0) {
+            this.slides = this.currentProject.slides;
+        }
 
         this.state = this.currentProject.status || 'idle';
         this.enterWorkspace();
