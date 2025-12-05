@@ -116,7 +116,60 @@
     function colorDistance(c1, c2) { return Math.sqrt(colorDistSq(c1, c2)); }
 
     // ============ 二值化 ============
-    
+
+    /**
+     * 高斯模糊预处理 (VTracer 风格)
+     * 减少锯齿，平滑边缘过渡
+     */
+    function gaussianBlur(grayscale, width, height, sigma = 1.0) {
+        if (sigma <= 0) return grayscale;
+
+        // 生成高斯核
+        const radius = Math.ceil(sigma * 3);
+        const kernelSize = radius * 2 + 1;
+        const kernel = new Float32Array(kernelSize);
+        let kernelSum = 0;
+
+        for (let i = 0; i < kernelSize; i++) {
+            const x = i - radius;
+            kernel[i] = Math.exp(-(x * x) / (2 * sigma * sigma));
+            kernelSum += kernel[i];
+        }
+
+        // 归一化
+        for (let i = 0; i < kernelSize; i++) {
+            kernel[i] /= kernelSum;
+        }
+
+        // 水平方向模糊
+        const temp = new Float32Array(width * height);
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                let sum = 0;
+                for (let k = -radius; k <= radius; k++) {
+                    const sx = Math.max(0, Math.min(width - 1, x + k));
+                    sum += grayscale[y * width + sx] * kernel[k + radius];
+                }
+                temp[y * width + x] = sum;
+            }
+        }
+
+        // 垂直方向模糊
+        const result = new Float32Array(width * height);
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                let sum = 0;
+                for (let k = -radius; k <= radius; k++) {
+                    const sy = Math.max(0, Math.min(height - 1, y + k));
+                    sum += temp[sy * width + x] * kernel[k + radius];
+                }
+                result[y * width + x] = sum;
+            }
+        }
+
+        return result;
+    }
+
     /**
      * 计算自适应亮度阈值 (Otsu's method 简化版)
      */
@@ -164,53 +217,79 @@
     
     /**
      * 创建二值位图
-     * @param {ImageData} imageData 
+     * @param {ImageData} imageData
      * @param {Array} targetColor - 目标颜色 [r, g, b]
      * @param {number} tolerance - 颜色容差
      * @param {boolean} useLuminance - 使用亮度模式 (用于 lineart)
      * @param {number} threshold - 亮度阈值 (自动计算时传入)
+     * @param {number} blurSigma - 高斯模糊 sigma (0 = 不模糊)
      */
-    function createBinaryBitmap(imageData, targetColor, tolerance = 30, useLuminance = false, threshold = null) {
+    function createBinaryBitmap(imageData, targetColor, tolerance = 30, useLuminance = false, threshold = null, blurSigma = 0) {
         const { width, height, data } = imageData;
         const bitmap = new Uint8Array(width * height);
-        const tolSq = tolerance * tolerance;
-        
+
         // 使用传入的阈值或默认阈值
         const lumThreshold = threshold !== null ? threshold : 128;
-        
+
+        // 生成灰度图
+        let grayscale = new Float32Array(width * height);
+
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const i = (y * width + x) * 4;
+                if (data[i + 3] > 128) {
+                    if (useLuminance) {
+                        // 亮度模式
+                        grayscale[y * width + x] = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+                    } else {
+                        // 颜色模式：使用颜色距离作为灰度
+                        const distSq = colorDistSq([data[i], data[i + 1], data[i + 2]], targetColor);
+                        // 将距离映射到 0-255（距离越小越接近目标色 = 越黑）
+                        grayscale[y * width + x] = Math.min(255, Math.sqrt(distSq) * 255 / tolerance);
+                    }
+                } else {
+                    grayscale[y * width + x] = 255; // 透明像素视为白色
+                }
+            }
+        }
+
+        // 应用高斯模糊（VTracer 风格预处理）
+        if (blurSigma > 0) {
+            grayscale = gaussianBlur(grayscale, width, height, blurSigma);
+        }
+
+        // 二值化
         let darkCount = 0, totalCount = 0;
-        
+
         for (let y = 0; y < height; y++) {
             for (let x = 0; x < width; x++) {
                 const i = (y * width + x) * 4;
                 if (data[i + 3] > 128) {
                     totalCount++;
-                    if (useLuminance) {
-                        // 亮度模式：按亮度阈值分类
-                        const lum = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-                        const isDark = lum < lumThreshold;
-                        bitmap[y * width + x] = isDark ? 1 : 0;
-                        if (isDark) darkCount++;
-                    } else {
-                        // 颜色模式：按颜色距离分类
-                        const distSq = colorDistSq([data[i], data[i + 1], data[i + 2]], targetColor);
-                        bitmap[y * width + x] = distSq < tolSq ? 1 : 0;
-                    }
+                    const lum = grayscale[y * width + x];
+                    const isDark = lum < lumThreshold;
+                    bitmap[y * width + x] = isDark ? 1 : 0;
+                    if (isDark) darkCount++;
                 }
             }
         }
-        
+
         // 自动检测：如果暗色像素超过 50%，说明背景是暗色，需要反转
         let inverted = false;
         if (useLuminance && darkCount > totalCount * 0.5) {
             console.log(`[PotraceCore] 检测到暗色背景 (${darkCount}/${totalCount})，反转二值图`);
             for (let i = 0; i < bitmap.length; i++) {
-                bitmap[i] = bitmap[i] === 1 ? 0 : (data[i * 4 + 3] > 128 ? 1 : 0);
+                const idx = i * 4;
+                if (data[idx + 3] > 128) {
+                    bitmap[i] = bitmap[i] === 1 ? 0 : 1;
+                    // 同时反转灰度值
+                    grayscale[i] = 255 - grayscale[i];
+                }
             }
             inverted = true;
         }
-        
-        return { data: bitmap, width, height, inverted };
+
+        return { data: bitmap, width, height, inverted, grayscale };
     }
 
     // ============ 连通区域标记 (Two-Pass CCL) ============
@@ -276,22 +355,24 @@
     }
 
     // ============ Marching Squares 轮廓追踪 ============
-    
+
     /**
      * Marching Squares - 亚像素精度轮廓追踪
-     * 
+     *
      * 格子配置 (2x2):
      *   TL(8) -- TR(4)
      *     |       |
      *   BL(1) -- BR(2)
-     * 
+     *
      * 边定义: 0=top, 1=right, 2=bottom, 3=left
+     *
+     * VTracer 风格改进：使用灰度值线性插值计算精确边界位置
      */
-    function marchingSquaresContour(bitmap, ccResult = null, regionLabel = null) {
+    function marchingSquaresContour(bitmap, ccResult = null, regionLabel = null, grayscaleData = null) {
         const { data, width, height } = bitmap;
         const contours = [];
         const visitedEdges = new Set(); // 用 "x,y,edge" 作为 key
-        
+
         // 获取像素值 (支持指定区域)
         const getPixel = (x, y) => {
             if (x < 0 || x >= width || y < 0 || y >= height) return 0;
@@ -300,7 +381,14 @@
             }
             return data[y * width + x];
         };
-        
+
+        // 获取灰度值用于插值 (0-255)
+        const getGray = (x, y) => {
+            if (!grayscaleData) return getPixel(x, y) * 255;
+            if (x < 0 || x >= width || y < 0 || y >= height) return 0;
+            return grayscaleData[y * width + x];
+        };
+
         // 获取 2x2 格子配置 (0-15)
         // 格子 (cx, cy) 的四个角是像素 (cx,cy), (cx+1,cy), (cx,cy+1), (cx+1,cy+1)
         const getConfig = (cx, cy) => {
@@ -310,16 +398,58 @@
             const br = getPixel(cx + 1, cy + 1);
             return (tl << 3) | (tr << 2) | (br << 1) | bl;
         };
-        
-        // 边缘点坐标 (亚像素)
+
+        /**
+         * VTracer 风格：亚像素线性插值
+         * 根据相邻像素的灰度值计算精确边界位置
+         *
+         * 原理：假设边界在灰度值 = threshold (128) 处
+         * 如果 p1 灰度 = 50, p2 灰度 = 200
+         * 则边界位置 t = (128 - 50) / (200 - 50) = 0.52
+         */
+        const threshold = 128;
+
         const edgePoint = (cx, cy, edge) => {
+            let g1, g2, t;
+
             switch (edge) {
-                case 0: return { x: cx + 0.5, y: cy };       // top edge
-                case 1: return { x: cx + 1, y: cy + 0.5 };   // right edge
-                case 2: return { x: cx + 0.5, y: cy + 1 };   // bottom edge
-                case 3: return { x: cx, y: cy + 0.5 };       // left edge
+                case 0: // top edge: TL -> TR
+                    g1 = getGray(cx, cy);
+                    g2 = getGray(cx + 1, cy);
+                    t = interpolate(g1, g2, threshold);
+                    return { x: cx + t, y: cy };
+
+                case 1: // right edge: TR -> BR
+                    g1 = getGray(cx + 1, cy);
+                    g2 = getGray(cx + 1, cy + 1);
+                    t = interpolate(g1, g2, threshold);
+                    return { x: cx + 1, y: cy + t };
+
+                case 2: // bottom edge: BL -> BR
+                    g1 = getGray(cx, cy + 1);
+                    g2 = getGray(cx + 1, cy + 1);
+                    t = interpolate(g1, g2, threshold);
+                    return { x: cx + t, y: cy + 1 };
+
+                case 3: // left edge: TL -> BL
+                    g1 = getGray(cx, cy);
+                    g2 = getGray(cx, cy + 1);
+                    t = interpolate(g1, g2, threshold);
+                    return { x: cx, y: cy + t };
             }
             return { x: cx + 0.5, y: cy + 0.5 };
+        };
+
+        // 线性插值：计算边界位置 (0-1)
+        const interpolate = (v1, v2, target) => {
+            // 避免除零
+            if (Math.abs(v2 - v1) < 1) return 0.5;
+
+            // 计算插值位置
+            let t = (target - v1) / (v2 - v1);
+
+            // 限制在合理范围内
+            return Math.max(0.1, Math.min(0.9, t));
         };
         
         // Marching Squares 标准转移表
@@ -1117,10 +1247,10 @@
     }
 
     // ============ 主矢量化函数 ============
-    
+
     async function vectorize(imageData, options = {}) {
         await loadCdnLibs();
-        
+
         const {
             numColors = 16,
             colorTolerance = 25,
@@ -1128,17 +1258,18 @@
             smoothness = 2.5,
             minPathLength = 16,
             mode = 'spline',
-            binaryMode = false  // lineart 使用二值模式
+            binaryMode = false,  // lineart 使用二值模式
+            blurSigma = 0.8      // VTracer 风格高斯模糊 (0 = 关闭)
         } = options;
-        
+
         const { width, height } = imageData;
-        
-        console.log(`[PotraceCore] 矢量化: ${numColors}色, tol=${pathTolerance}, smooth=${smoothness}, binary=${binaryMode}`);
-        
+
+        console.log(`[PotraceCore] 矢量化: ${numColors}色, tol=${pathTolerance}, smooth=${smoothness}, binary=${binaryMode}, blur=${blurSigma}`);
+
         // 1. 颜色量化 (lineart 使用亮度二值化)
         let palette;
         let otsuThreshold = null;
-        
+
         if (binaryMode || numColors <= 2) {
             // 二值模式：计算 Otsu 阈值，只提取前景色
             otsuThreshold = computeOtsuThreshold(imageData);
@@ -1149,14 +1280,14 @@
             palette = medianCutQuantize(imageData, numColors);
         }
         console.log(`[PotraceCore] 提取 ${palette.length} 种主色`);
-        
+
         const layers = [];
-        
+
         // 2. 每种颜色生成矢量层
         for (const color of palette) {
-            // 二值化 (二值模式使用亮度 + Otsu 阈值)
+            // 二值化 (二值模式使用亮度 + Otsu 阈值 + 高斯模糊)
             const useLuminance = binaryMode || numColors <= 2;
-            const bitmap = createBinaryBitmap(imageData, color, colorTolerance, useLuminance, otsuThreshold);
+            const bitmap = createBinaryBitmap(imageData, color, colorTolerance, useLuminance, otsuThreshold, blurSigma);
             
             // 如果反转了，计算前景的实际颜色
             let actualColor = color;
@@ -1192,9 +1323,10 @@
             }
             
             if (fgCount < minPathLength) continue;
-            
+
             // 直接对整个二值图追踪所有轮廓（包括孔洞）
-            const contours = marchingSquaresContour(bitmap, null, null);
+            // 传入灰度数据用于 VTracer 风格亚像素插值
+            const contours = marchingSquaresContour(bitmap, null, null, bitmap.grayscale);
 
             // 所有轮廓合并为一个复合路径（evenodd 规则会自动处理孔洞）
             const pathParts = [];
@@ -1280,32 +1412,35 @@
     }
 
     // ============ 预设 ============
-    
+
     const PRESETS = {
         logo: {
             numColors: 16,
             colorTolerance: 20,
             pathTolerance: 0.5,
-            smoothness: 2.0,
+            smoothness: 1.5,       // 降低拟合误差，更精确
             minPathLength: 16,
-            mode: 'spline'
+            mode: 'spline',
+            blurSigma: 0.6         // 轻微模糊，减少锯齿
         },
         illustration: {
             numColors: 32,
             colorTolerance: 25,
             pathTolerance: 0.8,
-            smoothness: 2.5,
+            smoothness: 2.0,
             minPathLength: 16,
-            mode: 'spline'
+            mode: 'spline',
+            blurSigma: 0.8
         },
         lineart: {
             numColors: 2,
             colorTolerance: 60,
-            pathTolerance: 0.5,   // 降低！保留更多点用于曲线拟合
-            smoothness: 1.5,      // 曲线拟合误差
+            pathTolerance: 0.3,    // 更低，保留更多细节
+            smoothness: 1.0,       // 更精确的曲线拟合
             minPathLength: 16,
             mode: 'spline',
-            binaryMode: true
+            binaryMode: true,
+            blurSigma: 1.0         // 稍强模糊，平滑锯齿边缘
         },
         photo: {
             numColors: 64,
@@ -1313,7 +1448,8 @@
             pathTolerance: 1.5,
             smoothness: 3.5,
             minPathLength: 64,
-            mode: 'spline'
+            mode: 'spline',
+            blurSigma: 1.2
         },
         simple: {
             numColors: 8,
@@ -1321,7 +1457,8 @@
             pathTolerance: 2.0,
             smoothness: 4.0,
             minPathLength: 32,
-            mode: 'polygon'
+            mode: 'polygon',
+            blurSigma: 0
         }
     };
     
