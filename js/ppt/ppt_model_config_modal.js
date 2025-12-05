@@ -86,9 +86,26 @@
             <button id="ppt-model-img-save" class="ppt-model-save-btn">保存配图模型</button>
           </div>
         </div>
+        <div style="padding:12px 20px; border-top:1px solid #e2e8f0;">
+          <button id="ppt-image-processor-settings" style="background:none; border:1px solid #e2e8f0; padding:8px 16px; border-radius:6px; cursor:pointer; font-size:13px; color:#475569;">
+            🎨 图片智能处理设置
+          </button>
+        </div>
       </div>
     `;
     document.body.appendChild(modal);
+
+    // 图片处理设置按钮
+    document.getElementById('ppt-image-processor-settings')?.addEventListener('click', () => {
+      if (window.imageProcessorSettings) {
+        window.imageProcessorSettings.open();
+      } else {
+        const script = document.createElement('script');
+        script.src = 'js/ppt/editor/image-processor/settings-panel.js';
+        script.onload = () => window.imageProcessorSettings?.open();
+        document.head.appendChild(script);
+      }
+    });
   }
 
   function safe(str) {

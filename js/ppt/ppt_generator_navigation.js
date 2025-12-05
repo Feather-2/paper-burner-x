@@ -411,7 +411,11 @@ const PPTGeneratorNavigation = {
             this.currentProject = await window.pptStorage.getProject(id);
         }
         if (!this.currentProject) {
-            this.currentProject = { id, logs: [], todos: [], workflowData: {} };
+            this.currentProject = { id, logs: [], todos: [], chatHistory: [], workflowData: {} };
+        }
+        // 确保旧项目有 chatHistory
+        if (!this.currentProject.chatHistory) {
+            this.currentProject.chatHistory = [];
         }
         this.processLogs = this.currentProject.logs || [];
         this.todos = this.currentProject.todos || [];

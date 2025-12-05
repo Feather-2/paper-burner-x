@@ -64,7 +64,8 @@ const PPTGeneratorUtilities = {
         const container = document.getElementById('pptChatHistory');
         if (!container) return;
         container.innerHTML = '';
-        this.currentProject.chatHistory.forEach(msg => this._appendMessageToDOM(msg));
+        const history = this.currentProject?.chatHistory || [];
+        history.forEach(msg => this._appendMessageToDOM(msg));
         this._scrollToBottom();
     },
 

@@ -1,0 +1,436 @@
+/**
+ * 图片矢量化模块
+ * 优先使用 VectorTracer (visioncortex WASM)，备选 PotraceCore/ImageTracer
+ */
+
+class ImageVectorizer {
+    constructor() {
+        this.engine = null;
+        this.vectortracer = null;
+        
+        // VectorTracer CDN (visioncortex WASM 绑定)
+        this.vectortracerCdn = 'https://cdn.jsdelivr.net/npm/vectortracer@0.1.2/pkg/vectortracer.js';
+        // PotraceCore 本地路径
+        this.potraceCoreUrl = './js/ppt/editor/image-processor/potrace-core.js';
+        // ImageTracer CDN (备选)
+        this.imagetracerCdn = 'https://cdn.jsdelivr.net/npm/imagetracerjs@1.2.6/imagetracer_v1.2.6.js';
+    }
+
+    /**
+     * 加载矢量化引擎
+     */
+    async load() {
+        if (this.engine) return;
+
+        // 1. 优先 VectorTracer (visioncortex WASM) - 最高质量
+        try {
+            this.vectortracer = await this._loadVectorTracer();
+            this.engine = 'vectortracer';
+            console.log('[ImageVectorizer] ✓ VectorTracer (visioncortex WASM) 已加载');
+            return;
+        } catch (e) {
+            console.warn('[ImageVectorizer] VectorTracer 加载失败:', e.message);
+        }
+        
+        // 2. 备选 PotraceCore
+        try {
+            await this._loadScript(this.potraceCoreUrl);
+            if (window.PotraceCore) {
+                this.engine = 'potrace';
+                console.log('[ImageVectorizer] ✓ PotraceCore 已加载');
+                return;
+            }
+        } catch (e) {
+            console.warn('[ImageVectorizer] PotraceCore 加载失败:', e.message);
+        }
+
+        // 3. 最后备选 ImageTracer
+        try {
+            await this._loadScript(this.imagetracerCdn);
+            this.engine = 'imagetracer';
+            console.log('[ImageVectorizer] ✓ ImageTracer 已加载');
+        } catch (e) {
+            throw new Error('矢量化引擎加载失败');
+        }
+    }
+    
+    /**
+     * 加载 VectorTracer WASM 模块
+     */
+    async _loadVectorTracer() {
+        // 动态 import ES Module
+        const module = await import(this.vectortracerCdn);
+        await module.default(); // init WASM
+        return module;
+    }
+    
+    /**
+     * 加载 VTracer iframe
+     */
+    _loadVTracerIframe() {
+        return new Promise((resolve, reject) => {
+            // 创建隐藏的 iframe
+            const iframe = document.createElement('iframe');
+            iframe.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px;';
+            iframe.src = this.vtracerBridgeUrl;
+            
+            const timeout = setTimeout(() => {
+                reject(new Error('VTracer 加载超时'));
+            }, 10000);
+            
+            const messageHandler = (event) => {
+                if (event.data.type === 'bridge-ready') {
+                    clearTimeout(timeout);
+                    window.removeEventListener('message', messageHandler);
+                    this.vtracerIframe = iframe;
+                    this.vtracerReady = true;
+                    resolve();
+                }
+            };
+            
+            window.addEventListener('message', messageHandler);
+            document.body.appendChild(iframe);
+        });
+    }
+
+    _loadScript(url) {
+        return new Promise((resolve, reject) => {
+            // 检查是否已加载
+            const existing = document.querySelector(`script[src*="${url.split('/').pop()}"]`);
+            if (existing) {
+                resolve();
+                return;
+            }
+            const script = document.createElement('script');
+            script.src = url;
+            script.onload = resolve;
+            script.onerror = () => reject(new Error(`加载失败: ${url}`));
+            document.head.appendChild(script);
+        });
+    }
+
+    /**
+     * 矢量化图片
+     */
+    async vectorize(imageObj, preset = 'logo') {
+        await this.load();
+
+        console.log(`[ImageVectorizer] 使用 ${this.engine}, 预设: ${preset}`);
+
+        if (this.engine === 'vectortracer') {
+            return this._vectorizeWithVectorTracer(imageObj, preset);
+        } else if (this.engine === 'potrace') {
+            return window.PotraceCore.vectorizeWithPreset(imageObj.imageData, preset);
+        } else {
+            // ImageTracer 备选
+            const config = this._getImageTracerConfig(preset);
+            const svgString = ImageTracer.imagedataToSVG(imageObj.imageData, config);
+            return this._parseSvgResult(svgString, imageObj.width, imageObj.height);
+        }
+    }
+    
+    /**
+     * 使用 VectorTracer (visioncortex WASM) 矢量化
+     */
+    async _vectorizeWithVectorTracer(imageObj, preset) {
+        const { trace } = this.vectortracer;
+        
+        // VectorTracer 配置 (参考 visioncortex 参数)
+        const configs = {
+            logo: {
+                colorPrecision: 6,
+                layerDifference: 16,
+                filterSpeckle: 4,
+                cornerThreshold: 60,
+                lengthThreshold: 4.0,
+                spliceThreshold: 45,
+                mode: 'spline'
+            },
+            illustration: {
+                colorPrecision: 6,
+                layerDifference: 25,
+                filterSpeckle: 4,
+                cornerThreshold: 60,
+                lengthThreshold: 4.0,
+                spliceThreshold: 45,
+                mode: 'spline'
+            },
+            lineart: {
+                colorPrecision: 6,
+                layerDifference: 16,
+                filterSpeckle: 2,
+                cornerThreshold: 60,
+                lengthThreshold: 4.0,
+                spliceThreshold: 45,
+                mode: 'spline'
+            },
+            photo: {
+                colorPrecision: 8,
+                layerDifference: 28,
+                filterSpeckle: 4,
+                cornerThreshold: 60,
+                lengthThreshold: 4.0,
+                spliceThreshold: 45,
+                mode: 'spline'
+            },
+            simple: {
+                colorPrecision: 4,
+                layerDifference: 32,
+                filterSpeckle: 8,
+                cornerThreshold: 60,
+                lengthThreshold: 4.0,
+                spliceThreshold: 45,
+                mode: 'polygon'
+            }
+        };
+        
+        const config = configs[preset] || configs.logo;
+        const { width, height, imageData } = imageObj;
+        
+        // 调用 visioncortex WASM
+        const svgString = trace(imageData, config);
+        
+        return this._parseSvgResult(svgString, width, height);
+    }
+    
+    /**
+     * 使用 VTracer iframe 矢量化
+     */
+    async _vectorizeWithVTracer(imageObj, preset) {
+        // 将 ImageData 转为 DataURL
+        const canvas = document.createElement('canvas');
+        canvas.width = imageObj.width;
+        canvas.height = imageObj.height;
+        const ctx = canvas.getContext('2d');
+        ctx.putImageData(imageObj.imageData, 0, 0);
+        const dataUrl = canvas.toDataURL('image/png');
+        
+        // VTracer 配置
+        const vtracerConfigs = {
+            logo: { color_precision: 6, layer_difference: 16, filter_speckle: 4 },
+            illustration: { color_precision: 6, layer_difference: 25, filter_speckle: 4 },
+            lineart: { color_precision: 6, layer_difference: 16, filter_speckle: 2 },
+            photo: { color_precision: 8, layer_difference: 28, filter_speckle: 4 },
+            simple: { color_precision: 4, layer_difference: 32, filter_speckle: 8 }
+        };
+        const config = vtracerConfigs[preset] || vtracerConfigs.logo;
+        
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                reject(new Error('VTracer 处理超时'));
+            }, 30000);
+            
+            const messageHandler = (event) => {
+                if (event.data.type === 'vectorize-result') {
+                    clearTimeout(timeout);
+                    window.removeEventListener('message', messageHandler);
+                    
+                    if (event.data.success) {
+                        const result = this._parseSvgResult(event.data.svg, imageObj.width, imageObj.height);
+                        resolve(result);
+                    } else {
+                        reject(new Error(event.data.error));
+                    }
+                }
+            };
+            
+            window.addEventListener('message', messageHandler);
+            this.vtracerIframe.contentWindow.postMessage({
+                type: 'vectorize',
+                data: dataUrl,
+                config: config
+            }, '*');
+        });
+    }
+    
+    _getImageTracerConfig(preset) {
+        const configs = {
+            logo: { colorsampling: 0, numberofcolors: 24, ltres: 0.5, qtres: 0.5, pathomit: 2 },
+            illustration: { colorsampling: 1, numberofcolors: 48, ltres: 0.3, qtres: 0.3, pathomit: 1 },
+            lineart: { colorsampling: 0, numberofcolors: 2, ltres: 0.2, qtres: 0.2, strokewidth: 1 },
+            photo: { colorsampling: 2, numberofcolors: 128, ltres: 0.2, qtres: 0.2, blurradius: 1 },
+            simple: { colorsampling: 0, numberofcolors: 8, pathomit: 8, ltres: 2, qtres: 2 }
+        };
+        return configs[preset] || configs.logo;
+    }
+
+    /**
+     * 解析 SVG 结果
+     */
+    _parseSvgResult(svgString, width, height) {
+        const parser = new DOMParser();
+        const svgDoc = parser.parseFromString(svgString, 'image/svg+xml');
+        const svgElement = svgDoc.querySelector('svg');
+
+        const paths = [];
+        const colors = new Set();
+
+        svgElement.querySelectorAll('path').forEach((path, idx) => {
+            const fill = path.getAttribute('fill') || 'none';
+            const stroke = path.getAttribute('stroke') || 'none';
+            const d = path.getAttribute('d') || '';
+
+            if (fill !== 'none') colors.add(fill);
+            if (stroke !== 'none') colors.add(stroke);
+
+            paths.push({
+                id: `path_${idx}`,
+                d: d,
+                fill: fill,
+                stroke: stroke,
+                strokeWidth: path.getAttribute('stroke-width') || 0
+            });
+        });
+
+        console.log(`[ImageVectorizer] 生成 ${paths.length} 条路径, ${colors.size} 种颜色`);
+
+        return {
+            svg: svgString,
+            svgElement: svgElement,
+            paths: paths,
+            colors: Array.from(colors),
+            width: width,
+            height: height,
+            engine: this.engine
+        };
+    }
+
+    /**
+     * 按颜色分层
+     * @param {Object} vectorResult - vectorize 的返回结果
+     * @returns {Array} 按颜色分组的图层
+     */
+    splitByColor(vectorResult) {
+        // PotraceCore 已经返回 layers 结构
+        if (vectorResult.layers && vectorResult.layers.length > 0) {
+            return vectorResult.layers.map((layer, idx) => ({
+                id: `color_layer_${idx}_${Date.now()}`,
+                name: `颜色 ${layer.color}`,
+                color: layer.color,
+                paths: layer.paths,
+                visible: true,
+                svg: this._generateColorSvg(layer.paths, vectorResult.width, vectorResult.height)
+            }));
+        }
+        
+        // ImageTracer 需要手动分组
+        const colorGroups = {};
+        if (!vectorResult.paths) return [];
+
+        vectorResult.paths.forEach(path => {
+            const color = path.fill !== 'none' ? path.fill : path.stroke;
+            if (!color || color === 'none') return;
+            
+            if (!colorGroups[color]) {
+                colorGroups[color] = {
+                    color: color,
+                    paths: []
+                };
+            }
+            colorGroups[color].paths.push(path);
+        });
+
+        return Object.values(colorGroups).map((group, idx) => ({
+            id: `color_layer_${idx}_${Date.now()}`,
+            name: `颜色 ${group.color}`,
+            color: group.color,
+            paths: group.paths,
+            visible: true,
+            svg: this._generateColorSvg(group.paths, vectorResult.width, vectorResult.height)
+        }));
+    }
+
+    /**
+     * 为一组路径生成 SVG
+     */
+    _generateColorSvg(paths, width, height) {
+        const pathsStr = paths.map(p => {
+            const fillRule = p.fillRule ? ` fill-rule="${p.fillRule}"` : '';
+            return `<path d="${p.d}" fill="${p.fill}"${fillRule} stroke="${p.stroke}" stroke-width="${p.strokeWidth || 0}"/>`;
+        }).join('\n');
+
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+${pathsStr}
+</svg>`;
+    }
+
+    /**
+     * 简化路径（减少点数）
+     * @param {string} pathD - SVG path d 属性
+     * @param {number} tolerance - 简化容差
+     */
+    simplifyPath(pathD, tolerance = 1) {
+        // 简单实现：使用 Douglas-Peucker 算法
+        // 这里只是基础实现，可以后续用更好的库
+        return pathD; // TODO: 实现路径简化
+    }
+
+    /**
+     * 合并相近颜色
+     */
+    mergeColors(vectorResult, threshold = 30) {
+        // 颜色距离计算
+        const colorDistance = (c1, c2) => {
+            const rgb1 = this._parseColor(c1);
+            const rgb2 = this._parseColor(c2);
+            if (!rgb1 || !rgb2) return Infinity;
+            return Math.sqrt(
+                Math.pow(rgb1.r - rgb2.r, 2) +
+                Math.pow(rgb1.g - rgb2.g, 2) +
+                Math.pow(rgb1.b - rgb2.b, 2)
+            );
+        };
+
+        // 找出需要合并的颜色
+        const colors = [...vectorResult.colors];
+        const mergeMap = {};
+
+        for (let i = 0; i < colors.length; i++) {
+            for (let j = i + 1; j < colors.length; j++) {
+                if (colorDistance(colors[i], colors[j]) < threshold) {
+                    mergeMap[colors[j]] = colors[i];
+                }
+            }
+        }
+
+        // 应用合并
+        const mergedPaths = vectorResult.paths.map(path => ({
+            ...path,
+            fill: mergeMap[path.fill] || path.fill,
+            stroke: mergeMap[path.stroke] || path.stroke
+        }));
+
+        return {
+            ...vectorResult,
+            paths: mergedPaths,
+            colors: colors.filter(c => !mergeMap[c])
+        };
+    }
+
+    _parseColor(colorStr) {
+        if (!colorStr || colorStr === 'none') return null;
+
+        // 处理 rgb() 格式
+        const rgbMatch = colorStr.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+        if (rgbMatch) {
+            return { r: parseInt(rgbMatch[1]), g: parseInt(rgbMatch[2]), b: parseInt(rgbMatch[3]) };
+        }
+
+        // 处理 #hex 格式
+        const hexMatch = colorStr.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+        if (hexMatch) {
+            return { 
+                r: parseInt(hexMatch[1], 16), 
+                g: parseInt(hexMatch[2], 16), 
+                b: parseInt(hexMatch[3], 16) 
+            };
+        }
+
+        return null;
+    }
+}
+
+// 单例 & 导出到全局
+const imageVectorizer = new ImageVectorizer();
+window.ImageVectorizer = ImageVectorizer;
+window.imageVectorizer = imageVectorizer;

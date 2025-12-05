@@ -1260,6 +1260,59 @@ class SlideEditor extends EventEmitter {
                 editor._handleDblClick(e);
             }
         }, true);
+
+        // 右键菜单
+        window.addEventListener('contextmenu', (e) => {
+            const editor = window._currentSlideEditor;
+            if (!editor?.enabled) return;
+            
+            const viewport = document.getElementById('presSlideCanvas');
+            if (viewport && viewport.contains(e.target)) {
+                e.preventDefault();
+                editor._handleContextMenu(e);
+            }
+        }, true);
+    }
+
+    _handleContextMenu(e) {
+        // 懒加载右键菜单
+        if (!this.contextMenu) {
+            if (window.ContextMenu) {
+                this.contextMenu = new window.ContextMenu(this);
+                this._showContextMenu(e);
+            } else {
+                // 动态加载脚本
+                const script = document.createElement('script');
+                script.src = 'js/ppt/editor/context-menu.js';
+                script.onload = () => {
+                    this.contextMenu = new window.ContextMenu(this);
+                    this._showContextMenu(e);
+                };
+                script.onerror = () => console.error('[SlideEditor] 加载右键菜单失败');
+                document.head.appendChild(script);
+            }
+        } else {
+            this._showContextMenu(e);
+        }
+    }
+
+    _showContextMenu(e) {
+        // 获取点击的元素
+        const elementDom = e.target.closest('[data-element-id]');
+        let element = null;
+        
+        if (elementDom) {
+            const elementId = elementDom.dataset.elementId;
+            const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
+            element = slide?.elements?.find(el => el.id === elementId);
+            
+            // 如果点击的元素未选中，先选中它
+            if (!this.selection.isSelected(elementId)) {
+                this.selection.select(elementId);
+            }
+        }
+
+        this.contextMenu.show(e.clientX, e.clientY, element);
     }
 
     _handleMouseDown(e) {

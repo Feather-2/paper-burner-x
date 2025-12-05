@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>VTracer Bridge</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        #frame, #svg { position: absolute; top: 0; left: 0; }
+    </style>
+</head>
+<body>
+    <canvas id="frame"></canvas>
+    <svg id="svg" xmlns="http://www.w3.org/2000/svg"></svg>
+    
+    <!-- VTracer WASM 需要相对于 docs 目录加载 -->
+    <script>
+        // 设置 webpack public path
+        __webpack_public_path__ = '../vtracer-master/docs/';
+    </script>
+    <script src="../vtracer-master/docs/bootstrap.js"></script>
+    <script src="../vtracer-master/docs/0.bootstrap.js"></script>
+    <script>
+    // VTracer Bridge - 通过 postMessage 与父窗口通信
+    
+    const canvas = document.getElementById('frame');
+    const ctx = canvas.getContext('2d');
+    const svg = document.getElementById('svg');
+    let runner = null;
+    let isProcessing = false;
+    
+    // 默认配置
+    const defaultConfig = {
+        mode: 'spline',
+        clustering_mode: 'color',
+        hierarchical: 'stacked',
+        filter_speckle: 4,
+        color_precision: 6,
+        layer_difference: 16,
+        corner_threshold: 60,
+        length_threshold: 4,
+        splice_threshold: 45,
+        path_precision: 8
+    };
+    
+    // 监听来自父窗口的消息
+    window.addEventListener('message', async (event) => {
+        const { type, data, config } = event.data;
+        
+        if (type === 'vectorize') {
+            try {
+                const result = await vectorize(data, { ...defaultConfig, ...config });
+                parent.postMessage({ type: 'vectorize-result', success: true, svg: result }, '*');
+            } catch (error) {
+                parent.postMessage({ type: 'vectorize-result', success: false, error: error.message }, '*');
+            }
+        } else if (type === 'ping') {
+            parent.postMessage({ type: 'pong', ready: typeof ColorImageConverter !== 'undefined' }, '*');
+        }
+    });
+    
+    async function vectorize(imageDataUrl, config) {
+        if (isProcessing) {
+            throw new Error('Already processing');
+        }
+        isProcessing = true;
+        
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+                try {
+                    // 设置 canvas 尺寸
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                    
+                    // 设置 SVG 尺寸
+                    svg.setAttribute('width', img.width);
+                    svg.setAttribute('height', img.height);
+                    svg.setAttribute('viewBox', `0 0 ${img.width} ${img.height}`);
+                    svg.innerHTML = '';
+                    
+                    // 创建转换器
+                    const params = JSON.stringify({
+                        canvas_id: 'frame',
+                        svg_id: 'svg',
+                        mode: config.mode,
+                        hierarchical: config.hierarchical,
+                        corner_threshold: config.corner_threshold,
+                        length_threshold: config.length_threshold,
+                        max_iterations: 10,
+                        splice_threshold: config.splice_threshold,
+                        filter_speckle: config.filter_speckle,
+                        color_precision: config.color_precision,
+                        layer_difference: config.layer_difference,
+                        path_precision: config.path_precision
+                    });
+                    
+                    runner = ColorImageConverter.new_with_string(params);
+                    runner.init();
+                    
+                    // 运行转换
+                    function tick() {
+                        if (runner.tick()) {
+                            // 完成
+                            const svgContent = new XMLSerializer().serializeToString(svg);
+                            isProcessing = false;
+                            resolve(svgContent);
+                        } else {
+                            requestAnimationFrame(tick);
+                        }
+                    }
+                    tick();
+                    
+                } catch (e) {
+                    isProcessing = false;
+                    reject(e);
+                }
+            };
+            img.onerror = () => {
+                isProcessing = false;
+                reject(new Error('Failed to load image'));
+            };
+            img.src = imageDataUrl;
+        });
+    }
+    
+    // 通知父窗口已加载
+    setTimeout(() => {
+        parent.postMessage({ type: 'bridge-ready' }, '*');
+    }, 500);
+    </script>
+</body>
+</html>
