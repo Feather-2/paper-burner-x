@@ -575,50 +575,316 @@
         return visvalingamWhyatt(points, tolerance);
     }
 
-    // ============ 角点检测 ============
+    // ============ 路径平滑 ============
 
     /**
-     * 检测路径上的角点（尖角）
-     * @param {Array} points - 点数组
-     * @param {number} angleThreshold - 角度阈值（度），小于此角度视为角点
-     * @returns {Array} 角点索引数组
+     * Chaikin 角切割平滑算法
+     * 每次迭代将角切掉，使曲线更平滑
      */
-    function detectCorners(points, angleThreshold = 60) {
-        if (points.length < 3) return [];
+    function chaikinSmooth(points, iterations = 2) {
+        if (points.length < 3) return points;
 
-        const corners = [];
+        let result = points;
+        for (let iter = 0; iter < iterations; iter++) {
+            const smoothed = [];
+            const n = result.length;
+
+            for (let i = 0; i < n; i++) {
+                const p0 = result[i];
+                const p1 = result[(i + 1) % n];
+
+                // 在每条边的 1/4 和 3/4 处插入新点
+                smoothed.push({
+                    x: p0.x * 0.75 + p1.x * 0.25,
+                    y: p0.y * 0.75 + p1.y * 0.25
+                });
+                smoothed.push({
+                    x: p0.x * 0.25 + p1.x * 0.75,
+                    y: p0.y * 0.25 + p1.y * 0.75
+                });
+            }
+
+            result = smoothed;
+        }
+
+        return result;
+    }
+
+    /**
+     * 移动平均平滑
+     * @param {Array} points - 点数组
+     * @param {number} windowSize - 窗口大小（奇数）
+     */
+    function movingAverageSmooth(points, windowSize = 3) {
+        if (points.length < 3) return points;
+
+        const half = Math.floor(windowSize / 2);
         const n = points.length;
-        const threshold = angleThreshold * Math.PI / 180;
+        const result = [];
 
         for (let i = 0; i < n; i++) {
-            const prev = points[(i - 1 + n) % n];
-            const curr = points[i];
-            const next = points[(i + 1) % n];
+            let sumX = 0, sumY = 0, count = 0;
 
-            // 计算两个向量
-            const v1x = curr.x - prev.x;
-            const v1y = curr.y - prev.y;
-            const v2x = next.x - curr.x;
-            const v2y = next.y - curr.y;
+            for (let j = -half; j <= half; j++) {
+                const idx = (i + j + n) % n;
+                sumX += points[idx].x;
+                sumY += points[idx].y;
+                count++;
+            }
 
-            // 计算向量长度
-            const len1 = Math.sqrt(v1x * v1x + v1y * v1y);
-            const len2 = Math.sqrt(v2x * v2x + v2y * v2y);
+            result.push({
+                x: sumX / count,
+                y: sumY / count
+            });
+        }
 
-            if (len1 < 0.5 || len2 < 0.5) continue;
+        return result;
+    }
 
-            // 计算夹角（使用点积）
-            const dot = v1x * v2x + v1y * v2y;
-            const cosAngle = dot / (len1 * len2);
-            const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle)));
+    // ============ 角点检测 (VTracer 风格) ============
 
-            // 如果角度小于阈值，认为是角点
-            if (angle < threshold) {
-                corners.push(i);
+    /**
+     * 计算点的局部曲率（使用更大的邻域）
+     * VTracer 风格：考虑更大范围的点来判断角点
+     */
+    function computeCurvature(points, index, radius = 3) {
+        const n = points.length;
+        if (n < 3) return Math.PI;
+
+        // 取前后 radius 个点
+        const prevIdx = (index - radius + n) % n;
+        const nextIdx = (index + radius) % n;
+        const curr = points[index];
+        const prev = points[prevIdx];
+        const next = points[nextIdx];
+
+        const v1x = curr.x - prev.x;
+        const v1y = curr.y - prev.y;
+        const v2x = next.x - curr.x;
+        const v2y = next.y - curr.y;
+
+        const len1 = Math.sqrt(v1x * v1x + v1y * v1y);
+        const len2 = Math.sqrt(v2x * v2x + v2y * v2y);
+
+        if (len1 < 0.01 || len2 < 0.01) return Math.PI;
+
+        const dot = v1x * v2x + v1y * v2y;
+        const cosAngle = Math.max(-1, Math.min(1, dot / (len1 * len2)));
+        return Math.acos(cosAngle);
+    }
+
+    /**
+     * VTracer 风格角点检测
+     * 1. 使用更大的邻域计算曲率
+     * 2. 非极大值抑制
+     * 3. 角度阈值过滤
+     */
+    function detectCornersVTracer(points, angleThreshold = 90, minDistance = 5) {
+        if (points.length < 6) return [];
+
+        const n = points.length;
+        const curvatures = [];
+
+        // 1. 计算每个点的曲率
+        for (let i = 0; i < n; i++) {
+            const angle = computeCurvature(points, i, 3);
+            curvatures.push({ index: i, angle });
+        }
+
+        // 2. 找局部最小值（曲率最大的点 = 角度最小的点）
+        const threshold = angleThreshold * Math.PI / 180;
+        const candidates = [];
+
+        for (let i = 0; i < n; i++) {
+            const curr = curvatures[i].angle;
+            if (curr >= threshold) continue; // 角度太大，不是角点
+
+            // 非极大值抑制：检查是否是局部最小
+            let isLocalMin = true;
+            for (let j = 1; j <= minDistance && isLocalMin; j++) {
+                const prevAngle = curvatures[(i - j + n) % n].angle;
+                const nextAngle = curvatures[(i + j) % n].angle;
+                if (curr > prevAngle || curr > nextAngle) {
+                    isLocalMin = false;
+                }
+            }
+
+            if (isLocalMin) {
+                candidates.push({ index: i, angle: curr });
             }
         }
 
-        return corners;
+        // 3. 按角度排序，取最显著的角点
+        candidates.sort((a, b) => a.angle - b.angle);
+
+        // 4. 去除距离太近的角点
+        const corners = [];
+        for (const c of candidates) {
+            let tooClose = false;
+            for (const existing of corners) {
+                const dist = Math.min(
+                    Math.abs(c.index - existing),
+                    n - Math.abs(c.index - existing)
+                );
+                if (dist < minDistance) {
+                    tooClose = true;
+                    break;
+                }
+            }
+            if (!tooClose) {
+                corners.push(c.index);
+            }
+        }
+
+        return corners.sort((a, b) => a - b);
+    }
+
+    /**
+     * VTracer 风格：只平滑非角点区域
+     * 保护角点，只平滑曲线部分
+     */
+    function smoothPathPreservingCorners(points, corners, windowSize = 3) {
+        if (points.length < 3 || corners.length === 0) {
+            return movingAverageSmooth(points, windowSize);
+        }
+
+        const n = points.length;
+        const half = Math.floor(windowSize / 2);
+        const result = [];
+
+        // 创建角点集合（包括角点附近的点也要保护）
+        const protectedIndices = new Set();
+        for (const c of corners) {
+            for (let d = -2; d <= 2; d++) {
+                protectedIndices.add((c + d + n) % n);
+            }
+        }
+
+        for (let i = 0; i < n; i++) {
+            if (protectedIndices.has(i)) {
+                // 角点及附近：保持原样
+                result.push({ ...points[i] });
+            } else {
+                // 非角点：平滑处理
+                let sumX = 0, sumY = 0, count = 0;
+                for (let j = -half; j <= half; j++) {
+                    const idx = (i + j + n) % n;
+                    sumX += points[idx].x;
+                    sumY += points[idx].y;
+                    count++;
+                }
+                result.push({
+                    x: sumX / count,
+                    y: sumY / count
+                });
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * VTracer 风格完整处理流程
+     */
+    function processContourVTracer(points, options = {}) {
+        const {
+            cornerAngle = 75,      // 角点阈值（度）
+            smoothWindow = 3,      // 平滑窗口
+            minCornerDist = 5      // 角点最小距离
+        } = options;
+
+        if (points.length < 4) return { points, corners: [] };
+
+        // 1. 先检测角点（在原始轮廓上）
+        const corners = detectCornersVTracer(points, cornerAngle, minCornerDist);
+
+        // 2. 只平滑非角点区域
+        const smoothed = smoothPathPreservingCorners(points, corners, smoothWindow);
+
+        // 3. 在平滑后的点上重新定位角点
+        const newCorners = corners.map(oldIdx => {
+            // 角点位置保持不变（因为我们保护了它们）
+            return oldIdx;
+        });
+
+        return { points: smoothed, corners: newCorners };
+    }
+
+    /**
+     * VTracer 风格曲线拟合（使用预检测的角点）
+     * @param {Array} points - 简化后的点数组
+     * @param {number} maxError - 曲线拟合误差
+     * @param {Array} originalCorners - 原始轮廓中的角点索引
+     * @param {number} originalCount - 原始轮廓点数
+     */
+    function fitBezierWithCornersVTracer(points, maxError, originalCorners, originalCount) {
+        if (!points || points.length < 3) return '';
+
+        const closed = points.length > 2 &&
+            Math.abs(points[0].x - points[points.length - 1].x) < 0.5 &&
+            Math.abs(points[0].y - points[points.length - 1].y) < 0.5;
+
+        const pts = closed ? points.slice(0, -1) : points;
+        const n = pts.length;
+        if (n < 3) return generatePolygonPath(points);
+
+        // 将原始角点索引映射到简化后的点
+        // 使用比例映射
+        const ratio = n / originalCount;
+        let corners = originalCorners
+            .map(idx => Math.round(idx * ratio))
+            .filter(idx => idx >= 0 && idx < n);
+
+        // 去重并排序
+        corners = [...new Set(corners)].sort((a, b) => a - b);
+
+        // 如果映射后角点太少，重新在简化后的点上检测
+        if (corners.length < 2 && n > 6) {
+            corners = detectCornersVTracer(pts, 75, 3);
+        }
+
+        // 如果没有角点，使用普通拟合
+        if (corners.length === 0) {
+            return fitBezierSimple(pts, maxError, closed);
+        }
+
+        // 按角点分段拟合
+        const segments = [];
+        for (let i = 0; i < corners.length; i++) {
+            const start = corners[i];
+            const end = corners[(i + 1) % corners.length];
+
+            const segment = [];
+            if (end > start) {
+                for (let j = start; j <= end; j++) {
+                    segment.push(pts[j]);
+                }
+            } else {
+                // 跨越首尾
+                for (let j = start; j < n; j++) segment.push(pts[j]);
+                for (let j = 0; j <= end; j++) segment.push(pts[j]);
+            }
+
+            if (segment.length >= 2) {
+                segments.push(segment);
+            }
+        }
+
+        // 对每段拟合曲线
+        let path = '';
+        for (let i = 0; i < segments.length; i++) {
+            const seg = segments[i];
+            const segPath = fitSegmentBezier(seg, maxError);
+
+            if (i === 0) {
+                path = segPath;
+            } else {
+                // 移除后续段的 M 命令，直接连接
+                path += segPath.replace(/^M[^CL]+/, '');
+            }
+        }
+
+        return path + 'Z';
     }
 
     /**
@@ -638,8 +904,8 @@
         const n = pts.length;
         if (n < 3) return generatePolygonPath(points);
 
-        // 检测角点
-        const corners = detectCorners(pts, cornerAngle);
+        // 使用 VTracer 风格角点检测
+        const corners = detectCornersVTracer(pts, cornerAngle, 3);
 
         // 如果没有角点，使用普通拟合
         if (corners.length === 0) {
@@ -648,7 +914,6 @@
 
         // 按角点分段
         const segments = [];
-        corners.sort((a, b) => a - b);
 
         for (let i = 0; i < corners.length; i++) {
             const start = corners[i];
@@ -930,27 +1195,43 @@
             
             // 直接对整个二值图追踪所有轮廓（包括孔洞）
             const contours = marchingSquaresContour(bitmap, null, null);
-            
+
             // 所有轮廓合并为一个复合路径（evenodd 规则会自动处理孔洞）
             const pathParts = [];
-            
+
             for (const contour of contours) {
                 if (contour.points.length < 4) continue;
                 if (Math.abs(contour.area) < minPathLength) continue;
 
-                // DEBUG: 输出原始轮廓点数
+                // VTracer 风格处理流程：
+                // 1. 先检测角点（在原始轮廓上，保护直角等特征）
+                // 2. 只平滑非角点区域
+                // 3. 简化路径
+                // 4. 按角点分段拟合曲线
+
                 const originalCount = contour.points.length;
 
-                // 简化路径
-                const simplified = simplifyPath(contour.points, { tolerance: pathTolerance * 0.5 });
+                // VTracer 参数（参考 vtracer config.rs）
+                const vtracerOptions = {
+                    cornerAngle: 60,      // VTracer 默认 60 度
+                    smoothWindow: 3,
+                    minCornerDist: Math.max(3, Math.floor(originalCount / 50))
+                };
+
+                // 1+2. 检测角点并保护性平滑
+                const processed = processContourVTracer(contour.points, vtracerOptions);
+
+                // 3. 简化路径
+                const simplified = simplifyPath(processed.points, {
+                    tolerance: pathTolerance  // 直接使用配置的值
+                });
                 if (simplified.length < 3) continue;
 
-                // DEBUG: 检查简化后的点数
-                console.log(`[PotraceCore] 轮廓简化: ${originalCount} -> ${simplified.length} 点 (保留 ${(simplified.length/originalCount*100).toFixed(1)}%)`);
+                console.log(`[PotraceCore] VTracer: ${originalCount} -> 角点 ${processed.corners.length} -> 简化 ${simplified.length} 点`);
 
-                // 曲线拟合
+                // 4. 曲线拟合（使用检测到的角点信息）
                 const pathD = mode === 'spline'
-                    ? fitBezier(simplified, smoothness)
+                    ? fitBezierWithCornersVTracer(simplified, smoothness, processed.corners, originalCount)
                     : generatePolygonPath(simplified);
 
                 if (pathD) {
@@ -1020,10 +1301,10 @@
         lineart: {
             numColors: 2,
             colorTolerance: 60,
-            pathTolerance: 0.1,   // 更小以保持细节
-            smoothness: 0.3,      // 更小的误差容忍
-            minPathLength: 4,     // 保留小孔洞
-            mode: 'spline',       // 改成 'polygon' 测试原始轮廓
+            pathTolerance: 0.5,   // 降低！保留更多点用于曲线拟合
+            smoothness: 1.5,      // 曲线拟合误差
+            minPathLength: 16,
+            mode: 'spline',
             binaryMode: true
         },
         photo: {
