@@ -575,50 +575,189 @@
         return visvalingamWhyatt(points, tolerance);
     }
 
-    // ============ 曲线拟合 ============
-    
+    // ============ 角点检测 ============
+
     /**
-     * 贝塞尔曲线拟合
+     * 检测路径上的角点（尖角）
+     * @param {Array} points - 点数组
+     * @param {number} angleThreshold - 角度阈值（度），小于此角度视为角点
+     * @returns {Array} 角点索引数组
      */
-    function fitBezier(points, maxError = 2.5) {
+    function detectCorners(points, angleThreshold = 60) {
+        if (points.length < 3) return [];
+
+        const corners = [];
+        const n = points.length;
+        const threshold = angleThreshold * Math.PI / 180;
+
+        for (let i = 0; i < n; i++) {
+            const prev = points[(i - 1 + n) % n];
+            const curr = points[i];
+            const next = points[(i + 1) % n];
+
+            // 计算两个向量
+            const v1x = curr.x - prev.x;
+            const v1y = curr.y - prev.y;
+            const v2x = next.x - curr.x;
+            const v2y = next.y - curr.y;
+
+            // 计算向量长度
+            const len1 = Math.sqrt(v1x * v1x + v1y * v1y);
+            const len2 = Math.sqrt(v2x * v2x + v2y * v2y);
+
+            if (len1 < 0.5 || len2 < 0.5) continue;
+
+            // 计算夹角（使用点积）
+            const dot = v1x * v2x + v1y * v2y;
+            const cosAngle = dot / (len1 * len2);
+            const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle)));
+
+            // 如果角度小于阈值，认为是角点
+            if (angle < threshold) {
+                corners.push(i);
+            }
+        }
+
+        return corners;
+    }
+
+    /**
+     * 按角点分段拟合曲线
+     * @param {Array} points - 点数组（闭合路径）
+     * @param {number} maxError - 曲线拟合误差
+     * @param {number} cornerAngle - 角点检测阈值
+     */
+    function fitBezierWithCorners(points, maxError = 2.5, cornerAngle = 60) {
+        if (!points || points.length < 3) return '';
+
+        const closed = points.length > 2 &&
+            Math.abs(points[0].x - points[points.length - 1].x) < 0.5 &&
+            Math.abs(points[0].y - points[points.length - 1].y) < 0.5;
+
+        const pts = closed ? points.slice(0, -1) : points;
+        const n = pts.length;
+        if (n < 3) return generatePolygonPath(points);
+
+        // 检测角点
+        const corners = detectCorners(pts, cornerAngle);
+
+        // 如果没有角点，使用普通拟合
+        if (corners.length === 0) {
+            return fitBezierSimple(pts, maxError, closed);
+        }
+
+        // 按角点分段
+        const segments = [];
+        corners.sort((a, b) => a - b);
+
+        for (let i = 0; i < corners.length; i++) {
+            const start = corners[i];
+            const end = corners[(i + 1) % corners.length];
+
+            // 提取这一段的点
+            const segment = [];
+            if (end > start) {
+                for (let j = start; j <= end; j++) {
+                    segment.push(pts[j]);
+                }
+            } else {
+                // 跨越首尾
+                for (let j = start; j < n; j++) segment.push(pts[j]);
+                for (let j = 0; j <= end; j++) segment.push(pts[j]);
+            }
+
+            if (segment.length >= 2) {
+                segments.push(segment);
+            }
+        }
+
+        // 对每段拟合曲线
+        let path = '';
+        for (let i = 0; i < segments.length; i++) {
+            const seg = segments[i];
+            const segPath = fitSegmentBezier(seg, maxError);
+
+            if (i === 0) {
+                path = segPath;
+            } else {
+                // 移除后续段的 M 命令，直接连接
+                path += segPath.replace(/^M[^CL]+/, '');
+            }
+        }
+
+        return path + 'Z';
+    }
+
+    /**
+     * 对单段点集拟合贝塞尔曲线（不闭合）
+     */
+    function fitSegmentBezier(points, maxError) {
+        if (points.length < 2) return '';
+        if (points.length === 2) {
+            return `M${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}L${points[1].x.toFixed(1)},${points[1].y.toFixed(1)}`;
+        }
+
+        const pts = points.map(p => [p.x, p.y]);
+
+        // 使用 fit-curve
+        if (typeof window.fitCurve === 'function') {
+            try {
+                const curves = window.fitCurve(pts, Math.max(0.1, maxError));
+                if (curves && curves.length > 0) {
+                    let path = `M${curves[0][0][0].toFixed(1)},${curves[0][0][1].toFixed(1)}`;
+                    for (const c of curves) {
+                        path += `C${c[1][0].toFixed(1)},${c[1][1].toFixed(1)},${c[2][0].toFixed(1)},${c[2][1].toFixed(1)},${c[3][0].toFixed(1)},${c[3][1].toFixed(1)}`;
+                    }
+                    return path;
+                }
+            } catch (e) {}
+        }
+
+        // 回退：直线连接
+        let path = `M${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}`;
+        for (let i = 1; i < points.length; i++) {
+            path += `L${points[i].x.toFixed(1)},${points[i].y.toFixed(1)}`;
+        }
+        return path;
+    }
+
+    /**
+     * 简单贝塞尔拟合（无角点检测）
+     */
+    function fitBezierSimple(points, maxError, closed = true) {
+        const pts = points.map(p => [p.x, p.y]);
+
+        if (typeof window.fitCurve === 'function') {
+            try {
+                const curves = window.fitCurve(pts, Math.max(0.1, maxError));
+                if (curves && curves.length > 0) {
+                    let path = `M${curves[0][0][0].toFixed(1)},${curves[0][0][1].toFixed(1)}`;
+                    for (const c of curves) {
+                        path += `C${c[1][0].toFixed(1)},${c[1][1].toFixed(1)},${c[2][0].toFixed(1)},${c[2][1].toFixed(1)},${c[3][0].toFixed(1)},${c[3][1].toFixed(1)}`;
+                    }
+                    return path + (closed ? 'Z' : '');
+                }
+            } catch (e) {}
+        }
+
+        return fitBezierCatmullRom(points.map(p => ({ x: p[0] || p.x, y: p[1] || p.y })), 0.3);
+    }
+
+    // ============ 曲线拟合 ============
+
+    /**
+     * 贝塞尔曲线拟合（带角点检测）
+     */
+    function fitBezier(points, maxError = 2.5, cornerAngle = 60) {
         if (!points || points.length < 2) return '';
         if (points.length === 2) {
             return `M${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}L${points[1].x.toFixed(1)},${points[1].y.toFixed(1)}Z`;
         }
-        
-        // 使用 fit-curve CDN
-        if (typeof window.fitCurve === 'function') {
-            return fitBezierWithLib(points, maxError);
-        }
-        
-        // 回退到 Catmull-Rom
-        return fitBezierCatmullRom(points, 0.3);
+
+        // 使用带角点检测的拟合
+        return fitBezierWithCorners(points, maxError, cornerAngle);
     }
-    
-    function fitBezierWithLib(points, maxError) {
-        const pts = points.map(p => [p.x, p.y]);
-        const closed = pts.length > 2 &&
-            Math.abs(pts[0][0] - pts[pts.length - 1][0]) < 0.5 &&
-            Math.abs(pts[0][1] - pts[pts.length - 1][1]) < 0.5;
 
-        const inputPts = closed ? pts.slice(0, -1) : pts;
-        if (inputPts.length < 2) return '';
-
-        try {
-            // 移除最小误差限制，允许更精细的拟合
-            const curves = window.fitCurve(inputPts, Math.max(0.1, maxError));
-            if (!curves || curves.length === 0) return fitBezierCatmullRom(points, 0.3);
-
-            let path = `M${curves[0][0][0].toFixed(1)},${curves[0][0][1].toFixed(1)}`;
-            for (const c of curves) {
-                path += `C${c[1][0].toFixed(1)},${c[1][1].toFixed(1)},${c[2][0].toFixed(1)},${c[2][1].toFixed(1)},${c[3][0].toFixed(1)},${c[3][1].toFixed(1)}`;
-            }
-            return path + 'Z';
-        } catch (e) {
-            return fitBezierCatmullRom(points, 0.3);
-        }
-    }
-    
     function fitBezierCatmullRom(points, tension = 0.3) {
         const closed = points.length > 2 &&
             Math.abs(points[0].x - points[points.length - 1].x) < 0.5 &&
