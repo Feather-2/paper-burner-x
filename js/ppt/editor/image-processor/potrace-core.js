@@ -915,29 +915,126 @@
 
     /**
      * VTracer 风格完整处理流程
+     * 关键改进：多次迭代平滑，使用标记而非索引跟踪角点
      */
     function processContourVTracer(points, options = {}) {
         const {
             cornerAngle = 75,      // 角点阈值（度）
-            smoothWindow = 3,      // 平滑窗口
-            minCornerDist = 5      // 角点最小距离
+            smoothWindow = 5,      // 平滑窗口（增大）
+            minCornerDist = 5,     // 角点最小距离
+            smoothIterations = 2   // Chaikin 迭代次数
         } = options;
 
         if (points.length < 4) return { points, corners: [] };
 
-        // 1. 先检测角点（在原始轮廓上）
-        const corners = detectCornersVTracer(points, cornerAngle, minCornerDist);
+        // 1. 先做初步平滑（在角点检测前）
+        let smoothed = points.slice();
+        for (let i = 0; i < 2; i++) {
+            smoothed = movingAverageSmooth(smoothed, 3);
+        }
 
-        // 2. 只平滑非角点区域
-        const smoothed = smoothPathPreservingCorners(points, corners, smoothWindow);
+        // 2. 检测角点（在初步平滑后的轮廓上）
+        const cornerIndices = detectCornersVTracer(smoothed, cornerAngle, minCornerDist);
 
-        // 3. 在平滑后的点上重新定位角点
-        const newCorners = corners.map(oldIdx => {
-            // 角点位置保持不变（因为我们保护了它们）
-            return oldIdx;
-        });
+        // 3. 给点添加角点标记
+        let taggedPoints = smoothed.map((p, i) => ({
+            x: p.x,
+            y: p.y,
+            isCorner: cornerIndices.includes(i)
+        }));
 
-        return { points: smoothed, corners: newCorners };
+        // 4. 多次迭代 Chaikin 平滑（使用标记保护角点）
+        for (let i = 0; i < smoothIterations; i++) {
+            taggedPoints = chaikinSmoothTagged(taggedPoints);
+        }
+
+        // 5. 最后多次移动平均平滑（保护角点）
+        for (let i = 0; i < 3; i++) {
+            taggedPoints = movingAverageSmoothTagged(taggedPoints, smoothWindow);
+        }
+
+        // 6. 提取结果
+        const finalPoints = taggedPoints.map(p => ({ x: p.x, y: p.y }));
+        const finalCorners = taggedPoints
+            .map((p, i) => p.isCorner ? i : -1)
+            .filter(i => i >= 0);
+
+        return { points: finalPoints, corners: finalCorners };
+    }
+
+    /**
+     * Chaikin 平滑（带标记版本）
+     */
+    function chaikinSmoothTagged(points) {
+        if (points.length < 3) return points;
+
+        const n = points.length;
+        const result = [];
+
+        for (let i = 0; i < n; i++) {
+            const p0 = points[i];
+            const p1 = points[(i + 1) % n];
+
+            if (p0.isCorner) {
+                // 角点：保持原样
+                result.push({ x: p0.x, y: p0.y, isCorner: true });
+            } else if (p1.isCorner) {
+                // 下一个是角点：只添加 3/4 位置点
+                result.push({
+                    x: p0.x * 0.25 + p1.x * 0.75,
+                    y: p0.y * 0.25 + p1.y * 0.75,
+                    isCorner: false
+                });
+            } else {
+                // 正常 Chaikin：添加 1/4 和 3/4 位置的点
+                result.push({
+                    x: p0.x * 0.75 + p1.x * 0.25,
+                    y: p0.y * 0.75 + p1.y * 0.25,
+                    isCorner: false
+                });
+                result.push({
+                    x: p0.x * 0.25 + p1.x * 0.75,
+                    y: p0.y * 0.25 + p1.y * 0.75,
+                    isCorner: false
+                });
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * 移动平均平滑（带标记版本）
+     */
+    function movingAverageSmoothTagged(points, windowSize = 5) {
+        if (points.length < 3) return points;
+
+        const half = Math.floor(windowSize / 2);
+        const n = points.length;
+        const result = [];
+
+        for (let i = 0; i < n; i++) {
+            if (points[i].isCorner) {
+                // 角点：保持原样
+                result.push({ ...points[i] });
+            } else {
+                // 非角点：平滑处理
+                let sumX = 0, sumY = 0, count = 0;
+                for (let j = -half; j <= half; j++) {
+                    const idx = (i + j + n) % n;
+                    sumX += points[idx].x;
+                    sumY += points[idx].y;
+                    count++;
+                }
+                result.push({
+                    x: sumX / count,
+                    y: sumY / count,
+                    isCorner: false
+                });
+            }
+        }
+
+        return result;
     }
 
     /**
@@ -1138,6 +1235,42 @@
         return fitBezierCatmullRom(points.map(p => ({ x: p[0] || p.x, y: p[1] || p.y })), 0.3);
     }
 
+    /**
+     * 平滑曲线拟合（用于已经充分平滑的点）
+     * 使用更精确的拟合，因为输入点已经很平滑
+     */
+    function fitBezierSmooth(points, maxError = 1.0) {
+        if (!points || points.length < 3) return '';
+
+        const closed = points.length > 2 &&
+            Math.abs(points[0].x - points[points.length - 1].x) < 1 &&
+            Math.abs(points[0].y - points[points.length - 1].y) < 1;
+
+        const pts = closed ? points.slice(0, -1) : points;
+        if (pts.length < 3) return generatePolygonPath(points);
+
+        // 优先使用 fit-curve（更精确）
+        if (typeof window.fitCurve === 'function') {
+            try {
+                const inputPts = pts.map(p => [p.x, p.y]);
+                // 使用很小的误差阈值以保持平滑度
+                const curves = window.fitCurve(inputPts, Math.max(0.1, maxError * 0.5));
+                if (curves && curves.length > 0) {
+                    let path = `M${curves[0][0][0].toFixed(2)},${curves[0][0][1].toFixed(2)}`;
+                    for (const c of curves) {
+                        path += `C${c[1][0].toFixed(2)},${c[1][1].toFixed(2)},${c[2][0].toFixed(2)},${c[2][1].toFixed(2)},${c[3][0].toFixed(2)},${c[3][1].toFixed(2)}`;
+                    }
+                    return path + (closed ? 'Z' : '');
+                }
+            } catch (e) {
+                console.warn('[PotraceCore] fit-curve failed, using Catmull-Rom');
+            }
+        }
+
+        // 回退到 Catmull-Rom（也能产生平滑曲线）
+        return fitBezierCatmullRom(pts, 0.4);
+    }
+
     // ============ 曲线拟合 ============
 
     /**
@@ -1335,36 +1468,39 @@
                 if (contour.points.length < 4) continue;
                 if (Math.abs(contour.area) < minPathLength) continue;
 
-                // VTracer 风格处理流程：
-                // 1. 先检测角点（在原始轮廓上，保护直角等特征）
-                // 2. 只平滑非角点区域
-                // 3. 简化路径
-                // 4. 按角点分段拟合曲线
-
                 const originalCount = contour.points.length;
 
-                // VTracer 参数（参考 vtracer config.rs）
+                // VTracer 参数 - 调整角点检测，只检测真正的直角
                 const vtracerOptions = {
-                    cornerAngle: 60,      // VTracer 默认 60 度
-                    smoothWindow: 3,
-                    minCornerDist: Math.max(3, Math.floor(originalCount / 50))
+                    cornerAngle: 45,           // 降低！只检测 < 45度 的尖角
+                    smoothWindow: 7,           // 增大窗口
+                    minCornerDist: Math.max(5, Math.floor(originalCount / 30)),
+                    smoothIterations: 4        // 增加迭代次数
                 };
 
-                // 1+2. 检测角点并保护性平滑
+                // 1. VTracer 风格处理：多次平滑 + 角点保护
                 const processed = processContourVTracer(contour.points, vtracerOptions);
 
-                // 3. 简化路径
-                const simplified = simplifyPath(processed.points, {
-                    tolerance: pathTolerance  // 直接使用配置的值
-                });
-                if (simplified.length < 3) continue;
+                // 2. 轻度简化（平滑后点数可能很多）
+                // 使用非常小的 tolerance 以保持平滑度
+                const simplifyTol = Math.min(pathTolerance, 0.5);
+                let finalPoints = processed.points;
 
-                console.log(`[PotraceCore] VTracer: ${originalCount} -> 角点 ${processed.corners.length} -> 简化 ${simplified.length} 点`);
+                if (finalPoints.length > 500) {
+                    // 只有点数过多时才简化
+                    finalPoints = simplifyPath(finalPoints, { tolerance: simplifyTol });
+                }
 
-                // 4. 曲线拟合（使用检测到的角点信息）
+                if (finalPoints.length < 3) continue;
+
+                console.log(`[PotraceCore] VTracer: ${originalCount} -> 平滑 ${processed.points.length} -> 最终 ${finalPoints.length} 点`);
+
+                // 3. 曲线拟合
+                // 由于已经充分平滑，使用更小的拟合误差
+                const fitError = Math.min(smoothness, 1.0);
                 const pathD = mode === 'spline'
-                    ? fitBezierWithCornersVTracer(simplified, smoothness, processed.corners, originalCount)
-                    : generatePolygonPath(simplified);
+                    ? fitBezierSmooth(finalPoints, fitError)
+                    : generatePolygonPath(finalPoints);
 
                 if (pathD) {
                     pathParts.push(pathD);
@@ -1417,39 +1553,39 @@
         logo: {
             numColors: 16,
             colorTolerance: 20,
-            pathTolerance: 0.5,
-            smoothness: 1.5,       // 降低拟合误差，更精确
+            pathTolerance: 0.3,
+            smoothness: 0.8,       // 更小的拟合误差
             minPathLength: 16,
             mode: 'spline',
-            blurSigma: 0.6         // 轻微模糊，减少锯齿
+            blurSigma: 1.0         // 增强模糊
         },
         illustration: {
             numColors: 32,
             colorTolerance: 25,
-            pathTolerance: 0.8,
-            smoothness: 2.0,
+            pathTolerance: 0.5,
+            smoothness: 1.0,
             minPathLength: 16,
             mode: 'spline',
-            blurSigma: 0.8
+            blurSigma: 1.0
         },
         lineart: {
             numColors: 2,
             colorTolerance: 60,
-            pathTolerance: 0.3,    // 更低，保留更多细节
-            smoothness: 1.0,       // 更精确的曲线拟合
+            pathTolerance: 0.2,    // 非常低，保留细节
+            smoothness: 0.5,       // 非常精确的曲线拟合
             minPathLength: 16,
             mode: 'spline',
             binaryMode: true,
-            blurSigma: 1.0         // 稍强模糊，平滑锯齿边缘
+            blurSigma: 1.5         // 更强模糊，消除锯齿
         },
         photo: {
             numColors: 64,
             colorTolerance: 35,
-            pathTolerance: 1.5,
-            smoothness: 3.5,
+            pathTolerance: 1.0,
+            smoothness: 2.0,
             minPathLength: 64,
             mode: 'spline',
-            blurSigma: 1.2
+            blurSigma: 1.5
         },
         simple: {
             numColors: 8,
