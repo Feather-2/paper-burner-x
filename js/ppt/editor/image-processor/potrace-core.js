@@ -597,17 +597,18 @@
     
     function fitBezierWithLib(points, maxError) {
         const pts = points.map(p => [p.x, p.y]);
-        const closed = pts.length > 2 && 
+        const closed = pts.length > 2 &&
             Math.abs(pts[0][0] - pts[pts.length - 1][0]) < 0.5 &&
             Math.abs(pts[0][1] - pts[pts.length - 1][1]) < 0.5;
-        
+
         const inputPts = closed ? pts.slice(0, -1) : pts;
         if (inputPts.length < 2) return '';
-        
+
         try {
-            const curves = window.fitCurve(inputPts, Math.max(0.5, maxError));
+            // 移除最小误差限制，允许更精细的拟合
+            const curves = window.fitCurve(inputPts, Math.max(0.1, maxError));
             if (!curves || curves.length === 0) return fitBezierCatmullRom(points, 0.3);
-            
+
             let path = `M${curves[0][0][0].toFixed(1)},${curves[0][0][1].toFixed(1)}`;
             for (const c of curves) {
                 path += `C${c[1][0].toFixed(1)},${c[1][1].toFixed(1)},${c[2][0].toFixed(1)},${c[2][1].toFixed(1)},${c[3][0].toFixed(1)},${c[3][1].toFixed(1)}`;
@@ -797,16 +798,22 @@
             for (const contour of contours) {
                 if (contour.points.length < 4) continue;
                 if (Math.abs(contour.area) < minPathLength) continue;
-                
+
+                // DEBUG: 输出原始轮廓点数
+                const originalCount = contour.points.length;
+
                 // 简化路径
                 const simplified = simplifyPath(contour.points, { tolerance: pathTolerance * 0.5 });
                 if (simplified.length < 3) continue;
-                
+
+                // DEBUG: 检查简化后的点数
+                console.log(`[PotraceCore] 轮廓简化: ${originalCount} -> ${simplified.length} 点 (保留 ${(simplified.length/originalCount*100).toFixed(1)}%)`);
+
                 // 曲线拟合
-                const pathD = mode === 'spline' 
+                const pathD = mode === 'spline'
                     ? fitBezier(simplified, smoothness)
                     : generatePolygonPath(simplified);
-                
+
                 if (pathD) {
                     pathParts.push(pathD);
                 }
@@ -874,10 +881,10 @@
         lineart: {
             numColors: 2,
             colorTolerance: 60,
-            pathTolerance: 0.2,   // 降低以保持形状
-            smoothness: 1.0,      // 降低以减少扭曲
+            pathTolerance: 0.1,   // 更小以保持细节
+            smoothness: 0.3,      // 更小的误差容忍
             minPathLength: 4,     // 保留小孔洞
-            mode: 'spline',
+            mode: 'spline',       // 改成 'polygon' 测试原始轮廓
             binaryMode: true
         },
         photo: {
