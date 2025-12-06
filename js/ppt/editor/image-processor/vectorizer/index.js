@@ -6,6 +6,29 @@
  * - VTracer (visioncortex) - 核心算法框架
  * - 4-Point Subdivision Scheme - 路径平滑
  * - Splice Point Detection - 曲线分段
+ *
+ * ============================================================================
+ * 版权声明 / Credits
+ * ============================================================================
+ *
+ * 本模块的核心算法参考了以下开源项目的实现：
+ *
+ * 1. VTracer - https://github.com/visioncortex/vtracer
+ *    License: MIT
+ *    Copyright (c) 2020 Vision Cortex
+ *
+ * 2. Visioncortex - https://github.com/visioncortex/visioncortex
+ *    License: Apache-2.0, MIT (dual-licensed)
+ *    Copyright (c) 2020 Vision Cortex
+ *
+ * 本实现基于上述项目的算法思想进行了 JavaScript 移植和部分修改，
+ * 包括但不限于：4-Point Subdivision Scheme、remove_staircase、
+ * find_splice_points、retract_handles 等核心算法。
+ *
+ * 注意：本实现不保证与原始 VTracer/Visioncortex 的输出完全相同，
+ * 可能存在参数差异、精度差异或实现细节上的不同。
+ *
+ * ============================================================================
  */
 
 import { medianCutQuantize, colorSame, colorDiff } from './color-quantize.js';
