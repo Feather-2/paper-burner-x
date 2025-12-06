@@ -1086,45 +1086,60 @@
                 <div data-el="text" data-x="60%" data-y="86%" data-w="17%" data-font="14" data-color="#FFFFFF" data-align="center" data-bold="true">All Day Battery</div>
             </section>
 
-            <!-- Vectorization Test Page - 矢量化测试 -->
-            <section data-type="freeform" id="slide-vector-test" data-bg="#F8FAFC">
-                <div data-el="text" data-x="5%" data-y="4%" data-w="90%" data-font="24" data-color="#1E293B" data-bold="true">矢量化测试</div>
-                <div data-el="text" data-x="5%" data-y="10%" data-w="90%" data-font="12" data-color="#64748B">拖入 PNG/JPG 图片测试矢量化效果</div>
+            <!-- Vectorization Test 1: Tank (像素画) -->
+            <section data-type="freeform" id="slide-vector-1" data-bg="#0F172A">
+                <div data-el="text" data-x="5%" data-y="5%" data-w="90%" data-font="24" data-color="#F8FAFC" data-bold="true">矢量化测试 1/7 - 像素画</div>
+                <div data-el="text" data-x="5%" data-y="11%" data-w="90%" data-font="12" data-color="#64748B">右键图片 → 智能编辑图片 → 转为矢量</div>
+                <div data-el="image" data-x="10%" data-y="18%" data-w="80%" data-h="70%" data-src="samples/tank-unit-preview.png" data-fit="contain" data-radius="8"></div>
+                <div data-el="text" data-x="5%" data-y="92%" data-w="90%" data-font="11" data-color="#94A3B8" data-align="center">tank-unit-preview.png | 预期: 颜色完整无破洞</div>
+            </section>
 
-                <!-- 测试图片1: samples/tank-unit-preview.png -->
-                <div data-el="image" data-x="5%" data-y="18%" data-w="28%" data-h="35%"
-                     data-src="samples/tank-unit-preview.png"
-                     data-fit="contain" data-bg-color="#1E293B" data-radius="8"></div>
-                <div data-el="text" data-x="5%" data-y="54%" data-w="28%" data-font="11" data-color="#64748B" data-align="center">tank-unit-preview.png</div>
+            <!-- Vectorization Test 2: Weibo (图标) -->
+            <section data-type="freeform" id="slide-vector-2" data-bg="#0F172A">
+                <div data-el="text" data-x="5%" data-y="5%" data-w="90%" data-font="24" data-color="#F8FAFC" data-bold="true">矢量化测试 2/7 - 图标</div>
+                <div data-el="text" data-x="5%" data-y="11%" data-w="90%" data-font="12" data-color="#64748B">右键图片 → 智能编辑图片 → 转为矢量</div>
+                <div data-el="image" data-x="10%" data-y="18%" data-w="80%" data-h="70%" data-src="samples/weibo.png" data-fit="contain" data-radius="8"></div>
+                <div data-el="text" data-x="5%" data-y="92%" data-w="90%" data-font="11" data-color="#94A3B8" data-align="center">weibo.png | 预期: 边缘锐利、曲线平滑</div>
+            </section>
 
-                <!-- 占位区域 - 用户拖入图片 -->
-                <div data-el="shape" data-shape="rounded" data-x="36%" data-y="18%" data-w="28%" data-h="35%" data-fill="#E2E8F0" data-radius="8" data-stroke="#94A3B8" data-stroke-width="2" data-stroke-dasharray="8,4"></div>
-                <div data-el="text" data-x="36%" data-y="32%" data-w="28%" data-font="14" data-color="#64748B" data-align="center">拖入测试图片</div>
-                <div data-el="text" data-x="36%" data-y="38%" data-w="28%" data-font="11" data-color="#94A3B8" data-align="center">PNG / JPG</div>
-                <div data-el="text" data-x="36%" data-y="54%" data-w="28%" data-font="11" data-color="#64748B" data-align="center">自定义测试</div>
+            <!-- Vectorization Test 3: Vectorstock (插画) -->
+            <section data-type="freeform" id="slide-vector-3" data-bg="#0F172A">
+                <div data-el="text" data-x="5%" data-y="5%" data-w="90%" data-font="24" data-color="#F8FAFC" data-bold="true">矢量化测试 3/7 - 插画</div>
+                <div data-el="text" data-x="5%" data-y="11%" data-w="90%" data-font="12" data-color="#64748B">右键图片 → 智能编辑图片 → 转为矢量</div>
+                <div data-el="image" data-x="10%" data-y="18%" data-w="80%" data-h="70%" data-src="samples/vectorstock_31191940.png" data-fit="contain" data-radius="8"></div>
+                <div data-el="text" data-x="5%" data-y="92%" data-w="90%" data-font="11" data-color="#94A3B8" data-align="center">vectorstock_31191940.png | 预期: 颜色分层清晰</div>
+            </section>
 
-                <!-- 占位区域2 -->
-                <div data-el="shape" data-shape="rounded" data-x="67%" data-y="18%" data-w="28%" data-h="35%" data-fill="#E2E8F0" data-radius="8" data-stroke="#94A3B8" data-stroke-width="2" data-stroke-dasharray="8,4"></div>
-                <div data-el="text" data-x="67%" data-y="32%" data-w="28%" data-font="14" data-color="#64748B" data-align="center">拖入测试图片</div>
-                <div data-el="text" data-x="67%" data-y="38%" data-w="28%" data-font="11" data-color="#94A3B8" data-align="center">PNG / JPG</div>
-                <div data-el="text" data-x="67%" data-y="54%" data-w="28%" data-font="11" data-color="#64748B" data-align="center">自定义测试</div>
+            <!-- Vectorization Test 4: K1 (手绘) -->
+            <section data-type="freeform" id="slide-vector-4" data-bg="#0F172A">
+                <div data-el="text" data-x="5%" data-y="5%" data-w="90%" data-font="24" data-color="#F8FAFC" data-bold="true">矢量化测试 4/7 - 手绘</div>
+                <div data-el="text" data-x="5%" data-y="11%" data-w="90%" data-font="12" data-color="#64748B">右键图片 → 智能编辑图片 → 转为矢量</div>
+                <div data-el="image" data-x="10%" data-y="18%" data-w="80%" data-h="70%" data-src="samples/K1_drawing.jpg" data-fit="contain" data-radius="8"></div>
+                <div data-el="text" data-x="5%" data-y="92%" data-w="90%" data-font="11" data-color="#94A3B8" data-align="center">K1_drawing.jpg | 预期: 线条流畅</div>
+            </section>
 
-                <!-- 说明卡片 -->
-                <div data-el="shape" data-shape="rounded" data-x="5%" data-y="62%" data-w="90%" data-h="34%" data-fill="#1E293B" data-radius="12"></div>
-                <div data-el="text" data-x="8%" data-y="66%" data-w="84%" data-font="14" data-color="#F8FAFC" data-bold="true">测试步骤</div>
-                <div data-el="text" data-x="8%" data-y="72%" data-w="40%" data-font="12" data-color="#94A3B8" data-line-height="1.6">
-                    1. 拖入 PNG/JPG 图片（简单形状最佳）<br>
-                    2. 选中图片元素<br>
-                    3. 点击工具栏「转为矢量」<br>
-                    4. 检查结果
-                </div>
-                <div data-el="text" data-x="52%" data-y="66%" data-w="40%" data-font="14" data-color="#22D3EE" data-bold="true">检查要点</div>
-                <div data-el="text" data-x="52%" data-y="72%" data-w="40%" data-font="12" data-color="#94A3B8" data-line-height="1.6">
-                    ✓ 角点是否锋利<br>
-                    ✓ 曲线是否平滑<br>
-                    ✓ 直线是否横平竖直<br>
-                    ✓ 边缘是否对齐原图
-                </div>
+            <!-- Vectorization Test 5: Gum Tree (矢量风) -->
+            <section data-type="freeform" id="slide-vector-5" data-bg="#0F172A">
+                <div data-el="text" data-x="5%" data-y="5%" data-w="90%" data-font="24" data-color="#F8FAFC" data-bold="true">矢量化测试 5/7 - 矢量风格</div>
+                <div data-el="text" data-x="5%" data-y="11%" data-w="90%" data-font="12" data-color="#64748B">右键图片 → 智能编辑图片 → 转为矢量</div>
+                <div data-el="image" data-x="10%" data-y="18%" data-w="80%" data-h="70%" data-src="samples/Gum Tree Vector.jpg" data-fit="contain" data-radius="8"></div>
+                <div data-el="text" data-x="5%" data-y="92%" data-w="90%" data-font="11" data-color="#94A3B8" data-align="center">Gum Tree Vector.jpg | 预期: 保持矢量感</div>
+            </section>
+
+            <!-- Vectorization Test 6: Cityscape (风景) -->
+            <section data-type="freeform" id="slide-vector-6" data-bg="#0F172A">
+                <div data-el="text" data-x="5%" data-y="5%" data-w="90%" data-font="24" data-color="#F8FAFC" data-bold="true">矢量化测试 6/7 - 风景</div>
+                <div data-el="text" data-x="5%" data-y="11%" data-w="90%" data-font="12" data-color="#64748B">右键图片 → 智能编辑图片 → 转为矢量</div>
+                <div data-el="image" data-x="10%" data-y="18%" data-w="80%" data-h="70%" data-src="samples/Cityscape Sunset_DFM3-01.jpg" data-fit="contain" data-radius="8"></div>
+                <div data-el="text" data-x="5%" data-y="92%" data-w="90%" data-font="11" data-color="#94A3B8" data-align="center">Cityscape Sunset.jpg | 预期: 色块分明</div>
+            </section>
+
+            <!-- Vectorization Test 7: Portrait (照片) -->
+            <section data-type="freeform" id="slide-vector-7" data-bg="#0F172A">
+                <div data-el="text" data-x="5%" data-y="5%" data-w="90%" data-font="24" data-color="#F8FAFC" data-bold="true">矢量化测试 7/7 - 照片</div>
+                <div data-el="text" data-x="5%" data-y="11%" data-w="90%" data-font="12" data-color="#64748B">右键图片 → 智能编辑图片 → 转为矢量</div>
+                <div data-el="image" data-x="10%" data-y="18%" data-w="80%" data-h="70%" data-src="samples/angel-luciano-LATYeZyw88c-unsplash-s.jpg" data-fit="contain" data-radius="8"></div>
+                <div data-el="text" data-x="5%" data-y="92%" data-w="90%" data-font="11" data-color="#94A3B8" data-align="center">Portrait.jpg | 注意: 照片效果一般，仅供参考</div>
             </section>
         
 `;

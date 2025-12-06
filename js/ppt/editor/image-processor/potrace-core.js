@@ -90,8 +90,157 @@
         return Math.abs(dy * point.x - dx * point.y + lineEnd.x * lineStart.y - lineEnd.y * lineStart.x) / len;
     }
 
-    // ============ 颜色量化 (Median Cut) ============
+    // ============ 颜色量化 ============
 
+    /**
+     * K-Means++ 颜色聚类 - 比 Median Cut 更准确
+     * 类似 Vector Magic 的色板提取
+     */
+    function kMeansQuantize(imageData, maxColors = 16, maxIterations = 10) {
+        const data = imageData.data;
+        const pixels = [];
+        const pixelCounts = new Map(); // 统计每个颜色的像素数
+
+        // 采样并统计颜色频率
+        const totalPixels = data.length / 4;
+        const sampleRate = totalPixels > 50000 ? Math.ceil(totalPixels / 50000) : 1;
+
+        for (let i = 0; i < data.length; i += 4 * sampleRate) {
+            if (data[i + 3] > 128) {
+                // 量化到 6-bit 减少噪点
+                const r = Math.round(data[i] / 4) * 4;
+                const g = Math.round(data[i + 1] / 4) * 4;
+                const b = Math.round(data[i + 2] / 4) * 4;
+                const key = (r << 16) | (g << 8) | b;
+                pixelCounts.set(key, (pixelCounts.get(key) || 0) + 1);
+            }
+        }
+
+        if (pixelCounts.size === 0) return [[128, 128, 128]];
+
+        // 转换为带权重的颜色数组
+        const weightedColors = [];
+        for (const [key, count] of pixelCounts) {
+            weightedColors.push({
+                color: [(key >> 16) & 0xff, (key >> 8) & 0xff, key & 0xff],
+                weight: count
+            });
+        }
+
+        // K-Means++ 初始化：选择分散的初始中心
+        const centers = [];
+        // 第一个中心：选择权重最大的颜色
+        weightedColors.sort((a, b) => b.weight - a.weight);
+        centers.push([...weightedColors[0].color]);
+
+        // 后续中心：按距离概率选择
+        while (centers.length < maxColors && centers.length < weightedColors.length) {
+            let totalDist = 0;
+            const distances = weightedColors.map(wc => {
+                let minDist = Infinity;
+                for (const c of centers) {
+                    const d = colorDistSq(wc.color, c);
+                    if (d < minDist) minDist = d;
+                }
+                totalDist += minDist * wc.weight;
+                return minDist * wc.weight;
+            });
+
+            // 轮盘选择
+            let r = Math.random() * totalDist;
+            for (let i = 0; i < distances.length; i++) {
+                r -= distances[i];
+                if (r <= 0) {
+                    centers.push([...weightedColors[i].color]);
+                    break;
+                }
+            }
+            if (centers.length === centers.length) {
+                // 如果没有选中，选距离最远的
+                let maxDist = 0, maxIdx = 0;
+                for (let i = 0; i < distances.length; i++) {
+                    if (distances[i] > maxDist) {
+                        maxDist = distances[i];
+                        maxIdx = i;
+                    }
+                }
+                centers.push([...weightedColors[maxIdx].color]);
+            }
+        }
+
+        // K-Means 迭代
+        for (let iter = 0; iter < maxIterations; iter++) {
+            // 分配每个颜色到最近的中心
+            const clusters = centers.map(() => ({ sum: [0, 0, 0], weight: 0 }));
+            
+            for (const wc of weightedColors) {
+                let minDist = Infinity, minIdx = 0;
+                for (let i = 0; i < centers.length; i++) {
+                    const d = colorDistSq(wc.color, centers[i]);
+                    if (d < minDist) {
+                        minDist = d;
+                        minIdx = i;
+                    }
+                }
+                clusters[minIdx].sum[0] += wc.color[0] * wc.weight;
+                clusters[minIdx].sum[1] += wc.color[1] * wc.weight;
+                clusters[minIdx].sum[2] += wc.color[2] * wc.weight;
+                clusters[minIdx].weight += wc.weight;
+            }
+
+            // 更新中心
+            let changed = false;
+            for (let i = 0; i < centers.length; i++) {
+                if (clusters[i].weight > 0) {
+                    const newCenter = [
+                        Math.round(clusters[i].sum[0] / clusters[i].weight),
+                        Math.round(clusters[i].sum[1] / clusters[i].weight),
+                        Math.round(clusters[i].sum[2] / clusters[i].weight)
+                    ];
+                    if (colorDistSq(newCenter, centers[i]) > 4) {
+                        centers[i] = newCenter;
+                        changed = true;
+                    }
+                }
+            }
+            if (!changed) break;
+        }
+
+        // 合并相似颜色（距离 < 20）
+        const mergeThreshold = 400; // 20^2
+        const merged = [];
+        const used = new Set();
+        
+        for (let i = 0; i < centers.length; i++) {
+            if (used.has(i)) continue;
+            let sum = [...centers[i]];
+            let count = 1;
+            
+            for (let j = i + 1; j < centers.length; j++) {
+                if (!used.has(j) && colorDistSq(centers[i], centers[j]) < mergeThreshold) {
+                    sum[0] += centers[j][0];
+                    sum[1] += centers[j][1];
+                    sum[2] += centers[j][2];
+                    count++;
+                    used.add(j);
+                }
+            }
+            
+            merged.push([
+                Math.round(sum[0] / count),
+                Math.round(sum[1] / count),
+                Math.round(sum[2] / count)
+            ]);
+            used.add(i);
+        }
+
+        // 按亮度排序
+        return merged.sort((a, b) => (a[0] + a[1] + a[2]) - (b[0] + b[1] + b[2]));
+    }
+
+    /**
+     * Median Cut 颜色量化（备用，更快）
+     */
     function medianCutQuantize(imageData, maxColors = 16) {
         const data = imageData.data;
         const pixels = [];
@@ -1915,9 +2064,8 @@
             // 只生成前景（暗色）层，背景不需要矢量化
             palette = [[0, 0, 0]];
         } else {
-            // 使用 Median Cut 量化生成调色板
-            // 这些颜色是真实存在于图片中的代表色，匹配更准确
-            palette = medianCutQuantize(imageData, numColors);
+            // 使用 K-Means++ 聚类生成调色板（比 Median Cut 更准确）
+            palette = kMeansQuantize(imageData, numColors);
         }
         console.log(`[PotraceCore] 提取 ${palette.length} 种主色`);
 
@@ -1949,12 +2097,11 @@
 
         const layers = [];
 
-        // 3. 每种颜色生成矢量层
+        // 3. 每种颜色生成一个图层（简单高效）
         for (let colorIdx = 0; colorIdx < palette.length; colorIdx++) {
             const color = palette[colorIdx];
             
             // 使用最近颜色分配（非二值模式）或容差匹配（二值模式）
-            // 膨胀 1 像素确保颜色层之间无缝隙
             const bitmap = useLuminance 
                 ? createBinaryBitmap(imageData, color, colorTolerance, useLuminance, otsuThreshold, blurSigma, morphology)
                 : createBinaryBitmapFromMap(pixelColorMap, colorIdx, width, height, blurSigma, 1);
@@ -1962,7 +2109,6 @@
             // 如果反转了，计算前景的实际颜色
             let actualColor = color;
             if (bitmap.inverted && useLuminance) {
-                // 计算亮色区域的平均颜色
                 const sum = [0, 0, 0];
                 let count = 0;
                 const data = imageData.data;
@@ -1986,51 +2132,42 @@
             
             const colorStr = `rgb(${actualColor[0]},${actualColor[1]},${actualColor[2]})`;
             
-            // 统计二值化结果
+            // 统计前景像素
             let fgCount = 0;
             for (let i = 0; i < bitmap.data.length; i++) {
                 if (bitmap.data[i] === 1) fgCount++;
             }
-            
             if (fgCount < minPathLength) continue;
 
-            // 直接对整个二值图追踪所有轮廓（包括孔洞）
-            // 传入灰度数据用于 VTracer 风格亚像素插值
+            // 追踪轮廓
             const contours = marchingSquaresContour(bitmap, null, null, bitmap.grayscale);
-
-            // 所有轮廓合并为一个复合路径（evenodd 规则会自动处理孔洞）
             const pathParts = [];
 
             for (const contour of contours) {
                 if (contour.points.length < 3) continue;
                 
-                const originalCount = contour.points.length;
                 const contourArea = Math.abs(contour.area);
                 
-                // 小轮廓直接用多边形，不做复杂处理
-                if (contourArea < 16 || originalCount < 8) {
+                // 小轮廓直接用多边形
+                if (contourArea < 16 || contour.points.length < 8) {
                     const pathD = generatePolygonPath(contour.points);
                     if (pathD) pathParts.push(pathD);
                     continue;
                 }
 
-                // VTracer 参数 - 极致锐利版本
-                const vtracerOptions = {
+                // VTracer 处理
+                const processed = processContourVTracer(contour.points, {
                     cornerAngle: 110,
                     minCornerDist: 2,
                     cornerProtectRadius: 3
-                };
-
-                // 1. VTracer 风格处理
-                const processed = processContourVTracer(contour.points, vtracerOptions);
+                });
                 let finalPoints = processed.points;
 
-                // 2. 只对非常大的轮廓采样
-                const targetPoints = Math.max(200, Math.min(800, Math.floor(finalPoints.length / 4)));
-                if (finalPoints.length > targetPoints * 1.5) {
-                    const step = finalPoints.length / targetPoints;
+                // 大轮廓采样（限制点数提升性能）
+                if (finalPoints.length > 500) {
+                    const step = finalPoints.length / 500;
                     const sampled = [];
-                    for (let i = 0; i < targetPoints; i++) {
+                    for (let i = 0; i < 500; i++) {
                         sampled.push(finalPoints[Math.floor(i * step)]);
                     }
                     finalPoints = sampled;
@@ -2038,40 +2175,34 @@
 
                 if (finalPoints.length < 3) continue;
 
-                // 3. 曲线拟合
+                // 曲线拟合
                 const fitError = Math.min(smoothness, 1.0);
                 const pathD = mode === 'spline'
                     ? fitBezierSmooth(finalPoints, fitError)
                     : generatePolygonPath(finalPoints);
 
-                if (pathD) {
-                    pathParts.push(pathD);
-                }
+                if (pathD) pathParts.push(pathD);
             }
             
-            const paths = [];
             if (pathParts.length > 0) {
-                // 二值模式用 evenodd 正确处理内孔（字母O等）
-                // 非二值模式（如像素画）用 nonzero 避免破洞
                 const fillRule = useLuminance ? 'evenodd' : 'nonzero';
-                const combinedD = pathParts.join(' ');
-                paths.push({
-                    d: combinedD,
-                    fill: colorStr,
-                    fillRule,
-                    stroke: 'none',
-                    strokeWidth: 0
+                layers.push({
+                    color: colorStr,
+                    colorRgb: actualColor,
+                    paths: [{
+                        d: pathParts.join(' '),
+                        fill: colorStr,
+                        fillRule,
+                        stroke: 'none',
+                        strokeWidth: 0
+                    }]
                 });
-            }
-            
-            if (paths.length > 0) {
-                layers.push({ color: colorStr, colorRgb: actualColor, paths });
             }
         }
         
-        console.log(`[PotraceCore] 生成 ${layers.length} 个颜色层`);
+        console.log(`[PotraceCore] 生成 ${layers.length} 个颜色图层`);
         
-        // 3. 生成 SVG
+        // 4. 生成 SVG
         const allPaths = layers.flatMap(l => l.paths);
         const svgContent = allPaths.map(p => {
             const fillRule = p.fillRule ? ` fill-rule="${p.fillRule}"` : '';
@@ -2188,8 +2319,9 @@
     const PotraceCore = {
         vectorize,
         vectorizeWithPreset,
-        analyzeImageColors,  // 新增：颜色分析
-        medianCutQuantize,
+        analyzeImageColors,
+        kMeansQuantize,      // K-Means++ 聚类（推荐）
+        medianCutQuantize,   // Median Cut（备用）
         labelConnectedComponents,
         marchingSquaresContour,
         simplifyPath,
