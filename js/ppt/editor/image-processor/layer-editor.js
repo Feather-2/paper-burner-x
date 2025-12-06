@@ -17,6 +17,11 @@ class LayerEditor {
 
         this.history = [];
         this.historyIndex = -1;
+        
+        // 缩放相关
+        this.scale = 1;
+        this.minScale = 0.1;
+        this.maxScale = 5;
     }
 
     /**
@@ -84,7 +89,11 @@ class LayerEditor {
                     </button>
                 </div>
                 <div class="image-editor-canvas-wrap">
-                    <canvas class="image-editor-canvas"></canvas>
+                    <div class="image-editor-viewport">
+                        <canvas class="image-editor-canvas"></canvas>
+                        <div class="image-editor-svg-container"></div>
+                    </div>
+                    <div class="zoom-indicator">100%</div>
                 </div>
                 <div class="image-editor-sidebar">
                     <div class="sidebar-section">
@@ -259,19 +268,54 @@ class LayerEditor {
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                background: linear-gradient(45deg, #f1f5f9 25%, transparent 25%),
-                            linear-gradient(-45deg, #f1f5f9 25%, transparent 25%),
-                            linear-gradient(45deg, transparent 75%, #f1f5f9 75%),
-                            linear-gradient(-45deg, transparent 75%, #f1f5f9 75%);
-                background-size: 20px 20px;
-                background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
-                background-color: #ffffff;
+                background: #e5e7eb;
                 overflow: auto;
                 padding: 40px;
+                cursor: grab;
+                position: relative;
             }
-            .image-editor-canvas {
+            .image-editor-canvas-wrap:active {
+                cursor: grabbing;
+            }
+            .image-editor-viewport {
+                position: relative;
                 box-shadow: 0 4px 24px rgba(0,0,0,0.1);
                 border-radius: 8px;
+                transition: transform 0.1s ease;
+                background: #fff;
+            }
+            .image-editor-canvas {
+                display: block;
+            }
+            .image-editor-svg-container {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                pointer-events: none;
+            }
+            .image-editor-svg-container svg {
+                width: 100%;
+                height: 100%;
+            }
+            .zoom-indicator {
+                position: absolute;
+                bottom: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(0,0,0,0.7);
+                color: #fff;
+                padding: 6px 14px;
+                border-radius: 20px;
+                font-size: 13px;
+                font-weight: 500;
+                pointer-events: none;
+                opacity: 0;
+                transition: opacity 0.3s;
+            }
+            .zoom-indicator.visible {
+                opacity: 1;
             }
             .image-editor-sidebar {
                 width: 300px;
@@ -415,6 +459,50 @@ class LayerEditor {
         this.container.querySelectorAll('.tool-btn[data-action]').forEach(btn => {
             btn.addEventListener('click', () => this._executeAction(btn.dataset.action));
         });
+        
+        // 滚轮缩放
+        const canvasWrap = this.container.querySelector('.image-editor-canvas-wrap');
+        canvasWrap.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            
+            const delta = e.deltaY > 0 ? -0.1 : 0.1;
+            const newScale = Math.max(this.minScale, Math.min(this.maxScale, this.scale + delta));
+            
+            if (newScale !== this.scale) {
+                this.scale = newScale;
+                this._applyScale();
+            }
+        }, { passive: false });
+        
+        // 双击重置缩放
+        canvasWrap.addEventListener('dblclick', () => {
+            this.scale = 1;
+            this._applyScale();
+        });
+    }
+    
+    /**
+     * 应用缩放
+     */
+    _applyScale() {
+        const viewport = this.container?.querySelector('.image-editor-viewport');
+        if (viewport) {
+            viewport.style.transform = `scale(${this.scale})`;
+            viewport.style.transformOrigin = 'center center';
+            
+            // 更新缩放指示器
+            const indicator = this.container.querySelector('.zoom-indicator');
+            if (indicator) {
+                indicator.textContent = `${Math.round(this.scale * 100)}%`;
+                indicator.classList.add('visible');
+                
+                // 2秒后隐藏
+                clearTimeout(this._zoomIndicatorTimeout);
+                this._zoomIndicatorTimeout = setTimeout(() => {
+                    indicator.classList.remove('visible');
+                }, 1500);
+            }
+        }
     }
 
     /**
@@ -577,9 +665,10 @@ class LayerEditor {
     _render() {
         const { width, height } = this.canvas;
         this.ctx.clearRect(0, 0, width, height);
-
-        // 绘制透明背景网格
-        this._drawCheckerboard();
+        
+        // 清空 SVG 容器
+        const svgContainer = this.container.querySelector('.image-editor-svg-container');
+        svgContainer.innerHTML = '';
 
         // 绘制可见图层
         for (const layer of this.processedImage.layers) {
@@ -590,7 +679,8 @@ class LayerEditor {
                     this.ctx.drawImage(this.processedImage.original.element, 0, 0);
                     break;
                 case 'vector':
-                    this._drawVectorLayer(layer);
+                    // 矢量图层直接用 SVG 显示（无损）
+                    this._renderVectorLayer(layer, svgContainer);
                     break;
                 case 'text':
                     this._drawTextLayer(layer);
@@ -605,36 +695,26 @@ class LayerEditor {
         this._updateLayerList();
     }
 
-    _drawCheckerboard() {
-        const size = 10;
-        const { width, height } = this.canvas;
-        for (let y = 0; y < height; y += size) {
-            for (let x = 0; x < width; x += size) {
-                this.ctx.fillStyle = ((x + y) / size) % 2 === 0 ? '#ccc' : '#fff';
-                this.ctx.fillRect(x, y, size, size);
-            }
-        }
-    }
-
-    _drawVectorLayer(layer) {
+    /**
+     * 渲染矢量图层 - 直接插入 SVG（无损显示）
+     */
+    _renderVectorLayer(layer, container) {
         if (!layer.svg) return;
         
-        // 如果已经有缓存的图片，直接绘制
-        if (layer._cachedImage && layer._cachedImage.complete) {
-            this.ctx.drawImage(layer._cachedImage, 0, 0);
-            return;
+        // 直接插入 SVG 元素
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
+        wrapper.innerHTML = layer.svg;
+        
+        // 确保 SVG 填满容器
+        const svg = wrapper.querySelector('svg');
+        if (svg) {
+            svg.style.width = '100%';
+            svg.style.height = '100%';
+            svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
         }
         
-        // 否则创建新的图片并缓存
-        const img = new Image();
-        img.onload = () => {
-            layer._cachedImage = img;
-            this.ctx.drawImage(img, 0, 0);
-        };
-        img.onerror = (e) => {
-            console.error('[LayerEditor] SVG 加载失败:', e);
-        };
-        img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(layer.svg);
+        container.appendChild(wrapper);
     }
 
     _drawTextLayer(layer) {
