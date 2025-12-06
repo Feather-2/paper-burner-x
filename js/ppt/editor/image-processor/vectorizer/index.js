@@ -231,7 +231,7 @@ async function vectorize(imageData, options = {}) {
                 // 2. 4-Point Subdivision 平滑
                 const smoothResult = smoothPathVTracer(simplified, {
                     cornerThreshold: Math.PI * (180 - cornerAngle) / 180,
-                    outsetRatio: 0.2,
+                    outsetRatio: 8.0,       // VTracer 默认值，控制平滑强度
                     segmentLength: 4.0,
                     maxIterations: smoothIterations
                 });

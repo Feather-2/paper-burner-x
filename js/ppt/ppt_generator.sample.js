@@ -1085,6 +1085,47 @@
                 <div data-el="text" data-x="42%" data-y="86%" data-w="17%" data-font="14" data-color="#FFFFFF" data-align="center" data-bold="true">8K Video</div>
                 <div data-el="text" data-x="60%" data-y="86%" data-w="17%" data-font="14" data-color="#FFFFFF" data-align="center" data-bold="true">All Day Battery</div>
             </section>
+
+            <!-- Vectorization Test Page - 矢量化测试 -->
+            <section data-type="freeform" id="slide-vector-test" data-bg="#F8FAFC">
+                <div data-el="text" data-x="5%" data-y="4%" data-w="90%" data-font="24" data-color="#1E293B" data-bold="true">矢量化测试</div>
+                <div data-el="text" data-x="5%" data-y="10%" data-w="90%" data-font="12" data-color="#64748B">拖入 PNG/JPG 图片测试矢量化效果</div>
+
+                <!-- 测试图片1: samples/tank-unit-preview.png -->
+                <div data-el="image" data-x="5%" data-y="18%" data-w="28%" data-h="35%"
+                     data-src="samples/tank-unit-preview.png"
+                     data-fit="contain" data-bg-color="#1E293B" data-radius="8"></div>
+                <div data-el="text" data-x="5%" data-y="54%" data-w="28%" data-font="11" data-color="#64748B" data-align="center">tank-unit-preview.png</div>
+
+                <!-- 占位区域 - 用户拖入图片 -->
+                <div data-el="shape" data-shape="rounded" data-x="36%" data-y="18%" data-w="28%" data-h="35%" data-fill="#E2E8F0" data-radius="8" data-stroke="#94A3B8" data-stroke-width="2" data-stroke-dasharray="8,4"></div>
+                <div data-el="text" data-x="36%" data-y="32%" data-w="28%" data-font="14" data-color="#64748B" data-align="center">拖入测试图片</div>
+                <div data-el="text" data-x="36%" data-y="38%" data-w="28%" data-font="11" data-color="#94A3B8" data-align="center">PNG / JPG</div>
+                <div data-el="text" data-x="36%" data-y="54%" data-w="28%" data-font="11" data-color="#64748B" data-align="center">自定义测试</div>
+
+                <!-- 占位区域2 -->
+                <div data-el="shape" data-shape="rounded" data-x="67%" data-y="18%" data-w="28%" data-h="35%" data-fill="#E2E8F0" data-radius="8" data-stroke="#94A3B8" data-stroke-width="2" data-stroke-dasharray="8,4"></div>
+                <div data-el="text" data-x="67%" data-y="32%" data-w="28%" data-font="14" data-color="#64748B" data-align="center">拖入测试图片</div>
+                <div data-el="text" data-x="67%" data-y="38%" data-w="28%" data-font="11" data-color="#94A3B8" data-align="center">PNG / JPG</div>
+                <div data-el="text" data-x="67%" data-y="54%" data-w="28%" data-font="11" data-color="#64748B" data-align="center">自定义测试</div>
+
+                <!-- 说明卡片 -->
+                <div data-el="shape" data-shape="rounded" data-x="5%" data-y="62%" data-w="90%" data-h="34%" data-fill="#1E293B" data-radius="12"></div>
+                <div data-el="text" data-x="8%" data-y="66%" data-w="84%" data-font="14" data-color="#F8FAFC" data-bold="true">测试步骤</div>
+                <div data-el="text" data-x="8%" data-y="72%" data-w="40%" data-font="12" data-color="#94A3B8" data-line-height="1.6">
+                    1. 拖入 PNG/JPG 图片（简单形状最佳）<br>
+                    2. 选中图片元素<br>
+                    3. 点击工具栏「转为矢量」<br>
+                    4. 检查结果
+                </div>
+                <div data-el="text" data-x="52%" data-y="66%" data-w="40%" data-font="14" data-color="#22D3EE" data-bold="true">检查要点</div>
+                <div data-el="text" data-x="52%" data-y="72%" data-w="40%" data-font="12" data-color="#94A3B8" data-line-height="1.6">
+                    ✓ 角点是否锋利<br>
+                    ✓ 曲线是否平滑<br>
+                    ✓ 直线是否横平竖直<br>
+                    ✓ 边缘是否对齐原图
+                </div>
+            </section>
         
 `;
 

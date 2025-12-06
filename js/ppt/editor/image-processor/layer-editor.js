@@ -470,11 +470,10 @@ class LayerEditor {
     async _vectorize() {
         const vectorizer = await this.processor.loadModule('vectorizer');
         
-        // 自动检测图片颜色数量，选择合适的预设
-        const preset = this._detectPreset(this.processedImage.original);
-        console.log(`[LayerEditor] 自动选择预设: ${preset}`);
+        // 使用 auto 模式，让 PotraceCore 自动分析颜色并选择最佳预设
+        console.log(`[LayerEditor] 使用 auto 模式矢量化`);
         
-        const result = await vectorizer.vectorize(this.processedImage.original, preset);
+        const result = await vectorizer.vectorize(this.processedImage.original, 'auto');
         
         // 按颜色分层
         const colorLayers = vectorizer.splitByColor(result);

@@ -269,7 +269,9 @@ class ContextMenu {
         const imgSrc = element.src || element.content;
         const vectorizer = await window.imageProcessor.loadModule('vectorizer');
         const imageObj = await window.imageProcessor._loadImage(imgSrc);
-        const result = await vectorizer.vectorize(imageObj, 'illustration');
+        
+        // 使用 auto 模式自动分析图片
+        const result = await vectorizer.vectorize(imageObj, 'auto');
 
         console.log('[ContextMenu] 矢量化完成:', result);
         alert('矢量化完成！查看控制台获取 SVG 结果');

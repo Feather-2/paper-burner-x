@@ -158,6 +158,119 @@
     
     function colorDistance(c1, c2) { return Math.sqrt(colorDistSq(c1, c2)); }
 
+    // ============ 颜色分析 ============
+
+    /**
+     * 分析图片颜色特征，自动决定最佳参数
+     */
+    function analyzeImageColors(imageData, clusterThreshold = 25) {
+        const { data, width, height } = imageData;
+        const colorMap = new Map(); // 颜色 -> 像素数量
+        const totalPixels = width * height;
+        
+        // 1. 统计所有颜色（量化到 5-bit 减少噪点）
+        for (let i = 0; i < data.length; i += 4) {
+            if (data[i + 3] < 128) continue; // 跳过透明
+            // 量化颜色 (32 级)
+            const r = Math.round(data[i] / 8) * 8;
+            const g = Math.round(data[i + 1] / 8) * 8;
+            const b = Math.round(data[i + 2] / 8) * 8;
+            const key = (r << 16) | (g << 8) | b;
+            colorMap.set(key, (colorMap.get(key) || 0) + 1);
+        }
+        
+        // 2. 转换为颜色数组
+        const colors = [];
+        for (const [key, count] of colorMap) {
+            if (count < 10) continue; // 过滤噪点
+            colors.push({
+                r: (key >> 16) & 0xff,
+                g: (key >> 8) & 0xff,
+                b: key & 0xff,
+                count
+            });
+        }
+        
+        // 3. 颜色聚类 (简单的贪婪聚类)
+        const clusters = [];
+        const sorted = colors.sort((a, b) => b.count - a.count); // 按数量排序
+        
+        for (const color of sorted) {
+            let merged = false;
+            for (const cluster of clusters) {
+                const dist = Math.sqrt(
+                    Math.pow(color.r - cluster.r, 2) +
+                    Math.pow(color.g - cluster.g, 2) +
+                    Math.pow(color.b - cluster.b, 2)
+                );
+                if (dist < clusterThreshold) {
+                    // 合并到现有聚类（加权平均）
+                    const total = cluster.count + color.count;
+                    cluster.r = Math.round((cluster.r * cluster.count + color.r * color.count) / total);
+                    cluster.g = Math.round((cluster.g * cluster.count + color.g * color.count) / total);
+                    cluster.b = Math.round((cluster.b * cluster.count + color.b * color.count) / total);
+                    cluster.count = total;
+                    merged = true;
+                    break;
+                }
+            }
+            if (!merged) {
+                clusters.push({ ...color });
+            }
+        }
+        
+        // 4. 计算特征
+        const uniqueColors = colorMap.size;
+        const clusterCount = clusters.length;
+        const dominantColors = clusters.slice(0, 10); // 前10主色
+        
+        // 判断是否是二值图（黑白/线稿）
+        const isBinary = clusterCount <= 3;
+        
+        // 判断是否是像素画（颜色数量中等，边界清晰）
+        const isPixelArt = uniqueColors > 10 && uniqueColors < 500 && clusterCount < 32;
+        
+        // 判断是否是照片（颜色数量很多）
+        const isPhoto = uniqueColors > 1000 || clusterCount > 50;
+        
+        // 5. 自动选择预设
+        let recommendedPreset = 'logo';
+        let recommendedNumColors = Math.min(64, Math.max(8, clusterCount));
+        
+        if (isBinary) {
+            recommendedPreset = 'lineart';
+            recommendedNumColors = 2;
+        } else if (isPixelArt) {
+            recommendedPreset = 'pixel';
+            recommendedNumColors = Math.min(32, clusterCount + 4);
+        } else if (isPhoto) {
+            recommendedPreset = 'photo';
+            recommendedNumColors = 64;
+        } else if (clusterCount <= 8) {
+            recommendedPreset = 'simple';
+            recommendedNumColors = clusterCount;
+        } else if (clusterCount <= 24) {
+            recommendedPreset = 'logo';
+            recommendedNumColors = clusterCount + 2;
+        } else {
+            recommendedPreset = 'illustration';
+            recommendedNumColors = Math.min(48, clusterCount);
+        }
+        
+        console.log(`[ColorAnalysis] 独特颜色: ${uniqueColors}, 聚类后: ${clusterCount}, 推荐: ${recommendedPreset} (${recommendedNumColors}色)`);
+        
+        return {
+            uniqueColors,
+            clusterCount,
+            clusters: dominantColors.map(c => [c.r, c.g, c.b]),
+            isBinary,
+            isPixelArt,
+            isPhoto,
+            recommendedPreset,
+            recommendedNumColors
+        };
+    }
+
     // ============ 二值化 ============
 
     /**
@@ -349,9 +462,10 @@
                         grayscale[y * width + x] = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
                     } else {
                         // 颜色模式：使用颜色距离作为灰度
-                        const distSq = colorDistSq([data[i], data[i + 1], data[i + 2]], targetColor);
-                        // 将距离映射到 0-255（距离越小越接近目标色 = 越黑）
-                        grayscale[y * width + x] = Math.min(255, Math.sqrt(distSq) * 255 / tolerance);
+                        const dist = Math.sqrt(colorDistSq([data[i], data[i + 1], data[i + 2]], targetColor));
+                        // 距离 < tolerance 时视为目标颜色（grayscale < 128）
+                        // 使用 tolerance * 2 作为分母，确保 dist < tolerance 时 grayscale < 128
+                        grayscale[y * width + x] = Math.min(255, dist * 128 / tolerance);
                     }
                 } else {
                     grayscale[y * width + x] = 255; // 透明像素视为白色
@@ -403,6 +517,27 @@
         }
 
         return { data: finalBitmap, width, height, inverted, grayscale };
+    }
+
+    /**
+     * 根据颜色分配图创建二值位图（最近颜色匹配，无空白）
+     * 使用膨胀操作确保相邻颜色层轻微重叠，消除缝隙
+     */
+    function createBinaryBitmapFromMap(pixelColorMap, targetColorIdx, width, height, blurSigma = 0, dilatePixels = 1) {
+        const bitmap = new Uint8Array(width * height);
+        
+        // 直接从颜色分配图创建二值位图
+        for (let i = 0; i < pixelColorMap.length; i++) {
+            bitmap[i] = (pixelColorMap[i] === targetColorIdx) ? 1 : 0;
+        }
+        
+        // 膨胀操作：扩展边界 1 像素，确保颜色层之间无缝隙
+        let finalBitmap = bitmap;
+        for (let i = 0; i < dilatePixels; i++) {
+            finalBitmap = dilate(finalBitmap, width, height);
+        }
+
+        return { data: finalBitmap, width, height, inverted: false, grayscale: null };
     }
 
     // ============ 连通区域标记 (Two-Pass CCL) ============
@@ -1780,17 +1915,49 @@
             // 只生成前景（暗色）层，背景不需要矢量化
             palette = [[0, 0, 0]];
         } else {
+            // 使用 Median Cut 量化生成调色板
+            // 这些颜色是真实存在于图片中的代表色，匹配更准确
             palette = medianCutQuantize(imageData, numColors);
         }
         console.log(`[PotraceCore] 提取 ${palette.length} 种主色`);
 
+        // 2. 为每个像素分配最近的调色板颜色（确保无空白无重叠）
+        const pixelColorMap = new Uint8Array(width * height);
+        const data = imageData.data;
+        const useLuminance = binaryMode || numColors <= 2;
+        
+        if (!useLuminance) {
+            for (let i = 0; i < width * height; i++) {
+                const idx = i * 4;
+                if (data[idx + 3] > 128) {
+                    const pixelColor = [data[idx], data[idx + 1], data[idx + 2]];
+                    let minDist = Infinity;
+                    let nearestIdx = 0;
+                    for (let j = 0; j < palette.length; j++) {
+                        const dist = colorDistSq(pixelColor, palette[j]);
+                        if (dist < minDist) {
+                            minDist = dist;
+                            nearestIdx = j;
+                        }
+                    }
+                    pixelColorMap[i] = nearestIdx;
+                } else {
+                    pixelColorMap[i] = 255; // 透明像素标记
+                }
+            }
+        }
+
         const layers = [];
 
-        // 2. 每种颜色生成矢量层
-        for (const color of palette) {
-            // 二值化 (二值模式使用亮度 + Otsu 阈值 + 高斯模糊 + 形态学)
-            const useLuminance = binaryMode || numColors <= 2;
-            const bitmap = createBinaryBitmap(imageData, color, colorTolerance, useLuminance, otsuThreshold, blurSigma, morphology);
+        // 3. 每种颜色生成矢量层
+        for (let colorIdx = 0; colorIdx < palette.length; colorIdx++) {
+            const color = palette[colorIdx];
+            
+            // 使用最近颜色分配（非二值模式）或容差匹配（二值模式）
+            // 膨胀 1 像素确保颜色层之间无缝隙
+            const bitmap = useLuminance 
+                ? createBinaryBitmap(imageData, color, colorTolerance, useLuminance, otsuThreshold, blurSigma, morphology)
+                : createBinaryBitmapFromMap(pixelColorMap, colorIdx, width, height, blurSigma, 1);
             
             // 如果反转了，计算前景的实际颜色
             let actualColor = color;
@@ -1835,30 +2002,32 @@
             const pathParts = [];
 
             for (const contour of contours) {
-                if (contour.points.length < 4) continue;
-                if (Math.abs(contour.area) < minPathLength) continue;
-
+                if (contour.points.length < 3) continue;
+                
                 const originalCount = contour.points.length;
+                const contourArea = Math.abs(contour.area);
+                
+                // 小轮廓直接用多边形，不做复杂处理
+                if (contourArea < 16 || originalCount < 8) {
+                    const pathD = generatePolygonPath(contour.points);
+                    if (pathD) pathParts.push(pathD);
+                    continue;
+                }
 
                 // VTracer 参数 - 极致锐利版本
                 const vtracerOptions = {
-                    cornerAngle: 110,          // 角点阈值（度）- 更敏感
-                    minCornerDist: 2,          // 角点最小距离 - 更小
-                    cornerProtectRadius: 3     // 角点保护半径 - 更大
+                    cornerAngle: 110,
+                    minCornerDist: 2,
+                    cornerProtectRadius: 3
                 };
 
-                // 1. VTracer 风格处理：极致锐利
+                // 1. VTracer 风格处理
                 const processed = processContourVTracer(contour.points, vtracerOptions);
-
-                // 2. 对平滑后的点进行采样（而非简化）
-                // 平滑后点数很多但已经很平滑，简化会破坏曲线质量
-                // 改用均匀采样保持曲线形状
                 let finalPoints = processed.points;
 
-                // 只有点数非常多时才采样，保留足够多的点
+                // 2. 只对非常大的轮廓采样
                 const targetPoints = Math.max(200, Math.min(800, Math.floor(finalPoints.length / 4)));
                 if (finalPoints.length > targetPoints * 1.5) {
-                    // 均匀采样而非简化，保持曲线平滑度
                     const step = finalPoints.length / targetPoints;
                     const sampled = [];
                     for (let i = 0; i < targetPoints; i++) {
@@ -1869,10 +2038,7 @@
 
                 if (finalPoints.length < 3) continue;
 
-                console.log(`[PotraceCore] VTracer: ${originalCount} -> 平滑 ${processed.points.length} -> 最终 ${finalPoints.length} 点`);
-
                 // 3. 曲线拟合
-                // 由于已经充分平滑，使用更小的拟合误差
                 const fitError = Math.min(smoothness, 1.0);
                 const pathD = mode === 'spline'
                     ? fitBezierSmooth(finalPoints, fitError)
@@ -1884,13 +2050,12 @@
             }
             
             const paths = [];
-            if (pathParts.length > 0) {
-                // 合并所有轮廓为复合路径
-                const combinedD = pathParts.join(' ');
+            // 每个轮廓单独生成路径，使用 nonzero 规则避免孔洞误判
+            for (const pathD of pathParts) {
                 paths.push({
-                    d: combinedD,
+                    d: pathD,
                     fill: colorStr,
-                    fillRule: 'evenodd',
+                    fillRule: 'nonzero',
                     stroke: 'none',
                     strokeWidth: 0
                 });
@@ -1964,6 +2129,16 @@
             mode: 'spline',
             blurSigma: 1.5
         },
+        pixel: {
+            numColors: 16,         // 减少颜色数，避免相似色分裂
+            colorTolerance: 45,    // 适中容差
+            pathTolerance: 0.5,    // 保留细节
+            smoothness: 0.3,       // 极少平滑
+            minPathLength: 1,      // 不过滤任何区域
+            mode: 'spline',
+            blurSigma: 0,          // 不模糊，保持像素边缘
+            morphology: false      // 不做形态学处理
+        },
         simple: {
             numColors: 8,
             colorTolerance: 40,
@@ -1975,7 +2150,20 @@
         }
     };
     
-    function vectorizeWithPreset(imageData, presetName = 'logo') {
+    function vectorizeWithPreset(imageData, presetName = 'auto') {
+        // 自动模式：分析图片颜色，自动选择最佳参数
+        if (presetName === 'auto') {
+            const analysis = analyzeImageColors(imageData);
+            const basePreset = PRESETS[analysis.recommendedPreset] || PRESETS.logo;
+            
+            // 使用预设的默认 numColors，不根据聚类数量调整
+            // 这样确保有足够的颜色槽位提取小面积颜色
+            const autoOptions = { ...basePreset };
+            
+            console.log(`[PotraceCore] 自动模式: ${analysis.recommendedPreset}, ${autoOptions.numColors}色`);
+            return vectorize(imageData, autoOptions);
+        }
+        
         const preset = PRESETS[presetName] || PRESETS.logo;
         return vectorize(imageData, preset);
     }
@@ -1997,6 +2185,7 @@
     const PotraceCore = {
         vectorize,
         vectorizeWithPreset,
+        analyzeImageColors,  // 新增：颜色分析
         medianCutQuantize,
         labelConnectedComponents,
         marchingSquaresContour,

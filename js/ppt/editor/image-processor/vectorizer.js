@@ -1,16 +1,17 @@
 /**
  * 图片矢量化模块
- * 优先使用 VectorTracer (visioncortex WASM)，备选 PotraceCore/ImageTracer
+ * 优先使用新版 Vectorizer (ES Module)，备选 PotraceCore/ImageTracer
  */
 
 class ImageVectorizer {
     constructor() {
         this.engine = null;
         this.vectortracer = null;
+        this.vectorizerModule = null;  // 新版模块化引擎
         
         // VectorTracer CDN (visioncortex WASM 绑定)
         this.vectortracerCdn = 'https://cdn.jsdelivr.net/npm/vectortracer@0.1.2/pkg/vectortracer.js';
-        // PotraceCore 本地路径
+        // PotraceCore 本地路径 (旧版，备用)
         this.potraceCoreUrl = './js/ppt/editor/image-processor/potrace-core.js';
         // ImageTracer CDN (备选)
         this.imagetracerCdn = 'https://cdn.jsdelivr.net/npm/imagetracerjs@1.2.6/imagetracer_v1.2.6.js';
@@ -22,17 +23,7 @@ class ImageVectorizer {
     async load() {
         if (this.engine) return;
 
-        // 1. 优先 VectorTracer (visioncortex WASM) - 最高质量
-        try {
-            this.vectortracer = await this._loadVectorTracer();
-            this.engine = 'vectortracer';
-            console.log('[ImageVectorizer] ✓ VectorTracer (visioncortex WASM) 已加载');
-            return;
-        } catch (e) {
-            console.warn('[ImageVectorizer] VectorTracer 加载失败:', e.message);
-        }
-        
-        // 2. 备选 PotraceCore
+        // 1. 优先使用 PotraceCore (稳定版)
         try {
             await this._loadScript(this.potraceCoreUrl);
             if (window.PotraceCore) {
@@ -44,7 +35,27 @@ class ImageVectorizer {
             console.warn('[ImageVectorizer] PotraceCore 加载失败:', e.message);
         }
 
-        // 3. 最后备选 ImageTracer
+        // 2. 备选 VectorTracer (visioncortex WASM)
+        try {
+            this.vectortracer = await this._loadVectorTracer();
+            this.engine = 'vectortracer';
+            console.log('[ImageVectorizer] ✓ VectorTracer (visioncortex WASM) 已加载');
+            return;
+        } catch (e) {
+            console.warn('[ImageVectorizer] VectorTracer 加载失败:', e.message);
+        }
+        
+        // 3. 备选新版 Vectorizer (ES Module) - 待调试
+        try {
+            this.vectorizerModule = await import('./vectorizer/index.js');
+            this.engine = 'vectorizer';
+            console.log('[ImageVectorizer] ✓ Vectorizer (新版模块化) 已加载');
+            return;
+        } catch (e) {
+            console.warn('[ImageVectorizer] Vectorizer 加载失败:', e.message);
+        }
+
+        // 4. 最后备选 ImageTracer
         try {
             await this._loadScript(this.imagetracerCdn);
             this.engine = 'imagetracer';
@@ -111,22 +122,36 @@ class ImageVectorizer {
 
     /**
      * 矢量化图片
+     * @param {Object} imageObj - 图片对象 {imageData, width, height}
+     * @param {string} preset - 预设名称，'auto' 自动分析选择
      */
-    async vectorize(imageObj, preset = 'logo') {
+    async vectorize(imageObj, preset = 'auto') {
         await this.load();
 
         console.log(`[ImageVectorizer] 使用 ${this.engine}, 预设: ${preset}`);
 
-        if (this.engine === 'vectortracer') {
-            return this._vectorizeWithVectorTracer(imageObj, preset);
-        } else if (this.engine === 'potrace') {
-            return window.PotraceCore.vectorizeWithPreset(imageObj.imageData, preset);
-        } else {
-            // ImageTracer 备选
-            const config = this._getImageTracerConfig(preset);
-            const svgString = ImageTracer.imagedataToSVG(imageObj.imageData, config);
-            return this._parseSvgResult(svgString, imageObj.width, imageObj.height);
+        // 1. 新版 Vectorizer (ES Module)
+        if (this.engine === 'vectorizer') {
+            const { Vectorizer } = this.vectorizerModule;
+            return Vectorizer.vectorizeWithPreset(imageObj.imageData, preset);
         }
+        
+        // 2. VectorTracer (visioncortex WASM) - 不支持 auto
+        if (this.engine === 'vectortracer') {
+            const actualPreset = preset === 'auto' ? 'illustration' : preset;
+            return this._vectorizeWithVectorTracer(imageObj, actualPreset);
+        }
+        
+        // 3. PotraceCore - 支持 auto 模式
+        if (this.engine === 'potrace') {
+            return window.PotraceCore.vectorizeWithPreset(imageObj.imageData, preset);
+        }
+        
+        // 4. ImageTracer 备选 - 不支持 auto
+        const actualPreset = preset === 'auto' ? 'illustration' : preset;
+        const config = this._getImageTracerConfig(actualPreset);
+        const svgString = ImageTracer.imagedataToSVG(imageObj.imageData, config);
+        return this._parseSvgResult(svgString, imageObj.width, imageObj.height);
     }
     
     /**
@@ -162,6 +187,15 @@ class ImageVectorizer {
                 cornerThreshold: 60,
                 lengthThreshold: 4.0,
                 spliceThreshold: 45,
+                mode: 'spline'
+            },
+            pixel: {
+                colorPrecision: 8,       // 更多颜色层
+                layerDifference: 8,      // 更小的层差异，捕捉更多颜色
+                filterSpeckle: 1,        // 保留小区域
+                cornerThreshold: 90,     // 更锐利的角
+                lengthThreshold: 2.0,    // 更短的线段
+                spliceThreshold: 60,
                 mode: 'spline'
             },
             photo: {
@@ -210,6 +244,7 @@ class ImageVectorizer {
             logo: { color_precision: 6, layer_difference: 16, filter_speckle: 4 },
             illustration: { color_precision: 6, layer_difference: 25, filter_speckle: 4 },
             lineart: { color_precision: 6, layer_difference: 16, filter_speckle: 2 },
+            pixel: { color_precision: 8, layer_difference: 8, filter_speckle: 1 },
             photo: { color_precision: 8, layer_difference: 28, filter_speckle: 4 },
             simple: { color_precision: 4, layer_difference: 32, filter_speckle: 8 }
         };
