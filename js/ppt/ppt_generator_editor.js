@@ -271,30 +271,31 @@ const PPTGeneratorEditor = {
             .editor-panel-tabs {
                 display: flex;
                 border-bottom: 1px solid #e5e7eb;
-                background: #f9fafb;
+                background: white;
                 flex-shrink: 0;
                 border-radius: 24px 24px 0 0;
+                padding: 0 16px;
+                gap: 24px;
             }
             .panel-tab {
-                flex: 1;
-                padding: 12px 16px;
+                padding: 16px 4px;
                 background: transparent;
                 border: none;
                 cursor: pointer;
-                font-size: 13px;
+                font-size: 14px;
                 font-weight: 500;
                 color: #6b7280;
                 border-bottom: 2px solid transparent;
-                transition: all 0.15s;
+                transition: all 0.2s;
+                position: relative;
             }
             .panel-tab:hover {
-                background: #f3f4f6;
-                color: #374151;
+                color: #111827;
             }
             .panel-tab.active {
-                color: #3b82f6;
-                border-bottom-color: #3b82f6;
-                background: white;
+                color: #2563eb;
+                border-bottom-color: #2563eb;
+                font-weight: 600;
             }
             
             /* 面板内容区 */
@@ -305,7 +306,7 @@ const PPTGeneratorEditor = {
             }
             .panel-pane {
                 display: none;
-                padding: 16px;
+                padding: 0;
             }
             .panel-pane.active {
                 display: block;

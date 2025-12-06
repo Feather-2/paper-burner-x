@@ -7,7 +7,7 @@
 
 /* ==================== Todo Tracker ==================== */
 .ppt-todo-tracker {
-    padding: 8px 16px;
+    padding: 16px 16px 8px 16px;
     border-bottom: 1px solid var(--ppt-border);
     background: white;
     flex-shrink: 0;

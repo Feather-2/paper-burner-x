@@ -87,8 +87,8 @@
     right: 0;
     background: white;
     border: 1px solid var(--ppt-border);
-    border-radius: 10px;
-    box-shadow: var(--ppt-shadow-lg);
+    border-radius: 12px;
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.15);
     min-width: 240px;
     opacity: 0;
     visibility: hidden;
@@ -96,6 +96,7 @@
     transition: all 0.2s;
     z-index: 100;
     overflow: hidden;
+    padding: 6px;
 }
 
 .ppt-export-dropdown.open .ppt-export-menu {
@@ -108,11 +109,12 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 10px 16px;
+    padding: 8px 12px;
     cursor: pointer;
     transition: background 0.15s;
     font-size: 13px;
     color: var(--ppt-text-main);
+    border-radius: 6px;
 }
 
 .ppt-export-menu-item:hover {
@@ -141,7 +143,7 @@
 
 /* Export Item (新样式，匹配 JS 中的类名) */
 .ppt-export-group-label {
-    padding: 8px 16px 4px;
+    padding: 8px 12px 4px;
     font-size: 11px;
     font-weight: 600;
     color: var(--ppt-text-muted);
@@ -153,7 +155,7 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 10px 16px;
+    padding: 8px 12px;
     cursor: pointer;
     transition: background 0.15s;
     background: transparent;
@@ -161,6 +163,7 @@
     width: 100%;
     text-align: left;
     font-family: var(--ppt-font-sans);
+    border-radius: 6px;
 }
 
 .ppt-export-item:hover {
@@ -169,8 +172,12 @@
 
 .ppt-export-item iconify-icon {
     font-size: 20px;
-    color: var(--ppt-primary);
+    color: var(--ppt-text-secondary);
     flex-shrink: 0;
+}
+
+.ppt-export-item:hover iconify-icon {
+    color: var(--ppt-text-main);
 }
 
 .ppt-export-item-info {
@@ -181,7 +188,7 @@
 
 .ppt-export-item-title {
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--ppt-text-main);
 }
 
@@ -201,7 +208,7 @@
 
 /* Export Options (复选式导出设置) */
 .ppt-export-options {
-    padding: 8px 12px;
+    padding: 4px 6px;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -211,11 +218,12 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    padding: 0 6px;
 }
 
 .ppt-export-option-label {
     font-size: 12px;
-    color: var(--ppt-text-muted);
+    color: var(--ppt-text-secondary);
     min-width: 36px;
 }
 
@@ -223,31 +231,36 @@
     display: flex;
     gap: 4px;
     flex: 1;
+    background: var(--ppt-bg-subtle);
+    padding: 3px;
+    border-radius: 8px;
 }
 
 .ppt-option-btn {
     flex: 1;
-    padding: 6px 10px;
+    padding: 4px 8px;
     font-size: 11px;
     font-weight: 500;
-    border: 1px solid var(--ppt-border);
+    border: 1px solid transparent;
     background: transparent;
     color: var(--ppt-text-secondary);
     border-radius: 6px;
     cursor: pointer;
     transition: all 0.15s;
     font-family: var(--ppt-font-sans);
+    text-align: center;
 }
 
 .ppt-option-btn:hover {
-    background: var(--ppt-bg-subtle);
-    border-color: var(--ppt-text-muted);
+    color: var(--ppt-text-main);
 }
 
 .ppt-option-btn.active {
-    background: var(--ppt-primary);
-    border-color: var(--ppt-primary);
-    color: white;
+    background: white;
+    border-color: rgba(0,0,0,0.05);
+    color: var(--ppt-primary);
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 
 .ppt-export-action-btn {
@@ -255,8 +268,8 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    margin: 8px 12px;
-    padding: 10px 16px;
+    margin: 8px 6px;
+    padding: 8px 12px;
     font-size: 13px;
     font-weight: 600;
     background: var(--ppt-primary);
@@ -266,6 +279,7 @@
     cursor: pointer;
     transition: all 0.15s;
     font-family: var(--ppt-font-sans);
+    width: auto;
 }
 
 .ppt-export-action-btn:hover {

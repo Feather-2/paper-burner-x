@@ -7,6 +7,7 @@ const PPTGeneratorPresentation = {
             <div class="pres-container" style="display: flex; height: 100%; width: 100%;">
                 <!-- Left Sidebar: Thumbnail Strip -->
                 <div class="ppt-thumb-sidebar" id="presSidebar">
+                    <div class="sidebar-header" id="presSidebarHeader">幻灯片 (${this.slides.length}页)</div>
                     <div class="ppt-thumb-list custom-scrollbar" id="presThumbnails">
                         ${this.slides.map((slide, index) => `
                             <div class="ppt-thumb-item ${index === this.currentSlideIndex ? 'active' : ''}" onclick="window.PPTGenerator.goToSlide(${index})">
