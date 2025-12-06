@@ -107,17 +107,52 @@ export function subdivideKeepCorners(points, corners, outsetRatio = 0.2, segment
 }
 
 /**
- * 4-Point Scheme 核心计算
- * new_point = a*p0 + b*p1 + b*p2 + a*p3
- * 其中 a = -outsetRatio/2, b = 0.5 + outsetRatio/2
+ * 4-Point Scheme 核心计算 (VTracer 原始实现 - 几何外扩法)
+ *
+ * VTracer 原始算法 (smooth.rs:200-215):
+ * 1. mid_out = (p1 + p2) / 2  // 当前边中点
+ * 2. mid_in = (p0 + p3) / 2   // 前后点中点
+ * 3. vector = mid_out - mid_in
+ * 4. new = mid_out + normalize(vector) * (length(vector) / outsetRatio)
+ *
+ * @param {Object} p0 - 前一个点
+ * @param {Object} p1 - 当前边起点
+ * @param {Object} p2 - 当前边终点
+ * @param {Object} p3 - 后一个点
+ * @param {number} outsetRatio - 外扩比例 (VTracer 默认 8.0)
  */
 function findNewPointFrom4PointScheme(p0, p1, p2, p3, outsetRatio) {
-    const a = -outsetRatio / 2;
-    const b = 0.5 + outsetRatio / 2;
+    // 1. 当前边中点
+    const midOut = {
+        x: (p1.x + p2.x) / 2,
+        y: (p1.y + p2.y) / 2
+    };
 
+    // 2. 前后点中点
+    const midIn = {
+        x: (p0.x + p3.x) / 2,
+        y: (p0.y + p3.y) / 2
+    };
+
+    // 3. 外扩向量
+    const vectorX = midOut.x - midIn.x;
+    const vectorY = midOut.y - midIn.y;
+    const vectorLen = Math.sqrt(vectorX * vectorX + vectorY * vectorY);
+
+    // 如果向量太短，直接返回边中点
+    if (vectorLen < 1e-10) {
+        return midOut;
+    }
+
+    // 4. 归一化并按比例外扩
+    const newMagnitude = vectorLen / outsetRatio;
+    const normalizedX = vectorX / vectorLen;
+    const normalizedY = vectorY / vectorLen;
+
+    // 5. 新点 = 边中点 + 外扩向量
     return {
-        x: a * p0.x + b * p1.x + b * p2.x + a * p3.x,
-        y: a * p0.y + b * p1.y + b * p2.y + a * p3.y
+        x: midOut.x + normalizedX * newMagnitude,
+        y: midOut.y + normalizedY * newMagnitude
     };
 }
 
@@ -131,7 +166,7 @@ function findNewPointFrom4PointScheme(p0, p1, p2, p3, outsetRatio) {
 export function smoothPathVTracer(points, options = {}) {
     const {
         cornerThreshold = Math.PI / 4,  // 45度
-        outsetRatio = 0.2,              // VTracer 默认值
+        outsetRatio = 8.0,              // VTracer 默认值 (几何外扩比例)
         segmentLength = 4.0,            // VTracer 默认值
         maxIterations = 10              // VTracer 默认值
     } = options;

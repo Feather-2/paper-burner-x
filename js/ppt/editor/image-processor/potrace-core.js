@@ -958,25 +958,25 @@
 
     /**
      * VTracer 风格完整处理流程
-     * 关键改进：多次迭代平滑，使用标记而非索引跟踪角点
+     * 使用 Chaikin 平滑 + 角点保护（稳定版本）
      */
     function processContourVTracer(points, options = {}) {
         const {
-            cornerAngle = 75,      // 角点阈值（度）
-            smoothWindow = 5,      // 平滑窗口（增大）
-            minCornerDist = 5,     // 角点最小距离
-            smoothIterations = 2   // Chaikin 迭代次数
+            cornerAngle = 60,       // 角点阈值（度）
+            smoothWindow = 5,       // 平滑窗口
+            minCornerDist = 5,      // 角点最小距离
+            smoothIterations = 3    // Chaikin 迭代次数
         } = options;
 
         if (points.length < 4) return { points, corners: [] };
 
-        // 1. 先做初步平滑（在角点检测前）
+        // 1. 预平滑：去除像素锯齿
         let smoothed = points.slice();
         for (let i = 0; i < 2; i++) {
             smoothed = movingAverageSmooth(smoothed, 3);
         }
 
-        // 2. 检测角点（在初步平滑后的轮廓上）
+        // 2. 检测角点
         const cornerIndices = detectCornersVTracer(smoothed, cornerAngle, minCornerDist);
 
         // 3. 给点添加角点标记
@@ -992,7 +992,7 @@
         }
 
         // 5. 最后多次移动平均平滑（保护角点）
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < 2; i++) {
             taggedPoints = movingAverageSmoothTagged(taggedPoints, smoothWindow);
         }
 
@@ -1513,15 +1513,15 @@
 
                 const originalCount = contour.points.length;
 
-                // VTracer 参数 - 调整角点检测，只检测真正的直角
+                // VTracer 参数 - Chaikin 平滑 + 角点保护
                 const vtracerOptions = {
-                    cornerAngle: 45,           // 降低！只检测 < 45度 的尖角
-                    smoothWindow: 7,           // 增大窗口
-                    minCornerDist: Math.max(5, Math.floor(originalCount / 30)),
-                    smoothIterations: 4        // 增加迭代次数
+                    cornerAngle: 60,           // 角点阈值（度）
+                    smoothWindow: 5,           // 平滑窗口
+                    smoothIterations: 3,       // Chaikin 迭代次数
+                    minCornerDist: Math.max(5, Math.floor(originalCount / 30))
                 };
 
-                // 1. VTracer 风格处理：多次平滑 + 角点保护
+                // 1. VTracer 风格处理：Chaikin 平滑 + 角点保护
                 const processed = processContourVTracer(contour.points, vtracerOptions);
 
                 // 2. 对平滑后的点进行采样（而非简化）
