@@ -224,8 +224,8 @@
         const clusterCount = clusters.length;
         const dominantColors = clusters.slice(0, 10); // 前10主色
         
-        // 判断是否是二值图（黑白/线稿）
-        const isBinary = clusterCount <= 3;
+        // 判断是否是二值图（黑白/线稿）- 允许抗锯齿带来的额外颜色
+        const isBinary = clusterCount <= 4;
         
         // 判断是否是像素画（颜色数量中等，边界清晰）
         const isPixelArt = uniqueColors > 10 && uniqueColors < 500 && clusterCount < 32;
@@ -2050,12 +2050,15 @@
             }
             
             const paths = [];
-            // 每个轮廓单独生成路径，使用 nonzero 规则避免孔洞误判
-            for (const pathD of pathParts) {
+            if (pathParts.length > 0) {
+                // 二值模式用 evenodd 正确处理内孔（字母O等）
+                // 非二值模式（如像素画）用 nonzero 避免破洞
+                const fillRule = useLuminance ? 'evenodd' : 'nonzero';
+                const combinedD = pathParts.join(' ');
                 paths.push({
-                    d: pathD,
+                    d: combinedD,
                     fill: colorStr,
-                    fillRule: 'nonzero',
+                    fillRule,
                     stroke: 'none',
                     strokeWidth: 0
                 });
