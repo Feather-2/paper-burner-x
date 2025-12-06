@@ -40,7 +40,7 @@ import {
 import { labelConnectedComponents } from './connected-components.js';
 import { marchingSquaresContour } from './contour-tracer.js';
 import { simplifyPath } from './path-simplify.js';
-import { chaikinSmooth, simplifyRDPClosed as simplifyPathRDP } from './path-smooth.js';
+import { chaikinSmooth, chaikinSmoothPreserveCorners, simplifyRDPClosed as simplifyPathRDP } from './path-smooth.js';
 import { 
     processContourVTracer, 
     detectCornersVTracer 
@@ -271,14 +271,34 @@ export async function vectorize(imageData, options = {}) {
             // 1. RDP 简化
             pts = simplifyPathRDP(pts, dynamicEpsilon);
             
-            // 2. Chaikin 平滑（增加一次）
+            // 2. 检测角点（角度 < 120° 的点）
+            const cornerIndices = new Set();
+            for (let i = 0; i < pts.length; i++) {
+                const prev = pts[(i - 1 + pts.length) % pts.length];
+                const curr = pts[i];
+                const next = pts[(i + 1) % pts.length];
+                
+                const v1x = prev.x - curr.x, v1y = prev.y - curr.y;
+                const v2x = next.x - curr.x, v2y = next.y - curr.y;
+                const dot = v1x * v2x + v1y * v2y;
+                const len1 = Math.sqrt(v1x * v1x + v1y * v1y);
+                const len2 = Math.sqrt(v2x * v2x + v2y * v2y);
+                
+                if (len1 > 0 && len2 > 0) {
+                    const cos = dot / (len1 * len2);
+                    const angle = Math.acos(Math.max(-1, Math.min(1, cos))) * 180 / Math.PI;
+                    if (angle < 120) cornerIndices.add(i);
+                }
+            }
+            
+            // 3. Chaikin 平滑（保护角点）
             const smoothIter = perimeter < 50 ? 3 : 4;
-            pts = chaikinSmooth(pts, smoothIter);
+            pts = chaikinSmoothPreserveCorners(pts, smoothIter, cornerIndices);
             
             if (pts.length < 3) continue;
 
-            // 3. Catmull-Rom（降低张力 = 更平滑）
-            const pathD = fitBezierCatmullRom(pts, 0.25);
+            // 4. Catmull-Rom
+            const pathD = fitBezierCatmullRom(pts, 0.3);
 
             if (pathD) pathParts.push(pathD);
         }

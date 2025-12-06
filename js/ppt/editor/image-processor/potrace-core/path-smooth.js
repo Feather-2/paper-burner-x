@@ -272,6 +272,64 @@ export function chaikinSmooth(points, iterations = 2) {
 }
 
 /**
+ * Chaikin 平滑 - 保护角点版本
+ * 角点保持锐利，只平滑曲线部分
+ */
+export function chaikinSmoothPreserveCorners(points, iterations = 2, cornerIndices = new Set()) {
+    if (points.length < 3) return points;
+    if (cornerIndices.size === 0) return chaikinSmooth(points, iterations);
+
+    // 记录角点位置
+    const corners = [];
+    for (const idx of cornerIndices) {
+        corners.push({ ...points[idx], originalIdx: idx });
+    }
+
+    let result = points.slice();
+    
+    for (let iter = 0; iter < iterations; iter++) {
+        const smoothed = [];
+        const n = result.length;
+        
+        // 每次迭代后角点索引会变化，需要追踪
+        const newCornerPositions = new Map();
+
+        for (let i = 0; i < n; i++) {
+            const p0 = result[i];
+            const p1 = result[(i + 1) % n];
+            
+            // 检查当前点是否接近某个角点
+            const isCorner = corners.some(c => 
+                Math.abs(p0.x - c.x) < 0.5 && Math.abs(p0.y - c.y) < 0.5
+            );
+            
+            if (isCorner) {
+                // 角点：保持原位，只插入一个点
+                smoothed.push({ x: p0.x, y: p0.y });
+                smoothed.push({
+                    x: p0.x * 0.5 + p1.x * 0.5,
+                    y: p0.y * 0.5 + p1.y * 0.5
+                });
+            } else {
+                // 非角点：正常 Chaikin
+                smoothed.push({
+                    x: p0.x * 0.75 + p1.x * 0.25,
+                    y: p0.y * 0.75 + p1.y * 0.25
+                });
+                smoothed.push({
+                    x: p0.x * 0.25 + p1.x * 0.75,
+                    y: p0.y * 0.25 + p1.y * 0.75
+                });
+            }
+        }
+
+        result = smoothed;
+    }
+
+    return result;
+}
+
+/**
  * 移动平均平滑
  * @param {Array} points - 点数组
  * @param {number} windowSize - 窗口大小（奇数）
