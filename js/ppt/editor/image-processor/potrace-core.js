@@ -1,31 +1,23 @@
 /**
- * Potrace Core - 高质量位图转矢量算法 (VTracer 风格重构)
+ * Potrace Core - 兼容层
  * 
- * 算法参考:
- * - VTracer (visioncortex) - 核心算法框架
- * - Marching Squares - 亚像素精度轮廓追踪
- * - Connected Component Labeling - 连通区域分析
- * - Visvalingam-Whyatt - 路径简化
+ * 实际实现已移至 vectorizer/ 目录
+ * 此文件仅作为向后兼容使用
  * 
- * 核心流程:
- * 1. 颜色量化 (Median Cut)
- * 2. 连通区域标记 (CCL)
- * 3. Marching Squares 轮廓追踪
- * 4. 路径简化 (Visvalingam-Whyatt)
- * 5. 曲线拟合 (Schneider Algorithm)
+ * @see ./vectorizer/index.js
  */
 
 (function(global) {
     'use strict';
-    
+
     // ============ CDN 依赖 ============
     const CDN_LIBS = {
         simplify: 'https://cdn.jsdelivr.net/npm/simplify-js@1.2.4/simplify.min.js',
         fitCurve: 'https://cdn.jsdelivr.net/npm/fit-curve@0.2.0/lib/fit-curve.js'
     };
-    
+
     let libsLoaded = false;
-    
+
     async function loadCdnLibs() {
         if (libsLoaded) return;
         const loadScript = (url) => new Promise((resolve, reject) => {
@@ -36,7 +28,7 @@
             script.onerror = () => reject(new Error(`Failed: ${url}`));
             document.head.appendChild(script);
         });
-        
+
         try {
             await Promise.all(Object.values(CDN_LIBS).map(loadScript));
             libsLoaded = true;
@@ -45,25 +37,55 @@
         }
     }
 
-    // ============ 颜色量化 (Median Cut) ============
+    // ============ 工具函数 ============
     
+    function colorDistSq(c1, c2) {
+        const dr = c1[0] - c2[0], dg = c1[1] - c2[1], db = c1[2] - c2[2];
+        return dr * dr + dg * dg + db * db;
+    }
+
+    function colorDistance(c1, c2) { return Math.sqrt(colorDistSq(c1, c2)); }
+
+    function signedArea(p1, p2, p3) {
+        return (p2.x - p1.x) * (p3.y - p1.y) - (p3.x - p1.x) * (p2.y - p1.y);
+    }
+
+    function polygonArea(points) {
+        let area = 0;
+        const n = points.length;
+        for (let i = 0; i < n; i++) {
+            const j = (i + 1) % n;
+            area += points[i].x * points[j].y;
+            area -= points[j].x * points[i].y;
+        }
+        return area / 2;
+    }
+
+    function pointLineDistance(point, lineStart, lineEnd) {
+        const dx = lineEnd.x - lineStart.x;
+        const dy = lineEnd.y - lineStart.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len === 0) return Math.sqrt((point.x - lineStart.x) ** 2 + (point.y - lineStart.y) ** 2);
+        return Math.abs(dy * point.x - dx * point.y + lineEnd.x * lineStart.y - lineEnd.y * lineStart.x) / len;
+    }
+
+    // ============ 颜色量化 (Median Cut) ============
+
     function medianCutQuantize(imageData, maxColors = 16) {
         const data = imageData.data;
         const pixels = [];
-        
-        // 采样优化：大图片时采样以避免内存问题
+
         const totalPixels = data.length / 4;
         const sampleRate = totalPixels > 100000 ? Math.ceil(totalPixels / 100000) : 1;
-        
+
         for (let i = 0; i < data.length; i += 4 * sampleRate) {
             if (data[i + 3] > 128) {
                 pixels.push([data[i], data[i + 1], data[i + 2]]);
             }
         }
-        
+
         if (pixels.length === 0) return [[128, 128, 128]];
-        
-        // 辅助函数：安全获取数组最大最小值（避免栈溢出）
+
         const getMinMax = (arr, channel) => {
             let min = 255, max = 0;
             for (let i = 0; i < arr.length; i++) {
@@ -73,16 +95,16 @@
             }
             return { min, max, range: max - min };
         };
-        
+
         const buckets = [pixels];
-        
+
         while (buckets.length < maxColors) {
             let maxRange = 0, maxIdx = 0, splitCh = 0;
-            
+
             for (let i = 0; i < buckets.length; i++) {
                 const b = buckets[i];
                 if (b.length < 2) continue;
-                
+
                 for (let c = 0; c < 3; c++) {
                     const { range } = getMinMax(b, c);
                     if (range > maxRange) {
@@ -92,9 +114,9 @@
                     }
                 }
             }
-            
+
             if (maxRange === 0) break;
-            
+
             const bucket = buckets[maxIdx];
             bucket.sort((a, b) => a[splitCh] - b[splitCh]);
             const mid = Math.floor(bucket.length / 2);
@@ -1481,14 +1503,21 @@
                 // 1. VTracer 风格处理：多次平滑 + 角点保护
                 const processed = processContourVTracer(contour.points, vtracerOptions);
 
-                // 2. 轻度简化（平滑后点数可能很多）
-                // 使用非常小的 tolerance 以保持平滑度
-                const simplifyTol = Math.min(pathTolerance, 0.5);
+                // 2. 对平滑后的点进行采样（而非简化）
+                // 平滑后点数很多但已经很平滑，简化会破坏曲线质量
+                // 改用均匀采样保持曲线形状
                 let finalPoints = processed.points;
 
-                if (finalPoints.length > 500) {
-                    // 只有点数过多时才简化
-                    finalPoints = simplifyPath(finalPoints, { tolerance: simplifyTol });
+                // 只有点数非常多时才采样，保留足够多的点
+                const targetPoints = Math.max(200, Math.min(800, Math.floor(finalPoints.length / 4)));
+                if (finalPoints.length > targetPoints * 1.5) {
+                    // 均匀采样而非简化，保持曲线平滑度
+                    const step = finalPoints.length / targetPoints;
+                    const sampled = [];
+                    for (let i = 0; i < targetPoints; i++) {
+                        sampled.push(finalPoints[Math.floor(i * step)]);
+                    }
+                    finalPoints = sampled;
                 }
 
                 if (finalPoints.length < 3) continue;
@@ -1605,6 +1634,18 @@
 
     // ============ 导出 ============
     
+    /**
+     * PotraceCore - 兼容层
+     * 
+     * 推荐使用新的 ES Module 版本:
+     * import { Vectorizer } from './vectorizer/index.js';
+     * 
+     * 新版本包含:
+     * - VTracer 4-Point Subdivision Scheme 平滑算法
+     * - Splice Point Detection 曲线分段
+     * - remove_staircase 锯齿移除
+     * - retract_handles 控制点修正
+     */
     const PotraceCore = {
         vectorize,
         vectorizeWithPreset,
@@ -1613,7 +1654,14 @@
         marchingSquaresContour,
         simplifyPath,
         fitBezier,
-        PRESETS
+        PRESETS,
+        
+        // VTracer 新增函数
+        processContourVTracer,
+        detectCornersVTracer,
+        smoothPathPreservingCorners,
+        fitBezierWithCorners,
+        fitBezierSmooth
     };
     
     if (typeof module !== 'undefined' && module.exports) {
