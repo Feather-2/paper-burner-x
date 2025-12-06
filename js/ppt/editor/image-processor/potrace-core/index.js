@@ -149,6 +149,78 @@ export async function vectorize(imageData, options = {}) {
     } else {
         // 使用 K-Means++ 聚类生成调色板（比 Median Cut 更准确）
         palette = kMeansQuantize(workingData, numColors);
+        
+        // 智能合并相近颜色 (Post-Quantization Merge)
+        // 对于 Logo/插画模式，合并距离过近的颜色，减少无意义的过渡层
+        if (options && options.preset !== 'photo' && options.preset !== 'pixel' && palette.length > 2) {
+            const mergedPalette = [];
+            const mergedIndices = new Set();
+            
+            // 根据预设调整合并阈值
+            // Logo 模式更激进 (90)，合并阴影和抗锯齿色
+            // 插画模式较保守 (35)，保留细节
+            const thresholdVal = (options.preset === 'logo' || options.preset === 'simple') ? 90 : 35;
+            const mergeThreshold = thresholdVal * thresholdVal;
+            
+            // 灰度/低饱和度颜色的额外容差系数
+            // 允许黑、深灰、浅灰在更大范围内合并
+            const neutralThresholdMult = 2.25; // 1.5^2
+            
+            // 迭代合并直到收敛
+            let changed = true;
+            let currentPalette = palette;
+            
+            while (changed && currentPalette.length > 2) {
+                changed = false;
+                const nextPalette = [];
+                const merged = new Set();
+                
+                // 按亮度排序，有助于合并相邻色
+                currentPalette.sort((a, b) => (a[0]+a[1]+a[2]) - (b[0]+b[1]+b[2]));
+                
+                for (let i = 0; i < currentPalette.length; i++) {
+                    if (merged.has(i)) continue;
+                    
+                    let baseColor = currentPalette[i];
+                    let count = 1;
+                    
+                    // 判断基准色是否为中性色（R,G,B 差异小）
+                    const isBaseNeutral = Math.max(baseColor[0], baseColor[1], baseColor[2]) - Math.min(baseColor[0], baseColor[1], baseColor[2]) < 20;
+                    
+                    // 寻找最近的一个颜色进行合并 (贪婪策略：只合并不合并群组)
+                    // 修改策略：一次遍历合并所有近邻
+                    for (let j = i + 1; j < currentPalette.length; j++) {
+                        if (merged.has(j)) continue;
+                        
+                        // 判断目标色是否为中性色
+                        const isTargetNeutral = Math.max(currentPalette[j][0], currentPalette[j][1], currentPalette[j][2]) - Math.min(currentPalette[j][0], currentPalette[j][1], currentPalette[j][2]) < 20;
+                        
+                        // 如果两个都是中性色（都是灰度系），放宽阈值
+                        const currentThreshold = (isBaseNeutral && isTargetNeutral) 
+                            ? mergeThreshold * neutralThresholdMult 
+                            : mergeThreshold;
+                        
+                        if (colorDistSq(baseColor, currentPalette[j]) < currentThreshold) {
+                            baseColor = [
+                                (baseColor[0] * count + currentPalette[j][0]) / (count + 1),
+                                (baseColor[1] * count + currentPalette[j][1]) / (count + 1),
+                                (baseColor[2] * count + currentPalette[j][2]) / (count + 1)
+                            ];
+                            count++;
+                            merged.add(j);
+                            changed = true;
+                        }
+                    }
+                    nextPalette.push(baseColor.map(Math.round));
+                }
+                currentPalette = nextPalette;
+            }
+            
+            if (currentPalette.length < palette.length) {
+                console.log(`[PotraceCore] 智能合并颜色 (${options.preset}): ${palette.length} → ${currentPalette.length}`);
+                palette = currentPalette;
+            }
+        }
     }
     console.log(`[PotraceCore] 提取 ${palette.length} 种主色`);
 
@@ -302,8 +374,10 @@ export async function vectorize(imageData, options = {}) {
             
             // 像素画特殊处理：保持像素边缘，不做平滑和曲线拟合
             if (isPixelArt) {
-                // 仅移除共线点（无损压缩），保留所有直角
-                const simplifiedPts = simplifyPathRDP(contour.points, 0.1);
+                // 使用 RDP 算法简化路径
+                // 阈值 0.75: 能有效抹平 1px 的微小抖动/锯齿，将其拉直为斜线或直线
+                // 既保留了像素画的硬朗风格，又消除了过多的细碎阶梯（抖动）
+                const simplifiedPts = simplifyPathRDP(contour.points, 0.75);
                 const pathD = generatePolygonPath(simplifiedPts);
                 if (pathD) pathParts.push(pathD);
                 continue;

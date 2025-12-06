@@ -36,32 +36,8 @@ export function analyzeImageColors(imageData, clusterThreshold = 25) {
     }
     
     // 3. 颜色聚类 (简单的贪婪聚类)
-    const clusters = [];
     const sorted = colors.sort((a, b) => b.count - a.count); // 按数量排序
-    
-    for (const color of sorted) {
-        let merged = false;
-        for (const cluster of clusters) {
-            const dist = Math.sqrt(
-                Math.pow(color.r - cluster.r, 2) +
-                Math.pow(color.g - cluster.g, 2) +
-                Math.pow(color.b - cluster.b, 2)
-            );
-            if (dist < clusterThreshold) {
-                // 合并到现有聚类（加权平均）
-                const total = cluster.count + color.count;
-                cluster.r = Math.round((cluster.r * cluster.count + color.r * color.count) / total);
-                cluster.g = Math.round((cluster.g * cluster.count + color.g * color.count) / total);
-                cluster.b = Math.round((cluster.b * cluster.count + color.b * color.count) / total);
-                cluster.count = total;
-                merged = true;
-                break;
-            }
-        }
-        if (!merged) {
-            clusters.push({ ...color });
-        }
-    }
+    const clusters = performGreedyClustering(sorted, clusterThreshold);
     
     // 4. 计算特征
     const uniqueColors = colorMap.size;
@@ -71,8 +47,16 @@ export function analyzeImageColors(imageData, clusterThreshold = 25) {
     // 判断是否是二值图（黑白/线稿）- 允许抗锯齿带来的额外颜色
     const isBinary = clusterCount <= 4;
     
+    // 计算颜色变异率：每个主色平均对应的独特颜色数量
+    // 真正的像素画变异率低（< 3），边缘锐利
+    // 抗锯齿的 Logo/图标变异率高（> 3），有很多过渡色
+    const variationRatio = uniqueColors / (clusterCount || 1);
+    
     // 判断是否是像素画（颜色数量中等，边界清晰）
-    const isPixelArt = uniqueColors > 10 && uniqueColors < 500 && clusterCount < 32;
+    // 必须同时满足：
+    // 1. 聚类数适中 (< 64)
+    // 2. 变异率低 (< 3)：说明没有大量的抗锯齿过渡色
+    const isPixelArt = uniqueColors < 256 && clusterCount < 64 && variationRatio < 3.0;
     
     // 判断是否是照片（颜色数量很多）
     const isPhoto = uniqueColors > 1000 || clusterCount > 50;
@@ -81,24 +65,53 @@ export function analyzeImageColors(imageData, clusterThreshold = 25) {
     let recommendedPreset = 'logo';
     let recommendedNumColors = Math.min(64, Math.max(8, clusterCount));
     
-    if (isBinary) {
-        recommendedPreset = 'lineart';
-        recommendedNumColors = 2;
-    } else if (isPixelArt) {
-        recommendedPreset = 'pixel';
-        recommendedNumColors = Math.min(32, clusterCount + 4);
-    } else if (isPhoto) {
-        recommendedPreset = 'photo';
-        recommendedNumColors = 64;
-    } else if (clusterCount <= 8) {
-        recommendedPreset = 'simple';
-        recommendedNumColors = clusterCount;
-    } else if (clusterCount <= 24) {
-        recommendedPreset = 'logo';
-        recommendedNumColors = clusterCount + 2;
+    // 二次聚类优化：
+    // 如果初步判断是 Logo 或简单的插画，尝试用更大的阈值重新聚类
+    // 这样能更准确地通过抗锯齿噪点看到真正的“主色”数量
+    if (!isPhoto && !isBinary && !isPixelArt && clusterCount > 4 && clusterCount < 64) {
+        const aggressiveThreshold = 60; // 更大的合并半径
+        // 使用原始颜色列表（sorted）进行二次聚类，而不是用已经聚类过的 clusters
+        const reClusters = performGreedyClustering(sorted, aggressiveThreshold);
+        const reClusterCount = reClusters.length;
+        
+        console.log(`[ColorAnalysis] Logo模式二次聚类: ${clusterCount} -> ${reClusterCount}`);
+        
+        if (reClusterCount < clusterCount) {
+            // 使用二次聚类的结果作为推荐
+            if (reClusterCount <= 8) {
+                recommendedPreset = 'simple';
+                recommendedNumColors = reClusterCount;
+            } else if (reClusterCount <= 24) {
+                recommendedPreset = 'logo';
+                recommendedNumColors = reClusterCount + 2; // 略微冗余防止欠拟合
+            } else {
+                recommendedPreset = 'illustration';
+                recommendedNumColors = Math.min(32, reClusterCount + 4);
+            }
+        }
     } else {
-        recommendedPreset = 'illustration';
-        recommendedNumColors = Math.min(48, clusterCount);
+        // 原有逻辑保持不变
+        if (isBinary) {
+            recommendedPreset = 'lineart';
+            recommendedNumColors = 2;
+        } else if (isPixelArt) {
+            recommendedPreset = 'pixel';
+            recommendedNumColors = Math.min(32, clusterCount + 4);
+        } else if (isPhoto) {
+            recommendedPreset = 'photo';
+            recommendedNumColors = 64;
+        } else if (clusterCount <= 8) {
+            recommendedPreset = 'simple';
+            recommendedNumColors = clusterCount;
+        } else if (clusterCount <= 32) {
+            // 提高 Logo 的阈值覆盖 Weibo 这种（23色）
+            recommendedPreset = 'logo';
+            // Logo 并不需要那么多颜色，强制限制在 16 色以内，迫使 K-Means 合并相似色
+            recommendedNumColors = Math.min(16, clusterCount + 2);
+        } else {
+            recommendedPreset = 'illustration';
+            recommendedNumColors = Math.min(48, clusterCount);
+        }
     }
     
     console.log(`[ColorAnalysis] 独特颜色: ${uniqueColors}, 聚类后: ${clusterCount}, 推荐: ${recommendedPreset} (${recommendedNumColors}色)`);
@@ -113,4 +126,38 @@ export function analyzeImageColors(imageData, clusterThreshold = 25) {
         recommendedPreset,
         recommendedNumColors
     };
+}
+
+/**
+ * 执行贪婪聚类
+ */
+function performGreedyClustering(colors, threshold) {
+    const clusters = [];
+    // 深拷贝颜色对象，以免修改原数组
+    const sortedColors = colors.map(c => ({ ...c }));
+    
+    for (const color of sortedColors) {
+        let merged = false;
+        for (const cluster of clusters) {
+            const dist = Math.sqrt(
+                Math.pow(color.r - cluster.r, 2) +
+                Math.pow(color.g - cluster.g, 2) +
+                Math.pow(color.b - cluster.b, 2)
+            );
+            if (dist < threshold) {
+                // 合并到现有聚类（加权平均）
+                const total = cluster.count + color.count;
+                cluster.r = Math.round((cluster.r * cluster.count + color.r * color.count) / total);
+                cluster.g = Math.round((cluster.g * cluster.count + color.g * color.count) / total);
+                cluster.b = Math.round((cluster.b * cluster.count + color.b * color.count) / total);
+                cluster.count = total;
+                merged = true;
+                break;
+            }
+        }
+        if (!merged) {
+            clusters.push({ ...color });
+        }
+    }
+    return clusters;
 }
