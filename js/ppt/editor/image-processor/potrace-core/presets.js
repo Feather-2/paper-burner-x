@@ -4,15 +4,17 @@
 
 export const PRESETS = {
     logo: {
+        preset: 'logo',
         numColors: 12,          // 减少颜色，合并边缘抗锯齿
-        colorTolerance: 30,
+        colorTolerance: 40,
         pathTolerance: 0.5,
-        smoothness: 3,
+        smoothness: 1,         // 降低平滑度 (3 -> 1)，防止文字变圆润/变形
         minPathLength: 16,
         mode: 'spline',
-        blurSigma: 1.5           // 增加模糊
+        blurSigma: 1.0          // 降低模糊 (1.5 -> 1.0)，保持边缘清晰
     },
     illustration: {
+        preset: 'illustration',
         numColors: 24,
         colorTolerance: 30,
         pathTolerance: 0.5,
@@ -22,24 +24,26 @@ export const PRESETS = {
         blurSigma: 1.5
     },
     lineart: {
+        preset: 'lineart',
         numColors: 2,
         colorTolerance: 60,
-        pathTolerance: 0.5,
-        smoothness: 1.0,
-        minPathLength: 16,
+        pathTolerance: 0.5,    // 高精度追踪
+        smoothness: 1.5,       // 适度平滑，避免过度圆润
+        minPathLength: 16,     // 过滤噪点
         mode: 'spline',
         binaryMode: true,
-        blurSigma: 2.0,        // 增大模糊获得平滑边缘
-        morphology: true
+        blurSigma: 1.5,        // 适度模糊以减少噪点
+        morphology: true       // 开启形态学处理，连接断裂线条
     },
     photo: {
+        preset: 'photo',
         numColors: 64,
         colorTolerance: 35,
         pathTolerance: 1.0,
-        smoothness: 2.0,
+        smoothness: 1.0,       // 降低平滑度 (2.0 -> 1.0)，防止建筑/窗户等几何图形圆角化
         minPathLength: 64,
         mode: 'spline',
-        blurSigma: 1.5
+        blurSigma: 1.0         // 降低模糊 (1.5 -> 1.0)，保持边缘更锐利
     },
     pixel: {
         preset: 'pixel',       // 标记预设名称
@@ -53,10 +57,11 @@ export const PRESETS = {
         morphology: false      // 不做形态学处理
     },
     simple: {
+        preset: 'simple',
         numColors: 8,
         colorTolerance: 40,
-        pathTolerance: 2.0,
-        smoothness: 4.0,
+        pathTolerance: 1.0,    // 降低容差 (2.0 -> 1.0)，防止形状过度简化
+        smoothness: 2.0,       // 降低平滑 (4.0 -> 2.0)，防止线条变粗/圆角过大
         minPathLength: 32,
         mode: 'polygon',
         blurSigma: 0

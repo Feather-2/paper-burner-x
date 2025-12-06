@@ -159,12 +159,13 @@ export async function vectorize(imageData, options = {}) {
             // 根据预设调整合并阈值
             // Logo 模式更激进 (90)，合并阴影和抗锯齿色
             // 插画模式较保守 (35)，保留细节
-            const thresholdVal = (options.preset === 'logo' || options.preset === 'simple') ? 90 : 35;
+            const thresholdVal = (options.preset === 'logo' || options.preset === 'simple') ? 45 : 35;
             const mergeThreshold = thresholdVal * thresholdVal;
             
             // 灰度/低饱和度颜色的额外容差系数
             // 允许黑、深灰、浅灰在更大范围内合并
-            const neutralThresholdMult = 2.25; // 1.5^2
+            // 提升到 4.0 (即距离翻倍)，强力合并所有灰色到黑色
+            const neutralThresholdMult = 16.0; 
             
             // 迭代合并直到收敛
             let changed = true;
@@ -178,6 +179,14 @@ export async function vectorize(imageData, options = {}) {
                 // 按亮度排序，有助于合并相邻色
                 currentPalette.sort((a, b) => (a[0]+a[1]+a[2]) - (b[0]+b[1]+b[2]));
                 
+                // 背景色修正：如果最亮的颜色接近白色 (>230)，强制设为纯白
+                // 解决“提取背景比原始深”的问题
+                const lastIdx = currentPalette.length - 1;
+                const brightest = currentPalette[lastIdx];
+                if (brightest[0] > 230 && brightest[1] > 230 && brightest[2] > 230) {
+                    currentPalette[lastIdx] = [255, 255, 255];
+                }
+                
                 for (let i = 0; i < currentPalette.length; i++) {
                     if (merged.has(i)) continue;
                     
@@ -185,15 +194,32 @@ export async function vectorize(imageData, options = {}) {
                     let count = 1;
                     
                     // 判断基准色是否为中性色（R,G,B 差异小）
-                    const isBaseNeutral = Math.max(baseColor[0], baseColor[1], baseColor[2]) - Math.min(baseColor[0], baseColor[1], baseColor[2]) < 20;
+                    // 放宽中性色判定 (20 -> 30)，覆盖略带色偏的灰
+                    const isBaseNeutral = Math.max(baseColor[0], baseColor[1], baseColor[2]) - Math.min(baseColor[0], baseColor[1], baseColor[2]) < 30;
+                    const baseLum = (baseColor[0] + baseColor[1] + baseColor[2]) / 3;
                     
                     // 寻找最近的一个颜色进行合并 (贪婪策略：只合并不合并群组)
                     // 修改策略：一次遍历合并所有近邻
                     for (let j = i + 1; j < currentPalette.length; j++) {
                         if (merged.has(j)) continue;
                         
+                        const targetLum = (currentPalette[j][0] + currentPalette[j][1] + currentPalette[j][2]) / 3;
+                        
+                        // 特殊规则：极亮颜色强力合并 (去除背景杂色/边缘光晕)
+                        // 如果两个颜色都很亮 (>210)，且差异较小，强制合并
+                        if (baseLum > 210 && targetLum > 210) {
+                             if (colorDistSq(baseColor, currentPalette[j]) < 2500) { // 50^2
+                                // 合并到更亮的一方（通常是背景）
+                                baseColor = targetLum > baseLum ? currentPalette[j] : baseColor;
+                                count++; // 这里不再平均，直接吞噬
+                                merged.add(j);
+                                changed = true;
+                                continue;
+                             }
+                        }
+                        
                         // 判断目标色是否为中性色
-                        const isTargetNeutral = Math.max(currentPalette[j][0], currentPalette[j][1], currentPalette[j][2]) - Math.min(currentPalette[j][0], currentPalette[j][1], currentPalette[j][2]) < 20;
+                        const isTargetNeutral = Math.max(currentPalette[j][0], currentPalette[j][1], currentPalette[j][2]) - Math.min(currentPalette[j][0], currentPalette[j][1], currentPalette[j][2]) < 30;
                         
                         // 如果两个都是中性色（都是灰度系），放宽阈值
                         const currentThreshold = (isBaseNeutral && isTargetNeutral) 
@@ -272,7 +298,13 @@ export async function vectorize(imageData, options = {}) {
         // 轻度膨胀确保层重叠
         // 增加膨胀量以填补可能的缝隙
         // 像素画减少膨胀，避免形状变形
-        const dilatePixels = isPixelArt ? 1 : 2;
+        // 动态调整膨胀量：
+        // 1. 像素画：1px
+        // 2. 小图/Logo模式：1px (防止线条变粗)
+        // 3. 大图/照片：2px (确保无缝隙)
+        const isSmallImage = width < 800;
+        const isLogoOrSimple = options && (options.preset === 'logo' || options.preset === 'simple');
+        const dilatePixels = (isPixelArt || isSmallImage || isLogoOrSimple) ? 1 : 2;
 
         // 使用最近颜色分配（非二值模式）或容差匹配（二值模式）
         // **VM(基于公开资料) 风格**：传入原始图像和调色板，利用混色信息做亚像素定位
@@ -322,7 +354,10 @@ export async function vectorize(imageData, options = {}) {
         // 对于高颜色数（photo模式），禁用碎片过滤，因为颜色分布分散是正常的
         const imageArea = width * height;
         
-        if (!isPixelArt && numColors <= 8) {
+        // Logo 模式也启用碎片过滤，防止出现全是噪点的图层
+        const shouldCheckFragmented = (!isPixelArt && numColors <= 8) || (options && options.preset === 'logo');
+        
+        if (shouldCheckFragmented) {
             // 只在极低颜色数模式下启用碎片过滤（logo/lineart）
             const contourAreas = contours.map(c => Math.abs(c.area));
             const maxContourArea = Math.max(...contourAreas, 0);
@@ -346,8 +381,17 @@ export async function vectorize(imageData, options = {}) {
         // 动态面积阈值：基于图像尺寸，过滤孤立小噪点
         // 最小噪点面积 = 图像面积的 0.01%，但至少 4 像素，最多 50 像素
         const totalArea = width * height;
-        // 像素画模式下，噪点阈值极低（1像素），保留所有细节
-        const minNoiseArea = isPixelArt ? 1 : Math.max(4, Math.min(50, totalArea * 0.0001));
+        
+        let minNoiseArea;
+        if (isPixelArt) {
+            minNoiseArea = 1;
+        } else if (options && options.preset === 'logo') {
+            // Logo 模式：更激进地过滤噪点 (0.1% 或至少 25px)，去除“奇怪的点”
+            minNoiseArea = Math.max(25, Math.min(200, totalArea * 0.001));
+        } else {
+            minNoiseArea = Math.max(4, Math.min(50, totalArea * 0.0001));
+        }
+        
         // 中等轮廓阈值（用于决定是否曲线拟合）
         const mediumContourArea = Math.max(30, minNoiseArea * 3);
 
@@ -426,13 +470,18 @@ export async function vectorize(imageData, options = {}) {
                 if (len1 > 0 && len2 > 0) {
                     const cos = dot / (len1 * len2);
                     const angle = Math.acos(Math.max(-1, Math.min(1, cos))) * 180 / Math.PI;
-                    if (angle < 120) cornerIndices.add(i);
+                    // 放宽角点阈值 (120 -> 140)，更积极地保留角点，防止直角/钝角被平滑掉
+                    if (angle < 140) cornerIndices.add(i);
                 }
             }
             
             // 3. Chaikin 平滑
-            const smoothIter = 2;
-            pts = chaikinSmoothPreserveCorners(pts, smoothIter, cornerIndices);
+            // 使用预设的 smoothness 控制迭代次数 (0-3)
+            // 像素画模式下 smoothness 通常为 0，即不平滑
+            const smoothIter = Math.max(0, Math.round(smoothness));
+            if (smoothIter > 0) {
+                pts = chaikinSmoothPreserveCorners(pts, smoothIter, cornerIndices);
+            }
             
             // 缩回原始尺寸
             if (upscale > 1) {
@@ -448,7 +497,13 @@ export async function vectorize(imageData, options = {}) {
             if (typeof window !== 'undefined' && typeof window.fitCurve === 'function') {
                 try {
                     // fit-curve
-                    const fitError = Math.max(0.8, pathTolerance);
+                    // 动态容差策略：
+                    // 1. 基础值：预设的 pathTolerance (例如 1.0)
+                    // 2. 长度奖励：路径越长，允许的误差越大，以获得更平滑的长曲线
+                    //    例如：周长 400px 的线条，容差 +1.0
+                    const lengthBonus = perimeter > 50 ? Math.min(2.0, (perimeter - 50) / 200) : 0;
+                    const fitError = Math.max(0.5, pathTolerance) + lengthBonus;
+                    
                     let curves = window.fitCurve(ptsArray, fitError);
                     
                     if (curves && curves.length > 0) {
@@ -480,7 +535,18 @@ export async function vectorize(imageData, options = {}) {
 
             if (pathD) pathParts.push(pathD);
         }
-        
+        // 5. 缝隙修补 (Gap Fixing)
+        // 平滑算法(Chaikin/CurveFit)会使路径略微向内收缩，导致色块间出现细微缝隙(Conflation Artifacts)
+        // 解决方案：添加同色描边，利用描边向外扩张填补缝隙
+        // 像素画(Pixel Art)：通常不对齐会导致形状改变，且网格本身是严丝合缝的，故不加粗
+        // 其他模式(Photo/Logo)：添加 1px 描边，使用 round join 获得平滑连接
+        const useStroke = !isPixelArt;
+        const strokeColor = useStroke ? colorStr : 'none';
+        // 放大比例较大时，描边宽度相对变小，这里固定为 1px (工作空间坐标系)
+        // 如果是在小图上处理，1px 可能会太粗，但由于我们在开头做了放大处理 (scale)，这里的 1px 是相对安全的
+        const strokeWidth = useStroke ? 1 : 0;
+        const strokeLineJoin = useStroke ? 'round' : 'miter';
+
         if (pathParts.length > 0) {
             const fillRule = useLuminance ? 'evenodd' : 'nonzero';
             layers.push({
@@ -490,8 +556,9 @@ export async function vectorize(imageData, options = {}) {
                     d: pathParts.join(' '),
                     fill: colorStr,
                     fillRule,
-                    stroke: 'none',
-                    strokeWidth: 0
+                    stroke: strokeColor,
+                    strokeWidth: strokeWidth,
+                    strokeLineJoin: strokeLineJoin
                 }]
             });
         }

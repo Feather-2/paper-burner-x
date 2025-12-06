@@ -69,7 +69,7 @@ export function analyzeImageColors(imageData, clusterThreshold = 25) {
     // 如果初步判断是 Logo 或简单的插画，尝试用更大的阈值重新聚类
     // 这样能更准确地通过抗锯齿噪点看到真正的“主色”数量
     if (!isPhoto && !isBinary && !isPixelArt && clusterCount > 4 && clusterCount < 64) {
-        const aggressiveThreshold = 60; // 更大的合并半径
+        const aggressiveThreshold = 90; // 更大的合并半径 (60 -> 90)
         // 使用原始颜色列表（sorted）进行二次聚类，而不是用已经聚类过的 clusters
         const reClusters = performGreedyClustering(sorted, aggressiveThreshold);
         const reClusterCount = reClusters.length;
