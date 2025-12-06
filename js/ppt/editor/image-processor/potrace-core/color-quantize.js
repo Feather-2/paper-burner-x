@@ -8,7 +8,7 @@ import { colorDistSq } from './utils.js';
 
 /**
  * K-Means++ 颜色聚类 - 比 Median Cut 更准确
- * 类似 Vector Magic 的色板提取
+ * 类似 VM(基于公开资料) 的色板提取
  */
 export function kMeansQuantize(imageData, maxColors = 16, maxIterations = 10) {
     const data = imageData.data;

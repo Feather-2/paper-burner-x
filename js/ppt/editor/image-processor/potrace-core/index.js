@@ -194,9 +194,10 @@ export async function vectorize(imageData, options = {}) {
         const dilatePixels = isBackground ? 0 : 1;
 
         // 使用最近颜色分配（非二值模式）或容差匹配（二值模式）
+        // **VM(基于公开资料) 风格**：传入原始图像和调色板，利用混色信息做亚像素定位
         const bitmap = useLuminance
             ? createBinaryBitmap(workingData, color, colorTolerance, useLuminance, otsuThreshold, blurSigma, morphology)
-            : createBinaryBitmapFromMap(pixelColorMap, colorIdx, width, height, blurSigma, dilatePixels);
+            : createBinaryBitmapFromMap(pixelColorMap, colorIdx, width, height, blurSigma, dilatePixels, workingData, palette);
         
         // 如果反转了，计算前景的实际颜色
         let actualColor = color;
@@ -285,9 +286,9 @@ export async function vectorize(imageData, options = {}) {
                 pts = pts.map(p => ({ x: p.x * upscale, y: p.y * upscale }));
             }
             
-            // RDP 容差（放大后相应增大）
-            const dynamicEpsilon = (perimeter < 50 ? 0.5 : 
-                                    perimeter < 100 ? 0.7 : 0.9) * upscale;
+            // RDP 容差
+            const dynamicEpsilon = (perimeter < 50 ? 0.4 : 
+                                    perimeter < 100 ? 0.5 : 0.6) * upscale;
             
             // 1. RDP 简化
             pts = simplifyPathRDP(pts, dynamicEpsilon);
@@ -312,8 +313,8 @@ export async function vectorize(imageData, options = {}) {
                 }
             }
             
-            // 3. Chaikin 平滑（增加次数）
-            const smoothIter = perimeter < 50 ? 4 : 5;
+            // 3. Chaikin 平滑
+            const smoothIter = 2;
             pts = chaikinSmoothPreserveCorners(pts, smoothIter, cornerIndices);
             
             // 缩回原始尺寸
@@ -323,8 +324,32 @@ export async function vectorize(imageData, options = {}) {
             
             if (pts.length < 3) continue;
 
-            // 4. Catmull-Rom（低张力 = 更平滑曲线）
-            const pathD = fitBezierCatmullRom(pts, 0.2);
+            // 4. 曲线拟合 - 优先使用 fit-curve（节点更少更优化）
+            let pathD;
+            const ptsArray = pts.map(p => [p.x, p.y]);
+            
+            if (typeof window !== 'undefined' && typeof window.fitCurve === 'function') {
+                try {
+                    // fit-curve
+                    const fitError = Math.max(0.8, pathTolerance);
+                    const curves = window.fitCurve(ptsArray, fitError);
+                    
+                    if (curves && curves.length > 0) {
+                        pathD = `M${curves[0][0][0].toFixed(2)},${curves[0][0][1].toFixed(2)}`;
+                        for (const c of curves) {
+                            pathD += `C${c[1][0].toFixed(2)},${c[1][1].toFixed(2)},${c[2][0].toFixed(2)},${c[2][1].toFixed(2)},${c[3][0].toFixed(2)},${c[3][1].toFixed(2)}`;
+                        }
+                        pathD += 'Z';
+                    }
+                } catch (e) {
+                    console.warn('[PotraceCore] fit-curve 失败，回退到 Catmull-Rom');
+                }
+            }
+            
+            // 回退：Catmull-Rom
+            if (!pathD) {
+                pathD = fitBezierCatmullRom(pts, 0.2);
+            }
 
             if (pathD) pathParts.push(pathD);
         }

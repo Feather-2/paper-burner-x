@@ -365,8 +365,12 @@ export function createBinaryBitmap(imageData, targetColor, tolerance = 30, useLu
 /**
  * 根据颜色分配图创建二值位图（最近颜色匹配，无空白）
  * 使用膨胀操作确保相邻颜色层轻微重叠，消除缝隙
+    * 
+ * **VM(基于公开资料) 风格改进**：利用混色比例计算亚像素边界
+ * - 不只是 0/1 二值，而是计算每个像素属于目标颜色的程度
+ * - 边缘像素的灰度值反映它在两个颜色之间的位置
  */
-export function createBinaryBitmapFromMap(pixelColorMap, targetColorIdx, width, height, blurSigma = 0, dilatePixels = 1) {
+export function createBinaryBitmapFromMap(pixelColorMap, targetColorIdx, width, height, blurSigma = 0, dilatePixels = 1, imageData = null, palette = null) {
     const bitmap = new Uint8Array(width * height);
     
     // 直接从颜色分配图创建二值位图
@@ -374,25 +378,72 @@ export function createBinaryBitmapFromMap(pixelColorMap, targetColorIdx, width, 
         bitmap[i] = (pixelColorMap[i] === targetColorIdx) ? 1 : 0;
     }
     
-    // 生成灰度图用于亚像素插值（前景=0, 背景=255）
+    // **关键改进**：生成基于混色比例的灰度图
     let grayscale = new Float32Array(width * height);
-    for (let i = 0; i < bitmap.length; i++) {
-        grayscale[i] = bitmap[i] === 1 ? 0 : 255;
+    
+    if (imageData && palette && palette.length > 1) {
+        // VM(基于公开资料) 风格：利用原始像素颜色计算混合比例
+        const targetColor = palette[targetColorIdx];
+        const data = imageData.data;
+        
+        for (let i = 0; i < width * height; i++) {
+            const idx = i * 4;
+            if (data[idx + 3] < 128) {
+                grayscale[i] = 255; // 透明像素
+                continue;
+            }
+            
+            const pixelColor = [data[idx], data[idx + 1], data[idx + 2]];
+            const distToTarget = Math.sqrt(colorDistSq(pixelColor, targetColor));
+            
+            // 找最近的非目标色
+            let minOtherDist = Infinity;
+            for (let j = 0; j < palette.length; j++) {
+                if (j !== targetColorIdx) {
+                    const d = Math.sqrt(colorDistSq(pixelColor, palette[j]));
+                    if (d < minOtherDist) minOtherDist = d;
+                }
+            }
+            
+            // 计算混合比例：0 = 完全是目标色，255 = 完全是其他色
+            // **优化**：使用平方根使边缘过渡更平滑（模拟 gamma 校正）
+            const totalDist = distToTarget + minOtherDist;
+            if (totalDist < 1) {
+                grayscale[i] = bitmap[i] === 1 ? 0 : 255;
+            } else {
+                // 线性比例
+                let t = distToTarget / totalDist;
+                
+                // 平方根变换：让边缘过渡更平滑
+                // 这模拟了抗锯齿的非线性特性
+                t = Math.sqrt(t);
+                
+                // 应用 S 曲线使中间值更明确
+                // smoothstep: 3t² - 2t³
+                t = t * t * (3 - 2 * t);
+                
+                grayscale[i] = t * 255;
+            }
+        }
+    } else {
+        // 回退：简单的 0/255 灰度
+        for (let i = 0; i < bitmap.length; i++) {
+            grayscale[i] = bitmap[i] === 1 ? 0 : 255;
+        }
     }
     
-    // 高斯模糊灰度图（让边缘更平滑，实现亚像素精度）
+    // 轻度高斯模糊（平滑噪声，但不破坏混色信息）
     if (blurSigma > 0) {
-        grayscale = gaussianBlur(grayscale, width, height, Math.max(1.5, blurSigma));
+        grayscale = gaussianBlur(grayscale, width, height, Math.min(1.0, blurSigma));
     }
     
-    // 连通区域过滤：只保留相对于最大区域足够大的区域
-    // 比例 1:200 更宽松，保留更多细小笔画
+    // 连通区域过滤
     let finalBitmap = filterSmallRegions(bitmap, width, height, 200);
     
-    // 闭运算：填充小孔洞
+    // 闭运算
     finalBitmap = morphClose(finalBitmap, width, height);
     
-    // 颜色约束膨胀：只向原始颜色相同或无主区域膨胀
+    // 颜色约束膨胀
     for (let i = 0; i < dilatePixels; i++) {
         finalBitmap = dilateWithColorConstraint(finalBitmap, width, height, pixelColorMap, targetColorIdx);
     }
