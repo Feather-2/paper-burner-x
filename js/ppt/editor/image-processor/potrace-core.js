@@ -1069,48 +1069,72 @@
 
     /**
      * VTracer 风格完整处理流程
-     * 最小平滑版本 - 保持边缘位置准确
+     * 极致锐利版本 - 角点完全保持原始位置
      */
     function processContourVTracer(points, options = {}) {
         const {
-            cornerAngle = 120,      // 角点阈值（度）
-            minCornerDist = 3,      // 角点最小距离
-            cornerProtectRadius = 2 // 角点保护半径
+            cornerAngle = 110,      // 角点阈值（度）- 更敏感
+            minCornerDist = 2,      // 角点最小距离 - 更小
+            cornerProtectRadius = 3 // 角点保护半径 - 更大
         } = options;
 
         if (points.length < 4) return { points, corners: [] };
 
-        // 1. 检测角点
+        // 1. 检测角点（使用更敏感的参数）
         const cornerIndices = detectCornersVTracerStrict(points, cornerAngle, minCornerDist);
         const cornerSet = new Set(cornerIndices);
         const n = points.length;
 
-        // 2. 极轻度平滑：只对非角点区域，且只平滑1个像素范围
-        // 这样可以去除像素锯齿但不会偏移边缘位置
+        // 保存原始角点位置
+        const originalCorners = new Map();
+        for (const ci of cornerIndices) {
+            originalCorners.set(ci, { x: points[ci].x, y: points[ci].y });
+        }
+
+        // 2. 标记所有点
         const smoothed = points.map((p, i) => {
-            // 角点及附近完全不平滑
-            let isNearCorner = cornerSet.has(i);
-            if (!isNearCorner) {
+            const isCorner = cornerSet.has(i);
+            let isNearCorner = false;
+            let distToCorner = Infinity;
+
+            if (!isCorner) {
                 for (const ci of cornerIndices) {
                     const dist = Math.min(Math.abs(i - ci), n - Math.abs(i - ci));
-                    if (dist <= cornerProtectRadius) {
+                    if (dist <= cornerProtectRadius && dist < distToCorner) {
                         isNearCorner = true;
-                        break;
+                        distToCorner = dist;
                     }
                 }
             }
 
-            if (isNearCorner) {
-                return { x: p.x, y: p.y, isCorner: cornerSet.has(i) };
+            // 角点：完全保持原始位置
+            if (isCorner) {
+                return { x: p.x, y: p.y, isCorner: true, isNearCorner: false };
             }
 
-            // 非角点区域：只取相邻3个点平均（最小平滑）
+            // 近角点：根据距离渐变平滑（距离越近平滑越少）
+            if (isNearCorner) {
+                const weight = distToCorner / (cornerProtectRadius + 1); // 0~1
+                const prev = points[(i - 1 + n) % n];
+                const next = points[(i + 1) % n];
+                const smoothX = (prev.x + p.x + next.x) / 3;
+                const smoothY = (prev.y + p.y + next.y) / 3;
+                return {
+                    x: p.x * (1 - weight) + smoothX * weight,
+                    y: p.y * (1 - weight) + smoothY * weight,
+                    isCorner: false,
+                    isNearCorner: true
+                };
+            }
+
+            // 非角点区域：正常平滑
             const prev = points[(i - 1 + n) % n];
             const next = points[(i + 1) % n];
             return {
                 x: (prev.x + p.x + next.x) / 3,
                 y: (prev.y + p.y + next.y) / 3,
-                isCorner: false
+                isCorner: false,
+                isNearCorner: false
             };
         });
 
@@ -1737,7 +1761,7 @@
             minPathLength = 16,
             mode = 'spline',
             binaryMode = false,  // lineart 使用二值模式
-            blurSigma = 0.8,     // 高斯模糊 - 适度，避免削弱角点
+            blurSigma = 0.5,     // 高斯模糊 - 极小，最大程度保护角点
             morphology = true    // 形态学预处理（只做闭运算）
         } = options;
 
@@ -1816,14 +1840,14 @@
 
                 const originalCount = contour.points.length;
 
-                // VTracer 参数 - 精确版本（保持边缘位置）
+                // VTracer 参数 - 极致锐利版本
                 const vtracerOptions = {
-                    cornerAngle: 120,          // 角点阈值（度）
-                    minCornerDist: 3,          // 角点最小距离
-                    cornerProtectRadius: 2     // 角点保护半径
+                    cornerAngle: 110,          // 角点阈值（度）- 更敏感
+                    minCornerDist: 2,          // 角点最小距离 - 更小
+                    cornerProtectRadius: 3     // 角点保护半径 - 更大
                 };
 
-                // 1. VTracer 风格处理：最小平滑
+                // 1. VTracer 风格处理：极致锐利
                 const processed = processContourVTracer(contour.points, vtracerOptions);
 
                 // 2. 对平滑后的点进行采样（而非简化）
@@ -1928,7 +1952,7 @@
             minPathLength: 16,
             mode: 'spline',
             binaryMode: true,
-            blurSigma: 0.8,        // 适度模糊，保护角点锐利
+            blurSigma: 0.5,        // 极小模糊，最大程度保护角点
             morphology: true       // 只做闭运算
         },
         photo: {
