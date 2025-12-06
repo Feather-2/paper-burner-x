@@ -130,112 +130,120 @@ const PPTGeneratorNavigation = {
                         </div>
                     </div>
 
-                    ${projects.length > 0 ? `
-                        <!-- Projects Section with Tabs -->
-                        <div class="ppt-projects-section">
-                            <div class="ppt-section-header">
-                                <div class="ppt-section-tabs">
-                                    <button class="ppt-section-tab active">
-                                        最近项目
-                                    </button>
+                    <!-- Main Content Container -->
+                    <div class="ppt-main-container">
+                        
+                        ${projects.length === 0 ? `
+                            <!-- Quick Start Section (Only when no projects) -->
+                            <div class="ppt-quick-start-section">
+                                <div class="ppt-section-header no-border">
+                                    <h3 class="ppt-section-title">
+                                        <iconify-icon icon="carbon:flash"></iconify-icon>
+                                        快速开始
+                                    </h3>
                                 </div>
-                                <div class="ppt-view-toggle">
-                                    <button class="ppt-icon-btn ${this.projectListViewMode === 'grid' ? 'active' : ''}" onclick="window.PPTGenerator.toggleProjectView('grid')" title="网格视图">
-                                        <iconify-icon icon="carbon:grid"></iconify-icon>
-                                    </button>
-                                    <button class="ppt-icon-btn ${this.projectListViewMode === 'list' ? 'active' : ''}" onclick="window.PPTGenerator.toggleProjectView('list')" title="列表视图">
-                                        <iconify-icon icon="carbon:list"></iconify-icon>
-                                    </button>
+                                <div class="ppt-template-grid">
+                                    <div class="ppt-template-card" onclick="window.PPTGenerator.createNewProject('academic')">
+                                        <div class="ppt-template-preview t-academic">
+                                            <iconify-icon icon="carbon:education"></iconify-icon>
+                                        </div>
+                                        <div class="ppt-template-info">
+                                            <h4>学术报告</h4>
+                                            <p>论文答辩、研究分享</p>
+                                        </div>
+                                    </div>
+                                    <div class="ppt-template-card" onclick="window.PPTGenerator.createNewProject('business')">
+                                        <div class="ppt-template-preview t-business">
+                                            <iconify-icon icon="carbon:chart-line"></iconify-icon>
+                                        </div>
+                                        <div class="ppt-template-info">
+                                            <h4>商业计划</h4>
+                                            <p>项目路演、市场分析</p>
+                                        </div>
+                                    </div>
+                                    <div class="ppt-template-card" onclick="window.PPTGenerator.createNewProject('creative')">
+                                        <div class="ppt-template-preview t-creative">
+                                            <iconify-icon icon="carbon:color-palette"></iconify-icon>
+                                        </div>
+                                        <div class="ppt-template-info">
+                                            <h4>创意设计</h4>
+                                            <p>作品集、视觉展示</p>
+                                        </div>
+                                    </div>
+                                    <div class="ppt-template-card" onclick="window.PPTGenerator.createNewProject('minimal')">
+                                        <div class="ppt-template-preview t-minimal">
+                                            <iconify-icon icon="carbon:clean"></iconify-icon>
+                                        </div>
+                                        <div class="ppt-template-info">
+                                            <h4>极简风格</h4>
+                                            <p>通用汇报、简单演示</p>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                            
-                            ${projects.length > 0 ? (this.projectListViewMode === 'grid' ? `
-                                <div class="ppt-project-grid">
-                                    ${projects.map(p => `
-                                        <div class="ppt-project-card" onclick="window.PPTGenerator.loadProject('${p.id}')">
-                                            <div class="ppt-card-icon">
-                                                <iconify-icon icon="carbon:presentation-file"></iconify-icon>
-                                            </div>
-                                            <div class="ppt-card-info">
-                                                <h3>${p.title || '未命名项目'}</h3>
-                                                <span>${new Date(p.updatedAt).toLocaleDateString()}</span>
-                                            </div>
-                                            <button class="ppt-card-delete-btn" onclick="event.stopPropagation(); window.PPTGenerator.confirmDeleteProject('${p.id}')" title="删除项目">
-                                                <iconify-icon icon="carbon:trash-can"></iconify-icon>
-                                            </button>
-                                        </div>
-                                    `).join('')}
+                        ` : ''}
+
+                        ${projects.length > 0 ? `
+                            <!-- Recent Projects Section -->
+                            <div class="ppt-projects-section">
+                                <div class="ppt-section-header">
+                                    <div class="ppt-section-tabs">
+                                        <button class="ppt-section-tab active">
+                                            最近项目
+                                        </button>
+                                    </div>
+                                    <div class="ppt-view-toggle">
+                                        <button class="ppt-icon-btn ${this.projectListViewMode === 'grid' ? 'active' : ''}" onclick="window.PPTGenerator.toggleProjectView('grid')" title="网格视图">
+                                            <iconify-icon icon="carbon:grid"></iconify-icon>
+                                        </button>
+                                        <button class="ppt-icon-btn ${this.projectListViewMode === 'list' ? 'active' : ''}" onclick="window.PPTGenerator.toggleProjectView('list')" title="列表视图">
+                                            <iconify-icon icon="carbon:list"></iconify-icon>
+                                        </button>
+                                    </div>
                                 </div>
-                            ` : `
-                                <div class="ppt-project-list">
-                                    ${projects.map(p => `
-                                        <div class="ppt-project-list-item" onclick="window.PPTGenerator.loadProject('${p.id}')">
-                                            <div class="ppt-list-icon">
-                                                <iconify-icon icon="carbon:presentation-file"></iconify-icon>
-                                            </div>
-                                            <div class="ppt-list-info">
-                                                <div class="ppt-list-title">${p.title || '未命名项目'}</div>
-                                                <div class="ppt-list-meta">
-                                                    更新于 ${new Date(p.updatedAt).toLocaleString()}
+                                
+                                ${this.projectListViewMode === 'grid' ? `
+                                    <div class="ppt-project-grid">
+                                        ${projects.map(p => `
+                                            <div class="ppt-project-card" onclick="window.PPTGenerator.loadProject('${p.id}')">
+                                                <div class="ppt-card-icon">
+                                                    <iconify-icon icon="carbon:presentation-file"></iconify-icon>
                                                 </div>
-                                            </div>
-                                            <div class="ppt-list-actions">
-                                                <button class="ppt-icon-btn" onclick="event.stopPropagation(); window.PPTGenerator.confirmDeleteProject('${p.id}')" title="删除项目">
+                                                <div class="ppt-card-info">
+                                                    <h3>${p.title || '未命名项目'}</h3>
+                                                    <span>${new Date(p.updatedAt).toLocaleDateString()}</span>
+                                                </div>
+                                                <button class="ppt-card-delete-btn" onclick="event.stopPropagation(); window.PPTGenerator.confirmDeleteProject('${p.id}')" title="删除项目">
                                                     <iconify-icon icon="carbon:trash-can"></iconify-icon>
                                                 </button>
                                             </div>
-                                        </div>
-                                    `).join('')}
-                                </div>
-                            `) : `
-                                <!-- Empty State Templates -->
-                                <div class="ppt-empty-templates">
-                                    <div class="ppt-empty-header">
-                                        <span class="ppt-empty-label">快速开始</span>
-                                        <p>选择一个场景或直接开始新创作</p>
+                                        `).join('')}
                                     </div>
-                                    <div class="ppt-template-grid">
-                                        <div class="ppt-template-card" onclick="window.PPTGenerator.createNewProject('academic')">
-                                            <div class="ppt-template-preview t-academic">
-                                                <iconify-icon icon="carbon:education"></iconify-icon>
+                                ` : `
+                                    <div class="ppt-project-list">
+                                        ${projects.map(p => `
+                                            <div class="ppt-project-list-item" onclick="window.PPTGenerator.loadProject('${p.id}')">
+                                                <div class="ppt-list-icon">
+                                                    <iconify-icon icon="carbon:presentation-file"></iconify-icon>
+                                                </div>
+                                                <div class="ppt-list-info">
+                                                    <div class="ppt-list-title">${p.title || '未命名项目'}</div>
+                                                    <div class="ppt-list-meta">
+                                                        更新于 ${new Date(p.updatedAt).toLocaleString()}
+                                                    </div>
+                                                </div>
+                                                <div class="ppt-list-actions">
+                                                    <button class="ppt-icon-btn" onclick="event.stopPropagation(); window.PPTGenerator.confirmDeleteProject('${p.id}')" title="删除项目">
+                                                        <iconify-icon icon="carbon:trash-can"></iconify-icon>
+                                                    </button>
+                                                </div>
                                             </div>
-                                            <div class="ppt-template-info">
-                                                <h4>学术报告</h4>
-                                                <p>论文答辩、研究分享</p>
-                                            </div>
-                                        </div>
-                                        <div class="ppt-template-card" onclick="window.PPTGenerator.createNewProject('business')">
-                                            <div class="ppt-template-preview t-business">
-                                                <iconify-icon icon="carbon:chart-line"></iconify-icon>
-                                            </div>
-                                            <div class="ppt-template-info">
-                                                <h4>商业计划</h4>
-                                                <p>项目路演、市场分析</p>
-                                            </div>
-                                        </div>
-                                        <div class="ppt-template-card" onclick="window.PPTGenerator.createNewProject('creative')">
-                                            <div class="ppt-template-preview t-creative">
-                                                <iconify-icon icon="carbon:palette"></iconify-icon>
-                                            </div>
-                                            <div class="ppt-template-info">
-                                                <h4>创意设计</h4>
-                                                <p>作品集、视觉展示</p>
-                                            </div>
-                                        </div>
-                                        <div class="ppt-template-card" onclick="window.PPTGenerator.createNewProject('minimal')">
-                                            <div class="ppt-template-preview t-minimal">
-                                                <iconify-icon icon="carbon:clean"></iconify-icon>
-                                            </div>
-                                            <div class="ppt-template-info">
-                                                <h4>极简风格</h4>
-                                                <p>通用汇报、简单演示</p>
-                                            </div>
-                                        </div>
+                                        `).join('')}
                                     </div>
-                                </div>
-                            `}
-                        </div>
-                    ` : ''}
+                                `}
+                            </div>
+                        ` : ''}
+                    </div>
                 </main>
             </div>
         `;

@@ -915,3 +915,52 @@
     display: flex;
     flex-direction: column;
 }
+
+/* ==================== Main Content Layout ==================== */
+.ppt-main-container {
+    width: 100%;
+    max-width: 1400px !important; /* Override default 780px limit */
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 60px;
+    padding: 0 40px 60px;
+    box-sizing: border-box;
+}
+
+.ppt-quick-start-section {
+    width: 100%;
+    animation: slideUp 0.5s ease-out;
+}
+
+.ppt-section-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--ppt-text-main);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    letter-spacing: -0.01em;
+}
+
+.ppt-section-title iconify-icon {
+    color: var(--ppt-primary);
+    font-size: 24px;
+    background: var(--ppt-primary-subtle);
+    padding: 6px;
+    border-radius: 8px;
+}
+
+.ppt-section-header.no-border {
+    border-bottom: none;
+    margin-bottom: 24px;
+}
+
+/* Responsive adjustments for the new layout */
+@media (max-width: 1024px) {
+    .ppt-main-container {
+        padding: 0 20px 40px;
+        gap: 40px;
+    }
+}
