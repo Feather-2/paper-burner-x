@@ -186,17 +186,43 @@ function cropImageData(imageData, bbox, padding = 2) {
 /**
  * 偏移 SVG 路径坐标
  * 先缩放，再偏移
+ * 
+ * 改进版：更健壮的坐标解析，不依赖特定的分隔符（逗号/空格）
+ * 兼容 M, L, C, Z 等命令的所有坐标对
  */
 function offsetSvgPaths(paths, offsetX, offsetY, scaleX = 1, scaleY = 1) {
     return paths.map(path => {
-        // 解析所有数字对并变换
-        // SVG path 格式: M x,y C x1,y1 x2,y2 x3,y3 ...
+        // 状态：当前是否是 X 坐标（交替变换）
+        // Potrace Core 生成的路径只包含 M, L, C，其参数总是成对的 (x, y)
+        // 因此我们可以简单地在 X 和 Y 之间切换
+        let isX = true;
+        
+        // 正则匹配：命令字符 OR 数字
+        // replace 会保留未匹配的字符（即原有的分隔符：空格、逗号等），只替换数字部分
         const offsetD = path.d.replace(
-            /(-?\d+\.?\d*),(-?\d+\.?\d*)/g,
-            (match, x, y) => {
-                const newX = (parseFloat(x) * scaleX + offsetX).toFixed(2);
-                const newY = (parseFloat(y) * scaleY + offsetY).toFixed(2);
-                return `${newX},${newY}`;
+            /([a-zA-Z])|([-+]?\d*\.?\d+)/g,
+            (match, cmd, numStr) => {
+                // 1. 如果是命令字符，重置状态（虽然对于成对坐标不需要，但作为保险）并保留原样
+                if (cmd) {
+                    isX = true; 
+                    return cmd;
+                }
+                
+                // 2. 如果是数字，进行变换
+                const val = parseFloat(numStr);
+                let result;
+                
+                if (isX) {
+                    // X 坐标变换
+                    result = (val * scaleX + offsetX).toFixed(2);
+                } else {
+                    // Y 坐标变换
+                    result = (val * scaleY + offsetY).toFixed(2);
+                }
+                
+                // 切换状态
+                isX = !isX;
+                return result;
             }
         );
         

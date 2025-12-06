@@ -16,9 +16,11 @@ export function kMeansQuantize(imageData, maxColors = 16, maxIterations = 10) {
     const pixelCounts = new Map(); // 统计每个颜色的像素数
 
     // 采样并统计颜色频率
-    // 提高采样量以捕获小面积颜色（从 50k 提升到 100k）
+    // 提高采样量以捕获小面积颜色（从 100k 提升到 500k）
+    // 对于 1080p 图片 (200万像素)，这意味着采样 25%，足以捕获大部分细节
     const totalPixels = data.length / 4;
-    const sampleRate = totalPixels > 100000 ? Math.ceil(totalPixels / 100000) : 1;
+    const MAX_SAMPLES = 500000;
+    const sampleRate = totalPixels > MAX_SAMPLES ? Math.ceil(totalPixels / MAX_SAMPLES) : 1;
 
     for (let i = 0; i < data.length; i += 4 * sampleRate) {
         if (data[i + 3] > 128) {
@@ -337,7 +339,8 @@ export function medianCutQuantize(imageData, maxColors = 16) {
     const pixels = [];
 
     const totalPixels = data.length / 4;
-    const sampleRate = totalPixels > 100000 ? Math.ceil(totalPixels / 100000) : 1;
+    const MAX_SAMPLES = 500000;
+    const sampleRate = totalPixels > MAX_SAMPLES ? Math.ceil(totalPixels / MAX_SAMPLES) : 1;
 
     for (let i = 0; i < data.length; i += 4 * sampleRate) {
         if (data[i + 3] > 128) {

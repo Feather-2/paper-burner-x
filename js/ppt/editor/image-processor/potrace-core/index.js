@@ -56,28 +56,6 @@ import {
 import { PRESETS } from './presets.js';
 
 /**
- * 单次迭代平滑（5点移动平均）
- * 比3点平滑效果更好，能有效去除像素级锯齿
- */
-function smoothPathIteration(points) {
-    if (points.length < 5) return points;
-    const n = points.length;
-    const result = [];
-    for (let i = 0; i < n; i++) {
-        const p0 = points[(i - 2 + n) % n];
-        const p1 = points[(i - 1 + n) % n];
-        const p2 = points[i];
-        const p3 = points[(i + 1) % n];
-        const p4 = points[(i + 2) % n];
-        result.push({
-            x: (p0.x + p1.x + p2.x + p3.x + p4.x) / 5,
-            y: (p0.y + p1.y + p2.y + p3.y + p4.y) / 5
-        });
-    }
-    return result;
-}
-
-/**
  * 主矢量化函数
  */
 export async function vectorize(imageData, options = {}) {
@@ -117,8 +95,11 @@ export async function vectorize(imageData, options = {}) {
         canvas.height = newHeight;
         const ctx = canvas.getContext('2d');
         
-        // 关闭平滑，保持像素边缘（适合 logo/pixel art）
-        ctx.imageSmoothingEnabled = false;
+        // 智能选择插值算法
+        // 像素画、Logo、二值图：关闭平滑，保持锐利边缘
+        // 照片、插画：开启平滑，避免引入阶梯锯齿
+        const isPixelArt = binaryMode || numColors <= 4 || (options && options.preset === 'pixel');
+        ctx.imageSmoothingEnabled = !isPixelArt;
         
         // 先把 imageData 画到临时 canvas
         const tempCanvas = typeof OffscreenCanvas !== 'undefined'
@@ -132,7 +113,7 @@ export async function vectorize(imageData, options = {}) {
         ctx.drawImage(tempCanvas, 0, 0, newWidth, newHeight);
         workingData = ctx.getImageData(0, 0, newWidth, newHeight);
         
-        console.log(`[PotraceCore] 小图放大: ${width}x${height} → ${newWidth}x${newHeight} (${scale}x)`);
+        console.log(`[PotraceCore] 小图放大: ${width}x${height} → ${newWidth}x${newHeight} (${scale}x), 平滑: ${!isPixelArt}`);
         width = newWidth;
         height = newHeight;
     }
