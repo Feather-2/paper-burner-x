@@ -312,8 +312,8 @@ export async function vectorize(imageData, options = {}) {
                 }
             }
             
-            // 3. Chaikin 平滑
-            const smoothIter = perimeter < 50 ? 3 : 4;
+            // 3. Chaikin 平滑（增加次数）
+            const smoothIter = perimeter < 50 ? 4 : 5;
             pts = chaikinSmoothPreserveCorners(pts, smoothIter, cornerIndices);
             
             // 缩回原始尺寸
@@ -323,8 +323,8 @@ export async function vectorize(imageData, options = {}) {
             
             if (pts.length < 3) continue;
 
-            // 4. Catmull-Rom
-            const pathD = fitBezierCatmullRom(pts, 0.3);
+            // 4. Catmull-Rom（低张力 = 更平滑曲线）
+            const pathD = fitBezierCatmullRom(pts, 0.2);
 
             if (pathD) pathParts.push(pathD);
         }

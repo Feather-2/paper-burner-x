@@ -4,22 +4,22 @@
 
 export const PRESETS = {
     logo: {
-        numColors: 16,
-        colorTolerance: 20,
+        numColors: 12,          // 减少颜色，合并边缘抗锯齿
+        colorTolerance: 30,
         pathTolerance: 0.5,
-        smoothness: 3,         // 平滑迭代次数（越大边缘越平滑）
+        smoothness: 3,
         minPathLength: 16,
         mode: 'spline',
-        blurSigma: 1.0
+        blurSigma: 1.5           // 增加模糊
     },
     illustration: {
-        numColors: 32,
-        colorTolerance: 25,
+        numColors: 24,
+        colorTolerance: 30,
         pathTolerance: 0.5,
         smoothness: 2,
         minPathLength: 16,
         mode: 'spline',
-        blurSigma: 1.0
+        blurSigma: 1.5
     },
     lineart: {
         numColors: 2,
