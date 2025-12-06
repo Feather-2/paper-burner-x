@@ -190,8 +190,8 @@ export function filterEdgeColors(colors, weightedColors) {
     const totalPixels = colorWeights.reduce((a, b) => a + b, 0);
     if (totalPixels === 0) return colors;
 
-    // 2. 识别主色（权重 >= 3% 的颜色）- 更激进过滤边缘色
-    const mainColorThreshold = 0.03;
+    // 2. 识别主色（权重 >= 5% 的颜色）- 更激进过滤边缘色
+    const mainColorThreshold = 0.05;
     const mainColors = [];
     const edgeCandidates = [];
 
@@ -251,9 +251,9 @@ export function filterEdgeColors(colors, weightedColors) {
 export function isEdgeColor(color, mainColors) {
     if (mainColors.length < 2) return false;
 
-    const maxLineDistance = 40; // 到连线的最大距离 - 更激进
-    const minT = 0.1;  // 投影位置下限
-    const maxT = 0.9;  // 投影位置上限
+    const maxLineDistance = 60; // 到连线的最大距离 - 更宽松，捕获更多边缘色
+    const minT = 0.05;  // 投影位置下限（更靠近端点也算）
+    const maxT = 0.95;  // 投影位置上限
 
     // 检查所有主色对
     for (let i = 0; i < mainColors.length; i++) {
