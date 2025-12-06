@@ -847,10 +847,51 @@
     }
 
     /**
-     * VTracer 风格角点检测
-     * 1. 使用更大的邻域计算曲率
-     * 2. 非极大值抑制
-     * 3. 角度阈值过滤
+     * 严格角点检测（最大锐利度版本）
+     * 使用多尺度检测 + 更宽松的阈值
+     */
+    function detectCornersVTracerStrict(points, angleThreshold = 150, minDistance = 2) {
+        if (points.length < 6) return [];
+
+        const n = points.length;
+        const corners = new Set();
+
+        // 使用多个尺度检测角点
+        const radii = [2, 4, 6, 8];
+        const threshold = angleThreshold * Math.PI / 180;
+
+        for (const radius of radii) {
+            if (n < radius * 2 + 1) continue;
+
+            // 计算每个点在当前尺度的曲率
+            for (let i = 0; i < n; i++) {
+                const angle = computeCurvature(points, i, radius);
+
+                // 角度小于阈值就是角点
+                if (angle < threshold) {
+                    // 检查是否是局部最小（只检查相邻1-2个点）
+                    const checkRange = Math.min(2, minDistance);
+                    let isLocalMin = true;
+                    for (let j = 1; j <= checkRange; j++) {
+                        const prevAngle = computeCurvature(points, (i - j + n) % n, radius);
+                        const nextAngle = computeCurvature(points, (i + j) % n, radius);
+                        if (angle > prevAngle + 0.01 || angle > nextAngle + 0.01) {
+                            isLocalMin = false;
+                            break;
+                        }
+                    }
+                    if (isLocalMin) {
+                        corners.add(i);
+                    }
+                }
+            }
+        }
+
+        return Array.from(corners).sort((a, b) => a - b);
+    }
+
+    /**
+     * VTracer 风格角点检测（原版本，保留兼容）
      */
     function detectCornersVTracer(points, angleThreshold = 90, minDistance = 5) {
         if (points.length < 6) return [];
@@ -958,43 +999,43 @@
 
     /**
      * VTracer 风格完整处理流程
-     * 使用 Chaikin 平滑 + 角点保护（增强锐利度版本）
+     * 使用 Chaikin 平滑 + 角点保护（最大锐利度版本）
      */
     function processContourVTracer(points, options = {}) {
         const {
-            cornerAngle = 100,      // 角点阈值（度）- 提高以检测更多角点
-            smoothWindow = 5,       // 平滑窗口
-            minCornerDist = 3,      // 角点最小距离 - 降低以保留更多角点
-            smoothIterations = 2,   // Chaikin 迭代次数 - 减少以保持锐利
-            cornerProtectRadius = 2 // 角点保护半径
+            cornerAngle = 150,      // 角点阈值（度）- 非常高
+            smoothWindow = 3,       // 平滑窗口 - 减小
+            minCornerDist = 2,      // 角点最小距离 - 非常小
+            smoothIterations = 1,   // Chaikin 迭代次数 - 只做1次
+            cornerProtectRadius = 4 // 角点保护半径 - 更大
         } = options;
 
         if (points.length < 4) return { points, corners: [] };
 
-        // 1. 预平滑：去除像素锯齿（只做1次，保持锐利）
-        let smoothed = movingAverageSmooth(points, 3);
+        // 1. 先检测角点（在预平滑之前！保留原始角点特征）
+        const cornerIndices = detectCornersVTracerStrict(points, cornerAngle, minCornerDist);
 
-        // 2. 检测角点
-        const cornerIndices = detectCornersVTracer(smoothed, cornerAngle, minCornerDist);
+        // 2. 预平滑：去除像素锯齿（只做1次，窗口小）
+        let smoothed = movingAverageSmooth(points, 3);
         const cornerSet = new Set(cornerIndices);
 
         // 3. 给点添加角点标记，包括角点附近的点也标记为"近角点"
         const n = smoothed.length;
         let taggedPoints = smoothed.map((p, i) => {
-            // 检查是否是角点或角点附近
             let isCorner = cornerSet.has(i);
             let nearCorner = false;
+            let distToCorner = Infinity;
 
             if (!isCorner) {
-                // 检查是否在角点附近
+                // 检查是否在角点附近，并记录距离
                 for (const ci of cornerIndices) {
                     const dist = Math.min(
                         Math.abs(i - ci),
                         n - Math.abs(i - ci)
                     );
-                    if (dist <= cornerProtectRadius) {
+                    if (dist <= cornerProtectRadius && dist < distToCorner) {
                         nearCorner = true;
-                        break;
+                        distToCorner = dist;
                     }
                 }
             }
@@ -1003,7 +1044,8 @@
                 x: p.x,
                 y: p.y,
                 isCorner,
-                nearCorner  // 新标记：近角点
+                nearCorner,
+                distToCorner  // 距离角点的距离（用于渐变保护）
             };
         });
 
@@ -1012,7 +1054,7 @@
             taggedPoints = chaikinSmoothTaggedSharp(taggedPoints);
         }
 
-        // 5. 最后移动平均平滑（保护角点区域）
+        // 5. 只对非角点区域做轻度平滑
         taggedPoints = movingAverageSmoothTaggedSharp(taggedPoints, smoothWindow);
 
         // 6. 提取结果
@@ -1025,8 +1067,8 @@
     }
 
     /**
-     * Chaikin 平滑（增强锐利度版本）
-     * 保护角点和角点附近的点
+     * Chaikin 平滑（最大锐利度版本）
+     * 角点和近角点都完全保持原位
      */
     function chaikinSmoothTaggedSharp(points) {
         if (points.length < 3) return points;
@@ -1038,30 +1080,27 @@
             const p0 = points[i];
             const p1 = points[(i + 1) % n];
 
-            if (p0.isCorner) {
-                // 角点：完全保持原样
+            if (p0.isCorner || p0.nearCorner) {
+                // 角点或近角点：完全保持原样
                 result.push({ ...p0 });
-            } else if (p0.nearCorner || p1.isCorner || p1.nearCorner) {
-                // 近角点或下一个是角点/近角点：只添加一个点，减少平滑
-                result.push({
-                    x: p0.x * 0.5 + p1.x * 0.5,  // 中点而非 3/4 位置
-                    y: p0.y * 0.5 + p1.y * 0.5,
-                    isCorner: false,
-                    nearCorner: p0.nearCorner || p1.nearCorner
-                });
+            } else if (p1.isCorner || p1.nearCorner) {
+                // 下一个是角点/近角点：保持当前点，不添加中间点
+                result.push({ ...p0 });
             } else {
                 // 正常 Chaikin：添加 1/4 和 3/4 位置的点
                 result.push({
                     x: p0.x * 0.75 + p1.x * 0.25,
                     y: p0.y * 0.75 + p1.y * 0.25,
                     isCorner: false,
-                    nearCorner: false
+                    nearCorner: false,
+                    distToCorner: Infinity
                 });
                 result.push({
                     x: p0.x * 0.25 + p1.x * 0.75,
                     y: p0.y * 0.25 + p1.y * 0.75,
                     isCorner: false,
-                    nearCorner: false
+                    nearCorner: false,
+                    distToCorner: Infinity
                 });
             }
         }
@@ -1070,10 +1109,10 @@
     }
 
     /**
-     * 移动平均平滑（增强锐利度版本）
-     * 角点区域使用更小的窗口
+     * 移动平均平滑（最大锐利度版本）
+     * 角点和近角点都完全保持原位
      */
-    function movingAverageSmoothTaggedSharp(points, windowSize = 5) {
+    function movingAverageSmoothTaggedSharp(points, windowSize = 3) {
         if (points.length < 3) return points;
 
         const half = Math.floor(windowSize / 2);
@@ -1081,35 +1120,33 @@
         const result = [];
 
         for (let i = 0; i < n; i++) {
-            if (points[i].isCorner) {
-                // 角点：完全保持原样
+            if (points[i].isCorner || points[i].nearCorner) {
+                // 角点或近角点：完全保持原样
                 result.push({ ...points[i] });
-            } else if (points[i].nearCorner) {
-                // 近角点：使用更小的窗口（只看相邻点）
-                const prev = points[(i - 1 + n) % n];
-                const curr = points[i];
-                const next = points[(i + 1) % n];
-                result.push({
-                    x: (prev.x + curr.x * 2 + next.x) / 4,  // 加权更偏向当前点
-                    y: (prev.y + curr.y * 2 + next.y) / 4,
-                    isCorner: false,
-                    nearCorner: true
-                });
             } else {
                 // 非角点：正常平滑处理
                 let sumX = 0, sumY = 0, count = 0;
                 for (let j = -half; j <= half; j++) {
                     const idx = (i + j + n) % n;
-                    sumX += points[idx].x;
-                    sumY += points[idx].y;
-                    count++;
+                    // 跳过角点和近角点，不让它们影响平滑结果
+                    if (!points[idx].isCorner && !points[idx].nearCorner) {
+                        sumX += points[idx].x;
+                        sumY += points[idx].y;
+                        count++;
+                    }
                 }
-                result.push({
-                    x: sumX / count,
-                    y: sumY / count,
-                    isCorner: false,
-                    nearCorner: false
-                });
+                if (count > 0) {
+                    result.push({
+                        x: sumX / count,
+                        y: sumY / count,
+                        isCorner: false,
+                        nearCorner: false,
+                        distToCorner: Infinity
+                    });
+                } else {
+                    // 如果周围都是角点，保持原样
+                    result.push({ ...points[i] });
+                }
             }
         }
 
@@ -1624,16 +1661,16 @@
 
                 const originalCount = contour.points.length;
 
-                // VTracer 参数 - 增强锐利度版本
+                // VTracer 参数 - 最大锐利度版本
                 const vtracerOptions = {
-                    cornerAngle: 100,          // 角点阈值（度）- 检测更多角点
-                    smoothWindow: 5,           // 平滑窗口
-                    smoothIterations: 2,       // Chaikin 迭代次数 - 减少以保持锐利
-                    minCornerDist: Math.max(3, Math.floor(originalCount / 50)),
-                    cornerProtectRadius: 2     // 角点保护半径
+                    cornerAngle: 150,          // 角点阈值（度）- 非常宽松
+                    smoothWindow: 3,           // 平滑窗口 - 小
+                    smoothIterations: 1,       // Chaikin 迭代次数 - 最少
+                    minCornerDist: 2,          // 角点最小距离 - 非常小
+                    cornerProtectRadius: 4     // 角点保护半径 - 更大
                 };
 
-                // 1. VTracer 风格处理：增强锐利度
+                // 1. VTracer 风格处理：最大锐利度（在预平滑前检测角点）
                 const processed = processContourVTracer(contour.points, vtracerOptions);
 
                 // 2. 对平滑后的点进行采样（而非简化）
