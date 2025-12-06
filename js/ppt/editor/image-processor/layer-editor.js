@@ -87,6 +87,23 @@ class LayerEditor {
                         <iconify-icon icon="carbon:redo"></iconify-icon>
                     </button>
                 </div>
+                
+                <!-- Left Panel: Layers -->
+                <div class="image-editor-panel panel-left" id="ieLayerPanel">
+                    <div class="panel-header">
+                        <h4>图层</h4>
+                        <button class="btn-icon-sm" title="添加空白图层">
+                            <iconify-icon icon="carbon:add"></iconify-icon>
+                        </button>
+                    </div>
+                    <div class="layer-list-container">
+                        <div class="layer-list"></div>
+                    </div>
+                </div>
+                
+                <div class="sidebar-resizer-v" id="ieLeftResizer"></div>
+
+                <!-- Center: Canvas -->
                 <div class="image-editor-canvas-wrap">
                     <div class="image-editor-viewport">
                         <canvas class="image-editor-canvas"></canvas>
@@ -94,29 +111,16 @@ class LayerEditor {
                     </div>
                     <div class="zoom-indicator">100%</div>
                 </div>
-                <div class="image-editor-sidebar">
-                    <div class="sidebar-section">
-                        <div class="sidebar-header">
-                            <h4>图层</h4>
-                        </div>
-                        <div class="layer-list-container">
-                            <div class="layer-list"></div>
-                        </div>
-                        <div class="layer-actions">
-                            <button class="btn-add-layer">
-                                <iconify-icon icon="carbon:add"></iconify-icon>
-                                添加空白图层
-                            </button>
-                        </div>
+
+                <!-- Right Panel: Properties -->
+                <div class="sidebar-resizer-v" id="ieRightResizer"></div>
+                <div class="image-editor-panel panel-right" id="iePropertyPanel">
+                    <div class="panel-header">
+                        <h4>属性</h4>
                     </div>
-                    <div class="sidebar-section">
-                        <div class="sidebar-header">
-                            <h4>属性</h4>
-                        </div>
-                        <div class="property-panel-container">
-                            <div class="property-panel">
-                                <div class="empty-state">选择一个图层以查看属性</div>
-                            </div>
+                    <div class="property-panel-container">
+                        <div class="property-panel">
+                            <div class="empty-state">选择一个图层以查看属性</div>
                         </div>
                     </div>
                 </div>
@@ -135,6 +139,10 @@ class LayerEditor {
 
         // 绑定事件
         this._bindEvents();
+        
+        // 绑定面板交互
+        this._bindPanelResizer();
+        this._bindPropertyPanelBehavior();
     }
 
     /**
@@ -155,172 +163,101 @@ class LayerEditor {
                 --ie-text: #1e293b;
                 --ie-text-secondary: #64748b;
                 --ie-hover: #f1f5f9;
+                --ie-radius: 6px;
+                --ie-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
             }
+            /* Global Reset for Editor */
+            .image-editor-container * {
+                box-sizing: border-box;
+            }
+            .image-editor-container iconify-icon {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                vertical-align: middle;
+            }
+            
             .image-editor-container {
                 position: fixed;
                 inset: 0;
                 z-index: 10000;
-                background-color: #f8fafc;
-                background-image:
-                    radial-gradient(at 27% 37%, hsla(215, 98%, 61%, 0.08) 0px, transparent 50%),
-                    radial-gradient(at 97% 21%, hsla(125, 98%, 72%, 0.06) 0px, transparent 50%),
-                    radial-gradient(at 52% 99%, hsla(354, 98%, 61%, 0.05) 0px, transparent 50%),
-                    radial-gradient(at 10% 29%, hsla(256, 96%, 67%, 0.07) 0px, transparent 50%),
-                    radial-gradient(at 97% 96%, hsla(38, 60%, 74%, 0.06) 0px, transparent 50%),
-                    radial-gradient(at 33% 50%, hsla(222, 67%, 73%, 0.06) 0px, transparent 50%),
-                    radial-gradient(at 79% 53%, hsla(343, 68%, 79%, 0.06) 0px, transparent 50%);
+                background-color: var(--ie-bg);
                 display: flex;
                 flex-direction: column;
-                font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-                animation: slideInFromRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                color: var(--ie-text);
+                animation: ie-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
             }
-            @keyframes slideInFromRight {
+            
+            @keyframes ie-slide-in {
                 from { transform: translateX(100%); opacity: 0; }
                 to { transform: translateX(0); opacity: 1; }
             }
+
+            /* Header */
             .image-editor-header {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                padding: 0 24px;
-                height: 64px;
-                background: rgba(255, 255, 255, 0.7);
-                backdrop-filter: blur(20px);
-                border-bottom: 1px solid rgba(255, 255, 255, 0.5);
-                box-shadow: 0 1px 2px rgba(0,0,0,0.02);
-                z-index: 10;
+                padding: 0 16px;
+                height: 56px;
+                background: rgba(255, 255, 255, 0.9);
+                backdrop-filter: blur(8px);
+                border-bottom: 1px solid var(--ie-border);
+                z-index: 20;
+                flex-shrink: 0;
             }
+            
             .image-editor-header-left {
-                display: flex;
-                align-items: center;
-                gap: 16px;
-            }
-            .image-editor-back {
-                width: 36px;
-                height: 36px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                padding: 0;
-                background: transparent;
-                border: 1px solid transparent;
-                border-radius: 8px;
-                color: var(--ie-text-secondary);
-                font-size: 18px;
-                cursor: pointer;
-                transition: all 0.2s;
-            }
-            .image-editor-back:hover {
-                background: var(--ie-hover);
-                color: var(--ie-text);
-            }
-            .image-editor-title {
-                font-size: 16px;
-                font-weight: 600;
-                color: var(--ie-text);
-                padding-left: 16px;
-                border-left: 1px solid var(--ie-border);
-                line-height: 1.2;
-            }
-            .image-editor-actions {
                 display: flex;
                 align-items: center;
                 gap: 12px;
             }
-            .image-editor-actions button {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                padding: 8px 16px;
-                border-radius: 6px;
-                font-size: 14px;
-                font-weight: 500;
-                cursor: pointer;
-                transition: all 0.2s;
-            }
-            .btn-cancel {
-                background: transparent;
-                border: 1px solid transparent;
-                color: var(--ie-text-secondary);
-            }
-            .btn-cancel:hover {
-                background: var(--ie-hover);
-                color: var(--ie-text);
-            }
-            .btn-apply {
-                background: var(--ie-primary);
-                border: none;
-                color: #ffffff;
-                box-shadow: 0 1px 2px rgba(79, 70, 229, 0.3);
-            }
-            .btn-apply:hover {
-                background: var(--ie-primary-hover);
-                transform: translateY(-1px);
-                box-shadow: 0 4px 6px rgba(79, 70, 229, 0.2);
-            }
+
+            /* Body Layout */
             .image-editor-body {
                 flex: 1;
                 display: flex;
                 overflow: hidden;
+                position: relative;
             }
+            
+            /* Toolbar */
             .image-editor-toolbar {
-                width: 64px;
+                width: 56px;
                 background: var(--ie-surface);
                 border-right: 1px solid var(--ie-border);
-                padding: 20px 12px;
+                padding: 16px 0;
                 display: flex;
                 flex-direction: column;
                 align-items: center;
-                gap: 12px;
-                z-index: 5;
+                gap: 8px;
+                z-index: 10;
+                flex-shrink: 0;
             }
+            
             .tool-btn {
-                width: 40px;
-                height: 40px;
-                border: none;
+                width: 36px;
+                height: 36px;
+                border-radius: var(--ie-radius);
+                border: 1px solid transparent;
                 background: transparent;
-                border-radius: 8px;
+                color: var(--ie-text-secondary);
                 cursor: pointer;
-                font-size: 20px;
-                color: #64748b;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                transition: all 0.2s;
-                position: relative;
-            }
-            .tool-btn iconify-icon {
                 font-size: 20px;
-                color: inherit;
+                transition: all 0.2s;
             }
             .tool-btn:hover {
                 background: var(--ie-hover);
                 color: var(--ie-text);
             }
             .tool-btn.active {
-                background: #eef2ff;
-                color: var(--ie-primary);
-            }
-            .tool-btn::after {
-                content: attr(title);
-                position: absolute;
-                left: 100%;
-                top: 50%;
-                transform: translateY(-50%);
-                margin-left: 10px;
-                background: #1e293b;
+                background: var(--ie-primary);
                 color: #fff;
-                padding: 4px 8px;
-                border-radius: 4px;
-                font-size: 12px;
-                white-space: nowrap;
-                pointer-events: none;
-                opacity: 0;
-                transition: opacity 0.2s;
-                z-index: 100;
-            }
-            .tool-btn:hover::after {
-                opacity: 1;
+                box-shadow: 0 2px 5px rgba(79, 70, 229, 0.3);
             }
             .toolbar-divider {
                 width: 24px;
@@ -328,6 +265,60 @@ class LayerEditor {
                 background: var(--ie-border);
                 margin: 4px 0;
             }
+            
+            /* Panels (Left & Right) */
+            .image-editor-panel {
+                width: 240px; 
+                background: var(--ie-surface);
+                display: flex;
+                flex-direction: column;
+                z-index: 10;
+                flex-shrink: 0;
+                transition: opacity 0.3s; 
+            }
+            
+            .panel-left { border-right: 1px solid var(--ie-border); }
+            .panel-right { border-left: 1px solid var(--ie-border); width: 280px; }
+            
+            /* Resizer */
+            .sidebar-resizer-v {
+                width: 1px;
+                background: transparent;
+                cursor: col-resize;
+                z-index: 30;
+                position: relative;
+                flex-shrink: 0;
+                transition: background 0.2s;
+                /* Hit area expansion */
+                padding: 0 4px; 
+                margin: 0 -4px;
+                background-clip: content-box;
+            }
+            .sidebar-resizer-v:hover, .sidebar-resizer-v.dragging {
+                background-color: var(--ie-primary);
+            }
+
+            .panel-header {
+                height: 40px;
+                padding: 0 12px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                border-bottom: 1px solid var(--ie-border);
+                background: #fcfcfc;
+                flex-shrink: 0;
+            }
+            
+            .panel-header h4 {
+                margin: 0;
+                font-size: 12px;
+                font-weight: 600;
+                color: var(--ie-text-secondary);
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+            
+            /* Canvas Area */
             .image-editor-canvas-wrap {
                 flex: 1;
                 display: flex;
@@ -340,310 +331,398 @@ class LayerEditor {
                 position: relative;
                 user-select: none;
             }
+            
             .image-editor-viewport {
                 position: relative;
-                box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-                border: 1px solid rgba(0,0,0,0.05);
+                box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.2);
                 background: #fff;
-                transition: transform 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+                transition: transform 0.1s cubic-bezier(0, 0, 0.2, 1);
             }
-            .image-editor-canvas {
-                display: block;
-            }
-            .image-editor-svg-container {
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                pointer-events: none;
-            }
+            
             .zoom-indicator {
                 position: absolute;
                 bottom: 24px;
                 left: 50%;
                 transform: translateX(-50%);
-                background: rgba(30, 41, 59, 0.8);
-                backdrop-filter: blur(4px);
-                color: #fff;
-                padding: 6px 16px;
-                border-radius: 20px;
-                font-size: 13px;
+                background: rgba(0,0,0,0.75);
+                color: white;
+                padding: 4px 12px;
+                border-radius: 100px;
+                font-size: 12px;
                 font-weight: 500;
                 pointer-events: none;
                 opacity: 0;
                 transition: opacity 0.3s;
+                backdrop-filter: blur(4px);
             }
-            .zoom-indicator.visible {
-                opacity: 1;
-            }
-            .image-editor-sidebar {
-                width: 320px;
-                background: var(--ie-surface);
-                border-left: 1px solid var(--ie-border);
-                display: flex;
-                flex-direction: column;
-                z-index: 5;
-            }
-            .sidebar-section {
-                display: flex;
-                flex-direction: column;
-                border-bottom: 1px solid var(--ie-border);
-            }
-            .sidebar-section:first-child {
-                flex: 1;
-                min-height: 0;
-                overflow: hidden;
-            }
-            .sidebar-section:last-child {
-                flex: 0 0 auto;
-                max-height: 50%;
-                overflow: hidden;
-                border-bottom: none;
-                box-shadow: 0 -1px 2px rgba(0,0,0,0.02);
-            }
-            .sidebar-header {
-                padding: 16px 20px;
-                border-bottom: 1px solid var(--ie-border);
-                background: #f8fafc;
-                flex: 0 0 auto;
-            }
-            .sidebar-header h4 {
-                margin: 0;
-                color: var(--ie-text-secondary);
-                font-size: 12px;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
-            }
+            .zoom-indicator.visible { opacity: 1; }
+            
+            /* Layer List */
             .layer-list-container {
                 flex: 1;
                 overflow-y: auto;
-                padding: 12px;
+                overflow-x: hidden;
+                padding: 8px;
             }
-            .layer-list {
-                display: flex;
-                flex-direction: column;
-                gap: 6px;
-            }
+            
             .layer-item {
                 display: flex;
                 align-items: center;
-                gap: 12px;
-                padding: 10px 12px;
-                background: var(--ie-surface);
+                gap: 10px;
+                padding: 6px 8px;
+                background: transparent;
                 border: 1px solid transparent;
-                border-radius: 8px;
+                border-radius: var(--ie-radius);
                 cursor: pointer;
                 color: var(--ie-text);
                 font-size: 13px;
                 transition: all 0.15s;
                 user-select: none;
                 margin-bottom: 2px;
+                height: 44px; /* Slightly taller for better touch */
             }
-            .layer-item:hover {
-                background: var(--ie-hover);
-            }
+            
+            .layer-item:hover { background: var(--ie-hover); }
+            
             .layer-item.selected {
-                background: #f0f7ff;
+                background: #eff6ff;
                 border-color: #dbeafe;
                 color: var(--ie-primary);
-                box-shadow: 0 1px 2px rgba(25, 113, 194, 0.05);
             }
+            
             .layer-preview {
-                width: 28px;
-                height: 28px;
+                width: 30px;
+                height: 30px;
                 border-radius: 4px;
-                background: #e2e8f0;
-                background-size: cover;
-                background-position: center;
-                border: 1px solid rgba(0,0,0,0.1);
+                background: #f1f5f9;
+                border: 1px solid rgba(0,0,0,0.06);
                 flex-shrink: 0;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                font-size: 12px;
-                color: #64748b;
+                font-size: 16px;
+                color: #94a3b8;
                 overflow: hidden;
             }
-            .layer-preview.color-preview {
-                box-shadow: inset 0 0 0 1px rgba(0,0,0,0.1);
-            }
-            .layer-visibility {
-                width: 24px;
-                height: 24px;
-                border: none;
-                background: transparent;
-                cursor: pointer;
-                font-size: 16px;
-                color: var(--ie-text-secondary);
-                border-radius: 4px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                transition: all 0.2s;
-                opacity: 0.6;
-            }
-            .layer-visibility:hover, .layer-item:hover .layer-visibility {
-                background: rgba(0,0,0,0.05);
-                color: var(--ie-text);
-                opacity: 1;
-            }
+            .layer-preview img { width: 100%; height: 100%; object-fit: contain; }
+            .layer-preview.color-preview { box-shadow: inset 0 0 0 1px rgba(0,0,0,0.1); }
+            
             .layer-name {
                 flex: 1;
                 font-weight: 500;
                 white-space: nowrap;
                 overflow: hidden;
                 text-overflow: ellipsis;
+                min-width: 0; /* Flexbox overflow fix */
             }
-            .layer-actions {
-                padding: 12px;
-                border-top: 1px solid var(--ie-border);
+            
+            /* Child Layer Styling */
+            .layer-item.child-layer {
+                height: 32px;
+                padding-left: 0; /* Reset padding, margin handled by container */
+                margin-left: 2px;
+                border-left: 2px solid transparent;
+                border-radius: 0 var(--ie-radius) var(--ie-radius) 0;
             }
-            .btn-add-layer {
-                width: 100%;
-                padding: 8px;
-                background: var(--ie-surface);
-                border: 1px dashed #cbd5e1;
-                border-radius: 6px;
-                color: var(--ie-text-secondary);
-                cursor: pointer;
-                font-size: 13px;
-                font-weight: 500;
-                transition: all 0.2s;
+            .layer-item.child-layer .layer-preview {
+                width: 20px;
+                height: 20px;
+                font-size: 12px;
             }
-            .btn-add-layer:hover {
-                border-color: var(--ie-primary);
-                color: var(--ie-primary);
-                background: #eef2ff;
+            .layer-item.child-layer.selected {
+                border-left-color: var(--ie-primary);
             }
+
+            .child-layer-container {
+                padding-left: 24px;
+                position: relative;
+            }
+            .child-layer-container::before {
+                content: '';
+                position: absolute;
+                left: 14px;
+                top: 0;
+                bottom: 12px;
+                width: 2px;
+                background: var(--ie-border);
+                opacity: 0.5;
+            }
+            
+            /* Property Panel */
             .property-panel-container {
                 flex: 1;
                 overflow-y: auto;
-                background: var(--ie-bg);
+                padding: 16px;
+                background: #fff;
             }
-            .property-panel {
-                padding: 20px;
-            }
+            
             .property-group {
                 margin-bottom: 24px;
+                border-bottom: 1px solid var(--ie-border);
+                padding-bottom: 16px;
             }
+            .property-group:last-child { border-bottom: none; }
+            
             .property-group-title {
                 font-size: 12px;
                 font-weight: 600;
                 color: var(--ie-text-secondary);
+                text-transform: uppercase;
                 margin-bottom: 12px;
                 display: flex;
                 align-items: center;
-                gap: 8px;
+                gap: 6px;
             }
+            
             .property-row {
                 display: flex;
-                justify-content: space-between;
                 align-items: center;
+                justify-content: space-between;
                 margin-bottom: 12px;
+                gap: 12px;
             }
             .property-row.block {
                 flex-direction: column;
                 align-items: flex-start;
                 gap: 8px;
             }
+            
             .property-label {
                 font-size: 13px;
-                color: var(--ie-text-secondary);
-            }
-            .property-input {
-                padding: 6px 10px;
-                border: 1px solid var(--ie-border);
-                border-radius: 6px;
-                font-size: 13px;
                 color: var(--ie-text);
-                background: var(--ie-surface);
-                width: 100%;
-                transition: border-color 0.2s;
             }
-            .property-input:focus {
-                outline: none;
-                border-color: var(--ie-primary);
-                box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
-            }
-            .property-select {
-                padding: 6px 10px;
-                border: 1px solid var(--ie-border);
-                border-radius: 6px;
-                font-size: 13px;
-                color: var(--ie-text);
-                background: var(--ie-surface);
-                width: 100%;
-                cursor: pointer;
-            }
-            .range-wrap {
-                width: 100%;
-                display: flex;
-                align-items: center;
-                gap: 12px;
-            }
-            .range-input {
-                flex: 1;
-                height: 4px;
-                background: #e2e8f0;
-                border-radius: 2px;
-                appearance: none;
-            }
-            .range-input::-webkit-slider-thumb {
-                appearance: none;
-                width: 16px;
-                height: 16px;
-                border-radius: 50%;
-                background: var(--ie-primary);
-                cursor: pointer;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            }
-            .range-value {
-                font-size: 12px;
-                font-family: monospace;
-                color: var(--ie-text-secondary);
-                width: 24px;
-                text-align: right;
-            }
-            .btn-action {
+            
+            .property-input, .property-select {
                 width: 100%;
                 padding: 8px;
-                background: var(--ie-primary);
-                color: #fff;
-                border: none;
-                border-radius: 6px;
+                border: 1px solid var(--ie-border);
+                border-radius: var(--ie-radius);
+                font-size: 13px;
+                background: #fff;
+                transition: border-color 0.2s;
+            }
+            .property-input:focus, .property-select:focus {
+                border-color: var(--ie-primary);
+                outline: none;
+                box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
+            }
+            
+            /* Header Buttons */
+            .image-editor-back { 
+                width: 32px; height: 32px; padding: 0; background: transparent; 
+                border: 1px solid var(--ie-border); color: var(--ie-text-secondary); 
+                border-radius: var(--ie-radius); display: flex; align-items: center; justify-content: center;
+                cursor: pointer; transition: all 0.2s;
+            }
+            .image-editor-back:hover { background: var(--ie-hover); color: var(--ie-text); border-color: var(--ie-text-secondary); }
+            
+            .image-editor-title { 
+                font-size: 15px;
+                font-weight: 600;
+                color: var(--ie-text); 
+                margin-left: 8px;
+            }
+            
+            .image-editor-actions { display: flex; gap: 8px; }
+            
+            .btn-cancel { 
+                padding: 8px 16px; 
+                background: transparent; 
+                border: 1px solid transparent; 
+                color: var(--ie-text-secondary); 
                 font-size: 13px;
                 font-weight: 500;
+                border-radius: var(--ie-radius);
                 cursor: pointer;
-                margin-top: 8px;
+                transition: all 0.2s;
             }
-            .btn-action:hover {
+            .btn-cancel:hover { background: var(--ie-hover); color: var(--ie-text); }
+            
+            .btn-apply { 
+                padding: 8px 16px; 
+                background: var(--ie-primary);
+                border: 1px solid transparent;
+                color: white;
+                font-size: 13px;
+                font-weight: 500;
+                border-radius: var(--ie-radius);
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                transition: all 0.2s;
+                box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2);
+            }
+            .btn-apply:hover { 
                 background: var(--ie-primary-hover);
+                transform: translateY(-1px);
+                box-shadow: 0 4px 6px rgba(79, 70, 229, 0.3);
             }
+            
+            .btn-action { 
+                width: 100%; padding: 10px; 
+                background: #fff; color: var(--ie-text); 
+                border: 1px solid var(--ie-border); 
+                border-radius: var(--ie-radius); 
+                font-size: 13px; font-weight: 500; 
+                cursor: pointer; margin-top: 8px; 
+                display: flex; align-items: center; justify-content: center; gap: 6px; 
+                transition: all 0.2s;
+            }
+            .btn-action:hover { border-color: var(--ie-primary); color: var(--ie-primary); background: #fdfdff; }
+            
+            /* Sliders */
+            .range-wrap { width: 100%; display: flex; align-items: center; gap: 12px; }
+            .range-input { flex: 1; height: 6px; background: var(--ie-hover); border-radius: 3px; appearance: none; border: 1px solid var(--ie-border); }
+            .range-input::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 2px solid var(--ie-primary); cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.1); transition: transform 0.1s; }
+            .range-input::-webkit-slider-thumb:hover { transform: scale(1.1); }
+            .range-value { font-size: 12px; font-family: monospace; color: var(--ie-text-secondary); width: 32px; text-align: right; }
+            
+            .layer-visibility { 
+                width: 28px; height: 28px; border: none; background: transparent; cursor: pointer; 
+                font-size: 16px; color: var(--ie-text-secondary); border-radius: 4px; 
+                display: flex; align-items: center; justify-content: center; opacity: 0.6; transition: all 0.2s; 
+            }
+            .layer-visibility:hover, .layer-item:hover .layer-visibility { background: rgba(0,0,0,0.05); color: var(--ie-text); opacity: 1; }
+            
+            /* Utility */
+            .btn-icon-sm {
+                width: 28px; height: 28px;
+                display: flex; align-items: center; justify-content: center;
+                border: none; background: transparent; border-radius: 4px;
+                color: var(--ie-text-secondary); cursor: pointer;
+                transition: all 0.2s;
+            }
+            .btn-icon-sm:hover { background: var(--ie-hover); color: var(--ie-primary); }
+            
             .empty-state {
+                padding: 40px 0;
                 text-align: center;
                 color: var(--ie-text-secondary);
                 font-size: 13px;
-                padding: 40px 20px;
-            }
-            /* Custom Scrollbar */
-            ::-webkit-scrollbar {
-                width: 6px;
-                height: 6px;
-            }
-            ::-webkit-scrollbar-track {
-                background: transparent;
-            }
-            ::-webkit-scrollbar-thumb {
-                background: #cbd5e1;
-                border-radius: 3px;
-            }
-            ::-webkit-scrollbar-thumb:hover {
-                background: #94a3b8;
             }
         `;
         document.head.appendChild(style);
+    }
+
+    /**
+     * 绑定面板调整大小 (左右面板)
+     */
+    _bindPanelResizer() {
+        const leftResizer = this.container.querySelector('#ieLeftResizer');
+        const leftPanel = this.container.querySelector('#ieLayerPanel');
+        
+        const rightResizer = this.container.querySelector('#ieRightResizer');
+        const rightPanel = this.container.querySelector('#iePropertyPanel');
+        
+        // === Left Panel Resizing ===
+        if (leftResizer && leftPanel) {
+            let startX, startWidth;
+            
+            const onMouseMove = (e) => {
+                const deltaX = e.clientX - startX;
+                const newWidth = Math.max(180, Math.min(400, startWidth + deltaX));
+                leftPanel.style.width = `${newWidth}px`;
+            };
+            
+            const onMouseUp = () => {
+                leftResizer.classList.remove('dragging');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            };
+            
+            leftResizer.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                startX = e.clientX;
+                startWidth = leftPanel.offsetWidth;
+                leftResizer.classList.add('dragging');
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            });
+        }
+        
+        // === Right Panel Resizing ===
+        if (rightResizer && rightPanel) {
+            let startX, startWidth;
+            
+            const onMouseMove = (e) => {
+                // Right panel is on right, dragging left increases width
+                const deltaX = startX - e.clientX; 
+                const newWidth = Math.max(200, Math.min(450, startWidth + deltaX));
+                rightPanel.style.width = `${newWidth}px`;
+            };
+            
+            const onMouseUp = () => {
+                rightResizer.classList.remove('dragging');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            };
+            
+            rightResizer.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                startX = e.clientX;
+                startWidth = rightPanel.offsetWidth;
+                rightResizer.classList.add('dragging');
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+                document.addEventListener('mousemove', onMouseMove);
+                document.addEventListener('mouseup', onMouseUp);
+            });
+        }
+    }
+
+    /**
+     * 绑定属性面板自动行为
+     */
+    _bindPropertyPanelBehavior() {
+        const layerPanel = this.container.querySelector('#ieLayerPanel');
+        const propertyPanel = this.container.querySelector('#iePropertyPanel');
+        const rightResizer = this.container.querySelector('#ieRightResizer');
+        
+        if (!layerPanel || !propertyPanel) return;
+
+        const expandPanel = () => {
+            propertyPanel.classList.add('visible');
+            if (rightResizer) rightResizer.classList.add('visible');
+        };
+
+        const collapsePanel = () => {
+            propertyPanel.classList.remove('visible');
+            if (rightResizer) rightResizer.classList.remove('visible');
+        };
+
+        // 双击展开
+        layerPanel.addEventListener('dblclick', (e) => {
+            const item = e.target.closest('.layer-item');
+            if (item) {
+                expandPanel();
+            }
+        });
+
+        // 点击空白收起
+        layerPanel.addEventListener('click', (e) => {
+            if (!e.target.closest('.layer-item')) {
+                this.selectedLayerIndex = -1;
+                this._updateLayerList();
+                collapsePanel();
+            }
+        });
+        
+        // 拦截 selectLayer 以便处理选中逻辑
+        const originalSelectLayer = this._selectLayer.bind(this);
+        this._selectLayer = (index) => {
+            originalSelectLayer(index);
+            // 如果 index == -1，收起
+            if (index === -1) {
+                collapsePanel();
+            }
+        };
     }
 
     /**
@@ -759,7 +838,19 @@ class LayerEditor {
     async _executeAction(action) {
         switch (action) {
             case 'vectorize':
-                await this._vectorize();
+                // 检查是否已经存在矢量化图层组
+                const existingGroupIndex = this.processedImage.layers.findIndex(
+                    l => l.type === 'group' && l.vectorConfig
+                );
+                
+                if (existingGroupIndex !== -1) {
+                    // 如果已存在，直接选中它
+                    console.log('[LayerEditor] 已存在矢量化图层，切换选中状态');
+                    this._selectLayer(existingGroupIndex);
+                } else {
+                    // 不存在则执行矢量化（自动检测模式）
+                    await this._vectorize();
+                }
                 break;
             case 'ocr':
                 await this._runOcr();
@@ -1042,102 +1133,150 @@ class LayerEditor {
         // 绘制文字标签
         this.ctx.fillStyle = '#4f46e5';
         this.ctx.font = '12px sans-serif';
-        this.ctx.fillText(content.substring(0, 20), x, y - 5);
+        this.ctx.fillText(layer.name, x, y - 5);
     }
 
+    /**
+     * 更新图层列表
+     */
     _updateLayerList() {
-        const list = this.container.querySelector('.layer-list');
-        
-        const generateLayerHtml = (layer, idx, level = 0) => {
-            let previewHtml = '';
-            // 增加层级缩进
-            const paddingLeft = level * 20 + 12;
-            
-            if (layer.type === 'group') {
-                previewHtml = `<div class="layer-preview"><iconify-icon icon="carbon:folder"></iconify-icon></div>`;
-            } else if (layer.type === 'vector' && layer.color) {
-                previewHtml = `<div class="layer-preview color-preview" style="background-color: ${layer.color}"></div>`;
-            } else if (layer.type === 'original' || layer.type === 'foreground') {
-                previewHtml = `<div class="layer-preview"><iconify-icon icon="carbon:image"></iconify-icon></div>`;
-            } else if (layer.type === 'text') {
-                previewHtml = `<div class="layer-preview"><iconify-icon icon="carbon:text-font"></iconify-icon></div>`;
-            } else {
-                previewHtml = `<div class="layer-preview"><iconify-icon icon="carbon:layer"></iconify-icon></div>`;
-            }
-            
-            const isSelected = (idx === this.selectedLayerIndex && level === 0);
-            
-            let html = `
-            <div class="layer-item ${isSelected ? 'selected' : ''}" data-index="${idx}" style="padding-left: ${paddingLeft}px">
-                <button class="layer-visibility" title="${layer.visible ? '隐藏' : '显示'}">
-                    <iconify-icon icon="${layer.visible ? 'carbon:view' : 'carbon:view-off'}"></iconify-icon>
-                </button>
-                ${previewHtml}
-                <span class="layer-name" title="${layer.name}">${layer.name}</span>
-            </div>
-            `;
-            
-            // 递归渲染子图层
-            if (layer.type === 'group' && layer.children && layer.children.length > 0) {
-                html += layer.children.map((child, childIdx) => {
-                    let childPreview = `<div class="layer-preview color-preview" style="background-color: ${child.color}"></div>`;
-                    const childVisible = child.visible !== false; // 默认为 true
-                    
-                    return `
-                    <div class="layer-item child-layer" data-parent-idx="${idx}" data-child-idx="${childIdx}" style="padding-left: ${paddingLeft + 20}px;">
-                        <button class="layer-visibility" title="${childVisible ? '隐藏' : '显示'}">
-                            <iconify-icon icon="${childVisible ? 'carbon:view' : 'carbon:view-off'}"></iconify-icon>
-                        </button>
-                        ${childPreview}
-                        <span class="layer-name" style="font-size: 12px;">${child.name}</span>
-                    </div>
-                    `;
-                }).join('');
-            }
-            
-            return html;
-        };
+        const container = this.container.querySelector('.layer-list');
+        container.innerHTML = '';
 
-        list.innerHTML = this.processedImage.layers.map((layer, idx) => generateLayerHtml(layer, idx)).join('');
+        // 倒序渲染，让上面的图层在列表中显示在上面
+        // 注意：渲染顺序是 0 (底层) -> N (顶层)
+        // 列表顺序应该是 N (顶层) -> 0 (底层)
+        const layers = [...this.processedImage.layers].reverse();
 
-        // 绑定图层点击
-        list.querySelectorAll('.layer-item').forEach(item => {
-            item.addEventListener('click', (e) => {
+        layers.forEach((layer, reverseIndex) => {
+            // 计算原始索引
+            const index = this.processedImage.layers.length - 1 - reverseIndex;
+            const isSelected = index === this.selectedLayerIndex;
+
+            const item = document.createElement('div');
+            item.className = `layer-item ${isSelected ? 'selected' : ''}`;
+            item.onclick = () => this._selectLayer(index);
+
+            // 缩略图
+            const preview = document.createElement('div');
+            preview.className = `layer-preview ${layer.type === 'vector' && layer.color ? 'color-preview' : ''}`;
+            preview.innerHTML = this._getLayerThumbnail(layer);
+            
+            // 如果是颜色块，设置背景色
+            if (layer.type === 'vector' && layer.color) {
+                preview.style.backgroundColor = layer.color;
+                preview.innerHTML = ''; // 清空内容，只显示颜色
+            }
+
+            // 名称
+            const name = document.createElement('div');
+            name.className = 'layer-name';
+            name.textContent = layer.name || `图层 ${index + 1}`;
+            name.title = name.textContent;
+
+            // 可见性按钮
+            const visibleBtn = document.createElement('button');
+            visibleBtn.className = 'layer-visibility';
+            visibleBtn.innerHTML = `<iconify-icon icon="${layer.visible ? 'carbon:view' : 'carbon:view-off'}"></iconify-icon>`;
+            visibleBtn.onclick = (e) => {
                 e.stopPropagation();
-                const isChild = item.classList.contains('child-layer');
+                this._toggleLayerVisibility(index);
+            };
+
+            item.appendChild(preview);
+            item.appendChild(name);
+            item.appendChild(visibleBtn);
+            container.appendChild(item);
+
+            // 组图层处理
+            if (layer.type === 'group' && layer.children) {
+                const groupList = document.createElement('div');
+                groupList.className = 'child-layer-container';
                 
-                // 如果点击的是可见性按钮
-                if (e.target.closest('.layer-visibility')) {
-                    if (isChild) {
-                        const parentIdx = parseInt(item.dataset.parentIdx);
-                        const childIdx = parseInt(item.dataset.childIdx);
-                        const parent = this.processedImage.layers[parentIdx];
-                        if (parent && parent.children && parent.children[childIdx]) {
-                            parent.children[childIdx].visible = !parent.children[childIdx].visible;
-                            this._render();
-                            // 仅更新当前按钮图标
-                            const btn = e.target.closest('.layer-visibility').querySelector('iconify-icon');
-                            btn.setAttribute('icon', parent.children[childIdx].visible ? 'carbon:view' : 'carbon:view-off');
-                        }
+                // 组内图层也倒序
+                [...layer.children].reverse().forEach(child => {
+                    const childItem = document.createElement('div');
+                    childItem.className = 'layer-item child-layer';
+                    
+                    const childPreview = document.createElement('div');
+                    childPreview.className = 'layer-preview color-preview';
+                    if (child.color) {
+                        childPreview.style.backgroundColor = child.color;
+                        childPreview.innerHTML = '';
                     } else {
-                        const idx = parseInt(item.dataset.index);
-                        this.processedImage.layers[idx].visible = !this.processedImage.layers[idx].visible;
-                        this._render();
-                        // 仅更新当前按钮图标
-                        const btn = e.target.closest('.layer-visibility').querySelector('iconify-icon');
-                        btn.setAttribute('icon', this.processedImage.layers[idx].visible ? 'carbon:view' : 'carbon:view-off');
+                         // Fallback icon for non-color vector children
+                         childPreview.innerHTML = '<iconify-icon icon="carbon:shape"></iconify-icon>';
                     }
-                } else if (!isChild) {
-                    // 选中顶层图层
-                    const idx = parseInt(item.dataset.index);
-                    this.selectedLayerIndex = idx;
-                    this._updateLayerList();
-                    this._updatePropertyPanel();
-                }
-            });
+                    
+                    const childName = document.createElement('div');
+                    childName.className = 'layer-name';
+                    childName.textContent = child.name || '路径';
+                    
+                    // 子图层可见性按钮
+                    const visibleBtn = document.createElement('button');
+                    visibleBtn.className = 'layer-visibility';
+                    const isVisible = child.visible !== false;
+                    visibleBtn.innerHTML = `<iconify-icon icon="${isVisible ? 'carbon:view' : 'carbon:view-off'}"></iconify-icon>`;
+                    visibleBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        child.visible = !isVisible;
+                        this._render();
+                        this._updateLayerList();
+                    };
+
+                    childItem.appendChild(childPreview);
+                    childItem.appendChild(childName);
+                    childItem.appendChild(visibleBtn);
+                    groupList.appendChild(childItem);
+                });
+                container.appendChild(groupList);
+            }
         });
     }
 
+    /**
+     * 获取图层缩略图内容
+     */
+    _getLayerThumbnail(layer) {
+        switch (layer.type) {
+            case 'original':
+                return `<iconify-icon icon="carbon:image"></iconify-icon>`;
+            case 'vector':
+                return `<iconify-icon icon="carbon:shape"></iconify-icon>`;
+            case 'group':
+                return `<iconify-icon icon="carbon:folder"></iconify-icon>`;
+            case 'text':
+                return `<iconify-icon icon="carbon:text-font"></iconify-icon>`;
+            case 'foreground':
+                return `<iconify-icon icon="carbon:user-avatar"></iconify-icon>`;
+            default:
+                return `<iconify-icon icon="carbon:layer"></iconify-icon>`;
+        }
+    }
+
+    /**
+     * 切换图层可见性
+     */
+    _toggleLayerVisibility(index) {
+        const layer = this.processedImage.layers[index];
+        layer.visible = !layer.visible;
+        this._updateLayerList();
+        this._render();
+    }
+
+    /**
+     * 选择图层
+     */
+    _selectLayer(index) {
+        if (this.selectedLayerIndex === index) return;
+        this.selectedLayerIndex = index;
+        this._updateLayerList();
+        this._updatePropertyPanel();
+    }
+
+    /**
+     * 更新属性面板
+     */
     _updatePropertyPanel() {
         const panel = this.container.querySelector('.property-panel');
         if (this.selectedLayerIndex < 0) {
