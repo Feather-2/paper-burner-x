@@ -54,6 +54,28 @@ import {
 import { PRESETS } from './presets.js';
 
 /**
+ * 单次迭代平滑（5点移动平均）
+ * 比3点平滑效果更好，能有效去除像素级锯齿
+ */
+function smoothPathIteration(points) {
+    if (points.length < 5) return points;
+    const n = points.length;
+    const result = [];
+    for (let i = 0; i < n; i++) {
+        const p0 = points[(i - 2 + n) % n];
+        const p1 = points[(i - 1 + n) % n];
+        const p2 = points[i];
+        const p3 = points[(i + 1) % n];
+        const p4 = points[(i + 2) % n];
+        result.push({
+            x: (p0.x + p1.x + p2.x + p3.x + p4.x) / 5,
+            y: (p0.y + p1.y + p2.y + p3.y + p4.y) / 5
+        });
+    }
+    return result;
+}
+
+/**
  * 主矢量化函数
  */
 export async function vectorize(imageData, options = {}) {
@@ -213,11 +235,11 @@ export async function vectorize(imageData, options = {}) {
         const pathParts = [];
 
         // 动态面积阈值：基于图像尺寸，过滤孤立小噪点
-        // 最小噪点面积 = 图像面积的 0.02%，但至少 20 像素，最多 200 像素
+        // 最小噪点面积 = 图像面积的 0.01%，但至少 4 像素，最多 50 像素
         const totalArea = width * height;
-        const minNoiseArea = Math.max(20, Math.min(200, totalArea * 0.0002));
+        const minNoiseArea = Math.max(4, Math.min(50, totalArea * 0.0001));
         // 中等轮廓阈值（用于决定是否曲线拟合）
-        const mediumContourArea = Math.max(100, minNoiseArea * 5);
+        const mediumContourArea = Math.max(30, minNoiseArea * 3);
 
         for (const contour of contours) {
             if (contour.points.length < 3) continue;
@@ -237,7 +259,7 @@ export async function vectorize(imageData, options = {}) {
                 continue;
             }
 
-            // VTracer 处理
+            // VTracer 处理（角点检测 + 局部平滑）
             const processed = processContourVTracer(contour.points, {
                 cornerAngle: 110,
                 minCornerDist: 2,
@@ -245,7 +267,7 @@ export async function vectorize(imageData, options = {}) {
             });
             let finalPoints = processed.points;
 
-            // 大轮廓采样（限制点数提升性能）
+            // 3. 大轮廓采样（限制点数提升性能）
             if (finalPoints.length > 500) {
                 const step = finalPoints.length / 500;
                 const sampled = [];
@@ -257,8 +279,8 @@ export async function vectorize(imageData, options = {}) {
 
             if (finalPoints.length < 3) continue;
 
-            // 曲线拟合
-            const fitError = Math.min(smoothness, 1.0);
+            // 4. 曲线拟合（误差基于 pathTolerance）
+            const fitError = Math.max(0.5, pathTolerance * 2);
             const pathD = mode === 'spline'
                 ? fitBezierSmooth(finalPoints, fitError)
                 : generatePolygonPath(finalPoints);
@@ -304,8 +326,8 @@ export async function vectorize(imageData, options = {}) {
         }
     }
     
-    // 过滤掉面积远小于全局最大（1:50 比例）的图层
-    const minLayerArea = Math.max(16, globalMaxArea / 50);
+    // 过滤掉面积远小于全局最大（1:500 比例）的图层，更宽松避免误删
+    const minLayerArea = Math.max(4, globalMaxArea / 500);
     const filteredLayers = layers.filter(layer => {
         // 计算该图层的总面积
         let layerArea = 0;

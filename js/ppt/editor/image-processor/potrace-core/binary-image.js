@@ -375,8 +375,8 @@ export function createBinaryBitmapFromMap(pixelColorMap, targetColorIdx, width, 
     }
     
     // 连通区域过滤：只保留相对于最大区域足够大的区域
-    // 比例 1:40 意味着只保留 >= 最大区域/40 的区域
-    let finalBitmap = filterSmallRegions(bitmap, width, height, 40);
+    // 比例 1:200 更宽松，保留更多细小笔画
+    let finalBitmap = filterSmallRegions(bitmap, width, height, 200);
     
     // 闭运算：填充小孔洞
     finalBitmap = morphClose(finalBitmap, width, height);

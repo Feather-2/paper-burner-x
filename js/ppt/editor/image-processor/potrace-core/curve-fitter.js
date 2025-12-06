@@ -256,11 +256,12 @@ export function fitBezierSmooth(points, maxError = 1.0) {
     if (pts.length < 3) return generatePolygonPath(points);
 
     // 先检测角点，将路径分成多个段
-    const corners = detectCornersVTracer(pts, 120, 3);
+    // 阈值 150 度 = 只检测真正的尖角，平滑曲线不分段
+    const corners = detectCornersVTracer(pts, 150, 5);
     
-    // 如果没有角点，整体拟合
-    if (corners.length === 0) {
-        return fitSegmentWithLineDetection(pts, maxError) + (closed ? 'Z' : '');
+    // 如果角点很少，整体拟合（产生更平滑的曲线）
+    if (corners.length < 2) {
+        return fitSegmentWithLineDetection(pts, maxError * 2) + (closed ? 'Z' : '');
     }
 
     // 按角点分段
@@ -309,7 +310,8 @@ export function fitSegmentCurve(points, maxError) {
 
     if (typeof window !== 'undefined' && typeof window.fitCurve === 'function') {
         try {
-            const curves = window.fitCurve(pts, Math.max(0.1, maxError));
+            // 误差至少 2.0，产生更平滑的曲线
+            const curves = window.fitCurve(pts, Math.max(2.0, maxError));
             if (curves && curves.length > 0) {
                 let path = '';
                 for (const c of curves) {
@@ -328,11 +330,12 @@ export function fitSegmentCurve(points, maxError) {
  * 带直线检测的整体拟合
  */
 export function fitSegmentWithLineDetection(pts, maxError) {
-    // 优先使用 fit-curve
+    // 优先使用 fit-curve，增大误差容忍度获得更平滑的曲线
     if (typeof window !== 'undefined' && typeof window.fitCurve === 'function') {
         try {
             const inputPts = pts.map(p => [p.x, p.y]);
-            const curves = window.fitCurve(inputPts, Math.max(0.1, maxError * 0.5));
+            // 误差至少 2.0，产生更少、更平滑的曲线段
+            const curves = window.fitCurve(inputPts, Math.max(2.0, maxError));
             if (curves && curves.length > 0) {
                 let path = `M${curves[0][0][0].toFixed(2)},${curves[0][0][1].toFixed(2)}`;
                 for (const c of curves) {

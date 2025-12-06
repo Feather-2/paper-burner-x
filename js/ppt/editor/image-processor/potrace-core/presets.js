@@ -6,17 +6,17 @@ export const PRESETS = {
     logo: {
         numColors: 16,
         colorTolerance: 20,
-        pathTolerance: 0.3,
-        smoothness: 0.8,       // 更小的拟合误差
+        pathTolerance: 0.5,
+        smoothness: 3,         // 平滑迭代次数（越大边缘越平滑）
         minPathLength: 16,
         mode: 'spline',
-        blurSigma: 1.0         // 增强模糊
+        blurSigma: 1.0
     },
     illustration: {
         numColors: 32,
         colorTolerance: 25,
         pathTolerance: 0.5,
-        smoothness: 1.0,
+        smoothness: 2,
         minPathLength: 16,
         mode: 'spline',
         blurSigma: 1.0
