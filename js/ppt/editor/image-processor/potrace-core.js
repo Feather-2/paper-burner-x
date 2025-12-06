@@ -206,16 +206,16 @@
             if (!changed) break;
         }
 
-        // 合并相似颜色（距离 < 20）
-        const mergeThreshold = 400; // 20^2
+        // 合并相似颜色（距离 < 25）
+        const mergeThreshold = 625; // 25^2
         const merged = [];
         const used = new Set();
-        
+
         for (let i = 0; i < centers.length; i++) {
             if (used.has(i)) continue;
             let sum = [...centers[i]];
             let count = 1;
-            
+
             for (let j = i + 1; j < centers.length; j++) {
                 if (!used.has(j) && colorDistSq(centers[i], centers[j]) < mergeThreshold) {
                     sum[0] += centers[j][0];
@@ -225,7 +225,7 @@
                     used.add(j);
                 }
             }
-            
+
             merged.push([
                 Math.round(sum[0] / count),
                 Math.round(sum[1] / count),
@@ -234,8 +234,160 @@
             used.add(i);
         }
 
+        // 边缘色过滤：识别并移除抗锯齿产生的过渡色
+        const filtered = filterEdgeColors(merged, weightedColors);
+
         // 按亮度排序
-        return merged.sort((a, b) => (a[0] + a[1] + a[2]) - (b[0] + b[1] + b[2]));
+        return filtered.sort((a, b) => (a[0] + a[1] + a[2]) - (b[0] + b[1] + b[2]));
+    }
+
+    /**
+     * 边缘色过滤 - 识别并移除抗锯齿产生的过渡色
+     *
+     * 边缘色特征：
+     * 1. 像素权重较小（占比 < 5%）
+     * 2. 颜色值介于两个主色之间（在色彩空间中位于连线上）
+     * 3. 与最近主色的距离适中（太远说明是独立颜色）
+     */
+    function filterEdgeColors(colors, weightedColors) {
+        if (colors.length <= 2) return colors;
+
+        // 1. 计算每个颜色的总权重
+        const colorWeights = colors.map(color => {
+            let totalWeight = 0;
+            for (const wc of weightedColors) {
+                // 找最近的聚类中心
+                let minDist = Infinity;
+                let nearestIdx = 0;
+                for (let i = 0; i < colors.length; i++) {
+                    const d = colorDistSq(wc.color, colors[i]);
+                    if (d < minDist) {
+                        minDist = d;
+                        nearestIdx = i;
+                    }
+                }
+                if (colors[nearestIdx] === color) {
+                    totalWeight += wc.weight;
+                }
+            }
+            return totalWeight;
+        });
+
+        const totalPixels = colorWeights.reduce((a, b) => a + b, 0);
+        if (totalPixels === 0) return colors;
+
+        // 2. 识别主色（权重 >= 3% 的颜色）- 更激进过滤边缘色
+        const mainColorThreshold = 0.03;
+        const mainColors = [];
+        const edgeCandidates = [];
+
+        for (let i = 0; i < colors.length; i++) {
+            const ratio = colorWeights[i] / totalPixels;
+            if (ratio >= mainColorThreshold) {
+                mainColors.push({ color: colors[i], weight: colorWeights[i], index: i });
+            } else {
+                edgeCandidates.push({ color: colors[i], weight: colorWeights[i], index: i, ratio });
+            }
+        }
+
+        // 如果主色太少，放宽阈值
+        if (mainColors.length < 2) {
+            // 按权重排序，取前2个作为主色
+            const sorted = colors.map((c, i) => ({ color: c, weight: colorWeights[i], index: i }))
+                .sort((a, b) => b.weight - a.weight);
+            mainColors.length = 0;
+            edgeCandidates.length = 0;
+            for (let i = 0; i < sorted.length; i++) {
+                if (i < 2) {
+                    mainColors.push(sorted[i]);
+                } else {
+                    edgeCandidates.push({ ...sorted[i], ratio: sorted[i].weight / totalPixels });
+                }
+            }
+        }
+
+        console.log(`[EdgeFilter] 主色 ${mainColors.length} 个, 候选边缘色 ${edgeCandidates.length} 个`);
+
+        // 3. 判断候选色是否为边缘色
+        const result = mainColors.map(mc => mc.color);
+
+        for (const candidate of edgeCandidates) {
+            const isEdge = isEdgeColor(candidate.color, mainColors.map(mc => mc.color));
+
+            if (isEdge) {
+                console.log(`[EdgeFilter] 过滤边缘色 rgb(${candidate.color.join(',')}) (${(candidate.ratio * 100).toFixed(1)}%)`);
+                // 边缘色不加入结果，其像素会被分配到最近的主色
+            } else {
+                // 不是边缘色，保留
+                result.push(candidate.color);
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * 判断一个颜色是否是边缘色（介于两个主色之间）
+     *
+     * 算法：检查颜色 C 是否位于任意两个主色 A、B 连线的附近
+     * - 计算 C 到 AB 线段的距离
+     * - 计算 C 在 AB 上的投影位置 t (0~1 表示在线段内)
+     * - 如果距离小且 t 在 (0.1, 0.9) 范围内，则是边缘色
+     */
+    function isEdgeColor(color, mainColors) {
+        if (mainColors.length < 2) return false;
+
+        const maxLineDistance = 40; // 到连线的最大距离 - 更激进
+        const minT = 0.1;  // 投影位置下限
+        const maxT = 0.9;  // 投影位置上限
+
+        // 检查所有主色对
+        for (let i = 0; i < mainColors.length; i++) {
+            for (let j = i + 1; j < mainColors.length; j++) {
+                const A = mainColors[i];
+                const B = mainColors[j];
+
+                // AB 向量
+                const ABx = B[0] - A[0];
+                const ABy = B[1] - A[1];
+                const ABz = B[2] - A[2];
+                const AB_len_sq = ABx * ABx + ABy * ABy + ABz * ABz;
+
+                if (AB_len_sq < 100) continue; // A 和 B 太近，跳过
+
+                // AC 向量
+                const ACx = color[0] - A[0];
+                const ACy = color[1] - A[1];
+                const ACz = color[2] - A[2];
+
+                // 投影 t = (AC · AB) / |AB|²
+                const dot = ACx * ABx + ACy * ABy + ACz * ABz;
+                const t = dot / AB_len_sq;
+
+                // 检查 t 是否在有效范围内
+                if (t < minT || t > maxT) continue;
+
+                // 计算 C 到 AB 线段的距离
+                // 投影点 P = A + t * AB
+                const Px = A[0] + t * ABx;
+                const Py = A[1] + t * ABy;
+                const Pz = A[2] + t * ABz;
+
+                // CP 距离
+                const dist = Math.sqrt(
+                    (color[0] - Px) ** 2 +
+                    (color[1] - Py) ** 2 +
+                    (color[2] - Pz) ** 2
+                );
+
+                if (dist < maxLineDistance) {
+                    // 这个颜色位于 A-B 连线附近，是边缘色
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -583,6 +735,116 @@
     }
 
     /**
+     * 颜色约束膨胀：只向原始颜色相同或无主区域膨胀
+     * @param {Uint8Array} bitmap - 当前二值图
+     * @param {number} width - 宽度
+     * @param {number} height - 高度
+     * @param {Uint8Array} pixelColorMap - 原始颜色分配图
+     * @param {number} targetColorIdx - 当前层的颜色索引
+     */
+    function dilateWithColorConstraint(bitmap, width, height, pixelColorMap, targetColorIdx) {
+        const result = new Uint8Array(bitmap);
+        
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const idx = y * width + x;
+                if (bitmap[idx] === 1) continue; // 已经是前景
+                
+                // 检查是否有前景邻居
+                let hasFgNeighbor = false;
+                if (x > 0 && bitmap[idx - 1] === 1) hasFgNeighbor = true;
+                else if (x < width - 1 && bitmap[idx + 1] === 1) hasFgNeighbor = true;
+                else if (y > 0 && bitmap[idx - width] === 1) hasFgNeighbor = true;
+                else if (y < height - 1 && bitmap[idx + width] === 1) hasFgNeighbor = true;
+                
+                if (!hasFgNeighbor) continue;
+                
+                // 颜色约束：只允许膨胀到原始颜色相同的区域
+                // 如果原始颜色不是当前层，不膨胀（尊重原图边界）
+                const originalColor = pixelColorMap[idx];
+                if (originalColor === targetColorIdx) {
+                    // 原始颜色相同，允许膨胀（恢复被过滤掉的像素）
+                    result[idx] = 1;
+                }
+                // 如果原始颜色不同，不膨胀，保持边界清晰
+            }
+        }
+        
+        return result;
+    }
+
+    /**
+     * 过滤小连通区域：基于最大区域的比例过滤
+     * @param {Uint8Array} bitmap - 二值位图
+     * @param {number} width - 宽度
+     * @param {number} height - 高度
+     * @param {number} minRatio - 相对于最大区域的最小比例（默认 1/40）
+     */
+    function filterSmallRegions(bitmap, width, height, minRatio = 40) {
+        const result = new Uint8Array(width * height);
+        const labels = new Int32Array(width * height);
+        const parent = [0];
+        let nextLabel = 1;
+        
+        // Union-Find
+        const find = (i) => {
+            while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; }
+            return i;
+        };
+        const union = (i, j) => {
+            const ri = find(i), rj = find(j);
+            if (ri !== rj) parent[Math.max(ri, rj)] = Math.min(ri, rj);
+        };
+        
+        // First pass: 标记连通区域
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const idx = y * width + x;
+                if (bitmap[idx] === 0) continue;
+                
+                const neighbors = [];
+                if (x > 0 && bitmap[idx - 1] === 1) neighbors.push(labels[idx - 1]);
+                if (y > 0 && bitmap[idx - width] === 1) neighbors.push(labels[idx - width]);
+                
+                if (neighbors.length === 0) {
+                    labels[idx] = nextLabel;
+                    parent.push(nextLabel);
+                    nextLabel++;
+                } else {
+                    const minN = Math.min(...neighbors.map(n => find(n)));
+                    labels[idx] = minN;
+                    for (const n of neighbors) union(n, minN);
+                }
+            }
+        }
+        
+        // 统计每个区域的像素数
+        const regionSizes = new Map();
+        let maxSize = 0;
+        for (let i = 0; i < labels.length; i++) {
+            if (bitmap[i] === 0) continue;
+            const root = find(labels[i]);
+            const newSize = (regionSizes.get(root) || 0) + 1;
+            regionSizes.set(root, newSize);
+            if (newSize > maxSize) maxSize = newSize;
+        }
+        
+        // 计算最小保留阈值：最大区域的 1/minRatio，但至少 4 像素
+        const minPixels = Math.max(4, Math.floor(maxSize / minRatio));
+        
+        // Second pass: 只保留足够大的区域
+        for (let i = 0; i < labels.length; i++) {
+            if (bitmap[i] === 0) continue;
+            const root = find(labels[i]);
+            if (regionSizes.get(root) >= minPixels) {
+                result[i] = 1;
+            }
+        }
+        
+        return result;
+    }
+
+    /**
      * 创建二值位图
      * @param {ImageData} imageData
      * @param {Array} targetColor - 目标颜色 [r, g, b]
@@ -680,10 +942,16 @@
             bitmap[i] = (pixelColorMap[i] === targetColorIdx) ? 1 : 0;
         }
         
-        // 膨胀操作：扩展边界 1 像素，确保颜色层之间无缝隙
-        let finalBitmap = bitmap;
+        // 连通区域过滤：只保留相对于最大区域足够大的区域
+        // 比例 1:40 意味着只保留 >= 最大区域/40 的区域
+        let finalBitmap = filterSmallRegions(bitmap, width, height, 40);
+        
+        // 闭运算：填充小孔洞
+        finalBitmap = morphClose(finalBitmap, width, height);
+        
+        // 颜色约束膨胀：只向原始颜色相同或无主区域膨胀
         for (let i = 0; i < dilatePixels; i++) {
-            finalBitmap = dilate(finalBitmap, width, height);
+            finalBitmap = dilateWithColorConstraint(finalBitmap, width, height, pixelColorMap, targetColorIdx);
         }
 
         return { data: finalBitmap, width, height, inverted: false, grayscale: null };
@@ -2049,7 +2317,47 @@
             morphology = true    // 形态学预处理（只做闭运算）
         } = options;
 
-        const { width, height } = imageData;
+        const originalWidth = imageData.width;
+        const originalHeight = imageData.height;
+        let { width, height } = imageData;
+        let workingData = imageData;
+        let scale = 1;
+
+        // 小图预处理：放大后矢量化效果更好
+        const MIN_SIZE = 256;
+        const maxDim = Math.max(width, height);
+        if (maxDim < MIN_SIZE) {
+            scale = Math.ceil(MIN_SIZE / maxDim);
+            const newWidth = width * scale;
+            const newHeight = height * scale;
+            
+            // 使用 OffscreenCanvas 或临时 Canvas 放大
+            const canvas = typeof OffscreenCanvas !== 'undefined' 
+                ? new OffscreenCanvas(newWidth, newHeight)
+                : document.createElement('canvas');
+            canvas.width = newWidth;
+            canvas.height = newHeight;
+            const ctx = canvas.getContext('2d');
+            
+            // 关闭平滑，保持像素边缘（适合 logo/pixel art）
+            ctx.imageSmoothingEnabled = false;
+            
+            // 先把 imageData 画到临时 canvas
+            const tempCanvas = typeof OffscreenCanvas !== 'undefined'
+                ? new OffscreenCanvas(width, height)
+                : document.createElement('canvas');
+            tempCanvas.width = width;
+            tempCanvas.height = height;
+            tempCanvas.getContext('2d').putImageData(imageData, 0, 0);
+            
+            // 放大绘制
+            ctx.drawImage(tempCanvas, 0, 0, newWidth, newHeight);
+            workingData = ctx.getImageData(0, 0, newWidth, newHeight);
+            
+            console.log(`[PotraceCore] 小图放大: ${width}x${height} → ${newWidth}x${newHeight} (${scale}x)`);
+            width = newWidth;
+            height = newHeight;
+        }
 
         console.log(`[PotraceCore] 矢量化: ${numColors}色, tol=${pathTolerance}, smooth=${smoothness}, binary=${binaryMode}, blur=${blurSigma}`);
 
@@ -2059,19 +2367,19 @@
 
         if (binaryMode || numColors <= 2) {
             // 二值模式：计算 Otsu 阈值，只提取前景色
-            otsuThreshold = computeOtsuThreshold(imageData);
+            otsuThreshold = computeOtsuThreshold(workingData);
             console.log(`[PotraceCore] Otsu 阈值: ${otsuThreshold}`);
             // 只生成前景（暗色）层，背景不需要矢量化
             palette = [[0, 0, 0]];
         } else {
             // 使用 K-Means++ 聚类生成调色板（比 Median Cut 更准确）
-            palette = kMeansQuantize(imageData, numColors);
+            palette = kMeansQuantize(workingData, numColors);
         }
         console.log(`[PotraceCore] 提取 ${palette.length} 种主色`);
 
         // 2. 为每个像素分配最近的调色板颜色（确保无空白无重叠）
         const pixelColorMap = new Uint8Array(width * height);
-        const data = imageData.data;
+        const data = workingData.data;
         const useLuminance = binaryMode || numColors <= 2;
         
         if (!useLuminance) {
@@ -2097,21 +2405,28 @@
 
         const layers = [];
 
+        // 找出背景色（最亮的颜色）的索引，背景色不需要膨胀
+        const backgroundColorIdx = palette.length - 1; // palette 按亮度排序，最后一个最亮
+
         // 3. 每种颜色生成一个图层（简单高效）
         for (let colorIdx = 0; colorIdx < palette.length; colorIdx++) {
             const color = palette[colorIdx];
-            
+
+            // 背景色不膨胀，前景色膨胀1像素确保无缝隙
+            const isBackground = (colorIdx === backgroundColorIdx);
+            const dilatePixels = isBackground ? 0 : 1;
+
             // 使用最近颜色分配（非二值模式）或容差匹配（二值模式）
-            const bitmap = useLuminance 
-                ? createBinaryBitmap(imageData, color, colorTolerance, useLuminance, otsuThreshold, blurSigma, morphology)
-                : createBinaryBitmapFromMap(pixelColorMap, colorIdx, width, height, blurSigma, 1);
+            const bitmap = useLuminance
+                ? createBinaryBitmap(workingData, color, colorTolerance, useLuminance, otsuThreshold, blurSigma, morphology)
+                : createBinaryBitmapFromMap(pixelColorMap, colorIdx, width, height, blurSigma, dilatePixels);
             
             // 如果反转了，计算前景的实际颜色
             let actualColor = color;
             if (bitmap.inverted && useLuminance) {
                 const sum = [0, 0, 0];
                 let count = 0;
-                const data = imageData.data;
+                const data = workingData.data;
                 for (let i = 0; i < bitmap.data.length; i++) {
                     if (bitmap.data[i] === 1) {
                         const idx = i * 4;
@@ -2143,13 +2458,26 @@
             const contours = marchingSquaresContour(bitmap, null, null, bitmap.grayscale);
             const pathParts = [];
 
+            // 动态面积阈值：基于图像尺寸，过滤孤立小噪点
+            // 最小噪点面积 = 图像面积的 0.02%，但至少 20 像素，最多 200 像素
+            const totalArea = width * height;
+            const minNoiseArea = Math.max(20, Math.min(200, totalArea * 0.0002));
+            // 中等轮廓阈值（用于决定是否曲线拟合）
+            const mediumContourArea = Math.max(100, minNoiseArea * 5);
+
             for (const contour of contours) {
                 if (contour.points.length < 3) continue;
                 
                 const contourArea = Math.abs(contour.area);
+                const isHole = contour.type === 'inner' || contour.area < 0;
                 
-                // 小轮廓直接用多边形
-                if (contourArea < 16 || contour.points.length < 8) {
+                // 只过滤非常小的外轮廓噪点，孔洞保留
+                if (!isHole && contourArea < minNoiseArea) {
+                    continue;
+                }
+                
+                // 中等轮廓直接用多边形（不值得曲线拟合）
+                if (contourArea < mediumContourArea || contour.points.length < 12) {
                     const pathD = generatePolygonPath(contour.points);
                     if (pathD) pathParts.push(pathD);
                     continue;
@@ -2200,22 +2528,72 @@
             }
         }
         
-        console.log(`[PotraceCore] 生成 ${layers.length} 个颜色图层`);
+        // 全局后处理：基于所有图层中最大轮廓面积过滤小碎片图层
+        // 找到全局最大轮廓面积
+        let globalMaxArea = 0;
+        for (const layer of layers) {
+            for (const path of layer.paths) {
+                // 从 path.d 估算面积（用边界框近似）
+                const matches = path.d.match(/[-+]?\d*\.?\d+/g);
+                if (matches && matches.length >= 4) {
+                    const nums = matches.map(Number);
+                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                    for (let i = 0; i < nums.length - 1; i += 2) {
+                        minX = Math.min(minX, nums[i]);
+                        maxX = Math.max(maxX, nums[i]);
+                        minY = Math.min(minY, nums[i + 1]);
+                        maxY = Math.max(maxY, nums[i + 1]);
+                    }
+                    const area = (maxX - minX) * (maxY - minY);
+                    if (area > globalMaxArea) globalMaxArea = area;
+                }
+            }
+        }
         
-        // 4. 生成 SVG
-        const allPaths = layers.flatMap(l => l.paths);
+        // 过滤掉面积远小于全局最大（1:50 比例）的图层
+        const minLayerArea = Math.max(16, globalMaxArea / 50);
+        const filteredLayers = layers.filter(layer => {
+            // 计算该图层的总面积
+            let layerArea = 0;
+            for (const path of layer.paths) {
+                const matches = path.d.match(/[-+]?\d*\.?\d+/g);
+                if (matches && matches.length >= 4) {
+                    const nums = matches.map(Number);
+                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                    for (let i = 0; i < nums.length - 1; i += 2) {
+                        minX = Math.min(minX, nums[i]);
+                        maxX = Math.max(maxX, nums[i]);
+                        minY = Math.min(minY, nums[i + 1]);
+                        maxY = Math.max(maxY, nums[i + 1]);
+                    }
+                    layerArea += (maxX - minX) * (maxY - minY);
+                }
+            }
+            return layerArea >= minLayerArea;
+        });
+        
+        console.log(`[PotraceCore] 生成 ${layers.length} 个颜色图层，过滤后 ${filteredLayers.length} 个`);
+
+        // 4. 生成 SVG（反转顺序：亮色在底，暗色在上）
+        // layers 按亮度从暗到亮排序，SVG 需要先绘制亮色（底层），后绘制暗色（顶层）
+        const reversedLayers = filteredLayers.slice().reverse();
+        const allPaths = reversedLayers.flatMap(l => l.paths);
         const svgContent = allPaths.map(p => {
             const fillRule = p.fillRule ? ` fill-rule="${p.fillRule}"` : '';
             return `<path d="${p.d}" fill="${p.fill}"${fillRule} stroke="${p.stroke}" stroke-width="${p.strokeWidth}"/>`;
         }).join('\n');
         
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">\n${svgContent}\n</svg>`;
+        // SVG 使用原始尺寸，viewBox 使用工作尺寸（放大后），浏览器会自动缩放
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${originalWidth}" height="${originalHeight}" viewBox="0 0 ${width} ${height}">\n${svgContent}\n</svg>`;
         
         return {
             svg,
-            width,
-            height,
-            layers,
+            width: originalWidth,
+            height: originalHeight,
+            // 路径坐标的实际范围（放大后的工作尺寸），用于生成单层 SVG 的 viewBox
+            viewBoxWidth: width,
+            viewBoxHeight: height,
+            layers: filteredLayers,
             paths: allPaths,
             colors: palette.map(c => `rgb(${c[0]},${c[1]},${c[2]})`),
             engine: 'potrace-core-v2'

@@ -257,9 +257,53 @@ class ContextMenu {
 
         // 打开编辑器
         await window.imageProcessor.openEditor(imgElement, (result) => {
-            // 更新 PPT 中的图片
-            this._updateElementImage(element.id, result.dataUrl);
+            if (result.type === 'svg' && result.svg) {
+                // 矢量结果：替换为 SVG 元素
+                this._replaceWithSvg(element.id, result.svg, result.dataUrl);
+            } else {
+                // 栅格结果：更新图片
+                this._updateElementImage(element.id, result.dataUrl);
+            }
         });
+    }
+    
+    /**
+     * 将图片元素替换为 SVG
+     */
+    _replaceWithSvg(elementId, svgString, previewDataUrl) {
+        // 更新 slides 数据
+        const slide = window.PPTGenerator?.slides?.[this.editor.currentSlideIndex];
+        const element = slide?.elements?.find(el => el.id === elementId);
+        if (element) {
+            // 保存 SVG 内容
+            element.type = 'svg';
+            element.svg = svgString;
+            element.content = svgString;
+            element.preview = previewDataUrl; // 保留预览图
+        }
+
+        // 更新 DOM：替换为 SVG
+        const elementDom = document.querySelector(`[data-element-id="${elementId}"]`);
+        if (elementDom) {
+            const img = elementDom.querySelector('img');
+            if (img) {
+                // 创建 SVG 容器
+                const svgContainer = document.createElement('div');
+                svgContainer.innerHTML = svgString;
+                const svgElement = svgContainer.querySelector('svg');
+                if (svgElement) {
+                    svgElement.style.width = '100%';
+                    svgElement.style.height = '100%';
+                    img.replaceWith(svgElement);
+                }
+            }
+        }
+
+        // 标记为已修改
+        this.editor.history?.markDirty?.();
+        this.editor.emit('element:update', { elementId, type: 'svg' });
+        
+        console.log('[ContextMenu] 图片已转换为 SVG 矢量图');
     }
 
     async _vectorizeImage(element) {

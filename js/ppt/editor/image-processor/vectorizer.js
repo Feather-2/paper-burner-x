@@ -336,6 +336,12 @@ class ImageVectorizer {
      * @returns {Array} 按颜色分组的图层
      */
     splitByColor(vectorResult) {
+        // 获取尺寸：viewBox 使用路径坐标范围，width/height 使用显示尺寸
+        const displayWidth = vectorResult.width;
+        const displayHeight = vectorResult.height;
+        const viewBoxWidth = vectorResult.viewBoxWidth || displayWidth;
+        const viewBoxHeight = vectorResult.viewBoxHeight || displayHeight;
+        
         // PotraceCore 已经返回 layers 结构
         if (vectorResult.layers && vectorResult.layers.length > 0) {
             return vectorResult.layers.map((layer, idx) => ({
@@ -344,7 +350,7 @@ class ImageVectorizer {
                 color: layer.color,
                 paths: layer.paths,
                 visible: true,
-                svg: this._generateColorSvg(layer.paths, vectorResult.width, vectorResult.height)
+                svg: this._generateColorSvg(layer.paths, displayWidth, displayHeight, viewBoxWidth, viewBoxHeight)
             }));
         }
         
@@ -371,20 +377,26 @@ class ImageVectorizer {
             color: group.color,
             paths: group.paths,
             visible: true,
-            svg: this._generateColorSvg(group.paths, vectorResult.width, vectorResult.height)
+            svg: this._generateColorSvg(group.paths, displayWidth, displayHeight, viewBoxWidth, viewBoxHeight)
         }));
     }
 
     /**
      * 为一组路径生成 SVG
+     * @param {Array} paths - 路径数组
+     * @param {number} displayWidth - 显示宽度
+     * @param {number} displayHeight - 显示高度
+     * @param {number} viewBoxWidth - viewBox 宽度（路径坐标范围）
+     * @param {number} viewBoxHeight - viewBox 高度
      */
-    _generateColorSvg(paths, width, height) {
+    _generateColorSvg(paths, displayWidth, displayHeight, viewBoxWidth, viewBoxHeight) {
         const pathsStr = paths.map(p => {
             const fillRule = p.fillRule ? ` fill-rule="${p.fillRule}"` : '';
             return `<path d="${p.d}" fill="${p.fill}"${fillRule} stroke="${p.stroke}" stroke-width="${p.strokeWidth || 0}"/>`;
         }).join('\n');
 
-        return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+        // width/height 控制显示尺寸，viewBox 控制路径坐标映射
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="${displayWidth}" height="${displayHeight}" viewBox="0 0 ${viewBoxWidth} ${viewBoxHeight}">
 ${pathsStr}
 </svg>`;
     }

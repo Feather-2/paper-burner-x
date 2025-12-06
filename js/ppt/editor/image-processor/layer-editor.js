@@ -729,20 +729,70 @@ class LayerEditor {
     }
 
     async _apply() {
-        // 合成最终图片
-        const dataUrl = this.canvas.toDataURL('image/png');
+        // 检查是否有可见的矢量图层
+        const visibleVectorLayers = this.processedImage.layers.filter(
+            l => l.visible && l.type === 'vector'
+        );
+        
+        let result = {
+            id: this.processedImage.id,
+            layers: this.processedImage.layers
+        };
+        
+        if (visibleVectorLayers.length > 0) {
+            // 合并所有可见矢量图层为一个 SVG
+            const mergedSvg = this._mergeVectorLayers(visibleVectorLayers);
+            result.svg = mergedSvg;
+            result.type = 'svg';
+            
+            // 同时生成 PNG 预览（用于缩略图等）
+            result.dataUrl = this.canvas.toDataURL('image/png');
+        } else {
+            // 没有矢量图层，返回 Canvas 截图
+            result.dataUrl = this.canvas.toDataURL('image/png');
+            result.type = 'image';
+        }
         
         // 保存处理结果
         await this.processor.saveProcessedImage(this.processedImage);
 
         // 回调更新 PPT
-        this.onSave?.({
-            id: this.processedImage.id,
-            dataUrl,
-            layers: this.processedImage.layers
-        });
+        this.onSave?.(result);
 
         this.close();
+    }
+    
+    /**
+     * 合并多个矢量图层为一个 SVG
+     */
+    _mergeVectorLayers(layers) {
+        if (layers.length === 0) return null;
+        
+        // 从第一个图层获取尺寸
+        const firstSvg = layers[0].svg;
+        const widthMatch = firstSvg.match(/width="([^"]+)"/);
+        const heightMatch = firstSvg.match(/height="([^"]+)"/);
+        const viewBoxMatch = firstSvg.match(/viewBox="([^"]+)"/);
+        
+        const width = widthMatch ? widthMatch[1] : this.canvas.width;
+        const height = heightMatch ? heightMatch[1] : this.canvas.height;
+        const viewBox = viewBoxMatch ? viewBoxMatch[1] : `0 0 ${width} ${height}`;
+        
+        // 提取所有图层的 path 内容
+        const allPaths = [];
+        for (const layer of layers) {
+            if (!layer.svg) continue;
+            // 提取 <path .../> 或 <path>...</path>
+            const pathMatches = layer.svg.match(/<path[^>]*\/?>(?:<\/path>)?/g);
+            if (pathMatches) {
+                allPaths.push(...pathMatches);
+            }
+        }
+        
+        // 生成合并后的 SVG
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${viewBox}">
+${allPaths.join('\n')}
+</svg>`;
     }
 
     close() {
