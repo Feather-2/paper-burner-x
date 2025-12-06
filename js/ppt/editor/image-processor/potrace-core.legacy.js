@@ -1,0 +1,2723 @@
+/**
+ * Potrace Core - 高质量位图转矢量算法
+ * 
+ * 实际实现已移至 vectorizer/ 目录，此文件作为向后兼容层。
+ * @see ./vectorizer/index.js
+ *
+ * ============================================================================
+ * 版权声明 / Credits
+ * ============================================================================
+ *
+ * 本模块的核心算法参考了以下开源项目的实现：
+ *
+ * 1. VTracer - https://github.com/visioncortex/vtracer
+ *    License: MIT
+ *    Copyright (c) 2020 Vision Cortex
+ *
+ * 2. Visioncortex - https://github.com/visioncortex/visioncortex
+ *    License: Apache-2.0, MIT (dual-licensed)
+ *    Copyright (c) 2020 Vision Cortex
+ *
+ * 本实现基于上述项目的算法思想进行了 JavaScript 移植和部分修改，
+ * 包括但不限于：4-Point Subdivision Scheme、remove_staircase、
+ * find_splice_points、retract_handles 等核心算法。
+ *
+ * 注意：本实现不保证与原始 VTracer/Visioncortex 的输出完全相同，
+ * 可能存在参数差异、精度差异或实现细节上的不同。
+ *
+ * ============================================================================
+ */
+
+(function(global) {
+    'use strict';
+
+    // ============ CDN 依赖 ============
+    const CDN_LIBS = {
+        simplify: 'https://cdn.jsdelivr.net/npm/simplify-js@1.2.4/simplify.min.js',
+        fitCurve: 'https://cdn.jsdelivr.net/npm/fit-curve@0.2.0/lib/fit-curve.js'
+    };
+
+    let libsLoaded = false;
+
+    async function loadCdnLibs() {
+        if (libsLoaded) return;
+        const loadScript = (url) => new Promise((resolve, reject) => {
+            if (document.querySelector(`script[src="${url}"]`)) { resolve(); return; }
+            const script = document.createElement('script');
+            script.src = url;
+            script.onload = resolve;
+            script.onerror = () => reject(new Error(`Failed: ${url}`));
+            document.head.appendChild(script);
+        });
+
+        try {
+            await Promise.all(Object.values(CDN_LIBS).map(loadScript));
+            libsLoaded = true;
+        } catch (e) {
+            console.warn('[PotraceCore] CDN 加载失败，使用内置算法');
+        }
+    }
+
+    // ============ 工具函数 ============
+    
+    function colorDistSq(c1, c2) {
+        const dr = c1[0] - c2[0], dg = c1[1] - c2[1], db = c1[2] - c2[2];
+        return dr * dr + dg * dg + db * db;
+    }
+
+    function colorDistance(c1, c2) { return Math.sqrt(colorDistSq(c1, c2)); }
+
+    function signedArea(p1, p2, p3) {
+        return (p2.x - p1.x) * (p3.y - p1.y) - (p3.x - p1.x) * (p2.y - p1.y);
+    }
+
+    function polygonArea(points) {
+        let area = 0;
+        const n = points.length;
+        for (let i = 0; i < n; i++) {
+            const j = (i + 1) % n;
+            area += points[i].x * points[j].y;
+            area -= points[j].x * points[i].y;
+        }
+        return area / 2;
+    }
+
+    function pointLineDistance(point, lineStart, lineEnd) {
+        const dx = lineEnd.x - lineStart.x;
+        const dy = lineEnd.y - lineStart.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len === 0) return Math.sqrt((point.x - lineStart.x) ** 2 + (point.y - lineStart.y) ** 2);
+        return Math.abs(dy * point.x - dx * point.y + lineEnd.x * lineStart.y - lineEnd.y * lineStart.x) / len;
+    }
+
+    // ============ 颜色量化 ============
+
+    /**
+     * K-Means++ 颜色聚类 - 比 Median Cut 更准确
+     * 类似 Vector Magic 的色板提取
+     */
+    function kMeansQuantize(imageData, maxColors = 16, maxIterations = 10) {
+        const data = imageData.data;
+        const pixels = [];
+        const pixelCounts = new Map(); // 统计每个颜色的像素数
+
+        // 采样并统计颜色频率
+        const totalPixels = data.length / 4;
+        const sampleRate = totalPixels > 50000 ? Math.ceil(totalPixels / 50000) : 1;
+
+        for (let i = 0; i < data.length; i += 4 * sampleRate) {
+            if (data[i + 3] > 128) {
+                // 量化到 6-bit 减少噪点
+                const r = Math.round(data[i] / 4) * 4;
+                const g = Math.round(data[i + 1] / 4) * 4;
+                const b = Math.round(data[i + 2] / 4) * 4;
+                const key = (r << 16) | (g << 8) | b;
+                pixelCounts.set(key, (pixelCounts.get(key) || 0) + 1);
+            }
+        }
+
+        if (pixelCounts.size === 0) return [[128, 128, 128]];
+
+        // 转换为带权重的颜色数组
+        const weightedColors = [];
+        for (const [key, count] of pixelCounts) {
+            weightedColors.push({
+                color: [(key >> 16) & 0xff, (key >> 8) & 0xff, key & 0xff],
+                weight: count
+            });
+        }
+
+        // K-Means++ 初始化：选择分散的初始中心
+        const centers = [];
+        // 第一个中心：选择权重最大的颜色
+        weightedColors.sort((a, b) => b.weight - a.weight);
+        centers.push([...weightedColors[0].color]);
+
+        // 后续中心：按距离概率选择
+        while (centers.length < maxColors && centers.length < weightedColors.length) {
+            let totalDist = 0;
+            const distances = weightedColors.map(wc => {
+                let minDist = Infinity;
+                for (const c of centers) {
+                    const d = colorDistSq(wc.color, c);
+                    if (d < minDist) minDist = d;
+                }
+                totalDist += minDist * wc.weight;
+                return minDist * wc.weight;
+            });
+
+            // 轮盘选择
+            let r = Math.random() * totalDist;
+            for (let i = 0; i < distances.length; i++) {
+                r -= distances[i];
+                if (r <= 0) {
+                    centers.push([...weightedColors[i].color]);
+                    break;
+                }
+            }
+            if (centers.length === centers.length) {
+                // 如果没有选中，选距离最远的
+                let maxDist = 0, maxIdx = 0;
+                for (let i = 0; i < distances.length; i++) {
+                    if (distances[i] > maxDist) {
+                        maxDist = distances[i];
+                        maxIdx = i;
+                    }
+                }
+                centers.push([...weightedColors[maxIdx].color]);
+            }
+        }
+
+        // K-Means 迭代
+        for (let iter = 0; iter < maxIterations; iter++) {
+            // 分配每个颜色到最近的中心
+            const clusters = centers.map(() => ({ sum: [0, 0, 0], weight: 0 }));
+            
+            for (const wc of weightedColors) {
+                let minDist = Infinity, minIdx = 0;
+                for (let i = 0; i < centers.length; i++) {
+                    const d = colorDistSq(wc.color, centers[i]);
+                    if (d < minDist) {
+                        minDist = d;
+                        minIdx = i;
+                    }
+                }
+                clusters[minIdx].sum[0] += wc.color[0] * wc.weight;
+                clusters[minIdx].sum[1] += wc.color[1] * wc.weight;
+                clusters[minIdx].sum[2] += wc.color[2] * wc.weight;
+                clusters[minIdx].weight += wc.weight;
+            }
+
+            // 更新中心
+            let changed = false;
+            for (let i = 0; i < centers.length; i++) {
+                if (clusters[i].weight > 0) {
+                    const newCenter = [
+                        Math.round(clusters[i].sum[0] / clusters[i].weight),
+                        Math.round(clusters[i].sum[1] / clusters[i].weight),
+                        Math.round(clusters[i].sum[2] / clusters[i].weight)
+                    ];
+                    if (colorDistSq(newCenter, centers[i]) > 4) {
+                        centers[i] = newCenter;
+                        changed = true;
+                    }
+                }
+            }
+            if (!changed) break;
+        }
+
+        // 合并相似颜色（距离 < 25）
+        const mergeThreshold = 625; // 25^2
+        const merged = [];
+        const used = new Set();
+
+        for (let i = 0; i < centers.length; i++) {
+            if (used.has(i)) continue;
+            let sum = [...centers[i]];
+            let count = 1;
+
+            for (let j = i + 1; j < centers.length; j++) {
+                if (!used.has(j) && colorDistSq(centers[i], centers[j]) < mergeThreshold) {
+                    sum[0] += centers[j][0];
+                    sum[1] += centers[j][1];
+                    sum[2] += centers[j][2];
+                    count++;
+                    used.add(j);
+                }
+            }
+
+            merged.push([
+                Math.round(sum[0] / count),
+                Math.round(sum[1] / count),
+                Math.round(sum[2] / count)
+            ]);
+            used.add(i);
+        }
+
+        // 边缘色过滤：识别并移除抗锯齿产生的过渡色
+        const filtered = filterEdgeColors(merged, weightedColors);
+
+        // 按亮度排序
+        return filtered.sort((a, b) => (a[0] + a[1] + a[2]) - (b[0] + b[1] + b[2]));
+    }
+
+    /**
+     * 边缘色过滤 - 识别并移除抗锯齿产生的过渡色
+     *
+     * 边缘色特征：
+     * 1. 像素权重较小（占比 < 5%）
+     * 2. 颜色值介于两个主色之间（在色彩空间中位于连线上）
+     * 3. 与最近主色的距离适中（太远说明是独立颜色）
+     */
+    function filterEdgeColors(colors, weightedColors) {
+        if (colors.length <= 2) return colors;
+
+        // 1. 计算每个颜色的总权重
+        const colorWeights = colors.map(color => {
+            let totalWeight = 0;
+            for (const wc of weightedColors) {
+                // 找最近的聚类中心
+                let minDist = Infinity;
+                let nearestIdx = 0;
+                for (let i = 0; i < colors.length; i++) {
+                    const d = colorDistSq(wc.color, colors[i]);
+                    if (d < minDist) {
+                        minDist = d;
+                        nearestIdx = i;
+                    }
+                }
+                if (colors[nearestIdx] === color) {
+                    totalWeight += wc.weight;
+                }
+            }
+            return totalWeight;
+        });
+
+        const totalPixels = colorWeights.reduce((a, b) => a + b, 0);
+        if (totalPixels === 0) return colors;
+
+        // 2. 识别主色（权重 >= 3% 的颜色）- 更激进过滤边缘色
+        const mainColorThreshold = 0.03;
+        const mainColors = [];
+        const edgeCandidates = [];
+
+        for (let i = 0; i < colors.length; i++) {
+            const ratio = colorWeights[i] / totalPixels;
+            if (ratio >= mainColorThreshold) {
+                mainColors.push({ color: colors[i], weight: colorWeights[i], index: i });
+            } else {
+                edgeCandidates.push({ color: colors[i], weight: colorWeights[i], index: i, ratio });
+            }
+        }
+
+        // 如果主色太少，放宽阈值
+        if (mainColors.length < 2) {
+            // 按权重排序，取前2个作为主色
+            const sorted = colors.map((c, i) => ({ color: c, weight: colorWeights[i], index: i }))
+                .sort((a, b) => b.weight - a.weight);
+            mainColors.length = 0;
+            edgeCandidates.length = 0;
+            for (let i = 0; i < sorted.length; i++) {
+                if (i < 2) {
+                    mainColors.push(sorted[i]);
+                } else {
+                    edgeCandidates.push({ ...sorted[i], ratio: sorted[i].weight / totalPixels });
+                }
+            }
+        }
+
+        console.log(`[EdgeFilter] 主色 ${mainColors.length} 个, 候选边缘色 ${edgeCandidates.length} 个`);
+
+        // 3. 判断候选色是否为边缘色
+        const result = mainColors.map(mc => mc.color);
+
+        for (const candidate of edgeCandidates) {
+            const isEdge = isEdgeColor(candidate.color, mainColors.map(mc => mc.color));
+
+            if (isEdge) {
+                console.log(`[EdgeFilter] 过滤边缘色 rgb(${candidate.color.join(',')}) (${(candidate.ratio * 100).toFixed(1)}%)`);
+                // 边缘色不加入结果，其像素会被分配到最近的主色
+            } else {
+                // 不是边缘色，保留
+                result.push(candidate.color);
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * 判断一个颜色是否是边缘色（介于两个主色之间）
+     *
+     * 算法：检查颜色 C 是否位于任意两个主色 A、B 连线的附近
+     * - 计算 C 到 AB 线段的距离
+     * - 计算 C 在 AB 上的投影位置 t (0~1 表示在线段内)
+     * - 如果距离小且 t 在 (0.1, 0.9) 范围内，则是边缘色
+     */
+    function isEdgeColor(color, mainColors) {
+        if (mainColors.length < 2) return false;
+
+        const maxLineDistance = 40; // 到连线的最大距离 - 更激进
+        const minT = 0.1;  // 投影位置下限
+        const maxT = 0.9;  // 投影位置上限
+
+        // 检查所有主色对
+        for (let i = 0; i < mainColors.length; i++) {
+            for (let j = i + 1; j < mainColors.length; j++) {
+                const A = mainColors[i];
+                const B = mainColors[j];
+
+                // AB 向量
+                const ABx = B[0] - A[0];
+                const ABy = B[1] - A[1];
+                const ABz = B[2] - A[2];
+                const AB_len_sq = ABx * ABx + ABy * ABy + ABz * ABz;
+
+                if (AB_len_sq < 100) continue; // A 和 B 太近，跳过
+
+                // AC 向量
+                const ACx = color[0] - A[0];
+                const ACy = color[1] - A[1];
+                const ACz = color[2] - A[2];
+
+                // 投影 t = (AC · AB) / |AB|²
+                const dot = ACx * ABx + ACy * ABy + ACz * ABz;
+                const t = dot / AB_len_sq;
+
+                // 检查 t 是否在有效范围内
+                if (t < minT || t > maxT) continue;
+
+                // 计算 C 到 AB 线段的距离
+                // 投影点 P = A + t * AB
+                const Px = A[0] + t * ABx;
+                const Py = A[1] + t * ABy;
+                const Pz = A[2] + t * ABz;
+
+                // CP 距离
+                const dist = Math.sqrt(
+                    (color[0] - Px) ** 2 +
+                    (color[1] - Py) ** 2 +
+                    (color[2] - Pz) ** 2
+                );
+
+                if (dist < maxLineDistance) {
+                    // 这个颜色位于 A-B 连线附近，是边缘色
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Median Cut 颜色量化（备用，更快）
+     */
+    function medianCutQuantize(imageData, maxColors = 16) {
+        const data = imageData.data;
+        const pixels = [];
+
+        const totalPixels = data.length / 4;
+        const sampleRate = totalPixels > 100000 ? Math.ceil(totalPixels / 100000) : 1;
+
+        for (let i = 0; i < data.length; i += 4 * sampleRate) {
+            if (data[i + 3] > 128) {
+                pixels.push([data[i], data[i + 1], data[i + 2]]);
+            }
+        }
+
+        if (pixels.length === 0) return [[128, 128, 128]];
+
+        const getMinMax = (arr, channel) => {
+            let min = 255, max = 0;
+            for (let i = 0; i < arr.length; i++) {
+                const v = arr[i][channel];
+                if (v < min) min = v;
+                if (v > max) max = v;
+            }
+            return { min, max, range: max - min };
+        };
+
+        const buckets = [pixels];
+
+        while (buckets.length < maxColors) {
+            let maxRange = 0, maxIdx = 0, splitCh = 0;
+
+            for (let i = 0; i < buckets.length; i++) {
+                const b = buckets[i];
+                if (b.length < 2) continue;
+
+                for (let c = 0; c < 3; c++) {
+                    const { range } = getMinMax(b, c);
+                    if (range > maxRange) {
+                        maxRange = range;
+                        maxIdx = i;
+                        splitCh = c;
+                    }
+                }
+            }
+
+            if (maxRange === 0) break;
+
+            const bucket = buckets[maxIdx];
+            bucket.sort((a, b) => a[splitCh] - b[splitCh]);
+            const mid = Math.floor(bucket.length / 2);
+            buckets.splice(maxIdx, 1, bucket.slice(0, mid), bucket.slice(mid));
+        }
+        
+        return buckets.filter(b => b.length > 0).map(bucket => {
+            const sum = [0, 0, 0];
+            for (const p of bucket) { sum[0] += p[0]; sum[1] += p[1]; sum[2] += p[2]; }
+            return [Math.round(sum[0] / bucket.length), Math.round(sum[1] / bucket.length), Math.round(sum[2] / bucket.length)];
+        }).sort((a, b) => (a[0] + a[1] + a[2]) - (b[0] + b[1] + b[2]));
+    }
+
+    function colorDistSq(c1, c2) {
+        const dr = c1[0] - c2[0], dg = c1[1] - c2[1], db = c1[2] - c2[2];
+        return dr * dr + dg * dg + db * db;
+    }
+    
+    function colorDistance(c1, c2) { return Math.sqrt(colorDistSq(c1, c2)); }
+
+    // ============ 颜色分析 ============
+
+    /**
+     * 分析图片颜色特征，自动决定最佳参数
+     */
+    function analyzeImageColors(imageData, clusterThreshold = 25) {
+        const { data, width, height } = imageData;
+        const colorMap = new Map(); // 颜色 -> 像素数量
+        const totalPixels = width * height;
+        
+        // 1. 统计所有颜色（量化到 5-bit 减少噪点）
+        for (let i = 0; i < data.length; i += 4) {
+            if (data[i + 3] < 128) continue; // 跳过透明
+            // 量化颜色 (32 级)
+            const r = Math.round(data[i] / 8) * 8;
+            const g = Math.round(data[i + 1] / 8) * 8;
+            const b = Math.round(data[i + 2] / 8) * 8;
+            const key = (r << 16) | (g << 8) | b;
+            colorMap.set(key, (colorMap.get(key) || 0) + 1);
+        }
+        
+        // 2. 转换为颜色数组
+        const colors = [];
+        for (const [key, count] of colorMap) {
+            if (count < 10) continue; // 过滤噪点
+            colors.push({
+                r: (key >> 16) & 0xff,
+                g: (key >> 8) & 0xff,
+                b: key & 0xff,
+                count
+            });
+        }
+        
+        // 3. 颜色聚类 (简单的贪婪聚类)
+        const clusters = [];
+        const sorted = colors.sort((a, b) => b.count - a.count); // 按数量排序
+        
+        for (const color of sorted) {
+            let merged = false;
+            for (const cluster of clusters) {
+                const dist = Math.sqrt(
+                    Math.pow(color.r - cluster.r, 2) +
+                    Math.pow(color.g - cluster.g, 2) +
+                    Math.pow(color.b - cluster.b, 2)
+                );
+                if (dist < clusterThreshold) {
+                    // 合并到现有聚类（加权平均）
+                    const total = cluster.count + color.count;
+                    cluster.r = Math.round((cluster.r * cluster.count + color.r * color.count) / total);
+                    cluster.g = Math.round((cluster.g * cluster.count + color.g * color.count) / total);
+                    cluster.b = Math.round((cluster.b * cluster.count + color.b * color.count) / total);
+                    cluster.count = total;
+                    merged = true;
+                    break;
+                }
+            }
+            if (!merged) {
+                clusters.push({ ...color });
+            }
+        }
+        
+        // 4. 计算特征
+        const uniqueColors = colorMap.size;
+        const clusterCount = clusters.length;
+        const dominantColors = clusters.slice(0, 10); // 前10主色
+        
+        // 判断是否是二值图（黑白/线稿）- 允许抗锯齿带来的额外颜色
+        const isBinary = clusterCount <= 4;
+        
+        // 判断是否是像素画（颜色数量中等，边界清晰）
+        const isPixelArt = uniqueColors > 10 && uniqueColors < 500 && clusterCount < 32;
+        
+        // 判断是否是照片（颜色数量很多）
+        const isPhoto = uniqueColors > 1000 || clusterCount > 50;
+        
+        // 5. 自动选择预设
+        let recommendedPreset = 'logo';
+        let recommendedNumColors = Math.min(64, Math.max(8, clusterCount));
+        
+        if (isBinary) {
+            recommendedPreset = 'lineart';
+            recommendedNumColors = 2;
+        } else if (isPixelArt) {
+            recommendedPreset = 'pixel';
+            recommendedNumColors = Math.min(32, clusterCount + 4);
+        } else if (isPhoto) {
+            recommendedPreset = 'photo';
+            recommendedNumColors = 64;
+        } else if (clusterCount <= 8) {
+            recommendedPreset = 'simple';
+            recommendedNumColors = clusterCount;
+        } else if (clusterCount <= 24) {
+            recommendedPreset = 'logo';
+            recommendedNumColors = clusterCount + 2;
+        } else {
+            recommendedPreset = 'illustration';
+            recommendedNumColors = Math.min(48, clusterCount);
+        }
+        
+        console.log(`[ColorAnalysis] 独特颜色: ${uniqueColors}, 聚类后: ${clusterCount}, 推荐: ${recommendedPreset} (${recommendedNumColors}色)`);
+        
+        return {
+            uniqueColors,
+            clusterCount,
+            clusters: dominantColors.map(c => [c.r, c.g, c.b]),
+            isBinary,
+            isPixelArt,
+            isPhoto,
+            recommendedPreset,
+            recommendedNumColors
+        };
+    }
+
+    // ============ 二值化 ============
+
+    /**
+     * 高斯模糊预处理 (VTracer 风格)
+     * 减少锯齿，平滑边缘过渡
+     */
+    function gaussianBlur(grayscale, width, height, sigma = 1.0) {
+        if (sigma <= 0) return grayscale;
+
+        // 生成高斯核
+        const radius = Math.ceil(sigma * 3);
+        const kernelSize = radius * 2 + 1;
+        const kernel = new Float32Array(kernelSize);
+        let kernelSum = 0;
+
+        for (let i = 0; i < kernelSize; i++) {
+            const x = i - radius;
+            kernel[i] = Math.exp(-(x * x) / (2 * sigma * sigma));
+            kernelSum += kernel[i];
+        }
+
+        // 归一化
+        for (let i = 0; i < kernelSize; i++) {
+            kernel[i] /= kernelSum;
+        }
+
+        // 水平方向模糊
+        const temp = new Float32Array(width * height);
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                let sum = 0;
+                for (let k = -radius; k <= radius; k++) {
+                    const sx = Math.max(0, Math.min(width - 1, x + k));
+                    sum += grayscale[y * width + sx] * kernel[k + radius];
+                }
+                temp[y * width + x] = sum;
+            }
+        }
+
+        // 垂直方向模糊
+        const result = new Float32Array(width * height);
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                let sum = 0;
+                for (let k = -radius; k <= radius; k++) {
+                    const sy = Math.max(0, Math.min(height - 1, y + k));
+                    sum += temp[sy * width + x] * kernel[k + radius];
+                }
+                result[y * width + x] = sum;
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * 计算自适应亮度阈值 (Otsu's method 简化版)
+     */
+    function computeOtsuThreshold(imageData) {
+        const data = imageData.data;
+        const histogram = new Array(256).fill(0);
+        let total = 0;
+        
+        // 构建亮度直方图
+        for (let i = 0; i < data.length; i += 4) {
+            if (data[i + 3] > 128) {
+                const lum = Math.round(data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+                histogram[lum]++;
+                total++;
+            }
+        }
+        
+        if (total === 0) return 128;
+        
+        let sum = 0;
+        for (let i = 0; i < 256; i++) sum += i * histogram[i];
+        
+        let sumB = 0, wB = 0, wF = 0;
+        let maxVariance = 0, threshold = 128;
+        
+        for (let t = 0; t < 256; t++) {
+            wB += histogram[t];
+            if (wB === 0) continue;
+            wF = total - wB;
+            if (wF === 0) break;
+            
+            sumB += t * histogram[t];
+            const mB = sumB / wB;
+            const mF = (sum - sumB) / wF;
+            const variance = wB * wF * (mB - mF) * (mB - mF);
+            
+            if (variance > maxVariance) {
+                maxVariance = variance;
+                threshold = t;
+            }
+        }
+        
+        return threshold;
+    }
+    
+    /**
+     * 形态学膨胀操作
+     */
+    function dilate(bitmap, width, height) {
+        const result = new Uint8Array(width * height);
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const idx = y * width + x;
+                if (bitmap[idx] === 1) {
+                    result[idx] = 1;
+                    continue;
+                }
+                // 检查 4 邻域
+                let hasNeighbor = false;
+                if (x > 0 && bitmap[idx - 1] === 1) hasNeighbor = true;
+                if (x < width - 1 && bitmap[idx + 1] === 1) hasNeighbor = true;
+                if (y > 0 && bitmap[idx - width] === 1) hasNeighbor = true;
+                if (y < height - 1 && bitmap[idx + width] === 1) hasNeighbor = true;
+                result[idx] = hasNeighbor ? 1 : 0;
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 形态学腐蚀操作
+     */
+    function erode(bitmap, width, height) {
+        const result = new Uint8Array(width * height);
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const idx = y * width + x;
+                if (bitmap[idx] === 0) {
+                    result[idx] = 0;
+                    continue;
+                }
+                // 检查 4 邻域是否都是 1
+                let allNeighbors = true;
+                if (x > 0 && bitmap[idx - 1] !== 1) allNeighbors = false;
+                if (x < width - 1 && bitmap[idx + 1] !== 1) allNeighbors = false;
+                if (y > 0 && bitmap[idx - width] !== 1) allNeighbors = false;
+                if (y < height - 1 && bitmap[idx + width] !== 1) allNeighbors = false;
+                result[idx] = allNeighbors ? 1 : 0;
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 形态学闭运算 (先膨胀后腐蚀) - 填充小孔洞
+     */
+    function morphClose(bitmap, width, height) {
+        return erode(dilate(bitmap, width, height), width, height);
+    }
+
+    /**
+     * 形态学开运算 (先腐蚀后膨胀) - 去除小噪点
+     */
+    function morphOpen(bitmap, width, height) {
+        return dilate(erode(bitmap, width, height), width, height);
+    }
+
+    /**
+     * 颜色约束膨胀：只向原始颜色相同或无主区域膨胀
+     * @param {Uint8Array} bitmap - 当前二值图
+     * @param {number} width - 宽度
+     * @param {number} height - 高度
+     * @param {Uint8Array} pixelColorMap - 原始颜色分配图
+     * @param {number} targetColorIdx - 当前层的颜色索引
+     */
+    function dilateWithColorConstraint(bitmap, width, height, pixelColorMap, targetColorIdx) {
+        const result = new Uint8Array(bitmap);
+        
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const idx = y * width + x;
+                if (bitmap[idx] === 1) continue; // 已经是前景
+                
+                // 检查是否有前景邻居
+                let hasFgNeighbor = false;
+                if (x > 0 && bitmap[idx - 1] === 1) hasFgNeighbor = true;
+                else if (x < width - 1 && bitmap[idx + 1] === 1) hasFgNeighbor = true;
+                else if (y > 0 && bitmap[idx - width] === 1) hasFgNeighbor = true;
+                else if (y < height - 1 && bitmap[idx + width] === 1) hasFgNeighbor = true;
+                
+                if (!hasFgNeighbor) continue;
+                
+                // 颜色约束：只允许膨胀到原始颜色相同的区域
+                // 如果原始颜色不是当前层，不膨胀（尊重原图边界）
+                const originalColor = pixelColorMap[idx];
+                if (originalColor === targetColorIdx) {
+                    // 原始颜色相同，允许膨胀（恢复被过滤掉的像素）
+                    result[idx] = 1;
+                }
+                // 如果原始颜色不同，不膨胀，保持边界清晰
+            }
+        }
+        
+        return result;
+    }
+
+    /**
+     * 过滤小连通区域：基于最大区域的比例过滤
+     * @param {Uint8Array} bitmap - 二值位图
+     * @param {number} width - 宽度
+     * @param {number} height - 高度
+     * @param {number} minRatio - 相对于最大区域的最小比例（默认 1/40）
+     */
+    function filterSmallRegions(bitmap, width, height, minRatio = 40) {
+        const result = new Uint8Array(width * height);
+        const labels = new Int32Array(width * height);
+        const parent = [0];
+        let nextLabel = 1;
+        
+        // Union-Find
+        const find = (i) => {
+            while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; }
+            return i;
+        };
+        const union = (i, j) => {
+            const ri = find(i), rj = find(j);
+            if (ri !== rj) parent[Math.max(ri, rj)] = Math.min(ri, rj);
+        };
+        
+        // First pass: 标记连通区域
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const idx = y * width + x;
+                if (bitmap[idx] === 0) continue;
+                
+                const neighbors = [];
+                if (x > 0 && bitmap[idx - 1] === 1) neighbors.push(labels[idx - 1]);
+                if (y > 0 && bitmap[idx - width] === 1) neighbors.push(labels[idx - width]);
+                
+                if (neighbors.length === 0) {
+                    labels[idx] = nextLabel;
+                    parent.push(nextLabel);
+                    nextLabel++;
+                } else {
+                    const minN = Math.min(...neighbors.map(n => find(n)));
+                    labels[idx] = minN;
+                    for (const n of neighbors) union(n, minN);
+                }
+            }
+        }
+        
+        // 统计每个区域的像素数
+        const regionSizes = new Map();
+        let maxSize = 0;
+        for (let i = 0; i < labels.length; i++) {
+            if (bitmap[i] === 0) continue;
+            const root = find(labels[i]);
+            const newSize = (regionSizes.get(root) || 0) + 1;
+            regionSizes.set(root, newSize);
+            if (newSize > maxSize) maxSize = newSize;
+        }
+        
+        // 计算最小保留阈值：最大区域的 1/minRatio，但至少 4 像素
+        const minPixels = Math.max(4, Math.floor(maxSize / minRatio));
+        
+        // Second pass: 只保留足够大的区域
+        for (let i = 0; i < labels.length; i++) {
+            if (bitmap[i] === 0) continue;
+            const root = find(labels[i]);
+            if (regionSizes.get(root) >= minPixels) {
+                result[i] = 1;
+            }
+        }
+        
+        return result;
+    }
+
+    /**
+     * 创建二值位图
+     * @param {ImageData} imageData
+     * @param {Array} targetColor - 目标颜色 [r, g, b]
+     * @param {number} tolerance - 颜色容差
+     * @param {boolean} useLuminance - 使用亮度模式 (用于 lineart)
+     * @param {number} threshold - 亮度阈值 (自动计算时传入)
+     * @param {number} blurSigma - 高斯模糊 sigma (0 = 不模糊)
+     * @param {boolean} morphology - 是否应用形态学操作
+     */
+    function createBinaryBitmap(imageData, targetColor, tolerance = 30, useLuminance = false, threshold = null, blurSigma = 0, morphology = true) {
+        const { width, height, data } = imageData;
+        const bitmap = new Uint8Array(width * height);
+
+        // 使用传入的阈值或默认阈值
+        const lumThreshold = threshold !== null ? threshold : 128;
+
+        // 生成灰度图
+        let grayscale = new Float32Array(width * height);
+
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const i = (y * width + x) * 4;
+                if (data[i + 3] > 128) {
+                    if (useLuminance) {
+                        // 亮度模式
+                        grayscale[y * width + x] = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+                    } else {
+                        // 颜色模式：使用颜色距离作为灰度
+                        const dist = Math.sqrt(colorDistSq([data[i], data[i + 1], data[i + 2]], targetColor));
+                        // 距离 < tolerance 时视为目标颜色（grayscale < 128）
+                        // 使用 tolerance * 2 作为分母，确保 dist < tolerance 时 grayscale < 128
+                        grayscale[y * width + x] = Math.min(255, dist * 128 / tolerance);
+                    }
+                } else {
+                    grayscale[y * width + x] = 255; // 透明像素视为白色
+                }
+            }
+        }
+
+        // 应用高斯模糊（VTracer 风格预处理）
+        if (blurSigma > 0) {
+            grayscale = gaussianBlur(grayscale, width, height, blurSigma);
+        }
+
+        // 二值化
+        let darkCount = 0, totalCount = 0;
+
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const i = (y * width + x) * 4;
+                if (data[i + 3] > 128) {
+                    totalCount++;
+                    const lum = grayscale[y * width + x];
+                    const isDark = lum < lumThreshold;
+                    bitmap[y * width + x] = isDark ? 1 : 0;
+                    if (isDark) darkCount++;
+                }
+            }
+        }
+
+        // 自动检测：如果暗色像素超过 50%，说明背景是暗色，需要反转
+        let inverted = false;
+        if (useLuminance && darkCount > totalCount * 0.5) {
+            console.log(`[PotraceCore] 检测到暗色背景 (${darkCount}/${totalCount})，反转二值图`);
+            for (let i = 0; i < bitmap.length; i++) {
+                const idx = i * 4;
+                if (data[idx + 3] > 128) {
+                    bitmap[i] = bitmap[i] === 1 ? 0 : 1;
+                    // 同时反转灰度值
+                    grayscale[i] = 255 - grayscale[i];
+                }
+            }
+            inverted = true;
+        }
+
+        // 形态学预处理：只做闭运算填充小孔洞
+        // 注意：不做开运算，因为会腐蚀角点导致不锐利
+        let finalBitmap = bitmap;
+        if (morphology) {
+            finalBitmap = morphClose(bitmap, width, height);
+        }
+
+        return { data: finalBitmap, width, height, inverted, grayscale };
+    }
+
+    /**
+     * 根据颜色分配图创建二值位图（最近颜色匹配，无空白）
+     * 使用膨胀操作确保相邻颜色层轻微重叠，消除缝隙
+     */
+    function createBinaryBitmapFromMap(pixelColorMap, targetColorIdx, width, height, blurSigma = 0, dilatePixels = 1) {
+        const bitmap = new Uint8Array(width * height);
+        
+        // 直接从颜色分配图创建二值位图
+        for (let i = 0; i < pixelColorMap.length; i++) {
+            bitmap[i] = (pixelColorMap[i] === targetColorIdx) ? 1 : 0;
+        }
+        
+        // 连通区域过滤：只保留相对于最大区域足够大的区域
+        // 比例 1:40 意味着只保留 >= 最大区域/40 的区域
+        let finalBitmap = filterSmallRegions(bitmap, width, height, 40);
+        
+        // 闭运算：填充小孔洞
+        finalBitmap = morphClose(finalBitmap, width, height);
+        
+        // 颜色约束膨胀：只向原始颜色相同或无主区域膨胀
+        for (let i = 0; i < dilatePixels; i++) {
+            finalBitmap = dilateWithColorConstraint(finalBitmap, width, height, pixelColorMap, targetColorIdx);
+        }
+
+        return { data: finalBitmap, width, height, inverted: false, grayscale: null };
+    }
+
+    // ============ 连通区域标记 (Two-Pass CCL) ============
+    
+    function labelConnectedComponents(bitmap) {
+        const { data, width, height } = bitmap;
+        const labels = new Int32Array(width * height);
+        const parent = [0];
+        let nextLabel = 1;
+        
+        const find = (i) => {
+            while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; }
+            return i;
+        };
+        
+        const union = (i, j) => {
+            const ri = find(i), rj = find(j);
+            if (ri !== rj) parent[Math.max(ri, rj)] = Math.min(ri, rj);
+        };
+        
+        // First pass
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const idx = y * width + x;
+                if (data[idx] === 0) continue;
+                
+                const neighbors = [];
+                if (x > 0 && data[idx - 1] === 1) neighbors.push(labels[idx - 1]);
+                if (y > 0 && data[idx - width] === 1) neighbors.push(labels[idx - width]);
+                
+                if (neighbors.length === 0) {
+                    labels[idx] = nextLabel;
+                    parent.push(nextLabel);
+                    nextLabel++;
+                } else {
+                    const minN = Math.min(...neighbors.map(n => find(n)));
+                    labels[idx] = minN;
+                    for (const n of neighbors) union(n, minN);
+                }
+            }
+        }
+        
+        // Second pass
+        const labelMap = new Map();
+        let finalLabel = 0;
+        
+        for (let i = 0; i < labels.length; i++) {
+            if (data[i] === 0) continue;
+            const root = find(labels[i]);
+            if (!labelMap.has(root)) labelMap.set(root, ++finalLabel);
+            labels[i] = labelMap.get(root);
+        }
+        
+        const regions = Array.from({ length: finalLabel + 1 }, () => []);
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const l = labels[y * width + x];
+                if (l > 0) regions[l].push({ x, y });
+            }
+        }
+        
+        return { labels, numRegions: finalLabel, regions, width, height };
+    }
+
+    // ============ Marching Squares 轮廓追踪 ============
+
+    /**
+     * Marching Squares - 亚像素精度轮廓追踪
+     *
+     * 格子配置 (2x2):
+     *   TL(8) -- TR(4)
+     *     |       |
+     *   BL(1) -- BR(2)
+     *
+     * 边定义: 0=top, 1=right, 2=bottom, 3=left
+     *
+     * VTracer 风格改进：使用灰度值线性插值计算精确边界位置
+     */
+    function marchingSquaresContour(bitmap, ccResult = null, regionLabel = null, grayscaleData = null) {
+        const { data, width, height } = bitmap;
+        const contours = [];
+        const visitedEdges = new Set(); // 用 "x,y,edge" 作为 key
+
+        // 获取像素值 (支持指定区域)
+        const getPixel = (x, y) => {
+            if (x < 0 || x >= width || y < 0 || y >= height) return 0;
+            if (regionLabel !== null && ccResult) {
+                return ccResult.labels[y * width + x] === regionLabel ? 1 : 0;
+            }
+            return data[y * width + x];
+        };
+
+        // 获取灰度值用于插值 (0-255)
+        const getGray = (x, y) => {
+            if (!grayscaleData) return getPixel(x, y) * 255;
+            if (x < 0 || x >= width || y < 0 || y >= height) return 0;
+            return grayscaleData[y * width + x];
+        };
+
+        // 获取 2x2 格子配置 (0-15)
+        // 格子 (cx, cy) 的四个角是像素 (cx,cy), (cx+1,cy), (cx,cy+1), (cx+1,cy+1)
+        const getConfig = (cx, cy) => {
+            const tl = getPixel(cx, cy);
+            const tr = getPixel(cx + 1, cy);
+            const bl = getPixel(cx, cy + 1);
+            const br = getPixel(cx + 1, cy + 1);
+            return (tl << 3) | (tr << 2) | (br << 1) | bl;
+        };
+
+        /**
+         * VTracer 风格：亚像素线性插值
+         * 根据相邻像素的灰度值计算精确边界位置
+         *
+         * 原理：假设边界在灰度值 = threshold (128) 处
+         * 如果 p1 灰度 = 50, p2 灰度 = 200
+         * 则边界位置 t = (128 - 50) / (200 - 50) = 0.52
+         */
+        const threshold = 128;
+
+        const edgePoint = (cx, cy, edge) => {
+            let g1, g2, t;
+
+            switch (edge) {
+                case 0: // top edge: TL -> TR
+                    g1 = getGray(cx, cy);
+                    g2 = getGray(cx + 1, cy);
+                    t = interpolate(g1, g2, threshold);
+                    return { x: cx + t, y: cy };
+
+                case 1: // right edge: TR -> BR
+                    g1 = getGray(cx + 1, cy);
+                    g2 = getGray(cx + 1, cy + 1);
+                    t = interpolate(g1, g2, threshold);
+                    return { x: cx + 1, y: cy + t };
+
+                case 2: // bottom edge: BL -> BR
+                    g1 = getGray(cx, cy + 1);
+                    g2 = getGray(cx + 1, cy + 1);
+                    t = interpolate(g1, g2, threshold);
+                    return { x: cx + t, y: cy + 1 };
+
+                case 3: // left edge: TL -> BL
+                    g1 = getGray(cx, cy);
+                    g2 = getGray(cx, cy + 1);
+                    t = interpolate(g1, g2, threshold);
+                    return { x: cx, y: cy + t };
+            }
+            return { x: cx + 0.5, y: cy + 0.5 };
+        };
+
+        // 线性插值：计算边界位置 (0-1)
+        const interpolate = (v1, v2, target) => {
+            // 避免除零
+            if (Math.abs(v2 - v1) < 1) return 0.5;
+
+            // 计算插值位置
+            let t = (target - v1) / (v2 - v1);
+
+            // 限制在合理范围内
+            return Math.max(0.1, Math.min(0.9, t));
+        };
+        
+        // Marching Squares 标准转移表
+        // 每个配置定义了边界穿过的边
+        // [进入边, 退出边, 下一个格子的dx, dy]
+        // 边: 0=top, 1=right, 2=bottom, 3=left
+        const edgeTable = {
+            //  config: [[入边, 出边]]  - 描述边界线经过的边
+            1:  [[3, 2]],           // BL only: left -> bottom
+            2:  [[2, 1]],           // BR only: bottom -> right
+            3:  [[3, 1]],           // BL+BR: left -> right
+            4:  [[1, 0]],           // TR only: right -> top
+            5:  [[1, 0], [3, 2]],   // TR+BL (saddle): right->top, left->bottom
+            6:  [[2, 0]],           // TR+BR: bottom -> top
+            7:  [[3, 0]],           // TR+BR+BL: left -> top
+            8:  [[0, 3]],           // TL only: top -> left
+            9:  [[0, 2]],           // TL+BL: top -> bottom
+            10: [[0, 3], [2, 1]],   // TL+BR (saddle): top->left, bottom->right
+            11: [[0, 1]],           // TL+BL+BR: top -> right
+            12: [[1, 3]],           // TL+TR: right -> left
+            13: [[1, 2]],           // TL+TR+BL: right -> bottom
+            14: [[2, 3]],           // TL+TR+BR: bottom -> left
+        };
+        
+        // 下一个格子的偏移 (根据退出边)
+        const nextCell = {
+            0: [0, -1],  // 从 top 退出 -> 上方格子
+            1: [1, 0],   // 从 right 退出 -> 右方格子
+            2: [0, 1],   // 从 bottom 退出 -> 下方格子
+            3: [-1, 0],  // 从 left 退出 -> 左方格子
+        };
+        
+        // 进入新格子后的入边 (退出边的对面)
+        const enterEdge = { 0: 2, 1: 3, 2: 0, 3: 1 };
+        
+        // 追踪单个轮廓
+        const traceContour = (startCx, startCy, startInEdge, startOutEdge) => {
+            const points = [];
+            let cx = startCx, cy = startCy;
+            let inEdge = startInEdge, outEdge = startOutEdge;
+            const maxSteps = (width + height) * 4;
+            let steps = 0;
+            
+            do {
+                const edgeKey = `${cx},${cy},${outEdge}`;
+                if (visitedEdges.has(edgeKey)) break;
+                visitedEdges.add(edgeKey);
+                
+                // 添加出边的点
+                const pt = edgePoint(cx, cy, outEdge);
+                points.push(pt);
+                
+                // 移动到下一个格子
+                const [dx, dy] = nextCell[outEdge];
+                cx += dx;
+                cy += dy;
+                inEdge = enterEdge[outEdge];
+                
+                // 获取新格子的配置
+                const config = getConfig(cx, cy);
+                if (config === 0 || config === 15) break;
+                
+                // 找匹配的转移 (入边 -> 出边)
+                const edges = edgeTable[config];
+                if (!edges) break;
+                
+                let found = false;
+                for (const [ein, eout] of edges) {
+                    if (ein === inEdge) {
+                        outEdge = eout;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) break;
+                
+                steps++;
+            } while (steps < maxSteps && !(cx === startCx && cy === startCy && outEdge === startOutEdge));
+            
+            return points;
+        };
+        
+        // 扫描所有格子 (从 -1 开始，因为格子可以跨越边界)
+        for (let cy = -1; cy < height; cy++) {
+            for (let cx = -1; cx < width; cx++) {
+                const config = getConfig(cx, cy);
+                if (config === 0 || config === 15) continue;
+                
+                const edges = edgeTable[config];
+                if (!edges) continue;
+                
+                // 对每条边界线追踪
+                for (const [inEdge, outEdge] of edges) {
+                    const edgeKey = `${cx},${cy},${outEdge}`;
+                    if (visitedEdges.has(edgeKey)) continue;
+                    
+                    const pts = traceContour(cx, cy, inEdge, outEdge);
+                    if (pts.length >= 3) {
+                        // 闭合路径
+                        pts.push({ ...pts[0] });
+                        
+                        const area = calculateArea(pts);
+                        contours.push({
+                            points: pts,
+                            type: area >= 0 ? 'outer' : 'inner',
+                            area: area
+                        });
+                    }
+                }
+            }
+        }
+        
+        // 按面积排序（大到小）
+        contours.sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
+        
+        return contours;
+    }
+    
+    // 计算轮廓面积 (Shoelace formula)
+    function calculateArea(points) {
+        let area = 0;
+        const n = points.length;
+        for (let i = 0; i < n; i++) {
+            const j = (i + 1) % n;
+            area += points[i].x * points[j].y;
+            area -= points[j].x * points[i].y;
+        }
+        return area / 2;
+    }
+    
+    // ============ 路径简化 (Visvalingam-Whyatt) ============
+    
+    /**
+     * Visvalingam-Whyatt 算法 - 保持拓扑的简化
+     * 比 Douglas-Peucker 效果更好
+     */
+    function visvalingamWhyatt(points, threshold = 1.0) {
+        if (points.length <= 3) return points;
+        
+        // 计算三角形面积
+        const triangleArea = (a, b, c) => {
+            return Math.abs((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y)) / 2;
+        };
+        
+        // 创建双向链表
+        const nodes = points.map((p, i) => ({
+            point: p,
+            prev: i - 1,
+            next: i + 1,
+            area: 0,
+            removed: false
+        }));
+        
+        // 处理首尾
+        nodes[0].prev = points.length - 1;
+        nodes[nodes.length - 1].next = 0;
+        
+        // 计算初始面积
+        const updateArea = (i) => {
+            const node = nodes[i];
+            if (node.removed) return;
+            const prev = nodes[node.prev];
+            const next = nodes[node.next];
+            node.area = triangleArea(prev.point, node.point, next.point);
+        };
+        
+        for (let i = 0; i < nodes.length; i++) {
+            updateArea(i);
+        }
+        
+        // 迭代移除最小面积点
+        let remaining = nodes.length;
+        const minArea = threshold * threshold;
+        
+        while (remaining > 3) {
+            // 找最小面积
+            let minIdx = -1;
+            let minVal = Infinity;
+            
+            for (let i = 0; i < nodes.length; i++) {
+                if (!nodes[i].removed && nodes[i].area < minVal) {
+                    minVal = nodes[i].area;
+                    minIdx = i;
+                }
+            }
+            
+            if (minIdx < 0 || minVal > minArea) break;
+            
+            // 移除该点
+            const node = nodes[minIdx];
+            node.removed = true;
+            remaining--;
+            
+            // 更新邻居
+            const prev = nodes[node.prev];
+            const next = nodes[node.next];
+            prev.next = node.next;
+            next.prev = node.prev;
+            
+            updateArea(node.prev);
+            updateArea(node.next);
+        }
+        
+        // 收集结果
+        return nodes.filter(n => !n.removed).map(n => n.point);
+    }
+    
+    /**
+     * Douglas-Peucker 简化 (备用)
+     */
+    function douglasPeucker(points, tolerance) {
+        if (points.length < 3) return points;
+        
+        const first = points[0];
+        const last = points[points.length - 1];
+        
+        let maxDist = 0, maxIdx = 0;
+        for (let i = 1; i < points.length - 1; i++) {
+            const dist = pointLineDistance(points[i], first, last);
+            if (dist > maxDist) { maxDist = dist; maxIdx = i; }
+        }
+        
+        if (maxDist > tolerance) {
+            const left = douglasPeucker(points.slice(0, maxIdx + 1), tolerance);
+            const right = douglasPeucker(points.slice(maxIdx), tolerance);
+            return left.slice(0, -1).concat(right);
+        }
+        
+        return [first, last];
+    }
+    
+    function pointLineDistance(point, lineStart, lineEnd) {
+        const dx = lineEnd.x - lineStart.x;
+        const dy = lineEnd.y - lineStart.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        if (len === 0) return Math.sqrt((point.x - lineStart.x) ** 2 + (point.y - lineStart.y) ** 2);
+        return Math.abs(dy * point.x - dx * point.y + lineEnd.x * lineStart.y - lineEnd.y * lineStart.x) / len;
+    }
+    
+    /**
+     * 综合路径简化
+     */
+    function simplifyPath(points, options = {}) {
+        const { tolerance = 1.0, highQuality = true } = typeof options === 'number' ? { tolerance: options } : options;
+        if (points.length < 3) return points;
+        
+        // 优先使用 simplify-js CDN
+        if (typeof window.simplify === 'function') {
+            return window.simplify(points, tolerance, highQuality);
+        }
+        
+        // 回退到 Visvalingam-Whyatt
+        return visvalingamWhyatt(points, tolerance);
+    }
+
+    // ============ 路径平滑 ============
+
+    /**
+     * Chaikin 角切割平滑算法
+     * 每次迭代将角切掉，使曲线更平滑
+     */
+    function chaikinSmooth(points, iterations = 2) {
+        if (points.length < 3) return points;
+
+        let result = points;
+        for (let iter = 0; iter < iterations; iter++) {
+            const smoothed = [];
+            const n = result.length;
+
+            for (let i = 0; i < n; i++) {
+                const p0 = result[i];
+                const p1 = result[(i + 1) % n];
+
+                // 在每条边的 1/4 和 3/4 处插入新点
+                smoothed.push({
+                    x: p0.x * 0.75 + p1.x * 0.25,
+                    y: p0.y * 0.75 + p1.y * 0.25
+                });
+                smoothed.push({
+                    x: p0.x * 0.25 + p1.x * 0.75,
+                    y: p0.y * 0.25 + p1.y * 0.75
+                });
+            }
+
+            result = smoothed;
+        }
+
+        return result;
+    }
+
+    /**
+     * 移动平均平滑
+     * @param {Array} points - 点数组
+     * @param {number} windowSize - 窗口大小（奇数）
+     */
+    function movingAverageSmooth(points, windowSize = 3) {
+        if (points.length < 3) return points;
+
+        const half = Math.floor(windowSize / 2);
+        const n = points.length;
+        const result = [];
+
+        for (let i = 0; i < n; i++) {
+            let sumX = 0, sumY = 0, count = 0;
+
+            for (let j = -half; j <= half; j++) {
+                const idx = (i + j + n) % n;
+                sumX += points[idx].x;
+                sumY += points[idx].y;
+                count++;
+            }
+
+            result.push({
+                x: sumX / count,
+                y: sumY / count
+            });
+        }
+
+        return result;
+    }
+
+    // ============ 角点检测 (VTracer 风格) ============
+
+    /**
+     * 计算点的局部曲率（使用更大的邻域）
+     * VTracer 风格：考虑更大范围的点来判断角点
+     */
+    function computeCurvature(points, index, radius = 3) {
+        const n = points.length;
+        if (n < 3) return Math.PI;
+
+        // 取前后 radius 个点
+        const prevIdx = (index - radius + n) % n;
+        const nextIdx = (index + radius) % n;
+        const curr = points[index];
+        const prev = points[prevIdx];
+        const next = points[nextIdx];
+
+        const v1x = curr.x - prev.x;
+        const v1y = curr.y - prev.y;
+        const v2x = next.x - curr.x;
+        const v2y = next.y - curr.y;
+
+        const len1 = Math.sqrt(v1x * v1x + v1y * v1y);
+        const len2 = Math.sqrt(v2x * v2x + v2y * v2y);
+
+        if (len1 < 0.01 || len2 < 0.01) return Math.PI;
+
+        const dot = v1x * v2x + v1y * v2y;
+        const cosAngle = Math.max(-1, Math.min(1, dot / (len1 * len2)));
+        return Math.acos(cosAngle);
+    }
+
+    /**
+     * 角点检测（平衡版本）
+     * 只使用较大尺度，避免检测到噪点
+     */
+    function detectCornersVTracerStrict(points, angleThreshold = 130, minDistance = 3) {
+        if (points.length < 6) return [];
+
+        const n = points.length;
+        const corners = new Set();
+
+        // 只使用较大尺度，避免检测到像素级噪点
+        const radii = [4, 6];
+        const threshold = angleThreshold * Math.PI / 180;
+
+        for (const radius of radii) {
+            if (n < radius * 2 + 1) continue;
+
+            // 计算每个点在当前尺度的曲率
+            for (let i = 0; i < n; i++) {
+                const angle = computeCurvature(points, i, radius);
+
+                // 角度小于阈值就是角点
+                if (angle < threshold) {
+                    // 检查是否是局部最小（只检查相邻1-2个点）
+                    const checkRange = Math.min(2, minDistance);
+                    let isLocalMin = true;
+                    for (let j = 1; j <= checkRange; j++) {
+                        const prevAngle = computeCurvature(points, (i - j + n) % n, radius);
+                        const nextAngle = computeCurvature(points, (i + j) % n, radius);
+                        if (angle > prevAngle + 0.01 || angle > nextAngle + 0.01) {
+                            isLocalMin = false;
+                            break;
+                        }
+                    }
+                    if (isLocalMin) {
+                        corners.add(i);
+                    }
+                }
+            }
+        }
+
+        return Array.from(corners).sort((a, b) => a - b);
+    }
+
+    /**
+     * VTracer 风格角点检测（原版本，保留兼容）
+     */
+    function detectCornersVTracer(points, angleThreshold = 90, minDistance = 5) {
+        if (points.length < 6) return [];
+
+        const n = points.length;
+        const curvatures = [];
+
+        // 1. 计算每个点的曲率
+        for (let i = 0; i < n; i++) {
+            const angle = computeCurvature(points, i, 3);
+            curvatures.push({ index: i, angle });
+        }
+
+        // 2. 找局部最小值（曲率最大的点 = 角度最小的点）
+        const threshold = angleThreshold * Math.PI / 180;
+        const candidates = [];
+
+        for (let i = 0; i < n; i++) {
+            const curr = curvatures[i].angle;
+            if (curr >= threshold) continue; // 角度太大，不是角点
+
+            // 非极大值抑制：检查是否是局部最小
+            let isLocalMin = true;
+            for (let j = 1; j <= minDistance && isLocalMin; j++) {
+                const prevAngle = curvatures[(i - j + n) % n].angle;
+                const nextAngle = curvatures[(i + j) % n].angle;
+                if (curr > prevAngle || curr > nextAngle) {
+                    isLocalMin = false;
+                }
+            }
+
+            if (isLocalMin) {
+                candidates.push({ index: i, angle: curr });
+            }
+        }
+
+        // 3. 按角度排序，取最显著的角点
+        candidates.sort((a, b) => a.angle - b.angle);
+
+        // 4. 去除距离太近的角点
+        const corners = [];
+        for (const c of candidates) {
+            let tooClose = false;
+            for (const existing of corners) {
+                const dist = Math.min(
+                    Math.abs(c.index - existing),
+                    n - Math.abs(c.index - existing)
+                );
+                if (dist < minDistance) {
+                    tooClose = true;
+                    break;
+                }
+            }
+            if (!tooClose) {
+                corners.push(c.index);
+            }
+        }
+
+        return corners.sort((a, b) => a - b);
+    }
+
+    /**
+     * VTracer 风格：只平滑非角点区域
+     * 保护角点，只平滑曲线部分
+     */
+    function smoothPathPreservingCorners(points, corners, windowSize = 3) {
+        if (points.length < 3 || corners.length === 0) {
+            return movingAverageSmooth(points, windowSize);
+        }
+
+        const n = points.length;
+        const half = Math.floor(windowSize / 2);
+        const result = [];
+
+        // 创建角点集合（包括角点附近的点也要保护）
+        const protectedIndices = new Set();
+        for (const c of corners) {
+            for (let d = -2; d <= 2; d++) {
+                protectedIndices.add((c + d + n) % n);
+            }
+        }
+
+        for (let i = 0; i < n; i++) {
+            if (protectedIndices.has(i)) {
+                // 角点及附近：保持原样
+                result.push({ ...points[i] });
+            } else {
+                // 非角点：平滑处理
+                let sumX = 0, sumY = 0, count = 0;
+                for (let j = -half; j <= half; j++) {
+                    const idx = (i + j + n) % n;
+                    sumX += points[idx].x;
+                    sumY += points[idx].y;
+                    count++;
+                }
+                result.push({
+                    x: sumX / count,
+                    y: sumY / count
+                });
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * VTracer 风格完整处理流程
+     * 极致锐利版本 - 角点完全保持原始位置
+     */
+    function processContourVTracer(points, options = {}) {
+        const {
+            cornerAngle = 110,      // 角点阈值（度）- 更敏感
+            minCornerDist = 2,      // 角点最小距离 - 更小
+            cornerProtectRadius = 3 // 角点保护半径 - 更大
+        } = options;
+
+        if (points.length < 4) return { points, corners: [] };
+
+        // 1. 检测角点（使用更敏感的参数）
+        const cornerIndices = detectCornersVTracerStrict(points, cornerAngle, minCornerDist);
+        const cornerSet = new Set(cornerIndices);
+        const n = points.length;
+
+        // 保存原始角点位置
+        const originalCorners = new Map();
+        for (const ci of cornerIndices) {
+            originalCorners.set(ci, { x: points[ci].x, y: points[ci].y });
+        }
+
+        // 2. 标记所有点
+        const smoothed = points.map((p, i) => {
+            const isCorner = cornerSet.has(i);
+            let isNearCorner = false;
+            let distToCorner = Infinity;
+
+            if (!isCorner) {
+                for (const ci of cornerIndices) {
+                    const dist = Math.min(Math.abs(i - ci), n - Math.abs(i - ci));
+                    if (dist <= cornerProtectRadius && dist < distToCorner) {
+                        isNearCorner = true;
+                        distToCorner = dist;
+                    }
+                }
+            }
+
+            // 角点：完全保持原始位置
+            if (isCorner) {
+                return { x: p.x, y: p.y, isCorner: true, isNearCorner: false };
+            }
+
+            // 近角点：根据距离渐变平滑（距离越近平滑越少）
+            if (isNearCorner) {
+                const weight = distToCorner / (cornerProtectRadius + 1); // 0~1
+                const prev = points[(i - 1 + n) % n];
+                const next = points[(i + 1) % n];
+                const smoothX = (prev.x + p.x + next.x) / 3;
+                const smoothY = (prev.y + p.y + next.y) / 3;
+                return {
+                    x: p.x * (1 - weight) + smoothX * weight,
+                    y: p.y * (1 - weight) + smoothY * weight,
+                    isCorner: false,
+                    isNearCorner: true
+                };
+            }
+
+            // 非角点区域：正常平滑
+            const prev = points[(i - 1 + n) % n];
+            const next = points[(i + 1) % n];
+            return {
+                x: (prev.x + p.x + next.x) / 3,
+                y: (prev.y + p.y + next.y) / 3,
+                isCorner: false,
+                isNearCorner: false
+            };
+        });
+
+        // 3. 提取结果
+        const finalPoints = smoothed.map(p => ({ x: p.x, y: p.y }));
+        const finalCorners = smoothed
+            .map((p, i) => p.isCorner ? i : -1)
+            .filter(i => i >= 0);
+
+        return { points: finalPoints, corners: finalCorners };
+    }
+
+    /**
+     * Chaikin 平滑（最大锐利度版本）
+     * 角点和近角点都完全保持原位
+     */
+    function chaikinSmoothTaggedSharp(points) {
+        if (points.length < 3) return points;
+
+        const n = points.length;
+        const result = [];
+
+        for (let i = 0; i < n; i++) {
+            const p0 = points[i];
+            const p1 = points[(i + 1) % n];
+
+            if (p0.isCorner || p0.nearCorner) {
+                // 角点或近角点：完全保持原样
+                result.push({ ...p0 });
+            } else if (p1.isCorner || p1.nearCorner) {
+                // 下一个是角点/近角点：保持当前点，不添加中间点
+                result.push({ ...p0 });
+            } else {
+                // 正常 Chaikin：添加 1/4 和 3/4 位置的点
+                result.push({
+                    x: p0.x * 0.75 + p1.x * 0.25,
+                    y: p0.y * 0.75 + p1.y * 0.25,
+                    isCorner: false,
+                    nearCorner: false,
+                    distToCorner: Infinity
+                });
+                result.push({
+                    x: p0.x * 0.25 + p1.x * 0.75,
+                    y: p0.y * 0.25 + p1.y * 0.75,
+                    isCorner: false,
+                    nearCorner: false,
+                    distToCorner: Infinity
+                });
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * 移动平均平滑（最大锐利度版本）
+     * 角点和近角点都完全保持原位
+     */
+    function movingAverageSmoothTaggedSharp(points, windowSize = 3) {
+        if (points.length < 3) return points;
+
+        const half = Math.floor(windowSize / 2);
+        const n = points.length;
+        const result = [];
+
+        for (let i = 0; i < n; i++) {
+            if (points[i].isCorner || points[i].nearCorner) {
+                // 角点或近角点：完全保持原样
+                result.push({ ...points[i] });
+            } else {
+                // 非角点：正常平滑处理
+                let sumX = 0, sumY = 0, count = 0;
+                for (let j = -half; j <= half; j++) {
+                    const idx = (i + j + n) % n;
+                    // 跳过角点和近角点，不让它们影响平滑结果
+                    if (!points[idx].isCorner && !points[idx].nearCorner) {
+                        sumX += points[idx].x;
+                        sumY += points[idx].y;
+                        count++;
+                    }
+                }
+                if (count > 0) {
+                    result.push({
+                        x: sumX / count,
+                        y: sumY / count,
+                        isCorner: false,
+                        nearCorner: false,
+                        distToCorner: Infinity
+                    });
+                } else {
+                    // 如果周围都是角点，保持原样
+                    result.push({ ...points[i] });
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Chaikin 平滑（带标记版本）
+     */
+    function chaikinSmoothTagged(points) {
+        if (points.length < 3) return points;
+
+        const n = points.length;
+        const result = [];
+
+        for (let i = 0; i < n; i++) {
+            const p0 = points[i];
+            const p1 = points[(i + 1) % n];
+
+            if (p0.isCorner) {
+                // 角点：保持原样
+                result.push({ x: p0.x, y: p0.y, isCorner: true });
+            } else if (p1.isCorner) {
+                // 下一个是角点：只添加 3/4 位置点
+                result.push({
+                    x: p0.x * 0.25 + p1.x * 0.75,
+                    y: p0.y * 0.25 + p1.y * 0.75,
+                    isCorner: false
+                });
+            } else {
+                // 正常 Chaikin：添加 1/4 和 3/4 位置的点
+                result.push({
+                    x: p0.x * 0.75 + p1.x * 0.25,
+                    y: p0.y * 0.75 + p1.y * 0.25,
+                    isCorner: false
+                });
+                result.push({
+                    x: p0.x * 0.25 + p1.x * 0.75,
+                    y: p0.y * 0.25 + p1.y * 0.75,
+                    isCorner: false
+                });
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * 移动平均平滑（带标记版本）
+     */
+    function movingAverageSmoothTagged(points, windowSize = 5) {
+        if (points.length < 3) return points;
+
+        const half = Math.floor(windowSize / 2);
+        const n = points.length;
+        const result = [];
+
+        for (let i = 0; i < n; i++) {
+            if (points[i].isCorner) {
+                // 角点：保持原样
+                result.push({ ...points[i] });
+            } else {
+                // 非角点：平滑处理
+                let sumX = 0, sumY = 0, count = 0;
+                for (let j = -half; j <= half; j++) {
+                    const idx = (i + j + n) % n;
+                    sumX += points[idx].x;
+                    sumY += points[idx].y;
+                    count++;
+                }
+                result.push({
+                    x: sumX / count,
+                    y: sumY / count,
+                    isCorner: false
+                });
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * VTracer 风格曲线拟合（使用预检测的角点）
+     * @param {Array} points - 简化后的点数组
+     * @param {number} maxError - 曲线拟合误差
+     * @param {Array} originalCorners - 原始轮廓中的角点索引
+     * @param {number} originalCount - 原始轮廓点数
+     */
+    function fitBezierWithCornersVTracer(points, maxError, originalCorners, originalCount) {
+        if (!points || points.length < 3) return '';
+
+        const closed = points.length > 2 &&
+            Math.abs(points[0].x - points[points.length - 1].x) < 0.5 &&
+            Math.abs(points[0].y - points[points.length - 1].y) < 0.5;
+
+        const pts = closed ? points.slice(0, -1) : points;
+        const n = pts.length;
+        if (n < 3) return generatePolygonPath(points);
+
+        // 将原始角点索引映射到简化后的点
+        // 使用比例映射
+        const ratio = n / originalCount;
+        let corners = originalCorners
+            .map(idx => Math.round(idx * ratio))
+            .filter(idx => idx >= 0 && idx < n);
+
+        // 去重并排序
+        corners = [...new Set(corners)].sort((a, b) => a - b);
+
+        // 如果映射后角点太少，重新在简化后的点上检测
+        if (corners.length < 2 && n > 6) {
+            corners = detectCornersVTracer(pts, 75, 3);
+        }
+
+        // 如果没有角点，使用普通拟合
+        if (corners.length === 0) {
+            return fitBezierSimple(pts, maxError, closed);
+        }
+
+        // 按角点分段拟合
+        const segments = [];
+        for (let i = 0; i < corners.length; i++) {
+            const start = corners[i];
+            const end = corners[(i + 1) % corners.length];
+
+            const segment = [];
+            if (end > start) {
+                for (let j = start; j <= end; j++) {
+                    segment.push(pts[j]);
+                }
+            } else {
+                // 跨越首尾
+                for (let j = start; j < n; j++) segment.push(pts[j]);
+                for (let j = 0; j <= end; j++) segment.push(pts[j]);
+            }
+
+            if (segment.length >= 2) {
+                segments.push(segment);
+            }
+        }
+
+        // 对每段拟合曲线
+        let path = '';
+        for (let i = 0; i < segments.length; i++) {
+            const seg = segments[i];
+            const segPath = fitSegmentBezier(seg, maxError);
+
+            if (i === 0) {
+                path = segPath;
+            } else {
+                // 移除后续段的 M 命令，直接连接
+                path += segPath.replace(/^M[^CL]+/, '');
+            }
+        }
+
+        return path + 'Z';
+    }
+
+    /**
+     * 按角点分段拟合曲线
+     * @param {Array} points - 点数组（闭合路径）
+     * @param {number} maxError - 曲线拟合误差
+     * @param {number} cornerAngle - 角点检测阈值
+     */
+    function fitBezierWithCorners(points, maxError = 2.5, cornerAngle = 60) {
+        if (!points || points.length < 3) return '';
+
+        const closed = points.length > 2 &&
+            Math.abs(points[0].x - points[points.length - 1].x) < 0.5 &&
+            Math.abs(points[0].y - points[points.length - 1].y) < 0.5;
+
+        const pts = closed ? points.slice(0, -1) : points;
+        const n = pts.length;
+        if (n < 3) return generatePolygonPath(points);
+
+        // 使用 VTracer 风格角点检测
+        const corners = detectCornersVTracer(pts, cornerAngle, 3);
+
+        // 如果没有角点，使用普通拟合
+        if (corners.length === 0) {
+            return fitBezierSimple(pts, maxError, closed);
+        }
+
+        // 按角点分段
+        const segments = [];
+
+        for (let i = 0; i < corners.length; i++) {
+            const start = corners[i];
+            const end = corners[(i + 1) % corners.length];
+
+            // 提取这一段的点
+            const segment = [];
+            if (end > start) {
+                for (let j = start; j <= end; j++) {
+                    segment.push(pts[j]);
+                }
+            } else {
+                // 跨越首尾
+                for (let j = start; j < n; j++) segment.push(pts[j]);
+                for (let j = 0; j <= end; j++) segment.push(pts[j]);
+            }
+
+            if (segment.length >= 2) {
+                segments.push(segment);
+            }
+        }
+
+        // 对每段拟合曲线
+        let path = '';
+        for (let i = 0; i < segments.length; i++) {
+            const seg = segments[i];
+            const segPath = fitSegmentBezier(seg, maxError);
+
+            if (i === 0) {
+                path = segPath;
+            } else {
+                // 移除后续段的 M 命令，直接连接
+                path += segPath.replace(/^M[^CL]+/, '');
+            }
+        }
+
+        return path + 'Z';
+    }
+
+    /**
+     * 对单段点集拟合贝塞尔曲线（不闭合）
+     */
+    function fitSegmentBezier(points, maxError) {
+        if (points.length < 2) return '';
+        if (points.length === 2) {
+            return `M${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}L${points[1].x.toFixed(1)},${points[1].y.toFixed(1)}`;
+        }
+
+        const pts = points.map(p => [p.x, p.y]);
+
+        // 使用 fit-curve
+        if (typeof window.fitCurve === 'function') {
+            try {
+                const curves = window.fitCurve(pts, Math.max(0.1, maxError));
+                if (curves && curves.length > 0) {
+                    let path = `M${curves[0][0][0].toFixed(1)},${curves[0][0][1].toFixed(1)}`;
+                    for (const c of curves) {
+                        path += `C${c[1][0].toFixed(1)},${c[1][1].toFixed(1)},${c[2][0].toFixed(1)},${c[2][1].toFixed(1)},${c[3][0].toFixed(1)},${c[3][1].toFixed(1)}`;
+                    }
+                    return path;
+                }
+            } catch (e) {}
+        }
+
+        // 回退：直线连接
+        let path = `M${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}`;
+        for (let i = 1; i < points.length; i++) {
+            path += `L${points[i].x.toFixed(1)},${points[i].y.toFixed(1)}`;
+        }
+        return path;
+    }
+
+    /**
+     * 简单贝塞尔拟合（无角点检测）
+     */
+    function fitBezierSimple(points, maxError, closed = true) {
+        const pts = points.map(p => [p.x, p.y]);
+
+        if (typeof window.fitCurve === 'function') {
+            try {
+                const curves = window.fitCurve(pts, Math.max(0.1, maxError));
+                if (curves && curves.length > 0) {
+                    let path = `M${curves[0][0][0].toFixed(1)},${curves[0][0][1].toFixed(1)}`;
+                    for (const c of curves) {
+                        path += `C${c[1][0].toFixed(1)},${c[1][1].toFixed(1)},${c[2][0].toFixed(1)},${c[2][1].toFixed(1)},${c[3][0].toFixed(1)},${c[3][1].toFixed(1)}`;
+                    }
+                    return path + (closed ? 'Z' : '');
+                }
+            } catch (e) {}
+        }
+
+        return fitBezierCatmullRom(points.map(p => ({ x: p[0] || p.x, y: p[1] || p.y })), 0.3);
+    }
+
+    /**
+     * 检测线段是否接近直线（水平、垂直或斜线）
+     * @returns {boolean} true 如果是直线段
+     */
+    function isLinearSegment(points, tolerance = 1.5) {
+        if (points.length < 2) return true;
+        if (points.length === 2) return true;
+
+        const start = points[0];
+        const end = points[points.length - 1];
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+
+        if (len < 2) return true;
+
+        // 检查所有中间点到直线的距离
+        for (let i = 1; i < points.length - 1; i++) {
+            const dist = Math.abs(dy * points[i].x - dx * points[i].y + end.x * start.y - end.y * start.x) / len;
+            if (dist > tolerance) return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * 平滑曲线拟合（用于已经充分平滑的点）
+     * 直线段使用 L 命令，曲线段使用 C 命令
+     */
+    function fitBezierSmooth(points, maxError = 1.0) {
+        if (!points || points.length < 3) return '';
+
+        const closed = points.length > 2 &&
+            Math.abs(points[0].x - points[points.length - 1].x) < 1 &&
+            Math.abs(points[0].y - points[points.length - 1].y) < 1;
+
+        const pts = closed ? points.slice(0, -1) : points;
+        if (pts.length < 3) return generatePolygonPath(points);
+
+        // 先检测角点，将路径分成多个段
+        const corners = detectCornersVTracer(pts, 120, 3);
+        
+        // 如果没有角点，整体拟合
+        if (corners.length === 0) {
+            return fitSegmentWithLineDetection(pts, maxError) + (closed ? 'Z' : '');
+        }
+
+        // 按角点分段
+        const n = pts.length;
+        let path = `M${pts[corners[0]].x.toFixed(2)},${pts[corners[0]].y.toFixed(2)}`;
+
+        for (let i = 0; i < corners.length; i++) {
+            const start = corners[i];
+            const end = corners[(i + 1) % corners.length];
+
+            // 提取这一段的点
+            const segment = [];
+            if (end > start) {
+                for (let j = start; j <= end; j++) segment.push(pts[j]);
+            } else {
+                for (let j = start; j < n; j++) segment.push(pts[j]);
+                for (let j = 0; j <= end; j++) segment.push(pts[j]);
+            }
+
+            if (segment.length < 2) continue;
+
+            // 检查是否是直线段
+            if (isLinearSegment(segment, 1.5)) {
+                // 直线段：只用 L 命令
+                path += `L${segment[segment.length - 1].x.toFixed(2)},${segment[segment.length - 1].y.toFixed(2)}`;
+            } else {
+                // 曲线段：使用贝塞尔拟合
+                const segPath = fitSegmentCurve(segment, maxError);
+                path += segPath;
+            }
+        }
+
+        return path + 'Z';
+    }
+
+    /**
+     * 对单段进行曲线拟合（返回不含 M 的路径）
+     */
+    function fitSegmentCurve(points, maxError) {
+        if (points.length < 2) return '';
+        if (points.length === 2) {
+            return `L${points[1].x.toFixed(2)},${points[1].y.toFixed(2)}`;
+        }
+
+        const pts = points.map(p => [p.x, p.y]);
+
+        if (typeof window.fitCurve === 'function') {
+            try {
+                const curves = window.fitCurve(pts, Math.max(0.1, maxError));
+                if (curves && curves.length > 0) {
+                    let path = '';
+                    for (const c of curves) {
+                        path += `C${c[1][0].toFixed(2)},${c[1][1].toFixed(2)},${c[2][0].toFixed(2)},${c[2][1].toFixed(2)},${c[3][0].toFixed(2)},${c[3][1].toFixed(2)}`;
+                    }
+                    return path;
+                }
+            } catch (e) {}
+        }
+
+        // 回退：直线
+        return `L${points[points.length - 1].x.toFixed(2)},${points[points.length - 1].y.toFixed(2)}`;
+    }
+
+    /**
+     * 带直线检测的整体拟合
+     */
+    function fitSegmentWithLineDetection(pts, maxError) {
+        // 优先使用 fit-curve
+        if (typeof window.fitCurve === 'function') {
+            try {
+                const inputPts = pts.map(p => [p.x, p.y]);
+                const curves = window.fitCurve(inputPts, Math.max(0.1, maxError * 0.5));
+                if (curves && curves.length > 0) {
+                    let path = `M${curves[0][0][0].toFixed(2)},${curves[0][0][1].toFixed(2)}`;
+                    for (const c of curves) {
+                        path += `C${c[1][0].toFixed(2)},${c[1][1].toFixed(2)},${c[2][0].toFixed(2)},${c[2][1].toFixed(2)},${c[3][0].toFixed(2)},${c[3][1].toFixed(2)}`;
+                    }
+                    return path;
+                }
+            } catch (e) {
+                console.warn('[PotraceCore] fit-curve failed, using Catmull-Rom');
+            }
+        }
+
+        // 回退到 Catmull-Rom（也能产生平滑曲线）
+        return fitBezierCatmullRom(pts, 0.4);
+    }
+
+    // ============ 曲线拟合 ============
+
+    /**
+     * 贝塞尔曲线拟合（带角点检测）
+     */
+    function fitBezier(points, maxError = 2.5, cornerAngle = 60) {
+        if (!points || points.length < 2) return '';
+        if (points.length === 2) {
+            return `M${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}L${points[1].x.toFixed(1)},${points[1].y.toFixed(1)}Z`;
+        }
+
+        // 使用带角点检测的拟合
+        return fitBezierWithCorners(points, maxError, cornerAngle);
+    }
+
+    function fitBezierCatmullRom(points, tension = 0.3) {
+        const closed = points.length > 2 &&
+            Math.abs(points[0].x - points[points.length - 1].x) < 0.5 &&
+            Math.abs(points[0].y - points[points.length - 1].y) < 0.5;
+        
+        const pts = closed ? points.slice(0, -1) : points;
+        const n = pts.length;
+        if (n < 3) return `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}L${pts[n - 1].x.toFixed(1)},${pts[n - 1].y.toFixed(1)}Z`;
+        
+        let path = `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`;
+        
+        for (let i = 0; i < n; i++) {
+            const p0 = pts[(i - 1 + n) % n];
+            const p1 = pts[i];
+            const p2 = pts[(i + 1) % n];
+            const p3 = pts[(i + 2) % n];
+            
+            const cp1x = p1.x + (p2.x - p0.x) * tension / 3;
+            const cp1y = p1.y + (p2.y - p0.y) * tension / 3;
+            const cp2x = p2.x - (p3.x - p1.x) * tension / 3;
+            const cp2y = p2.y - (p3.y - p1.y) * tension / 3;
+            
+            if (i === 0 && !closed) {
+                path += `L${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
+            } else if (i < n - 1 || closed) {
+                path += `C${cp1x.toFixed(1)},${cp1y.toFixed(1)},${cp2x.toFixed(1)},${cp2y.toFixed(1)},${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
+            }
+        }
+        
+        return path + 'Z';
+    }
+    
+    function generatePolygonPath(points) {
+        if (points.length < 2) return '';
+        let path = `M${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}`;
+        for (let i = 1; i < points.length; i++) {
+            path += `L${points[i].x.toFixed(1)},${points[i].y.toFixed(1)}`;
+        }
+        return path + 'Z';
+    }
+    
+    /**
+     * 反转 SVG 路径方向（用于孔洞）
+     */
+    function reversePath(pathD) {
+        // 简单方法：解析点并反转顺序
+        const points = [];
+        const regex = /([ML])([^MLCZml]+)/g;
+        let match;
+        
+        while ((match = regex.exec(pathD)) !== null) {
+            const coords = match[2].split(',').map(s => parseFloat(s.trim()));
+            if (coords.length >= 2) {
+                points.push({ x: coords[0], y: coords[1] });
+            }
+        }
+        
+        // 处理贝塞尔曲线
+        const bezierRegex = /C([^MLCZ]+)/g;
+        const beziers = [];
+        while ((match = bezierRegex.exec(pathD)) !== null) {
+            const nums = match[1].split(/[,\s]+/).map(parseFloat).filter(n => !isNaN(n));
+            if (nums.length >= 6) {
+                beziers.push({
+                    cp1: { x: nums[0], y: nums[1] },
+                    cp2: { x: nums[2], y: nums[3] },
+                    end: { x: nums[4], y: nums[5] }
+                });
+            }
+        }
+        
+        if (beziers.length > 0) {
+            // 反转贝塞尔曲线
+            beziers.reverse();
+            let reversed = `M${beziers[0].end.x.toFixed(1)},${beziers[0].end.y.toFixed(1)}`;
+            for (let i = 0; i < beziers.length; i++) {
+                const b = beziers[i];
+                const nextEnd = i < beziers.length - 1 ? beziers[i + 1].end : points[0] || beziers[beziers.length - 1].end;
+                reversed += `C${b.cp2.x.toFixed(1)},${b.cp2.y.toFixed(1)},${b.cp1.x.toFixed(1)},${b.cp1.y.toFixed(1)},${nextEnd.x.toFixed(1)},${nextEnd.y.toFixed(1)}`;
+            }
+            return reversed + 'Z';
+        }
+        
+        // 反转简单路径
+        if (points.length < 2) return pathD;
+        points.reverse();
+        let reversed = `M${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}`;
+        for (let i = 1; i < points.length; i++) {
+            reversed += `L${points[i].x.toFixed(1)},${points[i].y.toFixed(1)}`;
+        }
+        return reversed + 'Z';
+    }
+
+    // ============ 主矢量化函数 ============
+
+    async function vectorize(imageData, options = {}) {
+        await loadCdnLibs();
+
+        const {
+            numColors = 16,
+            colorTolerance = 25,
+            pathTolerance = 1.0,
+            smoothness = 2.5,
+            minPathLength = 16,
+            mode = 'spline',
+            binaryMode = false,  // lineart 使用二值模式
+            blurSigma = 0.5,     // 高斯模糊 - 极小，最大程度保护角点
+            morphology = true    // 形态学预处理（只做闭运算）
+        } = options;
+
+        const originalWidth = imageData.width;
+        const originalHeight = imageData.height;
+        let { width, height } = imageData;
+        let workingData = imageData;
+        let scale = 1;
+
+        // 小图预处理：放大后矢量化效果更好
+        const MIN_SIZE = 256;
+        const maxDim = Math.max(width, height);
+        if (maxDim < MIN_SIZE) {
+            scale = Math.ceil(MIN_SIZE / maxDim);
+            const newWidth = width * scale;
+            const newHeight = height * scale;
+            
+            // 使用 OffscreenCanvas 或临时 Canvas 放大
+            const canvas = typeof OffscreenCanvas !== 'undefined' 
+                ? new OffscreenCanvas(newWidth, newHeight)
+                : document.createElement('canvas');
+            canvas.width = newWidth;
+            canvas.height = newHeight;
+            const ctx = canvas.getContext('2d');
+            
+            // 关闭平滑，保持像素边缘（适合 logo/pixel art）
+            ctx.imageSmoothingEnabled = false;
+            
+            // 先把 imageData 画到临时 canvas
+            const tempCanvas = typeof OffscreenCanvas !== 'undefined'
+                ? new OffscreenCanvas(width, height)
+                : document.createElement('canvas');
+            tempCanvas.width = width;
+            tempCanvas.height = height;
+            tempCanvas.getContext('2d').putImageData(imageData, 0, 0);
+            
+            // 放大绘制
+            ctx.drawImage(tempCanvas, 0, 0, newWidth, newHeight);
+            workingData = ctx.getImageData(0, 0, newWidth, newHeight);
+            
+            console.log(`[PotraceCore] 小图放大: ${width}x${height} → ${newWidth}x${newHeight} (${scale}x)`);
+            width = newWidth;
+            height = newHeight;
+        }
+
+        console.log(`[PotraceCore] 矢量化: ${numColors}色, tol=${pathTolerance}, smooth=${smoothness}, binary=${binaryMode}, blur=${blurSigma}`);
+
+        // 1. 颜色量化 (lineart 使用亮度二值化)
+        let palette;
+        let otsuThreshold = null;
+
+        if (binaryMode || numColors <= 2) {
+            // 二值模式：计算 Otsu 阈值，只提取前景色
+            otsuThreshold = computeOtsuThreshold(workingData);
+            console.log(`[PotraceCore] Otsu 阈值: ${otsuThreshold}`);
+            // 只生成前景（暗色）层，背景不需要矢量化
+            palette = [[0, 0, 0]];
+        } else {
+            // 使用 K-Means++ 聚类生成调色板（比 Median Cut 更准确）
+            palette = kMeansQuantize(workingData, numColors);
+        }
+        console.log(`[PotraceCore] 提取 ${palette.length} 种主色`);
+
+        // 2. 为每个像素分配最近的调色板颜色（确保无空白无重叠）
+        const pixelColorMap = new Uint8Array(width * height);
+        const data = workingData.data;
+        const useLuminance = binaryMode || numColors <= 2;
+        
+        if (!useLuminance) {
+            for (let i = 0; i < width * height; i++) {
+                const idx = i * 4;
+                if (data[idx + 3] > 128) {
+                    const pixelColor = [data[idx], data[idx + 1], data[idx + 2]];
+                    let minDist = Infinity;
+                    let nearestIdx = 0;
+                    for (let j = 0; j < palette.length; j++) {
+                        const dist = colorDistSq(pixelColor, palette[j]);
+                        if (dist < minDist) {
+                            minDist = dist;
+                            nearestIdx = j;
+                        }
+                    }
+                    pixelColorMap[i] = nearestIdx;
+                } else {
+                    pixelColorMap[i] = 255; // 透明像素标记
+                }
+            }
+        }
+
+        const layers = [];
+
+        // 找出背景色（最亮的颜色）的索引，背景色不需要膨胀
+        const backgroundColorIdx = palette.length - 1; // palette 按亮度排序，最后一个最亮
+
+        // 3. 每种颜色生成一个图层（简单高效）
+        for (let colorIdx = 0; colorIdx < palette.length; colorIdx++) {
+            const color = palette[colorIdx];
+
+            // 背景色不膨胀，前景色膨胀1像素确保无缝隙
+            const isBackground = (colorIdx === backgroundColorIdx);
+            const dilatePixels = isBackground ? 0 : 1;
+
+            // 使用最近颜色分配（非二值模式）或容差匹配（二值模式）
+            const bitmap = useLuminance
+                ? createBinaryBitmap(workingData, color, colorTolerance, useLuminance, otsuThreshold, blurSigma, morphology)
+                : createBinaryBitmapFromMap(pixelColorMap, colorIdx, width, height, blurSigma, dilatePixels);
+            
+            // 如果反转了，计算前景的实际颜色
+            let actualColor = color;
+            if (bitmap.inverted && useLuminance) {
+                const sum = [0, 0, 0];
+                let count = 0;
+                const data = workingData.data;
+                for (let i = 0; i < bitmap.data.length; i++) {
+                    if (bitmap.data[i] === 1) {
+                        const idx = i * 4;
+                        sum[0] += data[idx];
+                        sum[1] += data[idx + 1];
+                        sum[2] += data[idx + 2];
+                        count++;
+                    }
+                }
+                if (count > 0) {
+                    actualColor = [
+                        Math.round(sum[0] / count),
+                        Math.round(sum[1] / count),
+                        Math.round(sum[2] / count)
+                    ];
+                }
+            }
+            
+            const colorStr = `rgb(${actualColor[0]},${actualColor[1]},${actualColor[2]})`;
+            
+            // 统计前景像素
+            let fgCount = 0;
+            for (let i = 0; i < bitmap.data.length; i++) {
+                if (bitmap.data[i] === 1) fgCount++;
+            }
+            if (fgCount < minPathLength) continue;
+
+            // 追踪轮廓
+            const contours = marchingSquaresContour(bitmap, null, null, bitmap.grayscale);
+            const pathParts = [];
+
+            // 动态面积阈值：基于图像尺寸，过滤孤立小噪点
+            // 最小噪点面积 = 图像面积的 0.02%，但至少 20 像素，最多 200 像素
+            const totalArea = width * height;
+            const minNoiseArea = Math.max(20, Math.min(200, totalArea * 0.0002));
+            // 中等轮廓阈值（用于决定是否曲线拟合）
+            const mediumContourArea = Math.max(100, minNoiseArea * 5);
+
+            for (const contour of contours) {
+                if (contour.points.length < 3) continue;
+                
+                const contourArea = Math.abs(contour.area);
+                const isHole = contour.type === 'inner' || contour.area < 0;
+                
+                // 只过滤非常小的外轮廓噪点，孔洞保留
+                if (!isHole && contourArea < minNoiseArea) {
+                    continue;
+                }
+                
+                // 中等轮廓直接用多边形（不值得曲线拟合）
+                if (contourArea < mediumContourArea || contour.points.length < 12) {
+                    const pathD = generatePolygonPath(contour.points);
+                    if (pathD) pathParts.push(pathD);
+                    continue;
+                }
+
+                // VTracer 处理
+                const processed = processContourVTracer(contour.points, {
+                    cornerAngle: 110,
+                    minCornerDist: 2,
+                    cornerProtectRadius: 3
+                });
+                let finalPoints = processed.points;
+
+                // 大轮廓采样（限制点数提升性能）
+                if (finalPoints.length > 500) {
+                    const step = finalPoints.length / 500;
+                    const sampled = [];
+                    for (let i = 0; i < 500; i++) {
+                        sampled.push(finalPoints[Math.floor(i * step)]);
+                    }
+                    finalPoints = sampled;
+                }
+
+                if (finalPoints.length < 3) continue;
+
+                // 曲线拟合
+                const fitError = Math.min(smoothness, 1.0);
+                const pathD = mode === 'spline'
+                    ? fitBezierSmooth(finalPoints, fitError)
+                    : generatePolygonPath(finalPoints);
+
+                if (pathD) pathParts.push(pathD);
+            }
+            
+            if (pathParts.length > 0) {
+                const fillRule = useLuminance ? 'evenodd' : 'nonzero';
+                layers.push({
+                    color: colorStr,
+                    colorRgb: actualColor,
+                    paths: [{
+                        d: pathParts.join(' '),
+                        fill: colorStr,
+                        fillRule,
+                        stroke: 'none',
+                        strokeWidth: 0
+                    }]
+                });
+            }
+        }
+        
+        // 全局后处理：基于所有图层中最大轮廓面积过滤小碎片图层
+        // 找到全局最大轮廓面积
+        let globalMaxArea = 0;
+        for (const layer of layers) {
+            for (const path of layer.paths) {
+                // 从 path.d 估算面积（用边界框近似）
+                const matches = path.d.match(/[-+]?\d*\.?\d+/g);
+                if (matches && matches.length >= 4) {
+                    const nums = matches.map(Number);
+                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                    for (let i = 0; i < nums.length - 1; i += 2) {
+                        minX = Math.min(minX, nums[i]);
+                        maxX = Math.max(maxX, nums[i]);
+                        minY = Math.min(minY, nums[i + 1]);
+                        maxY = Math.max(maxY, nums[i + 1]);
+                    }
+                    const area = (maxX - minX) * (maxY - minY);
+                    if (area > globalMaxArea) globalMaxArea = area;
+                }
+            }
+        }
+        
+        // 过滤掉面积远小于全局最大（1:50 比例）的图层
+        const minLayerArea = Math.max(16, globalMaxArea / 50);
+        const filteredLayers = layers.filter(layer => {
+            // 计算该图层的总面积
+            let layerArea = 0;
+            for (const path of layer.paths) {
+                const matches = path.d.match(/[-+]?\d*\.?\d+/g);
+                if (matches && matches.length >= 4) {
+                    const nums = matches.map(Number);
+                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                    for (let i = 0; i < nums.length - 1; i += 2) {
+                        minX = Math.min(minX, nums[i]);
+                        maxX = Math.max(maxX, nums[i]);
+                        minY = Math.min(minY, nums[i + 1]);
+                        maxY = Math.max(maxY, nums[i + 1]);
+                    }
+                    layerArea += (maxX - minX) * (maxY - minY);
+                }
+            }
+            return layerArea >= minLayerArea;
+        });
+        
+        console.log(`[PotraceCore] 生成 ${layers.length} 个颜色图层，过滤后 ${filteredLayers.length} 个`);
+
+        // 4. 生成 SVG（反转顺序：亮色在底，暗色在上）
+        // layers 按亮度从暗到亮排序，SVG 需要先绘制亮色（底层），后绘制暗色（顶层）
+        const reversedLayers = filteredLayers.slice().reverse();
+        const allPaths = reversedLayers.flatMap(l => l.paths);
+        const svgContent = allPaths.map(p => {
+            const fillRule = p.fillRule ? ` fill-rule="${p.fillRule}"` : '';
+            return `<path d="${p.d}" fill="${p.fill}"${fillRule} stroke="${p.stroke}" stroke-width="${p.strokeWidth}"/>`;
+        }).join('\n');
+        
+        // SVG 使用原始尺寸，viewBox 使用工作尺寸（放大后），浏览器会自动缩放
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${originalWidth}" height="${originalHeight}" viewBox="0 0 ${width} ${height}">\n${svgContent}\n</svg>`;
+        
+        return {
+            svg,
+            width: originalWidth,
+            height: originalHeight,
+            // 路径坐标的实际范围（放大后的工作尺寸），用于生成单层 SVG 的 viewBox
+            viewBoxWidth: width,
+            viewBoxHeight: height,
+            layers: filteredLayers,
+            paths: allPaths,
+            colors: palette.map(c => `rgb(${c[0]},${c[1]},${c[2]})`),
+            engine: 'potrace-core-v2'
+        };
+    }
+
+    // ============ 预设 ============
+
+    const PRESETS = {
+        logo: {
+            numColors: 16,
+            colorTolerance: 20,
+            pathTolerance: 0.3,
+            smoothness: 0.8,       // 更小的拟合误差
+            minPathLength: 16,
+            mode: 'spline',
+            blurSigma: 1.0         // 增强模糊
+        },
+        illustration: {
+            numColors: 32,
+            colorTolerance: 25,
+            pathTolerance: 0.5,
+            smoothness: 1.0,
+            minPathLength: 16,
+            mode: 'spline',
+            blurSigma: 1.0
+        },
+        lineart: {
+            numColors: 2,
+            colorTolerance: 60,
+            pathTolerance: 0.2,    // 非常低，保留细节
+            smoothness: 0.5,       // 非常精确的曲线拟合
+            minPathLength: 16,
+            mode: 'spline',
+            binaryMode: true,
+            blurSigma: 0.5,        // 极小模糊，最大程度保护角点
+            morphology: true       // 只做闭运算
+        },
+        photo: {
+            numColors: 64,
+            colorTolerance: 35,
+            pathTolerance: 1.0,
+            smoothness: 2.0,
+            minPathLength: 64,
+            mode: 'spline',
+            blurSigma: 1.5
+        },
+        pixel: {
+            numColors: 16,         // 减少颜色数，避免相似色分裂
+            colorTolerance: 45,    // 适中容差
+            pathTolerance: 0.5,    // 保留细节
+            smoothness: 0.3,       // 极少平滑
+            minPathLength: 1,      // 不过滤任何区域
+            mode: 'spline',
+            blurSigma: 0,          // 不模糊，保持像素边缘
+            morphology: false      // 不做形态学处理
+        },
+        simple: {
+            numColors: 8,
+            colorTolerance: 40,
+            pathTolerance: 2.0,
+            smoothness: 4.0,
+            minPathLength: 32,
+            mode: 'polygon',
+            blurSigma: 0
+        }
+    };
+    
+    function vectorizeWithPreset(imageData, presetName = 'auto') {
+        // 自动模式：分析图片颜色，自动选择最佳参数
+        if (presetName === 'auto') {
+            const analysis = analyzeImageColors(imageData);
+            const basePreset = PRESETS[analysis.recommendedPreset] || PRESETS.logo;
+            
+            // 使用预设的默认 numColors，不根据聚类数量调整
+            // 这样确保有足够的颜色槽位提取小面积颜色
+            const autoOptions = { ...basePreset };
+            
+            console.log(`[PotraceCore] 自动模式: ${analysis.recommendedPreset}, ${autoOptions.numColors}色`);
+            return vectorize(imageData, autoOptions);
+        }
+        
+        const preset = PRESETS[presetName] || PRESETS.logo;
+        return vectorize(imageData, preset);
+    }
+
+    // ============ 导出 ============
+    
+    /**
+     * PotraceCore - 兼容层
+     * 
+     * 推荐使用新的 ES Module 版本:
+     * import { Vectorizer } from './vectorizer/index.js';
+     * 
+     * 新版本包含:
+     * - VTracer 4-Point Subdivision Scheme 平滑算法
+     * - Splice Point Detection 曲线分段
+     * - remove_staircase 锯齿移除
+     * - retract_handles 控制点修正
+     */
+    const PotraceCore = {
+        vectorize,
+        vectorizeWithPreset,
+        analyzeImageColors,
+        kMeansQuantize,      // K-Means++ 聚类（推荐）
+        medianCutQuantize,   // Median Cut（备用）
+        labelConnectedComponents,
+        marchingSquaresContour,
+        simplifyPath,
+        fitBezier,
+        PRESETS,
+        
+        // VTracer 新增函数
+        processContourVTracer,
+        detectCornersVTracer,
+        smoothPathPreservingCorners,
+        fitBezierWithCorners,
+        fitBezierSmooth
+    };
+    
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = PotraceCore;
+    }
+    
+    global.PotraceCore = PotraceCore;
+    
+})(typeof window !== 'undefined' ? window : this);

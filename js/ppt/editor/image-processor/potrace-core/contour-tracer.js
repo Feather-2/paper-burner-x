@@ -1,12 +1,13 @@
 /**
- * 轮廓追踪模块 (Marching Squares + VTracer PathWalker)
- * @module vectorizer/contour-tracer
+ * Potrace Core - 轮廓追踪模块
+ * 
+ * Marching Squares 亚像素精度轮廓追踪
  */
 
-import { polygonArea } from './utils.js';
+import { calculateArea } from './utils.js';
 
 /**
- * Marching Squares 轮廓追踪 (亚像素精度)
+ * Marching Squares - 亚像素精度轮廓追踪
  *
  * 格子配置 (2x2):
  *   TL(8) -- TR(4)
@@ -14,11 +15,13 @@ import { polygonArea } from './utils.js';
  *   BL(1) -- BR(2)
  *
  * 边定义: 0=top, 1=right, 2=bottom, 3=left
+ *
+ * VTracer 风格改进：使用灰度值线性插值计算精确边界位置
  */
 export function marchingSquaresContour(bitmap, ccResult = null, regionLabel = null, grayscaleData = null) {
     const { data, width, height } = bitmap;
     const contours = [];
-    const visitedEdges = new Set();
+    const visitedEdges = new Set(); // 用 "x,y,edge" 作为 key
 
     // 获取像素值 (支持指定区域)
     const getPixel = (x, y) => {
@@ -29,7 +32,7 @@ export function marchingSquaresContour(bitmap, ccResult = null, regionLabel = nu
         return data[y * width + x];
     };
 
-    // 获取灰度值用于插值
+    // 获取灰度值用于插值 (0-255)
     const getGray = (x, y) => {
         if (!grayscaleData) return getPixel(x, y) * 255;
         if (x < 0 || x >= width || y < 0 || y >= height) return 0;
@@ -37,6 +40,7 @@ export function marchingSquaresContour(bitmap, ccResult = null, regionLabel = nu
     };
 
     // 获取 2x2 格子配置 (0-15)
+    // 格子 (cx, cy) 的四个角是像素 (cx,cy), (cx+1,cy), (cx,cy+1), (cx+1,cy+1)
     const getConfig = (cx, cy) => {
         const tl = getPixel(cx, cy);
         const tr = getPixel(cx + 1, cy);
@@ -45,16 +49,16 @@ export function marchingSquaresContour(bitmap, ccResult = null, regionLabel = nu
         return (tl << 3) | (tr << 2) | (br << 1) | bl;
     };
 
-    // 线性插值
-    const interpolate = (v1, v2, target) => {
-        if (Math.abs(v2 - v1) < 1) return 0.5;
-        let t = (target - v1) / (v2 - v1);
-        return Math.max(0.1, Math.min(0.9, t));
-    };
-
+    /**
+     * VTracer 风格：亚像素线性插值
+     * 根据相邻像素的灰度值计算精确边界位置
+     *
+     * 原理：假设边界在灰度值 = threshold (128) 处
+     * 如果 p1 灰度 = 50, p2 灰度 = 200
+     * 则边界位置 t = (128 - 50) / (200 - 50) = 0.52
+     */
     const threshold = 128;
 
-    // 计算边上的精确位置 (VTracer 风格亚像素)
     const edgePoint = (cx, cy, edge) => {
         let g1, g2, t;
 
@@ -86,33 +90,51 @@ export function marchingSquaresContour(bitmap, ccResult = null, regionLabel = nu
         return { x: cx + 0.5, y: cy + 0.5 };
     };
 
-    // Marching Squares 转移表
+    // 线性插值：计算边界位置 (0-1)
+    const interpolate = (v1, v2, target) => {
+        // 避免除零
+        if (Math.abs(v2 - v1) < 1) return 0.5;
+
+        // 计算插值位置
+        let t = (target - v1) / (v2 - v1);
+
+        // 限制在合理范围内
+        return Math.max(0.1, Math.min(0.9, t));
+    };
+    
+    // Marching Squares 标准转移表
+    // 每个配置定义了边界穿过的边
+    // [进入边, 退出边, 下一个格子的dx, dy]
+    // 边: 0=top, 1=right, 2=bottom, 3=left
     const edgeTable = {
-        1:  [[3, 2]],
-        2:  [[2, 1]],
-        3:  [[3, 1]],
-        4:  [[1, 0]],
-        5:  [[1, 0], [3, 2]],
-        6:  [[2, 0]],
-        7:  [[3, 0]],
-        8:  [[0, 3]],
-        9:  [[0, 2]],
-        10: [[0, 3], [2, 1]],
-        11: [[0, 1]],
-        12: [[1, 3]],
-        13: [[1, 2]],
-        14: [[2, 3]],
+        //  config: [[入边, 出边]]  - 描述边界线经过的边
+        1:  [[3, 2]],           // BL only: left -> bottom
+        2:  [[2, 1]],           // BR only: bottom -> right
+        3:  [[3, 1]],           // BL+BR: left -> right
+        4:  [[1, 0]],           // TR only: right -> top
+        5:  [[1, 0], [3, 2]],   // TR+BL (saddle): right->top, left->bottom
+        6:  [[2, 0]],           // TR+BR: bottom -> top
+        7:  [[3, 0]],           // TR+BR+BL: left -> top
+        8:  [[0, 3]],           // TL only: top -> left
+        9:  [[0, 2]],           // TL+BL: top -> bottom
+        10: [[0, 3], [2, 1]],   // TL+BR (saddle): top->left, bottom->right
+        11: [[0, 1]],           // TL+BL+BR: top -> right
+        12: [[1, 3]],           // TL+TR: right -> left
+        13: [[1, 2]],           // TL+TR+BL: right -> bottom
+        14: [[2, 3]],           // TL+TR+BR: bottom -> left
     };
-
+    
+    // 下一个格子的偏移 (根据退出边)
     const nextCell = {
-        0: [0, -1],
-        1: [1, 0],
-        2: [0, 1],
-        3: [-1, 0],
+        0: [0, -1],  // 从 top 退出 -> 上方格子
+        1: [1, 0],   // 从 right 退出 -> 右方格子
+        2: [0, 1],   // 从 bottom 退出 -> 下方格子
+        3: [-1, 0],  // 从 left 退出 -> 左方格子
     };
-
+    
+    // 进入新格子后的入边 (退出边的对面)
     const enterEdge = { 0: 2, 1: 3, 2: 0, 3: 1 };
-
+    
     // 追踪单个轮廓
     const traceContour = (startCx, startCy, startInEdge, startOutEdge) => {
         const points = [];
@@ -120,26 +142,30 @@ export function marchingSquaresContour(bitmap, ccResult = null, regionLabel = nu
         let inEdge = startInEdge, outEdge = startOutEdge;
         const maxSteps = (width + height) * 4;
         let steps = 0;
-
+        
         do {
             const edgeKey = `${cx},${cy},${outEdge}`;
             if (visitedEdges.has(edgeKey)) break;
             visitedEdges.add(edgeKey);
-
+            
+            // 添加出边的点
             const pt = edgePoint(cx, cy, outEdge);
             points.push(pt);
-
+            
+            // 移动到下一个格子
             const [dx, dy] = nextCell[outEdge];
             cx += dx;
             cy += dy;
             inEdge = enterEdge[outEdge];
-
+            
+            // 获取新格子的配置
             const config = getConfig(cx, cy);
             if (config === 0 || config === 15) break;
-
+            
+            // 找匹配的转移 (入边 -> 出边)
             const edges = edgeTable[config];
             if (!edges) break;
-
+            
             let found = false;
             for (const [ein, eout] of edges) {
                 if (ein === inEdge) {
@@ -149,31 +175,33 @@ export function marchingSquaresContour(bitmap, ccResult = null, regionLabel = nu
                 }
             }
             if (!found) break;
-
+            
             steps++;
         } while (steps < maxSteps && !(cx === startCx && cy === startCy && outEdge === startOutEdge));
-
+        
         return points;
     };
-
-    // 扫描所有格子
+    
+    // 扫描所有格子 (从 -1 开始，因为格子可以跨越边界)
     for (let cy = -1; cy < height; cy++) {
         for (let cx = -1; cx < width; cx++) {
             const config = getConfig(cx, cy);
             if (config === 0 || config === 15) continue;
-
+            
             const edges = edgeTable[config];
             if (!edges) continue;
-
+            
+            // 对每条边界线追踪
             for (const [inEdge, outEdge] of edges) {
                 const edgeKey = `${cx},${cy},${outEdge}`;
                 if (visitedEdges.has(edgeKey)) continue;
-
+                
                 const pts = traceContour(cx, cy, inEdge, outEdge);
                 if (pts.length >= 3) {
+                    // 闭合路径
                     pts.push({ ...pts[0] });
-
-                    const area = polygonArea(pts);
+                    
+                    const area = calculateArea(pts);
                     contours.push({
                         points: pts,
                         type: area >= 0 ? 'outer' : 'inner',
@@ -183,107 +211,9 @@ export function marchingSquaresContour(bitmap, ccResult = null, regionLabel = nu
             }
         }
     }
-
+    
+    // 按面积排序（大到小）
     contours.sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
-
+    
     return contours;
-}
-
-/**
- * VTracer 风格 PathWalker
- * 4方向边界行走 + Straight Run 优化
- */
-export function pathWalkerTrace(bitmap, startX, startY, clockwise = true) {
-    const { data, width, height } = bitmap;
-    const points = [];
-
-    const getPixel = (x, y) => {
-        if (x < 0 || x >= width || y < 0 || y >= height) return false;
-        return data[y * width + x] === 1;
-    };
-
-    // 方向: 0=上, 2=右, 4=下, 6=左
-    const dirVec = {
-        0: { x: 0, y: -1 },
-        2: { x: 1, y: 0 },
-        4: { x: 0, y: 1 },
-        6: { x: -1, y: 0 }
-    };
-
-    // 边界检测（检查方向两侧像素值是否不同）
-    const sideVecs = {
-        0: [{ x: -1, y: -1 }, { x: 0, y: -1 }],
-        2: [{ x: 0, y: 0 }, { x: 0, y: -1 }],
-        4: [{ x: -1, y: 0 }, { x: 0, y: 0 }],
-        6: [{ x: -1, y: 0 }, { x: -1, y: -1 }]
-    };
-
-    const range = clockwise ? [0, 2, 4, 6] : [6, 4, 2, 0];
-
-    let curr = { x: startX, y: startY };
-    let prev = { ...curr };
-    let prevPrev = { ...curr };
-    let lastDir = -1;
-
-    const maxSteps = width * height * 2;
-    let steps = 0;
-
-    // 输出起点
-    points.push({ ...curr });
-
-    while (steps < maxSteps) {
-        let go = -1;
-
-        for (const dir of range) {
-            const ahead = {
-                x: curr.x + dirVec[dir].x,
-                y: curr.y + dirVec[dir].y
-            };
-
-            // 跳过已访问点
-            if ((ahead.x === prev.x && ahead.y === prev.y) ||
-                (ahead.x === prevPrev.x && ahead.y === prevPrev.y)) {
-                continue;
-            }
-
-            // 检查是否在边界上
-            const [s1, s2] = sideVecs[dir];
-            const p1 = getPixel(curr.x + s1.x, curr.y + s1.y);
-            const p2 = getPixel(curr.x + s2.x, curr.y + s2.y);
-
-            if (p1 !== p2) {
-                go = dir;
-                break;
-            }
-        }
-
-        if (go === -1) break;
-
-        // Straight Run 优化：方向改变时输出点
-        if (lastDir !== -1 && lastDir !== go) {
-            points.push({ ...curr });
-        }
-
-        lastDir = go;
-        prevPrev = { ...prev };
-        prev = { ...curr };
-        curr = {
-            x: curr.x + dirVec[go].x,
-            y: curr.y + dirVec[go].y
-        };
-
-        // 回到起点
-        if (curr.x === startX && curr.y === startY) {
-            break;
-        }
-
-        steps++;
-    }
-
-    // 闭合
-    if (points.length > 2) {
-        points.push({ ...points[0] });
-    }
-
-    return points;
 }
