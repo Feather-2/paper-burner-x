@@ -121,7 +121,6 @@ class LayerPanel extends EventEmitter {
 
     _renderLayerItem(el) {
         const isSelected = this.editor.selection.isSelected(el.id);
-        const icon = this._getElementIcon(el.type);
         const label = this._getElementLabel(el);
         const isLocked = el.locked;
         const isHidden = el.hidden;
@@ -131,6 +130,21 @@ class LayerPanel extends EventEmitter {
         if (isHidden) classes.push('hidden-layer');
         if (isLocked) classes.push('locked-layer');
 
+        // 生成缩略图内容
+        let thumbContent = '';
+        if (el.type === 'image' && el.src) {
+            thumbContent = `<img src="${el.src}" alt="img">`;
+        } else if (el.type === 'text') {
+            thumbContent = `<iconify-icon icon="mdi:format-text"></iconify-icon>`;
+        } else if (el.type === 'shape') {
+            thumbContent = `<iconify-icon icon="mdi:shape"></iconify-icon>`;
+        } else if (el.type === 'chart') {
+            thumbContent = `<iconify-icon icon="mdi:chart-bar"></iconify-icon>`;
+        } else {
+            const icon = this._getElementIcon(el.type);
+            thumbContent = `<iconify-icon icon="${icon}"></iconify-icon>`;
+        }
+
         return `
             <div class="${classes.join(' ')}" 
                  data-element-id="${el.id}"
@@ -138,11 +152,16 @@ class LayerPanel extends EventEmitter {
                 <div class="layer-drag-handle">
                     <iconify-icon icon="mdi:drag"></iconify-icon>
                 </div>
-                <div class="layer-icon">
-                    <iconify-icon icon="${icon}"></iconify-icon>
+                <div class="layer-thumbnail">
+                    ${thumbContent}
                 </div>
-                <div class="layer-label" title="${label}">
-                    ${label}
+                <div class="layer-content">
+                    <div class="layer-label" title="${label}">${label}</div>
+                    <div class="layer-meta">
+                        ${el.blend && el.blend !== 'normal' ? `<span class="layer-badge blend">${el.blend}</span>` : ''}
+                        ${el.filter ? '<span class="layer-badge filter">滤镜</span>' : ''}
+                        ${el.opacity !== undefined && el.opacity < 1 ? `<span class="layer-badge opacity">${Math.round(el.opacity * 100)}%</span>` : ''}
+                    </div>
                 </div>
                 <div class="layer-actions">
                     <button class="layer-btn ${isLocked ? 'active' : ''}" 
@@ -156,9 +175,6 @@ class LayerPanel extends EventEmitter {
                         <iconify-icon icon="${isHidden ? 'mdi:eye-off' : 'mdi:eye'}"></iconify-icon>
                     </button>
                 </div>
-                ${el.blend && el.blend !== 'normal' ? `<span class="layer-badge blend">${el.blend}</span>` : ''}
-                ${el.filter ? '<span class="layer-badge filter">滤镜</span>' : ''}
-                ${el.opacity !== undefined && el.opacity < 1 ? `<span class="layer-badge opacity">${Math.round(el.opacity * 100)}%</span>` : ''}
             </div>
         `;
     }

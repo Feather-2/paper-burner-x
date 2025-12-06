@@ -197,20 +197,21 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 16px;
-    background: white;
-    /* border-bottom: 1px solid #f3f4f6; */
+    padding: 8px 12px;
+    background: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
     font-weight: 600;
-    font-size: 13px;
-    color: #111827;
+    font-size: 12px;
+    color: #374151;
+    flex-shrink: 0;
 }
 
 .layer-count {
-    background: #f3f4f6;
+    background: #e5e7eb;
     color: #6b7280;
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-size: 10px;
 }
 
 .layer-panel-empty {
@@ -218,24 +219,27 @@
 }
 
 .layer-list {
-    padding: 8px 12px;
+    padding: 4px;
+    overflow-y: auto;
+    flex: 1;
 }
 
 .layer-item {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
-    border-radius: 8px;
+    gap: 8px;
+    padding: 4px 8px;
+    border-radius: 6px;
     cursor: pointer;
     transition: all 0.15s;
     user-select: none;
     border: 1px solid transparent;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
+    height: 40px; /* 固定高度，更紧凑 */
 }
 
 .layer-item:hover {
-    background: #f9fafb;
+    background: #f3f4f6;
 }
 
 .layer-item.selected {
@@ -257,49 +261,77 @@
 }
 
 .layer-drag-handle {
-    color: #e5e7eb;
+    color: #d1d5db;
     cursor: grab;
     display: flex;
     align-items: center;
-    transition: color 0.2s;
+    opacity: 0; /* 默认隐藏，hover 显示 */
+    transition: opacity 0.2s;
+    width: 12px;
 }
 
 .layer-item:hover .layer-drag-handle {
-    color: #9ca3af;
+    opacity: 1;
 }
 
-.layer-icon {
-    width: 28px;
-    height: 28px;
+/* 缩略图区域 */
+.layer-thumbnail {
+    width: 32px;
+    height: 32px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: transparent;
-    border-radius: 6px;
-    color: #6b7280;
-    font-size: 16px;
+    background: white;
     border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    overflow: hidden;
+    flex-shrink: 0;
 }
 
-.layer-item.selected .layer-icon {
-    background: white;
+.layer-item.selected .layer-thumbnail {
     border-color: #bfdbfe;
-    color: #3b82f6;
+}
+
+.layer-thumbnail img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.layer-thumbnail iconify-icon {
+    font-size: 18px;
+    color: #9ca3af;
+}
+
+.layer-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    overflow: hidden;
+    gap: 2px;
 }
 
 .layer-label {
-    flex: 1;
-    font-size: 13px;
+    font-size: 12px;
     color: #374151;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     font-weight: 500;
+    line-height: 1.2;
+}
+
+.layer-meta {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 14px;
 }
 
 .layer-actions {
     display: flex;
-    gap: 4px;
+    gap: 2px;
     opacity: 0;
     transition: opacity 0.15s;
 }
@@ -309,8 +341,8 @@
 }
 
 .layer-btn {
-    width: 24px;
-    height: 24px;
+    width: 20px;
+    height: 20px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -324,7 +356,7 @@
 }
 
 .layer-btn:hover {
-    background: #f3f4f6;
+    background: #e5e7eb;
     color: #374151;
 }
 
@@ -344,6 +376,7 @@
 
 .layer-item.hidden-layer .layer-label {
     color: #9ca3af;
+    text-decoration: line-through;
 }
 
 /* 锁定的图层样式 */
@@ -354,12 +387,13 @@
 
 .layer-badge {
     font-size: 9px;
-    padding: 2px 6px;
-    border-radius: 4px;
+    padding: 0 4px;
+    border-radius: 3px;
     background: #f3f4f6;
     color: #6b7280;
-    margin-left: 4px;
-    font-weight: 600;
+    line-height: 14px;
+    height: 14px;
+    display: inline-block;
 }
 
 .layer-badge.blend {
@@ -372,40 +406,34 @@
     color: #2563eb;
 }
 
-.layer-badge.opacity {
-    background: #faf5ff;
-    color: #9333ea;
-}
-
-/* 烘焙组 */
+/* 烘焙组 - 文件夹样式 */
 .layer-group {
-    margin: 8px 0;
-    border: 1px solid #fcd34d;
-    border-radius: 12px;
-    background: #fffbeb; /* 极淡的黄色 */
-    overflow: hidden;
+    margin: 4px 0;
+    border-left: 2px solid #cbd5e1; /* 左侧线条指示层级 */
+    padding-left: 4px;
 }
 
 .layer-group-header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 10px 12px;
-    font-size: 12px;
-    color: #b45309;
+    gap: 6px;
+    padding: 6px 8px;
+    font-size: 11px;
+    color: #64748b;
     font-weight: 600;
     cursor: pointer;
     user-select: none;
-    transition: background 0.15s;
-    background: rgba(255, 255, 255, 0.5);
+    border-radius: 4px;
+    background: #f8fafc;
 }
 
 .layer-group-header:hover {
-    background: rgba(255, 255, 255, 0.8);
+    background: #f1f5f9;
+    color: #334155;
 }
 
 .layer-group-header .group-chevron {
-    font-size: 16px;
+    font-size: 14px;
     transition: transform 0.2s;
     opacity: 0.7;
 }
@@ -415,30 +443,18 @@
 }
 
 .layer-group-header .group-reason-icon {
-    font-size: 16px;
-    color: #f59e0b;
+    font-size: 14px;
+    color: #94a3b8;
 }
 
 .layer-group-header .group-title {
     flex: 1;
 }
 
-.layer-group-header .group-actions {
-    display: flex;
-    gap: 2px;
-    opacity: 0;
-    transition: opacity 0.15s;
-}
-
-.layer-group-header:hover .group-actions {
-    opacity: 1;
-}
-
 .layer-group-content {
-    padding: 4px 4px 8px 4px;
+    padding: 2px 0 2px 8px; /* 缩进内容 */
     overflow: hidden;
     transition: max-height 0.2s ease-out;
-    background: rgba(255, 255, 255, 0.3);
 }
 
 .layer-group.collapsed .layer-group-content {

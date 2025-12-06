@@ -81,6 +81,10 @@ const PPTGeneratorEditor = {
         // 绑定工具栏按钮事件
         this._bindToolbarEvents();
 
+        // 绑定调整大小和交互行为
+        this._bindSidebarResizer();
+        this._bindPropertyPanelBehavior();
+
         // 触发 canvas 尺寸更新
         this._updateCanvasSize?.();
 
@@ -171,23 +175,21 @@ const PPTGeneratorEditor = {
      */
     _showEditorUI() {
         const panel = document.getElementById('editorRightPanel');
+        const resizer = document.getElementById('editorSidebarResizer');
         const container = document.querySelector('.pres-container');
-        const chatSidebar = document.getElementById('pptChatSidebar');
-        const chatResizer = document.getElementById('pptResizer');
         const previewArea = document.querySelector('.ppt-preview-area');
         
-        // 隐藏聊天侧边栏和拖拽条，让预览区域扩展
-        if (chatSidebar) {
-            chatSidebar.style.display = 'none';
-        }
-        if (chatResizer) {
-            chatResizer.style.display = 'none';
-        }
+        // 使用 body class 控制全局布局，更稳健
+        document.body.classList.add('ppt-editor-active');
+        
         if (previewArea) {
             previewArea.classList.add('expanded');
         }
         if (panel) {
             panel.style.display = 'flex';
+        }
+        if (resizer) {
+            resizer.style.display = 'flex';
         }
         if (container) {
             container.classList.add('editor-active');
@@ -201,29 +203,162 @@ const PPTGeneratorEditor = {
      */
     _hideEditorUI() {
         const panel = document.getElementById('editorRightPanel');
+        const resizer = document.getElementById('editorSidebarResizer');
         const container = document.querySelector('.pres-container');
-        const chatSidebar = document.getElementById('pptChatSidebar');
-        const chatResizer = document.getElementById('pptResizer');
         const previewArea = document.querySelector('.ppt-preview-area');
         
-        // 隐藏编辑器面板，恢复聊天侧边栏和预览区域
+        document.body.classList.remove('ppt-editor-active');
+        
+        // 隐藏编辑器面板
         if (panel) {
             panel.style.display = 'none';
         }
+        if (resizer) {
+            resizer.style.display = 'none';
+        }
         if (previewArea) {
             previewArea.classList.remove('expanded');
-        }
-        if (chatSidebar) {
-            chatSidebar.style.display = '';
-        }
-        if (chatResizer) {
-            chatResizer.style.display = '';
         }
         if (container) {
             container.classList.remove('editor-active');
         }
         // 触发画布尺寸更新
         setTimeout(() => this._updateCanvasSize?.(), 50);
+    },
+
+    /**
+     * 绑定侧边栏宽度调整
+     */
+    _bindSidebarResizer() {
+        const resizer = document.getElementById('editorSidebarResizer');
+        const panel = document.getElementById('editorRightPanel');
+        
+        if (!resizer || !panel) return;
+        
+        // 防止重复绑定
+        if (resizer._bound) return;
+        resizer._bound = true;
+
+        let startX, startWidth;
+
+        const onMouseMove = (e) => {
+            // 向左拖动增加宽度（因为面板在右侧）
+            const deltaX = startX - e.clientX;
+            const newWidth = Math.max(240, Math.min(480, startWidth + deltaX));
+            panel.style.width = `${newWidth}px`;
+            // 更新画布尺寸以适应新空间
+            requestAnimationFrame(() => this._updateCanvasSize?.());
+        };
+
+        const onMouseUp = () => {
+            resizer.classList.remove('dragging');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+
+        resizer.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            startX = e.clientX;
+            startWidth = panel.getBoundingClientRect().width;
+            resizer.classList.add('dragging');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
+    },
+
+    /**
+     * 绑定属性面板自动行为（双击展开，单击/滚动收起）
+     */
+    _bindPropertyPanelBehavior() {
+        const layerPanel = document.getElementById('editorLayerPanel');
+        const propPanel = document.getElementById('editorPropertyPanel');
+        const propResizer = document.getElementById('editorPanelResizer');
+        
+        if (!layerPanel || !propPanel) return;
+        
+        // 防止重复绑定
+        if (layerPanel._behaviorBound) return;
+        layerPanel._behaviorBound = true;
+
+        const expandPanel = () => {
+            propPanel.style.height = '70%'; // 占据 70% 高度
+            if (propResizer) propResizer.classList.add('visible');
+        };
+
+        const collapsePanel = () => {
+            propPanel.style.height = '0';
+            if (propResizer) propResizer.classList.remove('visible');
+        };
+
+        // 双击图层项展开
+        layerPanel.addEventListener('dblclick', (e) => {
+            const item = e.target.closest('.layer-item');
+            if (item) {
+                expandPanel();
+            }
+        });
+
+        // 单击图层面板（空白处）收起
+        // 注意：如果单击的是 item，不应该收起（可能在选择），或者根据需求收起？
+        // 用户说：单击图层...参数卡片消失。
+        // 这意味着选中（单击）时不显示属性，只有双击才显示。
+        // 所以单击 item 也要收起（如果它不是双击的一部分）。
+        // 但双击包含两次单击。如何区分？
+        // 通常双击事件后触发，单击事件也会触发。
+        // 我们可以简单地让单击总是收起。双击会再次展开。
+        // 但这会导致闪烁。
+        // 更好的逻辑：
+        // 1. 单击 item -> 选中 -> 收起（如果已展开）。
+        // 2. 双击 item -> 展开。
+        // 用户明确说：选中图层并双击的情况下...弹出来。单击图层...消失。
+        
+        layerPanel.addEventListener('click', (e) => {
+            // 如果点击的是 group header 或 item，都视为“单击图层”
+            // 除非是双击（dblclick 会在 click 之后触发，但我们无法预测未来）
+            // 为了避免双击被单击打断，我们可以不做处理，让双击重新打开。
+            // 或者，利用 setTimeout 延迟 click 处理？
+            // 但这会延迟选中反馈。
+            
+            // 既然用户要求单击收起，那我们就收起。
+            // 双击会再次展开，覆盖收起的操作。
+            // 唯一的问题是动画：收起动画开始 -> 展开动画开始。
+            // 可能会有视觉跳动。
+            
+            // 另一种解读：单击仅仅是“选中”，如果面板开着，就关掉？
+            // "单击图层...参数卡片消失"
+            
+            collapsePanel();
+        });
+
+        // 滚动收起
+        // 需要监听 layerPanel 内部列表的滚动
+        // layerPanel 是容器，内部有 .layer-list 负责滚动
+        // 但目前 LayerPanel.js 渲染结构是 .layer-list 在内。
+        // 我们使用 capture 捕获滚动事件
+        layerPanel.addEventListener('scroll', () => {
+            collapsePanel();
+        }, { capture: true, passive: true });
+
+        // 绑定编辑器选择事件 (处理失去焦点自动收起)
+        if (!this._propPanelSelectionHandler) {
+            this._propPanelSelectionHandler = () => {
+                const selectedIds = this.editor.selection.getSelectedIds();
+                if (selectedIds.length === 0) {
+                    // 失去焦点，收起面板
+                    const propPanel = document.getElementById('editorPropertyPanel');
+                    const propResizer = document.getElementById('editorPanelResizer');
+                    if (propPanel) {
+                        propPanel.style.height = '0';
+                        if (propResizer) propResizer.classList.remove('visible');
+                    }
+                }
+            };
+            this.editor.selection.on('change', this._propPanelSelectionHandler);
+        }
     },
 
     // 保留样式注入（首次使用时）
@@ -251,8 +386,9 @@ const PPTGeneratorEditor = {
             
             /* 右侧编辑面板 - 与聊天栏风格一致 */
             .editor-right-panel {
-                width: 280px;
-                min-width: 280px;
+                width: 280px; /* Default width */
+                min-width: 240px;
+                max-width: 480px;
                 background: white;
                 border: 1px solid var(--ppt-border, #e5e7eb);
                 border-radius: 24px;
@@ -265,52 +401,104 @@ const PPTGeneratorEditor = {
                 box-shadow: 0 1px 3px rgba(0,0,0,0.08);
                 z-index: 50;
                 overflow: hidden;
-            }
-            
-            /* 面板标签 */
-            .editor-panel-tabs {
-                display: flex;
-                border-bottom: 1px solid #e5e7eb;
-                background: white;
-                flex-shrink: 0;
-                border-radius: 24px 24px 0 0;
-                padding: 0 16px;
-                gap: 24px;
-            }
-            .panel-tab {
-                padding: 16px 4px;
-                background: transparent;
-                border: none;
-                cursor: pointer;
-                font-size: 14px;
-                font-weight: 500;
-                color: #6b7280;
-                border-bottom: 2px solid transparent;
-                transition: all 0.2s;
                 position: relative;
             }
-            .panel-tab:hover {
-                color: #111827;
-            }
-            .panel-tab.active {
-                color: #2563eb;
-                border-bottom-color: #2563eb;
-                font-weight: 600;
+            
+            /* 侧边栏宽度调整器 */
+            .editor-sidebar-resizer {
+                width: 16px;
+                margin: 16px 0; /* Align with panel top/bottom margin */
+                cursor: col-resize;
+                z-index: 55;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex-shrink: 0;
+                margin-right: -8px; /* Pull closer to panel */
+                position: relative;
             }
             
-            /* 面板内容区 */
+            .editor-sidebar-resizer::after {
+                content: '';
+                width: 4px;
+                height: 48px;
+                background: rgba(0,0,0,0.1);
+                border-radius: 2px;
+                transition: all 0.2s;
+            }
+            
+            .editor-sidebar-resizer:hover::after, .editor-sidebar-resizer.dragging::after {
+                background: var(--ppt-primary);
+                height: 64px;
+            }
+
+            /* 面板内容区 - 上下布局 */
             .editor-panel-content {
                 flex: 1;
-                overflow-y: auto;
-                overflow-x: hidden;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
             }
+            
+            /* 面板容器 */
             .panel-pane {
-                display: none;
-                padding: 0;
+                display: flex;
+                flex-direction: column;
+                min-height: 0;
+                overflow: hidden;
             }
-            .panel-pane.active {
-                display: block;
+            
+            /* 图层面板 (上方，自适应) */
+            #editorLayerPanel {
+                flex: 1;
+                min-height: 100px;
             }
+            
+            /* 属性面板 (下方，从底部弹出) */
+            #editorPropertyPanel {
+                height: 0; /* 默认隐藏 */
+                flex-shrink: 0;
+                border-top: 1px solid #e5e7eb;
+                overflow-y: auto;
+                transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                background: #fcfcfc;
+            }
+            
+            /* 面板调整器 */
+            .editor-panel-resizer {
+                height: 8px;
+                background: #f9fafb;
+                border-top: 1px solid #e5e7eb;
+                border-bottom: 1px solid #e5e7eb;
+                cursor: row-resize;
+                flex-shrink: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: background 0.2s;
+                /* 默认隐藏，只有属性面板展开时才需要显示? 
+                   或者一直显示在底部作为把手?
+                   为了体验，当 height=0 时隐藏 resizer 更好 */
+                display: none; 
+            }
+            
+            #editorPropertyPanel.expanded + .editor-panel-resizer, /* If resizer is after */
+            .editor-panel-resizer.visible {
+                display: flex;
+            }
+            
+            .editor-panel-resizer:hover, .editor-panel-resizer.dragging {
+                background: #f3f4f6;
+            }
+            
+            .editor-panel-resizer::after {
+                content: '';
+                width: 32px;
+                height: 3px;
+                background: #d1d5db;
+                border-radius: 2px;
+            }
+            
             /* 对齐下拉菜单 */
             .pres-tool-dropdown {
                 position: relative;
@@ -349,11 +537,62 @@ const PPTGeneratorEditor = {
                 background: #e5e7eb;
                 margin: 4px 0;
             }
+            
+            /* 全局编辑模式状态控制 */
+            body.ppt-editor-active .ppt-chat-sidebar,
+            body.ppt-editor-active .ppt-resizer {
+                display: none !important;
+            }
+            
+            body.ppt-editor-active .ppt-preview-area {
+                margin-right: 0 !important;
+            }
         `;
         document.head.appendChild(style);
         
         // 绑定对齐下拉菜单
         this._bindAlignDropdown();
+        
+        // 绑定垂直 Resizer
+        this._bindPanelResizer();
+    },
+    
+    /**
+     * 绑定面板垂直 Resizer
+     */
+    _bindPanelResizer() {
+        const resizer = document.getElementById('editorPanelResizer');
+        const propertyPanel = document.getElementById('editorPropertyPanel');
+        const container = document.querySelector('.editor-right-panel');
+        
+        if (!resizer || !propertyPanel || !container) return;
+        
+        let startY, startHeight;
+        
+        const onMouseMove = (e) => {
+            const deltaY = startY - e.clientY; // 向上拖动增加高度
+            const newHeight = Math.max(100, Math.min(container.clientHeight - 150, startHeight + deltaY));
+            propertyPanel.style.height = `${newHeight}px`;
+        };
+        
+        const onMouseUp = () => {
+            resizer.classList.remove('dragging');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+        
+        resizer.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            startY = e.clientY;
+            startHeight = propertyPanel.offsetHeight;
+            resizer.classList.add('dragging');
+            document.body.style.cursor = 'row-resize';
+            document.body.style.userSelect = 'none';
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        });
     },
     
     /**

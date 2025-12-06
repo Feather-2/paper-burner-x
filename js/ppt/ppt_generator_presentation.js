@@ -108,21 +108,16 @@ const PPTGeneratorPresentation = {
                 </div>
                 
                 <!-- 编辑器右侧面板（初始隐藏） -->
+                <div class="editor-sidebar-resizer" id="editorSidebarResizer" style="display: none;"></div>
                 <div class="editor-right-panel" id="editorRightPanel" style="display: none;">
-                    <div class="editor-panel-tabs">
-                        <button class="panel-tab active" data-panel="layer">图层</button>
-                        <button class="panel-tab" data-panel="property">属性</button>
-                    </div>
                     <div class="editor-panel-content">
-                        <div id="editorLayerPanel" class="panel-pane active"></div>
+                        <div id="editorLayerPanel" class="panel-pane"></div>
+                        <div class="editor-panel-resizer" id="editorPanelResizer"></div>
                         <div id="editorPropertyPanel" class="panel-pane"></div>
                     </div>
                 </div>
             </div>
         `;
-        
-        // 绑定面板标签切换
-        this._bindEditorPanelTabs();
         
         // 初始化缩略图 resizer
         this._bindThumbResizerEvents();

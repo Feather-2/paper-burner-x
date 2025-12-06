@@ -442,13 +442,14 @@
     display: flex;
     align-items: center;
     font-weight: 600;
-    font-size: 14px;
+    font-size: 12px; /* 缩小字号 */
     color: var(--ppt-text-main);
     background: white;
     border: 1px solid var(--ppt-border);
     border-bottom: none;
     border-radius: 16px 16px 0 0;
     flex-shrink: 0;
+    letter-spacing: 0.5px; /* 增加字间距 */
 }
 
 .ppt-thumb-list {
