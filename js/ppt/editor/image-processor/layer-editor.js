@@ -48,9 +48,8 @@ class LayerEditor {
         this.container.innerHTML = `
             <div class="image-editor-header">
                 <div class="image-editor-header-left">
-                    <button class="image-editor-back">
+                    <button class="image-editor-back" title="返回幻灯片">
                         <iconify-icon icon="carbon:arrow-left"></iconify-icon>
-                        返回幻灯片
                     </button>
                     <span class="image-editor-title">图片智能编辑</span>
                 </div>
@@ -75,7 +74,7 @@ class LayerEditor {
                         <iconify-icon icon="carbon:data-vis-1"></iconify-icon>
                     </button>
                     <button class="tool-btn" data-action="ocr" title="识别文字">
-                        <iconify-icon icon="carbon:text-recognition"></iconify-icon>
+                        <iconify-icon icon="carbon:scan-alt"></iconify-icon>
                     </button>
                     <button class="tool-btn" data-action="remove-bg" title="去除背景">
                         <iconify-icon icon="carbon:erase"></iconify-icon>
@@ -97,15 +96,28 @@ class LayerEditor {
                 </div>
                 <div class="image-editor-sidebar">
                     <div class="sidebar-section">
-                        <h4>图层</h4>
-                        <div class="layer-list"></div>
+                        <div class="sidebar-header">
+                            <h4>图层</h4>
+                        </div>
+                        <div class="layer-list-container">
+                            <div class="layer-list"></div>
+                        </div>
                         <div class="layer-actions">
-                            <button class="btn-add-layer">+ 添加图层</button>
+                            <button class="btn-add-layer">
+                                <iconify-icon icon="carbon:add"></iconify-icon>
+                                添加空白图层
+                            </button>
                         </div>
                     </div>
                     <div class="sidebar-section">
-                        <h4>属性</h4>
-                        <div class="property-panel"></div>
+                        <div class="sidebar-header">
+                            <h4>属性</h4>
+                        </div>
+                        <div class="property-panel-container">
+                            <div class="property-panel">
+                                <div class="empty-state">选择一个图层以查看属性</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -134,14 +146,33 @@ class LayerEditor {
         const style = document.createElement('style');
         style.id = 'image-editor-styles';
         style.textContent = `
+            :root {
+                --ie-primary: #4f46e5;
+                --ie-primary-hover: #4338ca;
+                --ie-bg: #f8fafc;
+                --ie-surface: #ffffff;
+                --ie-border: #e2e8f0;
+                --ie-text: #1e293b;
+                --ie-text-secondary: #64748b;
+                --ie-hover: #f1f5f9;
+            }
             .image-editor-container {
                 position: fixed;
                 inset: 0;
                 z-index: 10000;
-                background: #f8fafc;
+                background-color: #f8fafc;
+                background-image:
+                    radial-gradient(at 27% 37%, hsla(215, 98%, 61%, 0.08) 0px, transparent 50%),
+                    radial-gradient(at 97% 21%, hsla(125, 98%, 72%, 0.06) 0px, transparent 50%),
+                    radial-gradient(at 52% 99%, hsla(354, 98%, 61%, 0.05) 0px, transparent 50%),
+                    radial-gradient(at 10% 29%, hsla(256, 96%, 67%, 0.07) 0px, transparent 50%),
+                    radial-gradient(at 97% 96%, hsla(38, 60%, 74%, 0.06) 0px, transparent 50%),
+                    radial-gradient(at 33% 50%, hsla(222, 67%, 73%, 0.06) 0px, transparent 50%),
+                    radial-gradient(at 79% 53%, hsla(343, 68%, 79%, 0.06) 0px, transparent 50%);
                 display: flex;
                 flex-direction: column;
-                animation: slideInFromRight 0.3s ease;
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+                animation: slideInFromRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);
             }
             @keyframes slideInFromRight {
                 from { transform: translateX(100%); opacity: 0; }
@@ -151,10 +182,13 @@ class LayerEditor {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                padding: 16px 24px;
-                background: #ffffff;
-                border-bottom: 1px solid #e5e7eb;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+                padding: 0 24px;
+                height: 64px;
+                background: rgba(255, 255, 255, 0.7);
+                backdrop-filter: blur(20px);
+                border-bottom: 1px solid rgba(255, 255, 255, 0.5);
+                box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+                z-index: 10;
             }
             .image-editor-header-left {
                 display: flex;
@@ -162,59 +196,67 @@ class LayerEditor {
                 gap: 16px;
             }
             .image-editor-back {
+                width: 36px;
+                height: 36px;
                 display: flex;
                 align-items: center;
-                gap: 8px;
-                padding: 8px 16px;
-                background: none;
-                border: 1px solid #e5e7eb;
+                justify-content: center;
+                padding: 0;
+                background: transparent;
+                border: 1px solid transparent;
                 border-radius: 8px;
-                color: #374151;
-                font-size: 14px;
+                color: var(--ie-text-secondary);
+                font-size: 18px;
                 cursor: pointer;
-                transition: all 0.15s;
+                transition: all 0.2s;
             }
             .image-editor-back:hover {
-                background: #f3f4f6;
-                border-color: #d1d5db;
+                background: var(--ie-hover);
+                color: var(--ie-text);
             }
             .image-editor-title {
-                font-size: 18px;
+                font-size: 16px;
                 font-weight: 600;
-                color: #111827;
+                color: var(--ie-text);
+                padding-left: 16px;
+                border-left: 1px solid var(--ie-border);
+                line-height: 1.2;
             }
             .image-editor-actions {
                 display: flex;
+                align-items: center;
                 gap: 12px;
             }
             .image-editor-actions button {
                 display: flex;
                 align-items: center;
-                gap: 6px;
-                padding: 10px 20px;
-                border-radius: 8px;
+                gap: 8px;
+                padding: 8px 16px;
+                border-radius: 6px;
                 font-size: 14px;
                 font-weight: 500;
                 cursor: pointer;
-                transition: all 0.15s;
+                transition: all 0.2s;
             }
             .btn-cancel {
-                background: #ffffff;
-                border: 1px solid #e5e7eb;
-                color: #374151;
+                background: transparent;
+                border: 1px solid transparent;
+                color: var(--ie-text-secondary);
             }
             .btn-cancel:hover {
-                background: #f3f4f6;
+                background: var(--ie-hover);
+                color: var(--ie-text);
             }
             .btn-apply {
-                background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+                background: var(--ie-primary);
                 border: none;
                 color: #ffffff;
-                box-shadow: 0 2px 8px rgba(79, 70, 229, 0.3);
+                box-shadow: 0 1px 2px rgba(79, 70, 229, 0.3);
             }
             .btn-apply:hover {
+                background: var(--ie-primary-hover);
                 transform: translateY(-1px);
-                box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
+                box-shadow: 0 4px 6px rgba(79, 70, 229, 0.2);
             }
             .image-editor-body {
                 flex: 1;
@@ -222,67 +264,88 @@ class LayerEditor {
                 overflow: hidden;
             }
             .image-editor-toolbar {
-                width: 72px;
-                background: #ffffff;
-                border-right: 1px solid #e5e7eb;
-                padding: 16px 12px;
+                width: 64px;
+                background: var(--ie-surface);
+                border-right: 1px solid var(--ie-border);
+                padding: 20px 12px;
                 display: flex;
                 flex-direction: column;
-                gap: 8px;
+                align-items: center;
+                gap: 12px;
+                z-index: 5;
             }
             .tool-btn {
-                width: 48px;
-                height: 48px;
+                width: 40px;
+                height: 40px;
                 border: none;
-                background: none;
-                border-radius: 12px;
+                background: transparent;
+                border-radius: 8px;
                 cursor: pointer;
                 font-size: 20px;
-                color: #6b7280;
+                color: #64748b;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                transition: all 0.15s;
+                transition: all 0.2s;
+                position: relative;
+            }
+            .tool-btn iconify-icon {
+                font-size: 20px;
+                color: inherit;
             }
             .tool-btn:hover {
-                background: #f3f4f6;
-                color: #374151;
+                background: var(--ie-hover);
+                color: var(--ie-text);
             }
             .tool-btn.active {
                 background: #eef2ff;
-                color: #4f46e5;
+                color: var(--ie-primary);
+            }
+            .tool-btn::after {
+                content: attr(title);
+                position: absolute;
+                left: 100%;
+                top: 50%;
+                transform: translateY(-50%);
+                margin-left: 10px;
+                background: #1e293b;
+                color: #fff;
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-size: 12px;
+                white-space: nowrap;
+                pointer-events: none;
+                opacity: 0;
+                transition: opacity 0.2s;
+                z-index: 100;
+            }
+            .tool-btn:hover::after {
+                opacity: 1;
             }
             .toolbar-divider {
+                width: 24px;
                 height: 1px;
-                background: #e5e7eb;
-                margin: 8px 0;
-            }
-            .tool-label {
-                font-size: 10px;
-                color: #9ca3af;
-                text-align: center;
-                margin-top: 4px;
+                background: var(--ie-border);
+                margin: 4px 0;
             }
             .image-editor-canvas-wrap {
                 flex: 1;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                background: #e5e7eb;
-                overflow: auto;
-                padding: 40px;
-                cursor: grab;
+                background: #f1f5f9;
+                background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+                background-size: 20px 20px;
+                overflow: hidden;
                 position: relative;
-            }
-            .image-editor-canvas-wrap:active {
-                cursor: grabbing;
+                user-select: none;
             }
             .image-editor-viewport {
                 position: relative;
-                box-shadow: 0 4px 24px rgba(0,0,0,0.1);
-                border-radius: 8px;
-                transition: transform 0.1s ease;
+                box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+                border: 1px solid rgba(0,0,0,0.05);
                 background: #fff;
+                transition: transform 0.1s cubic-bezier(0.4, 0, 0.2, 1);
             }
             .image-editor-canvas {
                 display: block;
@@ -295,18 +358,15 @@ class LayerEditor {
                 height: 100%;
                 pointer-events: none;
             }
-            .image-editor-svg-container svg {
-                width: 100%;
-                height: 100%;
-            }
             .zoom-indicator {
                 position: absolute;
-                bottom: 20px;
+                bottom: 24px;
                 left: 50%;
                 transform: translateX(-50%);
-                background: rgba(0,0,0,0.7);
+                background: rgba(30, 41, 59, 0.8);
+                backdrop-filter: blur(4px);
                 color: #fff;
-                padding: 6px 14px;
+                padding: 6px 16px;
                 border-radius: 20px;
                 font-size: 13px;
                 font-weight: 500;
@@ -318,114 +378,269 @@ class LayerEditor {
                 opacity: 1;
             }
             .image-editor-sidebar {
-                width: 300px;
-                background: #ffffff;
-                border-left: 1px solid #e5e7eb;
-                overflow-y: auto;
+                width: 320px;
+                background: var(--ie-surface);
+                border-left: 1px solid var(--ie-border);
+                display: flex;
+                flex-direction: column;
+                z-index: 5;
             }
             .sidebar-section {
-                padding: 20px;
-                border-bottom: 1px solid #e5e7eb;
+                display: flex;
+                flex-direction: column;
+                border-bottom: 1px solid var(--ie-border);
             }
-            .sidebar-section h4 {
-                margin: 0 0 16px 0;
-                color: #6b7280;
+            .sidebar-section:first-child {
+                flex: 1;
+                min-height: 0;
+                overflow: hidden;
+            }
+            .sidebar-section:last-child {
+                flex: 0 0 auto;
+                max-height: 50%;
+                overflow: hidden;
+                border-bottom: none;
+                box-shadow: 0 -1px 2px rgba(0,0,0,0.02);
+            }
+            .sidebar-header {
+                padding: 16px 20px;
+                border-bottom: 1px solid var(--ie-border);
+                background: #f8fafc;
+                flex: 0 0 auto;
+            }
+            .sidebar-header h4 {
+                margin: 0;
+                color: var(--ie-text-secondary);
                 font-size: 12px;
                 font-weight: 600;
                 text-transform: uppercase;
-                letter-spacing: 0.5px;
+                letter-spacing: 0.05em;
+            }
+            .layer-list-container {
+                flex: 1;
+                overflow-y: auto;
+                padding: 12px;
             }
             .layer-list {
                 display: flex;
                 flex-direction: column;
-                gap: 8px;
+                gap: 6px;
             }
             .layer-item {
                 display: flex;
                 align-items: center;
                 gap: 12px;
-                padding: 12px;
-                background: #f9fafb;
+                padding: 10px 12px;
+                background: var(--ie-surface);
                 border: 1px solid transparent;
-                border-radius: 10px;
+                border-radius: 8px;
                 cursor: pointer;
-                color: #374151;
+                color: var(--ie-text);
                 font-size: 13px;
                 transition: all 0.15s;
+                user-select: none;
+                margin-bottom: 2px;
             }
             .layer-item:hover {
-                background: #f3f4f6;
-                border-color: #e5e7eb;
+                background: var(--ie-hover);
             }
             .layer-item.selected {
-                background: #eef2ff;
-                border-color: #c7d2fe;
-                color: #4f46e5;
+                background: #f0f7ff;
+                border-color: #dbeafe;
+                color: var(--ie-primary);
+                box-shadow: 0 1px 2px rgba(25, 113, 194, 0.05);
             }
-            .layer-item .layer-visibility {
+            .layer-preview {
+                width: 28px;
+                height: 28px;
+                border-radius: 4px;
+                background: #e2e8f0;
+                background-size: cover;
+                background-position: center;
+                border: 1px solid rgba(0,0,0,0.1);
+                flex-shrink: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 12px;
+                color: #64748b;
+                overflow: hidden;
+            }
+            .layer-preview.color-preview {
+                box-shadow: inset 0 0 0 1px rgba(0,0,0,0.1);
+            }
+            .layer-visibility {
                 width: 24px;
                 height: 24px;
                 border: none;
-                background: none;
+                background: transparent;
                 cursor: pointer;
                 font-size: 16px;
-                color: #9ca3af;
-                border-radius: 6px;
-                transition: all 0.15s;
+                color: var(--ie-text-secondary);
+                border-radius: 4px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.2s;
+                opacity: 0.6;
             }
-            .layer-item .layer-visibility:hover {
-                background: #e5e7eb;
-                color: #374151;
+            .layer-visibility:hover, .layer-item:hover .layer-visibility {
+                background: rgba(0,0,0,0.05);
+                color: var(--ie-text);
+                opacity: 1;
             }
-            .layer-item .layer-name {
+            .layer-name {
                 flex: 1;
                 font-weight: 500;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
             }
             .layer-actions {
-                margin-top: 16px;
+                padding: 12px;
+                border-top: 1px solid var(--ie-border);
             }
             .btn-add-layer {
                 width: 100%;
-                padding: 10px;
-                background: #f3f4f6;
-                border: 1px dashed #d1d5db;
-                border-radius: 8px;
-                color: #6b7280;
+                padding: 8px;
+                background: var(--ie-surface);
+                border: 1px dashed #cbd5e1;
+                border-radius: 6px;
+                color: var(--ie-text-secondary);
                 cursor: pointer;
                 font-size: 13px;
-                transition: all 0.15s;
+                font-weight: 500;
+                transition: all 0.2s;
             }
             .btn-add-layer:hover {
-                background: #e5e7eb;
-                border-color: #9ca3af;
-                color: #374151;
+                border-color: var(--ie-primary);
+                color: var(--ie-primary);
+                background: #eef2ff;
+            }
+            .property-panel-container {
+                flex: 1;
+                overflow-y: auto;
+                background: var(--ie-bg);
             }
             .property-panel {
-                color: #374151;
-                font-size: 13px;
+                padding: 20px;
+            }
+            .property-group {
+                margin-bottom: 24px;
+            }
+            .property-group-title {
+                font-size: 12px;
+                font-weight: 600;
+                color: var(--ie-text-secondary);
+                margin-bottom: 12px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
             }
             .property-row {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                padding: 8px 0;
+                margin-bottom: 12px;
             }
-            .property-row label {
-                color: #6b7280;
+            .property-row.block {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
             }
-            .property-row input[type="text"] {
-                width: 120px;
-                padding: 8px 12px;
-                background: #f9fafb;
-                border: 1px solid #e5e7eb;
-                border-radius: 6px;
-                color: #111827;
+            .property-label {
                 font-size: 13px;
+                color: var(--ie-text-secondary);
             }
-            .property-row input[type="checkbox"] {
-                width: 18px;
-                height: 18px;
-                accent-color: #4f46e5;
+            .property-input {
+                padding: 6px 10px;
+                border: 1px solid var(--ie-border);
+                border-radius: 6px;
+                font-size: 13px;
+                color: var(--ie-text);
+                background: var(--ie-surface);
+                width: 100%;
+                transition: border-color 0.2s;
+            }
+            .property-input:focus {
+                outline: none;
+                border-color: var(--ie-primary);
+                box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
+            }
+            .property-select {
+                padding: 6px 10px;
+                border: 1px solid var(--ie-border);
+                border-radius: 6px;
+                font-size: 13px;
+                color: var(--ie-text);
+                background: var(--ie-surface);
+                width: 100%;
+                cursor: pointer;
+            }
+            .range-wrap {
+                width: 100%;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+            .range-input {
+                flex: 1;
+                height: 4px;
+                background: #e2e8f0;
+                border-radius: 2px;
+                appearance: none;
+            }
+            .range-input::-webkit-slider-thumb {
+                appearance: none;
+                width: 16px;
+                height: 16px;
+                border-radius: 50%;
+                background: var(--ie-primary);
+                cursor: pointer;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .range-value {
+                font-size: 12px;
+                font-family: monospace;
+                color: var(--ie-text-secondary);
+                width: 24px;
+                text-align: right;
+            }
+            .btn-action {
+                width: 100%;
+                padding: 8px;
+                background: var(--ie-primary);
+                color: #fff;
+                border: none;
+                border-radius: 6px;
+                font-size: 13px;
+                font-weight: 500;
+                cursor: pointer;
+                margin-top: 8px;
+            }
+            .btn-action:hover {
+                background: var(--ie-primary-hover);
+            }
+            .empty-state {
+                text-align: center;
+                color: var(--ie-text-secondary);
+                font-size: 13px;
+                padding: 40px 20px;
+            }
+            /* Custom Scrollbar */
+            ::-webkit-scrollbar {
+                width: 6px;
+                height: 6px;
+            }
+            ::-webkit-scrollbar-track {
+                background: transparent;
+            }
+            ::-webkit-scrollbar-thumb {
+                background: #cbd5e1;
+                border-radius: 3px;
+            }
+            ::-webkit-scrollbar-thumb:hover {
+                background: #94a3b8;
             }
         `;
         document.head.appendChild(style);
@@ -555,28 +770,106 @@ class LayerEditor {
         }
     }
 
-    async _vectorize() {
+    async _vectorize(preset = 'auto', options = {}, groupId = null) {
         const vectorizer = await this.processor.loadModule('vectorizer');
         
-        // 使用 auto 模式，让 PotraceCore 自动分析颜色并选择最佳预设
-        console.log(`[LayerEditor] 使用 auto 模式矢量化`);
+        // 自动检测预设 (如果是 auto)
+        let actualPreset = preset;
+        if (preset === 'auto') {
+            actualPreset = this._detectPreset({
+                element: this.processedImage.original.element,
+                width: this.processedImage.original.width,
+                height: this.processedImage.original.height
+            });
+            console.log(`[LayerEditor] 自动选择预设: ${actualPreset}`);
+        }
         
-        const result = await vectorizer.vectorize(this.processedImage.original, 'auto');
+        console.log(`[LayerEditor] 矢量化: ${actualPreset}, Group: ${groupId || 'new'}`);
+        
+        // 获取默认配置
+        // 这里我们简单硬编码一些默认值，实际应该从 Presets 获取
+        // 为了演示，我们只处理 numColors 和 smoothness
+        const finalOptions = {
+            numColors: 16,
+            smoothness: 1,
+            ...options
+        };
+
+        // 如果 ImageVectorizer 支持 customConfig，我们可以传入
+        // 目前我们先传入 preset，并通过 options 修改 vectorizer 的行为 (如果支持)
+        // 这里假设我们修改了 vectorizer.vectorize 方法以支持 options
+        // 或者我们暂时只支持 preset 切换
+        
+        // TODO: 真正的 Vectorizer 应该支持传入 options
+        // 现在我们只传递 preset
+        const result = await vectorizer.vectorize(this.processedImage.original, actualPreset);
+        
+        // 生成或使用现有 Group ID
+        const currentGroupId = groupId || `vec_group_${Date.now()}`;
         
         // 按颜色分层
         const colorLayers = vectorizer.splitByColor(result);
         
+        // 创建编组对象
+        const groupLayer = {
+            id: currentGroupId,
+            type: 'group',
+            name: `矢量化分组 (${Object.keys(colorLayers).length} 层)`,
+            visible: true,
+            vectorConfig: {
+                preset: actualPreset,
+                numColors: finalOptions.numColors,
+                smoothness: finalOptions.smoothness
+            },
+            children: []
+        };
+
         colorLayers.forEach(layer => {
-            this.processedImage.layers.push({
+            const childLayer = {
                 ...layer,
                 type: 'vector',
-                visible: true
-            });
+                visible: true,
+                vectorGroupId: currentGroupId,
+                parentId: currentGroupId
+            };
+            groupLayer.children.push(childLayer);
+            // 移除：不再添加到顶层列表，只在组内管理
+            // this.processedImage.layers.push(childLayer);
         });
+        
+        // 修正策略：我们将 groupLayer 作为父节点插入 layers，子节点作为 children 属性存在
+        // 渲染时，如果 layer 类型是 group，则递归渲染其 children
+        // UI 列表上，只显示 group
+        
+        this.processedImage.layers.push(groupLayer);
 
         this._saveHistory();
         this._updateLayerList();
         this._render();
+        
+        // 自动选中新生成的组
+        if (!groupId) {
+            const newLayerIndex = this.processedImage.layers.length - 1;
+            this.selectedLayerIndex = newLayerIndex;
+            this._updateLayerList();
+            this._updatePropertyPanel();
+        }
+    }
+    
+    async _reVectorize(groupId, newPreset, newOptions) {
+        // 找到组图层索引
+        const groupIndex = this.processedImage.layers.findIndex(l => l.id === groupId);
+        if (groupIndex === -1) return;
+        
+        // 删除旧组（及其子图层，如果之前是展开存储的）
+        // 当前策略：processedImage.layers 中只存 Group，Children 在 Group 内部
+        // 所以直接替换这个 Group 即可
+        
+        // 重新矢量化，传入 groupId 以复用 ID
+        // 注意：_vectorize 会 push 新层，我们需要先移除旧的
+        this.processedImage.layers.splice(groupIndex, 1);
+        
+        await this._vectorize(newPreset, newOptions, groupId);
     }
 
     async _runOcr() {
@@ -670,9 +963,15 @@ class LayerEditor {
         const svgContainer = this.container.querySelector('.image-editor-svg-container');
         svgContainer.innerHTML = '';
 
-        // 绘制可见图层
-        for (const layer of this.processedImage.layers) {
-            if (!layer.visible) continue;
+        // 递归渲染图层函数
+        const renderLayer = (layer) => {
+            if (!layer.visible) return;
+
+            if (layer.type === 'group') {
+                // 渲染组内所有子图层
+                layer.children.forEach(child => renderLayer(child));
+                return;
+            }
 
             switch (layer.type) {
                 case 'original':
@@ -689,9 +988,18 @@ class LayerEditor {
                     this.ctx.putImageData(layer.imageData, 0, 0);
                     break;
             }
+        };
+
+        // 绘制可见图层
+        for (const layer of this.processedImage.layers) {
+            renderLayer(layer);
         }
 
-        // 更新图层列表
+        // 更新图层列表 (保持选中状态)
+        // 注意：_render 会被频繁调用，_updateLayerList 也会重建 DOM，可能导致滚动条跳动
+        // 最好只在结构变化时更新列表，或者 _updateLayerList 内部做 diff
+        // 这里简单处理：如果正在拖拽或频繁操作，可能不需要每次都重绘列表
+        // 但目前逻辑是每次 render 都更新
         this._updateLayerList();
     }
 
@@ -739,22 +1047,90 @@ class LayerEditor {
 
     _updateLayerList() {
         const list = this.container.querySelector('.layer-list');
-        list.innerHTML = this.processedImage.layers.map((layer, idx) => `
-            <div class="layer-item ${idx === this.selectedLayerIndex ? 'selected' : ''}" data-index="${idx}">
-                <button class="layer-visibility">${layer.visible ? '👁' : '👁‍🗨'}</button>
-                <span class="layer-name">${layer.name}</span>
+        
+        const generateLayerHtml = (layer, idx, level = 0) => {
+            let previewHtml = '';
+            // 增加层级缩进
+            const paddingLeft = level * 20 + 12;
+            
+            if (layer.type === 'group') {
+                previewHtml = `<div class="layer-preview"><iconify-icon icon="carbon:folder"></iconify-icon></div>`;
+            } else if (layer.type === 'vector' && layer.color) {
+                previewHtml = `<div class="layer-preview color-preview" style="background-color: ${layer.color}"></div>`;
+            } else if (layer.type === 'original' || layer.type === 'foreground') {
+                previewHtml = `<div class="layer-preview"><iconify-icon icon="carbon:image"></iconify-icon></div>`;
+            } else if (layer.type === 'text') {
+                previewHtml = `<div class="layer-preview"><iconify-icon icon="carbon:text-font"></iconify-icon></div>`;
+            } else {
+                previewHtml = `<div class="layer-preview"><iconify-icon icon="carbon:layer"></iconify-icon></div>`;
+            }
+            
+            const isSelected = (idx === this.selectedLayerIndex && level === 0);
+            
+            let html = `
+            <div class="layer-item ${isSelected ? 'selected' : ''}" data-index="${idx}" style="padding-left: ${paddingLeft}px">
+                <button class="layer-visibility" title="${layer.visible ? '隐藏' : '显示'}">
+                    <iconify-icon icon="${layer.visible ? 'carbon:view' : 'carbon:view-off'}"></iconify-icon>
+                </button>
+                ${previewHtml}
+                <span class="layer-name" title="${layer.name}">${layer.name}</span>
             </div>
-        `).join('');
+            `;
+            
+            // 递归渲染子图层
+            if (layer.type === 'group' && layer.children && layer.children.length > 0) {
+                html += layer.children.map((child, childIdx) => {
+                    let childPreview = `<div class="layer-preview color-preview" style="background-color: ${child.color}"></div>`;
+                    const childVisible = child.visible !== false; // 默认为 true
+                    
+                    return `
+                    <div class="layer-item child-layer" data-parent-idx="${idx}" data-child-idx="${childIdx}" style="padding-left: ${paddingLeft + 20}px;">
+                        <button class="layer-visibility" title="${childVisible ? '隐藏' : '显示'}">
+                            <iconify-icon icon="${childVisible ? 'carbon:view' : 'carbon:view-off'}"></iconify-icon>
+                        </button>
+                        ${childPreview}
+                        <span class="layer-name" style="font-size: 12px;">${child.name}</span>
+                    </div>
+                    `;
+                }).join('');
+            }
+            
+            return html;
+        };
+
+        list.innerHTML = this.processedImage.layers.map((layer, idx) => generateLayerHtml(layer, idx)).join('');
 
         // 绑定图层点击
         list.querySelectorAll('.layer-item').forEach(item => {
             item.addEventListener('click', (e) => {
-                if (e.target.classList.contains('layer-visibility')) {
+                e.stopPropagation();
+                const isChild = item.classList.contains('child-layer');
+                
+                // 如果点击的是可见性按钮
+                if (e.target.closest('.layer-visibility')) {
+                    if (isChild) {
+                        const parentIdx = parseInt(item.dataset.parentIdx);
+                        const childIdx = parseInt(item.dataset.childIdx);
+                        const parent = this.processedImage.layers[parentIdx];
+                        if (parent && parent.children && parent.children[childIdx]) {
+                            parent.children[childIdx].visible = !parent.children[childIdx].visible;
+                            this._render();
+                            // 仅更新当前按钮图标
+                            const btn = e.target.closest('.layer-visibility').querySelector('iconify-icon');
+                            btn.setAttribute('icon', parent.children[childIdx].visible ? 'carbon:view' : 'carbon:view-off');
+                        }
+                    } else {
+                        const idx = parseInt(item.dataset.index);
+                        this.processedImage.layers[idx].visible = !this.processedImage.layers[idx].visible;
+                        this._render();
+                        // 仅更新当前按钮图标
+                        const btn = e.target.closest('.layer-visibility').querySelector('iconify-icon');
+                        btn.setAttribute('icon', this.processedImage.layers[idx].visible ? 'carbon:view' : 'carbon:view-off');
+                    }
+                } else if (!isChild) {
+                    // 选中顶层图层
                     const idx = parseInt(item.dataset.index);
-                    this.processedImage.layers[idx].visible = !this.processedImage.layers[idx].visible;
-                    this._render();
-                } else {
-                    this.selectedLayerIndex = parseInt(item.dataset.index);
+                    this.selectedLayerIndex = idx;
                     this._updateLayerList();
                     this._updatePropertyPanel();
                 }
@@ -765,25 +1141,162 @@ class LayerEditor {
     _updatePropertyPanel() {
         const panel = this.container.querySelector('.property-panel');
         if (this.selectedLayerIndex < 0) {
-            panel.innerHTML = '<p style="color:#6c7086">选择一个图层</p>';
+            panel.innerHTML = '<div class="empty-state">选择一个图层以查看属性</div>';
             return;
         }
 
         const layer = this.processedImage.layers[this.selectedLayerIndex];
-        panel.innerHTML = `
-            <div class="property-row">
-                <span>名称</span>
-                <input type="text" value="${layer.name}" data-prop="name">
-            </div>
-            <div class="property-row">
-                <span>类型</span>
-                <span>${layer.type}</span>
-            </div>
-            <div class="property-row">
-                <span>可见</span>
-                <input type="checkbox" ${layer.visible ? 'checked' : ''} data-prop="visible">
+        
+        let content = `
+            <div class="property-group">
+                <div class="property-group-title">
+                    <iconify-icon icon="carbon:settings"></iconify-icon>
+                    基本属性
+                </div>
+                <div class="property-row">
+                    <span class="property-label">名称</span>
+                    <input class="property-input" type="text" value="${layer.name}" data-prop="name">
+                </div>
+                <div class="property-row">
+                    <span class="property-label">类型</span>
+                    <span style="font-size:12px;color:var(--ie-text-secondary)">${layer.type}</span>
+                </div>
+                <div class="property-row">
+                    <span class="property-label">可见</span>
+                    <input type="checkbox" ${layer.visible ? 'checked' : ''} data-prop="visible">
+                </div>
             </div>
         `;
+        
+        // 矢量图层设置 (支持 Group 类型)
+        if (layer.type === 'group' && layer.vectorConfig) {
+            const config = layer.vectorConfig;
+            const presets = this._getPresets();
+            
+            content += `
+                <div class="property-group">
+                    <div class="property-group-title">
+                        <iconify-icon icon="carbon:tuning"></iconify-icon>
+                        矢量化设置 (分组)
+                    </div>
+                    
+                    <div class="property-row block">
+                        <span class="property-label">预设</span>
+                        <select class="property-select" data-action="update-preset">
+                            ${Object.entries(presets).map(([key, label]) => 
+                                `<option value="${key}" ${config.preset === key ? 'selected' : ''}>${label}</option>`
+                            ).join('')}
+                        </select>
+                    </div>
+                    
+                    <div class="property-row block">
+                        <span class="property-label">颜色数量 (粗略)</span>
+                        <div class="range-wrap">
+                            <input type="range" class="range-input" min="2" max="64" value="${config.numColors || 16}" data-action="update-colors">
+                            <span class="range-value">${config.numColors || 16}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="property-row block">
+                        <span class="property-label">平滑度</span>
+                        <div class="range-wrap">
+                            <input type="range" class="range-input" min="0" max="3" step="0.1" value="${config.smoothness || 1}" data-action="update-smoothness">
+                            <span class="range-value">${config.smoothness || 1}</span>
+                        </div>
+                    </div>
+                    
+                    <button class="btn-action" data-action="re-vectorize">
+                        <iconify-icon icon="carbon:renew"></iconify-icon>
+                        重新矢量化
+                    </button>
+                </div>
+            `;
+        } else if (layer.type === 'text') {
+             content += `
+                <div class="property-group">
+                    <div class="property-group-title">
+                        <iconify-icon icon="carbon:text-font"></iconify-icon>
+                        文字内容
+                    </div>
+                    <div class="property-row block">
+                        <textarea class="property-input" rows="3" data-prop="content">${layer.content}</textarea>
+                    </div>
+                </div>
+            `;
+        }
+        
+        panel.innerHTML = content;
+        
+        // 绑定事件
+        this._bindPropertyEvents(panel, layer);
+    }
+
+    _bindPropertyEvents(panel, layer) {
+        // 基本属性
+        panel.querySelector('[data-prop="name"]')?.addEventListener('change', (e) => {
+            layer.name = e.target.value;
+            this._updateLayerList();
+            this._saveHistory();
+        });
+
+        panel.querySelector('[data-prop="visible"]')?.addEventListener('change', (e) => {
+            layer.visible = e.target.checked;
+            this._render();
+            this._updateLayerList();
+        });
+        
+        panel.querySelector('[data-prop="content"]')?.addEventListener('change', (e) => {
+            layer.content = e.target.value;
+            this._render();
+            this._saveHistory();
+        });
+
+        // 矢量化设置
+        const presetSelect = panel.querySelector('[data-action="update-preset"]');
+        if (presetSelect) {
+            presetSelect.addEventListener('change', async (e) => {
+                if (layer.id) { // 现在使用 layer.id 作为 groupId
+                    const btn = panel.querySelector('[data-action="re-vectorize"]');
+                    if (btn) btn.textContent = '处理中...';
+                    
+                    await this._reVectorize(layer.id, e.target.value, layer.vectorConfig);
+                }
+            });
+        }
+        
+        const reVecBtn = panel.querySelector('[data-action="re-vectorize"]');
+        if (reVecBtn) {
+            reVecBtn.addEventListener('click', async () => {
+                if (layer.id) {
+                     reVecBtn.textContent = '处理中...';
+                     reVecBtn.disabled = true;
+                     
+                     const preset = panel.querySelector('[data-action="update-preset"]').value;
+                     const numColors = parseInt(panel.querySelector('[data-action="update-colors"]').value);
+                     const smoothness = parseFloat(panel.querySelector('[data-action="update-smoothness"]').value);
+                     
+                     await this._reVectorize(layer.id, preset, { numColors, smoothness });
+                }
+            });
+        }
+
+        // 滑块实时显示
+        panel.querySelectorAll('.range-input').forEach(input => {
+             input.addEventListener('input', (e) => {
+                 e.target.nextElementSibling.textContent = e.target.value;
+             });
+        });
+    }
+
+    _getPresets() {
+        return {
+            'logo': 'Logo / 图标',
+            'illustration': '插画',
+            'lineart': '线稿',
+            'photo': '照片',
+            'pixel': '像素化',
+            'simple': '简化'
+        };
     }
 
     _saveHistory() {
@@ -809,14 +1322,33 @@ class LayerEditor {
     }
 
     async _apply() {
+        // 扁平化所有图层用于导出
+        const flatLayers = [];
+        
+        this.processedImage.layers.forEach(layer => {
+            if (layer.type === 'group') {
+                if (layer.visible) {
+                    // 只有当组可见时，才导出其子图层
+                    layer.children.forEach(child => {
+                        // 继承组的可见性（如果组可见，子图层保持自身可见性）
+                        if (child.visible) {
+                            flatLayers.push(child);
+                        }
+                    });
+                }
+            } else {
+                flatLayers.push(layer);
+            }
+        });
+        
         // 检查是否有可见的矢量图层
-        const visibleVectorLayers = this.processedImage.layers.filter(
+        const visibleVectorLayers = flatLayers.filter(
             l => l.visible && l.type === 'vector'
         );
         
         let result = {
             id: this.processedImage.id,
-            layers: this.processedImage.layers
+            layers: flatLayers // 保存扁平化后的图层结构
         };
         
         if (visibleVectorLayers.length > 0) {
@@ -834,6 +1366,11 @@ class LayerEditor {
         }
         
         // 保存处理结果
+        // 注意：我们这里保存的是扁平化后的，还是保持 Group 结构的？
+        // 为了以后还能编辑，最好保存包含 Group 的结构。
+        // 但是 ImageProcessor.processImage 返回的是扁平的...
+        // 这里我们更新 processedImage.layers 为包含 group 的状态以便下次打开编辑
+        
         await this.processor.saveProcessedImage(this.processedImage);
 
         // 回调更新 PPT
