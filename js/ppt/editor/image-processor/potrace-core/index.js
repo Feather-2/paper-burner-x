@@ -233,6 +233,18 @@ export async function vectorize(imageData, options = {}) {
 
         // 追踪轮廓
         const contours = marchingSquaresContour(bitmap, null, null, bitmap.grayscale);
+        
+        // 检测碎片图层（边缘抗锯齿色）：很多小轮廓，没有大轮廓
+        const contourAreas = contours.map(c => Math.abs(c.area));
+        const maxContourArea = Math.max(...contourAreas, 0);
+        const avgContourArea = contourAreas.reduce((a, b) => a + b, 0) / (contourAreas.length || 1);
+        
+        // 如果最大轮廓面积 < 200 且轮廓数量 > 10，这是碎片图层
+        if (maxContourArea < 200 && contours.length > 10) {
+            console.log(`[PotraceCore] 跳过碎片图层: ${contours.length} 个轮廓, 最大面积 ${maxContourArea.toFixed(0)}`);
+            continue;
+        }
+        
         const pathParts = [];
 
         // 动态面积阈值：基于图像尺寸，过滤孤立小噪点
@@ -260,18 +272,27 @@ export async function vectorize(imageData, options = {}) {
                 continue;
             }
 
-            // 动态容差：根据轮廓大小调整
+            // 动态处理策略
             let pts = contour.points;
-            
-            // 小轮廓用更小容差，大轮廓可以稍大
             const perimeter = pts.length;
-            const dynamicEpsilon = perimeter < 50 ? 0.5 : 
-                                   perimeter < 100 ? 0.7 : 0.9;
+            const area = Math.abs(contour.area);
+            
+            // 小轮廓：先放大坐标处理，再缩回（提高精度）
+            const isSmall = area < 500 || perimeter < 40;
+            const upscale = isSmall ? 3 : 1;
+            
+            if (upscale > 1) {
+                pts = pts.map(p => ({ x: p.x * upscale, y: p.y * upscale }));
+            }
+            
+            // RDP 容差（放大后相应增大）
+            const dynamicEpsilon = (perimeter < 50 ? 0.5 : 
+                                    perimeter < 100 ? 0.7 : 0.9) * upscale;
             
             // 1. RDP 简化
             pts = simplifyPathRDP(pts, dynamicEpsilon);
             
-            // 2. 检测角点（角度 < 120° 的点）
+            // 2. 检测角点
             const cornerIndices = new Set();
             for (let i = 0; i < pts.length; i++) {
                 const prev = pts[(i - 1 + pts.length) % pts.length];
@@ -291,9 +312,14 @@ export async function vectorize(imageData, options = {}) {
                 }
             }
             
-            // 3. Chaikin 平滑（保护角点）
+            // 3. Chaikin 平滑
             const smoothIter = perimeter < 50 ? 3 : 4;
             pts = chaikinSmoothPreserveCorners(pts, smoothIter, cornerIndices);
+            
+            // 缩回原始尺寸
+            if (upscale > 1) {
+                pts = pts.map(p => ({ x: p.x / upscale, y: p.y / upscale }));
+            }
             
             if (pts.length < 3) continue;
 
