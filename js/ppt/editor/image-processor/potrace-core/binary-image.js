@@ -191,14 +191,13 @@ export function dilateWithColorConstraint(bitmap, width, height, pixelColorMap, 
             
             if (!hasFgNeighbor) continue;
             
-            // 颜色约束：只允许膨胀到原始颜色相同的区域
-            // 如果原始颜色不是当前层，不膨胀（尊重原图边界）
+            // 允许膨胀到非透明区域
+            // 透明像素标记为 255
             const originalColor = pixelColorMap[idx];
-            if (originalColor === targetColorIdx) {
-                // 原始颜色相同，允许膨胀（恢复被过滤掉的像素）
+            if (originalColor !== 255) {
+                // 非透明区域，允许膨胀
                 result[idx] = 1;
             }
-            // 如果原始颜色不同，不膨胀，保持边界清晰
         }
     }
     
@@ -440,10 +439,11 @@ export function createBinaryBitmapFromMap(pixelColorMap, targetColorIdx, width, 
     // 连通区域过滤
     let finalBitmap = filterSmallRegions(bitmap, width, height, 200);
     
-    // 闭运算
+    // 闭运算填充小孔洞（2次）
+    finalBitmap = morphClose(finalBitmap, width, height);
     finalBitmap = morphClose(finalBitmap, width, height);
     
-    // 颜色约束膨胀
+    // 膨胀确保层重叠
     for (let i = 0; i < dilatePixels; i++) {
         finalBitmap = dilateWithColorConstraint(finalBitmap, width, height, pixelColorMap, targetColorIdx);
     }

@@ -50,7 +50,8 @@ import {
     fitBezierWithCorners, 
     fitBezierSmooth,
     fitBezierCatmullRom,
-    generatePolygonPath 
+    generatePolygonPath,
+    retractHandles
 } from './curve-fitter.js';
 import { PRESETS } from './presets.js';
 
@@ -189,9 +190,8 @@ export async function vectorize(imageData, options = {}) {
     for (let colorIdx = 0; colorIdx < palette.length; colorIdx++) {
         const color = palette[colorIdx];
 
-        // 背景色不膨胀，前景色膨胀1像素确保无缝隙
-        const isBackground = (colorIdx === backgroundColorIdx);
-        const dilatePixels = isBackground ? 0 : 1;
+        // 轻度膨胀确保层重叠
+        const dilatePixels = 1;
 
         // 使用最近颜色分配（非二值模式）或容差匹配（二值模式）
         // **VM(基于公开资料) 风格**：传入原始图像和调色板，利用混色信息做亚像素定位
@@ -332,9 +332,19 @@ export async function vectorize(imageData, options = {}) {
                 try {
                     // fit-curve
                     const fitError = Math.max(0.8, pathTolerance);
-                    const curves = window.fitCurve(ptsArray, fitError);
+                    let curves = window.fitCurve(ptsArray, fitError);
                     
                     if (curves && curves.length > 0) {
+                        // 应用 retractHandles 防止过冲
+                        // 注意：孔洞（内轮廓）不回缩，避免孔洞缩小
+                        if (!isHole) {
+                            curves = curves.map(c => retractHandles(c, {
+                                maxRatio: 0.4,
+                                minRatio: 0.6,
+                                smallThreshold: 15
+                            }));
+                        }
+                        
                         pathD = `M${curves[0][0][0].toFixed(2)},${curves[0][0][1].toFixed(2)}`;
                         for (const c of curves) {
                             pathD += `C${c[1][0].toFixed(2)},${c[1][1].toFixed(2)},${c[2][0].toFixed(2)},${c[2][1].toFixed(2)},${c[3][0].toFixed(2)},${c[3][1].toFixed(2)}`;
@@ -420,13 +430,20 @@ export async function vectorize(imageData, options = {}) {
     // layers 按亮度从暗到亮排序，SVG 需要先绘制亮色（底层），后绘制暗色（顶层）
     const reversedLayers = filteredLayers.slice().reverse();
     const allPaths = reversedLayers.flatMap(l => l.paths);
+    
+    // 添加背景矩形填充孔洞（用最亮的颜色）
+    const bgColor = palette.length > 0 
+        ? `rgb(${palette[palette.length - 1][0]},${palette[palette.length - 1][1]},${palette[palette.length - 1][2]})`
+        : '#ffffff';
+    const bgRect = `<rect x="0" y="0" width="${width}" height="${height}" fill="${bgColor}"/>`;
+    
     const svgContent = allPaths.map(p => {
         const fillRule = p.fillRule ? ` fill-rule="${p.fillRule}"` : '';
         return `<path d="${p.d}" fill="${p.fill}"${fillRule} stroke="${p.stroke}" stroke-width="${p.strokeWidth}"/>`;
     }).join('\n');
     
     // SVG 使用原始尺寸，viewBox 使用工作尺寸（放大后），浏览器会自动缩放
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${originalWidth}" height="${originalHeight}" viewBox="0 0 ${width} ${height}">\n${svgContent}\n</svg>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${originalWidth}" height="${originalHeight}" viewBox="0 0 ${width} ${height}">\n${bgRect}\n${svgContent}\n</svg>`;
     
     return {
         svg,
@@ -495,7 +512,8 @@ export const PotraceCore = {
     chaikinSmooth,
     fitBezierWithCorners,
     fitBezierSmooth,
-    fitBezierCatmullRom
+    fitBezierCatmullRom,
+    retractHandles  // 控制点回缩，防止曲线过冲
 };
 
 // 默认导出

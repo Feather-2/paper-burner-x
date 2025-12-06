@@ -402,6 +402,78 @@ function normalize(v) {
 }
 
 /**
+ * VTracer 风格控制点回缩 (retract_handles)
+ * 
+ * 修复贝塞尔曲线控制点过长导致的过冲问题
+ * 自适应设计：小曲线（孔洞）使用更宽松的限制，避免变形
+ * 
+ * @param {Array} curve - [p0, cp1, cp2, p3] 贝塞尔曲线（坐标为数组 [x, y]）
+ * @param {Object} options - 配置选项
+ * @returns {Array} 修正后的曲线
+ */
+export function retractHandles(curve, options = {}) {
+    const {
+        maxRatio = 0.4,      // 大曲线的控制点最大比例
+        minRatio = 0.6,      // 小曲线（孔洞）的控制点最大比例
+        smallThreshold = 20, // 小曲线阈值（弦长 < 此值视为小曲线）
+        minHandleLen = 2     // 控制柄最小长度（保护细节）
+    } = options;
+    
+    const [p0, cp1, cp2, p3] = curve;
+    
+    // 计算端点距离（弦长）
+    const dx = p3[0] - p0[0];
+    const dy = p3[1] - p0[1];
+    const chordLen = Math.sqrt(dx * dx + dy * dy);
+    
+    // 弦长太小，不处理
+    if (chordLen < 2) return curve;
+    
+    // 自适应比例：小曲线使用更宽松的限制
+    // 这保护了孔洞等小区域的曲线质量
+    const ratio = chordLen < smallThreshold 
+        ? minRatio  // 小曲线：允许更长的控制柄
+        : maxRatio; // 大曲线：严格限制
+    
+    const maxLen = Math.max(minHandleLen, chordLen * ratio);
+    
+    // 计算控制柄向量和长度
+    const l1x = cp1[0] - p0[0];
+    const l1y = cp1[1] - p0[1];
+    const l1 = Math.sqrt(l1x * l1x + l1y * l1y);
+    
+    const l2x = cp2[0] - p3[0];
+    const l2y = cp2[1] - p3[1];
+    const l2 = Math.sqrt(l2x * l2x + l2y * l2y);
+    
+    let newCp1 = cp1;
+    let newCp2 = cp2;
+    
+    // 回缩过长的控制柄
+    if (l1 > maxLen && l1 > 0.01) {
+        const scale = maxLen / l1;
+        newCp1 = [p0[0] + l1x * scale, p0[1] + l1y * scale];
+    }
+    
+    if (l2 > maxLen && l2 > 0.01) {
+        const scale = maxLen / l2;
+        newCp2 = [p3[0] + l2x * scale, p3[1] + l2y * scale];
+    }
+    
+    return [p0, newCp1, newCp2, p3];
+}
+
+/**
+ * 对 fit-curve 输出的曲线数组应用 retractHandles
+ * @param {Array} curves - fit-curve 返回的曲线数组
+ * @param {Object} options - retractHandles 选项
+ * @returns {Array} 处理后的曲线数组
+ */
+export function retractHandlesAll(curves, options = {}) {
+    return curves.map(c => retractHandles(c, options));
+}
+
+/**
  * 整体拟合 - 使用 Catmull-Rom 样条（最稳定）
  */
 export function fitSegmentWithLineDetection(pts, maxError) {
