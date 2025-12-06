@@ -266,19 +266,19 @@ export async function vectorize(imageData, options = {}) {
             // 小轮廓用更小容差，大轮廓可以稍大
             const perimeter = pts.length;
             const dynamicEpsilon = perimeter < 50 ? 0.5 : 
-                                   perimeter < 100 ? 0.8 : 1.0;
+                                   perimeter < 100 ? 0.7 : 0.9;
             
             // 1. RDP 简化
             pts = simplifyPathRDP(pts, dynamicEpsilon);
             
-            // 2. Chaikin 平滑（小轮廓少平滑，大轮廓多平滑）
-            const smoothIter = perimeter < 50 ? 2 : 3;
+            // 2. Chaikin 平滑（增加一次）
+            const smoothIter = perimeter < 50 ? 3 : 4;
             pts = chaikinSmooth(pts, smoothIter);
             
             if (pts.length < 3) continue;
 
-            // 3. Catmull-Rom
-            const pathD = fitBezierCatmullRom(pts, 0.35);
+            // 3. Catmull-Rom（降低张力 = 更平滑）
+            const pathD = fitBezierCatmullRom(pts, 0.25);
 
             if (pathD) pathParts.push(pathD);
         }
