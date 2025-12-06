@@ -123,12 +123,30 @@ class ImageVectorizer {
     /**
      * 矢量化图片
      * @param {Object} imageObj - 图片对象 {imageData, width, height}
-     * @param {string} preset - 预设名称，'auto' 自动分析选择
+     * @param {string} preset - 预设名称
+     *   - 'auto': 自动分析选择最佳预设
+     *   - 'smart': 智能模式，自动选择全图或分块
+     *   - 'blocks': 分块模式，适合文字+图形混合内容
+     *   - 其他: logo, lineart, illustration, photo, pixel 等
      */
     async vectorize(imageObj, preset = 'auto') {
         await this.load();
 
         console.log(`[ImageVectorizer] 使用 ${this.engine}, 预设: ${preset}`);
+
+        // 特殊模式：分块矢量化（适合复杂图像如文字+图形）
+        if (preset === 'blocks' || preset === 'smart') {
+            if (this.engine === 'potrace' && window.PotraceCore) {
+                if (preset === 'smart') {
+                    return window.PotraceCore.vectorizeSmart(imageObj.imageData);
+                } else {
+                    return window.PotraceCore.vectorizeByBlocks(imageObj.imageData);
+                }
+            }
+            // 其他引擎回退到 auto
+            console.warn(`[ImageVectorizer] ${this.engine} 不支持 ${preset} 模式，回退到 auto`);
+            preset = 'auto';
+        }
 
         // 1. 新版 Vectorizer (ES Module)
         if (this.engine === 'vectorizer') {

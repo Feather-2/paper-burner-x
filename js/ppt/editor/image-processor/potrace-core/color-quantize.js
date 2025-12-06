@@ -16,15 +16,16 @@ export function kMeansQuantize(imageData, maxColors = 16, maxIterations = 10) {
     const pixelCounts = new Map(); // 统计每个颜色的像素数
 
     // 采样并统计颜色频率
+    // 提高采样量以捕获小面积颜色（从 50k 提升到 100k）
     const totalPixels = data.length / 4;
-    const sampleRate = totalPixels > 50000 ? Math.ceil(totalPixels / 50000) : 1;
+    const sampleRate = totalPixels > 100000 ? Math.ceil(totalPixels / 100000) : 1;
 
     for (let i = 0; i < data.length; i += 4 * sampleRate) {
         if (data[i + 3] > 128) {
-            // 量化到 6-bit 减少噪点
-            const r = Math.round(data[i] / 4) * 4;
-            const g = Math.round(data[i + 1] / 4) * 4;
-            const b = Math.round(data[i + 2] / 4) * 4;
+            // 量化到 7-bit 减少噪点（从 /4 改为 /2，保留更多颜色精度）
+            const r = Math.round(data[i] / 2) * 2;
+            const g = Math.round(data[i + 1] / 2) * 2;
+            const b = Math.round(data[i + 2] / 2) * 2;
             const key = (r << 16) | (g << 8) | b;
             pixelCounts.set(key, (pixelCounts.get(key) || 0) + 1);
         }
@@ -120,8 +121,8 @@ export function kMeansQuantize(imageData, maxColors = 16, maxIterations = 10) {
         if (!changed) break;
     }
 
-    // 合并相似颜色（距离 < 25）
-    const mergeThreshold = 625; // 25^2
+    // 合并相似颜色（距离 < 20，更保守以避免误合并）
+    const mergeThreshold = 400; // 20^2
     const merged = [];
     const used = new Set();
 
@@ -149,7 +150,10 @@ export function kMeansQuantize(imageData, maxColors = 16, maxIterations = 10) {
     }
 
     // 边缘色过滤：识别并移除抗锯齿产生的过渡色
-    const filtered = filterEdgeColors(merged, weightedColors);
+    // 对于多色图像（> 16色），禁用边缘色过滤，因为渐变色会被误判
+    const filtered = maxColors <= 16 
+        ? filterEdgeColors(merged, weightedColors, maxColors)
+        : merged;
 
     // 按亮度排序
     return filtered.sort((a, b) => (a[0] + a[1] + a[2]) - (b[0] + b[1] + b[2]));
@@ -159,11 +163,15 @@ export function kMeansQuantize(imageData, maxColors = 16, maxIterations = 10) {
  * 边缘色过滤 - 识别并移除抗锯齿产生的过渡色
  *
  * 边缘色特征：
- * 1. 像素权重较小（占比 < 5%）
+ * 1. 像素权重较小（占比低于动态阈值）
  * 2. 颜色值介于两个主色之间（在色彩空间中位于连线上）
  * 3. 与最近主色的距离适中（太远说明是独立颜色）
+ * 
+ * @param {Array} colors - 聚类后的颜色数组
+ * @param {Array} weightedColors - 带权重的原始颜色数据
+ * @param {number} maxColors - 目标颜色数，用于动态调整阈值
  */
-export function filterEdgeColors(colors, weightedColors) {
+export function filterEdgeColors(colors, weightedColors, maxColors = 16) {
     if (colors.length <= 2) return colors;
 
     // 1. 计算每个颜色的总权重
@@ -190,8 +198,10 @@ export function filterEdgeColors(colors, weightedColors) {
     const totalPixels = colorWeights.reduce((a, b) => a + b, 0);
     if (totalPixels === 0) return colors;
 
-    // 2. 识别主色（权重 >= 5% 的颜色）- 更激进过滤边缘色
-    const mainColorThreshold = 0.05;
+    // 2. 识别主色 - 根据目标颜色数动态调整阈值
+    // 颜色数越多，阈值越低，避免误删
+    // 2色: 5%, 4色: 2.5%, 8色: 1.25%, 16色: 0.6%
+    const mainColorThreshold = Math.max(0.005, 0.1 / maxColors);
     const mainColors = [];
     const edgeCandidates = [];
 
@@ -220,13 +230,28 @@ export function filterEdgeColors(colors, weightedColors) {
         }
     }
 
-    console.log(`[EdgeFilter] 主色 ${mainColors.length} 个, 候选边缘色 ${edgeCandidates.length} 个`);
+    console.log(`[EdgeFilter] 主色 ${mainColors.length} 个, 候选边缘色 ${edgeCandidates.length} 个 (阈值 ${(mainColorThreshold * 100).toFixed(1)}%)`);
 
     // 3. 判断候选色是否为边缘色
     const result = mainColors.map(mc => mc.color);
+    const mainColorArray = mainColors.map(mc => mc.color);
 
     for (const candidate of edgeCandidates) {
-        const isEdge = isEdgeColor(candidate.color, mainColors.map(mc => mc.color));
+        // 保护：如果与所有主色距离都很远（> 60），说明是独立颜色，直接保留
+        let minDistToMain = Infinity;
+        for (const mc of mainColorArray) {
+            const d = Math.sqrt(colorDistSq(candidate.color, mc));
+            if (d < minDistToMain) minDistToMain = d;
+        }
+        
+        if (minDistToMain > 60) {
+            // 独立颜色，不是边缘色
+            console.log(`[EdgeFilter] 保留独立色 rgb(${candidate.color.join(',')}) (距主色 ${minDistToMain.toFixed(0)})`);
+            result.push(candidate.color);
+            continue;
+        }
+        
+        const isEdge = isEdgeColor(candidate.color, mainColorArray);
 
         if (isEdge) {
             console.log(`[EdgeFilter] 过滤边缘色 rgb(${candidate.color.join(',')}) (${(candidate.ratio * 100).toFixed(1)}%)`);
@@ -246,14 +271,14 @@ export function filterEdgeColors(colors, weightedColors) {
  * 算法：检查颜色 C 是否位于任意两个主色 A、B 连线的附近
  * - 计算 C 到 AB 线段的距离
  * - 计算 C 在 AB 上的投影位置 t (0~1 表示在线段内)
- * - 如果距离小且 t 在 (0.1, 0.9) 范围内，则是边缘色
+ * - 如果距离小且 t 在 (0.05, 0.95) 范围内，则是边缘色
  */
 export function isEdgeColor(color, mainColors) {
     if (mainColors.length < 2) return false;
 
-    const maxLineDistance = 60; // 到连线的最大距离 - 更宽松，捕获更多边缘色
-    const minT = 0.05;  // 投影位置下限（更靠近端点也算）
-    const maxT = 0.95;  // 投影位置上限
+    const maxLineDistance = 50; // 到连线的最大距离 - 更严格，避免误删独立颜色
+    const minT = 0.1;   // 投影位置下限（必须明显在中间）
+    const maxT = 0.9;   // 投影位置上限
 
     // 检查所有主色对
     for (let i = 0; i < mainColors.length; i++) {

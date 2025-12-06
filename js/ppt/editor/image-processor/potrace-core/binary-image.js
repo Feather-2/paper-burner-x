@@ -192,10 +192,9 @@ export function dilateWithColorConstraint(bitmap, width, height, pixelColorMap, 
             if (!hasFgNeighbor) continue;
             
             // 允许膨胀到非透明区域
-            // 透明像素标记为 255
+            // 255 = 透明像素（不膨胀）
             const originalColor = pixelColorMap[idx];
             if (originalColor !== 255) {
-                // 非透明区域，允许膨胀
                 result[idx] = 1;
             }
         }
@@ -373,8 +372,11 @@ export function createBinaryBitmapFromMap(pixelColorMap, targetColorIdx, width, 
     const bitmap = new Uint8Array(width * height);
     
     // 直接从颜色分配图创建二值位图
+    // 254 = 边缘像素，255 = 透明像素，都不参与
     for (let i = 0; i < pixelColorMap.length; i++) {
-        bitmap[i] = (pixelColorMap[i] === targetColorIdx) ? 1 : 0;
+        const colorIdx = pixelColorMap[i];
+        // 只有明确分配到目标颜色的像素才是前景
+        bitmap[i] = (colorIdx === targetColorIdx) ? 1 : 0;
     }
     
     // **关键改进**：生成基于混色比例的灰度图
@@ -436,11 +438,10 @@ export function createBinaryBitmapFromMap(pixelColorMap, targetColorIdx, width, 
         grayscale = gaussianBlur(grayscale, width, height, Math.min(1.0, blurSigma));
     }
     
-    // 连通区域过滤
-    let finalBitmap = filterSmallRegions(bitmap, width, height, 200);
+    // 连通区域过滤 - 过滤小于最大区域 1/100 的噪点
+    let finalBitmap = filterSmallRegions(bitmap, width, height, 100);
     
-    // 闭运算填充小孔洞（2次）
-    finalBitmap = morphClose(finalBitmap, width, height);
+    // 闭运算填充小孔洞
     finalBitmap = morphClose(finalBitmap, width, height);
     
     // 膨胀确保层重叠

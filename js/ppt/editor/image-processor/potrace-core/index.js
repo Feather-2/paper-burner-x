@@ -155,7 +155,7 @@ export async function vectorize(imageData, options = {}) {
     }
     console.log(`[PotraceCore] 提取 ${palette.length} 种主色`);
 
-    // 2. 为每个像素分配最近的调色板颜色（确保无空白无重叠）
+    // 2. 为每个像素分配最近的调色板颜色
     const pixelColorMap = new Uint8Array(width * height);
     const data = workingData.data;
     const useLuminance = binaryMode || numColors <= 2;
@@ -236,14 +236,26 @@ export async function vectorize(imageData, options = {}) {
         const contours = marchingSquaresContour(bitmap, null, null, bitmap.grayscale);
         
         // 检测碎片图层（边缘抗锯齿色）：很多小轮廓，没有大轮廓
-        const contourAreas = contours.map(c => Math.abs(c.area));
-        const maxContourArea = Math.max(...contourAreas, 0);
-        const avgContourArea = contourAreas.reduce((a, b) => a + b, 0) / (contourAreas.length || 1);
+        // 对于高颜色数（photo模式），禁用碎片过滤，因为颜色分布分散是正常的
+        const imageArea = width * height;
         
-        // 如果最大轮廓面积 < 200 且轮廓数量 > 10，这是碎片图层
-        if (maxContourArea < 200 && contours.length > 10) {
-            console.log(`[PotraceCore] 跳过碎片图层: ${contours.length} 个轮廓, 最大面积 ${maxContourArea.toFixed(0)}`);
-            continue;
+        if (numColors <= 8) {
+            // 只在极低颜色数模式下启用碎片过滤（logo/lineart）
+            const contourAreas = contours.map(c => Math.abs(c.area));
+            const maxContourArea = Math.max(...contourAreas, 0);
+            const totalContourArea = contourAreas.reduce((a, b) => a + b, 0);
+            
+            // 碎片图层检测：总面积占图像 < 0.5% 且没有大轮廓（最大 < 300）且轮廓数量 > 10
+            // 更严格的条件，避免误删有意义的小图形
+            const isFragmented = 
+                totalContourArea < imageArea * 0.005 && 
+                maxContourArea < 300 && 
+                contours.length > 10;
+            
+            if (isFragmented) {
+                console.log(`[PotraceCore] 跳过碎片图层: ${contours.length} 个轮廓, 最大 ${maxContourArea.toFixed(0)}, 总 ${totalContourArea.toFixed(0)}`);
+                continue;
+            }
         }
         
         const pathParts = [];
@@ -462,18 +474,23 @@ export async function vectorize(imageData, options = {}) {
 /**
  * 使用预设进行矢量化
  */
-export function vectorizeWithPreset(imageData, presetName = 'auto') {
-    // 自动模式：分析图片颜色，自动选择最佳参数
+export async function vectorizeWithPreset(imageData, presetName = 'auto') {
+    // smart/blocks 模式 - 手动选择（实验性功能）
+    if (presetName === 'smart') {
+        console.log(`[PotraceCore] 智能分块模式 (实验性)`);
+        return vectorizeSmart(imageData);
+    }
+    if (presetName === 'blocks') {
+        console.log(`[PotraceCore] 强制分块模式 (实验性)`);
+        return vectorizeByBlocks(imageData);
+    }
+    
+    // 自动模式：分析颜色选择最佳预设（全图处理）
     if (presetName === 'auto') {
         const analysis = analyzeImageColors(imageData);
         const basePreset = PRESETS[analysis.recommendedPreset] || PRESETS.logo;
-        
-        // 使用预设的默认 numColors，不根据聚类数量调整
-        // 这样确保有足够的颜色槽位提取小面积颜色
-        const autoOptions = { ...basePreset };
-        
-        console.log(`[PotraceCore] 自动模式: ${analysis.recommendedPreset}, ${autoOptions.numColors}色`);
-        return vectorize(imageData, autoOptions);
+        console.log(`[PotraceCore] 自动模式: ${analysis.recommendedPreset}, ${basePreset.numColors}色`);
+        return vectorize(imageData, basePreset);
     }
     
     const preset = PRESETS[presetName] || PRESETS.logo;
@@ -494,9 +511,37 @@ export function vectorizeWithPreset(imageData, presetName = 'auto') {
  * - remove_staircase 锯齿移除
  * - retract_handles 控制点修正
  */
+// 导入分块矢量化模块（延迟加载）
+let blockVectorizeModule = null;
+async function loadBlockVectorize() {
+    if (!blockVectorizeModule) {
+        blockVectorizeModule = await import('./block-vectorize.js');
+    }
+    return blockVectorizeModule;
+}
+
+/**
+ * 分块矢量化 - 将图像分割成独立区块分别处理
+ * 适合包含文字和图形混合的复杂图像
+ */
+export async function vectorizeByBlocks(imageData, options = {}) {
+    const mod = await loadBlockVectorize();
+    return mod.vectorizeByBlocks(imageData, options);
+}
+
+/**
+ * 智能矢量化 - 自动选择全图或分块模式
+ */
+export async function vectorizeSmart(imageData, options = {}) {
+    const mod = await loadBlockVectorize();
+    return mod.vectorizeSmart(imageData, options);
+}
+
 export const PotraceCore = {
     vectorize,
     vectorizeWithPreset,
+    vectorizeByBlocks,   // 分块矢量化
+    vectorizeSmart,      // 智能矢量化
     analyzeImageColors,
     kMeansQuantize,      // K-Means++ 聚类（推荐）
     medianCutQuantize,   // Median Cut（备用）
@@ -531,3 +576,4 @@ export * from './path-smooth.js';
 export * from './corner-detect.js';
 export * from './curve-fitter.js';
 export { PRESETS } from './presets.js';
+// vectorizeByBlocks 和 vectorizeSmart 已在上方定义并导出，这里不重复导出
