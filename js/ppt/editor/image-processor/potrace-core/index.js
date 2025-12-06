@@ -260,14 +260,20 @@ export async function vectorize(imageData, options = {}) {
                 continue;
             }
 
-            // 简单流程：RDP 简化 → Chaikin → Catmull-Rom
+            // 动态容差：根据轮廓大小调整
             let pts = contour.points;
             
-            // 1. RDP 简化（小容差保持形状）
-            pts = simplifyPathRDP(pts, 1.0);
+            // 小轮廓用更小容差，大轮廓可以稍大
+            const perimeter = pts.length;
+            const dynamicEpsilon = perimeter < 50 ? 0.5 : 
+                                   perimeter < 100 ? 0.8 : 1.0;
             
-            // 2. Chaikin 平滑
-            pts = chaikinSmooth(pts, 3);
+            // 1. RDP 简化
+            pts = simplifyPathRDP(pts, dynamicEpsilon);
+            
+            // 2. Chaikin 平滑（小轮廓少平滑，大轮廓多平滑）
+            const smoothIter = perimeter < 50 ? 2 : 3;
+            pts = chaikinSmooth(pts, smoothIter);
             
             if (pts.length < 3) continue;
 
