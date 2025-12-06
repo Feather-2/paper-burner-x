@@ -259,6 +259,68 @@
     }
     
     /**
+     * 形态学膨胀操作
+     */
+    function dilate(bitmap, width, height) {
+        const result = new Uint8Array(width * height);
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const idx = y * width + x;
+                if (bitmap[idx] === 1) {
+                    result[idx] = 1;
+                    continue;
+                }
+                // 检查 4 邻域
+                let hasNeighbor = false;
+                if (x > 0 && bitmap[idx - 1] === 1) hasNeighbor = true;
+                if (x < width - 1 && bitmap[idx + 1] === 1) hasNeighbor = true;
+                if (y > 0 && bitmap[idx - width] === 1) hasNeighbor = true;
+                if (y < height - 1 && bitmap[idx + width] === 1) hasNeighbor = true;
+                result[idx] = hasNeighbor ? 1 : 0;
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 形态学腐蚀操作
+     */
+    function erode(bitmap, width, height) {
+        const result = new Uint8Array(width * height);
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const idx = y * width + x;
+                if (bitmap[idx] === 0) {
+                    result[idx] = 0;
+                    continue;
+                }
+                // 检查 4 邻域是否都是 1
+                let allNeighbors = true;
+                if (x > 0 && bitmap[idx - 1] !== 1) allNeighbors = false;
+                if (x < width - 1 && bitmap[idx + 1] !== 1) allNeighbors = false;
+                if (y > 0 && bitmap[idx - width] !== 1) allNeighbors = false;
+                if (y < height - 1 && bitmap[idx + width] !== 1) allNeighbors = false;
+                result[idx] = allNeighbors ? 1 : 0;
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 形态学闭运算 (先膨胀后腐蚀) - 填充小孔洞
+     */
+    function morphClose(bitmap, width, height) {
+        return erode(dilate(bitmap, width, height), width, height);
+    }
+
+    /**
+     * 形态学开运算 (先腐蚀后膨胀) - 去除小噪点
+     */
+    function morphOpen(bitmap, width, height) {
+        return dilate(erode(bitmap, width, height), width, height);
+    }
+
+    /**
      * 创建二值位图
      * @param {ImageData} imageData
      * @param {Array} targetColor - 目标颜色 [r, g, b]
@@ -266,8 +328,9 @@
      * @param {boolean} useLuminance - 使用亮度模式 (用于 lineart)
      * @param {number} threshold - 亮度阈值 (自动计算时传入)
      * @param {number} blurSigma - 高斯模糊 sigma (0 = 不模糊)
+     * @param {boolean} morphology - 是否应用形态学操作
      */
-    function createBinaryBitmap(imageData, targetColor, tolerance = 30, useLuminance = false, threshold = null, blurSigma = 0) {
+    function createBinaryBitmap(imageData, targetColor, tolerance = 30, useLuminance = false, threshold = null, blurSigma = 0, morphology = true) {
         const { width, height, data } = imageData;
         const bitmap = new Uint8Array(width * height);
 
@@ -332,7 +395,14 @@
             inverted = true;
         }
 
-        return { data: bitmap, width, height, inverted, grayscale };
+        // 形态学预处理：只做闭运算填充小孔洞
+        // 注意：不做开运算，因为会腐蚀角点导致不锐利
+        let finalBitmap = bitmap;
+        if (morphology) {
+            finalBitmap = morphClose(bitmap, width, height);
+        }
+
+        return { data: finalBitmap, width, height, inverted, grayscale };
     }
 
     // ============ 连通区域标记 (Two-Pass CCL) ============
@@ -847,17 +917,17 @@
     }
 
     /**
-     * 严格角点检测（最大锐利度版本）
-     * 使用多尺度检测 + 更宽松的阈值
+     * 角点检测（平衡版本）
+     * 只使用较大尺度，避免检测到噪点
      */
-    function detectCornersVTracerStrict(points, angleThreshold = 150, minDistance = 2) {
+    function detectCornersVTracerStrict(points, angleThreshold = 130, minDistance = 3) {
         if (points.length < 6) return [];
 
         const n = points.length;
         const corners = new Set();
 
-        // 使用多个尺度检测角点
-        const radii = [2, 4, 6, 8];
+        // 只使用较大尺度，避免检测到像素级噪点
+        const radii = [4, 6];
         const threshold = angleThreshold * Math.PI / 180;
 
         for (const radius of radii) {
@@ -999,67 +1069,54 @@
 
     /**
      * VTracer 风格完整处理流程
-     * 使用 Chaikin 平滑 + 角点保护（最大锐利度版本）
+     * 最小平滑版本 - 保持边缘位置准确
      */
     function processContourVTracer(points, options = {}) {
         const {
-            cornerAngle = 150,      // 角点阈值（度）- 非常高
-            smoothWindow = 3,       // 平滑窗口 - 减小
-            minCornerDist = 2,      // 角点最小距离 - 非常小
-            smoothIterations = 1,   // Chaikin 迭代次数 - 只做1次
-            cornerProtectRadius = 4 // 角点保护半径 - 更大
+            cornerAngle = 120,      // 角点阈值（度）
+            minCornerDist = 3,      // 角点最小距离
+            cornerProtectRadius = 2 // 角点保护半径
         } = options;
 
         if (points.length < 4) return { points, corners: [] };
 
-        // 1. 先检测角点（在预平滑之前！保留原始角点特征）
+        // 1. 检测角点
         const cornerIndices = detectCornersVTracerStrict(points, cornerAngle, minCornerDist);
-
-        // 2. 预平滑：去除像素锯齿（只做1次，窗口小）
-        let smoothed = movingAverageSmooth(points, 3);
         const cornerSet = new Set(cornerIndices);
+        const n = points.length;
 
-        // 3. 给点添加角点标记，包括角点附近的点也标记为"近角点"
-        const n = smoothed.length;
-        let taggedPoints = smoothed.map((p, i) => {
-            let isCorner = cornerSet.has(i);
-            let nearCorner = false;
-            let distToCorner = Infinity;
-
-            if (!isCorner) {
-                // 检查是否在角点附近，并记录距离
+        // 2. 极轻度平滑：只对非角点区域，且只平滑1个像素范围
+        // 这样可以去除像素锯齿但不会偏移边缘位置
+        const smoothed = points.map((p, i) => {
+            // 角点及附近完全不平滑
+            let isNearCorner = cornerSet.has(i);
+            if (!isNearCorner) {
                 for (const ci of cornerIndices) {
-                    const dist = Math.min(
-                        Math.abs(i - ci),
-                        n - Math.abs(i - ci)
-                    );
-                    if (dist <= cornerProtectRadius && dist < distToCorner) {
-                        nearCorner = true;
-                        distToCorner = dist;
+                    const dist = Math.min(Math.abs(i - ci), n - Math.abs(i - ci));
+                    if (dist <= cornerProtectRadius) {
+                        isNearCorner = true;
+                        break;
                     }
                 }
             }
 
+            if (isNearCorner) {
+                return { x: p.x, y: p.y, isCorner: cornerSet.has(i) };
+            }
+
+            // 非角点区域：只取相邻3个点平均（最小平滑）
+            const prev = points[(i - 1 + n) % n];
+            const next = points[(i + 1) % n];
             return {
-                x: p.x,
-                y: p.y,
-                isCorner,
-                nearCorner,
-                distToCorner  // 距离角点的距离（用于渐变保护）
+                x: (prev.x + p.x + next.x) / 3,
+                y: (prev.y + p.y + next.y) / 3,
+                isCorner: false
             };
         });
 
-        // 4. Chaikin 平滑（保护角点和近角点）
-        for (let i = 0; i < smoothIterations; i++) {
-            taggedPoints = chaikinSmoothTaggedSharp(taggedPoints);
-        }
-
-        // 5. 只对非角点区域做轻度平滑
-        taggedPoints = movingAverageSmoothTaggedSharp(taggedPoints, smoothWindow);
-
-        // 6. 提取结果
-        const finalPoints = taggedPoints.map(p => ({ x: p.x, y: p.y }));
-        const finalCorners = taggedPoints
+        // 3. 提取结果
+        const finalPoints = smoothed.map(p => ({ x: p.x, y: p.y }));
+        const finalCorners = smoothed
             .map((p, i) => p.isCorner ? i : -1)
             .filter(i => i >= 0);
 
@@ -1427,8 +1484,33 @@
     }
 
     /**
+     * 检测线段是否接近直线（水平、垂直或斜线）
+     * @returns {boolean} true 如果是直线段
+     */
+    function isLinearSegment(points, tolerance = 1.5) {
+        if (points.length < 2) return true;
+        if (points.length === 2) return true;
+
+        const start = points[0];
+        const end = points[points.length - 1];
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+
+        if (len < 2) return true;
+
+        // 检查所有中间点到直线的距离
+        for (let i = 1; i < points.length - 1; i++) {
+            const dist = Math.abs(dy * points[i].x - dx * points[i].y + end.x * start.y - end.y * start.x) / len;
+            if (dist > tolerance) return false;
+        }
+
+        return true;
+    }
+
+    /**
      * 平滑曲线拟合（用于已经充分平滑的点）
-     * 使用更精确的拟合，因为输入点已经很平滑
+     * 直线段使用 L 命令，曲线段使用 C 命令
      */
     function fitBezierSmooth(points, maxError = 1.0) {
         if (!points || points.length < 3) return '';
@@ -1440,18 +1522,90 @@
         const pts = closed ? points.slice(0, -1) : points;
         if (pts.length < 3) return generatePolygonPath(points);
 
-        // 优先使用 fit-curve（更精确）
+        // 先检测角点，将路径分成多个段
+        const corners = detectCornersVTracer(pts, 120, 3);
+        
+        // 如果没有角点，整体拟合
+        if (corners.length === 0) {
+            return fitSegmentWithLineDetection(pts, maxError) + (closed ? 'Z' : '');
+        }
+
+        // 按角点分段
+        const n = pts.length;
+        let path = `M${pts[corners[0]].x.toFixed(2)},${pts[corners[0]].y.toFixed(2)}`;
+
+        for (let i = 0; i < corners.length; i++) {
+            const start = corners[i];
+            const end = corners[(i + 1) % corners.length];
+
+            // 提取这一段的点
+            const segment = [];
+            if (end > start) {
+                for (let j = start; j <= end; j++) segment.push(pts[j]);
+            } else {
+                for (let j = start; j < n; j++) segment.push(pts[j]);
+                for (let j = 0; j <= end; j++) segment.push(pts[j]);
+            }
+
+            if (segment.length < 2) continue;
+
+            // 检查是否是直线段
+            if (isLinearSegment(segment, 1.5)) {
+                // 直线段：只用 L 命令
+                path += `L${segment[segment.length - 1].x.toFixed(2)},${segment[segment.length - 1].y.toFixed(2)}`;
+            } else {
+                // 曲线段：使用贝塞尔拟合
+                const segPath = fitSegmentCurve(segment, maxError);
+                path += segPath;
+            }
+        }
+
+        return path + 'Z';
+    }
+
+    /**
+     * 对单段进行曲线拟合（返回不含 M 的路径）
+     */
+    function fitSegmentCurve(points, maxError) {
+        if (points.length < 2) return '';
+        if (points.length === 2) {
+            return `L${points[1].x.toFixed(2)},${points[1].y.toFixed(2)}`;
+        }
+
+        const pts = points.map(p => [p.x, p.y]);
+
+        if (typeof window.fitCurve === 'function') {
+            try {
+                const curves = window.fitCurve(pts, Math.max(0.1, maxError));
+                if (curves && curves.length > 0) {
+                    let path = '';
+                    for (const c of curves) {
+                        path += `C${c[1][0].toFixed(2)},${c[1][1].toFixed(2)},${c[2][0].toFixed(2)},${c[2][1].toFixed(2)},${c[3][0].toFixed(2)},${c[3][1].toFixed(2)}`;
+                    }
+                    return path;
+                }
+            } catch (e) {}
+        }
+
+        // 回退：直线
+        return `L${points[points.length - 1].x.toFixed(2)},${points[points.length - 1].y.toFixed(2)}`;
+    }
+
+    /**
+     * 带直线检测的整体拟合
+     */
+    function fitSegmentWithLineDetection(pts, maxError) {
+        // 优先使用 fit-curve
         if (typeof window.fitCurve === 'function') {
             try {
                 const inputPts = pts.map(p => [p.x, p.y]);
-                // 使用很小的误差阈值以保持平滑度
                 const curves = window.fitCurve(inputPts, Math.max(0.1, maxError * 0.5));
                 if (curves && curves.length > 0) {
                     let path = `M${curves[0][0][0].toFixed(2)},${curves[0][0][1].toFixed(2)}`;
                     for (const c of curves) {
                         path += `C${c[1][0].toFixed(2)},${c[1][1].toFixed(2)},${c[2][0].toFixed(2)},${c[2][1].toFixed(2)},${c[3][0].toFixed(2)},${c[3][1].toFixed(2)}`;
                     }
-                    return path + (closed ? 'Z' : '');
+                    return path;
                 }
             } catch (e) {
                 console.warn('[PotraceCore] fit-curve failed, using Catmull-Rom');
@@ -1583,7 +1737,8 @@
             minPathLength = 16,
             mode = 'spline',
             binaryMode = false,  // lineart 使用二值模式
-            blurSigma = 0.8      // VTracer 风格高斯模糊 (0 = 关闭)
+            blurSigma = 0.8,     // 高斯模糊 - 适度，避免削弱角点
+            morphology = true    // 形态学预处理（只做闭运算）
         } = options;
 
         const { width, height } = imageData;
@@ -1609,9 +1764,9 @@
 
         // 2. 每种颜色生成矢量层
         for (const color of palette) {
-            // 二值化 (二值模式使用亮度 + Otsu 阈值 + 高斯模糊)
+            // 二值化 (二值模式使用亮度 + Otsu 阈值 + 高斯模糊 + 形态学)
             const useLuminance = binaryMode || numColors <= 2;
-            const bitmap = createBinaryBitmap(imageData, color, colorTolerance, useLuminance, otsuThreshold, blurSigma);
+            const bitmap = createBinaryBitmap(imageData, color, colorTolerance, useLuminance, otsuThreshold, blurSigma, morphology);
             
             // 如果反转了，计算前景的实际颜色
             let actualColor = color;
@@ -1661,16 +1816,14 @@
 
                 const originalCount = contour.points.length;
 
-                // VTracer 参数 - 最大锐利度版本
+                // VTracer 参数 - 精确版本（保持边缘位置）
                 const vtracerOptions = {
-                    cornerAngle: 150,          // 角点阈值（度）- 非常宽松
-                    smoothWindow: 3,           // 平滑窗口 - 小
-                    smoothIterations: 1,       // Chaikin 迭代次数 - 最少
-                    minCornerDist: 2,          // 角点最小距离 - 非常小
-                    cornerProtectRadius: 4     // 角点保护半径 - 更大
+                    cornerAngle: 120,          // 角点阈值（度）
+                    minCornerDist: 3,          // 角点最小距离
+                    cornerProtectRadius: 2     // 角点保护半径
                 };
 
-                // 1. VTracer 风格处理：最大锐利度（在预平滑前检测角点）
+                // 1. VTracer 风格处理：最小平滑
                 const processed = processContourVTracer(contour.points, vtracerOptions);
 
                 // 2. 对平滑后的点进行采样（而非简化）
@@ -1775,7 +1928,8 @@
             minPathLength: 16,
             mode: 'spline',
             binaryMode: true,
-            blurSigma: 1.5         // 更强模糊，消除锯齿
+            blurSigma: 0.8,        // 适度模糊，保护角点锐利
+            morphology: true       // 只做闭运算
         },
         photo: {
             numColors: 64,
