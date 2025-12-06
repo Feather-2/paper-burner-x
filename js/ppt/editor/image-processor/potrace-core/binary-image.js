@@ -260,7 +260,8 @@ export function filterSmallRegions(bitmap, width, height, minRatio = 40) {
     }
     
     // 计算最小保留阈值：最大区域的 1/minRatio，但至少 4 像素
-    const minPixels = Math.max(4, Math.floor(maxSize / minRatio));
+
+    const minPixels = Math.max(4, Math.min(50, Math.floor(maxSize / minRatio)));
     
     // Second pass: 只保留足够大的区域
     for (let i = 0; i < labels.length; i++) {
@@ -439,7 +440,9 @@ export function createBinaryBitmapFromMap(pixelColorMap, targetColorIdx, width, 
     }
     
     // 连通区域过滤 - 过滤小于最大区域 1/100 的噪点
-    let finalBitmap = filterSmallRegions(bitmap, width, height, 100);
+    // 注意：已经在 pixelColorMap 层面进行了去噪，这里不再进行强力过滤
+    // 只过滤极小的噪点（< 4 像素），避免误删细节
+    let finalBitmap = filterSmallRegions(bitmap, width, height, 100000); // 放宽阈值
     
     // 闭运算填充小孔洞
     finalBitmap = morphClose(finalBitmap, width, height);

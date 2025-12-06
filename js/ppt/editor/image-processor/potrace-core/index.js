@@ -28,7 +28,7 @@
  */
 
 // 导入所有模块
-import { loadCdnLibs, colorDistSq } from './utils.js';
+import { loadCdnLibs, colorDistSq, denoisePixelMap } from './utils.js';
 import { kMeansQuantize, medianCutQuantize } from './color-quantize.js';
 import { analyzeImageColors } from './color-analysis.js';
 import { 
@@ -82,6 +82,10 @@ export async function vectorize(imageData, options = {}) {
     // 小图预处理：放大后矢量化效果更好
     const MIN_SIZE = 256;
     const maxDim = Math.max(width, height);
+    
+    // 定义有效模糊系数（提升作用域，防止 ReferenceError）
+    let effectiveBlurSigma = blurSigma;
+    
     if (maxDim < MIN_SIZE) {
         scale = Math.ceil(MIN_SIZE / maxDim);
         const newWidth = width * scale;
@@ -96,12 +100,24 @@ export async function vectorize(imageData, options = {}) {
         const ctx = canvas.getContext('2d');
         
         // 智能选择插值算法
-        // 像素画、Logo、二值图：关闭平滑，保持锐利边缘
-        // 照片、插画：开启平滑，避免引入阶梯锯齿
-        const isPixelArt = binaryMode || numColors <= 4 || (options && options.preset === 'pixel');
+        // 像素画：关闭平滑，保持锐利边缘
+        // 照片、插画、Logo、线稿：开启平滑，避免引入阶梯锯齿
+        const isPixelArtPreset = (options && options.preset === 'pixel');
+        const isBinary = binaryMode || (options && options.preset === 'lineart');
+        
+        // 仅在明确是像素画预设时才视为像素画模式
+        // 注意：Logo (低颜色) 和 Lineart (二值) 需要曲线拟合，不能视为像素画
+        const isPixelArt = isPixelArtPreset;
+        
+        // 放大时的平滑策略：
+        // 像素画：必须关闭平滑
+        // 二值图/Logo/照片：开启平滑，利用插值获得更平滑的边缘
         ctx.imageSmoothingEnabled = !isPixelArt;
         
-        // 先把 imageData 画到临时 canvas
+        // 如果是像素画，强制禁用高斯模糊，保留锐利边缘
+        effectiveBlurSigma = isPixelArt ? 0 : blurSigma;
+        
+        // 先把 imageData 画到临时 canvas(width, height)
         const tempCanvas = typeof OffscreenCanvas !== 'undefined'
             ? new OffscreenCanvas(width, height)
             : document.createElement('canvas');
@@ -141,6 +157,9 @@ export async function vectorize(imageData, options = {}) {
     const data = workingData.data;
     const useLuminance = binaryMode || numColors <= 2;
     
+    // 这里的 isPixelArt 需要重新定义，因为上面是在 if 块里的
+    const isPixelArt = (options && options.preset === 'pixel');
+
     if (!useLuminance) {
         for (let i = 0; i < width * height; i++) {
             const idx = i * 4;
@@ -160,6 +179,13 @@ export async function vectorize(imageData, options = {}) {
                 pixelColorMap[i] = 255; // 透明像素标记
             }
         }
+        
+        // 去噪：消除孤立像素，防止产生微小空洞
+        // 像素画模式下禁用去噪，因为单个像素可能是重要细节（如眼睛）
+        if (!isPixelArt) {
+            // 迭代 2 次以获得更好的平滑效果
+            denoisePixelMap(pixelColorMap, width, height, 2);
+        }
     }
 
     const layers = [];
@@ -172,13 +198,15 @@ export async function vectorize(imageData, options = {}) {
         const color = palette[colorIdx];
 
         // 轻度膨胀确保层重叠
-        const dilatePixels = 1;
+        // 增加膨胀量以填补可能的缝隙
+        // 像素画减少膨胀，避免形状变形
+        const dilatePixels = isPixelArt ? 1 : 2;
 
         // 使用最近颜色分配（非二值模式）或容差匹配（二值模式）
         // **VM(基于公开资料) 风格**：传入原始图像和调色板，利用混色信息做亚像素定位
         const bitmap = useLuminance
-            ? createBinaryBitmap(workingData, color, colorTolerance, useLuminance, otsuThreshold, blurSigma, morphology)
-            : createBinaryBitmapFromMap(pixelColorMap, colorIdx, width, height, blurSigma, dilatePixels, workingData, palette);
+            ? createBinaryBitmap(workingData, color, colorTolerance, useLuminance, otsuThreshold, effectiveBlurSigma, morphology)
+            : createBinaryBitmapFromMap(pixelColorMap, colorIdx, width, height, effectiveBlurSigma, dilatePixels, workingData, palette);
         
         // 如果反转了，计算前景的实际颜色
         let actualColor = color;
@@ -211,7 +239,9 @@ export async function vectorize(imageData, options = {}) {
         for (let i = 0; i < bitmap.data.length; i++) {
             if (bitmap.data[i] === 1) fgCount++;
         }
-        if (fgCount < minPathLength) continue;
+        
+        // 像素画允许更小的路径
+        if (fgCount < (isPixelArt ? 1 : minPathLength)) continue;
 
         // 追踪轮廓
         const contours = marchingSquaresContour(bitmap, null, null, bitmap.grayscale);
@@ -220,7 +250,7 @@ export async function vectorize(imageData, options = {}) {
         // 对于高颜色数（photo模式），禁用碎片过滤，因为颜色分布分散是正常的
         const imageArea = width * height;
         
-        if (numColors <= 8) {
+        if (!isPixelArt && numColors <= 8) {
             // 只在极低颜色数模式下启用碎片过滤（logo/lineart）
             const contourAreas = contours.map(c => Math.abs(c.area));
             const maxContourArea = Math.max(...contourAreas, 0);
@@ -244,7 +274,8 @@ export async function vectorize(imageData, options = {}) {
         // 动态面积阈值：基于图像尺寸，过滤孤立小噪点
         // 最小噪点面积 = 图像面积的 0.01%，但至少 4 像素，最多 50 像素
         const totalArea = width * height;
-        const minNoiseArea = Math.max(4, Math.min(50, totalArea * 0.0001));
+        // 像素画模式下，噪点阈值极低（1像素），保留所有细节
+        const minNoiseArea = isPixelArt ? 1 : Math.max(4, Math.min(50, totalArea * 0.0001));
         // 中等轮廓阈值（用于决定是否曲线拟合）
         const mediumContourArea = Math.max(30, minNoiseArea * 3);
 
@@ -254,8 +285,27 @@ export async function vectorize(imageData, options = {}) {
             const contourArea = Math.abs(contour.area);
             const isHole = contour.type === 'inner' || contour.area < 0;
             
-            // 只过滤非常小的外轮廓噪点，孔洞保留
-            if (!isHole && contourArea < minNoiseArea) {
+            // 过滤噪点逻辑优化：
+            if (isPixelArt) {
+                // 像素画：保留几乎所有细节，只过滤 0 面积
+                if (contourArea < 0.5) continue;
+            } else {
+                // 非像素画（Logo, Lineart, Photo）：
+                // 1. 过滤微小的外轮廓噪点 (杂点)
+                if (!isHole && contourArea < minNoiseArea) continue;
+                
+                // 2. 过滤极微小的孔洞 (内部噪点)，但要比外轮廓更保守以防堵死字母
+                // 阈值设为 minNoiseArea 的一半，且至少 2 像素
+                const minHoleArea = Math.max(2, minNoiseArea * 0.5);
+                if (isHole && contourArea < minHoleArea) continue;
+            }
+            
+            // 像素画特殊处理：保持像素边缘，不做平滑和曲线拟合
+            if (isPixelArt) {
+                // 仅移除共线点（无损压缩），保留所有直角
+                const simplifiedPts = simplifyPathRDP(contour.points, 0.1);
+                const pathD = generatePolygonPath(simplifiedPts);
+                if (pathD) pathParts.push(pathD);
                 continue;
             }
             
@@ -396,7 +446,9 @@ export async function vectorize(imageData, options = {}) {
     }
     
     // 过滤掉面积远小于全局最大（1:500 比例）的图层，更宽松避免误删
-    const minLayerArea = Math.max(4, globalMaxArea / 500);
+    // 增加上限：最大阈值不超过 100 像素，防止大图中误删有效的小图层
+    // 像素画模式下完全禁用过滤，保留所有像素
+    const minLayerArea = isPixelArt ? 0 : Math.max(4, Math.min(100, globalMaxArea / 500));
     const filteredLayers = layers.filter(layer => {
         // 计算该图层的总面积
         let layerArea = 0;

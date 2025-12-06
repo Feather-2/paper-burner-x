@@ -98,3 +98,75 @@ export function calculateArea(points) {
     }
     return area / 2;
 }
+
+/**
+ * 对像素颜色映射进行去噪 (Mode Filter / Majority Vote)
+ * 去除孤立像素，将其归并到周围的主色中
+ * @param {Uint8Array} pixelColorMap - 像素颜色索引数组
+ * @param {number} width - 图像宽度
+ * @param {number} height - 图像高度
+ * @param {number} iterations - 迭代次数
+ */
+export function denoisePixelMap(pixelColorMap, width, height, iterations = 1) {
+    const len = width * height;
+    // 双缓冲
+    let currentMap = pixelColorMap;
+    let nextMap = new Uint8Array(len);
+    
+    for (let iter = 0; iter < iterations; iter++) {
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const idx = y * width + x;
+                const color = currentMap[idx];
+                
+                if (color === 255) {
+                    nextMap[idx] = 255; // 透明保持不变
+                    continue;
+                }
+                
+                // 统计 3x3 邻域颜色频率
+                const counts = {};
+                let maxCount = 0;
+                let maxColor = color;
+                
+                for (let dy = -1; dy <= 1; dy++) {
+                    for (let dx = -1; dx <= 1; dx++) {
+                        const nx = x + dx;
+                        const ny = y + dy;
+                        if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                            const nColor = currentMap[ny * width + nx];
+                            if (nColor !== 255) {
+                                counts[nColor] = (counts[nColor] || 0) + 1;
+                                if (counts[nColor] > maxCount) {
+                                    maxCount = counts[nColor];
+                                    maxColor = nColor;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // 如果中心像素颜色不是众数，且众数出现频率足够高（>4，即超过一半），则替换
+                // 或者如果中心像素完全孤立（周围没有同色），则替换为众数
+                const centerCount = counts[color] || 0;
+                if (centerCount === 1 || (maxColor !== color && maxCount >= 5)) {
+                    nextMap[idx] = parseInt(maxColor);
+                } else {
+                    nextMap[idx] = color;
+                }
+            }
+        }
+        
+        // 交换缓冲区
+        const temp = currentMap;
+        currentMap = nextMap;
+        nextMap = temp;
+    }
+    
+    // 将结果复制回原数组
+    if (currentMap !== pixelColorMap) {
+        pixelColorMap.set(currentMap);
+    }
+    
+    return pixelColorMap;
+}

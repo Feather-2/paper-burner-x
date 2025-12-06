@@ -42,13 +42,14 @@ export const PRESETS = {
         blurSigma: 1.5
     },
     pixel: {
+        preset: 'pixel',       // 标记预设名称
         numColors: 16,         // 减少颜色数，避免相似色分裂
         colorTolerance: 45,    // 适中容差
-        pathTolerance: 0.5,    // 保留细节
-        smoothness: 0.3,       // 极少平滑
+        pathTolerance: 0.2,    // 极高精度
+        smoothness: 0,         // 关闭平滑
         minPathLength: 1,      // 不过滤任何区域
-        mode: 'spline',
-        blurSigma: 1.5,        // 模糊边缘获得更平滑的轮廓
+        mode: 'polygon',       // 使用多边形模式
+        blurSigma: 0,          // 关闭模糊，保留锐利边缘
         morphology: false      // 不做形态学处理
     },
     simple: {
