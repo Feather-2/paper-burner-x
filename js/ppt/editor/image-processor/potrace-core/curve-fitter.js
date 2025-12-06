@@ -298,58 +298,114 @@ export function fitBezierSmooth(points, maxError = 1.0) {
 }
 
 /**
- * 对单段进行曲线拟合（返回不含 M 的路径）
+ * 最小二乘三次贝塞尔拟合
+ * 
+ * 使用正确的数学方法：求解线性方程组找最优控制点
+ * 参考: "An Algorithm for Automatically Fitting Digitized Curves" - Philip J. Schneider
  */
 export function fitSegmentCurve(points, maxError) {
     if (points.length < 2) return '';
     if (points.length === 2) {
         return `L${points[1].x.toFixed(2)},${points[1].y.toFixed(2)}`;
     }
-
-    const pts = points.map(p => [p.x, p.y]);
-
-    if (typeof window !== 'undefined' && typeof window.fitCurve === 'function') {
-        try {
-            // 误差至少 2.0，产生更平滑的曲线
-            const curves = window.fitCurve(pts, Math.max(2.0, maxError));
-            if (curves && curves.length > 0) {
-                let path = '';
-                for (const c of curves) {
-                    path += `C${c[1][0].toFixed(2)},${c[1][1].toFixed(2)},${c[2][0].toFixed(2)},${c[2][1].toFixed(2)},${c[3][0].toFixed(2)},${c[3][1].toFixed(2)}`;
-                }
-                return path;
-            }
-        } catch (e) {}
+    
+    const n = points.length;
+    const p0 = points[0];
+    const p3 = points[n - 1];
+    
+    // 计算每个点的参数 t（弧长参数化）
+    const t = [0];
+    let totalLen = 0;
+    for (let i = 1; i < n; i++) {
+        const dx = points[i].x - points[i-1].x;
+        const dy = points[i].y - points[i-1].y;
+        totalLen += Math.sqrt(dx*dx + dy*dy);
+        t.push(totalLen);
     }
+    for (let i = 1; i < n; i++) {
+        t[i] /= totalLen || 1;
+    }
+    
+    // 计算切线方向（使用多点平均，更稳定）
+    const lookAhead = Math.min(4, Math.floor(n / 3));
+    let dx1 = 0, dy1 = 0, dx2 = 0, dy2 = 0;
+    for (let i = 1; i <= lookAhead; i++) {
+        dx1 += points[i].x - p0.x;
+        dy1 += points[i].y - p0.y;
+        dx2 += p3.x - points[n - 1 - i].x;
+        dy2 += p3.y - points[n - 1 - i].y;
+    }
+    const tan1 = normalize({ x: dx1, y: dy1 });
+    const tan2 = normalize({ x: dx2, y: dy2 });
+    
+    // 最小二乘求解控制点距离 alpha1, alpha2
+    // B(t) = (1-t)³P0 + 3(1-t)²t·P1 + 3(1-t)t²·P2 + t³·P3
+    // P1 = P0 + alpha1 * tan1
+    // P2 = P3 - alpha2 * tan2
+    
+    let c00 = 0, c01 = 0, c11 = 0;
+    let x0 = 0, x1 = 0;
+    
+    for (let i = 0; i < n; i++) {
+        const ti = t[i];
+        const b0 = (1-ti) * (1-ti) * (1-ti);
+        const b1 = 3 * (1-ti) * (1-ti) * ti;
+        const b2 = 3 * (1-ti) * ti * ti;
+        const b3 = ti * ti * ti;
+        
+        // A1 = b1 * tan1, A2 = b2 * tan2
+        const a1x = b1 * tan1.x, a1y = b1 * tan1.y;
+        const a2x = b2 * tan2.x, a2y = b2 * tan2.y;
+        
+        c00 += a1x*a1x + a1y*a1y;
+        c01 += a1x*a2x + a1y*a2y;
+        c11 += a2x*a2x + a2y*a2y;
+        
+        // 目标：点 - 基础曲线
+        const baseX = b0*p0.x + b3*p3.x;
+        const baseY = b0*p0.y + b3*p3.y;
+        const diffX = points[i].x - baseX;
+        const diffY = points[i].y - baseY;
+        
+        x0 += a1x*diffX + a1y*diffY;
+        x1 += a2x*diffX + a2y*diffY;
+    }
+    
+    // 求解 2x2 线性方程组
+    const det = c00*c11 - c01*c01;
+    let alpha1, alpha2;
+    
+    if (Math.abs(det) > 1e-6) {
+        alpha1 = (c11*x0 - c01*x1) / det;
+        alpha2 = (c00*x1 - c01*x0) / det;
+    } else {
+        // 退化情况：使用弦长的 1/3
+        const chordLen = Math.sqrt((p3.x-p0.x)**2 + (p3.y-p0.y)**2);
+        alpha1 = alpha2 = chordLen / 3;
+    }
+    
+    // 确保 alpha 为正且合理
+    const chordLen = Math.sqrt((p3.x-p0.x)**2 + (p3.y-p0.y)**2);
+    alpha1 = Math.max(chordLen * 0.1, Math.min(chordLen * 0.6, Math.abs(alpha1)));
+    alpha2 = Math.max(chordLen * 0.1, Math.min(chordLen * 0.6, Math.abs(alpha2)));
+    
+    const cp1 = { x: p0.x + alpha1 * tan1.x, y: p0.y + alpha1 * tan1.y };
+    const cp2 = { x: p3.x - alpha2 * tan2.x, y: p3.y - alpha2 * tan2.y };
+    
+    return `C${cp1.x.toFixed(2)},${cp1.y.toFixed(2)},${cp2.x.toFixed(2)},${cp2.y.toFixed(2)},${p3.x.toFixed(2)},${p3.y.toFixed(2)}`;
+}
 
-    // 回退：直线
-    return `L${points[points.length - 1].x.toFixed(2)},${points[points.length - 1].y.toFixed(2)}`;
+function normalize(v) {
+    const len = Math.sqrt(v.x*v.x + v.y*v.y);
+    if (len < 1e-6) return { x: 1, y: 0 };
+    return { x: v.x/len, y: v.y/len };
 }
 
 /**
- * 带直线检测的整体拟合
+ * 整体拟合 - 使用 Catmull-Rom 样条（最稳定）
  */
 export function fitSegmentWithLineDetection(pts, maxError) {
-    // 优先使用 fit-curve，增大误差容忍度获得更平滑的曲线
-    if (typeof window !== 'undefined' && typeof window.fitCurve === 'function') {
-        try {
-            const inputPts = pts.map(p => [p.x, p.y]);
-            // 误差至少 2.0，产生更少、更平滑的曲线段
-            const curves = window.fitCurve(inputPts, Math.max(2.0, maxError));
-            if (curves && curves.length > 0) {
-                let path = `M${curves[0][0][0].toFixed(2)},${curves[0][0][1].toFixed(2)}`;
-                for (const c of curves) {
-                    path += `C${c[1][0].toFixed(2)},${c[1][1].toFixed(2)},${c[2][0].toFixed(2)},${c[2][1].toFixed(2)},${c[3][0].toFixed(2)},${c[3][1].toFixed(2)}`;
-                }
-                return path;
-            }
-        } catch (e) {
-            console.warn('[PotraceCore] fit-curve failed, using Catmull-Rom');
-        }
-    }
-
-    // 回退到 Catmull-Rom（也能产生平滑曲线）
-    return fitBezierCatmullRom(pts, 0.4);
+    return fitBezierCatmullRom(pts, 0.4);  // 低张力 = 更平滑
 }
 
 /**

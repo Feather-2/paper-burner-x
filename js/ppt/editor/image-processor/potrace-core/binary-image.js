@@ -374,6 +374,17 @@ export function createBinaryBitmapFromMap(pixelColorMap, targetColorIdx, width, 
         bitmap[i] = (pixelColorMap[i] === targetColorIdx) ? 1 : 0;
     }
     
+    // 生成灰度图用于亚像素插值（前景=0, 背景=255）
+    let grayscale = new Float32Array(width * height);
+    for (let i = 0; i < bitmap.length; i++) {
+        grayscale[i] = bitmap[i] === 1 ? 0 : 255;
+    }
+    
+    // 高斯模糊灰度图（让边缘更平滑，实现亚像素精度）
+    if (blurSigma > 0) {
+        grayscale = gaussianBlur(grayscale, width, height, Math.max(1.5, blurSigma));
+    }
+    
     // 连通区域过滤：只保留相对于最大区域足够大的区域
     // 比例 1:200 更宽松，保留更多细小笔画
     let finalBitmap = filterSmallRegions(bitmap, width, height, 200);
@@ -386,5 +397,5 @@ export function createBinaryBitmapFromMap(pixelColorMap, targetColorIdx, width, 
         finalBitmap = dilateWithColorConstraint(finalBitmap, width, height, pixelColorMap, targetColorIdx);
     }
 
-    return { data: finalBitmap, width, height, inverted: false, grayscale: null };
+    return { data: finalBitmap, width, height, inverted: false, grayscale };
 }

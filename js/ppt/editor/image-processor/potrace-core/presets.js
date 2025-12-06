@@ -24,13 +24,13 @@ export const PRESETS = {
     lineart: {
         numColors: 2,
         colorTolerance: 60,
-        pathTolerance: 0.2,    // 非常低，保留细节
-        smoothness: 0.5,       // 非常精确的曲线拟合
+        pathTolerance: 0.5,
+        smoothness: 1.0,
         minPathLength: 16,
         mode: 'spline',
         binaryMode: true,
-        blurSigma: 0.5,        // 极小模糊，最大程度保护角点
-        morphology: true       // 只做闭运算
+        blurSigma: 2.0,        // 增大模糊获得平滑边缘
+        morphology: true
     },
     photo: {
         numColors: 64,
@@ -48,7 +48,7 @@ export const PRESETS = {
         smoothness: 0.3,       // 极少平滑
         minPathLength: 1,      // 不过滤任何区域
         mode: 'spline',
-        blurSigma: 0,          // 不模糊，保持像素边缘
+        blurSigma: 1.5,        // 模糊边缘获得更平滑的轮廓
         morphology: false      // 不做形态学处理
     },
     simple: {

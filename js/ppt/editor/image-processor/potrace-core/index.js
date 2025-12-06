@@ -40,7 +40,7 @@ import {
 import { labelConnectedComponents } from './connected-components.js';
 import { marchingSquaresContour } from './contour-tracer.js';
 import { simplifyPath } from './path-simplify.js';
-import { smoothPathPreservingCorners } from './path-smooth.js';
+import { chaikinSmooth, simplifyRDPClosed as simplifyPathRDP } from './path-smooth.js';
 import { 
     processContourVTracer, 
     detectCornersVTracer 
@@ -49,6 +49,7 @@ import {
     fitBezier, 
     fitBezierWithCorners, 
     fitBezierSmooth,
+    fitBezierCatmullRom,
     generatePolygonPath 
 } from './curve-fitter.js';
 import { PRESETS } from './presets.js';
@@ -259,31 +260,19 @@ export async function vectorize(imageData, options = {}) {
                 continue;
             }
 
-            // VTracer 处理（角点检测 + 局部平滑）
-            const processed = processContourVTracer(contour.points, {
-                cornerAngle: 110,
-                minCornerDist: 2,
-                cornerProtectRadius: 3
-            });
-            let finalPoints = processed.points;
+            // 简单流程：RDP 简化 → Chaikin → Catmull-Rom
+            let pts = contour.points;
+            
+            // 1. RDP 简化（小容差保持形状）
+            pts = simplifyPathRDP(pts, 1.0);
+            
+            // 2. Chaikin 平滑
+            pts = chaikinSmooth(pts, 3);
+            
+            if (pts.length < 3) continue;
 
-            // 3. 大轮廓采样（限制点数提升性能）
-            if (finalPoints.length > 500) {
-                const step = finalPoints.length / 500;
-                const sampled = [];
-                for (let i = 0; i < 500; i++) {
-                    sampled.push(finalPoints[Math.floor(i * step)]);
-                }
-                finalPoints = sampled;
-            }
-
-            if (finalPoints.length < 3) continue;
-
-            // 4. 曲线拟合（误差基于 pathTolerance）
-            const fitError = Math.max(0.5, pathTolerance * 2);
-            const pathD = mode === 'spline'
-                ? fitBezierSmooth(finalPoints, fitError)
-                : generatePolygonPath(finalPoints);
+            // 3. Catmull-Rom
+            const pathD = fitBezierCatmullRom(pts, 0.35);
 
             if (pathD) pathParts.push(pathD);
         }
@@ -426,9 +415,10 @@ export const PotraceCore = {
     // VTracer 新增函数
     processContourVTracer,
     detectCornersVTracer,
-    smoothPathPreservingCorners,
+    chaikinSmooth,
     fitBezierWithCorners,
-    fitBezierSmooth
+    fitBezierSmooth,
+    fitBezierCatmullRom
 };
 
 // 默认导出
