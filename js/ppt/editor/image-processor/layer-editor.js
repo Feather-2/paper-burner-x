@@ -11,6 +11,7 @@ class LayerEditor {
 
         this.processedImage = null;
         this.selectedLayerIndex = -1;
+        this.selectedChildIndex = -1;  // 选中的子图层索引
         this.container = null;
         this.canvas = null;
         this.ctx = null;
@@ -20,6 +21,10 @@ class LayerEditor {
         
         // 加载状态
         this._loadingOverlay = null;
+        
+        // 路径选择模式
+        this.pathSelectMode = false;
+        this.selectedPathIndex = -1;
         
         // 缩放相关
         this.scale = 1;
@@ -449,6 +454,56 @@ class LayerEditor {
                 width: 2px;
                 background: var(--ie-border);
                 opacity: 0.5;
+            }
+            
+            /* Child Layer Action Buttons */
+            .layer-action-btn {
+                background: transparent;
+                border: none;
+                padding: 4px;
+                cursor: pointer;
+                color: var(--ie-text-secondary);
+                border-radius: 4px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.15s;
+            }
+            .layer-action-btn:hover {
+                background: var(--ie-hover);
+                color: var(--ie-text);
+            }
+            .layer-action-btn.danger:hover {
+                background: #fef2f2;
+                color: #ef4444;
+            }
+            .layer-action-btn:disabled {
+                opacity: 0.3;
+                cursor: not-allowed;
+            }
+            .layer-action-btn iconify-icon {
+                font-size: 14px;
+            }
+            
+            /* Path Selection Mode */
+            .path-select-mode path {
+                transition: opacity 0.15s, stroke 0.15s;
+            }
+            .path-select-mode path:hover {
+                opacity: 0.7;
+                stroke: #ef4444 !important;
+                stroke-width: 2px !important;
+            }
+            
+            /* Danger Button Style */
+            .btn-action.danger {
+                background: #fef2f2;
+                color: #ef4444;
+                border-color: #fecaca;
+            }
+            .btn-action.danger:hover {
+                background: #fee2e2;
+                border-color: #f87171;
             }
             
             /* Property Panel */
@@ -1200,9 +1255,17 @@ class LayerEditor {
                 groupList.className = 'child-layer-container';
                 
                 // 组内图层也倒序
-                [...layer.children].reverse().forEach(child => {
+                const childrenReversed = [...layer.children].reverse();
+                childrenReversed.forEach((child, reverseChildIdx) => {
+                    const childIdx = layer.children.length - 1 - reverseChildIdx;
+                    const isChildSelected = index === this.selectedLayerIndex && childIdx === this.selectedChildIndex;
+                    
                     const childItem = document.createElement('div');
-                    childItem.className = 'layer-item child-layer';
+                    childItem.className = `layer-item child-layer ${isChildSelected ? 'selected' : ''}`;
+                    childItem.onclick = (e) => {
+                        e.stopPropagation();
+                        this._selectChildLayer(index, childIdx);
+                    };
                     
                     const childPreview = document.createElement('div');
                     childPreview.className = 'layer-preview color-preview';
@@ -1210,7 +1273,6 @@ class LayerEditor {
                         childPreview.style.backgroundColor = child.color;
                         childPreview.innerHTML = '';
                     } else {
-                         // Fallback icon for non-color vector children
                          childPreview.innerHTML = '<iconify-icon icon="carbon:shape"></iconify-icon>';
                     }
                     
@@ -1218,9 +1280,47 @@ class LayerEditor {
                     childName.className = 'layer-name';
                     childName.textContent = child.name || '路径';
                     
+                    // 操作按钮容器
+                    const actions = document.createElement('div');
+                    actions.className = 'child-layer-actions';
+                    actions.style.cssText = 'display:flex;gap:2px;margin-left:auto;';
+                    
+                    // 上移按钮
+                    const upBtn = document.createElement('button');
+                    upBtn.className = 'layer-action-btn';
+                    upBtn.title = '上移';
+                    upBtn.innerHTML = '<iconify-icon icon="carbon:arrow-up"></iconify-icon>';
+                    upBtn.disabled = childIdx === layer.children.length - 1;
+                    upBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        this._moveChildLayer(index, childIdx, 1);
+                    };
+                    
+                    // 下移按钮
+                    const downBtn = document.createElement('button');
+                    downBtn.className = 'layer-action-btn';
+                    downBtn.title = '下移';
+                    downBtn.innerHTML = '<iconify-icon icon="carbon:arrow-down"></iconify-icon>';
+                    downBtn.disabled = childIdx === 0;
+                    downBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        this._moveChildLayer(index, childIdx, -1);
+                    };
+                    
+                    // 删除按钮
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.className = 'layer-action-btn danger';
+                    deleteBtn.title = '删除';
+                    deleteBtn.innerHTML = '<iconify-icon icon="carbon:trash-can"></iconify-icon>';
+                    deleteBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        this._deleteChildLayer(index, childIdx);
+                    };
+                    
                     // 子图层可见性按钮
                     const visibleBtn = document.createElement('button');
-                    visibleBtn.className = 'layer-visibility';
+                    visibleBtn.className = 'layer-action-btn';
+                    visibleBtn.title = child.visible !== false ? '隐藏' : '显示';
                     const isVisible = child.visible !== false;
                     visibleBtn.innerHTML = `<iconify-icon icon="${isVisible ? 'carbon:view' : 'carbon:view-off'}"></iconify-icon>`;
                     visibleBtn.onclick = (e) => {
@@ -1229,10 +1329,15 @@ class LayerEditor {
                         this._render();
                         this._updateLayerList();
                     };
+                    
+                    actions.appendChild(upBtn);
+                    actions.appendChild(downBtn);
+                    actions.appendChild(visibleBtn);
+                    actions.appendChild(deleteBtn);
 
                     childItem.appendChild(childPreview);
                     childItem.appendChild(childName);
-                    childItem.appendChild(visibleBtn);
+                    childItem.appendChild(actions);
                     groupList.appendChild(childItem);
                 });
                 container.appendChild(groupList);
@@ -1274,10 +1379,82 @@ class LayerEditor {
      * 选择图层
      */
     _selectLayer(index) {
-        if (this.selectedLayerIndex === index) return;
+        if (this.selectedLayerIndex === index && this.selectedChildIndex === -1) return;
         this.selectedLayerIndex = index;
+        this.selectedChildIndex = -1;  // 清除子图层选中
         this._updateLayerList();
         this._updatePropertyPanel();
+    }
+    
+    /**
+     * 选择子图层
+     */
+    _selectChildLayer(parentIndex, childIndex) {
+        this.selectedLayerIndex = parentIndex;
+        this.selectedChildIndex = childIndex;
+        this._updateLayerList();
+        this._updatePropertyPanel();
+    }
+    
+    /**
+     * 移动子图层
+     */
+    _moveChildLayer(parentIndex, childIndex, direction) {
+        const layer = this.processedImage.layers[parentIndex];
+        if (!layer || !layer.children) return;
+        
+        const newIndex = childIndex + direction;
+        if (newIndex < 0 || newIndex >= layer.children.length) return;
+        
+        // 交换位置
+        const temp = layer.children[childIndex];
+        layer.children[childIndex] = layer.children[newIndex];
+        layer.children[newIndex] = temp;
+        
+        // 更新选中索引
+        this.selectedChildIndex = newIndex;
+        
+        this._saveHistory();
+        this._updateLayerList();
+        this._render();
+    }
+    
+    /**
+     * 删除子图层
+     */
+    _deleteChildLayer(parentIndex, childIndex) {
+        const layer = this.processedImage.layers[parentIndex];
+        if (!layer || !layer.children) return;
+        
+        if (layer.children.length <= 1) {
+            alert('至少保留一个子图层');
+            return;
+        }
+        
+        layer.children.splice(childIndex, 1);
+        
+        // 更新组名称
+        layer.name = `矢量化分组 (${layer.children.length} 层)`;
+        
+        // 清除选中
+        if (this.selectedChildIndex >= layer.children.length) {
+            this.selectedChildIndex = layer.children.length - 1;
+        }
+        
+        this._saveHistory();
+        this._updateLayerList();
+        this._updatePropertyPanel();
+        this._render();
+    }
+    
+    /**
+     * 获取当前选中的子图层
+     */
+    _getSelectedChildLayer() {
+        if (this.selectedLayerIndex < 0 || this.selectedChildIndex < 0) return null;
+        const layer = this.processedImage.layers[this.selectedLayerIndex];
+        if (!layer || !layer.children) return null;
+        return layer.children[this.selectedChildIndex];
     }
 
     /**
@@ -1291,6 +1468,13 @@ class LayerEditor {
         }
 
         const layer = this.processedImage.layers[this.selectedLayerIndex];
+        const childLayer = this._getSelectedChildLayer();
+        
+        // 如果选中了子图层，显示子图层属性
+        if (childLayer) {
+            this._renderChildLayerPanel(panel, layer, childLayer);
+            return;
+        }
         
         let content = `
             <div class="property-group">
@@ -1451,6 +1635,294 @@ class LayerEditor {
                  e.target.nextElementSibling.textContent = e.target.value;
              });
         });
+    }
+    
+    /**
+     * 渲染子图层属性面板
+     */
+    _renderChildLayerPanel(panel, parentLayer, childLayer) {
+        const pathCount = this._countPaths(childLayer.svg);
+        const simplifyLevel = childLayer.simplifyLevel || 0;
+        
+        let content = `
+            <div class="property-group">
+                <div class="property-group-title">
+                    <iconify-icon icon="carbon:shape"></iconify-icon>
+                    子图层属性
+                </div>
+                <div class="property-row">
+                    <span class="property-label">名称</span>
+                    <input class="property-input" type="text" value="${childLayer.name || '路径'}" data-child-prop="name">
+                </div>
+                <div class="property-row">
+                    <span class="property-label">颜色</span>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <input type="color" value="${childLayer.color || '#000000'}" data-child-prop="color" style="width:32px;height:24px;padding:0;border:none;">
+                        <span style="font-size:12px;color:var(--ie-text-secondary)">${childLayer.color || '#000000'}</span>
+                    </div>
+                </div>
+                <div class="property-row">
+                    <span class="property-label">路径数量</span>
+                    <span style="font-size:12px;color:var(--ie-text-secondary)">${pathCount}</span>
+                </div>
+                <div class="property-row">
+                    <span class="property-label">可见</span>
+                    <input type="checkbox" ${childLayer.visible !== false ? 'checked' : ''} data-child-prop="visible">
+                </div>
+            </div>
+            
+            <div class="property-group">
+                <div class="property-group-title">
+                    <iconify-icon icon="carbon:clean"></iconify-icon>
+                    单图层路径简化
+                </div>
+                <div class="property-row block">
+                    <span class="property-label">简化程度</span>
+                    <div class="range-wrap">
+                        <input type="range" class="range-input" min="0" max="100" value="${simplifyLevel}" data-child-action="simplify">
+                        <span class="range-value">${simplifyLevel}</span>
+                    </div>
+                    <small style="font-size:11px;color:var(--ie-text-secondary);margin-top:-4px">值越大曲线越平滑，0=不简化</small>
+                </div>
+                <button class="btn-action" data-child-action="reset-simplify">
+                    <iconify-icon icon="carbon:reset"></iconify-icon>
+                    重置简化
+                </button>
+            </div>
+            
+            <div class="property-group">
+                <div class="property-group-title">
+                    <iconify-icon icon="carbon:select-01"></iconify-icon>
+                    路径编辑
+                </div>
+                <button class="btn-action" data-child-action="toggle-path-select">
+                    <iconify-icon icon="carbon:touch-1"></iconify-icon>
+                    ${this.pathSelectMode ? '退出路径选择' : '点选删除路径'}
+                </button>
+                <small style="font-size:11px;color:var(--ie-text-secondary);margin-top:4px">
+                    点击画布上的路径可以删除单个形状
+                </small>
+            </div>
+            
+            <div class="property-group">
+                <div class="property-group-title">
+                    <iconify-icon icon="carbon:operations-field"></iconify-icon>
+                    图层操作
+                </div>
+                <div style="display:flex;gap:8px;">
+                    <button class="btn-action" data-child-action="move-up" style="flex:1" ${this.selectedChildIndex >= parentLayer.children.length - 1 ? 'disabled' : ''}>
+                        <iconify-icon icon="carbon:arrow-up"></iconify-icon>
+                        上移
+                    </button>
+                    <button class="btn-action" data-child-action="move-down" style="flex:1" ${this.selectedChildIndex <= 0 ? 'disabled' : ''}>
+                        <iconify-icon icon="carbon:arrow-down"></iconify-icon>
+                        下移
+                    </button>
+                </div>
+                <button class="btn-action danger" data-child-action="delete" ${parentLayer.children.length <= 1 ? 'disabled' : ''}>
+                    <iconify-icon icon="carbon:trash-can"></iconify-icon>
+                    删除此图层
+                </button>
+            </div>
+        `;
+        
+        panel.innerHTML = content;
+        this._bindChildPropertyEvents(panel, parentLayer, childLayer);
+    }
+    
+    /**
+     * 统计 SVG 中的路径数量
+     */
+    _countPaths(svg) {
+        if (!svg) return 0;
+        const matches = svg.match(/<path/g);
+        return matches ? matches.length : 0;
+    }
+    
+    /**
+     * 绑定子图层属性事件
+     */
+    _bindChildPropertyEvents(panel, parentLayer, childLayer) {
+        // 名称
+        panel.querySelector('[data-child-prop="name"]')?.addEventListener('change', (e) => {
+            childLayer.name = e.target.value;
+            this._updateLayerList();
+            this._saveHistory();
+        });
+        
+        // 颜色
+        panel.querySelector('[data-child-prop="color"]')?.addEventListener('change', (e) => {
+            const newColor = e.target.value;
+            childLayer.color = newColor;
+            // 更新 SVG 中的颜色
+            if (childLayer.svg) {
+                childLayer.svg = childLayer.svg.replace(/fill="[^"]*"/g, `fill="${newColor}"`);
+            }
+            this._updateLayerList();
+            this._render();
+            this._saveHistory();
+        });
+        
+        // 可见性
+        panel.querySelector('[data-child-prop="visible"]')?.addEventListener('change', (e) => {
+            childLayer.visible = e.target.checked;
+            this._updateLayerList();
+            this._render();
+        });
+        
+        // 单图层简化滑块
+        const simplifySlider = panel.querySelector('[data-child-action="simplify"]');
+        if (simplifySlider) {
+            let timeout = null;
+            simplifySlider.addEventListener('input', (e) => {
+                const level = parseInt(e.target.value);
+                e.target.nextElementSibling.textContent = level;
+                
+                clearTimeout(timeout);
+                timeout = setTimeout(() => {
+                    this._applyChildSimplify(childLayer, level);
+                }, 100);
+            });
+        }
+        
+        // 重置简化
+        panel.querySelector('[data-child-action="reset-simplify"]')?.addEventListener('click', () => {
+            if (childLayer.originalSvg) {
+                childLayer.svg = childLayer.originalSvg;
+                childLayer.simplifyLevel = 0;
+                this._render();
+                this._updatePropertyPanel();
+                this._saveHistory();
+            }
+        });
+        
+        // 路径选择模式
+        panel.querySelector('[data-child-action="toggle-path-select"]')?.addEventListener('click', () => {
+            this.pathSelectMode = !this.pathSelectMode;
+            this._updatePropertyPanel();
+            this._setupPathSelection(childLayer);
+        });
+        
+        // 上移/下移/删除
+        panel.querySelector('[data-child-action="move-up"]')?.addEventListener('click', () => {
+            this._moveChildLayer(this.selectedLayerIndex, this.selectedChildIndex, 1);
+            this._updatePropertyPanel();
+        });
+        
+        panel.querySelector('[data-child-action="move-down"]')?.addEventListener('click', () => {
+            this._moveChildLayer(this.selectedLayerIndex, this.selectedChildIndex, -1);
+            this._updatePropertyPanel();
+        });
+        
+        panel.querySelector('[data-child-action="delete"]')?.addEventListener('click', () => {
+            this._deleteChildLayer(this.selectedLayerIndex, this.selectedChildIndex);
+        });
+    }
+    
+    /**
+     * 对单个子图层应用路径简化
+     */
+    async _applyChildSimplify(childLayer, level) {
+        if (!childLayer || !childLayer.svg) return;
+        
+        // 保存原始 SVG（如果还没保存）
+        if (!childLayer.originalSvg) {
+            childLayer.originalSvg = childLayer.svg;
+        }
+        
+        if (level === 0) {
+            childLayer.svg = childLayer.originalSvg;
+            childLayer.simplifyLevel = 0;
+        } else {
+            const { simplifyPathD } = await import('./potrace-core/path-simplifier.js');
+            
+            // 从原始 SVG 开始简化
+            let svg = childLayer.originalSvg;
+            const pathRegex = /<path([^>]*?)d="([^"]+)"([^>]*?)\/?>(?:<\/path>)?/g;
+            
+            svg = svg.replace(pathRegex, (match, before, d, after) => {
+                const simplified = simplifyPathD(d, level);
+                return `<path${before}d="${simplified}"${after}/>`;
+            });
+            
+            childLayer.svg = svg;
+            childLayer.simplifyLevel = level;
+        }
+        
+        this._render();
+    }
+    
+    /**
+     * 设置路径选择功能
+     */
+    _setupPathSelection(childLayer) {
+        const svgContainer = this.container.querySelector('.image-editor-svg-container');
+        
+        if (!this.pathSelectMode) {
+            // 移除选择模式样式
+            svgContainer.classList.remove('path-select-mode');
+            svgContainer.querySelectorAll('path').forEach(p => {
+                p.style.cursor = '';
+                p.onclick = null;
+            });
+            return;
+        }
+        
+        // 添加选择模式样式
+        svgContainer.classList.add('path-select-mode');
+        
+        // 为当前子图层的路径添加点击事件
+        // 需要重新渲染以获取最新的 SVG 元素
+        this._render();
+        
+        // 延迟绑定事件（等待渲染完成）
+        setTimeout(() => {
+            const paths = svgContainer.querySelectorAll('path');
+            paths.forEach((path, idx) => {
+                path.style.cursor = 'pointer';
+                path.onclick = (e) => {
+                    e.stopPropagation();
+                    if (confirm(`删除此路径？`)) {
+                        this._deletePathFromChild(childLayer, idx);
+                    }
+                };
+            });
+        }, 50);
+    }
+    
+    /**
+     * 从子图层中删除指定路径
+     */
+    _deletePathFromChild(childLayer, pathIndex) {
+        if (!childLayer || !childLayer.svg) return;
+        
+        let currentIdx = 0;
+        childLayer.svg = childLayer.svg.replace(/<path[^>]*\/?>(?:<\/path>)?/g, (match) => {
+            if (currentIdx === pathIndex) {
+                currentIdx++;
+                return ''; // 删除这个路径
+            }
+            currentIdx++;
+            return match;
+        });
+        
+        // 同时更新原始 SVG
+        if (childLayer.originalSvg) {
+            currentIdx = 0;
+            childLayer.originalSvg = childLayer.originalSvg.replace(/<path[^>]*\/?>(?:<\/path>)?/g, (match) => {
+                if (currentIdx === pathIndex) {
+                    currentIdx++;
+                    return '';
+                }
+                currentIdx++;
+                return match;
+            });
+        }
+        
+        this._saveHistory();
+        this._render();
+        this._updatePropertyPanel();
+        this._setupPathSelection(childLayer);
     }
     
     /**
