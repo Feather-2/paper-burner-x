@@ -9,12 +9,110 @@ class ImageVectorizer {
         this.vectortracer = null;
         this.vectorizerModule = null;  // 新版模块化引擎
         
+        // Web Worker 支持
+        this.worker = null;
+        this.workerReady = false;
+        this.workerPending = new Map(); // id -> { resolve, reject, onProgress }
+        this.workerId = 0;
+        
         // VectorTracer CDN (visioncortex WASM 绑定)
         this.vectortracerCdn = 'https://cdn.jsdelivr.net/npm/vectortracer@0.1.2/pkg/vectortracer.js';
         // PotraceCore 本地路径 (旧版，备用)
         this.potraceCoreUrl = './js/ppt/editor/image-processor/potrace-core.js';
         // ImageTracer CDN (备选)
         this.imagetracerCdn = 'https://cdn.jsdelivr.net/npm/imagetracerjs@1.2.6/imagetracer_v1.2.6.js';
+    }
+    
+    /**
+     * 初始化 Web Worker
+     */
+    async initWorker() {
+        if (this.worker) return this.workerReady;
+        
+        return new Promise((resolve) => {
+            try {
+                // 使用模块类型的 Worker
+                this.worker = new Worker(
+                    './js/ppt/editor/image-processor/vectorize-worker.js',
+                    { type: 'module' }
+                );
+                
+                this.worker.onmessage = (e) => {
+                    const { type, id, ...data } = e.data;
+                    
+                    if (type === 'ready') {
+                        this.workerReady = true;
+                        console.log('[ImageVectorizer] ✓ Worker 已就绪');
+                        resolve(true);
+                        return;
+                    }
+                    
+                    const pending = this.workerPending.get(id);
+                    if (!pending) return;
+                    
+                    if (type === 'progress') {
+                        if (pending.onProgress) {
+                            pending.onProgress(data.progress, data.message);
+                        }
+                    } else if (type === 'result') {
+                        this.workerPending.delete(id);
+                        if (data.success) {
+                            pending.resolve(data.result);
+                        } else {
+                            pending.reject(new Error(data.error));
+                        }
+                    }
+                };
+                
+                this.worker.onerror = (err) => {
+                    console.warn('[ImageVectorizer] Worker 错误:', err);
+                    this.workerReady = false;
+                    resolve(false);
+                };
+                
+                // 超时检测
+                setTimeout(() => {
+                    if (!this.workerReady) {
+                        console.warn('[ImageVectorizer] Worker 初始化超时');
+                        resolve(false);
+                    }
+                }, 5000);
+                
+            } catch (e) {
+                console.warn('[ImageVectorizer] Worker 创建失败:', e);
+                resolve(false);
+            }
+        });
+    }
+    
+    /**
+     * 使用 Worker 进行矢量化
+     */
+    vectorizeWithWorker(imageObj, preset = 'auto', onProgress = null) {
+        return new Promise((resolve, reject) => {
+            if (!this.worker || !this.workerReady) {
+                reject(new Error('Worker 未就绪'));
+                return;
+            }
+            
+            const id = ++this.workerId;
+            this.workerPending.set(id, { resolve, reject, onProgress });
+            
+            // 将 ImageData 转为可传输的 ArrayBuffer
+            const imageData = imageObj.imageData;
+            const buffer = imageData.data.buffer.slice(0);
+            
+            this.worker.postMessage({
+                type: 'vectorize',
+                id,
+                payload: {
+                    imageDataBuffer: buffer,
+                    width: imageData.width,
+                    height: imageData.height,
+                    preset
+                }
+            }, [buffer]);
+        });
     }
 
     /**
@@ -128,11 +226,27 @@ class ImageVectorizer {
      *   - 'smart': 智能模式，自动选择全图或分块
      *   - 'blocks': 分块模式，适合文字+图形混合内容
      *   - 其他: logo, lineart, illustration, photo, pixel 等
+     * @param {Function} onProgress - 进度回调 (progress: 0-100, message: string)
      */
-    async vectorize(imageObj, preset = 'auto') {
+    async vectorize(imageObj, preset = 'auto', onProgress = null) {
+        // 尝试使用 Worker（不阻塞 UI）
+        if (!this.worker) {
+            await this.initWorker();
+        }
+        
+        if (this.workerReady && preset !== 'blocks' && preset !== 'smart') {
+            try {
+                console.log(`[ImageVectorizer] 使用 Worker, 预设: ${preset}`);
+                return await this.vectorizeWithWorker(imageObj, preset, onProgress);
+            } catch (e) {
+                console.warn('[ImageVectorizer] Worker 执行失败，回退到主线程:', e.message);
+            }
+        }
+        
+        // 回退到主线程处理
         await this.load();
 
-        console.log(`[ImageVectorizer] 使用 ${this.engine}, 预设: ${preset}`);
+        console.log(`[ImageVectorizer] 使用 ${this.engine} (主线程), 预设: ${preset}`);
 
         // 特殊模式：分块矢量化（适合复杂图像如文字+图形）
         if (preset === 'blocks' || preset === 'smart') {

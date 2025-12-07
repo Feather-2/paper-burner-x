@@ -495,7 +495,11 @@ export async function vectorize(imageData, options = {}) {
             let pathD;
             const ptsArray = pts.map(p => [p.x, p.y]);
             
-            if (typeof window !== 'undefined' && typeof window.fitCurve === 'function') {
+            // 检查 fitCurve 是否可用（支持主线程 window 和 Worker self）
+            const globalObj = typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : null);
+            const fitCurveFn = globalObj && typeof globalObj.fitCurve === 'function' ? globalObj.fitCurve : null;
+            
+            if (fitCurveFn) {
                 try {
                     // fit-curve - 智能容差
                     // 容差越大 = 曲线越平滑（抹平锯齿）
@@ -504,7 +508,7 @@ export async function vectorize(imageData, options = {}) {
                     const sizeBonus = perimeter > 100 ? Math.min(0.5, (perimeter - 100) / 500) : 0;
                     const fitError = baseError + sizeBonus;  // 范围约 0.8 ~ 1.5
                     
-                    let curves = window.fitCurve(ptsArray, fitError);
+                    let curves = fitCurveFn(ptsArray, fitError);
                     
                     if (curves && curves.length > 0) {
                         // 应用 retractHandles 防止过冲

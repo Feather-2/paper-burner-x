@@ -14,9 +14,18 @@ let libsLoaded = false;
 
 /**
  * 加载 CDN 依赖库
+ * 在 Web Worker 中会跳过，使用内置算法
  */
 export async function loadCdnLibs() {
     if (libsLoaded) return;
+    
+    // Worker 环境中没有 document，跳过 CDN 加载
+    if (typeof document === 'undefined') {
+        console.log('[PotraceCore] Worker 环境，使用内置算法');
+        libsLoaded = true;
+        return;
+    }
+    
     const loadScript = (url) => new Promise((resolve, reject) => {
         if (document.querySelector(`script[src="${url}"]`)) { resolve(); return; }
         const script = document.createElement('script');

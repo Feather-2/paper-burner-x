@@ -18,6 +18,9 @@ class LayerEditor {
         this.history = [];
         this.historyIndex = -1;
         
+        // 加载状态
+        this._loadingOverlay = null;
+        
         // 缩放相关
         this.scale = 1;
         this.minScale = 0.1;
@@ -862,88 +865,91 @@ class LayerEditor {
     }
 
     async _vectorize(preset = 'auto', options = {}, groupId = null) {
-        const vectorizer = await this.processor.loadModule('vectorizer');
+        // 显示加载状态
+        this._showLoading('正在矢量化...');
         
-        // 自动检测预设 (如果是 auto)
-        let actualPreset = preset;
-        if (preset === 'auto') {
-            actualPreset = this._detectPreset({
-                element: this.processedImage.original.element,
-                width: this.processedImage.original.width,
-                height: this.processedImage.original.height
-            });
-            console.log(`[LayerEditor] 自动选择预设: ${actualPreset}`);
-        }
+        // 强制让浏览器渲染加载状态
+        await this._nextFrame();
         
-        console.log(`[LayerEditor] 矢量化: ${actualPreset}, Group: ${groupId || 'new'}`);
+        try {
+            const vectorizer = await this.processor.loadModule('vectorizer');
         
-        // 获取默认配置
-        // 这里我们简单硬编码一些默认值，实际应该从 Presets 获取
-        // 为了演示，我们只处理 numColors 和 smoothness
-        const finalOptions = {
-            numColors: 16,
-            smoothness: 1,
-            ...options
-        };
-
-        // 如果 ImageVectorizer 支持 customConfig，我们可以传入
-        // 目前我们先传入 preset，并通过 options 修改 vectorizer 的行为 (如果支持)
-        // 这里假设我们修改了 vectorizer.vectorize 方法以支持 options
-        // 或者我们暂时只支持 preset 切换
-        
-        // TODO: 真正的 Vectorizer 应该支持传入 options
-        // 现在我们只传递 preset
-        const result = await vectorizer.vectorize(this.processedImage.original, actualPreset);
-        
-        // 生成或使用现有 Group ID
-        const currentGroupId = groupId || `vec_group_${Date.now()}`;
-        
-        // 按颜色分层
-        const colorLayers = vectorizer.splitByColor(result);
-        
-        // 创建编组对象
-        const groupLayer = {
-            id: currentGroupId,
-            type: 'group',
-            name: `矢量化分组 (${Object.keys(colorLayers).length} 层)`,
-            visible: true,
-            vectorConfig: {
-                preset: actualPreset,
-                numColors: finalOptions.numColors,
-                smoothness: finalOptions.smoothness
-            },
-            children: []
-        };
-
-        colorLayers.forEach(layer => {
-            const childLayer = {
-                ...layer,
-                type: 'vector',
-                visible: true,
-                vectorGroupId: currentGroupId,
-                parentId: currentGroupId
+            // 自动检测预设 (如果是 auto)
+            let actualPreset = preset;
+            if (preset === 'auto') {
+                actualPreset = this._detectPreset({
+                    element: this.processedImage.original.element,
+                    width: this.processedImage.original.width,
+                    height: this.processedImage.original.height
+                });
+                console.log(`[LayerEditor] 自动选择预设: ${actualPreset}`);
+            }
+            
+            console.log(`[LayerEditor] 矢量化: ${actualPreset}, Group: ${groupId || 'new'}`);
+            
+            // 获取默认配置
+            const finalOptions = {
+                numColors: 16,
+                smoothness: 1,
+                ...options
             };
-            groupLayer.children.push(childLayer);
-            // 移除：不再添加到顶层列表，只在组内管理
-            // this.processedImage.layers.push(childLayer);
-        });
-        
-        // 修正策略：我们将 groupLayer 作为父节点插入 layers，子节点作为 children 属性存在
-        // 渲染时，如果 layer 类型是 group，则递归渲染其 children
-        // UI 列表上，只显示 group
-        
-        this.processedImage.layers.push(groupLayer);
 
-        this._saveHistory();
-        this._updateLayerList();
-        this._render();
-        
-        // 自动选中新生成的组
-        if (!groupId) {
-            const newLayerIndex = this.processedImage.layers.length - 1;
-            this.selectedLayerIndex = newLayerIndex;
+            // 进度回调
+            const onProgress = (progress, message) => {
+                this._showLoading(message || `矢量化中... ${progress}%`);
+            };
+            
+            const result = await vectorizer.vectorize(this.processedImage.original, actualPreset, onProgress);
+            
+            // 生成或使用现有 Group ID
+            const currentGroupId = groupId || `vec_group_${Date.now()}`;
+            
+            // 按颜色分层
+            const colorLayers = vectorizer.splitByColor(result);
+            
+            // 创建编组对象
+            const groupLayer = {
+                id: currentGroupId,
+                type: 'group',
+                name: `矢量化分组 (${Object.keys(colorLayers).length} 层)`,
+                visible: true,
+                vectorConfig: {
+                    preset: actualPreset,
+                    numColors: finalOptions.numColors,
+                    smoothness: finalOptions.smoothness
+                },
+                children: []
+            };
+
+            colorLayers.forEach(layer => {
+                const childLayer = {
+                    ...layer,
+                    type: 'vector',
+                    visible: true,
+                    vectorGroupId: currentGroupId,
+                    parentId: currentGroupId
+                };
+                groupLayer.children.push(childLayer);
+            });
+            
+            this.processedImage.layers.push(groupLayer);
+
+            this._saveHistory();
             this._updateLayerList();
-            this._updatePropertyPanel();
+            this._render();
+            
+            // 自动选中新生成的组
+            if (!groupId) {
+                const newLayerIndex = this.processedImage.layers.length - 1;
+                this.selectedLayerIndex = newLayerIndex;
+                this._updateLayerList();
+                this._updatePropertyPanel();
+            }
+        } catch (err) {
+            console.error('[LayerEditor] 矢量化失败:', err);
+            alert('矢量化失败: ' + err.message);
+        } finally {
+            this._hideLoading();
         }
     }
     
@@ -1403,10 +1409,7 @@ class LayerEditor {
         const presetSelect = panel.querySelector('[data-action="update-preset"]');
         if (presetSelect) {
             presetSelect.addEventListener('change', async (e) => {
-                if (layer.id) { // 现在使用 layer.id 作为 groupId
-                    const btn = panel.querySelector('[data-action="re-vectorize"]');
-                    if (btn) btn.textContent = '处理中...';
-                    
+                if (layer.id) {
                     await this._reVectorize(layer.id, e.target.value, layer.vectorConfig);
                 }
             });
@@ -1416,9 +1419,6 @@ class LayerEditor {
         if (reVecBtn) {
             reVecBtn.addEventListener('click', async () => {
                 if (layer.id) {
-                     reVecBtn.textContent = '处理中...';
-                     reVecBtn.disabled = true;
-                     
                      const preset = panel.querySelector('[data-action="update-preset"]').value;
                      const numColors = parseInt(panel.querySelector('[data-action="update-colors"]').value);
                      const smoothness = parseFloat(panel.querySelector('[data-action="update-smoothness"]').value);
@@ -1634,7 +1634,85 @@ ${allPaths.join('\n')}
 </svg>`;
     }
 
+    /**
+     * 显示加载遮罩
+     */
+    _showLoading(message = '处理中...') {
+        if (!this._loadingOverlay) {
+            this._loadingOverlay = document.createElement('div');
+            this._loadingOverlay.className = 'ie-loading-overlay';
+            this._loadingOverlay.innerHTML = `
+                <div class="ie-loading-spinner"></div>
+                <div class="ie-loading-text">${message}</div>
+            `;
+            this._loadingOverlay.style.cssText = `
+                position: absolute;
+                top: 0; left: 0; right: 0; bottom: 0;
+                background: rgba(0, 0, 0, 0.6);
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                z-index: 9999;
+                backdrop-filter: blur(2px);
+            `;
+            
+            // 添加旋转动画样式
+            const style = document.createElement('style');
+            style.textContent = `
+                .ie-loading-spinner {
+                    width: 40px;
+                    height: 40px;
+                    border: 3px solid rgba(255,255,255,0.3);
+                    border-top-color: #fff;
+                    border-radius: 50%;
+                    animation: ie-spin 0.8s linear infinite;
+                }
+                .ie-loading-text {
+                    color: #fff;
+                    margin-top: 12px;
+                    font-size: 14px;
+                }
+                @keyframes ie-spin {
+                    to { transform: rotate(360deg); }
+                }
+            `;
+            this._loadingOverlay.appendChild(style);
+        }
+        
+        // 更新消息文本
+        const textEl = this._loadingOverlay.querySelector('.ie-loading-text');
+        if (textEl) textEl.textContent = message;
+        
+        // 添加到编辑器容器
+        const body = this.container?.querySelector('.image-editor-body');
+        if (body && !body.contains(this._loadingOverlay)) {
+            body.appendChild(this._loadingOverlay);
+        }
+    }
+    
+    /**
+     * 隐藏加载遮罩
+     */
+    _hideLoading() {
+        if (this._loadingOverlay && this._loadingOverlay.parentNode) {
+            this._loadingOverlay.remove();
+        }
+    }
+    
+    /**
+     * 等待下一帧渲染，让 UI 有机会更新
+     */
+    _nextFrame() {
+        return new Promise(resolve => {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(resolve);
+            });
+        });
+    }
+
     close() {
+        this._hideLoading();
         this.container?.remove();
     }
 }
