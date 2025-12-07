@@ -1429,20 +1429,19 @@ class LayerEditor {
             });
         }
         
-        // 简化滑块 - 实时预览
+        // 简化滑块 - 实时预览（后处理）
         const simplifySlider = panel.querySelector('[data-action="update-simplify"]');
         if (simplifySlider) {
-            // 防抖处理
             let simplifyTimeout = null;
             simplifySlider.addEventListener('input', async (e) => {
                 const level = parseInt(e.target.value);
                 layer.vectorConfig.simplifyLevel = level;
                 
-                // 防抖：停止拖动 300ms 后再应用
+                // 轻微防抖 100ms，避免频繁计算
                 clearTimeout(simplifyTimeout);
                 simplifyTimeout = setTimeout(async () => {
                     await this._applySimplify(layer, level);
-                }, 300);
+                }, 100);
             });
         }
 
@@ -1455,7 +1454,7 @@ class LayerEditor {
     }
     
     /**
-     * 应用路径简化
+     * 应用路径简化（实时后处理）
      */
     async _applySimplify(layer, level) {
         if (!layer || layer.type !== 'group' || !layer.children) return;
@@ -1465,23 +1464,50 @@ class LayerEditor {
         
         // 对每个子图层的路径应用简化
         layer.children.forEach(child => {
-            if (child.type === 'vector' && child.svgPath) {
-                // 保存原始路径（如果还没保存）
-                if (!child._originalPath) {
-                    child._originalPath = child.svgPath;
-                }
+            if (child.type === 'vector' && child.paths && child.paths.length > 0) {
+                child.paths.forEach(path => {
+                    // 保存原始路径（如果还没保存）
+                    if (!path._originalD) {
+                        path._originalD = path.d;
+                    }
+                    
+                    // 应用简化（从原始路径简化，避免累积误差）
+                    if (level > 0) {
+                        path.d = simplifyPathD(path._originalD, level);
+                    } else {
+                        path.d = path._originalD;
+                    }
+                });
                 
-                // 应用简化（从原始路径简化，避免累积误差）
-                if (level > 0) {
-                    child.svgPath = simplifyPathD(child._originalPath, level);
-                } else {
-                    child.svgPath = child._originalPath;
-                }
+                // 重新生成该图层的 SVG
+                child.svg = this._regenerateLayerSvg(child);
             }
         });
         
         // 重新渲染
         this._render();
+    }
+    
+    /**
+     * 重新生成图层 SVG
+     */
+    _regenerateLayerSvg(layer) {
+        if (!layer.paths || layer.paths.length === 0) return '';
+        
+        // 从现有 svg 中提取 viewBox 信息
+        const viewBoxMatch = layer.svg?.match(/viewBox="([^"]+)"/);
+        const sizeMatch = layer.svg?.match(/width="(\d+)" height="(\d+)"/);
+        
+        const viewBox = viewBoxMatch ? viewBoxMatch[1] : '0 0 100 100';
+        const width = sizeMatch ? sizeMatch[1] : '100';
+        const height = sizeMatch ? sizeMatch[2] : '100';
+        
+        const pathsStr = layer.paths.map(p => {
+            const fillRule = p.fillRule ? ` fill-rule="${p.fillRule}"` : '';
+            return `<path d="${p.d}" fill="${p.fill}"${fillRule} stroke="${p.stroke || 'none'}" stroke-width="${p.strokeWidth || 0}"/>`;
+        }).join('\n');
+        
+        return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${viewBox}">\n${pathsStr}\n</svg>`;
     }
 
     _getPresets() {
