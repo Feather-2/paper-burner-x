@@ -54,6 +54,7 @@ import {
     retractHandles
 } from './curve-fitter.js';
 import { PRESETS } from './presets.js';
+import { simplifyPathD, simplifyVectorResult, getSimplifyPreview } from './path-simplifier.js';
 
 /**
  * 主矢量化函数
@@ -731,7 +732,12 @@ export const PotraceCore = {
     fitBezierWithCorners,
     fitBezierSmooth,
     fitBezierCatmullRom,
-    retractHandles  // 控制点回缩，防止曲线过冲
+    retractHandles,  // 控制点回缩，防止曲线过冲
+    
+    // 路径简化（类似 AI 的简化功能）
+    simplifyPathD,           // 简化单个路径
+    simplifyVectorResult,    // 简化整个矢量化结果
+    getSimplifyPreview       // 滑块预览用
 };
 
 // 默认导出
@@ -748,5 +754,6 @@ export * from './path-simplify.js';
 export * from './path-smooth.js';
 export * from './corner-detect.js';
 export * from './curve-fitter.js';
+export * from './path-simplifier.js';
 export { PRESETS } from './presets.js';
 // vectorizeByBlocks 和 vectorizeSmart 已在上方定义并导出，这里不重复导出

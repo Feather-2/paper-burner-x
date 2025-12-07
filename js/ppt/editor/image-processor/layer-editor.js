@@ -1344,6 +1344,15 @@ class LayerEditor {
                         </div>
                     </div>
                     
+                    <div class="property-row block">
+                        <span class="property-label">路径简化 (后处理)</span>
+                        <div class="range-wrap">
+                            <input type="range" class="range-input" min="0" max="100" value="${config.simplifyLevel || 0}" data-action="update-simplify">
+                            <span class="range-value">${config.simplifyLevel || 0}</span>
+                        </div>
+                        <small style="font-size:11px;color:var(--ie-text-secondary);margin-top:-4px">值越大曲线越平滑，0=不简化</small>
+                    </div>
+                    
                     <button class="btn-action" data-action="re-vectorize">
                         <iconify-icon icon="carbon:renew"></iconify-icon>
                         重新矢量化
@@ -1413,9 +1422,27 @@ class LayerEditor {
                      const preset = panel.querySelector('[data-action="update-preset"]').value;
                      const numColors = parseInt(panel.querySelector('[data-action="update-colors"]').value);
                      const smoothness = parseFloat(panel.querySelector('[data-action="update-smoothness"]').value);
+                     const simplifyLevel = parseInt(panel.querySelector('[data-action="update-simplify"]')?.value || 0);
                      
-                     await this._reVectorize(layer.id, preset, { numColors, smoothness });
+                     await this._reVectorize(layer.id, preset, { numColors, smoothness, simplifyLevel });
                 }
+            });
+        }
+        
+        // 简化滑块 - 实时预览
+        const simplifySlider = panel.querySelector('[data-action="update-simplify"]');
+        if (simplifySlider) {
+            // 防抖处理
+            let simplifyTimeout = null;
+            simplifySlider.addEventListener('input', async (e) => {
+                const level = parseInt(e.target.value);
+                layer.vectorConfig.simplifyLevel = level;
+                
+                // 防抖：停止拖动 300ms 后再应用
+                clearTimeout(simplifyTimeout);
+                simplifyTimeout = setTimeout(async () => {
+                    await this._applySimplify(layer, level);
+                }, 300);
             });
         }
 
@@ -1425,6 +1452,36 @@ class LayerEditor {
                  e.target.nextElementSibling.textContent = e.target.value;
              });
         });
+    }
+    
+    /**
+     * 应用路径简化
+     */
+    async _applySimplify(layer, level) {
+        if (!layer || layer.type !== 'group' || !layer.children) return;
+        
+        // 动态导入简化模块
+        const { simplifyPathD } = await import('./potrace-core/path-simplifier.js');
+        
+        // 对每个子图层的路径应用简化
+        layer.children.forEach(child => {
+            if (child.type === 'vector' && child.svgPath) {
+                // 保存原始路径（如果还没保存）
+                if (!child._originalPath) {
+                    child._originalPath = child.svgPath;
+                }
+                
+                // 应用简化（从原始路径简化，避免累积误差）
+                if (level > 0) {
+                    child.svgPath = simplifyPathD(child._originalPath, level);
+                } else {
+                    child.svgPath = child._originalPath;
+                }
+            }
+        });
+        
+        // 重新渲染
+        this._render();
     }
 
     _getPresets() {
