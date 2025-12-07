@@ -58,8 +58,8 @@ export function analyzeImageColors(imageData, clusterThreshold = 25) {
     // 2. 变异率低 (< 3)：说明没有大量的抗锯齿过渡色
     const isPixelArt = uniqueColors < 256 && clusterCount < 64 && variationRatio < 3.0;
     
-    // 判断是否是照片（颜色数量很多）
-    const isPhoto = uniqueColors > 1000 || clusterCount > 50;
+    // 判断是否是照片（颜色数量很多）- 提高阈值，不轻易判定为照片
+    const isPhoto = uniqueColors > 5000 && clusterCount > 100;
     
     // 5. 自动选择预设
     let recommendedPreset = 'logo';
@@ -98,8 +98,9 @@ export function analyzeImageColors(imageData, clusterThreshold = 25) {
             recommendedPreset = 'pixel';
             recommendedNumColors = Math.min(32, clusterCount + 4);
         } else if (isPhoto) {
-            recommendedPreset = 'photo';
-            recommendedNumColors = 64;
+            // 即使是照片也优先用 illustration，photo 预设只在手动选择时使用
+            recommendedPreset = 'illustration';
+            recommendedNumColors = 48;
         } else if (clusterCount <= 8) {
             recommendedPreset = 'simple';
             recommendedNumColors = clusterCount;

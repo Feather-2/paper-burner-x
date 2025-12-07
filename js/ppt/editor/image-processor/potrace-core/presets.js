@@ -59,11 +59,11 @@ export const PRESETS = {
     simple: {
         preset: 'simple',
         numColors: 8,
-        colorTolerance: 40,
-        pathTolerance: 1.0,    // 降低容差 (2.0 -> 1.0)，防止形状过度简化
-        smoothness: 2.0,       // 降低平滑 (4.0 -> 2.0)，防止线条变粗/圆角过大
-        minPathLength: 32,
-        mode: 'polygon',
-        blurSigma: 0
+        colorTolerance: 35,    // 降低容差，保留更多颜色细节
+        pathTolerance: 0.5,    // 提高精度 (1.0 -> 0.5)
+        smoothness: 1.0,       // 降低平滑 (2.0 -> 1.0)，保持形状
+        minPathLength: 16,     // 降低最小路径长度，保留更多细节
+        mode: 'spline',        // 改用 spline 模式，曲线更平滑
+        blurSigma: 0.5         // 轻微模糊减少噪点
     }
 };

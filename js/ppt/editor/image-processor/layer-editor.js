@@ -1092,15 +1092,13 @@ class LayerEditor {
         console.log(`[LayerEditor] 检测到约 ${uniqueColors} 种颜色（粗量化）`);
         
         // 根据颜色数量选择预设
-        // 对于低颜色数量图片，强制使用 lineart（高容差二值化）
+        // 提高阈值，不轻易使用 photo 预设（photo 只在手动选择时使用）
         if (uniqueColors <= 8) {
             return 'lineart';      // 简单图形都用二值化
         } else if (uniqueColors <= 24) {
             return 'logo';         // Logo/简单图形
-        } else if (uniqueColors <= 64) {
-            return 'illustration'; // 插画
         } else {
-            return 'photo';        // 照片
+            return 'illustration'; // 其他都用插画预设，效果更好
         }
     }
 
@@ -1117,11 +1115,17 @@ class LayerEditor {
 
         // 递归渲染图层函数
         const renderLayer = (layer) => {
-            if (!layer.visible) return;
+            if (layer.visible === false) return;
 
             if (layer.type === 'group') {
                 // 渲染组内所有子图层
-                layer.children.forEach(child => renderLayer(child));
+                layer.children?.forEach(child => renderLayer(child));
+                return;
+            }
+            
+            if (layer.type === 'subgroup') {
+                // 渲染子组内所有图层
+                layer.children?.forEach(child => renderLayer(child));
                 return;
             }
 
@@ -1260,6 +1264,13 @@ class LayerEditor {
                     const childIdx = layer.children.length - 1 - reverseChildIdx;
                     const isChildSelected = index === this.selectedLayerIndex && childIdx === this.selectedChildIndex;
                     
+                    // 处理子组（subgroup）
+                    if (child.type === 'subgroup' && child.children) {
+                        const subGroupItem = this._renderSubGroup(child, index, childIdx, isChildSelected);
+                        groupList.appendChild(subGroupItem);
+                        return;
+                    }
+                    
                     const childItem = document.createElement('div');
                     childItem.className = `layer-item child-layer ${isChildSelected ? 'selected' : ''}`;
                     childItem.onclick = (e) => {
@@ -1346,6 +1357,135 @@ class LayerEditor {
     }
 
     /**
+     * 渲染子组（炸开后的路径组）
+     */
+    _renderSubGroup(subGroup, parentIndex, childIndex, isSelected) {
+        const container = document.createElement('div');
+        container.className = 'subgroup-container';
+        
+        // 子组头部
+        const header = document.createElement('div');
+        header.className = `layer-item child-layer subgroup-header ${isSelected ? 'selected' : ''}`;
+        header.onclick = (e) => {
+            e.stopPropagation();
+            this._selectChildLayer(parentIndex, childIndex);
+        };
+        
+        // 展开/折叠按钮
+        const expandBtn = document.createElement('button');
+        expandBtn.className = 'layer-action-btn expand-btn';
+        expandBtn.style.cssText = 'min-width:24px;min-height:24px;';
+        expandBtn.innerHTML = `<iconify-icon icon="${subGroup.expanded ? 'carbon:chevron-down' : 'carbon:chevron-right'}"></iconify-icon>`;
+        expandBtn.onclick = (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            subGroup.expanded = !subGroup.expanded;
+            console.log('[LayerEditor] 切换炸开组展开状态:', subGroup.expanded);
+            this._updateLayerList();
+        };
+        
+        const preview = document.createElement('div');
+        preview.className = 'layer-preview';
+        preview.innerHTML = '<iconify-icon icon="carbon:assembly-cluster"></iconify-icon>';
+        
+        const name = document.createElement('div');
+        name.className = 'layer-name';
+        name.textContent = subGroup.name || `炸开组 (${subGroup.children.length} 个)`;
+        name.style.cursor = 'pointer';
+        name.ondblclick = (e) => {
+            e.stopPropagation();
+            subGroup.expanded = !subGroup.expanded;
+            this._updateLayerList();
+        };
+        
+        // 可见性按钮
+        const visibleBtn = document.createElement('button');
+        visibleBtn.className = 'layer-action-btn';
+        visibleBtn.innerHTML = `<iconify-icon icon="${subGroup.visible !== false ? 'carbon:view' : 'carbon:view-off'}"></iconify-icon>`;
+        visibleBtn.onclick = (e) => {
+            e.stopPropagation();
+            subGroup.visible = !subGroup.visible;
+            this._render();
+            this._updateLayerList();
+        };
+        
+        // 删除按钮
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'layer-action-btn danger';
+        deleteBtn.innerHTML = '<iconify-icon icon="carbon:trash-can"></iconify-icon>';
+        deleteBtn.onclick = (e) => {
+            e.stopPropagation();
+            this._deleteChildLayer(parentIndex, childIndex);
+        };
+        
+        header.appendChild(expandBtn);
+        header.appendChild(preview);
+        header.appendChild(name);
+        header.appendChild(visibleBtn);
+        header.appendChild(deleteBtn);
+        container.appendChild(header);
+        
+        // 展开时显示子项
+        if (subGroup.expanded) {
+            const childList = document.createElement('div');
+            childList.className = 'subgroup-children';
+            childList.style.cssText = 'padding-left:20px;';
+            
+            subGroup.children.forEach((child, idx) => {
+                const childItem = document.createElement('div');
+                childItem.className = 'layer-item child-layer subgroup-child';
+                
+                const childPreview = document.createElement('div');
+                childPreview.className = 'layer-preview color-preview';
+                childPreview.style.backgroundColor = child.color || '#000';
+                
+                const childName = document.createElement('div');
+                childName.className = 'layer-name';
+                childName.textContent = child.name || `路径 ${idx + 1}`;
+                
+                // 子项可见性
+                const childVisBtn = document.createElement('button');
+                childVisBtn.className = 'layer-action-btn';
+                childVisBtn.innerHTML = `<iconify-icon icon="${child.visible !== false ? 'carbon:view' : 'carbon:view-off'}"></iconify-icon>`;
+                childVisBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    child.visible = !child.visible;
+                    this._render();
+                    this._updateLayerList();
+                };
+                
+                // 子项删除
+                const childDelBtn = document.createElement('button');
+                childDelBtn.className = 'layer-action-btn danger';
+                childDelBtn.innerHTML = '<iconify-icon icon="carbon:trash-can"></iconify-icon>';
+                childDelBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    subGroup.children.splice(idx, 1);
+                    subGroup.name = `炸开组 (${subGroup.children.length} 个)`;
+                    if (subGroup.children.length === 0) {
+                        // 如果子组为空，删除子组
+                        this._deleteChildLayer(parentIndex, childIndex);
+                    } else {
+                        this._saveHistory();
+                        this._updateLayerList();
+                        this._render();
+                    }
+                };
+                
+                childItem.appendChild(childPreview);
+                childItem.appendChild(childName);
+                childItem.appendChild(childVisBtn);
+                childItem.appendChild(childDelBtn);
+                childList.appendChild(childItem);
+            });
+            
+            container.appendChild(childList);
+        }
+        
+        return container;
+    }
+    
+    /**
      * 获取图层缩略图内容
      */
     _getLayerThumbnail(layer) {
@@ -1394,6 +1534,58 @@ class LayerEditor {
         this.selectedChildIndex = childIndex;
         this._updateLayerList();
         this._updatePropertyPanel();
+        this._highlightSelectedLayer();
+    }
+    
+    /**
+     * 高亮显示选中的图层
+     */
+    _highlightSelectedLayer() {
+        const svgContainer = this.container.querySelector('.image-editor-svg-container');
+        
+        // 移除旧的高亮
+        const oldHighlight = svgContainer.querySelector('.layer-highlight');
+        if (oldHighlight) oldHighlight.remove();
+        
+        // 获取选中的子图层
+        const childLayer = this._getSelectedChildLayer();
+        if (!childLayer || !childLayer.svg) return;
+        
+        // 创建高亮覆盖层
+        const highlight = document.createElement('div');
+        highlight.className = 'layer-highlight';
+        highlight.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:50;';
+        
+        // 提取 SVG 属性
+        const widthMatch = childLayer.svg.match(/width="([^"]+)"/);
+        const heightMatch = childLayer.svg.match(/height="([^"]+)"/);
+        const viewBoxMatch = childLayer.svg.match(/viewBox="([^"]+)"/);
+        
+        const width = widthMatch ? widthMatch[1] : '100%';
+        const height = heightMatch ? heightMatch[1] : '100%';
+        const viewBox = viewBoxMatch ? viewBoxMatch[1] : '';
+        
+        // 提取路径
+        const dMatch = childLayer.svg.match(/\bd="([^"]+)"/);
+        if (!dMatch) return;
+        
+        highlight.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"${viewBox ? ` viewBox="${viewBox}"` : ''} 
+                 style="width:100%;height:100%;" preserveAspectRatio="xMidYMid meet">
+                <path d="${dMatch[1]}" fill="none" stroke="#4f46e5" stroke-width="3" stroke-dasharray="8,4" opacity="0.8">
+                    <animate attributeName="stroke-dashoffset" values="0;24" dur="1s" repeatCount="indefinite"/>
+                </path>
+            </svg>
+        `;
+        
+        svgContainer.appendChild(highlight);
+        
+        // 3秒后自动移除高亮
+        setTimeout(() => {
+            highlight.style.transition = 'opacity 0.5s';
+            highlight.style.opacity = '0';
+            setTimeout(() => highlight.remove(), 500);
+        }, 3000);
     }
     
     /**
@@ -1638,11 +1830,31 @@ class LayerEditor {
     }
     
     /**
+     * 将颜色转换为十六进制格式
+     */
+    _toHexColor(color) {
+        if (!color) return '#000000';
+        if (color.startsWith('#')) return color;
+        
+        // 处理 rgb(r, g, b) 格式
+        const rgbMatch = color.match(/rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/i);
+        if (rgbMatch) {
+            const r = parseInt(rgbMatch[1]).toString(16).padStart(2, '0');
+            const g = parseInt(rgbMatch[2]).toString(16).padStart(2, '0');
+            const b = parseInt(rgbMatch[3]).toString(16).padStart(2, '0');
+            return `#${r}${g}${b}`;
+        }
+        
+        return color;
+    }
+    
+    /**
      * 渲染子图层属性面板
      */
     _renderChildLayerPanel(panel, parentLayer, childLayer) {
         const pathCount = this._countPaths(childLayer.svg);
         const simplifyLevel = childLayer.simplifyLevel || 0;
+        const hexColor = this._toHexColor(childLayer.color);
         
         let content = `
             <div class="property-group">
@@ -1657,8 +1869,8 @@ class LayerEditor {
                 <div class="property-row">
                     <span class="property-label">颜色</span>
                     <div style="display:flex;align-items:center;gap:8px;">
-                        <input type="color" value="${childLayer.color || '#000000'}" data-child-prop="color" style="width:32px;height:24px;padding:0;border:none;">
-                        <span style="font-size:12px;color:var(--ie-text-secondary)">${childLayer.color || '#000000'}</span>
+                        <input type="color" value="${hexColor}" data-child-prop="color" style="width:32px;height:24px;padding:0;border:none;">
+                        <span style="font-size:12px;color:var(--ie-text-secondary)">${hexColor}</span>
                     </div>
                 </div>
                 <div class="property-row">
@@ -1695,7 +1907,14 @@ class LayerEditor {
                     <iconify-icon icon="carbon:select-01"></iconify-icon>
                     路径编辑
                 </div>
-                <button class="btn-action" data-child-action="toggle-path-select">
+                <button class="btn-action" data-child-action="explode-paths" ${pathCount <= 1 ? 'disabled' : ''}>
+                    <iconify-icon icon="carbon:assembly-cluster"></iconify-icon>
+                    炸开路径 (${pathCount} 个)
+                </button>
+                <small style="font-size:11px;color:var(--ie-text-secondary);margin-top:4px">
+                    将多个路径拆分为独立图层，方便单独操作
+                </small>
+                <button class="btn-action" data-child-action="toggle-path-select" style="margin-top:8px">
                     <iconify-icon icon="carbon:touch-1"></iconify-icon>
                     ${this.pathSelectMode ? '退出路径选择' : '点选删除路径'}
                 </button>
@@ -1731,12 +1950,121 @@ class LayerEditor {
     }
     
     /**
-     * 统计 SVG 中的路径数量
+     * 解析路径 d 属性，提取坐标点用于边界框计算
+     */
+    _getPathBounds(d) {
+        const coords = [];
+        // 提取所有数字对（坐标）
+        const numRegex = /[-+]?[\d.]+/g;
+        const nums = d.match(numRegex) || [];
+        
+        for (let i = 0; i < nums.length - 1; i += 2) {
+            coords.push({
+                x: parseFloat(nums[i]),
+                y: parseFloat(nums[i + 1])
+            });
+        }
+        
+        if (coords.length === 0) return null;
+        
+        const xs = coords.map(c => c.x);
+        const ys = coords.map(c => c.y);
+        
+        return {
+            minX: Math.min(...xs),
+            maxX: Math.max(...xs),
+            minY: Math.min(...ys),
+            maxY: Math.max(...ys)
+        };
+    }
+    
+    /**
+     * 检查 bounds1 是否完全包含 bounds2
+     */
+    _boundsContains(outer, inner) {
+        if (!outer || !inner) return false;
+        return outer.minX <= inner.minX && 
+               outer.maxX >= inner.maxX && 
+               outer.minY <= inner.minY && 
+               outer.maxY >= inner.maxY;
+    }
+    
+    /**
+     * 将子路径按包含关系分组（保留孔洞）
+     */
+    _groupPathsByContainment(subPaths) {
+        if (subPaths.length <= 1) return [subPaths];
+        
+        // 计算每个子路径的边界框
+        const pathsWithBounds = subPaths.map((d, idx) => ({
+            d: d.trim(),
+            bounds: this._getPathBounds(d),
+            idx
+        }));
+        
+        // 按面积从大到小排序（外轮廓通常更大）
+        pathsWithBounds.sort((a, b) => {
+            if (!a.bounds || !b.bounds) return 0;
+            const areaA = (a.bounds.maxX - a.bounds.minX) * (a.bounds.maxY - a.bounds.minY);
+            const areaB = (b.bounds.maxX - b.bounds.minX) * (b.bounds.maxY - b.bounds.minY);
+            return areaB - areaA;
+        });
+        
+        // 分组：检查每个路径是否被其他路径包含
+        const groups = [];
+        const assigned = new Set();
+        
+        for (let i = 0; i < pathsWithBounds.length; i++) {
+            if (assigned.has(i)) continue;
+            
+            const outer = pathsWithBounds[i];
+            const group = [outer.d];
+            assigned.add(i);
+            
+            // 查找被这个路径包含的其他路径（可能是孔洞）
+            for (let j = i + 1; j < pathsWithBounds.length; j++) {
+                if (assigned.has(j)) continue;
+                
+                const inner = pathsWithBounds[j];
+                if (this._boundsContains(outer.bounds, inner.bounds)) {
+                    group.push(inner.d);
+                    assigned.add(j);
+                }
+            }
+            
+            groups.push(group);
+        }
+        
+        return groups;
+    }
+    
+    /**
+     * 统计 SVG 中可炸开的独立形状数量（智能分组后）
      */
     _countPaths(svg) {
         if (!svg) return 0;
-        const matches = svg.match(/<path/g);
-        return matches ? matches.length : 0;
+        
+        // 先统计 <path> 元素数量
+        const pathElements = svg.match(/<path/g) || [];
+        
+        // 如果只有一个 path，检查复合路径并智能分组
+        if (pathElements.length === 1) {
+            const dMatch = svg.match(/\bd="([^"]+)"/);
+            if (dMatch) {
+                const d = dMatch[1];
+                const subPathRegex = /M[^M]+/gi;
+                const subPaths = d.match(subPathRegex) || [];
+                
+                if (subPaths.length > 1) {
+                    // 使用智能分组计算独立形状数量
+                    const groups = this._groupPathsByContainment(subPaths);
+                    return groups.length;
+                }
+                return subPaths.length;
+            }
+        }
+        
+        return pathElements.length;
     }
     
     /**
@@ -1796,6 +2124,18 @@ class LayerEditor {
             }
         });
         
+        // 炸开路径
+        const explodeBtn = panel.querySelector('[data-child-action="explode-paths"]');
+        console.log('[LayerEditor] 炸开按钮:', explodeBtn, '禁用状态:', explodeBtn?.disabled);
+        if (explodeBtn) {
+            explodeBtn.addEventListener('click', (e) => {
+                console.log('[LayerEditor] 炸开按钮被点击', e.target.disabled);
+                if (!e.target.disabled) {
+                    this._explodeChildPaths(parentLayer, childLayer);
+                }
+            });
+        }
+        
         // 路径选择模式
         panel.querySelector('[data-child-action="toggle-path-select"]')?.addEventListener('click', () => {
             this.pathSelectMode = !this.pathSelectMode;
@@ -1853,45 +2193,661 @@ class LayerEditor {
     }
     
     /**
-     * 设置路径选择功能
+     * 炸开子图层的路径为独立图层
+     * 支持拆分复合路径（一个 path 中有多个 M...Z 子路径）
+     */
+    _explodeChildPaths(parentLayer, childLayer) {
+        console.log('[LayerEditor] 炸开路径:', { parentLayer, childLayer });
+        
+        if (!childLayer || !childLayer.svg) {
+            console.warn('[LayerEditor] 无效的子图层或 SVG');
+            return;
+        }
+        
+        // 提取 SVG 的基础属性
+        const widthMatch = childLayer.svg.match(/width="([^"]+)"/);
+        const heightMatch = childLayer.svg.match(/height="([^"]+)"/);
+        const viewBoxMatch = childLayer.svg.match(/viewBox="([^"]+)"/);
+        
+        const width = widthMatch ? widthMatch[1] : '100%';
+        const height = heightMatch ? heightMatch[1] : '100%';
+        const viewBox = viewBoxMatch ? viewBoxMatch[1] : '';
+        
+        // 提取所有 path 元素
+        const pathRegex = /<path[^>]*(?:\/>|>[^<]*<\/path>)/g;
+        const pathElements = childLayer.svg.match(pathRegex) || [];
+        
+        let paths = [];
+        
+        // 如果只有一个 path 元素，尝试拆分复合路径
+        if (pathElements.length === 1) {
+            const dMatch = pathElements[0].match(/\bd="([^"]+)"/);
+            const fillMatch = pathElements[0].match(/fill="([^"]+)"/);
+            const fill = fillMatch ? fillMatch[1] : childLayer.color || '#000000';
+            
+            if (dMatch) {
+                // 拆分复合路径 - 按 M 命令分割
+                const d = dMatch[1];
+                const subPathRegex = /M[^M]+/gi;
+                const subPaths = d.match(subPathRegex) || [];
+                
+                console.log('[LayerEditor] 检测到', subPaths.length, '个子路径');
+                
+                // 智能分组：将孔洞与其父形状保持在一起
+                const groups = this._groupPathsByContainment(subPaths);
+                console.log('[LayerEditor] 分组为', groups.length, '个独立形状');
+                
+                paths = groups.map(group => ({
+                    d: group.join(' '),  // 合并同一组的路径
+                    fill: fill
+                }));
+            }
+        } else {
+            // 多个 path 元素，直接使用
+            paths = pathElements.map(p => {
+                const dMatch = p.match(/\bd="([^"]+)"/);
+                const fillMatch = p.match(/fill="([^"]+)"/);
+                return {
+                    d: dMatch ? dMatch[1] : '',
+                    fill: fillMatch ? fillMatch[1] : childLayer.color || '#000000',
+                    original: p
+                };
+            });
+        }
+        
+        console.log('[LayerEditor] 找到路径数量:', paths.length);
+        
+        if (paths.length <= 1) {
+            alert(`只有 ${paths.length} 个路径，无需炸开`);
+            return;
+        }
+        
+        // 找到当前子图层在父级中的索引
+        const childIndex = parentLayer.children.indexOf(childLayer);
+        if (childIndex === -1) return;
+        
+        // 为每个路径创建新的子图层
+        const newSubChildren = paths.map((pathObj, idx) => {
+            const color = pathObj.fill || childLayer.color || '#000000';
+            
+            // 生成新的 SVG（使用提取的 d 属性）
+            const pathElement = pathObj.original 
+                ? pathObj.original 
+                : `<path d="${pathObj.d}" fill="${color}"/>`;
+            const newSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"${viewBox ? ` viewBox="${viewBox}"` : ''}>${pathElement}</svg>`;
+            
+            return {
+                id: `${childLayer.id}_path_${idx}_${Date.now()}`,
+                type: 'vector',
+                name: `路径 ${idx + 1}`,
+                color: color,
+                svg: newSvg,
+                visible: true
+            };
+        });
+        
+        // 创建新的子组来包裹炸开的路径
+        const subGroup = {
+            id: `${childLayer.id}_exploded_${Date.now()}`,
+            type: 'subgroup',
+            name: `炸开组 (${paths.length} 个)`,
+            color: childLayer.color,
+            children: newSubChildren,
+            visible: true,
+            expanded: true,  // 默认展开
+            vectorGroupId: parentLayer.id,
+            parentId: parentLayer.id
+        };
+        
+        // 替换原子图层为新的子组
+        parentLayer.children.splice(childIndex, 1, subGroup);
+        
+        // 选中新的子组
+        this.selectedChildIndex = childIndex;
+        
+        this._saveHistory();
+        this._updateLayerList();
+        this._updatePropertyPanel();
+        this._render();
+        
+        console.log(`[LayerEditor] 已炸开 ${paths.length} 个路径为独立图层`);
+    }
+    
+    /**
+     * 设置路径选择功能 - 支持删除复合路径中的子路径
      */
     _setupPathSelection(childLayer) {
         const svgContainer = this.container.querySelector('.image-editor-svg-container');
         
         if (!this.pathSelectMode) {
-            // 移除选择模式样式
+            // 移除选择模式样式和临时元素
             svgContainer.classList.remove('path-select-mode');
-            svgContainer.querySelectorAll('path').forEach(p => {
-                p.style.cursor = '';
-                p.onclick = null;
-            });
+            const overlay = svgContainer.querySelector('.path-select-overlay');
+            if (overlay) {
+                if (overlay._cleanup) overlay._cleanup();
+                overlay.remove();
+            }
+            // selection-box 和 actionBar 在 overlay 内部，会随 overlay 一起删除
             return;
         }
         
         // 添加选择模式样式
         svgContainer.classList.add('path-select-mode');
         
-        // 为当前子图层的路径添加点击事件
-        // 需要重新渲染以获取最新的 SVG 元素
-        this._render();
-        
-        // 延迟绑定事件（等待渲染完成）
-        setTimeout(() => {
-            const paths = svgContainer.querySelectorAll('path');
-            paths.forEach((path, idx) => {
-                path.style.cursor = 'pointer';
-                path.onclick = (e) => {
-                    e.stopPropagation();
-                    if (confirm(`删除此路径？`)) {
-                        this._deletePathFromChild(childLayer, idx);
-                    }
-                };
-            });
-        }, 50);
+        // 创建可点击的路径覆盖层
+        this._createPathSelectOverlay(svgContainer, childLayer);
     }
     
     /**
-     * 从子图层中删除指定路径
+     * 创建可点击的路径覆盖层 - 每个子路径单独可点击
+     */
+    _createPathSelectOverlay(container, childLayer) {
+        // 移除旧的覆盖层
+        const oldOverlay = container.querySelector('.path-select-overlay');
+        if (oldOverlay) oldOverlay.remove();
+        
+        if (!childLayer || !childLayer.svg) return;
+        
+        // 提取 SVG 属性
+        const widthMatch = childLayer.svg.match(/width="([^"]+)"/);
+        const heightMatch = childLayer.svg.match(/height="([^"]+)"/);
+        const viewBoxMatch = childLayer.svg.match(/viewBox="([^"]+)"/);
+        
+        const width = widthMatch ? widthMatch[1] : '100%';
+        const height = heightMatch ? heightMatch[1] : '100%';
+        const viewBox = viewBoxMatch ? viewBoxMatch[1] : '';
+        
+        // 提取所有子路径
+        const dMatch = childLayer.svg.match(/\bd="([^"]+)"/);
+        if (!dMatch) return;
+        
+        const subPathRegex = /M[^M]+/gi;
+        const subPaths = dMatch[1].match(subPathRegex) || [];
+        
+        if (subPaths.length === 0) return;
+        
+        // 创建覆盖层
+        const overlay = document.createElement('div');
+        overlay.className = 'path-select-overlay';
+        overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:100;';
+        
+        const color = childLayer.color || '#000000';
+        const pathElements = subPaths.map((d, idx) => 
+            `<path d="${d.trim()}" fill="${color}" fill-opacity="0.01" stroke="transparent" stroke-width="10" 
+                   style="pointer-events:all;cursor:pointer;" data-subpath-idx="${idx}"/>`
+        ).join('');
+        
+        // 创建 SVG 容器
+        const svgWrapper = document.createElement('div');
+        svgWrapper.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
+        svgWrapper.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"${viewBox ? ` viewBox="${viewBox}"` : ''} 
+                 style="width:100%;height:100%;" preserveAspectRatio="xMidYMid meet">
+                ${pathElements}
+            </svg>
+        `;
+        overlay.appendChild(svgWrapper);
+        
+        // 创建选择框元素（放到 svgWrapper 里）
+        const selectionDiv = document.createElement('div');
+        selectionDiv.className = 'selection-box';
+        selectionDiv.style.cssText = 'position:absolute;border:2px dashed #4f46e5;background:rgba(79,70,229,0.15);display:none;pointer-events:none;z-index:300;box-shadow:0 0 0 1px rgba(79,70,229,0.3);';
+        svgWrapper.appendChild(selectionDiv);
+        
+        // 创建操作按钮容器
+        const actionBar = document.createElement('div');
+        actionBar.className = 'selection-action-bar';
+        actionBar.style.cssText = 'position:absolute;top:8px;right:8px;display:none;z-index:301;gap:8px;';
+        overlay.appendChild(actionBar);
+        
+        // 选中的路径索引集合
+        const selectedPaths = new Set();
+        
+        // 计算每个子路径的边界框
+        const pathBounds = subPaths.map(d => this._getPathBounds(d));
+        
+        // 绑定点击事件
+        const allPaths = overlay.querySelectorAll('path');
+        allPaths.forEach(path => {
+            path.addEventListener('mouseenter', () => {
+                if (!selectedPaths.has(parseInt(path.dataset.subpathIdx))) {
+                    path.style.fill = 'rgba(239, 68, 68, 0.3)';
+                    path.style.stroke = '#ef4444';
+                    path.style.strokeWidth = '2';
+                }
+            });
+            path.addEventListener('mouseleave', () => {
+                if (!selectedPaths.has(parseInt(path.dataset.subpathIdx))) {
+                    path.style.fill = color;
+                    path.style.fillOpacity = '0.01';
+                    path.style.stroke = 'transparent';
+                }
+            });
+            path.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const idx = parseInt(path.dataset.subpathIdx);
+                
+                // Ctrl/Cmd 多选
+                if (e.ctrlKey || e.metaKey) {
+                    if (selectedPaths.has(idx)) {
+                        selectedPaths.delete(idx);
+                        path.style.fill = color;
+                        path.style.fillOpacity = '0.01';
+                        path.style.stroke = 'transparent';
+                    } else {
+                        selectedPaths.add(idx);
+                        path.style.fill = 'rgba(239, 68, 68, 0.5)';
+                        path.style.stroke = '#ef4444';
+                        path.style.strokeWidth = '2';
+                    }
+                } else if (selectedPaths.size > 0) {
+                    // 有选中的路径时，点击删除所有选中的
+                    if (confirm(`删除 ${selectedPaths.size} 个选中的路径？`)) {
+                        this._deleteMultipleSubPaths(childLayer, Array.from(selectedPaths));
+                    }
+                } else {
+                    // 单击删除单个
+                    if (confirm(`删除此子路径？(${idx + 1}/${subPaths.length})`)) {
+                        this._deleteSubPathFromChild(childLayer, idx);
+                    }
+                }
+            });
+        });
+        
+        // 框选功能
+        let isSelecting = false;
+        let startX = 0, startY = 0;
+        
+        // 删除按钮
+        const deleteBtn = document.createElement('button');
+        deleteBtn.style.cssText = 'padding:3px 8px;background:#ef4444;color:white;border:none;border-radius:3px;cursor:pointer;font-size:11px;display:flex;align-items:center;gap:3px;';
+        deleteBtn.innerHTML = '<iconify-icon icon="carbon:trash-can" style="font-size:12px"></iconify-icon> 删除 (0)';
+        deleteBtn.onclick = () => {
+            if (selectedPaths.size > 0 && confirm(`删除 ${selectedPaths.size} 个选中的路径？`)) {
+                this._deleteMultipleSubPaths(childLayer, Array.from(selectedPaths));
+            }
+        };
+        
+        // 取消按钮
+        const cancelBtn = document.createElement('button');
+        cancelBtn.style.cssText = 'padding:3px 8px;background:#6b7280;color:white;border:none;border-radius:3px;cursor:pointer;font-size:11px;';
+        cancelBtn.innerHTML = '取消';
+        cancelBtn.onclick = () => {
+            // 清除所有选中
+            selectedPaths.clear();
+            allPaths.forEach(p => {
+                p.style.fill = color;
+                p.style.fillOpacity = '0.01';
+                p.style.stroke = 'transparent';
+            });
+            updateActionBar();
+        };
+        
+        actionBar.appendChild(deleteBtn);
+        actionBar.appendChild(cancelBtn);
+        
+        // Esc 键取消选择
+        const handleKeydown = (e) => {
+            if (e.key === 'Escape' && selectedPaths.size > 0) {
+                selectedPaths.clear();
+                allPaths.forEach(p => {
+                    p.style.fill = color;
+                    p.style.fillOpacity = '0.01';
+                    p.style.stroke = 'transparent';
+                });
+                updateActionBar();
+            }
+        };
+        document.addEventListener('keydown', handleKeydown);
+        
+        // 清理函数会在后面更新
+        let cleanupFns = [() => document.removeEventListener('keydown', handleKeydown)];
+        
+        // 更新操作栏
+        const updateActionBar = () => {
+            if (selectedPaths.size > 0) {
+                actionBar.style.display = 'flex';
+                deleteBtn.innerHTML = `<iconify-icon icon="carbon:trash-can" style="font-size:12px"></iconify-icon> 删除 (${selectedPaths.size})`;
+            } else {
+                actionBar.style.display = 'none';
+            }
+        };
+        
+        // 解析 viewBox 获取坐标转换
+        let vbMinX = 0, vbMinY = 0, vbWidth = parseFloat(width) || 100, vbHeight = parseFloat(height) || 100;
+        if (viewBox) {
+            const vbParts = viewBox.split(/[\s,]+/).map(parseFloat);
+            if (vbParts.length === 4) {
+                [vbMinX, vbMinY, vbWidth, vbHeight] = vbParts;
+            }
+        }
+        
+        overlay.style.pointerEvents = 'all';
+        
+        // 获取 SVG 元素用于坐标转换
+        const svgEl = overlay.querySelector('svg');
+        
+        // 屏幕坐标转 SVG 坐标的辅助函数
+        const screenToSvg = (clientX, clientY) => {
+            if (!svgEl) return { x: 0, y: 0 };
+            
+            const rect = svgEl.getBoundingClientRect();
+            
+            // 考虑 preserveAspectRatio="xMidYMid meet" 的影响
+            const svgRatio = vbWidth / vbHeight;
+            const containerRatio = rect.width / rect.height;
+            
+            let renderWidth, renderHeight, offsetX, offsetY;
+            
+            if (containerRatio > svgRatio) {
+                // 容器更宽，SVG 垂直填满，水平居中
+                renderHeight = rect.height;
+                renderWidth = renderHeight * svgRatio;
+                offsetX = (rect.width - renderWidth) / 2;
+                offsetY = 0;
+            } else {
+                // 容器更高，SVG 水平填满，垂直居中
+                renderWidth = rect.width;
+                renderHeight = renderWidth / svgRatio;
+                offsetX = 0;
+                offsetY = (rect.height - renderHeight) / 2;
+            }
+            
+            // 转换坐标
+            const localX = clientX - rect.left - offsetX;
+            const localY = clientY - rect.top - offsetY;
+            
+            const svgX = (localX / renderWidth) * vbWidth + vbMinX;
+            const svgY = (localY / renderHeight) * vbHeight + vbMinY;
+            
+            return { x: svgX, y: svgY, localX: clientX - rect.left, localY: clientY - rect.top };
+        };
+        
+        // 获取 overlay 的初始位置用于坐标计算
+        const getOverlayRect = () => overlay.getBoundingClientRect();
+        
+        // 计算 SVG 实际渲染偏移
+        const getSvgOffset = () => {
+            const rect = getOverlayRect();
+            const svgRatio = vbWidth / vbHeight;
+            const containerRatio = rect.width / rect.height;
+            
+            if (containerRatio > svgRatio) {
+                // 容器更宽，SVG 水平居中
+                const renderHeight = rect.height;
+                const renderWidth = renderHeight * svgRatio;
+                return { x: (rect.width - renderWidth) / 2, y: 0 };
+            } else {
+                // 容器更高，SVG 垂直居中
+                const renderWidth = rect.width;
+                const renderHeight = renderWidth / svgRatio;
+                return { x: 0, y: (rect.height - renderHeight) / 2 };
+            }
+        };
+        
+        // 获取 svgWrapper 的边界
+        const getSvgWrapperRect = () => svgWrapper.getBoundingClientRect();
+        
+        // 计算缩放因子（处理 CSS transform scale）
+        const getScale = () => {
+            const rect = svgWrapper.getBoundingClientRect();
+            const scaleX = rect.width / svgWrapper.offsetWidth;
+            const scaleY = rect.height / svgWrapper.offsetHeight;
+            return { x: scaleX || 1, y: scaleY || 1 };
+        };
+        
+        svgWrapper.addEventListener('mousedown', (e) => {
+            if (e.target.tagName.toLowerCase() === 'path') return;
+            
+            e.preventDefault();
+            isSelecting = true;
+            
+            const wrapperRect = svgWrapper.getBoundingClientRect();
+            const scale = getScale();
+            
+            // 考虑缩放因子
+            startX = (e.clientX - wrapperRect.left) / scale.x;
+            startY = (e.clientY - wrapperRect.top) / scale.y;
+            
+            selectionDiv.style.left = startX + 'px';
+            selectionDiv.style.top = startY + 'px';
+            selectionDiv.style.width = '0';
+            selectionDiv.style.height = '0';
+            selectionDiv.style.display = 'block';
+        });
+        
+        const handleMouseUp = (e) => {
+            if (!isSelecting) return;
+            isSelecting = false;
+            selectionDiv.style.display = 'none';
+            
+            const rect = getSvgWrapperRect();
+            const scale = getScale();
+            
+            // 使用与 mousedown/mousemove 相同的坐标计算
+            const endX = (e.clientX - rect.left) / scale.x;
+            const endY = (e.clientY - rect.top) / scale.y;
+            
+            // 最小框选区域
+            if (Math.abs(endX - startX) < 5 && Math.abs(endY - startY) < 5) return;
+            
+            // 转换为 SVG viewBox 坐标（使用未缩放的像素坐标）
+            // startX/Y 和 endX/Y 现在是相对于 svgWrapper 的未缩放坐标
+            const wrapperWidth = svgWrapper.offsetWidth;
+            const wrapperHeight = svgWrapper.offsetHeight;
+            
+            // 计算 SVG 内容的实际渲染区域（考虑 preserveAspectRatio）
+            const svgRatio = vbWidth / vbHeight;
+            const wrapperRatio = wrapperWidth / wrapperHeight;
+            
+            let renderWidth, renderHeight, offsetX, offsetY;
+            if (wrapperRatio > svgRatio) {
+                renderHeight = wrapperHeight;
+                renderWidth = renderHeight * svgRatio;
+                offsetX = (wrapperWidth - renderWidth) / 2;
+                offsetY = 0;
+            } else {
+                renderWidth = wrapperWidth;
+                renderHeight = renderWidth / svgRatio;
+                offsetX = 0;
+                offsetY = (wrapperHeight - renderHeight) / 2;
+            }
+            
+            // 转换为 viewBox 坐标
+            const toSvgX = (px) => ((px - offsetX) / renderWidth) * vbWidth + vbMinX;
+            const toSvgY = (py) => ((py - offsetY) / renderHeight) * vbHeight + vbMinY;
+            
+            const selLeft = Math.min(toSvgX(startX), toSvgX(endX));
+            const selTop = Math.min(toSvgY(startY), toSvgY(endY));
+            const selRight = Math.max(toSvgX(startX), toSvgX(endX));
+            const selBottom = Math.max(toSvgY(startY), toSvgY(endY));
+            
+            console.log('[LayerEditor] 框选区域:', { selLeft, selTop, selRight, selBottom });
+            
+            // 检查哪些路径与选择框相交
+            pathBounds.forEach((bounds, idx) => {
+                if (!bounds) return;
+                
+                // 检查边界框是否与选择框相交
+                const intersects = !(bounds.maxX < selLeft || bounds.minX > selRight ||
+                                    bounds.maxY < selTop || bounds.minY > selBottom);
+                
+                if (intersects) {
+                    selectedPaths.add(idx);
+                    const pathEl = allPaths[idx];
+                    if (pathEl) {
+                        pathEl.style.fill = 'rgba(239, 68, 68, 0.5)';
+                        pathEl.style.stroke = '#ef4444';
+                        pathEl.style.strokeWidth = '2';
+                    }
+                }
+            });
+            
+            updateActionBar();
+            console.log(`[LayerEditor] 框选了 ${selectedPaths.size} 个路径`);
+        };
+        
+        document.addEventListener('mouseup', handleMouseUp);
+        
+        // 添加 mousemove 的引用以便清理
+        const handleMouseMove = (e) => {
+            if (!isSelecting) return;
+            
+            const rect = getSvgWrapperRect();
+            const scale = getScale();
+            
+            // 考虑缩放因子
+            const currentX = (e.clientX - rect.left) / scale.x;
+            const currentY = (e.clientY - rect.top) / scale.y;
+            
+            const left = Math.min(startX, currentX);
+            const top = Math.min(startY, currentY);
+            const w = Math.abs(currentX - startX);
+            const h = Math.abs(currentY - startY);
+            
+            selectionDiv.style.left = left + 'px';
+            selectionDiv.style.top = top + 'px';
+            selectionDiv.style.width = w + 'px';
+            selectionDiv.style.height = h + 'px';
+        };
+        
+        document.addEventListener('mousemove', handleMouseMove);
+        
+        // 注册所有清理函数
+        cleanupFns.push(
+            () => document.removeEventListener('mouseup', handleMouseUp),
+            () => document.removeEventListener('mousemove', handleMouseMove)
+        );
+        
+        // 设置清理函数
+        overlay._cleanup = () => {
+            cleanupFns.forEach(fn => fn());
+        };
+        
+        container.appendChild(overlay);
+    }
+    
+    /**
+     * 删除多个子路径
+     */
+    _deleteMultipleSubPaths(childLayer, indices) {
+        if (!childLayer || !childLayer.svg || indices.length === 0) return;
+        
+        const dMatch = childLayer.svg.match(/\bd="([^"]+)"/);
+        if (!dMatch) return;
+        
+        const d = dMatch[1];
+        const subPathRegex = /M[^M]+/gi;
+        const subPaths = d.match(subPathRegex) || [];
+        
+        // 收集所有要删除的索引（包括孔洞）
+        const toDelete = new Set(indices);
+        
+        // 对于每个要删除的路径，也删除其内部的孔洞
+        indices.forEach(idx => {
+            const targetBounds = this._getPathBounds(subPaths[idx]);
+            if (targetBounds) {
+                for (let i = 0; i < subPaths.length; i++) {
+                    if (toDelete.has(i)) continue;
+                    const bounds = this._getPathBounds(subPaths[i]);
+                    if (this._boundsContains(targetBounds, bounds)) {
+                        toDelete.add(i);
+                    }
+                }
+            }
+        });
+        
+        const remaining = subPaths.filter((_, idx) => !toDelete.has(idx));
+        
+        if (remaining.length === 0) {
+            alert('删除后图层将为空，操作取消');
+            return;
+        }
+        
+        const newD = remaining.map(p => p.trim()).join(' ');
+        childLayer.svg = childLayer.svg.replace(/\bd="[^"]+"/, `d="${newD}"`);
+        
+        if (childLayer.originalSvg) {
+            childLayer.originalSvg = childLayer.originalSvg.replace(/\bd="[^"]+"/, `d="${newD}"`);
+        }
+        
+        this._saveHistory();
+        this._render();
+        this._updatePropertyPanel();
+        
+        const svgContainer = this.container.querySelector('.image-editor-svg-container');
+        this._createPathSelectOverlay(svgContainer, childLayer);
+        
+        console.log(`[LayerEditor] 删除 ${toDelete.size} 个子路径，剩余 ${remaining.length} 个`);
+    }
+    
+    /**
+     * 从子图层中删除复合路径中的某个子路径（连同内部孔洞一起删除）
+     */
+    _deleteSubPathFromChild(childLayer, subPathIndex) {
+        if (!childLayer || !childLayer.svg) return;
+        
+        // 提取 d 属性
+        const dMatch = childLayer.svg.match(/\bd="([^"]+)"/);
+        if (!dMatch) return;
+        
+        const d = dMatch[1];
+        const subPathRegex = /M[^M]+/gi;
+        const subPaths = d.match(subPathRegex) || [];
+        
+        if (subPathIndex < 0 || subPathIndex >= subPaths.length) return;
+        
+        // 获取要删除的路径的边界框
+        const targetBounds = this._getPathBounds(subPaths[subPathIndex]);
+        
+        // 找出所有需要删除的索引（目标 + 其内部的孔洞）
+        const toDelete = new Set([subPathIndex]);
+        
+        if (targetBounds) {
+            for (let i = 0; i < subPaths.length; i++) {
+                if (i === subPathIndex) continue;
+                const bounds = this._getPathBounds(subPaths[i]);
+                // 如果这个路径完全在目标路径内部，一起删除
+                if (this._boundsContains(targetBounds, bounds)) {
+                    toDelete.add(i);
+                }
+            }
+        }
+        
+        // 过滤掉要删除的路径
+        const remaining = subPaths.filter((_, idx) => !toDelete.has(idx));
+        
+        if (remaining.length === 0) {
+            alert('删除后图层将为空，操作取消');
+            return;
+        }
+        
+        const deletedCount = toDelete.size;
+        
+        // 重新组合 d 属性
+        const newD = remaining.map(p => p.trim()).join(' ');
+        
+        // 更新 SVG
+        childLayer.svg = childLayer.svg.replace(/\bd="[^"]+"/, `d="${newD}"`);
+        
+        // 同时更新原始 SVG
+        if (childLayer.originalSvg) {
+            childLayer.originalSvg = childLayer.originalSvg.replace(/\bd="[^"]+"/, `d="${newD}"`);
+        }
+        
+        this._saveHistory();
+        this._render();
+        this._updatePropertyPanel();
+        
+        // 重新创建覆盖层
+        const svgContainer = this.container.querySelector('.image-editor-svg-container');
+        this._createPathSelectOverlay(svgContainer, childLayer);
+        
+        console.log(`[LayerEditor] 删除 ${deletedCount} 个子路径（含孔洞），剩余 ${remaining.length} 个`);
+    }
+    
+    /**
+     * 从子图层中删除指定路径（整个 path 元素）
      */
     _deletePathFromChild(childLayer, pathIndex) {
         if (!childLayer || !childLayer.svg) return;
