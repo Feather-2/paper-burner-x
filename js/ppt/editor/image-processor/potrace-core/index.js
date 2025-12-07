@@ -496,13 +496,12 @@ export async function vectorize(imageData, options = {}) {
             
             if (typeof window !== 'undefined' && typeof window.fitCurve === 'function') {
                 try {
-                    // fit-curve
-                    // 动态容差策略：
-                    // 1. 基础值：预设的 pathTolerance (例如 1.0)
-                    // 2. 长度奖励：路径越长，允许的误差越大，以获得更平滑的长曲线
-                    //    例如：周长 400px 的线条，容差 +1.0
-                    const lengthBonus = perimeter > 50 ? Math.min(2.0, (perimeter - 50) / 200) : 0;
-                    const fitError = Math.max(0.5, pathTolerance) + lengthBonus;
+                    // fit-curve - 智能容差
+                    // 容差越大 = 曲线越平滑（抹平锯齿）
+                    // 容差越小 = 越贴合原始点（保留锯齿）
+                    const baseError = Math.max(0.8, pathTolerance);
+                    const sizeBonus = perimeter > 100 ? Math.min(0.5, (perimeter - 100) / 500) : 0;
+                    const fitError = baseError + sizeBonus;  // 范围约 0.8 ~ 1.5
                     
                     let curves = window.fitCurve(ptsArray, fitError);
                     
@@ -511,9 +510,9 @@ export async function vectorize(imageData, options = {}) {
                         // 注意：孔洞（内轮廓）不回缩，避免孔洞缩小
                         if (!isHole) {
                             curves = curves.map(c => retractHandles(c, {
-                                maxRatio: 0.4,
-                                minRatio: 0.6,
-                                smallThreshold: 15
+                                maxRatio: 0.6,   // 略高于半圆理论值 0.552，获得更平滑的弧线
+                                minRatio: 0.7,   // 小曲线更宽松
+                                smallThreshold: 25
                             }));
                         }
                         
