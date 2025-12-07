@@ -6,17 +6,20 @@
  */
 
 /**
- * 解析 SVG path 字符串，提取所有点
+ * 解析 SVG path 字符串，提取所有子路径的点
+ * 每个 M 命令开始一个新的子路径
  * @param {string} pathD - SVG path d 属性
- * @returns {Array<{x: number, y: number}>} 点数组
+ * @returns {Array<Array<{x: number, y: number}>>} 子路径数组，每个子路径是点数组
  */
-export function parsePathToPoints(pathD) {
-    const points = [];
+export function parsePathToSubpaths(pathD) {
+    const subpaths = [];
+    let currentSubpath = [];
     
     // 匹配所有命令和坐标
     const commands = pathD.match(/[MLCQAZ][^MLCQAZ]*/gi) || [];
     
     let currentX = 0, currentY = 0;
+    let startX = 0, startY = 0; // 子路径起点，用于 Z 命令
     
     for (const cmd of commands) {
         const type = cmd[0].toUpperCase();
@@ -24,16 +27,32 @@ export function parsePathToPoints(pathD) {
         
         switch (type) {
             case 'M':
+                // M 命令开始新的子路径
+                if (currentSubpath.length > 0) {
+                    subpaths.push(currentSubpath);
+                }
+                currentSubpath = [];
+                
+                for (let i = 0; i < nums.length; i += 2) {
+                    currentX = nums[i];
+                    currentY = nums[i + 1];
+                    if (i === 0) {
+                        startX = currentX;
+                        startY = currentY;
+                    }
+                    currentSubpath.push({ x: currentX, y: currentY });
+                }
+                break;
+                
             case 'L':
                 for (let i = 0; i < nums.length; i += 2) {
                     currentX = nums[i];
                     currentY = nums[i + 1];
-                    points.push({ x: currentX, y: currentY });
+                    currentSubpath.push({ x: currentX, y: currentY });
                 }
                 break;
                 
             case 'C': // 三次贝塞尔曲线
-                // 采样贝塞尔曲线上的点
                 for (let i = 0; i < nums.length; i += 6) {
                     const cp1x = nums[i], cp1y = nums[i + 1];
                     const cp2x = nums[i + 2], cp2y = nums[i + 3];
@@ -42,7 +61,7 @@ export function parsePathToPoints(pathD) {
                     // 在曲线上采样 4 个点
                     for (let t = 0.25; t <= 1; t += 0.25) {
                         const pt = sampleCubicBezier(currentX, currentY, cp1x, cp1y, cp2x, cp2y, endX, endY, t);
-                        points.push(pt);
+                        currentSubpath.push(pt);
                     }
                     
                     currentX = endX;
@@ -57,7 +76,7 @@ export function parsePathToPoints(pathD) {
                     
                     for (let t = 0.33; t <= 1; t += 0.33) {
                         const pt = sampleQuadBezier(currentX, currentY, cpx, cpy, endX, endY, t);
-                        points.push(pt);
+                        currentSubpath.push(pt);
                     }
                     
                     currentX = endX;
@@ -66,12 +85,32 @@ export function parsePathToPoints(pathD) {
                 break;
                 
             case 'Z':
-                // 闭合路径，不添加点
+                // 闭合路径，回到起点
+                currentX = startX;
+                currentY = startY;
+                // 保存当前子路径
+                if (currentSubpath.length > 0) {
+                    subpaths.push(currentSubpath);
+                    currentSubpath = [];
+                }
                 break;
         }
     }
     
-    return points;
+    // 保存最后一个子路径
+    if (currentSubpath.length > 0) {
+        subpaths.push(currentSubpath);
+    }
+    
+    return subpaths;
+}
+
+/**
+ * 兼容旧接口：返回扁平化的点数组
+ */
+export function parsePathToPoints(pathD) {
+    const subpaths = parsePathToSubpaths(pathD);
+    return subpaths.flat();
 }
 
 /**
@@ -210,6 +249,7 @@ function catmullRomPath(points, tension = 0.3) {
 
 /**
  * 简化单个 SVG 路径
+ * 正确处理包含多个子路径的 path
  * 
  * @param {string} pathD - 原始 SVG path d 属性
  * @param {number} level - 简化级别 (0-100)，值越大越平滑/简化
@@ -219,21 +259,40 @@ export function simplifyPathD(pathD, level = 50) {
     if (!pathD || level <= 0) return pathD;
     
     // 将 level (0-100) 映射到 RDP epsilon 和 fitCurve error
-    // level 0 = 不简化
-    // level 100 = 最大简化
     const rdpEpsilon = 0.5 + (level / 100) * 4;  // 0.5 ~ 4.5
     const fitError = 1.0 + (level / 100) * 5;    // 1.0 ~ 6.0
     
-    // 解析路径为点
-    const points = parsePathToPoints(pathD);
-    if (points.length < 3) return pathD;
+    // 解析路径为多个子路径
+    const subpaths = parsePathToSubpaths(pathD);
+    if (subpaths.length === 0) return pathD;
     
-    // RDP 简化减少点数
-    const simplified = simplifyRDP(points, rdpEpsilon);
-    if (simplified.length < 3) return pathD;
+    // 分别简化每个子路径
+    const simplifiedPaths = [];
     
-    // 重新拟合为平滑曲线
-    return pointsToSmoothPath(simplified, fitError);
+    for (const points of subpaths) {
+        if (points.length < 3) {
+            // 点太少，保持原样
+            if (points.length === 1) {
+                simplifiedPaths.push(`M${points[0].x.toFixed(2)},${points[0].y.toFixed(2)}Z`);
+            } else if (points.length === 2) {
+                simplifiedPaths.push(`M${points[0].x.toFixed(2)},${points[0].y.toFixed(2)}L${points[1].x.toFixed(2)},${points[1].y.toFixed(2)}Z`);
+            }
+            continue;
+        }
+        
+        // RDP 简化减少点数
+        const simplified = simplifyRDP(points, rdpEpsilon);
+        if (simplified.length < 3) {
+            // 简化后点太少，用原始点
+            simplifiedPaths.push(pointsToSmoothPath(points, fitError));
+        } else {
+            // 重新拟合为平滑曲线
+            simplifiedPaths.push(pointsToSmoothPath(simplified, fitError));
+        }
+    }
+    
+    // 合并所有子路径
+    return simplifiedPaths.join('');
 }
 
 /**
