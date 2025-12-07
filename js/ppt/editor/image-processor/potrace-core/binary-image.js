@@ -444,8 +444,7 @@ export function createBinaryBitmapFromMap(pixelColorMap, targetColorIdx, width, 
     // 只过滤极小的噪点（< 4 像素），避免误删细节
     let finalBitmap = filterSmallRegions(bitmap, width, height, 100000); // 放宽阈值
     
-    // 闭运算填充小孔洞
-    finalBitmap = morphClose(finalBitmap, width, height);
+    // 注意：不再做闭运算，因为会让内容变粗
     
     // 膨胀确保层重叠
     for (let i = 0; i < dilatePixels; i++) {

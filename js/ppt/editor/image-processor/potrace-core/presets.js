@@ -11,17 +11,17 @@ export const PRESETS = {
         smoothness: 1,         // 降低平滑度 (3 -> 1)，防止文字变圆润/变形
         minPathLength: 16,
         mode: 'spline',
-        blurSigma: 1.0          // 降低模糊 (1.5 -> 1.0)，保持边缘清晰
+        blurSigma: 0.5          // 进一步降低模糊，避免边缘外扩
     },
     illustration: {
         preset: 'illustration',
         numColors: 24,
         colorTolerance: 30,
         pathTolerance: 0.5,
-        smoothness: 2,
+        smoothness: 1.5,         // 降低平滑度 (2 -> 1.5)
         minPathLength: 16,
         mode: 'spline',
-        blurSigma: 1.5
+        blurSigma: 0.5           // 降低模糊 (1.5 -> 0.5)
     },
     lineart: {
         preset: 'lineart',
@@ -32,8 +32,8 @@ export const PRESETS = {
         minPathLength: 16,     // 过滤噪点
         mode: 'spline',
         binaryMode: true,
-        blurSigma: 1.5,        // 适度模糊以减少噪点
-        morphology: true       // 开启形态学处理，连接断裂线条
+        blurSigma: 0.5,        // 进一步降低模糊
+        morphology: false      // 关闭形态学，避免线条变粗
     },
     photo: {
         preset: 'photo',
@@ -43,7 +43,7 @@ export const PRESETS = {
         smoothness: 1.0,       // 降低平滑度 (2.0 -> 1.0)，防止建筑/窗户等几何图形圆角化
         minPathLength: 64,
         mode: 'spline',
-        blurSigma: 1.0         // 降低模糊 (1.5 -> 1.0)，保持边缘更锐利
+        blurSigma: 0.5         // 进一步降低模糊
     },
     pixel: {
         preset: 'pixel',       // 标记预设名称

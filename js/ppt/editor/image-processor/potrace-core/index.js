@@ -297,15 +297,9 @@ export async function vectorize(imageData, options = {}) {
         const color = palette[colorIdx];
 
         // 轻度膨胀确保层重叠
-        // 增加膨胀量以填补可能的缝隙
-        // 像素画减少膨胀，避免形状变形
-        // 动态调整膨胀量：
-        // 1. 像素画：1px
-        // 2. 小图/Logo模式：1px (防止线条变粗)
-        // 3. 大图/照片：2px (确保无缝隙)
-        const isSmallImage = width < 800;
-        const isLogoOrSimple = options && (options.preset === 'logo' || options.preset === 'simple');
-        const dilatePixels = (isPixelArt || isSmallImage || isLogoOrSimple) ? 1 : 2;
+        // 膨胀量：改为 0，完全不膨胀，避免内容变粗
+        // 缝隙问题由 Marching Squares 亚像素追踪解决
+        const dilatePixels = 0;
 
         // 使用最近颜色分配（非二值模式）或容差匹配（二值模式）
         // **VM(基于公开资料) 风格**：传入原始图像和调色板，利用混色信息做亚像素定位
