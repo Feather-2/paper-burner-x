@@ -39,7 +39,8 @@ import {
 } from './binary-image.js';
 import { labelConnectedComponents } from './connected-components.js';
 import { marchingSquaresContour } from './contour-tracer.js';
-import { simplifyPath } from './path-simplify.js';
+import { traceContoursVTracer, traceContoursHybrid } from './path-walker.js';
+import { simplifyPath, removeStaircase, limitPenalties } from './path-simplify.js';
 import { chaikinSmooth, chaikinSmoothPreserveCorners, simplifyRDPClosed as simplifyPathRDP } from './path-smooth.js';
 import { 
     processContourVTracer, 
@@ -71,7 +72,8 @@ export async function vectorize(imageData, options = {}) {
         mode = 'spline',
         binaryMode = false,  // lineart 使用二值模式
         blurSigma = 0.5,     // 高斯模糊 - 极小，最大程度保护角点
-        morphology = true    // 形态学预处理（只做闭运算）
+        morphology = true,   // 形态学预处理（只做闭运算）
+        contourMethod = 'marching'  // 轮廓追踪方法: 'marching' | 'vtracer' | 'hybrid'
     } = options;
 
     const originalWidth = imageData.width;
@@ -307,30 +309,14 @@ export async function vectorize(imageData, options = {}) {
             ? createBinaryBitmap(workingData, color, colorTolerance, useLuminance, otsuThreshold, effectiveBlurSigma, morphology)
             : createBinaryBitmapFromMap(pixelColorMap, colorIdx, width, height, effectiveBlurSigma, dilatePixels, workingData, palette);
         
-        // 如果反转了，计算前景的实际颜色
+        // 二值模式（lineart）：强制使用黑色作为前景色
+        // 不再根据反转状态计算实际颜色，始终输出标准的白底黑线
         let actualColor = color;
-        if (bitmap.inverted && useLuminance) {
-            const sum = [0, 0, 0];
-            let count = 0;
-            const data = workingData.data;
-            for (let i = 0; i < bitmap.data.length; i++) {
-                if (bitmap.data[i] === 1) {
-                    const idx = i * 4;
-                    sum[0] += data[idx];
-                    sum[1] += data[idx + 1];
-                    sum[2] += data[idx + 2];
-                    count++;
-                }
-            }
-            if (count > 0) {
-                actualColor = [
-                    Math.round(sum[0] / count),
-                    Math.round(sum[1] / count),
-                    Math.round(sum[2] / count)
-                ];
-            }
+        if (useLuminance) {
+            // 强制黑色前景，无论原图是什么颜色
+            actualColor = [0, 0, 0];
         }
-        
+
         const colorStr = `rgb(${actualColor[0]},${actualColor[1]},${actualColor[2]})`;
         
         // 统计前景像素
@@ -342,8 +328,18 @@ export async function vectorize(imageData, options = {}) {
         // 像素画允许更小的路径
         if (fgCount < (isPixelArt ? 1 : minPathLength)) continue;
 
-        // 追踪轮廓
-        const contours = marchingSquaresContour(bitmap, null, null, bitmap.grayscale);
+        // 追踪轮廓 - 支持不同算法
+        let contours;
+        if (contourMethod === 'vtracer') {
+            // VTracer 风格：4方向追踪，输出点少，无锯齿
+            contours = traceContoursVTracer(bitmap.data, width, height);
+        } else if (contourMethod === 'hybrid') {
+            // 混合模式：VTracer + 亚像素精细化
+            contours = traceContoursHybrid(bitmap.data, width, height, bitmap.grayscale);
+        } else {
+            // 默认：Marching Squares，亚像素精度高
+            contours = marchingSquaresContour(bitmap, null, null, bitmap.grayscale);
+        }
         
         // 检测碎片图层（边缘抗锯齿色）：很多小轮廓，没有大轮廓
         // 对于高颜色数（photo模式），禁用碎片过滤，因为颜色分布分散是正常的

@@ -336,9 +336,10 @@ export function createBinaryBitmap(imageData, targetColor, tolerance = 30, useLu
         }
     }
 
-    // 自动检测：如果暗色像素超过 50%，说明背景是暗色，需要反转
+    // 自动检测：如果暗色像素超过 40%，说明背景是暗色，需要反转
+    // 降低阈值以更好地检测黑底白线的工程图
     let inverted = false;
-    if (useLuminance && darkCount > totalCount * 0.5) {
+    if (useLuminance && darkCount > totalCount * 0.4) {
         console.log(`[PotraceCore] 检测到暗色背景 (${darkCount}/${totalCount})，反转二值图`);
         for (let i = 0; i < bitmap.length; i++) {
             const idx = i * 4;

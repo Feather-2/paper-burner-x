@@ -33,7 +33,8 @@ export const PRESETS = {
         mode: 'spline',
         binaryMode: true,
         blurSigma: 0.5,        // 进一步降低模糊
-        morphology: false      // 关闭形态学，避免线条变粗
+        morphology: false,     // 关闭形态学，避免线条变粗
+        contourMethod: 'vtracer'  // 'vtracer' 实验中，暂用 marching
     },
     photo: {
         preset: 'photo',

@@ -1,10 +1,110 @@
 /**
  * Potrace Core - 路径简化模块
  * 
- * 提供 Visvalingam-Whyatt 和 Douglas-Peucker 路径简化算法
+ * 提供 VTracer 风格锯齿移除、Visvalingam-Whyatt 和 Douglas-Peucker 路径简化算法
  */
 
 import { pointLineDistance } from './utils.js';
+
+/**
+ * VTracer 风格锯齿移除 - remove_staircase
+ * 移除 1 像素的内凹锯齿点，只保留外凸点
+ * 
+ * 原理：如果一个点的相邻线段长度为 1（曼哈顿距离），
+ * 则用 signed_area 判断它是凸还是凹，只保留凸点
+ * 
+ * @param {Array} points - 点数组 [{x, y}, ...]
+ * @param {boolean} clockwise - 轮廓方向（顺时针为 true）
+ * @returns {Array} 简化后的点数组
+ */
+export function removeStaircase(points, clockwise = true) {
+    if (points.length < 4) return points;
+    
+    const len = points.length;
+    const result = [];
+    
+    // 曼哈顿距离
+    const segmentLength = (i, j) => {
+        return Math.abs(points[i].x - points[j].x) + Math.abs(points[i].y - points[j].y);
+    };
+    
+    // 有符号面积（正 = 顺时针/左转，负 = 逆时针/右转）
+    const signedArea = (a, b, c) => {
+        return (b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y);
+    };
+    
+    for (let i = 0; i < len; i++) {
+        const h = i > 0 ? i - 1 : len - 1;  // 前一个点
+        const j = (i + 1) % len;             // 后一个点
+        
+        let keep = true;
+        
+        // 首尾点始终保留（闭合路径时）
+        if (i === 0 || i === len - 1) {
+            keep = true;
+        }
+        // 如果相邻线段有 1 像素的，检查是否是内凹锯齿
+        else if (segmentLength(i, h) === 1 || segmentLength(i, j) === 1) {
+            const area = signedArea(points[h], points[i], points[j]);
+            // 只保留外凸点：area 与 clockwise 同号
+            keep = area !== 0 && (area > 0) === clockwise;
+        }
+        
+        if (keep) {
+            result.push(points[i]);
+        }
+    }
+    
+    return result;
+}
+
+/**
+ * VTracer 风格 limit_penalties 简化
+ * 基于三角形面积惩罚的路径简化
+ */
+export function limitPenalties(points, tolerance = 1.0) {
+    if (points.length < 3) return points;
+    
+    const len = points.length;
+    const result = [];
+    
+    // 计算惩罚值（三角形面积² / 底边长）
+    const evaluatePenalty = (a, b, c) => {
+        const l1 = Math.hypot(a.x - b.x, a.y - b.y);
+        const l2 = Math.hypot(b.x - c.x, b.y - c.y);
+        const l3 = Math.hypot(c.x - a.x, c.y - a.y);
+        const p = (l1 + l2 + l3) / 2;  // 半周长
+        const area = Math.sqrt(Math.max(0, p * (p - l1) * (p - l2) * (p - l3)));  // 海伦公式
+        return l3 > 0 ? (area * area) / l3 : 0;
+    };
+    
+    // 计算区间内最大惩罚
+    const pastDelta = (from, to) => {
+        let maxPenalty = 0;
+        for (let i = from + 1; i < to; i++) {
+            maxPenalty = Math.max(maxPenalty, evaluatePenalty(points[from], points[i], points[to]));
+        }
+        return maxPenalty;
+    };
+    
+    let last = 0;
+    for (let i = 0; i < len; i++) {
+        if (i === 0) {
+            result.push(points[i]);
+        } else if (i === last + 1) {
+            continue;  // 跳过
+        } else if (pastDelta(last, i) >= tolerance) {
+            last = i - 1;
+            result.push(points[i - 1]);
+        }
+        
+        if (i === len - 1) {
+            result.push(points[i]);
+        }
+    }
+    
+    return result;
+}
 
 /**
  * Visvalingam-Whyatt 算法 - 保持拓扑的简化
