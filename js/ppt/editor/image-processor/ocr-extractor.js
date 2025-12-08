@@ -19,11 +19,19 @@ class OcrExtractor {
             fontSizeEstimation: true,     // 是否估计字号
             minFontSize: 8,
             maxFontSize: 72,
+            // VLM 定位方案: 'auto' | 'native' | 'grid'
+            // auto: 自动检测模型能力
+            // native: 强制使用原生 grounding (0-1000 坐标)
+            // grid: 强制使用网格辅助方案
+            vlmLocalizationMode: 'grid',  // 默认用 grid，更稳定
         };
         
         // 测量 Canvas（用于字号估计）
         this._measureCanvas = null;
         this._measureCtx = null;
+        
+        // 加载持久化的配置
+        this._loadConfig();
     }
 
     isMineruAvailable() {
@@ -309,6 +317,142 @@ class OcrExtractor {
     }
     
     /**
+     * 根据图片宽高比计算网格数量
+     * 目标：让每个格子尽量接近正方形，总格数约 80-120
+     */
+    _calculateGridSize(width, height) {
+        // 使用简单的 10x10 网格，更容易被 VLM 理解
+        // 大多数 VLM 训练时使用的是百分比或简单的网格系统
+        const gridX = 10;
+        const gridY = 10;
+        
+        console.log(`[OcrExtractor] 图片 ${width}x${height} → 网格 ${gridX}x${gridY}`);
+        return { gridX, gridY };
+    }
+    
+    /**
+     * 在图片上叠加网格辅助 VLM 定位
+     * @param {Object} imageObj - 图片对象 { dataUrl, width, height, element }
+     * @param {number} gridX - X 方向网格数量
+     * @param {number} gridY - Y 方向网格数量
+     * @returns {Promise<string>} 带网格的图片 data URL
+     */
+    async _overlayGrid(imageObj, gridX = 10, gridY = 10) {
+        const canvas = document.createElement('canvas');
+        canvas.width = imageObj.width;
+        canvas.height = imageObj.height;
+        const ctx = canvas.getContext('2d');
+        
+        // 绘制原图
+        let imgElement = imageObj.element;
+        if (!imgElement) {
+            // 从 dataUrl 创建并等待加载
+            imgElement = await new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = reject;
+                img.src = imageObj.dataUrl;
+            });
+        }
+        ctx.drawImage(imgElement, 0, 0);
+        
+        // 网格样式
+        const cellWidth = imageObj.width / gridX;
+        const cellHeight = imageObj.height / gridY;
+        
+        // 绘制网格线（半透明红色）
+        ctx.strokeStyle = 'rgba(255, 0, 0, 0.4)';
+        ctx.lineWidth = Math.max(1, Math.min(imageObj.width, imageObj.height) / 500);
+        
+        // 垂直线
+        for (let i = 0; i <= gridX; i++) {
+            const x = i * cellWidth;
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, imageObj.height);
+            ctx.stroke();
+        }
+        
+        // 水平线
+        for (let i = 0; i <= gridY; i++) {
+            const y = i * cellHeight;
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(imageObj.width, y);
+            ctx.stroke();
+        }
+        
+        // 绘制刻度数字
+        const fontSize = Math.max(10, Math.min(cellWidth, cellHeight) / 3);
+        ctx.font = `bold ${fontSize}px Arial`;
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.7)';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        // 顶部 X 轴刻度
+        for (let i = 0; i <= gridX; i++) {
+            const x = i * cellWidth;
+            // 白色背景
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.fillRect(x - fontSize * 0.4, 2, fontSize * 0.8, fontSize * 1.1);
+            // 数字
+            ctx.fillStyle = 'rgba(255, 0, 0, 0.9)';
+            ctx.fillText(String(i), x, fontSize * 0.6 + 2);
+        }
+        
+        // 左侧 Y 轴刻度
+        for (let i = 0; i <= gridY; i++) {
+            const y = i * cellHeight;
+            // 白色背景
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.fillRect(2, y - fontSize * 0.4, fontSize * 0.8, fontSize * 0.9);
+            // 数字
+            ctx.fillStyle = 'rgba(255, 0, 0, 0.9)';
+            ctx.textAlign = 'left';
+            ctx.fillText(String(i), 4, y);
+        }
+        
+        console.log(`[OcrExtractor] 已叠加 ${gridX}x${gridY} 网格`);
+        return canvas.toDataURL('image/jpeg', 0.9);
+    }
+    
+    /**
+     * 临时显示带网格的图片预览
+     */
+    _showGridPreview(gridImageUrl, width, height, gridX, gridY) {
+        // 创建浮动预览容器
+        const container = document.createElement('div');
+        container.id = 'ocr-grid-preview';
+        container.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 99999;
+            background: rgba(0,0,0,0.9);
+            padding: 16px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            max-width: 90vw;
+            max-height: 90vh;
+        `;
+        
+        container.innerHTML = `
+            <div style="color:#fff;font-size:14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+                <span>🔍 VLM OCR 正在识别中... (${gridX}x${gridY} 参考网格)</span>
+                <span style="color:#888;font-size:12px;">${width}x${height}</span>
+            </div>
+            <img src="${gridImageUrl}" style="max-width:80vw;max-height:70vh;border-radius:8px;display:block;">
+            <div style="color:#888;font-size:12px;margin-top:8px;text-align:center;">
+                X轴刻度 0-${gridX}，Y轴刻度 0-${gridY}，精度 0.1
+            </div>
+        `;
+        
+        document.body.appendChild(container);
+        return container;
+    }
+    
+    /**
      * 动态加载脚本
      */
     _loadScript(src) {
@@ -331,51 +475,166 @@ class OcrExtractor {
             throw new Error('AI API 服务未加载，请确保 ai-api-service.js 已引入');
         }
         
-        // OCR 专用 prompt
-        const prompt = `你是一个精确的 OCR 定位工具。请仔细分析图片，识别所有文字并提供精确的位置坐标。
-
-**重要：坐标系统说明**
-- 图片左上角为原点 (0, 0)
-- 图片右下角为 (1, 1)
-- left: 文字区域左边缘到图片左边缘的距离比例 (0-1)
-- top: 文字区域上边缘到图片上边缘的距离比例 (0-1)
-- width: 文字区域宽度占图片宽度的比例 (0-1)
-- height: 文字区域高度占图片高度的比例 (0-1)
-
-**任务要求**
-1. 识别图片中每一处文字（包括标题、正文、标注、箭头旁的文字、图表中的文字等）
-2. 为每个文字区域提供精确的边界框坐标（保留3位小数）
-3. 边界框应紧贴文字，不要包含过多空白
-
-**输出格式**（严格JSON，不要有其他内容）
-{"regions":[
-  {"text":"文字内容","bbox":{"left":0.052,"top":0.083,"width":0.215,"height":0.042},"fontSize":24},
-  {"text":"另一段文字","bbox":{"left":0.350,"top":0.150,"width":0.180,"height":0.035},"fontSize":16}
-]}
-
-**约束**
-- 所有坐标值必须在 0-1 之间
-- left + width ≤ 1
-- top + height ≤ 1
-- 请逐一列出所有可见文字`;
-
-        console.log('[OcrExtractor] 使用 AI API Service 进行 VLM OCR');
+        // 获取模型信息
+        const visionConfig = window.aiApiService.getVisionModelConfig();
+        const modelName = (visionConfig?.model || '').toLowerCase();
         
-        // 调用统一的 AI API 服务
-        const result = await window.aiApiService.analyzeImage(imageObj.dataUrl, prompt, {
+        // 决定使用哪种定位方案
+        const locMode = options.localizationMode || this.config.vlmLocalizationMode || 'grid';
+        let useNativeGrounding = false;
+        
+        if (locMode === 'native') {
+            useNativeGrounding = true;
+        } else if (locMode === 'auto') {
+            useNativeGrounding = this._supportsNativeGrounding(modelName);
+        }
+        // locMode === 'grid' 时 useNativeGrounding = false
+        
+        console.log(`[OcrExtractor] 模型: ${modelName}, 定位方案: ${locMode}, 使用原生: ${useNativeGrounding}`);
+        
+        let prompt, imageToSend, gridX, gridY, previewContainer;
+        
+        if (useNativeGrounding) {
+            // 使用原生 Text Grounding 能力（Qwen-VL, Gemini 2.0 等）
+            imageToSend = imageObj.dataUrl;
+            prompt = this._getNativeGroundingPrompt(modelName);
+            // 原生模式也记录默认 grid 值，用于回退解析
+            gridX = 10; gridY = 10;
+            console.log('[OcrExtractor] 使用原生 Text Grounding 能力');
+        } else {
+            // 使用网格辅助方案
+            ({ gridX, gridY } = this._calculateGridSize(imageObj.width, imageObj.height));
+            imageToSend = await this._overlayGrid(imageObj, gridX, gridY);
+            previewContainer = this._showGridPreview(imageToSend, imageObj.width, imageObj.height, gridX, gridY);
+            prompt = this._getGridAssistPrompt(gridX, gridY);
+            console.log(`[OcrExtractor] 使用网格辅助方案 (${gridX}x${gridY})`);
+        }
+        
+            // 调用 API（禁用图片预处理，避免网格被缩放导致坐标不准）
+        const result = await window.aiApiService.analyzeImage(imageToSend, prompt, {
             model: 'auto',
-            temperature: 0.3,
-            maxTokens: 8192
+            temperature: 0.1,
+            maxTokens: 8192,
+            maxImageSize: 4096,  // 足够大，避免缩放已叠加网格的图片
+            skipPreprocess: true  // 跳过预处理
         });
         
+        // 关闭网格预览
+        if (previewContainer) {
+            setTimeout(() => previewContainer.remove(), 500);
+        }
+        
         console.log('[OcrExtractor] VLM 响应:', result.content.substring(0, 200) + '...');
-        return this._parseVlmResult(result.content, imageObj.width, imageObj.height);
+        const parsed = this._parseVlmResult(result.content, imageObj.width, imageObj.height, gridX, gridY, useNativeGrounding);
+        console.log('[OcrExtractor] 解析完成，regions 数量:', parsed.regions.length);
+        if (parsed.regions.length > 0) {
+            console.log('[OcrExtractor] 第一个 region bbox:', parsed.regions[0].bbox);
+        }
+        return parsed;
+    }
+    
+    /**
+     * 检测模型是否支持原生 Text Grounding
+     */
+    _supportsNativeGrounding(modelName) {
+        const groundingModels = [
+            'qwen-vl', 'qwen2-vl', 'qwen2.5-vl',  // 通义千问 VL 系列
+            'gemini-2', 'gemini-2.0', 'gemini-2.5',  // Gemini 2.0+
+            'gpt-4o', 'gpt-4-vision',  // GPT-4 系列（有一定能力）
+            'claude-3.5', 'claude-3-5',  // Claude 3.5（有一定能力）
+        ];
+        return groundingModels.some(m => modelName.includes(m));
+    }
+    
+    /**
+     * 原生 Text Grounding Prompt（针对支持的模型）
+     */
+    _getNativeGroundingPrompt(modelName) {
+        // Qwen-VL 专用 prompt (参考官方文档)
+        if (modelName.includes('qwen')) {
+            return `Extract all text from this image with bounding box coordinates in JSON format.
+
+Output format (JSON array only, no other text):
+[{"bbox_2d":[x1,y1,x2,y2],"text_content":"text here"}]
+
+Coordinates are pixel values relative to the image dimensions.
+Include all visible text: titles, labels, annotations, etc.
+Output text in its ORIGINAL language (do not translate).`;
+        }
+        
+        // Gemini 专用 prompt
+        if (modelName.includes('gemini')) {
+            return `Detect all text in this image and provide precise bounding box coordinates for each text region.
+
+Output format (JSON only):
+{"regions":[{"bbox":[x1,y1,x2,y2],"text":"content"}]}
+
+Coordinates: normalized integers 0-1000 (0=top-left, 1000=bottom-right).
+Include all visible text regions.
+Output text in its ORIGINAL language (do not translate).`;
+        }
+        
+        // 通用 prompt（GPT-4, Claude 等）
+        return `You are a precise OCR tool with text localization capability. Detect all text in this image and provide bounding box coordinates.
+
+Output format (JSON only, no markdown):
+{"regions":[{"bbox":[x1,y1,x2,y2],"text":"content"}]}
+
+Coordinate system:
+- Values are normalized to 0-1000 scale
+- (0,0) = top-left corner, (1000,1000) = bottom-right corner
+- bbox = [left, top, right, bottom]
+
+Requirements:
+- Include ALL visible text (titles, labels, annotations, etc.)
+- bbox should tightly fit the text
+- Merge text on the same line into one region`;
+    }
+    
+    /**
+     * 网格辅助方案的 Prompt
+     */
+    _getGridAssistPrompt(gridX, gridY) {
+        return `**Task: Detect and Localize all text regions in this image.**
+
+The image has a ${gridX}x${gridY} reference grid overlay (red lines). Use the grid to estimate PERCENTAGE coordinates (0-100).
+
+**Coordinate System**
+- Use PERCENTAGE of image dimensions (0-100), NOT grid numbers
+- x1,y1 = top-left corner of text bounding box (percentage)
+- x2,y2 = bottom-right corner of text bounding box (percentage)
+- Grid helps you estimate: each cell = ${(100/gridX).toFixed(0)}% width, ${(100/gridY).toFixed(0)}% height
+
+**Step-by-step Localization**
+1. DETECT each text region (ignore the red grid lines and scale numbers)
+2. Estimate the PERCENTAGE position of text's top-left corner → (x1, y1)
+3. Estimate the PERCENTAGE position of text's bottom-right corner → (x2, y2)
+4. Merge adjacent text on the same line into one region
+
+**Output Format** (JSON only, no other text)
+{"regions":[{"text":"detected text","x1":8,"y1":11,"x2":40,"y2":19}]}
+
+**Example**
+If "Hello World" is at 12% from left, 8% from top, extending to 45% width and 13% height:
+{"regions":[{"text":"Hello World","x1":12,"y1":8,"x2":45,"y2":13}]}
+
+**Constraints**
+- 0 ≤ x1 < x2 ≤ 100
+- 0 ≤ y1 < y2 ≤ 100
+- Coordinates are PERCENTAGES, integers preferred
+- Include ALL visible text (titles, labels, annotations)
+- Output text in its ORIGINAL language (do not translate)`;
     }
     
     /**
      * 解析 VLM 返回的 JSON 结果
+     * 支持多种格式：
+     * 1. 原生 Grounding: bbox_2d/bbox [x1,y1,x2,y2] (0-1000 归一化)
+     * 2. 网格辅助: x1,y1,x2,y2 (网格刻度)
+     * 3. 旧格式: bbox { left, top, width, height } (归一化 0-1)
      */
-    _parseVlmResult(content, imgWidth, imgHeight) {
+    _parseVlmResult(content, imgWidth, imgHeight, gridX = 10, gridY = 10, isNativeGrounding = false) {
+        console.log(`[OcrExtractor] _parseVlmResult 被调用, gridX=${gridX}, gridY=${gridY}, isNativeGrounding=${isNativeGrounding}`);
         const regions = [];
         
         try {
@@ -394,32 +653,119 @@ class OcrExtractor {
                 }
             }
             
+            // 修复常见的 JSON 格式错误
+            // 1. 双重括号 [[ 变成单括号 [（bbox_2d 格式错误）
+            jsonStr = jsonStr.replace(/"bbox_2d":\s*\[\[/g, '"bbox_2d":[');
+            jsonStr = jsonStr.replace(/"bbox":\s*\[\[/g, '"bbox":[');
+            
             const data = JSON.parse(jsonStr);
-            const rawRegions = data.regions || data.texts || data.results || [];
+            console.log('[OcrExtractor] 解析后的数据:', data);
+            // Qwen-VL 返回的是数组 [{...}]，Gemini 返回的是对象 {regions: [...]}
+            const rawRegions = Array.isArray(data) ? data : (data.regions || data.texts || data.results || []);
+            console.log('[OcrExtractor] rawRegions 数量:', rawRegions.length);
             
             rawRegions.forEach((item, idx) => {
-                const text = item.text || item.content || '';
+                const text = item.text || item.text_content || item.content || '';
                 if (!text.trim()) return;
                 
-                let bbox = item.bbox || item.box || item.bounds || {};
+                let bbox;
                 
-                // 确保 bbox 格式正确
-                if (Array.isArray(bbox)) {
+                // 调试日志
+                console.log(`[OcrExtractor] 解析第 ${idx} 个区域:`, JSON.stringify(item).substring(0, 100));
+                
+                // 格式1: 原生 Text Grounding (bbox_2d 或 bbox 数组，0-1000 归一化)
+                // 格式1: rawRegion 有 bbox_2d 数组
+                // Qwen-VL: 像素坐标；Gemini: 0-1000 归一化
+                if (Array.isArray(item.bbox_2d) && item.bbox_2d.length === 4) {
+                    const [rx1, ry1, rx2, ry2] = item.bbox_2d;
+                    const maxVal = Math.max(rx1, ry1, rx2, ry2);
+                    let x1, y1, x2, y2;
+                    
+                    if (maxVal > 1000) {
+                        // Qwen-VL: 像素坐标，需要用图片尺寸归一化
+                        x1 = rx1 / imgWidth;
+                        y1 = ry1 / imgHeight;
+                        x2 = rx2 / imgWidth;
+                        y2 = ry2 / imgHeight;
+                        console.log('[LayerEditor] bbox_2d 像素坐标 →', {rx1, ry1, rx2, ry2}, '/', imgWidth, 'x', imgHeight);
+                    } else {
+                        // Gemini: 0-1000 归一化坐标
+                        x1 = rx1 / 1000;
+                        y1 = ry1 / 1000;
+                        x2 = rx2 / 1000;
+                        y2 = ry2 / 1000;
+                        console.log(`[OcrExtractor] 网格坐标: "${text.substring(0,15)}..." → (${x1.toFixed(3)},${y1.toFixed(3)})-(${x2.toFixed(3)},${y2.toFixed(3)})`);
+                    }
+                    // else: 已经是 0-1 归一化坐标
+                    
                     bbox = {
-                        left: bbox[0],
-                        top: bbox[1],
-                        width: bbox[2] - bbox[0],
-                        height: bbox[3] - bbox[1]
+                        left: Math.max(0, Math.min(1, x1)),
+                        top: Math.max(0, Math.min(1, y1)),
+                        width: Math.max(0.01, Math.min(1, x2 - x1)),
+                        height: Math.max(0.01, Math.min(1, y2 - y1))
+                    };
+                }
+                // 格式2: 网格辅助 (x1, y1, x2, y2 独立字段)
+                // 注意：prompt 要求返回百分比 (0-100)，不是网格刻度
+                else if ('x1' in item && 'y1' in item && 'x2' in item && 'y2' in item) {
+                    // 检测坐标系统：如果最大值 > 10，说明是百分比 (0-100)
+                    const maxCoord = Math.max(item.x1, item.y1, item.x2, item.y2);
+                    let divisor = 100; // 默认百分比
+                    if (maxCoord <= 10) {
+                        divisor = gridX; // 旧格式：网格刻度
+                        console.log(`[OcrExtractor] 检测到旧网格刻度格式 (0-${gridX})`);
+                    } else {
+                        console.log(`[OcrExtractor] 检测到百分比格式 (0-100)`);
+                    }
+                    
+                    const x1 = Math.max(0, Math.min(divisor, item.x1)) / divisor;
+                    const y1 = Math.max(0, Math.min(divisor, item.y1)) / divisor;
+                    const x2 = Math.max(0, Math.min(divisor, item.x2)) / divisor;
+                    const y2 = Math.max(0, Math.min(divisor, item.y2)) / divisor;
+                    
+                    bbox = {
+                        left: x1,
+                        top: y1,
+                        width: Math.max(0.01, x2 - x1),
+                        height: Math.max(0.01, y2 - y1)
+                    };
+                    
+                    console.log(`[OcrExtractor] 坐标转换: "${text.substring(0,15)}..." (${item.x1},${item.y1})-(${item.x2},${item.y2}) ÷${divisor} → (${bbox.left.toFixed(3)},${bbox.top.toFixed(3)},${bbox.width.toFixed(3)},${bbox.height.toFixed(3)})`);
+                }
+                // 格式3: 旧格式 bbox { left, top, width, height }
+                else {
+                    const rawBbox = item.bbox || item.box || item.bounds || {};
+                    bbox = {
+                        left: Math.max(0, Math.min(1, rawBbox.left || rawBbox.x || 0)),
+                        top: Math.max(0, Math.min(1, rawBbox.top || rawBbox.y || 0)),
+                        width: Math.max(0.01, Math.min(1, rawBbox.width || rawBbox.w || 0.1)),
+                        height: Math.max(0.01, Math.min(1, rawBbox.height || rawBbox.h || 0.05))
                     };
                 }
                 
-                // 验证并修正 bbox
-                bbox = {
-                    left: Math.max(0, Math.min(1, bbox.left || bbox.x || 0)),
-                    top: Math.max(0, Math.min(1, bbox.top || bbox.y || 0)),
-                    width: Math.max(0.01, Math.min(1, bbox.width || bbox.w || 0.1)),
-                    height: Math.max(0.01, Math.min(1, bbox.height || bbox.h || 0.05))
-                };
+                // 检查 bbox 是否有效，如果还是数组格式则强制转换
+                if (Array.isArray(bbox)) {
+                    console.warn(`[OcrExtractor] 区域 ${idx} bbox 仍是数组，强制转换:`, bbox);
+                    const [x1, y1, x2, y2] = bbox;
+                    const maxVal = Math.max(x1, y1, x2, y2);
+                    let nx1 = x1, ny1 = y1, nx2 = x2, ny2 = y2;
+                    if (maxVal > 10) {
+                        nx1 /= 1000; ny1 /= 1000; nx2 /= 1000; ny2 /= 1000;
+                    }
+                    bbox = {
+                        left: nx1,
+                        top: ny1,
+                        width: Math.max(0.01, nx2 - nx1),
+                        height: Math.max(0.01, ny2 - ny1)
+                    };
+                }
+                
+                if (!bbox || typeof bbox.left !== 'number') {
+                    console.warn(`[OcrExtractor] 区域 ${idx} bbox 无效:`, bbox, item);
+                    return; // 跳过无效区域
+                }
+                
+                console.log(`[OcrExtractor] 区域 ${idx} 最终 bbox:`, bbox);
                 
                 // 确保不超出边界
                 if (bbox.left + bbox.width > 1) bbox.width = 1 - bbox.left;
@@ -435,6 +781,11 @@ class OcrExtractor {
                     text,
                     bbox,
                     originalBbox,
+                    // 保留原始坐标，让 layer-editor 可以进行 fallback 转换
+                    x1: item.x1,
+                    y1: item.y1,
+                    x2: item.x2,
+                    y2: item.y2,
                     style: {
                         fontSize: estimatedFontSize,
                         color: item.color || '#000000',
@@ -449,7 +800,7 @@ class OcrExtractor {
             console.log('[OcrExtractor] 原始内容:', content);
         }
         
-        return { regions, engine: 'vlm', raw: content };
+        return { regions, engine: 'vlm', raw: content, gridX, gridY };
     }
 
     _parseMineruResult(data, imgWidth, imgHeight) {
@@ -705,6 +1056,96 @@ class OcrExtractor {
     async _dataUrlToBlob(dataUrl) {
         const res = await fetch(dataUrl);
         return res.blob();
+    }
+
+    /**
+     * 切换 VLM 定位方案（自动持久化）
+     * @param {'grid' | 'native' | 'auto'} mode
+     */
+    setLocalizationMode(mode) {
+        const validModes = ['grid', 'native', 'auto'];
+        if (!validModes.includes(mode)) {
+            console.error(`[OcrExtractor] 无效的定位方案: ${mode}，可选: ${validModes.join(', ')}`);
+            return;
+        }
+        this.config.vlmLocalizationMode = mode;
+        // 持久化到 localStorage
+        localStorage.setItem('ocrLocalizationMode', mode);
+        console.log(`[OcrExtractor] 定位方案已切换为: ${mode} (已保存)`);
+    }
+    
+    /**
+     * 获取当前定位方案
+     */
+    getLocalizationMode() {
+        return this.config.vlmLocalizationMode;
+    }
+    
+    /**
+     * 从 localStorage 加载配置
+     */
+    _loadConfig() {
+        const savedMode = localStorage.getItem('ocrLocalizationMode');
+        if (savedMode && ['grid', 'native', 'auto'].includes(savedMode)) {
+            this.config.vlmLocalizationMode = savedMode;
+            console.log(`[OcrExtractor] 已加载保存的定位方案: ${savedMode}`);
+        }
+    }
+    
+    async debugGrid(imageUrl = null, gridSize = 10) {
+        let imageObj;
+        
+        if (!imageUrl) {
+            // 使用文件选择器
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            
+            imageUrl = await new Promise((resolve) => {
+                input.onchange = (e) => {
+                    const file = e.target.files[0];
+                    if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (ev) => resolve(ev.target.result);
+                        reader.readAsDataURL(file);
+                    }
+                };
+                input.click();
+            });
+        }
+        
+        // 加载图片获取尺寸
+        const img = await new Promise((resolve, reject) => {
+            const i = new Image();
+            i.onload = () => resolve(i);
+            i.onerror = reject;
+            i.src = imageUrl;
+        });
+        
+        imageObj = {
+            dataUrl: imageUrl,
+            width: img.width,
+            height: img.height,
+            element: img
+        };
+        
+        // 生成带网格的图片
+        const gridImageUrl = await this._overlayGrid(imageObj, gridSize);
+        
+        // 在新窗口中显示
+        const win = window.open('', '_blank', 'width=1000,height=800');
+        win.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head><title>OCR Grid Preview</title></head>
+            <body style="margin:0;background:#222;display:flex;justify-content:center;align-items:center;min-height:100vh;">
+                <img src="${gridImageUrl}" style="max-width:95vw;max-height:95vh;box-shadow:0 0 20px rgba(0,0,0,0.5);">
+            </body>
+            </html>
+        `);
+        
+        console.log(`[OcrExtractor] 网格预览已打开 (${img.width}x${img.height}, ${gridSize}x${gridSize} 网格)`);
+        return gridImageUrl;
     }
 }
 

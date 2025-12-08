@@ -187,10 +187,21 @@ class AIApiService {
      * @param {string} imageDataUrl - 图片的 data URL
      * @param {string} prompt - 提示词
      * @param {Object} options - 可选参数
+     * @param {number} options.maxImageSize - 图片最大边长（默认 2048px）
+     * @param {number} options.imageQuality - 图片质量 0-1（默认 0.85）
      * @returns {Promise<{content: string, model: string}>}
      */
     async analyzeImage(imageDataUrl, prompt, options = {}) {
-        const { model = 'auto', temperature = 0.3, maxTokens = 8192 } = options;
+        const { 
+            model = 'auto', 
+            temperature = 0.3, 
+            maxTokens = 8192,
+            maxImageSize = 2048,
+            imageQuality = 0.85
+        } = options;
+        
+        // 预处理图片：限制大小和质量
+        const processedImageUrl = await this._preprocessImage(imageDataUrl, maxImageSize, imageQuality);
         
         let config;
         
@@ -207,8 +218,8 @@ class AIApiService {
         
         console.log(`[AIApiService] 使用视觉模型: ${config.name} (${config.model})`);
         
-        // 构建带图片的消息
-        const messages = this._buildVisionMessages(prompt, imageDataUrl, config);
+        // 构建带图片的消息（使用预处理后的图片）
+        const messages = this._buildVisionMessages(prompt, processedImageUrl, config);
         
         return await this._callApi(config, messages, temperature, maxTokens);
     }
@@ -293,6 +304,62 @@ class AIApiService {
             models: model.models || [],
             _rawModel: model
         };
+    }
+    
+    /**
+     * 预处理图片：限制尺寸和压缩质量
+     * @param {string} imageDataUrl - 原始图片 data URL
+     * @param {number} maxSize - 最大边长（像素）
+     * @param {number} quality - JPEG 质量 0-1
+     * @returns {Promise<string>} 处理后的 data URL
+     */
+    async _preprocessImage(imageDataUrl, maxSize, quality) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+                const { width, height } = img;
+                
+                // 计算缩放比例
+                let scale = 1;
+                if (width > maxSize || height > maxSize) {
+                    scale = maxSize / Math.max(width, height);
+                }
+                
+                const newWidth = Math.round(width * scale);
+                const newHeight = Math.round(height * scale);
+                
+                // 如果不需要缩放且是 JPEG，检查大小
+                if (scale === 1 && imageDataUrl.includes('image/jpeg')) {
+                    // 估算 base64 大小（每 4 字符 = 3 字节）
+                    const estimatedSize = (imageDataUrl.length - imageDataUrl.indexOf(',') - 1) * 0.75;
+                    if (estimatedSize < 1024 * 1024) { // < 1MB 直接返回
+                        console.log(`[AIApiService] 图片无需处理: ${width}x${height}, ~${Math.round(estimatedSize/1024)}KB`);
+                        resolve(imageDataUrl);
+                        return;
+                    }
+                }
+                
+                // 创建 Canvas 进行缩放
+                const canvas = document.createElement('canvas');
+                canvas.width = newWidth;
+                canvas.height = newHeight;
+                const ctx = canvas.getContext('2d');
+                
+                // 高质量缩放
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                ctx.drawImage(img, 0, 0, newWidth, newHeight);
+                
+                // 导出为 JPEG（比 PNG 小很多）
+                const result = canvas.toDataURL('image/jpeg', quality);
+                const resultSize = (result.length - result.indexOf(',') - 1) * 0.75;
+                
+                console.log(`[AIApiService] 图片预处理: ${width}x${height} -> ${newWidth}x${newHeight}, ~${Math.round(resultSize/1024)}KB`);
+                resolve(result);
+            };
+            img.onerror = () => reject(new Error('图片加载失败'));
+            img.src = imageDataUrl;
+        });
     }
     
     /**

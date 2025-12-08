@@ -44,6 +44,9 @@ class LayerEditor {
 
         // 渲染
         this._render();
+        
+        // 初始化属性面板（显示 OCR 设置）
+        this._updatePropertyPanel();
     }
 
     /**
@@ -659,6 +662,16 @@ class LayerEditor {
                 color: var(--ie-text-secondary);
                 font-size: 13px;
             }
+            
+            /* Toast 动画 */
+            @keyframes ie-toast-in {
+                from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+                to { opacity: 1; transform: translateX(-50%) translateY(0); }
+            }
+            @keyframes ie-toast-out {
+                from { opacity: 1; transform: translateX(-50%) translateY(0); }
+                to { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+            }
         `;
         document.head.appendChild(style);
     }
@@ -830,6 +843,499 @@ class LayerEditor {
         canvasWrap.addEventListener('dblclick', () => {
             this.scale = 1;
             this._applyScale();
+        });
+        
+        // 画布上的 bbox 拖拽调整
+        this._bindBboxDragEvents();
+    }
+    
+    /**
+     * 绑定 bbox 拖拽调整事件
+     */
+    _bindBboxDragEvents() {
+        const canvas = this.canvas;
+        let isDragging = false;
+        let dragMode = null; // 'move' | 'resize-nw' | 'resize-ne' | 'resize-sw' | 'resize-se' | 'resize-n' | 'resize-s' | 'resize-e' | 'resize-w'
+        let dragLayer = null;
+        let startPos = { x: 0, y: 0 };
+        let startBbox = null;
+        
+        const getCanvasPos = (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            return {
+                x: (e.clientX - rect.left) * scaleX,
+                y: (e.clientY - rect.top) * scaleY
+            };
+        };
+        
+        const hitTest = (pos) => {
+            // 检查是否点击了某个文字覆盖层的 bbox
+            if (this.selectedLayerIndex < 0) return null;
+            
+            const layer = this.processedImage.layers[this.selectedLayerIndex];
+            if (!layer || layer.type !== 'group' || !layer.textOverlayConfig) return null;
+            
+            // 优先检测当前选中的子图层（用于拖拽手柄）
+            if (this.selectedChildIndex >= 0) {
+                const child = layer.children?.[this.selectedChildIndex];
+                if (child && child.type === 'text-overlay') {
+                    const hit = this._hitTestBbox(pos, child);
+                    if (hit) {
+                        hit.childIndex = this.selectedChildIndex;
+                        return hit;
+                    }
+                }
+            }
+            
+            // 检测所有子图层（允许点击切换到其他子图层）
+            for (let i = layer.children.length - 1; i >= 0; i--) {
+                const child = layer.children[i];
+                if (child.type === 'text-overlay' && child.visible !== false) {
+                    const hit = this._hitTestBbox(pos, child);
+                    if (hit) {
+                        hit.childIndex = i;
+                        return hit;
+                    }
+                }
+            }
+            return null;
+        };
+        
+        canvas.addEventListener('mousedown', (e) => {
+            const pos = getCanvasPos(e);
+            const hit = hitTest(pos);
+            
+            if (hit) {
+                isDragging = true;
+                dragMode = hit.mode;
+                dragLayer = hit.layer;
+                startPos = pos;
+                startBbox = { ...dragLayer.bbox };
+                
+                // 如果点击了未选中的子图层，选中它
+                if (hit.childIndex !== undefined && hit.childIndex !== this.selectedChildIndex) {
+                    this._selectChildLayer(this.selectedLayerIndex, hit.childIndex);
+                }
+                
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            const pos = getCanvasPos(e);
+            
+            if (isDragging && dragLayer && startBbox) {
+                const dx = (pos.x - startPos.x) / canvas.width;
+                const dy = (pos.y - startPos.y) / canvas.height;
+                
+                switch (dragMode) {
+                    case 'move':
+                        dragLayer.bbox.left = Math.max(0, Math.min(1 - startBbox.width, startBbox.left + dx));
+                        dragLayer.bbox.top = Math.max(0, Math.min(1 - startBbox.height, startBbox.top + dy));
+                        break;
+                    case 'resize-se':
+                        dragLayer.bbox.width = Math.max(0.02, Math.min(1 - startBbox.left, startBbox.width + dx));
+                        dragLayer.bbox.height = Math.max(0.02, Math.min(1 - startBbox.top, startBbox.height + dy));
+                        break;
+                    case 'resize-nw':
+                        const newLeft = Math.max(0, Math.min(startBbox.left + startBbox.width - 0.02, startBbox.left + dx));
+                        const newTop = Math.max(0, Math.min(startBbox.top + startBbox.height - 0.02, startBbox.top + dy));
+                        dragLayer.bbox.width = startBbox.width - (newLeft - startBbox.left);
+                        dragLayer.bbox.height = startBbox.height - (newTop - startBbox.top);
+                        dragLayer.bbox.left = newLeft;
+                        dragLayer.bbox.top = newTop;
+                        break;
+                    case 'resize-ne':
+                        const newTopNE = Math.max(0, Math.min(startBbox.top + startBbox.height - 0.02, startBbox.top + dy));
+                        dragLayer.bbox.width = Math.max(0.02, Math.min(1 - startBbox.left, startBbox.width + dx));
+                        dragLayer.bbox.height = startBbox.height - (newTopNE - startBbox.top);
+                        dragLayer.bbox.top = newTopNE;
+                        break;
+                    case 'resize-sw':
+                        const newLeftSW = Math.max(0, Math.min(startBbox.left + startBbox.width - 0.02, startBbox.left + dx));
+                        dragLayer.bbox.width = startBbox.width - (newLeftSW - startBbox.left);
+                        dragLayer.bbox.height = Math.max(0.02, Math.min(1 - startBbox.top, startBbox.height + dy));
+                        dragLayer.bbox.left = newLeftSW;
+                        break;
+                    case 'resize-n':
+                        const newTopN = Math.max(0, Math.min(startBbox.top + startBbox.height - 0.02, startBbox.top + dy));
+                        dragLayer.bbox.height = startBbox.height - (newTopN - startBbox.top);
+                        dragLayer.bbox.top = newTopN;
+                        break;
+                    case 'resize-s':
+                        dragLayer.bbox.height = Math.max(0.02, Math.min(1 - startBbox.top, startBbox.height + dy));
+                        break;
+                    case 'resize-e':
+                        dragLayer.bbox.width = Math.max(0.02, Math.min(1 - startBbox.left, startBbox.width + dx));
+                        break;
+                    case 'resize-w':
+                        const newLeftW = Math.max(0, Math.min(startBbox.left + startBbox.width - 0.02, startBbox.left + dx));
+                        dragLayer.bbox.width = startBbox.width - (newLeftW - startBbox.left);
+                        dragLayer.bbox.left = newLeftW;
+                        break;
+                }
+                
+                this._render();
+                return;
+            }
+            
+            // 更新鼠标样式
+            const hit = hitTest(pos);
+            if (hit) {
+                switch (hit.mode) {
+                    case 'move': canvas.style.cursor = 'move'; break;
+                    case 'resize-nw': case 'resize-se': canvas.style.cursor = 'nwse-resize'; break;
+                    case 'resize-ne': case 'resize-sw': canvas.style.cursor = 'nesw-resize'; break;
+                    case 'resize-n': case 'resize-s': canvas.style.cursor = 'ns-resize'; break;
+                    case 'resize-e': case 'resize-w': canvas.style.cursor = 'ew-resize'; break;
+                }
+            } else {
+                canvas.style.cursor = 'default';
+            }
+        });
+        
+        const endDrag = () => {
+            if (isDragging && dragLayer) {
+                // 重新估算字号
+                this._autoEstimateFontSize(dragLayer);
+                this._saveHistory();
+                this._updatePropertyPanel();
+                this._render();
+            }
+            isDragging = false;
+            dragMode = null;
+            dragLayer = null;
+            startBbox = null;
+        };
+        
+        canvas.addEventListener('mouseup', endDrag);
+        canvas.addEventListener('mouseleave', endDrag);
+    }
+    
+    /**
+     * 检测点击位置与 bbox 的关系
+     */
+    _hitTestBbox(pos, layer) {
+        if (!layer.bbox) return null;
+        
+        const imgWidth = this.canvas.width;
+        const imgHeight = this.canvas.height;
+        
+        const x = layer.bbox.left * imgWidth;
+        const y = layer.bbox.top * imgHeight;
+        const w = layer.bbox.width * imgWidth;
+        const h = layer.bbox.height * imgHeight;
+        
+        const handleSize = 8; // 调整手柄大小
+        
+        // 检测四角调整手柄
+        if (this._pointInRect(pos.x, pos.y, x - handleSize, y - handleSize, handleSize * 2, handleSize * 2)) {
+            return { layer, mode: 'resize-nw' };
+        }
+        if (this._pointInRect(pos.x, pos.y, x + w - handleSize, y - handleSize, handleSize * 2, handleSize * 2)) {
+            return { layer, mode: 'resize-ne' };
+        }
+        if (this._pointInRect(pos.x, pos.y, x - handleSize, y + h - handleSize, handleSize * 2, handleSize * 2)) {
+            return { layer, mode: 'resize-sw' };
+        }
+        if (this._pointInRect(pos.x, pos.y, x + w - handleSize, y + h - handleSize, handleSize * 2, handleSize * 2)) {
+            return { layer, mode: 'resize-se' };
+        }
+        
+        // 检测四边调整手柄
+        if (this._pointInRect(pos.x, pos.y, x + w/2 - handleSize, y - handleSize, handleSize * 2, handleSize * 2)) {
+            return { layer, mode: 'resize-n' };
+        }
+        if (this._pointInRect(pos.x, pos.y, x + w/2 - handleSize, y + h - handleSize, handleSize * 2, handleSize * 2)) {
+            return { layer, mode: 'resize-s' };
+        }
+        if (this._pointInRect(pos.x, pos.y, x - handleSize, y + h/2 - handleSize, handleSize * 2, handleSize * 2)) {
+            return { layer, mode: 'resize-w' };
+        }
+        if (this._pointInRect(pos.x, pos.y, x + w - handleSize, y + h/2 - handleSize, handleSize * 2, handleSize * 2)) {
+            return { layer, mode: 'resize-e' };
+        }
+        
+        // 检测内部区域（移动）
+        if (this._pointInRect(pos.x, pos.y, x, y, w, h)) {
+            return { layer, mode: 'move' };
+        }
+        
+        return null;
+    }
+    
+    /**
+     * 点是否在矩形内
+     */
+    _pointInRect(px, py, rx, ry, rw, rh) {
+        return px >= rx && px <= rx + rw && py >= ry && py <= ry + rh;
+    }
+    
+    /**
+     * 开始绘制 bbox 模式
+     */
+    _startDrawBbox(parentLayer) {
+        this.drawBboxMode = true;
+        this.drawBboxParent = parentLayer;
+        this.canvas.style.cursor = 'crosshair';
+        
+        // 显示提示
+        this._showToast('在画布上拖拽绘制文字区域，按 Esc 取消');
+        
+        // 如果还没有绑定绘制事件，绑定它
+        if (!this._bboxDrawBound) {
+            this._bindBboxDrawEvents();
+            this._bboxDrawBound = true;
+        }
+    }
+    
+    /**
+     * 绑定 bbox 绘制事件
+     */
+    _bindBboxDrawEvents() {
+        const canvas = this.canvas;
+        let isDrawing = false;
+        let startPos = null;
+        let currentRect = null;
+        
+        const getCanvasPos = (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            return {
+                x: (e.clientX - rect.left) * scaleX,
+                y: (e.clientY - rect.top) * scaleY
+            };
+        };
+        
+        // 绘制预览矩形
+        const drawPreview = () => {
+            if (!currentRect) return;
+            this._render();
+            
+            // 绘制正在绘制的矩形
+            this.ctx.strokeStyle = '#22c55e';
+            this.ctx.lineWidth = 2;
+            this.ctx.setLineDash([5, 3]);
+            this.ctx.strokeRect(currentRect.x, currentRect.y, currentRect.w, currentRect.h);
+            this.ctx.setLineDash([]);
+            
+            // 填充半透明
+            this.ctx.fillStyle = 'rgba(34, 197, 94, 0.1)';
+            this.ctx.fillRect(currentRect.x, currentRect.y, currentRect.w, currentRect.h);
+        };
+        
+        canvas.addEventListener('mousedown', (e) => {
+            if (!this.drawBboxMode) return;
+            
+            const pos = getCanvasPos(e);
+            isDrawing = true;
+            startPos = pos;
+            currentRect = { x: pos.x, y: pos.y, w: 0, h: 0 };
+            
+            e.preventDefault();
+            e.stopPropagation();
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            if (!this.drawBboxMode || !isDrawing || !startPos) return;
+            
+            const pos = getCanvasPos(e);
+            
+            // 计算矩形（支持任意方向拖拽）
+            const x = Math.min(startPos.x, pos.x);
+            const y = Math.min(startPos.y, pos.y);
+            const w = Math.abs(pos.x - startPos.x);
+            const h = Math.abs(pos.y - startPos.y);
+            
+            currentRect = { x, y, w, h };
+            drawPreview();
+        });
+        
+        canvas.addEventListener('mouseup', (e) => {
+            if (!this.drawBboxMode || !isDrawing || !currentRect) return;
+            
+            isDrawing = false;
+            
+            // 检查矩形是否足够大
+            if (currentRect.w < 10 || currentRect.h < 10) {
+                this._showToast('区域太小，请重新绘制');
+                currentRect = null;
+                startPos = null;
+                this._render();
+                return;
+            }
+            
+            // 创建新的文字区域
+            this._createTextRegion(currentRect);
+            
+            // 重置状态
+            currentRect = null;
+            startPos = null;
+            this.drawBboxMode = false;
+            this.canvas.style.cursor = 'default';
+            
+            this._render();
+        });
+        
+        // Esc 取消绘制模式
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.drawBboxMode) {
+                this.drawBboxMode = false;
+                this.canvas.style.cursor = 'default';
+                isDrawing = false;
+                currentRect = null;
+                startPos = null;
+                this._render();
+                this._showToast('已取消绘制');
+            }
+            
+            // Delete 键删除选中的文字区域
+            if (e.key === 'Delete' && this.selectedChildIndex >= 0) {
+                const layer = this.processedImage.layers[this.selectedLayerIndex];
+                if (layer?.type === 'group' && layer.textOverlayConfig) {
+                    const child = layer.children?.[this.selectedChildIndex];
+                    if (child?.type === 'text-overlay') {
+                        layer.children.splice(this.selectedChildIndex, 1);
+                        layer.name = `文字识别 (${layer.children.length} 区域)`;
+                        this.selectedChildIndex = -1;
+                        this._saveHistory();
+                        this._updateLayerList();
+                        this._updatePropertyPanel();
+                        this._render();
+                        this._showToast('已删除文字区域');
+                    }
+                }
+            }
+        });
+    }
+    
+    /**
+     * 创建新的文字区域
+     */
+    _createTextRegion(rect) {
+        const parent = this.drawBboxParent;
+        if (!parent || !parent.children) return;
+        
+        const imgWidth = this.canvas.width;
+        const imgHeight = this.canvas.height;
+        
+        // 转换为归一化坐标
+        const bbox = {
+            left: rect.x / imgWidth,
+            top: rect.y / imgHeight,
+            width: rect.w / imgWidth,
+            height: rect.h / imgHeight
+        };
+        
+        // 创建新的文字区域
+        const newRegion = {
+            id: `text_region_manual_${Date.now()}`,
+            type: 'text-overlay',
+            name: '新文字区域',
+            bbox,
+            originalBbox: { ...bbox },
+            content: {
+                originalText: '',
+                translatedText: '',
+                displayText: ''
+            },
+            style: {
+                fontSize: 14,
+                fontFamily: '"Noto Sans CJK SC", Arial, sans-serif',
+                color: '#000000',
+                fontWeight: 'normal',
+                textAlign: 'left'
+            },
+            inpainted: false,
+            visible: true,
+            parentId: parent.id
+        };
+        
+        // 自动估算字号
+        this._autoEstimateFontSize(newRegion);
+        
+        // 添加到父组
+        parent.children.push(newRegion);
+        parent.name = `文字识别 (${parent.children.length} 区域)`;
+        
+        // 选中新创建的区域
+        this.selectedChildIndex = parent.children.length - 1;
+        
+        this._saveHistory();
+        this._updateLayerList();
+        this._updatePropertyPanel();
+        
+        this._showToast('已创建文字区域，可在右侧面板编辑内容');
+    }
+    
+    /**
+     * 显示 Toast 提示
+     */
+    _showToast(message, duration = 2000) {
+        // 移除已有的 toast
+        const existing = this.container.querySelector('.ie-toast');
+        if (existing) existing.remove();
+        
+        const toast = document.createElement('div');
+        toast.className = 'ie-toast';
+        toast.textContent = message;
+        toast.style.cssText = `
+            position: absolute;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 13px;
+            z-index: 1000;
+            animation: ie-toast-in 0.3s ease;
+        `;
+        
+        this.container.querySelector('.image-editor-canvas-wrap').appendChild(toast);
+        
+        setTimeout(() => {
+            toast.style.animation = 'ie-toast-out 0.3s ease';
+            setTimeout(() => toast.remove(), 300);
+        }, duration);
+    }
+    
+    /**
+     * 绘制调整手柄
+     */
+    _drawResizeHandles(x, y, w, h) {
+        const size = 6;
+        const half = size / 2;
+        
+        this.ctx.fillStyle = '#4f46e5';
+        this.ctx.strokeStyle = '#fff';
+        this.ctx.lineWidth = 1;
+        
+        // 四角手柄
+        const corners = [
+            [x - half, y - half],           // nw
+            [x + w - half, y - half],       // ne
+            [x - half, y + h - half],       // sw
+            [x + w - half, y + h - half],   // se
+        ];
+        
+        // 四边中点手柄
+        const edges = [
+            [x + w/2 - half, y - half],     // n
+            [x + w/2 - half, y + h - half], // s
+            [x - half, y + h/2 - half],     // w
+            [x + w - half, y + h/2 - half], // e
+        ];
+        
+        // 绘制所有手柄
+        [...corners, ...edges].forEach(([hx, hy]) => {
+            this.ctx.fillRect(hx, hy, size, size);
+            this.ctx.strokeRect(hx, hy, size, size);
         });
     }
     
@@ -1181,7 +1687,13 @@ class LayerEditor {
         const engine = await this._showOcrEngineSelector();
         if (!engine) return; // 用户取消
         
-        this._showLoading(engine === 'vlm' ? '正在使用 AI 识别文字...' : '正在识别文字...');
+        // 如果是 VLM 且使用网格辅助模式，显示网格预览
+        const locMode = window.ocrExtractor?.config?.vlmLocalizationMode || 'grid';
+        if (engine === 'vlm' && locMode === 'grid') {
+            this._showOcrGridOverlay(true, '正在使用 AI 识别文字...');
+        } else {
+            this._showLoading(engine === 'vlm' ? '正在使用 AI 识别文字...' : '正在识别文字...');
+        }
         await this._nextFrame();
         
         try {
@@ -1191,19 +1703,48 @@ class LayerEditor {
             // 执行 OCR，传入选择的引擎
             const result = await ocrExtractor.extract(this.processedImage.original, { priority: engine });
             
-            if (!result.regions || result.regions.length === 0) {
+            console.log('[LayerEditor] OCR 结果:', result);
+            console.log('[LayerEditor] 原图尺寸:', this.processedImage.original.width, 'x', this.processedImage.original.height);
+            console.log('[LayerEditor] Canvas 尺寸:', this.canvas.width, 'x', this.canvas.height);
+            
+            // 从 raw 响应中重新解析原始坐标（workaround for ocr-extractor parsing issue）
+            let rawRegions = [];
+            if (result.raw) {
+                try {
+                    let jsonStr = result.raw;
+                    const jsonMatch = result.raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+                    if (jsonMatch) jsonStr = jsonMatch[1].trim();
+                    
+                    // 修复常见的 JSON 格式错误
+                    // 1. 双重括号 [[ 变成单括号 [（bbox_2d 格式错误）
+                    jsonStr = jsonStr.replace(/"bbox_2d":\s*\[\[/g, '"bbox_2d":[');
+                    jsonStr = jsonStr.replace(/"bbox":\s*\[\[/g, '"bbox":[');
+                    
+                    const parsed = JSON.parse(jsonStr);
+                    // Qwen-VL 返回的是数组 [{...}]，Gemini 返回的是对象 {regions: [...]}
+                    rawRegions = Array.isArray(parsed) ? parsed : (parsed.regions || parsed.texts || []);
+                    console.log('[LayerEditor] 从 raw 解析到', rawRegions.length, '个原始区域');
+                } catch (e) {
+                    console.warn('[LayerEditor] 解析 raw 失败:', e);
+                }
+            }
+            
+            // 如果 ocr-extractor 解析失败但 raw 解析成功，使用 raw 数据
+            const regions = (result.regions && result.regions.length > 0) ? result.regions : rawRegions;
+            
+            if (regions.length === 0) {
                 alert('未识别到文字区域');
                 return;
             }
             
-            console.log(`[LayerEditor] OCR 识别到 ${result.regions.length} 个文字区域`);
+            console.log(`[LayerEditor] OCR 识别到 ${regions.length} 个文字区域`);
             
             // 创建文字覆盖组
             const groupId = `text_group_${Date.now()}`;
             const groupLayer = {
                 id: groupId,
                 type: 'group',
-                name: `文字识别 (${result.regions.length} 区域)`,
+                name: `文字识别 (${regions.length} 区域)`,
                 visible: true,
                 textOverlayConfig: {
                     engine: result.engine,
@@ -1214,25 +1755,130 @@ class LayerEditor {
                 inpaintedBackground: null,
             };
             
-            // 为每个区域创建子图层
-            result.regions.forEach((region, idx) => {
+            // 确定坐标系统
+            // 检测坐标最大值来判断是哪种坐标系
+            let gridX = 10, gridY = 10;  // 默认 10x10 网格
+            if (rawRegions.length > 0) {
+                const maxX = Math.max(...rawRegions.filter(r => r.x2).map(r => r.x2));
+                const maxY = Math.max(...rawRegions.filter(r => r.y2).map(r => r.y2));
+                
+                // 检测坐标系类型
+                if (maxX > 50) {
+                    // 百分比坐标 (0-100)
+                    gridX = 100;
+                    gridY = 100;
+                    console.log('[LayerEditor] 检测到百分比坐标 (0-100)');
+                } else if (maxX > 10) {
+                    // 可能是其他网格，使用实际最大值
+                    gridX = Math.ceil(maxX);
+                    gridY = Math.ceil(maxY);
+                    console.log('[LayerEditor] 使用动态网格:', gridX, 'x', gridY);
+                } else {
+                    // 标准 10x10 网格
+                    console.log('[LayerEditor] 使用标准 10x10 网格');
+                }
+            }
+            
+            // 显示红框预览（如果有网格覆盖层）
+            if (this.container.querySelector('.ocr-grid-overlay') && rawRegions.length > 0) {
+                this._updateOcrGridBboxes(rawRegions, gridX, gridY);
+                // 延迟 1.5 秒后继续
+                await new Promise(r => setTimeout(r, 1500));
+            }
+            
+            rawRegions.forEach((rawRegion, idx) => {
+                // rawRegion 直接来自 VLM 原始响应，包含 text, bbox_2d/bbox/x1y1x2y2 等
+                const text = rawRegion.text || rawRegion.text_content || '';
+                if (!text.trim()) return;
+                
+                // 确保 bbox 是对象格式 { left, top, width, height }
+                let bbox = null;
+                
+                // 格式1: rawRegion 有 bbox_2d 数组
+                // Qwen-VL: 像素坐标；Gemini: 0-1000 归一化
+                if (Array.isArray(rawRegion.bbox_2d) && rawRegion.bbox_2d.length === 4) {
+                    const [rx1, ry1, rx2, ry2] = rawRegion.bbox_2d;
+                    const maxVal = Math.max(rx1, ry1, rx2, ry2);
+                    let x1, y1, x2, y2;
+                    
+                    const imgWidth = this.processedImage.original.width;
+                    const imgHeight = this.processedImage.original.height;
+                    
+                    if (maxVal > 1000) {
+                        // Qwen-VL: 像素坐标，用图片尺寸归一化
+                        x1 = rx1 / imgWidth;
+                        y1 = ry1 / imgHeight;
+                        x2 = rx2 / imgWidth;
+                        y2 = ry2 / imgHeight;
+                        console.log(`[LayerEditor] bbox_2d 像素坐标:`, rawRegion.bbox_2d, `/ ${imgWidth}x${imgHeight}`);
+                    } else {
+                        // Gemini: 0-1000 归一化坐标
+                        x1 = rx1 / 1000;
+                        y1 = ry1 / 1000;
+                        x2 = rx2 / 1000;
+                        y2 = ry2 / 1000;
+                    }
+                    bbox = {
+                        left: Math.max(0, Math.min(1, x1)),
+                        top: Math.max(0, Math.min(1, y1)),
+                        width: Math.max(0.01, Math.min(1, x2 - x1)),
+                        height: Math.max(0.01, Math.min(1, y2 - y1))
+                    };
+                    console.log(`[LayerEditor] 转换 bbox_2d:`, rawRegion.bbox_2d, '→', bbox);
+                }
+                // 格式2: rawRegion 有 x1, y1, x2, y2 独立字段 (网格辅助模式)
+                else if ('x1' in rawRegion && 'y1' in rawRegion && 'x2' in rawRegion && 'y2' in rawRegion) {
+                    const x1 = rawRegion.x1 / gridX;
+                    const y1 = rawRegion.y1 / gridY;
+                    const x2 = rawRegion.x2 / gridX;
+                    const y2 = rawRegion.y2 / gridY;
+                    bbox = {
+                        left: Math.max(0, Math.min(1, x1)),
+                        top: Math.max(0, Math.min(1, y1)),
+                        width: Math.max(0.01, Math.min(1, x2 - x1)),
+                        height: Math.max(0.01, Math.min(1, y2 - y1))
+                    };
+                    console.log(`[LayerEditor] 转换网格坐标 (${gridX}x${gridY}):`, `(${rawRegion.x1},${rawRegion.y1})-(${rawRegion.x2},${rawRegion.y2})`, '→', bbox);
+                }
+                // 格式3: rawRegion 有 bbox 数组 (0-1000 归一化)
+                else if (Array.isArray(rawRegion.bbox) && rawRegion.bbox.length === 4) {
+                    const [rx1, ry1, rx2, ry2] = rawRegion.bbox;
+                    const maxVal = Math.max(rx1, ry1, rx2, ry2);
+                    let x1 = rx1, y1 = ry1, x2 = rx2, y2 = ry2;
+                    if (maxVal > 10) {
+                        x1 /= 1000; y1 /= 1000; x2 /= 1000; y2 /= 1000;
+                    }
+                    bbox = {
+                        left: Math.max(0, Math.min(1, x1)),
+                        top: Math.max(0, Math.min(1, y1)),
+                        width: Math.max(0.01, Math.min(1, x2 - x1)),
+                        height: Math.max(0.01, Math.min(1, y2 - y1))
+                    };
+                    console.log(`[LayerEditor] 转换原生 bbox:`, rawRegion.bbox, '→', bbox);
+                }
+                // 格式4: bbox 不存在或无效，跳过
+                else {
+                    console.warn(`[LayerEditor] 区域 ${idx} 无有效坐标，跳过:`, rawRegion);
+                    return;
+                }
+                
                 const childLayer = {
                     id: `text_region_${idx}_${Date.now()}`,
                     type: 'text-overlay',
-                    name: `文字: ${region.text.substring(0, 12)}${region.text.length > 12 ? '...' : ''}`,
-                    bbox: region.bbox,
-                    originalBbox: region.originalBbox || region.bbox,
+                    name: `文字: ${text.substring(0, 12)}${text.length > 12 ? '...' : ''}`,
+                    bbox: bbox,
+                    originalBbox: bbox,
                     content: {
-                        originalText: region.text,
+                        originalText: text,
                         translatedText: '',
-                        displayText: region.text,
+                        displayText: text,
                     },
                     style: {
-                        fontSize: region.style.fontSize,
-                        color: region.style.color || '#000000',
-                        fontWeight: region.style.fontWeight || 'normal',
+                        fontSize: rawRegion.fontSize || 14,
+                        color: rawRegion.color || '#000000',
+                        fontWeight: rawRegion.fontWeight || 'normal',
                         fontFamily: '"Noto Sans CJK SC", "Microsoft YaHei", Arial, sans-serif',
-                        textAlign: region.style.textAlign || 'left',
+                        textAlign: rawRegion.textAlign || 'left',
                     },
                     inpainted: false,
                     visible: true,
@@ -1264,6 +1910,264 @@ class LayerEditor {
             alert('文字识别失败: ' + err.message);
         } finally {
             this._hideLoading();
+            this._showOcrGridOverlay(false); // 隐藏网格预览
+        }
+    }
+    
+    /**
+     * 显示/隐藏 OCR 网格预览覆盖层
+     */
+    _showOcrGridOverlay(show, message = '') {
+        const canvasWrap = this.container.querySelector('.image-editor-canvas-wrap');
+        let overlay = canvasWrap.querySelector('.ocr-grid-overlay');
+        
+        if (!show) {
+            overlay?.remove();
+            return;
+        }
+        
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.className = 'ocr-grid-overlay';
+            overlay.style.cssText = `
+                position: absolute;
+                inset: 0;
+                pointer-events: none;
+                z-index: 100;
+            `;
+            canvasWrap.appendChild(overlay);
+        }
+        
+        // 获取 canvas 尺寸
+        const imgWidth = this.canvas.width;
+        const imgHeight = this.canvas.height;
+        const gridX = 10, gridY = 10;
+        
+        // 生成网格 SVG
+        let gridLines = '';
+        for (let i = 0; i <= gridX; i++) {
+            const x = (i / gridX) * 100;
+            gridLines += `<line x1="${x}%" y1="0" x2="${x}%" y2="100%" stroke="rgba(255,255,255,0.4)" stroke-width="1"/>`;
+            // 添加刻度数字
+            if (i < gridX) {
+                gridLines += `<text x="${x + 5}%" y="3%" fill="white" font-size="12" opacity="0.7">${i + 1}</text>`;
+            }
+        }
+        for (let i = 0; i <= gridY; i++) {
+            const y = (i / gridY) * 100;
+            gridLines += `<line x1="0" y1="${y}%" x2="100%" y2="${y}%" stroke="rgba(255,255,255,0.4)" stroke-width="1"/>`;
+            // 添加刻度数字
+            if (i < gridY) {
+                gridLines += `<text x="1%" y="${y + 5}%" fill="white" font-size="12" opacity="0.7">${i + 1}</text>`;
+            }
+        }
+        
+        overlay.innerHTML = `
+            <svg width="100%" height="100%" style="position:absolute;inset:0;">
+                ${gridLines}
+            </svg>
+            <div style="
+                position: absolute;
+                top: 10px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(0,0,0,0.8);
+                color: white;
+                padding: 8px 16px;
+                border-radius: 20px;
+                font-size: 13px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            ">
+                <div class="ocr-spinner" style="
+                    width: 16px;
+                    height: 16px;
+                    border: 2px solid rgba(255,255,255,0.3);
+                    border-top-color: white;
+                    border-radius: 50%;
+                    animation: ie-spin 1s linear infinite;
+                "></div>
+                VLM OCR 识别中... (${gridX}x${gridY} 参考网格)
+            </div>
+            <div style="
+                position: absolute;
+                bottom: 10px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(0,0,0,0.6);
+                color: rgba(255,255,255,0.8);
+                padding: 4px 12px;
+                border-radius: 4px;
+                font-size: 11px;
+            ">
+                X轴刻度 0-${gridX}，Y轴刻度 0-${gridY}，精度 0.1
+            </div>
+        `;
+        
+        // 确保有旋转动画
+        if (!document.querySelector('#ie-spin-style')) {
+            const style = document.createElement('style');
+            style.id = 'ie-spin-style';
+            style.textContent = '@keyframes ie-spin { to { transform: rotate(360deg); } }';
+            document.head.appendChild(style);
+        }
+    }
+    
+    /**
+     * 显示持久化参考网格（带 bbox）
+     */
+    _showPersistentGrid(layer) {
+        const canvasWrap = this.container.querySelector('.image-editor-canvas-wrap');
+        let overlay = canvasWrap.querySelector('.ocr-grid-overlay');
+        
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.className = 'ocr-grid-overlay';
+            overlay.style.cssText = `
+                position: absolute;
+                inset: 0;
+                pointer-events: none;
+                z-index: 100;
+            `;
+            canvasWrap.appendChild(overlay);
+        }
+        
+        const gridX = 10, gridY = 10;
+        
+        // 生成网格 SVG
+        let gridLines = '';
+        for (let i = 0; i <= gridX; i++) {
+            const x = (i / gridX) * 100;
+            gridLines += `<line x1="${x}%" y1="0" x2="${x}%" y2="100%" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>`;
+            if (i > 0 && i < gridX) {
+                gridLines += `<text x="${x - 0.5}%" y="2.5%" fill="rgba(255,255,255,0.6)" font-size="11">${i}</text>`;
+            }
+        }
+        for (let i = 0; i <= gridY; i++) {
+            const y = (i / gridY) * 100;
+            gridLines += `<line x1="0" y1="${y}%" x2="100%" y2="${y}%" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>`;
+            if (i > 0 && i < gridY) {
+                gridLines += `<text x="0.5%" y="${y + 2}%" fill="rgba(255,255,255,0.6)" font-size="11">${i}</text>`;
+            }
+        }
+        
+        // 生成 bbox
+        let bboxSvg = '';
+        if (layer.children) {
+            layer.children.forEach(child => {
+                if (child.type !== 'text-overlay' || !child.bbox) return;
+                const left = child.bbox.left * 100;
+                const top = child.bbox.top * 100;
+                const width = child.bbox.width * 100;
+                const height = child.bbox.height * 100;
+                bboxSvg += `<rect x="${left}%" y="${top}%" width="${width}%" height="${height}%"
+                    fill="none" stroke="#ef4444" stroke-width="2" stroke-dasharray="5,3"/>`;
+            });
+        }
+        
+        overlay.innerHTML = `
+            <svg width="100%" height="100%" style="position:absolute;inset:0;">
+                ${gridLines}
+                <g class="ocr-bboxes">${bboxSvg}</g>
+            </svg>
+            <div style="
+                position: absolute;
+                bottom: 10px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(0,0,0,0.6);
+                color: rgba(255,255,255,0.8);
+                padding: 4px 12px;
+                border-radius: 4px;
+                font-size: 11px;
+            ">
+                ${layer.children?.length || 0} 个文字区域 · ${gridX}×${gridY} 参考网格
+            </div>
+        `;
+    }
+    
+    /**
+     * 隐藏持久化参考网格
+     */
+    _hidePersistentGrid() {
+        const overlay = this.container.querySelector('.ocr-grid-overlay');
+        overlay?.remove();
+    }
+    
+    /**
+     * 更新 OCR 网格覆盖层的 bbox 显示
+     */
+    _updateOcrGridBboxes(regions, gridX = 10, gridY = 10) {
+        const overlay = this.container.querySelector('.ocr-grid-overlay');
+        if (!overlay) return;
+        
+        // 添加红色虚线框
+        let bboxSvg = '';
+        regions.forEach((region, idx) => {
+            let left, top, width, height;
+            
+            if ('x1' in region && 'y1' in region) {
+                // 网格/百分比坐标 - 用 gridX/gridY 归一化
+                left = (region.x1 / gridX) * 100;
+                top = (region.y1 / gridY) * 100;
+                width = ((region.x2 - region.x1) / gridX) * 100;
+                height = ((region.y2 - region.y1) / gridY) * 100;
+            } else if (Array.isArray(region.bbox_2d) && region.bbox_2d.length === 4) {
+                // bbox_2d 格式 [x1,y1,x2,y2]
+                const [x1, y1, x2, y2] = region.bbox_2d;
+                const maxVal = Math.max(x1, y1, x2, y2);
+                if (maxVal > 1000) {
+                    // 像素坐标
+                    const imgWidth = this.canvas.width;
+                    const imgHeight = this.canvas.height;
+                    left = (x1 / imgWidth) * 100;
+                    top = (y1 / imgHeight) * 100;
+                    width = ((x2 - x1) / imgWidth) * 100;
+                    height = ((y2 - y1) / imgHeight) * 100;
+                } else {
+                    // 0-1000 归一化
+                    left = x1 / 10;
+                    top = y1 / 10;
+                    width = (x2 - x1) / 10;
+                    height = (y2 - y1) / 10;
+                }
+            } else if (region.bbox) {
+                left = region.bbox.left * 100;
+                top = region.bbox.top * 100;
+                width = region.bbox.width * 100;
+                height = region.bbox.height * 100;
+            } else {
+                return;
+            }
+            
+            bboxSvg += `
+                <rect x="${left}%" y="${top}%" width="${width}%" height="${height}%"
+                    fill="none" stroke="#ef4444" stroke-width="2" stroke-dasharray="5,3"/>
+            `;
+        });
+        
+        // 找到现有的 SVG 并添加 bbox
+        let svg = overlay.querySelector('svg');
+        if (svg) {
+            // 移除旧的 bbox group
+            const oldBboxGroup = svg.querySelector('.ocr-bboxes');
+            if (oldBboxGroup) oldBboxGroup.remove();
+            
+            // 添加新的 bbox group
+            const bboxGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            bboxGroup.classList.add('ocr-bboxes');
+            bboxGroup.innerHTML = bboxSvg;
+            svg.appendChild(bboxGroup);
+        }
+        
+        // 更新消息
+        const msgDiv = overlay.querySelector('div[style*="top: 10px"]');
+        if (msgDiv) {
+            msgDiv.innerHTML = `
+                <iconify-icon icon="carbon:checkmark" style="color:#22c55e;font-size:18px;"></iconify-icon>
+                识别完成，找到 ${regions.length} 个文字区域
+            `;
         }
     }
     
@@ -1350,64 +2254,83 @@ class LayerEditor {
     }
     
     /**
-     * 执行 Inpainting（双线性插值）
+     * 执行 Inpainting（改进版：采样周围8个方向 + 众色）
      */
     async _performInpainting(ctx, x, y, w, h, srcImageData) {
         const imgWidth = srcImageData.width;
         const imgHeight = srcImageData.height;
         const srcData = srcImageData.data;
         
-        // 采样边缘像素
-        const sampleWidth = 3;
+        // 采样边缘像素（增加采样宽度）
+        const sampleWidth = 5;
         const topEdge = [], bottomEdge = [], leftEdge = [], rightEdge = [];
         
+        // 辅助函数：获取像素颜色
+        const getPixel = (px, py) => {
+            if (px < 0 || px >= imgWidth || py < 0 || py >= imgHeight) return null;
+            const idx = (py * imgWidth + px) * 4;
+            if (idx < 0 || idx >= srcData.length - 2) return null;
+            return { r: srcData[idx], g: srcData[idx+1], b: srcData[idx+2] };
+        };
+        
+        // 采样四边（每个位置采样多行/列）
         for (let i = 0; i < w; i++) {
-            // 上边缘
             const topColors = [];
-            for (let s = 1; s <= sampleWidth; s++) {
-                const sy = Math.max(0, y - s);
-                const idx = (sy * imgWidth + x + i) * 4;
-                if (idx >= 0 && idx < srcData.length - 2) {
-                    topColors.push({ r: srcData[idx], g: srcData[idx+1], b: srcData[idx+2] });
-                }
-            }
-            topEdge.push(this._avgColor(topColors));
-            
-            // 下边缘
             const bottomColors = [];
             for (let s = 1; s <= sampleWidth; s++) {
-                const sy = Math.min(imgHeight - 1, y + h + s - 1);
-                const idx = (sy * imgWidth + x + i) * 4;
-                if (idx >= 0 && idx < srcData.length - 2) {
-                    bottomColors.push({ r: srcData[idx], g: srcData[idx+1], b: srcData[idx+2] });
-                }
+                // 上边缘：采样上方 + 左上 + 右上
+                const c1 = getPixel(x + i, y - s);
+                const c2 = getPixel(x + i - 1, y - s);
+                const c3 = getPixel(x + i + 1, y - s);
+                if (c1) topColors.push(c1);
+                if (c2) topColors.push(c2);
+                if (c3) topColors.push(c3);
+                
+                // 下边缘：采样下方 + 左下 + 右下
+                const b1 = getPixel(x + i, y + h + s - 1);
+                const b2 = getPixel(x + i - 1, y + h + s - 1);
+                const b3 = getPixel(x + i + 1, y + h + s - 1);
+                if (b1) bottomColors.push(b1);
+                if (b2) bottomColors.push(b2);
+                if (b3) bottomColors.push(b3);
             }
+            topEdge.push(this._avgColor(topColors));
             bottomEdge.push(this._avgColor(bottomColors));
         }
         
         for (let j = 0; j < h; j++) {
-            // 左边缘
             const leftColors = [];
-            for (let s = 1; s <= sampleWidth; s++) {
-                const sx = Math.max(0, x - s);
-                const idx = ((y + j) * imgWidth + sx) * 4;
-                if (idx >= 0 && idx < srcData.length - 2) {
-                    leftColors.push({ r: srcData[idx], g: srcData[idx+1], b: srcData[idx+2] });
-                }
-            }
-            leftEdge.push(this._avgColor(leftColors));
-            
-            // 右边缘
             const rightColors = [];
             for (let s = 1; s <= sampleWidth; s++) {
-                const sx = Math.min(imgWidth - 1, x + w + s - 1);
-                const idx = ((y + j) * imgWidth + sx) * 4;
-                if (idx >= 0 && idx < srcData.length - 2) {
-                    rightColors.push({ r: srcData[idx], g: srcData[idx+1], b: srcData[idx+2] });
-                }
+                // 左边缘：采样左方 + 左上 + 左下
+                const l1 = getPixel(x - s, y + j);
+                const l2 = getPixel(x - s, y + j - 1);
+                const l3 = getPixel(x - s, y + j + 1);
+                if (l1) leftColors.push(l1);
+                if (l2) leftColors.push(l2);
+                if (l3) leftColors.push(l3);
+                
+                // 右边缘：采样右方 + 右上 + 右下
+                const r1 = getPixel(x + w + s - 1, y + j);
+                const r2 = getPixel(x + w + s - 1, y + j - 1);
+                const r3 = getPixel(x + w + s - 1, y + j + 1);
+                if (r1) rightColors.push(r1);
+                if (r2) rightColors.push(r2);
+                if (r3) rightColors.push(r3);
             }
+            leftEdge.push(this._avgColor(leftColors));
             rightEdge.push(this._avgColor(rightColors));
         }
+        
+        // 采样四角（额外的角点颜色用于混合）
+        const cornerSamples = [];
+        for (let s = 1; s <= sampleWidth; s++) {
+            cornerSamples.push(getPixel(x - s, y - s));      // 左上角
+            cornerSamples.push(getPixel(x + w + s - 1, y - s));  // 右上角
+            cornerSamples.push(getPixel(x - s, y + h + s - 1));  // 左下角
+            cornerSamples.push(getPixel(x + w + s - 1, y + h + s - 1)); // 右下角
+        }
+        const cornerColor = this._avgColor(cornerSamples.filter(c => c));
         
         // 创建临时 ImageData 用于插值
         const tempImageData = ctx.getImageData(x, y, w, h);
@@ -1418,15 +2341,26 @@ class LayerEditor {
                 const tx = i / Math.max(1, w - 1);
                 const ty = j / Math.max(1, h - 1);
                 
-                const leftColor = leftEdge[j] || { r: 255, g: 255, b: 255 };
-                const rightColor = rightEdge[j] || { r: 255, g: 255, b: 255 };
+                // 水平插值（左到右）
+                const leftColor = leftEdge[j] || cornerColor;
+                const rightColor = rightEdge[j] || cornerColor;
                 const hColor = this._lerpColor(leftColor, rightColor, tx);
                 
-                const topColor = topEdge[i] || { r: 255, g: 255, b: 255 };
-                const bottomColor = bottomEdge[i] || { r: 255, g: 255, b: 255 };
+                // 垂直插值（上到下）
+                const topColor = topEdge[i] || cornerColor;
+                const bottomColor = bottomEdge[i] || cornerColor;
                 const vColor = this._lerpColor(topColor, bottomColor, ty);
                 
-                const finalColor = this._avgColor([hColor, vColor]);
+                // 对角线权重（靠近边缘时更多使用边缘颜色）
+                const edgeWeight = Math.min(tx, 1 - tx, ty, 1 - ty) * 4;
+                const centerWeight = Math.max(0, 1 - edgeWeight);
+                
+                // 混合：水平 + 垂直 + 角点
+                const colors = [hColor, vColor];
+                if (centerWeight > 0.3) {
+                    colors.push(cornerColor);
+                }
+                const finalColor = this._avgColorSimple(colors);
                 
                 const idx = (j * w + i) * 4;
                 tempData[idx] = finalColor.r;
@@ -1451,9 +2385,63 @@ class LayerEditor {
     }
     
     /**
-     * 平均颜色
+     * 计算颜色的众色（mode），如果没有明显众色则返回去除异常点后的平均值
      */
-    _avgColor(colors) {
+    _getModeColor(colors) {
+        if (!colors || colors.length === 0) return { r: 255, g: 255, b: 255 };
+        if (colors.length === 1) return colors[0] || { r: 255, g: 255, b: 255 };
+        
+        // 将颜色量化到桶中（每个通道分成 16 级）
+        const buckets = {};
+        colors.forEach(c => {
+            if (!c) return;
+            const key = `${Math.floor(c.r / 16)}_${Math.floor(c.g / 16)}_${Math.floor(c.b / 16)}`;
+            if (!buckets[key]) buckets[key] = [];
+            buckets[key].push(c);
+        });
+        
+        // 找到最大的桶
+        let maxBucket = null;
+        let maxCount = 0;
+        for (const key in buckets) {
+            if (buckets[key].length > maxCount) {
+                maxCount = buckets[key].length;
+                maxBucket = buckets[key];
+            }
+        }
+        
+        // 如果最大桶包含超过一半的颜色，使用该桶的平均值
+        if (maxBucket && maxCount > colors.length / 2) {
+            return this._avgColorSimple(maxBucket);
+        }
+        
+        // 否则，去除异常点后计算平均值
+        // 计算所有颜色的亮度
+        const withLuminance = colors.filter(c => c).map(c => ({
+            ...c,
+            lum: c.r * 0.299 + c.g * 0.587 + c.b * 0.114
+        }));
+        
+        if (withLuminance.length <= 2) {
+            return this._avgColorSimple(colors);
+        }
+        
+        // 按亮度排序，去掉最亮和最暗的异常点
+        withLuminance.sort((a, b) => a.lum - b.lum);
+        const trimCount = Math.max(1, Math.floor(withLuminance.length * 0.2));
+        const trimmed = withLuminance.slice(trimCount, -trimCount);
+        
+        if (trimmed.length === 0) {
+            return this._avgColorSimple(colors);
+        }
+        
+        return this._avgColorSimple(trimmed);
+    }
+    
+    /**
+     * 简单平均颜色（不做异常点处理）
+     */
+    _avgColorSimple(colors) {
         if (!colors || colors.length === 0) return { r: 255, g: 255, b: 255 };
         const sum = colors.reduce((acc, c) => ({
             r: acc.r + (c?.r || 255),
@@ -1465,6 +2453,13 @@ class LayerEditor {
             g: Math.round(sum.g / colors.length),
             b: Math.round(sum.b / colors.length),
         };
+    }
+    
+    /**
+     * 平均颜色（带异常点过滤）
+     */
+    _avgColor(colors) {
+        return this._getModeColor(colors);
     }
     
     /**
@@ -1600,7 +2595,11 @@ class LayerEditor {
 
             if (layer.type === 'group') {
                 // 渲染组内所有子图层
-                layer.children?.forEach(child => renderLayer(child));
+                console.log(`[LayerEditor] 渲染 group: ${layer.name}, children: ${layer.children?.length || 0}`);
+                layer.children?.forEach(child => {
+                    console.log(`[LayerEditor] 渲染子图层: ${child.type}, bbox:`, child.bbox);
+                    renderLayer(child);
+                });
                 return;
             }
             
@@ -1700,6 +2699,30 @@ class LayerEditor {
         const w = bbox.width * imgWidth;
         const h = bbox.height * imgHeight;
         
+        // 调试：每次渲染打印坐标信息
+        console.log(`[渲染] ${layer.name}: canvas=${imgWidth}x${imgHeight}, bbox=(${bbox.left.toFixed(3)},${bbox.top.toFixed(3)},${bbox.width.toFixed(3)},${bbox.height.toFixed(3)}) → px=(${x.toFixed(0)},${y.toFixed(0)},${w.toFixed(0)},${h.toFixed(0)})`);
+        
+        // 先绘制边框高亮（无论有无文字内容）
+        const isSelected = this._isLayerSelected(layer);
+        if (isSelected) {
+            // 选中状态：粗虚线边框
+            this.ctx.strokeStyle = '#4f46e5';
+            this.ctx.lineWidth = 2;
+            this.ctx.setLineDash([5, 3]);
+            this.ctx.strokeRect(x, y, w, h);
+            this.ctx.setLineDash([]);
+            
+            // 绘制调整手柄
+            this._drawResizeHandles(x, y, w, h);
+        } else if (!inpainted) {
+            // 未 inpaint 状态：显示半透明高亮，提示用户这是识别到的文字区域
+            this.ctx.fillStyle = 'rgba(79, 70, 229, 0.15)';
+            this.ctx.fillRect(x, y, w, h);
+            this.ctx.strokeStyle = 'rgba(79, 70, 229, 0.5)';
+            this.ctx.lineWidth = 1;
+            this.ctx.strokeRect(x, y, w, h);
+        }
+        
         // 如果已 inpainted，先绘制 inpainted 区域
         if (inpainted && parentId) {
             const group = this.processedImage.layers.find(l => l.id === parentId);
@@ -1773,16 +2796,6 @@ class LayerEditor {
             // 超出区域就停止
             if (textY > y + h - padding) break;
         }
-        
-        // 绘制选中状态边框（如果被选中）
-        const isSelected = this._isLayerSelected(layer);
-        if (isSelected) {
-            this.ctx.strokeStyle = '#4f46e5';
-            this.ctx.lineWidth = 2;
-            this.ctx.setLineDash([5, 3]);
-            this.ctx.strokeRect(x, y, w, h);
-            this.ctx.setLineDash([]);
-        }
     }
     
     /**
@@ -1852,6 +2865,90 @@ class LayerEditor {
         
         return lines.length > 0 ? lines : [''];
     }
+    
+    /**
+     * 自动估算字号
+     * 基于 bbox 高度，获取区域内能容纳的最大字号
+     */
+    _autoEstimateFontSize(layer) {
+        if (!layer || !layer.bbox || !layer.content) return;
+        
+        const text = layer.content.displayText || layer.content.originalText || '';
+        if (!text) return;
+        
+        const imgWidth = this.canvas.width;
+        const imgHeight = this.canvas.height;
+        
+        const bboxWidthPx = layer.bbox.width * imgWidth;
+        const bboxHeightPx = layer.bbox.height * imgHeight;
+        
+        // 判断是否为 CJK 文字
+        const isCJK = /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/.test(text);
+        const fontFamily = isCJK ? '"Noto Sans CJK SC", "Microsoft YaHei", sans-serif' : 'Arial, sans-serif';
+        
+        // 策略：基于 bbox 高度直接计算最大字号（假设单行）
+        // 字号约等于行高的 0.8-0.9
+        const maxFontSizeByHeight = bboxHeightPx * 0.85;
+        
+        // 用二分搜索找到能放下文字的最大字号
+        let minSize = 8;
+        let maxSize = Math.min(200, maxFontSizeByHeight);
+        let bestSize = minSize;
+        
+        for (let i = 0; i < 10; i++) {
+            const testSize = (minSize + maxSize) / 2;
+            this.ctx.font = `${testSize}px ${fontFamily}`;
+            
+            // 测量文字宽度
+            const textWidth = this.ctx.measureText(text).width;
+            const padding = bboxHeightPx * 0.1;
+            
+            // 检查是否能放下（宽度够，高度也够）
+            const fitsWidth = textWidth <= bboxWidthPx - padding;
+            const fitsHeight = testSize <= bboxHeightPx * 0.9;
+            
+            if (fitsWidth && fitsHeight) {
+                bestSize = testSize;
+                minSize = testSize;
+            } else {
+                maxSize = testSize;
+            }
+            
+            if (maxSize - minSize < 0.5) break;
+        }
+        
+        // 如果单行放不下，改用多行策略
+        this.ctx.font = `${bestSize}px ${fontFamily}`;
+        const singleLineWidth = this.ctx.measureText(text).width;
+        if (singleLineWidth > bboxWidthPx * 0.9) {
+            // 需要换行，重新计算
+            const lineHeightRatio = isCJK ? 1.3 : 1.2;
+            minSize = 8;
+            maxSize = bestSize;
+            bestSize = minSize;
+            
+            for (let i = 0; i < 10; i++) {
+                const testSize = (minSize + maxSize) / 2;
+                this.ctx.font = `${testSize}px ${fontFamily}`;
+                
+                const lines = this._wrapTextForRender(text, bboxWidthPx - bboxHeightPx * 0.1);
+                const totalHeight = lines.length * testSize * lineHeightRatio;
+                
+                if (totalHeight <= bboxHeightPx * 0.9) {
+                    bestSize = testSize;
+                    minSize = testSize;
+                } else {
+                    maxSize = testSize;
+                }
+                
+                if (maxSize - minSize < 0.5) break;
+            }
+        }
+        
+        // 限制范围
+        layer.style.fontSize = Math.max(8, Math.min(200, Math.round(bestSize)));
+        console.log(`[LayerEditor] 自动估算字号: ${layer.style.fontSize}px (bbox: ${bboxWidthPx.toFixed(0)}x${bboxHeightPx.toFixed(0)}, 文字: "${text.substring(0,10)}...")`);
+    }
 
     /**
      * 更新图层列表
@@ -1891,18 +2988,51 @@ class LayerEditor {
             name.textContent = layer.name || `图层 ${index + 1}`;
             name.title = name.textContent;
 
+            // 操作按钮容器
+            const actions = document.createElement('div');
+            actions.className = 'layer-actions';
+            actions.style.cssText = 'display:flex;gap:2px;margin-left:auto;';
+            
+            // 组图层添加上下移动按钮
+            if (layer.type === 'group') {
+                const upBtn = document.createElement('button');
+                upBtn.className = 'layer-action-btn';
+                upBtn.title = '上移（更靠前）';
+                upBtn.innerHTML = '<iconify-icon icon="carbon:arrow-up"></iconify-icon>';
+                upBtn.disabled = index === this.processedImage.layers.length - 1;
+                upBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    this._moveLayer(index, 1);
+                };
+                
+                const downBtn = document.createElement('button');
+                downBtn.className = 'layer-action-btn';
+                downBtn.title = '下移（更靠后）';
+                downBtn.innerHTML = '<iconify-icon icon="carbon:arrow-down"></iconify-icon>';
+                downBtn.disabled = index === 0;
+                downBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    this._moveLayer(index, -1);
+                };
+                
+                actions.appendChild(upBtn);
+                actions.appendChild(downBtn);
+            }
+            
             // 可见性按钮
             const visibleBtn = document.createElement('button');
-            visibleBtn.className = 'layer-visibility';
+            visibleBtn.className = 'layer-action-btn';
+            visibleBtn.title = layer.visible ? '隐藏' : '显示';
             visibleBtn.innerHTML = `<iconify-icon icon="${layer.visible ? 'carbon:view' : 'carbon:view-off'}"></iconify-icon>`;
             visibleBtn.onclick = (e) => {
                 e.stopPropagation();
                 this._toggleLayerVisibility(index);
             };
+            actions.appendChild(visibleBtn);
 
             item.appendChild(preview);
             item.appendChild(name);
-            item.appendChild(visibleBtn);
+            item.appendChild(actions);
             container.appendChild(item);
 
             // 组图层处理
@@ -2179,6 +3309,32 @@ class LayerEditor {
     }
     
     /**
+     * 移动图层（调整层级）
+     * @param {number} index - 图层索引
+     * @param {number} direction - 移动方向，1=上移（更靠前），-1=下移（更靠后）
+     */
+    _moveLayer(index, direction) {
+        const layers = this.processedImage.layers;
+        const newIndex = index + direction;
+        
+        if (newIndex < 0 || newIndex >= layers.length) return;
+        
+        // 交换位置
+        [layers[index], layers[newIndex]] = [layers[newIndex], layers[index]];
+        
+        // 更新选中索引
+        if (this.selectedLayerIndex === index) {
+            this.selectedLayerIndex = newIndex;
+        } else if (this.selectedLayerIndex === newIndex) {
+            this.selectedLayerIndex = index;
+        }
+        
+        this._saveHistory();
+        this._updateLayerList();
+        this._render();
+    }
+    
+    /**
      * 选择子图层
      */
     _selectChildLayer(parentIndex, childIndex) {
@@ -2307,7 +3463,35 @@ class LayerEditor {
     _updatePropertyPanel() {
         const panel = this.container.querySelector('.property-panel');
         if (this.selectedLayerIndex < 0) {
-            panel.innerHTML = '<div class="empty-state">选择一个图层以查看属性</div>';
+            // 未选中图层时显示全局设置
+            const currentMode = window.ocrExtractor?.config?.vlmLocalizationMode || 'grid';
+            panel.innerHTML = `
+                <div class="property-group">
+                    <div class="property-group-title">
+                        <iconify-icon icon="carbon:settings"></iconify-icon>
+                        OCR 设置
+                    </div>
+                    <div class="property-row">
+                        <span class="property-label">定位方案</span>
+                        <select data-ocr-prop="localizationMode" style="flex:1;padding:4px 8px;border-radius:4px;border:1px solid var(--ie-border);background:var(--ie-bg-secondary);color:var(--ie-text);font-size:12px;">
+                            <option value="grid" ${currentMode === 'grid' ? 'selected' : ''}>网格辅助 (推荐)</option>
+                            <option value="native" ${currentMode === 'native' ? 'selected' : ''}>原生 Grounding</option>
+                            <option value="auto" ${currentMode === 'auto' ? 'selected' : ''}>自动检测</option>
+                        </select>
+                    </div>
+                    <small style="font-size:11px;color:var(--ie-text-secondary);margin-top:4px;display:block;">
+                        网格辅助：叠加参考网格帮助 AI 定位<br>
+                        原生 Grounding：使用模型内置定位能力
+                    </small>
+                </div>
+                <div class="empty-state" style="margin-top:16px;">选择一个图层以查看属性</div>
+            `;
+            // 绑定事件
+            panel.querySelector('[data-ocr-prop="localizationMode"]')?.addEventListener('change', (e) => {
+                if (window.ocrExtractor) {
+                    window.ocrExtractor.setLocalizationMode(e.target.value);
+                }
+            });
             return;
         }
 
@@ -2418,7 +3602,15 @@ class LayerEditor {
                     </div>
                     <div class="property-row">
                         <span class="property-label">识别引擎</span>
-                        <span style="font-size:12px;color:var(--ie-text-secondary)">${layer.textOverlayConfig.engine || 'mineru'}</span>
+                        <span style="font-size:12px;color:var(--ie-text-secondary)">${layer.textOverlayConfig.engine || 'vlm'}</span>
+                    </div>
+                    <div class="property-row">
+                        <span class="property-label">定位方案</span>
+                        <select data-ocr-prop="localizationMode" style="flex:1;padding:4px 8px;border-radius:4px;border:1px solid var(--ie-border);background:var(--ie-bg-secondary);color:var(--ie-text);font-size:12px;">
+                            <option value="grid" ${(window.ocrExtractor?.config?.vlmLocalizationMode || 'grid') === 'grid' ? 'selected' : ''}>网格辅助 (推荐)</option>
+                            <option value="native" ${window.ocrExtractor?.config?.vlmLocalizationMode === 'native' ? 'selected' : ''}>原生 Grounding</option>
+                            <option value="auto" ${window.ocrExtractor?.config?.vlmLocalizationMode === 'auto' ? 'selected' : ''}>自动检测</option>
+                        </select>
                     </div>
                     <div class="property-row">
                         <span class="property-label">文字区域</span>
@@ -2429,7 +3621,16 @@ class LayerEditor {
                         <span style="font-size:12px;color:var(--ie-text-secondary)">${inpaintedCount} / ${regionCount}</span>
                     </div>
                     
+                    <div class="property-row" style="margin-top:8px;">
+                        <span class="property-label">显示参考网格</span>
+                        <input type="checkbox" data-action="toggle-grid" ${this._ocrGridVisible ? 'checked' : ''}>
+                    </div>
+                    
                     <div class="property-actions" style="margin-top:12px;display:flex;flex-direction:column;gap:8px;">
+                        <button class="btn-action" data-action="add-text-region" style="background:#eff6ff;border-color:#dbeafe;">
+                            <iconify-icon icon="carbon:add"></iconify-icon>
+                            手动添加文字区域
+                        </button>
                         <button class="btn-action" data-action="inpaint-all" ${inpaintedCount === regionCount ? 'disabled' : ''}>
                             <iconify-icon icon="carbon:erase"></iconify-icon>
                             去除所有原文字
@@ -2443,6 +3644,9 @@ class LayerEditor {
                             导出带文字图片
                         </button>
                     </div>
+                    <small style="font-size:11px;color:var(--ie-text-secondary);margin-top:8px;display:block;">
+                        💡 选中文字区域后按 Delete 键可删除
+                    </small>
                 </div>
                 
                 <div class="property-group">
@@ -2485,6 +3689,13 @@ class LayerEditor {
             layer.content = e.target.value;
             this._render();
             this._saveHistory();
+        });
+        
+        // OCR 定位方案
+        panel.querySelector('[data-ocr-prop="localizationMode"]')?.addEventListener('change', (e) => {
+            if (window.ocrExtractor) {
+                window.ocrExtractor.setLocalizationMode(e.target.value);
+            }
         });
 
         // 矢量化设置
@@ -2536,6 +3747,21 @@ class LayerEditor {
         
         // 文字识别组操作
         if (layer.type === 'group' && layer.textOverlayConfig) {
+            // 切换参考网格显示
+            panel.querySelector('[data-action="toggle-grid"]')?.addEventListener('change', (e) => {
+                this._ocrGridVisible = e.target.checked;
+                if (this._ocrGridVisible) {
+                    this._showPersistentGrid(layer);
+                } else {
+                    this._hidePersistentGrid();
+                }
+            });
+            
+            // 手动添加文字区域
+            panel.querySelector('[data-action="add-text-region"]')?.addEventListener('click', () => {
+                this._startDrawBbox(layer);
+            });
+            
             // 去除所有原文字
             panel.querySelector('[data-action="inpaint-all"]')?.addEventListener('click', async () => {
                 await this._inpaintAllTextRegions(layer.id);
@@ -2832,12 +4058,51 @@ class LayerEditor {
             
             <div class="property-group">
                 <div class="property-group-title">
+                    <iconify-icon icon="carbon:crop"></iconify-icon>
+                    位置与大小
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                    <div class="property-row" style="margin-bottom:0">
+                        <span class="property-label" style="font-size:11px">X (%)</span>
+                        <input type="number" class="property-input" min="0" max="100" step="0.1" 
+                            value="${(childLayer.bbox.left * 100).toFixed(1)}" 
+                            data-text-prop="bbox-left" style="width:100%;">
+                    </div>
+                    <div class="property-row" style="margin-bottom:0">
+                        <span class="property-label" style="font-size:11px">Y (%)</span>
+                        <input type="number" class="property-input" min="0" max="100" step="0.1" 
+                            value="${(childLayer.bbox.top * 100).toFixed(1)}" 
+                            data-text-prop="bbox-top" style="width:100%;">
+                    </div>
+                    <div class="property-row" style="margin-bottom:0">
+                        <span class="property-label" style="font-size:11px">宽 (%)</span>
+                        <input type="number" class="property-input" min="1" max="100" step="0.1" 
+                            value="${(childLayer.bbox.width * 100).toFixed(1)}" 
+                            data-text-prop="bbox-width" style="width:100%;">
+                    </div>
+                    <div class="property-row" style="margin-bottom:0">
+                        <span class="property-label" style="font-size:11px">高 (%)</span>
+                        <input type="number" class="property-input" min="1" max="100" step="0.1" 
+                            value="${(childLayer.bbox.height * 100).toFixed(1)}" 
+                            data-text-prop="bbox-height" style="width:100%;">
+                    </div>
+                </div>
+                <small style="font-size:11px;color:var(--ie-text-secondary);margin-top:4px;display:block;">
+                    可在画布上拖拽调整区域
+                </small>
+            </div>
+            
+            <div class="property-group">
+                <div class="property-group-title">
                     <iconify-icon icon="carbon:text-scale"></iconify-icon>
                     文字样式
                 </div>
                 <div class="property-row">
                     <span class="property-label">字号</span>
                     <input type="number" class="property-input" min="8" max="72" value="${style.fontSize || 14}" data-text-prop="fontSize" style="width:60px;">
+                    <button class="btn-icon-sm" data-text-action="auto-fontsize" title="自动估算字号">
+                        <iconify-icon icon="carbon:magic-wand"></iconify-icon>
+                    </button>
                 </div>
                 <div class="property-row">
                     <span class="property-label">颜色</span>
@@ -2945,6 +4210,43 @@ class LayerEditor {
         // 粗体
         panel.querySelector('[data-text-prop="fontWeight"]')?.addEventListener('change', (e) => {
             childLayer.style.fontWeight = e.target.checked ? 'bold' : 'normal';
+            this._render();
+            this._saveHistory();
+        });
+        
+        // Bbox 位置和大小编辑
+        const bboxInputs = ['bbox-left', 'bbox-top', 'bbox-width', 'bbox-height'];
+        bboxInputs.forEach(prop => {
+            const input = panel.querySelector(`[data-text-prop="${prop}"]`);
+            if (!input) return;
+            
+            input.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value) / 100; // 转换为 0-1
+                const key = prop.replace('bbox-', '');
+                
+                if (key === 'left' || key === 'top') {
+                    childLayer.bbox[key] = Math.max(0, Math.min(1, value));
+                } else {
+                    childLayer.bbox[key] = Math.max(0.01, Math.min(1, value));
+                }
+                
+                this._render();
+            });
+            
+            input.addEventListener('change', () => {
+                // 重新估算字号
+                this._autoEstimateFontSize(childLayer);
+                this._render();
+                this._saveHistory();
+            });
+        });
+        
+        // 自动估算字号
+        panel.querySelector('[data-text-action="auto-fontsize"]')?.addEventListener('click', () => {
+            this._autoEstimateFontSize(childLayer);
+            // 更新输入框
+            const fontSizeInput = panel.querySelector('[data-text-prop="fontSize"]');
+            if (fontSizeInput) fontSizeInput.value = childLayer.style.fontSize;
             this._render();
             this._saveHistory();
         });
@@ -4290,3 +5592,4 @@ ${allPaths.join('\n')}
 
 // 导出到全局
 window.LayerEditor = LayerEditor;
+    
