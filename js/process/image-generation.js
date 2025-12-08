@@ -60,6 +60,15 @@
             }
           } catch (_) {}
         }
+        // 记录生图统计
+        if (global.PPTModelConfigModal && typeof global.PPTModelConfigModal.recordImageGeneration === 'function') {
+          global.PPTModelConfigModal.recordImageGeneration({
+            model: providerKey,
+            modelId: normalized.model || '',
+            prompt: normalized.prompt || '',
+            success: true
+          });
+        }
         return result;
       } catch (err) {
         lastError = err;

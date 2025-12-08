@@ -108,6 +108,39 @@ export function removeStaircase(points) {
 }
 
 /**
+ * VTracer 风格：径向距离预简化
+ * 快速移除距离太近的点，作为 RDP 的预处理
+ * 
+ * 参考: visioncortex/src/path/reduce.rs - simplify_radial_dist
+ */
+export function simplifyRadialDist(points, sqTolerance = 1.0) {
+    if (points.length <= 2) return points;
+    
+    let prevPoint = points[0];
+    const newPoints = [prevPoint];
+    
+    for (let i = 1; i < points.length; i++) {
+        const point = points[i];
+        const dx = point.x - prevPoint.x;
+        const dy = point.y - prevPoint.y;
+        const sqDist = dx * dx + dy * dy;
+        
+        if (sqDist > sqTolerance) {
+            newPoints.push(point);
+            prevPoint = point;
+        }
+    }
+    
+    // 确保保留最后一个点
+    const last = points[points.length - 1];
+    if (prevPoint !== last) {
+        newPoints.push(last);
+    }
+    
+    return newPoints;
+}
+
+/**
  * Ramer-Douglas-Peucker 路径简化
  * 保留关键转折点，去除冗余点
  * 
@@ -139,6 +172,25 @@ export function simplifyRDP(points, epsilon = 1.0) {
     } else {
         return [first, last];
     }
+}
+
+/**
+ * VTracer 风格：组合简化（径向 + RDP）
+ * 先用径向距离移除太近的点，再用 RDP 简化
+ * 
+ * 参考: visioncortex/src/path/reduce.rs - reduce
+ */
+export function reduceVTracer(points, tolerance = 1.0) {
+    if (points.length <= 2) return points;
+    if (tolerance === 0) return points;
+    
+    const sqTolerance = tolerance * tolerance;
+    
+    // 先用 0.5 倍容差的径向距离简化
+    const radial = simplifyRadialDist(points, sqTolerance * 0.5);
+    
+    // 再用 RDP 简化
+    return simplifyRDP(radial, tolerance);
 }
 
 /**

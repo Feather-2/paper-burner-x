@@ -896,19 +896,8 @@ class LayerEditor {
     async _executeAction(action) {
         switch (action) {
             case 'vectorize':
-                // 检查是否已经存在矢量化图层组
-                const existingGroupIndex = this.processedImage.layers.findIndex(
-                    l => l.type === 'group' && l.vectorConfig
-                );
-                
-                if (existingGroupIndex !== -1) {
-                    // 如果已存在，直接选中它
-                    console.log('[LayerEditor] 已存在矢量化图层，切换选中状态');
-                    this._selectLayer(existingGroupIndex);
-                } else {
-                    // 不存在则执行矢量化（自动检测模式）
-                    await this._vectorize();
-                }
+                // 始终创建新的矢量化分组（支持多分组）
+                await this._vectorize();
                 break;
             case 'ocr':
                 await this._runOcr();
@@ -962,11 +951,28 @@ class LayerEditor {
             // 按颜色分层
             const colorLayers = vectorizer.splitByColor(result);
             
+            // 计算已有矢量化分组数量，用于命名
+            const existingGroupCount = this.processedImage.layers.filter(
+                l => l.type === 'group' && l.vectorConfig
+            ).length;
+            const groupNumber = existingGroupCount + 1;
+            
+            // 预设名称映射
+            const presetNames = {
+                logo: 'Logo',
+                illustration: '插画',
+                lineart: '线稿',
+                photo: '照片',
+                pixel: '像素',
+                simple: '简化'
+            };
+            const presetLabel = presetNames[actualPreset] || actualPreset;
+            
             // 创建编组对象
             const groupLayer = {
                 id: currentGroupId,
                 type: 'group',
-                name: `矢量化分组 (${Object.keys(colorLayers).length} 层)`,
+                name: `矢量化 ${groupNumber} - ${presetLabel} (${colorLayers.length} 层)`,
                 visible: true,
                 vectorConfig: {
                     preset: actualPreset,
@@ -1023,26 +1029,501 @@ class LayerEditor {
         
         await this._vectorize(newPreset, newOptions, groupId);
     }
+    
+    /**
+     * 显示 OCR 引擎选择对话框
+     */
+    _showOcrEngineSelector() {
+        return new Promise((resolve) => {
+            // 检查可用的引擎
+            const mineruAvailable = !!(localStorage.getItem('ocrMinerUWorkerUrl'));
+            const vlmAvailable = this._checkVlmAvailable();
+            
+            // 如果只有一个引擎可用，直接返回
+            if (mineruAvailable && !vlmAvailable) {
+                resolve('mineru');
+                return;
+            }
+            if (!mineruAvailable && vlmAvailable) {
+                resolve('vlm');
+                return;
+            }
+            if (!mineruAvailable && !vlmAvailable) {
+                alert('请先配置 OCR 引擎（MinerU 或支持视觉的 AI 模型）');
+                resolve(null);
+                return;
+            }
+            
+            // 创建选择对话框
+            const overlay = document.createElement('div');
+            overlay.style.cssText = `
+                position: fixed;
+                inset: 0;
+                background: rgba(0,0,0,0.5);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 10000;
+            `;
+            
+            overlay.innerHTML = `
+                <div style="
+                    background: var(--ie-bg-secondary, #1e1e2e);
+                    border-radius: 12px;
+                    padding: 24px;
+                    min-width: 320px;
+                    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+                ">
+                    <h3 style="margin: 0 0 16px; color: var(--ie-text-primary, #fff); font-size: 16px;">
+                        选择文字识别方式
+                    </h3>
+                    <div style="display: flex; flex-direction: column; gap: 12px;">
+                        <button class="ocr-option" data-engine="vlm" style="
+                            padding: 16px;
+                            border: 1px solid var(--ie-border, #333);
+                            border-radius: 8px;
+                            background: var(--ie-bg-tertiary, #252530);
+                            color: var(--ie-text-primary, #fff);
+                            cursor: pointer;
+                            text-align: left;
+                            transition: all 0.2s;
+                        ">
+                            <div style="font-weight: 600; margin-bottom: 4px;">
+                                🤖 AI 视觉模型 (推荐)
+                            </div>
+                            <div style="font-size: 12px; color: var(--ie-text-secondary, #888);">
+                                使用 GPT-4o / Claude 3 等视觉模型<br>
+                                适合复杂布局、流程图、手写文字
+                            </div>
+                        </button>
+                        <button class="ocr-option" data-engine="mineru" style="
+                            padding: 16px;
+                            border: 1px solid var(--ie-border, #333);
+                            border-radius: 8px;
+                            background: var(--ie-bg-tertiary, #252530);
+                            color: var(--ie-text-primary, #fff);
+                            cursor: pointer;
+                            text-align: left;
+                            transition: all 0.2s;
+                        ">
+                            <div style="font-weight: 600; margin-bottom: 4px;">
+                                📄 MinerU OCR
+                            </div>
+                            <div style="font-size: 12px; color: var(--ie-text-secondary, #888);">
+                                专业文档 OCR 引擎<br>
+                                适合扫描件、PDF 截图、印刷体文字
+                            </div>
+                        </button>
+                    </div>
+                    <button class="cancel-btn" style="
+                        margin-top: 16px;
+                        width: 100%;
+                        padding: 10px;
+                        border: none;
+                        border-radius: 6px;
+                        background: transparent;
+                        color: var(--ie-text-secondary, #888);
+                        cursor: pointer;
+                    ">取消</button>
+                </div>
+            `;
+            
+            // 绑定事件
+            overlay.querySelectorAll('.ocr-option').forEach(btn => {
+                btn.addEventListener('mouseenter', () => {
+                    btn.style.borderColor = '#4f46e5';
+                    btn.style.background = 'rgba(79, 70, 229, 0.1)';
+                });
+                btn.addEventListener('mouseleave', () => {
+                    btn.style.borderColor = 'var(--ie-border, #333)';
+                    btn.style.background = 'var(--ie-bg-tertiary, #252530)';
+                });
+                btn.addEventListener('click', () => {
+                    document.body.removeChild(overlay);
+                    resolve(btn.dataset.engine);
+                });
+            });
+            
+            overlay.querySelector('.cancel-btn').addEventListener('click', () => {
+                document.body.removeChild(overlay);
+                resolve(null);
+            });
+            
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) {
+                    document.body.removeChild(overlay);
+                    resolve(null);
+                }
+            });
+            
+            document.body.appendChild(overlay);
+        });
+    }
+    
+    /**
+     * 检查 VLM 是否可用
+     */
+    _checkVlmAvailable() {
+        try {
+            // 使用统一的 AI API 服务检查
+            if (window.aiApiService) {
+                const models = window.aiApiService.getAvailableModels();
+                return models.length > 0;
+            }
+            return false;
+        } catch {
+            return false;
+        }
+    }
 
     async _runOcr() {
-        const ocrExtractor = await this.processor.loadModule('ocrExtractor');
-        const result = await ocrExtractor.extract(this.processedImage.original);
-
-        result.regions.forEach((region, idx) => {
-            this.processedImage.layers.push({
-                id: `layer_text_${idx}_${Date.now()}`,
-                type: 'text',
-                name: `文字: ${region.text.substring(0, 10)}...`,
-                bbox: region.bbox,
-                content: region.text,
-                style: region.style,
-                visible: true
+        // 让用户选择 OCR 引擎
+        const engine = await this._showOcrEngineSelector();
+        if (!engine) return; // 用户取消
+        
+        this._showLoading(engine === 'vlm' ? '正在使用 AI 识别文字...' : '正在识别文字...');
+        await this._nextFrame();
+        
+        try {
+            // 加载 OCR 模块
+            const ocrExtractor = await this.processor.loadModule('ocrExtractor');
+            
+            // 执行 OCR，传入选择的引擎
+            const result = await ocrExtractor.extract(this.processedImage.original, { priority: engine });
+            
+            if (!result.regions || result.regions.length === 0) {
+                alert('未识别到文字区域');
+                return;
+            }
+            
+            console.log(`[LayerEditor] OCR 识别到 ${result.regions.length} 个文字区域`);
+            
+            // 创建文字覆盖组
+            const groupId = `text_group_${Date.now()}`;
+            const groupLayer = {
+                id: groupId,
+                type: 'group',
+                name: `文字识别 (${result.regions.length} 区域)`,
+                visible: true,
+                textOverlayConfig: {
+                    engine: result.engine,
+                    processedAt: Date.now(),
+                },
+                children: [],
+                // 用于 inpainting 的背景
+                inpaintedBackground: null,
+            };
+            
+            // 为每个区域创建子图层
+            result.regions.forEach((region, idx) => {
+                const childLayer = {
+                    id: `text_region_${idx}_${Date.now()}`,
+                    type: 'text-overlay',
+                    name: `文字: ${region.text.substring(0, 12)}${region.text.length > 12 ? '...' : ''}`,
+                    bbox: region.bbox,
+                    originalBbox: region.originalBbox || region.bbox,
+                    content: {
+                        originalText: region.text,
+                        translatedText: '',
+                        displayText: region.text,
+                    },
+                    style: {
+                        fontSize: region.style.fontSize,
+                        color: region.style.color || '#000000',
+                        fontWeight: region.style.fontWeight || 'normal',
+                        fontFamily: '"Noto Sans CJK SC", "Microsoft YaHei", Arial, sans-serif',
+                        textAlign: region.style.textAlign || 'left',
+                    },
+                    inpainted: false,
+                    visible: true,
+                    parentId: groupId,
+                };
+                groupLayer.children.push(childLayer);
             });
-        });
-
+            
+            this.processedImage.layers.push(groupLayer);
+            
+            // 保存引用以供后续操作
+            this._textOverlayGroup = groupLayer;
+            
+            this._saveHistory();
+            this._updateLayerList();
+            this._render();
+            
+            // 自动选中新创建的组
+            const newLayerIndex = this.processedImage.layers.length - 1;
+            this.selectedLayerIndex = newLayerIndex;
+            this._updateLayerList();
+            this._updatePropertyPanel();
+            
+            // 提示用户可以进行的操作
+            this._showTextOverlayActions();
+            
+        } catch (err) {
+            console.error('[LayerEditor] OCR 失败:', err);
+            alert('文字识别失败: ' + err.message);
+        } finally {
+            this._hideLoading();
+        }
+    }
+    
+    /**
+     * 显示文字覆盖操作提示
+     */
+    _showTextOverlayActions() {
+        // 可以在属性面板显示操作按钮
+        console.log('[LayerEditor] 文字识别完成，可进行以下操作：');
+        console.log('  - 点击文字区域编辑内容');
+        console.log('  - 使用 "去除原文字" 进行 Inpainting');
+        console.log('  - 翻译文字后显示新文字');
+    }
+    
+    /**
+     * 对选中的文字区域进行 Inpainting
+     */
+    async _inpaintTextRegion(regionId, groupId) {
+        const group = this.processedImage.layers.find(l => l.id === groupId);
+        if (!group || !group.children) return;
+        
+        const region = group.children.find(c => c.id === regionId);
+        if (!region || region.inpainted) return;
+        
+        this._showLoading('正在去除原文字...');
+        
+        try {
+            // 获取或创建 inpainted 背景
+            if (!group.inpaintedBackground) {
+                // 创建背景画布
+                const canvas = document.createElement('canvas');
+                canvas.width = this.processedImage.original.width;
+                canvas.height = this.processedImage.original.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(this.processedImage.original.element, 0, 0);
+                group.inpaintedBackground = {
+                    canvas,
+                    ctx,
+                };
+            }
+            
+            const { ctx, canvas } = group.inpaintedBackground;
+            const imgWidth = canvas.width;
+            const imgHeight = canvas.height;
+            
+            // 使用原始 bbox 进行 inpainting
+            const bbox = region.originalBbox || region.bbox;
+            const x = Math.floor(bbox.left * imgWidth);
+            const y = Math.floor(bbox.top * imgHeight);
+            const w = Math.ceil(bbox.width * imgWidth);
+            const h = Math.ceil(bbox.height * imgHeight);
+            
+            // 高级 inpainting：使用边缘插值
+            await this._performInpainting(ctx, x, y, w, h, this.processedImage.original.imageData);
+            
+            region.inpainted = true;
+            
+            this._saveHistory();
+            this._render();
+            
+        } catch (err) {
+            console.error('[LayerEditor] Inpainting 失败:', err);
+        } finally {
+            this._hideLoading();
+        }
+    }
+    
+    /**
+     * 对所有文字区域进行 Inpainting
+     */
+    async _inpaintAllTextRegions(groupId) {
+        const group = this.processedImage.layers.find(l => l.id === groupId);
+        if (!group || !group.children) return;
+        
+        this._showLoading('正在去除所有原文字...');
+        
+        for (const region of group.children) {
+            if (!region.inpainted) {
+                await this._inpaintTextRegion(region.id, groupId);
+            }
+        }
+        
+        this._hideLoading();
+    }
+    
+    /**
+     * 执行 Inpainting（双线性插值）
+     */
+    async _performInpainting(ctx, x, y, w, h, srcImageData) {
+        const imgWidth = srcImageData.width;
+        const imgHeight = srcImageData.height;
+        const srcData = srcImageData.data;
+        
+        // 采样边缘像素
+        const sampleWidth = 3;
+        const topEdge = [], bottomEdge = [], leftEdge = [], rightEdge = [];
+        
+        for (let i = 0; i < w; i++) {
+            // 上边缘
+            const topColors = [];
+            for (let s = 1; s <= sampleWidth; s++) {
+                const sy = Math.max(0, y - s);
+                const idx = (sy * imgWidth + x + i) * 4;
+                if (idx >= 0 && idx < srcData.length - 2) {
+                    topColors.push({ r: srcData[idx], g: srcData[idx+1], b: srcData[idx+2] });
+                }
+            }
+            topEdge.push(this._avgColor(topColors));
+            
+            // 下边缘
+            const bottomColors = [];
+            for (let s = 1; s <= sampleWidth; s++) {
+                const sy = Math.min(imgHeight - 1, y + h + s - 1);
+                const idx = (sy * imgWidth + x + i) * 4;
+                if (idx >= 0 && idx < srcData.length - 2) {
+                    bottomColors.push({ r: srcData[idx], g: srcData[idx+1], b: srcData[idx+2] });
+                }
+            }
+            bottomEdge.push(this._avgColor(bottomColors));
+        }
+        
+        for (let j = 0; j < h; j++) {
+            // 左边缘
+            const leftColors = [];
+            for (let s = 1; s <= sampleWidth; s++) {
+                const sx = Math.max(0, x - s);
+                const idx = ((y + j) * imgWidth + sx) * 4;
+                if (idx >= 0 && idx < srcData.length - 2) {
+                    leftColors.push({ r: srcData[idx], g: srcData[idx+1], b: srcData[idx+2] });
+                }
+            }
+            leftEdge.push(this._avgColor(leftColors));
+            
+            // 右边缘
+            const rightColors = [];
+            for (let s = 1; s <= sampleWidth; s++) {
+                const sx = Math.min(imgWidth - 1, x + w + s - 1);
+                const idx = ((y + j) * imgWidth + sx) * 4;
+                if (idx >= 0 && idx < srcData.length - 2) {
+                    rightColors.push({ r: srcData[idx], g: srcData[idx+1], b: srcData[idx+2] });
+                }
+            }
+            rightEdge.push(this._avgColor(rightColors));
+        }
+        
+        // 创建临时 ImageData 用于插值
+        const tempImageData = ctx.getImageData(x, y, w, h);
+        const tempData = tempImageData.data;
+        
+        for (let j = 0; j < h; j++) {
+            for (let i = 0; i < w; i++) {
+                const tx = i / Math.max(1, w - 1);
+                const ty = j / Math.max(1, h - 1);
+                
+                const leftColor = leftEdge[j] || { r: 255, g: 255, b: 255 };
+                const rightColor = rightEdge[j] || { r: 255, g: 255, b: 255 };
+                const hColor = this._lerpColor(leftColor, rightColor, tx);
+                
+                const topColor = topEdge[i] || { r: 255, g: 255, b: 255 };
+                const bottomColor = bottomEdge[i] || { r: 255, g: 255, b: 255 };
+                const vColor = this._lerpColor(topColor, bottomColor, ty);
+                
+                const finalColor = this._avgColor([hColor, vColor]);
+                
+                const idx = (j * w + i) * 4;
+                tempData[idx] = finalColor.r;
+                tempData[idx + 1] = finalColor.g;
+                tempData[idx + 2] = finalColor.b;
+                tempData[idx + 3] = 255;
+            }
+        }
+        
+        ctx.putImageData(tempImageData, x, y);
+    }
+    
+    /**
+     * 颜色线性插值
+     */
+    _lerpColor(c1, c2, t) {
+        return {
+            r: Math.round(c1.r * (1 - t) + c2.r * t),
+            g: Math.round(c1.g * (1 - t) + c2.g * t),
+            b: Math.round(c1.b * (1 - t) + c2.b * t),
+        };
+    }
+    
+    /**
+     * 平均颜色
+     */
+    _avgColor(colors) {
+        if (!colors || colors.length === 0) return { r: 255, g: 255, b: 255 };
+        const sum = colors.reduce((acc, c) => ({
+            r: acc.r + (c?.r || 255),
+            g: acc.g + (c?.g || 255),
+            b: acc.b + (c?.b || 255)
+        }), { r: 0, g: 0, b: 0 });
+        return {
+            r: Math.round(sum.r / colors.length),
+            g: Math.round(sum.g / colors.length),
+            b: Math.round(sum.b / colors.length),
+        };
+    }
+    
+    /**
+     * 更新文字区域内容
+     */
+    updateTextRegionContent(regionId, groupId, newText, isTranslation = false) {
+        const group = this.processedImage.layers.find(l => l.id === groupId);
+        if (!group || !group.children) return;
+        
+        const region = group.children.find(c => c.id === regionId);
+        if (!region) return;
+        
+        if (isTranslation) {
+            region.content.translatedText = newText;
+            region.content.displayText = newText;
+        } else {
+            region.content.originalText = newText;
+            if (!region.content.translatedText) {
+                region.content.displayText = newText;
+            }
+        }
+        
+        // 更新图层名称
+        region.name = `文字: ${region.content.displayText.substring(0, 12)}${region.content.displayText.length > 12 ? '...' : ''}`;
+        
         this._saveHistory();
         this._updateLayerList();
         this._render();
+    }
+    
+    /**
+     * 批量翻译文字区域
+     */
+    async translateTextRegions(groupId, translateFn) {
+        const group = this.processedImage.layers.find(l => l.id === groupId);
+        if (!group || !group.children) return;
+        
+        this._showLoading('正在翻译文字...');
+        
+        try {
+            for (const region of group.children) {
+                if (region.content && region.content.originalText) {
+                    try {
+                        const translated = await translateFn(region.content.originalText);
+                        region.content.translatedText = translated;
+                        region.content.displayText = translated;
+                        region.name = `文字: ${translated.substring(0, 12)}${translated.length > 12 ? '...' : ''}`;
+                    } catch (e) {
+                        console.warn(`[LayerEditor] 翻译失败: ${region.id}`, e);
+                    }
+                }
+            }
+            
+            this._saveHistory();
+            this._updateLayerList();
+            this._render();
+        } finally {
+            this._hideLoading();
+        }
     }
 
     async _removeBackground() {
@@ -1140,6 +1621,10 @@ class LayerEditor {
                 case 'text':
                     this._drawTextLayer(layer);
                     break;
+                case 'text-overlay':
+                    // 文字覆盖图层：渲染实际文字
+                    this._drawTextOverlayLayer(layer);
+                    break;
                 case 'foreground':
                     this.ctx.putImageData(layer.imageData, 0, 0);
                     break;
@@ -1199,6 +1684,173 @@ class LayerEditor {
         this.ctx.fillStyle = '#4f46e5';
         this.ctx.font = '12px sans-serif';
         this.ctx.fillText(layer.name, x, y - 5);
+    }
+    
+    /**
+     * 渲染文字覆盖图层
+     * 支持 inpainted 背景 + 新文字渲染
+     */
+    _drawTextOverlayLayer(layer) {
+        const { bbox, content, style, inpainted, parentId } = layer;
+        const imgWidth = this.canvas.width;
+        const imgHeight = this.canvas.height;
+        
+        const x = bbox.left * imgWidth;
+        const y = bbox.top * imgHeight;
+        const w = bbox.width * imgWidth;
+        const h = bbox.height * imgHeight;
+        
+        // 如果已 inpainted，先绘制 inpainted 区域
+        if (inpainted && parentId) {
+            const group = this.processedImage.layers.find(l => l.id === parentId);
+            if (group?.inpaintedBackground?.canvas) {
+                // 绘制 inpainted 背景区域
+                const srcBbox = layer.originalBbox || bbox;
+                const srcX = Math.floor(srcBbox.left * imgWidth);
+                const srcY = Math.floor(srcBbox.top * imgHeight);
+                const srcW = Math.ceil(srcBbox.width * imgWidth);
+                const srcH = Math.ceil(srcBbox.height * imgHeight);
+                
+                this.ctx.drawImage(
+                    group.inpaintedBackground.canvas,
+                    srcX, srcY, srcW, srcH,
+                    srcX, srcY, srcW, srcH
+                );
+            }
+        }
+        
+        // 获取要显示的文字
+        const displayText = content?.displayText || content?.originalText || '';
+        if (!displayText) return;
+        
+        // 设置字体样式
+        const fontSize = style?.fontSize || 14;
+        const fontFamily = style?.fontFamily || '"Noto Sans CJK SC", Arial, sans-serif';
+        const fontWeight = style?.fontWeight || 'normal';
+        const textColor = style?.color || '#000000';
+        const textAlign = style?.textAlign || 'left';
+        
+        this.ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+        this.ctx.fillStyle = textColor;
+        this.ctx.textBaseline = 'top';
+        
+        // 计算内边距
+        const padding = h * 0.05;
+        const maxTextWidth = w - padding * 2;
+        const lineHeight = fontSize * 1.3;
+        
+        // 自动换行
+        const lines = this._wrapTextForRender(displayText, maxTextWidth);
+        
+        // 检查是否需要缩放字体
+        const totalTextHeight = lines.length * lineHeight;
+        let actualFontSize = fontSize;
+        if (totalTextHeight > h - padding * 2) {
+            const scale = (h - padding * 2) / totalTextHeight;
+            actualFontSize = Math.max(8, Math.floor(fontSize * scale));
+            this.ctx.font = `${fontWeight} ${actualFontSize}px ${fontFamily}`;
+        }
+        
+        // 绘制每行文字
+        let textY = y + padding;
+        const actualLineHeight = actualFontSize * 1.3;
+        
+        for (const line of lines) {
+            let textX = x + padding;
+            
+            // 根据对齐方式调整 X 位置
+            if (textAlign === 'center') {
+                const lineWidth = this.ctx.measureText(line).width;
+                textX = x + (w - lineWidth) / 2;
+            } else if (textAlign === 'right') {
+                const lineWidth = this.ctx.measureText(line).width;
+                textX = x + w - padding - lineWidth;
+            }
+            
+            this.ctx.fillText(line, textX, textY);
+            textY += actualLineHeight;
+            
+            // 超出区域就停止
+            if (textY > y + h - padding) break;
+        }
+        
+        // 绘制选中状态边框（如果被选中）
+        const isSelected = this._isLayerSelected(layer);
+        if (isSelected) {
+            this.ctx.strokeStyle = '#4f46e5';
+            this.ctx.lineWidth = 2;
+            this.ctx.setLineDash([5, 3]);
+            this.ctx.strokeRect(x, y, w, h);
+            this.ctx.setLineDash([]);
+        }
+    }
+    
+    /**
+     * 检查图层是否被选中
+     */
+    _isLayerSelected(layer) {
+        if (this.selectedLayerIndex < 0) return false;
+        const selectedLayer = this.processedImage.layers[this.selectedLayerIndex];
+        if (!selectedLayer) return false;
+        
+        if (selectedLayer.id === layer.id) return true;
+        
+        // 检查是否是子图层被选中
+        if (selectedLayer.children && this.selectedChildIndex >= 0) {
+            const child = selectedLayer.children[this.selectedChildIndex];
+            return child?.id === layer.id;
+        }
+        
+        return false;
+    }
+    
+    /**
+     * 文字换行辅助函数
+     */
+    _wrapTextForRender(text, maxWidth) {
+        if (!text) return [];
+        
+        const lines = [];
+        const paragraphs = text.split('\n');
+        const isCJK = /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]/.test(text);
+        
+        for (const para of paragraphs) {
+            if (!para) {
+                lines.push('');
+                continue;
+            }
+            
+            let currentLine = '';
+            
+            if (isCJK) {
+                for (const char of para) {
+                    const testLine = currentLine + char;
+                    if (this.ctx.measureText(testLine).width > maxWidth && currentLine) {
+                        lines.push(currentLine);
+                        currentLine = char;
+                    } else {
+                        currentLine = testLine;
+                    }
+                }
+            } else {
+                const words = para.split(/(\s+)/);
+                for (const word of words) {
+                    const testLine = currentLine + word;
+                    if (this.ctx.measureText(testLine).width > maxWidth && currentLine.trim()) {
+                        lines.push(currentLine.trim());
+                        currentLine = word.trimStart();
+                    } else {
+                        currentLine = testLine;
+                    }
+                }
+            }
+            
+            if (currentLine) {
+                lines.push(currentLine);
+            }
+        }
+        
+        return lines.length > 0 ? lines : [''];
     }
 
     /**
@@ -1753,6 +2405,60 @@ class LayerEditor {
                     </div>
                 </div>
             `;
+        } else if (layer.type === 'group' && layer.textOverlayConfig) {
+            // 文字识别组的属性面板
+            const regionCount = layer.children?.length || 0;
+            const inpaintedCount = layer.children?.filter(c => c.inpainted).length || 0;
+            
+            content += `
+                <div class="property-group">
+                    <div class="property-group-title">
+                        <iconify-icon icon="carbon:text-recognition"></iconify-icon>
+                        文字识别设置
+                    </div>
+                    <div class="property-row">
+                        <span class="property-label">识别引擎</span>
+                        <span style="font-size:12px;color:var(--ie-text-secondary)">${layer.textOverlayConfig.engine || 'mineru'}</span>
+                    </div>
+                    <div class="property-row">
+                        <span class="property-label">文字区域</span>
+                        <span style="font-size:12px;color:var(--ie-text-secondary)">${regionCount} 个</span>
+                    </div>
+                    <div class="property-row">
+                        <span class="property-label">已去除原文</span>
+                        <span style="font-size:12px;color:var(--ie-text-secondary)">${inpaintedCount} / ${regionCount}</span>
+                    </div>
+                    
+                    <div class="property-actions" style="margin-top:12px;display:flex;flex-direction:column;gap:8px;">
+                        <button class="btn-action" data-action="inpaint-all" ${inpaintedCount === regionCount ? 'disabled' : ''}>
+                            <iconify-icon icon="carbon:erase"></iconify-icon>
+                            去除所有原文字
+                        </button>
+                        <button class="btn-action" data-action="translate-all">
+                            <iconify-icon icon="carbon:translate"></iconify-icon>
+                            翻译所有文字
+                        </button>
+                        <button class="btn-action secondary" data-action="export-with-text">
+                            <iconify-icon icon="carbon:export"></iconify-icon>
+                            导出带文字图片
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="property-group">
+                    <div class="property-group-title">
+                        <iconify-icon icon="carbon:data-vis-1"></iconify-icon>
+                        矢量化集成
+                    </div>
+                    <small style="font-size:11px;color:var(--ie-text-secondary);margin-bottom:8px;display:block;">
+                        在矢量化之前先去除文字，可以获得更干净的矢量图
+                    </small>
+                    <button class="btn-action" data-action="vectorize-after-inpaint" ${inpaintedCount < regionCount ? '' : ''}>
+                        <iconify-icon icon="carbon:data-vis-1"></iconify-icon>
+                        去除文字后矢量化
+                    </button>
+                </div>
+            `;
         }
         
         panel.innerHTML = content;
@@ -1827,6 +2533,239 @@ class LayerEditor {
                  e.target.nextElementSibling.textContent = e.target.value;
              });
         });
+        
+        // 文字识别组操作
+        if (layer.type === 'group' && layer.textOverlayConfig) {
+            // 去除所有原文字
+            panel.querySelector('[data-action="inpaint-all"]')?.addEventListener('click', async () => {
+                await this._inpaintAllTextRegions(layer.id);
+                this._updatePropertyPanel();
+            });
+            
+            // 翻译所有文字
+            panel.querySelector('[data-action="translate-all"]')?.addEventListener('click', async () => {
+                // 检查翻译函数是否可用
+                if (typeof window.translateText !== 'function') {
+                    alert('翻译功能不可用，请确保已配置翻译服务');
+                    return;
+                }
+                
+                await this.translateTextRegions(layer.id, window.translateText);
+                this._updatePropertyPanel();
+            });
+            
+            // 导出带文字图片
+            panel.querySelector('[data-action="export-with-text"]')?.addEventListener('click', async () => {
+                await this._exportWithTextOverlay(layer.id);
+            });
+            
+            // 去除文字后矢量化
+            panel.querySelector('[data-action="vectorize-after-inpaint"]')?.addEventListener('click', async () => {
+                await this._vectorizeAfterInpaint(layer.id);
+            });
+        }
+    }
+    
+    /**
+     * 去除文字后矢量化
+     * 工作流程：
+     * 1. 对所有未 inpaint 的区域执行 inpainting
+     * 2. 使用 inpainted 图像进行矢量化
+     */
+    async _vectorizeAfterInpaint(textGroupId) {
+        const group = this.processedImage.layers.find(l => l.id === textGroupId);
+        if (!group || !group.children) return;
+        
+        this._showLoading('正在处理...');
+        
+        try {
+            // 1. 先 inpaint 所有区域
+            await this._inpaintAllTextRegions(textGroupId);
+            
+            // 2. 获取 inpainted 背景
+            if (!group.inpaintedBackground?.canvas) {
+                throw new Error('Inpainting 失败');
+            }
+            
+            // 3. 创建新的图像对象用于矢量化
+            const inpaintedCanvas = group.inpaintedBackground.canvas;
+            const inpaintedDataUrl = inpaintedCanvas.toDataURL('image/png');
+            
+            // 4. 加载为图像
+            const img = new Image();
+            await new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = reject;
+                img.src = inpaintedDataUrl;
+            });
+            
+            // 5. 创建临时图像对象
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = inpaintedCanvas.width;
+            tempCanvas.height = inpaintedCanvas.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(img, 0, 0);
+            
+            const tempImageObj = {
+                element: img,
+                canvas: tempCanvas,
+                ctx: tempCtx,
+                width: tempCanvas.width,
+                height: tempCanvas.height,
+                imageData: tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height),
+                dataUrl: inpaintedDataUrl
+            };
+            
+            // 6. 保存原始图像引用
+            const originalImage = this.processedImage.original;
+            
+            // 7. 临时替换为 inpainted 图像
+            this.processedImage.original = tempImageObj;
+            
+            // 8. 执行矢量化
+            await this._vectorize('auto');
+            
+            // 9. 恢复原始图像引用
+            this.processedImage.original = originalImage;
+            
+            console.log('[LayerEditor] 去除文字后矢量化完成');
+            
+        } catch (err) {
+            console.error('[LayerEditor] 去除文字后矢量化失败:', err);
+            alert('处理失败: ' + err.message);
+        } finally {
+            this._hideLoading();
+        }
+    }
+    
+    /**
+     * 导出带文字覆盖的图片
+     */
+    async _exportWithTextOverlay(groupId) {
+        const group = this.processedImage.layers.find(l => l.id === groupId);
+        if (!group) return;
+        
+        this._showLoading('正在生成图片...');
+        
+        try {
+            // 创建导出 Canvas
+            const canvas = document.createElement('canvas');
+            canvas.width = this.processedImage.original.width;
+            canvas.height = this.processedImage.original.height;
+            const ctx = canvas.getContext('2d');
+            
+            // 绘制背景（inpainted 或原图）
+            if (group.inpaintedBackground?.canvas) {
+                ctx.drawImage(group.inpaintedBackground.canvas, 0, 0);
+            } else {
+                ctx.drawImage(this.processedImage.original.element, 0, 0);
+            }
+            
+            // 绘制所有文字
+            for (const region of (group.children || [])) {
+                if (!region.visible) continue;
+                this._renderTextOverlayToContext(ctx, region, canvas.width, canvas.height);
+            }
+            
+            // 导出为 PNG
+            const dataUrl = canvas.toDataURL('image/png');
+            
+            // 下载
+            const link = document.createElement('a');
+            link.download = `text-overlay-${Date.now()}.png`;
+            link.href = dataUrl;
+            link.click();
+            
+        } finally {
+            this._hideLoading();
+        }
+    }
+    
+    /**
+     * 渲染文字覆盖到指定 Context
+     */
+    _renderTextOverlayToContext(ctx, region, imgWidth, imgHeight) {
+        const { bbox, content, style } = region;
+        
+        const x = bbox.left * imgWidth;
+        const y = bbox.top * imgHeight;
+        const w = bbox.width * imgWidth;
+        const h = bbox.height * imgHeight;
+        
+        const displayText = content?.displayText || content?.originalText || '';
+        if (!displayText) return;
+        
+        const fontSize = style?.fontSize || 14;
+        const fontFamily = style?.fontFamily || '"Noto Sans CJK SC", Arial, sans-serif';
+        const fontWeight = style?.fontWeight || 'normal';
+        const textColor = style?.color || '#000000';
+        const textAlign = style?.textAlign || 'left';
+        
+        ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+        ctx.fillStyle = textColor;
+        ctx.textBaseline = 'top';
+        
+        const padding = h * 0.05;
+        const maxTextWidth = w - padding * 2;
+        
+        // 使用临时 context 测量（确保字体设置生效）
+        const lines = [];
+        const paragraphs = displayText.split('\n');
+        const isCJK = /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]/.test(displayText);
+        
+        for (const para of paragraphs) {
+            if (!para) { lines.push(''); continue; }
+            let currentLine = '';
+            
+            if (isCJK) {
+                for (const char of para) {
+                    const testLine = currentLine + char;
+                    if (ctx.measureText(testLine).width > maxTextWidth && currentLine) {
+                        lines.push(currentLine);
+                        currentLine = char;
+                    } else {
+                        currentLine = testLine;
+                    }
+                }
+            } else {
+                const words = para.split(/(\s+)/);
+                for (const word of words) {
+                    const testLine = currentLine + word;
+                    if (ctx.measureText(testLine).width > maxTextWidth && currentLine.trim()) {
+                        lines.push(currentLine.trim());
+                        currentLine = word.trimStart();
+                    } else {
+                        currentLine = testLine;
+                    }
+                }
+            }
+            if (currentLine) lines.push(currentLine);
+        }
+        
+        const lineHeight = fontSize * 1.3;
+        const totalTextHeight = lines.length * lineHeight;
+        let actualFontSize = fontSize;
+        
+        if (totalTextHeight > h - padding * 2) {
+            const scale = (h - padding * 2) / totalTextHeight;
+            actualFontSize = Math.max(8, Math.floor(fontSize * scale));
+            ctx.font = `${fontWeight} ${actualFontSize}px ${fontFamily}`;
+        }
+        
+        let textY = y + padding;
+        const actualLineHeight = actualFontSize * 1.3;
+        
+        for (const line of lines) {
+            let textX = x + padding;
+            if (textAlign === 'center') {
+                textX = x + (w - ctx.measureText(line).width) / 2;
+            } else if (textAlign === 'right') {
+                textX = x + w - padding - ctx.measureText(line).width;
+            }
+            ctx.fillText(line, textX, textY);
+            textY += actualLineHeight;
+            if (textY > y + h - padding) break;
+        }
     }
     
     /**
@@ -1849,9 +2788,200 @@ class LayerEditor {
     }
     
     /**
+     * 渲染文字覆盖子图层属性面板
+     */
+    _renderTextOverlayChildPanel(panel, parentLayer, childLayer) {
+        const content = childLayer.content || {};
+        const style = childLayer.style || {};
+        const hexColor = this._toHexColor(style.color || '#000000');
+        
+        let panelContent = `
+            <div class="property-group">
+                <div class="property-group-title">
+                    <iconify-icon icon="carbon:text-font"></iconify-icon>
+                    文字区域属性
+                </div>
+                <div class="property-row">
+                    <span class="property-label">名称</span>
+                    <input class="property-input" type="text" value="${childLayer.name || ''}" data-text-prop="name">
+                </div>
+                <div class="property-row">
+                    <span class="property-label">可见</span>
+                    <input type="checkbox" ${childLayer.visible !== false ? 'checked' : ''} data-text-prop="visible">
+                </div>
+                <div class="property-row">
+                    <span class="property-label">已去除原文</span>
+                    <span style="font-size:12px;color:${childLayer.inpainted ? '#22c55e' : '#ef4444'}">${childLayer.inpainted ? '是' : '否'}</span>
+                </div>
+            </div>
+            
+            <div class="property-group">
+                <div class="property-group-title">
+                    <iconify-icon icon="carbon:edit"></iconify-icon>
+                    文字内容
+                </div>
+                <div class="property-row block">
+                    <span class="property-label">原始文字</span>
+                    <textarea class="property-input" rows="2" data-text-prop="originalText" style="font-size:12px;">${content.originalText || ''}</textarea>
+                </div>
+                <div class="property-row block">
+                    <span class="property-label">显示文字</span>
+                    <textarea class="property-input" rows="2" data-text-prop="displayText" style="font-size:12px;">${content.displayText || ''}</textarea>
+                </div>
+            </div>
+            
+            <div class="property-group">
+                <div class="property-group-title">
+                    <iconify-icon icon="carbon:text-scale"></iconify-icon>
+                    文字样式
+                </div>
+                <div class="property-row">
+                    <span class="property-label">字号</span>
+                    <input type="number" class="property-input" min="8" max="72" value="${style.fontSize || 14}" data-text-prop="fontSize" style="width:60px;">
+                </div>
+                <div class="property-row">
+                    <span class="property-label">颜色</span>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <input type="color" value="${hexColor}" data-text-prop="color" style="width:32px;height:24px;padding:0;border:none;">
+                        <span style="font-size:12px;color:var(--ie-text-secondary)">${hexColor}</span>
+                    </div>
+                </div>
+                <div class="property-row">
+                    <span class="property-label">对齐</span>
+                    <select class="property-select" data-text-prop="textAlign" style="width:80px;">
+                        <option value="left" ${style.textAlign === 'left' ? 'selected' : ''}>左对齐</option>
+                        <option value="center" ${style.textAlign === 'center' ? 'selected' : ''}>居中</option>
+                        <option value="right" ${style.textAlign === 'right' ? 'selected' : ''}>右对齐</option>
+                    </select>
+                </div>
+                <div class="property-row">
+                    <span class="property-label">粗体</span>
+                    <input type="checkbox" ${style.fontWeight === 'bold' ? 'checked' : ''} data-text-prop="fontWeight">
+                </div>
+            </div>
+            
+            <div class="property-group">
+                <div class="property-group-title">
+                    <iconify-icon icon="carbon:operations-field"></iconify-icon>
+                    操作
+                </div>
+                <button class="btn-action" data-text-action="inpaint" ${childLayer.inpainted ? 'disabled' : ''}>
+                    <iconify-icon icon="carbon:erase"></iconify-icon>
+                    去除原文字
+                </button>
+                <button class="btn-action danger" data-text-action="delete" style="margin-top:8px">
+                    <iconify-icon icon="carbon:trash-can"></iconify-icon>
+                    删除此区域
+                </button>
+            </div>
+        `;
+        
+        panel.innerHTML = panelContent;
+        this._bindTextOverlayChildEvents(panel, parentLayer, childLayer);
+    }
+    
+    /**
+     * 绑定文字覆盖子图层事件
+     */
+    _bindTextOverlayChildEvents(panel, parentLayer, childLayer) {
+        // 名称
+        panel.querySelector('[data-text-prop="name"]')?.addEventListener('change', (e) => {
+            childLayer.name = e.target.value;
+            this._updateLayerList();
+            this._saveHistory();
+        });
+        
+        // 可见性
+        panel.querySelector('[data-text-prop="visible"]')?.addEventListener('change', (e) => {
+            childLayer.visible = e.target.checked;
+            this._render();
+            this._updateLayerList();
+        });
+        
+        // 原始文字
+        panel.querySelector('[data-text-prop="originalText"]')?.addEventListener('change', (e) => {
+            childLayer.content.originalText = e.target.value;
+            if (!childLayer.content.translatedText) {
+                childLayer.content.displayText = e.target.value;
+                panel.querySelector('[data-text-prop="displayText"]').value = e.target.value;
+            }
+            this._render();
+            this._saveHistory();
+        });
+        
+        // 显示文字
+        panel.querySelector('[data-text-prop="displayText"]')?.addEventListener('change', (e) => {
+            childLayer.content.displayText = e.target.value;
+            childLayer.name = `文字: ${e.target.value.substring(0, 12)}${e.target.value.length > 12 ? '...' : ''}`;
+            this._updateLayerList();
+            this._render();
+            this._saveHistory();
+        });
+        
+        // 字号
+        panel.querySelector('[data-text-prop="fontSize"]')?.addEventListener('change', (e) => {
+            childLayer.style.fontSize = parseInt(e.target.value) || 14;
+            this._render();
+            this._saveHistory();
+        });
+        
+        // 颜色
+        panel.querySelector('[data-text-prop="color"]')?.addEventListener('input', (e) => {
+            childLayer.style.color = e.target.value;
+            e.target.nextElementSibling.textContent = e.target.value;
+            this._render();
+        });
+        panel.querySelector('[data-text-prop="color"]')?.addEventListener('change', () => {
+            this._saveHistory();
+        });
+        
+        // 对齐
+        panel.querySelector('[data-text-prop="textAlign"]')?.addEventListener('change', (e) => {
+            childLayer.style.textAlign = e.target.value;
+            this._render();
+            this._saveHistory();
+        });
+        
+        // 粗体
+        panel.querySelector('[data-text-prop="fontWeight"]')?.addEventListener('change', (e) => {
+            childLayer.style.fontWeight = e.target.checked ? 'bold' : 'normal';
+            this._render();
+            this._saveHistory();
+        });
+        
+        // 去除原文字
+        panel.querySelector('[data-text-action="inpaint"]')?.addEventListener('click', async () => {
+            await this._inpaintTextRegion(childLayer.id, parentLayer.id);
+            this._updatePropertyPanel();
+        });
+        
+        // 删除
+        panel.querySelector('[data-text-action="delete"]')?.addEventListener('click', () => {
+            if (!confirm('确定要删除这个文字区域吗？')) return;
+            
+            const idx = parentLayer.children.findIndex(c => c.id === childLayer.id);
+            if (idx !== -1) {
+                parentLayer.children.splice(idx, 1);
+                parentLayer.name = `文字识别 (${parentLayer.children.length} 区域)`;
+                this.selectedChildIndex = -1;
+                this._saveHistory();
+                this._updateLayerList();
+                this._updatePropertyPanel();
+                this._render();
+            }
+        });
+    }
+    
+    /**
      * 渲染子图层属性面板
      */
     _renderChildLayerPanel(panel, parentLayer, childLayer) {
+        // 文字覆盖类型子图层
+        if (childLayer.type === 'text-overlay') {
+            this._renderTextOverlayChildPanel(panel, parentLayer, childLayer);
+            return;
+        }
+        
         const pathCount = this._countPaths(childLayer.svg);
         const simplifyLevel = childLayer.simplifyLevel || 0;
         const hexColor = this._toHexColor(childLayer.color);
@@ -2108,7 +3238,7 @@ class LayerEditor {
                 
                 clearTimeout(timeout);
                 timeout = setTimeout(() => {
-                    this._applyChildSimplify(childLayer, level);
+                    this._applyChildSimplify(childLayer, level, parentLayer);
                 }, 100);
             });
         }
@@ -2161,8 +3291,11 @@ class LayerEditor {
     
     /**
      * 对单个子图层应用路径简化
+     * @param {Object} childLayer - 子图层
+     * @param {number} level - 简化级别
+     * @param {Object} parentLayer - 父图层（用于获取预设信息）
      */
-    async _applyChildSimplify(childLayer, level) {
+    async _applyChildSimplify(childLayer, level, parentLayer = null) {
         if (!childLayer || !childLayer.svg) return;
         
         // 保存原始 SVG（如果还没保存）
@@ -2176,12 +3309,17 @@ class LayerEditor {
         } else {
             const { simplifyPathD } = await import('./potrace-core/path-simplifier.js');
             
+            // 检测是否为文字/Logo 类型
+            const preset = parentLayer?.vectorConfig?.preset || '';
+            const preserveStroke = ['logo', 'lineart'].includes(preset);
+            const simplifyOptions = { preserveStroke };
+            
             // 从原始 SVG 开始简化
             let svg = childLayer.originalSvg;
             const pathRegex = /<path([^>]*?)d="([^"]+)"([^>]*?)\/?>(?:<\/path>)?/g;
             
             svg = svg.replace(pathRegex, (match, before, d, after) => {
-                const simplified = simplifyPathD(d, level);
+                const simplified = simplifyPathD(d, level, simplifyOptions);
                 return `<path${before}d="${simplified}"${after}/>`;
             });
             
@@ -2890,6 +4028,11 @@ class LayerEditor {
         // 动态导入简化模块
         const { simplifyPathD } = await import('./potrace-core/path-simplifier.js');
         
+        // 检测是否为文字/Logo 类型，需要保持笔画宽度
+        const preset = layer.vectorConfig?.preset || '';
+        const preserveStroke = ['logo', 'lineart'].includes(preset);
+        const simplifyOptions = { preserveStroke };
+        
         // 对每个子图层的路径应用简化
         layer.children.forEach(child => {
             if (child.type === 'vector' && child.paths && child.paths.length > 0) {
@@ -2901,7 +4044,7 @@ class LayerEditor {
                     
                     // 应用简化（从原始路径简化，避免累积误差）
                     if (level > 0) {
-                        path.d = simplifyPathD(path._originalD, level);
+                        path.d = simplifyPathD(path._originalD, level, simplifyOptions);
                     } else {
                         path.d = path._originalD;
                     }

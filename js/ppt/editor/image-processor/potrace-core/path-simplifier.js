@@ -251,16 +251,38 @@ function catmullRomPath(points, tension = 0.3) {
  * 简化单个 SVG 路径
  * 正确处理包含多个子路径的 path
  * 
+ * 策略：不激进删点，而是通过 fit-curve 的误差阈值控制平滑度
+ * - level 低：保留更多细节（fit-curve 误差小，曲线段多）
+ * - level 高：更平滑简洁（fit-curve 误差大，曲线段少）
+ * 
  * @param {string} pathD - 原始 SVG path d 属性
  * @param {number} level - 简化级别 (0-100)，值越大越平滑/简化
+ * @param {Object} options - 可选参数
+ * @param {boolean} options.preserveStroke - 保持笔画宽度模式（适合文字/Logo）
  * @returns {string} 简化后的 path d
  */
-export function simplifyPathD(pathD, level = 50) {
+export function simplifyPathD(pathD, level = 50, options = {}) {
     if (!pathD || level <= 0) return pathD;
     
-    // 将 level (0-100) 映射到 RDP epsilon 和 fitCurve error
-    const rdpEpsilon = 0.5 + (level / 100) * 4;  // 0.5 ~ 4.5
-    const fitError = 1.0 + (level / 100) * 5;    // 1.0 ~ 6.0
+    const { preserveStroke = false } = options;
+    
+    // 文字/Logo 模式：更保守的参数，防止笔画变形
+    // 普通模式：标准参数
+    let fitError, rdpEpsilon;
+    
+    if (preserveStroke) {
+        // 保持笔画模式：
+        // - fitError 更小，保留更多形状细节
+        // - RDP 几乎不用，避免笔画收缩
+        // - 有效 level 上限降低（100 -> ~60 的效果）
+        const effectiveLevel = level * 0.6;
+        fitError = 0.3 + (effectiveLevel / 100) * 4;  // 0.3 ~ 2.7
+        rdpEpsilon = effectiveLevel > 50 ? 0.2 + (effectiveLevel - 50) / 100 * 0.5 : 0;  // 0 ~ 0.45
+    } else {
+        // 标准模式
+        fitError = 0.5 + (level / 100) * 8;  // 0.5 ~ 8.5
+        rdpEpsilon = level > 30 ? 0.3 + (level - 30) / 100 * 1.5 : 0;  // 0 ~ 1.35
+    }
     
     // 解析路径为多个子路径
     const subpaths = parsePathToSubpaths(pathD);
@@ -269,7 +291,7 @@ export function simplifyPathD(pathD, level = 50) {
     // 分别简化每个子路径
     const simplifiedPaths = [];
     
-    for (const points of subpaths) {
+    for (let points of subpaths) {
         if (points.length < 3) {
             // 点太少，保持原样
             if (points.length === 1) {
@@ -280,15 +302,18 @@ export function simplifyPathD(pathD, level = 50) {
             continue;
         }
         
-        // RDP 简化减少点数
-        const simplified = simplifyRDP(points, rdpEpsilon);
-        if (simplified.length < 3) {
-            // 简化后点太少，用原始点
-            simplifiedPaths.push(pointsToSmoothPath(points, fitError));
-        } else {
-            // 重新拟合为平滑曲线
-            simplifiedPaths.push(pointsToSmoothPath(simplified, fitError));
+        // 只在高 level 时轻微简化，去除微小抖动
+        if (rdpEpsilon > 0 && points.length > 10) {
+            const simplified = simplifyRDP(points, rdpEpsilon);
+            // 只有当简化后点数仍然足够时才使用
+            if (simplified.length >= Math.max(4, points.length * 0.3)) {
+                points = simplified;
+            }
         }
+        
+        // 用 fit-curve 重新拟合为平滑曲线
+        // fitError 越大 → 曲线段越少 → 越平滑简洁
+        simplifiedPaths.push(pointsToSmoothPath(points, fitError));
     }
     
     // 合并所有子路径

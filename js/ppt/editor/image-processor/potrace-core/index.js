@@ -41,7 +41,7 @@ import { labelConnectedComponents } from './connected-components.js';
 import { marchingSquaresContour } from './contour-tracer.js';
 import { traceContoursVTracer, traceContoursHybrid } from './path-walker.js';
 import { simplifyPath, removeStaircase, limitPenalties } from './path-simplify.js';
-import { chaikinSmooth, chaikinSmoothPreserveCorners, simplifyRDPClosed as simplifyPathRDP } from './path-smooth.js';
+import { chaikinSmooth, chaikinSmoothPreserveCorners, simplifyRDPClosed as simplifyPathRDP, reduceVTracer } from './path-smooth.js';
 import { 
     processContourVTracer, 
     detectCornersVTracer 
@@ -442,8 +442,8 @@ export async function vectorize(imageData, options = {}) {
             const dynamicEpsilon = (perimeter < 50 ? 0.4 : 
                                     perimeter < 100 ? 0.5 : 0.6) * upscale;
             
-            // 1. RDP 简化
-            pts = simplifyPathRDP(pts, dynamicEpsilon);
+            // 1. VTracer 风格简化（径向预处理 + RDP）
+            pts = reduceVTracer(pts, dynamicEpsilon);
             
             // 2. 检测角点
             const cornerIndices = new Set();
