@@ -65,6 +65,10 @@ const PPTGeneratorNavigation = {
                                     <iconify-icon icon="carbon:add-large"></iconify-icon>
                                     开始新创作
                                 </button>
+                                <button class="ppt-cta-btn secondary" onclick="window.PPTGenerator.importPptx()">
+                                    <iconify-icon icon="carbon:document-import"></iconify-icon>
+                                    导入 PPTX
+                                </button>
                                 
                                 <div class="ppt-status-row">
                                     <div class="ppt-status-pill-minimal">
@@ -671,6 +675,331 @@ const PPTGeneratorNavigation = {
         }
         this.pendingAttachments.splice(index, 1);
         this._renderAttachments();
+    },
+
+    // ═══════════════════════════════════════════════════════════════
+    // PPTX 导入功能
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * 导入 PPTX 文件并解析
+     */
+    async importPptx() {
+        // 创建隐藏的 file input
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.pptx';
+        
+        input.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            // 显示加载状态
+            this._showImportProgress('正在解析 PPTX 文件...');
+            
+            try {
+                // 检查 PPTXSlideParser 是否已加载
+                if (typeof PPTXSlideParser === 'undefined') {
+                    // 动态加载
+                    await this._loadScript('js/ppt/slide-parser-pptx.js');
+                }
+                
+                const parser = new PPTXSlideParser();
+                const result = await parser.parse(file);
+                
+                console.log('[importPptx] Parsed result:', result);
+                
+                // 显示解析结果
+                this._showImportResult(file.name, result);
+                
+            } catch (err) {
+                console.error('[importPptx] Error:', err);
+                this._showImportError(err.message);
+            }
+        };
+        
+        input.click();
+    },
+
+    /**
+     * 动态加载脚本
+     */
+    _loadScript(src) {
+        return new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = src;
+            script.onload = resolve;
+            script.onerror = () => reject(new Error(`Failed to load ${src}`));
+            document.head.appendChild(script);
+        });
+    },
+
+    /**
+     * 显示导入进度
+     */
+    _showImportProgress(message) {
+        // 创建模态框
+        const modal = document.createElement('div');
+        modal.id = 'pptxImportModal';
+        modal.className = 'ppt-modal-overlay open';
+        modal.innerHTML = `
+            <div class="ppt-modal" style="max-width: 500px;">
+                <div class="ppt-modal-header">
+                    <h3><iconify-icon icon="carbon:document-import"></iconify-icon> 导入 PPTX</h3>
+                </div>
+                <div class="ppt-modal-body" style="text-align: center; padding: 40px;">
+                    <div class="ppt-loading-spinner" style="margin-bottom: 16px;"></div>
+                    <p id="importProgressMessage">${message}</p>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    },
+
+    /**
+     * 显示导入结果
+     */
+    _showImportResult(filename, result) {
+        const modal = document.getElementById('pptxImportModal');
+        if (!modal) return;
+        
+        const { slides, html, metadata } = result;
+        
+        // 生成预览摘要
+        const summary = slides.map((slide, i) => {
+            const elements = slide.elements || [];
+            const textEls = elements.filter(e => e.type === 'text');
+            const shapeEls = elements.filter(e => e.type === 'shape');
+            const imageEls = elements.filter(e => e.type === 'image');
+            
+            // 获取第一个文本作为标题
+            const firstText = textEls[0]?.content?.substring(0, 50) || '(无标题)';
+            
+            return `
+                <div class="import-slide-item" style="padding: 8px 12px; border-bottom: 1px solid var(--ppt-border); cursor: pointer;" 
+                     onclick="window.PPTGenerator._previewImportedSlide(${i})">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="color: var(--ppt-text-muted); font-size: 12px; width: 24px;">${i + 1}</span>
+                        <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${this._escapeHtml(firstText)}</span>
+                        <span style="color: var(--ppt-text-muted); font-size: 11px;">
+                            ${textEls.length}文 ${shapeEls.length}形 ${imageEls.length}图
+                        </span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        modal.querySelector('.ppt-modal').style.maxWidth = '800px';
+        modal.querySelector('.ppt-modal').innerHTML = `
+            <div class="ppt-modal-header">
+                <h3><iconify-icon icon="carbon:checkmark-filled" style="color: var(--ppt-success);"></iconify-icon> 导入成功</h3>
+                <button class="ppt-icon-btn" onclick="document.getElementById('pptxImportModal').remove()">
+                    <iconify-icon icon="carbon:close"></iconify-icon>
+                </button>
+            </div>
+            <div class="ppt-modal-body" style="padding: 0;">
+                <div style="padding: 16px; background: var(--ppt-bg-secondary); border-bottom: 1px solid var(--ppt-border);">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <iconify-icon icon="carbon:presentation-file" style="font-size: 32px; color: var(--ppt-primary);"></iconify-icon>
+                        <div>
+                            <div style="font-weight: 600;">${this._escapeHtml(filename)}</div>
+                            <div style="font-size: 12px; color: var(--ppt-text-muted);">
+                                ${slides.length} 页幻灯片 · ${metadata.width.toFixed(1)}" × ${metadata.height.toFixed(1)}"
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="display: flex; height: 400px;">
+                    <!-- 左侧幻灯片列表 -->
+                    <div style="width: 240px; border-right: 1px solid var(--ppt-border); overflow-y: auto;" class="custom-scrollbar">
+                        ${summary}
+                    </div>
+                    
+                    <!-- 右侧 HTML 代码 -->
+                    <div style="flex: 1; display: flex; flex-direction: column;">
+                        <div style="padding: 8px 12px; background: var(--ppt-bg-tertiary); border-bottom: 1px solid var(--ppt-border); font-size: 12px; color: var(--ppt-text-muted);">
+                            <iconify-icon icon="carbon:code"></iconify-icon> 生成的 HTML 代码 (供 AI 参考)
+                        </div>
+                        <pre id="importedHtmlCode" style="flex: 1; margin: 0; padding: 12px; font-size: 11px; overflow: auto; background: var(--ppt-bg-primary); font-family: 'Fira Code', monospace;">${this._escapeHtml(html)}</pre>
+                    </div>
+                </div>
+            </div>
+            <div class="ppt-modal-footer" style="display: flex; gap: 8px; justify-content: flex-end; padding: 12px 16px; border-top: 1px solid var(--ppt-border);">
+                <button class="ppt-btn secondary" onclick="window.PPTGenerator._copyImportedHtml()">
+                    <iconify-icon icon="carbon:copy"></iconify-icon> 复制 HTML
+                </button>
+                <button class="ppt-btn secondary" onclick="window.PPTGenerator._useAsReference()">
+                    <iconify-icon icon="carbon:ai-status"></iconify-icon> 作为参考导入
+                </button>
+                <button class="ppt-btn secondary" onclick="window.PPTGenerator._saveImportToProjects()">
+                    <iconify-icon icon="carbon:folder-add"></iconify-icon> 添加到最近项目
+                </button>
+                <button class="ppt-btn primary" onclick="window.PPTGenerator._createProjectFromImport()">
+                    <iconify-icon icon="carbon:play-filled-alt"></iconify-icon> 立即编辑
+                </button>
+            </div>
+        `;
+        
+        // 保存解析结果供后续使用
+        this._importedPptxResult = result;
+        this._importedPptxFilename = filename.replace(/\.pptx$/i, '');
+    },
+
+    /**
+     * 显示导入错误
+     */
+    _showImportError(message) {
+        const modal = document.getElementById('pptxImportModal');
+        if (!modal) return;
+        
+        modal.querySelector('.ppt-modal').innerHTML = `
+            <div class="ppt-modal-header">
+                <h3><iconify-icon icon="carbon:warning-alt" style="color: var(--ppt-danger);"></iconify-icon> 导入失败</h3>
+                <button class="ppt-icon-btn" onclick="document.getElementById('pptxImportModal').remove()">
+                    <iconify-icon icon="carbon:close"></iconify-icon>
+                </button>
+            </div>
+            <div class="ppt-modal-body" style="text-align: center; padding: 40px;">
+                <iconify-icon icon="carbon:warning-alt-filled" style="font-size: 48px; color: var(--ppt-danger); margin-bottom: 16px;"></iconify-icon>
+                <p style="color: var(--ppt-text-secondary);">${this._escapeHtml(message)}</p>
+            </div>
+            <div class="ppt-modal-footer" style="display: flex; justify-content: center; padding: 12px 16px; border-top: 1px solid var(--ppt-border);">
+                <button class="ppt-btn secondary" onclick="document.getElementById('pptxImportModal').remove()">关闭</button>
+            </div>
+        `;
+    },
+
+    /**
+     * 复制导入的 HTML
+     */
+    _copyImportedHtml() {
+        if (!this._importedPptxResult) return;
+        
+        navigator.clipboard.writeText(this._importedPptxResult.html).then(() => {
+            // 显示成功提示
+            const btn = document.querySelector('.ppt-modal-footer .ppt-btn.secondary');
+            if (btn) {
+                const original = btn.innerHTML;
+                btn.innerHTML = '<iconify-icon icon="carbon:checkmark"></iconify-icon> 已复制';
+                setTimeout(() => btn.innerHTML = original, 2000);
+            }
+        });
+    },
+
+    /**
+     * 作为参考导入（添加到聊天附件）
+     */
+    async _useAsReference() {
+        if (!this._importedPptxResult) return;
+        
+        // 关闭模态框
+        document.getElementById('pptxImportModal')?.remove();
+        
+        // 创建新项目
+        await this.createNewProject('default');
+        
+        // 将 HTML 作为参考内容添加到聊天
+        const refContent = `以下是导入的 PPTX 文件结构，请参考其布局和内容风格进行调整：\n\n\`\`\`html\n${this._importedPptxResult.html}\n\`\`\``;
+        
+        // 自动填入聊天框
+        const chatInput = document.getElementById('pptChatInput');
+        if (chatInput) {
+            chatInput.value = refContent;
+            chatInput.style.height = 'auto';
+            chatInput.style.height = Math.min(chatInput.scrollHeight, 200) + 'px';
+        }
+    },
+
+    /**
+     * 保存导入的 PPTX 到最近项目（不进入编辑）
+     */
+    async _saveImportToProjects() {
+        console.log('[_saveImportToProjects] Called');
+        if (!this._importedPptxResult) {
+            console.warn('[_saveImportToProjects] No imported result');
+            return;
+        }
+        
+        // 创建项目
+        const newProject = {
+            id: crypto.randomUUID(),
+            title: this._importedPptxFilename || '导入的演示文稿',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            slides: this._importedPptxResult.slides,
+            sourceHtml: this._importedPptxResult.html
+        };
+        
+        console.log('[_saveImportToProjects] Saving project:', newProject.title, 'with', newProject.slides.length, 'slides');
+        
+        // 安全检查：确保没有 Promise 对象
+        const cleanSlides = JSON.parse(JSON.stringify(newProject.slides));
+        newProject.slides = cleanSlides;
+        
+        if (window.pptStorage) {
+            await window.pptStorage.saveProject(newProject);
+            console.log('[_saveImportToProjects] Project saved');
+        } else {
+            console.error('[_saveImportToProjects] pptStorage not available!');
+        }
+        
+        // 关闭模态框
+        document.getElementById('pptxImportModal')?.remove();
+        
+        // 清理
+        this._importedPptxResult = null;
+        this._importedPptxFilename = null;
+        
+        // 刷新项目列表
+        console.log('[_saveImportToProjects] Refreshing project list...');
+        this.showProjectList();
+    },
+
+    /**
+     * 从导入的 PPTX 创建项目并立即编辑
+     */
+    async _createProjectFromImport() {
+        if (!this._importedPptxResult) return;
+        
+        // 关闭模态框
+        document.getElementById('pptxImportModal')?.remove();
+        
+        // 使用解析的 slides 创建项目（安全检查：确保没有 Promise 对象）
+        this.slides = JSON.parse(JSON.stringify(this._importedPptxResult.slides));
+        
+        // 创建项目
+        const newProject = {
+            id: crypto.randomUUID(),
+            title: this._importedPptxFilename || '导入的演示文稿',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            slides: this.slides,
+            sourceHtml: this._importedPptxResult.html
+        };
+        
+        if (window.pptStorage) {
+            await window.pptStorage.saveProject(newProject);
+        }
+        
+        this.currentProject = newProject;
+        this.currentSlideIndex = 0;
+        
+        // 进入演示模式
+        this._showPresentation();
+        
+        // 清理
+        this._importedPptxResult = null;
+        this._importedPptxFilename = null;
+    },
+
+    _escapeHtml(text) {
+        if (!text) return '';
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
     }
 };
 

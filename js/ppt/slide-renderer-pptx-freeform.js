@@ -277,12 +277,31 @@ const PPTXFreeformMixin = {
         }
     },
 
-    parseChartDataPPTX(dataStr) {
-        if (!dataStr) return [];
-        return dataStr.split(',').map(item => {
-            const parts = item.split(':');
-            return { label: parts[0]?.trim() || '', value: parseFloat(parts[1]) || 0 };
-        });
+    parseChartDataPPTX(dataInput) {
+        if (!dataInput) return [];
+        
+        // 新格式对象 (来自 PPTX 解析)
+        if (typeof dataInput === 'object' && dataInput.categories && dataInput.series) {
+            const categories = dataInput.categories || [];
+            const series = dataInput.series || [];
+            if (series.length > 0 && series[0].values) {
+                return categories.map((cat, i) => ({
+                    label: cat,
+                    value: series[0].values[i] || 0
+                }));
+            }
+            return [];
+        }
+        
+        // 旧格式字符串
+        if (typeof dataInput === 'string') {
+            return dataInput.split(',').map(item => {
+                const parts = item.split(':');
+                return { label: parts[0]?.trim() || '', value: parseFloat(parts[1]) || 0 };
+            });
+        }
+        
+        return [];
     },
 
     renderFreeformFormulaPPTX(slide, el, x, y, w, h) {

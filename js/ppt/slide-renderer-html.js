@@ -542,12 +542,34 @@ class HTMLSlideRenderer {
         return `<div style="${chartStyle}">${titleHtml}${chartSvg}</div>`;
     }
 
-    parseChartData(dataStr) {
-        if (!dataStr) return [];
-        return dataStr.split(',').map(item => {
-            const [label, value] = item.split(':');
-            return { label: label?.trim() || '', value: parseFloat(value) || 0 };
-        });
+    parseChartData(dataInput) {
+        if (!dataInput) return [];
+        
+        // 如果是新格式的对象 (来自 PPTX 解析)
+        if (typeof dataInput === 'object' && dataInput.categories && dataInput.series) {
+            // 将 PPTX 格式转换为渲染器格式
+            const categories = dataInput.categories || [];
+            const series = dataInput.series || [];
+            
+            // 使用第一个系列的数据
+            if (series.length > 0 && series[0].values) {
+                return categories.map((cat, i) => ({
+                    label: cat,
+                    value: series[0].values[i] || 0
+                }));
+            }
+            return [];
+        }
+        
+        // 旧格式的字符串 "label1:value1,label2:value2"
+        if (typeof dataInput === 'string') {
+            return dataInput.split(',').map(item => {
+                const [label, value] = item.split(':');
+                return { label: label?.trim() || '', value: parseFloat(value) || 0 };
+            });
+        }
+        
+        return [];
     }
 
     renderBarChart(data, colors, labels = '') {
