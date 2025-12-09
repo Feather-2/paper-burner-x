@@ -669,17 +669,23 @@ export async function vectorizeWithPreset(imageData, presetName = 'auto') {
 // ============ 导出 ============
 
 /**
- * PotraceCore - 兼容层
+ * Vecburner - 高质量位图转矢量引擎
  * 
- * 推荐使用新的 ES Module 版本:
- * import { Vectorizer } from './vectorizer/index.js';
+ * @example
+ * // 基础用法
+ * const result = await Vecburner.vectorize(imageData, { preset: 'logo' });
+ * console.log(result.svg);
  * 
- * 新版本包含:
- * - VTracer 4-Point Subdivision Scheme 平滑算法
- * - Splice Point Detection 曲线分段
- * - remove_staircase 锯齿移除
- * - retract_handles 控制点修正
+ * // 使用预设
+ * const result = await Vecburner.vectorizeWithPreset(imageData, 'lineart');
+ * 
+ * // 路径简化
+ * const simplified = Vecburner.simplify(pathD, 2);
  */
+
+// 版本号
+const VERSION = '1.0.0';
+
 // 导入分块矢量化模块（延迟加载）
 let blockVectorizeModule = null;
 async function loadBlockVectorize() {
@@ -706,35 +712,157 @@ export async function vectorizeSmart(imageData, options = {}) {
     return mod.vectorizeSmart(imageData, options);
 }
 
-export const Vecburner = {
-    // 保持向后兼容的别名
-    get PotraceCore() { return Vecburner; },
-    vectorize,
-    vectorizeWithPreset,
-    vectorizeByBlocks,   // 分块矢量化
-    vectorizeSmart,      // 智能矢量化
-    analyzeImageColors,
-    kMeansQuantize,      // K-Means++ 聚类（推荐）
-    medianCutQuantize,   // Median Cut（备用）
-    labelConnectedComponents,
-    marchingSquaresContour,
-    simplifyPath,
-    fitBezier,
-    PRESETS,
+// ============ 高级 API（进阶用户） ============
+
+/**
+ * 高级 API - 提供底层算法访问
+ * 适合需要精细控制的进阶用户
+ */
+const advanced = {
+    // 颜色量化
+    quantize: kMeansQuantize,
+    quantizeMedianCut: medianCutQuantize,
     
-    // VTracer 新增函数
+    // 图像分析
+    analyzeColors: analyzeImageColors,
+    computeOtsuThreshold,
+    
+    // 二值化与形态学
+    createBinaryBitmap,
+    createBinaryBitmapFromMap,
+    morphClose,
+    
+    // 连通区域
+    labelConnectedComponents,
+    
+    // 轮廓追踪
+    traceContours: marchingSquaresContour,
+    traceContoursVTracer,
+    traceContoursHybrid,
+    
+    // 路径简化
+    simplifyPath,
+    removeStaircase,
+    reduceVTracer,
+    
+    // 路径平滑
+    chaikinSmooth,
+    chaikinSmoothPreserveCorners,
+    
+    // 角点检测
+    detectCorners: detectCornersVTracer,
+    processContour: processContourVTracer,
+    
+    // 曲线拟合
+    fitBezier,
+    fitBezierWithCorners,
+    fitBezierSmooth,
+    fitBezierCatmullRom,
+    generatePolygonPath,
+    retractHandles
+};
+
+// ============ 主 API ============
+
+/**
+ * Vecburner 主对象
+ * 
+ * @property {string} version - 版本号
+ * @property {Object} presets - 预设配置
+ * @property {Object} advanced - 高级 API
+ */
+export const Vecburner = {
+    // 元信息
+    version: VERSION,
+    
+    // -------- 核心方法 --------
+    
+    /**
+     * 矢量化图像
+     * @param {ImageData} imageData - 图像数据
+     * @param {Object} options - 配置选项
+     * @returns {Promise<Object>} 矢量化结果 { svg, layers, paths, colors, width, height }
+     */
+    vectorize,
+    
+    /**
+     * 使用预设矢量化
+     * @param {ImageData} imageData - 图像数据
+     * @param {string} preset - 预设名称: 'auto'|'logo'|'lineart'|'illustration'|'photo'|'pixel'|'simple'
+     * @returns {Promise<Object>} 矢量化结果
+     */
+    vectorizeWithPreset,
+    
+    /**
+     * 简化 SVG 路径
+     * @param {string} pathD - SVG path d 属性
+     * @param {number} level - 简化级别 (0-5)
+     * @returns {string} 简化后的路径
+     */
+    simplify: simplifyPathD,
+    
+    /**
+     * 分析图像特征
+     * @param {ImageData} imageData - 图像数据
+     * @returns {Object} 分析结果 { colorCount, isPhoto, isLineart, recommendedPreset }
+     */
+    analyzeImage: analyzeImageColors,
+    
+    // -------- 预设配置 --------
+    presets: PRESETS,
+    
+    // -------- 实验性功能 --------
+    
+    /**
+     * 分块矢量化（实验性）
+     * 将图像分割成独立区块分别处理
+     */
+    vectorizeByBlocks,
+    
+    /**
+     * 智能矢量化（实验性）
+     * 自动选择全图或分块模式
+     */
+    vectorizeSmart,
+    
+    // -------- 高级 API --------
+    advanced,
+    
+    // -------- 向后兼容 --------
+    // 以下属性保持向后兼容，新代码请使用上述标准 API
+    
+    /** @deprecated 使用 Vecburner.advanced.quantize */
+    kMeansQuantize,
+    /** @deprecated 使用 Vecburner.advanced.quantizeMedianCut */
+    medianCutQuantize,
+    /** @deprecated 使用 Vecburner.advanced.analyzeColors */
+    analyzeImageColors,
+    /** @deprecated 使用 Vecburner.advanced.labelConnectedComponents */
+    labelConnectedComponents,
+    /** @deprecated 使用 Vecburner.advanced.traceContours */
+    marchingSquaresContour,
+    /** @deprecated 使用 Vecburner.simplify */
+    simplifyPathD,
+    /** @deprecated 使用 Vecburner.advanced.simplifyPath */
+    simplifyPath,
+    /** @deprecated 使用 Vecburner.advanced.fitBezier */
+    fitBezier,
+    
+    // 路径简化工具（保留，常用）
+    simplifyVectorResult,
+    getSimplifyPreview,
+    
+    // VTracer 风格函数（保留，高级用户可能需要）
     processContourVTracer,
     detectCornersVTracer,
     chaikinSmooth,
     fitBezierWithCorners,
     fitBezierSmooth,
     fitBezierCatmullRom,
-    retractHandles,  // 控制点回缩，防止曲线过冲
+    retractHandles,
     
-    // 路径简化（类似 AI 的简化功能）
-    simplifyPathD,           // 简化单个路径
-    simplifyVectorResult,    // 简化整个矢量化结果
-    getSimplifyPreview       // 滑块预览用
+    // 兼容别名
+    get PotraceCore() { return Vecburner; }
 };
 
 // 向后兼容别名
@@ -743,7 +871,10 @@ export const PotraceCore = Vecburner;
 // 默认导出
 export default Vecburner;
 
-// 重新导出所有子模块供按需导入
+// ============ 按需导入支持 ============
+// 支持 tree-shaking，按需导入底层模块
+// import { kMeansQuantize } from 'vecburner/color-quantize';
+
 export * from './utils.js';
 export * from './color-quantize.js';
 export * from './color-analysis.js';
@@ -756,4 +887,3 @@ export * from './corner-detect.js';
 export * from './curve-fitter.js';
 export * from './path-simplifier.js';
 export { PRESETS } from './presets.js';
-// vectorizeByBlocks 和 vectorizeSmart 已在上方定义并导出，这里不重复导出
