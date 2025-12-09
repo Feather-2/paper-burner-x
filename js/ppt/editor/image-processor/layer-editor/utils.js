@@ -8,6 +8,14 @@
  */
 export const UtilsMixin = {
     /**
+     * 关闭编辑器
+     */
+    close() {
+        this._hideLoading();
+        this.container?.remove();
+    },
+
+    /**
      * 颜色线性插值
      */
     _lerpColor(c1, c2, t) {

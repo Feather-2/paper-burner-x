@@ -641,13 +641,17 @@ If "Hello World" is at 12% from left, 8% from top, extending to 45% width and 13
             // 尝试提取 JSON
             let jsonStr = content;
             
+            // GLM-4V 使用 <|begin_of_box|> 和 <|end_of_box|> 包裹 JSON
+            jsonStr = jsonStr.replace(/<\|begin_of_box\|>/g, '');
+            jsonStr = jsonStr.replace(/<\|end_of_box\|>/g, '');
+            
             // 如果包含 markdown 代码块，提取其中的 JSON
-            const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+            const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
             if (jsonMatch) {
                 jsonStr = jsonMatch[1].trim();
             } else {
                 // 尝试找到 JSON 对象
-                const braceMatch = content.match(/\{[\s\S]*\}/);
+                const braceMatch = jsonStr.match(/\{[\s\S]*\}/);
                 if (braceMatch) {
                     jsonStr = braceMatch[0];
                 }
@@ -732,7 +736,45 @@ If "Hello World" is at 12% from left, 8% from top, extending to 45% width and 13
                     
                     console.log(`[OcrExtractor] 坐标转换: "${text.substring(0,15)}..." (${item.x1},${item.y1})-(${item.x2},${item.y2}) ÷${divisor} → (${bbox.left.toFixed(3)},${bbox.top.toFixed(3)},${bbox.width.toFixed(3)},${bbox.height.toFixed(3)})`);
                 }
-                // 格式3: 旧格式 bbox { left, top, width, height }
+                // 格式3: bbox 数组 [x1, y1, x2, y2] (GLM-4V 等模型)
+                // GLM-4V 使用 0-1000 归一化坐标
+                else if (Array.isArray(item.bbox) && item.bbox.length === 4) {
+                    const [rx1, ry1, rx2, ry2] = item.bbox;
+                    const maxVal = Math.max(rx1, ry1, rx2, ry2);
+                    let x1, y1, x2, y2;
+                    
+                    if (maxVal > 1000) {
+                        // 像素坐标（大于 1000）
+                        x1 = rx1 / imgWidth;
+                        y1 = ry1 / imgHeight;
+                        x2 = rx2 / imgWidth;
+                        y2 = ry2 / imgHeight;
+                        console.log(`[OcrExtractor] bbox 像素坐标: (${rx1},${ry1})-(${rx2},${ry2}) / ${imgWidth}x${imgHeight}`);
+                    } else if (maxVal > 100) {
+                        // 0-1000 归一化（GLM-4V 标准格式）
+                        x1 = rx1 / 1000; y1 = ry1 / 1000;
+                        x2 = rx2 / 1000; y2 = ry2 / 1000;
+                        console.log(`[OcrExtractor] bbox 0-1000 归一化: (${rx1},${ry1})-(${rx2},${ry2}) → (${x1.toFixed(3)},${y1.toFixed(3)})-(${x2.toFixed(3)},${y2.toFixed(3)})`);
+                    } else if (maxVal > 1) {
+                        // 0-100 百分比
+                        x1 = rx1 / 100; y1 = ry1 / 100;
+                        x2 = rx2 / 100; y2 = ry2 / 100;
+                        console.log(`[OcrExtractor] bbox 百分比: (${rx1},${ry1})-(${rx2},${ry2})`);
+                    } else {
+                        // 已经是 0-1 归一化
+                        x1 = rx1; y1 = ry1;
+                        x2 = rx2; y2 = ry2;
+                        console.log(`[OcrExtractor] bbox 已归一化: (${rx1},${ry1})-(${rx2},${ry2})`);
+                    }
+                    
+                    bbox = {
+                        left: Math.max(0, Math.min(1, x1)),
+                        top: Math.max(0, Math.min(1, y1)),
+                        width: Math.max(0.01, Math.min(1, x2 - x1)),
+                        height: Math.max(0.01, Math.min(1, y2 - y1))
+                    };
+                }
+                // 格式4: 旧格式 bbox { left, top, width, height }
                 else {
                     const rawBbox = item.bbox || item.box || item.bounds || {};
                     bbox = {
@@ -999,19 +1041,7 @@ If "Hello World" is at 12% from left, 8% from top, extending to 45% width and 13
         return 'left';
     }
 
-    _parseVlmResult(content, imgWidth, imgHeight) {
-        const regions = [];
-        try {
-            const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/\{[\s\S]*"regions"[\s\S]*\}/);
-            if (jsonMatch) {
-                const parsed = JSON.parse(jsonMatch[1] || jsonMatch[0]);
-                (parsed.regions || []).forEach((region, idx) => {
-                    regions.push({ id: `text_${idx}`, text: region.text, bbox: region.bbox, style: { fontSize: region.fontSize || 14, color: region.color || '#000000' } });
-                });
-            }
-        } catch (e) { console.warn('[OcrExtractor] 解析失败:', e); }
-        return { regions, engine: 'vlm', raw: content };
-    }
+    // _parseVlmResult 已移至行 636，删除此重复定义
 
     async replaceTextWithBackground(imageObj, regions) {
         const canvas = document.createElement('canvas');

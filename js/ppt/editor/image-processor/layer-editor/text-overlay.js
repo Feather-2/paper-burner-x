@@ -4,9 +4,186 @@
  */
 
 /**
+ * 可用的免费商用字体列表
+ */
+const AVAILABLE_FONTS = [
+    { name: '系统默认', value: 'system-ui, sans-serif', loaded: true },
+    { name: '思源黑体', value: '"Noto Sans SC", sans-serif', css: 'https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700&display=swap' },
+    { name: '思源宋体', value: '"Noto Serif SC", serif', css: 'https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&display=swap' },
+    { name: '霞鹜文楷', value: '"LXGW WenKai", cursive', css: 'https://cdn.jsdelivr.net/npm/lxgw-wenkai-webfont@1.7.0/style.css' },
+    { name: '站酷高端黑', value: '"ZCOOL XiaoWei", sans-serif', css: 'https://fonts.googleapis.com/css2?family=ZCOOL+XiaoWei&display=swap' },
+    { name: 'Ma Shan Zheng', value: '"Ma Shan Zheng", cursive', css: 'https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&display=swap' },
+];
+
+// 已加载的字体 CSS
+const loadedFontCSS = new Set();
+
+/**
+ * 加载字体 CSS（懒加载）
+ */
+function loadFontCSS(cssUrl) {
+    if (loadedFontCSS.has(cssUrl)) return Promise.resolve();
+    
+    return new Promise((resolve) => {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = cssUrl;
+        link.onload = () => {
+            loadedFontCSS.add(cssUrl);
+            resolve();
+        };
+        link.onerror = () => resolve(); // 失败也继续
+        document.head.appendChild(link);
+    });
+}
+
+/**
+ * 根据 fontFamily 值加载对应字体（懒加载）
+ */
+export function ensureFontLoaded(fontFamily) {
+    if (!fontFamily) return Promise.resolve();
+    const fontDef = AVAILABLE_FONTS.find(f => f.value === fontFamily);
+    if (fontDef?.css) {
+        return loadFontCSS(fontDef.css);
+    }
+    return Promise.resolve();
+}
+
+/**
+ * 获取可用字体列表
+ */
+export function getAvailableFonts() {
+    return AVAILABLE_FONTS;
+}
+
+/**
  * 文字覆盖 mixin
  */
 export const TextOverlayMixin = {
+    /**
+     * 渲染多选批量操作面板
+     */
+    _renderMultiSelectPanel(panel, parentLayer, selectedChildren) {
+        const count = selectedChildren.length;
+        
+        panel.innerHTML = `
+            <div class="property-group">
+                <div class="property-group-title">
+                    <iconify-icon icon="carbon:checkbox-checked"></iconify-icon>
+                    多选操作 (${count} 个区域)
+                </div>
+                <div style="font-size:12px;color:var(--ie-text-secondary);margin-bottom:12px;">
+                    按住 Ctrl 点击可添加/移除选择
+                </div>
+            </div>
+            
+            <div class="property-group">
+                <div class="property-group-title">
+                    <iconify-icon icon="carbon:move"></iconify-icon>
+                    批量调整
+                </div>
+                <div class="property-row">
+                    <span class="property-label">水平偏移 %</span>
+                    <input type="number" class="property-input" value="0" data-batch-action="offset-x" style="width:60px;" step="1">
+                </div>
+                <div class="property-row">
+                    <span class="property-label">垂直偏移 %</span>
+                    <input type="number" class="property-input" value="0" data-batch-action="offset-y" style="width:60px;" step="1">
+                </div>
+                <div class="property-row">
+                    <span class="property-label">宽度缩放 %</span>
+                    <input type="number" class="property-input" value="100" data-batch-action="scale-width" style="width:60px;" step="5" min="10" max="500">
+                </div>
+                <div class="property-row">
+                    <span class="property-label">高度缩放 %</span>
+                    <input type="number" class="property-input" value="100" data-batch-action="scale-height" style="width:60px;" step="5" min="10" max="500">
+                </div>
+                <button class="btn-action" data-batch-action="apply-transform" style="margin-top:8px;">
+                    <iconify-icon icon="carbon:checkmark"></iconify-icon>
+                    应用调整
+                </button>
+            </div>
+            
+            <div class="property-group">
+                <div class="property-group-title">
+                    <iconify-icon icon="carbon:tools"></iconify-icon>
+                    批量操作
+                </div>
+                <button class="btn-action" data-batch-action="inpaint-all">
+                    <iconify-icon icon="carbon:erase"></iconify-icon>
+                    去除选中区域原文字
+                </button>
+                <button class="btn-action danger" data-batch-action="delete-all" style="margin-top:8px;">
+                    <iconify-icon icon="carbon:trash-can"></iconify-icon>
+                    删除选中区域
+                </button>
+            </div>
+        `;
+        
+        this._bindMultiSelectEvents(panel, parentLayer, selectedChildren);
+    },
+    
+    /**
+     * 绑定多选操作事件
+     */
+    _bindMultiSelectEvents(panel, parentLayer, selectedChildren) {
+        // 应用变换
+        panel.querySelector('[data-batch-action="apply-transform"]')?.addEventListener('click', () => {
+            const offsetX = parseFloat(panel.querySelector('[data-batch-action="offset-x"]').value) / 100;
+            const offsetY = parseFloat(panel.querySelector('[data-batch-action="offset-y"]').value) / 100;
+            const scaleW = parseFloat(panel.querySelector('[data-batch-action="scale-width"]').value) / 100;
+            const scaleH = parseFloat(panel.querySelector('[data-batch-action="scale-height"]').value) / 100;
+            
+            selectedChildren.forEach(child => {
+                child.bbox.left = Math.max(0, Math.min(1, child.bbox.left + offsetX));
+                child.bbox.top = Math.max(0, Math.min(1, child.bbox.top + offsetY));
+                child.bbox.width = Math.max(0.02, Math.min(1, child.bbox.width * scaleW));
+                child.bbox.height = Math.max(0.02, Math.min(1, child.bbox.height * scaleH));
+                this._autoEstimateFontSize(child);
+            });
+            
+            // 重置输入框
+            panel.querySelector('[data-batch-action="offset-x"]').value = 0;
+            panel.querySelector('[data-batch-action="offset-y"]').value = 0;
+            panel.querySelector('[data-batch-action="scale-width"]').value = 100;
+            panel.querySelector('[data-batch-action="scale-height"]').value = 100;
+            
+            this._saveHistory();
+            this._render();
+        });
+        
+        // 批量 Inpaint
+        panel.querySelector('[data-batch-action="inpaint-all"]')?.addEventListener('click', async () => {
+            for (const child of selectedChildren) {
+                if (!child.inpainted) {
+                    await this._inpaintTextRegion(child.id, parentLayer.id);
+                }
+            }
+            this._updatePropertyPanel();
+        });
+        
+        // 批量删除
+        panel.querySelector('[data-batch-action="delete-all"]')?.addEventListener('click', () => {
+            if (!confirm(`确定要删除这 ${selectedChildren.length} 个文字区域吗？`)) return;
+            
+            selectedChildren.forEach(child => {
+                const idx = parentLayer.children.findIndex(c => c.id === child.id);
+                if (idx >= 0) {
+                    parentLayer.children.splice(idx, 1);
+                }
+            });
+            
+            parentLayer.name = `文字识别 (${parentLayer.children.length} 区域)`;
+            this.selectedChildIndex = -1;
+            this.selectedChildIndices = [];
+            
+            this._saveHistory();
+            this._updateLayerList();
+            this._updatePropertyPanel();
+            this._render();
+        });
+    },
+
     /**
      * 渲染文字覆盖子图层属性面板
      */
@@ -34,6 +211,16 @@ export const TextOverlayMixin = {
                 <div class="property-group-title">
                     <iconify-icon icon="carbon:text-style"></iconify-icon>
                     文字样式
+                </div>
+                <div class="property-row">
+                    <span class="property-label">字体</span>
+                    <select class="property-select" data-text-prop="fontFamily" style="width:120px;">
+                        ${AVAILABLE_FONTS.map((f, idx) => {
+                            const isSelected = style.fontFamily === f.value || 
+                                (idx === 0 && !style.fontFamily);
+                            return `<option value="${idx}" ${isSelected ? 'selected' : ''}>${f.name}</option>`;
+                        }).join('')}
+                    </select>
                 </div>
                 <div class="property-row">
                     <span class="property-label">字号</span>
@@ -122,6 +309,34 @@ export const TextOverlayMixin = {
         // 译文
         panel.querySelector('[data-text-prop="translatedText"]')?.addEventListener('change', (e) => {
             childLayer.translatedText = e.target.value;
+            if (childLayer.content) {
+                childLayer.content.translatedText = e.target.value;
+                childLayer.content.displayText = e.target.value || childLayer.content.originalText;
+            }
+            // 自动重新估算字号
+            this._autoEstimateFontSize(childLayer);
+            const fontSizeInput = panel.querySelector('[data-text-prop="fontSize"]');
+            if (fontSizeInput) fontSizeInput.value = childLayer.style?.fontSize || 14;
+            this._render();
+            this._saveHistory();
+        });
+        
+        // 字体
+        panel.querySelector('[data-text-prop="fontFamily"]')?.addEventListener('change', async (e) => {
+            const fontIndex = parseInt(e.target.value);
+            const fontDef = AVAILABLE_FONTS[fontIndex];
+            if (!fontDef) return;
+            
+            childLayer.style = childLayer.style || {};
+            childLayer.style.fontFamily = fontDef.value;
+            
+            // 加载字体 CSS
+            if (fontDef.css) {
+                this._showLoading('加载字体...');
+                await loadFontCSS(fontDef.css);
+                this._hideLoading();
+            }
+            
             this._render();
             this._saveHistory();
         });
@@ -228,35 +443,48 @@ export const TextOverlayMixin = {
      * 自动估算字号
      */
     _autoEstimateFontSize(childLayer) {
-        if (!childLayer.bbox) return;
+        if (!childLayer.bbox || !this.canvas) return;
         
         const text = childLayer.translatedText || childLayer.text || '';
         if (!text) return;
         
-        const boxWidth = childLayer.bbox.width * this.canvas.width;
-        const boxHeight = childLayer.bbox.height * this.canvas.height;
+        // 考虑 padding（渲染时有 4px padding）
+        const padding = 8; // 左右各 4px
+        const boxWidth = Math.max(10, childLayer.bbox.width * this.canvas.width - padding);
+        const boxHeight = Math.max(10, childLayer.bbox.height * this.canvas.height - padding);
         
         // 使用 Canvas 测量文字
-        const measureCanvas = document.createElement('canvas');
-        const measureCtx = measureCanvas.getContext('2d');
+        const measureCtx = this.ctx || document.createElement('canvas').getContext('2d');
+        const fontFamily = childLayer.style?.fontFamily || 'system-ui, sans-serif';
         
         // 二分搜索最佳字号
         let minSize = 8;
-        let maxSize = Math.min(200, boxHeight);
+        let maxSize = Math.min(72, Math.floor(boxHeight * 0.9));
         let bestSize = minSize;
         
         while (minSize <= maxSize) {
             const midSize = Math.floor((minSize + maxSize) / 2);
-            measureCtx.font = `${midSize}px sans-serif`;
+            measureCtx.font = `${midSize}px ${fontFamily}`;
             
-            // 估算所需行数
-            const charWidth = measureCtx.measureText('中').width;
-            const charsPerLine = Math.floor(boxWidth / charWidth) || 1;
-            const lines = Math.ceil(text.length / charsPerLine);
-            const lineHeight = midSize * 1.3;
+            // 模拟换行计算实际需要的高度
+            const words = text.split('');
+            let lines = 1;
+            let currentLineWidth = 0;
+            
+            for (const char of words) {
+                const charWidth = measureCtx.measureText(char).width;
+                if (currentLineWidth + charWidth > boxWidth && currentLineWidth > 0) {
+                    lines++;
+                    currentLineWidth = charWidth;
+                } else {
+                    currentLineWidth += charWidth;
+                }
+            }
+            
+            const lineHeight = midSize * 1.4; // 行高
             const totalHeight = lines * lineHeight;
             
-            if (totalHeight <= boxHeight) {
+            if (totalHeight <= boxHeight * 0.95) { // 留 5% 余量
                 bestSize = midSize;
                 minSize = midSize + 1;
             } else {
@@ -265,7 +493,7 @@ export const TextOverlayMixin = {
         }
         
         childLayer.style = childLayer.style || {};
-        childLayer.style.fontSize = bestSize;
+        childLayer.style.fontSize = Math.max(8, bestSize);
     },
 
     /**
@@ -334,52 +562,98 @@ export const TextOverlayMixin = {
     },
 
     /**
+     * 开始绘制 bbox 模式
+     */
+    _startDrawBbox(parentLayer) {
+        this.drawBboxMode = true;
+        this.drawBboxParent = parentLayer;
+        this.canvas.style.cursor = 'crosshair';
+        
+        // 显示提示
+        this._showToast('在画布上拖拽绘制文字区域，按 Esc 取消');
+        
+        // 如果还没有绑定绘制事件，绑定它
+        if (!this._bboxDrawBound) {
+            this._bindBboxDrawEvents();
+            this._bboxDrawBound = true;
+        }
+    },
+
+    /**
      * 添加文字区域
      */
     _addTextRegion(bbox) {
-        // 找到或创建 OCR 组
-        let ocrGroup = this.processedImage.layers.find(l => l.type === 'group' && l.ocrGroup);
+        // 优先使用 drawBboxParent（从绘制模式进入）
+        // 其次查找现有的 OCR 组（textOverlayConfig 或 ocrGroup）
+        let parent = this.drawBboxParent;
         
-        if (!ocrGroup) {
-            ocrGroup = {
-                id: `ocr_group_${Date.now()}`,
+        if (!parent) {
+            parent = this.processedImage.layers.find(
+                l => l.type === 'group' && (l.textOverlayConfig || l.ocrGroup)
+            );
+        }
+        
+        if (!parent) {
+            // 创建新的 OCR 组
+            parent = {
+                id: `text_group_${Date.now()}`,
                 type: 'group',
                 name: '文字识别 (0 区域)',
-                ocrGroup: true,
                 visible: true,
                 expanded: true,
-                children: []
+                textOverlayConfig: {
+                    engine: 'manual',
+                    processedAt: Date.now()
+                },
+                children: [],
+                inpaintedBackground: null
             };
-            this.processedImage.layers.push(ocrGroup);
+            this.processedImage.layers.push(parent);
         }
         
         // 创建新区域
         const newRegion = {
-            id: `text_region_${Date.now()}`,
+            id: `text_region_manual_${Date.now()}`,
             type: 'text-overlay',
-            text: '',
-            translatedText: '',
+            name: '新文字区域',
             bbox,
-            visible: true,
+            originalBbox: { ...bbox },
+            content: {
+                originalText: '',
+                translatedText: '',
+                displayText: ''
+            },
             style: {
                 fontSize: 14,
+                fontFamily: '"Noto Sans CJK SC", Arial, sans-serif',
                 color: '#000000',
-                backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                textAlign: 'left',
-                fontWeight: 'normal'
-            }
+                fontWeight: 'normal',
+                textAlign: 'left'
+            },
+            inpainted: false,
+            visible: true,
+            parentId: parent.id
         };
         
-        ocrGroup.children.push(newRegion);
-        ocrGroup.name = `文字识别 (${ocrGroup.children.length} 区域)`;
+        // 自动估算字号
+        this._autoEstimateFontSize(newRegion);
+        
+        // 添加到父组
+        parent.children.push(newRegion);
+        parent.name = `文字识别 (${parent.children.length} 区域)`;
         
         // 选中新区域
-        const parentIndex = this.processedImage.layers.indexOf(ocrGroup);
-        const childIndex = ocrGroup.children.length - 1;
+        const parentIndex = this.processedImage.layers.indexOf(parent);
+        const childIndex = parent.children.length - 1;
         
-        this.bboxDrawMode = false;
+        // 重置绘制模式
+        this.drawBboxMode = false;
+        this.drawBboxParent = null;
+        this.canvas.style.cursor = 'default';
+        
         this._saveHistory();
         this._selectChildLayer(parentIndex, childIndex);
+        this._updatePropertyPanel();
         this._render();
     },
 

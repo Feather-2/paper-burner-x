@@ -20,26 +20,20 @@ export const OcrMixin = {
     },
 
     /**
-     * 显示 OCR 引擎选择对话框
+     * 显示 OCR 设置对话框（仅 VLM + 定位方案选择）
      */
     _showOcrEngineSelector() {
         return new Promise((resolve) => {
-            const mineruAvailable = !!(localStorage.getItem('ocrMinerUWorkerUrl'));
             const vlmAvailable = this._checkVlmAvailable();
             
-            if (mineruAvailable && !vlmAvailable) {
-                resolve('mineru');
-                return;
-            }
-            if (!mineruAvailable && vlmAvailable) {
-                resolve('vlm');
-                return;
-            }
-            if (!mineruAvailable && !vlmAvailable) {
-                alert('请先配置 OCR 引擎（MinerU 或支持视觉的 AI 模型）');
+            if (!vlmAvailable) {
+                alert('请先配置 AI 视觉模型（在高级设置中添加支持视觉的 AI 模型）');
                 resolve(null);
                 return;
             }
+            
+            // 获取当前定位模式
+            const currentLocMode = window.ocrExtractor?.config?.vlmLocalizationMode || 'grid';
             
             const overlay = document.createElement('div');
             overlay.style.cssText = `
@@ -54,79 +48,102 @@ export const OcrMixin = {
             
             overlay.innerHTML = `
                 <div style="
-                    background: var(--ie-bg-secondary, #1e1e2e);
+                    background: var(--ie-surface, #fff);
                     border-radius: 12px;
                     padding: 24px;
-                    min-width: 320px;
-                    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+                    min-width: 360px;
+                    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
                 ">
-                    <h3 style="margin: 0 0 16px; color: var(--ie-text-primary, #fff); font-size: 16px;">
-                        选择文字识别方式
+                    <h3 style="margin: 0 0 8px; color: var(--ie-text, #1e293b); font-size: 16px; font-weight: 600;">
+                        🤖 AI 文字识别
                     </h3>
-                    <div style="display: flex; flex-direction: column; gap: 12px;">
-                        <button class="ocr-option" data-engine="vlm" style="
-                            padding: 16px;
-                            border: 1px solid var(--ie-border, #333);
-                            border-radius: 8px;
-                            background: var(--ie-bg-tertiary, #252530);
-                            color: var(--ie-text-primary, #fff);
-                            cursor: pointer;
-                            text-align: left;
-                            transition: all 0.2s;
-                        ">
-                            <div style="font-weight: 600; margin-bottom: 4px;">
-                                🤖 AI 视觉模型 (推荐)
-                            </div>
-                            <div style="font-size: 12px; color: var(--ie-text-secondary, #888);">
-                                使用 GPT-4o / Claude 3 等视觉模型<br>
-                                适合复杂布局、流程图、手写文字
-                            </div>
-                        </button>
-                        <button class="ocr-option" data-engine="mineru" style="
-                            padding: 16px;
-                            border: 1px solid var(--ie-border, #333);
-                            border-radius: 8px;
-                            background: var(--ie-bg-tertiary, #252530);
-                            color: var(--ie-text-primary, #fff);
-                            cursor: pointer;
-                            text-align: left;
-                            transition: all 0.2s;
-                        ">
-                            <div style="font-weight: 600; margin-bottom: 4px;">
-                                📄 MinerU OCR
-                            </div>
-                            <div style="font-size: 12px; color: var(--ie-text-secondary, #888);">
-                                专业文档 OCR 引擎<br>
-                                适合扫描件、PDF 截图、印刷体文字
-                            </div>
-                        </button>
+                    <p style="margin: 0 0 16px; font-size: 13px; color: var(--ie-text-secondary, #64748b);">
+                        使用 AI 视觉模型识别图片中的文字
+                    </p>
+                    
+                    <div style="margin-bottom: 16px;">
+                        <div style="font-size: 13px; font-weight: 500; margin-bottom: 8px; color: var(--ie-text, #1e293b);">
+                            定位方案
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 8px;">
+                            <label style="display: flex; align-items: flex-start; gap: 10px; padding: 10px; border: 1px solid var(--ie-border, #e2e8f0); border-radius: 8px; cursor: pointer; transition: all 0.2s;" class="loc-option ${currentLocMode === 'grid' ? 'selected' : ''}">
+                                <input type="radio" name="locMode" value="grid" ${currentLocMode === 'grid' ? 'checked' : ''} style="margin-top: 2px;">
+                                <div>
+                                    <div style="font-weight: 500; font-size: 13px;">网格辅助 (推荐)</div>
+                                    <div style="font-size: 11px; color: var(--ie-text-secondary, #64748b);">叠加参考网格帮助 AI 定位</div>
+                                </div>
+                            </label>
+                            <label style="display: flex; align-items: flex-start; gap: 10px; padding: 10px; border: 1px solid var(--ie-border, #e2e8f0); border-radius: 8px; cursor: pointer; transition: all 0.2s;" class="loc-option ${currentLocMode === 'native' ? 'selected' : ''}">
+                                <input type="radio" name="locMode" value="native" ${currentLocMode === 'native' ? 'checked' : ''} style="margin-top: 2px;">
+                                <div>
+                                    <div style="font-weight: 500; font-size: 13px;">原生 Grounding</div>
+                                    <div style="font-size: 11px; color: var(--ie-text-secondary, #64748b);">使用模型内置定位能力 (Qwen-VL 等)</div>
+                                </div>
+                            </label>
+                            <label style="display: flex; align-items: flex-start; gap: 10px; padding: 10px; border: 1px solid var(--ie-border, #e2e8f0); border-radius: 8px; cursor: pointer; transition: all 0.2s;" class="loc-option ${currentLocMode === 'auto' ? 'selected' : ''}">
+                                <input type="radio" name="locMode" value="auto" ${currentLocMode === 'auto' ? 'checked' : ''} style="margin-top: 2px;">
+                                <div>
+                                    <div style="font-weight: 500; font-size: 13px;">自动检测</div>
+                                    <div style="font-size: 11px; color: var(--ie-text-secondary, #64748b);">根据模型能力自动选择</div>
+                                </div>
+                            </label>
+                        </div>
                     </div>
-                    <button class="cancel-btn" style="
-                        margin-top: 16px;
-                        width: 100%;
-                        padding: 10px;
-                        border: none;
-                        border-radius: 6px;
-                        background: transparent;
-                        color: var(--ie-text-secondary, #888);
-                        cursor: pointer;
-                    ">取消</button>
+                    
+                    <div style="display: flex; gap: 8px;">
+                        <button class="cancel-btn" style="
+                            flex: 1;
+                            padding: 10px;
+                            border: 1px solid var(--ie-border, #e2e8f0);
+                            border-radius: 6px;
+                            background: transparent;
+                            color: var(--ie-text-secondary, #64748b);
+                            cursor: pointer;
+                            font-size: 13px;
+                        ">取消</button>
+                        <button class="start-btn" style="
+                            flex: 2;
+                            padding: 10px;
+                            border: none;
+                            border-radius: 6px;
+                            background: var(--ie-primary, #4f46e5);
+                            color: white;
+                            cursor: pointer;
+                            font-size: 13px;
+                            font-weight: 500;
+                        ">开始识别</button>
+                    </div>
                 </div>
             `;
             
-            overlay.querySelectorAll('.ocr-option').forEach(btn => {
-                btn.addEventListener('mouseenter', () => {
-                    btn.style.borderColor = '#4f46e5';
-                    btn.style.background = 'rgba(79, 70, 229, 0.1)';
+            // 高亮选中的选项
+            overlay.querySelectorAll('.loc-option').forEach(label => {
+                label.addEventListener('click', () => {
+                    overlay.querySelectorAll('.loc-option').forEach(l => {
+                        l.style.borderColor = 'var(--ie-border, #e2e8f0)';
+                        l.style.background = 'transparent';
+                    });
+                    label.style.borderColor = 'var(--ie-primary, #4f46e5)';
+                    label.style.background = 'rgba(79, 70, 229, 0.05)';
                 });
-                btn.addEventListener('mouseleave', () => {
-                    btn.style.borderColor = 'var(--ie-border, #333)';
-                    btn.style.background = 'var(--ie-bg-tertiary, #252530)';
-                });
-                btn.addEventListener('click', () => {
-                    document.body.removeChild(overlay);
-                    resolve(btn.dataset.engine);
-                });
+            });
+            
+            // 初始化选中状态
+            const selectedLabel = overlay.querySelector('.loc-option.selected');
+            if (selectedLabel) {
+                selectedLabel.style.borderColor = 'var(--ie-primary, #4f46e5)';
+                selectedLabel.style.background = 'rgba(79, 70, 229, 0.05)';
+            }
+            
+            overlay.querySelector('.start-btn').addEventListener('click', () => {
+                const selectedMode = overlay.querySelector('input[name="locMode"]:checked')?.value || 'grid';
+                // 保存定位模式设置
+                if (window.ocrExtractor) {
+                    window.ocrExtractor.config = window.ocrExtractor.config || {};
+                    window.ocrExtractor.config.vlmLocalizationMode = selectedMode;
+                }
+                document.body.removeChild(overlay);
+                resolve('vlm');
             });
             
             overlay.querySelector('.cancel-btn').addEventListener('click', () => {
@@ -174,9 +191,22 @@ export const OcrMixin = {
             if (result.raw) {
                 try {
                     let jsonStr = result.raw;
-                    const jsonMatch = result.raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-                    if (jsonMatch) jsonStr = jsonMatch[1].trim();
                     
+                    // GLM-4V 特殊标记处理
+                    jsonStr = jsonStr.replace(/<\|begin_of_box\|>/g, '');
+                    jsonStr = jsonStr.replace(/<\|end_of_box\|>/g, '');
+                    
+                    // Markdown 代码块提取
+                    const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+                    if (jsonMatch) {
+                        jsonStr = jsonMatch[1].trim();
+                    } else {
+                        // 提取 JSON 对象
+                        const braceMatch = jsonStr.match(/\{[\s\S]*\}/);
+                        if (braceMatch) jsonStr = braceMatch[0];
+                    }
+                    
+                    // 修复常见格式错误
                     jsonStr = jsonStr.replace(/"bbox_2d":\s*\[\[/g, '"bbox_2d":[');
                     jsonStr = jsonStr.replace(/"bbox":\s*\[\[/g, '"bbox":[');
                     
@@ -280,21 +310,44 @@ export const OcrMixin = {
                     };
                     console.log(`[LayerEditor] 转换网格坐标 (${gridX}x${gridY}):`, `(${rawRegion.x1},${rawRegion.y1})-(${rawRegion.x2},${rawRegion.y2})`, '→', bbox);
                 }
-                // 格式3: bbox 数组
+                // 格式3: bbox 数组 [x1, y1, x2, y2]
+                // GLM-4V 使用 0-1000 归一化坐标
                 else if (Array.isArray(rawRegion.bbox) && rawRegion.bbox.length === 4) {
                     const [rx1, ry1, rx2, ry2] = rawRegion.bbox;
                     const maxVal = Math.max(rx1, ry1, rx2, ry2);
-                    let x1 = rx1, y1 = ry1, x2 = rx2, y2 = ry2;
-                    if (maxVal > 10) {
-                        x1 /= 1000; y1 /= 1000; x2 /= 1000; y2 /= 1000;
+                    const imgW = this.processedImage.original.width;
+                    const imgH = this.processedImage.original.height;
+                    let x1, y1, x2, y2;
+                    
+                    if (maxVal > 1000) {
+                        // 像素坐标（大于 1000）
+                        x1 = rx1 / imgW; y1 = ry1 / imgH;
+                        x2 = rx2 / imgW; y2 = ry2 / imgH;
+                        console.log(`[LayerEditor] bbox 像素坐标:`, rawRegion.bbox, `/ ${imgW}x${imgH}`);
+                    } else if (maxVal > 100) {
+                        // 0-1000 归一化（GLM-4V 标准格式）
+                        x1 = rx1 / 1000; y1 = ry1 / 1000;
+                        x2 = rx2 / 1000; y2 = ry2 / 1000;
+                        console.log(`[LayerEditor] bbox 0-1000 归一化:`, rawRegion.bbox, `→ (${x1.toFixed(3)},${y1.toFixed(3)})-(${x2.toFixed(3)},${y2.toFixed(3)})`);
+                    } else if (maxVal > 1) {
+                        // 0-100 百分比
+                        x1 = rx1 / 100; y1 = ry1 / 100;
+                        x2 = rx2 / 100; y2 = ry2 / 100;
+                        console.log(`[LayerEditor] bbox 百分比:`, rawRegion.bbox);
+                    } else {
+                        // 已经是 0-1 归一化
+                        x1 = rx1; y1 = ry1;
+                        x2 = rx2; y2 = ry2;
+                        console.log(`[LayerEditor] bbox 已归一化:`, rawRegion.bbox);
                     }
+                    
                     bbox = {
                         left: Math.max(0, Math.min(1, x1)),
                         top: Math.max(0, Math.min(1, y1)),
                         width: Math.max(0.01, Math.min(1, x2 - x1)),
                         height: Math.max(0.01, Math.min(1, y2 - y1))
                     };
-                    console.log(`[LayerEditor] 转换原生 bbox:`, rawRegion.bbox, '→', bbox);
+                    console.log(`[LayerEditor] 最终 bbox:`, bbox);
                 }
                 else {
                     console.warn(`[LayerEditor] 区域 ${idx} 无有效坐标，跳过:`, rawRegion);
@@ -307,16 +360,19 @@ export const OcrMixin = {
                     name: `文字: ${text.substring(0, 12)}${text.length > 12 ? '...' : ''}`,
                     bbox: bbox,
                     originalBbox: { ...bbox },
+                    // 简化属性（供自动估算字号使用）
+                    text: text,
+                    translatedText: '',
+                    // 完整内容对象
                     content: {
                         originalText: text,
                         translatedText: '',
                         displayText: text,
                     },
                     style: {
-                        fontSize: rawRegion.fontSize || 14,
+                        fontSize: 14, // 初始值，稍后自动估算
                         color: rawRegion.color || '#000000',
                         fontWeight: rawRegion.fontWeight || 'normal',
-                        fontFamily: '"Noto Sans CJK SC", "Microsoft YaHei", Arial, sans-serif',
                         textAlign: rawRegion.textAlign || 'left',
                     },
                     inpainted: false,
@@ -324,6 +380,11 @@ export const OcrMixin = {
                     parentId: groupId,
                 };
                 groupLayer.children.push(childLayer);
+            });
+            
+            // 自动估算每个区域的字号
+            groupLayer.children.forEach(child => {
+                this._autoEstimateFontSize(child);
             });
             
             this.processedImage.layers.push(groupLayer);
@@ -474,7 +535,32 @@ export const OcrMixin = {
                     width = (x2 - x1) / 10;
                     height = (y2 - y1) / 10;
                 }
-            } else if (region.bbox) {
+            } else if (Array.isArray(region.bbox) && region.bbox.length === 4) {
+                // bbox 数组 [x1, y1, x2, y2]，GLM-4V 使用 0-1000 归一化
+                const [x1, y1, x2, y2] = region.bbox;
+                const maxVal = Math.max(x1, y1, x2, y2);
+                if (maxVal > 1000) {
+                    const imgWidth = this.canvas.width;
+                    const imgHeight = this.canvas.height;
+                    left = (x1 / imgWidth) * 100;
+                    top = (y1 / imgHeight) * 100;
+                    width = ((x2 - x1) / imgWidth) * 100;
+                    height = ((y2 - y1) / imgHeight) * 100;
+                } else if (maxVal > 100) {
+                    // 0-1000 归一化
+                    left = x1 / 10;
+                    top = y1 / 10;
+                    width = (x2 - x1) / 10;
+                    height = (y2 - y1) / 10;
+                } else {
+                    // 0-100 百分比
+                    left = x1;
+                    top = y1;
+                    width = x2 - x1;
+                    height = y2 - y1;
+                }
+            } else if (region.bbox && typeof region.bbox === 'object') {
+                // bbox 对象 { left, top, width, height }
                 left = region.bbox.left * 100;
                 top = region.bbox.top * 100;
                 width = region.bbox.width * 100;
@@ -545,7 +631,10 @@ export const OcrMixin = {
             const imgWidth = canvas.width;
             const imgHeight = canvas.height;
             
-            const bbox = region.originalBbox || region.bbox;
+            // 使用当前 bbox（用户可能已调整），而不是 originalBbox
+            const bbox = region.bbox;
+            
+            // 精确按 bbox 清除，不向外扩展（避免采集到边框颜色）
             const x = Math.floor(bbox.left * imgWidth);
             const y = Math.floor(bbox.top * imgHeight);
             const w = Math.ceil(bbox.width * imgWidth);
@@ -584,15 +673,12 @@ export const OcrMixin = {
     },
 
     /**
-     * 执行 Inpainting
+     * 执行 Inpainting - 直接在边缘采样 + 选取亮色填充
      */
     async _performInpainting(ctx, x, y, w, h, srcImageData) {
         const imgWidth = srcImageData.width;
         const imgHeight = srcImageData.height;
         const srcData = srcImageData.data;
-        
-        const sampleWidth = 5;
-        const topEdge = [], bottomEdge = [], leftEdge = [], rightEdge = [];
         
         const getPixel = (px, py) => {
             if (px < 0 || px >= imgWidth || py < 0 || py >= imgHeight) return null;
@@ -601,58 +687,34 @@ export const OcrMixin = {
             return { r: srcData[idx], g: srcData[idx+1], b: srcData[idx+2] };
         };
         
+        // 收集四条边上的所有像素
+        const allEdgePixels = [];
+        
+        // 上边和下边
         for (let i = 0; i < w; i++) {
-            const topColors = [];
-            const bottomColors = [];
-            for (let s = 1; s <= sampleWidth; s++) {
-                const c1 = getPixel(x + i, y - s);
-                const c2 = getPixel(x + i - 1, y - s);
-                const c3 = getPixel(x + i + 1, y - s);
-                if (c1) topColors.push(c1);
-                if (c2) topColors.push(c2);
-                if (c3) topColors.push(c3);
-                
-                const b1 = getPixel(x + i, y + h + s - 1);
-                const b2 = getPixel(x + i - 1, y + h + s - 1);
-                const b3 = getPixel(x + i + 1, y + h + s - 1);
-                if (b1) bottomColors.push(b1);
-                if (b2) bottomColors.push(b2);
-                if (b3) bottomColors.push(b3);
-            }
-            topEdge.push(this._avgColor(topColors));
-            bottomEdge.push(this._avgColor(bottomColors));
+            const top = getPixel(x + i, y);
+            const bottom = getPixel(x + i, y + h - 1);
+            if (top) allEdgePixels.push(top);
+            if (bottom) allEdgePixels.push(bottom);
         }
         
+        // 左边和右边
         for (let j = 0; j < h; j++) {
-            const leftColors = [];
-            const rightColors = [];
-            for (let s = 1; s <= sampleWidth; s++) {
-                const l1 = getPixel(x - s, y + j);
-                const l2 = getPixel(x - s, y + j - 1);
-                const l3 = getPixel(x - s, y + j + 1);
-                if (l1) leftColors.push(l1);
-                if (l2) leftColors.push(l2);
-                if (l3) leftColors.push(l3);
-                
-                const r1 = getPixel(x + w + s - 1, y + j);
-                const r2 = getPixel(x + w + s - 1, y + j - 1);
-                const r3 = getPixel(x + w + s - 1, y + j + 1);
-                if (r1) rightColors.push(r1);
-                if (r2) rightColors.push(r2);
-                if (r3) rightColors.push(r3);
-            }
-            leftEdge.push(this._avgColor(leftColors));
-            rightEdge.push(this._avgColor(rightColors));
+            const left = getPixel(x, y + j);
+            const right = getPixel(x + w - 1, y + j);
+            if (left) allEdgePixels.push(left);
+            if (right) allEdgePixels.push(right);
         }
         
-        const cornerSamples = [];
-        for (let s = 1; s <= sampleWidth; s++) {
-            cornerSamples.push(getPixel(x - s, y - s));
-            cornerSamples.push(getPixel(x + w + s - 1, y - s));
-            cornerSamples.push(getPixel(x - s, y + h + s - 1));
-            cornerSamples.push(getPixel(x + w + s - 1, y + h + s - 1));
-        }
-        const cornerColor = this._avgColor(cornerSamples.filter(c => c));
+        // 选取最亮的像素作为填充色
+        const fillColor = this._avgColor(allEdgePixels);
+        
+        // 为每个边缘位置准备颜色（用于渐变，但这里简化为统一填充）
+        const topEdge = new Array(w).fill(fillColor);
+        const bottomEdge = new Array(w).fill(fillColor);
+        const leftEdge = new Array(h).fill(fillColor);
+        const rightEdge = new Array(h).fill(fillColor);
+        const cornerColor = fillColor;
         
         const tempImageData = ctx.getImageData(x, y, w, h);
         const tempData = tempImageData.data;
@@ -702,51 +764,29 @@ export const OcrMixin = {
     },
 
     /**
-     * 计算颜色的众色
+     * 计算边缘颜色 - 选取较亮的那部分像素平均（排除深色文字）
      */
-    _getModeColor(colors) {
+    _avgColor(colors) {
         if (!colors || colors.length === 0) return { r: 255, g: 255, b: 255 };
-        if (colors.length === 1) return colors[0] || { r: 255, g: 255, b: 255 };
         
-        const buckets = {};
-        colors.forEach(c => {
-            if (!c) return;
-            const key = `${Math.floor(c.r / 16)}_${Math.floor(c.g / 16)}_${Math.floor(c.b / 16)}`;
-            if (!buckets[key]) buckets[key] = [];
-            buckets[key].push(c);
-        });
-        
-        let maxBucket = null;
-        let maxCount = 0;
-        for (const key in buckets) {
-            if (buckets[key].length > maxCount) {
-                maxCount = buckets[key].length;
-                maxBucket = buckets[key];
-            }
-        }
-        
-        if (maxBucket && maxCount > colors.length / 2) {
-            return this._avgColorSimple(maxBucket);
-        }
-        
+        // 计算每个颜色的亮度
         const withLuminance = colors.filter(c => c).map(c => ({
             ...c,
             lum: c.r * 0.299 + c.g * 0.587 + c.b * 0.114
         }));
         
-        if (withLuminance.length <= 2) {
-            return this._avgColorSimple(colors);
-        }
+        if (withLuminance.length === 0) return { r: 255, g: 255, b: 255 };
+        if (withLuminance.length === 1) return withLuminance[0];
         
-        withLuminance.sort((a, b) => a.lum - b.lum);
-        const trimCount = Math.max(1, Math.floor(withLuminance.length * 0.2));
-        const trimmed = withLuminance.slice(trimCount, -trimCount);
+        // 按亮度排序（从亮到暗）
+        withLuminance.sort((a, b) => b.lum - a.lum);
         
-        if (trimmed.length === 0) {
-            return this._avgColorSimple(colors);
-        }
+        // 选取较亮的前 50%（排除深色的文字像素）
+        const halfCount = Math.max(3, Math.ceil(withLuminance.length * 0.5));
+        const brightHalf = withLuminance.slice(0, halfCount);
         
-        return this._avgColorSimple(trimmed);
+        // 返回这些较亮像素的平均值
+        return this._avgColorSimple(brightHalf);
     },
 
     /**

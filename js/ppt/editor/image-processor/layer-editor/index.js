@@ -37,12 +37,15 @@ class LayerEditor {
         this.canvas = null;
         this.ctx = null;
         this.scale = 1;
+        this.minScale = 0.1;
+        this.maxScale = 5;
         this.currentTool = 'select';
         
         // 图层状态
         this.processedImage = null;
         this.selectedLayerIndex = -1;
         this.selectedChildIndex = -1;
+        this.selectedPathIndex = -1;
         
         // 历史记录
         this.history = [];
@@ -50,25 +53,31 @@ class LayerEditor {
         
         // 交互状态
         this.pathSelectMode = false;
-        this.bboxDrawMode = false;
+        this.drawBboxMode = false;
+        this.drawBboxParent = null;
+        this._bboxDrawBound = false;
         
         // 内部状态
         this._loadingOverlay = null;
         this._zoomIndicatorTimeout = null;
+        this._textOverlayGroup = null;
     }
 
     /**
      * 打开编辑器
      */
     async open() {
+        // 创建 UI（内部会调用 _bindEvents）
         this._createUI();
-        await this._loadAndProcess();
-        this._render();
-        this._updatePropertyPanel();
         
-        // 绑定 Bbox 拖拽事件
-        this._bindBboxDragEvents();
-        this._bindBboxDrawEvents();
+        // 加载并处理图片
+        await this._loadAndProcess();
+        
+        // 渲染
+        this._render();
+        
+        // 初始化属性面板（显示 OCR 设置）
+        this._updatePropertyPanel();
     }
 
     /**

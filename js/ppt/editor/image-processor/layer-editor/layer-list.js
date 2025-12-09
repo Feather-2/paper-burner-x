@@ -87,7 +87,9 @@ export const LayerListMixin = {
      * 渲染子图层项
      */
     _renderChildLayerItem(child, parentIndex, childIndex, parentLayer) {
-        const isSelected = parentIndex === this.selectedLayerIndex && childIndex === this.selectedChildIndex;
+        // 使用 _isChildSelected 检查多选状态
+        const isSelected = this._isChildSelected?.(parentIndex, childIndex) ||
+            (parentIndex === this.selectedLayerIndex && childIndex === this.selectedChildIndex);
         
         let preview = '';
         if (child.type === 'vector' && child.color) {
@@ -172,13 +174,14 @@ export const LayerListMixin = {
             });
         });
         
-        // 选择子图层
+        // 选择子图层（支持 Ctrl+点击 多选）
         listEl.querySelectorAll('.layer-item.child-layer:not(.subgroup-item)').forEach(item => {
             item.addEventListener('click', (e) => {
                 if (e.target.closest('.layer-visibility, .expand-btn')) return;
                 const parentIndex = parseInt(item.dataset.parent);
                 const childIndex = parseInt(item.dataset.child);
-                this._selectChildLayer(parentIndex, childIndex);
+                const addToSelection = e.ctrlKey || e.metaKey; // Ctrl 或 Cmd
+                this._selectChildLayer(parentIndex, childIndex, addToSelection);
             });
         });
         
@@ -267,14 +270,68 @@ export const LayerListMixin = {
     },
 
     /**
-     * 选择子图层
+     * 选择子图层（支持多选）
+     * @param {number} parentIndex 
+     * @param {number} childIndex 
+     * @param {boolean} addToSelection - 是否添加到现有选择（Ctrl+点击）
      */
-    _selectChildLayer(parentIndex, childIndex) {
-        this.selectedLayerIndex = parentIndex;
-        this.selectedChildIndex = childIndex;
+    _selectChildLayer(parentIndex, childIndex, addToSelection = false) {
+        // 初始化多选数组
+        if (!this.selectedChildIndices) {
+            this.selectedChildIndices = [];
+        }
+        
+        if (addToSelection && this.selectedLayerIndex === parentIndex) {
+            // 多选模式：添加或移除
+            const idx = this.selectedChildIndices.indexOf(childIndex);
+            if (idx >= 0) {
+                this.selectedChildIndices.splice(idx, 1);
+                // 如果移除后还有选中项，更新 selectedChildIndex
+                if (this.selectedChildIndices.length > 0) {
+                    this.selectedChildIndex = this.selectedChildIndices[this.selectedChildIndices.length - 1];
+                } else {
+                    this.selectedChildIndex = -1;
+                }
+            } else {
+                this.selectedChildIndices.push(childIndex);
+                this.selectedChildIndex = childIndex;
+            }
+        } else {
+            // 单选模式：清空多选，只选中一个
+            this.selectedLayerIndex = parentIndex;
+            this.selectedChildIndex = childIndex;
+            this.selectedChildIndices = [childIndex];
+        }
+        
         this._updateLayerList();
         this._updatePropertyPanel();
         this._render();
+    },
+    
+    /**
+     * 检查子图层是否被选中
+     */
+    _isChildSelected(parentIndex, childIndex) {
+        if (this.selectedLayerIndex !== parentIndex) return false;
+        if (!this.selectedChildIndices || this.selectedChildIndices.length === 0) {
+            return this.selectedChildIndex === childIndex;
+        }
+        return this.selectedChildIndices.includes(childIndex);
+    },
+    
+    /**
+     * 获取所有选中的子图层
+     */
+    _getSelectedChildren() {
+        if (this.selectedLayerIndex < 0) return [];
+        const layer = this.processedImage?.layers?.[this.selectedLayerIndex];
+        if (!layer?.children) return [];
+        
+        const indices = this.selectedChildIndices?.length > 0 
+            ? this.selectedChildIndices 
+            : (this.selectedChildIndex >= 0 ? [this.selectedChildIndex] : []);
+        
+        return indices.map(i => layer.children[i]).filter(Boolean);
     },
 
     /**

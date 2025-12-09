@@ -96,14 +96,24 @@ export const EventsMixin = {
             if (e.key === 'Delete' && this.selectedLayerIndex >= 0) {
                 this._deleteLayer(this.selectedLayerIndex);
             }
-            // Escape 取消选择
+            // Escape 取消选择或退出绘制模式
             if (e.key === 'Escape') {
-                this.selectedLayerIndex = -1;
-                this.selectedChildIndex = -1;
-                this._updateLayerList();
-                this._updatePropertyPanel();
+                if (this.drawBboxMode) {
+                    this.drawBboxMode = false;
+                    this.drawBboxParent = null;
+                    this.canvas.style.cursor = 'default';
+                    this._showToast('已取消绘制模式');
+                } else {
+                    this.selectedLayerIndex = -1;
+                    this.selectedChildIndex = -1;
+                    this._updateLayerList();
+                    this._updatePropertyPanel();
+                }
             }
         });
+        
+        // 画布上的 bbox 拖拽调整
+        this._bindBboxDragEvents();
     },
 
     /**
@@ -212,7 +222,7 @@ export const EventsMixin = {
         
         // 只在绘制模式下才启用
         svgContainer.addEventListener('mousedown', (e) => {
-            if (!this.bboxDrawMode) return;
+            if (!this.drawBboxMode) return;
             if (e.target.closest('.bbox-handle, .bbox-overlay')) return;
             
             e.preventDefault();
@@ -308,7 +318,8 @@ export const EventsMixin = {
             if (this.selectedLayerIndex < 0) return null;
             
             const layer = this.processedImage.layers[this.selectedLayerIndex];
-            if (!layer || layer.type !== 'group' || !layer.textOverlayConfig) return null;
+            const isOcrGroup = layer?.type === 'group' && (layer.textOverlayConfig || layer.ocrGroup);
+            if (!isOcrGroup) return null;
             
             if (this.selectedChildIndex >= 0) {
                 const child = layer.children?.[this.selectedChildIndex];
@@ -336,6 +347,19 @@ export const EventsMixin = {
         
         canvas.addEventListener('mousedown', (e) => {
             const pos = getCanvasPos(e);
+            const addToSelection = e.ctrlKey || e.metaKey; // Ctrl 或 Cmd
+            
+            // 首先检查是否点击了任何文字区域（用于选择）
+            const clickedRegion = this._findTextRegionAtPos(pos);
+            if (clickedRegion && !isDragging) {
+                const { parentIndex, childIndex } = clickedRegion;
+                // 多选模式或未选中时进行选择
+                if (addToSelection || parentIndex !== this.selectedLayerIndex || 
+                    !this._isChildSelected(parentIndex, childIndex)) {
+                    this._selectChildLayer(parentIndex, childIndex, addToSelection);
+                }
+            }
+            
             const hit = hitTest(pos);
             
             if (hit) {
@@ -345,14 +369,13 @@ export const EventsMixin = {
                 startPos = pos;
                 startBbox = { ...dragLayer.bbox };
                 
-                if (hit.childIndex !== undefined && hit.childIndex !== this.selectedChildIndex) {
-                    this._selectChildLayer(this.selectedLayerIndex, hit.childIndex);
-                }
-                
                 e.preventDefault();
                 e.stopPropagation();
             }
         });
+        
+        // 保存所有选中图层的初始 bbox（用于批量移动）
+        let allStartBboxes = [];
         
         canvas.addEventListener('mousemove', (e) => {
             const pos = getCanvasPos(e);
@@ -363,8 +386,24 @@ export const EventsMixin = {
                 
                 switch (dragMode) {
                     case 'move':
-                        dragLayer.bbox.left = Math.max(0, Math.min(1 - startBbox.width, startBbox.left + dx));
-                        dragLayer.bbox.top = Math.max(0, Math.min(1 - startBbox.height, startBbox.top + dy));
+                        // 批量移动所有选中的图层
+                        const selectedChildren = this._getSelectedChildren?.() || [dragLayer];
+                        if (selectedChildren.length > 1 && allStartBboxes.length === 0) {
+                            // 首次移动时保存所有选中图层的初始 bbox
+                            allStartBboxes = selectedChildren.map(c => ({ layer: c, bbox: { ...c.bbox } }));
+                        }
+                        
+                        if (allStartBboxes.length > 1) {
+                            // 批量移动
+                            allStartBboxes.forEach(({ layer, bbox }) => {
+                                layer.bbox.left = Math.max(0, Math.min(1 - bbox.width, bbox.left + dx));
+                                layer.bbox.top = Math.max(0, Math.min(1 - bbox.height, bbox.top + dy));
+                            });
+                        } else {
+                            // 单个移动
+                            dragLayer.bbox.left = Math.max(0, Math.min(1 - startBbox.width, startBbox.left + dx));
+                            dragLayer.bbox.top = Math.max(0, Math.min(1 - startBbox.height, startBbox.top + dy));
+                        }
                         break;
                     case 'resize-se':
                         dragLayer.bbox.width = Math.max(0.02, Math.min(1 - startBbox.left, startBbox.width + dx));
@@ -430,7 +469,14 @@ export const EventsMixin = {
         
         const endDrag = () => {
             if (isDragging && dragLayer) {
-                this._autoEstimateFontSize(dragLayer);
+                // 批量移动时为每个图层重新估算字号
+                if (allStartBboxes.length > 1) {
+                    allStartBboxes.forEach(({ layer }) => {
+                        this._autoEstimateFontSize(layer);
+                    });
+                } else {
+                    this._autoEstimateFontSize(dragLayer);
+                }
                 this._saveHistory();
                 this._updatePropertyPanel();
                 this._render();
@@ -438,6 +484,7 @@ export const EventsMixin = {
             isDragging = false;
             dragMode = null;
             dragLayer = null;
+            allStartBboxes = []; // 清理批量移动状态
             startBbox = null;
         };
         
@@ -446,56 +493,91 @@ export const EventsMixin = {
     },
 
     /**
+     * 查找指定位置的文字区域
+     */
+    _findTextRegionAtPos(pos) {
+        const layers = this.processedImage?.layers;
+        if (!layers) return null;
+        
+        for (let pi = layers.length - 1; pi >= 0; pi--) {
+            const layer = layers[pi];
+            // 检查是否为 OCR 组（同时支持 textOverlayConfig 和 ocrGroup）
+            const isOcrGroup = layer.type === 'group' && (layer.textOverlayConfig || layer.ocrGroup);
+            if (!isOcrGroup || layer.visible === false) continue;
+            
+            const children = layer.children || [];
+            for (let ci = children.length - 1; ci >= 0; ci--) {
+                const child = children[ci];
+                if (child.type !== 'text-overlay' || child.visible === false) continue;
+                
+                const bbox = child.bbox;
+                const x = pos.x / this.canvas.width;
+                const y = pos.y / this.canvas.height;
+                
+                if (x >= bbox.left && x <= bbox.left + bbox.width &&
+                    y >= bbox.top && y <= bbox.top + bbox.height) {
+                    return { parentIndex: pi, childIndex: ci, layer: child };
+                }
+            }
+        }
+        return null;
+    },
+
+    /**
      * 自动估算文字区域的字号
+     * 注意：此方法与 text-overlay.js 中的版本保持一致
      */
     _autoEstimateFontSize(textLayer) {
-        if (!textLayer || textLayer.type !== 'text-overlay' || !textLayer.bbox || !textLayer.content?.displayText) {
+        if (!textLayer || textLayer.type !== 'text-overlay' || !textLayer.bbox || !this.canvas) {
             return;
         }
         
-        const { width, height } = textLayer.bbox;
-        const text = textLayer.content.displayText;
+        // 使用正确的属性名（兼容多种数据结构）
+        const text = textLayer.translatedText || textLayer.text || textLayer.content?.displayText || '';
+        if (!text) return;
         
-        const bboxWidthPx = width * this.canvas.width;
-        const bboxHeightPx = height * this.canvas.height;
+        // 考虑 padding（渲染时有 4px padding）
+        const padding = 8;
+        const boxWidth = Math.max(10, textLayer.bbox.width * this.canvas.width - padding);
+        const boxHeight = Math.max(10, textLayer.bbox.height * this.canvas.height - padding);
+        
+        const fontFamily = textLayer.style?.fontFamily || 'system-ui, sans-serif';
         
         // 二分搜索最佳字号
-        const fontFamily = textLayer.style?.fontFamily || '"Noto Sans CJK SC", Arial, sans-serif';
-        const lineHeightRatio = 1.3;
+        let minSize = 8;
+        let maxSize = Math.min(72, Math.floor(boxHeight * 0.9));
+        let bestSize = minSize;
         
-        let minSize = 8, maxSize = 72;
-        let bestSize = 14;
-        
-        while (maxSize - minSize > 1) {
-            const testSize = (minSize + maxSize) / 2;
-            this.ctx.font = `${testSize}px ${fontFamily}`;
+        while (minSize <= maxSize) {
+            const midSize = Math.floor((minSize + maxSize) / 2);
+            this.ctx.font = `${midSize}px ${fontFamily}`;
             
-            // 简单换行估算
-            const lines = [];
-            let currentLine = '';
+            // 模拟换行计算
+            let lines = 1;
+            let currentLineWidth = 0;
+            
             for (const char of text) {
-                const testLine = currentLine + char;
-                if (this.ctx.measureText(testLine).width > bboxWidthPx - bboxHeightPx * 0.1 && currentLine.length > 0) {
-                    lines.push(currentLine);
-                    currentLine = char;
+                const charWidth = this.ctx.measureText(char).width;
+                if (currentLineWidth + charWidth > boxWidth && currentLineWidth > 0) {
+                    lines++;
+                    currentLineWidth = charWidth;
                 } else {
-                    currentLine = testLine;
+                    currentLineWidth += charWidth;
                 }
             }
-            if (currentLine) lines.push(currentLine);
             
-            const totalHeight = lines.length * testSize * lineHeightRatio;
+            const lineHeight = midSize * 1.4;
+            const totalHeight = lines * lineHeight;
             
-            if (totalHeight <= bboxHeightPx * 0.9) {
-                minSize = testSize;
-                bestSize = testSize;
+            if (totalHeight <= boxHeight * 0.95) {
+                bestSize = midSize;
+                minSize = midSize + 1;
             } else {
-                maxSize = testSize;
+                maxSize = midSize - 1;
             }
         }
         
         textLayer.style = textLayer.style || {};
-        textLayer.style.fontSize = Math.round(bestSize);
-        console.log(`[LayerEditor] 自动估算字号: "${text.substring(0, 10)}..." -> ${textLayer.style.fontSize}px`);
+        textLayer.style.fontSize = Math.max(8, bestSize);
     }
 };

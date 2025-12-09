@@ -3,6 +3,8 @@
  * 从 layer-editor.js 拆分出的渲染相关方法
  */
 
+import { ensureFontLoaded } from './text-overlay.js';
+
 /**
  * 渲染 mixin
  */
@@ -29,6 +31,13 @@ export const RenderMixin = {
             if (layer.visible === false) return;
 
             if (layer.type === 'group') {
+                // 文字识别组：先绘制 inpainted background（如果有且开启）
+                if (layer.textOverlayConfig && layer.inpaintedBackground && layer.showInpaintedBg !== false) {
+                    const { canvas: bgCanvas } = layer.inpaintedBackground;
+                    if (bgCanvas) {
+                        this.ctx.drawImage(bgCanvas, 0, 0);
+                    }
+                }
                 // 渲染组内所有子图层
                 layer.children?.forEach(child => renderLayer(child));
                 return;
@@ -180,7 +189,26 @@ export const RenderMixin = {
         const fontSize = style.fontSize || 14;
         const fontWeight = style.fontWeight || 'normal';
         const textAlign = style.textAlign || 'left';
+        const fontFamily = style.fontFamily || 'system-ui, sans-serif';
         
+        // 异步加载自定义字体（不阻塞渲染，加载完成后浏览器自动刷新显示）
+        if (style.fontFamily) {
+            ensureFontLoaded(style.fontFamily).then(() => {
+                // 字体加载完成，浏览器会自动用新字体渲染
+            });
+        }
+        
+        // 查找父组和子索引
+        const parentLayer = this.processedImage.layers.find(l => 
+            l.type === 'group' && l.children?.some(c => c.id === layer.id)
+        );
+        const parentIndex = this.processedImage.layers.indexOf(parentLayer);
+        const childIndex = parentLayer?.children?.findIndex(c => c.id === layer.id) ?? -1;
+        // 使用 _isChildSelected 检查多选状态
+        const isSelected = this._isChildSelected?.(parentIndex, childIndex) ||
+            (parentIndex === this.selectedLayerIndex && childIndex === this.selectedChildIndex);
+        
+        // 禁用鼠标事件，让事件穿透到 canvas 进行拖拽
         textDiv.style.cssText = `
             position: absolute;
             left: ${pxLeft}px;
@@ -189,6 +217,7 @@ export const RenderMixin = {
             height: ${pxHeight}px;
             background: ${layer.inpainted ? 'transparent' : bgColor};
             color: ${textColor};
+            font-family: ${fontFamily};
             font-size: ${fontSize}px;
             font-weight: ${fontWeight};
             text-align: ${textAlign};
@@ -200,8 +229,8 @@ export const RenderMixin = {
             overflow: hidden;
             word-break: break-word;
             line-height: 1.3;
-            pointer-events: all;
-            cursor: pointer;
+            pointer-events: none;
+            cursor: default;
         `;
         
         // 创建文本内容
@@ -210,28 +239,12 @@ export const RenderMixin = {
         textContent.textContent = displayText;
         textDiv.appendChild(textContent);
         
-        // 如果是选中状态，添加边框
-        const parentLayer = this.processedImage.layers.find(l => 
-            l.type === 'group' && l.children?.some(c => c.id === layer.id)
-        );
-        const parentIndex = this.processedImage.layers.indexOf(parentLayer);
-        const childIndex = parentLayer?.children?.findIndex(c => c.id === layer.id) ?? -1;
-        
-        if (parentIndex === this.selectedLayerIndex && childIndex === this.selectedChildIndex) {
+        // 如果是选中状态，添加边框和调整手柄
+        if (isSelected) {
             textDiv.style.outline = '2px solid #4f46e5';
             textDiv.style.outlineOffset = '1px';
-            
-            // 添加调整手柄
             this._addBboxHandles(textDiv, layer);
         }
-        
-        // 点击选中
-        textDiv.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (parentIndex >= 0 && childIndex >= 0) {
-                this._selectChildLayer(parentIndex, childIndex);
-            }
-        });
         
         container.appendChild(textDiv);
     },

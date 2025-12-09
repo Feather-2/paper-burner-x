@@ -26,7 +26,15 @@ export const PropertyPanelMixin = {
             return;
         }
         
-        // 如果选中了子图层
+        // 检查是否多选
+        const selectedChildren = this._getSelectedChildren?.() || [];
+        if (selectedChildren.length > 1) {
+            // 多选模式：显示批量操作面板
+            this._renderMultiSelectPanel(panel, layer, selectedChildren);
+            return;
+        }
+        
+        // 如果选中了单个子图层
         if (this.selectedChildIndex >= 0 && layer.children) {
             const childLayer = layer.children[this.selectedChildIndex];
             if (childLayer) {
@@ -98,8 +106,9 @@ export const PropertyPanelMixin = {
      * 渲染组图层面板
      */
     _renderGroupLayerPanel(panel, layer) {
-        const isOcrGroup = layer.ocrGroup;
+        const isOcrGroup = layer.ocrGroup || layer.textOverlayConfig;
         const childCount = layer.children?.length || 0;
+        const hasInpaintedBg = !!(layer.inpaintedBackground?.canvas);
         
         let content = `
             <div class="property-group">
@@ -124,6 +133,25 @@ export const PropertyPanelMixin = {
         
         // OCR 组特有操作
         if (isOcrGroup) {
+            // 遮罩背景控制（如果有 inpainted background）
+            if (hasInpaintedBg) {
+                content += `
+                    <div class="property-group">
+                        <div class="property-group-title">
+                            <iconify-icon icon="carbon:view"></iconify-icon>
+                            遮罩背景
+                        </div>
+                        <div class="property-row">
+                            <span class="property-label">显示去文字底图</span>
+                            <input type="checkbox" ${layer.showInpaintedBg !== false ? 'checked' : ''} data-group-action="toggle-inpaint-bg">
+                        </div>
+                        <div style="font-size:11px;color:var(--ie-text-secondary);margin-top:4px;padding:0 4px;">
+                            开启后使用已清除文字的底图，关闭则使用原图
+                        </div>
+                    </div>
+                `;
+            }
+            
             content += `
                 <div class="property-group">
                     <div class="property-group-title">
@@ -146,6 +174,12 @@ export const PropertyPanelMixin = {
                         <iconify-icon icon="carbon:add"></iconify-icon>
                         手动添加区域
                     </button>
+                    ${hasInpaintedBg ? `
+                    <button class="btn-action" data-group-action="vectorize-clean" style="background:linear-gradient(135deg,#10b981,#059669);color:#fff;">
+                        <iconify-icon icon="carbon:chart-venn-diagram"></iconify-icon>
+                        使用去文字底图矢量化
+                    </button>
+                    ` : ''}
                 </div>
             `;
         } else {
@@ -304,8 +338,22 @@ export const PropertyPanelMixin = {
         });
         
         panel.querySelector('[data-group-action="add-region"]')?.addEventListener('click', () => {
-            this.bboxDrawMode = true;
-            this._showToast('在画布上拖动绘制文字区域');
+            this._startDrawBbox(layer);
+        });
+        
+        // 切换 inpainted background 显示
+        panel.querySelector('[data-group-action="toggle-inpaint-bg"]')?.addEventListener('change', (e) => {
+            layer.showInpaintedBg = e.target.checked;
+            this._render();
+        });
+        
+        // 使用去文字底图矢量化
+        panel.querySelector('[data-group-action="vectorize-clean"]')?.addEventListener('click', () => {
+            if (layer.inpaintedBackground?.canvas) {
+                this._showVectorizePresetDialog();
+            } else {
+                this._showToast('请先去除文字后再进行矢量化');
+            }
         });
     },
 
