@@ -1,5 +1,5 @@
 /**
- * Potrace Core - 工具函数模块
+ * Vecburner - 工具函数模块
  * 
  * 提供基础工具函数和 CDN 依赖加载
  */
@@ -21,7 +21,7 @@ export async function loadCdnLibs() {
     
     // Worker 环境中没有 document，跳过 CDN 加载
     if (typeof document === 'undefined') {
-        console.log('[PotraceCore] Worker 环境，使用内置算法');
+        console.log('[Vecburner] Worker 环境，使用内置算法');
         libsLoaded = true;
         return;
     }
@@ -39,7 +39,7 @@ export async function loadCdnLibs() {
         await Promise.all(Object.values(CDN_LIBS).map(loadScript));
         libsLoaded = true;
     } catch (e) {
-        console.warn('[PotraceCore] CDN 加载失败，使用内置算法');
+        console.warn('[Vecburner] CDN 加载失败，使用内置算法');
     }
 }
 

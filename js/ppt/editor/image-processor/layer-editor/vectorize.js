@@ -42,8 +42,27 @@ export const VectorizeMixin = {
                 this._showLoading(message || `矢量化中... ${progress}%`);
             };
             
+            // 检查是否有 inpainted background（带有去除文字的底图）
+            // 如果有，使用它作为矢量化的源图
+            let sourceImage = this.processedImage.original;
+            const ocrGroup = this.processedImage.layers.find(
+                l => l.type === 'group' && (l.textOverlayConfig || l.ocrGroup) && l.inpaintedBackground?.canvas
+            );
+            
+            if (ocrGroup && ocrGroup.inpaintedBackground?.canvas) {
+                console.log('[LayerEditor] 使用去文字底图进行矢量化');
+                const bgCanvas = ocrGroup.inpaintedBackground.canvas;
+                // 构造与 original 相同格式的对象
+                sourceImage = {
+                    element: bgCanvas,
+                    width: bgCanvas.width,
+                    height: bgCanvas.height,
+                    imageData: ocrGroup.inpaintedBackground.ctx.getImageData(0, 0, bgCanvas.width, bgCanvas.height)
+                };
+            }
+            
             // 执行矢量化
-            const result = await vectorizer.vectorize(this.processedImage.original, actualPreset, onProgress);
+            const result = await vectorizer.vectorize(sourceImage, actualPreset, onProgress);
             
             // 按颜色分层
             const colorLayers = vectorizer.splitByColor(result);
@@ -93,10 +112,11 @@ export const VectorizeMixin = {
                 if (oldIndex !== -1) {
                     this.processedImage.layers[oldIndex] = groupLayer;
                 } else {
-                    this.processedImage.layers.push(groupLayer);
+                    this._insertVectorGroupBeforeTextGroup(groupLayer);
                 }
             } else {
-                this.processedImage.layers.push(groupLayer);
+                // 将矢量化图层插入到文字识别组的下方（在数组中的位置更靠前）
+                this._insertVectorGroupBeforeTextGroup(groupLayer);
             }
             
             this._saveHistory();
@@ -146,7 +166,7 @@ export const VectorizeMixin = {
     async _applySimplify(layer, level) {
         if (!layer || layer.type !== 'group' || !layer.children) return;
         
-        const { simplifyPathD } = await import('../potrace-core/path-simplifier.js');
+        const { simplifyPathD } = await import('../vecburner/path-simplifier.js');
         
         const preset = layer.vectorConfig?.preset || '';
         const preserveStroke = ['logo', 'lineart'].includes(preset);
@@ -187,7 +207,7 @@ export const VectorizeMixin = {
             childLayer.svg = childLayer.originalSvg;
             childLayer.simplifyLevel = 0;
         } else {
-            const { simplifyPathD } = await import('../potrace-core/path-simplifier.js');
+            const { simplifyPathD } = await import('../vecburner/path-simplifier.js');
             
             const preset = parentLayer?.vectorConfig?.preset || '';
             const preserveStroke = ['logo', 'lineart'].includes(preset);
@@ -216,7 +236,7 @@ export const VectorizeMixin = {
         
         try {
             // 简单实现：使用矢量化移除最大面积的颜色
-            const { vectorize } = await import('../potrace-core/index.js');
+            const { vectorize } = await import('../vecburner/index.js');
             
             const originalLayer = this.processedImage.layers.find(l => l.type === 'original');
             if (!originalLayer?.image) {
@@ -284,6 +304,27 @@ export const VectorizeMixin = {
             this._showToast('去背景失败: ' + error.message);
         } finally {
             this._hideLoading();
+        }
+    },
+
+    /**
+     * 将矢量化图层插入到文字识别组的下方
+     * 在渲染顺序中，数组索引越小渲染越早（在下层）
+     */
+    _insertVectorGroupBeforeTextGroup(vectorGroup) {
+        const layers = this.processedImage.layers;
+        
+        // 查找文字识别组的索引
+        const textGroupIndex = layers.findIndex(
+            l => l.type === 'group' && (l.textOverlayConfig || l.ocrGroup)
+        );
+        
+        if (textGroupIndex > 0) {
+            // 插入到文字识别组的前面（即渲染顺序在其下方）
+            layers.splice(textGroupIndex, 0, vectorGroup);
+        } else {
+            // 没有文字识别组，直接添加到末尾
+            layers.push(vectorGroup);
         }
     }
 };

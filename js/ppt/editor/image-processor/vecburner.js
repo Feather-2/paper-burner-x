@@ -1,15 +1,16 @@
 /**
- * Potrace Core - 向后兼容层
+ * Vecburner - 向后兼容层
  * 
- * 实际实现已模块化至 potrace-core/ 目录
- * @see ./potrace-core/index.js
+ * 实际实现已模块化至 vecburner/ 目录
+ * @see ./vecburner/index.js
  *
  * 使用方法：
  * - 新代码推荐使用 ES Module:
- *   import { PotraceCore, vectorize } from './potrace-core/index.js';
+ *   import { Vecburner, vectorize } from './vecburner/index.js';
  * 
  * - 旧代码可继续使用全局对象:
- *   window.PotraceCore.vectorize(imageData, options)
+ *   window.Vecburner.vectorize(imageData, options)
+ *   window.PotraceCore.vectorize(imageData, options)  // 兼容别名
  */
 
 (function(global) {
@@ -17,25 +18,25 @@
 
     // 异步加载模块化版本
     let moduleLoaded = false;
-    let PotraceModule = null;
+    let VecburnerModule = null;
 
     async function ensureModule() {
-        if (moduleLoaded) return PotraceModule;
+        if (moduleLoaded) return VecburnerModule;
         
         try {
             // 动态导入模块化版本
-            PotraceModule = await import('./potrace-core/index.js');
+            VecburnerModule = await import('./vecburner/index.js');
             moduleLoaded = true;
-            console.log('[PotraceCore] 模块化版本加载成功');
-            return PotraceModule;
+            console.log('[Vecburner] 模块化版本加载成功');
+            return VecburnerModule;
         } catch (e) {
-            console.error('[PotraceCore] 模块加载失败:', e);
-            throw new Error('PotraceCore 模块加载失败，请确保 potrace-core/ 目录存在');
+            console.error('[Vecburner] 模块加载失败:', e);
+            throw new Error('Vecburner 模块加载失败，请确保 vecburner/ 目录存在');
         }
     }
 
     // 兼容层 API
-    const PotraceCore = {
+    const Vecburner = {
         /**
          * 主矢量化函数
          */
@@ -176,6 +177,7 @@
     };
 
     // 暴露到全局
-    global.PotraceCore = PotraceCore;
+    global.Vecburner = Vecburner;
+    global.PotraceCore = Vecburner;  // 向后兼容别名
 
 })(typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : this);

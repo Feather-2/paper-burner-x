@@ -1,5 +1,5 @@
 /**
- * Potrace Core - 分块矢量化模块
+ * Vecburner - 分块矢量化模块
  * 
  * 将图像分割成独立区块，分别矢量化后合并
  * 适合处理包含文字和图形混合的复杂图像
@@ -452,7 +452,7 @@ export async function vectorizeByBlocks(imageData, options = {}) {
             preset: r.preset,
             pathCount: r.paths.length
         })),
-        engine: 'potrace-core-blocks'
+        engine: 'vecburner-blocks'
     };
 }
 

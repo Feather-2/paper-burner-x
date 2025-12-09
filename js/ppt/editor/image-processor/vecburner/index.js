@@ -1,7 +1,8 @@
 /**
- * Potrace Core - 主入口
+ * Vecburner - 主入口
  * 
  * 高质量位图转矢量算法
+ * A Paper Burner Project
  * 
  * ============================================================================
  * 版权声明 / Credits
@@ -132,12 +133,12 @@ export async function vectorize(imageData, options = {}) {
         ctx.drawImage(tempCanvas, 0, 0, newWidth, newHeight);
         workingData = ctx.getImageData(0, 0, newWidth, newHeight);
         
-        console.log(`[PotraceCore] 小图放大: ${width}x${height} → ${newWidth}x${newHeight} (${scale}x), 平滑: ${!isPixelArt}`);
+        console.log(`[Vecburner] 小图放大: ${width}x${height} → ${newWidth}x${newHeight} (${scale}x), 平滑: ${!isPixelArt}`);
         width = newWidth;
         height = newHeight;
     }
 
-    console.log(`[PotraceCore] 矢量化: ${numColors}色, tol=${pathTolerance}, smooth=${smoothness}, binary=${binaryMode}, blur=${blurSigma}`);
+    console.log(`[Vecburner] 矢量化: ${numColors}色, tol=${pathTolerance}, smooth=${smoothness}, binary=${binaryMode}, blur=${blurSigma}`);
 
     // 1. 颜色量化 (lineart 使用亮度二值化)
     let palette;
@@ -146,7 +147,7 @@ export async function vectorize(imageData, options = {}) {
     if (binaryMode || numColors <= 2) {
         // 二值模式：计算 Otsu 阈值，只提取前景色
         otsuThreshold = computeOtsuThreshold(workingData);
-        console.log(`[PotraceCore] Otsu 阈值: ${otsuThreshold}`);
+        console.log(`[Vecburner] Otsu 阈值: ${otsuThreshold}`);
         // 只生成前景（暗色）层，背景不需要矢量化
         palette = [[0, 0, 0]];
     } else {
@@ -246,12 +247,12 @@ export async function vectorize(imageData, options = {}) {
             }
             
             if (currentPalette.length < palette.length) {
-                console.log(`[PotraceCore] 智能合并颜色 (${options.preset}): ${palette.length} → ${currentPalette.length}`);
+                console.log(`[Vecburner] 智能合并颜色 (${options.preset}): ${palette.length} → ${currentPalette.length}`);
                 palette = currentPalette;
             }
         }
     }
-    console.log(`[PotraceCore] 提取 ${palette.length} 种主色`);
+    console.log(`[Vecburner] 提取 ${palette.length} 种主色`);
 
     // 2. 为每个像素分配最近的调色板颜色
     const pixelColorMap = new Uint8Array(width * height);
@@ -362,7 +363,7 @@ export async function vectorize(imageData, options = {}) {
                 contours.length > 10;
             
             if (isFragmented) {
-                console.log(`[PotraceCore] 跳过碎片图层: ${contours.length} 个轮廓, 最大 ${maxContourArea.toFixed(0)}, 总 ${totalContourArea.toFixed(0)}`);
+                console.log(`[Vecburner] 跳过碎片图层: ${contours.length} 个轮廓, 最大 ${maxContourArea.toFixed(0)}, 总 ${totalContourArea.toFixed(0)}`);
                 continue;
             }
         }
@@ -518,7 +519,7 @@ export async function vectorize(imageData, options = {}) {
                         pathD += 'Z';
                     }
                 } catch (e) {
-                    console.warn('[PotraceCore] fit-curve 失败，回退到 Catmull-Rom');
+                    console.warn('[Vecburner] fit-curve 失败，回退到 Catmull-Rom');
                 }
             }
             
@@ -604,7 +605,7 @@ export async function vectorize(imageData, options = {}) {
         return layerArea >= minLayerArea;
     });
     
-    console.log(`[PotraceCore] 生成 ${layers.length} 个颜色图层，过滤后 ${filteredLayers.length} 个`);
+    console.log(`[Vecburner] 生成 ${layers.length} 个颜色图层，过滤后 ${filteredLayers.length} 个`);
 
     // 4. 生成 SVG（反转顺序：亮色在底，暗色在上）
     // layers 按亮度从暗到亮排序，SVG 需要先绘制亮色（底层），后绘制暗色（顶层）
@@ -635,7 +636,7 @@ export async function vectorize(imageData, options = {}) {
         layers: filteredLayers,
         paths: allPaths,
         colors: palette.map(c => `rgb(${c[0]},${c[1]},${c[2]})`),
-        engine: 'potrace-core-v2'
+        engine: 'vecburner'
     };
 }
 
@@ -645,11 +646,11 @@ export async function vectorize(imageData, options = {}) {
 export async function vectorizeWithPreset(imageData, presetName = 'auto') {
     // smart/blocks 模式 - 手动选择（实验性功能）
     if (presetName === 'smart') {
-        console.log(`[PotraceCore] 智能分块模式 (实验性)`);
+        console.log(`[Vecburner] 智能分块模式 (实验性)`);
         return vectorizeSmart(imageData);
     }
     if (presetName === 'blocks') {
-        console.log(`[PotraceCore] 强制分块模式 (实验性)`);
+        console.log(`[Vecburner] 强制分块模式 (实验性)`);
         return vectorizeByBlocks(imageData);
     }
     
@@ -657,7 +658,7 @@ export async function vectorizeWithPreset(imageData, presetName = 'auto') {
     if (presetName === 'auto') {
         const analysis = analyzeImageColors(imageData);
         const basePreset = PRESETS[analysis.recommendedPreset] || PRESETS.logo;
-        console.log(`[PotraceCore] 自动模式: ${analysis.recommendedPreset}, ${basePreset.numColors}色`);
+        console.log(`[Vecburner] 自动模式: ${analysis.recommendedPreset}, ${basePreset.numColors}色`);
         return vectorize(imageData, basePreset);
     }
     
@@ -705,7 +706,9 @@ export async function vectorizeSmart(imageData, options = {}) {
     return mod.vectorizeSmart(imageData, options);
 }
 
-export const PotraceCore = {
+export const Vecburner = {
+    // 保持向后兼容的别名
+    get PotraceCore() { return Vecburner; },
     vectorize,
     vectorizeWithPreset,
     vectorizeByBlocks,   // 分块矢量化
@@ -734,8 +737,11 @@ export const PotraceCore = {
     getSimplifyPreview       // 滑块预览用
 };
 
+// 向后兼容别名
+export const PotraceCore = Vecburner;
+
 // 默认导出
-export default PotraceCore;
+export default Vecburner;
 
 // 重新导出所有子模块供按需导入
 export * from './utils.js';

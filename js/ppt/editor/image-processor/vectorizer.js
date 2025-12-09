@@ -17,8 +17,8 @@ class ImageVectorizer {
         
         // VectorTracer CDN (visioncortex WASM 绑定)
         this.vectortracerCdn = 'https://cdn.jsdelivr.net/npm/vectortracer@0.1.2/pkg/vectortracer.js';
-        // PotraceCore 本地路径 (旧版，备用)
-        this.potraceCoreUrl = './js/ppt/editor/image-processor/potrace-core.js';
+        // Vecburner 本地路径 (旧版，备用)
+        this.vecburnerUrl = './js/ppt/editor/image-processor/vecburner.js';
         // ImageTracer CDN (备选)
         this.imagetracerCdn = 'https://cdn.jsdelivr.net/npm/imagetracerjs@1.2.6/imagetracer_v1.2.6.js';
     }
@@ -121,16 +121,16 @@ class ImageVectorizer {
     async load() {
         if (this.engine) return;
 
-        // 1. 优先使用 PotraceCore (稳定版)
+        // 1. 优先使用 Vecburner (稳定版)
         try {
-            await this._loadScript(this.potraceCoreUrl);
-            if (window.PotraceCore) {
-                this.engine = 'potrace';
-                console.log('[ImageVectorizer] ✓ PotraceCore 已加载');
+            await this._loadScript(this.vecburnerUrl);
+            if (window.Vecburner || window.PotraceCore) {
+                this.engine = 'vecburner';
+                console.log('[ImageVectorizer] ✓ Vecburner 已加载');
                 return;
             }
         } catch (e) {
-            console.warn('[ImageVectorizer] PotraceCore 加载失败:', e.message);
+            console.warn('[ImageVectorizer] Vecburner 加载失败:', e.message);
         }
 
         // 2. 备选 VectorTracer (visioncortex WASM)
@@ -250,11 +250,12 @@ class ImageVectorizer {
 
         // 特殊模式：分块矢量化（适合复杂图像如文字+图形）
         if (preset === 'blocks' || preset === 'smart') {
-            if (this.engine === 'potrace' && window.PotraceCore) {
+            const engine = window.Vecburner || window.PotraceCore;
+            if (this.engine === 'vecburner' && engine) {
                 if (preset === 'smart') {
-                    return window.PotraceCore.vectorizeSmart(imageObj.imageData);
+                    return engine.vectorizeSmart(imageObj.imageData);
                 } else {
-                    return window.PotraceCore.vectorizeByBlocks(imageObj.imageData);
+                    return engine.vectorizeByBlocks(imageObj.imageData);
                 }
             }
             // 其他引擎回退到 auto
@@ -274,9 +275,10 @@ class ImageVectorizer {
             return this._vectorizeWithVectorTracer(imageObj, actualPreset);
         }
         
-        // 3. PotraceCore - 支持 auto 模式
-        if (this.engine === 'potrace') {
-            return window.PotraceCore.vectorizeWithPreset(imageObj.imageData, preset);
+        // 3. Vecburner - 支持 auto 模式
+        if (this.engine === 'vecburner') {
+            const engine = window.Vecburner || window.PotraceCore;
+            return engine.vectorizeWithPreset(imageObj.imageData, preset);
         }
         
         // 4. ImageTracer 备选 - 不支持 auto
@@ -474,7 +476,7 @@ class ImageVectorizer {
         const viewBoxWidth = vectorResult.viewBoxWidth || displayWidth;
         const viewBoxHeight = vectorResult.viewBoxHeight || displayHeight;
         
-        // PotraceCore 已经返回 layers 结构
+        // Vecburner 已经返回 layers 结构
         if (vectorResult.layers && vectorResult.layers.length > 0) {
             return vectorResult.layers.map((layer, idx) => ({
                 id: `color_layer_${idx}_${Date.now()}`,

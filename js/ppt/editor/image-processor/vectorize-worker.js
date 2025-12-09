@@ -7,8 +7,8 @@
 const workerUrl = new URL(import.meta.url);
 const basePath = workerUrl.href.substring(0, workerUrl.href.lastIndexOf('/') + 1);
 
-// 动态导入 PotraceCore 模块
-let PotraceCore = null;
+// 动态导入 Vecburner 模块
+let Vecburner = null;
 let libsLoaded = false;
 
 // 加载 CDN 依赖（使用动态 import 加载 ESM 版本）
@@ -27,21 +27,21 @@ async function loadCdnLibs() {
     }
 }
 
-async function loadPotraceCore() {
-    if (PotraceCore) return PotraceCore;
+async function loadVecburner() {
+    if (Vecburner) return Vecburner;
     
     // 先加载依赖库
     await loadCdnLibs();
     
     try {
         // Worker 中使用绝对路径导入模块
-        const moduleUrl = new URL('./potrace-core/index.js', basePath).href;
+        const moduleUrl = new URL('./vecburner/index.js', basePath).href;
         const module = await import(moduleUrl);
-        PotraceCore = module.PotraceCore || module;
-        console.log('[VectorizeWorker] PotraceCore 已加载');
-        return PotraceCore;
+        Vecburner = module.Vecburner || module.PotraceCore || module;
+        console.log('[VectorizeWorker] Vecburner 已加载');
+        return Vecburner;
     } catch (e) {
-        console.error('[VectorizeWorker] 加载 PotraceCore 失败:', e);
+        console.error('[VectorizeWorker] 加载 Vecburner 失败:', e);
         throw e;
     }
 }
@@ -56,7 +56,7 @@ self.onmessage = async function(e) {
                 // 发送进度更新
                 self.postMessage({ type: 'progress', id, progress: 0, message: '加载引擎...' });
                 
-                const core = await loadPotraceCore();
+                const core = await loadVecburner();
                 
                 self.postMessage({ type: 'progress', id, progress: 10, message: '开始矢量化...' });
                 
