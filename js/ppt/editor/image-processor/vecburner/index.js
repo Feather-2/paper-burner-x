@@ -1,29 +1,45 @@
 /**
- * Vecburner - 主入口
+ * Vecburner - 高质量位图转矢量引擎
  * 
- * 高质量位图转矢量算法
  * A Paper Burner Project
+ * https://github.com/Feather-2/paper-burner-x
+ * 
+ * @version 1.0.0
+ * @license MIT
  * 
  * ============================================================================
- * 版权声明 / Credits
+ * 致谢 / Credits
  * ============================================================================
  *
- * 本模块的核心算法参考了以下开源项目的实现：
+ * 本模块的部分算法参考了以下开源项目：
  *
- * 1. VTracer - https://github.com/visioncortex/vtracer
- *    License: MIT
- *    Copyright (c) 2020 Vision Cortex
+ * VTracer & Visioncortex
+ *   https://github.com/visioncortex/vtracer
+ *   https://github.com/visioncortex/visioncortex
+ *   License: MIT / Apache-2.0 (dual-licensed)
+ *   Copyright (c) 2020 Vision Cortex
  *
- * 2. Visioncortex - https://github.com/visioncortex/visioncortex
- *    License: Apache-2.0, MIT (dual-licensed)
- *    Copyright (c) 2020 Vision Cortex
+ *   参考的算法：
+ *   - 4-Point Subdivision Scheme（路径细分平滑）
+ *   - remove_staircase（阶梯锯齿去除）
+ *   - retract_handles（贝塞尔控制点回缩）
+ *   - 径向距离 + RDP 路径简化
+ *   - 角点检测与保护
  *
- * 本实现基于上述项目的算法思想进行了 JavaScript 移植和部分修改，
- * 包括但不限于：4-Point Subdivision Scheme、remove_staircase、
- * find_splice_points、retract_handles 等核心算法。
+ * fit-curve
+ *   https://github.com/soswow/fit-curve
+ *   License: MIT
+ *   用于贝塞尔曲线拟合
  *
- * 注意：本实现不保证与原始 VTracer/Visioncortex 的输出完全相同，
- * 可能存在参数差异、精度差异或实现细节上的不同。
+ * ============================================================================
+ * 原创部分
+ * ============================================================================
+ *
+ * - K-Means++ 颜色量化与边缘色过滤
+ * - Marching Squares 亚像素轮廓追踪
+ * - 自适应小图放大与像素画检测
+ * - 多预设智能选择系统
+ * - 分块矢量化（实验性）
  *
  * ============================================================================
  */
