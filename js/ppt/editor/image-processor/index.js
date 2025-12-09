@@ -126,7 +126,11 @@ class ImageProcessor {
         return new Promise((resolve, reject) => {
             const script = document.createElement('script');
             script.src = scriptMap[name];
-            script.onload = () => {
+            script.onload = async () => {
+                // 特殊处理：layerEditor 使用动态 import，需要等待 Ready Promise
+                if (name === 'layerEditor' && window.LayerEditorReady) {
+                    await window.LayerEditorReady;
+                }
                 this.modules[name] = window[globalMap[name]];
                 console.log(`[ImageProcessor] 模块 ${name} 加载完成`);
                 resolve(this.modules[name]);
@@ -319,40 +323,21 @@ class ImageProcessor {
 
     /**
      * 保存处理后的图片到 IndexedDB
+     * 注：pptStorage 目前不支持 saveResource，此功能暂时跳过
      */
     async saveProcessedImage(processedImage) {
-        if (typeof window.pptStorage === 'undefined') {
-            console.warn('[ImageProcessor] pptStorage 不可用，跳过持久化');
-            return;
-        }
-
-        try {
-            await window.pptStorage.saveResource({
-                id: processedImage.id,
-                type: 'processed-image',
-                data: processedImage,
-                updatedAt: Date.now()
-            });
-            console.log('[ImageProcessor] 图片已保存:', processedImage.id);
-        } catch (e) {
-            console.error('[ImageProcessor] 保存失败:', e);
-        }
+        // pptStorage 目前只支持项目级别的存储
+        // 图片处理结果暂时不持久化
+        console.log('[ImageProcessor] 图片处理完成 (未持久化):', processedImage.id);
     }
 
     /**
      * 加载处理后的图片
+     * 注：pptStorage 目前不支持 getResource，此功能暂时返回 null
      */
     async loadProcessedImage(imageId) {
-        if (typeof window.pptStorage === 'undefined') {
-            return null;
-        }
-
-        try {
-            return await window.pptStorage.getResource(imageId);
-        } catch (e) {
-            console.warn('[ImageProcessor] 加载失败:', e);
-            return null;
-        }
+        // pptStorage 目前只支持项目级别的存储
+        return null;
     }
 }
 
