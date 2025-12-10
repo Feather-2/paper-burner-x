@@ -155,7 +155,8 @@
     animation: slideInDown 0.2s ease-out;
 }
 
-.ppt-export-dropdown:hover .ppt-export-menu {
+/* 使用 .open 类控制显示，不用 hover（避免快速消失） */
+.ppt-export-dropdown.open .ppt-export-menu {
     display: block;
 }
 

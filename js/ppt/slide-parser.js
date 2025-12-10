@@ -113,13 +113,16 @@ class SlideParser {
         slide.backgroundGradient = section.dataset.gradient || null;
         slide.backgroundImage = section.dataset.bgImage || null;
 
+        // 使用计数器对象确保所有元素（包括 group 子元素）ID 全局唯一
+        const counter = { value: 0 };
+
         // 解析支持深层 data-el：允许嵌套，优先尊重 data-group 分层
         const elements = section.querySelectorAll('[data-el]');
         const topLevel = Array.from(elements).filter(el => {
             const parentWithEl = el.parentElement?.closest('[data-el]');
             return !parentWithEl; // 只收集顶层 data-el，其子元素由 group 递归解析
         });
-        slide.elements = topLevel.map((el, i) => this.parseElement(el, i));
+        slide.elements = topLevel.map((el) => this.parseElement(el, counter));
 
         return slide;
     }
@@ -127,8 +130,11 @@ class SlideParser {
     /**
      * 解析单个自由元素
      * 优先级：style 属性 > data-* 属性 > 默认值
+     * @param {Element} el - DOM 元素
+     * @param {Object} counter - 全局计数器 { value: number }
      */
-    static parseElement(el, index) {
+    static parseElement(el, counter) {
+        const index = counter.value++;  // 使用并递增计数器
         const type = el.dataset.el;
         // 解析 style 属性（标准 CSS）
         const css = this.parseStyleString(el.getAttribute('style'));
@@ -156,6 +162,8 @@ class SlideParser {
             filter: css.filter || el.dataset.filter || null,
             mask: css.maskImage || css.webkitMaskImage || el.dataset.mask || null,
             outline: el.dataset.outline || null,
+            // 预设效果（shadow-sm, shadow-md, shadow-lg 等）
+            effect: el.dataset.effect || null,
         };
 
         switch (type) {
@@ -185,6 +193,12 @@ class SlideParser {
                     lineHeight: this.parseCSSNumber(css.lineHeight) || parseFloat(el.dataset.lineHeight) || 1.4,
                     fontFamily: css.fontFamily || el.dataset.fontFamily || null,
                     letterSpacing: css.letterSpacing || el.dataset.letterSpacing || null,
+                    // 文字装饰
+                    underline: css.textDecoration?.includes('underline') || el.dataset.underline === 'true',
+                    strike: css.textDecoration?.includes('line-through') || el.dataset.strike === 'true',
+                    // 上标/下标
+                    superscript: el.dataset.superscript === 'true',
+                    subscript: el.dataset.subscript === 'true',
                     // 背景
                     bgColor: css.backgroundColor || el.dataset.bgColor || null,
                     bgRadius: this.parseCSSNumber(css.borderRadius) || parseFloat(el.dataset.bgRadius) || 0,
@@ -258,11 +272,11 @@ class SlideParser {
                 };
 
             case 'group':
-                // 递归解析子元素
+                // 递归解析子元素（传递同一个 counter 确保 ID 唯一）
                 const children = el.querySelectorAll(':scope > [data-el]');
                 return {
                     ...base,
-                    children: Array.from(children).map((child, i) => this.parseElement(child, i)),
+                    children: Array.from(children).map((child) => this.parseElement(child, counter)),
                 };
 
             case 'card':
@@ -329,6 +343,30 @@ class SlideParser {
                     borderColor: el.dataset.borderColor || '#e2e8f0',
                     fontSize: parseFloat(el.dataset.fontSize) || 14,
                     radius: parseFloat(el.dataset.radius) || 8,
+                };
+
+            case 'list':
+                // 列表元素 - 有序或无序列表
+                return {
+                    ...base,
+                    // 列表类型：ul (无序) / ol (有序)
+                    listType: el.dataset.listType || 'ul',
+                    // 列表项：JSON 数组 ["Item 1", "Item 2", ...]
+                    items: (() => {
+                        try {
+                            return JSON.parse(el.dataset.items || '[]');
+                        } catch (e) {
+                            // 如果不是 JSON，尝试用换行分割
+                            return (el.innerHTML || '').split(/<br\s*\/?>/i).map(s => s.trim()).filter(Boolean);
+                        }
+                    })(),
+                    // 样式
+                    font: parseFloat(el.dataset.font) || 16,
+                    color: el.dataset.color || '#333333',
+                    bulletColor: el.dataset.bulletColor || el.dataset.color || '#333333',
+                    bulletSize: parseFloat(el.dataset.bulletSize) || 8,
+                    lineHeight: parseFloat(el.dataset.lineHeight) || 1.6,
+                    indent: parseFloat(el.dataset.indent) || 24,
                 };
 
             default:

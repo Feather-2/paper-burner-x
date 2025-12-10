@@ -57,6 +57,7 @@ const PPTXFreeformMixin = {
                 case 'card': this.renderFreeformCardPPTX(slide, el, x, y, w, h); break;
                 case 'svg': this.renderFreeformSvgPPTX(slide, el, x, y, w, h); break;
                 case 'table': this.renderFreeformTablePPTX(slide, el, x, y, w, h); break;
+                case 'list': this.renderFreeformListPPTX(slide, el, x, y, w, h); break;
                 case 'baked_element': this.renderBakedElementPPTX(slide, el, x, y, w, h); break;
             }
             if (this._needsEffectHint(el)) this._addEffectHint(slide, el, x, y);
@@ -85,12 +86,26 @@ const PPTXFreeformMixin = {
 
         const textOptions = {
             x: x || 0, y: y || 0, w: w || 2, h: h || Math.max(estimatedHeight, 0.4),
-            fontSize, fontFace: this.fontFace,
+            fontSize, fontFace: el.fontFamily || this.fontFace,
             color: this.safeColor(el.color) || '333333',
             bold: el.bold || false, italic: el.italic || false,
             align: el.align || 'left',
             valign: el.valign === 'middle' ? 'middle' : el.valign === 'bottom' ? 'bottom' : 'top',
         };
+
+        // 文字装饰
+        if (el.underline) textOptions.underline = { style: 'sng' }; // single underline
+        if (el.strike) textOptions.strike = 'sngStrike'; // single strikethrough
+        
+        // 上标/下标
+        if (el.superscript) textOptions.superscript = true;
+        if (el.subscript) textOptions.subscript = true;
+        
+        // 字符间距 (PptxGenJS 使用 charSpacing，单位是 1/100 em)
+        if (el.letterSpacing) {
+            const spacing = typeof el.letterSpacing === 'number' ? el.letterSpacing : parseFloat(el.letterSpacing) || 0;
+            if (spacing) textOptions.charSpacing = spacing * 6; // 大约转换
+        }
 
         if (el.rotate) textOptions.rotate = el.rotate;
         if (el.opacity !== undefined && el.opacity < 1) textOptions.transparency = Math.round((1 - el.opacity) * 100);
@@ -125,8 +140,23 @@ const PPTXFreeformMixin = {
             // 子元素 x/y 是相对于 group 的百分比，需要转换为相对于整个幻灯片的位置
             const childX = this.parseCoordToInch(child.x, gw); // 相对于 group 宽度
             const childY = this.parseCoordToInch(child.y, gh); // 相对于 group 高度
-            const childW = this.parseCoordToInch(child.w, gw);
-            const childH = this.parseCoordToInch(child.h, gh);
+            let childW = this.parseCoordToInch(child.w, gw);
+            let childH = this.parseCoordToInch(child.h, gh);
+
+            // 圆形特殊处理：确保宽高相等
+            const isCircle = child.type === 'shape' && (child.shape === 'circle' || child.shapeType === 'circle');
+            if (isCircle) {
+                // 如果 h 是 auto 或 0，使用 w 作为高度
+                if (!childH || child.h === 'auto') {
+                    childH = childW;
+                }
+                // 取宽高中较小的值，确保是正圆
+                const size = Math.min(childW, childH);
+                childW = size;
+                childH = size;
+            }
+
+            // SVG 特殊处理已移到 renderFreeformSvgPPTX 内部处理
 
             // 绝对坐标 = group 坐标 + 子元素在 group 内的偏移
             absChild.x = gx + childX;
@@ -175,6 +205,7 @@ const PPTXFreeformMixin = {
                 case 'card': this.renderFreeformCardPPTX(slide, el, x, y, w, h); break;
                 case 'svg': this.renderFreeformSvgPPTX(slide, el, x, y, w, h); break;
                 case 'table': this.renderFreeformTablePPTX(slide, el, x, y, w, h); break;
+                case 'list': this.renderFreeformListPPTX(slide, el, x, y, w, h); break;
                 case 'baked_element': this.renderBakedElementPPTX(slide, el, x, y, w, h); break;
             }
             if (this._needsEffectHint(el)) this._addEffectHint(slide, el, x, y);
@@ -192,8 +223,17 @@ const PPTXFreeformMixin = {
             shapeType = 'roundRect';
         }
 
+        // 圆形特殊处理：确保宽高相等
+        let finalW = w || 1;
+        let finalH = h || 1;
+        if (el.shape === 'circle') {
+            const size = Math.min(finalW, finalH) || finalW || finalH;
+            finalW = size;
+            finalH = size;
+        }
+
         const shapeOptions = {
-            x: x || 0, y: y || 0, w: w || 1, h: h || 1,
+            x: x || 0, y: y || 0, w: finalW, h: finalH,
             fill: { color: this.safeColor(el.fill) || '4f46e5' },
             line: (() => {
                 const strokeColor = this.safeColor(el.outline || el.stroke);
@@ -513,12 +553,45 @@ const PPTXFreeformMixin = {
 
     renderFreeformSvgPPTX(slide, el, x, y, w, h) {
         try {
-            const key = this._hashString(el.content || '');
+            // 根据 viewBox 调整宽高比，并居中
+            let finalX = x || 0;
+            let finalY = y || 0;
+            let finalW = w || 2;
+            let finalH = h || 2;
+            const origW = finalW;
+            const origH = finalH;
+            const content = el.content || '';
+            const viewBoxMatch = content.match(/viewBox=["'](-?[\d.]+)\s+(-?[\d.]+)\s+([\d.]+)\s+([\d.]+)["']/);
+            if (viewBoxMatch) {
+                const vbW = parseFloat(viewBoxMatch[3]);
+                const vbH = parseFloat(viewBoxMatch[4]);
+                const vbRatio = vbW / vbH;
+                // 按 viewBox 比例调整，保持在容器内
+                if (Math.abs(vbRatio - 1) < 0.01) {
+                    // 正方形：取较小值并居中
+                    const size = Math.min(finalW, finalH);
+                    finalX += (origW - size) / 2;
+                    finalY += (origH - size) / 2;
+                    finalW = size;
+                    finalH = size;
+                } else if (finalW / finalH > vbRatio) {
+                    const newW = finalH * vbRatio;
+                    finalX += (origW - newW) / 2;
+                    finalW = newW;
+                } else {
+                    const newH = finalW / vbRatio;
+                    finalY += (origH - newH) / 2;
+                    finalH = newH;
+                }
+                console.log('[SVG PPTX] viewBox ratio:', vbRatio, 'adjusted:', finalW, 'x', finalH, 'at', finalX, finalY);
+            }
+            
+            const key = this._hashString(content);
             const cached = this.svgCache?.[key];
             
             if (!cached) {
                 console.warn('[renderFreeformSvgPPTX] SVG not in cache');
-                this.addImagePlaceholder(slide, x, y, w, h, 'SVG');
+                this.addImagePlaceholder(slide, x, y, finalW, finalH, 'SVG');
                 return;
             }
             
@@ -529,7 +602,7 @@ const PPTXFreeformMixin = {
             
             // 1. 渲染图形层
             if (graphicsData) {
-                const imgOptions = { data: graphicsData, x: x || 0, y: y || 0, w: w || 2, h: h || 2 };
+                const imgOptions = { data: graphicsData, x: finalX, y: finalY, w: finalW, h: finalH };
                 if (el.opacity !== undefined && el.opacity < 1) {
                     imgOptions.transparency = Math.round((1 - el.opacity) * 100);
                 }
@@ -538,10 +611,10 @@ const PPTXFreeformMixin = {
             
             // 2. 渲染文字层（原生可编辑文字）
             if (textElements && textElements.length > 0) {
-                const containerX = x || 0;
-                const containerY = y || 0;
-                const containerW = w || 2;
-                const containerH = h || 2;
+                const containerX = finalX;
+                const containerY = finalY;
+                const containerW = finalW;
+                const containerH = finalH;
                 
                 textElements.forEach(txt => {
                     // PPTX 字号 pt（0.82 匹配 HTML 视觉效果）
@@ -618,6 +691,42 @@ const PPTXFreeformMixin = {
                 fontFace: this.fontFace,
             });
         } catch (e) { console.warn('[renderFreeformTablePPTX] Failed:', e); }
+    },
+
+    renderFreeformListPPTX(slide, el, x, y, w, h) {
+        const items = el.items || [];
+        if (items.length === 0) return;
+
+        const fontSize = Math.round((el.font || 16) * 0.75);
+        const color = this.safeColor(el.color) || '333333';
+        const isOrdered = el.listType === 'ol';
+        const lineHeight = el.lineHeight || 1.6;
+
+        // 计算每行高度
+        const lineHeightInch = (fontSize / 72) * lineHeight;
+        
+        // 使用 PptxGenJS 的列表功能
+        const textItems = items.map((item, i) => ({
+            text: item,
+            options: {
+                fontSize,
+                fontFace: this.fontFace,
+                color,
+                bullet: isOrdered ? { type: 'number', startAt: i + 1 } : { code: '2022' }, // • bullet
+                indentLevel: 0,
+                paraSpaceAfter: 4,
+            }
+        }));
+
+        try {
+            this.addText(slide, textItems, {
+                x: x || 0,
+                y: y || 0,
+                w: w || 4,
+                h: h || (lineHeightInch * items.length + 0.2),
+                valign: 'top',
+            });
+        } catch (e) { console.warn('[renderFreeformListPPTX] Failed:', e); }
     },
 
     _needsEffectHint(el) {

@@ -210,6 +210,15 @@ class PropertyPanel extends EventEmitter {
             'difference', 'exclusion', 'hue', 'saturation', 'color', 'luminosity'
         ];
 
+        const shadowEffects = [
+            { value: '', label: '无阴影' },
+            { value: 'shadow-sm', label: '小阴影 (SM)' },
+            { value: 'shadow-md', label: '中阴影 (MD)' },
+            { value: 'shadow-lg', label: '大阴影 (LG)' },
+            { value: 'shadow-xl', label: '特大阴影 (XL)' },
+            { value: 'shadow-2xl', label: '超大阴影 (2XL)' },
+        ];
+
         return `
             <div class="property-row">
                 <label>不透明度</label>
@@ -220,6 +229,12 @@ class PropertyPanel extends EventEmitter {
                 <label>混合模式</label>
                 <select data-prop="blend">
                     ${blendModes.map(m => `<option value="${m}" ${el.blend === m ? 'selected' : ''}>${m}</option>`).join('')}
+                </select>
+            </div>
+            <div class="property-row">
+                <label>阴影效果</label>
+                <select data-prop="effect">
+                    ${shadowEffects.map(s => `<option value="${s.value}" ${el.effect === s.value ? 'selected' : ''}>${s.label}</option>`).join('')}
                 </select>
             </div>
             <div class="property-row">
@@ -244,6 +259,8 @@ class PropertyPanel extends EventEmitter {
                 return this._renderFormulaProperties(element);
             case 'icon':
                 return this._renderIconProperties(element);
+            case 'list':
+                return this._renderListProperties(element);
             default:
                 return '';
         }
@@ -252,6 +269,25 @@ class PropertyPanel extends EventEmitter {
     _renderTextProperties(el) {
         // 兼容旧的 font 属性
         const fontSizeVal = el.fontSize || el.font || 24;
+        const letterSpacingVal = parseFloat(el.letterSpacing) || 0;
+        const lineHeightVal = el.lineHeight || 1.4;
+        
+        // 常用字体列表
+        const fonts = [
+            { value: '', label: '默认' },
+            { value: 'Arial', label: 'Arial' },
+            { value: 'Arial Black', label: 'Arial Black' },
+            { value: 'Georgia', label: 'Georgia' },
+            { value: 'Times New Roman', label: 'Times New Roman' },
+            { value: 'Courier New', label: 'Courier New' },
+            { value: 'Verdana', label: 'Verdana' },
+            { value: 'Impact', label: 'Impact' },
+            { value: 'Microsoft YaHei', label: '微软雅黑' },
+            { value: 'SimHei', label: '黑体' },
+            { value: 'SimSun', label: '宋体' },
+            { value: 'KaiTi', label: '楷体' },
+        ];
+        
         return `
             <div class="property-section">
                 <div class="property-section-title">文本</div>
@@ -265,10 +301,16 @@ class PropertyPanel extends EventEmitter {
                     <input type="color" data-prop="color" value="${el.color || '#1f2937'}">
                 </div>
                 <div class="property-row">
+                    <label>字体</label>
+                    <select data-prop="fontFamily">
+                        ${fonts.map(f => `<option value="${f.value}" ${el.fontFamily === f.value ? 'selected' : ''}>${f.label}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="property-row">
                     <label>粗细</label>
                     <select data-prop="fontWeight">
                         <option value="normal" ${el.fontWeight === 'normal' ? 'selected' : ''}>正常</option>
-                        <option value="bold" ${el.fontWeight === 'bold' ? 'selected' : ''}>粗体</option>
+                        <option value="bold" ${el.fontWeight === 'bold' || el.bold ? 'selected' : ''}>粗体</option>
                     </select>
                 </div>
                 <div class="property-row">
@@ -278,6 +320,30 @@ class PropertyPanel extends EventEmitter {
                         <option value="center" ${el.align === 'center' ? 'selected' : ''}>居中</option>
                         <option value="right" ${el.align === 'right' ? 'selected' : ''}>右对齐</option>
                     </select>
+                </div>
+                <div class="property-row">
+                    <label>字间距</label>
+                    <input type="number" data-prop="letterSpacing" value="${letterSpacingVal}" min="-5" max="20" step="0.5">
+                    <span>px</span>
+                </div>
+                <div class="property-row">
+                    <label>行高</label>
+                    <input type="number" data-prop="lineHeight" value="${lineHeightVal}" min="0.8" max="3" step="0.1">
+                </div>
+                <div class="property-row" style="gap: 12px;">
+                    <label>装饰</label>
+                    <label class="checkbox-label" title="下划线">
+                        <input type="checkbox" data-prop="underline" ${el.underline ? 'checked' : ''}>
+                        <span style="text-decoration: underline;">U</span>
+                    </label>
+                    <label class="checkbox-label" title="删除线">
+                        <input type="checkbox" data-prop="strike" ${el.strike ? 'checked' : ''}>
+                        <span style="text-decoration: line-through;">S</span>
+                    </label>
+                    <label class="checkbox-label" title="斜体">
+                        <input type="checkbox" data-prop="italic" ${el.italic ? 'checked' : ''}>
+                        <span style="font-style: italic;">I</span>
+                    </label>
                 </div>
                 <div class="property-row full-width">
                     <label>内容</label>
@@ -418,6 +484,48 @@ class PropertyPanel extends EventEmitter {
         `;
     }
 
+    _renderListProperties(el) {
+        const itemsStr = Array.isArray(el.items) ? el.items.join('\n') : '';
+        return `
+            <div class="property-section">
+                <div class="property-section-title">列表</div>
+                <div class="property-row">
+                    <label>类型</label>
+                    <select data-prop="listType">
+                        <option value="ul" ${el.listType === 'ul' ? 'selected' : ''}>无序列表 (●)</option>
+                        <option value="ol" ${el.listType === 'ol' ? 'selected' : ''}>有序列表 (1.)</option>
+                    </select>
+                </div>
+                <div class="property-row">
+                    <label>字号</label>
+                    <input type="number" data-prop="font" value="${el.font || 16}" min="8" max="72">
+                    <span>px</span>
+                </div>
+                <div class="property-row">
+                    <label>颜色</label>
+                    <input type="color" data-prop="color" value="${el.color || '#333333'}">
+                </div>
+                <div class="property-row">
+                    <label>符号颜色</label>
+                    <input type="color" data-prop="bulletColor" value="${el.bulletColor || el.color || '#333333'}">
+                </div>
+                <div class="property-row">
+                    <label>行高</label>
+                    <input type="number" data-prop="lineHeight" value="${el.lineHeight || 1.6}" min="1" max="3" step="0.1">
+                </div>
+                <div class="property-row">
+                    <label>缩进</label>
+                    <input type="number" data-prop="indent" value="${el.indent || 24}" min="0" max="100">
+                    <span>px</span>
+                </div>
+                <div class="property-row full-width">
+                    <label>列表项 (每行一项)</label>
+                    <textarea data-prop="items" rows="5" placeholder="每行输入一个列表项">${itemsStr}</textarea>
+                </div>
+            </div>
+        `;
+    }
+
     _bindEvents() {
         if (!this.container || this.selectedElements.length === 0) return;
 
@@ -449,6 +557,10 @@ class PropertyPanel extends EventEmitter {
                 }
                 if (prop === 'displayMode') {
                     value = value === 'true';
+                }
+                // 列表项：换行分隔转数组
+                if (prop === 'items') {
+                    value = value.split('\n').map(s => s.trim()).filter(Boolean);
                 }
 
                 // 批量更新所有选中元素

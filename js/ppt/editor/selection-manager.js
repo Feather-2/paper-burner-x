@@ -8,6 +8,8 @@ class SelectionManager extends EventEmitter {
         this.editor = editor;
         this.selected = new Set();
         this.hovered = null;
+        // Group 子元素选择状态：{ parentId, childId }
+        this.selectedGroupChild = null;
     }
 
     /**
@@ -16,6 +18,9 @@ class SelectionManager extends EventEmitter {
      * @param {boolean} additive - 是否添加到现有选择（Ctrl+点击）
      */
     select(elementId, additive = false) {
+        // 清除 Group 子元素选择
+        this.selectedGroupChild = null;
+        
         if (!additive) {
             this.selected.clear();
         }
@@ -24,6 +29,17 @@ class SelectionManager extends EventEmitter {
             this.selected.add(elementId);
         }
 
+        this._emitChange();
+    }
+
+    /**
+     * 选择 Group 内的子元素（Alt+点击）
+     * @param {string} parentId - 父 Group 的 ID
+     * @param {string} childId - 子元素的 ID
+     */
+    selectGroupChild(parentId, childId) {
+        this.selected.clear();
+        this.selectedGroupChild = { parentId, childId };
         this._emitChange();
     }
 
@@ -58,6 +74,7 @@ class SelectionManager extends EventEmitter {
      */
     deselectAll() {
         this.selected.clear();
+        this.selectedGroupChild = null;
         this._emitChange();
     }
 
@@ -91,6 +108,21 @@ class SelectionManager extends EventEmitter {
         
         const slideIndex = this.editor.currentSlideIndex;
         const currentElements = doc.getElements(slideIndex) || [];
+        
+        // 如果选中的是 Group 子元素
+        if (this.selectedGroupChild) {
+            const { parentId, childId } = this.selectedGroupChild;
+            const parent = currentElements.find(el => el.id === parentId);
+            if (parent && parent.children) {
+                const child = this._findChildById(parent.children, childId);
+                if (child) {
+                    // 标记为 Group 子元素，供属性面板识别
+                    return [{ ...child, _isGroupChild: true, _parentId: parentId }];
+                }
+            }
+            return [];
+        }
+        
         const currentIds = new Set(currentElements.map(el => el.id));
         
         // 只返回当前页面中存在的选中元素
@@ -101,9 +133,27 @@ class SelectionManager extends EventEmitter {
     }
 
     /**
-     * 获取选中的元素 ID
+     * 递归查找 Group 子元素
+     */
+    _findChildById(children, childId) {
+        for (const child of children) {
+            if (child.id === childId) return child;
+            if (child.children) {
+                const found = this._findChildById(child.children, childId);
+                if (found) return found;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 获取选中的元素 ID（包括 Group 子元素）
      */
     getSelectedIds() {
+        // 如果选中的是 Group 子元素，返回子元素 ID
+        if (this.selectedGroupChild) {
+            return [this.selectedGroupChild.childId];
+        }
         return [...this.selected];
     }
 
@@ -111,6 +161,7 @@ class SelectionManager extends EventEmitter {
      * 获取选中数量
      */
     getCount() {
+        if (this.selectedGroupChild) return 1;
         return this.selected.size;
     }
 
@@ -118,14 +169,31 @@ class SelectionManager extends EventEmitter {
      * 是否选中
      */
     isSelected(elementId) {
-        return this.selected.has(elementId);
+        if (this.selected.has(elementId)) return true;
+        // 检查是否是选中的 Group 子元素
+        if (this.selectedGroupChild && this.selectedGroupChild.childId === elementId) return true;
+        return false;
     }
 
     /**
      * 是否有选中
      */
     hasSelection() {
-        return this.selected.size > 0;
+        return this.selected.size > 0 || this.selectedGroupChild !== null;
+    }
+
+    /**
+     * 是否选中了 Group 子元素
+     */
+    hasGroupChildSelection() {
+        return this.selectedGroupChild !== null;
+    }
+
+    /**
+     * 获取选中的 Group 子元素信息
+     */
+    getGroupChildSelection() {
+        return this.selectedGroupChild;
     }
 
     /**
@@ -209,6 +277,7 @@ class SelectionManager extends EventEmitter {
      */
     clear() {
         this.selected.clear();
+        this.selectedGroupChild = null;
         this.hovered = null;
         this._emitChange();
     }

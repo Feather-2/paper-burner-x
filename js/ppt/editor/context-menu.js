@@ -55,6 +55,21 @@ class ContextMenu {
                 <iconify-icon icon="carbon:send-to-back" class="menu-icon"></iconify-icon>
                 <span>置于底层</span>
             </div>
+            <div class="context-menu-divider"></div>
+            <div class="context-menu-item" data-action="group" data-type="multi">
+                <iconify-icon icon="carbon:group-objects" class="menu-icon"></iconify-icon>
+                <span>编组</span>
+                <span class="menu-shortcut">Ctrl+G</span>
+            </div>
+            <div class="context-menu-item" data-action="ungroup" data-type="group">
+                <iconify-icon icon="carbon:ungroup-objects" class="menu-icon"></iconify-icon>
+                <span>解组</span>
+                <span class="menu-shortcut">Ctrl+Shift+G</span>
+            </div>
+            <div class="context-menu-item" data-action="enter-group" data-type="group">
+                <iconify-icon icon="carbon:enter" class="menu-icon"></iconify-icon>
+                <span>进入编辑组</span>
+            </div>
         `;
         this.menuElement.style.display = 'none';
         document.body.appendChild(this.menuElement);
@@ -177,6 +192,20 @@ class ContextMenu {
             dividers[1].style.display = isImage ? '' : 'none';
         }
 
+        // 编组/解组菜单项显示逻辑
+        const selectedCount = this.editor.selection.getSelectedIds().length;
+        const isGroup = element?.type === 'group';
+        
+        // 编组：需要选中多个元素
+        this.menuElement.querySelectorAll('[data-type="multi"]').forEach(item => {
+            item.style.display = selectedCount >= 2 ? '' : 'none';
+        });
+        
+        // 解组/进入编辑组：需要选中一个组
+        this.menuElement.querySelectorAll('[data-type="group"]').forEach(item => {
+            item.style.display = isGroup ? '' : 'none';
+        });
+
         // 定位
         this.menuElement.style.left = `${x}px`;
         this.menuElement.style.top = `${y}px`;
@@ -243,6 +272,18 @@ class ContextMenu {
             case 'send-back':
                 this.editor.sendToBack?.(element.id);
                 break;
+
+            case 'group':
+                this.editor.groupElements?.();
+                break;
+
+            case 'ungroup':
+                this.editor.ungroupElements?.();
+                break;
+
+            case 'enter-group':
+                this.editor.enterGroupEditMode?.(element.id);
+                break;
         }
     }
 
@@ -253,10 +294,21 @@ class ContextMenu {
 
         // 获取图片 DOM
         const elementDom = document.querySelector(`[data-element-id="${element.id}"]`);
-        const imgElement = elementDom?.querySelector('img') || elementDom;
+        const imgElement = elementDom?.querySelector('img');
+        
+        // 获取图片源：优先从 <img> 标签获取，其次从元素数据获取
+        const imgSrc = imgElement?.src || element?.src;
+        if (!imgSrc) {
+            console.warn('[ContextMenu] 图片元素没有图片源:', element.id);
+            alert('该图片没有设置图片源，请先添加图片');
+            return;
+        }
+        
+        // 如果 DOM 中没有 <img>，创建一个临时的带 src 的对象传给编辑器
+        const editorElement = imgElement || { src: imgSrc, dataset: {} };
 
         // 打开编辑器
-        await window.imageProcessor.openEditor(imgElement, (result) => {
+        await window.imageProcessor.openEditor(editorElement, (result) => {
             if (result.type === 'svg' && result.svg) {
                 // 矢量结果：替换为 SVG 元素
                 this._replaceWithSvg(element.id, result.svg, result.dataUrl);

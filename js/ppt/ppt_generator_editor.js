@@ -852,6 +852,22 @@ const PPTGeneratorEditor = {
     },
 
     /**
+     * 编组选中元素
+     */
+    groupElements() {
+        if (!this.editor || !this.editorEnabled) return;
+        this.editor.groupElements();
+    },
+
+    /**
+     * 解组选中的组
+     */
+    ungroupElements() {
+        if (!this.editor || !this.editorEnabled) return;
+        this.editor.ungroupElements();
+    },
+
+    /**
      * 图层上移
      */
     moveElementUp(elementId) {

@@ -510,6 +510,26 @@ class PPTXSlideRenderer {
         // 如果 SVG 内容本身就没有 text 标签，可能是被 bake 过了
         if (!svgContent.includes('<text') && originalTextCount === 0) {
             console.log('[_extractSvgTexts] SVG has no text elements (may be baked)');
+            return { graphicsSvg: svgContent, textElements: [] };
+        }
+        
+        // 检查是否有复杂的 transform（如 translate）包裹文字
+        // 如果有，跳过文字提取，直接渲染整个 SVG 为图片
+        const hasComplexTransform = Array.from(svg.querySelectorAll('text')).some(textNode => {
+            let parent = textNode.parentElement;
+            while (parent && parent !== svg) {
+                const transform = parent.getAttribute('transform');
+                if (transform && (transform.includes('translate') || transform.includes('matrix'))) {
+                    return true;
+                }
+                parent = parent.parentElement;
+            }
+            return false;
+        });
+        
+        if (hasComplexTransform) {
+            console.log('[_extractSvgTexts] SVG has complex transforms, skipping text extraction');
+            return { graphicsSvg: svgContent, textElements: [] };
         }
         
         // 解析 viewBox
@@ -811,10 +831,34 @@ class PPTXSlideRenderer {
         if (!svgContent) return null;
 
         try {
-            const pxWidth = Math.round(width * 96);
-            const pxHeight = Math.round(height * 96);
+            let pxWidth = Math.round(width * 96);
+            let pxHeight = Math.round(height * 96);
             
             let svg = svgContent.trim();
+            
+            // 解析 viewBox 以获取原始宽高比
+            const viewBoxMatch = svg.match(/viewBox=["'](-?[\d.]+)\s+(-?[\d.]+)\s+([\d.]+)\s+([\d.]+)["']/);
+            if (viewBoxMatch) {
+                const vbWidth = parseFloat(viewBoxMatch[3]);
+                const vbHeight = parseFloat(viewBoxMatch[4]);
+                if (vbWidth > 0 && vbHeight > 0) {
+                    const vbRatio = vbWidth / vbHeight;
+                    const targetRatio = pxWidth / pxHeight;
+                    
+                    // 如果目标比例与 viewBox 比例不同，调整目标尺寸以保持 viewBox 比例
+                    if (Math.abs(vbRatio - targetRatio) > 0.01) {
+                        if (targetRatio > vbRatio) {
+                            // 目标更宽，以高度为准
+                            pxWidth = Math.round(pxHeight * vbRatio);
+                        } else {
+                            // 目标更高，以宽度为准
+                            pxHeight = Math.round(pxWidth / vbRatio);
+                        }
+                        console.log(`[svgToBase64] Adjusted size to match viewBox ratio ${vbRatio.toFixed(2)}: ${pxWidth}x${pxHeight}`);
+                    }
+                }
+            }
+            
             if (!svg.toLowerCase().startsWith('<svg')) {
                 svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pxWidth}" height="${pxHeight}" viewBox="0 0 ${pxWidth} ${pxHeight}">${svg}</svg>`;
             } else {

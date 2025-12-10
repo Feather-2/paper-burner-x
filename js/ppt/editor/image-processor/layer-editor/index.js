@@ -86,7 +86,9 @@ class LayerEditor {
     async _loadAndProcess() {
         const imgSrc = this.element?.src || this.element?.dataset?.src;
         if (!imgSrc) {
-            console.error('[LayerEditor] 没有图片源');
+            console.error('[LayerEditor] 没有图片源, element:', this.element);
+            this._showToast('没有图片源，无法打开编辑器');
+            this.close?.();
             return;
         }
         

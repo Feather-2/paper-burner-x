@@ -318,20 +318,42 @@ class LayerPanel extends EventEmitter {
         this.container.querySelectorAll('.layer-item').forEach(item => {
             item.addEventListener('click', (e) => {
                 if (e.target.closest('.layer-btn')) return;
+                if (e.target.closest('.layer-group-toggle')) return;
 
                 const elementId = item.dataset.elementId;
-                if (e.ctrlKey || e.metaKey) {
+                const isGroup = item.dataset.isGroup === 'true';
+                
+                // 检查是否是 Group 子元素（查找直接父级的 .layer-group-children）
+                const parentElement = item.parentElement;
+                const isGroupChild = parentElement && parentElement.classList.contains('layer-group-children');
+                
+                if (isGroupChild && !isGroup) {
+                    // 这是一个 Group 子元素（非 Group 本身）
+                    const parentId = parentElement.dataset.parentId;
+                    console.log('[LayerPanel] 选中 Group 子元素:', elementId, '父级:', parentId);
+                    this.editor.selection.selectGroupChild(parentId, elementId);
+                } else if (e.ctrlKey || e.metaKey) {
                     this.editor.selection.toggle(elementId);
                 } else {
                     this.editor.selection.select(elementId);
                 }
             });
 
-            // 双击定位到元素
+            // 双击触发元素编辑（如文本编辑）
             item.addEventListener('dblclick', () => {
                 const elementId = item.dataset.elementId;
                 this.editor.selection.select(elementId);
-                // TODO: 滚动到元素
+                
+                // 触发元素的双击编辑（通过模拟或直接调用）
+                const slide = window.PPTGenerator?.slides?.[this.editor.currentSlideIndex];
+                const element = slide?.elements?.find(e => e.id === elementId);
+                if (element) {
+                    const dom = this.editor.viewport?.querySelector(`[data-element-id="${elementId}"]`);
+                    if (dom) {
+                        // 直接调用编辑器的双击处理逻辑
+                        this.editor._triggerElementEdit(element, dom);
+                    }
+                }
             });
         });
 
@@ -515,9 +537,19 @@ class LayerPanel extends EventEmitter {
     _updateSelection() {
         if (!this.container) return;
 
+        // 获取 Group 子元素选择状态
+        const groupChildSelection = this.editor.selection.getGroupChildSelection();
+        
         this.container.querySelectorAll('.layer-item').forEach(item => {
             const elementId = item.dataset.elementId;
-            item.classList.toggle('selected', this.editor.selection.isSelected(elementId));
+            let isSelected = this.editor.selection.isSelected(elementId);
+            
+            // 检查是否是选中的 Group 子元素
+            if (groupChildSelection && groupChildSelection.childId === elementId) {
+                isSelected = true;
+            }
+            
+            item.classList.toggle('selected', isSelected);
         });
     }
 }

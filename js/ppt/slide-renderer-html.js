@@ -120,7 +120,12 @@ class HTMLSlideRenderer {
         const x = this.formatCSSValue(el.x);
         const y = this.formatCSSValue(el.y);
         let w = this.formatCSSValue(el.w);
-        const h = this.formatCSSValue(el.h);
+        let h = this.formatCSSValue(el.h);
+
+        // 圆形特殊处理：如果高度为 auto，使用宽度值保持正圆
+        if (el.type === 'shape' && el.shape === 'circle' && h === 'auto') {
+            h = w;
+        }
 
         // 对于公式元素，如果没有指定宽度，根据 x 位置计算合适的宽度以支持居中对齐
         if (el.type === 'formula' && w === 'auto') {
@@ -136,92 +141,68 @@ class HTMLSlideRenderer {
             }
         }
 
-        // 如果元素有 rawStyle（AI 直接写的 CSS），优先使用
-        // 只补充必要的定位属性（position, left, top, z-index）
+        // 构建基础样式
+        let baseStyle;
         if (el.rawStyle) {
-            const positionStyle = `
+            // rawStyle 模式：AI 直接写的 CSS，只补充定位属性
+            const positionStyle = `position: absolute; left: ${x}; top: ${y}; z-index: ${el.z || 0};`;
+            baseStyle = `${positionStyle} ${el.rawStyle}`;
+        } else {
+            // 兼容模式：从 data-* 属性构建样式
+            const effectStyle = `
+                ${el.blend && el.blend !== 'normal' ? `mix-blend-mode: ${el.blend};` : ''}
+                ${el.filter ? `filter: ${el.filter};` : ''}
+                ${el.mask ? this._buildMaskStyle(el.mask) : ''}
+                ${el.outline ? `outline: 2px solid ${el.outline}; outline-offset: 2px;` : ''}
+                ${el.effect ? this._buildEffectStyle(el.effect) : ''}
+            `;
+            baseStyle = `
                 position: absolute;
                 left: ${x};
                 top: ${y};
+                ${w !== 'auto' ? `width: ${w};` : ''}
+                ${h !== 'auto' ? `height: ${h};` : ''}
+                ${el.rotate ? `transform: rotate(${el.rotate}deg);` : ''}
+                ${(el.opacity !== undefined && el.opacity !== null && !isNaN(el.opacity) && el.opacity !== 1) ? `opacity: ${el.opacity};` : ''}
                 z-index: ${el.z || 0};
+                ${effectStyle}
             `.replace(/\s+/g, ' ').trim();
-            // 合并：rawStyle 优先，positionStyle 补充缺失的定位
-            const baseStyle = `${positionStyle} ${el.rawStyle}`;
-            
-            switch (el.type) {
-                case 'text':
-                    return this.renderFreeformText(el, baseStyle);
-                case 'shape':
-                    return this.renderFreeformShape(el, baseStyle);
-                case 'image':
-                    return this.renderFreeformImage(el, baseStyle);
-                case 'icon':
-                    return this.renderFreeformIcon(el, baseStyle);
-                case 'line':
-                    return this.renderFreeformLine(el, containerW, containerH);
-                case 'chart':
-                    return this.renderFreeformChart(el, baseStyle);
-                case 'formula':
-                    return this.renderFreeformFormula(el, baseStyle);
-                case 'group':
-                    return this.renderFreeformGroup(el, baseStyle, containerW, containerH);
-                case 'card':
-                    return this.renderFreeformCard(el, baseStyle);
-                case 'svg':
-                    return this.renderFreeformSvg(el, baseStyle);
-                case 'table':
-                    return this.renderFreeformTable(el, baseStyle);
-                default:
-                    return '';
-            }
         }
 
-        // 兼容模式：从 data-* 属性构建样式
-        const effectStyle = `
-            ${el.blend && el.blend !== 'normal' ? `mix-blend-mode: ${el.blend};` : ''}
-            ${el.filter ? `filter: ${el.filter};` : ''}
-            ${el.mask ? this._buildMaskStyle(el.mask) : ''}
-            ${el.outline ? `outline: 2px solid ${el.outline}; outline-offset: 2px;` : ''}
-        `;
-
-        const baseStyle = `
-            position: absolute;
-            left: ${x};
-            top: ${y};
-            ${w !== 'auto' ? `width: ${w};` : ''}
-            ${h !== 'auto' ? `height: ${h};` : ''}
-            ${el.rotate ? `transform: rotate(${el.rotate}deg);` : ''}
-            ${(el.opacity !== undefined && el.opacity !== null && !isNaN(el.opacity) && el.opacity !== 1) ? `opacity: ${el.opacity};` : ''}
-            z-index: ${el.z || 0};
-            ${effectStyle}
-        `.replace(/\s+/g, ' ').trim();
-
+        let html = '';
         switch (el.type) {
             case 'text':
-                return this.renderFreeformText(el, baseStyle);
+                html = this.renderFreeformText(el, baseStyle); break;
             case 'shape':
-                return this.renderFreeformShape(el, baseStyle);
+                html = this.renderFreeformShape(el, baseStyle); break;
             case 'image':
-                return this.renderFreeformImage(el, baseStyle);
+                html = this.renderFreeformImage(el, baseStyle); break;
             case 'icon':
-                return this.renderFreeformIcon(el, baseStyle);
+                html = this.renderFreeformIcon(el, baseStyle); break;
             case 'line':
-                return this.renderFreeformLine(el, containerW, containerH);
+                html = this.renderFreeformLine(el, containerW, containerH); break;
             case 'chart':
-                return this.renderFreeformChart(el, baseStyle);
+                html = this.renderFreeformChart(el, baseStyle); break;
             case 'formula':
-                return this.renderFreeformFormula(el, baseStyle);
+                html = this.renderFreeformFormula(el, baseStyle); break;
             case 'group':
-                return this.renderFreeformGroup(el, baseStyle, containerW, containerH);
+                html = this.renderFreeformGroup(el, baseStyle, containerW, containerH); break;
             case 'card':
-                return this.renderFreeformCard(el, baseStyle);
+                html = this.renderFreeformCard(el, baseStyle); break;
             case 'svg':
-                return this.renderFreeformSvg(el, baseStyle);
+                html = this.renderFreeformSvg(el, baseStyle); break;
             case 'table':
-                return this.renderFreeformTable(el, baseStyle);
+                html = this.renderFreeformTable(el, baseStyle); break;
+            case 'list':
+                html = this.renderFreeformList(el, baseStyle); break;
             default:
                 return '';
         }
+        // 自动注入 data-element-id（在第一个 > 之前插入）
+        if (html && el.id) {
+            html = html.replace(/^<(\w+)/, `<$1 data-element-id="${el.id}"`);
+        }
+        return html;
     }
 
     renderFreeformText(el, baseStyle) {
@@ -230,12 +211,30 @@ class HTMLSlideRenderer {
 
         // 优先使用 fontSize，兼容旧的 font 属性
         const fontSizeVal = el.fontSize || el.font;
+        
+        // 构建文字装饰
+        const textDecorations = [];
+        if (el.underline) textDecorations.push('underline');
+        if (el.strike) textDecorations.push('line-through');
+        const textDecorationStyle = textDecorations.length > 0 
+            ? `text-decoration: ${textDecorations.join(' ')};` 
+            : '';
+        
+        // 上标/下标
+        const verticalAlign = el.superscript ? 'vertical-align: super; font-size: 0.75em;' 
+                            : el.subscript ? 'vertical-align: sub; font-size: 0.75em;' 
+                            : '';
+        
         const textStyle = `
             ${baseStyle}
             font-size: ${this.px(fontSizeVal)}px;
             color: ${el.color};
             ${el.bold ? 'font-weight: 700;' : ''}
             ${el.italic ? 'font-style: italic;' : ''}
+            ${textDecorationStyle}
+            ${el.fontFamily ? `font-family: ${el.fontFamily};` : ''}
+            ${el.letterSpacing ? `letter-spacing: ${this.formatCSSValue(el.letterSpacing)};` : ''}
+            ${verticalAlign}
             text-align: ${el.align || 'left'};
             line-height: ${el.lineHeight || 1.4};
             ${el.bgColor ? `background: ${el.bgColor}; padding: 8px; border-radius: ${el.bgRadius || 0}px;` : ''}
@@ -252,10 +251,11 @@ class HTMLSlideRenderer {
                 flex-direction: column;
                 justify-content: ${el.valign === 'middle' ? 'center' : 'flex-end'};
             `.replace(/\s+/g, ' ').trim();
-            return `<div style="${wrapperStyle}"><div contenteditable="true" style="font-size: ${this.px(fontSizeVal)}px; color: ${el.color}; ${el.bold ? 'font-weight: 700;' : ''} ${el.italic ? 'font-style: italic;' : ''} text-align: ${el.align || 'left'}; line-height: ${el.lineHeight || 1.4};">${el.content}</div></div>`;
+            const innerStyle = `font-size: ${this.px(fontSizeVal)}px; color: ${el.color}; ${el.bold ? 'font-weight: 700;' : ''} ${el.italic ? 'font-style: italic;' : ''} ${textDecorationStyle} ${el.fontFamily ? `font-family: ${el.fontFamily};` : ''} ${el.letterSpacing ? `letter-spacing: ${this.formatCSSValue(el.letterSpacing)};` : ''} text-align: ${el.align || 'left'}; line-height: ${el.lineHeight || 1.4};`;
+            return `<div style="${wrapperStyle}"><div contenteditable="true" style="${innerStyle}">${el.content}</div></div>`;
         }
 
-        return `<div contenteditable="true" style="${textStyle}">${el.content}</div>`;
+        return `<div contenteditable="true" style="${textStyle}">${this._processRichText(el.content)}</div>`;
     }
 
     renderFreeformShape(el, baseStyle) {
@@ -381,10 +381,27 @@ class HTMLSlideRenderer {
     }
 
     renderFreeformGroup(el, baseStyle, containerW, containerH) {
+        // 计算 group 的实际宽高（供子元素百分比计算使用）
+        const groupW = this.parseCoord(el.w, containerW);
+        const groupH = this.parseCoord(el.h, containerH);
+        
+        // 子元素的百分比坐标相对于 group 容器
+        // 子元素使用 data-child-of 而不是 data-element-id，确保点击时选中 group 而非子元素
         const children = (el.children || [])
-            .map(child => this.renderFreeformElement(child, containerW, containerH))
+            .map(child => {
+                let childHtml = this.renderFreeformElement(child, groupW, groupH);
+                // 将子元素的 data-element-id 替换为 data-child-of
+                if (childHtml && child.id) {
+                    childHtml = childHtml.replace(
+                        `data-element-id="${child.id}"`,
+                        `data-child-of="${el.id}" data-child-id="${child.id}"`
+                    );
+                }
+                return childHtml;
+            })
             .join('');
 
+        // group 容器本身是 absolute 定位，内部子元素的 absolute 会相对于它
         return `<div style="${baseStyle}">${children}</div>`;
     }
 
@@ -852,6 +869,40 @@ class HTMLSlideRenderer {
     }
 
     /**
+     * 渲染列表元素 - 有序或无序列表
+     */
+    renderFreeformList(el, baseStyle) {
+        const items = el.items || [];
+        if (items.length === 0) {
+            return `<div style="${baseStyle}; color: #94a3b8; font-size: 14px;">空列表</div>`;
+        }
+
+        const fontSize = el.font || 16;
+        const color = el.color || '#333333';
+        const bulletColor = el.bulletColor || color;
+        const lineHeight = el.lineHeight || 1.6;
+        const indent = el.indent || 24;
+        const isOrdered = el.listType === 'ol';
+
+        const containerStyle = `
+            ${baseStyle}
+            font-size: ${this.px(fontSize)}px;
+            color: ${color};
+            line-height: ${lineHeight};
+            padding-left: ${indent}px;
+        `.replace(/\s+/g, ' ').trim();
+
+        const listItems = items.map((item, i) => {
+            const marker = isOrdered 
+                ? `<span style="color: ${bulletColor}; font-weight: 600; margin-right: 8px;">${i + 1}.</span>`
+                : `<span style="color: ${bulletColor}; margin-right: 8px;">•</span>`;
+            return `<div style="display: flex; align-items: baseline; margin-bottom: 4px;">${marker}<span>${this._escapeHtml(item)}</span></div>`;
+        }).join('');
+
+        return `<div style="${containerStyle}">${listItems}</div>`;
+    }
+
+    /**
      * HTML 转义
      */
     _escapeHtml(text) {
@@ -946,6 +997,44 @@ class HTMLSlideRenderer {
         
         // 未知格式，不生成 mask
         return '';
+    }
+
+    /**
+     * 处理富文本内容中的上标/下标标签
+     */
+    _processRichText(content) {
+        if (!content) return '';
+        // 将 <span data-superscript="true">x</span> 转为带样式的 span
+        let result = content.replace(
+            /<span\s+data-superscript="true">([^<]*)<\/span>/gi,
+            '<span style="vertical-align: super; font-size: 0.75em;">$1</span>'
+        );
+        // 将 <span data-subscript="true">x</span> 转为带样式的 span
+        result = result.replace(
+            /<span\s+data-subscript="true">([^<]*)<\/span>/gi,
+            '<span style="vertical-align: sub; font-size: 0.75em;">$1</span>'
+        );
+        return result;
+    }
+
+    /**
+     * 根据 effect 值构建 CSS 样式
+     * 支持: shadow-sm, shadow-md, shadow-lg, shadow-xl, shadow-2xl, shadow
+     */
+    _buildEffectStyle(effect) {
+        if (!effect) return '';
+        const val = String(effect).trim();
+        
+        const shadows = {
+            'shadow-sm': 'box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);',
+            'shadow': 'box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);',
+            'shadow-md': 'box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);',
+            'shadow-lg': 'box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);',
+            'shadow-xl': 'box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);',
+            'shadow-2xl': 'box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);',
+        };
+        
+        return shadows[val] || '';
     }
 }
 

@@ -613,6 +613,306 @@ class SlideEditor extends EventEmitter {
     }
 
     // ═══════════════════════════════════════════════════════════════
+    // 编组/解组功能
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * 将选中的元素编组
+     */
+    groupElements() {
+        const selectedIds = this.selection.getSelectedIds();
+        if (selectedIds.length < 2) {
+            console.log('[SlideEditor] 需要选择至少2个元素才能编组');
+            return null;
+        }
+
+        const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
+        if (!slide?.elements) return null;
+
+        // 获取选中的元素（只取顶层元素）
+        const elementsToGroup = [];
+        const indicesToRemove = [];
+        
+        for (let i = 0; i < slide.elements.length; i++) {
+            const el = slide.elements[i];
+            if (selectedIds.includes(el.id)) {
+                elementsToGroup.push({ ...el });  // 深拷贝
+                indicesToRemove.push(i);
+            }
+        }
+
+        if (elementsToGroup.length < 2) return null;
+
+        // 计算组的边界框
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const el of elementsToGroup) {
+            const x = parseFloat(el.x) || 0;
+            const y = parseFloat(el.y) || 0;
+            const w = parseFloat(el.w) || 10;
+            const h = parseFloat(el.h) || 10;
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x + w);
+            maxY = Math.max(maxY, y + h);
+        }
+
+        // 将子元素坐标转为相对于组的坐标
+        const groupW = maxX - minX;
+        const groupH = maxY - minY;
+        for (const el of elementsToGroup) {
+            const x = parseFloat(el.x) || 0;
+            const y = parseFloat(el.y) || 0;
+            const w = parseFloat(el.w) || 10;
+            const h = parseFloat(el.h) || 10;
+            // 转换为相对百分比
+            el.x = ((x - minX) / groupW * 100).toFixed(1) + '%';
+            el.y = ((y - minY) / groupH * 100).toFixed(1) + '%';
+            el.w = (w / groupW * 100).toFixed(1) + '%';
+            el.h = (h / groupH * 100).toFixed(1) + '%';
+        }
+
+        // 创建新的 group 元素
+        const groupElement = {
+            id: `el-${Date.now()}`,
+            type: 'group',
+            x: minX + '%',
+            y: minY + '%',
+            w: groupW + '%',
+            h: groupH + '%',
+            z: Math.max(...elementsToGroup.map(el => el.z || 0)) + 1,
+            children: elementsToGroup,
+        };
+
+        // 从后往前删除原元素（避免索引偏移问题）
+        for (let i = indicesToRemove.length - 1; i >= 0; i--) {
+            slide.elements.splice(indicesToRemove[i], 1);
+        }
+
+        // 添加 group
+        slide.elements.push(groupElement);
+
+        // 更新选择
+        this.selection.clear();
+        this.selection.select(groupElement.id);
+
+        // 重新渲染
+        this.renderCurrentSlide();
+        this.emit('group', { groupId: groupElement.id, childIds: selectedIds });
+
+        console.log('[SlideEditor] 已编组:', groupElement.id, '包含', elementsToGroup.length, '个元素');
+        return groupElement;
+    }
+
+    /**
+     * 解散选中的组（炸开）
+     */
+    ungroupElements() {
+        const selectedIds = this.selection.getSelectedIds();
+        if (selectedIds.length !== 1) {
+            console.log('[SlideEditor] 请选择一个组进行解组');
+            return null;
+        }
+
+        const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
+        if (!slide?.elements) return null;
+
+        const groupId = selectedIds[0];
+        const groupIndex = slide.elements.findIndex(el => el.id === groupId);
+        if (groupIndex < 0) return null;
+
+        const group = slide.elements[groupIndex];
+        if (group.type !== 'group' || !group.children?.length) {
+            console.log('[SlideEditor] 选中的元素不是组');
+            return null;
+        }
+
+        // 获取组的绝对坐标
+        const groupX = parseFloat(group.x) || 0;
+        const groupY = parseFloat(group.y) || 0;
+        const groupW = parseFloat(group.w) || 100;
+        const groupH = parseFloat(group.h) || 100;
+
+        // 将子元素坐标转换为绝对坐标
+        const extractedElements = [];
+        for (const child of group.children) {
+            const childX = parseFloat(child.x) || 0;
+            const childY = parseFloat(child.y) || 0;
+            const childW = parseFloat(child.w) || 100;
+            const childH = parseFloat(child.h) || 100;
+
+            const newElement = {
+                ...child,
+                id: child.id || `el-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                x: (groupX + childX * groupW / 100).toFixed(1) + '%',
+                y: (groupY + childY * groupH / 100).toFixed(1) + '%',
+                w: (childW * groupW / 100).toFixed(1) + '%',
+                h: (childH * groupH / 100).toFixed(1) + '%',
+            };
+            extractedElements.push(newElement);
+        }
+
+        // 删除原 group
+        slide.elements.splice(groupIndex, 1);
+
+        // 在原位置插入解组后的元素
+        slide.elements.splice(groupIndex, 0, ...extractedElements);
+
+        // 更新选择（选中所有解组后的元素）
+        this.selection.clear();
+        this.selection.selectMultiple(extractedElements.map(el => el.id));
+
+        // 重新渲染
+        this.renderCurrentSlide();
+        this.emit('ungroup', { groupId, childIds: extractedElements.map(el => el.id) });
+
+        console.log('[SlideEditor] 已解组:', groupId, '释放', extractedElements.length, '个元素');
+        return extractedElements;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 组编辑模式
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * 进入组编辑模式（双击组触发）
+     * 其他元素变模糊，可以编辑组内元素
+     */
+    enterGroupEditMode(groupId) {
+        const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
+        if (!slide?.elements) return;
+
+        const group = slide.elements.find(el => el.id === groupId);
+        if (!group || group.type !== 'group') {
+            console.log('[SlideEditor] 无效的组 ID:', groupId);
+            return;
+        }
+
+        // 记录当前编辑的组
+        this.editingGroupId = groupId;
+        this.editingGroup = group;
+
+        console.log('[SlideEditor] 进入组编辑模式:', groupId);
+
+        // 添加模糊效果到其他元素
+        this._applyGroupEditOverlay(groupId);
+
+        // 清除当前选择
+        this.selection.clear();
+
+        // 发出事件
+        this.emit('group:enter', { groupId, group });
+    }
+
+    /**
+     * 退出组编辑模式
+     */
+    exitGroupEditMode() {
+        if (!this.editingGroupId) return;
+
+        console.log('[SlideEditor] 退出组编辑模式:', this.editingGroupId);
+
+        // 移除模糊效果
+        this._removeGroupEditOverlay();
+
+        const groupId = this.editingGroupId;
+        this.editingGroupId = null;
+        this.editingGroup = null;
+
+        // 重新选中组
+        this.selection.select(groupId);
+
+        // 发出事件
+        this.emit('group:exit', { groupId });
+    }
+
+    /**
+     * 应用组编辑模式的覆盖层（模糊其他元素）
+     */
+    _applyGroupEditOverlay(groupId) {
+        if (!this.viewport) return;
+
+        // 创建覆盖层（只有模糊，无颜色）
+        let overlay = this.viewport.querySelector('.group-edit-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.className = 'group-edit-overlay';
+            overlay.style.cssText = `
+                position: absolute;
+                top: 0; left: 0; right: 0; bottom: 0;
+                backdrop-filter: blur(3px);
+                pointer-events: none;
+                z-index: 50;
+            `;
+            this.viewport.appendChild(overlay);
+        }
+        overlay.style.display = 'block';
+
+        // 将当前组提升到覆盖层之上（只改 z-index，不改 position）
+        const groupDom = this.viewport.querySelector(`[data-element-id="${groupId}"]`);
+        if (groupDom) {
+            groupDom.style.zIndex = '100';
+            groupDom.classList.add('editing-group');
+        }
+
+        // 隐藏选择框覆盖层，避免挡住组内元素
+        if (this.overlayContainer) {
+            this.overlayContainer.style.display = 'none';
+        }
+
+        // 添加点击空白处退出的监听
+        this._groupEditClickHandler = (e) => {
+            // 如果点击了覆盖层（空白处），退出组编辑模式
+            if (e.target === overlay || e.target === this.viewport) {
+                this.exitGroupEditMode();
+            }
+        };
+        this.viewport.addEventListener('click', this._groupEditClickHandler);
+
+        // 添加 ESC 键退出
+        this._groupEditKeyHandler = (e) => {
+            if (e.key === 'Escape' && this.editingGroupId) {
+                this.exitGroupEditMode();
+            }
+        };
+        document.addEventListener('keydown', this._groupEditKeyHandler);
+    }
+
+    /**
+     * 移除组编辑模式的覆盖层
+     */
+    _removeGroupEditOverlay() {
+        if (!this.viewport) return;
+
+        // 隐藏覆盖层
+        const overlay = this.viewport.querySelector('.group-edit-overlay');
+        if (overlay) {
+            overlay.style.display = 'none';
+        }
+
+        // 恢复组的 z-index
+        const groupDom = this.viewport.querySelector('.editing-group');
+        if (groupDom) {
+            groupDom.style.zIndex = '';
+            groupDom.classList.remove('editing-group');
+        }
+
+        // 恢复选择框覆盖层
+        if (this.overlayContainer) {
+            this.overlayContainer.style.display = '';
+        }
+
+        // 移除事件监听
+        if (this._groupEditClickHandler) {
+            this.viewport.removeEventListener('click', this._groupEditClickHandler);
+            this._groupEditClickHandler = null;
+        }
+        if (this._groupEditKeyHandler) {
+            document.removeEventListener('keydown', this._groupEditKeyHandler);
+            this._groupEditKeyHandler = null;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     // 对齐功能
     // ═══════════════════════════════════════════════════════════════
 
@@ -889,70 +1189,30 @@ class SlideEditor extends EventEmitter {
     }
 
     /**
-     * 为 DOM 元素添加 ID 属性
+     * 为 DOM 元素设置交互属性（ID 已在渲染时注入）
      */
     _addElementIds() {
         if (!this.viewport) return;
         
-        // 直接从 PPTGenerator 获取当前幻灯片数据
-        const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
-        if (!slide?.elements) return;
+        // 查找所有带 data-element-id 的元素（递归包括 group 子元素）
+        const elements = this.viewport.querySelectorAll('[data-element-id]');
         
-        // 按 z-index 排序，并过滤隐藏元素（与渲染一致）
-        const elements = [...slide.elements]
-            .filter(el => !el.hidden)  // 隐藏的元素不渲染，也不参与 ID 绑定
-            .map((el, i) => ({ el, originalIndex: i }))
-            .sort((a, b) => (a.el.z || 0) - (b.el.z || 0) || a.originalIndex - b.originalIndex)
-            .map(item => item.el);
-        
-        // 获取外层容器
-        const container = this.viewport.firstElementChild;
-        if (!container) return;
-        
-        // 获取所有直接子元素（排除覆盖层）
-        const domElements = Array.from(container.children).filter(el => {
-            return !el.classList.contains('editor-overlay');
-        });
-
-        // 绑定元素 ID（递归处理 group）
-        domElements.forEach((dom, index) => {
-            if (elements[index]) {
-                this._bindElementId(dom, elements[index]);
-            }
-        });
-    }
-
-    /**
-     * 递归绑定元素 ID（支持 group 子元素）
-     */
-    _bindElementId(dom, element) {
-        dom.setAttribute('data-element-id', element.id);
-        
-        // SVG 元素特殊处理：保持容器 pointer-events: none，让 line 可点击
-        if (dom.tagName.toLowerCase() === 'svg') {
-            dom.style.pointerEvents = 'none';
-            // 给 line 子元素添加 pointer-events
-            const line = dom.querySelector('line');
-            if (line) {
-                line.style.pointerEvents = 'stroke';
-                line.style.cursor = 'pointer';
-                line.setAttribute('data-element-id', element.id);
-            }
-        } else {
-            dom.style.cursor = 'pointer';
-            dom.style.pointerEvents = 'auto';
-        }
-
-        // 递归处理 group 子元素
-        if (element.type === 'group' && element.children?.length > 0) {
-            // 获取 group DOM 的直接子元素
-            const childDoms = Array.from(dom.children);
-            element.children.forEach((child, i) => {
-                if (childDoms[i]) {
-                    this._bindElementId(childDoms[i], child);
+        elements.forEach(dom => {
+            // SVG 元素特殊处理：保持容器 pointer-events: none，让 line 可点击
+            if (dom.tagName.toLowerCase() === 'svg') {
+                dom.style.pointerEvents = 'none';
+                const line = dom.querySelector('line');
+                if (line) {
+                    line.style.pointerEvents = 'stroke';
+                    line.style.cursor = 'pointer';
+                    // 把 ID 也加到 line 上方便点击选中
+                    line.setAttribute('data-element-id', dom.dataset.elementId);
                 }
-            });
-        }
+            } else {
+                dom.style.cursor = 'pointer';
+                dom.style.pointerEvents = 'auto';
+            }
+        });
     }
 
     /**
@@ -992,7 +1252,11 @@ class SlideEditor extends EventEmitter {
         let maxX = -Infinity, maxY = -Infinity;
         
         for (const id of elementIds) {
-            const domElement = this.viewport.querySelector(`[data-element-id="${id}"]`);
+            // 优先查找顶层元素，再查找 Group 子元素
+            let domElement = this.viewport.querySelector(`[data-element-id="${id}"]`);
+            if (!domElement) {
+                domElement = this.viewport.querySelector(`[data-child-id="${id}"]`);
+            }
             if (!domElement) continue;
             
             const rect = domElement.getBoundingClientRect();
@@ -1013,8 +1277,11 @@ class SlideEditor extends EventEmitter {
     }
 
     _drawSelectionBox(elementId) {
-        // 从 DOM 获取元素的实际位置
-        const domElement = this.viewport?.querySelector(`[data-element-id="${elementId}"]`);
+        // 从 DOM 获取元素的实际位置（支持 Group 子元素）
+        let domElement = this.viewport?.querySelector(`[data-element-id="${elementId}"]`);
+        if (!domElement) {
+            domElement = this.viewport?.querySelector(`[data-child-id="${elementId}"]`);
+        }
         if (!domElement) return;
         
         const containerRect = this.viewport.getBoundingClientRect();
@@ -1221,6 +1488,16 @@ class SlideEditor extends EventEmitter {
             e.preventDefault();
             this.duplicateSelected();
         }
+        // Ctrl+G 编组
+        else if (ctrl && e.key === 'g' && !e.shiftKey) {
+            e.preventDefault();
+            this.groupElements();
+        }
+        // Ctrl+Shift+G 解组
+        else if (ctrl && e.shiftKey && e.key === 'G') {
+            e.preventDefault();
+            this.ungroupElements();
+        }
         // Delete/Backspace 删除
         else if (e.key === 'Delete' || e.key === 'Backspace') {
             e.preventDefault();
@@ -1371,6 +1648,19 @@ class SlideEditor extends EventEmitter {
             return;
         }
 
+        // Alt+点击：穿透 Group 选中子元素
+        if (e.altKey) {
+            const childDom = e.target.closest('[data-child-id]');
+            if (childDom && this.viewport.contains(childDom)) {
+                const childId = childDom.dataset.childId;
+                const parentId = childDom.dataset.childOf;
+                // 选中子元素（需要在数据层面支持）
+                this.selection.selectGroupChild(parentId, childId);
+                e.preventDefault();
+                return;
+            }
+        }
+
         // 检查是否点击了元素（必须在 viewport 内）
         let elementDom = e.target.closest('[data-element-id]');
         if (elementDom && !this.viewport.contains(elementDom)) {
@@ -1438,6 +1728,25 @@ class SlideEditor extends EventEmitter {
             return;
         }
         
+        // 优先检查是否在组编辑模式下双击子元素
+        if (this.editingGroupId) {
+            const childDom = e.target.closest('[data-child-id]');
+            if (childDom) {
+                const childId = childDom.dataset.childId;
+                const parentId = childDom.dataset.childOf;
+                
+                // 确保是当前编辑组的子元素
+                if (parentId === this.editingGroupId) {
+                    const child = this.editingGroup?.children?.find(c => c.id === childId);
+                    if (child) {
+                        console.log('[SlideEditor] 组编辑模式: 双击子元素', childId);
+                        this._triggerElementEdit(child, childDom, e.target);
+                        return;
+                    }
+                }
+            }
+        }
+        
         const elementDom = e.target.closest('[data-element-id]');
         if (elementDom) {
             const elementId = elementDom.dataset.elementId;
@@ -1445,26 +1754,38 @@ class SlideEditor extends EventEmitter {
             const element = this.findElementById(elementId);
             if (element) {
                 this.emit('element:dblclick', { element, dom: elementDom });
-                
-                // 根据元素类型处理
-                if (element.type === 'text') {
-                    this._startTextEditing(element, elementDom, e.target);
-                } else if (element.type === 'table') {
-                    this._startTableCellEditing(element, elementDom, e.target);
-                } else if (element.type === 'svg') {
-                    this._startSvgTextEditing(element, elementDom, e.target);
-                } else if (element.type === 'card') {
-                    // 卡片内的文本块编辑
-                    this._startCardTextEditing(element, elementDom, e.target);
-                } else if (element.type === 'formula') {
-                    // 公式快捷编辑
-                    this._startFormulaEditing(element, elementDom);
-                } else if (element.type === 'chart') {
-                    // 图表数据编辑
-                    this._startChartEditing(element, elementDom);
-                }
+                this._triggerElementEdit(element, elementDom, e.target);
             }
         }
+    }
+
+    /**
+     * 触发元素编辑（根据类型）
+     */
+    _triggerElementEdit(element, dom, target = null) {
+        if (!element || !dom) return;
+        
+        // 根据元素类型处理
+        if (element.type === 'text') {
+            this._startTextEditing(element, dom, target || dom);
+        } else if (element.type === 'table') {
+            this._startTableCellEditing(element, dom, target || dom);
+        } else if (element.type === 'svg') {
+            this._startSvgTextEditing(element, dom, target || dom);
+        } else if (element.type === 'card') {
+            this._startCardTextEditing(element, dom, target || dom);
+        } else if (element.type === 'formula') {
+            this._startFormulaEditing(element, dom);
+        } else if (element.type === 'chart') {
+            this._startChartEditing(element, dom);
+        } else if (element.type === 'group') {
+            // 双击 group 进入组编辑模式
+            this.enterGroupEditMode(element.id);
+        } else if (element.type === 'list') {
+            // 列表编辑 - 在属性面板中编辑
+            this.selection.select(element.id);
+        }
+        // shape, image 等类型没有特殊的双击编辑行为，在属性面板中编辑
     }
 
     _startTextEditing(element, dom, target) {

@@ -1165,7 +1165,160 @@
                 <div data-el="image" data-x="5%" data-y="18%" data-w="90%" data-h="70%" data-src="samples/duola.png" data-fit="contain" data-radius="8"></div>
                 <div data-el="text" data-x="5%" data-y="92%" data-w="90%" data-font="11" data-color="#94A3B8" data-align="center">duola.png | 预期: OCR 识别中文、去除文字、矢量化</div>
             </section>
+
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- 以下为新功能测试页 -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
+
+    <!-- Page 34: 文字样式测试 -->
+    <section data-type="freeform" id="slide-34" data-bg="#0f172a">
+        <!-- 标题 -->
+        <div data-el="text" data-x="5%" data-y="5%" data-w="90%" data-h="auto" data-font="32" data-color="#f8fafc" data-bold="true">新功能测试：文字样式</div>
+        <div data-el="shape" data-shape="rect" data-x="5%" data-y="14%" data-w="20%" data-h="3px" data-fill="#0ea5e9"></div>
+
+        <!-- 文字装饰测试 -->
+        <div data-el="shape" data-shape="rounded" data-x="5%" data-y="20%" data-w="42%" data-h="35%" data-fill="#1e293b" data-radius="12" data-effect="shadow-lg"></div>
+        <div data-el="text" data-x="8%" data-y="23%" data-w="36%" data-h="auto" data-font="14" data-color="#60a5fa" data-bold="true">文字装饰</div>
         
+        <div data-el="text" data-x="8%" data-y="30%" data-w="36%" data-h="auto" data-font="18" data-color="#f8fafc" data-underline="true">下划线文字 (underline)</div>
+        <div data-el="text" data-x="8%" data-y="38%" data-w="36%" data-h="auto" data-font="18" data-color="#f8fafc" data-strike="true">删除线文字 (strike)</div>
+        <div data-el="text" data-x="8%" data-y="46%" data-w="36%" data-h="auto" data-font="18" data-color="#f8fafc" data-underline="true" data-strike="true">下划线+删除线</div>
+
+        <!-- 上下标测试 -->
+        <div data-el="shape" data-shape="rounded" data-x="53%" data-y="20%" data-w="42%" data-h="35%" data-fill="#1e293b" data-radius="12" data-effect="shadow-lg"></div>
+        <div data-el="text" data-x="56%" data-y="23%" data-w="36%" data-h="auto" data-font="14" data-color="#22c55e" data-bold="true">上标/下标</div>
+        
+        <div data-el="text" data-x="56%" data-y="32%" data-w="36%" data-h="auto" data-font="20" data-color="#f8fafc">E = mc<span data-superscript="true">2</span></div>
+        <div data-el="text" data-x="56%" data-y="42%" data-w="36%" data-h="auto" data-font="20" data-color="#f8fafc">H<span data-subscript="true">2</span>O</div>
+
+        <!-- 字体和间距测试 -->
+        <div data-el="shape" data-shape="rounded" data-x="5%" data-y="60%" data-w="90%" data-h="35%" data-fill="#1e293b" data-radius="12" data-effect="shadow-md"></div>
+        <div data-el="text" data-x="8%" data-y="63%" data-w="84%" data-h="auto" data-font="14" data-color="#a855f7" data-bold="true">字体与间距</div>
+        
+        <div data-el="text" data-x="8%" data-y="72%" data-w="40%" data-h="auto" data-font="18" data-color="#f8fafc" data-letter-spacing="0">letter-spacing: 0</div>
+        <div data-el="text" data-x="8%" data-y="80%" data-w="40%" data-h="auto" data-font="18" data-color="#f8fafc" data-letter-spacing="4">letter-spacing: 4</div>
+        <div data-el="text" data-x="8%" data-y="88%" data-w="40%" data-h="auto" data-font="18" data-color="#f8fafc" data-letter-spacing="8">letter-spacing: 8</div>
+        
+        <div data-el="text" data-x="55%" data-y="72%" data-w="40%" data-h="auto" data-font="18" data-color="#f8fafc" data-font-family="Georgia, serif">Georgia 字体</div>
+        <div data-el="text" data-x="55%" data-y="80%" data-w="40%" data-h="auto" data-font="18" data-color="#f8fafc" data-font-family="Courier New, monospace">Courier 字体</div>
+        <div data-el="text" data-x="55%" data-y="88%" data-w="40%" data-h="auto" data-font="18" data-color="#f8fafc" data-font-family="Arial Black, sans-serif">Arial Black</div>
+    </section>
+
+    <!-- Page 35: 列表元素测试 -->
+    <section data-type="freeform" id="slide-35" data-bg="#f8fafc">
+        <!-- 标题 -->
+        <div data-el="text" data-x="5%" data-y="5%" data-w="90%" data-h="auto" data-font="32" data-color="#0f172a" data-bold="true">新功能测试：列表元素</div>
+        <div data-el="shape" data-shape="rect" data-x="5%" data-y="14%" data-w="20%" data-h="3px" data-fill="#0ea5e9"></div>
+
+        <!-- 无序列表 -->
+        <div data-el="shape" data-shape="rounded" data-x="5%" data-y="20%" data-w="42%" data-h="70%" data-fill="#ffffff" data-radius="12" data-effect="shadow-lg" data-stroke="#e2e8f0" data-stroke-width="1"></div>
+        <div data-el="text" data-x="8%" data-y="23%" data-w="36%" data-h="auto" data-font="16" data-color="#0ea5e9" data-bold="true">无序列表 (ul)</div>
+        
+        <div data-el="list" 
+             data-x="8%" data-y="32%" data-w="36%" data-h="auto"
+             data-list-type="ul"
+             data-items='["智能医疗诊断系统", "远程健康监测平台", "AI 辅助病历分析", "个性化康复方案", "实时预警与干预"]'
+             data-font="15" data-color="#334155"
+             data-bullet-color="#0ea5e9"
+             data-line-height="1.8">
+        </div>
+
+        <!-- 有序列表 -->
+        <div data-el="shape" data-shape="rounded" data-x="53%" data-y="20%" data-w="42%" data-h="70%" data-fill="#ffffff" data-radius="12" data-effect="shadow-lg" data-stroke="#e2e8f0" data-stroke-width="1"></div>
+        <div data-el="text" data-x="56%" data-y="23%" data-w="36%" data-h="auto" data-font="16" data-color="#22c55e" data-bold="true">有序列表 (ol)</div>
+        
+        <div data-el="list" 
+             data-x="56%" data-y="32%" data-w="36%" data-h="auto"
+             data-list-type="ol"
+             data-items='["需求分析与调研", "系统架构设计", "核心功能开发", "测试与优化", "上线部署运维"]'
+             data-font="15" data-color="#334155"
+             data-bullet-color="#22c55e"
+             data-line-height="1.8">
+        </div>
+    </section>
+
+    <!-- Page 36: 阴影效果测试 -->
+    <section data-type="freeform" id="slide-36" data-bg="#e2e8f0">
+        <!-- 标题 -->
+        <div data-el="text" data-x="5%" data-y="5%" data-w="90%" data-h="auto" data-font="32" data-color="#0f172a" data-bold="true">新功能测试：阴影效果 (data-effect)</div>
+        <div data-el="shape" data-shape="rect" data-x="5%" data-y="14%" data-w="25%" data-h="3px" data-fill="#0ea5e9"></div>
+
+        <!-- 阴影对比 -->
+        <div data-el="group" data-x="5%" data-y="22%" data-w="90%" data-h="70%">
+            <!-- shadow-sm -->
+            <div data-el="shape" data-shape="rounded" data-x="0%" data-y="0%" data-w="30%" data-h="40%" data-fill="#ffffff" data-radius="12" data-effect="shadow-sm"></div>
+            <div data-el="text" data-x="0%" data-y="15%" data-w="30%" data-h="auto" data-font="14" data-color="#64748b" data-align="center">shadow-sm</div>
+
+            <!-- shadow-md -->
+            <div data-el="shape" data-shape="rounded" data-x="35%" data-y="0%" data-w="30%" data-h="40%" data-fill="#ffffff" data-radius="12" data-effect="shadow-md"></div>
+            <div data-el="text" data-x="35%" data-y="15%" data-w="30%" data-h="auto" data-font="14" data-color="#64748b" data-align="center">shadow-md</div>
+
+            <!-- shadow-lg -->
+            <div data-el="shape" data-shape="rounded" data-x="70%" data-y="0%" data-w="30%" data-h="40%" data-fill="#ffffff" data-radius="12" data-effect="shadow-lg"></div>
+            <div data-el="text" data-x="70%" data-y="15%" data-w="30%" data-h="auto" data-font="14" data-color="#64748b" data-align="center">shadow-lg</div>
+
+            <!-- shadow-xl -->
+            <div data-el="shape" data-shape="rounded" data-x="0%" data-y="50%" data-w="30%" data-h="40%" data-fill="#ffffff" data-radius="12" data-effect="shadow-xl"></div>
+            <div data-el="text" data-x="0%" data-y="65%" data-w="30%" data-h="auto" data-font="14" data-color="#64748b" data-align="center">shadow-xl</div>
+
+            <!-- shadow-2xl -->
+            <div data-el="shape" data-shape="rounded" data-x="35%" data-y="50%" data-w="30%" data-h="40%" data-fill="#ffffff" data-radius="12" data-effect="shadow-2xl"></div>
+            <div data-el="text" data-x="35%" data-y="65%" data-w="30%" data-h="auto" data-font="14" data-color="#64748b" data-align="center">shadow-2xl</div>
+
+            <!-- 无阴影对比 -->
+            <div data-el="shape" data-shape="rounded" data-x="70%" data-y="50%" data-w="30%" data-h="40%" data-fill="#ffffff" data-radius="12" data-stroke="#e2e8f0" data-stroke-width="1"></div>
+            <div data-el="text" data-x="70%" data-y="65%" data-w="30%" data-h="auto" data-font="14" data-color="#64748b" data-align="center">无阴影 (对比)</div>
+        </div>
+    </section>
+
+    <!-- Page 37: Group 嵌套测试 -->
+    <section data-type="freeform" id="slide-37" data-bg="#1e1b4b">
+        <!-- 标题 -->
+        <div data-el="text" data-x="5%" data-y="5%" data-w="90%" data-h="auto" data-font="32" data-color="#f8fafc" data-bold="true">Group 嵌套与圆形 auto 高度测试</div>
+        <div data-el="shape" data-shape="rect" data-x="5%" data-y="14%" data-w="25%" data-h="3px" data-fill="#a855f7"></div>
+
+        <!-- 嵌套 Group 测试 -->
+        <div data-el="group" data-x="5%" data-y="20%" data-w="45%" data-h="75%">
+            <!-- 外层卡片 -->
+            <div data-el="shape" data-shape="rounded" data-x="0%" data-y="0%" data-w="100%" data-h="100%" data-fill="#312e81" data-radius="16" data-stroke="#4c1d95" data-stroke-width="1"></div>
+            <div data-el="text" data-x="5%" data-y="5%" data-w="90%" data-h="auto" data-font="14" data-color="#c4b5fd" data-bold="true">外层 Group</div>
+            
+            <!-- 嵌套的 Group -->
+            <div data-el="group" data-x="5%" data-y="15%" data-w="90%" data-h="80%">
+                <div data-el="shape" data-shape="rounded" data-x="0%" data-y="0%" data-w="100%" data-h="100%" data-fill="#4c1d95" data-radius="12" data-opacity="0.5"></div>
+                <div data-el="text" data-x="5%" data-y="5%" data-w="90%" data-h="auto" data-font="12" data-color="#a78bfa">嵌套 Group (相对坐标)</div>
+                
+                <!-- 内部圆形 (auto 高度) -->
+                <div data-el="shape" data-shape="circle" data-x="10%" data-y="20%" data-w="25%" data-h="auto" data-fill="#8b5cf6"></div>
+                <div data-el="shape" data-shape="circle" data-x="40%" data-y="20%" data-w="25%" data-h="auto" data-fill="#a855f7"></div>
+                <div data-el="shape" data-shape="circle" data-x="70%" data-y="20%" data-w="25%" data-h="auto" data-fill="#c084fc"></div>
+                
+                <!-- 文字 -->
+                <div data-el="text" data-x="10%" data-y="60%" data-w="25%" data-h="auto" data-font="11" data-color="#f8fafc" data-align="center">圆1</div>
+                <div data-el="text" data-x="40%" data-y="60%" data-w="25%" data-h="auto" data-font="11" data-color="#f8fafc" data-align="center">圆2</div>
+                <div data-el="text" data-x="70%" data-y="60%" data-w="25%" data-h="auto" data-font="11" data-color="#f8fafc" data-align="center">圆3</div>
+            </div>
+        </div>
+
+        <!-- 科技圆环 (类似 sample_new 中的用法) -->
+        <div data-el="group" data-x="55%" data-y="20%" data-w="40%" data-h="75%">
+            <div data-el="shape" data-shape="rounded" data-x="0%" data-y="0%" data-w="100%" data-h="100%" data-fill="#312e81" data-radius="16" data-stroke="#4c1d95" data-stroke-width="1"></div>
+            <div data-el="text" data-x="5%" data-y="5%" data-w="90%" data-h="auto" data-font="14" data-color="#c4b5fd" data-bold="true">科技圆环</div>
+            
+            <!-- 同心圆 -->
+            <div data-el="shape" data-shape="circle" data-x="10%" data-y="15%" data-w="80%" data-h="auto" data-fill="#8b5cf6" data-opacity="0.1" data-stroke="#8b5cf6" data-stroke-width="2"></div>
+            <div data-el="shape" data-shape="circle" data-x="20%" data-y="25%" data-w="60%" data-h="auto" data-fill="#a855f7" data-opacity="0.15" data-stroke="#a855f7" data-stroke-width="1"></div>
+            <div data-el="shape" data-shape="circle" data-x="30%" data-y="35%" data-w="40%" data-h="auto" data-fill="#c084fc" data-opacity="0.2"></div>
+            <div data-el="shape" data-shape="circle" data-x="38%" data-y="43%" data-w="24%" data-h="auto" data-fill="#e9d5ff" data-opacity="0.3"></div>
+            
+            <!-- 装饰点 -->
+            <div data-el="shape" data-shape="circle" data-x="48%" data-y="12%" data-w="6%" data-h="auto" data-fill="#22c55e"></div>
+            <div data-el="shape" data-shape="circle" data-x="82%" data-y="47%" data-w="6%" data-h="auto" data-fill="#0ea5e9"></div>
+            <div data-el="shape" data-shape="circle" data-x="48%" data-y="82%" data-w="6%" data-h="auto" data-fill="#f97316"></div>
+            <div data-el="shape" data-shape="circle" data-x="12%" data-y="47%" data-w="6%" data-h="auto" data-fill="#ec4899"></div>
+        </div>
+    </section>
+
 `;
 
 window.PPT_SAMPLE_HTML = PPT_SAMPLE_HTML;

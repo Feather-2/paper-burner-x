@@ -142,14 +142,29 @@ class SlideDocument extends EventEmitter {
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * 通过 ID 获取元素
+     * 通过 ID 获取元素（支持递归查找 Group 子元素）
      */
     getElementById(elementId) {
         // 直接遍历查找，避免索引不同步问题
         for (const slide of this.slides) {
             if (slide.elements) {
-                const element = slide.elements.find(el => el.id === elementId);
+                const element = this._findElementById(elementId, slide.elements);
                 if (element) return element;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 递归查找元素（支持 Group 子元素）
+     */
+    _findElementById(elementId, elements) {
+        for (const el of elements) {
+            if (el.id === elementId) return el;
+            // 递归搜索 group 子元素
+            if (el.type === 'group' && el.children?.length > 0) {
+                const found = this._findElementById(elementId, el.children);
+                if (found) return found;
             }
         }
         return null;

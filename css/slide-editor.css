@@ -189,6 +189,40 @@
     background: #e5e7eb;
 }
 
+/* 文字装饰复选框样式 */
+.checkbox-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid #d1d5db;
+    background: #f9fafb;
+    transition: all 0.15s;
+}
+
+.checkbox-label:hover {
+    background: #e5e7eb;
+}
+
+.checkbox-label input[type="checkbox"] {
+    display: none;
+}
+
+.checkbox-label:has(input:checked) {
+    background: #3b82f6;
+    border-color: #3b82f6;
+    color: white;
+}
+
+.checkbox-label span {
+    font-weight: 600;
+    font-size: 13px;
+    width: 16px;
+    text-align: center;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    图层面板
    ═══════════════════════════════════════════════════════════════ */
