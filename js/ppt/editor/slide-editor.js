@@ -407,14 +407,31 @@ class SlideEditor extends EventEmitter {
     }
 
     /**
+     * 递归查找元素（支持 group 子元素）
+     */
+    findElementById(elementId, elements = null) {
+        if (!elements) {
+            const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
+            elements = slide?.elements || [];
+        }
+        
+        for (const el of elements) {
+            if (el.id === elementId) return el;
+            // 递归搜索 group 子元素
+            if (el.type === 'group' && el.children?.length > 0) {
+                const found = this.findElementById(elementId, el.children);
+                if (found) return found;
+            }
+        }
+        return null;
+    }
+
+    /**
      * 更新元素属性
      */
     updateElement(elementId, updates) {
-        // 直接在 PPTGenerator.slides 中查找元素
-        const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
-        if (!slide?.elements) return;
-        
-        const element = slide.elements.find(el => el.id === elementId);
+        // 递归查找元素（支持 group 子元素）
+        const element = this.findElementById(elementId);
         if (!element) return;
 
         // 记录旧值用于撤销
@@ -897,27 +914,45 @@ class SlideEditor extends EventEmitter {
             return !el.classList.contains('editor-overlay');
         });
 
-        // 绑定元素 ID
+        // 绑定元素 ID（递归处理 group）
         domElements.forEach((dom, index) => {
             if (elements[index]) {
-                dom.setAttribute('data-element-id', elements[index].id);
-                
-                // SVG 元素特殊处理：保持容器 pointer-events: none，让 line 可点击
-                if (dom.tagName.toLowerCase() === 'svg') {
-                    dom.style.pointerEvents = 'none';
-                    // 给 line 子元素添加 pointer-events
-                    const line = dom.querySelector('line');
-                    if (line) {
-                        line.style.pointerEvents = 'stroke';
-                        line.style.cursor = 'pointer';
-                        line.setAttribute('data-element-id', elements[index].id);
-                    }
-                } else {
-                    dom.style.cursor = 'pointer';
-                    dom.style.pointerEvents = 'auto';
-                }
+                this._bindElementId(dom, elements[index]);
             }
         });
+    }
+
+    /**
+     * 递归绑定元素 ID（支持 group 子元素）
+     */
+    _bindElementId(dom, element) {
+        dom.setAttribute('data-element-id', element.id);
+        
+        // SVG 元素特殊处理：保持容器 pointer-events: none，让 line 可点击
+        if (dom.tagName.toLowerCase() === 'svg') {
+            dom.style.pointerEvents = 'none';
+            // 给 line 子元素添加 pointer-events
+            const line = dom.querySelector('line');
+            if (line) {
+                line.style.pointerEvents = 'stroke';
+                line.style.cursor = 'pointer';
+                line.setAttribute('data-element-id', element.id);
+            }
+        } else {
+            dom.style.cursor = 'pointer';
+            dom.style.pointerEvents = 'auto';
+        }
+
+        // 递归处理 group 子元素
+        if (element.type === 'group' && element.children?.length > 0) {
+            // 获取 group DOM 的直接子元素
+            const childDoms = Array.from(dom.children);
+            element.children.forEach((child, i) => {
+                if (childDoms[i]) {
+                    this._bindElementId(childDoms[i], child);
+                }
+            });
+        }
     }
 
     /**
@@ -1406,9 +1441,8 @@ class SlideEditor extends EventEmitter {
         const elementDom = e.target.closest('[data-element-id]');
         if (elementDom) {
             const elementId = elementDom.dataset.elementId;
-            // 从 slides 获取元素（确保数据一致）
-            const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
-            const element = slide?.elements?.find(el => el.id === elementId);
+            // 递归查找元素（支持 group 子元素）
+            const element = this.findElementById(elementId);
             if (element) {
                 this.emit('element:dblclick', { element, dom: elementDom });
                 

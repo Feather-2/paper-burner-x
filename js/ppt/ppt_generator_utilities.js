@@ -233,15 +233,15 @@ const PPTGeneratorUtilities = {
             return;
         }
 
-        // 直接显示编辑器视图
-        this.state = 'working';
+        // 设置为完成状态，直接显示演示视图
+        this.state = 'completed';
         this.currentSlideIndex = 0;
         
-        // 渲染工作区
-        if (typeof this.renderWorkspace === 'function') {
-            this.renderWorkspace();
+        // 进入工作区（会根据 state 自动渲染演示模式）
+        if (typeof this.enterWorkspace === 'function') {
+            this.enterWorkspace();
         } else {
-            console.error('[Debug] renderWorkspace not available');
+            console.error('[Debug] enterWorkspace not available');
         }
         
         console.log('[Debug] Sample loaded successfully!');

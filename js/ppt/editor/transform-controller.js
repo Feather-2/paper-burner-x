@@ -185,12 +185,10 @@ class TransformController extends EventEmitter {
                 Object.assign(element, formattedChanges);
             }
             
-            // 更新 PPTGenerator.slides
-            if (pptSlide?.elements) {
-                const pptElement = pptSlide.elements.find(el => el.id === id);
-                if (pptElement) {
-                    Object.assign(pptElement, formattedChanges);
-                }
+            // 更新 PPTGenerator.slides（递归查找支持 group 子元素）
+            const pptElement = this.editor.findElementById?.(id);
+            if (pptElement) {
+                Object.assign(pptElement, formattedChanges);
             }
         }
 
