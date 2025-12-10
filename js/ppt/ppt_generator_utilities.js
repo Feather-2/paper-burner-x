@@ -198,6 +198,53 @@ const PPTGeneratorUtilities = {
             const headerTitle = document.querySelector('.ppt-project-title');
             if (headerTitle) headerTitle.innerText = this.currentProject.title;
         }
+    },
+
+    /**
+     * 调试：直接加载 Sample 数据，跳过 AI 生成过程
+     */
+    async debugLoadSample() {
+        console.log('[Debug] Loading sample data...');
+        
+        // 创建临时项目
+        const projectId = 'debug_' + Date.now();
+        this.currentProject = {
+            id: projectId,
+            title: '调试项目 (Sample)',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            slides: [],
+            messages: []
+        };
+
+        // 解析 Sample HTML
+        if (typeof SlideParser !== 'undefined' && window.PPT_SAMPLE_HTML) {
+            try {
+                this.slides = SlideParser.parse(window.PPT_SAMPLE_HTML);
+                this.currentProject.slides = this.slides;
+                console.log('[Debug] Parsed', this.slides.length, 'slides from PPT_SAMPLE_HTML');
+            } catch (e) {
+                console.error('[Debug] Parse error:', e);
+                alert('解析 Sample 数据失败: ' + e.message);
+                return;
+            }
+        } else {
+            alert('PPT_SAMPLE_HTML 或 SlideParser 不可用');
+            return;
+        }
+
+        // 直接显示编辑器视图
+        this.state = 'working';
+        this.currentSlideIndex = 0;
+        
+        // 渲染工作区
+        if (typeof this.renderWorkspace === 'function') {
+            this.renderWorkspace();
+        } else {
+            console.error('[Debug] renderWorkspace not available');
+        }
+        
+        console.log('[Debug] Sample loaded successfully!');
     }
 };
 

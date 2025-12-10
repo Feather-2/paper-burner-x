@@ -69,6 +69,10 @@ const PPTGeneratorNavigation = {
                                     <iconify-icon icon="carbon:document-import"></iconify-icon>
                                     导入 PPTX
                                 </button>
+                                <button class="ppt-cta-btn secondary" onclick="window.PPTGenerator.debugLoadSample()" title="跳过生成，直接加载 Sample 数据">
+                                    <iconify-icon icon="carbon:debug"></iconify-icon>
+                                    调试 Sample
+                                </button>
                                 
                                 <div class="ppt-status-row">
                                     <div class="ppt-status-pill-minimal">
