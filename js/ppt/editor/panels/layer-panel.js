@@ -119,11 +119,12 @@ class LayerPanel extends EventEmitter {
         return html;
     }
 
-    _renderLayerItem(el) {
+    _renderLayerItem(el, indent = 0) {
         const isSelected = this.editor.selection.isSelected(el.id);
         const label = this._getElementLabel(el);
         const isLocked = el.locked;
         const isHidden = el.hidden;
+        const isGroup = el.type === 'group' && el.children?.length > 0;
 
         const classes = ['layer-item'];
         if (isSelected) classes.push('selected');
@@ -145,13 +146,23 @@ class LayerPanel extends EventEmitter {
             thumbContent = `<iconify-icon icon="${icon}"></iconify-icon>`;
         }
 
-        return `
+        const indentStyle = indent > 0 ? `margin-left: ${indent * 16}px;` : '';
+        
+        let html = `
             <div class="${classes.join(' ')}" 
                  data-element-id="${el.id}"
+                 data-is-group="${isGroup}"
+                 style="${indentStyle}"
                  draggable="true">
-                <div class="layer-drag-handle">
-                    <iconify-icon icon="mdi:drag"></iconify-icon>
-                </div>
+                ${isGroup ? `
+                    <div class="layer-group-toggle" data-action="toggle-group-expand">
+                        <iconify-icon icon="mdi:chevron-down" class="group-chevron"></iconify-icon>
+                    </div>
+                ` : `
+                    <div class="layer-drag-handle">
+                        <iconify-icon icon="mdi:drag"></iconify-icon>
+                    </div>
+                `}
                 <div class="layer-thumbnail">
                     ${thumbContent}
                 </div>
@@ -177,6 +188,16 @@ class LayerPanel extends EventEmitter {
                 </div>
             </div>
         `;
+
+        // 递归渲染 group 子元素
+        if (isGroup) {
+            const childrenHtml = el.children
+                .map(child => this._renderLayerItem(child, indent + 1))
+                .join('');
+            html += `<div class="layer-group-children" data-parent-id="${el.id}">${childrenHtml}</div>`;
+        }
+
+        return html;
     }
 
     _getElementIcon(type) {
@@ -189,6 +210,9 @@ class LayerPanel extends EventEmitter {
             chart: 'mdi:chart-bar',
             formula: 'mdi:function-variant',
             table: 'mdi:table',
+            group: 'mdi:folder-outline',
+            line: 'mdi:vector-line',
+            card: 'mdi:card-outline',
         };
         return icons[type] || 'mdi:help-circle';
     }
@@ -213,6 +237,13 @@ class LayerPanel extends EventEmitter {
                 return el.icon || '图标';
             case 'svg':
                 return 'SVG';
+            case 'group':
+                const childCount = (el.children || []).length;
+                return `组 (${childCount}个元素)`;
+            case 'line':
+                return '线条';
+            case 'card':
+                return el.title || '卡片';
             default:
                 return el.type;
         }
@@ -329,6 +360,23 @@ class LayerPanel extends EventEmitter {
                     
                     // 刷新图层面板
                     this.refresh();
+                }
+            });
+        });
+
+        // data-el group 展开/折叠
+        this.container.querySelectorAll('.layer-group-toggle').forEach(toggle => {
+            toggle.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const item = toggle.closest('.layer-item');
+                const parentId = item.dataset.elementId;
+                const childrenContainer = this.container.querySelector(`.layer-group-children[data-parent-id="${parentId}"]`);
+                if (childrenContainer) {
+                    const isCollapsed = childrenContainer.classList.toggle('collapsed');
+                    const chevron = toggle.querySelector('.group-chevron');
+                    if (chevron) {
+                        chevron.style.transform = isCollapsed ? 'rotate(-90deg)' : '';
+                    }
                 }
             });
         });

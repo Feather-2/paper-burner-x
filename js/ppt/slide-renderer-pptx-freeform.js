@@ -53,7 +53,7 @@ const PPTXFreeformMixin = {
                 case 'line': this.renderFreeformLinePPTX(slide, el); break;
                 case 'chart': this.renderFreeformChartPPTX(slide, el, x, y, w, h); break;
                 case 'formula': this.renderFreeformFormulaPPTX(slide, el, x, y, w, h); break;
-                case 'group': (el.children || []).forEach(c => this.renderFreeformElementPPTX(slide, c)); break;
+                case 'group': this.renderFreeformGroupPPTX(slide, el, x, y, w, h); break;
                 case 'card': this.renderFreeformCardPPTX(slide, el, x, y, w, h); break;
                 case 'svg': this.renderFreeformSvgPPTX(slide, el, x, y, w, h); break;
                 case 'table': this.renderFreeformTablePPTX(slide, el, x, y, w, h); break;
@@ -101,6 +101,86 @@ const PPTXFreeformMixin = {
 
         try { this.addText(slide, textContent, textOptions); }
         catch (e) { console.warn('Failed to add text:', e); }
+    },
+
+    /**
+     * 渲染 group - 将子元素的相对坐标转换为幻灯片绝对坐标
+     * Group 内的子元素坐标是相对于 group 容器的百分比
+     */
+    renderFreeformGroupPPTX(slide, groupEl, groupX, groupY, groupW, groupH) {
+        const children = groupEl.children || [];
+        if (!children.length) return;
+
+        // Group 的尺寸（英寸），用于计算子元素的绝对位置
+        const gx = groupX || 0;
+        const gy = groupY || 0;
+        const gw = groupW || this.SLIDE_W;
+        const gh = groupH || this.SLIDE_H;
+
+        children.forEach(child => {
+            // 克隆子元素，计算绝对坐标
+            const absChild = { ...child };
+
+            // 将子元素的相对坐标转换为绝对坐标
+            // 子元素 x/y 是相对于 group 的百分比，需要转换为相对于整个幻灯片的位置
+            const childX = this.parseCoordToInch(child.x, gw); // 相对于 group 宽度
+            const childY = this.parseCoordToInch(child.y, gh); // 相对于 group 高度
+            const childW = this.parseCoordToInch(child.w, gw);
+            const childH = this.parseCoordToInch(child.h, gh);
+
+            // 绝对坐标 = group 坐标 + 子元素在 group 内的偏移
+            absChild.x = gx + childX;
+            absChild.y = gy + childY;
+            absChild.w = childW;
+            absChild.h = childH;
+
+            // 对于 line 元素，需要转换 x1/y1/x2/y2
+            if (child.type === 'line') {
+                absChild.x1 = gx + this.parseCoordToInch(child.x1, gw);
+                absChild.y1 = gy + this.parseCoordToInch(child.y1, gh);
+                absChild.x2 = gx + this.parseCoordToInch(child.x2, gw);
+                absChild.y2 = gy + this.parseCoordToInch(child.y2, gh);
+                // 标记坐标已经是绝对值（英寸）
+                absChild._absCoords = true;
+            }
+
+            // 对于嵌套 group，递归处理
+            if (child.type === 'group') {
+                this.renderFreeformGroupPPTX(slide, child, absChild.x, absChild.y, absChild.w, absChild.h);
+            } else {
+                // 直接渲染，使用已经计算好的绝对坐标
+                this.renderFreeformElementWithAbsCoords(slide, absChild);
+            }
+        });
+    },
+
+    /**
+     * 使用已计算的绝对坐标渲染元素（供 group 内部使用）
+     */
+    renderFreeformElementWithAbsCoords(slide, el) {
+        const x = el.x;
+        const y = el.y;
+        const w = el.w;
+        const h = el.h;
+
+        try {
+            switch (el.type) {
+                case 'text': this.renderFreeformTextPPTX(slide, el, x, y, w, h); break;
+                case 'shape': this.renderFreeformShapePPTX(slide, el, x, y, w, h); break;
+                case 'image': this.renderFreeformImagePPTX(slide, el, x, y, w, h); break;
+                case 'icon': this.renderFreeformIconPPTX(slide, el, x, y, w, h); break;
+                case 'line': this.renderFreeformLinePPTX(slide, el); break;
+                case 'chart': this.renderFreeformChartPPTX(slide, el, x, y, w, h); break;
+                case 'formula': this.renderFreeformFormulaPPTX(slide, el, x, y, w, h); break;
+                case 'card': this.renderFreeformCardPPTX(slide, el, x, y, w, h); break;
+                case 'svg': this.renderFreeformSvgPPTX(slide, el, x, y, w, h); break;
+                case 'table': this.renderFreeformTablePPTX(slide, el, x, y, w, h); break;
+                case 'baked_element': this.renderBakedElementPPTX(slide, el, x, y, w, h); break;
+            }
+            if (this._needsEffectHint(el)) this._addEffectHint(slide, el, x, y);
+        } catch (e) {
+            console.error(`Error rendering element in group type "${el.type}":`, e);
+        }
     },
 
     renderFreeformShapePPTX(slide, el, x, y, w, h) {
@@ -205,10 +285,19 @@ const PPTXFreeformMixin = {
     },
 
     renderFreeformLinePPTX(slide, el) {
-        let x1 = this.parseCoordToInch(el.x1, this.SLIDE_W) || 0;
-        let y1 = this.parseCoordToInch(el.y1, this.SLIDE_H) || 0;
-        let x2 = this.parseCoordToInch(el.x2, this.SLIDE_W) || this.SLIDE_W;
-        let y2 = this.parseCoordToInch(el.y2, this.SLIDE_H) || y1;
+        // 如果坐标已经是绝对值（来自 group 内部），直接使用
+        let x1, y1, x2, y2;
+        if (el._absCoords) {
+            x1 = el.x1 || 0;
+            y1 = el.y1 || 0;
+            x2 = el.x2 || this.SLIDE_W;
+            y2 = el.y2 || y1;
+        } else {
+            x1 = this.parseCoordToInch(el.x1, this.SLIDE_W) || 0;
+            y1 = this.parseCoordToInch(el.y1, this.SLIDE_H) || 0;
+            x2 = this.parseCoordToInch(el.x2, this.SLIDE_W) || this.SLIDE_W;
+            y2 = this.parseCoordToInch(el.y2, this.SLIDE_H) || y1;
+        }
 
         const lineColor = this.safeColor(el.stroke) || 'CCCCCC';
         const lineWidth = el.strokeWidth || 2;

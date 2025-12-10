@@ -466,6 +466,45 @@
     margin-left: 8px;
 }
 
+/* data-el group 展开/折叠样式 */
+.layer-group-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    cursor: pointer;
+    color: #9ca3af;
+    flex-shrink: 0;
+}
+
+.layer-group-toggle:hover {
+    color: #6b7280;
+}
+
+.layer-group-toggle .group-chevron {
+    font-size: 16px;
+    transition: transform 0.15s ease;
+}
+
+.layer-group-children {
+    overflow: hidden;
+    transition: max-height 0.2s ease;
+}
+
+.layer-group-children.collapsed {
+    max-height: 0 !important;
+    overflow: hidden;
+}
+
+.layer-group-children .layer-item {
+    border-left: 2px solid #e5e7eb;
+    margin-left: 4px;
+}
+
+.layer-group-children .layer-item:hover {
+    border-left-color: #bfdbfe;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    任务面板
    ═══════════════════════════════════════════════════════════════ */
