@@ -20,7 +20,7 @@ const PPTGeneratorExportFormats = {
 
         const EXPORT_WIDTH = 1920;
         const EXPORT_HEIGHT = 1080;
-        const EXPORT_SCALE = 1.5;
+        const EXPORT_SCALE = 2;  //  提高清晰度
         const CONCURRENCY = 3;  // 并发数
 
         const { jsPDF } = window.jspdf;
@@ -42,6 +42,13 @@ const PPTGeneratorExportFormats = {
                 const bgFill = this._getSlideBackground(slide);
                 const bgStyle = bgFill ? `background: ${bgFill};` : 'background: #ffffff;';
                 container.innerHTML = `<div style="width: 960px; height: 540px; overflow: hidden; ${bgStyle}">${renderer.render(slide, index)}</div>`;
+
+                // 确保所有 span 保持 inline 显示（避免 html2canvas 错误处理）
+                container.querySelectorAll('span').forEach(span => {
+                    if (!span.style.display) {
+                        span.style.display = 'inline';
+                    }
+                });
 
                 // 处理 mask 元素
                 const maskedElements = [...container.querySelectorAll('div > img')]

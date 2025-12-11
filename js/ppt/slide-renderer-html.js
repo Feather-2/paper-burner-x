@@ -255,7 +255,7 @@ class HTMLSlideRenderer {
                 justify-content: ${el.valign === 'middle' ? 'center' : 'flex-end'};
             `.replace(/\s+/g, ' ').trim();
             const innerStyle = `font-size: ${this.px(fontSizeVal)}px; color: ${el.color}; ${el.bold ? 'font-weight: 700;' : ''} ${el.italic ? 'font-style: italic;' : ''} ${textDecorationStyle} ${el.fontFamily ? `font-family: ${el.fontFamily};` : ''} ${el.letterSpacing ? `letter-spacing: ${this.formatCSSValue(el.letterSpacing)};` : ''} text-align: ${el.align || 'left'}; line-height: ${el.lineHeight || 1.4};`;
-            return `<div style="${wrapperStyle}"><div contenteditable="true" style="${innerStyle}">${el.content}</div></div>`;
+            return `<div style="${wrapperStyle}"><div contenteditable="true" style="${innerStyle}">${this._processRichText(el.content)}</div></div>`;
         }
 
         return `<div contenteditable="true" style="${textStyle}">${this._processRichText(el.content)}</div>`;
