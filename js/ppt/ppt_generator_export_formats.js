@@ -50,6 +50,17 @@ const PPTGeneratorExportFormats = {
                     }
                 });
 
+                // 处理半透明渐变形状：裁剪顶部边缘避免黑线（类似 PPTX 导出的处理）
+                container.querySelectorAll('div').forEach(div => {
+                    const bg = div.style.background || '';
+                    // 检测向上渐变且顶部透明的情况
+                    if (bg.includes('gradient') && bg.includes('to top') && 
+                        (bg.includes('transparent') || bg.includes('rgba(') || bg.includes(', 0)'))) {
+                        // 使用 clip-path 裁剪顶部 2% 去掉黑线伪影
+                        div.style.clipPath = 'inset(2% 0 0 0)';
+                    }
+                });
+
                 // 处理 mask 元素
                 const maskedElements = [...container.querySelectorAll('div > img')]
                     .map(img => img.parentElement)
