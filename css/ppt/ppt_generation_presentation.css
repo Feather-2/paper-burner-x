@@ -454,6 +454,10 @@
     width: 960px;
     height: 540px;
     overflow: hidden;
+    /* 保持字体渲染一致性 */
+    -webkit-font-smoothing: subpixel-antialiased;
+    -moz-osx-font-smoothing: auto;
+    text-rendering: optimizeLegibility;
 }
 
 .slideshow-slide .pres-slide-canvas,
@@ -467,35 +471,40 @@
 
 .slideshow-controls {
     position: absolute;
-    bottom: 24px;
+    bottom: 16px;
     left: 50%;
     transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(12px);
-    border-radius: 24px;
-    padding: 10px 24px;
+    background: rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(8px);
+    border-radius: 16px;
+    padding: 6px 16px;
     display: flex;
     align-items: center;
-    gap: 20px;
-    color: white;
-    font-size: 14px;
+    gap: 12px;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 12px;
     opacity: 0;
     transition: opacity 0.3s ease;
     z-index: 10;
 }
 
 .slideshow-overlay:hover .slideshow-controls {
+    opacity: 0.6;
+}
+
+.slideshow-overlay .slideshow-controls:hover {
     opacity: 1;
+    background: rgba(0, 0, 0, 0.6);
 }
 
 #slideshowPageInfo {
-    font-weight: 600;
+    font-weight: 500;
     font-variant-numeric: tabular-nums;
 }
 
 .slideshow-hint {
-    color: rgba(255, 255, 255, 0.6);
-    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 11px;
 }
 
 /* ==================== Outline View ==================== */

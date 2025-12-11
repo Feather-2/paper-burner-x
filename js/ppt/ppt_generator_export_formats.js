@@ -34,7 +34,7 @@ const PPTGeneratorExportFormats = {
         const renderSlide = async (index) => {
             const slide = this.slides[index];
             const container = document.createElement('div');
-            container.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 960px; height: 540px; z-index: -9999;';
+            container.style.cssText = 'position: fixed; left: -9999px; top: 0; width: 960px; height: 540px; z-index: -9999; -webkit-font-smoothing: subpixel-antialiased; text-rendering: optimizeLegibility;';
             document.body.appendChild(container);
             
             try {
