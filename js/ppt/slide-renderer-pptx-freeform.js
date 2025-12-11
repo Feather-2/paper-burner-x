@@ -5,7 +5,7 @@
  */
 
 const PPTXFreeformMixin = {
-    renderFreeform(slide, data) {
+    async renderFreeform(slide, data) {
         if (data.backgroundGradient) {
             const gradMatch = data.backgroundGradient.match(/linear-gradient\((\d+)deg,\s*([^,]+?)(?:\s+\d+%)?,\s*([^,)]+?)(?:\s+\d+%)?(?:,\s*([^)]+))?\)/);
             if (gradMatch) {
@@ -25,7 +25,9 @@ const PPTXFreeformMixin = {
             .map((el, i) => ({ ...el, _originalIndex: i }))
             .sort((a, b) => (a.z || 0) - (b.z || 0) || a._originalIndex - b._originalIndex);
 
-        elements.forEach(el => this.renderFreeformElementPPTX(slide, el));
+        for (const el of elements) {
+            await this.renderFreeformElementPPTX(slide, el);
+        }
     },
 
     parseCoordToInch(value, totalInch) {
@@ -38,7 +40,7 @@ const PPTXFreeformMixin = {
         return parseFloat(str) / this.styles.dimensions.pxPerInch || 0;
     },
 
-    renderFreeformElementPPTX(slide, el) {
+    async renderFreeformElementPPTX(slide, el) {
         const x = this.parseCoordToInch(el.x, this.SLIDE_W);
         const y = this.parseCoordToInch(el.y, this.SLIDE_H);
         const w = this.parseCoordToInch(el.w, this.SLIDE_W);
@@ -48,13 +50,13 @@ const PPTXFreeformMixin = {
             switch (el.type) {
                 case 'text': this.renderFreeformTextPPTX(slide, el, x, y, w, h); break;
                 case 'shape': this.renderFreeformShapePPTX(slide, el, x, y, w, h); break;
-                case 'image': this.renderFreeformImagePPTX(slide, el, x, y, w, h); break;
+                case 'image': await this.renderFreeformImagePPTX(slide, el, x, y, w, h); break;
                 case 'icon': this.renderFreeformIconPPTX(slide, el, x, y, w, h); break;
                 case 'line': this.renderFreeformLinePPTX(slide, el); break;
                 case 'chart': this.renderFreeformChartPPTX(slide, el, x, y, w, h); break;
                 case 'formula': this.renderFreeformFormulaPPTX(slide, el, x, y, w, h); break;
-                case 'group': this.renderFreeformGroupPPTX(slide, el, x, y, w, h); break;
-                case 'card': this.renderFreeformCardPPTX(slide, el, x, y, w, h); break;
+                case 'group': await this.renderFreeformGroupPPTX(slide, el, x, y, w, h); break;
+                case 'card': await this.renderFreeformCardPPTX(slide, el, x, y, w, h); break;
                 case 'svg': this.renderFreeformSvgPPTX(slide, el, x, y, w, h); break;
                 case 'table': this.renderFreeformTablePPTX(slide, el, x, y, w, h); break;
                 case 'list': this.renderFreeformListPPTX(slide, el, x, y, w, h); break;
@@ -206,7 +208,7 @@ const PPTXFreeformMixin = {
      * 渲染 group - 将子元素的相对坐标转换为幻灯片绝对坐标
      * Group 内的子元素坐标是相对于 group 容器的百分比
      */
-    renderFreeformGroupPPTX(slide, groupEl, groupX, groupY, groupW, groupH) {
+    async renderFreeformGroupPPTX(slide, groupEl, groupX, groupY, groupW, groupH) {
         const children = groupEl.children || [];
         if (!children.length) return;
 
@@ -216,7 +218,7 @@ const PPTXFreeformMixin = {
         const gw = groupW || this.SLIDE_W;
         const gh = groupH || this.SLIDE_H;
 
-        children.forEach(child => {
+        for (const child of children) {
             // 克隆子元素，计算绝对坐标
             const absChild = { ...child };
 
@@ -270,18 +272,18 @@ const PPTXFreeformMixin = {
 
             // 对于嵌套 group，递归处理
             if (child.type === 'group') {
-                this.renderFreeformGroupPPTX(slide, child, absChild.x, absChild.y, absChild.w, absChild.h);
+                await this.renderFreeformGroupPPTX(slide, child, absChild.x, absChild.y, absChild.w, absChild.h);
             } else {
                 // 直接渲染，使用已经计算好的绝对坐标
-                this.renderFreeformElementWithAbsCoords(slide, absChild);
+                await this.renderFreeformElementWithAbsCoords(slide, absChild);
             }
-        });
+        }
     },
 
     /**
      * 使用已计算的绝对坐标渲染元素（供 group 内部使用）
      */
-    renderFreeformElementWithAbsCoords(slide, el) {
+    async renderFreeformElementWithAbsCoords(slide, el) {
         const x = el.x;
         const y = el.y;
         const w = el.w;
@@ -291,12 +293,12 @@ const PPTXFreeformMixin = {
             switch (el.type) {
                 case 'text': this.renderFreeformTextPPTX(slide, el, x, y, w, h); break;
                 case 'shape': this.renderFreeformShapePPTX(slide, el, x, y, w, h); break;
-                case 'image': this.renderFreeformImagePPTX(slide, el, x, y, w, h); break;
+                case 'image': await this.renderFreeformImagePPTX(slide, el, x, y, w, h); break;
                 case 'icon': this.renderFreeformIconPPTX(slide, el, x, y, w, h); break;
                 case 'line': this.renderFreeformLinePPTX(slide, el); break;
                 case 'chart': this.renderFreeformChartPPTX(slide, el, x, y, w, h); break;
                 case 'formula': this.renderFreeformFormulaPPTX(slide, el, x, y, w, h); break;
-                case 'card': this.renderFreeformCardPPTX(slide, el, x, y, w, h); break;
+                case 'card': await this.renderFreeformCardPPTX(slide, el, x, y, w, h); break;
                 case 'svg': this.renderFreeformSvgPPTX(slide, el, x, y, w, h); break;
                 case 'table': this.renderFreeformTablePPTX(slide, el, x, y, w, h); break;
                 case 'list': this.renderFreeformListPPTX(slide, el, x, y, w, h); break;
@@ -349,13 +351,31 @@ const PPTXFreeformMixin = {
         catch (e) { console.warn('Failed to add shape:', e); }
     },
 
-    renderFreeformImagePPTX(slide, el, x, y, w, h) {
+    async renderFreeformImagePPTX(slide, el, x, y, w, h) {
         if (el.src) {
             try {
                 const fitMode = el.fit || 'cover';
-                // 缓存 key 包含 radius（如果有的话）
+                // 缓存 key 必须与 preloadImage 一致
                 const cacheKey = el.radius ? `${el.src}_r${el.radius}` : el.src;
-                const cached = this.imageCache && this.imageCache[cacheKey];
+                let cached = this.imageCache && this.imageCache[cacheKey];
+                
+                // 对于 data: URL 且有 radius 但没缓存的情况，实时处理圆角
+                const isDataUrl = el.src.startsWith('data:');
+                console.log('[renderImage] Check:', { isDataUrl, cached: !!cached, radius: el.radius, srcStart: el.src.slice(0, 30) });
+                
+                if (!cached && isDataUrl && el.radius && el.radius > 0) {
+                    console.log('[renderImage] Processing data: URL with radius:', el.radius);
+                    try {
+                        const dimensions = await this._getImageDimensions(el.src);
+                        console.log('[renderImage] Got dimensions:', dimensions);
+                        const processedData = await this._applyRoundedCorners(el.src, dimensions.width, dimensions.height, el.radius, el.w, el.h);
+                        cached = { data: processedData, width: dimensions.width, height: dimensions.height, ratio: dimensions.width / dimensions.height, hasRadius: true };
+                        this.imageCache[cacheKey] = cached;
+                        console.log('[renderImage] Applied radius to data: URL image, radius:', el.radius);
+                    } catch (err) {
+                        console.error('[renderImage] Failed to process radius:', err);
+                    }
+                }
                 
                 // 计算最终位置和尺寸
                 let finalX = x || 0, finalY = y || 0, finalW = w || 2, finalH = h;
@@ -405,11 +425,11 @@ const PPTXFreeformMixin = {
                 
                 const imgOptions = { x: finalX, y: finalY, w: finalW, h: finalH };
                 
-                // 设置图片数据
-                if (el.src.startsWith('data:')) {
-                    imgOptions.data = el.src;
-                } else if (cached) {
+                // 设置图片数据：优先使用处理过圆角的缓存数据
+                if (cached && cached.data) {
                     imgOptions.data = cached.data;
+                } else if (el.src.startsWith('data:')) {
+                    imgOptions.data = el.src;
                 } else {
                     imgOptions.path = el.src;
                 }

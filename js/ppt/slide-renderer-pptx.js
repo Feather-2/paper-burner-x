@@ -65,10 +65,11 @@ class PPTXSlideRenderer {
         pres.title = filename.replace('.pptx', '');
         pres.theme = { headFontFace: this.styles.fontFamily.pptx, bodyFontFace: this.styles.fontFamily.pptx };
 
-        slides.forEach((slideData, index) => {
+        for (let index = 0; index < slides.length; index++) {
+            const slideData = slides[index];
             console.log(`[PPTXSlideRenderer] Rendering slide ${index + 1}/${slides.length}: type="${slideData.type}"`);
-            this.renderSlide(pres, slideData);
-        });
+            await this.renderSlide(pres, slideData);
+        }
 
         console.log('[PPTXSlideRenderer] All slides rendered, writing file...');
         // 使用 blob 方式下载，确保文件名正确
@@ -96,10 +97,10 @@ class PPTXSlideRenderer {
         pres.title = filename.replace('.pptx', '');
         pres.theme = { headFontFace: this.styles.fontFamily.pptx, bodyFontFace: this.styles.fontFamily.pptx };
 
-        slides.forEach((slideData, index) => {
+        for (let index = 0; index < slides.length; index++) {
             this.currentSlideIndex = index;
-            this.renderSlide(pres, slideData);
-        });
+            await this.renderSlide(pres, slides[index]);
+        }
 
         const pptxBlob = await pres.write({ outputType: 'blob' });
 
@@ -326,7 +327,7 @@ class PPTXSlideRenderer {
     // 幻灯片分发
     // ═══════════════════════════════════════════════════════════════
 
-    renderSlide(pres, slideData) {
+    async renderSlide(pres, slideData) {
         const slide = pres.addSlide();
 
         try {
@@ -334,7 +335,7 @@ class PPTXSlideRenderer {
                 this.renderBakedImage(slide, slideData);
             } else {
                 // 统一使用 freeform 渲染
-                this.renderFreeform(slide, slideData);
+                await this.renderFreeform(slide, slideData);
             }
         } catch (e) {
             console.error(`Error rendering slide type "${slideData.type}":`, e);
@@ -654,7 +655,7 @@ class PPTXSlideRenderer {
         });
 
         if (imageInfos.length > 0) {
-            console.log(`[PPTXSlideRenderer] Preloading ${imageInfos.length} images...`);
+            console.log(`[PPTXSlideRenderer] Preloading ${imageInfos.length} images:`, imageInfos.map(i => ({ src: i.src.slice(-30), radius: i.radius, w: i.w, h: i.h })));
             await Promise.all(imageInfos.map(info => this.preloadImage(info.src, info.radius, info.w, info.h)));
         }
     }
@@ -667,24 +668,45 @@ class PPTXSlideRenderer {
         }
         
         console.log('[preloadImage] Loading:', src, radius ? `(radius: ${radius})` : '');
+        
+        // 尝试 fetch，如果失败则使用 Image 对象作为 fallback
+        let base64 = null;
+        let dimensions = null;
+        
         try {
             const response = await fetch(src);
-            if (!response.ok) {
-                console.warn('[preloadImage] Fetch failed:', src, response.status);
-                return null;
+            if (response.ok) {
+                const blob = await response.blob();
+                base64 = await this._blobToBase64(blob);
+                dimensions = await this._getImageDimensions(base64);
             }
-            const blob = await response.blob();
-            let base64 = await this._blobToBase64(blob);
-            
-            // 获取图片原始尺寸
-            const dimensions = await this._getImageDimensions(base64);
-            
-            // 如果有圆角，预处理图片
-            if (radius && radius > 0) {
-                base64 = await this._applyRoundedCorners(base64, dimensions.width, dimensions.height, radius, elW, elH);
-                console.log('[preloadImage] Applied rounded corners:', radius);
+        } catch (e) {
+            console.warn('[preloadImage] Fetch failed, trying Image fallback:', src);
+        }
+        
+        // Fallback: 使用 Image 对象加载（可绕过部分 CORS 限制）
+        if (!base64) {
+            try {
+                const result = await this._loadImageViaElement(src);
+                base64 = result.data;
+                dimensions = { width: result.width, height: result.height };
+                console.log('[preloadImage] Loaded via Image element:', src);
+            } catch (e) {
+                console.warn('[preloadImage] Image fallback also failed, generating placeholder:', src);
+                // 生成占位图
+                const placeholder = this._generatePlaceholderImage(400, 300, 'Image Load Failed');
+                base64 = placeholder.data;
+                dimensions = { width: placeholder.width, height: placeholder.height };
             }
-            
+        }
+        
+        // 如果有圆角，预处理图片
+        if (radius && radius > 0 && base64 && dimensions) {
+            base64 = await this._applyRoundedCorners(base64, dimensions.width, dimensions.height, radius, elW, elH);
+            console.log('[preloadImage] Applied rounded corners:', radius);
+        }
+        
+        if (base64 && dimensions) {
             this.imageCache[cacheKey] = {
                 data: base64,
                 width: dimensions.width,
@@ -694,10 +716,49 @@ class PPTXSlideRenderer {
             };
             console.log('[preloadImage] Cached:', cacheKey, dimensions.width, 'x', dimensions.height);
             return this.imageCache[cacheKey];
-        } catch (e) {
-            console.warn('[preloadImage] Failed:', src, e);
-            return null;
         }
+        
+        return null;
+    }
+    
+    /**
+     * 使用 Image 元素加载图片并转为 base64
+     * 先尝试带 crossOrigin，失败则尝试不带（只能获取尺寸）
+     */
+    async _loadImageViaElement(src) {
+        // 先尝试带 crossOrigin 的方式（可以读取像素）
+        try {
+            const result = await this._loadImageWithCORS(src);
+            return result;
+        } catch (e) {
+            console.warn('[_loadImageViaElement] CORS load failed, trying without CORS:', e.message);
+        }
+        
+        // Fallback: 不带 crossOrigin，只能获取尺寸，无法读取像素
+        // 此时需要通过代理或其他方式获取图片数据
+        throw new Error('Cannot load image with CORS support');
+    }
+    
+    async _loadImageWithCORS(src) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.naturalWidth;
+                    canvas.height = img.naturalHeight;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    const data = canvas.toDataURL('image/png');
+                    resolve({ data, width: img.naturalWidth, height: img.naturalHeight });
+                } catch (e) {
+                    reject(e);
+                }
+            };
+            img.onerror = () => reject(new Error('Image load failed'));
+            img.src = src;
+        });
     }
 
     /**
@@ -722,12 +783,15 @@ class PPTXSlideRenderer {
                 // DSL 中的 radius 是相对于元素显示尺寸的，需要按比例缩放到图片实际像素
                 let scaledRadius = radius;
                 if (elW && elH) {
-                    // 假设元素宽度占幻灯片 40%，幻灯片宽 960px，则元素宽 384px
-                    // 图片实际宽度可能是 800px，所以 radius 需要按比例放大
                     const elWidthPx = this._parseSizeToPixels(elW, false) || 384;
                     const scale = imgW / elWidthPx;
                     scaledRadius = Math.round(radius * scale);
                 }
+                
+                // 确保 scaledRadius 不会超过图片尺寸的一半
+                scaledRadius = Math.min(scaledRadius, imgW / 2, imgH / 2);
+                
+                console.log('[_applyRoundedCorners] imgW:', imgW, 'imgH:', imgH, 'radius:', radius, 'elW:', elW, 'scaledRadius:', scaledRadius);
                 
                 // 绘制圆角矩形路径
                 ctx.beginPath();
@@ -769,6 +833,46 @@ class PPTXSlideRenderer {
             img.onerror = () => resolve({ width: 100, height: 100 });
             img.src = base64;
         });
+    }
+
+    _generatePlaceholderImage(width, height, text = 'Image') {
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        
+        // 浅灰色背景
+        ctx.fillStyle = '#f1f5f9';
+        ctx.fillRect(0, 0, width, height);
+        
+        // 边框
+        ctx.strokeStyle = '#cbd5e1';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(1, 1, width - 2, height - 2);
+        
+        // 图标（简单的图片图标）
+        ctx.strokeStyle = '#94a3b8';
+        ctx.lineWidth = 3;
+        const iconSize = Math.min(width, height) * 0.2;
+        const iconX = (width - iconSize) / 2;
+        const iconY = (height - iconSize) / 2 - 15;
+        ctx.strokeRect(iconX, iconY, iconSize, iconSize * 0.8);
+        // 山形
+        ctx.beginPath();
+        ctx.moveTo(iconX + 5, iconY + iconSize * 0.7);
+        ctx.lineTo(iconX + iconSize * 0.4, iconY + iconSize * 0.4);
+        ctx.lineTo(iconX + iconSize * 0.6, iconY + iconSize * 0.55);
+        ctx.lineTo(iconX + iconSize - 5, iconY + iconSize * 0.3);
+        ctx.stroke();
+        
+        // 文字
+        ctx.fillStyle = '#64748b';
+        ctx.font = `${Math.min(16, width / 20)}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, width / 2, height / 2 + iconSize * 0.5);
+        
+        return { data: canvas.toDataURL('image/png'), width, height };
     }
 
     async preloadAllFormulas(slides) {
