@@ -637,13 +637,13 @@ class PPTXSlideRenderer {
 
     async preloadAllImages(slides) {
         if (!this.imageCache) this.imageCache = {};
-        const imagePromises = [];
+        const imageInfos = []; // { src, radius, w, h }
 
         const collectImages = (elements) => {
             if (!elements) return;
             elements.forEach(el => {
                 if (el.type === 'image' && el.src && !el.src.startsWith('data:')) {
-                    imagePromises.push(this.preloadImage(el.src));
+                    imageInfos.push({ src: el.src, radius: el.radius, w: el.w, h: el.h });
                 }
                 if (el.children) collectImages(el.children);
             });
@@ -653,18 +653,20 @@ class PPTXSlideRenderer {
             if (slide.type === 'freeform' && slide.elements) collectImages(slide.elements);
         });
 
-        if (imagePromises.length > 0) {
-            console.log(`[PPTXSlideRenderer] Preloading ${imagePromises.length} images...`);
-            await Promise.all(imagePromises);
+        if (imageInfos.length > 0) {
+            console.log(`[PPTXSlideRenderer] Preloading ${imageInfos.length} images...`);
+            await Promise.all(imageInfos.map(info => this.preloadImage(info.src, info.radius, info.w, info.h)));
         }
     }
 
-    async preloadImage(src) {
-        if (this.imageCache[src]) {
-            return this.imageCache[src];
+    async preloadImage(src, radius = 0, elW = null, elH = null) {
+        // 缓存 key 包含 radius，因为同一图片可能有不同圆角
+        const cacheKey = radius ? `${src}_r${radius}` : src;
+        if (this.imageCache[cacheKey]) {
+            return this.imageCache[cacheKey];
         }
         
-        console.log('[preloadImage] Loading:', src);
+        console.log('[preloadImage] Loading:', src, radius ? `(radius: ${radius})` : '');
         try {
             const response = await fetch(src);
             if (!response.ok) {
@@ -672,23 +674,83 @@ class PPTXSlideRenderer {
                 return null;
             }
             const blob = await response.blob();
-            const base64 = await this._blobToBase64(blob);
+            let base64 = await this._blobToBase64(blob);
             
             // 获取图片原始尺寸
             const dimensions = await this._getImageDimensions(base64);
             
-            this.imageCache[src] = {
+            // 如果有圆角，预处理图片
+            if (radius && radius > 0) {
+                base64 = await this._applyRoundedCorners(base64, dimensions.width, dimensions.height, radius, elW, elH);
+                console.log('[preloadImage] Applied rounded corners:', radius);
+            }
+            
+            this.imageCache[cacheKey] = {
                 data: base64,
                 width: dimensions.width,
                 height: dimensions.height,
-                ratio: dimensions.width / dimensions.height
+                ratio: dimensions.width / dimensions.height,
+                hasRadius: !!radius
             };
-            console.log('[preloadImage] Cached:', src, dimensions.width, 'x', dimensions.height);
-            return this.imageCache[src];
+            console.log('[preloadImage] Cached:', cacheKey, dimensions.width, 'x', dimensions.height);
+            return this.imageCache[cacheKey];
         } catch (e) {
             console.warn('[preloadImage] Failed:', src, e);
             return null;
         }
+    }
+
+    /**
+     * 使用 Canvas 给图片添加圆角蒙版
+     * @param {string} base64 - 原始图片 base64
+     * @param {number} imgW - 图片原始宽度
+     * @param {number} imgH - 图片原始高度
+     * @param {number} radius - CSS 圆角值 (px)
+     * @param {string} elW - 元素宽度 (如 "40%")
+     * @param {string} elH - 元素高度 (如 "70%")
+     */
+    async _applyRoundedCorners(base64, imgW, imgH, radius, elW, elH) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = imgW;
+                canvas.height = imgH;
+                const ctx = canvas.getContext('2d');
+                
+                // 计算实际圆角值（基于元素尺寸和图片尺寸的比例）
+                // DSL 中的 radius 是相对于元素显示尺寸的，需要按比例缩放到图片实际像素
+                let scaledRadius = radius;
+                if (elW && elH) {
+                    // 假设元素宽度占幻灯片 40%，幻灯片宽 960px，则元素宽 384px
+                    // 图片实际宽度可能是 800px，所以 radius 需要按比例放大
+                    const elWidthPx = this._parseSizeToPixels(elW, false) || 384;
+                    const scale = imgW / elWidthPx;
+                    scaledRadius = Math.round(radius * scale);
+                }
+                
+                // 绘制圆角矩形路径
+                ctx.beginPath();
+                ctx.moveTo(scaledRadius, 0);
+                ctx.lineTo(imgW - scaledRadius, 0);
+                ctx.quadraticCurveTo(imgW, 0, imgW, scaledRadius);
+                ctx.lineTo(imgW, imgH - scaledRadius);
+                ctx.quadraticCurveTo(imgW, imgH, imgW - scaledRadius, imgH);
+                ctx.lineTo(scaledRadius, imgH);
+                ctx.quadraticCurveTo(0, imgH, 0, imgH - scaledRadius);
+                ctx.lineTo(0, scaledRadius);
+                ctx.quadraticCurveTo(0, 0, scaledRadius, 0);
+                ctx.closePath();
+                ctx.clip();
+                
+                // 绘制图片
+                ctx.drawImage(img, 0, 0, imgW, imgH);
+                
+                resolve(canvas.toDataURL('image/png'));
+            };
+            img.onerror = () => resolve(base64); // 失败时返回原图
+            img.src = base64;
+        });
     }
 
     _blobToBase64(blob) {

@@ -122,9 +122,12 @@ class HTMLSlideRenderer {
         let w = this.formatCSSValue(el.w);
         let h = this.formatCSSValue(el.h);
 
-        // 圆形特殊处理：如果高度为 auto，使用宽度值保持正圆
+        // 圆形特殊处理：如果高度为 auto，使用宽度的像素值保持正圆
+        // 注意：不能直接用 h = w，因为百分比是相对于不同的基准（宽度 vs 高度）
         if (el.type === 'shape' && el.shape === 'circle' && h === 'auto') {
-            h = w;
+            // 将宽度转换为像素值，然后用于高度
+            const wPx = this.parseCoord(el.w, containerW);
+            h = wPx + 'px';
         }
 
         // 对于公式元素，如果没有指定宽度，根据 x 位置计算合适的宽度以支持居中对齐

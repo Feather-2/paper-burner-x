@@ -69,42 +69,41 @@ const PPTXFreeformMixin = {
 
     renderFreeformTextPPTX(slide, el, x, y, w, h) {
         const fontSizePx = el.font || 18;
-        // px→pt: 理论值 0.75，但实际视觉效果需要 ~0.82 才能匹配
-        const fontSize = Math.round(fontSizePx * 0.82);
+        // px→pt: 标准转换 0.75，之前用 0.82 导致文字过大引起换行
+        // 使用 0.75 可以更好地匹配 HTML 预览中的文字宽度
+        const fontSize = Math.round(fontSizePx * 0.75);
+        const defaultColor = this.safeColor(el.color) || '333333';
 
-        let textContent = (el.content || '')
-            .replace(/\r?\n/g, ' ')
-            .replace(/<br\s*\/?>/gi, '\n')
-            .replace(/<\/?(strong|b|em|i)>/gi, '')
-            .replace(/<[^>]+>/g, '')
-            .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-            .replace(/[ \t]+/g, ' ').replace(/ ?\n ?/g, '\n').trim();
+        // 解析富文本（支持 <span style="color:xxx"> 等）
+        const textRuns = this._parseRichTextToRuns(el.content || '', {
+            fontSize,
+            fontFace: el.fontFamily || this.fontFace,
+            color: defaultColor,
+            bold: el.bold || false,
+            italic: el.italic || false,
+        });
 
-        const lineCount = (textContent.match(/\n/g) || []).length + 1;
+        // 计算高度
+        const plainText = textRuns.map(r => r.text).join('');
+        const lineCount = (plainText.match(/\n/g) || []).length + 1;
         const estimatedHeight = (fontSize / 72) * lineCount * 1.5;
 
         const textOptions = {
             x: x || 0, y: y || 0, w: w || 2, h: h || Math.max(estimatedHeight, 0.4),
-            fontSize, fontFace: el.fontFamily || this.fontFace,
-            color: this.safeColor(el.color) || '333333',
-            bold: el.bold || false, italic: el.italic || false,
             align: el.align || 'left',
             valign: el.valign === 'middle' ? 'middle' : el.valign === 'bottom' ? 'bottom' : 'top',
         };
 
-        // 文字装饰
-        if (el.underline) textOptions.underline = { style: 'sng' }; // single underline
-        if (el.strike) textOptions.strike = 'sngStrike'; // single strikethrough
+        // 文字装饰（应用到所有 runs）
+        if (el.underline) textRuns.forEach(r => r.options.underline = { style: 'sng' });
+        if (el.strike) textRuns.forEach(r => r.options.strike = 'sngStrike');
+        if (el.superscript) textRuns.forEach(r => r.options.superscript = true);
+        if (el.subscript) textRuns.forEach(r => r.options.subscript = true);
         
-        // 上标/下标
-        if (el.superscript) textOptions.superscript = true;
-        if (el.subscript) textOptions.subscript = true;
-        
-        // 字符间距 (PptxGenJS 使用 charSpacing，单位是 1/100 em)
+        // 字符间距 (px → pt，系数 0.75)
         if (el.letterSpacing) {
             const spacing = typeof el.letterSpacing === 'number' ? el.letterSpacing : parseFloat(el.letterSpacing) || 0;
-            if (spacing) textOptions.charSpacing = spacing * 6; // 大约转换
+            if (spacing) textRuns.forEach(r => r.options.charSpacing = spacing * 0.75);
         }
 
         if (el.rotate) textOptions.rotate = el.rotate;
@@ -114,8 +113,93 @@ const PPTXFreeformMixin = {
             if (bgColor) textOptions.fill = { color: bgColor };
         }
 
-        try { this.addText(slide, textContent, textOptions); }
+        try { this.addText(slide, textRuns, textOptions); }
         catch (e) { console.warn('Failed to add text:', e); }
+    },
+
+    /**
+     * 解析 HTML 富文本为 PptxGenJS text runs 格式
+     * 支持 <span style="color:xxx">, <b>, <strong>, <i>, <em>, <br>
+     */
+    _parseRichTextToRuns(html, defaultOpts) {
+        const runs = [];
+        const { fontSize, fontFace, color, bold, italic } = defaultOpts;
+
+        // 预处理：统一换行
+        let content = (html || '')
+            .replace(/\r?\n/g, ' ')
+            .replace(/<br\s*\/?>/gi, '\n');
+
+        // 正则匹配 span/b/strong/i/em 标签
+        const tagRegex = /<(span|b|strong|i|em)([^>]*)>(.*?)<\/\1>/gi;
+        let lastIndex = 0;
+        let match;
+
+        while ((match = tagRegex.exec(content)) !== null) {
+            // 添加标签前的普通文本
+            if (match.index > lastIndex) {
+                const text = this._cleanTextContent(content.slice(lastIndex, match.index));
+                if (text) {
+                    runs.push({ text, options: { fontSize, fontFace, color, bold, italic } });
+                }
+            }
+
+            const tagName = match[1].toLowerCase();
+            const attrs = match[2];
+            const innerText = this._cleanTextContent(match[3]);
+
+            if (innerText) {
+                const runOpts = { fontSize, fontFace, color, bold, italic };
+
+                // 解析 style 属性中的 color
+                const colorMatch = attrs.match(/style\s*=\s*["'][^"']*color\s*:\s*([^;"']+)/i);
+                if (colorMatch) {
+                    runOpts.color = this.safeColor(colorMatch[1].trim()) || color;
+                }
+
+                // 处理粗体/斜体标签
+                if (tagName === 'b' || tagName === 'strong') runOpts.bold = true;
+                if (tagName === 'i' || tagName === 'em') runOpts.italic = true;
+
+                runs.push({ text: innerText, options: runOpts });
+            }
+
+            lastIndex = tagRegex.lastIndex;
+        }
+
+        // 添加剩余文本
+        if (lastIndex < content.length) {
+            const text = this._cleanTextContent(content.slice(lastIndex));
+            if (text) {
+                runs.push({ text, options: { fontSize, fontFace, color, bold, italic } });
+            }
+        }
+
+        // 如果没有解析出任何 runs，返回整个文本作为单个 run
+        if (runs.length === 0) {
+            const text = this._cleanTextContent(content);
+            if (text) {
+                runs.push({ text, options: { fontSize, fontFace, color, bold, italic } });
+            }
+        }
+
+        return runs;
+    },
+
+    /**
+     * 清理文本内容：移除剩余 HTML 标签，解码实体
+     */
+    _cleanTextContent(text) {
+        return (text || '')
+            .replace(/<[^>]+>/g, '')  // 移除剩余 HTML 标签
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/[ \t]+/g, ' ')
+            .trim();
     },
 
     /**
@@ -143,18 +227,28 @@ const PPTXFreeformMixin = {
             let childW = this.parseCoordToInch(child.w, gw);
             let childH = this.parseCoordToInch(child.h, gh);
 
-            // 圆形特殊处理：确保宽高相等
-            const isCircle = child.type === 'shape' && (child.shape === 'circle' || child.shapeType === 'circle');
-            if (isCircle) {
-                // 如果 h 是 auto 或 0，使用 w 作为高度
-                if (!childH || child.h === 'auto') {
-                    childH = childW;
-                }
-                // 取宽高中较小的值，确保是正圆
-                const size = Math.min(childW, childH);
-                childW = size;
-                childH = size;
+            // icon 元素特殊处理：使用 size 作为尺寸
+            if (child.type === 'icon') {
+                const iconSize = (child.size || 24) / this.styles.dimensions.pxPerInch;
+                childW = iconSize;
+                childH = iconSize;
             }
+            
+            // text 元素 h=auto 处理：估算高度
+            if (child.type === 'text' && (child.h === 'auto' || childH === null)) {
+                const fontSizePx = child.font || 18;
+                const fontSize = Math.round(fontSizePx * 0.75);
+                const lineCount = ((child.content || '').match(/\n/g) || []).length + 1;
+                childH = (fontSize / 72) * lineCount * 1.5;
+            }
+
+            // 圆形/椭圆处理：只有当 h 为 auto 或未指定时才强制正圆
+            const isCircle = child.type === 'shape' && (child.shape === 'circle' || child.shapeType === 'circle');
+            if (isCircle && (child.h === 'auto' || child.h === undefined || child.h === null)) {
+                // h 为 auto 时，使用 w 作为高度（正圆）
+                childH = childW;
+            }
+            // 否则保持原始宽高比（允许椭圆）
 
             // SVG 特殊处理已移到 renderFreeformSvgPPTX 内部处理
 
@@ -223,14 +317,15 @@ const PPTXFreeformMixin = {
             shapeType = 'roundRect';
         }
 
-        // 圆形特殊处理：确保宽高相等
+        // 圆形/椭圆处理：只有当 h 为 auto 或未指定时才强制正圆
+        // 否则保持原始宽高比（允许椭圆）
         let finalW = w || 1;
         let finalH = h || 1;
-        if (el.shape === 'circle') {
-            const size = Math.min(finalW, finalH) || finalW || finalH;
-            finalW = size;
-            finalH = size;
+        if (el.shape === 'circle' && (el.h === 'auto' || el.h === undefined || el.h === null)) {
+            // h 为 auto 时，使用 w 作为宽高（正圆）
+            finalH = finalW;
         }
+        // 注意：shapeType 已经是 'ellipse'，PPTX 的 ellipse 支持宽高不等
 
         const shapeOptions = {
             x: x || 0, y: y || 0, w: finalW, h: finalH,
@@ -244,6 +339,11 @@ const PPTXFreeformMixin = {
         if (shapeType === 'roundRect' && el.radius) shapeOptions.rectRadius = el.radius / 96;
         if (el.opacity !== undefined && el.opacity < 1) shapeOptions.fill.transparency = Math.round((1 - el.opacity) * 100);
         if (el.rotate) shapeOptions.rotate = el.rotate;
+        
+        // 阴影效果
+        if (el.effect && el.effect.includes('shadow')) {
+            shapeOptions.shadow = this._getShadowOptions(el.effect);
+        }
 
         try { slide.addShape(shapeType, shapeOptions); }
         catch (e) { console.warn('Failed to add shape:', e); }
@@ -253,28 +353,54 @@ const PPTXFreeformMixin = {
         if (el.src) {
             try {
                 const fitMode = el.fit || 'cover';
-                const cached = this.imageCache && this.imageCache[el.src];
+                // 缓存 key 包含 radius（如果有的话）
+                const cacheKey = el.radius ? `${el.src}_r${el.radius}` : el.src;
+                const cached = this.imageCache && this.imageCache[cacheKey];
                 
                 // 计算最终位置和尺寸
-                let finalX = x || 0, finalY = y || 0, finalW = w || 2, finalH = h || 2;
+                let finalX = x || 0, finalY = y || 0, finalW = w || 2, finalH = h;
                 
-                // 如果是 contain 模式且有缓存的尺寸信息，手动计算居中位置
-                if (fitMode === 'contain' && cached && cached.ratio) {
-                    const containerRatio = (w || 2) / (h || 2);
+                // 处理 h="auto"：根据图片比例计算高度
+                if (finalH === null || finalH === undefined) {
+                    if (cached && cached.ratio) {
+                        // 使用图片原始比例
+                        finalH = finalW / cached.ratio;
+                        console.log('[renderImage] Auto height:', el.src, 'w:', finalW.toFixed(2), '→ h:', finalH.toFixed(2));
+                    } else {
+                        // 没有缓存，假设正方形
+                        finalH = finalW;
+                    }
+                }
+                
+                // 根据 fit 模式处理图片比例
+                if (cached && cached.ratio) {
+                    const containerRatio = finalW / finalH;
                     const imgRatio = cached.ratio;
                     
-                    if (imgRatio > containerRatio) {
-                        // 图片更宽，以宽度为准
-                        finalW = w || 2;
-                        finalH = finalW / imgRatio;
-                        finalY = (y || 0) + ((h || 2) - finalH) / 2;
+                    if (fitMode === 'contain') {
+                        // contain: 图片完整显示，可能有空白
+                        if (imgRatio > containerRatio) {
+                            const newH = finalW / imgRatio;
+                            finalY = finalY + (finalH - newH) / 2;
+                            finalH = newH;
+                        } else {
+                            const newW = finalH * imgRatio;
+                            finalX = finalX + (finalW - newW) / 2;
+                            finalW = newW;
+                        }
                     } else {
-                        // 图片更高，以高度为准
-                        finalH = h || 2;
-                        finalW = finalH * imgRatio;
-                        finalX = (x || 0) + ((w || 2) - finalW) / 2;
+                        // cover: 填满容器，保持比例（PPTX 不支持裁剪，所以也用 contain 逻辑保持比例）
+                        if (imgRatio > containerRatio) {
+                            const newH = finalW / imgRatio;
+                            finalY = finalY + (finalH - newH) / 2;
+                            finalH = newH;
+                        } else {
+                            const newW = finalH * imgRatio;
+                            finalX = finalX + (finalW - newW) / 2;
+                            finalW = newW;
+                        }
                     }
-                    console.log('[renderImage] Contain calc:', el.src, 'ratio:', imgRatio.toFixed(2), '→', finalW.toFixed(2), 'x', finalH.toFixed(2));
+                    console.log(`[renderImage] ${fitMode} calc:`, el.src, 'ratio:', imgRatio.toFixed(2), '→', finalW.toFixed(2), 'x', finalH.toFixed(2));
                 }
                 
                 const imgOptions = { x: finalX, y: finalY, w: finalW, h: finalH };
@@ -289,7 +415,23 @@ const PPTXFreeformMixin = {
                 }
                 
                 if (el.rotate) imgOptions.rotate = el.rotate;
-                if (el.radius) imgOptions.rounding = true;
+                
+                // 圆角处理：
+                // - radius 足够大（>= 宽度的一半）时，使用 PptxGenJS 的 rounding:true 显示圆形
+                // - 其他情况通过预处理图片添加圆角蒙版（已在 preloadImage 中处理）
+                if (el.radius) {
+                    const minSize = Math.min(finalW, finalH) * this.styles.dimensions.pxPerInch;
+                    const isCircle = el.radius >= minSize / 2;
+                    if (isCircle) {
+                        imgOptions.rounding = true;
+                    }
+                    // 非圆形的圆角效果已通过 _applyRoundedCorners 预处理
+                }
+                
+                // 阴影效果
+                if (el.effect && el.effect.includes('shadow')) {
+                    imgOptions.shadow = this._getShadowOptions(el.effect);
+                }
                 
                 slide.addImage(imgOptions);
             } catch (e) { this.addImagePlaceholder(slide, x, y, w, h, el.alt); }
@@ -312,14 +454,20 @@ const PPTXFreeformMixin = {
         const color = this.safeColor(el.color) || '333333';
         const iconKey = `${el.icon}_${color}`;
 
+        // 位置：使用传入的坐标（可能是 0）
+        const posX = (x !== undefined && x !== null) ? x : 0;
+        const posY = (y !== undefined && y !== null) ? y : 0;
+
+
         if (this.iconCache && this.iconCache[iconKey]) {
-            slide.addImage({ data: this.iconCache[iconKey], x: x || 0, y: y || 0, w: iconSize, h: iconSize });
+            slide.addImage({ data: this.iconCache[iconKey], x: posX, y: posY, w: iconSize, h: iconSize });
             return;
         }
 
+        // fallback: 使用 emoji 文本
         const emoji = this.getIconEmoji(el.icon);
         this.addText(slide, emoji, {
-            x: x || 0, y: y || 0, w: iconSize * 2, h: iconSize * 2,
+            x: posX, y: posY, w: iconSize, h: iconSize,
             fontSize: el.size || 24, color, align: 'center', valign: 'middle',
         });
     },
@@ -470,6 +618,10 @@ const PPTXFreeformMixin = {
             line: el.stroke ? { color: this.safeColor(el.stroke) || 'E2E8F0', width: el.strokeWidth || 1 } : { color: 'FFFFFF', transparency: 100 },
         };
         if (radius > 0) bgOptions.rectRadius = radius;
+        // 阴影效果
+        if (el.effect && el.effect.includes('shadow')) {
+            bgOptions.shadow = this._getShadowOptions(el.effect);
+        }
         try { slide.addShape(radius > 0 ? 'roundRect' : 'rect', bgOptions); }
         catch (e) { console.warn('Failed to add card background:', e); }
 
@@ -518,15 +670,23 @@ const PPTXFreeformMixin = {
 
     _renderHorizontalCard(slide, el, innerX, innerY, innerW, innerH, iconSize, iconBgSize, gap, titleSize, subtitleSize, layout) {
         const isIconRight = layout === 'icon-right';
-        const iconAreaW = el.icon ? iconBgSize + gap : 0;
+        
+        // 对于小卡片（宽度<1英寸），使用更紧凑的布局
+        const isSmallCard = innerW < 1;
+        const actualIconSize = isSmallCard ? iconSize * 0.8 : iconSize;
+        const actualIconBgSize = isSmallCard ? actualIconSize : iconBgSize;
+        const actualGap = isSmallCard ? gap * 0.5 : gap;
+        
+        const iconAreaW = el.icon ? actualIconBgSize + actualGap : 0;
         const textAreaW = innerW - iconAreaW;
         const textX = isIconRight ? innerX : innerX + iconAreaW;
-        const iconX = isIconRight ? innerX + textAreaW + gap : innerX;
+        const iconX = isIconRight ? innerX + textAreaW + actualGap : innerX;
 
-        if (el.icon && el.iconBg) {
+        // 图标背景（小卡片不显示背景）
+        if (el.icon && el.iconBg && !isSmallCard) {
             slide.addShape('roundRect', {
-                x: iconX, y: innerY + (innerH - iconBgSize) / 2, w: iconBgSize, h: iconBgSize,
-                fill: { color: this.safeColor(el.iconBg) }, line: { color: 'FFFFFF', transparency: 100 }, rectRadius: iconBgSize / 3, // 与 HTML 一致
+                x: iconX, y: innerY + (innerH - actualIconBgSize) / 2, w: actualIconBgSize, h: actualIconBgSize,
+                fill: { color: this.safeColor(el.iconBg) }, line: { color: 'FFFFFF', transparency: 100 }, rectRadius: actualIconBgSize / 3,
             });
         }
 
@@ -534,21 +694,22 @@ const PPTXFreeformMixin = {
             const iconColor = this.safeColor(el.iconColor) || '4f46e5';
             const iconKey = `${el.icon}_${iconColor}`;
             if (this.iconCache && this.iconCache[iconKey]) {
-                slide.addImage({ data: this.iconCache[iconKey], x: iconX + (iconBgSize - iconSize) / 2, y: innerY + (innerH - iconSize) / 2, w: iconSize, h: iconSize });
+                slide.addImage({ data: this.iconCache[iconKey], x: iconX + (actualIconBgSize - actualIconSize) / 2, y: innerY + (innerH - actualIconSize) / 2, w: actualIconSize, h: actualIconSize });
             } else {
-                this.addText(slide, this.getIconEmoji(el.icon), { x: iconX, y: innerY, w: iconBgSize, h: innerH, fontSize: Math.round(el.iconSize || 24), color: iconColor, align: 'center', valign: 'middle' });
+                this.addText(slide, this.getIconEmoji(el.icon), { x: iconX, y: innerY, w: actualIconBgSize, h: innerH, fontSize: Math.round((el.iconSize || 24) * (isSmallCard ? 0.8 : 1)), color: iconColor, align: 'center', valign: 'middle' });
             }
         }
 
         const hasSubtitle = !!el.subtitle;
         const titleLineH = titleSize / 72 * 1.3;
         const subtitleLineH = subtitleSize / 72 * 1.3;
-        const textGap = hasSubtitle ? 4 / this.styles.dimensions.pxPerInch : 0; // 4px，与 HTML 一致
+        const textGap = hasSubtitle ? 4 / this.styles.dimensions.pxPerInch : 0;
         const totalTextH = titleLineH + (hasSubtitle ? textGap + subtitleLineH : 0);
         const textStartY = innerY + (innerH - totalTextH) / 2;
 
-        if (el.title) this.addText(slide, el.title, { x: textX, y: textStartY, w: textAreaW - gap, h: titleLineH, fontSize: titleSize, color: this.safeColor(el.titleColor) || '1f2937', bold: el.titleBold !== false, align: 'left', valign: 'middle' });
-        if (el.subtitle) this.addText(slide, el.subtitle, { x: textX, y: textStartY + titleLineH + textGap, w: textAreaW - gap, h: subtitleLineH, fontSize: subtitleSize, color: this.safeColor(el.subtitleColor) || '6b7280', align: 'left', valign: 'middle' });
+        // 文字使用整个文字区域宽度，允许换行
+        if (el.title) this.addText(slide, el.title, { x: textX, y: innerY, w: textAreaW, h: innerH, fontSize: titleSize, color: this.safeColor(el.titleColor) || '1f2937', bold: el.titleBold !== false, align: 'left', valign: 'middle' });
+        if (el.subtitle) this.addText(slide, el.subtitle, { x: textX, y: textStartY + titleLineH + textGap, w: textAreaW, h: subtitleLineH, fontSize: subtitleSize, color: this.safeColor(el.subtitleColor) || '6b7280', align: 'left', valign: 'middle' });
     },
 
     renderFreeformSvgPPTX(slide, el, x, y, w, h) {
@@ -610,42 +771,42 @@ const PPTXFreeformMixin = {
             }
             
             // 2. 渲染文字层（原生可编辑文字）
+            // 注意：xPct/yPct 在预加载时已经包含了 viewBox 居中偏移
+            // 所以这里使用原始容器尺寸（x, y, origW, origH），不使用调整后的尺寸
             if (textElements && textElements.length > 0) {
-                const containerX = finalX;
-                const containerY = finalY;
-                const containerW = finalW;
-                const containerH = finalH;
+                const containerX = x || 0;
+                const containerY = y || 0;
+                const containerW = origW;
+                const containerH = origH;
                 
                 textElements.forEach(txt => {
-                    // PPTX 字号 pt（0.82 匹配 HTML 视觉效果）
-                    const fontPt = Math.round(txt.fontSize * 0.82);
+                    // PPTX 字号 pt（标准 0.75 转换）
+                    const fontPt = Math.round(txt.fontSize * 0.75);
                     
-                    // 使用精确测量的边界框位置
-                    let textX = containerX + txt.xPct * containerW;
+                    // 文字在容器内的绝对位置
+                    const textX = containerX + txt.xPct * containerW;
                     const textY = containerY + txt.yPct * containerH;
                     const textH = txt.hPct ? txt.hPct * containerH : 0.3;
                     
-                    // 估算文字宽度（基于字号和字符数）
-                    const estCharWidth = fontPt * 0.02;  // 英寸每字符
-                    const estTextW = txt.text.length * estCharWidth + 0.1;
+                    // 固定文字框宽度 1.5 英寸（足够容纳大部分文字）
+                    const textBoxW = 1.5;
                     
-                    // 根据 text-anchor 设置对齐和调整位置
+                    // 根据 text-anchor 计算文字框位置
                     let align = 'left';
                     let finalX = textX;
-                    let finalW = estTextW;
                     
                     if (txt.textAnchor === 'middle') {
                         align = 'center';
-                        finalX = textX - estTextW / 2;  // 文字框向左移动半个宽度
+                        finalX = textX - textBoxW / 2;
                     } else if (txt.textAnchor === 'end') {
                         align = 'right';
-                        finalX = textX - estTextW;  // 文字框向左移动整个宽度
+                        finalX = textX - textBoxW;
                     }
                     
                     this.addText(slide, txt.text, {
                         x: finalX,
                         y: textY,
-                        w: finalW,
+                        w: textBoxW,
                         h: textH * 1.2,
                         fontSize: fontPt,
                         color: this.safeColor(txt.color),
@@ -740,6 +901,38 @@ const PPTXFreeformMixin = {
         if (el.filter) hints.push('filter');
         if (hints.length === 0) return;
         slide.addText(`[效果降级: ${hints.join(', ')}]`, { x, y: y + 0.05, w: 2.4, h: 0.2, fontSize: 8, color: '999999', italic: true, align: 'left' });
+    },
+
+    /**
+     * 根据 effect 属性生成 PptxGenJS shadow 配置
+     * 支持 shadow-sm, shadow, shadow-md, shadow-lg, shadow-xl, shadow-2xl
+     */
+    _getShadowOptions(effect) {
+        // 阴影配置 - 模拟 CSS box-shadow 效果
+        // angle: 90 = 向下偏移，模拟光源从上方照射
+        // CSS box-shadow 通常是向下偏移更多，产生不均匀的自然阴影
+        const shadowPresets = {
+            'shadow-sm': { type: 'outer', blur: 4, offset: 1, angle: 90, opacity: 0.12, color: '000000' },
+            'shadow': { type: 'outer', blur: 6, offset: 2, angle: 90, opacity: 0.15, color: '000000' },
+            'shadow-md': { type: 'outer', blur: 10, offset: 3, angle: 90, opacity: 0.18, color: '000000' },
+            'shadow-lg': { type: 'outer', blur: 15, offset: 4, angle: 90, opacity: 0.22, color: '000000' },
+            'shadow-xl': { type: 'outer', blur: 25, offset: 6, angle: 90, opacity: 0.25, color: '000000' },
+            'shadow-2xl': { type: 'outer', blur: 35, offset: 8, angle: 90, opacity: 0.3, color: '000000' },
+        };
+
+        // 匹配 effect 字符串中的阴影类型
+        for (const [key, preset] of Object.entries(shadowPresets)) {
+            if (effect.includes(key)) {
+                return preset;
+            }
+        }
+
+        // 默认使用 shadow-md
+        if (effect.includes('shadow')) {
+            return shadowPresets['shadow-md'];
+        }
+
+        return null;
     },
 };
 

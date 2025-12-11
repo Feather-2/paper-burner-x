@@ -156,48 +156,29 @@ const PPTGeneratorExportBaking = {
     
     async _bakeFilterSlide(slide, sortedElements, renderer, container, slideIndex) {
         const visualTypes = ['shape', 'image', 'svg', 'line'];
-        const groups = [];
-        let currentGroup = null;
+        const processedElements = [];
         
         for (const el of sortedElements) {
             const needsBaking = this._elementNeedsBaking(el) && visualTypes.includes(el.type);
             
             if (needsBaking) {
-                if (!currentGroup || currentGroup.type !== 'effect') {
-                    currentGroup = { type: 'effect', elements: [] };
-                    groups.push(currentGroup);
-                }
-                currentGroup.elements.push(el);
-            } else {
-                if (!currentGroup || currentGroup.type !== 'normal') {
-                    currentGroup = { type: 'normal', elements: [] };
-                    groups.push(currentGroup);
-                }
-                currentGroup.elements.push(el);
-            }
-        }
-        
-        const processedElements = [];
-        for (const group of groups) {
-            if (group.type === 'normal') {
-                processedElements.push(...group.elements);
-            } else {
-                const minZ = Math.min(...group.elements.map(el => el.z || 0));
-                const minOriginalIndex = Math.min(...group.elements.map(el => el._originalIndex ?? Infinity));
+                // 每个需要烘焙的元素单独处理，避免边界框过大
                 const bakedEl = await this._bakeElementGroupToImage(
-                    group.elements, 
+                    [el], 
                     renderer, 
                     container, 
                     [],
                     'transparent'
                 );
                 if (bakedEl) {
-                    bakedEl.z = minZ;
-                    bakedEl._originalIndex = minOriginalIndex;
+                    bakedEl.z = el.z || 0;
+                    bakedEl._originalIndex = el._originalIndex;
                     processedElements.push(bakedEl);
                 } else {
-                    processedElements.push(...group.elements);
+                    processedElements.push(el);
                 }
+            } else {
+                processedElements.push(el);
             }
         }
         
@@ -296,21 +277,75 @@ const PPTGeneratorExportBaking = {
                 });
             }
 
+            // 计算元素的边界框（百分比）
+            const bounds = this._calculateElementsBounds(elements);
+            const boundsX = this._parsePercent(bounds.x);
+            const boundsY = this._parsePercent(bounds.y);
+            const boundsW = this._parsePercent(bounds.w);
+            const boundsH = this._parsePercent(bounds.h);
+            
             let dataUrl = null;
             if (canvas) {
-                dataUrl = canvas.toDataURL('image/png');
+                // 裁剪到边界框区域
+                const cropX = Math.round(boundsX / 100 * canvas.width);
+                const cropY = Math.round(boundsY / 100 * canvas.height);
+                const cropW = Math.round(boundsW / 100 * canvas.width);
+                const cropH = Math.round(boundsH / 100 * canvas.height);
+                
+                if (cropW > 0 && cropH > 0) {
+                    // 检测是否有半透明渐变元素，需要裁剪四边边缘伪影
+                    const hasTransparentGradient = elements.some(el => 
+                        el.fill && typeof el.fill === 'string' && 
+                        el.fill.includes('gradient') && 
+                        (el.fill.includes('transparent') || el.fill.includes('rgba(') || el.fill.includes(', 0)'))
+                    );
+                    
+                    // 半透明渐变各边裁剪量：左右多，顶部中等，底部少
+                    const trimLeft = hasTransparentGradient ? 22 : 0;
+                    const trimRight = hasTransparentGradient ? 22 : 0;
+                    const trimTop = hasTransparentGradient ? 12 : 0;
+                    const trimBottom = hasTransparentGradient ? 4 : 0;
+                    
+                    const adjustedCropX = cropX + trimLeft;
+                    const adjustedCropY = cropY + trimTop;
+                    const adjustedCropW = Math.max(cropW - trimLeft - trimRight, 1);
+                    const adjustedCropH = Math.max(cropH - trimTop - trimBottom, 1);
+                    
+                    const croppedCanvas = document.createElement('canvas');
+                    croppedCanvas.width = adjustedCropW;
+                    croppedCanvas.height = adjustedCropH;
+                    const ctx = croppedCanvas.getContext('2d');
+                    ctx.drawImage(canvas, adjustedCropX, adjustedCropY, adjustedCropW, adjustedCropH, 0, 0, adjustedCropW, adjustedCropH);
+                    dataUrl = croppedCanvas.toDataURL('image/png');
+                    croppedCanvas.width = 0;
+                    croppedCanvas.height = 0;
+                    
+                    // 调整边界框位置和尺寸补偿裁剪
+                    if (trimLeft || trimRight || trimTop || trimBottom) {
+                        const trimLeftPct = trimLeft / canvas.width * 100;
+                        const trimRightPct = trimRight / canvas.width * 100;
+                        const trimTopPct = trimTop / canvas.height * 100;
+                        const trimBottomPct = trimBottom / canvas.height * 100;
+                        bounds.x = (boundsX + trimLeftPct) + '%';
+                        bounds.y = (boundsY + trimTopPct) + '%';
+                        bounds.w = (boundsW - trimLeftPct - trimRightPct) + '%';
+                        bounds.h = (boundsH - trimTopPct - trimBottomPct) + '%';
+                    }
+                } else {
+                    dataUrl = canvas.toDataURL('image/png');
+                }
                 canvas.width = 0;
                 canvas.height = 0;
             }
             if (!dataUrl) return null;
-
+            
             return {
                 type: 'baked_element',
                 image: dataUrl,
-                x: '0%',
-                y: '0%',
-                w: '100%',
-                h: '100%',
+                x: bounds.x,
+                y: bounds.y,
+                w: bounds.w,
+                h: bounds.h,
                 z: minZ,
                 originalElements: elements.length,
                 originalTypes: elements.map(el => el.type).join(','),
@@ -473,6 +508,13 @@ const PPTGeneratorExportBaking = {
         if (el.blend && el.blend !== 'normal') return true;
         if (el.filter) return true;
         if (el.mask) return true;
+        // blur 效果需要烘焙
+        if (el.effect && el.effect.includes('blur')) return true;
+        // 渐变背景需要烘焙（PPTX 对 CSS 渐变支持有限）
+        if (el.fill && typeof el.fill === 'string' && el.fill.includes('gradient')) {
+            // 带透明的渐变 PPTX 不支持
+            if (el.fill.includes('transparent') || el.fill.includes('rgba(') || el.fill.includes(', 0)')) return true;
+        }
         if (el.type === 'svg' && el.content) {
             const content = el.content.toLowerCase();
             if (content.includes('<text')) return false;
@@ -490,6 +532,51 @@ const PPTGeneratorExportBaking = {
         if ((el.blend && el.blend !== 'normal') || el.mask || el.filter) return true;
         if (el.children && el.children.some(child => this._elementHasEffects(child))) return true;
         return false;
+    },
+
+    /**
+     * 计算元素组的边界框
+     */
+    _calculateElementsBounds(elements) {
+        if (!elements || elements.length === 0) {
+            return { x: '0%', y: '0%', w: '100%', h: '100%' };
+        }
+        
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        
+        elements.forEach(el => {
+            const x = this._parsePercent(el.x) || 0;
+            const y = this._parsePercent(el.y) || 0;
+            const w = this._parsePercent(el.w) || 0;
+            const h = this._parsePercent(el.h) || 0;
+            
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x + w);
+            maxY = Math.max(maxY, y + h);
+        });
+        
+        // 添加一点边距避免裁剪边缘
+        const padding = 1;
+        minX = Math.max(0, minX - padding);
+        minY = Math.max(0, minY - padding);
+        maxX = Math.min(100, maxX + padding);
+        maxY = Math.min(100, maxY + padding);
+        
+        return {
+            x: minX + '%',
+            y: minY + '%',
+            w: (maxX - minX) + '%',
+            h: (maxY - minY) + '%',
+        };
+    },
+    
+    _parsePercent(value) {
+        if (typeof value === 'number') return value;
+        if (typeof value === 'string' && value.endsWith('%')) {
+            return parseFloat(value);
+        }
+        return 0;
     },
 
     // ═══════════════════════════════════════════════════════════════
