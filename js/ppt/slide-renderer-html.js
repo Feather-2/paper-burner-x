@@ -804,14 +804,15 @@ class HTMLSlideRenderer {
      * 如果有 content 属性（编辑后保存的），直接使用
      */
     renderFreeformTable(el, baseStyle) {
-        const radius = el.radius || 6;
+        const radius = el.radius || 12;
         
-        // 容器样式
+        // 容器样式 - 添加阴影和圆角
         const containerStyle = `
             ${baseStyle}
             overflow: hidden;
             border-radius: ${radius}px;
-            border: 1px solid ${el.borderColor || '#374151'};
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            border: 1px solid ${el.borderColor || '#e2e8f0'};
         `.replace(/\s+/g, ' ').trim();
         
         // 如果有 content 属性（编辑后保存的 HTML），直接使用
@@ -824,40 +825,72 @@ class HTMLSlideRenderer {
             return `<div style="${containerStyle}; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 14px;">空表格</div>`;
         }
 
-        const fontSize = el.fontSize || 10;
+        const fontSize = el.fontSize || 11;
+        const headerFontSize = el.headerFontSize || 13;
         
         // 表格样式 - 100% 宽高，自动适应容器
         const tableStyle = `
             width: 100%;
             height: 100%;
             border-collapse: collapse;
-            font-size: ${fontSize}px;
             font-family: system-ui, -apple-system, sans-serif;
             table-layout: fixed;
         `.replace(/\s+/g, ' ').trim();
+
+        // 检测模块分组（第一列相同值）用于视觉区分
+        const moduleGroups = {};
+        let currentModule = '';
+        let groupIndex = 0;
+        data.forEach((row, idx) => {
+            if (idx === 0) return; // 跳过表头
+            const module = row[0] || '';
+            if (module !== currentModule) {
+                currentModule = module;
+                groupIndex++;
+            }
+            moduleGroups[idx] = groupIndex;
+        });
 
         // 构建表格 HTML
         let tableHtml = `<table style="${tableStyle}">`;
         
         data.forEach((row, rowIndex) => {
             const isHeader = rowIndex === 0;
-            const isAltRow = !isHeader && rowIndex % 2 === 0;
-            const bgColor = isHeader ? el.headerBg : (isAltRow ? el.altRowBg : el.rowBg);
+            const groupIdx = moduleGroups[rowIndex] || 0;
+            const isOddGroup = groupIdx % 2 === 1;
+            
+            // 模块分组交替色
+            let bgColor;
+            if (isHeader) {
+                bgColor = el.headerBg || '#0ea5e9';
+            } else {
+                bgColor = isOddGroup ? (el.rowBg || '#ffffff') : (el.altRowBg || '#f8fafc');
+            }
+            
             const textColor = isHeader ? el.headerColor : el.cellColor;
             const fontWeight = isHeader ? '600' : '400';
+            const currentFontSize = isHeader ? headerFontSize : fontSize;
             
             tableHtml += `<tr style="background: ${bgColor};">`;
             
             (row || []).forEach((cell, colIndex) => {
+                // 第一列（模块）加粗并使用主题色
+                const isModuleCol = colIndex === 0 && !isHeader;
+                const cellFontWeight = isHeader ? '600' : (isModuleCol ? '500' : '400');
+                const cellColor = isHeader ? el.headerColor : (isModuleCol ? '#0369a1' : el.cellColor);
+                
                 const cellStyle = `
-                    padding: 4px 6px;
-                    color: ${textColor};
-                    font-weight: ${fontWeight};
-                    text-align: center;
+                    padding: 6px 10px;
+                    color: ${cellColor};
+                    font-weight: ${cellFontWeight};
+                    font-size: ${currentFontSize}px;
+                    text-align: ${colIndex === 0 ? 'center' : (colIndex === row.length - 1 ? 'left' : 'center')};
                     overflow: hidden;
                     text-overflow: ellipsis;
-                    border-right: ${colIndex < row.length - 1 ? `1px solid ${el.borderColor || '#374151'}` : 'none'};
-                    border-bottom: ${rowIndex < data.length - 1 ? `1px solid ${el.borderColor || '#374151'}` : 'none'};
+                    line-height: 1.35;
+                    border-right: ${colIndex < row.length - 1 ? `1px solid ${el.borderColor || '#e2e8f0'}` : 'none'};
+                    border-bottom: ${rowIndex < data.length - 1 ? `1px solid ${el.borderColor || '#e2e8f0'}` : 'none'};
+                    vertical-align: middle;
                 `.replace(/\s+/g, ' ').trim();
                 
                 tableHtml += `<td style="${cellStyle}">${this._escapeHtml(String(cell || ''))}</td>`;

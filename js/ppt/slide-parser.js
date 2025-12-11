@@ -326,22 +326,45 @@ class SlideParser {
                 return {
                     ...base,
                     // 表格数据：JSON 格式 [["Header1", "Header2"], ["Row1Col1", "Row1Col2"], ...]
+                    // 容错：支持行内文本格式（每行用换行分隔，每列用逗号分隔）
                     data: (() => {
-                        try {
-                            return JSON.parse(el.dataset.data || '[]');
-                        } catch (e) {
-                            console.warn('[SlideParser] Invalid table data:', e);
-                            return [];
+                        // 1. 优先尝试 JSON 格式
+                        if (el.dataset.data) {
+                            try {
+                                return JSON.parse(el.dataset.data);
+                            } catch (e) {
+                                console.warn('[SlideParser] Invalid table JSON data:', e);
+                            }
                         }
+                        // 2. 容错：尝试解析行内文本格式（每行换行分隔，每列逗号分隔）
+                        const textContent = el.textContent || el.innerHTML || '';
+                        if (textContent.trim()) {
+                            const rows = [];
+                            // 如果有 headers 属性，先添加表头
+                            if (el.dataset.headers) {
+                                rows.push(el.dataset.headers.split(',').map(s => s.trim()));
+                            }
+                            // 解析行内容
+                            const lines = textContent.split('\n').map(s => s.trim()).filter(Boolean);
+                            lines.forEach(line => {
+                                const cells = line.split(',').map(s => s.trim());
+                                if (cells.length > 0 && cells.some(c => c)) {
+                                    rows.push(cells);
+                                }
+                            });
+                            if (rows.length > 0) return rows;
+                        }
+                        return [];
                     })(),
-                    // 样式
-                    headerBg: el.dataset.headerBg || '#4f46e5',
+                    // 样式（兼容 data-header-fill 和 data-header-bg）
+                    headerBg: el.dataset.headerFill || el.dataset.headerBg || '#4f46e5',
                     headerColor: el.dataset.headerColor || '#ffffff',
-                    rowBg: el.dataset.rowBg || '#ffffff',
-                    altRowBg: el.dataset.altRowBg || '#f8fafc',
+                    rowBg: el.dataset.rowFill?.split(',')[0]?.trim() || el.dataset.rowBg || '#ffffff',
+                    altRowBg: el.dataset.rowFill?.split(',')[1]?.trim() || el.dataset.altRowBg || '#f8fafc',
                     cellColor: el.dataset.cellColor || '#1f2937',
                     borderColor: el.dataset.borderColor || '#e2e8f0',
-                    fontSize: parseFloat(el.dataset.fontSize) || 14,
+                    fontSize: parseFloat(el.dataset.cellFont) || parseFloat(el.dataset.fontSize) || 12,
+                    headerFontSize: parseFloat(el.dataset.headerFont) || parseFloat(el.dataset.fontSize) || 14,
                     radius: parseFloat(el.dataset.radius) || 8,
                 };
 
