@@ -630,6 +630,15 @@ const PPTGeneratorEditor = {
         // 属性面板
         if (window.PropertyPanel && !this.propertyPanel) {
             this.propertyPanel = new PropertyPanel(this.editor, 'editorPropertyPanel');
+            
+            // 监听属性面板操作
+            this.propertyPanel.on('action', ({ action, element }) => {
+                if (action === 'replace-image' && element) {
+                    this._replaceImage(element);
+                } else if (action === 'ai-generate-image' && element) {
+                    this._aiGenerateImage(element);
+                }
+            });
         }
 
         // 图层面板
@@ -909,6 +918,1067 @@ const PPTGeneratorEditor = {
             this.editor.document.reorderElement?.(id, index - 1);
             this.editor.renderCurrentSlide();
         }
+    },
+
+    // 生图任务队列
+    _imageGenTasks: [],
+    _imageGenIndicator: null,
+
+    /**
+     * 更新生图进度指示
+     */
+    _updateImageGenIndicator() {
+        const tasks = this._imageGenTasks;
+        const running = tasks.filter(t => t.status === 'running').length;
+        const total = tasks.length;
+        
+        if (total === 0) {
+            // 移除指示器
+            if (this._imageGenIndicator) {
+                this._imageGenIndicator.remove();
+                this._imageGenIndicator = null;
+            }
+            return;
+        }
+        
+        // 创建或更新指示器
+        if (!this._imageGenIndicator) {
+            this._imageGenIndicator = document.createElement('div');
+            this._imageGenIndicator.className = 'fixed top-4 right-4 z-[9998] bg-white rounded-lg shadow-lg border border-violet-200 px-4 py-3 flex items-center gap-3';
+            this._imageGenIndicator.innerHTML = `
+                <div class="w-5 h-5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin"></div>
+                <span class="text-sm text-gray-700" id="imageGenStatus"></span>
+            `;
+            document.body.appendChild(this._imageGenIndicator);
+        }
+        
+        const statusEl = this._imageGenIndicator.querySelector('#imageGenStatus');
+        const completed = tasks.filter(t => t.status === 'done' || t.status === 'error').length;
+        statusEl.textContent = `生图中 ${completed}/${total}`;
+    },
+
+    /**
+     * 替换图片
+     */
+    _replaceImage(element) {
+        if (!element || element.type !== 'image') return;
+        
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.onchange = async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            
+            try {
+                const dataUrl = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(file);
+                });
+                
+                // 更新图片源
+                this.editor.updateElement(element.id, { src: dataUrl });
+            } catch (err) {
+                console.error('[_replaceImage] 读取图片失败:', err);
+            }
+        };
+        input.click();
+    },
+
+    /**
+     * AI 生图
+     */
+    async _aiGenerateImage(element) {
+        if (!element || element.type !== 'image') return;
+        
+        // 检查 ImageGeneration 是否可用
+        if (!window.ImageGeneration?.generateImage) {
+            alert('AI 生图服务未加载，请检查配置');
+            return;
+        }
+        
+        // 显示生图对话框
+        const result = await this._showAiImageDialog(element);
+        if (!result) return;
+        
+        const { prompt, aspectRatio, imageSize, referenceImages, useSlideText } = result;
+        
+        // 提取当前页文字（如果需要）
+        let slideText = '';
+        if (useSlideText || referenceImages?.some(r => r.type === 'snapshot')) {
+            slideText = this._extractSlideText();
+        }
+        
+        // 创建任务
+        const task = {
+            id: `${element.id}_${Date.now()}`,
+            elementId: element.id,
+            slideIndex: this.currentSlideIndex,
+            prompt,
+            aspectRatio,
+            imageSize,
+            referenceImages: referenceImages || [],
+            useSlideText,
+            slideText,
+            status: 'running',
+            originalSrc: element.src
+        };
+        
+        this._imageGenTasks.push(task);
+        this._updateImageGenIndicator();
+        
+        // 显示加载状态
+        const loadingPlaceholder = 'data:image/svg+xml,' + encodeURIComponent(`
+            <svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+                <rect fill="#f3f4f6" width="200" height="200"/>
+                <text x="100" y="100" text-anchor="middle" fill="#9ca3af" font-size="14">AI 生成中...</text>
+            </svg>
+        `);
+        this.editor.updateElement(element.id, { src: loadingPlaceholder });
+        
+        // 异步执行生图（不阻塞）
+        this._executeImageGen(task);
+    },
+
+    /**
+     * 执行生图任务
+     */
+    async _executeImageGen(task) {
+        try {
+            // 构建智能提示词
+            const smartPrompt = this._buildSmartPrompt(task);
+            
+            // 提取纯图片数据用于 API
+            const imageDataList = (task.referenceImages || []).map(r => r.data);
+            
+            const genResult = await window.ImageGeneration.generateImage({
+                prompt: smartPrompt,
+                aspectRatio: task.aspectRatio,
+                imageSize: task.imageSize,
+                referenceImages: imageDataList,
+                width: 1024,
+                height: 768
+            });
+            
+            // 获取图片数据
+            let imgSrc;
+            if (genResult.base64) {
+                imgSrc = genResult.base64.startsWith('data:') 
+                    ? genResult.base64 
+                    : `data:${genResult.mimeType || 'image/png'};base64,${genResult.base64}`;
+            } else if (genResult.url) {
+                imgSrc = genResult.url;
+            } else {
+                throw new Error('未获取到图片数据');
+            }
+            
+            // 如果是框选生成（临时 ID），只返回数据不更新元素
+            if (task.elementId?.startsWith('region_')) {
+                task.status = 'done';
+                if (typeof showNotification === 'function') {
+                    showNotification('AI 生图成功', 'success');
+                }
+                return { dataUrl: imgSrc };
+            }
+            
+            // 更新元素（无论当前在哪个页面）
+            this.editor.updateElement(task.elementId, { src: imgSrc });
+            
+            // 保存该元素的生图记录
+            this._saveImageGenHistory(task.elementId, { 
+                prompt: task.prompt, 
+                aspectRatio: task.aspectRatio, 
+                imageSize: task.imageSize, 
+                time: Date.now() 
+            });
+            
+            task.status = 'done';
+            if (typeof showNotification === 'function') {
+                showNotification('AI 生图成功', 'success');
+            }
+            return { dataUrl: imgSrc };
+        } catch (err) {
+            console.error('[_executeImageGen] 生图失败:', err);
+            // 恢复原图（仅非框选模式）
+            if (!task.elementId?.startsWith('region_')) {
+                this.editor.updateElement(task.elementId, { src: task.originalSrc });
+            }
+            task.status = 'error';
+            task.error = err.message;
+            if (typeof showNotification === 'function') {
+                showNotification('生图失败: ' + (err.message || '未知错误'), 'error');
+            }
+            return null;
+        } finally {
+            this._updateImageGenIndicator();
+            // 3秒后清理已完成的任务
+            setTimeout(() => {
+                this._imageGenTasks = this._imageGenTasks.filter(t => t.status === 'running');
+                this._updateImageGenIndicator();
+            }, 3000);
+        }
+    },
+
+    /**
+     * 构建智能提示词
+     */
+    _buildSmartPrompt(task) {
+        const refs = task.referenceImages || [];
+        const userPrompt = task.prompt.trim();
+        
+        // 如果没有参考图片，直接返回用户提示词
+        if (refs.length === 0 && !task.useSlideText) {
+            return userPrompt;
+        }
+        
+        // 构建上下文说明
+        let contextParts = [];
+        
+        // 核心指令：只生成素材本身
+        contextParts.push('IMPORTANT: Generate ONLY the image asset itself. Do NOT include any text, labels, borders, frames, or page layout elements.');
+        
+        // 添加页面文字背景（如果有）- 仅作为主题参考
+        if (task.slideText) {
+            contextParts.push(`Context theme: "${task.slideText}" - use this only to understand the topic, do NOT include any text in the output image.`);
+        }
+        
+        // 按顺序说明每张参考图片
+        if (refs.length > 0) {
+            const imageDescriptions = [];
+            refs.forEach((ref, idx) => {
+                const imgNum = idx + 1;
+                if (ref.type === 'current') {
+                    imageDescriptions.push(`Image ${imgNum}: Current image to replace - reference its style/subject.`);
+                } else if (ref.type === 'snapshot') {
+                    imageDescriptions.push(`Image ${imgNum}: Page context (for theme understanding only, do NOT copy its layout).`);
+                } else if (ref.type === 'upload') {
+                    imageDescriptions.push(`Image ${imgNum}: Style/content reference.`);
+                }
+            });
+            contextParts.push(imageDescriptions.join(' '));
+        }
+        
+        // 组合最终提示词
+        const context = contextParts.join(' ');
+        const finalPrompt = `${context}\n\nGenerate: ${userPrompt}`;
+        
+        console.log('[_buildSmartPrompt]', finalPrompt);
+        return finalPrompt;
+    },
+
+    /**
+     * 提取当前页的文字内容
+     */
+    _extractSlideText() {
+        try {
+            const slide = this.slides?.[this.currentSlideIndex];
+            if (!slide?.elements) return '';
+            
+            const texts = [];
+            for (const el of slide.elements) {
+                if (el.type === 'text' && el.content) {
+                    // 去除 HTML 标签
+                    const text = el.content.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                    if (text) texts.push(text);
+                }
+            }
+            return texts.join('; ').slice(0, 500); // 限制长度
+        } catch (e) {
+            console.warn('[_extractSlideText] 提取文字失败:', e);
+            return '';
+        }
+    },
+
+    /**
+     * 根据元素尺寸计算最佳比例
+     */
+    _detectBestAspectRatio(width, height) {
+        const ratio = width / height;
+        // 匹配最接近的比例
+        const ratios = [
+            { value: '1:1', ratio: 1 },
+            { value: '16:9', ratio: 16/9 },
+            { value: '9:16', ratio: 9/16 },
+            { value: '4:3', ratio: 4/3 },
+            { value: '3:4', ratio: 3/4 }
+        ];
+        let best = ratios[0];
+        let minDiff = Math.abs(ratio - best.ratio);
+        for (const r of ratios) {
+            const diff = Math.abs(ratio - r.ratio);
+            if (diff < minDiff) {
+                minDiff = diff;
+                best = r;
+            }
+        }
+        return best.value;
+    },
+
+    /**
+     * 显示 AI 生图对话框
+     * @param {Object} element - 目标元素
+     * @param {Array} initialReferenceImages - 初始参考图片（可选）
+     */
+    _showAiImageDialog(element, initialReferenceImages = []) {
+        return new Promise((resolve) => {
+            // 获取保存的配置
+            const cfg = typeof loadModelConfig === 'function' ? (loadModelConfig('gemini-image') || {}) : {};
+            // 根据元素尺寸自动检测比例（优先使用百分比转换后的像素值）
+            const slideWidth = 960, slideHeight = 540; // 标准幻灯片尺寸
+            let elWidth = element.width || 200;
+            let elHeight = element.height || 200;
+            // 如果是百分比，转换为像素
+            if (typeof elWidth === 'string' && elWidth.endsWith('%')) {
+                elWidth = parseFloat(elWidth) / 100 * slideWidth;
+            }
+            if (typeof elHeight === 'string' && elHeight.endsWith('%')) {
+                elHeight = parseFloat(elHeight) / 100 * slideHeight;
+            }
+            console.log('[_showAiImageDialog] 元素尺寸:', elWidth, 'x', elHeight);
+            const autoRatio = this._detectBestAspectRatio(elWidth, elHeight);
+            console.log('[_showAiImageDialog] 自动检测比例:', autoRatio);
+            const savedRatio = cfg.aspectRatio || autoRatio;
+            const savedSize = cfg.imageSize || '1K';
+            
+            // 获取该元素的生图记录
+            const history = this._getImageGenHistory(element.id);
+            const historyHtml = history.length > 0 
+                ? history.slice(0, 5).map((h, i) => `
+                    <div class="ai-history-item flex items-center gap-2 p-2 hover:bg-gray-50 rounded cursor-pointer text-xs" data-index="${i}">
+                        <span class="flex-1 truncate text-gray-600">${h.prompt}</span>
+                        <span class="text-gray-400 whitespace-nowrap">${h.aspectRatio} · ${h.imageSize}</span>
+                    </div>
+                `).join('')
+                : '<div class="text-xs text-gray-400 p-2">暂无记录</div>';
+            
+            const overlay = document.createElement('div');
+            overlay.className = 'fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]';
+            overlay.innerHTML = `
+                <div class="bg-white rounded-lg shadow-xl w-[520px] max-w-[90vw] max-h-[90vh] flex flex-col">
+                    <div class="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
+                        <h3 class="text-lg font-semibold text-gray-900">AI 生成图片</h3>
+                        <button id="aiClose" class="text-gray-400 hover:text-gray-600">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                        </button>
+                    </div>
+                    <div class="p-5 space-y-4 overflow-y-auto flex-1">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">图片描述 <span class="text-gray-400 font-normal">(英文效果更佳)</span></label>
+                            <textarea id="aiPrompt" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-violet-500 focus:border-violet-500" placeholder="A professional photo of..."></textarea>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">比例 <span class="text-gray-400 font-normal">(自动: ${autoRatio})</span></label>
+                                <select id="aiAspectRatio" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                                    <option value="1:1" ${savedRatio === '1:1' ? 'selected' : ''}>1:1 正方形</option>
+                                    <option value="16:9" ${savedRatio === '16:9' ? 'selected' : ''}>16:9 横屏</option>
+                                    <option value="9:16" ${savedRatio === '9:16' ? 'selected' : ''}>9:16 竖屏</option>
+                                    <option value="4:3" ${savedRatio === '4:3' ? 'selected' : ''}>4:3 传统</option>
+                                    <option value="3:4" ${savedRatio === '3:4' ? 'selected' : ''}>3:4 竖版</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">分辨率</label>
+                                <select id="aiImageSize" class="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                                    <option value="1K" ${savedSize === '1K' ? 'selected' : ''}>1K 默认</option>
+                                    <option value="2K" ${savedSize === '2K' ? 'selected' : ''}>2K 标准</option>
+                                    <option value="4K" ${savedSize === '4K' ? 'selected' : ''}>4K 高清</option>
+                                </select>
+                            </div>
+                        </div>
+                        <!-- 以图生图选项 -->
+                        <div class="border border-gray-200 rounded-md p-3 space-y-3">
+                            <label class="block text-sm font-medium text-gray-700">参考图片 <span class="text-gray-400 font-normal">(可选，AI 会根据图片类型自动理解上下文)</span></label>
+                            <div class="flex flex-wrap gap-2" id="aiRefImages"></div>
+                            <div class="flex flex-wrap gap-2">
+                                <button id="aiAddCurrentImage" class="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 flex items-center gap-1">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                                    当前图片
+                                </button>
+                                <button id="aiAddPageSnapshot" class="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 flex items-center gap-1">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>
+                                    当前页截图
+                                </button>
+                                <button id="aiUploadRef" class="px-3 py-1.5 text-xs border border-gray-300 rounded hover:bg-gray-50 flex items-center gap-1">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                                    上传图片
+                                </button>
+                                <button id="aiRegionSelect" class="px-3 py-1.5 text-xs border border-violet-300 text-violet-600 rounded hover:bg-violet-50 flex items-center gap-1">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h4a1 1 0 010 2H6v3a1 1 0 01-2 0V5zm16 0a1 1 0 00-1-1h-4a1 1 0 000 2h3v3a1 1 0 002 0V5zM4 19a1 1 0 001 1h4a1 1 0 000-2H6v-3a1 1 0 00-2 0v4zm16 0a1 1 0 01-1 1h-4a1 1 0 010-2h3v-3a1 1 0 012 0v4z"/></svg>
+                                    框选截图
+                                </button>
+                            </div>
+                            <div class="flex items-center gap-2 mt-2">
+                                <input type="checkbox" id="aiUseSlideText" class="rounded border-gray-300">
+                                <label for="aiUseSlideText" class="text-xs text-gray-600">将当前页文字作为背景信息</label>
+                            </div>
+                            <details class="mt-2">
+                                <summary class="text-xs text-gray-500 cursor-pointer hover:text-gray-700">查看注入的提示词</summary>
+                                <pre id="aiSmartPromptPreview" class="mt-1 p-2 bg-gray-50 rounded text-[10px] text-gray-600 max-h-24 overflow-auto whitespace-pre-wrap"></pre>
+                            </details>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">最近使用</label>
+                            <div class="border border-gray-200 rounded-md max-h-24 overflow-y-auto" id="aiHistory">
+                                ${historyHtml}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="px-5 py-4 border-t border-gray-200 flex justify-between">
+                        <button id="aiRegenerate" class="px-4 py-2 text-sm text-violet-600 hover:bg-violet-50 rounded-md flex items-center gap-1" title="使用相同提示词重新生成">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                            重新生成
+                        </button>
+                        <div class="flex gap-3">
+                            <button id="aiCancel" class="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-md">取消</button>
+                            <button id="aiGenerate" class="px-4 py-2 text-sm text-white bg-gradient-to-r from-violet-500 to-indigo-500 hover:from-violet-600 hover:to-indigo-600 rounded-md">生成</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(overlay);
+            
+            const promptInput = overlay.querySelector('#aiPrompt');
+            const ratioSelect = overlay.querySelector('#aiAspectRatio');
+            const sizeSelect = overlay.querySelector('#aiImageSize');
+            const refImagesContainer = overlay.querySelector('#aiRefImages');
+            
+            // 参考图片列表 { data, type: 'current'|'snapshot'|'upload'|'region' }
+            const referenceImages = [...initialReferenceImages];
+            const typeLabels = { current: '原图', snapshot: '页面', upload: '上传', region: '框选' };
+            const typeColors = { current: 'bg-blue-500', snapshot: 'bg-purple-500', upload: 'bg-gray-500', region: 'bg-violet-500' };
+            const previewEl = overlay.querySelector('#aiSmartPromptPreview');
+            
+            // 更新提示词预览
+            const updatePromptPreview = () => {
+                const useSlideText = overlay.querySelector('#aiUseSlideText')?.checked || false;
+                const prompt = promptInput.value.trim() || '[用户提示词]';
+                const slideText = (useSlideText || referenceImages.some(r => r.type === 'snapshot')) 
+                    ? this._extractSlideText() : '';
+                
+                // 模拟构建提示词
+                const mockTask = { prompt, referenceImages, useSlideText, slideText };
+                const smartPrompt = this._buildSmartPrompt(mockTask);
+                previewEl.textContent = smartPrompt;
+            };
+            
+            const updateRefImagesUI = () => {
+                refImagesContainer.innerHTML = referenceImages.map((img, i) => `
+                    <div class="relative group">
+                        <img src="${img.data}" class="w-16 h-16 object-cover rounded border border-gray-200">
+                        <span class="absolute bottom-0 left-0 right-0 ${typeColors[img.type]} text-white text-[10px] text-center py-0.5 rounded-b">${typeLabels[img.type]}</span>
+                        <button class="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity" data-remove="${i}">×</button>
+                    </div>
+                `).join('');
+                // 绑定删除事件
+                refImagesContainer.querySelectorAll('[data-remove]').forEach(btn => {
+                    btn.onclick = () => {
+                        referenceImages.splice(parseInt(btn.dataset.remove), 1);
+                        updateRefImagesUI();
+                    };
+                });
+                updatePromptPreview();
+            };
+            
+            // 添加当前图片作为参考
+            overlay.querySelector('#aiAddCurrentImage').onclick = () => {
+                if (element.src && !element.src.includes('AI 生成中')) {
+                    referenceImages.push({ data: element.src, type: 'current' });
+                    updateRefImagesUI();
+                }
+            };
+            
+            // 添加当前页截图作为参考
+            overlay.querySelector('#aiAddPageSnapshot').onclick = async () => {
+                const btn = overlay.querySelector('#aiAddPageSnapshot');
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '<span class="animate-pulse">截图中...</span>';
+                btn.disabled = true;
+                
+                try {
+                    const snapshot = await this._captureSlideSnapshot(element.id);
+                    if (snapshot) {
+                        referenceImages.push({ data: snapshot, type: 'snapshot' });
+                        updateRefImagesUI();
+                    } else {
+                        alert('截图失败，请检查控制台');
+                    }
+                } catch (e) {
+                    console.error('截图失败:', e);
+                    alert('截图失败: ' + e.message);
+                } finally {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                }
+            };
+            
+            // 上传参考图片
+            overlay.querySelector('#aiUploadRef').onclick = () => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'image/*';
+                input.multiple = true;
+                input.onchange = async (e) => {
+                    for (const file of e.target.files) {
+                        const dataUrl = await new Promise((resolve) => {
+                            const reader = new FileReader();
+                            reader.onload = () => resolve(reader.result);
+                            reader.readAsDataURL(file);
+                        });
+                        referenceImages.push({ data: dataUrl, type: 'upload' });
+                    }
+                    updateRefImagesUI();
+                };
+                input.click();
+            };
+            
+            // 框选截图
+            overlay.querySelector('#aiRegionSelect').onclick = async () => {
+                // 临时隐藏对话框
+                overlay.style.display = 'none';
+                
+                try {
+                    const regionData = await this._captureRegion();
+                    if (regionData) {
+                        referenceImages.push({ data: regionData, type: 'upload' });
+                        updateRefImagesUI();
+                    }
+                } catch (e) {
+                    console.error('框选截图失败:', e);
+                } finally {
+                    overlay.style.display = '';
+                }
+            };
+            
+            promptInput.focus();
+            
+            // 绑定输入和复选框事件来更新预览
+            promptInput.oninput = updatePromptPreview;
+            overlay.querySelector('#aiUseSlideText').onchange = updatePromptPreview;
+            
+            // 初始化显示（包括预置的参考图片）
+            updateRefImagesUI();
+            updatePromptPreview();
+            
+            const close = (result) => {
+                document.body.removeChild(overlay);
+                resolve(result);
+            };
+            
+            // 点击历史记录填充
+            overlay.querySelector('#aiHistory').onclick = (e) => {
+                const item = e.target.closest('.ai-history-item');
+                if (item) {
+                    const idx = parseInt(item.dataset.index);
+                    const h = history[idx];
+                    if (h) {
+                        promptInput.value = h.prompt;
+                        ratioSelect.value = h.aspectRatio;
+                        sizeSelect.value = h.imageSize;
+                        updatePromptPreview();
+                    }
+                }
+            };
+            
+            overlay.querySelector('#aiClose').onclick = () => close(null);
+            overlay.querySelector('#aiCancel').onclick = () => close(null);
+            
+            // 重新生成：使用上次的提示词
+            overlay.querySelector('#aiRegenerate').onclick = () => {
+                if (history.length > 0) {
+                    const last = history[0];
+                    close({
+                        prompt: last.prompt,
+                        aspectRatio: last.aspectRatio,
+                        imageSize: last.imageSize,
+                        referenceImages: [],
+                        regenerate: true
+                    });
+                } else {
+                    alert('暂无历史记录');
+                }
+            };
+            
+            overlay.querySelector('#aiGenerate').onclick = () => {
+                const prompt = promptInput.value.trim();
+                if (!prompt) {
+                    promptInput.focus();
+                    return;
+                }
+                const useSlideText = overlay.querySelector('#aiUseSlideText')?.checked || false;
+                close({
+                    elementId: element.id,
+                    prompt,
+                    aspectRatio: ratioSelect.value,
+                    imageSize: sizeSelect.value,
+                    referenceImages: [...referenceImages],
+                    useSlideText
+                });
+            };
+            
+            // 按 Enter 生成，Escape 取消
+            promptInput.onkeydown = (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    overlay.querySelector('#aiGenerate').click();
+                }
+            };
+            overlay.onkeydown = (e) => {
+                if (e.key === 'Escape') close(null);
+            };
+        });
+    },
+
+    /**
+     * 截取当前幻灯片，并高亮指定元素
+     */
+    async _captureSlideSnapshot(highlightElementId) {
+        // 查找幻灯片容器
+        const slideEl = document.getElementById('presSlideCanvas') || 
+                        document.querySelector('.pres-slide') ||
+                        document.querySelector('[class*="slide"]');
+        
+        if (!slideEl) {
+            console.warn('[_captureSlideSnapshot] 未找到幻灯片容器');
+            return null;
+        }
+        
+        if (typeof html2canvas === 'undefined') {
+            console.warn('[_captureSlideSnapshot] html2canvas 未加载');
+            return null;
+        }
+        
+        // 临时添加高亮边框
+        let highlightEl = null;
+        if (highlightElementId) {
+            highlightEl = slideEl.querySelector(`[data-element-id="${highlightElementId}"]`);
+            if (highlightEl) {
+                highlightEl.style.outline = '3px dashed #8b5cf6';
+                highlightEl.style.outlineOffset = '2px';
+            }
+        }
+        
+        // 保存原始样式，处理富文本显示问题（与导出模块一致）
+        const spanStyles = [];
+        slideEl.querySelectorAll('span').forEach((span, i) => {
+            spanStyles[i] = span.style.display;
+            if (!span.style.display) {
+                span.style.display = 'inline';
+            }
+        });
+        
+        try {
+            console.log('[_captureSlideSnapshot] 开始截图...');
+            const canvas = await html2canvas(slideEl, { 
+                scale: 1,
+                useCORS: true,
+                allowTaint: true,
+                backgroundColor: '#ffffff'
+            });
+            const dataUrl = canvas.toDataURL('image/png');
+            console.log('[_captureSlideSnapshot] 截图完成');
+            return dataUrl;
+        } catch (err) {
+            console.error('[_captureSlideSnapshot] 截图失败:', err);
+            return null;
+        } finally {
+            // 恢复 span 原始样式
+            slideEl.querySelectorAll('span').forEach((span, i) => {
+                if (spanStyles[i] !== undefined) {
+                    span.style.display = spanStyles[i];
+                }
+            });
+            // 移除高亮
+            if (highlightEl) {
+                highlightEl.style.outline = '';
+                highlightEl.style.outlineOffset = '';
+            }
+        }
+    },
+
+    /**
+     * 框选截图 - 让用户在页面上拖拽选择区域
+     */
+    async _captureRegion() {
+        return new Promise((resolve) => {
+            // 创建全屏遮罩
+            const mask = document.createElement('div');
+            mask.style.cssText = `
+                position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+                background: rgba(0,0,0,0.3); cursor: crosshair; z-index: 100000;
+            `;
+            
+            // 选择框
+            const selBox = document.createElement('div');
+            selBox.style.cssText = `
+                position: fixed; border: 2px dashed #8b5cf6; background: rgba(139,92,246,0.1);
+                pointer-events: none; display: none;
+            `;
+            mask.appendChild(selBox);
+            
+            // 提示文字
+            const tip = document.createElement('div');
+            tip.style.cssText = `
+                position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+                background: rgba(0,0,0,0.8); color: white; padding: 8px 16px;
+                border-radius: 6px; font-size: 14px; pointer-events: none;
+            `;
+            tip.textContent = '拖拽选择区域，按 ESC 取消';
+            mask.appendChild(tip);
+            
+            document.body.appendChild(mask);
+            
+            let startX = 0, startY = 0, isSelecting = false;
+            
+            const cleanup = () => {
+                document.body.removeChild(mask);
+            };
+            
+            mask.onmousedown = (e) => {
+                startX = e.clientX;
+                startY = e.clientY;
+                isSelecting = true;
+                selBox.style.display = 'block';
+                selBox.style.left = startX + 'px';
+                selBox.style.top = startY + 'px';
+                selBox.style.width = '0';
+                selBox.style.height = '0';
+            };
+            
+            mask.onmousemove = (e) => {
+                if (!isSelecting) return;
+                const x = Math.min(startX, e.clientX);
+                const y = Math.min(startY, e.clientY);
+                const w = Math.abs(e.clientX - startX);
+                const h = Math.abs(e.clientY - startY);
+                selBox.style.left = x + 'px';
+                selBox.style.top = y + 'px';
+                selBox.style.width = w + 'px';
+                selBox.style.height = h + 'px';
+            };
+            
+            mask.onmouseup = async (e) => {
+                if (!isSelecting) return;
+                isSelecting = false;
+                
+                const x = Math.min(startX, e.clientX);
+                const y = Math.min(startY, e.clientY);
+                const w = Math.abs(e.clientX - startX);
+                const h = Math.abs(e.clientY - startY);
+                
+                if (w < 10 || h < 10) {
+                    cleanup();
+                    resolve(null);
+                    return;
+                }
+                
+                // 隐藏遮罩后截图
+                mask.style.display = 'none';
+                
+                try {
+                    // 等待渲染
+                    await new Promise(r => setTimeout(r, 50));
+                    
+                    // 截取整个页面
+                    const slideEl = document.getElementById('presSlideCanvas') || 
+                                    document.querySelector('.pres-slide') ||
+                                    document.body;
+                    
+                    const canvas = await html2canvas(slideEl, {
+                        scale: 1,
+                        useCORS: true,
+                        allowTaint: true,
+                        backgroundColor: '#ffffff'
+                    });
+                    
+                    // 裁剪选中区域
+                    const slideRect = slideEl.getBoundingClientRect();
+                    const cropX = x - slideRect.left;
+                    const cropY = y - slideRect.top;
+                    
+                    const cropCanvas = document.createElement('canvas');
+                    cropCanvas.width = w;
+                    cropCanvas.height = h;
+                    const ctx = cropCanvas.getContext('2d');
+                    ctx.drawImage(canvas, cropX, cropY, w, h, 0, 0, w, h);
+                    
+                    const dataUrl = cropCanvas.toDataURL('image/png');
+                    console.log('[_captureRegion] 框选截图完成:', w, 'x', h);
+                    
+                    cleanup();
+                    resolve(dataUrl);
+                } catch (err) {
+                    console.error('[_captureRegion] 截图失败:', err);
+                    cleanup();
+                    resolve(null);
+                }
+            };
+            
+            // ESC 取消
+            const onKeydown = (e) => {
+                if (e.key === 'Escape') {
+                    document.removeEventListener('keydown', onKeydown);
+                    cleanup();
+                    resolve(null);
+                }
+            };
+            document.addEventListener('keydown', onKeydown);
+        });
+    },
+
+    /**
+     * 生成唯一的历史记录 key（slideIndex + elementId 避免不同页面元素 ID 重复）
+     */
+    _getHistoryKey(elementId) {
+        const slideIndex = this.currentSlideIndex ?? 0;
+        return `s${slideIndex}_${elementId}`;
+    },
+
+    /**
+     * 获取元素的生图历史记录
+     */
+    _getImageGenHistory(elementId) {
+        try {
+            const key = this._getHistoryKey(elementId);
+            const all = JSON.parse(localStorage.getItem('pptImageGenHistory') || '{}');
+            return all[key] || [];
+        } catch {
+            return [];
+        }
+    },
+
+    /**
+     * 保存元素的生图记录
+     */
+    _saveImageGenHistory(elementId, record) {
+        try {
+            const key = this._getHistoryKey(elementId);
+            const all = JSON.parse(localStorage.getItem('pptImageGenHistory') || '{}');
+            const history = all[key] || [];
+            // 去重：相同 prompt 只保留最新
+            const filtered = history.filter(h => h.prompt !== record.prompt);
+            filtered.unshift(record);
+            // 每个元素最多保留 10 条
+            all[key] = filtered.slice(0, 10);
+            localStorage.setItem('pptImageGenHistory', JSON.stringify(all));
+        } catch (e) {
+            console.warn('[_saveImageGenHistory] 保存失败:', e);
+        }
+    },
+
+    /**
+     * 框选区域 AI 生图 - 在选中区域上覆盖生成的图片
+     */
+    async regionSelectAndGenerate() {
+        // 1. 框选区域，返回区域信息和截图
+        const regionResult = await this._selectRegionWithInfo();
+        if (!regionResult) return;
+        
+        const { x, y, width, height, screenshot } = regionResult;
+        console.log('[regionSelectAndGenerate] 选中区域:', x, y, width, height);
+        
+        // 2. 创建临时元素用于生图对话框
+        const tempElement = {
+            id: `region_${Date.now()}`,
+            type: 'image',
+            x, y, width, height,
+            src: screenshot
+        };
+        
+        // 3. 显示 AI 生图对话框，并预置框选截图为参考图
+        const result = await this._showAiImageDialog(tempElement, [{ data: screenshot, type: 'region' }]);
+        if (!result) return;
+        
+        // 4. 执行生图
+        const imageResult = await this._executeImageGen(result);
+        if (!imageResult) return;
+        
+        // 5. 在选中区域创建新图片元素
+        const slide = this.slides[this.currentSlideIndex];
+        if (!slide) return;
+        
+        // 获取 slide 实际渲染尺寸来计算百分比
+        const slideEl = document.getElementById('presSlideCanvas') || document.querySelector('.pres-slide');
+        const slideRect = slideEl?.getBoundingClientRect() || { width: 960, height: 540 };
+        const actualWidth = slideRect.width;
+        const actualHeight = slideRect.height;
+        
+        // 转换为百分比（基于实际渲染尺寸）
+        const newElement = {
+            id: `img_${Date.now()}`,
+            type: 'image',
+            x: `${(x / actualWidth * 100).toFixed(2)}%`,
+            y: `${(y / actualHeight * 100).toFixed(2)}%`,
+            width: `${(width / actualWidth * 100).toFixed(2)}%`,
+            height: `${(height / actualHeight * 100).toFixed(2)}%`,
+            src: imageResult.dataUrl,
+            objectFit: 'cover'
+        };
+        
+        console.log('[regionSelectAndGenerate] 坐标转换:', { x, y, width, height, actualWidth, actualHeight });
+        
+        // 添加到当前幻灯片
+        if (!slide.elements) slide.elements = [];
+        slide.elements.push(newElement);
+        
+        // 同步并刷新
+        this._syncToEditor();
+        this.renderCurrentSlide();
+        
+        console.log('[regionSelectAndGenerate] 已添加生成的图片元素');
+    },
+
+    /**
+     * 框选区域并返回区域信息（坐标相对于 slide）
+     */
+    async _selectRegionWithInfo() {
+        return new Promise((resolve) => {
+            const slideEl = document.getElementById('presSlideCanvas') || 
+                            document.querySelector('.pres-slide');
+            if (!slideEl) {
+                resolve(null);
+                return;
+            }
+            
+            const slideRect = slideEl.getBoundingClientRect();
+            
+            // 创建全屏遮罩
+            const mask = document.createElement('div');
+            mask.style.cssText = `
+                position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+                background: rgba(0,0,0,0.3); cursor: crosshair; z-index: 100000;
+            `;
+            
+            // 选择框
+            const selBox = document.createElement('div');
+            selBox.style.cssText = `
+                position: fixed; border: 2px dashed #8b5cf6; background: rgba(139,92,246,0.15);
+                pointer-events: none; display: none;
+            `;
+            mask.appendChild(selBox);
+            
+            // 提示文字
+            const tip = document.createElement('div');
+            tip.style.cssText = `
+                position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+                background: rgba(0,0,0,0.8); color: white; padding: 8px 16px;
+                border-radius: 6px; font-size: 14px; pointer-events: none;
+            `;
+            tip.textContent = '在幻灯片区域拖拽选择，松开后生成图片覆盖该区域';
+            mask.appendChild(tip);
+            
+            document.body.appendChild(mask);
+            
+            let startX = 0, startY = 0, isSelecting = false;
+            
+            const cleanup = () => {
+                document.body.removeChild(mask);
+            };
+            
+            mask.onmousedown = (e) => {
+                startX = e.clientX;
+                startY = e.clientY;
+                isSelecting = true;
+                selBox.style.display = 'block';
+                selBox.style.left = startX + 'px';
+                selBox.style.top = startY + 'px';
+                selBox.style.width = '0';
+                selBox.style.height = '0';
+            };
+            
+            mask.onmousemove = (e) => {
+                if (!isSelecting) return;
+                const x = Math.min(startX, e.clientX);
+                const y = Math.min(startY, e.clientY);
+                const w = Math.abs(e.clientX - startX);
+                const h = Math.abs(e.clientY - startY);
+                selBox.style.left = x + 'px';
+                selBox.style.top = y + 'px';
+                selBox.style.width = w + 'px';
+                selBox.style.height = h + 'px';
+            };
+            
+            mask.onmouseup = async (e) => {
+                if (!isSelecting) return;
+                isSelecting = false;
+                
+                const screenX = Math.min(startX, e.clientX);
+                const screenY = Math.min(startY, e.clientY);
+                const w = Math.abs(e.clientX - startX);
+                const h = Math.abs(e.clientY - startY);
+                
+                if (w < 20 || h < 20) {
+                    cleanup();
+                    resolve(null);
+                    return;
+                }
+                
+                // 转换为相对于 slide 的坐标
+                const x = screenX - slideRect.left;
+                const y = screenY - slideRect.top;
+                
+                // 检查是否在 slide 范围内
+                if (x < 0 || y < 0 || x + w > slideRect.width || y + h > slideRect.height) {
+                    console.warn('[_selectRegionWithInfo] 选择区域超出幻灯片范围');
+                }
+                
+                // 隐藏遮罩后截图
+                mask.style.display = 'none';
+                
+                // 修复富文本显示问题（与导出模块一致）
+                const spanStyles = [];
+                slideEl.querySelectorAll('span').forEach((span, i) => {
+                    spanStyles[i] = span.style.display;
+                    if (!span.style.display) {
+                        span.style.display = 'inline';
+                    }
+                });
+                
+                try {
+                    await new Promise(r => setTimeout(r, 50));
+                    
+                    const canvas = await html2canvas(slideEl, {
+                        scale: 1, useCORS: true, allowTaint: true, backgroundColor: '#ffffff'
+                    });
+                    
+                    // 裁剪选中区域
+                    const cropCanvas = document.createElement('canvas');
+                    cropCanvas.width = w;
+                    cropCanvas.height = h;
+                    const ctx = cropCanvas.getContext('2d');
+                    ctx.drawImage(canvas, x, y, w, h, 0, 0, w, h);
+                    
+                    const screenshot = cropCanvas.toDataURL('image/png');
+                    
+                    // 恢复 span 原始样式
+                    slideEl.querySelectorAll('span').forEach((span, i) => {
+                        if (spanStyles[i] !== undefined) {
+                            span.style.display = spanStyles[i];
+                        }
+                    });
+                    
+                    cleanup();
+                    resolve({ x, y, width: w, height: h, screenshot });
+                } catch (err) {
+                    console.error('[_selectRegionWithInfo] 截图失败:', err);
+                    cleanup();
+                    resolve(null);
+                }
+            };
+            
+            // ESC 取消
+            const onKeydown = (e) => {
+                if (e.key === 'Escape') {
+                    document.removeEventListener('keydown', onKeydown);
+                    cleanup();
+                    resolve(null);
+                }
+            };
+            document.addEventListener('keydown', onKeydown);
+        });
     },
 };
 

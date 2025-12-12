@@ -450,15 +450,10 @@
     position: relative;
     box-shadow: 0 0 60px rgba(0, 0, 0, 0.5);
     transform-origin: center center;
-    /* 基准尺寸 960x540，与 JS 计算一致 */
     width: 960px;
     height: 540px;
     overflow: hidden;
-    /* 保持字体渲染一致性 */
-    -webkit-font-smoothing: subpixel-antialiased;
-    -moz-osx-font-smoothing: auto;
-    text-rendering: optimizeLegibility;
-}
+    }
 
 .slideshow-slide .pres-slide-canvas,
 .slideshow-slide .pres-slide {
@@ -469,42 +464,38 @@
     inset: 0;
 }
 
-.slideshow-controls {
+
+/* 页码 - 左下角 */
+.slideshow-page-info {
     position: absolute;
-    bottom: 16px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.35);
-    backdrop-filter: blur(8px);
-    border-radius: 16px;
-    padding: 6px 16px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 12px;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    z-index: 10;
-}
-
-.slideshow-overlay:hover .slideshow-controls {
-    opacity: 0.6;
-}
-
-.slideshow-overlay .slideshow-controls:hover {
-    opacity: 1;
-    background: rgba(0, 0, 0, 0.6);
-}
-
-#slideshowPageInfo {
-    font-weight: 500;
-    font-variant-numeric: tabular-nums;
-}
-
-.slideshow-hint {
-    color: rgba(255, 255, 255, 0.5);
+    bottom: 12px;
+    left: 16px;
+    color: rgba(255, 255, 255, 0.3);
     font-size: 11px;
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    z-index: 10;
+    transition: color 0.2s;
+}
+
+.slideshow-overlay:hover .slideshow-page-info {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+/* 操作提示 - 右下角 */
+.slideshow-hint {
+    position: absolute;
+    bottom: 12px;
+    right: 16px;
+    color: rgba(255, 255, 255, 0.2);
+    font-size: 10px;
+    font-weight: 400;
+    z-index: 10;
+    transition: color 0.2s;
+}
+
+.slideshow-overlay:hover .slideshow-hint {
+    color: rgba(255, 255, 255, 0.4);
 }
 
 /* ==================== Outline View ==================== */

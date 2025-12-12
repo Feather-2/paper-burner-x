@@ -390,17 +390,53 @@ document.addEventListener('DOMContentLoaded', function() {
         return { wrapper, input };
     }
 
+    function createLabeledSelect(label, options, value) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'mb-3';
+        const l = document.createElement('label');
+        l.className = 'block text-sm font-medium text-slate-700 mb-1';
+        l.textContent = label;
+        const select = document.createElement('select');
+        select.className = 'w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm';
+        options.forEach(opt => {
+            const option = document.createElement('option');
+            option.value = opt.value;
+            option.textContent = opt.label;
+            if (opt.value === value) option.selected = true;
+            select.appendChild(option);
+        });
+        wrapper.appendChild(l);
+        wrapper.appendChild(select);
+        return { wrapper, select };
+    }
+
     function renderGeminiImageConfig() {
         const cfg = typeof loadModelConfig === 'function' ? (loadModelConfig('gemini-image') || {}) : {};
         const defaultBase = 'https://generativelanguage.googleapis.com';
-        const defaultModel = 'gemini-2.5-flash-image';
+        const defaultModel = 'gemini-2.0-flash-exp-image-generation';
 
         const baseRow = createLabeledInput('API Base URL', defaultBase, cfg.apiBaseUrl || defaultBase);
         const modelRow = createLabeledInput('模型 ID', defaultModel, cfg.modelId || defaultModel);
+        
+        // 图片比例选择
+        const aspectRatioRow = createLabeledSelect('图片比例', [
+            { value: '1:1', label: '1:1 (正方形)' },
+            { value: '16:9', label: '16:9 (横屏)' },
+            { value: '9:16', label: '9:16 (竖屏)' },
+            { value: '4:3', label: '4:3 (传统)' },
+            { value: '3:4', label: '3:4 (竖版)' }
+        ], cfg.aspectRatio || '1:1');
+        
+        // 分辨率选择
+        const imageSizeRow = createLabeledSelect('分辨率', [
+            { value: '1K', label: '1K (默认)' },
+            { value: '2K', label: '2K (标准)' },
+            { value: '4K', label: '4K (高清)' }
+        ], cfg.imageSize || '1K');
 
         const hint = document.createElement('p');
         hint.className = 'text-xs text-slate-500 mb-3 bg-slate-50 border border-slate-200 rounded px-3 py-2';
-        hint.innerHTML = '使用 Google Gemini 文生图接口，需在模型 Key 管理中添加 Gemini API Key。留空则使用默认地址/模型。';
+        hint.innerHTML = '使用 Gemini generateContent 接口生图。支持 2.0-flash-exp-image-generation 等模型。需在模型 Key 管理中添加 Gemini API Key。';
 
         const saveBtn = document.createElement('button');
         saveBtn.className = 'px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded';
@@ -410,7 +446,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (typeof saveModelConfig === 'function') {
                     saveModelConfig('gemini-image', {
                         apiBaseUrl: (baseRow.input.value || defaultBase).trim(),
-                        modelId: (modelRow.input.value || defaultModel).trim()
+                        modelId: (modelRow.input.value || defaultModel).trim(),
+                        aspectRatio: aspectRatioRow.select.value,
+                        imageSize: imageSizeRow.select.value
                     });
                 }
                 if (typeof showNotification === 'function') showNotification('Gemini 生图配置已保存', 'success');
@@ -424,6 +462,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         modelConfigColumn.appendChild(baseRow.wrapper);
         modelConfigColumn.appendChild(modelRow.wrapper);
+        modelConfigColumn.appendChild(aspectRatioRow.wrapper);
+        modelConfigColumn.appendChild(imageSizeRow.wrapper);
         modelConfigColumn.appendChild(hint);
         modelConfigColumn.appendChild(saveBtn);
     }

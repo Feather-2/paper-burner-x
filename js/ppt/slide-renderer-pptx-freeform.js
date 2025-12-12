@@ -359,21 +359,31 @@ const PPTXFreeformMixin = {
                 const cacheKey = el.radius ? `${el.src}_r${el.radius}` : el.src;
                 let cached = this.imageCache && this.imageCache[cacheKey];
                 
-                // 对于 data: URL 且有 radius 但没缓存的情况，实时处理圆角
+                // 对于 data: URL 且没缓存的情况，获取图片尺寸
                 const isDataUrl = el.src.startsWith('data:');
                 console.log('[renderImage] Check:', { isDataUrl, cached: !!cached, radius: el.radius, srcStart: el.src.slice(0, 30) });
                 
-                if (!cached && isDataUrl && el.radius && el.radius > 0) {
-                    console.log('[renderImage] Processing data: URL with radius:', el.radius);
+                // 没有缓存时，获取图片尺寸信息（data URL 或外部 URL）
+                if (!cached) {
                     try {
                         const dimensions = await this._getImageDimensions(el.src);
-                        console.log('[renderImage] Got dimensions:', dimensions);
-                        const processedData = await this._applyRoundedCorners(el.src, dimensions.width, dimensions.height, el.radius, el.w, el.h);
-                        cached = { data: processedData, width: dimensions.width, height: dimensions.height, ratio: dimensions.width / dimensions.height, hasRadius: true };
+                        console.log('[renderImage] Got dimensions for uncached:', dimensions, 'src:', el.src.slice(0, 50));
+                        cached = { width: dimensions.width, height: dimensions.height, ratio: dimensions.width / dimensions.height };
+                        
+                        if (isDataUrl) {
+                            cached.data = el.src;
+                            // 如果有圆角，处理圆角
+                            if (el.radius && el.radius > 0) {
+                                const processedData = await this._applyRoundedCorners(el.src, dimensions.width, dimensions.height, el.radius, el.w, el.h);
+                                cached.data = processedData;
+                                cached.hasRadius = true;
+                                console.log('[renderImage] Applied radius to data: URL image, radius:', el.radius);
+                            }
+                        }
+                        
                         this.imageCache[cacheKey] = cached;
-                        console.log('[renderImage] Applied radius to data: URL image, radius:', el.radius);
                     } catch (err) {
-                        console.error('[renderImage] Failed to process radius:', err);
+                        console.error('[renderImage] Failed to process image:', err);
                     }
                 }
                 
@@ -408,19 +418,24 @@ const PPTXFreeformMixin = {
                             finalX = finalX + (finalW - newW) / 2;
                             finalW = newW;
                         }
-                    } else {
-                        // cover: 填满容器，保持比例（PPTX 不支持裁剪，所以也用 contain 逻辑保持比例）
-                        if (imgRatio > containerRatio) {
-                            const newH = finalW / imgRatio;
-                            finalY = finalY + (finalH - newH) / 2;
-                            finalH = newH;
-                        } else {
-                            const newW = finalH * imgRatio;
-                            finalX = finalX + (finalW - newW) / 2;
-                            finalW = newW;
+                        console.log(`[renderImage] contain calc:`, el.src, 'ratio:', imgRatio.toFixed(2), '→', finalW.toFixed(2), 'x', finalH.toFixed(2));
+                    } else if (fitMode === 'cover' && Math.abs(imgRatio - containerRatio) > 0.05) {
+                        // cover: 裁剪图片到容器比例（仅当比例差异较大时）
+                        try {
+                            let imgData = cached.data;
+                            // 如果没有 data（外部 URL），需要先获取 base64
+                            if (!imgData && !isDataUrl) {
+                                imgData = await this._fetchImageAsBase64(el.src);
+                                cached.data = imgData;
+                            }
+                            imgData = imgData || el.src;
+                            const croppedData = await this._applyCoverCrop(imgData, cached.width, cached.height, containerRatio);
+                            cached = { ...cached, data: croppedData, ratio: containerRatio };
+                            console.log(`[renderImage] cover crop:`, el.src.slice(0, 50), 'imgRatio:', imgRatio.toFixed(2), '→ containerRatio:', containerRatio.toFixed(2));
+                        } catch (err) {
+                            console.warn('[renderImage] cover crop failed:', err);
                         }
                     }
-                    console.log(`[renderImage] ${fitMode} calc:`, el.src, 'ratio:', imgRatio.toFixed(2), '→', finalW.toFixed(2), 'x', finalH.toFixed(2));
                 }
                 
                 const imgOptions = { x: finalX, y: finalY, w: finalW, h: finalH };

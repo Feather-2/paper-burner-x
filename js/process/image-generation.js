@@ -85,19 +85,111 @@
 
   /**
    * Gemini 文生图适配器 (generateContent)
+   * 支持 imageConfig: aspectRatio, imageSize
+   * 支持以图生图: req.referenceImages
    */
   async function geminiImageAdapter(req, apiKey, modelConfig) {
-    const modelId = req.model || modelConfig?.modelId || 'gemini-2.5-flash-image';
+    const modelId = req.model || modelConfig?.modelId || 'gemini-2.0-flash-exp-image-generation';
     const baseUrl = sanitizeBaseUrl(modelConfig?.apiBaseUrl || 'https://generativelanguage.googleapis.com');
-    const endpoint = `${baseUrl}/v1beta/models/${modelId}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    
+    // 支持两种认证方式：URL 参数或 Header
+    const useHeaderAuth = modelConfig?.useHeaderAuth || false;
+    const endpoint = useHeaderAuth 
+      ? `${baseUrl}/v1beta/models/${modelId}:generateContent`
+      : `${baseUrl}/v1beta/models/${modelId}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+    // 构建 imageConfig
+    const aspectRatio = req.aspectRatio || modelConfig?.aspectRatio || '1:1';
+    const imageSize = req.imageSize || modelConfig?.imageSize || '1K';
+
+    // 构建 parts：文本 + 可选的参考图片
+    const parts = [];
+    
+    // 添加参考图片（以图生图）- 限制数量和大小避免请求过大
+    if (req.referenceImages && req.referenceImages.length > 0) {
+      const maxImages = 2; // 最多 2 张参考图
+      const imagesToProcess = req.referenceImages.slice(0, maxImages);
+      if (req.referenceImages.length > maxImages) {
+        console.warn(`[geminiImageAdapter] 参考图片超过 ${maxImages} 张，只使用前 ${maxImages} 张`);
+      }
+      
+      for (const img of imagesToProcess) {
+        // img 可以是 { data: base64, mimeType } 或纯 base64 字符串
+        let imgData = img.data || img;
+        let mimeType = img.mimeType || 'image/jpeg';
+        
+        // 去掉 data URL 前缀，获取纯 base64
+        if (typeof imgData === 'string' && imgData.startsWith('data:')) {
+          const match = imgData.match(/^data:([^;]+);base64,(.+)$/);
+          if (match) {
+            mimeType = match[1];
+            imgData = match[2];
+          }
+        }
+        
+        // 检查大小，如果超过 300KB 则压缩（降低阈值避免请求过大）
+        const sizeKB = Math.round(imgData.length * 0.75 / 1024); // base64 转字节约 0.75
+        if (sizeKB > 300) {
+          try {
+            const dataUrl = `data:${mimeType};base64,${imgData}`;
+            const compressed = await compressImageBase64(dataUrl, {
+              maxKB: 300,
+              maxWidth: 800,
+              maxHeight: 800,
+              mimeType: 'image/jpeg'
+            });
+            // 再次去掉前缀
+            const compMatch = compressed.base64.match(/^data:([^;]+);base64,(.+)$/);
+            if (compMatch) {
+              mimeType = compMatch[1];
+              imgData = compMatch[2];
+            }
+            console.log('[geminiImageAdapter] 参考图片压缩后:', Math.round(imgData.length * 0.75 / 1024), 'KB');
+          } catch (e) {
+            console.warn('[geminiImageAdapter] 压缩失败，使用原图:', e);
+          }
+        } else {
+          console.log('[geminiImageAdapter] 参考图片大小:', sizeKB, 'KB (无需压缩)');
+        }
+        
+        parts.push({
+          inline_data: { mime_type: mimeType, data: imgData }
+        });
+      }
+    }
+    
+    // 添加文本提示（明确要求生成图片）
+    const promptText = req.referenceImages?.length > 0
+      ? `Based on the reference image(s) provided, generate a new image: ${req.prompt}`
+      : `Generate an image: ${req.prompt}`;
+    parts.push({ text: promptText });
 
     const body = {
-      contents: [{ role: 'user', parts: [{ text: buildPromptWithSize(req) }]}]
+      contents: [{ role: 'user', parts }],
+      generationConfig: {
+        responseModalities: ['TEXT', 'IMAGE'],
+        imageConfig: {
+          aspectRatio,
+          imageSize
+        }
+      }
     };
+
+    // 可选：搜索增强
+    if (req.useSearch || modelConfig?.useSearch) {
+      body.tools = [{ google_search: {} }];
+    }
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (useHeaderAuth) {
+      headers['x-goog-api-key'] = apiKey;
+    }
+
+    console.log('[geminiImageAdapter] 请求:', { modelId, aspectRatio, imageSize, hasRefImages: !!req.referenceImages?.length });
 
     const resp = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body)
     });
     if (!resp.ok) {
@@ -106,30 +198,33 @@
       throw err;
     }
     const data = await resp.json();
-    const parts =
+    const respParts =
       data?.candidates?.[0]?.content?.parts ||
       data?.candidates?.[0]?.parts ||
       data?.contents?.[0]?.parts ||
       [];
-    const imgPart = parts.find(p => p.inlineData);
-    const inline = imgPart?.inlineData;
+    
+    // 查找图片数据（inline_data 或 inlineData）
+    const imgPart = respParts.find(p => p.inlineData || p.inline_data);
+    const inline = imgPart?.inlineData || imgPart?.inline_data;
     if (!inline?.data) {
       const blockReason = data?.promptFeedback?.blockReason || data?.candidates?.[0]?.finishReason || '';
-      const textFallback = (parts.find(p => p.text)?.text) || '';
+      const textFallback = (respParts.find(p => p.text)?.text) || '';
       const detail = blockReason || textFallback || '未返回图片数据';
       const err = new Error(`Gemini 未返回图片: ${detail}`);
       err.data = data;
       throw err;
     }
-    const mimeType = inline.mimeType || 'image/png';
-    const base64 = `data:${mimeType};base64,${inline.data}`;
+    const mimeType = inline.mimeType || inline.mime_type || 'image/png';
     return {
       provider: 'gemini-image',
       model: modelId,
       mimeType,
-      base64,
+      base64: inline.data,
       width: req.width,
       height: req.height,
+      aspectRatio,
+      imageSize,
       source: 'gemini'
     };
   }
@@ -514,13 +609,21 @@
     return { base64: output, width: targetW, height: targetH, mimeType };
   }
 
-  function loadImage(dataUrl) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = reject;
-      img.src = dataUrl;
-    });
+  async function loadImage(dataUrl) {
+    // 优先使用 createImageBitmap（避免广告拦截器阻止 data URL）
+    try {
+      const response = await fetch(dataUrl);
+      const blob = await response.blob();
+      return await createImageBitmap(blob);
+    } catch (e) {
+      // 降级到 Image 元素
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = dataUrl;
+      });
+    }
   }
 
   // ---- 导出到全局 ----

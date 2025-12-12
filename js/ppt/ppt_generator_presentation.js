@@ -78,6 +78,10 @@ const PPTGeneratorPresentation = {
                                 <iconify-icon icon="carbon:face-satisfied"></iconify-icon>
                             </button>
                             <div class="pres-toolbar-divider"></div>
+                            <button class="pres-tool-btn ai-btn" onclick="window.PPTGenerator.regionSelectAndGenerate()" title="框选区域 AI 生图">
+                                <iconify-icon icon="carbon:select-window"></iconify-icon>
+                            </button>
+                            <div class="pres-toolbar-divider"></div>
                             <button class="pres-tool-btn" onclick="window.PPTGenerator.undo()" title="撤销 (Ctrl+Z)">
                                 <iconify-icon icon="carbon:undo"></iconify-icon>
                             </button>
@@ -786,13 +790,11 @@ const PPTGeneratorPresentation = {
         overlay.className = 'slideshow-overlay';
         overlay.innerHTML = `
             <div class="slideshow-container">
-                <div class="slideshow-slide" id="slideshowSlide">
+                <div class="slideshow-slide pres-slide" id="slideshowSlide">
                     ${this._renderSlideContent(this.slides[this._slideshowIndex])}
-                    <div class="slideshow-controls">
-                        <span id="slideshowPageInfo">${this._slideshowIndex + 1} / ${this.slides.length}</span>
-                        <span class="slideshow-hint">← → 翻页 · ESC 退出</span>
-                    </div>
                 </div>
+                <span id="slideshowPageInfo" class="slideshow-page-info">${this._slideshowIndex + 1} / ${this.slides.length}</span>
+                <span class="slideshow-hint">← → · ESC</span>
             </div>
         `;
         
@@ -876,7 +878,7 @@ const PPTGeneratorPresentation = {
         const slideWidth = 960;
         const slideHeight = 540;
         
-        // 计算缩放比例，完全填满
+        // 计算缩放比例
         const scaleX = availableWidth / slideWidth;
         const scaleY = availableHeight / slideHeight;
         const scale = Math.min(scaleX, scaleY);

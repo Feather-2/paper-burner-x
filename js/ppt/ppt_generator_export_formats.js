@@ -494,6 +494,22 @@ ${renderedSlides}
                 const bgStyle = bgFill ? `background: ${bgFill};` : 'background: #ffffff;';
                 container.innerHTML = `<div style="width: 960px; height: 540px; overflow: hidden; ${bgStyle}">${renderer.render(slide, index)}</div>`;
 
+                // 确保所有 span 保持 inline 显示（避免 html2canvas 错误处理）
+                container.querySelectorAll('span').forEach(span => {
+                    if (!span.style.display) {
+                        span.style.display = 'inline';
+                    }
+                });
+
+                // 处理半透明渐变形状：裁剪顶部边缘避免黑线
+                container.querySelectorAll('div').forEach(div => {
+                    const bg = div.style.background || '';
+                    if (bg.includes('gradient') && bg.includes('to top') && 
+                        (bg.includes('transparent') || bg.includes('rgba(') || bg.includes(', 0)'))) {
+                        div.style.clipPath = 'inset(2% 0 0 0)';
+                    }
+                });
+
                 const maskedElements = [...container.querySelectorAll('div > img')]
                     .map(img => img.parentElement)
                     .filter(div => {

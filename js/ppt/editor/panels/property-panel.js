@@ -373,8 +373,9 @@ class PropertyPanel extends EventEmitter {
                         <option value="rounded" ${el.mask === 'rounded' ? 'selected' : ''}>圆角</option>
                     </select>
                 </div>
-                <div class="property-row">
+                <div class="property-row" style="gap: 8px;">
                     <button class="property-btn" data-action="replace-image">更换图片</button>
+                    <button class="property-btn" data-action="ai-generate-image" style="background: linear-gradient(135deg, #8b5cf6, #6366f1); color: white;">AI 生图</button>
                 </div>
             </div>
         `;

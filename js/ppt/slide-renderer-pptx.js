@@ -826,12 +826,71 @@ class PPTXSlideRenderer {
         });
     }
 
+    /**
+     * Cover 模式裁剪：将图片裁剪到目标比例（居中裁剪）
+     * @param {string} base64 - 图片 base64
+     * @param {number} imgW - 图片原始宽度
+     * @param {number} imgH - 图片原始高度
+     * @param {number} targetRatio - 目标宽高比 (w/h)
+     */
+    async _applyCoverCrop(base64, imgW, imgH, targetRatio) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                const imgRatio = imgW / imgH;
+                let srcX = 0, srcY = 0, srcW = imgW, srcH = imgH;
+                
+                if (imgRatio > targetRatio) {
+                    // 图片更宽，裁剪左右
+                    srcW = imgH * targetRatio;
+                    srcX = (imgW - srcW) / 2;
+                } else {
+                    // 图片更高，裁剪上下
+                    srcH = imgW / targetRatio;
+                    srcY = (imgH - srcH) / 2;
+                }
+                
+                const canvas = document.createElement('canvas');
+                canvas.width = srcW;
+                canvas.height = srcH;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH);
+                
+                console.log('[_applyCoverCrop] imgW:', imgW, 'imgH:', imgH, 'targetRatio:', targetRatio.toFixed(2), '→ crop:', srcW.toFixed(0), 'x', srcH.toFixed(0));
+                resolve(canvas.toDataURL('image/png'));
+            };
+            img.onerror = () => resolve(base64);
+            img.src = base64;
+        });
+    }
+
     _getImageDimensions(base64) {
         return new Promise((resolve) => {
             const img = new Image();
+            img.crossOrigin = 'anonymous';
             img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
             img.onerror = () => resolve({ width: 100, height: 100 });
             img.src = base64;
+        });
+    }
+
+    /**
+     * 获取外部 URL 图片的 base64 数据
+     */
+    async _fetchImageAsBase64(url) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                resolve(canvas.toDataURL('image/png'));
+            };
+            img.onerror = () => reject(new Error('Failed to load image: ' + url));
+            img.src = url;
         });
     }
 

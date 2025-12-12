@@ -37,6 +37,10 @@ class ContextMenu {
             </div>
             <div class="context-menu-divider"></div>
             <div class="context-menu-group-title" data-type="image">图片处理</div>
+            <div class="context-menu-item ai-gen" data-action="ai-generate" data-type="image">
+                <iconify-icon icon="carbon:magic-wand" class="menu-icon"></iconify-icon>
+                <span>AI 生图</span>
+            </div>
             <div class="context-menu-item primary" data-action="edit-image" data-type="image">
                 <iconify-icon icon="carbon:image-search" class="menu-icon"></iconify-icon>
                 <span>智能编辑图片</span>
@@ -113,6 +117,14 @@ class ContextMenu {
             .context-menu-item.primary:hover {
                 background: #eef2ff;
                 color: #4f46e5;
+            }
+            .context-menu-item.ai-gen {
+                background: linear-gradient(135deg, #f5f3ff, #eef2ff);
+                color: #7c3aed;
+            }
+            .context-menu-item.ai-gen:hover {
+                background: linear-gradient(135deg, #ede9fe, #e0e7ff);
+                color: #6d28d9;
             }
             .context-menu-item.disabled {
                 opacity: 0.4;
@@ -239,6 +251,10 @@ class ContextMenu {
 
             case 'edit-image':
                 await this._openImageEditor(element);
+                break;
+
+            case 'ai-generate':
+                this._triggerAiGenerate(element);
                 break;
 
             case 'vectorize':
@@ -443,6 +459,20 @@ class ContextMenu {
         // 标记为已修改
         this.editor.history?.markDirty?.();
         this.editor.emit('element:update', { elementId });
+    }
+
+    /**
+     * 触发 AI 生图
+     */
+    _triggerAiGenerate(element) {
+        if (!element || element.type !== 'image') return;
+        
+        // 调用 PPTGenerator 的 AI 生图方法
+        if (window.PPTGenerator?._aiGenerateImage) {
+            window.PPTGenerator._aiGenerateImage(element);
+        } else {
+            alert('AI 生图功能未加载');
+        }
     }
 }
 
