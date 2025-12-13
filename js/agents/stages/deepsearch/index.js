@@ -9,6 +9,7 @@ import { runDeepSearchUnderstandStage } from "./understand.js";
 import { runDeepSearchWriteStage } from "./write.js";
 import { runDeepSearchCondenseStage } from "./condense.js";
 import { TrajectoryManager } from "./trajectory.js";
+import { DeepSearchError, ErrorHandler, ErrorLevel } from "../../core/error-handler.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -191,7 +192,7 @@ export class DeepSearchStage {
    * Stage interface (Runtime): execute(runContext, input) -> ContentPackage.
    * @param {object} runContext
    * @param {DeepSearchState|{state?:DeepSearchState|object,sources?:Array<object>,taskGoal?:string,userConfig?:object}} input
-   * @param {{emit?:Function,eventBus?:object,signal?:AbortSignal,checkCancelled?:Function,aiApiService?:object}=} stageApi
+   * @param {{emit?:Function,eventBus?:object,signal?:AbortSignal,checkCancelled?:Function,aiApiService?:object,taskManager?:object}=} stageApi
    * @returns {Promise<object>} ContentPackage v0.1
    */
   async execute(runContext, input, stageApi = {}) {
@@ -199,10 +200,94 @@ export class DeepSearchStage {
     const state = ensureState(runContext, input);
     if (runContext?.runId) state.runId = String(runContext.runId);
 
+    const taskManager = stageApi?.taskManager;
+    const taskId = state.runId;
+    const updateTaskProgress = () => {
+      if (!taskManager || !taskId) return;
+      const claims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
+      taskManager.updateProgress(taskId, {
+        iteration: state.iteration,
+        gapCount: openGaps(state).length,
+        claimCount: claims.length,
+      });
+    };
+
+    if (taskManager && taskId) {
+      let task = taskManager.get(taskId);
+      if (!task) task = (await taskManager.load(taskId)) || taskManager.create({ runId: taskId, type: "deepsearch", metadata: {} });
+      updateTaskProgress();
+    }
+
+    const errorHandler = new ErrorHandler();
+
+    const normalizeError = (err, { stage } = {}) => {
+      if (err instanceof DeepSearchError) return err;
+      const message = String(err?.message || err || "Unknown error");
+      const level = errorHandler.isRetryable(err) ? ErrorLevel.RETRYABLE : ErrorLevel.FATAL;
+      return new DeepSearchError(message, { level, cause: err, context: { stage } });
+    };
+
+    const saveErrorCheckpoint = (checkpointState, { stage, error } = {}) => {
+      const checkpoint = checkpointState?.saveCheckpoint?.();
+      if (!checkpoint) return null;
+      emit?.("deepsearch.checkpoint.saved", {
+        checkpointId: checkpoint.checkpointId,
+        iteration: checkpoint.iteration,
+        ...(checkpoint.metrics ? { metrics: checkpoint.metrics } : {}),
+        ...(stage ? { stage } : {}),
+        ...(error?.level ? { level: error.level } : {}),
+      });
+      checkpointState?.addTimeline?.({
+        name: "deepsearch.checkpoint.saved",
+        status: "info",
+        payload: { checkpointId: checkpoint.checkpointId, iteration: checkpoint.iteration, ...(stage ? { stage } : {}), ...(error?.level ? { level: error.level } : {}) },
+      });
+      return checkpoint;
+    };
+
+    const callStage = async (stage, fn, { stageState = state, fallbackValue } = {}) => {
+      try {
+        const value = await errorHandler.withRetry(fn, {
+          onRetry: ({ attempt, delay, error }) => {
+            stageState?.addTimeline?.({
+              name: "deepsearch.retry",
+              status: "warning",
+              payload: { stage, attempt: attempt + 1, delay, message: String(error?.message || "") },
+            });
+          },
+        });
+        return { ok: true, value };
+      } catch (err) {
+        const dsErr = normalizeError(err, { stage });
+        errorHandler.recordError(stageState, dsErr, { stage });
+        saveErrorCheckpoint(stageState, { stage, error: dsErr });
+
+        if (dsErr.level === ErrorLevel.RECOVERABLE || dsErr.level === ErrorLevel.DEGRADABLE || dsErr.level === ErrorLevel.RETRYABLE) {
+          if (dsErr.level === ErrorLevel.DEGRADABLE) {
+            stageState?.addTimeline?.({ name: "deepsearch.degraded", status: "warning", payload: { stage, message: dsErr.message } });
+          }
+          return { ok: false, recovered: true, error: dsErr, value: typeof fallbackValue === "function" ? fallbackValue(dsErr) : fallbackValue };
+        }
+
+        throw dsErr;
+      }
+    };
+
+    const wrapStageFn =
+      (stage, stageFn, { fallbackValue } = {}) =>
+      async (rc, inp, api) => {
+        const stageState = inp?.state || inp;
+        const fallback = typeof fallbackValue === "function" ? fallbackValue(stageState) : fallbackValue;
+        const { value } = await callStage(stage, () => stageFn(rc, inp, api), { stageState, fallbackValue: fallback });
+        return value;
+      };
+
     emit?.("deepsearch.started", { runId: state.runId });
 
-    checkCancelled(stageApi);
-    await runDeepSearchScanStage(runContext, { state }, stageApi);
+    try {
+      checkCancelled(stageApi);
+      await callStage("deepsearch.scan", () => runDeepSearchScanStage(runContext, { state }, stageApi), { stageState: state });
+      updateTaskProgress();
 
     const trajectoryCfg = getTrajectoryConfig(state);
     if ((safeInt(trajectoryCfg.n) ?? 1) > 1) {
@@ -212,15 +297,21 @@ export class DeepSearchStage {
       emit?.("deepsearch.trajectory.forked", { n: manager.config.n, mergeStrategy: manager.config.mergeStrategy });
 
       const trajectories = manager.fork(state);
-      await Promise.all(
+      await Promise.allSettled(
         trajectories.map((trajectory) =>
           manager.runTrajectory(
             trajectory,
             {
               runContext,
-              runGapsStage: runDeepSearchGapsStage,
-              runRetrieveStage: runDeepSearchRetrieveStage,
-              runUnderstandStage: runDeepSearchUnderstandStage,
+              runGapsStage: wrapStageFn("deepsearch.gaps", runDeepSearchGapsStage, {
+                fallbackValue: (s) => ({ state: s, gaps: Array.isArray(s?.L1?.gaps) ? s.L1.gaps : [], todos: [] }),
+              }),
+              runRetrieveStage: wrapStageFn("deepsearch.retrieve", runDeepSearchRetrieveStage, {
+                fallbackValue: (s) => ({ state: s, retrievedChunks: [] }),
+              }),
+              runUnderstandStage: wrapStageFn("deepsearch.understand", runDeepSearchUnderstandStage, {
+                fallbackValue: (s) => ({ state: s }),
+              }),
               emit: emit ? (name, payload) => emit(name, payload) : null,
             },
             stageApi
@@ -232,19 +323,29 @@ export class DeepSearchStage {
       if (merged) applyMergedState(state, merged);
 
       emit?.("deepsearch.trajectory.merged", { mergeStrategy: manager.config.mergeStrategy });
+      updateTaskProgress();
     } else {
     const seenHitSignatures = new Set();
     let noNewHitsRounds = 0;
 
     while (state.iteration < state.maxIterations && !stageApi?.signal?.aborted) {
       checkCancelled(stageApi);
-      await runDeepSearchGapsStage(runContext, { state }, stageApi);
+      await callStage("deepsearch.gaps", () => runDeepSearchGapsStage(runContext, { state }, stageApi), {
+        stageState: state,
+        fallbackValue: { state, gaps: Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [], todos: [] },
+      });
+      updateTaskProgress();
 
       const gaps = openGaps(state);
       if (gaps.length === 0) break;
 
       checkCancelled(stageApi);
-      const { retrievedChunks } = await runDeepSearchRetrieveStage(runContext, { state }, stageApi);
+      const { value: retrieveOut } = await callStage("deepsearch.retrieve", () => runDeepSearchRetrieveStage(runContext, { state }, stageApi), {
+        stageState: state,
+        fallbackValue: { state, retrievedChunks: [] },
+      });
+      const retrievedChunks = retrieveOut?.retrievedChunks;
+      updateTaskProgress();
 
       let newHitCount = 0;
       for (const r of Array.isArray(retrievedChunks) ? retrievedChunks : []) {
@@ -257,7 +358,11 @@ export class DeepSearchStage {
       noNewHitsRounds = newHitCount === 0 ? noNewHitsRounds + 1 : 0;
 
       checkCancelled(stageApi);
-      await runDeepSearchUnderstandStage(runContext, { state }, stageApi);
+      await callStage("deepsearch.understand", () => runDeepSearchUnderstandStage(runContext, { state }, stageApi), {
+        stageState: state,
+        fallbackValue: { state },
+      });
+      updateTaskProgress();
 
       validateIteration(state, { blockAfterMisses: getGapBlockAfterMisses(state) });
 
@@ -274,10 +379,12 @@ export class DeepSearchStage {
 
     if (!stageApi?.signal?.aborted) {
       checkCancelled(stageApi);
-      await runDeepSearchWriteStage(runContext, { state }, stageApi);
+      await callStage("deepsearch.write", () => runDeepSearchWriteStage(runContext, { state }, stageApi), { stageState: state });
+      updateTaskProgress();
 
       checkCancelled(stageApi);
-      await runDeepSearchCondenseStage(runContext, { state }, stageApi);
+      await callStage("deepsearch.condense", () => runDeepSearchCondenseStage(runContext, { state }, stageApi), { stageState: state });
+      updateTaskProgress();
     } else {
       state.addTimeline({ name: "deepsearch.aborted", status: "warning", payload: { iteration: state.iteration } });
       emit?.("deepsearch.aborted", { iteration: state.iteration });
@@ -314,7 +421,18 @@ export class DeepSearchStage {
     }
 
     emit?.("deepsearch.completed", { runId: state.runId, slideCount: slideIntents.length, claimCount: claims.length });
+    if (taskManager && taskId) {
+      if (stageApi?.signal?.aborted && typeof taskManager.cancel === "function") {
+        taskManager.cancel(taskId, "aborted");
+      } else {
+        taskManager.complete(taskId, { runId: state.runId, metrics: pkg?.metrics?.deepsearch || null });
+      }
+    }
     return pkg;
+    } catch (err) {
+      if (taskManager && taskId) taskManager.fail(taskId, err);
+      throw err;
+    }
   }
 
   // Convenience adapter: run(input, context) -> ContentPackage.

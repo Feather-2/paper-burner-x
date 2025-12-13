@@ -9,6 +9,7 @@ import { HtmlAdapter } from "./adapters/html.js";
 import { EpubAdapter } from "./adapters/epub.js";
 import { AudioAdapter } from "./adapters/audio.js";
 import { VideoAdapter } from "./adapters/video.js";
+import { understandAssets as runAssetUnderstanding } from "./asset-understanding.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -224,6 +225,44 @@ export class IngestStage {
       failedDocs++;
       parseErrors.push({ origin, error: "URL ingest not implemented" });
       emit?.("ingest.doc.failed", { origin, error: "URL ingest not implemented" }, { status: "failed" });
+    }
+
+    const understandingOpt = config?.understandAssets;
+    const enableUnderstanding = understandingOpt === true || isPlainObject(understandingOpt);
+    if (enableUnderstanding) {
+      checkCancelled(stageApi);
+      const allAssets = assets.listAssets();
+      if (allAssets.length) {
+        const understandingConfig = isPlainObject(understandingOpt) ? understandingOpt : {};
+        const visionApi = stageApi?.visionApi || config?.visionApi || null;
+        const modelRouter = stageApi?.modelRouter || config?.modelRouter || null;
+
+        emit?.("ingest.assets.understanding.started", { assetCount: allAssets.length }, { status: "started" });
+        try {
+          const results = await runAssetUnderstanding(allAssets, {
+            ...understandingConfig,
+            visionApi,
+            modelRouter,
+            onProgress: (p) => {
+              checkCancelled(stageApi);
+              emit?.("ingest.assets.understanding.progress", p, { status: "progress" });
+              understandingConfig?.onProgress?.(p);
+            },
+          });
+
+          for (let i = 0; i < allAssets.length; i++) {
+            const understanding = results[i];
+            if (understanding == null) continue;
+            const existing = isPlainObject(allAssets[i].understanding) ? allAssets[i].understanding : {};
+            allAssets[i].understanding = isPlainObject(understanding) ? { ...existing, ...understanding } : understanding;
+          }
+          emit?.("ingest.assets.understanding.completed", { assetCount: allAssets.length }, { status: "completed" });
+        } catch (e) {
+          checkCancelled(stageApi);
+          const msg = e instanceof Error ? e.message : String(e);
+          emit?.("ingest.assets.understanding.failed", { error: msg }, { status: "failed" });
+        }
+      }
     }
 
     const output = {

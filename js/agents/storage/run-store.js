@@ -80,13 +80,16 @@ function ensureIndex(store, name, keyPath, options) {
 }
 
 export class RunStore {
-  constructor({ dbName = DB_NAME, dbVersion = DB_VERSION } = {}) {
+  constructor({ dbName = DB_NAME, dbVersion = DB_VERSION, storageAdapter, prefix = "deepsearch:run:" } = {}) {
     this.dbName = dbName;
     this.dbVersion = dbVersion;
     this._dbp = null;
+    this.storage = storageAdapter;
+    this.prefix = prefix;
   }
 
   async open() {
+    if (this.storage) return null;
     if (this._dbp) return this._dbp;
     if (!hasIndexedDB()) {
       throw new Error("IndexedDB is not available in this environment");
@@ -126,6 +129,83 @@ export class RunStore {
     const db = await this._dbp;
     if (db) db.close();
     this._dbp = null;
+  }
+
+  _keyForTask(taskId) {
+    return this.prefix + taskId;
+  }
+
+  _keyForState(runId) {
+    return this.prefix + runId + ":state";
+  }
+
+  _keyForArtifact(runId, name) {
+    return this.prefix + runId + ":artifact:" + name;
+  }
+
+  _keyForManifest(runId) {
+    return this.prefix + runId + ":manifest";
+  }
+
+  async saveTask(task) {
+    if (!task || typeof task !== "object") throw new Error("saveTask(task): task must be an object");
+    const taskId = task.taskId;
+    if (!taskId || typeof taskId !== "string") throw new Error("saveTask(task): task.taskId must be a string");
+
+    if (this.storage?.set) {
+      await this.storage.set(this._keyForTask(taskId), JSON.stringify(task));
+      return;
+    }
+
+    await this.saveArtifact(taskId, "task.json", task, {
+      artifactId: `task_${taskId}`,
+      storageKey: `runs/${taskId}/task.json`,
+      seq: 1,
+      mime: "application/json",
+    });
+  }
+
+  async loadTask(taskId) {
+    if (!taskId || typeof taskId !== "string") throw new Error("loadTask(taskId): taskId must be a string");
+
+    if (this.storage?.get) {
+      const data = await this.storage.get(this._keyForTask(taskId));
+      return data ? JSON.parse(data) : null;
+    }
+
+    const data = await this.getArtifact(taskId, "task.json");
+    if (data === null || data === undefined) return null;
+    return typeof data === "string" ? JSON.parse(data) : data;
+  }
+
+  async saveState(runId, state) {
+    if (!runId || typeof runId !== "string") throw new Error("saveState(runId, state): runId must be a string");
+    const payload = state && typeof state.toJSON === "function" ? state.toJSON() : state;
+
+    if (this.storage?.set) {
+      await this.storage.set(this._keyForState(runId), JSON.stringify(payload));
+      return;
+    }
+
+    await this.saveArtifact(runId, "state.json", payload, {
+      artifactId: `state_${runId}`,
+      storageKey: `runs/${runId}/state.json`,
+      seq: 1,
+      mime: "application/json",
+    });
+  }
+
+  async loadState(runId) {
+    if (!runId || typeof runId !== "string") throw new Error("loadState(runId): runId must be a string");
+
+    if (this.storage?.get) {
+      const data = await this.storage.get(this._keyForState(runId));
+      return data ? JSON.parse(data) : null;
+    }
+
+    const data = await this.getArtifact(runId, "state.json");
+    if (data === null || data === undefined) return null;
+    return typeof data === "string" ? JSON.parse(data) : data;
   }
 
   async estimateQuota() {
@@ -250,6 +330,12 @@ export class RunStore {
     if (!runId || typeof runId !== "string") throw new Error("saveArtifact(runId, type, data): runId must be a string");
     if (!type || typeof type !== "string") throw new Error("saveArtifact(runId, type, data): type must be a string");
 
+    if (this.storage?.set) {
+      const key = this._keyForArtifact(runId, type);
+      await this.storage.set(key, typeof data === "string" ? data : JSON.stringify(data));
+      return typeof options.artifactId === "string" ? options.artifactId : `art_${runId}_${type.replaceAll("/", "_")}_001`;
+    }
+
     const db = await this.open();
     const tx = db.transaction([STORE_ARTIFACTS], "readwrite");
     const store = tx.objectStore(STORE_ARTIFACTS);
@@ -300,6 +386,11 @@ export class RunStore {
   }
 
   async getArtifact(runId, type) {
+    if (this.storage?.get) {
+      const key = this._keyForArtifact(runId, type);
+      return await this.storage.get(key);
+    }
+
     const db = await this.open();
     const tx = db.transaction([STORE_ARTIFACTS], "readonly");
     const store = tx.objectStore(STORE_ARTIFACTS);
@@ -315,7 +406,12 @@ export class RunStore {
     return null;
   }
 
+  async loadArtifact(runId, name) {
+    return await this.getArtifact(runId, name);
+  }
+
   async listArtifacts(runId) {
+    if (this.storage) return [];
     const db = await this.open();
     const tx = db.transaction([STORE_ARTIFACTS], "readonly");
     const store = tx.objectStore(STORE_ARTIFACTS);
@@ -326,6 +422,11 @@ export class RunStore {
   }
 
   async updateManifest(runId, manifest) {
+    if (this.storage?.set) {
+      await this.storage.set(this._keyForManifest(runId), JSON.stringify(manifest));
+      return;
+    }
+
     const db = await this.open();
     const tx = db.transaction([STORE_RUNS], "readwrite");
     const store = tx.objectStore(STORE_RUNS);
@@ -343,6 +444,11 @@ export class RunStore {
   }
 
   async getManifest(runId) {
+    if (this.storage?.get) {
+      const data = await this.storage.get(this._keyForManifest(runId));
+      return data ? JSON.parse(data) : null;
+    }
+
     const db = await this.open();
     const tx = db.transaction([STORE_RUNS], "readonly");
     const store = tx.objectStore(STORE_RUNS);
