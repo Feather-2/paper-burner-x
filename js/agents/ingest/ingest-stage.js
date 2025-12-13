@@ -3,6 +3,10 @@ import { MarkdownAdapter } from "./adapters/markdown.js";
 import { RawTextAdapter } from "./adapters/raw-text.js";
 import { HistoryAdapter } from "./adapters/history.js";
 import { PdfAdapter } from "./adapters/pdf.js";
+import { DocxAdapter } from "./adapters/docx.js";
+import { PptxAdapter } from "./adapters/pptx.js";
+import { HtmlAdapter } from "./adapters/html.js";
+import { EpubAdapter } from "./adapters/epub.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -103,6 +107,10 @@ export class IngestStage {
       rawText: new RawTextAdapter({ defaultChunkOptions: chunkOptions }),
       history: new HistoryAdapter(stageApi?.storageAdapter || config?.storageAdapter || null, { defaultChunkOptions: chunkOptions }),
       pdf: new PdfAdapter({ defaultChunkOptions: chunkOptions }),
+      docx: new DocxAdapter({ defaultChunkOptions: chunkOptions }),
+      pptx: new PptxAdapter({ defaultChunkOptions: chunkOptions }),
+      html: new HtmlAdapter({ defaultChunkOptions: chunkOptions }),
+      epub: new EpubAdapter({ defaultChunkOptions: chunkOptions }),
     };
 
     const sources = [];
@@ -160,16 +168,31 @@ export class IngestStage {
 
       const isPdf = mimeType === "application/pdf" || ext === "pdf";
       const isMarkdown = ext === "md" || ext === "markdown" || ext === "txt";
-      if (!isMarkdown && !isPdf) {
+      const isDocx = mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || ext === "docx";
+      const isPptx = mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" || ext === "pptx";
+      const isHtml = mimeType === "text/html" || ext === "html" || ext === "htm";
+      const isEpub = mimeType === "application/epub+zip" || ext === "epub";
+
+      if (!isMarkdown && !isPdf && !isDocx && !isPptx && !isHtml && !isEpub) {
         failedDocs++;
-        const msg = `Unsupported file extension: .${ext || "(none)"}`;
+        const msg = `Unsupported file type: .${ext || "(none)"}${mimeType ? ` (${mimeType})` : ""}`;
         parseErrors.push({ origin, error: msg });
         emit?.("ingest.doc.failed", { origin, error: msg }, { status: "failed" });
         continue;
       }
 
       try {
-        const parsed = isPdf ? await adapters.pdf.parse(f, stageApi) : await adapters.markdown.parse(f);
+        const parsed = isPdf
+          ? await adapters.pdf.parse(f, stageApi)
+          : isDocx
+            ? await adapters.docx.parse(f, stageApi)
+            : isPptx
+              ? await adapters.pptx.parse(f, stageApi)
+              : isHtml
+                ? await adapters.html.parse(f, stageApi)
+                : isEpub
+                  ? await adapters.epub.parse(f, stageApi)
+                  : await adapters.markdown.parse(f);
         const addedAssetIds = assets.addAssets(Array.isArray(parsed.assets) ? parsed.assets.map((a) => ({ ...a, docId: parsed.docId })) : []);
         const assetIds = Array.from(new Set(addedAssetIds));
         sources.push(sourceFromParsed(parsed, assetIds));

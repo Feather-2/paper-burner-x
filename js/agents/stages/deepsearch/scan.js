@@ -1,4 +1,5 @@
 import { DeepSearchState, checkCancelled, extractJsonCandidate, makeStageEmitter } from "./state.js";
+import { getModelCaller } from "./model.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -63,8 +64,8 @@ function fallbackDeepDivePlan(state) {
 }
 
 async function tryLLMScan(state, stageApi) {
-  const ai = stageApi?.aiApiService;
-  if (!ai || typeof ai.chat !== "function") return null;
+  const callModel = getModelCaller(stageApi, { usage: "analyst" });
+  if (!callModel) return null;
 
   const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
   const messages = [
@@ -87,7 +88,7 @@ async function tryLLMScan(state, stageApi) {
   ];
 
   try {
-    const result = await ai.chat({ messages, model: "auto", temperature: 0.2, maxTokens: 900 });
+    const result = await callModel(messages, { model: "auto", temperature: 0.2, maxTokens: 900 });
     const candidate = extractJsonCandidate(result?.content);
     if (!candidate) return null;
     const parsed = JSON.parse(candidate);
@@ -121,4 +122,3 @@ export async function runDeepSearchScanStage(runContext, input, stageApi = {}) {
   emit?.("deepsearch.scan.completed", { sourceCount: scanSummary.sourceCount, plannedSteps: Array.isArray(deepDivePlan.steps) ? deepDivePlan.steps.length : 0 });
   return { state, scanSummary, deepDivePlan };
 }
-

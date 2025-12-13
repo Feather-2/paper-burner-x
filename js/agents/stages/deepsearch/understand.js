@@ -1,4 +1,5 @@
-import { DeepSearchState, checkCancelled, makeStageEmitter } from "./state.js";
+import { DeepSearchState, checkCancelled, extractJsonCandidate, makeStageEmitter } from "./state.js";
+import { getModelCaller } from "./model.js";
 import { claimsFromChunks } from "../../deepsearch/understanding/claims-from-chunks.js";
 import { dedupeClaims } from "../../deepsearch/understanding/dedupe.js";
 import { detectConflicts } from "../../deepsearch/understanding/conflicts.js";
@@ -16,6 +17,59 @@ function toNonEmptyString(v) {
 function normalizeGapIds(v) {
   const raw = Array.isArray(v) ? v : v ? [v] : [];
   return Array.from(new Set(raw.map((x) => String(x || "").trim()).filter(Boolean)));
+}
+
+async function tryLLMClaimEdits(state, claims, evidenceLedger, stageApi) {
+  const callModel = getModelCaller(stageApi, { usage: "analyst" });
+  if (!callModel) return null;
+
+  const evidenceById = new Map();
+  for (const e of Array.isArray(evidenceLedger) ? evidenceLedger : []) {
+    if (!e || !toNonEmptyString(e?.evidenceId)) continue;
+    evidenceById.set(String(e.evidenceId), { quote: String(e.quote || ""), sourceId: String(e.sourceId || ""), gapIds: normalizeGapIds(e.gapIds) });
+  }
+
+  const messages = [
+    {
+      role: "system",
+      content:
+        "You are a DeepSearch claim extractor. Improve the provided draft claims for PPT use.\n" +
+        "Return ONLY JSON: {claims:[{claimId,text,importance}]}. importance must be 'core' or 'support'.\n" +
+        "Do not invent facts; only rephrase/summarize what's supported by the evidence quotes.",
+    },
+    {
+      role: "user",
+      content: JSON.stringify(
+        {
+          taskGoal: String(state?.taskGoal || ""),
+          draftClaims: (Array.isArray(claims) ? claims : []).map((c) => ({
+            claimId: c?.claimId,
+            text: c?.text,
+            importance: c?.importance,
+            evidence: (Array.isArray(c?.evidenceIds) ? c.evidenceIds : [])
+              .map((eid) => {
+                const row = evidenceById.get(String(eid));
+                return row ? { evidenceId: String(eid), ...row } : { evidenceId: String(eid) };
+              })
+              .slice(0, 3),
+          })),
+        },
+        null,
+        2
+      ),
+    },
+  ];
+
+  try {
+    const result = await callModel(messages, { model: "auto", temperature: 0.2, maxTokens: 900 });
+    const candidate = extractJsonCandidate(result?.content);
+    if (!candidate) return null;
+    const parsed = JSON.parse(candidate);
+    if (!isPlainObject(parsed) || !Array.isArray(parsed.claims)) return null;
+    return parsed.claims;
+  } catch {
+    return null;
+  }
 }
 
 function ensureState(_runContext, input) {
@@ -170,10 +224,6 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
 
   const { claims: seedClaims, evidences: seedEvidences } = claimsFromChunks(retrieved, { maxQuoteLen });
   const claims = dedupeClaims(seedClaims, { threshold: dedupeThreshold, mergeEvidence: true });
-  const { conflicts, openQuestions: conflictQuestions } = detectConflicts(claims, {
-    topicThreshold: typeof understandingConfig.conflictTopicThreshold === "number" ? understandingConfig.conflictTopicThreshold : 0.6,
-    numericThreshold: typeof understandingConfig.conflictNumericThreshold === "number" ? understandingConfig.conflictNumericThreshold : 0.78,
-  });
 
   const referencedEvidenceIds = new Set();
   for (const c of claims) for (const eid of Array.isArray(c?.evidenceIds) ? c.evidenceIds : []) referencedEvidenceIds.add(String(eid));
@@ -221,6 +271,27 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     }
     c.gapIds = Array.from(new Set(gapIds));
   }
+
+  const claimEdits = await tryLLMClaimEdits(state, claims, evidenceLedger, stageApi);
+  if (Array.isArray(claimEdits) && claimEdits.length) {
+    const claimById = new Map(claims.map((c) => [String(c?.claimId || ""), c]).filter(([id]) => id));
+    for (const edit of claimEdits) {
+      if (!isPlainObject(edit)) continue;
+      const id = toNonEmptyString(edit?.claimId);
+      if (!id) continue;
+      const row = claimById.get(id);
+      if (!row) continue;
+      const text = toNonEmptyString(edit?.text);
+      if (text) row.text = text;
+      const importance = toNonEmptyString(edit?.importance);
+      if (importance === "core" || importance === "support") row.importance = importance;
+    }
+  }
+
+  const { conflicts, openQuestions: conflictQuestions } = detectConflicts(claims, {
+    topicThreshold: typeof understandingConfig.conflictTopicThreshold === "number" ? understandingConfig.conflictTopicThreshold : 0.6,
+    numericThreshold: typeof understandingConfig.conflictNumericThreshold === "number" ? understandingConfig.conflictNumericThreshold : 0.78,
+  });
 
   const openQuestions = [];
   let qn = 0;

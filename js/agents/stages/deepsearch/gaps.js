@@ -1,4 +1,5 @@
-import { DeepSearchState, checkCancelled, makeStageEmitter } from "./state.js";
+import { DeepSearchState, checkCancelled, extractJsonCandidate, makeStageEmitter } from "./state.js";
+import { getModelCaller } from "./model.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -54,6 +55,49 @@ function buildDefaultGaps(taskGoal, scanSummary) {
   }
 
   return out;
+}
+
+async function tryLLMGaps(state, scanSummary, existingGaps, stageApi) {
+  const callModel = getModelCaller(stageApi, { usage: "planner" });
+  if (!callModel) return null;
+
+  const messages = [
+    {
+      role: "system",
+      content:
+        "You are a DeepSearch gap planner. Return ONLY JSON: {gaps:[{type,question,priority,queryHints[]}]}.\n" +
+        "gap.type examples: definition,data,comparison,mechanism,example. Keep question short and concrete.",
+    },
+    {
+      role: "user",
+      content: JSON.stringify(
+        {
+          taskGoal: String(state?.taskGoal || ""),
+          scanSummary: isPlainObject(scanSummary) ? scanSummary : {},
+          existingGaps: (Array.isArray(existingGaps) ? existingGaps : []).map((g) => ({
+            type: g?.type,
+            question: g?.question,
+            priority: g?.priority,
+            status: g?.status,
+            missCount: g?.missCount,
+          })),
+        },
+        null,
+        2
+      ),
+    },
+  ];
+
+  try {
+    const result = await callModel(messages, { model: "auto", temperature: 0.2, maxTokens: 700 });
+    const candidate = extractJsonCandidate(result?.content);
+    if (!candidate) return null;
+    const parsed = JSON.parse(candidate);
+    if (!isPlainObject(parsed) || !Array.isArray(parsed.gaps)) return null;
+    return parsed.gaps;
+  } catch {
+    return null;
+  }
 }
 
 function gapKey(g) {
@@ -129,6 +173,7 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
   }
 
   const suggested = buildDefaultGaps(state.taskGoal, scanSummary);
+  const llmSuggested = await tryLLMGaps(state, scanSummary, normalizedExisting, stageApi);
   const merged = [];
   const byKey = new Map();
   for (const g of normalizedExisting) {
@@ -143,6 +188,24 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
     if (!ng) continue;
     merged.push(ng);
     byKey.set(key, ng);
+    state?.planningTree?.expandFromGap?.(ng);
+  }
+
+  for (const s of Array.isArray(llmSuggested) ? llmSuggested : []) {
+    if (!isPlainObject(s)) continue;
+    const candidate = {
+      type: toNonEmptyString(s?.type) || "unknown",
+      question: toNonEmptyString(s?.question) || "",
+      priority: toNonEmptyString(s?.priority) || "medium",
+      queryHints: Array.isArray(s?.queryHints) ? s.queryHints : [],
+    };
+    const key = gapKey(candidate);
+    if (byKey.has(key)) continue;
+    const ng = normalizeGap({ ...candidate, gapId: makeId(), status: "open", missCount: 0 }, undefined);
+    if (!ng) continue;
+    merged.push(ng);
+    byKey.set(key, ng);
+    state?.planningTree?.expandFromGap?.(ng);
   }
 
   const openQuestions = Array.isArray(state?.L1?.openQuestions) ? state.L1.openQuestions : [];
@@ -156,6 +219,7 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
     if (!ng) continue;
     merged.push(ng);
     byKey.set(key, ng);
+    state?.planningTree?.expandFromGap?.(ng);
   }
 
   state.L1.gaps = merged;

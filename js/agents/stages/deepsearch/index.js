@@ -134,6 +134,17 @@ function validateIteration(state, { blockAfterMisses = 2 } = {}) {
     if (g.status === "blocked") t.status = "blocked";
   }
 
+  const tree = state?.planningTree;
+  if (typeof tree?.getNodesForGap === "function" && typeof tree?.updateStatus === "function") {
+    for (const g of gaps) {
+      const gid = String(g?.gapId || "");
+      if (!gid) continue;
+      if (g.status !== "filled" && g.status !== "blocked") continue;
+      const next = g.status === "filled" ? "completed" : "blocked";
+      for (const n of tree.getNodesForGap(gid)) tree.updateStatus(n.nodeId, next);
+    }
+  }
+
   state.addTimeline({
     name: "deepsearch.validate",
     status: "completed",

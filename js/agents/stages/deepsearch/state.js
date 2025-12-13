@@ -1,3 +1,5 @@
+import { PlanningTree } from "./planning-tree.js";
+
 const STATE_SCHEMA_VERSION = "0.1";
 const DEFAULT_MAX_ITERATIONS = 5;
 
@@ -52,13 +54,19 @@ export function checkCancelled(stageApi) {
 }
 
 export class DeepSearchState {
-  constructor({ runId, taskGoal, userConfig, L0, L1, L2, todos, timeline, createdAt, schemaVersion, iteration, maxIterations, checkpoints } = {}) {
+  constructor({ runId, taskGoal, userConfig, L0, L1, L2, todos, timeline, createdAt, schemaVersion, iteration, maxIterations, checkpoints, planningTree } = {}) {
     this.schemaVersion = toNonEmptyString(schemaVersion) || STATE_SCHEMA_VERSION;
     this.runId = toNonEmptyString(runId) || "run_unknown";
     this.createdAt = toNonEmptyString(createdAt) || new Date().toISOString();
 
     this.taskGoal = toNonEmptyString(taskGoal) || "";
     this.userConfig = isPlainObject(userConfig) ? userConfig : {};
+    this.planningTree =
+      planningTree instanceof PlanningTree
+        ? planningTree
+        : isPlainObject(planningTree)
+          ? PlanningTree.fromJSON(planningTree)
+          : new PlanningTree({ rootGoal: this.taskGoal, runId: this.runId });
 
     const it = safeInt(iteration);
     this.iteration = it !== null && it >= 0 ? it : 0;
@@ -179,6 +187,12 @@ export class DeepSearchState {
     this.L0 = restored.L0;
     this.L1 = restored.L1;
     this.L2 = restored.L2;
+    this.planningTree =
+      restored.planningTree instanceof PlanningTree
+        ? restored.planningTree
+        : isPlainObject(restored.planningTree)
+          ? PlanningTree.fromJSON(restored.planningTree)
+          : new PlanningTree({ rootGoal: this.taskGoal, runId: this.runId });
     this.todos = restored.todos;
     this.timeline = restored.timeline;
     this.checkpoints = preservedCheckpoints;
@@ -194,6 +208,7 @@ export class DeepSearchState {
       createdAt: this.createdAt,
       taskGoal: this.taskGoal,
       userConfig: this.userConfig,
+      planningTree: this.planningTree?.serialize ? this.planningTree.serialize() : null,
       iteration: this.iteration,
       maxIterations: this.maxIterations,
       ...(includeCheckpoints ? { checkpoints: this.checkpoints } : {}),
@@ -211,7 +226,9 @@ export class DeepSearchState {
 
   static fromJSON(json) {
     if (!isPlainObject(json)) throw new TypeError("DeepSearchState.fromJSON(json): json must be an object");
-    return new DeepSearchState(json);
+    const state = new DeepSearchState(json);
+    if (isPlainObject(json.planningTree)) state.planningTree = PlanningTree.fromJSON(json.planningTree);
+    return state;
   }
 
   static deserialize(text) {
