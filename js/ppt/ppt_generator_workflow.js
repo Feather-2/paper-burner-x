@@ -1,4 +1,264 @@
 const PPTGeneratorWorkflow = {
+    async _ensureRuntime({ mode = 'deepsearch', scenario = 'business', constraints = {} } = {}) {
+        if (this._orchestrator && this._orchestrator.state === 'running') return;
+
+        const mod = await import('../agents/runtime/orchestrator.js');
+        const { AgentOrchestrator } = mod;
+
+        this._orchestrator = new AgentOrchestrator({
+            mode,
+            scenario,
+            constraints
+        });
+
+        // Stage order drives todo/agent updates via subscribed events.
+        this._runtimeStageUi = {
+            'deepsearch.ingest': { todoIndex: 0, agentId: 'reader', state: 'reading', started: 'Analyzing document structure...', ended: 'Metadata Extracted' },
+            'deepsearch.questions': { todoIndex: 1, agentId: 'analyst', state: 'questioning', started: 'Formulating strategy questions...', ended: 'Questions Ready' },
+            'textprep.slideplan': { todoIndex: 2, agentId: 'analyst', state: 'scripting', started: 'Drafting presentation script...', ended: 'Script Ready' },
+            'textprep.align': { todoIndex: 3, agentId: 'designer', state: 'designer', started: 'Segmenting script into slides...', ended: 'Segmentation Complete' },
+            'design.batch': { todoIndex: 4, agentId: 'designer', state: 'designer', started: 'Optimizing visual layout...', ended: 'Design Complete' },
+            'evaluate.hardgates': { todoIndex: 5, agentId: 'reviewer', state: 'reviewer', started: 'Final compliance check...', ended: 'Approved' }
+        };
+
+        this._runtimeTodoTexts = [
+            '深度阅读与信息提取',
+            '关键需求分析与确认',
+            '生成演示大纲与脚本',
+            '智能分段与内容映射',
+            '视觉设计与排版优化',
+            '最终渲染与质量检查'
+        ];
+
+        this._attachRuntimeEventHandlers();
+        this._registerWorkflowStages();
+    },
+
+    _attachRuntimeEventHandlers() {
+        if (this._runtimeUnsubs) {
+            this._runtimeUnsubs.forEach(fn => fn());
+        }
+        this._runtimeUnsubs = [];
+
+        const bus = this._orchestrator?.eventBus;
+        if (!bus) return;
+
+        this._runtimeUnsubs.push(bus.on('*', (evt) => this._handleRuntimeEvent(evt)));
+    },
+
+    _handleRuntimeEvent(evt) {
+        const name = evt?.name || '';
+        const payload = evt?.payload || {};
+
+        if (name === 'run.started') {
+            this.state = 'reading';
+            this.updateTodos(this._runtimeTodoTexts.map((text, i) => ({ text, status: i === 0 ? 'active' : 'pending' })));
+            this.renderPreviewArea();
+            return;
+        }
+
+        if (name.endsWith('.progress')) {
+            const agent = payload.agent;
+            const msg = payload.msg;
+            const type = payload.type || 'normal';
+            if (agent && msg) this.logTerminal(agent, msg, type);
+            return;
+        }
+
+        const match = name.match(/^(.*)\.(started|ended|failed)$/);
+        if (!match) return;
+
+        const stageName = match[1];
+        const stageStatus = match[2];
+        const ui = this._runtimeStageUi?.[stageName];
+        if (!ui) return;
+
+        if (ui.state && stageStatus === 'started') {
+            this.state = ui.state;
+        }
+
+        if (stageStatus === 'started') {
+            this._setAgentStatus(ui.agentId, 'active', ui.started);
+            this.updateTodos(this._runtimeTodoTexts.map((text, i) => {
+                if (i < ui.todoIndex) return { text, status: 'completed' };
+                if (i === ui.todoIndex) return { text, status: 'active' };
+                return { text, status: 'pending' };
+            }));
+        }
+
+        if (stageStatus === 'ended') {
+            this._setAgentStatus(ui.agentId, 'idle', ui.ended);
+            // Some steps have a user-confirmation gap after the model finishes generating.
+            if (stageName !== 'deepsearch.questions') {
+                this.updateTodos(this._runtimeTodoTexts.map((text, i) => {
+                    if (i <= ui.todoIndex) return { text, status: 'completed' };
+                    return { text, status: 'pending' };
+                }));
+            }
+        }
+
+        if (stageStatus === 'failed') {
+            this._setAgentStatus(ui.agentId, 'idle', 'Failed');
+            const msg = payload?.message || evt?.payload?.message || 'Stage failed';
+            this.logTerminal('系统', `${stageName} 失败: ${msg}`, 'warning');
+        }
+    },
+
+    _registerWorkflowStages() {
+        const orch = this._orchestrator;
+        if (!orch) return;
+
+        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+        orch.registerStage('deepsearch.ingest', async (_ctx, input, api) => {
+            const files = input?.files || [];
+            api.progress({ agent: 'AI 阅读', msg: `正在并行扫描 ${files.length} 个资源 (前 3000 字符)...`, type: 'normal' });
+            await this._simulateParallelReading(files, 30);
+            api.checkCancelled();
+
+            await sleep(800);
+            const firstFile = files[0] || { name: 'Document' };
+            api.progress({ agent: 'AI 阅读', msg: `提示: "${firstFile.name}" 摘要不完整，正在深入扫描...`, type: 'warning' });
+
+            await sleep(800);
+            api.progress({ agent: 'AI 阅读', msg: '扩展扫描范围至 10,000 字符...', type: 'highlight' });
+            await this._simulateParallelReading(files, 70);
+            api.progress({ agent: 'AI 阅读', msg: '信息确认: 已定位 "预算" 相关章节。上下文置信度: 85%。', type: 'normal' });
+
+            await sleep(800);
+            api.progress({ agent: 'AI 阅读', msg: '正在调用搜索助手补充 "竞品分析" 数据...', type: 'highlight' });
+            api.progress({ agent: 'AI 搜索', msg: '正在查询内部知识库...', type: 'normal' });
+            await sleep(1000);
+            api.progress({ agent: 'AI 搜索', msg: '找到 2 份相关报告，正在合并上下文。', type: 'success' });
+
+            await this._simulateParallelReading(files, 100);
+        }, { actor: 'deepsearch', timeoutMs: 60_000 });
+
+        orch.registerStage('deepsearch.questions', async () => {
+            // Question generation output is consumed by UI; logs are emitted via progress events.
+            orch.eventBus.emit('deepsearch.questions.progress', {
+                actor: 'deepsearch',
+                status: 'progress',
+                payload: { agent: 'AI 分析', msg: '正在分析内容密度...', type: 'normal' }
+            });
+            await sleep(1000);
+            orch.eventBus.emit('deepsearch.questions.progress', {
+                actor: 'deepsearch',
+                status: 'progress',
+                payload: { agent: 'AI 分析', msg: '识别出 3 个关键决策点，需要用户确认。', type: 'success' }
+            });
+
+            return [
+                {
+                    text: "目标受众的技术背景如何？",
+                    options: ["非技术高管 (侧重商业价值)", "技术团队 (侧重架构细节)", "混合受众"],
+                    default: "混合受众"
+                },
+                {
+                    text: "演示文稿的色调风格偏好？",
+                    options: ["深色科技风 (Dark Modern)", "学术严谨 (Academic)", "商务极简 (Business Light)"],
+                    default: "深色科技风 (Dark Modern)"
+                },
+                {
+                    text: "是否需要包含详细的财务报表数据？",
+                    options: ["是，包含详细图表", "否，仅展示关键指标摘要"],
+                    default: "否，仅展示关键指标摘要"
+                }
+            ];
+        }, { actor: 'deepsearch', timeoutMs: 30_000 });
+
+        orch.registerStage('textprep.slideplan', async () => {
+            orch.eventBus.emit('textprep.slideplan.progress', {
+                actor: 'textprep',
+                status: 'progress',
+                payload: { agent: 'AI 分析', msg: '正在处理用户反馈...', type: 'normal' }
+            });
+            orch.eventBus.emit('textprep.slideplan.progress', {
+                actor: 'textprep',
+                status: 'progress',
+                payload: { agent: 'AI 分析', msg: '构建叙事结构: 问题 -> 解决方案 -> 价值影响', type: 'highlight' }
+            });
+
+            const sections = ['引言', '市场痛点', '解决方案', '技术架构', '未来规划'];
+            for (const sec of sections) {
+                await sleep(600);
+                orch.eventBus.emit('textprep.slideplan.progress', {
+                    actor: 'textprep',
+                    status: 'progress',
+                    payload: { agent: 'AI 分析', msg: `正在撰写章节: ${sec}...`, type: 'normal' }
+                });
+            }
+
+            orch.eventBus.emit('textprep.slideplan.progress', {
+                actor: 'textprep',
+                status: 'progress',
+                payload: { agent: 'AI 分析', msg: '演讲稿脚本生成完成。共 2500 字。', type: 'success' }
+            });
+        }, { actor: 'textprep', timeoutMs: 60_000 });
+
+        orch.registerStage('textprep.align', async () => {
+            orch.eventBus.emit('textprep.align.progress', {
+                actor: 'textprep',
+                status: 'progress',
+                payload: { agent: 'AI 设计', msg: '正在分析语义边界...', type: 'normal' }
+            });
+            orch.eventBus.emit('textprep.align.progress', {
+                actor: 'textprep',
+                status: 'progress',
+                payload: { agent: 'AI 设计', msg: '正在建立内容溯源映射...', type: 'highlight' }
+            });
+
+            await sleep(1000);
+            orch.eventBus.emit('textprep.align.progress', {
+                actor: 'textprep',
+                status: 'progress',
+                payload: { agent: 'AI 设计', msg: '已生成 12 个幻灯片分段。', type: 'success' }
+            });
+
+            const sourceFiles = this.workflowData.files?.length > 0 ? this.workflowData.files : [{ name: 'Project_Nebula_Specs.pdf' }];
+            orch.eventBus.emit('textprep.align.progress', {
+                actor: 'textprep',
+                status: 'progress',
+                payload: { agent: 'AI 设计', msg: `分段 3 已关联至 "${sourceFiles[0].name}" (p.14)`, type: 'normal' }
+            });
+            if (sourceFiles.length > 1) {
+                orch.eventBus.emit('textprep.align.progress', {
+                    actor: 'textprep',
+                    status: 'progress',
+                    payload: { agent: 'AI 设计', msg: `分段 7 已关联至 "${sourceFiles[1].name}" (line 45)`, type: 'normal' }
+                });
+            }
+        }, { actor: 'textprep', timeoutMs: 60_000 });
+
+        orch.registerStage('design.batch', async () => {
+            const designSteps = [
+                { msg: '正在评估幻灯片 1-12 的文本密度...', type: 'normal' },
+                { msg: '决策: 幻灯片 4 需要柱状图 (检测到数据)。', type: 'highlight' },
+                { msg: '决策: 幻灯片 2 需要首图 (概念性内容)。', type: 'highlight' },
+                { msg: '决策: 幻灯片 8 使用分栏布局 (检测到对比内容)。', type: 'highlight' },
+                { msg: '正在应用 "深色科技" 风格主题...', type: 'normal' }
+            ];
+
+            for (const step of designSteps) {
+                await sleep(800);
+                orch.eventBus.emit('design.batch.progress', {
+                    actor: 'design',
+                    status: 'progress',
+                    payload: { agent: 'AI 设计', msg: step.msg, type: step.type }
+                });
+            }
+        }, { actor: 'design', timeoutMs: 90_000 });
+
+        orch.registerStage('evaluate.hardgates', async () => {
+            await sleep(1000);
+            orch.eventBus.emit('evaluate.hardgates.progress', {
+                actor: 'evaluate',
+                status: 'progress',
+                payload: { agent: 'AI 审查', msg: '所有约束条件已满足。', type: 'success' }
+            });
+        }, { actor: 'evaluate', timeoutMs: 30_000 });
+    },
+
     handleFileUpload(fileList) {
         // Convert FileList to array and mock processing
         const newFiles = Array.from(fileList).map(f => ({ name: f.name, size: this._formatSize(f.size), type: 'file' }));
@@ -18,95 +278,26 @@ const PPTGeneratorWorkflow = {
     },
 
     async startMultiAgentWorkflow() {
-        this.state = 'reading';
-        this.updateTodos([
-            { text: '深度阅读与信息提取', status: 'active' },
-            { text: '关键需求分析与确认', status: 'pending' },
-            { text: '生成演示大纲与脚本', status: 'pending' },
-            { text: '智能分段与内容映射', status: 'pending' },
-            { text: '视觉设计与排版优化', status: 'pending' },
-            { text: '最终渲染与质量检查', status: 'pending' }
-        ]);
-        this.renderPreviewArea();
-
+        await this._ensureRuntime();
+        this._orchestrator.start();
         await this.phase1_DeepReading();
     },
 
     // --- Phase 1: Reader Agent (Deep Metadata Extraction) ---
     async phase1_DeepReading() {
-        this._setAgentStatus('reader', 'active', 'Analyzing document structure...');
-
         const files = (this.workflowData.files && this.workflowData.files.length > 0) ? this.workflowData.files : [
             { name: 'Project_Nebula_Specs.pdf', size: '2.4MB', type: 'file' },
             { name: 'Market_Research_2025.docx', size: '1.1MB', type: 'file' }
         ];
         this._renderFileGrid(files);
-
-        // Step 1.1: Initial 3000 chars scan
-        await this.logTerminal('AI 阅读', `正在并行扫描 ${files.length} 个资源 (前 3000 字符)...`, 'normal');
-        await this._simulateParallelReading(files, 30); // 30% progress
-
-        // Simulate finding incomplete info
-        await new Promise(r => setTimeout(r, 800));
-        const firstFile = files[0] || { name: 'Document' };
-        await this.logTerminal('AI 阅读', `提示: "${firstFile.name}" 摘要不完整，正在深入扫描...`, 'warning');
-
-        // Step 1.2: Extended 10000 chars scan
-        await new Promise(r => setTimeout(r, 800));
-        await this.logTerminal('AI 阅读', '扩展扫描范围至 10,000 字符...', 'highlight');
-        await this._simulateParallelReading(files, 70); // 70% progress
-        await this.logTerminal('AI 阅读', '信息确认: 已定位 "预算" 相关章节。上下文置信度: 85%。', 'normal');
-
-        // Step 1.3: Search Agent fallback (Simulated)
-        await new Promise(r => setTimeout(r, 800));
-        await this.logTerminal('AI 阅读', '正在调用搜索助手补充 "竞品分析" 数据...', 'highlight');
-        await this.logTerminal('AI 搜索', '正在查询内部知识库...', 'normal');
-        await new Promise(r => setTimeout(r, 1000));
-        await this.logTerminal('AI 搜索', '找到 2 份相关报告，正在合并上下文。', 'success');
-
-        // Finish Phase 1
-        this._renderFileGrid(files, 100); // 100% progress
-        this._setAgentStatus('reader', 'idle', 'Metadata Extracted');
-
-        this.updateTodos([
-            { text: '深度阅读与信息提取', status: 'completed' },
-            { text: '关键需求分析与确认', status: 'active' },
-            { text: '生成演示大纲与脚本', status: 'pending' },
-            { text: '智能分段与内容映射', status: 'pending' },
-            { text: '视觉设计与排版优化', status: 'pending' },
-            { text: '最终渲染与质量检查', status: 'pending' }
-        ]);
-
+        await this._orchestrator.runStage('deepsearch.ingest', { files });
         this.phase2_QuestionGeneration();
     },
 
     // --- Phase 2: Analyst Agent (Question Generation) ---
     async phase2_QuestionGeneration() {
-        this.state = 'questioning';
-        this._setAgentStatus('analyst', 'active', 'Formulating strategy questions...');
-
-        await this.logTerminal('AI 分析', '正在分析内容密度...', 'normal');
-        await new Promise(r => setTimeout(r, 1000));
-        await this.logTerminal('AI 分析', '识别出 3 个关键决策点，需要用户确认。', 'success');
-
-        // Mock Questions
-        this.workflowData.questions = [
-            {
-                text: "目标受众的技术背景如何？",
-                options: ["非技术高管 (侧重商业价值)", "技术团队 (侧重架构细节)", "混合受众"],
-                default: "混合受众"
-            },
-            {
-                text: "演示文稿的色调风格偏好？",
-                options: ["深色科技风 (Dark Modern)", "学术严谨 (Academic)", "商务极简 (Business Light)"],
-                default: "深色科技风 (Dark Modern)"
-            },
-            {
-                text: "是否需要包含详细的财务报表数据？",
-                options: ["是，包含详细图表", "否，仅展示关键指标摘要"],
-                default: "否，仅展示关键指标摘要"
-            }
-        ];
+        const questions = await this._orchestrator.runStage('deepsearch.questions');
+        this.workflowData.questions = questions;
 
         this.addChatMessage('ai', '已完成深度扫描。为了生成更精准的演示文稿，请确认右侧的关键选项。');
         this.renderPreviewArea(); // Will render Question Form
@@ -121,15 +312,11 @@ const PPTGeneratorWorkflow = {
         // In a real app, we'd gather form data here.
         this.state = 'outline_review';
         this.renderPreviewArea(); // Show Outline Review
-
-        this.updateTodos([
-            { text: '深度阅读与信息提取', status: 'completed' },
-            { text: '关键需求分析与确认', status: 'completed' },
-            { text: '生成演示大纲与脚本', status: 'active' }, // Still active as outline is part of this
-            { text: '智能分段与内容映射', status: 'pending' },
-            { text: '视觉设计与排版优化', status: 'pending' },
-            { text: '最终渲染与质量检查', status: 'pending' }
-        ]);
+        this.updateTodos(this._runtimeTodoTexts.map((text, i) => {
+            if (i < 2) return { text, status: 'completed' };
+            if (i === 2) return { text, status: 'active' };
+            return { text, status: 'pending' };
+        }));
     },
 
     confirmOutline() {
@@ -170,110 +357,26 @@ const PPTGeneratorWorkflow = {
 
     // --- Phase 3: Analyst Agent (Scripting) ---
     async phase3_Scripting() {
-        this._setAgentStatus('analyst', 'active', 'Drafting presentation script...');
-
-        await this.logTerminal('AI 分析', '正在处理用户反馈...', 'normal');
-        await this.logTerminal('AI 分析', '构建叙事结构: 问题 -> 解决方案 -> 价值影响', 'highlight');
-
-        // Simulate batch processing of script generation
-        const sections = ['引言', '市场痛点', '解决方案', '技术架构', '未来规划'];
-        for (const sec of sections) {
-            await new Promise(r => setTimeout(r, 600));
-            await this.logTerminal('AI 分析', `正在撰写章节: ${sec}...`, 'normal');
-        }
-
-        await this.logTerminal('AI 分析', '演讲稿脚本生成完成。共 2500 字。', 'success');
-        this._setAgentStatus('analyst', 'idle', 'Script Ready');
-
-        this.updateTodos([
-            { text: '深度阅读与信息提取', status: 'completed' },
-            { text: '关键需求分析与确认', status: 'completed' },
-            { text: '生成演示大纲与脚本', status: 'completed' },
-            { text: '智能分段与内容映射', status: 'active' },
-            { text: '视觉设计与排版优化', status: 'pending' },
-            { text: '最终渲染与质量检查', status: 'pending' }
-        ]);
-
+        await this._orchestrator.runStage('textprep.slideplan');
         this.phase4_Segmentation();
     },
 
     // --- Phase 4: Designer Agent (Segmentation & Mapping) ---
     async phase4_Segmentation() {
-        this._setAgentStatus('designer', 'active', 'Segmenting script into slides...');
-
-        await this.logTerminal('AI 设计', '正在分析语义边界...', 'normal');
-        await this.logTerminal('AI 设计', '正在建立内容溯源映射...', 'highlight');
-
-        // Simulate segmentation
-        await new Promise(r => setTimeout(r, 1000));
-        await this.logTerminal('AI 设计', '已生成 12 个幻灯片分段。', 'success');
-
-        // Mock Source Mapping
-        const sourceFiles = this.workflowData.files.length > 0 ? this.workflowData.files : [{name: 'Project_Nebula_Specs.pdf'}];
-        await this.logTerminal('AI 设计', `分段 3 已关联至 "${sourceFiles[0].name}" (p.14)`, 'normal');
-        if (sourceFiles.length > 1) {
-            await this.logTerminal('AI 设计', `分段 7 已关联至 "${sourceFiles[1].name}" (line 45)`, 'normal');
-        }
-
-        this.updateTodos([
-            { text: '深度阅读与信息提取', status: 'completed' },
-            { text: '关键需求分析与确认', status: 'completed' },
-            { text: '生成演示大纲与脚本', status: 'completed' },
-            { text: '智能分段与内容映射', status: 'completed' },
-            { text: '视觉设计与排版优化', status: 'active' },
-            { text: '最终渲染与质量检查', status: 'pending' }
-        ]);
-
+        await this._orchestrator.runStage('textprep.align');
         this.phase5_DesignOptimization();
     },
 
     // --- Phase 5: Designer Agent (Design Optimization) ---
     async phase5_DesignOptimization() {
-        this._setAgentStatus('designer', 'active', 'Optimizing visual layout...');
-
-        // Simulate batch design decision making (JSON output)
-        const designSteps = [
-            { msg: '正在评估幻灯片 1-12 的文本密度...', type: 'normal' },
-            { msg: '决策: 幻灯片 4 需要柱状图 (检测到数据)。', type: 'highlight' },
-            { msg: '决策: 幻灯片 2 需要首图 (概念性内容)。', type: 'highlight' },
-            { msg: '决策: 幻灯片 8 使用分栏布局 (检测到对比内容)。', type: 'highlight' },
-            { msg: '正在应用 "深色科技" 风格主题...', type: 'normal' }
-        ];
-
-        for (const step of designSteps) {
-            await new Promise(r => setTimeout(r, 800));
-            await this.logTerminal('AI 设计', step.msg, step.type);
-        }
-
-        this._setAgentStatus('designer', 'idle', 'Design Complete');
-
-        this.updateTodos([
-            { text: '深度阅读与信息提取', status: 'completed' },
-            { text: '关键需求分析与确认', status: 'completed' },
-            { text: '生成演示大纲与脚本', status: 'completed' },
-            { text: '智能分段与内容映射', status: 'completed' },
-            { text: '视觉设计与排版优化', status: 'completed' },
-            { text: '最终渲染与质量检查', status: 'active' }
-        ]);
-
+        await this._orchestrator.runStage('design.batch');
         this.phase6_FinalReview();
     },
 
     // --- Phase 6: Reviewer Agent ---
     async phase6_FinalReview() {
-        this._setAgentStatus('reviewer', 'active', 'Final compliance check...');
-        await new Promise(r => setTimeout(r, 1000));
-        await this.logTerminal('AI 审查', '所有约束条件已满足。', 'success');
-        this._setAgentStatus('reviewer', 'idle', 'Approved');
-
-        this.updateTodos([
-            { text: '深度阅读与信息提取', status: 'completed' },
-            { text: '关键需求分析与确认', status: 'completed' },
-            { text: '生成演示大纲与脚本', status: 'completed' },
-            { text: '智能分段与内容映射', status: 'completed' },
-            { text: '视觉设计与排版优化', status: 'completed' },
-            { text: '最终渲染与质量检查', status: 'completed' }
-        ]);
+        await this._orchestrator.runStage('evaluate.hardgates');
+        this._orchestrator.end();
 
         this.state = 'completed';
         this.currentProject.status = 'completed';
