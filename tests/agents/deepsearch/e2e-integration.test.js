@@ -549,3 +549,184 @@ test("P2 E2E: WorkerPool offloads BM25 indexing", async () => {
   const results = search(idx, "bm25 retrieval", 3);
   assert.equal(results[0].chunkId, "b");
 });
+
+// P3 Tests
+test("P3 E2E: Error handling (retry + degradation + timeline recording)", async () => {
+  const { IngestStage } = await import("../../../js/agents/ingest/ingest-stage.js");
+  const { DeepSearchStage } = await import("../../../js/agents/stages/deepsearch/index.js");
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+  const { ErrorHandler, DeepSearchError, ErrorLevel } = await import("../../../js/agents/core/error-handler.js");
+
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const rawTexts = [
+    { title: "Alpha Definition", text: "Definition: Alpha is a thing with clear scope.\nComparison: Alpha vs Beta.\n" },
+    { title: "Metrics", text: "Statistics: adoption reached 42% in 2024.\nMechanism: scan -> retrieve -> understand.\n" },
+  ];
+
+  const ingest = new IngestStage({ defaultChunkOptions: { chunkSize: 140, overlap: 0, includeLineNumbers: true } });
+  const ingestOut = await ingest.execute({ runId: "run_ds_e2e_p3_err", constraints: {} }, { rawTexts }, { emit });
+
+  const state = new DeepSearchState({
+    runId: "run_ds_e2e_p3_err",
+    taskGoal: "Define Alpha; compare Alpha vs Beta; provide key metrics",
+    maxIterations: 2,
+    userConfig: { gaps: { blockAfterMisses: 2 }, retrieval: { topK: 2, windowSize: 0, useBm25: true, useGrep: true } },
+    L0: { sources: ingestOut.sources },
+  });
+
+  const baseAiApiService = makeMockAiApiService();
+  const handler = new ErrorHandler({ maxRetries: 3, retryDelayMs: 1, exponentialBackoff: false });
+  handler.sleep = async () => {};
+
+  let providerAttempts = 0;
+  const aiApiService = {
+    calls: baseAiApiService.calls,
+    async chat({ messages } = {}) {
+      return handler.withRetry(
+        async () => {
+          providerAttempts++;
+          if (providerAttempts === 1) throw new DeepSearchError("rate limit", { level: ErrorLevel.RETRYABLE, canRetry: true });
+          if (providerAttempts === 2) throw new DeepSearchError("temporary degradation", { level: ErrorLevel.DEGRADABLE, canRetry: true });
+          return baseAiApiService.chat({ messages });
+        },
+        {
+          retries: 3,
+          onRetry: ({ error }) => handler.recordError(state, error, { stage: "aiApiService.chat" }),
+        }
+      );
+    },
+  };
+
+  const deepsearch = new DeepSearchStage();
+  const pkg = await deepsearch.execute({ runId: "run_ds_e2e_p3_err", mode: "deepsearch", constraints: {} }, { state }, { emit, aiApiService });
+
+  assertContentPackageBasics(pkg);
+  assert.equal(providerAttempts >= 3, true);
+
+  const errorEvents = (Array.isArray(state.timeline) ? state.timeline : []).filter((e) => String(e?.name || "").startsWith("deepsearch.error."));
+  assert.ok(errorEvents.some((e) => e.name === "deepsearch.error.retryable"));
+  assert.ok(errorEvents.some((e) => e.name === "deepsearch.error.degradable"));
+  assert.ok(events.some((e) => e.name === "deepsearch.completed"));
+
+  assert.equal(state.L1.scanSummary.summaryText, "LLM scan: definitions, metrics, comparisons, mechanism, examples");
+});
+
+test("P3 E2E: TaskManager tracks progress through pipeline", async () => {
+  const { IngestStage } = await import("../../../js/agents/ingest/ingest-stage.js");
+  const { DeepSearchStage } = await import("../../../js/agents/stages/deepsearch/index.js");
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+  const { TaskManager, TaskStatus } = await import("../../../js/agents/core/task-manager.js");
+
+  const aiApiService = makeMockAiApiService();
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const rawTexts = [
+    { title: "Alpha Definition", text: "Definition: Alpha is a thing with clear scope.\n" },
+    { title: "Metrics", text: "Statistics: adoption reached 42% in 2024.\nMore evidence: 42% is cited.\n" },
+  ];
+
+  const ingest = new IngestStage({ defaultChunkOptions: { chunkSize: 140, overlap: 0, includeLineNumbers: true } });
+  const ingestOut = await ingest.execute({ runId: "run_ds_e2e_p3_tm", constraints: {} }, { rawTexts }, { emit });
+
+  const state = new DeepSearchState({
+    runId: "run_ds_e2e_p3_tm",
+    taskGoal: "Define Alpha and provide key metrics and numbers",
+    maxIterations: 2,
+    userConfig: { gaps: { blockAfterMisses: 2 }, retrieval: { topK: 2, windowSize: 0, useBm25: true, useGrep: true } },
+    L0: { sources: ingestOut.sources },
+  });
+
+  const taskManager = new TaskManager();
+  const progressUpdates = [];
+  const originalUpdateProgress = taskManager.updateProgress.bind(taskManager);
+  taskManager.updateProgress = (taskId, progress) => {
+    progressUpdates.push({ taskId, ...progress });
+    return originalUpdateProgress(taskId, progress);
+  };
+
+  const stage = new DeepSearchStage();
+  const pkg = await stage.execute(
+    { runId: "run_ds_e2e_p3_tm", mode: "deepsearch", constraints: {} },
+    { state },
+    { emit, aiApiService, taskManager }
+  );
+
+  assertContentPackageBasics(pkg);
+
+  const task = taskManager.get("run_ds_e2e_p3_tm");
+  assert.ok(task);
+  assert.equal(task.status, TaskStatus.COMPLETED);
+  assert.ok(task.completedAt);
+
+  assert.ok(progressUpdates.length >= 2);
+  assert.ok(progressUpdates.some((u) => typeof u.iteration === "number"));
+  assert.ok(progressUpdates.some((u) => typeof u.gapCount === "number"));
+  assert.ok(progressUpdates.some((u) => typeof u.claimCount === "number"));
+  assert.ok(progressUpdates.some((u) => u.claimCount > 0));
+
+  const last = progressUpdates[progressUpdates.length - 1];
+  assert.equal(last.iteration, pkg.metrics.deepsearch.iteration);
+  assert.equal(task.progress.iteration, pkg.metrics.deepsearch.iteration);
+  assert.ok(events.some((e) => e.name === "deepsearch.completed"));
+});
+
+test("P3 E2E: Asset understanding with Vision API", async () => {
+  const { IngestStage } = await import("../../../js/agents/ingest/ingest-stage.js");
+  const { understandAsset } = await import("../../../js/agents/ingest/asset-understanding.js");
+
+  assert.equal(typeof understandAsset, "function");
+
+  const bytes = Buffer.from("%PDF-1.4\n%mock\n");
+  const file = {
+    name: "doc.pdf",
+    type: "application/pdf",
+    size: bytes.length,
+    async arrayBuffer() {
+      return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    },
+  };
+
+  const placeholder = "![Figure](images/img-001.png)";
+  const mockOcr = {
+    async processFile(f) {
+      assert.equal(f.name, "doc.pdf");
+      return {
+        markdown: `# Doc\n\n${placeholder}\n`,
+        images: [{ id: "img-001.png", data: "data:image/png;base64,AAAA" }],
+        metadata: { engine: "mock" },
+      };
+    },
+  };
+
+  const visionCalls = [];
+  const visionApi = {
+    async describe(image, prompt) {
+      visionCalls.push({ image, prompt: String(prompt) });
+      if (String(prompt).startsWith("Describe")) return { content: "A simple diagram about Alpha." };
+      if (String(prompt).startsWith("Extract all")) return { content: "Alpha 42%" };
+      return { content: "" };
+    },
+  };
+
+  const stage = new IngestStage({ defaultChunkOptions: { chunkSize: 80, overlap: 0, includeLineNumbers: false } });
+  const out = await stage.execute(
+    { runId: "run_ingest_p3_vision", constraints: {} },
+    { files: [file], config: { understandAssets: true } },
+    { ocr: mockOcr, visionApi }
+  );
+
+  assert.equal(out.assets.length, 1);
+  assert.equal(out.sources.length, 1);
+
+  const asset = out.assets[0];
+  assert.equal(asset.type, "image");
+  assert.ok(asset.understanding && typeof asset.understanding === "object");
+  assert.equal(asset.understanding.description, "A simple diagram about Alpha.");
+  assert.ok(typeof asset.understanding.ocrText === "string" && asset.understanding.ocrText.includes("Alpha"));
+
+  assert.ok(visionCalls.some((c) => c.prompt.startsWith("Describe")));
+  assert.ok(visionCalls.some((c) => c.prompt.startsWith("Extract all")));
+});
