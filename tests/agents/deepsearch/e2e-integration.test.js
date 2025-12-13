@@ -1,31 +1,65 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-function makeMockAiApiService() {
+function detectAiPromptStage(messages) {
+  const list = Array.isArray(messages) ? messages : [];
+  const sys = String(list.find((m) => m && m.role === "system")?.content || "").toLowerCase();
+  if (sys.includes("deepsearch scanner")) return "scan";
+  if (sys.includes("gap planner")) return "gaps";
+  if (sys.includes("claim extractor")) return "understand";
+  if (sys.includes("ppt slide planner")) return "slides";
+  if (sys.includes("table-of-contents planner")) return "report_toc";
+  if (sys.includes("chapter writer")) return "report_section";
+  if (sys.includes("research report writer")) return "report_single";
+  if (sys.includes("report reviewer") || sys.includes("report reviewer")) return "review";
+  return null;
+}
+
+function parseLastUserJson(messages) {
+  const list = Array.isArray(messages) ? messages : [];
+  const user = [...list].reverse().find((m) => m && m.role === "user" && typeof m.content === "string");
+  if (!user) return null;
+  try {
+    return JSON.parse(user.content);
+  } catch {
+    return null;
+  }
+}
+
+function makeMockAiApiService(options = {}) {
   const calls = [];
+  const handlers = options && typeof options === "object" && options.handlers && typeof options.handlers === "object" ? options.handlers : {};
+  const usageForStage = typeof options?.usageForStage === "function" ? options.usageForStage : null;
+  const defaultUsage = options?.defaultUsage && typeof options.defaultUsage === "object" ? options.defaultUsage : null;
+  const defaultModel = typeof options?.defaultModel === "string" ? options.defaultModel : "mock-model";
+
   return {
     calls,
     async chat({ messages } = {}) {
       const list = Array.isArray(messages) ? messages : [];
       calls.push({ messages: list });
 
-      const joined = list
-        .map((m) => (m && typeof m.content === "string" ? m.content : ""))
-        .join("\n")
-        .toLowerCase();
+      const stage = detectAiPromptStage(list);
+      const ctx = { stage, callIndex: calls.length - 1, messages: list, parsedUserJson: parseLastUserJson(list) };
 
-      // S2 scan stage (used by pipeline today).
-      if (joined.includes("deepsearch scanner")) {
-        const last = list[list.length - 1]?.content;
-        let sources = [];
-        try {
-          const parsed = JSON.parse(String(last || ""));
-          sources = Array.isArray(parsed?.sources) ? parsed.sources : [];
-        } catch {
-          // ignore
-        }
+      const attachUsage = (result) => {
+        const out = result && typeof result === "object" ? { ...result } : { content: "{}" };
+        const usage = usageForStage ? usageForStage(stage, ctx) : defaultUsage;
+        if (usage && typeof usage === "object") out.usage = usage;
+        if (!out.model) out.model = defaultModel;
+        if (!out.provider) out.provider = "mock";
+        return out;
+      };
+
+      if (stage && typeof handlers[stage] === "function") {
+        const res = await handlers[stage](ctx);
+        return attachUsage(res);
+      }
+
+      if (stage === "scan") {
+        const parsed = ctx.parsedUserJson;
+        const sources = Array.isArray(parsed?.sources) ? parsed.sources : [];
         const topSourceId = String(sources[0]?.sourceId || "source_1");
-
         const payload = {
           scanSummary: {
             summaryText: "LLM scan: definitions, metrics, comparisons, mechanism, examples",
@@ -37,34 +71,80 @@ function makeMockAiApiService() {
             notes: "deterministic plan",
           },
         };
-        return { content: "```json\n" + JSON.stringify(payload) + "\n```" };
+        return attachUsage({ content: "```json\n" + JSON.stringify(payload) + "\n```" });
       }
 
-      // Placeholder routes for future LLM-backed stages (not required by current P0 implementation).
-      if (joined.includes("gap") || joined.includes("缺口")) {
-        return {
+      if (stage === "gaps") {
+        return attachUsage({
           content: JSON.stringify({
-            gaps: [{ gapId: "g1", type: "definition", question: "Define Alpha", priority: "high", queryHints: ["definition", "Alpha"], status: "open" }],
+            gaps: [
+              { type: "definition", question: "Define Alpha", priority: "high", queryHints: ["definition", "alpha"] },
+              { type: "data", question: "Key metrics about Alpha", priority: "high", queryHints: ["statistics", "numbers", "42%"] },
+            ],
           }),
-        };
-      }
-      if (joined.includes("understand") || joined.includes("claim") || joined.includes("evidence")) {
-        return {
-          content: JSON.stringify({
-            claims: [{ claimId: "c1", text: "Alpha is defined.", evidenceIds: ["e1"], gapIds: ["g1"] }],
-            evidenceLedger: [{ evidenceId: "e1", sourceId: "s1", locator: { charStart: 0, charEnd: 10 }, quote: "Alpha is", gapIds: ["g1"] }],
-          }),
-        };
-      }
-      if (joined.includes("write") || joined.includes("slideintent") || joined.includes("slide")) {
-        return {
-          content: JSON.stringify({
-            slideIntents: [{ slideIntentId: "s_cover", pageType: "cover", title: "Deck", claimIds: [] }],
-          }),
-        };
+        });
       }
 
-      return { content: "{}" };
+      if (stage === "understand") {
+        const parsed = ctx.parsedUserJson;
+        const draft = Array.isArray(parsed?.draftClaims) ? parsed.draftClaims : [];
+        const firstId = String(draft[0]?.claimId || "c_1");
+        const firstText = typeof draft[0]?.text === "string" ? draft[0].text : "Rephrased claim.";
+        return attachUsage({ content: JSON.stringify({ claims: [{ claimId: firstId, text: firstText, importance: "core" }] }) });
+      }
+
+      if (stage === "slides") {
+        const parsed = ctx.parsedUserJson;
+        const claimIds = Array.isArray(parsed?.claimIds) ? parsed.claimIds.map(String) : [];
+        const title = typeof parsed?.title === "string" ? parsed.title : "Deck";
+        return attachUsage({
+          content: JSON.stringify({
+            slideIntents: [{ slideIntentId: "s_cover", pageType: "cover", title: title || "Deck", objective: "Context", claimIds: [] }],
+            outlineCandidates: [{ outlineId: "o_1", title: "Outline", bullets: ["Background", "Findings", "Implications"] }],
+          }),
+        });
+      }
+
+      if (stage === "report_toc") {
+        const parsed = ctx.parsedUserJson;
+        const claims = Array.isArray(parsed?.claims) ? parsed.claims : [];
+        const allClaimIds = claims.map((c) => String(c?.claimId || "")).filter(Boolean);
+        const mid = Math.max(1, Math.ceil(allClaimIds.length / 2));
+        return attachUsage({
+          content: JSON.stringify({
+            title: "Research Report",
+            sections: [
+              { sectionId: "sec_1", title: "Findings", level: 1, targetWords: 800, claimIds: allClaimIds.slice(0, mid), outline: ["Key points", "Evidence"] },
+              { sectionId: "sec_2", title: "Implications", level: 1, targetWords: 600, claimIds: allClaimIds.slice(mid), outline: ["Recommendations"] },
+            ],
+          }),
+        });
+      }
+
+      if (stage === "report_section") {
+        const parsed = ctx.parsedUserJson;
+        const plan = parsed?.sectionPlan || {};
+        const ev = Array.isArray(parsed?.evidenceLedger) ? parsed.evidenceLedger : [];
+        const eid = ev.length ? String(ev[0]?.evidenceId || "") : "";
+        const cite = eid ? ` {{cite:${eid}}}` : "";
+        return attachUsage({
+          content: JSON.stringify({
+            title: String(plan?.title || "Section"),
+            content: `- Evidence-backed point${cite}\n- Supporting detail${cite}`,
+            claimIds: Array.isArray(plan?.claimIds) ? plan.claimIds.map(String) : [],
+          }),
+        });
+      }
+
+      if (stage === "report_single") {
+        const parsed = ctx.parsedUserJson;
+        const evidence = Array.isArray(parsed?.evidenceLedger) ? parsed.evidenceLedger : [];
+        const eid = evidence.length ? String(evidence[0]?.evidenceId || "") : "";
+        const cite = eid ? ` {{cite:${eid}}}` : "";
+        return attachUsage({ content: JSON.stringify({ title: "Research Report", markdown: `# Research Report\n\n- Summary finding${cite}\n` }) });
+      }
+
+      return attachUsage({ content: "{}" });
     },
   };
 }
@@ -89,8 +169,15 @@ function makeMockModelRouter() {
   const calls = [];
   return {
     calls,
-    async call(messages, opts = {}) {
-      calls.push({ messages: Array.isArray(messages) ? messages : [], opts: opts && typeof opts === "object" ? { ...opts } : {} });
+    async call(messages, opts) {
+      const actualMessages = Array.isArray(messages) ? messages : Array.isArray(messages?.messages) ? messages.messages : [];
+      const actualOpts =
+        opts && typeof opts === "object"
+          ? { ...opts }
+          : messages && typeof messages === "object" && !Array.isArray(messages)
+            ? { ...messages }
+            : {};
+      calls.push({ messages: actualMessages, opts: actualOpts });
       return { content: "{}" };
     },
   };
@@ -104,6 +191,49 @@ function detectModelStage(messages) {
   if (sys.includes("claim extractor")) return "understand";
   if (sys.includes("ppt slide planner")) return "write";
   return null;
+}
+
+async function runDeepSearchE2E({
+  runId,
+  taskGoal,
+  rawTexts,
+  userConfig,
+  maxIterations = 5,
+  aiApiService,
+  reviewer,
+  onEmit,
+} = {}) {
+  const { IngestStage } = await import("../../../js/agents/ingest/ingest-stage.js");
+  const { DeepSearchStage } = await import("../../../js/agents/stages/deepsearch/index.js");
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  const events = [];
+  let ingestOut = null;
+  let state = null;
+  const emit = (name, record) => {
+    events.push({ name, record });
+    if (typeof onEmit === "function") onEmit(name, record, events, { state, ingestOut });
+  };
+
+  const ingest = new IngestStage({ defaultChunkOptions: { chunkSize: 160, overlap: 0, includeLineNumbers: true } });
+  ingestOut = await ingest.execute({ runId: String(runId), constraints: {} }, { rawTexts: Array.isArray(rawTexts) ? rawTexts : [] }, { emit });
+
+  state = new DeepSearchState({
+    runId: String(runId),
+    taskGoal: String(taskGoal || ""),
+    maxIterations,
+    userConfig: userConfig && typeof userConfig === "object" ? userConfig : {},
+    L0: { sources: ingestOut.sources },
+  });
+
+  const stage = new DeepSearchStage();
+  const pkg = await stage.execute(
+    { runId: String(runId), mode: "deepsearch", constraints: {} },
+    { state },
+    { emit, aiApiService, ...(reviewer ? { reviewer } : {}) }
+  );
+
+  return { pkg, state, events, ingestOut };
 }
 
 test("DeepSearch P0 E2E: Happy Path (Ingest rawTexts -> DeepSearchStage -> ContentPackage)", async () => {
@@ -311,7 +441,7 @@ test("DeepSearch P0 E2E: Convergence exits (maxIterations or no-new-hits)", asyn
     const pkg = await stage.execute({ runId: "run_ds_e2e_nonew", mode: "deepsearch", constraints: {} }, { state }, { emit, aiApiService });
 
     assertContentPackageBasics(pkg);
-    assert.equal(pkg.metrics.deepsearch.iteration, 2);
+    assert.ok(pkg.metrics.deepsearch.iteration >= 2);
     assert.ok(pkg.metrics.deepsearch.gapCount > 0);
     assert.ok(state.L1.gaps.every((g) => g.status === "open"));
     const g1 = state.L1.gaps.find((g) => g.gapId === "gap_1");
@@ -324,13 +454,314 @@ test("DeepSearch P0 E2E: Convergence exits (maxIterations or no-new-hits)", asyn
     assert.equal(pkg.claims.length, 0);
 
     const saved = events.filter((e) => e.name === "deepsearch.checkpoint.saved");
-    assert.equal(saved.length, 2);
-    assert.equal(state.checkpoints.length, 2);
+    assert.equal(state.checkpoints.length, pkg.metrics.deepsearch.iteration);
+    assert.equal(saved.length, state.checkpoints.length);
 
     assert.equal(state.checkpoints[0].iteration, 0);
     assert.equal(state.checkpoints[1].iteration, 1);
-    assert.ok(state.checkpoints[1].stateSnapshot);
+    assert.equal(state.checkpoints[state.checkpoints.length - 1].iteration, state.checkpoints.length - 1);
+    assert.ok(state.checkpoints[state.checkpoints.length - 1].stateSnapshot);
+
+    const backtracks = events.filter((e) => e.name === "deepsearch.write.backtrack.requested");
+    assert.equal(backtracks.length, 3);
+    assert.equal(state.writeBacktrackCount, 3);
   }
+});
+
+test("P0 E2E: Report fields (markdown/sections/citations) + citations traceable to evidenceLedger", async () => {
+  const aiApiService = makeMockAiApiService();
+
+  const { pkg } = await runDeepSearchE2E({
+    runId: "run_ds_e2e_report_fields",
+    taskGoal: "Define Alpha and cite key stats",
+    maxIterations: 2,
+    userConfig: {
+      reportLength: "detailed",
+      write: { maxParallelSections: 1 },
+      retrieval: { topK: 3, windowSize: 1, useBm25: true, useGrep: true },
+    },
+    rawTexts: [
+      { title: "Alpha Definition", text: "Definition: Alpha is a thing with clear scope.\n" },
+      { title: "Metrics", text: "Statistics: Alpha adoption reached 42% in 2024.\nMore evidence: 42% is cited.\n" },
+    ],
+    aiApiService,
+  });
+
+  assert.ok(pkg.report && typeof pkg.report === "object");
+  assert.ok(typeof pkg.report.markdown === "string" && pkg.report.markdown.length > 0);
+  assert.ok(Array.isArray(pkg.report.sections) && pkg.report.sections.length > 0);
+  assert.ok(Array.isArray(pkg.report.citations) && pkg.report.citations.length > 0);
+
+  const evidenceById = new Map((Array.isArray(pkg.evidenceLedger) ? pkg.evidenceLedger : []).map((e) => [String(e?.evidenceId || ""), e]));
+  for (const c of pkg.report.citations) {
+    const eid = String(c?.evidenceId || "");
+    assert.ok(eid && evidenceById.has(eid), `report.citations evidenceId must resolve: ${eid}`);
+    const ev = evidenceById.get(eid);
+    if (typeof c?.quote === "string" && typeof ev?.quote === "string") assert.equal(c.quote, ev.quote);
+  }
+});
+
+test("P1 E2E: Token usage exists in metrics.deepsearch.tokenUsage", async () => {
+  const aiApiService = makeMockAiApiService({
+    usageForStage: (stage) => (stage === "scan" ? { prompt_tokens: 5, completion_tokens: 7, total_tokens: 12 } : null),
+  });
+
+  const { pkg, events } = await runDeepSearchE2E({
+    runId: "run_ds_e2e_token_usage",
+    taskGoal: "Define Alpha and cite a metric",
+    maxIterations: 1,
+    userConfig: { retrieval: { topK: 2, windowSize: 0, useBm25: true, useGrep: true } },
+    rawTexts: [{ title: "Alpha Definition", text: "Definition: Alpha is a thing.\nStatistics: 42%.\n" }],
+    aiApiService,
+  });
+
+  assert.ok(pkg.metrics && pkg.metrics.deepsearch && typeof pkg.metrics.deepsearch === "object");
+  assert.ok(pkg.metrics.deepsearch.tokenUsage && typeof pkg.metrics.deepsearch.tokenUsage === "object");
+  assert.equal(typeof pkg.metrics.deepsearch.tokenUsage.total, "number");
+  assert.ok(pkg.metrics.deepsearch.tokenUsage.total > 0);
+  assert.ok(events.some((e) => e.name === "deepsearch.token.usage"));
+});
+
+test("P1 E2E: Budget warning event emits when reaching threshold", async () => {
+  const aiApiService = makeMockAiApiService({
+    usageForStage: (stage) => (stage === "scan" ? { prompt_tokens: 3, completion_tokens: 3, total_tokens: 6 } : null),
+  });
+
+  const { events } = await runDeepSearchE2E({
+    runId: "run_ds_e2e_budget_warn",
+    taskGoal: "Define Alpha",
+    maxIterations: 1,
+    userConfig: {
+      budget: { maxTokens: 10, warnAt: 0.5, action: "warn" },
+      retrieval: { topK: 2, windowSize: 0, useBm25: true, useGrep: true },
+    },
+    rawTexts: [{ title: "Alpha", text: "Definition: Alpha.\n" }],
+    aiApiService,
+  });
+
+  const warn = events.find((e) => e.name === "deepsearch.budget.warning");
+  assert.ok(warn, "expected deepsearch.budget.warning event");
+  assert.equal(warn.record?.payload?.budget?.action, "warn");
+  assert.ok(typeof warn.record?.payload?.ratios?.tokens === "number");
+  assert.ok(events.every((e) => e.name !== "deepsearch.budget.exceeded"));
+});
+
+test("P1 E2E: Budget exceeded + action=degrade reduces maxIterations", async () => {
+  const aiApiService = makeMockAiApiService({
+    usageForStage: (stage) => (stage === "scan" ? { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 } : null),
+  });
+
+  const { pkg, state, events } = await runDeepSearchE2E({
+    runId: "run_ds_e2e_budget_degrade",
+    taskGoal: "Define Alpha and cite a metric",
+    maxIterations: 5,
+    userConfig: {
+      budget: { maxTokens: 10, warnAt: 0.5, action: "degrade" },
+      retrieval: { topK: 2, windowSize: 0, useBm25: true, useGrep: true },
+    },
+    rawTexts: [{ title: "Alpha", text: "Definition: Alpha.\nStatistics: 42%.\n" }],
+    aiApiService,
+  });
+
+  assert.ok(events.some((e) => e.name === "deepsearch.budget.exceeded"));
+  assert.equal(state.maxIterations, 1);
+  assert.equal(pkg.metrics.deepsearch.iteration, 1);
+  assert.ok((Array.isArray(state.timeline) ? state.timeline : []).some((t) => t.name === "deepsearch.budget.degraded"));
+});
+
+test("P0 E2E: Fine-grained progress events (scan/retrieve/write) + write includes sectionId", async () => {
+  const aiApiService = makeMockAiApiService();
+
+  const { events } = await runDeepSearchE2E({
+    runId: "run_ds_e2e_progress",
+    taskGoal: "Define Alpha and cite key stats",
+    maxIterations: 2,
+    userConfig: { reportLength: "detailed", write: { maxParallelSections: 1 }, retrieval: { topK: 3, windowSize: 1, useBm25: true, useGrep: true } },
+    rawTexts: [
+      { title: "Alpha Definition", text: "Definition: Alpha is a thing.\n" },
+      { title: "Metrics", text: "Statistics: Alpha adoption reached 42% in 2024.\n" },
+    ],
+    aiApiService,
+  });
+
+  const scanProgress = events.filter((e) => e.name === "deepsearch.scan.progress");
+  const retrieveProgress = events.filter((e) => e.name === "deepsearch.retrieve.progress");
+  const writeProgress = events.filter((e) => e.name === "deepsearch.write.progress");
+
+  assert.ok(scanProgress.length >= 1);
+  assert.ok(retrieveProgress.length >= 1);
+  assert.ok(writeProgress.length >= 1);
+
+  assert.ok(scanProgress.some((e) => e.record?.payload?.phase === "scan" && typeof e.record?.payload?.progress === "number"));
+  assert.ok(retrieveProgress.some((e) => e.record?.payload?.phase === "retrieve" && typeof e.record?.payload?.progress === "number"));
+
+  const sectionProgress = writeProgress.filter((e) => e.record?.payload?.step === "report_section");
+  assert.ok(sectionProgress.length >= 1);
+  assert.ok(sectionProgress.some((e) => typeof e.record?.payload?.detail?.sectionId === "string" && e.record.payload.detail.sectionId.length > 0));
+});
+
+test("P1 E2E: Write backtrack (feedbackToResearch) returns to retrieve", async () => {
+  const aiApiService = makeMockAiApiService();
+
+  const { events } = await runDeepSearchE2E({
+    runId: "run_ds_e2e_write_backtrack",
+    taskGoal: "Define Alpha and cite key metrics",
+    maxIterations: 8,
+    userConfig: { retrieval: { topK: 2, windowSize: 0, useBm25: true, useGrep: true }, gaps: { blockAfterMisses: 10 } },
+    rawTexts: [{ title: "Only Definition", text: "Definition: Alpha is a thing with clear scope.\n" }],
+    aiApiService,
+  });
+
+  const backtrackAt = events.findIndex((e) => e.name === "deepsearch.write.backtrack.requested");
+  assert.ok(backtrackAt >= 0, "expected deepsearch.write.backtrack.requested");
+
+  const retrieveAfter = events.slice(backtrackAt + 1).some((e) => e.name === "deepsearch.retrieve.completed");
+  assert.equal(retrieveAfter, true);
+});
+
+test("P1 E2E: Write backtrack respects maxWriteBacktrack=3", async () => {
+  const aiApiService = makeMockAiApiService();
+
+  const { state, events } = await runDeepSearchE2E({
+    runId: "run_ds_e2e_write_backtrack_limit",
+    taskGoal: "Define Alpha and cite key metrics",
+    maxIterations: 20,
+    userConfig: { retrieval: { topK: 2, windowSize: 0, useBm25: true, useGrep: true }, gaps: { blockAfterMisses: 10 } },
+    rawTexts: [{ title: "Only Definition", text: "Definition: Alpha is a thing with clear scope.\n" }],
+    aiApiService,
+  });
+
+  const backtracks = events.filter((e) => e.name === "deepsearch.write.backtrack.requested");
+  assert.equal(backtracks.length, 3);
+  assert.equal(state.writeBacktrackCount, 3);
+});
+
+test("P2 E2E: Reviewer + Diff (enableReviewer) applies patch and populates reviewFeedback", async () => {
+  const aiApiService = makeMockAiApiService();
+  let reviewerCalls = 0;
+
+  const reviewer = {
+    async review({ reportSkeleton }) {
+      reviewerCalls++;
+      const sectionId = String(reportSkeleton?.sections?.[0]?.sectionId || "sec_1");
+      const eid = String(reportSkeleton?.sections?.[0]?.citationIdsUsed?.[0] || "");
+      const cite = eid ? ` {{cite:${eid}}}` : "";
+      return {
+        overallScore: 0.9,
+        issues: [],
+        patchPlan: [{ op: "replaceSection", sectionId, newContent: `- Reviewer edit applied${cite}`, rationale: "Improve clarity" }],
+      };
+    },
+  };
+
+  const { pkg, events } = await runDeepSearchE2E({
+    runId: "run_ds_e2e_reviewer",
+    taskGoal: "Define Alpha and cite a metric",
+    maxIterations: 2,
+    userConfig: { reportLength: "detailed", write: { enableReviewer: true, maxReviewRounds: 1, maxParallelSections: 1 }, retrieval: { topK: 2, windowSize: 0, useBm25: true, useGrep: true } },
+    rawTexts: [{ title: "Alpha", text: "Definition: Alpha.\nStatistics: 42%.\n" }],
+    aiApiService,
+    reviewer,
+  });
+
+  assert.equal(reviewerCalls, 1);
+  assert.ok(events.some((e) => e.name === "deepsearch.write.patch.applied"));
+  assert.ok(pkg.report && typeof pkg.report === "object");
+  assert.ok(String(pkg.report.markdown || "").includes("Reviewer edit applied"));
+  assert.ok(pkg.report.reviewFeedback && typeof pkg.report.reviewFeedback === "object");
+  assert.equal(pkg.report.reviewFeedback.reviewed, true);
+  assert.ok(pkg.report.reviewFeedback.appliedPatches >= 1);
+});
+
+test("P2 E2E: Retrieve dedupe event + condense removes unreferenced chunks", async () => {
+  const aiApiService = makeMockAiApiService();
+  const injectedChunkId = "junk_chunk_1";
+
+  const { pkg, state, events } = await runDeepSearchE2E({
+    runId: "run_ds_e2e_dedupe_condense",
+    taskGoal: "Define Alpha and cite a metric",
+    maxIterations: 2,
+    userConfig: { retrieval: { topK: 2, windowSize: 0, useBm25: true, useGrep: true } },
+    rawTexts: [{ title: "Alpha", text: "Definition: Alpha.\nStatistics: 42%.\n" }],
+    aiApiService,
+    onEmit: (name, _record, _events, ctx) => {
+      if (name !== "deepsearch.understand.completed") return;
+      if (!ctx?.state || !ctx.state.L2 || !Array.isArray(ctx.state.L2.retrievedChunks)) return;
+      ctx.state.L2.retrievedChunks.push({
+        chunkId: injectedChunkId,
+        sourceId: "source_unknown",
+        locator: { charStart: 0, charEnd: 5 },
+        text: "junk!",
+        matchedGapIds: [],
+        gapId: "",
+      });
+    },
+  });
+
+  assert.ok(events.some((e) => e.name === "deepsearch.retrieve.deduped"));
+  assert.ok(events.some((e) => e.name === "deepsearch.condense.completed"));
+
+  const kept = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
+  assert.equal(kept.some((c) => c?.chunkId === injectedChunkId), false);
+
+  const referencedChunkIds = new Set((Array.isArray(pkg?.evidenceLedger) ? pkg.evidenceLedger : []).map((e) => String(e?.chunkId || "")).filter(Boolean));
+  for (const c of kept) {
+    assert.ok(referencedChunkIds.has(String(c?.chunkId || "")), `condense should keep only evidence-referenced chunks; got ${String(c?.chunkId || "")}`);
+  }
+});
+
+test("P2 E2E: Checkpoint lite snapshot smaller than full; restore keeps L1 intact", async () => {
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  const bigText = "Alpha ".repeat(5000);
+  const sources = [
+    {
+      sourceId: "s1",
+      kind: "user_text",
+      title: "Big Source",
+      sourceTextNormalized: bigText,
+    },
+  ];
+
+  const base = new DeepSearchState({
+    runId: "run_ds_e2e_checkpoint",
+    taskGoal: "Checkpoint test",
+    userConfig: {},
+    L0: { sources },
+    L1: {
+      scanSummary: { summaryText: "scan" },
+      gaps: [{ gapId: "gap_1", type: "definition", question: "Define", status: "open", priority: "high", missCount: 0, queryHints: [] }],
+      claims: [{ claimId: "c_1", text: "Alpha is a thing.", importance: "core", evidenceIds: ["e_1"], gapIds: ["gap_1"] }],
+      evidenceLedger: [{ evidenceId: "e_1", chunkId: "ch_1", sourceId: "s1", locator: { charStart: 0, charEnd: 5 }, quote: bigText.slice(0, 5), gapIds: ["gap_1"] }],
+      report: { markdown: "# Report\n", sections: [], citations: [] },
+    },
+    L2: {
+      retrievedChunks: [{ chunkId: "ch_1", sourceId: "s1", locator: { charStart: 0, charEnd: 5 }, text: bigText.slice(0, 5) }],
+      scratchpad: { note: "temp" },
+      logs: [{ msg: "x" }],
+    },
+  });
+
+  const fullState = base.clone({ includeCheckpoints: false });
+  fullState.userConfig.checkpointStrategy = "full";
+  const cpFull = fullState.saveCheckpoint({ checkpointId: "cp_full" });
+
+  const liteState = base.clone({ includeCheckpoints: false });
+  liteState.userConfig.checkpointStrategy = "lite";
+  const cpLite = liteState.saveCheckpoint({ checkpointId: "cp_lite" });
+
+  const fullSize = JSON.stringify(cpFull.stateSnapshot).length;
+  const liteSize = JSON.stringify(cpLite.stateSnapshot).length;
+  assert.ok(liteSize < fullSize, `expected lite snapshot smaller than full; lite=${liteSize}, full=${fullSize}`);
+
+  const preservedL0 = liteState.L0;
+  const expectedL1 = JSON.parse(JSON.stringify(liteState.L1));
+  liteState.L1 = { scanSummary: { summaryText: "mutated" } };
+  liteState.restoreCheckpoint("cp_lite");
+
+  assert.deepEqual(liteState.L1, expectedL1);
+  assert.equal(liteState.L0, preservedL0);
+  assert.equal(liteState?.L2?.restoredFromLiteCheckpoint, true);
 });
 
 // P1 Tests

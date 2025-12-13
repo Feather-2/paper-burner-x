@@ -1,6 +1,57 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
+function isPlainObject(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function extractEventPayload(e) {
+  if (e && isPlainObject(e.record) && "payload" in e.record) return e.record.payload;
+  if (e && isPlainObject(e) && "payload" in e) return e.payload;
+  return undefined;
+}
+
+function assertValidProgressPayload(payload) {
+  assert.ok(isPlainObject(payload), "progress payload must be an object");
+  assert.equal(typeof payload.phase, "string");
+  assert.ok(payload.phase.length > 0);
+  assert.equal(typeof payload.step, "string");
+  assert.ok(payload.step.length > 0);
+  assert.equal(typeof payload.msg, "string");
+  assert.ok(payload.msg.length > 0);
+
+  assert.equal(typeof payload.current, "number");
+  assert.ok(Number.isFinite(payload.current));
+  assert.equal(typeof payload.total, "number");
+  assert.ok(Number.isFinite(payload.total));
+  assert.ok(payload.total >= 1);
+  assert.ok(payload.current >= 0);
+  assert.ok(payload.current <= payload.total);
+
+  assert.equal(typeof payload.progress, "number");
+  assert.ok(Number.isFinite(payload.progress));
+  assert.ok(payload.progress >= 0 && payload.progress <= 1);
+
+  if ("detail" in payload) {
+    assert.ok(payload.detail === undefined || isPlainObject(payload.detail), "progress.detail must be an object when present");
+  }
+}
+
+function createMockModelRouter(handler) {
+  const calls = [];
+  return {
+    calls,
+    call: async (messages, opts) => {
+      calls.push({ messages, opts });
+      return handler(messages, opts);
+    },
+  };
+}
+
+function makeWordBlob(n, word = "w") {
+  return Array.from({ length: n }, () => word).join(" ");
+}
+
 test("DeepSearchState: serialization/deserialization preserves L0/L1/L2", async () => {
   const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
 
@@ -25,6 +76,238 @@ test("DeepSearchState: serialization/deserialization preserves L0/L1/L2", async 
   assert.ok(roundtrip.toJSON().L0 && roundtrip.toJSON().L1 && roundtrip.toJSON().L2);
   assert.equal(roundtrip.todos.length, 1);
   assert.equal(roundtrip.timeline.length, 1);
+  assert.equal(roundtrip.writeBacktrackCount, 0);
+  assert.ok(Array.isArray(roundtrip.writeSnapshots));
+});
+
+test("DeepSearch checkpoints: lite snapshots skip L0 bulk, summarize L2, and restore L1", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+
+  const bigSourceText = makeWordBlob(25000, "alpha"); // large-ish to make size differences obvious
+  const bigChunkText = makeWordBlob(12000, "chunk");
+
+  const state = new DeepSearchState({
+    runId: "run_cp_lite",
+    taskGoal: "Test lite checkpoint",
+    userConfig: {}, // default should be lite
+    L0: {
+      sources: [
+        { sourceId: "s1", kind: "user_text", title: "Input", sourceTextNormalized: bigSourceText },
+        { sourceId: "s2", kind: "user_text", title: "Input2", sourceTextNormalized: bigSourceText },
+      ],
+    },
+    L1: {
+      gaps: [{ gapId: "gap_1", type: "definition", question: "What is Alpha?", status: "open", missCount: 0 }],
+      claims: [{ claimId: "c1", text: "Alpha is important", evidenceIds: ["e1"], gapIds: ["gap_1"] }],
+      evidenceLedger: [{ evidenceId: "e1", chunkId: "s1::chunk_1", sourceId: "s1", locator: { charStart: 0, charEnd: 10 }, quote: "alpha", gapIds: ["gap_1"] }],
+      report: { title: "Report", markdown: "# Report\n\nAlpha." },
+    },
+    L2: {
+      retrievedChunks: [
+        { retrievedId: "rch_1", chunkId: "s1::chunk_1", sourceId: "s1", locator: { charStart: 0, charEnd: 10 }, text: bigChunkText, gapId: "gap_1", matchedGapIds: ["gap_1"] },
+        { retrievedId: "rch_2", chunkId: "s2::chunk_2", sourceId: "s2", locator: { charStart: 11, charEnd: 20 }, text: bigChunkText, gapId: "gap_1", matchedGapIds: ["gap_1"] },
+      ],
+      scratchpad: { internal: "skip_me" },
+      logs: ["log1", "log2"],
+      tokenUsage: { input: 10, output: 3, total: 13, estimatedCostUSD: 0 },
+    },
+  });
+
+  const originalL1 = JSON.parse(JSON.stringify(state.L1));
+
+  const cpLite = state.saveCheckpoint({ checkpointId: "cp_lite" });
+  assert.equal(cpLite.strategy, "lite");
+  assert.equal(cpLite.stateSnapshot.snapshotStrategy, "lite");
+
+  // L0 bulk should not be copied into snapshot (refs only).
+  assert.ok(cpLite.stateSnapshot.L0 && typeof cpLite.stateSnapshot.L0 === "object");
+  assert.equal(Array.isArray(cpLite.stateSnapshot.L0.sources), false);
+  assert.equal(typeof cpLite.stateSnapshot.L0.sourcesRef, "string");
+
+  // L1 should be fully preserved (core artifact).
+  assert.deepEqual(cpLite.stateSnapshot.L1, originalL1);
+
+  // L2 should be summarized: only ids + tokenUsage; scratchpad/logs skipped.
+  assert.deepEqual(new Set(cpLite.stateSnapshot.L2.retrievedChunkIds), new Set(["s1::chunk_1", "s2::chunk_2"]));
+  assert.deepEqual(cpLite.stateSnapshot.L2.tokenUsage, { input: 10, output: 3, total: 13, estimatedCostUSD: 0 });
+  assert.equal("retrievedChunks" in cpLite.stateSnapshot.L2, false);
+  assert.equal("scratchpad" in cpLite.stateSnapshot.L2, false);
+  assert.equal("logs" in cpLite.stateSnapshot.L2, false);
+
+  // Mutate L0/L1 then restore: lite restore should keep current L0, but rewind L1.
+  state.L0.sources.push({ sourceId: "s3", kind: "user_text", title: "Added", sourceTextNormalized: "new" });
+  const preservedL0 = state.L0;
+  state.taskGoal = "mutated";
+  state.L1.claims = [];
+  state.L2.retrievedChunks = [];
+  state.restoreCheckpoint("cp_lite");
+
+  assert.equal(state.taskGoal, "Test lite checkpoint");
+  assert.deepEqual(state.L1, new DeepSearchState({ runId: "x", taskGoal: "x", L1: originalL1 }).L1);
+  assert.equal(state.L0, preservedL0);
+  assert.equal(state.L0.sources.length, 3);
+  assert.deepEqual(new Set(state.L2.retrievedChunkIds), new Set(["s1::chunk_1", "s2::chunk_2"]));
+  assert.equal(state.L2.restoredFromLiteCheckpoint, true);
+  assert.equal(Array.isArray(state.L2.retrievedChunks) && state.L2.retrievedChunks.length, 0);
+});
+
+test("DeepSearch checkpoints: lite snapshots are >=50% smaller than full snapshots", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+
+  const bigSourceText = makeWordBlob(40000, "alpha");
+  const bigChunkText = makeWordBlob(20000, "chunk");
+
+  const state = new DeepSearchState({
+    runId: "run_cp_size",
+    taskGoal: "Size compare",
+    userConfig: { checkpointStrategy: "full" },
+    L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Input", sourceTextNormalized: bigSourceText }] },
+    L1: {
+      claims: [{ claimId: "c1", text: "alpha", evidenceIds: ["e1"], gapIds: ["g1"] }],
+      evidenceLedger: [{ evidenceId: "e1", chunkId: "s1::chunk_1", sourceId: "s1", locator: { charStart: 0, charEnd: 10 }, quote: "alpha", gapIds: ["g1"] }],
+      gaps: [{ gapId: "g1", type: "definition", question: "q", status: "open" }],
+      report: { title: "R", markdown: "# R" },
+    },
+    L2: {
+      retrievedChunks: [{ retrievedId: "rch_1", chunkId: "s1::chunk_1", sourceId: "s1", locator: { charStart: 0, charEnd: 10 }, text: bigChunkText, gapId: "g1", matchedGapIds: ["g1"] }],
+      tokenUsage: { input: 2, output: 1, total: 3, estimatedCostUSD: 0 },
+      scratchpad: { x: makeWordBlob(5000, "s") },
+      logs: [makeWordBlob(5000, "l")],
+    },
+  });
+
+  const cpFull = state.saveCheckpoint({ checkpointId: "cp_full" });
+  assert.equal(cpFull.strategy, "full");
+  assert.ok(cpFull.stateSnapshot instanceof DeepSearchState);
+  const fullBytes = Buffer.byteLength(JSON.stringify(cpFull.stateSnapshot.toJSON({ includeCheckpoints: false })), "utf8");
+
+  state.userConfig.checkpointStrategy = "lite";
+  const cpLite = state.saveCheckpoint({ checkpointId: "cp_lite" });
+  assert.equal(cpLite.strategy, "lite");
+  const liteBytes = Buffer.byteLength(JSON.stringify(cpLite.stateSnapshot), "utf8");
+
+  assert.ok(liteBytes <= fullBytes * 0.5, `expected lite<=50% of full; full=${fullBytes}B lite=${liteBytes}B`);
+});
+
+test("DeepSearch checkpoints: restore remains backward compatible for old full checkpoints without strategy", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+
+  const state = new DeepSearchState({
+    runId: "run_cp_compat",
+    taskGoal: "Compat",
+    userConfig: { checkpointStrategy: "full" },
+    L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Input", sourceTextNormalized: "alpha" }] },
+    L1: { claims: [{ claimId: "c1" }] },
+    L2: { retrievedChunks: [{ retrievedId: "rch_1", chunkId: "s1::chunk_1", sourceId: "s1", locator: { charStart: 0, charEnd: 1 }, text: "a", gapId: "g1" }] },
+  });
+
+  const cp = state.saveCheckpoint({ checkpointId: "cp_legacy_full" });
+  assert.equal(cp.strategy, "full");
+
+  // Simulate legacy stored checkpoints: snapshot is plain object and strategy field absent.
+  const legacy = state.checkpoints.find((c) => c.checkpointId === "cp_legacy_full");
+  legacy.stateSnapshot = legacy.stateSnapshot.toJSON({ includeCheckpoints: false });
+  delete legacy.strategy;
+
+  state.taskGoal = "mutated";
+  state.L2.retrievedChunks = [];
+  state.restoreCheckpoint("cp_legacy_full");
+
+  assert.equal(state.taskGoal, "Compat");
+  assert.equal(state.L2.retrievedChunks.length, 1);
+  assert.equal(state.L2.retrievedChunks[0].chunkId, "s1::chunk_1");
+});
+
+test("DeepSearch write: feedbackToResearch flags missing gap coverage", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchWriteStage } = await import("../../js/agents/stages/deepsearch/write.js");
+
+  const state = new DeepSearchState({
+    runId: "run_write_feedback",
+    taskGoal: "Test Goal",
+    L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Input", sourceTextNormalized: "Definitions and metrics are discussed here." }] },
+    L1: {
+      gaps: [{ gapId: "gap_1", type: "definition", question: "What are the core definitions and scope?", priority: "high", status: "filled" }],
+      claims: [],
+      evidenceLedger: [],
+    },
+  });
+
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const out = await runDeepSearchWriteStage({ runId: "run_write_feedback" }, { state }, { emit });
+  assert.ok(out.feedbackToResearch);
+  assert.equal(out.feedbackToResearch.needsMoreResearch, true);
+  assert.deepEqual(out.feedbackToResearch.reopenGaps, ["gap_1"]);
+  assert.deepEqual(out.feedbackToResearch.newGaps, []);
+});
+
+test("DeepSearch pipeline: write backtrack triggers once then completes", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchStage } = await import("../../js/agents/stages/deepsearch/index.js");
+
+  const state = new DeepSearchState({
+    runId: "run_write_backtrack_once",
+    taskGoal: "Test Goal",
+    userConfig: { title: "Test Deck", maxIterations: 4 },
+    maxIterations: 4,
+    L0: {
+      sources: [
+        { sourceId: "s1", kind: "user_text", title: "Defs", sourceTextNormalized: "Core definitions and scope: Alpha is the first letter.\n" },
+        { sourceId: "s2", kind: "user_text", title: "Metrics", sourceTextNormalized: "Key metrics and numbers we must cite: Alpha adoption reached 42% in 2024.\n" },
+      ],
+    },
+    L1: {
+      gaps: [
+        { gapId: "gap_1", type: "definition", question: "What are the core definitions and scope?", priority: "high", status: "filled" },
+        { gapId: "gap_2", type: "data", question: "What are the key metrics and numbers we must cite?", priority: "high", status: "filled" },
+      ],
+      claims: [],
+      evidenceLedger: [],
+    },
+  });
+
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const pkg = await runDeepSearchStage({ runId: "run_write_backtrack_once", mode: "deepsearch", constraints: {} }, { state }, { emit, checkCancelled: () => {} });
+  assert.equal(pkg.mode, "deepsearch");
+  assert.ok(pkg.report && typeof pkg.report.markdown === "string" && pkg.report.markdown.length > 0);
+
+  assert.equal(state.writeBacktrackCount, 1);
+  assert.equal(state.writeSnapshots.length, 1);
+  assert.ok(events.filter((e) => e.name === "deepsearch.write.backtrack.requested").length === 1);
+  assert.ok(Array.isArray(state.L1.claims) && state.L1.claims.length > 0);
+});
+
+test("DeepSearch pipeline: maxWriteBacktrack limits repeated write backtracks", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchStage } = await import("../../js/agents/stages/deepsearch/index.js");
+
+  const state = new DeepSearchState({
+    runId: "run_write_backtrack_limit",
+    taskGoal: "Test Goal",
+    userConfig: { title: "Test Deck", maxIterations: 12 },
+    maxIterations: 12,
+    L0: { sources: [] },
+    L1: {
+      gaps: [{ gapId: "gap_1", type: "definition", question: "What are the core definitions and scope?", priority: "high", status: "filled" }],
+      claims: [],
+      evidenceLedger: [],
+    },
+  });
+
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const pkg = await runDeepSearchStage({ runId: "run_write_backtrack_limit", mode: "deepsearch", constraints: {} }, { state }, { emit, checkCancelled: () => {} });
+  assert.equal(pkg.mode, "deepsearch");
+
+  const backtrackEvents = events.filter((e) => e.name === "deepsearch.write.backtrack.requested");
+  assert.equal(backtrackEvents.length, 3);
+  assert.equal(state.writeBacktrackCount, 3);
+  assert.equal(state.writeSnapshots.length, 3);
 });
 
 test("DeepSearch scan: optional LLM parsing + fallback", async () => {
@@ -34,7 +317,12 @@ test("DeepSearch scan: optional LLM parsing + fallback", async () => {
   const state = new DeepSearchState({
     runId: "run_test",
     taskGoal: "Test scanning",
-    L0: { sources: [{ sourceId: "s1", kind: "url", title: "Doc", sourceTextNormalized: "Alpha beta gamma delta" }] },
+    L0: {
+      sources: [
+        { sourceId: "s1", kind: "url", title: "Doc 1", sourceTextNormalized: "Alpha beta gamma delta" },
+        { sourceId: "s2", kind: "file", title: "Doc 2", sourceTextNormalized: "One two three four" },
+      ],
+    },
   });
 
   const events = [];
@@ -42,6 +330,7 @@ test("DeepSearch scan: optional LLM parsing + fallback", async () => {
 
   // LLM path
   {
+    const before = events.length;
     const aiApiService = {
       chat: async () => ({
         content:
@@ -56,14 +345,322 @@ test("DeepSearch scan: optional LLM parsing + fallback", async () => {
     const out = await runDeepSearchScanStage({ runId: "run_test" }, { state }, { emit, aiApiService });
     assert.equal(out.scanSummary.summaryText, "LLM summary");
     assert.ok(Array.isArray(out.deepDivePlan.steps) && out.deepDivePlan.steps.length >= 1);
-    assert.ok(events.some((e) => e.name === "deepsearch.scan.completed" && e.record.actor === "deepsearch"));
+    const slice = events.slice(before);
+    assert.ok(slice.some((e) => e.name === "deepsearch.scan.completed" && e.record.actor === "deepsearch"));
+    const progress = slice.filter((e) => e.name === "deepsearch.scan.progress");
+    assert.equal(progress.length, 2);
+    for (const e of progress) assertValidProgressPayload(extractEventPayload(e));
   }
 
   // Fallback path
   {
+    const before = events.length;
     const badAi = { chat: async () => ({ content: "not json" }) };
     const out = await runDeepSearchScanStage({ runId: "run_test" }, { state }, { emit, aiApiService: badAi });
     assert.ok(typeof out.scanSummary.summaryText === "string" && out.scanSummary.summaryText.includes("Sources="));
+    const slice = events.slice(before);
+    assert.ok(slice.some((e) => e.name === "deepsearch.scan.progress"));
+  }
+});
+
+test("generateReport: groups claims by gapIds + assigns citations", async () => {
+  const { generateReport } = await import("../../js/agents/stages/deepsearch/write.js");
+
+  const sources = [
+    { sourceId: "s1", kind: "user_text", title: "Doc A", uri: "a.txt", sourceTextNormalized: "Alpha beta gamma" },
+    { sourceId: "s2", kind: "url", title: "Doc B", uri: "https://example.com", sourceTextNormalized: "Delta epsilon zeta" },
+  ];
+  const gaps = [
+    { gapId: "gap_1", type: "definition", question: "What is Alpha?" },
+    { gapId: "gap_2", type: "data", question: "What are key numbers?" },
+  ];
+  const evidenceLedger = [
+    { evidenceId: "e1", sourceId: "s1", locator: { charStart: 0, charEnd: 5 }, quote: "Alpha" },
+    { evidenceId: "e2", sourceId: "s2", locator: { charStart: 0, charEnd: 5 }, quote: "Delta" },
+  ];
+  const claims = [
+    { claimId: "c1", text: "Alpha is important.", evidenceIds: ["e1"], gapIds: ["gap_1"] },
+    { claimId: "c2", text: "A key number is 42.", evidenceIds: ["e2", "e1"], gapIds: ["gap_2"] },
+    { claimId: "c3", text: "Unknown gap claim.", evidenceIds: ["e2"], gapIds: ["gap_unknown"] },
+    { claimId: "c4", text: "Uncategorized claim.", evidenceIds: ["e1"] },
+  ];
+
+  const out = generateReport(claims, evidenceLedger, gaps, sources, "Test Goal");
+
+  assert.ok(typeof out.markdown === "string" && out.markdown.includes("# Test Goal"));
+  assert.ok(out.markdown.includes("## What is Alpha?"));
+  assert.ok(out.markdown.includes("Alpha is important. [1]"));
+  assert.ok(out.markdown.includes("A key number is 42. [2][1]"));
+  assert.ok(out.markdown.includes("## Gap: gap_unknown"));
+  assert.ok(out.markdown.includes("## Other Findings"));
+
+  assert.ok(Array.isArray(out.sections) && out.sections.length >= 3);
+  assert.ok(Array.isArray(out.citations) && out.citations.length === 2);
+
+  assert.equal(out.citations[0].citationId, 1);
+  assert.equal(out.citations[0].evidenceId, "e1");
+  assert.equal(out.citations[1].citationId, 2);
+  assert.equal(out.citations[1].evidenceId, "e2");
+
+  const evidenceIds = new Set(evidenceLedger.map((e) => e.evidenceId));
+  for (const c of out.citations) assert.ok(evidenceIds.has(c.evidenceId));
+});
+
+test("generateReport: empty claims returns non-empty markdown", async () => {
+  const { generateReport } = await import("../../js/agents/stages/deepsearch/write.js");
+  const out = generateReport([], [], [], [], "Test Goal");
+  assert.ok(typeof out.markdown === "string" && out.markdown.includes("No claims"));
+  assert.deepEqual(out.sections, []);
+  assert.deepEqual(out.citations, []);
+});
+
+test("DeepSearch write: reportLength config + single vs toc-based strategies", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchWriteStage, __test } = await import("../../js/agents/stages/deepsearch/write.js");
+
+  // Config resolver coverage
+  assert.deepEqual(__test.resolveReportLengthConfig({ reportLength: "brief" }).minWords, 800);
+  assert.deepEqual(__test.resolveReportLengthConfig({ reportLength: "standard" }).targetWords, 3500);
+  assert.deepEqual(__test.resolveReportLengthConfig({ reportLength: "detailed" }).maxWords, 10000);
+  assert.deepEqual(__test.resolveReportLengthConfig({ reportLength: "comprehensive" }).minWords, 10000);
+  assert.equal(__test.resolveReportLengthConfig({ reportTargetWords: 6000 }).strategy, "toc-based");
+
+  const makeState = (userConfig) =>
+    new DeepSearchState({
+      runId: "run_write_len",
+      taskGoal: "Explain Alpha and Beta",
+      userConfig: { title: "Alpha vs Beta", ...(userConfig || {}) },
+      L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Doc", uri: "doc.txt", sourceTextNormalized: "Alpha Beta" }] },
+      L1: {
+        gaps: [{ gapId: "gap_1", question: "What is Alpha?" }],
+        claims: [
+          { claimId: "c_1", text: "Alpha is widely adopted.", evidenceIds: ["e_1"], gapIds: ["gap_1"] },
+          { claimId: "c_2", text: "Beta has trade-offs.", evidenceIds: ["e_2"], gapIds: ["gap_1"] },
+        ],
+        evidenceLedger: [
+          { evidenceId: "e_1", sourceId: "s1", locator: { charStart: 0, charEnd: 5 }, quote: "Alpha" },
+          { evidenceId: "e_2", sourceId: "s1", locator: { charStart: 6, charEnd: 10 }, quote: "Beta" },
+        ],
+      },
+    });
+
+  const modelRouter = createMockModelRouter(async (messages) => {
+    const sys = String(messages?.[0]?.content || "");
+    if (sys.includes("PPT slide planner")) {
+      return {
+        content: JSON.stringify({
+          slideIntents: [{ slideIntentId: "s_custom", pageType: "overview", title: "LLM Overview", claimIds: ["c_1"] }],
+          outlineCandidates: [{ outlineId: "o_custom", title: "LLM Outline", bullets: ["Background"] }],
+        }),
+      };
+    }
+    if (sys.includes("table-of-contents planner")) {
+      const payload = JSON.parse(messages?.[1]?.content || "{}");
+      const targetWords = typeof payload?.targetWords === "number" ? payload.targetWords : 8000;
+      const perSection = Math.max(200, Math.floor(targetWords / 2));
+      return {
+        content: JSON.stringify({
+          title: "Alpha vs Beta",
+          sections: [
+            { sectionId: "sec_1", title: "Alpha", level: 1, targetWords: perSection, claimIds: ["c_1"], outline: ["Definition", "Impact"] },
+            { sectionId: "sec_2", title: "Beta", level: 1, targetWords: perSection, claimIds: ["c_2"], outline: ["Trade-offs", "Context"] },
+          ],
+        }),
+      };
+    }
+    if (sys.includes("chapter writer")) {
+      const payload = JSON.parse(messages?.[1]?.content || "{}");
+      const sectionTitle = payload?.sectionPlan?.title || "Section";
+      const firstClaimId = Array.isArray(payload?.claims) && payload.claims[0] ? payload.claims[0].claimId : null;
+      const cite = sectionTitle === "Alpha" ? "{{cite:e_1}}" : "{{cite:e_2}}";
+      const words = typeof payload?.sectionPlan?.targetWords === "number" ? payload.sectionPlan.targetWords : 2600;
+      return {
+        content: JSON.stringify({
+          title: sectionTitle,
+          content: `${makeWordBlob(words)} ${cite}`,
+          claimIds: firstClaimId ? [firstClaimId] : [],
+        }),
+      };
+    }
+    if (sys.includes("research report writer")) {
+      const payload = JSON.parse(messages?.[1]?.content || "{}");
+      const reportLength = String(payload?.reportLength || "");
+      const words = reportLength === "standard" ? 2200 : 900;
+      return { content: JSON.stringify({ title: "Alpha vs Beta", markdown: `${makeWordBlob(words)} {{cite:e_1}}` }) };
+    }
+    return { content: "ok" };
+  });
+
+  {
+    const state = makeState({ reportLength: "brief" });
+    const out = await runDeepSearchWriteStage({ runId: "run_write_len" }, { state }, { modelRouter });
+    assert.equal(out.report.strategy, "single");
+    assert.equal(out.report.targetWords, 1200);
+    assert.ok(out.report.actualWords >= 800 && out.report.actualWords <= 2000);
+    assert.ok(out.report.markdown.includes("[1]"));
+    assert.ok(Array.isArray(out.report.citations) && out.report.citations.length === 1);
+  }
+
+  {
+    const state = makeState({ reportLength: "standard" });
+    const out = await runDeepSearchWriteStage({ runId: "run_write_len" }, { state }, { modelRouter });
+    assert.equal(out.report.strategy, "single");
+    assert.equal(out.report.targetWords, 3500);
+    assert.ok(out.report.actualWords >= 2000 && out.report.actualWords <= 5000);
+    assert.ok(out.report.markdown.includes("[1]"));
+    assert.ok(Array.isArray(out.report.citations) && out.report.citations.length === 1);
+  }
+
+  {
+    const state = makeState({ reportLength: "detailed" });
+    const out = await runDeepSearchWriteStage({ runId: "run_write_len" }, { state }, { modelRouter });
+    assert.equal(out.report.strategy, "toc-based");
+    assert.equal(out.report.targetWords, 8000);
+    assert.ok(out.report.actualWords >= 5000 && out.report.actualWords <= 10000);
+    assert.ok(out.report.markdown.includes("## Table of Contents"));
+    assert.ok(out.report.markdown.includes("[1]"));
+    assert.ok(Array.isArray(out.report.citations) && out.report.citations.length === 2);
+  }
+
+  {
+    const state = makeState({ reportLength: "comprehensive", reportTargetWords: 10000 });
+    const out = await runDeepSearchWriteStage({ runId: "run_write_len" }, { state }, { modelRouter });
+    assert.equal(out.report.strategy, "toc-based");
+    assert.equal(out.report.targetWords, 10000);
+    assert.ok(out.report.actualWords >= 10000 && out.report.actualWords <= 20000);
+    assert.ok(out.report.markdown.includes("## Table of Contents"));
+    assert.ok(out.report.markdown.includes("[1]"));
+    assert.ok(Array.isArray(out.report.citations) && out.report.citations.length === 2);
+  }
+});
+
+test("DeepSearch write: toc-based sections run in parallel with maxParallelSections + section progress attribution", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchWriteStage } = await import("../../js/agents/stages/deepsearch/write.js");
+
+  const state = new DeepSearchState({
+    runId: "run_write_parallel",
+    taskGoal: "Explain Alpha/Beta/Gamma/Delta",
+    userConfig: { title: "Parallel Report", reportLength: "detailed", write: { maxParallelSections: 2 } },
+    L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Doc", uri: "doc.txt", sourceTextNormalized: "Alpha Beta Gamma Delta" }] },
+    L1: {
+      gaps: [{ gapId: "gap_1", question: "What are the parts?" }],
+      claims: [
+        { claimId: "c_1", text: "Alpha", evidenceIds: ["e_1"], gapIds: ["gap_1"] },
+        { claimId: "c_2", text: "Beta", evidenceIds: ["e_2"], gapIds: ["gap_1"] },
+        { claimId: "c_3", text: "Gamma", evidenceIds: ["e_3"], gapIds: ["gap_1"] },
+        { claimId: "c_4", text: "Delta", evidenceIds: ["e_4"], gapIds: ["gap_1"] },
+      ],
+      evidenceLedger: [
+        { evidenceId: "e_1", sourceId: "s1", locator: { charStart: 0, charEnd: 5 }, quote: "Alpha" },
+        { evidenceId: "e_2", sourceId: "s1", locator: { charStart: 6, charEnd: 10 }, quote: "Beta" },
+        { evidenceId: "e_3", sourceId: "s1", locator: { charStart: 11, charEnd: 16 }, quote: "Gamma" },
+        { evidenceId: "e_4", sourceId: "s1", locator: { charStart: 17, charEnd: 22 }, quote: "Delta" },
+      ],
+    },
+  });
+
+  let activeSectionCalls = 0;
+  let maxActiveSectionCalls = 0;
+
+  const modelRouter = createMockModelRouter(async (messages) => {
+    const sys = String(messages?.[0]?.content || "");
+    if (sys.includes("PPT slide planner")) {
+      return {
+        content: JSON.stringify({
+          slideIntents: [{ slideIntentId: "s_custom", pageType: "overview", title: "LLM Overview", claimIds: ["c_1"] }],
+          outlineCandidates: [{ outlineId: "o_custom", title: "LLM Outline", bullets: ["Background"] }],
+        }),
+      };
+    }
+    if (sys.includes("table-of-contents planner")) {
+      return {
+        content: JSON.stringify({
+          title: "Parallel Report",
+          sections: [
+            { sectionId: "sec_1", title: "Alpha", level: 1, targetWords: 1200, claimIds: ["c_1"] },
+            { sectionId: "sec_2", title: "Beta", level: 1, targetWords: 1200, claimIds: ["c_2"] },
+            { sectionId: "sec_3", title: "Gamma", level: 1, targetWords: 1200, claimIds: ["c_3"] },
+            { sectionId: "sec_4", title: "Delta", level: 1, targetWords: 1200, claimIds: ["c_4"] },
+          ],
+        }),
+      };
+    }
+    if (sys.includes("chapter writer")) {
+      const payload = JSON.parse(messages?.[1]?.content || "{}");
+      const i = Number(payload?.sectionIndex || 0);
+      const delays = [60, 10, 40, 20];
+
+      activeSectionCalls += 1;
+      maxActiveSectionCalls = Math.max(maxActiveSectionCalls, activeSectionCalls);
+      await new Promise((r) => setTimeout(r, delays[i] || 0));
+
+      const sectionTitle = payload?.sectionPlan?.title || `Section ${i + 1}`;
+      const claimId = Array.isArray(payload?.claims) && payload.claims[0] ? payload.claims[0].claimId : null;
+      const marker = `CONTENT_${sectionTitle.toUpperCase()}`;
+      activeSectionCalls -= 1;
+
+      return {
+        content: JSON.stringify({
+          title: sectionTitle,
+          content: `${marker} ${makeWordBlob(300)} {{cite:e_${i + 1}}}`,
+          claimIds: claimId ? [claimId] : [],
+        }),
+      };
+    }
+    if (sys.includes("research report writer")) {
+      return { content: JSON.stringify({ title: "Parallel Report", markdown: `${makeWordBlob(900)} {{cite:e_1}}` }) };
+    }
+    return { content: "ok" };
+  });
+
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const out = await runDeepSearchWriteStage({ runId: "run_write_parallel" }, { state }, { modelRouter, emit });
+  assert.equal(out.report.strategy, "toc-based");
+  assert.equal(out.report.sections.length, 4);
+
+  assert.deepEqual(
+    out.report.sections.map((s) => s.sectionId),
+    ["sec_1", "sec_2", "sec_3", "sec_4"]
+  );
+  for (const sec of out.report.sections) {
+    assert.ok(typeof sec.content === "string" && sec.content.length > 0, "report.sections must retain content for diffing");
+  }
+
+  const md = out.report.markdown;
+  assert.ok(md.indexOf("## Alpha") < md.indexOf("## Beta"));
+  assert.ok(md.indexOf("## Beta") < md.indexOf("## Gamma"));
+  assert.ok(md.indexOf("## Gamma") < md.indexOf("## Delta"));
+  assert.ok(md.includes("CONTENT_ALPHA"));
+  assert.ok(md.includes("CONTENT_BETA"));
+  assert.ok(md.includes("CONTENT_GAMMA"));
+  assert.ok(md.includes("CONTENT_DELTA"));
+
+  assert.ok(maxActiveSectionCalls <= 2, `max concurrent section calls must respect maxParallelSections (got ${maxActiveSectionCalls})`);
+
+  const sectionProgress = events
+    .filter((e) => e.name === "deepsearch.write.progress")
+    .map(extractEventPayload)
+    .filter((p) => p && p.step === "report_section");
+
+  assert.ok(sectionProgress.length >= 8, "expected section progress events (started+completed per section)");
+  for (const p of sectionProgress) {
+    assert.ok(p.detail && typeof p.detail.sectionId === "string" && p.detail.sectionId.length > 0);
+    assert.ok(p.detail && typeof p.detail.sectionTitle === "string" && p.detail.sectionTitle.length > 0);
+    assert.ok(p.detail && typeof p.detail.workerIndex === "number" && Number.isFinite(p.detail.workerIndex));
+  }
+
+  const startedById = new Map();
+  const completedById = new Map();
+  for (const p of sectionProgress) {
+    if (p.detail.sectionStatus === "started") startedById.set(p.detail.sectionId, p.detail);
+    if (p.detail.sectionStatus === "completed") completedById.set(p.detail.sectionId, p.detail);
+  }
+  for (const sid of ["sec_1", "sec_2", "sec_3", "sec_4"]) {
+    assert.ok(startedById.has(sid), `missing started progress for ${sid}`);
+    assert.ok(completedById.has(sid), `missing completed progress for ${sid}`);
   }
 });
 
@@ -93,21 +690,25 @@ test("DeepSearch gaps/retrieve/understand/write/condense: placeholder IO contrac
   const emit = (name, record) => events.push({ name, record });
 
   await runDeepSearchScanStage({ runId: "run_contract" }, { state }, { emit });
+  assert.ok(events.some((e) => e.name === "deepsearch.scan.progress"));
 
   const gapsOut = await runDeepSearchGapsStage({ runId: "run_contract" }, { state }, { emit });
   assert.ok(Array.isArray(gapsOut.gaps) && gapsOut.gaps.length >= 3);
   assert.equal(gapsOut.todos.length, gapsOut.gaps.length);
   assert.ok(events.some((e) => e.name === "deepsearch.todo.created"));
+  assert.ok(events.some((e) => e.name === "deepsearch.gaps.progress"));
 
   const retOut = await runDeepSearchRetrieveStage({ runId: "run_contract" }, { state }, { emit });
   assert.ok(Array.isArray(retOut.retrievedChunks));
   assert.ok(retOut.retrievedChunks.length >= 1);
   assert.ok(typeof retOut.retrievedChunks[0].locator.charStart === "number");
+  assert.ok(events.some((e) => e.name === "deepsearch.retrieve.progress"));
 
   const undOut = await runDeepSearchUnderstandStage({ runId: "run_contract" }, { state }, { emit });
   assert.ok(Array.isArray(undOut.claims) && Array.isArray(undOut.evidenceLedger));
   assert.ok(undOut.claims.length >= 1);
   assert.ok(undOut.evidenceLedger.length >= 1);
+  assert.ok(events.some((e) => e.name === "deepsearch.understand.progress"));
 
   const evidenceById = new Map(undOut.evidenceLedger.map((e) => [e.evidenceId, e]));
   for (const c of undOut.claims) {
@@ -126,10 +727,26 @@ test("DeepSearch gaps/retrieve/understand/write/condense: placeholder IO contrac
   assert.ok(Array.isArray(writeOut.slideIntents) && writeOut.slideIntents.length >= 4);
   assert.ok(writeOut.slideIntents.some((s) => s.pageType === "cover"));
   assert.ok(writeOut.slideIntents.some((s) => s.pageType === "summary"));
+  assert.ok(writeOut.report && typeof writeOut.report.markdown === "string" && writeOut.report.markdown.length > 0);
+  assert.ok(Array.isArray(writeOut.report.citations));
+  for (const c of writeOut.report.citations) assert.ok(evidenceById.has(c.evidenceId));
+  assert.ok(events.some((e) => e.name === "deepsearch.write.progress"));
 
   const condOut = await runDeepSearchCondenseStage({ runId: "run_contract" }, { state }, { emit });
   assert.ok(typeof condOut.condensedMemory.summary === "string" && condOut.condensedMemory.summary.length > 0);
   assert.deepEqual(state.L2.logs, []);
+
+  for (const name of [
+    "deepsearch.scan.progress",
+    "deepsearch.gaps.progress",
+    "deepsearch.retrieve.progress",
+    "deepsearch.understand.progress",
+    "deepsearch.write.progress",
+  ]) {
+    const evt = events.find((e) => e.name === name);
+    assert.ok(evt, `missing progress event: ${name}`);
+    assertValidProgressPayload(extractEventPayload(evt));
+  }
 });
 
 test("buildContentPackage: mode=deepsearch includes scanSummary/gaps/condensedMemory/openQuestions", async () => {
@@ -150,12 +767,14 @@ test("buildContentPackage: mode=deepsearch includes scanSummary/gaps/condensedMe
   const claims = [{ claimId: "c1", text: "Alpha beta", evidenceIds: ["e1"] }];
   const evidenceLedger = [{ evidenceId: "e1", sourceId: "s1", locator: { charStart: 0, charEnd: 10 }, quote: "Alpha beta" }];
 
+  const report = { markdown: "# Report", sections: [], citations: [{ citationId: 1, evidenceId: "e1", sourceId: "s1" }] };
   const pkg = buildContentPackage(runContext, sources, slideIntents, claims, evidenceLedger, [], {
     mode: "deepsearch",
     scanSummary: { summaryText: "Scan summary" },
     gaps: [{ gapId: "gap_1", type: "definition", question: "Define Alpha" }],
     condensedMemory: { summary: "Condensed summary" },
     openQuestions: [{ questionId: "q_1", text: "What is Beta?", status: "open" }],
+    report,
   });
 
   assert.equal(pkg.mode, "deepsearch");
@@ -163,6 +782,7 @@ test("buildContentPackage: mode=deepsearch includes scanSummary/gaps/condensedMe
   assert.equal(pkg.gaps.length, 1);
   assert.equal(pkg.condensedMemory.summary, "Condensed summary");
   assert.equal(pkg.openQuestions.length, 1);
+  assert.equal(pkg.report.markdown, "# Report");
 });
 
 test("AgentOrchestrator: deepsearch stages register + emit internal events", async () => {
@@ -193,6 +813,7 @@ test("AgentOrchestrator: deepsearch stages register + emit internal events", asy
   });
   assert.equal(pkg.mode, "deepsearch");
   assert.ok(Array.isArray(pkg.slideIntents) && pkg.slideIntents.length >= 4);
+  assert.ok(pkg.report && typeof pkg.report.markdown === "string" && pkg.report.markdown.length > 0);
 
   assert.ok(events.some((e) => e.name === "deepsearch.scan.started" && e.status === "started"));
   assert.ok(events.some((e) => e.name === "deepsearch.scan.completed" && e.actor === "deepsearch" && e.status === "completed"));
@@ -201,4 +822,298 @@ test("AgentOrchestrator: deepsearch stages register + emit internal events", asy
   assert.ok(events.some((e) => e.name === "deepsearch.understand.completed" && e.actor === "deepsearch"));
   assert.ok(events.some((e) => e.name === "deepsearch.write.completed" && e.actor === "deepsearch"));
   assert.ok(events.some((e) => e.name === "deepsearch.condense.completed" && e.actor === "deepsearch"));
+});
+
+test("DeepSearchState: tokenUsage init + addTokenUsage", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+
+  const s0 = new DeepSearchState({ runId: "run_tokens", taskGoal: "x" });
+  assert.deepEqual(s0.L2.tokenUsage, { input: 0, output: 0, total: 0, estimatedCostUSD: 0 });
+
+  s0.addTokenUsage({ prompt_tokens: 10, completion_tokens: 7 });
+  assert.deepEqual(s0.L2.tokenUsage, { input: 10, output: 7, total: 17, estimatedCostUSD: 0 });
+
+  s0.addTokenUsage({ input: 3, output: 5, total: 9 });
+  assert.deepEqual(s0.L2.tokenUsage, { input: 13, output: 12, total: 26, estimatedCostUSD: 0 });
+
+  const s1 = new DeepSearchState({ runId: "run_tokens2", taskGoal: "x", L2: { tokenUsage: { input: 2, output: 1, total: 3, estimatedCostUSD: 0 } } });
+  assert.deepEqual(s1.L2.tokenUsage, { input: 2, output: 1, total: 3, estimatedCostUSD: 0 });
+});
+
+test("getModelCaller: wraps call, accumulates tokenUsage, emits deepsearch.token.usage", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { getModelCaller } = await import("../../js/agents/stages/deepsearch/model.js");
+
+  const state = new DeepSearchState({ runId: "run_token_mw", taskGoal: "x" });
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const aiApiService = {
+    chat: async () => ({
+      content: "ok",
+      usage: { prompt_tokens: 4, completion_tokens: 6 },
+    }),
+  };
+
+  const callModel = getModelCaller({ emit, aiApiService }, { usage: "analyst", state });
+  assert.equal(typeof callModel, "function");
+
+  await callModel([{ role: "user", content: "hi" }]);
+  await callModel([{ role: "user", content: "hi2" }]);
+
+  assert.deepEqual(state.L2.tokenUsage, { input: 8, output: 12, total: 20, estimatedCostUSD: 0 });
+  assert.ok(events.some((e) => e.name === "deepsearch.token.usage" && e.record.actor === "deepsearch"));
+
+  const tokenEvents = events.filter((e) => e.name === "deepsearch.token.usage");
+  assert.equal(tokenEvents.length, 2);
+  assert.deepEqual(tokenEvents[0].record.payload.usage, { input: 4, output: 6, total: 10, estimatedCostUSD: 0 });
+  assert.deepEqual(tokenEvents[1].record.payload.total, { input: 8, output: 12, total: 20, estimatedCostUSD: 0 });
+
+  // modelRouter compatibility (new signature)
+  {
+    const s = new DeepSearchState({ runId: "run_token_router", taskGoal: "x" });
+    const routerEvents = [];
+    const modelRouter = {
+      call: async ({ usage, messages }) => ({
+        content: `usage=${usage}; msgs=${messages.length}`,
+        usage: { prompt_tokens: 1, completion_tokens: 2 },
+        model: "m1",
+        provider: "mock",
+      }),
+    };
+    const c = getModelCaller({ emit: (n, r) => routerEvents.push({ n, r }), modelRouter }, { usage: "worker", state: s });
+    await c([{ role: "user", content: "x" }], { model: "auto" });
+    assert.deepEqual(s.L2.tokenUsage, { input: 1, output: 2, total: 3, estimatedCostUSD: 0 });
+    assert.ok(routerEvents.some((e) => e.n === "deepsearch.token.usage"));
+  }
+
+  // modelRouter compatibility (legacy signature)
+  {
+    const s = new DeepSearchState({ runId: "run_token_router_legacy", taskGoal: "x" });
+    const routerEvents = [];
+    const modelRouter = {
+      call: async (messages, opts) => ({
+        content: `legacy; usage=${opts.usage}; msgs=${messages.length}`,
+        usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 6 },
+      }),
+    };
+    const c = getModelCaller({ emit: (n, r) => routerEvents.push({ n, r }), modelRouter }, { usage: "planner", state: s });
+    await c([{ role: "user", content: "x" }], { temperature: 0 });
+    assert.deepEqual(s.L2.tokenUsage, { input: 2, output: 3, total: 6, estimatedCostUSD: 0 });
+    assert.ok(routerEvents.some((e) => e.n === "deepsearch.token.usage"));
+  }
+});
+
+test("DeepSearch pipeline: metrics.deepsearch includes tokenUsage", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchStage } = await import("../../js/agents/stages/deepsearch/index.js");
+
+  const sourceText = [
+    "Definition: Alpha is the first letter.\n",
+    "Statistics: Alpha adoption reached 42% in 2024.\n",
+    "Process: Start with scan, then retrieve, then understand.\n",
+  ].join("");
+
+  const state = new DeepSearchState({
+    runId: "run_pkg_tokens",
+    taskGoal: "Compare Alpha vs Beta",
+    userConfig: { title: "Alpha vs Beta", maxIterations: 1 },
+    maxIterations: 1,
+    L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Input", sourceTextNormalized: sourceText }] },
+  });
+
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const aiApiService = {
+    chat: async ({ messages } = {}) => {
+      const sys = String(messages?.[0]?.content || "");
+      if (sys.includes("DeepSearch scanner")) {
+        return {
+          content:
+            "```json\n" +
+            JSON.stringify({
+              scanSummary: { summaryText: "LLM summary", topSources: [{ sourceId: "s1", reason: "high density" }] },
+              deepDivePlan: { steps: [{ action: "review_source", sourceId: "s1", notes: "focus" }] },
+            }) +
+            "\n```",
+          usage: { prompt_tokens: 11, completion_tokens: 3 },
+        };
+      }
+      if (sys.includes("DeepSearch gap planner")) {
+        return { content: "```json\n" + JSON.stringify({ gaps: [] }) + "\n```", usage: { prompt_tokens: 5, completion_tokens: 2 } };
+      }
+      if (sys.includes("DeepSearch claim extractor")) {
+        return { content: "```json\n" + JSON.stringify({ claims: [] }) + "\n```", usage: { prompt_tokens: 7, completion_tokens: 1 } };
+      }
+      if (sys.includes("PPT slide planner")) {
+        return {
+          content:
+            "```json\n" +
+            JSON.stringify({
+              slideIntents: [{ slideIntentId: "s_custom", pageType: "overview", title: "Overview", objective: "Summarize", keyPoints: ["A", "B"], claimIds: [] }],
+              outlineCandidates: [{ outlineId: "o1", title: "Outline", bullets: ["One", "Two"] }],
+            }) +
+            "\n```",
+          usage: { prompt_tokens: 9, completion_tokens: 4 },
+        };
+      }
+      return { content: "{}", usage: { prompt_tokens: 0, completion_tokens: 0 } };
+    },
+  };
+
+  const pkg = await runDeepSearchStage({ runId: "run_pkg_tokens", mode: "deepsearch", constraints: {} }, { state }, { emit, aiApiService, checkCancelled: () => {} });
+  assert.ok(pkg?.metrics?.deepsearch?.tokenUsage);
+  assert.deepEqual(pkg.metrics.deepsearch.tokenUsage, { input: 32, output: 10, total: 42, estimatedCostUSD: 0 });
+  assert.ok(events.filter((e) => e.name === "deepsearch.token.usage").length >= 4);
+});
+
+test("getModelCaller: emits budget.warning and budget.exceeded, and estimates cost", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { getModelCaller } = await import("../../js/agents/stages/deepsearch/model.js");
+
+  const state = new DeepSearchState({
+    runId: "run_budget_events",
+    taskGoal: "x",
+    userConfig: {
+      budget: {
+        maxTokens: 10,
+        maxCostUSD: 1,
+        warnAt: 0.5,
+        action: "warn",
+        prices: { m1: { input: 0.01, output: 0.02 } },
+      },
+    },
+  });
+
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const aiApiService = {
+    chat: async () => ({
+      content: "ok",
+      model: "m1",
+      usage: { prompt_tokens: 5, completion_tokens: 0 },
+    }),
+  };
+
+  const callModel = getModelCaller({ emit, aiApiService }, { usage: "analyst", state });
+  await callModel([{ role: "user", content: "hi" }]);
+
+  // 5/10 => warnAt reached (0.5), should emit warning once.
+  assert.ok(events.some((e) => e.name === "deepsearch.budget.warning"));
+  assert.equal(events.filter((e) => e.name === "deepsearch.budget.exceeded").length, 0);
+
+  // Second call adds 6 tokens => exceed maxTokens.
+  aiApiService.chat = async () => ({
+    content: "ok2",
+    model: "m1",
+    usage: { prompt_tokens: 6, completion_tokens: 0 },
+  });
+  await callModel([{ role: "user", content: "hi2" }]);
+
+  assert.equal(events.filter((e) => e.name === "deepsearch.budget.warning").length, 1);
+  assert.equal(events.filter((e) => e.name === "deepsearch.budget.exceeded").length, 1);
+
+  // Cost estimate: 11 input tokens at $0.01/1K => $0.00011
+  assert.ok(Math.abs(state.L2.tokenUsage.estimatedCostUSD - 0.00011) < 1e-12);
+});
+
+test("DeepSearch pipeline: budget.exceeded action=stop terminates after scan", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchStage } = await import("../../js/agents/stages/deepsearch/index.js");
+
+  const state = new DeepSearchState({
+    runId: "run_budget_stop",
+    taskGoal: "Alpha",
+    userConfig: { maxIterations: 5, budget: { maxTokens: 1, warnAt: 0.1, action: "stop" } },
+    maxIterations: 5,
+    L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Input", sourceTextNormalized: "Alpha is alpha." }] },
+  });
+
+  const calls = [];
+  const aiApiService = {
+    chat: async ({ messages } = {}) => {
+      calls.push(String(messages?.[0]?.content || ""));
+      const sys = String(messages?.[0]?.content || "");
+      if (sys.includes("DeepSearch scanner")) {
+        return {
+          content:
+            "```json\n" +
+            JSON.stringify({
+              scanSummary: { summaryText: "LLM summary", topSources: [{ sourceId: "s1", reason: "x" }] },
+              deepDivePlan: { steps: [{ action: "review_source", sourceId: "s1", notes: "x" }] },
+            }) +
+            "\n```",
+          usage: { prompt_tokens: 2, completion_tokens: 0 },
+          model: "m1",
+        };
+      }
+      throw new Error("should not call other stages when budget stop");
+    },
+  };
+
+  await runDeepSearchStage({ runId: "run_budget_stop", mode: "deepsearch", constraints: {} }, { state }, { emit: () => {}, aiApiService, checkCancelled: () => {} });
+  assert.equal(calls.length, 1);
+  assert.ok(state.timeline.some((e) => e && e.name === "deepsearch.budget.stop"));
+});
+
+test("DeepSearch pipeline: budget.exceeded action=degrade clamps maxIterations", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchStage } = await import("../../js/agents/stages/deepsearch/index.js");
+
+  const state = new DeepSearchState({
+    runId: "run_budget_degrade",
+    taskGoal: "Alpha",
+    userConfig: { maxIterations: 5, budget: { maxTokens: 1, warnAt: 0.1, action: "degrade" } },
+    maxIterations: 5,
+    L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Input", sourceTextNormalized: "Alpha is alpha. Alpha repeats." }] },
+  });
+
+  const aiApiService = {
+    chat: async ({ messages } = {}) => {
+      const sys = String(messages?.[0]?.content || "");
+      if (sys.includes("DeepSearch scanner")) {
+        return {
+          content:
+            "```json\n" +
+            JSON.stringify({
+              scanSummary: { summaryText: "LLM summary", topSources: [{ sourceId: "s1", reason: "x" }] },
+              deepDivePlan: { steps: [{ action: "review_source", sourceId: "s1", notes: "x" }] },
+            }) +
+            "\n```",
+          usage: { prompt_tokens: 2, completion_tokens: 0 },
+          model: "m1",
+        };
+      }
+      if (sys.includes("DeepSearch gap planner")) {
+        return {
+          content: "```json\n" + JSON.stringify({ gaps: [{ type: "definition", question: "What is Alpha?", status: "open" }] }) + "\n```",
+          usage: { prompt_tokens: 0, completion_tokens: 0 },
+          model: "m1",
+        };
+      }
+      if (sys.includes("DeepSearch claim extractor")) {
+        return { content: "```json\n" + JSON.stringify({ claims: [] }) + "\n```", usage: { prompt_tokens: 0, completion_tokens: 0 }, model: "m1" };
+      }
+      if (sys.includes("PPT slide planner")) {
+        return {
+          content:
+            "```json\n" +
+            JSON.stringify({
+              slideIntents: [{ slideIntentId: "s1", pageType: "overview", title: "Overview", objective: "x", keyPoints: ["a"], claimIds: [] }],
+              outlineCandidates: [],
+            }) +
+            "\n```",
+          usage: { prompt_tokens: 0, completion_tokens: 0 },
+          model: "m1",
+        };
+      }
+      return { content: "{}", usage: { prompt_tokens: 0, completion_tokens: 0 }, model: "m1" };
+    },
+  };
+
+  await runDeepSearchStage({ runId: "run_budget_degrade", mode: "deepsearch", constraints: {} }, { state }, { emit: () => {}, aiApiService, checkCancelled: () => {} });
+  assert.equal(state.maxIterations, 1);
+  assert.ok(state.timeline.some((e) => e && e.name === "deepsearch.budget.degraded"));
 });

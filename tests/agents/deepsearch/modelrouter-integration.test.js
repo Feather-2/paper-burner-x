@@ -45,7 +45,7 @@ test("getModelCaller: modelRouter vs aiApiService vs null", async () => {
     assert.equal(typeof caller, "function");
     await caller([{ role: "user", content: "x" }], { ignored: true });
     assert.equal(aiApiService.calls.length, 1);
-    assert.deepEqual(aiApiService.calls[0], { messages: [{ role: "user", content: "x" }] });
+    assert.deepEqual(aiApiService.calls[0], { messages: [{ role: "user", content: "x" }], usage: "writer", ignored: true });
   }
 });
 
@@ -192,10 +192,15 @@ test("DeepSearch write: uses modelRouter usage=writer; falls back to aiApiServic
       runId: "run_write",
       taskGoal: "Compare Alpha vs Beta",
       userConfig: { title: "Alpha vs Beta" },
+      L0: { sources: [{ sourceId: "s_1", kind: "user_text", title: "Doc", sourceTextNormalized: "Alpha Beta" }] },
       L1: {
         claims: [
           { claimId: "c_1", text: "Alpha is widely adopted.", importance: "core", evidenceIds: ["e_1"], gapIds: ["gap_1"] },
           { claimId: "c_2", text: "Beta has trade-offs.", importance: "support", evidenceIds: ["e_2"], gapIds: ["gap_2"] },
+        ],
+        evidenceLedger: [
+          { evidenceId: "e_1", sourceId: "s_1", locator: { charStart: 0, charEnd: 5 }, quote: "Alpha" },
+          { evidenceId: "e_2", sourceId: "s_1", locator: { charStart: 6, charEnd: 10 }, quote: "Beta" },
         ],
       },
     });
@@ -203,15 +208,32 @@ test("DeepSearch write: uses modelRouter usage=writer; falls back to aiApiServic
   {
     const state = makeState();
     const modelRouter = createMockModelRouter(async () => ({
-      content: JSON.stringify({
-        slideIntents: [{ slideIntentId: "s_custom", pageType: "overview", title: "LLM Overview", objective: "Summarize", keyPoints: ["A", "B"], claimIds: ["c_1"] }],
-        outlineCandidates: [{ outlineId: "o_custom", title: "LLM Outline", bullets: ["Background", "Findings"] }],
-      }),
+      content: "ok",
     }));
 
+    modelRouter.call = async (messages, opts) => {
+      modelRouter.calls.push({ messages, opts });
+      const sys = String(messages?.[0]?.content || "");
+      if (sys.includes("PPT slide planner")) {
+        return {
+          content: JSON.stringify({
+            slideIntents: [
+              { slideIntentId: "s_custom", pageType: "overview", title: "LLM Overview", objective: "Summarize", keyPoints: ["A", "B"], claimIds: ["c_1"] },
+            ],
+            outlineCandidates: [{ outlineId: "o_custom", title: "LLM Outline", bullets: ["Background", "Findings"] }],
+          }),
+        };
+      }
+      if (sys.includes("research report writer")) {
+        return { content: JSON.stringify({ title: "Alpha vs Beta", markdown: "Report text." }) };
+      }
+      return { content: "ok" };
+    };
+
     const out = await runDeepSearchWriteStage({ runId: "run_write" }, { state }, { modelRouter });
-    assert.equal(modelRouter.calls.length, 1);
+    assert.equal(modelRouter.calls.length, 2);
     assert.equal(modelRouter.calls[0].opts.usage, "writer");
+    assert.equal(modelRouter.calls[1].opts.usage, "writer");
     assert.ok(out.slideIntents.some((s) => s.title === "LLM Overview"));
     assert.ok(out.slideIntents.some((s) => s.pageType === "cover"));
     assert.ok(out.slideIntents.some((s) => s.pageType === "summary"));
@@ -221,13 +243,23 @@ test("DeepSearch write: uses modelRouter usage=writer; falls back to aiApiServic
   {
     const state = makeState();
     const aiApiService = createMockAiApiService(async () => ({
-      content: JSON.stringify({
-        slideIntents: [{ pageType: "comparison", title: "LLM Comparison", claimIds: ["c_2"] }],
-      }),
+      content: "ok",
     }));
 
+    aiApiService.chat = async (arg) => {
+      aiApiService.calls.push(arg);
+      const sys = String(arg?.messages?.[0]?.content || "");
+      if (sys.includes("PPT slide planner")) {
+        return { content: JSON.stringify({ slideIntents: [{ pageType: "comparison", title: "LLM Comparison", claimIds: ["c_2"] }] }) };
+      }
+      if (sys.includes("research report writer")) {
+        return { content: JSON.stringify({ title: "Alpha vs Beta", markdown: "Report text." }) };
+      }
+      return { content: "ok" };
+    };
+
     const out = await runDeepSearchWriteStage({ runId: "run_write" }, { state }, { aiApiService });
-    assert.equal(aiApiService.calls.length, 1);
+    assert.equal(aiApiService.calls.length, 2);
     assert.ok(out.slideIntents.some((s) => s.title === "LLM Comparison"));
     assert.ok(out.slideIntents.some((s) => s.pageType === "cover"));
     assert.ok(out.slideIntents.some((s) => s.pageType === "summary"));

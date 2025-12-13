@@ -42,7 +42,7 @@ function indexById(arr, idKey) {
   return map;
 }
 
-function assertHardGates({ sources, claims, evidenceLedger, slideIntents, dataTables }) {
+function assertHardGates({ sources, claims, evidenceLedger, slideIntents, dataTables, report, mode }) {
   // Build sourceTextNormalized lookup for H3 validation.
   const sourceTextById = new Map();
   for (const s of Array.isArray(sources) ? sources : []) {
@@ -117,6 +117,19 @@ function assertHardGates({ sources, claims, evidenceLedger, slideIntents, dataTa
       }
     }
   }
+
+  // H5 (DeepSearch only): report exists and citations resolvable
+  if (mode === "deepsearch") {
+    if (!isPlainObject(report)) throw new Error("Hard gate H5 failed: report is required for mode=deepsearch");
+    if (!toNonEmptyString(report?.markdown)) throw new Error("Hard gate H5 failed: report.markdown must be non-empty");
+    if (!Array.isArray(report?.sections)) throw new Error("Hard gate H5 failed: report.sections must be an array");
+    if (!Array.isArray(report?.citations)) throw new Error("Hard gate H5 failed: report.citations must be an array");
+    for (const c of report.citations) {
+      const eid = toNonEmptyString(c?.evidenceId);
+      if (!eid) throw new Error("Hard gate H5 failed: report.citations[].evidenceId is required");
+      if (!evidenceById.has(String(eid))) throw new Error(`Hard gate H5 failed: report.citations references unknown evidenceId: ${String(eid)}`);
+    }
+  }
 }
 
 function toSourceRefs(sources) {
@@ -163,6 +176,7 @@ export function buildContentPackage(runContext, sources, slideIntents, claims, e
   const scanSummary = isPlainObject(extra.scanSummary) ? extra.scanSummary : null;
   const gaps = Array.isArray(extra.gaps) ? extra.gaps : [];
   const condensedMemory = extra.condensedMemory !== undefined ? extra.condensedMemory : null;
+  const report = isPlainObject(extra.report) ? extra.report : null;
 
   const derivedSummary =
     toNonEmptyString(extra.summary) ||
@@ -181,6 +195,7 @@ export function buildContentPackage(runContext, sources, slideIntents, claims, e
     slideIntents: Array.isArray(slideIntents) ? slideIntents : [],
     claims: Array.isArray(claims) ? claims : [],
     evidenceLedger: Array.isArray(evidenceLedger) ? evidenceLedger : [],
+    ...(report ? { report } : {}),
     dataTables: Array.isArray(dataTables) ? dataTables : [],
     openQuestions,
     metrics: {
@@ -203,6 +218,14 @@ export function buildContentPackage(runContext, sources, slideIntents, claims, e
     };
   }
 
-  assertHardGates({ sources, claims: pkg.claims, evidenceLedger: pkg.evidenceLedger, slideIntents: pkg.slideIntents, dataTables: pkg.dataTables });
+  assertHardGates({
+    sources,
+    claims: pkg.claims,
+    evidenceLedger: pkg.evidenceLedger,
+    slideIntents: pkg.slideIntents,
+    dataTables: pkg.dataTables,
+    report: pkg.report,
+    mode,
+  });
   return pkg;
 }

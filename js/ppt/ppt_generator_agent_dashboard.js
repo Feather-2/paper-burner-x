@@ -17,6 +17,10 @@ const PPTGeneratorAgentDashboard = {
 
         if (this.state === 'idle') {
             visContent = this._renderUploadView();
+        } else if (this.state === 'script_review') {
+            visContent = this._renderScriptReview();
+        } else if (this.state === 'page_layout') {
+            visContent = this._renderPageLayoutReview();
         } else if (this.state === 'questioning') {
             visContent = this._renderQuestionForm();
         } else if (this.state === 'outline_review') {
@@ -29,11 +33,11 @@ const PPTGeneratorAgentDashboard = {
                     <div class="gen-stepper">
                         ${this._renderStep('reading', '1', '阅读')}
                         <div class="gen-step-line"></div>
-                        ${this._renderStep('questioning', '2', '分析')}
+                        ${this._renderStep('researching', '2', '研究')}
                         <div class="gen-step-line"></div>
-                        ${this._renderStep('outline_review', '3', '大纲')}
+                        ${this._renderStep('script_review', '3', '脚本')}
                         <div class="gen-step-line"></div>
-                        ${this._renderStep('scripting', '4', '创作')}
+                        ${this._renderStep('page_layout', '4', '规划')}
                         <div class="gen-step-line"></div>
                         ${this._renderStep('designer', '5', '设计')}
                     </div>
@@ -201,6 +205,63 @@ const PPTGeneratorAgentDashboard = {
     askAssistantAboutQuestion(index) {
         const question = this.workflowData.questions[index];
         this.addChatMessage('ai', `关于问题 **"${question.text}"**，根据文档分析，我建议选择 **"${question.default}"**，因为文档主要侧重于...`);
+    },
+
+    _renderScriptReview() {
+        const md = typeof this.workflowData?.reportMarkdown === 'string' ? this.workflowData.reportMarkdown : (this.workflowData?.report?.markdown || '');
+        return `
+            <div class="ppt-question-form">
+                <div class="form-header">
+                    <h3><iconify-icon icon="carbon:document"></iconify-icon> 研究报告（可编辑）</h3>
+                    <p>这是 DeepSearch 生成的研究报告脚本，您可以直接编辑后进入页面规划。</p>
+                </div>
+                <div class="form-body custom-scrollbar">
+                    <textarea class="ppt-input-field" style="width: 100%; min-height: 360px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; line-height: 1.5;"
+                        oninput="window.PPTGenerator.updateReportMarkdown(this.value)">${md.replaceAll('<', '&lt;').replaceAll('>', '&gt;')}</textarea>
+                </div>
+                <div class="form-footer">
+                    <div style="flex: 1; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ppt-text-secondary);">
+                        <iconify-icon icon="carbon:information"></iconify-icon>
+                        <span>确认后将使用 slideIntents 进行页面规划</span>
+                    </div>
+                    <button class="ppt-btn-primary" onclick="window.PPTGenerator.confirmScript()">
+                        确认并继续 <iconify-icon icon="carbon:arrow-right"></iconify-icon>
+                    </button>
+                </div>
+            </div>
+        `;
+    },
+
+    _renderPageLayoutReview() {
+        const pkg = this.workflowData?.contentPackage;
+        const slides = Array.isArray(pkg?.slideIntents) ? pkg.slideIntents : [];
+        return `
+            <div class="ppt-question-form">
+                <div class="form-header">
+                    <h3><iconify-icon icon="carbon:layout"></iconify-icon> 页面规划</h3>
+                    <p>DeepSearch 已输出 ${slides.length} 个 SlideIntent，将用于后续布局与视觉设计。</p>
+                </div>
+                <div class="form-body custom-scrollbar">
+                    ${slides.length ? `
+                        <div style="display: flex; flex-direction: column; gap: 10px;">
+                            ${slides.map((s, i) => `
+                                <div style="border: 1px solid var(--ppt-border); border-radius: 12px; padding: 10px 12px; background: var(--ppt-bg-app);">
+                                    <div style="font-weight: 700;">${i + 1}. ${s.title || '(untitled)'} <span style="font-weight: 500; color: var(--ppt-text-secondary);">(${s.pageType || 'overview'})</span></div>
+                                    ${Array.isArray(s.keyPoints) && s.keyPoints.length ? `<div style="margin-top: 6px; color: var(--ppt-text-secondary); font-size: 13px;">${s.keyPoints.slice(0, 4).map(k => `• ${k}`).join('<br/>')}</div>` : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : `
+                        <div style="color: var(--ppt-text-secondary);">未检测到 slideIntents。</div>
+                    `}
+                </div>
+                <div class="form-footer">
+                    <button class="ppt-btn-primary" onclick="window.PPTGenerator.phase5_DesignOptimization()">
+                        继续设计 <iconify-icon icon="carbon:arrow-right"></iconify-icon>
+                    </button>
+                </div>
+            </div>
+        `;
     },
 
     _renderOutlineReview() {
@@ -719,7 +780,7 @@ const PPTGeneratorAgentDashboard = {
 
     _renderStep(stepState, num, label) {
         // Simple logic to determine active/completed state
-        const states = ['idle', 'reading', 'questioning', 'outline_review', 'scripting', 'designer', 'reviewer', 'completed'];
+        const states = ['idle', 'reading', 'researching', 'script_review', 'page_layout', 'designer', 'reviewer', 'completed', 'failed'];
         const currentIndex = states.indexOf(this.state);
         const stepIndex = states.indexOf(stepState);
 
@@ -739,27 +800,36 @@ const PPTGeneratorAgentDashboard = {
 
     _getCurrentStatusIcon() {
         if (this.state === 'reading') return 'carbon:document-view';
-        if (this.state === 'questioning') return 'carbon:user-speaker';
+        if (this.state === 'researching') return 'carbon:search';
+        if (this.state === 'script_review') return 'carbon:document';
+        if (this.state === 'page_layout') return 'carbon:layout';
         if (this.state === 'scripting') return 'carbon:edit';
         if (this.state === 'designer') return 'carbon:paint-brush';
+        if (this.state === 'failed') return 'carbon:warning';
         return 'carbon:bot';
     },
 
     _getCurrentStatusTitle() {
         if (this.state === 'reading') return '正在深度阅读文档...';
-        if (this.state === 'questioning') return '需要您的确认';
+        if (this.state === 'researching') return '正在进行研究分析...';
+        if (this.state === 'script_review') return '脚本审阅与编辑';
+        if (this.state === 'page_layout') return '正在规划页面结构...';
         if (this.state === 'outline_review') return '大纲确认';
         if (this.state === 'scripting') return '正在构建演示大纲...';
         if (this.state === 'designer') return '正在进行视觉设计...';
+        if (this.state === 'failed') return '流程已中止';
         return '准备就绪';
     },
 
     _getCurrentStatusDesc() {
         if (this.state === 'reading') return 'AI 正在分析文档结构并提取关键信息';
-        if (this.state === 'questioning') return '请确认几个关键选项以定制演示风格';
+        if (this.state === 'researching') return 'AI 正在扫描资料、识别知识空白并生成研究报告';
+        if (this.state === 'script_review') return '请确认研究报告脚本，必要时可直接编辑';
+        if (this.state === 'page_layout') return '正在将内容结构映射到幻灯片布局意图';
         if (this.state === 'outline_review') return 'AI 已根据您的需求生成演示大纲，请确认或调整';
         if (this.state === 'scripting') return '正在梳理逻辑结构并撰写演讲备注';
         if (this.state === 'designer') return '正在匹配最佳模板并生成页面布局';
+        if (this.state === 'failed') return '发生错误，请调整输入后重试';
         return '请上传文档或输入主题开始';
     }
 };

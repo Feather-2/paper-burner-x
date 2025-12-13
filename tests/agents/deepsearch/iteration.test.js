@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-async function makeStageAndState({ runId = "run_iter", taskGoal, sourceText, userConfig = {}, maxIterations } = {}) {
+async function makeStageAndState({ runId = "run_iter", taskGoal, sourceText, userConfig = {}, maxIterations, writeBacktrackCount = 3 } = {}) {
   const { DeepSearchStage } = await import("../../../js/agents/stages/deepsearch/index.js");
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
 
@@ -10,6 +10,7 @@ async function makeStageAndState({ runId = "run_iter", taskGoal, sourceText, use
     taskGoal,
     userConfig,
     ...(typeof maxIterations === "number" ? { maxIterations } : {}),
+    ...(typeof writeBacktrackCount === "number" ? { writeBacktrackCount } : {}),
     L0: {
       sources: [
         {
@@ -72,7 +73,8 @@ test("DeepSearchState: extractJsonCandidate + cancellation + checkpoint errors",
     assert.equal(cp.metrics.gapCount, 1);
 
     // Cover restore path where checkpoint.stateSnapshot is a plain object.
-    state.checkpoints[0].stateSnapshot = state.checkpoints[0].stateSnapshot.toJSON({ includeCheckpoints: false });
+    const snap = state.checkpoints[0].stateSnapshot;
+    state.checkpoints[0].stateSnapshot = typeof snap?.toJSON === "function" ? snap.toJSON({ includeCheckpoints: false }) : snap;
     state.restoreCheckpoint(cp.checkpointId);
   }
 });

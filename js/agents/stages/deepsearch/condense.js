@@ -24,6 +24,14 @@ export async function runDeepSearchCondenseStage(runContext, input, stageApi = {
   const state = ensureState(runContext, input);
 
   checkCancelled(stageApi);
+  const now = new Date().toISOString();
+  const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
+  for (const c of retrieved) {
+    if (!c || typeof c !== "object") continue;
+    if (!c.consumed) c.consumed = true;
+    if (!c.consumedAt) c.consumedAt = now;
+  }
+
   const { condensedMemory, l1Preserved, l2Cleared } = condenseDeepSearchState(state);
 
   state.addTimeline({

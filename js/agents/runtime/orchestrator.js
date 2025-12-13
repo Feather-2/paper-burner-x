@@ -43,9 +43,10 @@ function abortErrorFromSignal(signal, stageName) {
 }
 
 export class AgentOrchestrator {
-  constructor({ mode, scenario, constraints, runId, eventBus } = {}) {
+  constructor({ mode, scenario, constraints, runId, eventBus, services } = {}) {
     this.runContext = new RunContext({ runId, mode, scenario, constraints });
     this.eventBus = eventBus || new EventBus({ runId: this.runContext.runId });
+    this._services = services && typeof services === "object" ? services : {};
 
     this._stages = new Map(); // name -> { fn, actor, timeoutMs }
     this._runAbort = new AbortController();
@@ -159,6 +160,8 @@ export class AgentOrchestrator {
       checkCancelled: () => {
         if (signal?.aborted) throw abortErrorFromSignal(signal, name);
       },
+      // Inject services (aiApiService, modelRouter, visionApi, etc.)
+      ...this._services,
     };
 
     const stagePromise = (async () => stage.fn(this.runContext, input, stageApi))();

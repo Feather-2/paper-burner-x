@@ -166,18 +166,47 @@ class AIApiService {
      * @param {Object} options
      * @param {Array} options.messages - 消息列表
      * @param {string} options.model - 模型ID ('auto' 自动选择)
+     * @param {string} options.usage - 用途 ('analyst'/'planner'/'writer'/'worker')
      * @param {number} options.temperature - 温度
      * @param {number} options.maxTokens - 最大token数
      * @returns {Promise<{content: string, model: string, usage: Object}>}
      */
     async chat(options) {
-        const { messages, model = 'auto', temperature = 0.7, maxTokens = 4096 } = options;
-        
-        const config = this._resolveModelConfig(model);
-        if (!config) {
-            throw new Error('没有可用的 AI 模型，请在"模型与密钥配置"中配置');
+        const { messages, model = 'auto', usage, temperature = 0.7, maxTokens = 4096 } = options;
+
+        let config;
+
+        // 优先使用 PPT 模型配置（当 model='auto' 时）
+        if (model === 'auto') {
+            // 根据 usage 选择对应的 PPT 配置类型
+            const usageToConfigType = {
+                analyst: 'lang',
+                planner: 'lang',
+                writer: 'lang',
+                worker: 'lang',
+                reviewer: 'lang',
+                vision: 'vision',
+                image: 'img'
+            };
+            const configType = usageToConfigType[usage] || 'lang';
+            const pptConfig = this.getPptModelConfig(configType);
+            if (pptConfig && pptConfig.modelKey) {
+                config = this._resolveModelConfig(pptConfig.modelKey, pptConfig.modelId);
+                if (config) {
+                    console.log(`[AIApiService] 使用 PPT 配置模型 (${usage || 'default'} -> ${configType}): ${config.name} (${config.model})`);
+                }
+            }
         }
-        
+
+        // 如果没有 PPT 配置或配置无效，使用传入的 model 参数
+        if (!config) {
+            config = this._resolveModelConfig(model);
+        }
+
+        if (!config) {
+            throw new Error('没有可用的 AI 模型，请在"模型与密钥配置"中配置，或在"PPT 模型配置"中设置文字模型');
+        }
+
         return await this._callApi(config, messages, temperature, maxTokens);
     }
     

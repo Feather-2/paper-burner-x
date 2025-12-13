@@ -15,6 +15,27 @@ function safeInt(n) {
   return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
 }
 
+function clampProgress(progress) {
+  if (typeof progress !== "number" || !Number.isFinite(progress)) return 0;
+  return Math.max(0, Math.min(1, progress));
+}
+
+function emitGapProgress(emit, { step, current, total, msg, detail }) {
+  emit?.(
+    "deepsearch.gaps.progress",
+    {
+      phase: "gaps",
+      step: String(step || "gap"),
+      current,
+      total: Math.max(1, total),
+      progress: clampProgress(total > 0 ? current / total : 1),
+      msg: String(msg || ""),
+      ...(detail && typeof detail === "object" && !Array.isArray(detail) ? { detail } : {}),
+    },
+    { status: "progress" }
+  );
+}
+
 function ensureState(_runContext, input) {
   if (input instanceof DeepSearchState) return input;
   if (input?.state instanceof DeepSearchState) return input.state;
@@ -58,7 +79,7 @@ function buildDefaultGaps(taskGoal, scanSummary) {
 }
 
 async function tryLLMGaps(state, scanSummary, existingGaps, stageApi) {
-  const callModel = getModelCaller(stageApi, { usage: "planner" });
+  const callModel = getModelCaller(stageApi, { usage: "planner", state });
   if (!callModel) return null;
 
   const messages = [
@@ -151,6 +172,14 @@ function ensureTodosForGaps(state, gaps, emit) {
   return todos;
 }
 
+function priorityRank(priority) {
+  const p = String(priority || "").toLowerCase();
+  if (p === "high") return 0;
+  if (p === "medium") return 1;
+  if (p === "low") return 2;
+  return 3;
+}
+
 /**
  * S3 Gap Builder: generate gaps[] from scanSummary + taskGoal, and emit todos.
  * @param {object} runContext
@@ -167,9 +196,18 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
 
   const normalizedExisting = [];
   const makeId = nextGapId(existingRaw, 1);
-  for (const g of existingRaw) {
+  for (let i = 0; i < existingRaw.length; i++) {
+    const g = existingRaw[i];
     const ng = normalizeGap(g, toNonEmptyString(g?.gapId) ? undefined : makeId());
     if (ng) normalizedExisting.push(ng);
+
+    emitGapProgress(emit, {
+      step: "normalize_existing",
+      current: i + 1,
+      total: existingRaw.length,
+      msg: `Normalizing existing gaps (${i + 1}/${existingRaw.length || 1})`,
+      detail: ng ? { gapId: ng.gapId, type: ng.type, question: ng.question, priority: ng.priority, status: ng.status } : { skipped: true },
+    });
   }
 
   const suggested = buildDefaultGaps(state.taskGoal, scanSummary);
@@ -181,7 +219,8 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
     byKey.set(gapKey(g), g);
   }
 
-  for (const s of suggested) {
+  for (let i = 0; i < suggested.length; i++) {
+    const s = suggested[i];
     const key = gapKey(s);
     if (byKey.has(key)) continue;
     const ng = normalizeGap({ ...s, gapId: makeId(), status: "open", missCount: 0 }, s.gapId);
@@ -189,9 +228,19 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
     merged.push(ng);
     byKey.set(key, ng);
     state?.planningTree?.expandFromGap?.(ng);
+
+    emitGapProgress(emit, {
+      step: "identify_default",
+      current: i + 1,
+      total: suggested.length,
+      msg: `Identifying default gaps (${i + 1}/${suggested.length})`,
+      detail: { gapId: ng.gapId, type: ng.type, question: ng.question, priority: ng.priority },
+    });
   }
 
-  for (const s of Array.isArray(llmSuggested) ? llmSuggested : []) {
+  const llmRows = Array.isArray(llmSuggested) ? llmSuggested : [];
+  for (let i = 0; i < llmRows.length; i++) {
+    const s = llmRows[i];
     if (!isPlainObject(s)) continue;
     const candidate = {
       type: toNonEmptyString(s?.type) || "unknown",
@@ -206,10 +255,19 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
     merged.push(ng);
     byKey.set(key, ng);
     state?.planningTree?.expandFromGap?.(ng);
+
+    emitGapProgress(emit, {
+      step: "identify_llm",
+      current: i + 1,
+      total: llmRows.length,
+      msg: `Identifying LLM gaps (${i + 1}/${llmRows.length})`,
+      detail: { gapId: ng.gapId, type: ng.type, question: ng.question, priority: ng.priority },
+    });
   }
 
   const openQuestions = Array.isArray(state?.L1?.openQuestions) ? state.L1.openQuestions : [];
-  for (const q of openQuestions) {
+  for (let i = 0; i < openQuestions.length; i++) {
+    const q = openQuestions[i];
     const qt = toNonEmptyString(q?.question) || toNonEmptyString(q?.text);
     if (!qt) continue;
     const candidate = { type: "question", question: qt, priority: "low", queryHints: qt.split(/\s+/).slice(0, 6) };
@@ -220,7 +278,26 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
     merged.push(ng);
     byKey.set(key, ng);
     state?.planningTree?.expandFromGap?.(ng);
+
+    emitGapProgress(emit, {
+      step: "identify_open_questions",
+      current: i + 1,
+      total: openQuestions.length,
+      msg: `Adding open questions (${i + 1}/${openQuestions.length})`,
+      detail: { gapId: ng.gapId, question: ng.question, priority: ng.priority },
+    });
   }
+
+  // Prioritize: open gaps first, then priority, then stable by id.
+  merged.sort((a, b) => {
+    const aOpen = a?.status === "open";
+    const bOpen = b?.status === "open";
+    if (aOpen !== bOpen) return aOpen ? -1 : 1;
+    const pr = priorityRank(a?.priority) - priorityRank(b?.priority);
+    if (pr) return pr;
+    return String(a?.gapId || "").localeCompare(String(b?.gapId || ""));
+  });
+  emitGapProgress(emit, { step: "prioritize_sort", current: 1, total: 1, msg: "Prioritizing and sorting gaps", detail: { totalGaps: merged.length } });
 
   state.L1.gaps = merged;
 

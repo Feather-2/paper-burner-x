@@ -1,5 +1,6 @@
 import { checkCancelled } from "./state.js";
 import { dedupeClaims } from "../../deepsearch/understanding/dedupe.js";
+import { TrajectoryCache } from "./trajectory-cache.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -21,7 +22,9 @@ function toTrajectoryConfig(raw) {
   const mergeStrategy = ["best", "union", "vote"].includes(String(cfg.mergeStrategy)) ? String(cfg.mergeStrategy) : "best";
   const qualityMetrics = Array.isArray(cfg.qualityMetrics) ? cfg.qualityMetrics : [];
   const divergeAt = typeof cfg.divergeAt === "string" ? cfg.divergeAt : "gap";
-  return { n, mergeStrategy, qualityMetrics, divergeAt };
+  const cachePolicy = ["share", "off"].includes(String(cfg.cachePolicy)) ? String(cfg.cachePolicy) : "share";
+  const cacheMaxSize = clampInt(cfg.cacheMaxSize, { min: 1, max: 5000 }) ?? 100;
+  return { n, mergeStrategy, qualityMetrics, divergeAt, cachePolicy, cacheMaxSize };
 }
 
 function signatureForRetrievedChunk(r) {
@@ -308,9 +311,10 @@ function claimScoreForVote(c) {
 }
 
 export class TrajectoryManager {
-  constructor({ n = 1, mergeStrategy = "best", qualityMetrics = [], divergeAt = "gap" } = {}) {
-    this.config = toTrajectoryConfig({ n, mergeStrategy, qualityMetrics, divergeAt });
+  constructor({ n = 1, mergeStrategy = "best", qualityMetrics = [], divergeAt = "gap", cachePolicy = "share", cacheMaxSize = 100 } = {}) {
+    this.config = toTrajectoryConfig({ n, mergeStrategy, qualityMetrics, divergeAt, cachePolicy, cacheMaxSize });
     this.trajectories = []; // DeepSearchState[]
+    this.trajectoryCache = this.config.cachePolicy === "share" ? new TrajectoryCache({ maxSize: this.config.cacheMaxSize }) : null;
   }
 
   // Fork state into N trajectories
@@ -342,9 +346,15 @@ export class TrajectoryManager {
     const seenHitSignatures = new Set();
     let noNewHitsRounds = 0;
 
+    const wrapApiForStage = (name) => {
+      if (!this.trajectoryCache || this.config.cachePolicy !== "share") return stageApi;
+      const base = stageApi && typeof stageApi === "object" ? stageApi : {};
+      return { ...base, trajectoryCache: this.trajectoryCache, trajectoryCachePolicy: this.config.cachePolicy, trajectoryCacheStageName: String(name || "") };
+    };
+
     while (trajectory.iteration < trajectory.maxIterations && !stageApi?.signal?.aborted) {
       checkCancelled(stageApi);
-      await runGapsStage(runContext, { state: trajectory }, stageApi);
+      await runGapsStage(runContext, { state: trajectory }, wrapApiForStage("gaps"));
 
       const gaps = openGaps(trajectory);
       if (gaps.length === 0) break;
@@ -363,7 +373,7 @@ export class TrajectoryManager {
       noNewHitsRounds = newHitCount === 0 ? noNewHitsRounds + 1 : 0;
 
       checkCancelled(stageApi);
-      await runUnderstandStage(runContext, { state: trajectory }, stageApi);
+      await runUnderstandStage(runContext, { state: trajectory }, wrapApiForStage("understand"));
 
       validateIteration(trajectory, { blockAfterMisses: getGapBlockAfterMisses(trajectory) });
 

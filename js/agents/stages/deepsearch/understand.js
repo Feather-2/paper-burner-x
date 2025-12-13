@@ -20,7 +20,7 @@ function normalizeGapIds(v) {
 }
 
 async function tryLLMClaimEdits(state, claims, evidenceLedger, stageApi) {
-  const callModel = getModelCaller(stageApi, { usage: "analyst" });
+  const callModel = getModelCaller(stageApi, { usage: "analyst", state });
   if (!callModel) return null;
 
   const evidenceById = new Map();
@@ -91,6 +91,27 @@ function indexSourceTextById(sources) {
 
 function safeInt(n) {
   return typeof n === "number" && Number.isFinite(n) ? n : null;
+}
+
+function clampProgress(progress) {
+  if (typeof progress !== "number" || !Number.isFinite(progress)) return 0;
+  return Math.max(0, Math.min(1, progress));
+}
+
+function emitUnderstandProgress(emit, { current, total, msg, detail }) {
+  emit?.(
+    "deepsearch.understand.progress",
+    {
+      phase: "understand",
+      step: "claim",
+      current,
+      total: Math.max(1, total),
+      progress: clampProgress(total > 0 ? current / total : 1),
+      msg: String(msg || ""),
+      ...(detail && typeof detail === "object" && !Array.isArray(detail) ? { detail } : {}),
+    },
+    { status: "progress" }
+  );
 }
 
 function pickEvidenceSpan(text, { maxLen = 220 } = {}) {
@@ -225,6 +246,20 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   const { claims: seedClaims, evidences: seedEvidences } = claimsFromChunks(retrieved, { maxQuoteLen });
   const claims = dedupeClaims(seedClaims, { threshold: dedupeThreshold, mergeEvidence: true });
 
+  for (let i = 0; i < claims.length; i++) {
+    const c = claims[i];
+    emitUnderstandProgress(emit, {
+      current: i + 1,
+      total: claims.length,
+      msg: `Extracting claim ${i + 1}/${claims.length}`,
+      detail: {
+        claimId: toNonEmptyString(c?.claimId) || `claim_${i + 1}`,
+        importance: toNonEmptyString(c?.importance) || undefined,
+        evidenceCount: Array.isArray(c?.evidenceIds) ? c.evidenceIds.length : 0,
+      },
+    });
+  }
+
   const referencedEvidenceIds = new Set();
   for (const c of claims) for (const eid of Array.isArray(c?.evidenceIds) ? c.evidenceIds : []) referencedEvidenceIds.add(String(eid));
 
@@ -324,6 +359,13 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     evidenceLedger,
     retrievedByChunkId,
   });
+
+  const consumedAt = new Date().toISOString();
+  for (const r of retrieved) {
+    if (!r || typeof r !== "object") continue;
+    if (!r.consumed) r.consumed = true;
+    if (!toNonEmptyString(r.consumedAt)) r.consumedAt = consumedAt;
+  }
 
   state.L1.claims = claims;
   state.L1.evidenceLedger = evidenceLedger;

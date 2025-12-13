@@ -38,10 +38,15 @@ function retrievedKey(r) {
   return `${sourceId}:${start}:${end}`;
 }
 
-function buildEvidenceIndex(evidenceLedger) {
-  const keys = new Set();
-  for (const e of safeArray(evidenceLedger)) keys.add(evidenceKey(e));
-  return keys;
+function buildEvidenceReferences(evidenceLedger) {
+  const locatorKeys = new Set();
+  const chunkIds = new Set();
+  for (const e of safeArray(evidenceLedger)) {
+    locatorKeys.add(evidenceKey(e));
+    const cid = toNonEmptyString(e?.chunkId);
+    if (cid) chunkIds.add(cid);
+  }
+  return { locatorKeys, chunkIds };
 }
 
 function groupEvidencesIntoSections(evidences, { maxPerSection = 3, maxGapChars = 800 } = {}) {
@@ -232,16 +237,24 @@ export function condenseDeepSearchState(state) {
   const l1Preserved = pickL1Preserved(state.L1);
 
   const evidenceLedger = safeArray(state?.L1?.evidenceLedger);
-  const referenced = buildEvidenceIndex(evidenceLedger);
+  const referenced = buildEvidenceReferences(evidenceLedger);
 
   const beforeChunks = safeArray(state?.L2?.retrievedChunks);
-  const kept = beforeChunks.filter((c) => referenced.has(retrievedKey(c)));
+  const kept = beforeChunks.filter((c) => {
+    const cid = toNonEmptyString(c?.chunkId);
+    if (cid && referenced.chunkIds.has(cid)) return true;
+    return referenced.locatorKeys.has(retrievedKey(c));
+  });
+
+  const beforeConsumed = beforeChunks.filter((c) => c && typeof c === "object" && c.consumed).length;
+  const keptConsumed = kept.filter((c) => c && typeof c === "object" && c.consumed).length;
 
   const l2Cleared = {
     retrievedChunks: {
       before: beforeChunks.length,
       after: kept.length,
       removed: Math.max(0, beforeChunks.length - kept.length),
+      removedConsumed: Math.max(0, beforeConsumed - keptConsumed),
     },
     scratchpadCleared: Object.keys(isPlainObject(state.L2.scratchpad) ? state.L2.scratchpad : {}).length > 0,
     logsCleared: safeArray(state.L2.logs).length > 0,

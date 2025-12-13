@@ -25,19 +25,47 @@ function ensureState(runContext, input) {
   });
 }
 
-function toSourceCards(sources) {
-  return (Array.isArray(sources) ? sources : []).map((s) => ({
-    sourceId: toNonEmptyString(s?.sourceId) || "source_unknown",
-    kind: toNonEmptyString(s?.kind) || "unknown",
-    title: toNonEmptyString(s?.title),
-    uri: toNonEmptyString(s?.uri),
-    chars: typeof s?.sourceTextNormalized === "string" ? s.sourceTextNormalized.length : undefined,
-  }));
+function clampProgress(progress) {
+  if (typeof progress !== "number" || !Number.isFinite(progress)) return 0;
+  return Math.max(0, Math.min(1, progress));
 }
 
-function fallbackScanSummary(state) {
-  const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
-  const cards = toSourceCards(sources);
+function toSourceCardsWithProgress(sources, emit) {
+  const rows = Array.isArray(sources) ? sources : [];
+  const total = rows.length;
+  const cards = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const s = rows[i];
+    const card = {
+      sourceId: toNonEmptyString(s?.sourceId) || "source_unknown",
+      kind: toNonEmptyString(s?.kind) || "unknown",
+      title: toNonEmptyString(s?.title),
+      uri: toNonEmptyString(s?.uri),
+      chars: typeof s?.sourceTextNormalized === "string" ? s.sourceTextNormalized.length : undefined,
+    };
+    cards.push(card);
+
+    emit?.(
+      "deepsearch.scan.progress",
+      {
+        phase: "scan",
+        step: "source",
+        current: i + 1,
+        total: Math.max(1, total),
+        progress: clampProgress(total > 0 ? (i + 1) / total : 1),
+        msg: `Scanning source ${card.sourceId}${card.title ? `: ${card.title}` : ""}`,
+        detail: card,
+      },
+      { status: "progress" }
+    );
+  }
+
+  return cards;
+}
+
+function fallbackScanSummary(state, sourceCards) {
+  const cards = Array.isArray(sourceCards) ? sourceCards : [];
   const best = cards
     .slice()
     .sort((a, b) => (b.chars || 0) - (a.chars || 0))
@@ -63,11 +91,11 @@ function fallbackDeepDivePlan(state) {
   };
 }
 
-async function tryLLMScan(state, stageApi) {
-  const callModel = getModelCaller(stageApi, { usage: "analyst" });
+async function tryLLMScan(state, sourceCards, stageApi) {
+  const callModel = getModelCaller(stageApi, { usage: "analyst", state });
   if (!callModel) return null;
 
-  const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
+  const sources = Array.isArray(sourceCards) ? sourceCards : [];
   const messages = [
     {
       role: "system",
@@ -79,7 +107,7 @@ async function tryLLMScan(state, stageApi) {
       content: JSON.stringify(
         {
           taskGoal: state.taskGoal || "",
-          sources: sources.map((s) => ({ sourceId: s?.sourceId, title: s?.title, kind: s?.kind, uri: s?.uri, chars: s?.sourceTextNormalized?.length })),
+          sources: sources.map((s) => ({ sourceId: s?.sourceId, title: s?.title, kind: s?.kind, uri: s?.uri, chars: s?.chars })),
         },
         null,
         2
@@ -110,9 +138,12 @@ export async function runDeepSearchScanStage(runContext, input, stageApi = {}) {
   const state = ensureState(runContext, input);
 
   checkCancelled(stageApi);
-  const llm = await tryLLMScan(state, stageApi);
+  const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
+  const sourceCards = toSourceCardsWithProgress(sources, emit);
+  const llm = await tryLLMScan(state, sourceCards, stageApi);
 
-  const scanSummary = llm?.scanSummary && isPlainObject(llm.scanSummary) ? { ...fallbackScanSummary(state), ...llm.scanSummary } : fallbackScanSummary(state);
+  const scanSummary =
+    llm?.scanSummary && isPlainObject(llm.scanSummary) ? { ...fallbackScanSummary(state, sourceCards), ...llm.scanSummary } : fallbackScanSummary(state, sourceCards);
   const deepDivePlan = llm?.deepDivePlan && isPlainObject(llm.deepDivePlan) ? { ...fallbackDeepDivePlan(state), ...llm.deepDivePlan } : fallbackDeepDivePlan(state);
 
   state.L1.scanSummary = scanSummary;
