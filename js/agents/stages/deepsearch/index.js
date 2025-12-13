@@ -8,6 +8,7 @@ import { runDeepSearchRetrieveStage } from "./retrieve.js";
 import { runDeepSearchUnderstandStage } from "./understand.js";
 import { runDeepSearchWriteStage } from "./write.js";
 import { runDeepSearchCondenseStage } from "./condense.js";
+import { TrajectoryManager } from "./trajectory.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -29,6 +30,37 @@ function ensureState(runContext, input) {
   const maxIt = safeInt(userConfig?.maxIterations);
   if (maxIt !== null && maxIt >= 1) s.maxIterations = maxIt;
   return s;
+}
+
+function applyMergedState(target, merged) {
+  if (!(target instanceof DeepSearchState)) throw new TypeError("applyMergedState(target, merged): target must be a DeepSearchState");
+  if (!(merged instanceof DeepSearchState)) throw new TypeError("applyMergedState(target, merged): merged must be a DeepSearchState");
+
+  target.schemaVersion = merged.schemaVersion;
+  target.runId = merged.runId;
+  target.createdAt = merged.createdAt;
+  target.taskGoal = merged.taskGoal;
+  target.userConfig = merged.userConfig;
+  target.trajectoryId = merged.trajectoryId;
+  target.trajectoryConfig = merged.trajectoryConfig;
+  target.planningTree = merged.planningTree;
+  target.iteration = merged.iteration;
+  target.maxIterations = merged.maxIterations;
+  target.checkpoints = merged.checkpoints;
+  target.L0 = merged.L0;
+  target.L1 = merged.L1;
+  target.L2 = merged.L2;
+  target.todos = merged.todos;
+  target.timeline = merged.timeline;
+}
+
+function getTrajectoryConfig(state) {
+  const cfg = isPlainObject(state?.userConfig?.trajectory) ? state.userConfig.trajectory : {};
+  const n = safeInt(cfg.n) ?? 1;
+  const mergeStrategy = typeof cfg.mergeStrategy === "string" ? cfg.mergeStrategy : "best";
+  const qualityMetrics = Array.isArray(cfg.qualityMetrics) ? cfg.qualityMetrics : [];
+  const divergeAt = typeof cfg.divergeAt === "string" ? cfg.divergeAt : "gap";
+  return { n, mergeStrategy, qualityMetrics, divergeAt };
 }
 
 function isOpenGap(g) {
@@ -172,6 +204,35 @@ export class DeepSearchStage {
     checkCancelled(stageApi);
     await runDeepSearchScanStage(runContext, { state }, stageApi);
 
+    const trajectoryCfg = getTrajectoryConfig(state);
+    if ((safeInt(trajectoryCfg.n) ?? 1) > 1) {
+      const manager = new TrajectoryManager(trajectoryCfg);
+      state.trajectoryConfig = { ...manager.config };
+
+      emit?.("deepsearch.trajectory.forked", { n: manager.config.n, mergeStrategy: manager.config.mergeStrategy });
+
+      const trajectories = manager.fork(state);
+      await Promise.all(
+        trajectories.map((trajectory) =>
+          manager.runTrajectory(
+            trajectory,
+            {
+              runContext,
+              runGapsStage: runDeepSearchGapsStage,
+              runRetrieveStage: runDeepSearchRetrieveStage,
+              runUnderstandStage: runDeepSearchUnderstandStage,
+              emit: emit ? (name, payload) => emit(name, payload) : null,
+            },
+            stageApi
+          )
+        )
+      );
+
+      const merged = manager.merge();
+      if (merged) applyMergedState(state, merged);
+
+      emit?.("deepsearch.trajectory.merged", { mergeStrategy: manager.config.mergeStrategy });
+    } else {
     const seenHitSignatures = new Set();
     let noNewHitsRounds = 0;
 
@@ -208,6 +269,7 @@ export class DeepSearchStage {
 
       if (openGaps(state).length === 0) break;
       if (noNewHitsRounds >= 2) break;
+    }
     }
 
     if (!stageApi?.signal?.aborted) {
@@ -279,6 +341,8 @@ export function registerDeepSearchStages(orchestrator, { timeoutMs = 30_000 } = 
 
 export const __test = {
   ensureState,
+  applyMergedState,
+  getTrajectoryConfig,
   isOpenGap,
   openGaps,
   getGapBlockAfterMisses,

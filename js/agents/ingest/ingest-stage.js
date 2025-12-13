@@ -7,6 +7,8 @@ import { DocxAdapter } from "./adapters/docx.js";
 import { PptxAdapter } from "./adapters/pptx.js";
 import { HtmlAdapter } from "./adapters/html.js";
 import { EpubAdapter } from "./adapters/epub.js";
+import { AudioAdapter } from "./adapters/audio.js";
+import { VideoAdapter } from "./adapters/video.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -111,6 +113,8 @@ export class IngestStage {
       pptx: new PptxAdapter({ defaultChunkOptions: chunkOptions }),
       html: new HtmlAdapter({ defaultChunkOptions: chunkOptions }),
       epub: new EpubAdapter({ defaultChunkOptions: chunkOptions }),
+      audio: new AudioAdapter({ defaultChunkOptions: chunkOptions, whisperApi: stageApi?.whisperApi || config?.whisperApi || null }),
+      video: new VideoAdapter({ defaultChunkOptions: chunkOptions, whisperApi: stageApi?.whisperApi || config?.whisperApi || null }),
     };
 
     const sources = [];
@@ -172,8 +176,10 @@ export class IngestStage {
       const isPptx = mimeType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" || ext === "pptx";
       const isHtml = mimeType === "text/html" || ext === "html" || ext === "htm";
       const isEpub = mimeType === "application/epub+zip" || ext === "epub";
+      const isAudio = mimeType.startsWith("audio/") || ["mp3", "wav", "m4a", "aac", "flac", "ogg", "oga", "webm"].includes(ext);
+      const isVideo = mimeType.startsWith("video/") || ["mp4", "m4v", "webm", "mov", "mkv", "avi"].includes(ext);
 
-      if (!isMarkdown && !isPdf && !isDocx && !isPptx && !isHtml && !isEpub) {
+      if (!isMarkdown && !isPdf && !isDocx && !isPptx && !isHtml && !isEpub && !isAudio && !isVideo) {
         failedDocs++;
         const msg = `Unsupported file type: .${ext || "(none)"}${mimeType ? ` (${mimeType})` : ""}`;
         parseErrors.push({ origin, error: msg });
@@ -192,7 +198,11 @@ export class IngestStage {
                 ? await adapters.html.parse(f, stageApi)
                 : isEpub
                   ? await adapters.epub.parse(f, stageApi)
-                  : await adapters.markdown.parse(f);
+                  : isVideo
+                    ? await adapters.video.parse(f, stageApi)
+                    : isAudio
+                      ? await adapters.audio.parse(f, stageApi)
+                      : await adapters.markdown.parse(f);
         const addedAssetIds = assets.addAssets(Array.isArray(parsed.assets) ? parsed.assets.map((a) => ({ ...a, docId: parsed.docId })) : []);
         const assetIds = Array.from(new Set(addedAssetIds));
         sources.push(sourceFromParsed(parsed, assetIds));

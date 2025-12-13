@@ -54,13 +54,32 @@ export function checkCancelled(stageApi) {
 }
 
 export class DeepSearchState {
-  constructor({ runId, taskGoal, userConfig, L0, L1, L2, todos, timeline, createdAt, schemaVersion, iteration, maxIterations, checkpoints, planningTree } = {}) {
+  constructor({
+    runId,
+    taskGoal,
+    userConfig,
+    L0,
+    L1,
+    L2,
+    todos,
+    timeline,
+    createdAt,
+    schemaVersion,
+    iteration,
+    maxIterations,
+    checkpoints,
+    planningTree,
+    trajectoryId,
+    trajectoryConfig,
+  } = {}) {
     this.schemaVersion = toNonEmptyString(schemaVersion) || STATE_SCHEMA_VERSION;
     this.runId = toNonEmptyString(runId) || "run_unknown";
     this.createdAt = toNonEmptyString(createdAt) || new Date().toISOString();
 
     this.taskGoal = toNonEmptyString(taskGoal) || "";
     this.userConfig = isPlainObject(userConfig) ? userConfig : {};
+    this.trajectoryId = toNonEmptyString(trajectoryId);
+    this.trajectoryConfig = isPlainObject(trajectoryConfig) ? trajectoryConfig : isPlainObject(this.userConfig?.trajectory) ? this.userConfig.trajectory : undefined;
     this.planningTree =
       planningTree instanceof PlanningTree
         ? planningTree
@@ -209,6 +228,8 @@ export class DeepSearchState {
       taskGoal: this.taskGoal,
       userConfig: this.userConfig,
       planningTree: this.planningTree?.serialize ? this.planningTree.serialize() : null,
+      ...(toNonEmptyString(this.trajectoryId) ? { trajectoryId: this.trajectoryId } : {}),
+      ...(isPlainObject(this.trajectoryConfig) ? { trajectoryConfig: this.trajectoryConfig } : {}),
       iteration: this.iteration,
       maxIterations: this.maxIterations,
       ...(includeCheckpoints ? { checkpoints: this.checkpoints } : {}),
@@ -222,6 +243,11 @@ export class DeepSearchState {
 
   serialize({ pretty = false } = {}) {
     return JSON.stringify(this.toJSON(), null, pretty ? 2 : 0);
+  }
+
+  clone({ includeCheckpoints = true } = {}) {
+    const snapshotObj = this.toJSON({ includeCheckpoints });
+    return DeepSearchState.fromJSON(deepCloneJsonSafe(snapshotObj));
   }
 
   static fromJSON(json) {

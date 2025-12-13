@@ -156,6 +156,29 @@ export function buildIndex(chunks, options = {}) {
   return { chunkIds, docLens, avgDocLen, df, postings, k1, b };
 }
 
+/**
+ * Async index builder that can offload CPU work to a WorkerPool when provided.
+ *
+ * @param {Array<{chunkId:string,text:string}>} chunks
+ * @param {{k1?:number,b?:number,workerPool?:{buildIndex?:(chunks:any,options?:any)=>Promise<any>}}=} options
+ * @returns {Promise<BM25Index>}
+ */
+export async function buildIndexAsync(chunks, options = {}) {
+  if (!Array.isArray(chunks)) throw new TypeError("buildIndexAsync(chunks): chunks must be an array");
+  if (!isPlainObject(options)) throw new TypeError("buildIndexAsync(chunks, options): options must be an object");
+
+  const workerPool = options.workerPool && typeof options.workerPool.buildIndex === "function" ? options.workerPool : null;
+  if (workerPool) {
+    const safeOptions = {
+      ...(Number.isFinite(options.k1) ? { k1: options.k1 } : {}),
+      ...(Number.isFinite(options.b) ? { b: options.b } : {}),
+    };
+    return workerPool.buildIndex(chunks, safeOptions);
+  }
+
+  return buildIndex(chunks, options);
+}
+
 function idf(nDocs, df) {
   // BM25+ style stable idf: log(1 + (N - df + 0.5)/(df + 0.5))
   return Math.log(1 + (nDocs - df + 0.5) / (df + 0.5));
@@ -210,4 +233,3 @@ export function search(index, query, topK = 8, options = {}) {
   results.sort((a, b) => (b.score === a.score ? (a.chunkId < b.chunkId ? -1 : 1) : b.score - a.score));
   return results.slice(0, k);
 }
-
