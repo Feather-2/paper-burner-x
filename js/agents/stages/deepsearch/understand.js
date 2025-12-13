@@ -13,6 +13,11 @@ function toNonEmptyString(v) {
   return s.length ? s : undefined;
 }
 
+function normalizeGapIds(v) {
+  const raw = Array.isArray(v) ? v : v ? [v] : [];
+  return Array.from(new Set(raw.map((x) => String(x || "").trim()).filter(Boolean)));
+}
+
 function ensureState(_runContext, input) {
   if (input instanceof DeepSearchState) return input;
   if (input?.state instanceof DeepSearchState) return input.state;
@@ -69,6 +74,28 @@ function quoteFromSourceLocator(sourceTextNormalized, locator, { maxQuoteLen = 2
   const quote = text.slice(charStart, charEnd);
   if (!quote) throw new Error("Hard gate H3 failed: evidence.quote must be non-empty");
   return { locator: { charStart, charEnd }, quote };
+}
+
+export function computeGapFill(gaps, { claims, evidenceLedger } = {}) {
+  const gapList = Array.isArray(gaps) ? gaps : [];
+  const filled = new Set();
+
+  for (const c of Array.isArray(claims) ? claims : []) {
+    for (const gid of normalizeGapIds(c?.gapIds)) filled.add(gid);
+  }
+  for (const e of Array.isArray(evidenceLedger) ? evidenceLedger : []) {
+    for (const gid of normalizeGapIds(e?.gapIds)) filled.add(gid);
+  }
+
+  const filledGapIds = [];
+  const remainingGaps = [];
+  for (const g of gapList) {
+    const gid = toNonEmptyString(g?.gapId);
+    if (!gid) continue;
+    if (filled.has(gid)) filledGapIds.push(gid);
+    else remainingGaps.push(g);
+  }
+  return { filledGapIds, remainingGaps };
 }
 
 function assertHardGates({ sources, sourceTextById, claims, evidenceLedger, retrievedByChunkId }) {
@@ -168,13 +195,31 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     }
 
     const derived = quoteFromSourceLocator(sourceText, e.locator, { maxQuoteLen });
+    const retrievedRow = retrievedByChunkId.get(String(e.chunkId));
+    const gapIds = normalizeGapIds(retrievedRow?.matchedGapIds || retrievedRow?.gapId);
     evidenceLedger.push({
       evidenceId: String(e.evidenceId),
       chunkId: String(e.chunkId),
       sourceId: String(sourceId),
       locator: derived.locator,
       quote: derived.quote,
+      gapIds,
     });
+  }
+
+  const evidenceGapIdsById = new Map();
+  for (const e of evidenceLedger) {
+    const eid = toNonEmptyString(e?.evidenceId);
+    if (!eid) continue;
+    evidenceGapIdsById.set(eid, normalizeGapIds(e?.gapIds));
+  }
+
+  for (const c of claims) {
+    const gapIds = [];
+    for (const eid of Array.isArray(c?.evidenceIds) ? c.evidenceIds : []) {
+      for (const gid of evidenceGapIdsById.get(String(eid)) || []) gapIds.push(gid);
+    }
+    c.gapIds = Array.from(new Set(gapIds));
   }
 
   const openQuestions = [];

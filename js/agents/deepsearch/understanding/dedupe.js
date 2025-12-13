@@ -99,6 +99,11 @@ function claimQualityScore(c) {
   return importanceRank(c?.importance) * 10 + ev;
 }
 
+function normalizeGapIds(v) {
+  const raw = Array.isArray(v) ? v : v ? [v] : [];
+  return raw.map((x) => String(x || "").trim()).filter(Boolean);
+}
+
 /**
  * Deduplicate claims based on overlap/similarity. By default, merges evidenceIds for duplicates.
  *
@@ -146,9 +151,9 @@ export function dedupeClaims(claims, config = {}) {
         ? winner.evidenceIds.slice()
         : [];
 
-    kept[dupIndex] = { ...winner, text: collapseWhitespace(winner.text), evidenceIds: mergedEvidenceIds };
+    const mergedGapIds = Array.from(new Set([...normalizeGapIds(winner.gapIds), ...normalizeGapIds(loser.gapIds)]));
+    kept[dupIndex] = { ...winner, text: collapseWhitespace(winner.text), evidenceIds: mergedEvidenceIds, ...(mergedGapIds.length ? { gapIds: mergedGapIds } : {}) };
   }
 
   return kept;
 }
-

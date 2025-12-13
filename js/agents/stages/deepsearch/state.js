@@ -1,4 +1,5 @@
 const STATE_SCHEMA_VERSION = "0.1";
+const DEFAULT_MAX_ITERATIONS = 5;
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -8,6 +9,14 @@ function toNonEmptyString(v) {
   if (v === undefined || v === null) return undefined;
   const s = String(v).trim();
   return s.length ? s : undefined;
+}
+
+function safeInt(n) {
+  return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
+}
+
+function deepCloneJsonSafe(v) {
+  return JSON.parse(JSON.stringify(v));
 }
 
 export function extractJsonCandidate(text) {
@@ -43,13 +52,19 @@ export function checkCancelled(stageApi) {
 }
 
 export class DeepSearchState {
-  constructor({ runId, taskGoal, userConfig, L0, L1, L2, todos, timeline, createdAt, schemaVersion } = {}) {
+  constructor({ runId, taskGoal, userConfig, L0, L1, L2, todos, timeline, createdAt, schemaVersion, iteration, maxIterations, checkpoints } = {}) {
     this.schemaVersion = toNonEmptyString(schemaVersion) || STATE_SCHEMA_VERSION;
     this.runId = toNonEmptyString(runId) || "run_unknown";
     this.createdAt = toNonEmptyString(createdAt) || new Date().toISOString();
 
     this.taskGoal = toNonEmptyString(taskGoal) || "";
     this.userConfig = isPlainObject(userConfig) ? userConfig : {};
+
+    const it = safeInt(iteration);
+    this.iteration = it !== null && it >= 0 ? it : 0;
+    const maxIt = safeInt(maxIterations);
+    this.maxIterations = maxIt !== null && maxIt >= 1 ? maxIt : DEFAULT_MAX_ITERATIONS;
+    this.checkpoints = Array.isArray(checkpoints) ? checkpoints : [];
 
     this.L0 = isPlainObject(L0)
       ? L0
@@ -104,13 +119,84 @@ export class DeepSearchState {
     return row;
   }
 
-  toJSON() {
+  saveCheckpoint({ checkpointId, timestamp, metrics } = {}) {
+    const id = toNonEmptyString(checkpointId) || `cp_${this.checkpoints.length + 1}`;
+    const ts = toNonEmptyString(timestamp) || new Date().toISOString();
+
+    const snapshotObj = this.toJSON({ includeCheckpoints: false });
+    const snapshot = DeepSearchState.fromJSON(deepCloneJsonSafe(snapshotObj));
+
+    const gaps = Array.isArray(this?.L1?.gaps) ? this.L1.gaps : [];
+    const openGapCount = gaps.filter((g) => (g?.status ? String(g.status) : "open") === "open").length;
+    const claims = Array.isArray(this?.L1?.claims) ? this.L1.claims : [];
+    const evidenceLedger = Array.isArray(this?.L1?.evidenceLedger) ? this.L1.evidenceLedger : [];
+    const retrievedChunks = Array.isArray(this?.L2?.retrievedChunks) ? this.L2.retrievedChunks : [];
+
+    const m = isPlainObject(metrics)
+      ? metrics
+      : {
+          gapCount: openGapCount,
+          claimCount: claims.length,
+          evidenceCount: evidenceLedger.length,
+          retrievedCount: retrievedChunks.length,
+        };
+
+    const checkpoint = {
+      checkpointId: String(id),
+      iteration: this.iteration,
+      timestamp: String(ts),
+      stateSnapshot: snapshot,
+      metrics: {
+        gapCount: safeInt(m.gapCount) ?? openGapCount,
+        claimCount: safeInt(m.claimCount) ?? claims.length,
+        evidenceCount: safeInt(m.evidenceCount) ?? evidenceLedger.length,
+        retrievedCount: safeInt(m.retrievedCount) ?? retrievedChunks.length,
+      },
+    };
+
+    this.checkpoints.push(checkpoint);
+    return checkpoint;
+  }
+
+  restoreCheckpoint(checkpointId) {
+    const id = toNonEmptyString(checkpointId);
+    if (!id) throw new TypeError("DeepSearchState.restoreCheckpoint(checkpointId): checkpointId is required");
+
+    const cp = this.checkpoints.find((c) => toNonEmptyString(c?.checkpointId) === id);
+    if (!cp) throw new Error(`Checkpoint not found: ${String(id)}`);
+
+    const snapshot = cp.stateSnapshot instanceof DeepSearchState ? cp.stateSnapshot : DeepSearchState.fromJSON(cp.stateSnapshot);
+    const preservedCheckpoints = this.checkpoints;
+
+    const restored = snapshot.toJSON({ includeCheckpoints: false });
+    this.schemaVersion = restored.schemaVersion;
+    this.runId = restored.runId;
+    this.createdAt = restored.createdAt;
+    this.taskGoal = restored.taskGoal;
+    this.userConfig = restored.userConfig;
+    this.iteration = safeInt(restored.iteration) ?? 0;
+    this.maxIterations = safeInt(restored.maxIterations) ?? DEFAULT_MAX_ITERATIONS;
+    this.L0 = restored.L0;
+    this.L1 = restored.L1;
+    this.L2 = restored.L2;
+    this.todos = restored.todos;
+    this.timeline = restored.timeline;
+    this.checkpoints = preservedCheckpoints;
+
+    this.addTimeline({ name: "deepsearch.checkpoint.restored", status: "info", payload: { checkpointId: id, iteration: this.iteration } });
+    return cp;
+  }
+
+  toJSON({ includeCheckpoints = true } = {}) {
     return {
       schemaVersion: this.schemaVersion,
       runId: this.runId,
       createdAt: this.createdAt,
       taskGoal: this.taskGoal,
       userConfig: this.userConfig,
+      iteration: this.iteration,
+      maxIterations: this.maxIterations,
+      ...(includeCheckpoints ? { checkpoints: this.checkpoints } : {}),
       L0: this.L0,
       L1: this.L1,
       L2: this.L2,
