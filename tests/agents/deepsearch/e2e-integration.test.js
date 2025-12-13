@@ -85,6 +85,27 @@ function assertContentPackageBasics(pkg) {
   assert.ok(pkg.metrics.deepsearch && typeof pkg.metrics.deepsearch.iteration === "number");
 }
 
+function makeMockModelRouter() {
+  const calls = [];
+  return {
+    calls,
+    async call(messages, opts = {}) {
+      calls.push({ messages: Array.isArray(messages) ? messages : [], opts: opts && typeof opts === "object" ? { ...opts } : {} });
+      return { content: "{}" };
+    },
+  };
+}
+
+function detectModelStage(messages) {
+  const list = Array.isArray(messages) ? messages : [];
+  const sys = String(list.find((m) => m && m.role === "system")?.content || "").toLowerCase();
+  if (sys.includes("deepsearch scanner")) return "scan";
+  if (sys.includes("gap planner")) return "gaps";
+  if (sys.includes("claim extractor")) return "understand";
+  if (sys.includes("ppt slide planner")) return "write";
+  return null;
+}
+
 test("DeepSearch P0 E2E: Happy Path (Ingest rawTexts -> DeepSearchStage -> ContentPackage)", async () => {
   const { IngestStage } = await import("../../../js/agents/ingest/ingest-stage.js");
   const { DeepSearchStage } = await import("../../../js/agents/stages/deepsearch/index.js");
@@ -310,4 +331,221 @@ test("DeepSearch P0 E2E: Convergence exits (maxIterations or no-new-hits)", asyn
     assert.equal(state.checkpoints[1].iteration, 1);
     assert.ok(state.checkpoints[1].stateSnapshot);
   }
+});
+
+// P1 Tests
+test("P1 E2E: ModelRouter integration (usage-based routing)", async () => {
+  const { IngestStage } = await import("../../../js/agents/ingest/ingest-stage.js");
+  const { DeepSearchStage } = await import("../../../js/agents/stages/deepsearch/index.js");
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  const modelRouter = makeMockModelRouter();
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const rawTexts = [
+    { title: "Alpha Definition", text: "Definition: Alpha is a thing with clear scope.\n" },
+    { title: "Metrics", text: "Statistics: adoption reached 42% in 2024.\nMore evidence: 42% is cited.\n" },
+  ];
+
+  const ingest = new IngestStage({ defaultChunkOptions: { chunkSize: 140, overlap: 0, includeLineNumbers: true } });
+  const ingestOut = await ingest.execute({ runId: "run_ds_e2e_modelrouter", constraints: {} }, { rawTexts }, { emit });
+
+  const state = new DeepSearchState({
+    runId: "run_ds_e2e_modelrouter",
+    taskGoal: "Define Alpha and provide key metrics and numbers",
+    maxIterations: 2,
+    userConfig: { retrieval: { topK: 2, windowSize: 0, useBm25: true, useGrep: true } },
+    L0: { sources: ingestOut.sources },
+  });
+
+  const stage = new DeepSearchStage();
+  await stage.execute({ runId: "run_ds_e2e_modelrouter", mode: "deepsearch", constraints: {} }, { state }, { emit, modelRouter });
+
+  const expectedUsage = { scan: "analyst", gaps: "planner", understand: "analyst", write: "writer" };
+  const seen = new Set();
+
+  for (const c of modelRouter.calls) {
+    const detected = detectModelStage(c.messages);
+    if (!detected) continue;
+    seen.add(detected);
+    assert.equal(c.opts.usage, expectedUsage[detected], `expected usage=${expectedUsage[detected]} for stage=${detected}, got ${String(c.opts.usage)}`);
+  }
+
+  assert.equal(seen.has("scan"), true);
+  assert.equal(seen.has("gaps"), true);
+  assert.equal(seen.has("understand"), true);
+  assert.equal(seen.has("write"), true);
+  assert.ok(events.some((e) => e.name === "deepsearch.completed"));
+});
+
+test("P1 E2E: PlanningTree integration (gap expansion)", async () => {
+  const { IngestStage } = await import("../../../js/agents/ingest/ingest-stage.js");
+  const { DeepSearchStage } = await import("../../../js/agents/stages/deepsearch/index.js");
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  const aiApiService = makeMockAiApiService();
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const rawTexts = [
+    { title: "Alpha Definition", text: "Definition: Alpha is a thing with clear scope.\n" },
+    { title: "Metrics", text: "Statistics: adoption reached 42% in 2024.\nMore evidence: 42% is cited.\n" },
+  ];
+
+  const ingest = new IngestStage({ defaultChunkOptions: { chunkSize: 140, overlap: 0, includeLineNumbers: true } });
+  const ingestOut = await ingest.execute({ runId: "run_ds_e2e_planningtree", constraints: {} }, { rawTexts }, { emit });
+
+  const state = new DeepSearchState({
+    runId: "run_ds_e2e_planningtree",
+    taskGoal: "Define Alpha and provide key metrics and numbers",
+    maxIterations: 3,
+    userConfig: { gaps: { blockAfterMisses: 2 }, retrieval: { topK: 2, windowSize: 0, useBm25: true, useGrep: true } },
+    L0: { sources: ingestOut.sources },
+  });
+
+  let nodesAtFirstGapsStage = null;
+  const emitWithSnapshot = (name, record) => {
+    emit(name, record);
+    if (name === "deepsearch.gaps.completed" && nodesAtFirstGapsStage === null) {
+      nodesAtFirstGapsStage = state.planningTree?.nodes?.size ?? null;
+    }
+  };
+
+  const stage = new DeepSearchStage();
+  const pkg = await stage.execute({ runId: "run_ds_e2e_planningtree", mode: "deepsearch", constraints: {} }, { state }, { emit: emitWithSnapshot, aiApiService });
+
+  assertContentPackageBasics(pkg);
+
+  assert.ok(state.planningTree && typeof state.planningTree.getNodesForGap === "function");
+  assert.ok(nodesAtFirstGapsStage !== null && nodesAtFirstGapsStage > 1, `expected planningTree nodes > 1 after gaps stage, got ${String(nodesAtFirstGapsStage)}`);
+
+  const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+  assert.ok(gaps.length >= 2);
+
+  for (const g of gaps) {
+    const nodes = state.planningTree.getNodesForGap(g.gapId);
+    assert.ok(Array.isArray(nodes) && nodes.length >= 1, `expected planningTree nodes for gapId=${String(g.gapId)}`);
+  }
+
+  // Verify status updates when gaps are filled.
+  const filled = gaps.filter((g) => g.status === "filled");
+  assert.ok(filled.length >= 1);
+  for (const g of filled) {
+    const nodes = state.planningTree.getNodesForGap(g.gapId);
+    assert.ok(nodes.every((n) => n.status === "completed"), `expected planningTree nodes completed for filled gapId=${String(g.gapId)}`);
+  }
+});
+
+// P2 Tests
+test("P2 E2E: Multi-trajectory (pass@2 with merge)", async () => {
+  const { IngestStage } = await import("../../../js/agents/ingest/ingest-stage.js");
+  const { DeepSearchStage } = await import("../../../js/agents/stages/deepsearch/index.js");
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+  const { TrajectoryManager } = await import("../../../js/agents/stages/deepsearch/trajectory.js");
+
+  const aiApiService = makeMockAiApiService();
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const rawTexts = [
+    { title: "Alpha Definition", text: "Definition: Alpha is a thing with clear scope.\n" },
+    { title: "Metrics", text: "Statistics: adoption reached 42% in 2024.\nMore evidence: 42% is cited.\n" },
+  ];
+
+  const ingest = new IngestStage({ defaultChunkOptions: { chunkSize: 140, overlap: 0, includeLineNumbers: true } });
+  const ingestOut = await ingest.execute({ runId: "run_ds_e2e_traj", constraints: {} }, { rawTexts }, { emit });
+
+  const state = new DeepSearchState({
+    runId: "run_ds_e2e_traj",
+    taskGoal: "Define Alpha and provide key metrics and numbers",
+    maxIterations: 2,
+    userConfig: {
+      trajectory: { n: 2, mergeStrategy: "best" },
+      gaps: { blockAfterMisses: 2 },
+      retrieval: { topK: 2, windowSize: 0, useBm25: true, useGrep: true },
+    },
+    L0: { sources: ingestOut.sources },
+  });
+
+  const originalComputeQuality = TrajectoryManager.prototype.computeQuality;
+  let computeQualityCalls = 0;
+  TrajectoryManager.prototype.computeQuality = function (...args) {
+    computeQualityCalls++;
+    return originalComputeQuality.call(this, ...args);
+  };
+
+  try {
+    const stage = new DeepSearchStage();
+    const pkg = await stage.execute({ runId: "run_ds_e2e_traj", mode: "deepsearch", constraints: {} }, { state }, { emit, aiApiService });
+    assertContentPackageBasics(pkg);
+  } finally {
+    TrajectoryManager.prototype.computeQuality = originalComputeQuality;
+  }
+
+  const forked = events.find((e) => e.name === "deepsearch.trajectory.forked");
+  const merged = events.find((e) => e.name === "deepsearch.trajectory.merged");
+  assert.ok(forked && forked.record?.payload?.n === 2);
+  assert.ok(merged);
+
+  const trajectoryIds = new Set(
+    events
+      .filter((e) => e.name === "deepsearch.checkpoint.saved")
+      .map((e) => e.record?.payload?.trajectoryId)
+      .filter(Boolean)
+  );
+  assert.equal(trajectoryIds.size, 2);
+  assert.ok(computeQualityCalls >= 2, `expected computeQuality called >= 2 times, got ${computeQualityCalls}`);
+});
+
+test("P2 E2E: Audio adapter produces LRC format", async () => {
+  const { AudioAdapter } = await import("../../../js/agents/ingest/adapters/audio.js");
+
+  const whisperApi = {
+    async transcribe(_file, _opts) {
+      return {
+        text: "Hello world",
+        segments: [
+          { start: 0, end: 0.5, text: "Hello" },
+          { start: 1.23, end: 1.9, text: "world" },
+        ],
+      };
+    },
+  };
+
+  const adapter = new AudioAdapter({ whisperApi });
+  const buf = new Uint8Array([0, 1, 2, 3]).buffer;
+  const fileLike = { name: "clip.wav", type: "audio/wav", size: 4, async arrayBuffer() { return buf; } };
+
+  const out = await adapter.parse(fileLike);
+  assert.ok(typeof out.lrc === "string" && out.lrc.length > 0);
+  const lines = out.lrc.split("\n").filter(Boolean);
+  assert.ok(lines.length >= 2);
+  for (const line of lines) assert.match(line, /^\[\d{2}:\d{2}\.\d{2}\].+/);
+  assert.ok(out.lrc.includes("[00:00.00]Hello"));
+  assert.ok(out.lrc.includes("[00:01.23]world"));
+});
+
+test("P2 E2E: WorkerPool offloads BM25 indexing", async () => {
+  const { buildIndex, buildIndexAsync, search } = await import("../../../js/agents/retrieval/bm25.js");
+
+  const chunks = [
+    { chunkId: "a", text: "deep learning for search and retrieval" },
+    { chunkId: "b", text: "bm25 ranking function for information retrieval" },
+    { chunkId: "c", text: "cats and dogs" },
+  ];
+
+  let offloaded = false;
+  const mockWorkerPool = {
+    async buildIndex(ch, opts) {
+      offloaded = true;
+      return buildIndex(ch, opts);
+    },
+  };
+
+  const idx = await buildIndexAsync(chunks, { k1: 1.2, b: 0.75, workerPool: mockWorkerPool });
+  assert.equal(offloaded, true);
+
+  const results = search(idx, "bm25 retrieval", 3);
+  assert.equal(results[0].chunkId, "b");
 });
