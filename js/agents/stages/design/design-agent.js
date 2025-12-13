@@ -2,6 +2,7 @@ import { generateDesignTokens } from "./design-tokens.js";
 import { buildSlideHtml } from "./dsl-builder.js";
 import { generateBatch } from "./batch-generator.js";
 import { validateSlide } from "./qa-validator.js";
+import { ImagePlanner } from "./image-planner.js";
 
 const SCHEMA_VERSION = "0.1";
 
@@ -18,6 +19,17 @@ function checkCancelled(signal) {
   if (!signal?.aborted) return;
   const reason = signal.reason;
   throw new Error(typeof reason === "string" ? reason : "Run cancelled");
+}
+
+function hasImagePlanningConfig(constraints) {
+  if (!constraints || typeof constraints !== "object") return false;
+  return Object.prototype.hasOwnProperty.call(constraints, "imagePolicy") || Object.prototype.hasOwnProperty.call(constraints, "imageBudget");
+}
+
+function estimateSlotCostUSD(slot) {
+  const style = String(slot?.style || "").toLowerCase();
+  if (style.includes("3d") || style.includes("photo") || style.includes("hd") || style.includes("cinematic")) return 0.04;
+  return 0.003;
 }
 
 export class DesignStage {
@@ -53,9 +65,24 @@ export class DesignStage {
     emitStage(emit, "design.tokens.ended", "ended", { theme: designSystem?.theme });
     checkCancelled(context.signal);
 
+    const constraints = runContext.constraints || {};
+    const imageSlots = hasImagePlanningConfig(constraints) ? ImagePlanner.plan(slideIntents, designSystem, constraints) : [];
+    const pendingImages = imageSlots.map((s) => s.slotId);
+    const estimatedCostUSD = imageSlots.reduce((sum, s) => sum + estimateSlotCostUSD(s), 0);
+    if (hasImagePlanningConfig(constraints)) {
+      emitStage(emit, "design.image.planning.completed", "completed", {
+        policy: String(constraints?.imagePolicy || "balanced"),
+        planned: imageSlots.length,
+        pendingImages,
+        estimatedCostUSD: Number(estimatedCostUSD.toFixed(4)),
+      });
+      checkCancelled(context.signal);
+    }
+
     const generated = await generateBatch(slideIntents, contentPackage, designSystem, {
       batchSize: this.batchSize,
       aiApiService: context.aiApiService,
+      imageSlots,
       emit,
       signal: context.signal,
     });
@@ -69,6 +96,7 @@ export class DesignStage {
     for (let i = 0; i < slideIntents.length; i++) {
       const slideIntent = slideIntents[i];
       const slideNo = i + 1;
+      const imageSlotsForSlide = imageSlots.filter((s) => s.slideIndex === i);
 
       let slideHtml = generated[i]?.slideHtml;
       let qa = validateSlide(slideHtml);
@@ -78,7 +106,7 @@ export class DesignStage {
         degraded = true;
         degradedCount++;
         emit?.("design.degraded", { actor: "design", status: "warn", payload: { slideNo, slideIntentId: slideIntent.slideIntentId } });
-        slideHtml = buildSlideHtml(slideIntent, designSystem, contentPackage, { safeMode: true, slideNo });
+        slideHtml = buildSlideHtml(slideIntent, designSystem, contentPackage, { safeMode: true, slideNo, imageSlotsForSlide });
         qa = validateSlide(slideHtml);
       }
 
@@ -91,7 +119,11 @@ export class DesignStage {
           status: "warn",
           payload: { slideNo, slideIntentId: slideIntent.slideIntentId, reason: "qa_failed_after_safe" },
         });
-        slideHtml = buildSlideHtml({ ...slideIntent, keyPoints: [], claimIds: [] }, designSystem, contentPackage, { safeMode: true, slideNo });
+        slideHtml = buildSlideHtml({ ...slideIntent, keyPoints: [], claimIds: [] }, designSystem, contentPackage, {
+          safeMode: true,
+          slideNo,
+          imageSlotsForSlide,
+        });
         qa = validateSlide(slideHtml);
       }
 
@@ -117,6 +149,9 @@ export class DesignStage {
       deckHtmlDsl: slideHtmls.join("\n\n"),
       slidesMeta,
       editHints: { degradedCount },
+      imageSlots,
+      imageReport: null,
+      pendingImages,
     };
   }
 }
@@ -126,4 +161,3 @@ export async function runDesignStage(runContext, contentPackage, stageApi = {}) 
   const stage = new DesignStage();
   return stage.execute(runContext, contentPackage, stageApi);
 }
-

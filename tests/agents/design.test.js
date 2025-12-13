@@ -52,6 +52,7 @@ test("Design: DesignStage generates design tokens + emits design.* events", asyn
   assert.ok(events.some((e) => e.name === "design.generate.ended"));
   assert.ok(events.some((e) => e.name === "design.qa.ended"));
   assert.ok(events.some((e) => e.name === "design.ended"));
+  assert.ok(events.every((e) => e.name !== "design.image.planning.completed"));
 });
 
 test("Design: dsl-builder supports core page types and passes QA in safe mode", async () => {
@@ -115,6 +116,102 @@ test("Design: batch-generator generates per 4 slides, calls aiApiService.chat, a
   assert.ok(events.some((e) => e.name === "design.batch.progress"));
   assert.ok(events.some((e) => e.name === "design.batch.ended"));
   assert.ok(slides.every((s) => s.source === "llm"));
+});
+
+test("Design: DesignStage calls ImagePlanner between tokens and batch, emits planning event, and inserts placeholders", async () => {
+  const { DesignStage } = await import("../../js/agents/stages/design/design-agent.js");
+
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const contentPackage = makeContentPackage({ slideCount: 6 });
+  contentPackage.constraints = {
+    ...contentPackage.constraints,
+    imagePolicy: "minimal",
+    imageBudget: { maxImages: 5, maxCostUSD: 1.0 },
+  };
+
+  const stage = new DesignStage({ batchSize: 4 });
+  const deck = await stage.run(contentPackage, { runContext: { runId: "run_test", constraints: contentPackage.constraints }, emit });
+
+  const idxTokens = events.findIndex((e) => e.name === "design.tokens.ended");
+  const idxPlanning = events.findIndex((e) => e.name === "design.image.planning.completed");
+  const idxBatchStarted = events.findIndex((e) => e.name === "design.batch.started");
+  assert.ok(idxTokens >= 0 && idxPlanning >= 0 && idxBatchStarted >= 0);
+  assert.ok(idxTokens < idxPlanning && idxPlanning < idxBatchStarted);
+
+  assert.ok(Array.isArray(deck.imageSlots));
+  assert.ok(deck.imageSlots.length >= 1);
+  assert.ok(deck.imageReport === null);
+  assert.ok(Array.isArray(deck.pendingImages) && deck.pendingImages.length === deck.imageSlots.length);
+
+  assert.ok(typeof deck.deckHtmlDsl === "string");
+  assert.ok(deck.deckHtmlDsl.includes('data-el="image-placeholder"'));
+  assert.ok(deck.deckHtmlDsl.includes('data-status="pending"'));
+  assert.ok(deck.deckHtmlDsl.includes('data-fallback="gradient"'));
+  assert.ok(deck.deckHtmlDsl.includes('data-slot-id="img_s0_hero"'));
+  assert.ok(deck.deckHtmlDsl.includes('id="img_s0_hero"'));
+});
+
+test("Design: batch-generator makePrompt includes image slot placeholder instructions when provided", async () => {
+  const { generateBatch } = await import("../../js/agents/stages/design/batch-generator.js");
+
+  const contentPackage = makeContentPackage({ slideCount: 1 });
+  const designSystem = { designTokens: { colors: { bg: "#fff", text: "#111" } } };
+
+  const slideIntents = [
+    { slideIntentId: "s1", pageType: "cover", title: "Hello", keyPoints: [] },
+    { slideIntentId: "s2", pageType: "summary", title: "World", keyPoints: [] },
+  ];
+
+  const calls = [];
+  const aiApiService = {
+    chat: async (opts) => {
+      calls.push(opts);
+      const prompt = opts.messages.map((m) => m.content).join("\n");
+      const marker = "Slide intents:\n";
+      const json = prompt.slice(prompt.lastIndexOf(marker) + marker.length);
+      const batch = JSON.parse(json);
+      const slides = batch.map((si) => ({
+        slideIntentId: si.slideIntentId,
+        slideHtml: `<section data-type="freeform" id="slide-${si.slideIntentId}" data-bg="#ffffff" data-title="${si.title}"><div data-el="text" data-x="8%" data-y="10%" data-w="84%" data-font="16" data-color="#111111">${si.title}</div></section>`,
+      }));
+      return { content: JSON.stringify(slides) };
+    },
+  };
+
+  const imageSlots = [
+    { slotId: "img_s0_hero", slideIntentId: "s1", slideIndex: 0, purpose: "hero", aspectRatio: "16:9", priority: "critical", promptHint: "x" },
+  ];
+
+  await generateBatch(slideIntents, contentPackage, designSystem, { aiApiService, imageSlots, batchSize: 4 });
+  assert.equal(calls.length, 1);
+  const prompt = calls[0].messages.map((m) => m.content).join("\n");
+  assert.ok(prompt.includes("Image slots (placeholders):"));
+  assert.ok(prompt.includes('data-el="image-placeholder"'));
+  assert.ok(prompt.includes("img_s0_hero"));
+});
+
+test("Design: imagePolicy=none yields no placeholders and no pending images", async () => {
+  const { DesignStage } = await import("../../js/agents/stages/design/design-agent.js");
+
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const contentPackage = makeContentPackage({ slideCount: 6 });
+  contentPackage.constraints = {
+    ...contentPackage.constraints,
+    imagePolicy: "none",
+    imageBudget: { maxImages: 5, maxCostUSD: 1.0 },
+  };
+
+  const stage = new DesignStage({ batchSize: 4 });
+  const deck = await stage.run(contentPackage, { runContext: { runId: "run_test", constraints: contentPackage.constraints }, emit });
+
+  assert.ok(events.some((e) => e.name === "design.image.planning.completed"));
+  assert.ok(Array.isArray(deck.imageSlots) && deck.imageSlots.length === 0);
+  assert.ok(Array.isArray(deck.pendingImages) && deck.pendingImages.length === 0);
+  assert.ok(typeof deck.deckHtmlDsl === "string" && !deck.deckHtmlDsl.includes('data-el="image-placeholder"'));
 });
 
 test("Design: qa-validator catches min font, overflow, and low contrast", async () => {
@@ -183,4 +280,24 @@ test("Design: DesignStage triggers last-resort downgrade and deckHtmlDsl is pars
   const slides = globalThis.SlideParser.parse(deck.deckHtmlDsl);
   assert.equal(slides.length, contentPackage.slideIntents.length);
   assert.ok(slides.every((s) => Array.isArray(s.elements)));
+});
+
+test("Design: image-prompt-builder exports buildPrompt and includes no-text guidance", async () => {
+  const { buildPrompt } = await import("../../js/agents/stages/design/image-prompt-builder.js");
+  const prompt = buildPrompt(
+    { slotId: "img_s0_hero", purpose: "hero", promptHint: "A demo", style: "flat", aspectRatio: "16:9" },
+    { theme: "modern", designTokens: { colors: { primary: "#0ea5e9", bg: "#ffffff" } } },
+    makeContentPackage({ slideCount: 1 })
+  );
+  assert.ok(typeof prompt === "string" && prompt.includes("Do not include any text in the image."));
+});
+
+test("Design: design/index.js re-exports stage surface", async () => {
+  const design = await import("../../js/agents/stages/design/index.js");
+  assert.ok(typeof design.generateDesignTokens === "function");
+  assert.ok(typeof design.buildSlideHtml === "function");
+  assert.ok(typeof design.generateBatch === "function");
+  assert.ok(typeof design.validateSlide === "function");
+  assert.ok(typeof design.DesignStage === "function");
+  assert.ok(typeof design.runDesignStage === "function");
 });

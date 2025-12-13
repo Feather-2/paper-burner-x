@@ -118,6 +118,48 @@ function makeShapeEl({ x, y, w, h, fill, stroke, radius = 14 }) {
   return `<div ${attrs.join(" ")}></div>`;
 }
 
+function makeImagePlaceholderEl(slot, box = {}) {
+  const slotId = String(slot?.slotId || "").trim();
+  if (!slotId) return "";
+
+  const aspectRatio = String(slot?.aspectRatio || "16:9").trim() || "16:9";
+  const attrs = [
+    `data-el="image-placeholder"`,
+    `id="${escapeHtml(slotId)}"`,
+    `data-slot-id="${escapeHtml(slotId)}"`,
+    `data-status="pending"`,
+    `data-aspect-ratio="${escapeHtml(aspectRatio)}"`,
+    `data-fallback="gradient"`,
+  ];
+
+  if (box?.x) attrs.push(`data-x="${box.x}"`);
+  if (box?.y) attrs.push(`data-y="${box.y}"`);
+  if (box?.w) attrs.push(`data-w="${box.w}"`);
+  if (box?.h) attrs.push(`data-h="${box.h}"`);
+  if (box?.z !== undefined) attrs.push(`data-z="${String(box.z)}"`);
+
+  return `<div ${attrs.join(" ")}></div>`;
+}
+
+function placeholderBoxFor(slot, pageType) {
+  const purpose = String(slot?.purpose || "").toLowerCase();
+  if (purpose === "hero" || pageType === "cover") return { x: "0%", y: "0%", w: "100%", h: "100%" };
+  if (purpose === "illustration") return { x: "58%", y: "26%", w: "34%", h: "44%" };
+  if (purpose === "icon") return { x: "82%", y: "12%", w: "10%", h: "10%" };
+  if (purpose === "background") return { x: "0%", y: "0%", w: "100%", h: "100%" };
+  return { x: "8%", y: "22%", w: "84%", h: "60%" };
+}
+
+function buildImagePlaceholdersHtml(slideIntent, options) {
+  const pageType = normalizePageType(slideIntent?.pageType);
+  const slots = Array.isArray(options?.imageSlotsForSlide) ? options.imageSlotsForSlide : [];
+  if (!slots.length) return "";
+  return slots
+    .map((slot) => makeImagePlaceholderEl(slot, placeholderBoxFor(slot, pageType)))
+    .filter(Boolean)
+    .join("\n  ");
+}
+
 function asLines(items, max = 8) {
   return (Array.isArray(items) ? items : [])
     .map((s) => String(s || "").trim())
@@ -233,12 +275,14 @@ export function buildSlideHtml(slideIntent, designSystem, arg3, arg4, arg5) {
           content: bodyHtml,
         });
 
+  const imagePlaceholders = buildImagePlaceholdersHtml(slideIntent, options);
+  const imageLayer = imagePlaceholders ? `  ${imagePlaceholders}\n` : "";
+
   return `
 <section data-type="freeform" data-layout="${escapeHtml(layout)}" id="${escapeHtml(rawId)}" data-title="${escapeHtml(title)}" data-bg="${colors.bg}">
-  ${makeTextEl({ x: "8%", y: titleY, w: "84%", font: titleFont, color: colors.text, bold: true, content: escapeHtml(title) })}
+${imageLayer}  ${makeTextEl({ x: "8%", y: titleY, w: "84%", font: titleFont, color: colors.text, bold: true, content: escapeHtml(title) })}
   ${panel}
   ${subtitle}
   ${body}
 </section>`.trim();
 }
-

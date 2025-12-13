@@ -32,8 +32,9 @@ function layoutFromPageType(pageType) {
   return "content";
 }
 
-function makePrompt(batch, designSystem, contentPackage) {
+function makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch = []) {
   const tokens = designSystem?.designTokens || designSystem || {};
+  const slots = Array.isArray(imageSlotsForBatch) ? imageSlotsForBatch : [];
   return [
     "You generate PPT HTML DSL slides for SlideParser.parse().",
     "Return ONLY valid JSON (no markdown), an array with same order as input.",
@@ -44,6 +45,30 @@ function makePrompt(batch, designSystem, contentPackage) {
     '- Elements MUST use data-el attributes (text/shape/line/svg/image/card/icon).',
     "- All positions use percent for data-x/data-y/data-w/data-h (0-100%).",
     "- Enforce min font size >= 12.",
+    "",
+    ...(slots.length
+      ? [
+          "Image slots (placeholders):",
+          "- For each slot listed below, add EXACTLY ONE placeholder element into the correct slide HTML.",
+          "- Do NOT inline base64, do NOT create real <img> tags for these slots.",
+          "- Use the stable slotId as both id and data-slot-id.",
+          "- Placeholder HTML (attributes required; you may add x/y/w/h positioning as needed):",
+          '<div data-el="image-placeholder" id="img_s0_hero" data-slot-id="img_s0_hero" data-status="pending" data-aspect-ratio="16:9" data-fallback="gradient"></div>',
+          "",
+          "Slots for this batch:",
+          JSON.stringify(
+            slots.map((s) => ({
+              slotId: s.slotId,
+              slideIntentId: s.slideIntentId,
+              slideIndex: s.slideIndex,
+              purpose: s.purpose,
+              aspectRatio: s.aspectRatio,
+              priority: s.priority,
+            }))
+          ),
+          "",
+        ]
+      : []),
     "",
     "Design tokens (use these colors/typography):",
     JSON.stringify(tokens),
@@ -86,6 +111,7 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
   const aiApiService = options.aiApiService;
   const emit = typeof options.emit === "function" ? options.emit : null;
   const signal = options.signal;
+  const imageSlots = Array.isArray(options.imageSlots) ? options.imageSlots : [];
 
   const claims = Array.isArray(contentPackage?.claims) ? contentPackage.claims : [];
   const evidences = Array.isArray(contentPackage?.evidenceLedger) ? contentPackage.evidenceLedger : [];
@@ -106,7 +132,8 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
 
     if (aiApiService && typeof aiApiService.chat === "function") {
       try {
-        const prompt = makePrompt(batch, designSystem, contentPackage);
+        const imageSlotsForBatch = imageSlots.filter((s) => Number.isFinite(s?.slideIndex) && s.slideIndex >= done && s.slideIndex < done + batch.length);
+        const prompt = makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch);
         const resp = await aiApiService.chat({
           messages: [
             { role: "system", content: "You are a precise PPT DSL generator." },
@@ -142,7 +169,11 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
     if (produced.length === 0) {
       produced = batch.map((si, i) => ({
         slideIntentId: si.slideIntentId,
-        slideHtml: buildSlideHtml(si, designSystem, claims, evidences, { safeMode: true, slideNo: done + i + 1 }),
+        slideHtml: buildSlideHtml(si, designSystem, claims, evidences, {
+          safeMode: true,
+          slideNo: done + i + 1,
+          imageSlotsForSlide: imageSlots.filter((s) => s.slideIndex === done + i),
+        }),
         source: "fallback",
       }));
     }
