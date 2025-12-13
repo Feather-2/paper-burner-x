@@ -1,0 +1,93 @@
+function isPlainObject(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function toNonEmptyString(v) {
+  if (v === undefined || v === null) return undefined;
+  const s = String(v).trim();
+  return s.length ? s : undefined;
+}
+
+function ensureEventBus(eventBus) {
+  if (!eventBus || typeof eventBus.on !== "function") {
+    throw new TypeError("subscribeTelemetry(eventBus, runStore): eventBus must implement on(name, handler)");
+  }
+  return eventBus;
+}
+
+function ensureRunStore(runStore) {
+  if (!runStore || typeof runStore.appendEvent !== "function") {
+    throw new TypeError("subscribeTelemetry(eventBus, runStore): runStore must implement appendEvent(runId, event)");
+  }
+  return runStore;
+}
+
+function toTimelineRow(evt) {
+  return {
+    ts: evt?.ts,
+    actor: evt?.actor,
+    status: evt?.status,
+    payload: evt?.payload,
+    name: evt?.name,
+  };
+}
+
+function upsertTodo(todosById, evt) {
+  const payload = isPlainObject(evt?.payload) ? evt.payload : {};
+  const todoId = toNonEmptyString(payload.todoId);
+  if (!todoId) return;
+
+  const prev = todosById.get(todoId) || { todoId };
+  const next = { ...prev };
+
+  if (toNonEmptyString(payload.text)) next.text = String(payload.text);
+  if (toNonEmptyString(payload.status)) next.status = String(payload.status);
+  if (toNonEmptyString(payload.relatedGapId)) next.relatedGapId = String(payload.relatedGapId);
+
+  if (!next.createdAt && (evt?.name === "deepsearch.todo.created" || String(evt?.name || "").endsWith(".todo.created"))) {
+    next.createdAt = evt.ts;
+  }
+  next.updatedAt = evt.ts;
+
+  todosById.set(todoId, next);
+}
+
+/**
+ * Subscribe EventBus telemetry into RunStore, while aggregating timeline/todos for UI.
+ * @param {object} eventBus EventBus
+ * @param {object} runStore RunStore
+ * @returns {{timeline:Array<object>,todos:Array<object>,flush:Function,unsubscribe:Function,snapshot:Function}}
+ */
+export function subscribeTelemetry(eventBus, runStore) {
+  const bus = ensureEventBus(eventBus);
+  const store = ensureRunStore(runStore);
+
+  const timeline = [];
+  const todosById = new Map();
+  let pending = Promise.resolve();
+
+  const handler = (evt) => {
+    timeline.push(toTimelineRow(evt));
+
+    if (String(evt?.name || "").includes("todo.")) upsertTodo(todosById, evt);
+
+    const runId = toNonEmptyString(evt?.runId) || toNonEmptyString(bus?.runId);
+    if (!runId) return;
+    pending = pending.then(() => store.appendEvent(runId, evt)).catch(() => {});
+  };
+
+  const unsubscribe = bus.on("*", handler);
+
+  const flush = async () => pending;
+  const snapshot = () => ({ timeline: timeline.slice(), todos: [...todosById.values()] });
+
+  return {
+    timeline,
+    get todos() {
+      return [...todosById.values()];
+    },
+    flush,
+    snapshot,
+    unsubscribe,
+  };
+}

@@ -148,26 +148,41 @@ function toSourceRefs(sources) {
 export function buildContentPackage(runContext, sources, slideIntents, claims, evidenceLedger, dataTables = []) {
   if (!isPlainObject(runContext)) throw new TypeError("buildContentPackage(runContext,...): runContext must be an object");
 
+  const extra = arguments.length >= 7 && isPlainObject(arguments[6]) ? arguments[6] : {};
+  const modeRaw = String(extra.mode || runContext.mode || "textprep");
+  const mode = modeRaw === "deepsearch" ? "deepsearch" : "textprep";
+
   const srcRefs = toSourceRefs(sources);
   const primarySourceText = (() => {
     const s0 = (Array.isArray(sources) ? sources : []).find((s) => s?.sourceId === "user_text") || (Array.isArray(sources) ? sources[0] : null);
     return String(s0?.sourceTextNormalized || "");
   })();
 
+  const openQuestions = Array.isArray(extra.openQuestions) ? extra.openQuestions : [];
+  const outlineCandidates = Array.isArray(extra.outlineCandidates) ? extra.outlineCandidates : [];
+  const scanSummary = isPlainObject(extra.scanSummary) ? extra.scanSummary : null;
+  const gaps = Array.isArray(extra.gaps) ? extra.gaps : [];
+  const condensedMemory = extra.condensedMemory !== undefined ? extra.condensedMemory : null;
+
+  const derivedSummary =
+    toNonEmptyString(extra.summary) ||
+    (mode === "deepsearch" ? toNonEmptyString(scanSummary?.summaryText) : undefined) ||
+    deriveSummary(primarySourceText, claims);
+
   const pkg = {
     schemaVersion: "0.1",
     runId: String(runContext.runId || "run_unknown"),
-    mode: "textprep",
+    mode,
     createdAt: new Date().toISOString(),
     constraints: isPlainObject(runContext.constraints) ? runContext.constraints : {},
     ...(srcRefs.length ? { sources: srcRefs } : {}),
-    summary: deriveSummary(primarySourceText, claims),
-    outlineCandidates: [],
+    summary: derivedSummary,
+    outlineCandidates,
     slideIntents: Array.isArray(slideIntents) ? slideIntents : [],
     claims: Array.isArray(claims) ? claims : [],
     evidenceLedger: Array.isArray(evidenceLedger) ? evidenceLedger : [],
     dataTables: Array.isArray(dataTables) ? dataTables : [],
-    openQuestions: [],
+    openQuestions,
     metrics: {
       textprep: {
         sourceChars: primarySourceText.length,
@@ -177,6 +192,16 @@ export function buildContentPackage(runContext, sources, slideIntents, claims, e
       },
     },
   };
+
+  if (mode === "deepsearch") {
+    pkg.scanSummary = scanSummary;
+    pkg.gaps = gaps;
+    pkg.condensedMemory = condensedMemory;
+    pkg.metrics.deepsearch = {
+      sourceCount: Array.isArray(srcRefs) ? srcRefs.length : 0,
+      gapCount: gaps.length,
+    };
+  }
 
   assertHardGates({ sources, claims: pkg.claims, evidenceLedger: pkg.evidenceLedger, slideIntents: pkg.slideIntents, dataTables: pkg.dataTables });
   return pkg;

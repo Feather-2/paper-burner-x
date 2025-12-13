@@ -6,6 +6,8 @@ export const SUPPORTED_ARTIFACT_TYPES = [
   "lint_report.json",
   "export_report.json",
   "evaluation_report.json",
+  "deepsearch_state.json",
+  "condensed_memory.json",
   "events.jsonl",
 ];
 
@@ -15,16 +17,32 @@ function normalizeType(type) {
   return String(type || "").trim();
 }
 
+export const ARTIFACT_TYPE_ALIASES = {
+  deepsearch_state: "deepsearch_state.json",
+  condensed_memory: "condensed_memory.json",
+};
+
+export function canonicalArtifactType(type) {
+  const t = normalizeType(type);
+  if (!t) return t;
+  return ARTIFACT_TYPE_ALIASES[t] || t;
+}
+
 function sanitizeTypeForId(type) {
-  return normalizeType(type).replaceAll(/[^a-zA-Z0-9._-]/g, "_");
+  return canonicalArtifactType(type).replaceAll(/[^a-zA-Z0-9._-]/g, "_");
 }
 
 function assertSupportedType(type) {
-  const t = normalizeType(type);
+  const t = canonicalArtifactType(type);
   if (!SUPPORTED_ARTIFACT_TYPES.includes(t)) {
-    throw new Error(`Unsupported artifact type: ${t}`);
+    throw new Error(`Unsupported artifact type: ${t || "(empty)"}`);
   }
   return t;
+}
+
+export function isSupportedArtifactType(type) {
+  const t = canonicalArtifactType(type);
+  return !!t && SUPPORTED_ARTIFACT_TYPES.includes(t);
 }
 
 export function generateArtifactId(runId, type, seq) {
@@ -131,3 +149,28 @@ export async function computeSha256(data) {
   }
 }
 
+export function serializeArtifactPayload(type, data, { pretty = false } = {}) {
+  const t = assertSupportedType(type);
+
+  if (t.endsWith(".json")) {
+    return JSON.stringify(data === undefined ? null : data, null, pretty ? 2 : 0);
+  }
+
+  if (t.endsWith(".jsonl")) {
+    if (typeof data === "string") return data;
+    if (Array.isArray(data)) return data.map((row) => JSON.stringify(row)).join("\n") + (data.length ? "\n" : "");
+    if (data && typeof data === "object") return JSON.stringify(data) + "\n";
+    return String(data || "");
+  }
+
+  if (typeof data === "string") return data;
+  if (data instanceof ArrayBuffer) return new Uint8Array(data);
+  if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
+  return String(data);
+}
+
+export function deserializeArtifactPayload(type, raw) {
+  const t = assertSupportedType(type);
+  if (t.endsWith(".json") && typeof raw === "string") return JSON.parse(raw);
+  return raw;
+}
