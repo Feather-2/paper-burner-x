@@ -163,6 +163,14 @@ const PPTXFreeformMixin = {
                 if (tagName === 'b' || tagName === 'strong') runOpts.bold = true;
                 if (tagName === 'i' || tagName === 'em') runOpts.italic = true;
 
+                // 处理上标/下标属性
+                if (attrs.includes('data-superscript="true"') || attrs.includes("data-superscript='true'")) {
+                    runOpts.superscript = true;
+                }
+                if (attrs.includes('data-subscript="true"') || attrs.includes("data-subscript='true'")) {
+                    runOpts.subscript = true;
+                }
+
                 runs.push({ text: innerText, options: runOpts });
             }
 
@@ -334,7 +342,8 @@ const PPTXFreeformMixin = {
             fill: { color: this.safeColor(el.fill) || '4f46e5' },
             line: (() => {
                 const strokeColor = this.safeColor(el.outline || el.stroke);
-                return strokeColor ? { color: strokeColor, width: el.strokeWidth || 1 } : { color: 'FFFFFF', transparency: 100 };
+                // 无边框时使用 type: 'none'，而不是透明边框（透明边框可能仍然渲染边缘线）
+                return strokeColor ? { color: strokeColor, width: el.strokeWidth || 1 } : { type: 'none' };
             })(),
         };
 
@@ -650,7 +659,7 @@ const PPTXFreeformMixin = {
         const bgOptions = {
             x: x || 0, y: y || 0, w: w || 2, h: h || 1,
             fill: { color: this.safeColor(el.fill) || 'FFFFFF' },
-            line: el.stroke ? { color: this.safeColor(el.stroke) || 'E2E8F0', width: el.strokeWidth || 1 } : { color: 'FFFFFF', transparency: 100 },
+            line: el.stroke ? { color: this.safeColor(el.stroke) || 'E2E8F0', width: el.strokeWidth || 1 } : { type: 'none' },
         };
         if (radius > 0) bgOptions.rectRadius = radius;
         // 阴影效果
@@ -685,7 +694,7 @@ const PPTXFreeformMixin = {
         if (el.icon && el.iconBg) {
             slide.addShape('roundRect', {
                 x: innerX + (innerW - iconBgSize) / 2, y: startY, w: iconBgSize, h: iconBgSize,
-                fill: { color: this.safeColor(el.iconBg) }, line: { color: 'FFFFFF', transparency: 100 }, rectRadius: iconBgSize / 3, // 与 HTML 一致
+                fill: { color: this.safeColor(el.iconBg) }, line: { type: 'none' }, rectRadius: iconBgSize / 3, // 与 HTML 一致
             });
         }
 
@@ -721,7 +730,7 @@ const PPTXFreeformMixin = {
         if (el.icon && el.iconBg && !isSmallCard) {
             slide.addShape('roundRect', {
                 x: iconX, y: innerY + (innerH - actualIconBgSize) / 2, w: actualIconBgSize, h: actualIconBgSize,
-                fill: { color: this.safeColor(el.iconBg) }, line: { color: 'FFFFFF', transparency: 100 }, rectRadius: actualIconBgSize / 3,
+                fill: { color: this.safeColor(el.iconBg) }, line: { type: 'none' }, rectRadius: actualIconBgSize / 3,
             });
         }
 

@@ -7,6 +7,103 @@
 
 const PPTGeneratorExportFormats = {
     // ═══════════════════════════════════════════════════════════════
+    // 辅助函数：精确检测顶部透明渐变
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * 检测颜色是否透明（alpha < 0.1）
+     */
+    _isTransparentColor(color) {
+        if (!color) return false;
+        const c = color.trim().toLowerCase();
+        if (c === 'transparent') return true;
+        // 匹配 rgba(..., alpha)
+        const rgbaMatch = c.match(/rgba\s*\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*,\s*([\d.]+)\s*\)/);
+        if (rgbaMatch) {
+            return parseFloat(rgbaMatch[1]) < 0.1;
+        }
+        return false;
+    },
+
+    /**
+     * 解析渐变字符串中的颜色停止点
+     * 返回 [{color, position}, ...]，position 为 0-1
+     */
+    _parseGradientStops(gradientStr) {
+        if (!gradientStr || !gradientStr.includes('gradient')) return [];
+
+        // 提取括号内内容，需要处理嵌套括号（如 rgba()）
+        const startIdx = gradientStr.indexOf('(');
+        if (startIdx === -1) return [];
+
+        let depth = 0;
+        let endIdx = -1;
+        for (let i = startIdx; i < gradientStr.length; i++) {
+            if (gradientStr[i] === '(') depth++;
+            else if (gradientStr[i] === ')') {
+                depth--;
+                if (depth === 0) {
+                    endIdx = i;
+                    break;
+                }
+            }
+        }
+        if (endIdx === -1) return [];
+
+        const content = gradientStr.slice(startIdx + 1, endIdx);
+        const stops = [];
+
+        // 匹配颜色停止点：颜色值 + 可选的位置百分比
+        // 支持: transparent, #hex, rgb(...), rgba(...)
+        const colorPattern = /(transparent|#[0-9a-f]{3,8}|rgba?\s*\([^)]+\))\s*(\d+%)?/gi;
+        let colorMatch;
+        let index = 0;
+
+        while ((colorMatch = colorPattern.exec(content)) !== null) {
+            const color = colorMatch[1];
+            const pos = colorMatch[2] ? parseFloat(colorMatch[2]) / 100 : null;
+            stops.push({ color, position: pos, index: index++ });
+        }
+
+        // 填充缺失的位置
+        if (stops.length > 0) {
+            if (stops[0].position === null) stops[0].position = 0;
+            if (stops[stops.length - 1].position === null) stops[stops.length - 1].position = 1;
+
+            // 线性插值中间缺失的位置
+            let lastPos = 0;
+            for (let i = 1; i < stops.length; i++) {
+                if (stops[i].position === null) {
+                    let nextIdx = i + 1;
+                    while (nextIdx < stops.length && stops[nextIdx].position === null) nextIdx++;
+                    const nextPos = nextIdx < stops.length ? stops[nextIdx].position : 1;
+                    const step = (nextPos - lastPos) / (nextIdx - i + 1);
+                    stops[i].position = lastPos + step;
+                }
+                lastPos = stops[i].position;
+            }
+        }
+
+        return stops;
+    },
+
+    /**
+     * 检测是否需要裁剪顶部边缘
+     * 条件：to top 方向的渐变，且顶部（最后一个停止点）是透明的
+     */
+    _needsTopEdgeTrim(gradientStr) {
+        if (!gradientStr || !gradientStr.includes('gradient')) return false;
+        if (!gradientStr.includes('to top')) return false;
+
+        const stops = this._parseGradientStops(gradientStr);
+        if (stops.length === 0) return false;
+
+        // to top 方向：第一个停止点是底部，最后一个是顶部
+        const topStop = stops[stops.length - 1];
+        return this._isTransparentColor(topStop.color);
+    },
+
+    // ═══════════════════════════════════════════════════════════════
     // PDF 导出
     // ═══════════════════════════════════════════════════════════════
     
@@ -50,13 +147,11 @@ const PPTGeneratorExportFormats = {
                     }
                 });
 
-                // 处理半透明渐变形状：裁剪顶部边缘避免黑线（类似 PPTX 导出的处理）
+                // 处理半透明渐变形状：裁剪顶部边缘避免黑线
+                // 仅当渐变方向为 to top 且顶部颜色停止点为透明时才裁剪
                 container.querySelectorAll('div').forEach(div => {
                     const bg = div.style.background || '';
-                    // 检测向上渐变且顶部透明的情况
-                    if (bg.includes('gradient') && bg.includes('to top') && 
-                        (bg.includes('transparent') || bg.includes('rgba(') || bg.includes(', 0)'))) {
-                        // 使用 clip-path 裁剪顶部 2% 去掉黑线伪影
+                    if (this._needsTopEdgeTrim(bg)) {
                         div.style.clipPath = 'inset(2% 0 0 0)';
                     }
                 });
@@ -502,10 +597,10 @@ ${renderedSlides}
                 });
 
                 // 处理半透明渐变形状：裁剪顶部边缘避免黑线
+                // 仅当渐变方向为 to top 且顶部颜色停止点为透明时才裁剪
                 container.querySelectorAll('div').forEach(div => {
                     const bg = div.style.background || '';
-                    if (bg.includes('gradient') && bg.includes('to top') && 
-                        (bg.includes('transparent') || bg.includes('rgba(') || bg.includes(', 0)'))) {
+                    if (this._needsTopEdgeTrim(bg)) {
                         div.style.clipPath = 'inset(2% 0 0 0)';
                     }
                 });
