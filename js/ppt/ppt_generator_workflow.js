@@ -333,6 +333,72 @@ const PPTGeneratorWorkflow = {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     },
 
+    async startFromPastedText(pastedContent) {
+        const content = typeof pastedContent === 'string' ? pastedContent : '';
+        if (!content || !content.trim()) {
+            if (typeof this.logTerminal === 'function') this.logTerminal('系统', '粘贴内容为空', 'warning');
+            return;
+        }
+
+        await this._ensureRuntime({ mode: 'textprep' });
+
+        if (typeof this.logTerminal === 'function') this.logTerminal('系统', '开始处理粘贴文档...', 'normal');
+        this.state = 'reading';
+        if (Array.isArray(this._runtimeTodoTexts) && typeof this.updateTodos === 'function') {
+            this.updateTodos(this._runtimeTodoTexts.map((text, i) => ({ text, status: i === 0 ? 'active' : 'pending' })));
+        }
+        this.renderPreviewArea();
+
+        const title = this._extractTitleFromText(content);
+        const contentPackage = {
+            title,
+            report: { markdown: content },
+            slideIntents: this._generateSlideIntentsFromMarkdown(content),
+            metadata: { source: 'paste', timestamp: Date.now() }
+        };
+
+        this.workflowData.contentPackage = contentPackage;
+        this.workflowData.report = contentPackage.report;
+        this.workflowData.slideIntents = contentPackage.slideIntents;
+        this.workflowData.reportMarkdown = content;
+
+        if (typeof this.logTerminal === 'function') this.logTerminal('系统', 'TextPrep 处理完成', 'success');
+        this.state = 'script_review';
+        if (Array.isArray(this._runtimeTodoTexts) && typeof this.updateTodos === 'function') {
+            this.updateTodos(this._runtimeTodoTexts.map((text, i) => {
+                if (i < 2) return { text, status: 'completed' };
+                if (i === 2) return { text, status: 'active' };
+                return { text, status: 'pending' };
+            }));
+        }
+        this.renderPreviewArea();
+    },
+
+    _extractTitleFromText(text) {
+        const content = typeof text === 'string' ? text : '';
+        const match = content.match(/^#\s+(.+)/m);
+        if (match) return match[1].trim();
+        return content.slice(0, 50).split('\n')[0].trim() || '粘贴文档';
+    },
+
+    _generateSlideIntentsFromMarkdown(markdown) {
+        const md = typeof markdown === 'string' ? markdown : '';
+        const hasHeadings = /^#{1,2}\s/m.test(md);
+        if (!hasHeadings) {
+            return [{ index: 0, title: '内容', content: md, pageType: 'content' }];
+        }
+        const sections = md.split(/(?=^#{1,2}\s)/m).filter(Boolean);
+        return sections.map((section, i) => {
+            const titleMatch = section.match(/^#{1,2}\s+(.+)/);
+            return {
+                index: i,
+                title: titleMatch ? titleMatch[1].trim() : `第 ${i + 1} 页`,
+                content: section.trim(),
+                pageType: i === 0 ? 'cover' : 'content'
+            };
+        });
+    },
+
     async startMultiAgentWorkflow() {
         await this._ensureRuntime();
         this._orchestrator.start();
