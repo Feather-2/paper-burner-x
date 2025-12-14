@@ -219,6 +219,9 @@ export class ImageGenerator {
         safeEmit(emit, "design.image.generate.skipped", "skipped", {
           runId,
           slotId: task.slotId,
+          slideIndex: Number.isFinite(slot?.slideIndex) ? slot.slideIndex : null,
+          slideIntentId: toNonEmptyString(slot?.slideIntentId) || null,
+          purpose: toNonEmptyString(slot?.purpose) || null,
           taskId: task.taskId,
           reason: canStart.reason,
         });
@@ -228,6 +231,9 @@ export class ImageGenerator {
       safeEmit(emit, "design.image.generate.started", "started", {
         runId,
         slotId: task.slotId,
+        slideIndex: Number.isFinite(slot?.slideIndex) ? slot.slideIndex : null,
+        slideIntentId: toNonEmptyString(slot?.slideIntentId) || null,
+        purpose: toNonEmptyString(slot?.purpose) || null,
         taskId: task.taskId,
         priority: slot?.priority,
       });
@@ -250,6 +256,9 @@ export class ImageGenerator {
             safeEmit(emit, "design.image.generate.failed", "failed", {
               runId,
               slotId: task.slotId,
+              slideIndex: Number.isFinite(slot?.slideIndex) ? slot.slideIndex : null,
+              slideIntentId: toNonEmptyString(slot?.slideIntentId) || null,
+              purpose: toNonEmptyString(slot?.purpose) || null,
               taskId: task.taskId,
               retryCount: task.retryCount,
               error: task.error,
@@ -321,6 +330,9 @@ export class ImageGenerator {
           safeEmit(emit, "design.image.generate.succeeded", "succeeded", {
             runId,
             slotId: task.slotId,
+            slideIndex: Number.isFinite(slot?.slideIndex) ? slot.slideIndex : null,
+            slideIntentId: toNonEmptyString(slot?.slideIntentId) || null,
+            purpose: toNonEmptyString(slot?.purpose) || null,
             taskId: task.taskId,
             retryCount: task.retryCount,
             costUSD: task.costUSD,
@@ -340,6 +352,9 @@ export class ImageGenerator {
             safeEmit(emit, "design.image.generate.failed", "failed", {
               runId,
               slotId: task.slotId,
+              slideIndex: Number.isFinite(slot?.slideIndex) ? slot.slideIndex : null,
+              slideIntentId: toNonEmptyString(slot?.slideIntentId) || null,
+              purpose: toNonEmptyString(slot?.purpose) || null,
               taskId: task.taskId,
               retryCount: task.retryCount,
               error: task.error,
@@ -367,9 +382,13 @@ export class ImageGenerator {
             } catch (e) {
               task.status = task.status === "skipped" ? task.status : "failed";
               task.error = task.error || (e instanceof Error ? e.message : String(e));
+              const slot = bySlotId.get(task.slotId) || {};
               safeEmit(emit, "design.image.generate.failed", "failed", {
                 runId,
                 slotId: task.slotId,
+                slideIndex: Number.isFinite(slot?.slideIndex) ? slot.slideIndex : null,
+                slideIntentId: toNonEmptyString(slot?.slideIntentId) || null,
+                purpose: toNonEmptyString(slot?.purpose) || null,
                 taskId: task.taskId,
                 retryCount: task.retryCount,
                 error: task.error,

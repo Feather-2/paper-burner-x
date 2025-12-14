@@ -164,5 +164,83 @@ export class ImagePlanner {
 
     return budgetTrimmed;
   }
+
+  /**
+   * Single-element "AI 微调" helper.
+   * Returns a patch object compatible with SlideEditor.updateElement(elementId, patch).
+   *
+   * @param {{element: object, slide?: object, slideIndex?: number, designSystem?: object, constraints?: object}=} input
+   * @returns {{patch: object, meta: {reason: string}}}
+   */
+  static suggestElementPatch(input = {}) {
+    const element = input?.element && typeof input.element === "object" ? input.element : null;
+    if (!element) return { patch: {}, meta: { reason: "missing_element" } };
+
+    const type = String(element.type || "").toLowerCase();
+    const patch = {};
+
+    const num = (v) => {
+      if (v === undefined || v === null) return null;
+      const n = typeof v === "string" ? parseFloat(v) : Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const pct = (v) => {
+      if (typeof v === "number") return v;
+      const s = String(v || "").trim();
+      if (!s) return null;
+      const n = parseFloat(s);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const w = pct(element.w);
+    const h = pct(element.h);
+    const area = w !== null && h !== null ? w * h : null;
+
+    // Opacity: keep if explicitly set; otherwise suggest a subtle non-1 opacity for images.
+    if (element.opacity === undefined || element.opacity === null) {
+      if (type === "image") patch.opacity = 0.95;
+      else if (type === "shape") patch.opacity = 0.98;
+      else patch.opacity = 1;
+    }
+
+    // Blend: default to multiply for small/medium images to integrate with bg; keep others normal.
+    const blend = String(element.blend || "").toLowerCase();
+    if (!blend || blend === "normal") {
+      if (type === "image") {
+        const large = area !== null ? area >= 4500 : false; // ~67% x 67%
+        patch.blend = large ? "normal" : "multiply";
+      } else {
+        patch.blend = "normal";
+      }
+    }
+
+    // Mask: only for images (rounded corners default).
+    if (type === "image" && (element.mask === undefined || element.mask === null || element.mask === "")) {
+      const ratio = w !== null && h !== null && h !== 0 ? w / h : null;
+      if (ratio !== null && ratio > 0.85 && ratio < 1.15) patch.mask = "circle";
+      else patch.mask = "rounded:12";
+    }
+
+    // Effect: add a light shadow to images if no effect set.
+    if (type === "image" && (element.effect === undefined || element.effect === null || element.effect === "")) {
+      patch.effect = "shadow-sm";
+    }
+
+    // Blur: keep existing; never add blur by default.
+    // (We keep this intentionally conservative for deterministic results in editor roundtrip.)
+
+    // Text: ensure readable colors if missing.
+    if (type === "text") {
+      const color = String(element.color || "").trim();
+      if (!color) patch.color = "#0f172a";
+
+      const fontSize = num(element.fontSize ?? element.font);
+      if (fontSize !== null && fontSize > 0 && fontSize < 12) patch.fontSize = 14;
+    }
+
+    return { patch, meta: { reason: "heuristic_v1" } };
+  }
 }
 

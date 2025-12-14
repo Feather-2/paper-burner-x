@@ -92,9 +92,14 @@
       .trim();
   }
 
-  function parseByRegex(input) {
+  function parseByRegex(input, context) {
     const text = normalizeInput(input);
     if (!text) return null;
+
+    const getDefaultSlideIndex = () => {
+      const idx = context && typeof context.currentSlideIndex === "number" ? context.currentSlideIndex : null;
+      return Number.isFinite(idx) && idx >= 0 ? idx : 0;
+    };
 
     // INSERT_SLIDE: /在第?\s*(\d+)\s*页?(后|前)?新增/
     {
@@ -122,7 +127,9 @@
 
     // REDO_RANGE: “重做第N-M页 / 重做第N到M页”
     {
-      const m = text.match(/重做\s*第?([0-9一二三四五六七八九十百千两〇零]+)\s*(?:-|到|至)\s*([0-9一二三四五六七八九十百千两〇零]+)\s*页/);
+      const m = text.match(
+        /(?:重做|重新设计|重新做|重新生成|重新排版)\s*第?([0-9一二三四五六七八九十百千两〇零]+)\s*(?:-|到|至)\s*([0-9一二三四五六七八九十百千两〇零]+)\s*页/,
+      );
       if (m) {
         const a = parsePageNumber(m[1]);
         const b = parsePageNumber(m[2]);
@@ -136,10 +143,28 @@
 
     // REDO_SLIDE: /重做|不喜欢.*第?\s*(\d+)/
     {
-      const m = text.match(/(?:重做|不喜欢).*?第?\s*([0-9一二三四五六七八九十百千两〇零]+)\s*(?:页|张)?/);
+      const m = text.match(
+        /(?:重做|不喜欢|重新设计|重新做|重新生成|重新排版).*?第?\s*([0-9一二三四五六七八九十百千两〇零]+)\s*(?:页|张)?/,
+      );
       if (m) {
         const page = parsePageNumber(m[1]);
         if (page !== null) return makeIntent("REDO_SLIDE", { slideIndex: page - 1 });
+      }
+    }
+
+    // MODIFY_ELEMENT (no explicit slide): “把标题改成xxx / 将第2页标题改为xxx”
+    {
+      const m = text.match(
+        /(?:把|将)?\s*(?:第?\s*([0-9一二三四五六七八九十百千两〇零]+)\s*(?:页|张)\s*)?(标题|副标题|正文|内容)\s*(?:改成|改为|换成|变成|设置为|设为)\s*(.+)$/,
+      );
+      if (m) {
+        const pageToken = String(m[1] || "").trim();
+        const page = pageToken ? parsePageNumber(pageToken) : null;
+        const slideIndex = page !== null ? page - 1 : getDefaultSlideIndex();
+        const kind = String(m[2] || "").trim();
+        const rest = String(m[3] || "").trim();
+        const selector = kind === "标题" ? "title" : kind === "副标题" ? "subtitle" : kind === "正文" ? "body" : "content";
+        return makeIntent("MODIFY_ELEMENT", { slideIndex, elementSelector: selector }, rest || undefined);
       }
     }
 
@@ -245,7 +270,7 @@
    */
   async function parseIntent(userInput, context = {}) {
     const raw = normalizeInput(userInput);
-    const byRegex = parseByRegex(raw);
+    const byRegex = parseByRegex(raw, context);
     if (byRegex) return byRegex;
 
     const byLLM = await parseByLLM(raw, context);
@@ -254,7 +279,7 @@
     return makeIntent("RESEARCH_MORE", {}, raw, { fallback: true });
   }
 
-  global.IntentParser = { parseIntent };
+  global.IntentParser = { parseIntent, parse: parseIntent };
 
   if (typeof module !== "undefined" && module.exports) {
     module.exports = { parseIntent, _internal: { normalizeInput, parseByRegex, chineseNumberToInt } };

@@ -64,6 +64,17 @@ function parseJsonFromModelText(text) {
   return null;
 }
 
+function normalizeStyleDescription(sd) {
+  if (!sd || typeof sd !== "object") return undefined;
+  const result = {};
+  const fields = ["colorTone", "mood", "layoutStyle", "typography", "effects"];
+  for (const f of fields) {
+    const v = asString(sd[f]).trim();
+    if (v) result[f] = v;
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
 function normalizeLayoutJson(input, { intentHint } = {}) {
   const obj = input && typeof input === "object" ? input : {};
   const rawIntent = asString(obj.intent || intentHint || "layout_reference").trim();
@@ -74,6 +85,9 @@ function normalizeLayoutJson(input, { intentHint } = {}) {
 
   const suggestedLayoutRaw = asString(obj.suggestedLayout || "").trim();
   const suggestedLayout = ["cover", "content", "comparison"].includes(suggestedLayoutRaw) ? suggestedLayoutRaw : undefined;
+
+  // Parse styleDescription for style_reference intent
+  const styleDescription = normalizeStyleDescription(obj.styleDescription);
 
   const elementsIn = Array.isArray(obj.elements) ? obj.elements : [];
   const elements = elementsIn
@@ -103,6 +117,7 @@ function normalizeLayoutJson(input, { intentHint } = {}) {
     elements,
     ...(extractedPalette && extractedPalette.length ? { extractedPalette } : {}),
     ...(suggestedLayout ? { suggestedLayout } : {}),
+    ...(styleDescription ? { styleDescription } : {}),
   };
 }
 
@@ -122,6 +137,27 @@ function resolveVisionCaller(context) {
 function buildPrompt({ intentHint } = {}) {
   const hint = asString(intentHint).trim();
   const intentLine = hint && ALLOWED_INTENTS.has(hint) ? `Intent hint: ${hint}\n` : "";
+
+  // Extended schema for style_reference intent
+  const styleDescriptionSchema = hint === "style_reference"
+    ? '  "styleDescription"?: {\n' +
+      '    "colorTone": string,      // e.g. "深蓝渐变到紫色，科技感强"\n' +
+      '    "mood": string,           // e.g. "专业、简洁、现代"\n' +
+      '    "layoutStyle": string,    // e.g. "大留白、左图右文为主"\n' +
+      '    "typography": string,     // e.g. "无衬线粗体标题，细体正文"\n' +
+      '    "effects": string         // e.g. "微妙渐变、圆角卡片、轻阴影"\n' +
+      "  },\n"
+    : "";
+
+  const styleDescriptionRule = hint === "style_reference"
+    ? "- For style_reference intent, provide detailed styleDescription fields in Chinese\n" +
+      "- colorTone: describe the color scheme and mood it creates\n" +
+      "- mood: describe the overall feeling (professional, playful, elegant, etc.)\n" +
+      "- layoutStyle: describe layout patterns (whitespace, alignment, grid usage)\n" +
+      "- typography: describe font choices and text styling\n" +
+      "- effects: describe visual effects (gradients, shadows, rounded corners, etc.)\n"
+    : "";
+
   return (
     "You are given a screenshot of a single presentation slide.\n" +
     intentLine +
@@ -140,11 +176,13 @@ function buildPrompt({ intentHint } = {}) {
     "    }\n" +
     "  ],\n" +
     '  "extractedPalette"?: string[],\n' +
-    '  "suggestedLayout"?: "cover" | "content" | "comparison"\n' +
+    '  "suggestedLayout"?: "cover" | "content" | "comparison",\n' +
+    styleDescriptionSchema +
     "}\n" +
     "Rules:\n" +
     "- bounds are percentages 0..100 relative to slide canvas\n" +
-    "- color strings should be HEX like #RRGGBB when possible\n"
+    "- color strings should be HEX like #RRGGBB when possible\n" +
+    styleDescriptionRule
   );
 }
 

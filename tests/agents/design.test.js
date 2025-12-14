@@ -77,45 +77,86 @@ test("Design: dsl-builder supports core page types and passes QA in safe mode", 
   }
 });
 
-test("Design: batch-generator generates per 4 slides, calls aiApiService.chat, and emits progress", async () => {
+test("Design: generateSingleSlide returns valid HTML", async () => {
+  const { generateSingleSlide } = await import("../../js/agents/stages/design/batch-generator.js");
+
+  const designSystem = { designTokens: { colors: { bg: "#fff", text: "#111" } } };
+  const slideIntent = { slideIntentId: "s1", pageType: "overview", title: "Hello", keyPoints: ["A", "B"] };
+
+  const res = await generateSingleSlide(slideIntent, designSystem, "Use percent positions only.");
+  assert.equal(res.slideIntentId, "s1");
+  assert.ok(typeof res.slideHtml === "string" && res.slideHtml.includes('data-type="freeform"'));
+  assert.ok(res.slideHtml.includes('data-el="'));
+});
+
+test("Design: batch-generator respects concurrency, emits events, and retries once on failure", async () => {
   const { generateBatch } = await import("../../js/agents/stages/design/batch-generator.js");
 
   const contentPackage = makeContentPackage({ slideCount: 1 });
   const designSystem = { designTokens: { colors: { bg: "#fff", text: "#111" } } };
 
-  const slideIntents = Array.from({ length: 9 }).map((_, i) => ({
+  const slideIntents = Array.from({ length: 5 }).map((_, i) => ({
     slideIntentId: `s${i + 1}`,
     pageType: "overview",
     title: `Slide ${i + 1}`,
     keyPoints: [`Point ${i + 1}`],
   }));
 
-  const calls = [];
-  const events = [];
+  let active = 0;
+  let maxActive = 0;
+  const attempts = new Map();
+
   const aiApiService = {
     chat: async (opts) => {
-      calls.push(opts);
-      const prompt = opts.messages.map((m) => m.content).join("\n");
-      const marker = "Slide intents:\n";
-      const json = prompt.slice(prompt.lastIndexOf(marker) + marker.length);
-      const batch = JSON.parse(json);
-      const slides = batch.map((si, idx) => ({
-        slideIntentId: si.slideIntentId,
-        slideHtml: `<section data-type="freeform" id="slide-${si.slideIntentId}" data-bg="#ffffff" data-title="${si.title}"><div data-el="text" data-x="8%" data-y="10%" data-w="84%" data-font="16" data-color="#111111">${si.title} (${idx})</div></section>`,
-      }));
-      return { content: JSON.stringify(slides) };
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      try {
+        const prompt = opts.messages.map((m) => m.content).join("\n");
+        const marker = "Slide intents:\n";
+        const json = prompt.slice(prompt.lastIndexOf(marker) + marker.length);
+        const batch = JSON.parse(json);
+        const si = batch[0];
+
+        const n = (attempts.get(si.slideIntentId) || 0) + 1;
+        attempts.set(si.slideIntentId, n);
+        if (si.slideIntentId === "s3" && n === 1) throw new Error("Transient failure");
+
+        await new Promise((r) => setTimeout(r, 25));
+        return {
+          content: JSON.stringify([
+            {
+              slideIntentId: si.slideIntentId,
+              slideHtml: `<section data-type="freeform" id="slide-${si.slideIntentId}" data-bg="#ffffff" data-title="${si.title}"><div data-el="text" data-x="8%" data-y="10%" data-w="84%" data-font="16" data-color="#111111">${si.title}</div></section>`,
+            },
+          ]),
+        };
+      } finally {
+        active -= 1;
+      }
     },
   };
 
-  const emit = (name, payload, extra) => events.push({ name, payload, extra });
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
 
-  const slides = await generateBatch(slideIntents, contentPackage, designSystem, { aiApiService, emit, batchSize: 4 });
-  assert.equal(slides.length, 9);
-  assert.equal(calls.length, 3); // 9 slides -> 3 batches (4/4/1)
-  assert.ok(events.some((e) => e.name === "design.batch.started"));
-  assert.ok(events.some((e) => e.name === "design.batch.progress"));
-  assert.ok(events.some((e) => e.name === "design.batch.ended"));
+  const slides = await generateBatch(slideIntents, contentPackage, designSystem, { aiApiService, emit, batchSize: 2 });
+  assert.equal(slides.length, 5);
   assert.ok(slides.every((s) => s.source === "llm"));
+
+  assert.equal(maxActive <= 2, true);
+
+  const idxBatch0Start = events.findIndex((e) => e.name === "design.batch.started" && e.record?.payload?.batchIndex === 0);
+  const idxBatch0End = events.findIndex((e) => e.name === "design.batch.completed" && e.record?.payload?.batchIndex === 0);
+  assert.ok(idxBatch0Start >= 0 && idxBatch0End >= 0 && idxBatch0Start < idxBatch0End);
+
+  for (let i = 0; i < slideIntents.length; i++) {
+    const idxStarted = events.findIndex((e) => e.name === "design.slide.started" && e.record?.payload?.slideIndex === i);
+    const idxCompleted = events.findIndex((e) => e.name === "design.slide.completed" && e.record?.payload?.slideIndex === i);
+    assert.ok(idxStarted >= 0 && idxCompleted >= 0 && idxStarted < idxCompleted);
+  }
+
+  assert.ok(events.some((e) => e.name === "design.slide.retrying" && e.record?.payload?.slideIndex === 2));
+  assert.ok(!events.some((e) => e.name === "design.slide.failed" && e.record?.payload?.slideIndex === 2));
 });
 
 test("Design: DesignStage calls ImagePlanner between tokens and batch, emits planning event, and inserts placeholders", async () => {
@@ -185,11 +226,11 @@ test("Design: batch-generator makePrompt includes image slot placeholder instruc
   ];
 
   await generateBatch(slideIntents, contentPackage, designSystem, { aiApiService, imageSlots, batchSize: 4 });
-  assert.equal(calls.length, 1);
-  const prompt = calls[0].messages.map((m) => m.content).join("\n");
-  assert.ok(prompt.includes("Image slots (placeholders):"));
-  assert.ok(prompt.includes('data-el="image-placeholder"'));
-  assert.ok(prompt.includes("img_s0_hero"));
+  assert.equal(calls.length, 2);
+  const prompts = calls.map((c) => c.messages.map((m) => m.content).join("\n"));
+  assert.ok(prompts.some((p) => p.includes("Image slots (placeholders):")));
+  assert.ok(prompts.some((p) => p.includes('data-el="image-placeholder"')));
+  assert.ok(prompts.some((p) => p.includes("img_s0_hero")));
 });
 
 test("Design: imagePolicy=none yields no placeholders and no pending images", async () => {
@@ -212,6 +253,38 @@ test("Design: imagePolicy=none yields no placeholders and no pending images", as
   assert.ok(Array.isArray(deck.imageSlots) && deck.imageSlots.length === 0);
   assert.ok(Array.isArray(deck.pendingImages) && deck.pendingImages.length === 0);
   assert.ok(typeof deck.deckHtmlDsl === "string" && !deck.deckHtmlDsl.includes('data-el="image-placeholder"'));
+});
+
+test("Design: DesignStage calls ImageGenerator when provider exists and fills placeholders", async () => {
+  const { DesignStage } = await import("../../js/agents/stages/design/design-agent.js");
+
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const contentPackage = makeContentPackage({ slideCount: 2 });
+  contentPackage.constraints = {
+    ...contentPackage.constraints,
+    imagePolicy: "minimal",
+    imageBudget: { maxImages: 5, maxCostUSD: 1.0 },
+  };
+
+  const imageService = {
+    provider: "local",
+    model: "test",
+    generate: async () => ({ url: "data:image/png;base64,AAAA", mimeType: "image/png", width: 1, height: 1 }),
+  };
+
+  const stage = new DesignStage({ batchSize: 2 });
+  const deck = await stage.run(contentPackage, { runContext: { runId: "run_test", constraints: contentPackage.constraints }, emit, imageService });
+
+  assert.ok(events.some((e) => e.name === "design.image.generate.started"));
+  assert.ok(events.some((e) => e.name === "design.image.generate.succeeded"));
+  assert.ok(events.some((e) => e.name === "design.image.fill.completed"));
+
+  assert.ok(typeof deck.deckHtmlDsl === "string" && deck.deckHtmlDsl.includes('data-el="image"'));
+  assert.ok(deck.deckHtmlDsl.includes('data-status="filled"'));
+  assert.ok(Array.isArray(deck.pendingImages) && deck.pendingImages.length < deck.imageSlots.length);
+  assert.ok(deck.imageReport && deck.imageReport.summary);
 });
 
 test("Design: qa-validator catches min font, overflow, and low contrast", async () => {

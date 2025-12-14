@@ -8,6 +8,66 @@ const PPTGeneratorEditor = {
     layerPanel: null,
     editorEnabled: false,
 
+    async _loadScriptOnce(src) {
+        if (typeof document === 'undefined') {
+            throw new Error('当前环境不支持动态加载脚本');
+        }
+
+        this._editorScriptPromises = this._editorScriptPromises || new Map();
+        if (this._editorScriptPromises.has(src)) return this._editorScriptPromises.get(src);
+
+        const p = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = src;
+            script.async = true;
+            script.onload = () => resolve();
+            script.onerror = () => reject(new Error(`加载脚本失败: ${src}`));
+            document.head.appendChild(script);
+        });
+        this._editorScriptPromises.set(src, p);
+        return p;
+    },
+
+    async _ensureDslSerialize() {
+        if (window.PPTDSLSerialize?.documentToHtml) return;
+        // ppt.html 默认不加载 DSL serialize，这里做兜底
+        try {
+            await this._loadScriptOnce('js/ppt/dsl/serialize.js');
+        } catch (e) {
+            console.warn('[PPTGeneratorEditor] DSL serialize script load failed:', e);
+        }
+    },
+
+    syncDSL({ onlySlideIndexes, reason } = {}) {
+        if (!this.editor?.document) return null;
+        if (!window.PPTDSLSerialize?.documentToHtml) return null;
+
+        if (!this.workflowData) this.workflowData = {};
+
+        const baseHtml =
+            (typeof this.workflowData.deckHtmlDsl === 'string' && this.workflowData.deckHtmlDsl.includes('<section'))
+                ? this.workflowData.deckHtmlDsl
+                : (typeof this.sampleHTML === 'string' ? this.sampleHTML : '');
+
+        const opts = {};
+        if (baseHtml) opts.baseHtml = baseHtml;
+        if (Array.isArray(onlySlideIndexes) && onlySlideIndexes.length > 0) {
+            opts.onlySlideIndexes = onlySlideIndexes;
+        }
+
+        try {
+            const html = window.PPTDSLSerialize.documentToHtml(this.editor.document, opts);
+            if (typeof html === 'string' && html.trim()) {
+                this.workflowData.deckHtmlDsl = html;
+                this.sampleHTML = html;
+            }
+            return html;
+        } catch (e) {
+            console.warn('[PPTGeneratorEditor] syncDSL failed:', { reason, error: e });
+            return null;
+        }
+    },
+
     /**
      * 初始化编辑器
      */
@@ -41,6 +101,8 @@ const PPTGeneratorEditor = {
         this.editor = new SlideEditorCtor({
             autoSave: false, // PPTGenerator 有自己的保存逻辑
         });
+
+        await this._ensureDslSerialize();
 
         // 同步数据：PPTGenerator.slides → editor.document
         console.log('[PPTGeneratorEditor] initEditor() syncing slides to editor', {
@@ -660,22 +722,28 @@ const PPTGeneratorEditor = {
         if (!this.editor) return;
 
         // 属性面板
-        if (window.PropertyPanel && !this.propertyPanel) {
-            this.propertyPanel = new PropertyPanel(this.editor, 'editorPropertyPanel');
+        const PropertyPanelCtor =
+            (typeof window !== 'undefined' && window.PropertyPanel) || (typeof PropertyPanel !== 'undefined' ? PropertyPanel : null);
+        if (PropertyPanelCtor && !this.propertyPanel) {
+            this.propertyPanel = new PropertyPanelCtor(this.editor, 'editorPropertyPanel');
             
             // 监听属性面板操作
-            this.propertyPanel.on('action', ({ action, element }) => {
+            this.propertyPanel.on('action', ({ action, element, elementData }) => {
                 if (action === 'replace-image' && element) {
                     this._replaceImage(element);
                 } else if (action === 'ai-generate-image' && element) {
                     this._aiGenerateImage(element);
+                } else if (action === 'ai-style-element') {
+                    this.applyAIStyling?.(element || elementData);
                 }
             });
         }
 
         // 图层面板
-        if (window.LayerPanel && !this.layerPanel) {
-            this.layerPanel = new LayerPanel(this.editor, 'editorLayerPanel');
+        const LayerPanelCtor =
+            (typeof window !== 'undefined' && window.LayerPanel) || (typeof LayerPanel !== 'undefined' ? LayerPanel : null);
+        if (LayerPanelCtor && !this.layerPanel) {
+            this.layerPanel = new LayerPanelCtor(this.editor, 'editorLayerPanel');
             this.layerPanel.refresh();
         }
     },
@@ -689,6 +757,51 @@ const PPTGeneratorEditor = {
         // 注意：不再自动监听 document 事件触发渲染
         // 渲染由各个操作方法（updateElement 等）自行控制
         // 这样可以避免无限循环渲染问题
+
+        // Editor changes → DSL sync (保存 / Canvas↔DSL roundtrip)
+        // - element.* / slide.update: 增量同步当前 slide
+        // - slide.add/remove/move: 全量同步（结构变化）
+        this._dslSyncUnsubs?.forEach(fn => { try { fn(); } catch (e) { /* ignore */ } });
+        this._dslSyncUnsubs = [];
+
+        const scheduleDslSync = (full = false, slideIndex = null) => {
+            if (!window.PPTDSLSerialize?.documentToHtml) return;
+            this._dslSyncChangedSlides = this._dslSyncChangedSlides || new Set();
+            if (full) this._dslSyncFull = true;
+            if (typeof slideIndex === 'number') this._dslSyncChangedSlides.add(slideIndex);
+
+            if (this._dslSyncTimer) return;
+            this._dslSyncTimer = setTimeout(() => {
+                this._dslSyncTimer = null;
+                const onlySlideIndexes =
+                    this._dslSyncFull ? null : [...(this._dslSyncChangedSlides || [])].filter(n => Number.isFinite(n));
+                this._dslSyncChangedSlides?.clear?.();
+                this._dslSyncFull = false;
+
+                this.syncDSL({
+                    onlySlideIndexes: Array.isArray(onlySlideIndexes) && onlySlideIndexes.length ? onlySlideIndexes : undefined,
+                    reason: 'editor_mutation'
+                });
+            }, 50);
+        };
+
+        const doc = this.editor?.document;
+        if (doc?.on) {
+            this._dslSyncUnsubs.push(doc.on('element.update', (e) => scheduleDslSync(false, e?.slideIndex)));
+            this._dslSyncUnsubs.push(doc.on('element.add', (e) => scheduleDslSync(false, e?.slideIndex)));
+            this._dslSyncUnsubs.push(doc.on('element.remove', (e) => scheduleDslSync(false, e?.slideIndex)));
+            this._dslSyncUnsubs.push(doc.on('slide.update', (e) => scheduleDslSync(false, e?.index)));
+            this._dslSyncUnsubs.push(doc.on('slide.add', () => scheduleDslSync(true)));
+            this._dslSyncUnsubs.push(doc.on('slide.remove', () => scheduleDslSync(true)));
+            this._dslSyncUnsubs.push(doc.on('slide.move', () => scheduleDslSync(true)));
+        }
+
+        // History change is a good catch-all for drag/transform edits
+        if (this.editor?.history?.on) {
+            this._dslSyncUnsubs.push(this.editor.history.on('change', () => {
+                scheduleDslSync(false, this.editor?.currentSlideIndex);
+            }));
+        }
 
         // 幻灯片切换同步
         this.editor.on('slide:change', ({ index }) => {
@@ -1108,6 +1221,72 @@ const PPTGeneratorEditor = {
         
         // 异步执行生图（不阻塞）
         this._executeImageGen(task);
+    },
+
+    /**
+     * 单元素 AI 微调（基于 ImagePlanner 的确定性建议）
+     * @param {string|object} elementOrSnapshot - element id 或 element 快照
+     * @returns {Promise<{ok: boolean, patch?: object, meta?: object, message?: string}>}
+     */
+    async applyAIStyling(elementOrSnapshot) {
+        try {
+            if (!this.editor) await this.initEditor?.();
+            if (!this.editor) return { ok: false, message: 'editor_not_ready' };
+
+            const resolveElement = () => {
+                if (!elementOrSnapshot) return null;
+                if (typeof elementOrSnapshot === 'string') {
+                    return this.editor?.findElementById?.(elementOrSnapshot) || null;
+                }
+                if (typeof elementOrSnapshot === 'object') {
+                    // Prefer live element if id provided.
+                    const id = elementOrSnapshot.id;
+                    const live = id ? this.editor?.findElementById?.(id) : null;
+                    return live || elementOrSnapshot;
+                }
+                return null;
+            };
+
+            const element = resolveElement();
+            if (!element || typeof element !== 'object') return { ok: false, message: 'element_not_found' };
+
+            const slideIndex =
+                (typeof this.editor?.currentSlideIndex === 'number' ? this.editor.currentSlideIndex : null) ??
+                (typeof this.currentSlideIndex === 'number' ? this.currentSlideIndex : 0);
+
+            const slide = Array.isArray(this.slides) ? this.slides[slideIndex] : null;
+
+            const mod = await import('../agents/stages/design/image-planner.js');
+            const ImagePlanner = mod?.ImagePlanner;
+            if (!ImagePlanner || typeof ImagePlanner.suggestElementPatch !== 'function') {
+                return { ok: false, message: 'image_planner_unavailable' };
+            }
+
+            const { patch, meta } = ImagePlanner.suggestElementPatch({
+                element,
+                slide,
+                slideIndex,
+                designSystem: this.workflowData?.designSystem,
+                constraints: this.workflowData?.constraints,
+            });
+
+            if (!patch || typeof patch !== 'object' || Object.keys(patch).length === 0) {
+                return { ok: true, patch: {}, meta: meta || { reason: 'no_changes' } };
+            }
+
+            const id = element.id || elementOrSnapshot?.id;
+            if (!id) return { ok: false, message: 'missing_element_id' };
+
+            this.editor.updateElement(id, patch);
+
+            // 强制触发一次 DSL 回写（除 document event 增量同步外的兜底）。
+            this.syncDSL?.({ onlySlideIndexes: [slideIndex], reason: 'ai_style_element' });
+
+            return { ok: true, patch, meta };
+        } catch (err) {
+            console.warn('[PPTGeneratorEditor] applyAIStyling failed:', err);
+            return { ok: false, message: err instanceof Error ? err.message : String(err || 'unknown_error') };
+        }
     },
 
     /**

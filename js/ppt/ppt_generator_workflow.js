@@ -1,6 +1,38 @@
 const DEFAULT_TASK_GOAL = '生成一份结构清晰、可演示的汇报文稿，并给出可引用的证据来源。';
 
 const PPTGeneratorWorkflow = {
+    _ensureDesignSystemInitialized() {
+        if (!this.workflowData) this.workflowData = {};
+        if (!this.workflowData.designSystem || typeof this.workflowData.designSystem !== 'object') {
+            this.workflowData.designSystem = {};
+        }
+
+        const ds = this.workflowData.designSystem;
+
+        if (!ds.colors || typeof ds.colors !== 'object') ds.colors = {};
+        if (typeof ds.colors.primary !== 'string') ds.colors.primary = '#0ea5e9';
+        if (typeof ds.colors.secondary !== 'string') ds.colors.secondary = '#7c3aed';
+        if (typeof ds.colors.bg !== 'string') ds.colors.bg = '#ffffff';
+        if (typeof ds.colors.text !== 'string') ds.colors.text = '#0f172a';
+        if (typeof ds.colors.accent !== 'string') ds.colors.accent = '#22c55e';
+
+        if (!ds.fonts || typeof ds.fonts !== 'object') ds.fonts = {};
+        if (typeof ds.fonts.titleFont !== 'string') ds.fonts.titleFont = 'Inter';
+        if (typeof ds.fonts.bodyFont !== 'string') ds.fonts.bodyFont = 'Inter';
+        if (typeof ds.fonts.fontSize !== 'number') ds.fonts.fontSize = 16;
+
+        const allowedDensity = new Set(['compact', 'balanced', 'spacious']);
+        if (typeof ds.density !== 'string' || !allowedDensity.has(ds.density)) ds.density = 'balanced';
+
+        if (typeof ds.model !== 'string') ds.model = 'gemini-1.5-pro';
+
+        const allowedBatch = new Set([1, 2, 4]);
+        const batchSize = Number(this.workflowData.batchSize);
+        if (!allowedBatch.has(batchSize)) this.workflowData.batchSize = 4;
+
+        return ds;
+    },
+
     openProjectBriefForm() {
         this.state = 'briefing';
         this.renderPreviewArea?.();
@@ -376,87 +408,91 @@ const PPTGeneratorWorkflow = {
 
         const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-        orch.registerStage('deepsearch.ingest', async (ctx, input, api) => {
-            const baseEmit = api.emit;
-            const forwardEmit = (eventName, record) => {
-                baseEmit?.(eventName, record);
-                const p = record?.payload || {};
+        const runtimeMode = orch?.runContext?.mode || 'deepsearch';
 
-                if (eventName === 'ingest.started') {
-                    api.progress({ agent: 'AI 阅读', msg: `开始解析 ${p.inputCount || 0} 个输入...`, type: 'normal' });
-                }
-                if (eventName === 'ingest.doc.started') {
-                    api.progress({ agent: 'AI 阅读', msg: `正在解析: ${p.origin || 'document'}...`, type: 'normal' });
-                }
-                if (eventName === 'ingest.doc.completed') {
-                    api.progress({ agent: 'AI 阅读', msg: `解析完成: ${p.docId || 'doc'} (chunks=${p.chunkCount || 0})`, type: 'success' });
-                }
-                if (eventName === 'ingest.doc.failed') {
-                    api.progress({ agent: 'AI 阅读', msg: `解析失败: ${p.origin || 'document'} (${p.error || 'unknown error'})`, type: 'warning' });
-                }
-                if (eventName === 'ingest.assets.understanding.progress') {
-                    const current = p.current || p.step || 0;
-                    const total = p.total || p.steps || 0;
-                    api.progress({ agent: 'AI 阅读', msg: `图像理解中... ${total ? `${current}/${total}` : ''}`.trim(), type: 'normal' });
-                }
-                if (eventName === 'ingest.completed') {
-                    api.progress({ agent: 'AI 阅读', msg: `素材解析完成: sources=${p.sourceCount || 0}`, type: 'success' });
-                }
-            };
+        if (runtimeMode === 'deepsearch') {
+            orch.registerStage('deepsearch.ingest', async (ctx, input, api) => {
+                const baseEmit = api.emit;
+                const forwardEmit = (eventName, record) => {
+                    baseEmit?.(eventName, record);
+                    const p = record?.payload || {};
 
-            const { IngestStage } = await import('../agents/ingest/ingest-stage.js');
-            const stage = new IngestStage();
+                    if (eventName === 'ingest.started') {
+                        api.progress({ agent: 'AI 阅读', msg: `开始解析 ${p.inputCount || 0} 个输入...`, type: 'normal' });
+                    }
+                    if (eventName === 'ingest.doc.started') {
+                        api.progress({ agent: 'AI 阅读', msg: `正在解析: ${p.origin || 'document'}...`, type: 'normal' });
+                    }
+                    if (eventName === 'ingest.doc.completed') {
+                        api.progress({ agent: 'AI 阅读', msg: `解析完成: ${p.docId || 'doc'} (chunks=${p.chunkCount || 0})`, type: 'success' });
+                    }
+                    if (eventName === 'ingest.doc.failed') {
+                        api.progress({ agent: 'AI 阅读', msg: `解析失败: ${p.origin || 'document'} (${p.error || 'unknown error'})`, type: 'warning' });
+                    }
+                    if (eventName === 'ingest.assets.understanding.progress') {
+                        const current = p.current || p.step || 0;
+                        const total = p.total || p.steps || 0;
+                        api.progress({ agent: 'AI 阅读', msg: `图像理解中... ${total ? `${current}/${total}` : ''}`.trim(), type: 'normal' });
+                    }
+                    if (eventName === 'ingest.completed') {
+                        api.progress({ agent: 'AI 阅读', msg: `素材解析完成: sources=${p.sourceCount || 0}`, type: 'success' });
+                    }
+                };
 
-            const out = await stage.execute(ctx, input, {
-                emit: forwardEmit,
-                signal: api.signal,
-                checkCancelled: api.checkCancelled,
-                storageAdapter: api.storageAdapter,
-                ocr: api.ocr,
-                aiApiService: api.aiApiService,
-                modelRouter: api.modelRouter,
-                visionApi: api.visionApi,
-                whisperApi: api.whisperApi
-            });
-            return out;
-        }, { actor: 'deepsearch', timeoutMs: 120_000 });
+                const { IngestStage } = await import('../agents/ingest/ingest-stage.js');
+                const stage = new IngestStage();
 
-        // Real DeepSearch pipeline (scan/gaps/retrieve/understand/write/condense + build ContentPackage).
-        const { registerDeepSearchStages } = await import('../agents/stages/deepsearch/index.js');
-        registerDeepSearchStages(orch, { timeoutMs: 300_000 }); // 5 minutes for real LLM calls
+                const out = await stage.execute(ctx, input, {
+                    emit: forwardEmit,
+                    signal: api.signal,
+                    checkCancelled: api.checkCancelled,
+                    storageAdapter: api.storageAdapter,
+                    ocr: api.ocr,
+                    aiApiService: api.aiApiService,
+                    modelRouter: api.modelRouter,
+                    visionApi: api.visionApi,
+                    whisperApi: api.whisperApi
+                });
+                return out;
+            }, { actor: 'deepsearch', timeoutMs: 120_000 });
 
-        orch.registerStage('deepsearch.questions', async () => {
-            // Question generation output is consumed by UI; logs are emitted via progress events.
-            orch.eventBus.emit('deepsearch.questions.progress', {
-                actor: 'deepsearch',
-                status: 'progress',
-                payload: { agent: 'AI 分析', msg: '正在分析内容密度...', type: 'normal' }
-            });
-            await sleep(1000);
-            orch.eventBus.emit('deepsearch.questions.progress', {
-                actor: 'deepsearch',
-                status: 'progress',
-                payload: { agent: 'AI 分析', msg: '识别出 3 个关键决策点，需要用户确认。', type: 'success' }
-            });
+            // Real DeepSearch pipeline (scan/gaps/retrieve/understand/write/condense + build ContentPackage).
+            const { registerDeepSearchStages } = await import('../agents/stages/deepsearch/index.js');
+            registerDeepSearchStages(orch, { timeoutMs: 300_000 }); // 5 minutes for real LLM calls
 
-            return [
-                {
-                    text: "目标受众的技术背景如何？",
-                    options: ["非技术高管 (侧重商业价值)", "技术团队 (侧重架构细节)", "混合受众"],
-                    default: "混合受众"
-                },
-                {
-                    text: "演示文稿的色调风格偏好？",
-                    options: ["深色科技风 (Dark Modern)", "学术严谨 (Academic)", "商务极简 (Business Light)"],
-                    default: "深色科技风 (Dark Modern)"
-                },
-                {
-                    text: "是否需要包含详细的财务报表数据？",
-                    options: ["是，包含详细图表", "否，仅展示关键指标摘要"],
-                    default: "否，仅展示关键指标摘要"
-                }
-            ];
-        }, { actor: 'deepsearch', timeoutMs: 30_000 });
+            orch.registerStage('deepsearch.questions', async () => {
+                // Question generation output is consumed by UI; logs are emitted via progress events.
+                orch.eventBus.emit('deepsearch.questions.progress', {
+                    actor: 'deepsearch',
+                    status: 'progress',
+                    payload: { agent: 'AI 分析', msg: '正在分析内容密度...', type: 'normal' }
+                });
+                await sleep(1000);
+                orch.eventBus.emit('deepsearch.questions.progress', {
+                    actor: 'deepsearch',
+                    status: 'progress',
+                    payload: { agent: 'AI 分析', msg: '识别出 3 个关键决策点，需要用户确认。', type: 'success' }
+                });
+
+                return [
+                    {
+                        text: "目标受众的技术背景如何？",
+                        options: ["非技术高管 (侧重商业价值)", "技术团队 (侧重架构细节)", "混合受众"],
+                        default: "混合受众"
+                    },
+                    {
+                        text: "演示文稿的色调风格偏好？",
+                        options: ["深色科技风 (Dark Modern)", "学术严谨 (Academic)", "商务极简 (Business Light)"],
+                        default: "深色科技风 (Dark Modern)"
+                    },
+                    {
+                        text: "是否需要包含详细的财务报表数据？",
+                        options: ["是，包含详细图表", "否，仅展示关键指标摘要"],
+                        default: "否，仅展示关键指标摘要"
+                    }
+                ];
+            }, { actor: 'deepsearch', timeoutMs: 30_000 });
+        }
 
         orch.registerStage('textprep.slideplan', async () => {
             orch.eventBus.emit('textprep.slideplan.progress', {
@@ -523,22 +559,184 @@ const PPTGeneratorWorkflow = {
             }
         }, { actor: 'textprep', timeoutMs: 60_000 });
 
-        orch.registerStage('design.batch', async () => {
-            const designSteps = [
-                { msg: '正在评估幻灯片 1-12 的文本密度...', type: 'normal' },
-                { msg: '决策: 幻灯片 4 需要柱状图 (检测到数据)。', type: 'highlight' },
-                { msg: '决策: 幻灯片 2 需要首图 (概念性内容)。', type: 'highlight' },
-                { msg: '决策: 幻灯片 8 使用分栏布局 (检测到对比内容)。', type: 'highlight' },
-                { msg: '正在应用 "深色科技" 风格主题...', type: 'normal' }
-            ];
+        orch.registerStage('design.batch', async (ctx, input, api) => {
+            if (!this.workflowData) this.workflowData = {};
+            this._ensureDesignSystemInitialized();
+            const contentPackage = input?.contentPackage || this.workflowData?.contentPackage;
+            const slideCount = Array.isArray(contentPackage?.slideIntents) ? contentPackage.slideIntents.length : 0;
 
-            for (const step of designSteps) {
-                await sleep(800);
-                orch.eventBus.emit('design.batch.progress', {
-                    actor: 'design',
-                    status: 'progress',
-                    payload: { agent: 'AI 设计', msg: step.msg, type: step.type }
+            const getSlideParser = () => {
+                if (typeof SlideParser !== 'undefined') return SlideParser;
+                if (typeof window !== 'undefined' && window?.SlideParser) return window.SlideParser;
+                return null;
+            };
+
+            const makeMockDeckHtmlDsl = () => {
+                const intents = Array.isArray(contentPackage?.slideIntents) ? contentPackage.slideIntents : [];
+                const safeIntents = intents.length ? intents : [{ title: '内容', pageType: 'content', slideIntentId: 'mock-1' }];
+                return safeIntents.map((si, idx) => {
+                    const title = String(si?.title || `Slide ${idx + 1}`).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    return `
+<section data-type="freeform" id="mock-slide-${idx + 1}" data-bg="#ffffff" data-title="${title}" data-layout="content">
+  <div data-el="text" data-x="8%" data-y="10%" data-w="84%" data-h="auto" data-font="40" data-color="#0f172a" data-bold="true">${title}</div>
+  <div data-el="text" data-x="8%" data-y="22%" data-w="84%" data-h="auto" data-font="16" data-color="#334155">（设计引擎降级：使用模板占位内容）</div>
+</section>`.trim();
+                }).join('\n\n');
+            };
+
+            const parseAndStoreSlides = (deckHtmlDsl) => {
+                const parser = getSlideParser();
+                if (!parser || typeof parser.parse !== 'function') return;
+                try {
+                    const slides = parser.parse(deckHtmlDsl);
+                    if (Array.isArray(slides) && slides.length > 0) {
+                        this.slides = slides;
+                    }
+                } catch (e) {
+                    console.warn('[design.batch] SlideParser.parse failed:', e);
+                }
+            };
+
+            const progress = (msg, type = 'normal') => {
+                api.progress?.({ agent: 'AI 设计', msg, type });
+            };
+
+            const isEventRecordLike = (v) =>
+                !!v && typeof v === 'object' && !Array.isArray(v) && ('actor' in v || 'status' in v || 'payload' in v);
+
+            const forwardEmit = (eventName, recordOrPayload, extra) => {
+                // Support both emit(name, EventRecord) and emit(name, payload, {status}).
+                if (extra && typeof extra === 'object' && !isEventRecordLike(recordOrPayload)) {
+                    api.emit?.(eventName, { actor: 'design', status: extra.status, payload: recordOrPayload });
+                } else {
+                    api.emit?.(eventName, recordOrPayload);
+                }
+
+                // Translate internal design events into human-readable stage logs.
+                if (eventName === 'design.started') {
+                    const p = recordOrPayload?.payload || recordOrPayload || {};
+                    progress(`正在生成 PPT HTML DSL... (slides=${p.slideCount || slideCount || 0})`, 'normal');
+                }
+                if (eventName === 'design.tokens.ended') {
+                    const p = recordOrPayload?.payload || recordOrPayload || {};
+                    if (p?.theme) progress(`主题已确定: ${p.theme}`, 'highlight');
+                }
+                if (eventName === 'design.batch.started') {
+                    const p = recordOrPayload?.payload || recordOrPayload || {};
+                    const range = Array.isArray(p.slideRange) ? `${p.slideRange[0]}-${p.slideRange[1]}` : '';
+                    progress(`正在生成批次 ${typeof p.batchIndex === 'number' ? p.batchIndex + 1 : ''} ${range ? `(${range})` : ''}`.trim(), 'normal');
+                }
+                if (eventName === 'design.batch.progress') {
+                    const p = recordOrPayload?.payload || recordOrPayload || {};
+                    if (typeof p.doneSlides === 'number' && typeof p.totalSlides === 'number') {
+                        progress(`已生成 ${p.doneSlides}/${p.totalSlides} 页`, 'normal');
+                    }
+                }
+                if (eventName === 'design.qa.ended') {
+                    const p = recordOrPayload?.payload || recordOrPayload || {};
+                    if (typeof p.degradedCount === 'number' && p.degradedCount > 0) {
+                        progress(`质量检查完成：${p.degradedCount} 页已降级为安全模板`, 'highlight');
+                    } else {
+                        progress('质量检查完成', 'success');
+                    }
+                }
+                if (eventName === 'design.ended') {
+                    progress('设计阶段完成', 'success');
+                }
+            };
+
+            // PPTX deck branch: if upstream provides a ready HTML DSL template, skip generation.
+            const templateDeckHtmlDsl =
+                typeof contentPackage?.templateDeckHtmlDsl === 'string' ? contentPackage.templateDeckHtmlDsl : null;
+            if (templateDeckHtmlDsl && templateDeckHtmlDsl.includes('<section')) {
+                progress('检测到模板 Deck 输入（PPTX 导入），直接载入模板...', 'highlight');
+                const slidesMeta = (Array.isArray(contentPackage?.slideIntents) ? contentPackage.slideIntents : []).map((si, idx) => ({
+                    slideNo: idx + 1,
+                    slideIntentId: si?.slideIntentId,
+                    pageType: si?.pageType,
+                    title: si?.title,
+                    degraded: false,
+                    source: 'pptx_template',
+                    qa: { pass: true, reasons: [] },
+                }));
+
+                const deckPackage = {
+                    schemaVersion: '0.1',
+                    runId: ctx?.runId || 'run_unknown',
+                    deckHtmlDsl: templateDeckHtmlDsl,
+                    slidesMeta,
+                    editHints: { degradedCount: 0 },
+                };
+
+                this.workflowData.deckPackage = deckPackage;
+                this.workflowData.deckHtmlDsl = templateDeckHtmlDsl;
+                this.sampleHTML = templateDeckHtmlDsl;
+                parseAndStoreSlides(templateDeckHtmlDsl);
+                progress(`模板载入完成：${slidesMeta.length || slideCount || 0} 页`, 'success');
+                return deckPackage;
+            }
+
+            if (!contentPackage || slideCount === 0) {
+                progress('未检测到 slideIntents，使用模板占位内容', 'warning');
+                const deckHtmlDsl = makeMockDeckHtmlDsl();
+                const deckPackage = {
+                    schemaVersion: '0.1',
+                    runId: ctx?.runId || 'run_unknown',
+                    deckHtmlDsl,
+                    slidesMeta: []
+                };
+
+                this.workflowData.deckPackage = deckPackage;
+                this.workflowData.deckHtmlDsl = deckHtmlDsl;
+                this.sampleHTML = deckHtmlDsl;
+                parseAndStoreSlides(deckHtmlDsl);
+                return deckPackage;
+            }
+
+            try {
+                progress(slideCount ? `正在生成 ${slideCount} 页的页面布局...` : '正在生成页面布局...', 'normal');
+
+                const { DesignStage } = await import('../agents/stages/design/index.js');
+                const batchSize = Number(this.workflowData?.batchSize) || Number(this.workflowData?.designBatchSize) || undefined;
+                const stage = new DesignStage(batchSize ? { batchSize } : undefined);
+
+                const deckPackage = await stage.run(contentPackage, {
+                    runContext: { ...(ctx || {}), userConfig: this.workflowData.designSystem || {} },
+                    emit: forwardEmit,
+                    signal: api.signal,
+                    aiApiService: api.aiApiService
                 });
+
+                const deckHtmlDsl = deckPackage?.deckHtmlDsl;
+                if (typeof deckHtmlDsl !== 'string' || !deckHtmlDsl.includes('<section')) {
+                    throw new Error('DesignStage returned invalid deckHtmlDsl');
+                }
+
+                this.workflowData.deckPackage = deckPackage;
+                this.workflowData.deckHtmlDsl = deckHtmlDsl;
+                this.sampleHTML = deckHtmlDsl;
+                parseAndStoreSlides(deckHtmlDsl);
+
+                progress(`设计完成：已生成 ${Array.isArray(deckPackage?.slidesMeta) ? deckPackage.slidesMeta.length : slideCount} 页`, 'success');
+                return deckPackage;
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err || 'unknown error');
+                console.warn('[design.batch] DesignStage.run failed, falling back to mock:', err);
+                progress(`设计引擎异常，降级为模板：${msg}`, 'warning');
+
+                const deckHtmlDsl = makeMockDeckHtmlDsl();
+                const deckPackage = {
+                    schemaVersion: '0.1',
+                    runId: ctx?.runId || 'run_unknown',
+                    deckHtmlDsl,
+                    slidesMeta: []
+                };
+
+                this.workflowData.deckPackage = deckPackage;
+                this.workflowData.deckHtmlDsl = deckHtmlDsl;
+                this.sampleHTML = deckHtmlDsl;
+                parseAndStoreSlides(deckHtmlDsl);
+                return deckPackage;
             }
         }, { actor: 'design', timeoutMs: 90_000 });
 
@@ -583,6 +781,7 @@ const PPTGeneratorWorkflow = {
             return;
         }
 
+        this._ensureDesignSystemInitialized();
         await this._ensureRuntime({ mode: 'textprep' });
 
         if (typeof this.logTerminal === 'function') this.logTerminal('系统', '开始处理粘贴文档...', 'normal');
@@ -619,20 +818,20 @@ const PPTGeneratorWorkflow = {
 
     _extractTitleFromText(text) {
         const content = typeof text === 'string' ? text : '';
-        const match = content.match(/^#s+(.+)/m);
+        const match = content.match(/^#\s+(.+)/m);
         if (match) return match[1].trim();
         return content.slice(0, 50).split('\n')[0].trim() || '粘贴文档';
     },
 
     _generateSlideIntentsFromMarkdown(markdown) {
         const md = typeof markdown === 'string' ? markdown : '';
-        const hasHeadings = /^#{1,2}s/m.test(md);
+        const hasHeadings = /^#{1,2}\s/m.test(md);
         if (!hasHeadings) {
             return [{ index: 0, title: '内容', content: md, pageType: 'content' }];
         }
-        const sections = md.split(/(?=^#{1,2}s)/m).filter(Boolean);
+        const sections = md.split(/(?=^#{1,2}\s)/m).filter(Boolean);
         return sections.map((section, i) => {
-            const titleMatch = section.match(/^#{1,2}s+(.+)/);
+            const titleMatch = section.match(/^#{1,2}\s+(.+)/m);
             return {
                 index: i,
                 title: titleMatch ? titleMatch[1].trim() : `第 ${i + 1} 页`,
@@ -642,6 +841,238 @@ const PPTGeneratorWorkflow = {
         });
     },
 
+    async _ensurePptxSlideParser() {
+        if (typeof PPTXSlideParser !== 'undefined') return PPTXSlideParser;
+        if (typeof window !== 'undefined' && window?.PPTXSlideParser) return window.PPTXSlideParser;
+
+        // Browser runtime: load legacy script (non-module) on demand.
+        if (typeof document !== 'undefined' && document?.createElement) {
+            await new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'js/ppt/slide-parser-pptx.js';
+                script.async = true;
+                script.onload = () => resolve();
+                script.onerror = () => reject(new Error('加载 slide-parser-pptx.js 失败'));
+                document.head.appendChild(script);
+            });
+            if (typeof PPTXSlideParser !== 'undefined') return PPTXSlideParser;
+            if (typeof window !== 'undefined' && window?.PPTXSlideParser) return window.PPTXSlideParser;
+        }
+
+        throw new Error('PPTXSlideParser 未加载');
+    },
+
+    _pptxSlidesToSlideIntents(slides = [], filename = 'slides.pptx') {
+        const safeSlides = Array.isArray(slides) ? slides : [];
+
+        const toText = (v) => (typeof v === 'string' ? v : (v === null || v === undefined ? '' : String(v)));
+        const slideTitle = (slide) => {
+            const els = Array.isArray(slide?.elements) ? slide.elements : [];
+            for (const el of els) {
+                if (el?.type !== 'text') continue;
+                const role = toText(el?.role).trim();
+                const content = toText(el?.content).trim();
+                if (role === 'title' && content) return content;
+            }
+            for (const el of els) {
+                if (el?.type !== 'text') continue;
+                const content = toText(el?.content).trim();
+                if (content) return content;
+            }
+            return '';
+        };
+
+        const keyPointsFromSlide = (slide) => {
+            const els = Array.isArray(slide?.elements) ? slide.elements : [];
+            const lines = [];
+            for (const el of els) {
+                if (el?.type !== 'text') continue;
+                const content = toText(el?.content).trim();
+                if (!content) continue;
+                lines.push(...content.split(/\n+/).map((s) => s.trim()).filter(Boolean));
+            }
+            return lines.slice(0, 8);
+        };
+
+        return safeSlides.map((slide, i) => {
+            const title = slideTitle(slide) || `Slide ${i + 1}`;
+            const keyPoints = keyPointsFromSlide(slide).filter((v) => v !== title).slice(0, 8);
+            return {
+                slideIntentId: `pptx_s${i + 1}`,
+                index: i,
+                pageType: i === 0 ? 'cover' : 'content',
+                title,
+                objective: '',
+                keyPoints,
+                claimIds: [],
+                dataTableIds: [],
+                source: { type: 'pptx', filename },
+            };
+        });
+    },
+
+    _pptxSlidesToDeckHtmlDsl(slides = []) {
+        const safeSlides = Array.isArray(slides) ? slides : [];
+
+        const escapeAttr = (v) =>
+            String(v ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/"/g, '&quot;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+
+        const escapeHtml = (v) =>
+            String(v ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/\n/g, '<br>');
+
+        const attr = (k, v) => {
+            if (v === undefined || v === null) return '';
+            const s = String(v).trim();
+            if (!s) return '';
+            return ` ${k}="${escapeAttr(s)}"`;
+        };
+
+        const elToHtml = (el) => {
+            if (!el || typeof el !== 'object') return '';
+            const type = String(el.type || '').trim();
+            if (!type) return '';
+
+            const id = el.id ? ` id="${escapeAttr(el.id)}"` : '';
+            const pos = `${attr('data-x', el.x)}${attr('data-y', el.y)}${attr('data-w', el.w)}${attr('data-h', el.h)}`;
+            const rotate = attr('data-rotate', el.rotate ?? el.rotation);
+
+            if (type === 'text') {
+                const role = attr('data-role', el.role);
+                const font = attr('data-font', el.fontSize ?? el.font);
+                const color = attr('data-color', el.color);
+                const bold = el.bold ? ' data-bold="true"' : '';
+                const italic = el.italic ? ' data-italic="true"' : '';
+                const align = attr('data-align', el.align);
+                return `<div data-el="text"${id}${pos}${rotate}${font}${color}${bold}${italic}${align}${role}>${escapeHtml(el.content || '')}</div>`;
+            }
+
+            if (type === 'image') {
+                const src = el.src || '';
+                const alt = el.alt || '图片';
+                return `<div data-el="image"${id}${pos}${rotate}${attr('data-src', src)}${attr('data-alt', alt)}></div>`;
+            }
+
+            if (type === 'shape') {
+                const shape = el.shape || el.shapeType || 'rect';
+                const fill = el.fill || '#4f46e5';
+                const stroke = attr('data-stroke', el.stroke);
+                const strokeWidth = attr('data-stroke-width', el.strokeWidth);
+                const role = attr('data-role', el.role);
+                return `<div data-el="shape"${id}${pos}${rotate}${attr('data-shape', shape)}${attr('data-fill', fill)}${stroke}${strokeWidth}${role}></div>`;
+            }
+
+            if (type === 'chart') {
+                return `<div data-el="chart"${id}${pos}${rotate}${attr('data-chart-type', el.chartType)}${attr('data-title', el.title)}${attr('data-chart-data', JSON.stringify(el.chartData || {}))}></div>`;
+            }
+
+            if (type === 'table') {
+                return `<div data-el="table"${id}${pos}${rotate}${attr('data-data', JSON.stringify(el.data || []))}></div>`;
+            }
+
+            if (type === 'line') {
+                return `<div data-el="line"${id}${attr('data-x1', el.x1)}${attr('data-y1', el.y1)}${attr('data-x2', el.x2)}${attr('data-y2', el.y2)}${attr('data-stroke', el.stroke)}${attr('data-stroke-width', el.strokeWidth)}></div>`;
+            }
+
+            return '';
+        };
+
+        return safeSlides
+            .map((slide, i) => {
+                const bg = String(slide?.background || '#ffffff');
+                const bgAttr = bg.startsWith('linear-gradient') ? ` data-gradient="${escapeAttr(bg)}"` : ` data-bg="${escapeAttr(bg)}"`;
+                const sectionId = `pptx-slide-${i + 1}`;
+                const els = (Array.isArray(slide?.elements) ? slide.elements : []).map(elToHtml).filter(Boolean).join('\n  ');
+                return `<section data-type="freeform" id="${sectionId}"${bgAttr}>\n  ${els}\n</section>`;
+            })
+            .join('\n\n');
+    },
+
+    async importPptxAsDeck(pptxFile, { autoOpenAfter = true } = {}) {
+        try {
+            if (!pptxFile) throw new Error('请选择 PPTX 文件');
+
+            const filename = typeof pptxFile?.name === 'string' ? pptxFile.name : 'slides.pptx';
+            const Parser = await this._ensurePptxSlideParser();
+            const parser = new Parser();
+
+            // slide-parser-pptx.js supports File/Blob/ArrayBuffer; tests may pass file-like.
+            const input = typeof pptxFile?.arrayBuffer === 'function' ? await pptxFile.arrayBuffer() : pptxFile;
+            const result = await parser.parse(input);
+
+            const slides = Array.isArray(result?.slides) ? result.slides : [];
+            if (!slides.length) throw new Error('PPTX 解析失败：未读取到幻灯片');
+
+            const slideIntents = this._pptxSlidesToSlideIntents(slides, filename);
+            const templateDeckHtmlDsl = this._pptxSlidesToDeckHtmlDsl(slides);
+
+            if (!this.workflowData) this.workflowData = {};
+            this.workflowData.slideIntents = slideIntents;
+            this.workflowData.contentPackage = {
+                schemaVersion: '0.1',
+                title: filename,
+                summary: 'Imported PPTX template',
+                constraints: {},
+                slideIntents,
+                templateDeckHtmlDsl,
+                templateMeta: result?.metadata || null,
+            };
+
+            // Run as a "design.batch" entry to keep the workflow consistent.
+            await this._ensureRuntime({ mode: 'textprep' });
+            this._orchestrator?.start?.();
+
+            this.state = 'designer';
+            this.renderPreviewArea?.();
+
+            await this._orchestrator.runStage('design.batch', { contentPackage: this.workflowData.contentPackage });
+
+            // For template import we can directly open the deck.
+            if (autoOpenAfter) {
+                this.state = 'completed';
+                this.renderPreviewArea?.();
+            }
+
+            return { ok: true, slideCount: slides.length };
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err || 'unknown error');
+            console.warn('[importPptxAsDeck] failed:', err);
+            this.addChatMessage?.('ai', `PPTX 导入失败：${msg}。已回退到手动输入流程。`);
+            // Best-effort fallback to the manual/paste flow.
+            this.state = 'idle';
+            this.renderPreviewArea?.();
+            try {
+                this.openPasteDocumentModal?.();
+            } catch {
+                // ignore
+            }
+            return { ok: false, error: msg };
+        }
+    },
+
+    async importPptxAsDeckFromPicker() {
+        if (typeof document === 'undefined') {
+            throw new Error('当前环境不支持文件选择器');
+        }
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.pptx';
+        input.onchange = async (e) => {
+            const file = e?.target?.files?.[0];
+            if (!file) return;
+            await this.importPptxAsDeck(file);
+        };
+        input.click();
+    },
+
     async startMultiAgentWorkflow({ skipBriefCheck = false } = {}) {
         const files = Array.isArray(this.workflowData?.files) ? this.workflowData.files : [];
         if (!files.length) {
@@ -649,6 +1080,7 @@ const PPTGeneratorWorkflow = {
             return;
         }
 
+        this._ensureDesignSystemInitialized();
         const taskGoal = this._deriveTaskGoal();
         if (!skipBriefCheck && (!taskGoal || taskGoal === DEFAULT_TASK_GOAL)) {
             this._pendingStartAfterBrief = true;
@@ -977,6 +1409,7 @@ const PPTGeneratorWorkflow = {
     // --- Phase 5: Designer Agent (Design Optimization) ---
     async phase5_DesignOptimization() {
         try {
+            this._ensureDesignSystemInitialized();
             await this._orchestrator.runStage('design.batch');
             this.phase6_FinalReview();
         } catch (err) {

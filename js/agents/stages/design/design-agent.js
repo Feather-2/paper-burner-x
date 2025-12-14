@@ -4,6 +4,7 @@ import { buildSlideHtml } from "./dsl-builder.js";
 import { generateBatch } from "./batch-generator.js";
 import { validateSlide } from "./qa-validator.js";
 import { ImagePlanner } from "./image-planner.js";
+import { ImageGenerator, fillImagePlaceholders } from "./image-generator.js";
 
 const SCHEMA_VERSION = "0.1";
 
@@ -35,14 +36,14 @@ function estimateSlotCostUSD(slot) {
 
 export class DesignStage {
   constructor({ batchSize = 4 } = {}) {
-    this.batchSize = batchSize;
+    this.batchSize = Math.min(4, Math.max(1, Number(batchSize) || 4));
   }
 
   /**
    * Stage interface (Runtime): execute(runContext, contentPackage) -> DeckPackage.
    * @param {object} runContext
    * @param {object} contentPackage ContentPackage v0.1
-   * @param {{emit?:Function,eventBus?:object,signal?:AbortSignal,aiApiService?:object}=} stageApi
+   * @param {{emit?:Function,eventBus?:object,signal?:AbortSignal,aiApiService?:object,imageService?:any,imageProvider?:any}=} stageApi
    */
   async execute(runContext, contentPackage, stageApi = {}) {
     return this.run(contentPackage, { ...stageApi, runContext });
@@ -51,7 +52,7 @@ export class DesignStage {
   /**
    * Convenience adapter: run(contentPackage, context) -> DeckPackage.
    * @param {object} contentPackage
-   * @param {{runContext?:object,emit?:Function,eventBus?:object,signal?:AbortSignal,aiApiService?:object}=} context
+   * @param {{runContext?:object,emit?:Function,eventBus?:object,signal?:AbortSignal,aiApiService?:object,imageService?:any,imageProvider?:any}=} context
    */
   async run(contentPackage, context = {}) {
     const emit = getEmitFn(context);
@@ -92,7 +93,7 @@ export class DesignStage {
     checkCancelled(context.signal);
 
     const imageSlots = hasImagePlanningConfig(constraints) ? ImagePlanner.plan(slideIntents, designSystem, constraints) : [];
-    const pendingImages = imageSlots.map((s) => s.slotId);
+    let pendingImages = imageSlots.map((s) => s.slotId);
     const estimatedCostUSD = imageSlots.reduce((sum, s) => sum + estimateSlotCostUSD(s), 0);
     if (hasImagePlanningConfig(constraints)) {
       emitStage(emit, "design.image.planning.completed", "completed", {
@@ -115,7 +116,7 @@ export class DesignStage {
     checkCancelled(context.signal);
 
     const slidesMeta = [];
-    const slideHtmls = [];
+    let slideHtmls = [];
     let degradedCount = 0;
 
     for (let i = 0; i < slideIntents.length; i++) {
@@ -165,17 +166,57 @@ export class DesignStage {
     }
 
     emitStage(emit, "design.qa.ended", "ended", { slides: slideHtmls.length, degradedCount });
+
+    let imageReport = null;
+    let finalImageSlots = imageSlots;
+    let deckHtmlDsl = slideHtmls.join("\n\n");
+
+    const imageProvider = context.imageProvider || context.imageService;
+    if (imageSlots.length && imageProvider) {
+      try {
+        const generator = new ImageGenerator({
+          imageProvider,
+          budget: constraints?.imageBudget,
+          concurrency: Math.min(4, Math.max(1, Math.floor(this.batchSize))),
+        });
+        const imgRes = await generator.generate(imageSlots, contentPackage, designSystem, {
+          emit,
+          runId: runContext.runId,
+          policy: constraints?.imagePolicy,
+          budget: constraints?.imageBudget,
+        });
+        finalImageSlots = Array.isArray(imgRes?.filledSlots) ? imgRes.filledSlots : imageSlots;
+        imageReport = imgRes?.report || null;
+
+        const filled = fillImagePlaceholders(deckHtmlDsl, finalImageSlots);
+        deckHtmlDsl = filled.deckHtmlDsl;
+        pendingImages = imageSlots.map((s) => s.slotId).filter((slotId) => !filled.filledSlotIds.includes(slotId));
+      } catch (e) {
+        checkCancelled(context.signal);
+        imageReport = {
+          schemaVersion: "0.1",
+          runId: runContext.runId,
+          policy: String(constraints?.imagePolicy || "balanced"),
+          budget: constraints?.imageBudget || null,
+          slots: imageSlots,
+          tasks: [],
+          summary: { planned: imageSlots.length, attempted: 0, succeeded: 0, failed: imageSlots.length, skipped: 0, totalCostUSD: 0, totalDurationMs: 0 },
+          error: e instanceof Error ? e.message : String(e),
+        };
+      }
+    }
+
     emitStage(emit, "design.ended", "ended", { slides: slideHtmls.length, degradedCount });
 
     return {
       schemaVersion: SCHEMA_VERSION,
       runId: runContext.runId,
       designSystem,
-      deckHtmlDsl: slideHtmls.join("\n\n"),
+      deckHtmlDsl,
       slidesMeta,
       editHints: { degradedCount },
-      imageSlots,
-      imageReport: null,
+      imageSlots: finalImageSlots,
+      imageReport,
       pendingImages,
     };
   }
