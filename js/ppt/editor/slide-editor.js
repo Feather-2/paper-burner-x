@@ -540,7 +540,8 @@ class SlideEditor extends EventEmitter {
     /**
      * 更新元素属性
      */
-    updateElement(elementId, updates) {
+    updateElement(elementId, updates, options = {}) {
+        const { skipRender = false } = options;
         // 递归查找元素（支持 group 子元素）
         const element = this.findElementById(elementId);
         if (!element) return;
@@ -595,7 +596,9 @@ class SlideEditor extends EventEmitter {
             changes
         });
         
-        this.renderCurrentSlide();
+        if (!skipRender) {
+            this.renderCurrentSlide();
+        }
         
         // 触发自动保存
         this._scheduleAutoSave();
@@ -1138,9 +1141,12 @@ class SlideEditor extends EventEmitter {
             }
         }
         
-        // 通过 updateElement 应用所有更新（会记录历史）
+        // 通过 updateElement 应用所有更新（会记录历史），批量时只渲染一次
         for (const { id, update } of updates) {
-            this.updateElement(id, update);
+            this.updateElement(id, update, { skipRender: true });
+        }
+        if (updates.length > 0) {
+            this.renderCurrentSlide();
         }
         
         // 从 document 获取最新元素数据来刷新属性面板

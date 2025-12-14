@@ -6,7 +6,7 @@ class SlideDocument extends EventEmitter {
     constructor() {
         super();
         this.slides = [];
-        this._elementIndex = new Map(); // id -> { slideIndex, elementIndex }
+        this._elementIndex = new Map(); // id -> { slideIndex, elementIndex, parentPath? }
     }
 
     /**
@@ -145,13 +145,25 @@ class SlideDocument extends EventEmitter {
      * 通过 ID 获取元素（支持递归查找 Group 子元素）
      */
     getElementById(elementId) {
-        // 直接遍历查找，避免索引不同步问题
+        // 优先从索引查找（O(1)），未命中时再遍历兜底
+        const location = this._elementIndex.get(elementId);
+        if (location) {
+            const element = this._getElementByLocation(location);
+            if (element?.id === elementId) return element;
+        }
+
+        // 索引未命中/索引失效时遍历查找（兜底）
         for (const slide of this.slides) {
             if (slide.elements) {
                 const element = this._findElementById(elementId, slide.elements);
-                if (element) return element;
+                if (element) {
+                    // 遍历命中说明索引可能不同步，重建一次以修复后续性能
+                    this._rebuildIndex();
+                    return element;
+                }
             }
         }
+
         return null;
     }
 
@@ -477,13 +489,41 @@ class SlideDocument extends EventEmitter {
         this._elementIndex.clear();
         this.slides.forEach((slide, slideIndex) => {
             if (slide.elements) {
-                slide.elements.forEach((element, elementIndex) => {
-                    if (element.id) {
-                        this._elementIndex.set(element.id, { slideIndex, elementIndex });
-                    }
-                });
+                this._indexElements(slide.elements, slideIndex);
             }
         });
+    }
+
+    _indexElements(elements, slideIndex, parentPath = []) {
+        if (!Array.isArray(elements)) return;
+        elements.forEach((element, elementIndex) => {
+            if (element?.id) {
+                this._elementIndex.set(element.id, {
+                    slideIndex,
+                    elementIndex,
+                    parentPath: parentPath.length ? [...parentPath] : [],
+                });
+            }
+            // 递归索引 group 子元素
+            if (element?.type === 'group' && element.children?.length > 0) {
+                this._indexElements(element.children, slideIndex, [...parentPath, elementIndex]);
+            }
+        });
+    }
+
+    _getElementByLocation(location) {
+        const slide = this.slides?.[location?.slideIndex];
+        if (!slide?.elements) return null;
+
+        let elements = slide.elements;
+        const parentPath = Array.isArray(location.parentPath) ? location.parentPath : [];
+        for (const groupIndex of parentPath) {
+            const group = elements?.[groupIndex];
+            if (!group || group.type !== 'group' || !Array.isArray(group.children)) return null;
+            elements = group.children;
+        }
+
+        return elements?.[location?.elementIndex] || null;
     }
 
     _generateId() {
