@@ -219,6 +219,18 @@ class PropertyPanel extends EventEmitter {
             { value: 'shadow-2xl', label: '超大阴影 (2XL)' },
         ];
 
+        // 遮罩相关
+        const maskPresets = ['', 'circle', 'ellipse', 'rounded',
+            'fade-left', 'fade-right', 'fade-top', 'fade-bottom',
+            'fade-center', 'spotlight', 'vignette', 'fade-edges'];
+        const currentMask = el.mask || '';
+        const isRounded = currentMask.startsWith('rounded');
+        const radiusMatch = currentMask.match(/rounded:(\d+)/);
+        const radiusValue = radiusMatch ? radiusMatch[1] : '12';
+        const isPreset = maskPresets.includes(currentMask) || isRounded;
+        const maskSelectValue = isRounded ? 'rounded' : (isPreset ? currentMask : '__custom__');
+        const customValue = isPreset ? '' : currentMask;
+
         return `
             <div class="property-row">
                 <label>不透明度</label>
@@ -241,6 +253,37 @@ class PropertyPanel extends EventEmitter {
                 <label>模糊</label>
                 <input type="range" data-prop="blur" value="${this._parseBlur(el.filter)}" min="0" max="20">
                 <span>${this._parseBlur(el.filter)}px</span>
+            </div>
+            <div class="property-row">
+                <label>遮罩</label>
+                <select data-prop="mask" data-mask-select>
+                    <option value="" ${maskSelectValue === '' ? 'selected' : ''}>无</option>
+                    <optgroup label="基础形状">
+                        <option value="circle" ${maskSelectValue === 'circle' ? 'selected' : ''}>圆形</option>
+                        <option value="ellipse" ${maskSelectValue === 'ellipse' ? 'selected' : ''}>椭圆</option>
+                        <option value="rounded" ${maskSelectValue === 'rounded' ? 'selected' : ''}>圆角</option>
+                    </optgroup>
+                    <optgroup label="渐变预设">
+                        <option value="fade-left" ${maskSelectValue === 'fade-left' ? 'selected' : ''}>左侧淡入</option>
+                        <option value="fade-right" ${maskSelectValue === 'fade-right' ? 'selected' : ''}>右侧淡入</option>
+                        <option value="fade-top" ${maskSelectValue === 'fade-top' ? 'selected' : ''}>顶部淡入</option>
+                        <option value="fade-bottom" ${maskSelectValue === 'fade-bottom' ? 'selected' : ''}>底部淡入</option>
+                        <option value="fade-center" ${maskSelectValue === 'fade-center' ? 'selected' : ''}>中心淡出</option>
+                        <option value="spotlight" ${maskSelectValue === 'spotlight' ? 'selected' : ''}>聚光灯</option>
+                        <option value="vignette" ${maskSelectValue === 'vignette' ? 'selected' : ''}>四周暗角</option>
+                        <option value="fade-edges" ${maskSelectValue === 'fade-edges' ? 'selected' : ''}>左右淡化</option>
+                    </optgroup>
+                    <option value="__custom__" ${maskSelectValue === '__custom__' ? 'selected' : ''}>自定义...</option>
+                </select>
+            </div>
+            <div class="property-row" id="maskRadiusRow" style="${isRounded ? '' : 'display: none;'}">
+                <label>圆角大小</label>
+                <input type="range" data-prop="maskRadius" min="4" max="50" value="${radiusValue}" style="flex: 1;">
+                <span style="width: 40px; text-align: right;">${radiusValue}px</span>
+            </div>
+            <div class="property-row" id="maskCustomRow" style="${maskSelectValue === '__custom__' ? '' : 'display: none;'}">
+                <label>自定义</label>
+                <input type="text" data-prop="maskCustom" value="${customValue}" placeholder="gradient(...), polygon(...), url(...)">
             </div>
         `;
     }
@@ -542,19 +585,32 @@ class PropertyPanel extends EventEmitter {
 
         const isMultiSelect = this.selectedElements.length > 1;
 
-        // 遮罩选择器特殊处理
+        // 遮罩控件事件绑定（通用效果区）
         const maskSelect = this.container.querySelector('[data-mask-select]');
-        const radiusRow = this.container.querySelector('#radiusRow');
+        const radiusRow = this.container.querySelector('#maskRadiusRow');
         const radiusInput = this.container.querySelector('[data-prop="maskRadius"]');
+        const customRow = this.container.querySelector('#maskCustomRow');
+        const customInput = this.container.querySelector('[data-prop="maskCustom"]');
 
-        if (maskSelect && radiusRow) {
+        if (maskSelect) {
             maskSelect.addEventListener('change', () => {
                 const val = maskSelect.value;
-                const isRounded = val.startsWith('rounded');
-                radiusRow.style.display = isRounded ? '' : 'none';
-                // 更新元素
-                for (const el of this.selectedElements) {
-                    this.editor.updateElement(el.id, { mask: val || null });
+                if (val === 'rounded') {
+                    if (radiusRow) radiusRow.style.display = '';
+                    if (customRow) customRow.style.display = 'none';
+                    const radius = radiusInput ? radiusInput.value : '12';
+                    for (const el of this.selectedElements) {
+                        this.editor.updateElement(el.id, { mask: `rounded:${radius}` });
+                    }
+                } else if (val === '__custom__') {
+                    if (radiusRow) radiusRow.style.display = 'none';
+                    if (customRow) customRow.style.display = '';
+                } else {
+                    if (radiusRow) radiusRow.style.display = 'none';
+                    if (customRow) customRow.style.display = 'none';
+                    for (const el of this.selectedElements) {
+                        this.editor.updateElement(el.id, { mask: val || null });
+                    }
                 }
             });
         }
@@ -562,14 +618,8 @@ class PropertyPanel extends EventEmitter {
         if (radiusInput) {
             const updateRadius = () => {
                 const val = radiusInput.value;
-                // 更新显示值
                 const span = radiusInput.nextElementSibling;
                 if (span) span.textContent = val + 'px';
-                // 更新遮罩选择器的 value
-                if (maskSelect) {
-                    maskSelect.value = `rounded:${val}`;
-                }
-                // 更新元素
                 for (const el of this.selectedElements) {
                     this.editor.updateElement(el.id, { mask: `rounded:${val}` });
                 }
@@ -578,12 +628,21 @@ class PropertyPanel extends EventEmitter {
             radiusInput.addEventListener('change', updateRadius);
         }
 
+        if (customInput) {
+            customInput.addEventListener('change', () => {
+                const val = customInput.value.trim();
+                for (const el of this.selectedElements) {
+                    this.editor.updateElement(el.id, { mask: val || null });
+                }
+            });
+        }
+
         // 输入框变化
         this.container.querySelectorAll('input, select, textarea').forEach(input => {
             const prop = input.dataset.prop;
             if (!prop) return;
-            // 跳过已单独处理的
-            if (prop === 'maskRadius' || input.dataset.maskSelect !== undefined) return;
+            // 跳过已单独处理的遮罩控件
+            if (prop === 'maskRadius' || prop === 'maskCustom' || input.dataset.maskSelect !== undefined) return;
 
             const handler = (e) => {
                 let value = input.type === 'checkbox' ? input.checked : input.value;

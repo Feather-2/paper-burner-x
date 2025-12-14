@@ -147,9 +147,14 @@ class HTMLSlideRenderer {
         // 构建基础样式
         let baseStyle;
         if (el.rawStyle) {
-            // rawStyle 模式：AI 直接写的 CSS，只补充定位属性
+            // rawStyle 模式：AI 直接写的 CSS，补充定位和效果属性
             const positionStyle = `position: absolute; left: ${x}; top: ${y}; z-index: ${el.z || 0};`;
-            baseStyle = `${positionStyle} ${el.rawStyle}`;
+            // 效果属性追加到末尾（CSS 后写优先）
+            let effectStyle = '';
+            if (el.blend && el.blend !== 'normal') effectStyle += ` mix-blend-mode: ${el.blend};`;
+            if (el.filter) effectStyle += ` filter: ${el.filter};`;
+            if (el.mask) effectStyle += ' ' + this._buildMaskStyle(el.mask).replace(/\s+/g, ' ').trim();
+            baseStyle = `${positionStyle} ${el.rawStyle}${effectStyle}`;
         } else {
             // 兼容模式：从 data-* 属性构建样式
             const effectStyle = `
