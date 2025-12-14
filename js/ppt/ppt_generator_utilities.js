@@ -145,22 +145,189 @@ const PPTGeneratorUtilities = {
         if (container) container.scrollTop = container.scrollHeight;
     },
 
+    async _loadScriptOnce(src) {
+        if (typeof document === 'undefined') {
+            throw new Error('当前环境不支持动态加载脚本');
+        }
+        this._chatScriptPromises = this._chatScriptPromises || new Map();
+        if (this._chatScriptPromises.has(src)) return this._chatScriptPromises.get(src);
+
+        const p = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = src;
+            script.async = true;
+            script.onload = () => resolve();
+            script.onerror = () => reject(new Error(`加载脚本失败: ${src}`));
+            document.head.appendChild(script);
+        });
+
+        this._chatScriptPromises.set(src, p);
+        return p;
+    },
+
+    async _ensureIntentParser() {
+        if (window.IntentParser?.parse) return;
+        if (window.IntentParser?.parseIntent) return;
+        // lazy load (ppt.html 默认不加载 intent-parser)
+        await this._loadScriptOnce('js/ppt/editor/intent/intent-parser.js');
+        if (!window.IntentParser?.parse && window.IntentParser?.parseIntent) {
+            window.IntentParser.parse = window.IntentParser.parseIntent;
+        }
+    },
+
+    _enqueueChatIntent(fn) {
+        if (!this._chatIntentQueue) {
+            this._chatIntentQueue = Promise.resolve();
+        }
+        const run = () => Promise.resolve().then(fn);
+        const next = this._chatIntentQueue.then(run, run);
+        // swallow to keep queue alive
+        this._chatIntentQueue = next.catch(() => {});
+        return next;
+    },
+
+    _isEditIntentType(type) {
+        return new Set(['MODIFY_ELEMENT', 'DELETE_SLIDE', 'MOVE_SLIDE', 'MOVE_ELEMENT']).has(String(type || ''));
+    },
+
+    _isGenerationIntentType(type) {
+        return new Set(['REDO_SLIDE', 'REDO_RANGE', 'INSERT_SLIDE', 'RESTYLE_SLIDE', 'RESTYLE_RANGE']).has(String(type || ''));
+    },
+
+    _ensureSlideIntentIds(contentPackage) {
+        const pkg = contentPackage && typeof contentPackage === 'object' ? contentPackage : null;
+        const intents = Array.isArray(pkg?.slideIntents) ? pkg.slideIntents : null;
+        if (!intents) return;
+
+        intents.forEach((si, i) => {
+            if (!si || typeof si !== 'object') return;
+            if (!si.slideIntentId) si.slideIntentId = `si_${Date.now()}_${i}_${Math.random().toString(16).slice(2)}`;
+            if (typeof si.index === 'number') return;
+            si.index = i;
+        });
+    },
+
+    _insertSlideIntentAt(contentPackage, index) {
+        const pkg = contentPackage && typeof contentPackage === 'object' ? contentPackage : null;
+        if (!pkg) return false;
+        if (!Array.isArray(pkg.slideIntents)) pkg.slideIntents = [];
+
+        this._ensureSlideIntentIds(pkg);
+
+        const insertIndex = Math.max(0, Math.min(pkg.slideIntents.length, Number(index) || 0));
+        const newIntent = {
+            slideIntentId: `si_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+            pageType: 'content',
+            title: '新页面',
+            objective: '',
+            keyPoints: [],
+            claimIds: [],
+            dataTableIds: [],
+            content: '',
+            index: insertIndex
+        };
+
+        pkg.slideIntents.splice(insertIndex, 0, newIntent);
+        // re-index
+        pkg.slideIntents.forEach((si, i) => {
+            if (si && typeof si === 'object') si.index = i;
+        });
+
+        return true;
+    },
+
+    async _dispatchGenerationIntent(intent, userInput) {
+        const type = String(intent?.type || '');
+        if (typeof this._ensureRuntime !== 'function') {
+            throw new Error('运行时未初始化，无法调用设计引擎');
+        }
+
+        // 对 “新增页面” 做最小可用的 slideIntents 插入，随后走 design.batch
+        if (type === 'INSERT_SLIDE') {
+            const pkg = this.workflowData?.contentPackage;
+            if (!pkg) {
+                this.addChatMessage('ai', '请先生成一份演示文稿（或先粘贴/上传素材）后，再新增页面。');
+                return;
+            }
+            const baseIndex = typeof intent?.target?.slideIndex === 'number' ? intent.target.slideIndex : 0;
+            const position = String(intent?.target?.position || 'after');
+            const insertIndex = position === 'before' ? baseIndex : baseIndex + 1;
+            const ok = this._insertSlideIntentAt(pkg, insertIndex);
+            if (!ok) throw new Error('新增页面失败：contentPackage 不可用');
+        }
+
+        this.addChatMessage('ai', '正在调用设计引擎生成/优化页面，请稍候...');
+        await this._ensureRuntime({ mode: 'textprep' });
+
+        // design.batch stage reads workflowData.contentPackage by default
+        await this._orchestrator.runStage('design.batch', { contentPackage: this.workflowData?.contentPackage, userInput });
+
+        // 设计完成后，如果编辑器已初始化，同步到编辑器数据源
+        if (typeof this._syncToEditor === 'function') {
+            try { this._syncToEditor(); } catch (e) { /* ignore */ }
+        }
+    },
+
     async handleUserMessage(text, attachments = []) {
         // 构建消息内容
         let content = text;
         if (!content && attachments.length > 0) {
             content = `上传了 ${attachments.length} 个文件`;
         }
-        
+
         this.addChatMessage('user', content, null, attachments);
-        
-        setTimeout(() => {
-            const fileNames = attachments.map(a => a.name).join(', ');
-            const response = attachments.length > 0 
-                ? `已收到文件: ${fileNames}。正在分析内容...`
-                : '指令已接收。正在为您安排任务...';
-            this.addChatMessage('ai', response);
-        }, 1000);
+
+        // 排队处理：避免并发指令互相覆盖（尤其是 redo/design）
+        return this._enqueueChatIntent(async () => {
+            try {
+                await this._ensureIntentParser();
+
+                const parse = window.IntentParser?.parse || window.IntentParser?.parseIntent;
+                if (typeof parse !== 'function') {
+                    throw new Error('IntentParser 未加载');
+                }
+
+                const intent = await parse(content, {
+                    currentSlideIndex: this.currentSlideIndex,
+                    attachments,
+                });
+
+                if (this._isEditIntentType(intent?.type)) {
+                    if (typeof this.initEditor === 'function') {
+                        await this.initEditor();
+                    }
+                    if (!this.editor?.executeNaturalLanguage) {
+                        this.addChatMessage('ai', '当前无法执行编辑指令：编辑器未初始化。请先进入「编辑模式」。');
+                        return;
+                    }
+
+                    const result = await this.editor.executeNaturalLanguage(content, {
+                        currentSlideIndex: this.currentSlideIndex,
+                        attachments,
+                    });
+
+                    // 同步 DSL（用于保存/回放），以及更新预览 HTML
+                    if (typeof this.syncDSL === 'function') {
+                        try { this.syncDSL({ reason: 'chat_edit', intent: result?.intent }); } catch (e) { /* ignore */ }
+                    }
+
+                    this.addChatMessage('ai', '已完成修改。');
+                    return;
+                }
+
+                if (this._isGenerationIntentType(intent?.type)) {
+                    await this._dispatchGenerationIntent(intent, content);
+                    this.addChatMessage('ai', '已完成生成/优化。');
+                    return;
+                }
+
+                // 兜底：未知指令（按研究/扩展处理）
+                this.addChatMessage('ai', '我理解你的需求了，但暂不支持该类型指令。你可以试试：把标题改成… / 重新设计第3页 / 在第2页后新增一页');
+            } catch (err) {
+                console.warn('[PPTGeneratorUtilities] handleUserMessage failed:', err);
+                this.addChatMessage('ai', '抱歉，我暂时无法理解这条指令。你可以换一种说法，例如：把标题改成… / 重新设计第3页。');
+            }
+        });
     },
 
     async _saveProject() {

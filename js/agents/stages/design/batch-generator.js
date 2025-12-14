@@ -1,8 +1,23 @@
 import { buildSlideHtml } from "./dsl-builder.js";
 
-function chunk(arr, size) {
+function nowMs() {
+  return Date.now();
+}
+
+function safeEmit(emit, name, status, payload) {
+  if (typeof emit !== "function") return;
+  emit(name, { actor: "design", status, payload });
+}
+
+function chunkIndexes(len, size) {
   const out = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  const n = Math.max(0, Number(len) || 0);
+  const chunkSize = Math.max(1, Number(size) || 1);
+  for (let i = 0; i < n; i += chunkSize) {
+    const slideIndexes = [];
+    for (let j = i; j < Math.min(n, i + chunkSize); j++) slideIndexes.push(j);
+    out.push(slideIndexes);
+  }
   return out;
 }
 
@@ -32,9 +47,33 @@ function layoutFromPageType(pageType) {
   return "content";
 }
 
-function makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch = []) {
+function normalizeDslRules(dslRules) {
+  if (typeof dslRules === "string") return dslRules.trim();
+  if (dslRules === undefined || dslRules === null) return "";
+  return String(dslRules).trim();
+}
+
+function makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch = [], dslRules = "") {
   const tokens = designSystem?.designTokens || designSystem || {};
   const slots = Array.isArray(imageSlotsForBatch) ? imageSlotsForBatch : [];
+  const rulesText = normalizeDslRules(dslRules);
+
+  // Build style reference section if available
+  const styleRef = designSystem?.styleReference?.extracted;
+  const styleRefLines = styleRef && (styleRef.colorTone || styleRef.mood || styleRef.layoutStyle || styleRef.typography || styleRef.effects)
+    ? [
+        "",
+        "Style reference (user-provided, follow these guidelines):",
+        ...(styleRef.colorTone ? [`- Color tone: ${styleRef.colorTone}`] : []),
+        ...(styleRef.mood ? [`- Mood: ${styleRef.mood}`] : []),
+        ...(styleRef.layoutStyle ? [`- Layout style: ${styleRef.layoutStyle}`] : []),
+        ...(styleRef.typography ? [`- Typography: ${styleRef.typography}`] : []),
+        ...(styleRef.effects ? [`- Visual effects: ${styleRef.effects}`] : []),
+        ...(designSystem?.styleReference?.userNotes ? [`- User notes: ${designSystem.styleReference.userNotes}`] : []),
+        "",
+      ]
+    : [];
+
   return [
     "You generate PPT HTML DSL slides for SlideParser.parse().",
     "Return ONLY valid JSON (no markdown), an array with same order as input.",
@@ -72,6 +111,7 @@ function makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch = []
     "",
     "Design tokens (use these colors/typography):",
     JSON.stringify(tokens),
+    ...styleRefLines,
     "",
     "Content summary:",
     String(contentPackage?.summary || "").slice(0, 1200),
@@ -88,7 +128,59 @@ function makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch = []
         dataTableIds: s.dataTableIds,
       }))
     ),
+    ...(rulesText ? ["", "DSL rules (follow strictly):", rulesText] : []),
   ].join("\n");
+}
+
+/**
+ * Generate a single slide HTML DSL.
+ *
+ * @param {object} slideIntent
+ * @param {object} designSystem
+ * @param {string} dslRules
+ * @param {{aiApiService?:object,contentPackage?:object,signal?:AbortSignal,slideNo?:number,imageSlotsForSlide?:Array<object>}=} options
+ * @returns {Promise<{slideIntentId:string,slideHtml:string,source:"llm"|"fallback"}>}
+ */
+export async function generateSingleSlide(slideIntent, designSystem, dslRules, options = {}) {
+  const si = slideIntent || {};
+  const slideIntentId = String(si.slideIntentId || si.slideIntentID || "");
+  const contentPackage = options.contentPackage || {};
+  const imageSlotsForSlide = Array.isArray(options.imageSlotsForSlide) ? options.imageSlotsForSlide : [];
+  const slideNo = Number.isFinite(options.slideNo) ? options.slideNo : 1;
+
+  if (options.signal?.aborted) throw new Error(typeof options.signal.reason === "string" ? options.signal.reason : "Run cancelled");
+
+  const aiApiService = options.aiApiService;
+  if (aiApiService && typeof aiApiService.chat === "function") {
+    const prompt = makePrompt([si], designSystem, contentPackage, imageSlotsForSlide, dslRules);
+    const resp = await aiApiService.chat({
+      messages: [
+        { role: "system", content: "You are a precise PPT DSL generator." },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.2,
+      maxTokens: 2500,
+    });
+
+    const parsed = JSON.parse(resp?.content || "null");
+    const candidate = Array.isArray(parsed)
+      ? parsed.find((x) => x?.slideIntentId === slideIntentId) || parsed[0]
+      : parsed && typeof parsed === "object"
+        ? parsed
+        : null;
+
+    let slideHtml = typeof candidate?.slideHtml === "string" ? candidate.slideHtml : "";
+    slideHtml = ensureSectionAttr(slideHtml, "data-layout", layoutFromPageType(si.pageType));
+    if (!looksLikeSlideHtml(slideHtml)) throw new Error("Invalid slideHtml returned by model");
+    return { slideIntentId, slideHtml, source: "llm" };
+  }
+
+  const slideHtml = buildSlideHtml(si, designSystem, contentPackage, {
+    safeMode: true,
+    slideNo,
+    imageSlotsForSlide,
+  });
+  return { slideIntentId, slideHtml, source: "fallback" };
 }
 
 /**
@@ -112,93 +204,86 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
   const emit = typeof options.emit === "function" ? options.emit : null;
   const signal = options.signal;
   const imageSlots = Array.isArray(options.imageSlots) ? options.imageSlots : [];
+  const dslRules = normalizeDslRules(options.dslRules);
 
-  const claims = Array.isArray(contentPackage?.claims) ? contentPackage.claims : [];
-  const evidences = Array.isArray(contentPackage?.evidenceLedger) ? contentPackage.evidenceLedger : [];
-
-  const out = [];
-  const batches = chunk(intents, batchSize);
-  let done = 0;
+  /** @type {Array<{slideIntentId:string,slideHtml:string,source:"llm"|"fallback"}>} */
+  const out = new Array(intents.length);
+  const batches = chunkIndexes(intents.length, batchSize);
 
   for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
     if (signal?.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "Run cancelled");
 
-    const batch = batches[batchIndex];
-    const slideRange = [done + 1, done + batch.length];
-    emit?.("design.batch.started", { batchIndex, slideRange, batchSize: batch.length, totalBatches: batches.length }, { status: "started" });
+    const slideIndexes = batches[batchIndex];
+    safeEmit(emit, "design.batch.started", "started", { batchIndex, slideIndexes });
 
-    /** @type {Array<{slideIntentId:string,slideHtml:string,source:"llm"|"fallback"}>} */
-    let produced = [];
+    const tBatch = nowMs();
+    await Promise.all(
+      slideIndexes.map(async (slideIndex) => {
+        const slideIntent = intents[slideIndex];
+        const imageSlotsForSlide = imageSlots.filter((s) => s.slideIndex === slideIndex);
 
-    if (aiApiService && typeof aiApiService.chat === "function") {
-      try {
-        const imageSlotsForBatch = imageSlots.filter((s) => Number.isFinite(s?.slideIndex) && s.slideIndex >= done && s.slideIndex < done + batch.length);
-        const prompt = makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch);
-        const resp = await aiApiService.chat({
-          messages: [
-            { role: "system", content: "You are a precise PPT DSL generator." },
-            { role: "user", content: prompt },
-          ],
-          temperature: 0.2,
-          maxTokens: 6000,
-        });
+        const t0 = nowMs();
+        safeEmit(emit, "design.slide.started", "started", { slideIndex, slideIntent });
 
-        const parsed = JSON.parse(resp?.content || "null");
-        if (Array.isArray(parsed)) {
-          const byId = new Map(parsed.map((x) => [x?.slideIntentId, x?.slideHtml]));
-          produced = batch.map((si) => {
-            let slideHtml = byId.get(si.slideIntentId);
-            if (typeof slideHtml === "string") {
-              // Tests' stub LLM omits data-layout; make it deterministic here.
-              slideHtml = ensureSectionAttr(slideHtml, "data-layout", layoutFromPageType(si.pageType));
+        let lastErr = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          if (signal?.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "Run cancelled");
+
+          if (aiApiService && typeof aiApiService.chat === "function") {
+            safeEmit(emit, "design.slide.progress", "progress", {
+              slideIndex,
+              step: "llm",
+              msg: `Attempt ${attempt + 1}`,
+            });
+
+            try {
+              const res = await generateSingleSlide(slideIntent, designSystem, dslRules, {
+                aiApiService,
+                contentPackage,
+                signal,
+                slideNo: slideIndex + 1,
+                imageSlotsForSlide,
+              });
+              out[slideIndex] = res;
+              const duration = nowMs() - t0;
+              safeEmit(emit, "design.slide.completed", "completed", { slideIndex, html: res.slideHtml, duration });
+              return;
+            } catch (e) {
+              lastErr = e;
+              if (attempt < 1) safeEmit(emit, "design.slide.retrying", "retrying", { slideIndex, attempt: attempt + 1 });
             }
-            return { slideIntentId: si.slideIntentId, slideHtml, source: "llm" };
-          });
-
-          if (produced.every((r) => looksLikeSlideHtml(r.slideHtml))) {
-            // ok
           } else {
-            produced = [];
+            safeEmit(emit, "design.slide.progress", "progress", { slideIndex, step: "fallback", msg: "No AI service" });
+            const res = await generateSingleSlide(slideIntent, designSystem, dslRules, {
+              contentPackage,
+              signal,
+              slideNo: slideIndex + 1,
+              imageSlotsForSlide,
+            });
+            out[slideIndex] = res;
+            const duration = nowMs() - t0;
+            safeEmit(emit, "design.slide.completed", "completed", { slideIndex, html: res.slideHtml, duration });
+            return;
           }
         }
-      } catch {
-        produced = [];
-      }
-    }
 
-    if (produced.length === 0) {
-      produced = batch.map((si, i) => ({
-        slideIntentId: si.slideIntentId,
-        slideHtml: buildSlideHtml(si, designSystem, claims, evidences, {
-          safeMode: true,
-          slideNo: done + i + 1,
-          imageSlotsForSlide: imageSlots.filter((s) => s.slideIndex === done + i),
-        }),
-        source: "fallback",
-      }));
-    }
+        const errMsg = lastErr instanceof Error ? lastErr.message : String(lastErr || "Unknown error");
+        safeEmit(emit, "design.slide.failed", "failed", { slideIndex, error: errMsg });
+        safeEmit(emit, "design.slide.progress", "progress", { slideIndex, step: "fallback", msg: "Falling back to templates" });
 
-    for (let i = 0; i < produced.length; i++) {
-      out.push(produced[i]);
-      done++;
-      emit?.(
-        "design.batch.progress",
-        { batchIndex, doneSlides: done, totalSlides: intents.length, slideIntentId: produced[i].slideIntentId, source: produced[i].source },
-        { status: "progress" }
-      );
-    }
-
-    emit?.(
-      "design.batch.ended",
-      { batchIndex, slideRange, slidesGenerated: produced.length, source: produced[0]?.source || "fallback" },
-      { status: "ended" }
+        const res = await generateSingleSlide(slideIntent, designSystem, dslRules, {
+          contentPackage,
+          signal,
+          slideNo: slideIndex + 1,
+          imageSlotsForSlide,
+        });
+        out[slideIndex] = res;
+        const duration = nowMs() - t0;
+        safeEmit(emit, "design.slide.completed", "completed", { slideIndex, html: res.slideHtml, duration });
+      })
     );
-    // Alias for spec wording (started/completed).
-    emit?.(
-      "design.batch.completed",
-      { batchIndex, slideRange, slidesGenerated: produced.length, source: produced[0]?.source || "fallback" },
-      { status: "ended" }
-    );
+
+    safeEmit(emit, "design.batch.completed", "completed", { batchIndex, slideIndexes, duration: nowMs() - tBatch });
   }
 
   return out;

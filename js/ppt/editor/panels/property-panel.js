@@ -151,6 +151,14 @@ class PropertyPanel extends EventEmitter {
                     <div class="property-section-title">效果</div>
                     ${this._renderEffectProperties(element)}
                 </div>
+                <div class="property-section">
+                    <div class="property-section-title">AI</div>
+                    <div class="property-row" style="flex-direction: column; gap: 8px;">
+                        <button class="property-btn" data-action="ai-style-element" style="width: 100%; background: linear-gradient(135deg, #0ea5e9, #6366f1); color: white;">
+                            AI 微调
+                        </button>
+                    </div>
+                </div>
             </div>
         `;
     }
@@ -635,10 +643,50 @@ class PropertyPanel extends EventEmitter {
                     }
                     this.editor.selection.deselectAll();
                 } else {
-                    this.emit('action', { action, element: this.currentElement, elements: this.selectedElements });
+                    const elementData = this.currentElement ? this._extractElementData(this.currentElement) : null;
+                    this.emit('action', { action, element: this.currentElement, elementData, elements: this.selectedElements });
                 }
             });
         });
+    }
+
+    _extractElementData(el) {
+        if (!el || typeof el !== 'object') return null;
+        // Minimal stable snapshot for AI planning / unit tests.
+        const base = {
+            id: el.id,
+            type: el.type,
+            x: el.x,
+            y: el.y,
+            w: el.w,
+            h: el.h,
+            rotation: el.rotation ?? el.rotate,
+            z: el.z,
+            opacity: el.opacity,
+            blend: el.blend,
+            filter: el.filter,
+            mask: el.mask,
+            outline: el.outline,
+            effect: el.effect,
+        };
+        if (el.type === 'text' || el.type === 'formula') {
+            base.content = el.content ?? el.latex ?? null;
+            base.fontSize = el.fontSize ?? el.font ?? null;
+            base.color = el.color ?? null;
+            base.fontFamily = el.fontFamily ?? null;
+            base.fontWeight = el.fontWeight ?? (el.bold ? 'bold' : null);
+            base.align = el.align ?? null;
+            base.lineHeight = el.lineHeight ?? null;
+        } else if (el.type === 'image') {
+            base.src = el.src ?? el.assetId ?? null;
+            base.objectFit = el.objectFit ?? el.fit ?? null;
+        } else if (el.type === 'shape') {
+            base.fill = el.fill ?? null;
+            base.stroke = el.stroke ?? null;
+            base.strokeWidth = el.strokeWidth ?? null;
+            base.borderRadius = el.borderRadius ?? el.radius ?? null;
+        }
+        return JSON.parse(JSON.stringify(base));
     }
 
     _parseBlur(filter) {
