@@ -304,6 +304,8 @@ const PPTGeneratorAgentDashboard = {
         const iteration = typeof viz.iteration === 'number' ? viz.iteration : 0;
         const maxIterations = typeof viz.maxIterations === 'number' ? viz.maxIterations : 1;
         const completedIteration = typeof viz.lastCompletedIteration === 'number' ? viz.lastCompletedIteration : null;
+        const currentPhase = viz.currentPhase || null;
+        const stageMetrics = viz.stageMetrics || {};
 
         const gaps = Array.isArray(viz.gaps) ? viz.gaps : [];
         const openCount = typeof viz.openGapCount === 'number'
@@ -311,31 +313,138 @@ const PPTGeneratorAgentDashboard = {
             : gaps.filter(g => (g?.status ? String(g.status) : 'open') === 'open').length;
 
         const safeMax = Math.max(1, maxIterations);
-        const pct = Math.max(0, Math.min(1, iteration / safeMax));
 
+        // 阶段定义
+        const stages = [
+            { id: 'scan', label: '扫描', icon: 'carbon:document-view', desc: '分析来源' },
+            { id: 'gaps', label: '缺口', icon: 'carbon:help', desc: '识别知识缺口' },
+            { id: 'retrieve', label: '检索', icon: 'carbon:search', desc: '搜索证据' },
+            { id: 'understand', label: '理解', icon: 'carbon:cognitive', desc: '提取论点' },
+            { id: 'write', label: '写作', icon: 'carbon:edit', desc: '生成输出' },
+        ];
+
+        // 外搜状态
+        const externalSearch = viz.externalSearch || {};
+        const extStatus = externalSearch.status || null;
+
+        // 渲染单个节点
+        const renderNode = (stage, index) => {
+            const metric = stageMetrics[stage.id] || {};
+            const status = metric.status || 'pending';
+            const isActive = status === 'active';
+            const isCompleted = status === 'completed';
+            const isPending = status === 'pending';
+            const progress = metric.lastProgress;
+
+            // 外搜指示器（仅 retrieve 阶段）
+            let externalIndicator = '';
+            if (stage.id === 'retrieve' && extStatus) {
+                if (extStatus === 'running') {
+                    externalIndicator = `<div style="position:absolute; bottom:-6px; left:50%; transform:translateX(-50%); font-size:9px; background: var(--ppt-warning); color:white; padding:1px 6px; border-radius:8px; white-space:nowrap;">外搜中</div>`;
+                } else if (extStatus === 'completed' && externalSearch.documentsCount > 0) {
+                    externalIndicator = `<div style="position:absolute; bottom:-6px; left:50%; transform:translateX(-50%); font-size:9px; background: var(--ppt-success); color:white; padding:1px 6px; border-radius:8px; white-space:nowrap;">+${externalSearch.documentsCount}外部</div>`;
+                } else if (extStatus === 'triggered') {
+                    externalIndicator = `<div style="position:absolute; bottom:-6px; left:50%; transform:translateX(-50%); font-size:9px; background: var(--ppt-primary); color:white; padding:1px 6px; border-radius:8px; white-space:nowrap;">启动外搜</div>`;
+                }
+            }
+
+            // 节点样式
+            const bgColor = isActive ? 'rgba(79, 70, 229, 0.1)' : (isCompleted ? 'rgba(16, 185, 129, 0.08)' : 'rgba(148, 163, 184, 0.08)');
+            const borderColor = isActive ? 'var(--ppt-primary)' : (isCompleted ? 'var(--ppt-success)' : 'var(--ppt-border)');
+            const iconColor = isActive ? 'var(--ppt-primary)' : (isCompleted ? 'var(--ppt-success)' : 'var(--ppt-text-secondary)');
+            const textColor = isPending ? 'var(--ppt-text-secondary)' : 'var(--ppt-text)';
+
+            // 进度指示器
+            let progressIndicator = '';
+            if (isActive && progress?.total > 0) {
+                const pct = Math.min(100, (progress.current / progress.total) * 100);
+                progressIndicator = `
+                    <div style="margin-top:6px; height:3px; border-radius:2px; background: rgba(79, 70, 229, 0.2); overflow:hidden;">
+                        <div style="height:100%; width:${pct.toFixed(0)}%; background: var(--ppt-primary); transition: width 0.3s;"></div>
+                    </div>
+                `;
+            }
+
+            // 状态徽章
+            let badge = '';
+            if (isActive) {
+                badge = `<div style="position:absolute; top:-4px; right:-4px; width:10px; height:10px; border-radius:50%; background: var(--ppt-primary); animation: pulse 1.5s infinite;"></div>`;
+            } else if (isCompleted) {
+                badge = `<div style="position:absolute; top:-4px; right:-4px; width:16px; height:16px; border-radius:50%; background: var(--ppt-success); display:flex; align-items:center; justify-content:center;"><iconify-icon icon="carbon:checkmark" style="font-size:10px; color:white;"></iconify-icon></div>`;
+            }
+
+            // 详情（当前消息）
+            let detail = '';
+            if (isActive && progress?.msg) {
+                const shortMsg = String(progress.msg).slice(0, 40) + (progress.msg.length > 40 ? '...' : '');
+                detail = `<div style="margin-top:4px; font-size:10px; color: var(--ppt-text-secondary); line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${this._escapeHtml(shortMsg)}</div>`;
+            }
+
+            return `
+                <div style="position:relative; flex:1; min-width:0; max-width:120px;">
+                    <div style="padding:10px 8px; border-radius:10px; border: 1.5px solid ${borderColor}; background: ${bgColor}; text-align:center; transition: all 0.2s;">
+                        ${badge}
+                        <div style="color:${iconColor}; font-size:20px; margin-bottom:4px;">
+                            <iconify-icon icon="${stage.icon}"></iconify-icon>
+                        </div>
+                        <div style="font-size:12px; font-weight:600; color:${textColor};">${stage.label}</div>
+                        <div style="font-size:10px; color: var(--ppt-text-secondary); margin-top:2px;">${stage.desc}</div>
+                        ${progressIndicator}
+                        ${detail}
+                    </div>
+                    ${externalIndicator}
+                </div>
+            `;
+        };
+
+        // 渲染连接线
+        const renderConnector = (fromStage, toStage) => {
+            const fromMetric = stageMetrics[fromStage] || {};
+            const toMetric = stageMetrics[toStage] || {};
+            const isActive = fromMetric.status === 'completed' || toMetric.status === 'active';
+            const color = isActive ? 'var(--ppt-primary)' : 'var(--ppt-border)';
+            return `
+                <div style="flex:0 0 24px; display:flex; align-items:center; justify-content:center;">
+                    <iconify-icon icon="carbon:arrow-right" style="color:${color}; font-size:16px;"></iconify-icon>
+                </div>
+            `;
+        };
+
+        // 构建节点流程图
+        const nodesHtml = stages.map((stage, i) => {
+            const node = renderNode(stage, i);
+            const connector = i < stages.length - 1 ? renderConnector(stage.id, stages[i + 1].id) : '';
+            return node + connector;
+        }).join('');
+
+        // 头部信息
         const header = `
-            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;">
                 <div style="display:flex; align-items:center; gap:10px; min-width:0;">
                     <div style="width:28px; height:28px; border-radius:10px; display:flex; align-items:center; justify-content:center; background: rgba(16, 185, 129, 0.12); color: var(--ppt-success);">
                         <iconify-icon icon="carbon:ibm-watson-discovery"></iconify-icon>
                     </div>
                     <div style="min-width:0;">
-                        <div style="font-weight:650; color: var(--ppt-text);">DeepSearch 进度</div>
+                        <div style="font-weight:650; color: var(--ppt-text);">DeepSearch 流程</div>
                         <div style="font-size:12px; color: var(--ppt-text-secondary); margin-top:2px;">
-                            ${completedIteration !== null ? `已完成第 ${completedIteration + 1} 轮` : '运行中'} · open gaps: ${openCount}/${gaps.length || '—'}
+                            ${completedIteration !== null ? `已完成第 ${completedIteration + 1} 轮` : (currentPhase ? '运行中' : '等待中')} · 迭代 ${iteration}/${safeMax}
                         </div>
                     </div>
                 </div>
-                <div style="font-size:12px; color: var(--ppt-text-secondary); white-space:nowrap;">迭代 ${iteration}/${safeMax}</div>
+                <div style="font-size:12px; color: var(--ppt-text-secondary); white-space:nowrap;">
+                    缺口: ${openCount}/${gaps.length || '—'}
+                </div>
             </div>
         `;
 
-        const progress = `
-            <div style="height:10px; border-radius:999px; background: rgba(148, 163, 184, 0.25); overflow:hidden;">
-                <div style="height:10px; width:${(pct * 100).toFixed(1)}%; background: linear-gradient(90deg, var(--ppt-primary), rgba(79, 70, 229, 0.55));"></div>
+        // 流程图容器
+        const flowChart = `
+            <div style="display:flex; align-items:stretch; gap:0; overflow-x:auto; padding:8px 4px;">
+                ${nodesHtml}
             </div>
         `;
 
+        // Gap 列表（折叠式）
         const gapRow = (g) => {
             const status = g?.status ? String(g.status) : 'open';
             const isOpen = status === 'open';
@@ -350,40 +459,51 @@ const PPTGeneratorAgentDashboard = {
             ].filter(Boolean).join(' · ');
 
             return `
-                <div style="display:flex; gap:10px; padding:10px 10px; border-radius:12px; border: 1px solid var(--ppt-border); background: white;">
-                    <div style="margin-top:2px; color:${color};">
-                        <iconify-icon icon="${icon}"></iconify-icon>
+                <div style="display:flex; gap:8px; padding:8px 10px; border-radius:10px; border: 1px solid var(--ppt-border); background: white;">
+                    <div style="margin-top:1px; color:${color}; flex-shrink:0;">
+                        <iconify-icon icon="${icon}" style="font-size:14px;"></iconify-icon>
                     </div>
-                    <div style="min-width:0;">
-                        <div style="font-size:13px; color: var(--ppt-text); line-height:1.35;">${title}</div>
-                        ${meta ? `<div style="margin-top:4px; font-size:12px; color: var(--ppt-text-secondary);">${this._escapeHtml(meta)}</div>` : ''}
-                        ${isBlocked && g?.blockedReason ? `<div style="margin-top:6px; font-size:12px; color: var(--ppt-warning);">${this._escapeHtml(String(g.blockedReason))}</div>` : ''}
+                    <div style="min-width:0; flex:1;">
+                        <div style="font-size:12px; color: var(--ppt-text); line-height:1.35;">${title}</div>
+                        ${meta ? `<div style="margin-top:3px; font-size:11px; color: var(--ppt-text-secondary);">${this._escapeHtml(meta)}</div>` : ''}
+                        ${isBlocked && g?.blockedReason ? `<div style="margin-top:4px; font-size:11px; color: var(--ppt-warning);">${this._escapeHtml(String(g.blockedReason))}</div>` : ''}
                     </div>
                 </div>
             `;
         };
 
-        const list = gaps.length ? gaps.map(gapRow).join('') : `
-            <div style="padding: 12px; border-radius: 12px; border: 1px dashed var(--ppt-border); color: var(--ppt-text-secondary); font-size: 12px;">
-                暂无 gaps 数据（等待 DeepSearch gaps 阶段输出）。
-            </div>
-        `;
+        const gapsList = gaps.length ? `
+            <details style="margin-top:14px;" ${gaps.some(g => g?.status === 'open') ? 'open' : ''}>
+                <summary style="cursor:pointer; font-weight:600; color: var(--ppt-text); font-size:13px; padding:6px 0; user-select:none;">
+                    知识缺口 (${openCount} 待填补 / ${gaps.length} 总计)
+                </summary>
+                <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
+                    ${gaps.map(gapRow).join('')}
+                </div>
+            </details>
+        ` : '';
 
         const wrapperStyle = compact
             ? 'margin-top: 14px; width: 100%; text-align:left;'
             : 'width: 100%; text-align:left;';
 
+        // 添加动画样式
+        const animStyle = `
+            <style>
+                @keyframes pulse {
+                    0%, 100% { opacity: 1; transform: scale(1); }
+                    50% { opacity: 0.6; transform: scale(1.1); }
+                }
+            </style>
+        `;
+
         return `
+            ${animStyle}
             <div style="${wrapperStyle}">
-                <div style="padding: 12px 14px; border-radius: 14px; border: 1px solid var(--ppt-border); background: var(--ppt-bg-app);">
+                <div style="padding: 14px 16px; border-radius: 14px; border: 1px solid var(--ppt-border); background: var(--ppt-bg-app);">
                     ${header}
-                    ${progress}
-                    <div style="margin-top: 12px;">
-                        <div style="font-weight: 650; color: var(--ppt-text); font-size: 13px; margin-bottom: 8px;">Gaps</div>
-                        <div style="display:flex; flex-direction:column; gap:10px;">
-                            ${list}
-                        </div>
-                    </div>
+                    ${flowChart}
+                    ${gapsList}
                 </div>
             </div>
         `;

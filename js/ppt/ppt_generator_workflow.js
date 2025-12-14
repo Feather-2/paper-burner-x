@@ -153,6 +153,79 @@ const PPTGeneratorWorkflow = {
             this._scheduleVizRerender();
         }
 
+        // === 外搜事件追踪 ===
+        if (name === 'deepsearch.external.triggered') {
+            this._ensureDeepSearchViz();
+            this.workflowData.deepsearchViz.externalSearch = {
+                status: 'triggered',
+                reason: payload?.reason || 'insufficient_local_hits',
+                localHitCount: payload?.localHitCount,
+                minLocalHits: payload?.minLocalHits,
+                triggeredAt: Date.now(),
+            };
+            this.workflowData.deepsearchViz.updatedAt = Date.now();
+            this.logTerminal('AI 搜索', `本地结果不足 (${payload?.localHitCount}/${payload?.minLocalHits})，启动外部搜索...`, 'info');
+            this._scheduleVizRerender();
+        }
+
+        if (name === 'deepsearch.external.started') {
+            this._ensureDeepSearchViz();
+            const ext = this.workflowData.deepsearchViz.externalSearch || {};
+            this.workflowData.deepsearchViz.externalSearch = {
+                ...ext,
+                status: 'running',
+                providers: payload?.providers || [],
+                gapCount: payload?.gapCount,
+                startedAt: Date.now(),
+            };
+            this.workflowData.deepsearchViz.updatedAt = Date.now();
+            this.logTerminal('AI 搜索', `外搜启动：${(payload?.providers || []).join(', ')}`, 'normal');
+            this._scheduleVizRerender();
+        }
+
+        if (name === 'deepsearch.external.completed') {
+            this._ensureDeepSearchViz();
+            const ext = this.workflowData.deepsearchViz.externalSearch || {};
+            this.workflowData.deepsearchViz.externalSearch = {
+                ...ext,
+                status: 'completed',
+                chunksCount: payload?.chunksCount || 0,
+                documentsCount: payload?.documentsCount || 0,
+                evidencesCount: payload?.evidencesCount || 0,
+                completedAt: Date.now(),
+            };
+            this.workflowData.deepsearchViz.updatedAt = Date.now();
+            this.logTerminal('AI 搜索', `外搜完成：获取 ${payload?.documentsCount || 0} 个文档，${payload?.chunksCount || 0} 个片段`, 'success');
+            this._scheduleVizRerender();
+        }
+
+        if (name === 'deepsearch.external.error') {
+            this._ensureDeepSearchViz();
+            const ext = this.workflowData.deepsearchViz.externalSearch || {};
+            this.workflowData.deepsearchViz.externalSearch = {
+                ...ext,
+                status: 'error',
+                error: payload?.message,
+                errorAt: Date.now(),
+            };
+            this.workflowData.deepsearchViz.updatedAt = Date.now();
+            this.logTerminal('AI 搜索', `外搜错误：${payload?.message || '未知错误'}`, 'error');
+            this._scheduleVizRerender();
+        }
+
+        if (name === 'deepsearch.external.skipped') {
+            this._ensureDeepSearchViz();
+            this.workflowData.deepsearchViz.externalSearch = {
+                status: 'skipped',
+                reason: payload?.reason || 'unknown',
+                localHitCount: payload?.localHitCount,
+                skippedAt: Date.now(),
+            };
+            this.workflowData.deepsearchViz.updatedAt = Date.now();
+            this._scheduleVizRerender();
+        }
+        // === 外搜事件追踪结束 ===
+
         // Allow DeepSearch stages to update gaps list, then fall through to progress logger.
         if (name === 'deepsearch.gaps.progress') {
             this._ensureDeepSearchViz();
@@ -160,6 +233,40 @@ const PPTGeneratorWorkflow = {
             if (detail?.gapId) this._upsertDeepSearchVizGap(detail);
             this.workflowData.deepsearchViz.updatedAt = Date.now();
             this._scheduleVizRerender();
+        }
+
+        // 追踪阶段变化
+        if (name.endsWith('.progress') && payload.phase) {
+            this._ensureDeepSearchViz();
+            const viz = this.workflowData.deepsearchViz;
+            const phase = payload.phase;
+
+            // 更新当前阶段
+            if (viz.currentPhase !== phase) {
+                // 记录上一阶段结束
+                if (viz.currentPhase && viz.stageMetrics[viz.currentPhase]) {
+                    viz.stageMetrics[viz.currentPhase].status = 'completed';
+                    viz.stageMetrics[viz.currentPhase].completedAt = Date.now();
+                }
+                // 开始新阶段
+                viz.currentPhase = phase;
+                if (viz.stageMetrics[phase]) {
+                    viz.stageMetrics[phase].status = 'active';
+                    viz.stageMetrics[phase].startedAt = Date.now();
+                }
+                // 添加到历史
+                viz.phaseHistory.push({ phase, iteration: viz.iteration, ts: Date.now() });
+            }
+
+            // 更新阶段详情
+            if (viz.stageMetrics[phase]) {
+                viz.stageMetrics[phase].lastProgress = {
+                    current: payload.current,
+                    total: payload.total,
+                    msg: payload.msg,
+                    step: payload.step,
+                };
+            }
         }
 
         if (name.endsWith('.progress')) {
@@ -514,8 +621,7 @@ const PPTGeneratorWorkflow = {
         const content = typeof text === 'string' ? text : '';
         const match = content.match(/^#s+(.+)/m);
         if (match) return match[1].trim();
-        return content.slice(0, 50).split('
-')[0].trim() || '粘贴文档';
+        return content.slice(0, 50).split('\n')[0].trim() || '粘贴文档';
     },
 
     _generateSlideIntentsFromMarkdown(markdown) {
@@ -700,6 +806,16 @@ const PPTGeneratorWorkflow = {
             openGapCount: 0,
             gaps: [],
             updatedAt: Date.now(),
+            // 新增：阶段追踪
+            currentPhase: null,          // 当前阶段: scan, gaps, retrieve, understand, write, condense
+            phaseHistory: [],             // 阶段历史记录
+            stageMetrics: {               // 每个阶段的指标
+                scan: { status: 'pending', startedAt: null, completedAt: null, detail: null },
+                gaps: { status: 'pending', startedAt: null, completedAt: null, detail: null },
+                retrieve: { status: 'pending', startedAt: null, completedAt: null, detail: null },
+                understand: { status: 'pending', startedAt: null, completedAt: null, detail: null },
+                write: { status: 'pending', startedAt: null, completedAt: null, detail: null },
+            },
         };
     },
 
