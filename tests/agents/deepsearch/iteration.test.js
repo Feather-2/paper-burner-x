@@ -199,7 +199,7 @@ test("DeepSearch validateIteration helper: hit/no-evidence keeps open, blockAfte
       { todoId: "t3", relatedGapId: "g3", status: "open", text: "z" },
     ];
 
-    const out = __test.validateIteration(state, { blockAfterMisses: 2 });
+    const out = __test.validateIteration(state, { blockAfterMisses: 2, roundHits: { g1: 1 } });
     assert.equal(out.openCount, 1);
     assert.equal(state.L1.gaps[0].status, "open");
     assert.equal(state.L1.gaps[0].missCount, 0);
@@ -214,7 +214,7 @@ test("DeepSearch validateIteration helper: hit/no-evidence keeps open, blockAfte
     state.L1.evidenceLedger = [];
     state.todos = [{ todoId: "t1", relatedGapId: "g1", status: "open", text: "x" }];
 
-    const out = __test.validateIteration(state, { blockAfterMisses: 2 });
+    const out = __test.validateIteration(state, { blockAfterMisses: 2, roundHits: {} });
     assert.equal(out.openCount, 0);
     assert.equal(state.L1.gaps[0].status, "blocked");
     assert.equal(state.todos[0].status, "blocked");
@@ -226,13 +226,28 @@ test("DeepSearch validateIteration helper: hit/no-evidence keeps open, blockAfte
     state.L2.retrievedChunks = [{ chunkId: "c1", gapId: "g1", sourceId: "s1", locator: { charStart: 0, charEnd: 2 }, text: "hi" }];
     state.L1.evidenceLedger = [{ evidenceId: "e1", chunkId: "c1", sourceId: "s1", locator: { charStart: 0, charEnd: 2 }, quote: "hi" }];
 
-    const out = __test.validateIteration(state, { blockAfterMisses: 2 });
+    const out = __test.validateIteration(state, { blockAfterMisses: 2, roundHits: {} });
     assert.equal(out.openCount, 0);
     assert.equal(state.L1.gaps[0].status, "filled");
     assert.equal(state.L1.gaps[0].filledIteration, 3);
   }
 
   assert.equal(__test.signatureForRetrievedChunk({ gapId: "g1", sourceId: "s1" }), "g1::s1::-1--1");
+});
+
+test("DeepSearch validateIteration helper: miss/hit is per-round (not cumulative)", async () => {
+  const { DeepSearchState, validateIteration } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  const state = new DeepSearchState({ runId: "run_round_hits", iteration: 0, userConfig: { gaps: { blockAfterMisses: 99 } } });
+  state.L1.gaps = [{ gapId: "g1", type: "x", question: "q", status: "open", missCount: 0 }];
+
+  // Simulate history: prior round had a retrieval for g1, but this round has none.
+  state.L2.retrievedChunks = [{ chunkId: "c_prev", gapId: "g1", sourceId: "s1", locator: { charStart: 0, charEnd: 2 }, text: "hi" }];
+  state.L1.evidenceLedger = [];
+
+  validateIteration(state, { blockAfterMisses: 99, roundHits: {} });
+  assert.equal(state.L1.gaps[0].status, "open");
+  assert.equal(state.L1.gaps[0].missCount, 1);
 });
 
 test("DeepSearch ensureState helper: constructs state and applies userConfig.maxIterations", async () => {
@@ -264,6 +279,37 @@ test("DeepSearchStage: run adapter + runDeepSearchStage + registerDeepSearchStag
     { timeoutMs: 123 }
   );
   assert.equal(calls.length, 7);
+});
+
+test("DeepSearch shouldContinue: stops on maxIterations/openGaps/noNewHitsRounds", async () => {
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+  const { shouldContinue } = await import("../../../js/agents/stages/deepsearch/index.js");
+
+  {
+    const state = new DeepSearchState({ runId: "run_sc_1", iteration: 0, maxIterations: 2, L1: { gaps: [] } });
+    assert.equal(shouldContinue(state, { hitCount: 1, noNewHitsRounds: 0 }), false);
+  }
+
+  {
+    const state = new DeepSearchState({
+      runId: "run_sc_2",
+      iteration: 0,
+      maxIterations: 2,
+      L1: { gaps: [{ gapId: "g1", type: "t", question: "q", status: "open", missCount: 0 }] },
+    });
+    assert.equal(shouldContinue(state, { hitCount: 0, noNewHitsRounds: 2 }), false);
+    assert.equal(shouldContinue(state, { hitCount: 0, noNewHitsRounds: 1 }), true);
+  }
+
+  {
+    const state = new DeepSearchState({
+      runId: "run_sc_3",
+      iteration: 2,
+      maxIterations: 2,
+      L1: { gaps: [{ gapId: "g1", type: "t", question: "q", status: "open", missCount: 0 }] },
+    });
+    assert.equal(shouldContinue(state, { hitCount: 1, noNewHitsRounds: 0 }), false);
+  }
 });
 
 test("DeepSearch exit condition: iteration >= maxIterations", async () => {

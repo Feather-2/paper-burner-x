@@ -524,6 +524,207 @@ class SlideDocument extends EventEmitter {
     fromJSON(json) {
         this.load(typeof json === 'string' ? JSON.parse(json) : json);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Operation 应用（自然语言编辑 / 历史回放）
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * 应用 Operation 列表（支持 batch）
+     * @param {Array|Object} operations - Operation[] 或单个 Operation / batch
+     * @param {Object} options
+     * @param {HistoryManager} options.history - 可选，自动 push 进入历史
+     * @param {boolean} options.pushToHistory - 默认 true（当 history 存在时）
+     */
+    applyOperations(operations, options = {}) {
+        const list = Array.isArray(operations) ? operations : (operations ? [operations] : []);
+        if (list.length === 0) return [];
+
+        const history = options.history || this.history || null;
+        const pushToHistory = options.pushToHistory !== false && !!history;
+
+        const applied = [];
+
+        const applyChangeByPath = (obj, path, value) => {
+            if (!obj || !path) return;
+            const parts = String(path).split('.');
+            let current = obj;
+            for (let i = 0; i < parts.length - 1; i++) {
+                const part = parts[i];
+                const m = part.match(/^(\w+)\[(\d+)\]$/);
+                if (m) {
+                    current = current?.[m[1]]?.[parseInt(m[2])];
+                } else {
+                    current = current?.[part];
+                }
+                if (current === undefined || current === null) return;
+            }
+            const last = parts[parts.length - 1];
+            if (value === undefined) delete current[last];
+            else current[last] = value;
+        };
+
+        const findSlideIndexById = (slides, slideId) => {
+            if (!slideId) return -1;
+            return slides.findIndex(s => s?.id === slideId);
+        };
+
+        const findElementByIdInSlide = (slide, elementId) => {
+            if (!slide?.elements || !elementId) return null;
+            return this._findElementById(elementId, slide.elements);
+        };
+
+        const getGeneratorSlides = () => {
+            const slides = window.PPTGenerator?.slides;
+            return Array.isArray(slides) ? slides : null;
+        };
+
+        const applySingle = (op) => {
+            if (!op || typeof op !== 'object') return;
+
+            // batch wrapper
+            if (op.type === 'batch' && Array.isArray(op.operations)) {
+                for (const child of op.operations) applySingle(child);
+                applied.push(op);
+                if (pushToHistory) history.push(op);
+                return;
+            }
+
+            const genSlides = getGeneratorSlides();
+            const docSlides = this.slides;
+
+            switch (op.type) {
+                case 'slide.add': {
+                    const index = typeof op.index === 'number' ? op.index : docSlides.length;
+                    const slide = op.slide ? JSON.parse(JSON.stringify(op.slide)) : { id: this._generateId(), type: 'freeform', background: '#ffffff', elements: [] };
+                    this.addSlide(JSON.parse(JSON.stringify(slide)), index);
+                    if (genSlides) genSlides.splice(index, 0, JSON.parse(JSON.stringify(slide)));
+                    applied.push(op);
+                    if (pushToHistory) history.push(op);
+                    break;
+                }
+
+                case 'slide.delete': {
+                    const index = typeof op.index === 'number'
+                        ? op.index
+                        : (op.slideId ? findSlideIndexById(docSlides, op.slideId) : -1);
+                    if (index < 0 || index >= docSlides.length) break;
+                    const removed = this.removeSlide(index);
+                    if (genSlides) genSlides.splice(index, 1);
+                    // 兜底：保证撤销信息完整
+                    if (!op.slide && removed) op.slide = JSON.parse(JSON.stringify(removed));
+                    applied.push(op);
+                    if (pushToHistory) history.push(op);
+                    break;
+                }
+
+                case 'slide.update': {
+                    const index = typeof op.slideIndex === 'number'
+                        ? op.slideIndex
+                        : (op.slideId ? findSlideIndexById(docSlides, op.slideId) : -1);
+                    if (index < 0 || index >= docSlides.length) break;
+                    const slide = this.getSlide(index);
+                    if (!slide) break;
+                    for (const change of (op.changes || [])) {
+                        applyChangeByPath(slide, change.path, change.newValue);
+                    }
+                    this.emit('slide.update', { slide, index, updates: op.changes });
+                    if (genSlides?.[index]) {
+                        for (const change of (op.changes || [])) {
+                            applyChangeByPath(genSlides[index], change.path, change.newValue);
+                        }
+                    }
+                    applied.push(op);
+                    if (pushToHistory) history.push(op);
+                    break;
+                }
+
+                case 'element.add': {
+                    const slideIndex = typeof op.slideIndex === 'number'
+                        ? op.slideIndex
+                        : (op.slideId ? findSlideIndexById(docSlides, op.slideId) : -1);
+                    if (slideIndex < 0 || slideIndex >= docSlides.length) break;
+                    const element = op.element ? JSON.parse(JSON.stringify(op.element)) : null;
+                    if (!element) break;
+                    const index = typeof op.index === 'number' ? op.index : -1;
+                    this.addElement(slideIndex, JSON.parse(JSON.stringify(element)), index);
+                    if (genSlides?.[slideIndex]) {
+                        if (!genSlides[slideIndex].elements) genSlides[slideIndex].elements = [];
+                        if (index < 0 || index >= genSlides[slideIndex].elements.length) genSlides[slideIndex].elements.push(JSON.parse(JSON.stringify(element)));
+                        else genSlides[slideIndex].elements.splice(index, 0, JSON.parse(JSON.stringify(element)));
+                    }
+                    applied.push(op);
+                    if (pushToHistory) history.push(op);
+                    break;
+                }
+
+                case 'element.delete': {
+                    const slideIndex = typeof op.slideIndex === 'number'
+                        ? op.slideIndex
+                        : (op.slideId ? findSlideIndexById(docSlides, op.slideId) : -1);
+                    if (slideIndex < 0 || slideIndex >= docSlides.length) break;
+                    const elementId = op.elementId || op.element?.id;
+                    if (!elementId) break;
+
+                    // 记录被删元素与索引，确保可撤销
+                    const loc = this.getElementLocation(elementId);
+                    const removed = this.removeElement(slideIndex, elementId);
+                    if (removed) {
+                        if (!op.element) op.element = JSON.parse(JSON.stringify(removed));
+                        if (typeof op.index !== 'number' && loc) op.index = loc.elementIndex;
+                    }
+
+                    if (genSlides?.[slideIndex]?.elements) {
+                        const idx = genSlides[slideIndex].elements.findIndex(el => el.id === elementId);
+                        if (idx >= 0) genSlides[slideIndex].elements.splice(idx, 1);
+                    }
+
+                    applied.push(op);
+                    if (pushToHistory) history.push(op);
+                    break;
+                }
+
+                case 'element.update': {
+                    const slideIndex = typeof op.slideIndex === 'number'
+                        ? op.slideIndex
+                        : (op.slideId ? findSlideIndexById(docSlides, op.slideId) : -1);
+                    const elementId = op.elementId;
+                    if (!elementId) break;
+
+                    // 文档内更新
+                    const docElement = this.getElementById(elementId);
+                    if (docElement) {
+                        for (const change of (op.changes || [])) {
+                            applyChangeByPath(docElement, change.path, change.newValue);
+                        }
+                        this.emit('element.update', { slideIndex, elementId, updates: op.changes });
+                    }
+
+                    // 同步到 PPTGenerator.slides（canvas 渲染源）
+                    if (genSlides && slideIndex >= 0 && slideIndex < genSlides.length) {
+                        const genEl = findElementByIdInSlide(genSlides[slideIndex], elementId);
+                        if (genEl) {
+                            for (const change of (op.changes || [])) {
+                                applyChangeByPath(genEl, change.path, change.newValue);
+                            }
+                        }
+                    }
+
+                    applied.push(op);
+                    if (pushToHistory) history.push(op);
+                    break;
+                }
+            }
+        };
+
+        for (const op of list) applySingle(op);
+
+        // rebuild index 最终兜底
+        this._rebuildIndex();
+
+        this.emit('document.operation.applied', { operations: list, applied });
+        return applied;
+    }
 }
 
 window.SlideDocument = SlideDocument;

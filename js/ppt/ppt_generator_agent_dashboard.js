@@ -7,6 +7,8 @@ const PPTGeneratorAgentDashboard = {
         const container = document.getElementById('pptPreviewArea');
         if (!container) return;
 
+        this._syncWorkflowModeAndBriefFromData();
+
         if (this.state === 'completed') {
             this.renderPresentationMode(container);
             return;
@@ -17,10 +19,14 @@ const PPTGeneratorAgentDashboard = {
 
         if (this.state === 'idle') {
             visContent = this._renderUploadView();
+        } else if (this.state === 'briefing') {
+            visContent = this._renderProjectBriefForm();
         } else if (this.state === 'script_review') {
             visContent = this._renderScriptReview();
         } else if (this.state === 'page_layout') {
             visContent = this._renderPageLayoutReview();
+        } else if (this.state === 'deepsearch_review') {
+            visContent = this._renderDeepSearchReview();
         } else if (this.state === 'questioning') {
             visContent = this._renderQuestionForm();
         } else if (this.state === 'outline_review') {
@@ -50,6 +56,8 @@ const PPTGeneratorAgentDashboard = {
                         <h2 class="gen-title">${this._getCurrentStatusTitle()}</h2>
                         <p class="gen-subtitle">${this._getCurrentStatusDesc()}</p>
 
+                        ${this.state === 'researching' ? this._renderDeepSearchVisualization({ compact: true }) : ''}
+
                         <!-- File List (Only show during reading) -->
                         <div id="fileProcessingGrid" class="gen-file-list" style="display: ${this.state === 'reading' ? 'flex' : 'none'}">
                             <!-- Dynamic File Nodes -->
@@ -74,12 +82,87 @@ const PPTGeneratorAgentDashboard = {
         }
     },
 
+    _syncWorkflowModeAndBriefFromData() {
+        const allowed = new Set(['auto', 'guided', 'manual']);
+        const dataMode = typeof this.workflowData?.workflowMode === 'string' ? this.workflowData.workflowMode : '';
+        const nextMode = allowed.has(dataMode) ? dataMode : (allowed.has(this.workflowMode) ? this.workflowMode : 'auto');
+        if (!allowed.has(this.workflowMode)) this.workflowMode = nextMode;
+        if (allowed.has(nextMode) && this.workflowMode !== nextMode) this.workflowMode = nextMode;
+
+        const dataBrief = this.workflowData?.projectBrief && typeof this.workflowData.projectBrief === 'object' ? this.workflowData.projectBrief : null;
+        if (dataBrief && (!this.projectBrief || typeof this.projectBrief !== 'object')) {
+            this.projectBrief = { taskGoal: '', projectSummary: '', audience: '', tone: '' };
+        }
+        if (dataBrief) {
+            this.projectBrief = {
+                taskGoal: typeof dataBrief.taskGoal === 'string' ? dataBrief.taskGoal : (this.projectBrief?.taskGoal || ''),
+                projectSummary: typeof dataBrief.projectSummary === 'string' ? dataBrief.projectSummary : (this.projectBrief?.projectSummary || ''),
+                audience: typeof dataBrief.audience === 'string' ? dataBrief.audience : (this.projectBrief?.audience || ''),
+                tone: typeof dataBrief.tone === 'string' ? dataBrief.tone : (this.projectBrief?.tone || ''),
+            };
+        }
+    },
+
     _renderUploadView() {
         const files = this.workflowData.files || [];
         const hasFiles = files.length > 0;
 
+        const mode = this.workflowMode || this.workflowData?.workflowMode || 'auto';
+        const brief = this.workflowData?.projectBrief || this.projectBrief || {};
+        const taskGoal = typeof brief.taskGoal === 'string' ? brief.taskGoal.trim() : '';
+        const summary = typeof brief.projectSummary === 'string' ? brief.projectSummary.trim() : '';
+
+        const modeCard = (key, title, desc) => {
+            const selected = mode === key;
+            const bg = selected ? 'rgba(79, 70, 229, 0.08)' : 'white';
+            const border = selected ? '1px solid var(--ppt-primary)' : '1px solid var(--ppt-border)';
+            const ring = selected ? '0 0 0 3px rgba(79, 70, 229, 0.12)' : 'none';
+            return `
+                <div
+                    onclick="window.PPTGenerator.setWorkflowMode && window.PPTGenerator.setWorkflowMode('${key}')"
+                    style="cursor:pointer; padding:14px 14px 12px; border-radius:14px; background:${bg}; border:${border}; box-shadow:${ring}; flex:1; min-width: 180px;"
+                >
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <div style="width:28px; height:28px; border-radius:10px; display:flex; align-items:center; justify-content:center; background: ${selected ? 'var(--ppt-primary)' : 'var(--ppt-bg-app)'}; color:${selected ? 'white' : 'var(--ppt-text-secondary)'};">
+                            <iconify-icon icon="${key === 'auto' ? 'carbon:rocket' : key === 'guided' ? 'carbon:map' : 'carbon:cursor-1'}"></iconify-icon>
+                        </div>
+                        <div style="flex:1; min-width:0;">
+                            <div style="font-weight:650; color: var(--ppt-text);">${title}</div>
+                            <div style="font-size:12px; color: var(--ppt-text-secondary); line-height:1.35; margin-top:2px;">${desc}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        };
+
         return `
             <div class="generation-container" style="background: transparent;">
+                <!-- Workflow Mode -->
+                <div style="width:100%; max-width: 860px; margin: 0 auto 16px;">
+                    <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin-bottom:10px;">
+                        <div>
+                            <div style="font-weight:700; color: var(--ppt-text); font-size: 14px;">选择工作模式</div>
+                            <div style="color: var(--ppt-text-secondary); font-size: 12px; margin-top:2px;">Auto-pilot 自动流转；Guided/Manual 将在关键节点等待确认</div>
+                        </div>
+                        <button class="ppt-upload-btn" style="padding:8px 10px;" onclick="window.PPTGenerator.openProjectBriefForm && window.PPTGenerator.openProjectBriefForm()">
+                            <iconify-icon icon="carbon:edit"></iconify-icon> 编辑需求
+                        </button>
+                    </div>
+                    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                        ${modeCard('auto', 'Auto-pilot', '默认自动推进，适合快速生成')}
+                        ${modeCard('guided', 'Guided', '关键节点确认，适合可控迭代')}
+                        ${modeCard('manual', 'Manual', '一步一确认，适合精细调参')}
+                    </div>
+
+                    <div style="margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: var(--ppt-bg-app); border: 1px solid var(--ppt-border);">
+                        <div style="display:flex; align-items:center; gap:8px; color: var(--ppt-text-secondary); font-size: 12px;">
+                            <iconify-icon icon="carbon:information"></iconify-icon>
+                            <span>当前需求：${taskGoal ? this._escapeHtml(taskGoal) : '未填写（将无法开始 DeepSearch）'}</span>
+                        </div>
+                        ${summary ? `<div style="margin-top:8px; color: var(--ppt-text); font-size: 13px; line-height: 1.5;">${this._escapeHtml(summary)}</div>` : ''}
+                    </div>
+                </div>
+
                 <div class="ppt-upload-zone" id="pptUploadZone" style="background: var(--ppt-bg-app); border: 2px dashed var(--ppt-primary-light);">
                     <iconify-icon icon="carbon:cloud-upload" class="ppt-upload-icon" style="color: var(--ppt-primary);"></iconify-icon>
                     <div class="ppt-upload-text">点击或拖拽上传文档</div>
@@ -110,7 +193,7 @@ const PPTGeneratorAgentDashboard = {
                         `).join('')}
                     </div>
                     <button class="ppt-btn-primary" style="margin-top: 24px; width: 100%; max-width: 600px; justify-content: center; padding: 16px; font-size: 16px;" onclick="window.PPTGenerator.startMultiAgentWorkflow()">
-                        <iconify-icon icon="carbon:rocket"></iconify-icon> 开始分析 (${files.length} 个资源)
+                        <iconify-icon icon="${taskGoal ? 'carbon:rocket' : 'carbon:edit'}"></iconify-icon> ${taskGoal ? `开始分析 (${files.length} 个资源)` : '下一步：填写需求'}
                     </button>
                 ` : `
                     <div style="margin-top: 24px; text-align: center; color: var(--ppt-text-secondary); font-size: 13px;">
@@ -119,6 +202,191 @@ const PPTGeneratorAgentDashboard = {
                 `}
             </div>
         `;
+    },
+
+    _renderProjectBriefForm() {
+        const brief = this.workflowData?.projectBrief || this.projectBrief || {};
+        const taskGoal = typeof brief.taskGoal === 'string' ? brief.taskGoal : '';
+        const projectSummary = typeof brief.projectSummary === 'string' ? brief.projectSummary : '';
+        const audience = typeof brief.audience === 'string' ? brief.audience : '';
+        const tone = typeof brief.tone === 'string' ? brief.tone : '';
+        const modeLabel = (this.workflowMode || 'auto') === 'auto' ? 'Auto-pilot' : (this.workflowMode === 'guided' ? 'Guided' : 'Manual');
+
+        return `
+            <div class="ppt-question-form">
+                <div class="form-header">
+                    <h3><iconify-icon icon="carbon:target"></iconify-icon> 项目需求（ProjectBrief）</h3>
+                    <p>用于约束 DeepSearch 与 PPT 生成方向（当前模式：${modeLabel}）。</p>
+                </div>
+                <div class="form-body custom-scrollbar">
+                    <div class="form-group">
+                        <label>1. 任务目标（必填）</label>
+                        <input id="pptBriefTaskGoal" type="text" class="ppt-input-field" placeholder="例如：生成一份面向高管的市场分析汇报，突出竞争格局与关键指标" value="${this._escapeAttr(taskGoal)}">
+                    </div>
+                    <div class="form-group">
+                        <label>2. 侧重点 / 项目摘要（写入 projectSummary）</label>
+                        <textarea id="pptBriefProjectSummary" class="ppt-input-field" style="min-height: 140px; line-height: 1.5;" placeholder="希望重点关注哪些结论、证据、结构或风格？">${this._escapeHtml(projectSummary)}</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>3. 受众（可选）</label>
+                        <input id="pptBriefAudience" type="text" class="ppt-input-field" placeholder="例如：非技术高管 / 技术团队 / 混合受众" value="${this._escapeAttr(audience)}">
+                    </div>
+                    <div class="form-group">
+                        <label>4. 语气（可选）</label>
+                        <input id="pptBriefTone" type="text" class="ppt-input-field" placeholder="例如：商务严谨 / 学术 / 科技感" value="${this._escapeAttr(tone)}">
+                    </div>
+                </div>
+                <div class="form-footer">
+                    <button class="ppt-btn-secondary" onclick="window.PPTGenerator.cancelProjectBrief && window.PPTGenerator.cancelProjectBrief()">
+                        <iconify-icon icon="carbon:arrow-left"></iconify-icon> 返回
+                    </button>
+                    <button class="ppt-btn-primary" onclick="window.PPTGenerator.submitProjectBrief && window.PPTGenerator.submitProjectBrief()">
+                        保存并继续 <iconify-icon icon="carbon:arrow-right"></iconify-icon>
+                    </button>
+                </div>
+            </div>
+        `;
+    },
+
+    _renderDeepSearchReview() {
+        const md = typeof this.workflowData?.reportMarkdown === 'string'
+            ? this.workflowData.reportMarkdown
+            : (this.workflowData?.report?.markdown || '');
+
+        const hasContinue = typeof window !== 'undefined' && window.PPTGenerator && typeof window.PPTGenerator.continueDeepSearchIteration === 'function';
+        const hasProceed = typeof window !== 'undefined' && window.PPTGenerator && typeof window.PPTGenerator.proceedToScriptReview === 'function';
+
+        return `
+            <div class="ppt-question-form">
+                <div class="form-header">
+                    <h3><iconify-icon icon="carbon:search"></iconify-icon> DeepSearch 结果审阅</h3>
+                    <p>查看 gaps 覆盖情况与迭代进度；可继续下一轮或进入脚本编辑。</p>
+                </div>
+                <div class="form-body custom-scrollbar">
+                    ${this._renderDeepSearchVisualization({ compact: false })}
+
+                    <div style="margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--ppt-border);">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
+                            <div style="font-weight:650; color: var(--ppt-text);">研究报告预览</div>
+                            <div style="font-size:12px; color: var(--ppt-text-secondary);">可在下一步编辑全文</div>
+                        </div>
+                        <textarea class="ppt-input-field" style="width: 100%; min-height: 220px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; line-height: 1.5;"
+                            readonly>${this._escapeHtml(md)}</textarea>
+                    </div>
+                </div>
+                <div class="form-footer">
+                    <button class="ppt-btn-secondary" ${hasContinue ? '' : 'disabled'} onclick="${hasContinue ? 'window.PPTGenerator.continueDeepSearchIteration()' : ''}">
+                        <iconify-icon icon="carbon:renew"></iconify-icon> 下一轮迭代
+                    </button>
+                    <button class="ppt-btn-primary" ${hasProceed ? '' : 'disabled'} onclick="${hasProceed ? 'window.PPTGenerator.proceedToScriptReview()' : ''}">
+                        进入脚本编辑 <iconify-icon icon="carbon:arrow-right"></iconify-icon>
+                    </button>
+                </div>
+            </div>
+        `;
+    },
+
+    _renderDeepSearchVisualization({ compact } = {}) {
+        const viz = this.workflowData?.deepsearchViz && typeof this.workflowData.deepsearchViz === 'object' ? this.workflowData.deepsearchViz : {};
+        const iteration = typeof viz.iteration === 'number' ? viz.iteration : 0;
+        const maxIterations = typeof viz.maxIterations === 'number' ? viz.maxIterations : 1;
+        const completedIteration = typeof viz.lastCompletedIteration === 'number' ? viz.lastCompletedIteration : null;
+
+        const gaps = Array.isArray(viz.gaps) ? viz.gaps : [];
+        const openCount = typeof viz.openGapCount === 'number'
+            ? viz.openGapCount
+            : gaps.filter(g => (g?.status ? String(g.status) : 'open') === 'open').length;
+
+        const safeMax = Math.max(1, maxIterations);
+        const pct = Math.max(0, Math.min(1, iteration / safeMax));
+
+        const header = `
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px;">
+                <div style="display:flex; align-items:center; gap:10px; min-width:0;">
+                    <div style="width:28px; height:28px; border-radius:10px; display:flex; align-items:center; justify-content:center; background: rgba(16, 185, 129, 0.12); color: var(--ppt-success);">
+                        <iconify-icon icon="carbon:ibm-watson-discovery"></iconify-icon>
+                    </div>
+                    <div style="min-width:0;">
+                        <div style="font-weight:650; color: var(--ppt-text);">DeepSearch 进度</div>
+                        <div style="font-size:12px; color: var(--ppt-text-secondary); margin-top:2px;">
+                            ${completedIteration !== null ? `已完成第 ${completedIteration + 1} 轮` : '运行中'} · open gaps: ${openCount}/${gaps.length || '—'}
+                        </div>
+                    </div>
+                </div>
+                <div style="font-size:12px; color: var(--ppt-text-secondary); white-space:nowrap;">迭代 ${iteration}/${safeMax}</div>
+            </div>
+        `;
+
+        const progress = `
+            <div style="height:10px; border-radius:999px; background: rgba(148, 163, 184, 0.25); overflow:hidden;">
+                <div style="height:10px; width:${(pct * 100).toFixed(1)}%; background: linear-gradient(90deg, var(--ppt-primary), rgba(79, 70, 229, 0.55));"></div>
+            </div>
+        `;
+
+        const gapRow = (g) => {
+            const status = g?.status ? String(g.status) : 'open';
+            const isOpen = status === 'open';
+            const isBlocked = status === 'blocked' || Boolean(g?.blockedReason);
+            const icon = isOpen ? 'carbon:circle-dash' : (isBlocked ? 'carbon:warning-alt' : 'carbon:checkmark-filled');
+            const color = isOpen ? 'var(--ppt-text-secondary)' : (isBlocked ? 'var(--ppt-warning)' : 'var(--ppt-success)');
+            const title = this._escapeHtml(String(g?.question || g?.gapId || 'gap'));
+            const meta = [
+                g?.gapId ? String(g.gapId) : null,
+                g?.priority ? String(g.priority) : null,
+                typeof g?.missCount === 'number' ? `miss:${g.missCount}` : null,
+            ].filter(Boolean).join(' · ');
+
+            return `
+                <div style="display:flex; gap:10px; padding:10px 10px; border-radius:12px; border: 1px solid var(--ppt-border); background: white;">
+                    <div style="margin-top:2px; color:${color};">
+                        <iconify-icon icon="${icon}"></iconify-icon>
+                    </div>
+                    <div style="min-width:0;">
+                        <div style="font-size:13px; color: var(--ppt-text); line-height:1.35;">${title}</div>
+                        ${meta ? `<div style="margin-top:4px; font-size:12px; color: var(--ppt-text-secondary);">${this._escapeHtml(meta)}</div>` : ''}
+                        ${isBlocked && g?.blockedReason ? `<div style="margin-top:6px; font-size:12px; color: var(--ppt-warning);">${this._escapeHtml(String(g.blockedReason))}</div>` : ''}
+                    </div>
+                </div>
+            `;
+        };
+
+        const list = gaps.length ? gaps.map(gapRow).join('') : `
+            <div style="padding: 12px; border-radius: 12px; border: 1px dashed var(--ppt-border); color: var(--ppt-text-secondary); font-size: 12px;">
+                暂无 gaps 数据（等待 DeepSearch gaps 阶段输出）。
+            </div>
+        `;
+
+        const wrapperStyle = compact
+            ? 'margin-top: 14px; width: 100%; text-align:left;'
+            : 'width: 100%; text-align:left;';
+
+        return `
+            <div style="${wrapperStyle}">
+                <div style="padding: 12px 14px; border-radius: 14px; border: 1px solid var(--ppt-border); background: var(--ppt-bg-app);">
+                    ${header}
+                    ${progress}
+                    <div style="margin-top: 12px;">
+                        <div style="font-weight: 650; color: var(--ppt-text); font-size: 13px; margin-bottom: 8px;">Gaps</div>
+                        <div style="display:flex; flex-direction:column; gap:10px;">
+                            ${list}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    _escapeHtml(value) {
+        return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+    },
+
+    _escapeAttr(value) {
+        return this._escapeHtml(value).replaceAll('\n', ' ').replaceAll('\r', ' ');
     },
 
     openHistorySelector() {

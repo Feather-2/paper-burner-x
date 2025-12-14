@@ -203,6 +203,117 @@ class SlideEditor extends EventEmitter {
     }
 
     // ═══════════════════════════════════════════════════════════════
+    // 自然语言编辑（Intent → Operations → Apply → DSL Sync）
+    // ═══════════════════════════════════════════════════════════════
+
+    async _loadScriptOnce(src) {
+        if (typeof document === 'undefined') {
+            throw new Error('当前环境不支持动态加载脚本');
+        }
+
+        this._nlScriptPromises = this._nlScriptPromises || new Map();
+        if (this._nlScriptPromises.has(src)) return this._nlScriptPromises.get(src);
+
+        const p = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = src;
+            script.async = true;
+            script.onload = () => resolve();
+            script.onerror = () => reject(new Error(`加载脚本失败: ${src}`));
+            document.head.appendChild(script);
+        });
+        this._nlScriptPromises.set(src, p);
+        return p;
+    }
+
+    async _ensureNaturalLanguageModules() {
+        if (window.IntentParser?.parseIntent && window.OperationPlanner?.planOperations) return;
+        // 默认 ppt.html 未显式加载这些脚本：这里做懒加载兜底
+        await this._loadScriptOnce('js/ppt/editor/intent/intent-parser.js');
+        await this._loadScriptOnce('js/ppt/editor/intent/operation-planner.js');
+        // DSL 同步可选：没有也不阻塞 NL 编辑的 apply
+        try { await this._loadScriptOnce('js/ppt/dsl/serialize.js'); } catch (e) { /* ignore */ }
+    }
+
+    /**
+     * 执行自然语言编辑指令
+     * 流程：parseIntent → planOperations → applyOperations → sync DSL
+     */
+    async executeNaturalLanguage(userInput, context = {}) {
+        await this._ensureNaturalLanguageModules();
+        if (!window.IntentParser?.parseIntent) {
+            throw new Error('IntentParser 未加载');
+        }
+        if (!window.OperationPlanner?.planOperations) {
+            throw new Error('OperationPlanner 未加载');
+        }
+
+        const intent = await window.IntentParser.parseIntent(userInput, {
+            ...context,
+            editor: this,
+            currentSlideIndex: this.currentSlideIndex,
+        });
+
+        const planned = window.OperationPlanner.planOperations(intent, this.document);
+        if (!planned || planned.length === 0) {
+            this.emit('nl:noop', { userInput, intent });
+            return { intent, operations: [], dslHtml: this._dslHtml || '' };
+        }
+
+        const applied = this.document.applyOperations(planned, { history: this.history });
+
+        // 调整当前页（尽量符合用户预期）
+        for (const op of applied) {
+            if (op.type === 'slide.add' && typeof op.index === 'number') {
+                this.currentSlideIndex = op.index;
+            }
+            if (op.type === 'slide.delete' && typeof op.index === 'number') {
+                if (this.currentSlideIndex >= this.document.getSlideCount()) {
+                    this.currentSlideIndex = Math.max(0, this.document.getSlideCount() - 1);
+                }
+            }
+        }
+
+        // 同步到 PPTGenerator（如果存在）
+        if (window.PPTGenerator && typeof window.PPTGenerator._syncToGenerator === 'function') {
+            try { window.PPTGenerator._syncToGenerator(); } catch (e) { /* ignore */ }
+        }
+
+        // 同步 DSL（用于 Canvas↔DSL roundtrip）
+        if (window.PPTDSLSerialize?.documentToHtml) {
+            try {
+                // 尽量增量：收集涉及的 slideIndex/slideId
+                const changedIndexes = new Set();
+                const collect = (op) => {
+                    if (!op) return;
+                    if (op.type === 'batch' && Array.isArray(op.operations)) {
+                        op.operations.forEach(collect);
+                        return;
+                    }
+                    if (typeof op.slideIndex === 'number') changedIndexes.add(op.slideIndex);
+                    if (typeof op.index === 'number' && (op.type === 'slide.add' || op.type === 'slide.delete')) {
+                        changedIndexes.add(op.index);
+                    }
+                };
+                planned.forEach(collect);
+
+                const onlySlideIndexes = [...changedIndexes].filter(i => i >= 0 && i < this.document.getSlideCount());
+                this._dslHtml = window.PPTDSLSerialize.documentToHtml(
+                    this.document,
+                    this._dslHtml ? { baseHtml: this._dslHtml, onlySlideIndexes } : {}
+                );
+                this.emit('dsl.sync', { html: this._dslHtml, intent, operations: planned });
+            } catch (e) {
+                console.warn('[SlideEditor] DSL 同步失败:', e);
+            }
+        }
+
+        this.renderCurrentSlide();
+        this.emit('nl:executed', { userInput, intent, operations: planned });
+        return { intent, operations: planned, dslHtml: this._dslHtml || '' };
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     // 幻灯片操作
     // ═══════════════════════════════════════════════════════════════
 
