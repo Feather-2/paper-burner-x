@@ -4,7 +4,7 @@ import { buildContentPackage } from "../textprep/build-content-package.js";
 import { DeepSearchState, checkCancelled, computeRoundHitsByGapId, makeStageEmitter, validateIteration } from "./state.js";
 import { runDeepSearchScanStage } from "./scan.js";
 import { runDeepSearchGapsStage } from "./gaps.js";
-import { runDeepSearchRetrieveStage } from "./retrieve.js";
+import { parseExternalSearchConfig, runDeepSearchRetrieveStage, runExternalSearch } from "./retrieve.js";
 import { runDeepSearchUnderstandStage } from "./understand.js";
 import { generateReport, runDeepSearchWriteStage } from "./write.js";
 import { runDeepSearchCondenseStage } from "./condense.js";
@@ -309,6 +309,7 @@ export class DeepSearchStage {
                 runUnderstandStage: wrapStageFn("deepsearch.understand", runDeepSearchUnderstandStage, {
                   fallbackValue: (s) => ({ state: s }),
                 }),
+                runExternalSearch,
                 emit: emit ? (name, payload) => emit(name, payload) : null,
               },
               stageApiWithTap
@@ -379,6 +380,64 @@ export class DeepSearchStage {
             fallbackValue: { state },
           });
           updateTaskProgress();
+
+          // Reflect-driven 外搜（单轨迹主流程）
+          // 显式开启（userConfig.externalSearch.enabled=true && autoTrigger=true）才会触发。
+          const reflectResult = state?.L1?.reflectResult;
+          const externalCfg = parseExternalSearchConfig(state?.userConfig);
+          const externalEnabled = Boolean(externalCfg?.enabled) && Boolean(externalCfg?.autoTrigger);
+          const externalAlreadyTriggered = Boolean(state?.L2?.externalSearchTriggered);
+
+          if (reflectResult && !reflectResult.sufficient && externalEnabled && !externalAlreadyTriggered) {
+            const currentGaps = openGaps(state);
+            const defaultGapId = typeof currentGaps?.[0]?.gapId === "string" && currentGaps[0].gapId ? currentGaps[0].gapId : null;
+            const suggested = Array.isArray(reflectResult?.suggestedQueries) ? reflectResult.suggestedQueries.map(String).filter(Boolean) : [];
+
+            const searchGaps = suggested.length
+              ? suggested.slice(0, 3).map((q, i) => ({ gapId: defaultGapId || `ext_${i}`, query: q, question: q, type: "external" }))
+              : currentGaps
+                  .map((g) => ({
+                    gapId: String(g?.gapId || ""),
+                    query: String(g?.question || g?.text || ""),
+                    question: String(g?.question || g?.text || ""),
+                    type: String(g?.type || "external"),
+                  }))
+                  .filter((g) => g.query);
+
+            if (searchGaps.length) {
+              const { value: externalOut } = await callStage(
+                "deepsearch.external",
+                () => runExternalSearch(searchGaps, externalCfg, { emit, state, stageApi: stageApiWithTap }),
+                { stageState: state, fallbackValue: { chunks: [], documents: [], evidences: [] } }
+              );
+
+              if (!state.L2 || typeof state.L2 !== "object") state.L2 = {};
+              state.L2.externalSearchTriggered = true;
+              state.addTimeline?.({
+                name: "deepsearch.external.triggered",
+                status: "info",
+                payload: {
+                  reason: String(reflectResult?.reason || ""),
+                  suggestedQueries: suggested.slice(0, 3),
+                  addedChunks: Array.isArray(externalOut?.chunks) ? externalOut.chunks.length : 0,
+                },
+              });
+
+              if (Array.isArray(externalOut?.chunks) && externalOut.chunks.length) {
+                noNewHitsRounds = 0;
+                for (const r of externalOut.chunks) {
+                  const sig = signatureForRetrievedChunk(r);
+                  if (!seenHitSignatures.has(sig)) seenHitSignatures.add(sig);
+                }
+              }
+
+              await callStage("deepsearch.understand", () => runDeepSearchUnderstandStage(runContext, { state }, stageApiWithTap), {
+                stageState: state,
+                fallbackValue: { state },
+              });
+              updateTaskProgress();
+            }
+          }
 
           const roundHits = computeRoundHitsByGapId(retrievedChunks);
           const validateOut = validateIteration(state, { blockAfterMisses: getGapBlockAfterMisses(state), roundHits });

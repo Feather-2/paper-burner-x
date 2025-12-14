@@ -56,23 +56,42 @@ function gap(gapId, type, question, { priority = "medium", queryHints = [], stat
   };
 }
 
+function extractGoalTerms(taskGoal, { maxTerms = 6 } = {}) {
+  const goal = String(taskGoal || "");
+  const tokens = goal.match(/[\p{L}\p{N}]+/gu) || [];
+  const out = [];
+  const seen = new Set();
+  for (const raw of tokens) {
+    const t = String(raw || "").trim();
+    if (!t) continue;
+    const key = t.toLowerCase();
+    if (key.length < 2) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+    if (out.length >= (safeInt(maxTerms) ?? 6)) break;
+  }
+  return out;
+}
+
 function buildDefaultGaps(taskGoal, scanSummary) {
   const goal = String(taskGoal || "");
   const topics = Array.isArray(scanSummary?.keyTopics) ? scanSummary.keyTopics : [];
+  const goalTerms = extractGoalTerms(goal, { maxTerms: 6 });
 
   const out = [
-    gap("gap_1", "definition", "What are the core definitions and scope?", { priority: "high", queryHints: ["definition", "scope", ...topics.slice(0, 2)] }),
-    gap("gap_2", "data", "What are the key metrics and numbers we must cite?", { priority: "high", queryHints: ["statistics", "numbers", "evidence"] }),
+    gap("gap_1", "definition", "核心定义和研究范围是什么？", { priority: "high", queryHints: ["定义", "范围", ...goalTerms.slice(0, 3), ...topics.slice(0, 2)] }),
+    gap("gap_2", "data", "有哪些关键数据和指标需要引用？", { priority: "high", queryHints: ["数据", "统计", "指标", ...goalTerms.slice(0, 3)] }),
   ];
 
   if (/compare|vs|versus|对比|比较/i.test(goal)) {
-    out.push(gap(`gap_${out.length + 1}`, "comparison", "What are the main alternatives and trade-offs?", { priority: "medium", queryHints: ["compare", "pros cons"] }));
+    out.push(gap(`gap_${out.length + 1}`, "comparison", "主要的替代方案和权衡是什么？", { priority: "medium", queryHints: ["对比", "优缺点", ...goalTerms.slice(0, 3)] }));
   }
   if (/how|mechanism|原理|机制/i.test(goal)) {
-    out.push(gap(`gap_${out.length + 1}`, "mechanism", "How does it work (mechanism/process)?", { priority: "medium", queryHints: ["mechanism", "process", "workflow"] }));
+    out.push(gap(`gap_${out.length + 1}`, "mechanism", "它是如何工作的（原理/流程）？", { priority: "medium", queryHints: ["原理", "流程", "机制", ...goalTerms.slice(0, 3)] }));
   }
   if (/example|case|案例/i.test(goal)) {
-    out.push(gap(`gap_${out.length + 1}`, "example", "What are concrete examples or case studies?", { priority: "low", queryHints: ["case study", "example"] }));
+    out.push(gap(`gap_${out.length + 1}`, "example", "有哪些具体的案例或实例？", { priority: "low", queryHints: ["案例", "实例", ...goalTerms.slice(0, 3)] }));
   }
 
   return out;
@@ -165,7 +184,7 @@ function ensureTodosForGaps(state, gaps, emit) {
     const gid = toNonEmptyString(g?.gapId);
     if (!gid) continue;
     if (existingTodoByGapId.has(gid)) continue;
-    const t = state.addTodo({ text: `Fill gap: ${g.type} — ${g.question}`, relatedGapId: gid, status: g.status === "filled" ? "done" : "open" });
+    const t = state.addTodo({ text: `填补缺口: ${g.type} — ${g.question}`, relatedGapId: gid, status: g.status === "filled" ? "done" : "open" });
     todos.push(t);
     emit?.("deepsearch.todo.created", { todoId: t.todoId, relatedGapId: gid });
   }
@@ -191,6 +210,16 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
   const state = ensureState(runContext, input);
 
   checkCancelled(stageApi);
+
+  // 发射阶段开始事件
+  emitGapProgress(emit, {
+    step: "init",
+    current: 0,
+    total: 1,
+    msg: "正在启动缺口分析...",
+    detail: { step: "init" },
+  });
+
   const scanSummary = state?.L1?.scanSummary || {};
   const existingRaw = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
 
@@ -205,7 +234,7 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
       step: "normalize_existing",
       current: i + 1,
       total: existingRaw.length,
-      msg: `Normalizing existing gaps (${i + 1}/${existingRaw.length || 1})`,
+      msg: `正在规范化已有知识缺口 (${i + 1}/${existingRaw.length || 1})`,
       detail: ng ? { gapId: ng.gapId, type: ng.type, question: ng.question, priority: ng.priority, status: ng.status } : { skipped: true },
     });
   }
@@ -233,7 +262,7 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
       step: "identify_default",
       current: i + 1,
       total: suggested.length,
-      msg: `Identifying default gaps (${i + 1}/${suggested.length})`,
+      msg: `正在识别默认知识缺口 (${i + 1}/${suggested.length})`,
       detail: { gapId: ng.gapId, type: ng.type, question: ng.question, priority: ng.priority },
     });
   }
@@ -260,7 +289,7 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
       step: "identify_llm",
       current: i + 1,
       total: llmRows.length,
-      msg: `Identifying LLM gaps (${i + 1}/${llmRows.length})`,
+      msg: `正在识别 AI 建议的知识缺口 (${i + 1}/${llmRows.length})`,
       detail: { gapId: ng.gapId, type: ng.type, question: ng.question, priority: ng.priority },
     });
   }
@@ -283,7 +312,7 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
       step: "identify_open_questions",
       current: i + 1,
       total: openQuestions.length,
-      msg: `Adding open questions (${i + 1}/${openQuestions.length})`,
+      msg: `正在添加开放问题 (${i + 1}/${openQuestions.length})`,
       detail: { gapId: ng.gapId, question: ng.question, priority: ng.priority },
     });
   }
@@ -297,7 +326,7 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
     if (pr) return pr;
     return String(a?.gapId || "").localeCompare(String(b?.gapId || ""));
   });
-  emitGapProgress(emit, { step: "prioritize_sort", current: 1, total: 1, msg: "Prioritizing and sorting gaps", detail: { totalGaps: merged.length } });
+  emitGapProgress(emit, { step: "prioritize_sort", current: 1, total: 1, msg: "正在排序和设定优先级", detail: { totalGaps: merged.length } });
 
   state.L1.gaps = merged;
 
@@ -312,6 +341,7 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
 export const __test = {
   gap,
   gapKey,
+  extractGoalTerms,
   normalizeGap,
   nextGapId,
   ensureTodosForGaps,

@@ -61,6 +61,19 @@ function scoreFromGrepMatchCount(matchCount) {
   return Math.log(1 + Math.max(0, matchCount));
 }
 
+function safeFiniteNumber(v) {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function bm25CacheKey(chunks, bm25Options) {
+  const k1 = safeFiniteNumber(bm25Options?.k1) ?? 1.2;
+  const b = safeFiniteNumber(bm25Options?.b) ?? 0.75;
+  const n = Array.isArray(chunks) ? chunks.length : 0;
+  const firstId = n ? String(chunks[0]?.chunkId || "") : "";
+  const lastId = n ? String(chunks[n - 1]?.chunkId || "") : "";
+  return `${k1}|${b}|${n}|${firstId}|${lastId}`;
+}
+
 function ensureToc(sourceIndex) {
   if (sourceIndex && Array.isArray(sourceIndex.toc) && sourceIndex.toc.length) return sourceIndex.toc;
   if (sourceIndex && typeof sourceIndex.fullText === "string") {
@@ -95,7 +108,21 @@ export function retrieve(sourceIndex, gaps, config = {}) {
   const useBm25 = config.useBm25 !== false;
   const useGrep = config.useGrep !== false;
 
-  const bm25Index = useBm25 ? buildBm25Index(allChunks, config.bm25 || {}) : null;
+  let bm25Index = null;
+  if (useBm25) {
+    const cacheKey = bm25CacheKey(allChunks, config.bm25);
+    const cached = sourceIndex && sourceIndex._bm25Cache && typeof sourceIndex._bm25Cache === "object" ? sourceIndex._bm25Cache : null;
+    if (cached && cached.key === cacheKey && cached.index) {
+      bm25Index = cached.index;
+    } else {
+      bm25Index = buildBm25Index(allChunks, config.bm25 || {});
+      try {
+        sourceIndex._bm25Cache = { key: cacheKey, index: bm25Index };
+      } catch {
+        // ignore non-extensible sourceIndex
+      }
+    }
+  }
 
   const byChunkId = new Map();
   const hitRecords = [];

@@ -54,7 +54,7 @@ function toSourceCardsWithProgress(sources, emit) {
         current: i + 1,
         total: Math.max(1, total),
         progress: clampProgress(total > 0 ? (i + 1) / total : 1),
-        msg: `Scanning source ${card.sourceId}${card.title ? `: ${card.title}` : ""}`,
+        msg: `正在扫描来源 ${card.sourceId}${card.title ? `：${card.title}` : ""}`,
         detail: card,
       },
       { status: "progress" }

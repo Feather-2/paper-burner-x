@@ -347,7 +347,11 @@ export function validateIteration(state, { roundHits, blockAfterMisses = 2 } = {
       if (!gid) continue;
       if (g.status !== "filled" && g.status !== "blocked") continue;
       const next = g.status === "filled" ? "completed" : "blocked";
-      for (const n of tree.getNodesForGap(gid)) tree.updateStatus(n.nodeId, next);
+      const nodes = tree.getNodesForGap(gid) || [];
+      for (const n of Array.isArray(nodes) ? nodes : []) {
+        const nodeId = toNonEmptyString(n?.nodeId) || toNonEmptyString(n?.planNodeId) || toNonEmptyString(n?.id);
+        if (nodeId) tree.updateStatus(nodeId, next);
+      }
     }
   }
 

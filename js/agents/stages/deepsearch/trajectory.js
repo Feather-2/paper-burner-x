@@ -1,6 +1,7 @@
-import { checkCancelled } from "./state.js";
+import { checkCancelled, computeRoundHitsByGapId, validateIteration } from "./state.js";
 import { dedupeClaims } from "../../deepsearch/understanding/dedupe.js";
 import { TrajectoryCache } from "./trajectory-cache.js";
+import { parseExternalSearchConfig } from "./retrieve.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -8,6 +9,12 @@ function isPlainObject(v) {
 
 function safeInt(n) {
   return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
+}
+
+function toNonEmptyString(v) {
+  if (v === undefined || v === null) return undefined;
+  const s = String(v).trim();
+  return s.length ? s : undefined;
 }
 
 function clampInt(n, { min = 1, max = 8 } = {}) {
@@ -44,113 +51,16 @@ function openGaps(state) {
   return gaps.filter(isOpenGap);
 }
 
+function validateIterationCompat(state, { blockAfterMisses = 2 } = {}) {
+  const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
+  const roundHits = computeRoundHitsByGapId(retrieved);
+  return validateIteration(state, { blockAfterMisses, roundHits });
+}
+
 function getGapBlockAfterMisses(state) {
   const cfg = isPlainObject(state?.userConfig?.gaps) ? state.userConfig.gaps : {};
   const n = safeInt(cfg.blockAfterMisses);
   return n !== null && n >= 1 ? n : 2;
-}
-
-function validateIteration(state, { blockAfterMisses = 2 } = {}) {
-  const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
-  const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
-  const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
-
-  const retrievedByChunkId = new Map();
-  const hitCountByGapId = new Map();
-  for (const r of retrieved) {
-    const chunkId = String(r?.chunkId || "");
-    if (chunkId) retrievedByChunkId.set(chunkId, r);
-    const gid = String(r?.gapId || "");
-    if (!gid) continue;
-    hitCountByGapId.set(gid, (hitCountByGapId.get(gid) || 0) + 1);
-  }
-
-  const filledGapIds = new Set();
-  for (const e of evidenceLedger) {
-    const chunkId = String(e?.chunkId || "");
-    const r = retrievedByChunkId.get(chunkId);
-    if (!r) continue;
-    const gid = String(r?.gapId || "");
-    if (gid) filledGapIds.add(gid);
-  }
-
-  let filledCount = 0;
-  let blockedCount = 0;
-  let stillOpenCount = 0;
-  const now = new Date().toISOString();
-
-  for (const g of gaps) {
-    const gid = String(g?.gapId || "");
-    if (!gid) continue;
-    const status = String(g?.status || "open");
-    if (status === "filled" || status === "blocked") continue;
-
-    if (filledGapIds.has(gid)) {
-      g.status = "filled";
-      g.filledAt = now;
-      g.filledIteration = state.iteration;
-      filledCount++;
-      continue;
-    }
-
-    const hits = hitCountByGapId.get(gid) || 0;
-    if (hits > 0) {
-      g.missCount = 0;
-      stillOpenCount++;
-      continue;
-    }
-
-    const priorMisses = safeInt(g?.missCount) ?? 0;
-    const misses = Math.max(0, priorMisses) + 1;
-    g.missCount = misses;
-
-    if (misses >= blockAfterMisses) {
-      g.status = "blocked";
-      g.blockedAt = now;
-      g.blockedReason = String(g.blockedReason || "no_retrieval_hits");
-      blockedCount++;
-    } else {
-      stillOpenCount++;
-    }
-  }
-
-  const todos = Array.isArray(state?.todos) ? state.todos : [];
-  const todoByGapId = new Map();
-  for (const t of todos) {
-    const rgid = String(t?.relatedGapId || "");
-    if (!rgid) continue;
-    todoByGapId.set(rgid, t);
-  }
-  for (const g of gaps) {
-    const gid = String(g?.gapId || "");
-    if (!gid) continue;
-    const t = todoByGapId.get(gid);
-    if (!t) continue;
-    if (g.status === "filled") t.status = "done";
-    if (g.status === "blocked") t.status = "blocked";
-  }
-
-  const tree = state?.planningTree;
-  if (typeof tree?.getNodesForGap === "function" && typeof tree?.updateStatus === "function") {
-    for (const g of gaps) {
-      const gid = String(g?.gapId || "");
-      if (!gid) continue;
-      if (g.status !== "filled" && g.status !== "blocked") continue;
-      const next = g.status === "filled" ? "completed" : "blocked";
-      for (const node of tree.getNodesForGap(gid) || []) {
-        const nodeId = String(node?.nodeId || node?.planNodeId || "");
-        if (nodeId) tree.updateStatus(nodeId, next);
-      }
-    }
-  }
-
-  state.addTimeline?.({
-    name: "deepsearch.iteration.validated",
-    status: "completed",
-    payload: { filledCount, blockedCount, openCount: openGaps(state).length },
-  });
-
-  return { filledCount, blockedCount, openCount: openGaps(state).length };
 }
 
 function normalizeForKey(s) {
@@ -334,6 +244,7 @@ export class TrajectoryManager {
     const runGapsStage = stages?.runGapsStage;
     const runRetrieveStage = stages?.runRetrieveStage;
     const runUnderstandStage = stages?.runUnderstandStage;
+    const runExternalSearch = stages?.runExternalSearch; // 新增：外搜函数
     const emit = typeof stages?.emit === "function" ? stages.emit : null;
 
     if (!runContext) throw new TypeError("TrajectoryManager.runTrajectory(trajectory, stages): stages.runContext is required");
@@ -345,6 +256,7 @@ export class TrajectoryManager {
 
     const seenHitSignatures = new Set();
     let noNewHitsRounds = 0;
+    let externalSearchTriggered = false; // 每个 trajectory 只触发一次外搜
 
     const wrapApiForStage = (name) => {
       if (!this.trajectoryCache || this.config.cachePolicy !== "share") return stageApi;
@@ -373,9 +285,82 @@ export class TrajectoryManager {
       noNewHitsRounds = newHitCount === 0 ? noNewHitsRounds + 1 : 0;
 
       checkCancelled(stageApi);
-      await runUnderstandStage(runContext, { state: trajectory }, wrapApiForStage("understand"));
+      const understandResult = await runUnderstandStage(runContext, { state: trajectory }, wrapApiForStage("understand"));
 
-      validateIteration(trajectory, { blockAfterMisses: getGapBlockAfterMisses(trajectory) });
+      // ===== Reflect-driven 外搜触发 =====
+      const reflectResult = understandResult?.reflectResult || trajectory?.L1?.reflectResult;
+      const externalSearchConfig = parseExternalSearchConfig(trajectory?.userConfig);
+      const externalSearchEnabled = externalSearchConfig.enabled === true && externalSearchConfig.autoTrigger === true;
+
+      // 健壮性检查：
+      // 1. reflectResult 存在且 sufficient=false
+      // 2. 尚未触发过外搜 (每轨迹最多一次)
+      // 3. 外搜已启用
+      // 4. 有外搜函数
+      // 5. 有建议的搜索词或有 open gaps
+      const currentGaps = openGaps(trajectory);
+      const hasSuggestedQueries = Array.isArray(reflectResult?.suggestedQueries) && reflectResult.suggestedQueries.length > 0;
+      const hasOpenGaps = currentGaps.length > 0;
+
+      const shouldTriggerExternalSearch =
+        reflectResult &&
+        !reflectResult.sufficient &&
+        !externalSearchTriggered &&
+        externalSearchEnabled &&
+        typeof runExternalSearch === "function" &&
+        (hasSuggestedQueries || hasOpenGaps);
+
+      if (shouldTriggerExternalSearch) {
+        // LLM 判断证据不足，触发外搜
+        emit?.("deepsearch.external.reflecttriggered", {
+          reason: reflectResult.reason,
+          confidence: reflectResult.confidence,
+          suggestedQueries: reflectResult.suggestedQueries,
+          iteration: trajectory.iteration,
+        });
+
+        // 使用 LLM 建议的搜索词，或从 open gaps 生成
+        const defaultGapId = toNonEmptyString(currentGaps?.[0]?.gapId);
+        const searchGaps = hasSuggestedQueries
+          ? reflectResult.suggestedQueries.map((q, i) => ({
+              gapId: defaultGapId || `ext_${i}`,
+              query: q,
+              question: q,
+              type: "external",
+            }))
+          : currentGaps.map(g => ({
+              gapId: g?.gapId || "gap_unknown",
+              query: g?.question || g?.text || "",
+              question: g?.question || g?.text || "",
+              type: g?.type || "external",
+            })).filter(g => g.query);
+
+        if (searchGaps.length > 0) {
+          try {
+            checkCancelled(stageApi);
+            await runExternalSearch(searchGaps, externalSearchConfig, {
+              emit,
+              state: trajectory,
+              stageApi,
+            });
+            externalSearchTriggered = true;
+
+            // 外搜后重新运行 Understand 阶段
+            checkCancelled(stageApi);
+            await runUnderstandStage(runContext, { state: trajectory }, wrapApiForStage("understand"));
+          } catch (err) {
+            emit?.("deepsearch.external.error", { message: String(err?.message || err) });
+            // 外搜失败也标记为已触发，避免重复尝试
+            externalSearchTriggered = true;
+          }
+        } else {
+          emit?.("deepsearch.external.skipped", { reason: "no_valid_search_queries" });
+        }
+      }
+      // ===== Reflect-driven 外搜触发结束 =====
+
+      const roundHits = computeRoundHitsByGapId(retrievedChunks);
+      validateIteration(trajectory, { blockAfterMisses: getGapBlockAfterMisses(trajectory), roundHits });
 
       const checkpoint = trajectory.saveCheckpoint?.();
       if (checkpoint && emit) {
@@ -528,7 +513,7 @@ export const __test = {
   clampInt,
   toTrajectoryConfig,
   signatureForRetrievedChunk,
-  validateIteration,
+  validateIteration: validateIterationCompat,
   statusRank,
   evidenceKey,
   mergeGaps,

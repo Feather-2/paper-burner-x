@@ -4,8 +4,203 @@ import { claimsFromChunks } from "../../deepsearch/understanding/claims-from-chu
 import { dedupeClaims } from "../../deepsearch/understanding/dedupe.js";
 import { detectConflicts } from "../../deepsearch/understanding/conflicts.js";
 
+// ===== Reflect Prompt: LLM 自主判断是否需要更多信息 =====
+const REFLECT_PROMPT = `你是一个研究助手，需要判断当前收集的证据是否足以回答用户的问题。
+
+## 用户问题
+{taskGoal}
+
+## 覆盖情况统计
+{coverageStats}
+
+## 未覆盖的知识缺口
+{uncoveredGaps}
+
+## 核心论点样本 (共 {totalClaims} 个)
+{coreClaims}
+
+## 任务
+基于以上覆盖情况，判断：
+1. 当前证据是否足以回答用户问题的核心部分？
+2. 未覆盖的缺口是否关键？是否需要外部搜索补充？
+
+## 输出格式 (严格 JSON)
+{
+  "sufficient": true/false,           // 证据是否充分
+  "confidence": 0.0-1.0,              // 置信度 (0.8+ 表示很确定)
+  "reason": "简短说明判断理由",
+  "missingAspects": ["缺失方面1"],    // 如果不充分，列出关键缺失
+  "suggestedQueries": ["搜索词1"]     // 如果不充分，建议的搜索词 (最多3个)
+}
+
+只返回 JSON，不要其他内容。`;
+
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+/**
+ * Reflect: LLM 自主判断当前证据是否充分
+ * @returns {{sufficient: boolean, confidence: number, reason: string, missingAspects: string[], suggestedQueries: string[]}}
+ */
+async function reflectOnEvidence(state, { claims, evidenceLedger, gaps }, stageApi) {
+  const callModel = getModelCaller(stageApi, { usage: "analyst", state });
+
+  // 计算覆盖统计
+  const allGaps = Array.isArray(gaps) ? gaps : [];
+  const openGaps = allGaps.filter(g => String(g?.status || "open") === "open");
+  const filledGaps = allGaps.filter(g => g?.status === "filled");
+  const blockedGaps = allGaps.filter(g => g?.status === "blocked");
+
+  const allClaims = Array.isArray(claims) ? claims : [];
+  const coreClaims = allClaims.filter(c => c?.importance === "core");
+  const supportClaims = allClaims.filter(c => c?.importance === "support");
+
+  const evidenceCount = Array.isArray(evidenceLedger) ? evidenceLedger.length : 0;
+
+  // 计算 gap 覆盖率
+  const coveredGapIds = new Set();
+  for (const c of allClaims) {
+    for (const gid of Array.isArray(c?.gapIds) ? c.gapIds : []) {
+      coveredGapIds.add(String(gid));
+    }
+  }
+
+  const uncoveredGaps = openGaps.filter(g => !coveredGapIds.has(String(g?.gapId)));
+  const coverageRate = allGaps.length > 0 ? (filledGaps.length / allGaps.length) : 1;
+
+  // === 健壮性：快速路径 ===
+  // 如果没有 gaps 或者所有 gaps 都已填充，直接返回 sufficient
+  if (allGaps.length === 0 || openGaps.length === 0) {
+    return {
+      sufficient: true,
+      confidence: 0.9,
+      reason: "All gaps filled or no gaps defined",
+      missingAspects: [],
+      suggestedQueries: [],
+    };
+  }
+
+  // 如果有大量证据且覆盖率高，快速返回
+  if (coverageRate >= 0.8 && evidenceCount >= 5 && coreClaims.length >= 2) {
+    return {
+      sufficient: true,
+      confidence: 0.85,
+      reason: `High coverage (${(coverageRate * 100).toFixed(0)}%) with ${evidenceCount} evidence and ${coreClaims.length} core claims`,
+      missingAspects: [],
+      suggestedQueries: [],
+    };
+  }
+
+  if (!callModel) {
+    // 没有 LLM，fallback 到规则判断
+    const sufficient = uncoveredGaps.length === 0 || coverageRate >= 0.7;
+    return {
+      sufficient,
+      confidence: 0.5,
+      reason: `Fallback rule: ${uncoveredGaps.length} uncovered gaps, coverage ${(coverageRate * 100).toFixed(0)}%`,
+      missingAspects: uncoveredGaps.slice(0, 3).map(g => g?.question || g?.text || "unknown"),
+      suggestedQueries: [],
+    };
+  }
+
+  // 准备 prompt 数据
+  const taskGoal = String(state?.taskGoal || state?.userConfig?.taskGoal || "未指定");
+
+  const coverageStats = [
+    `- 总 Gaps: ${allGaps.length}`,
+    `- 已填充: ${filledGaps.length} (${(coverageRate * 100).toFixed(0)}%)`,
+    `- 未覆盖: ${uncoveredGaps.length}`,
+    `- 已阻塞: ${blockedGaps.length}`,
+    `- 总论点: ${allClaims.length} (核心: ${coreClaims.length}, 支持: ${supportClaims.length})`,
+    `- 总证据: ${evidenceCount}`,
+  ].join("\n");
+
+  const uncoveredGapsStr = uncoveredGaps.length > 0
+    ? uncoveredGaps.slice(0, 5).map((g, i) =>
+        `${i + 1}. [${g?.type || "?"}] ${g?.question || g?.text || "?"}`
+      ).join("\n")
+    : "无 (所有缺口已覆盖)";
+
+  // 只展示核心论点样本
+  const coreClaimsStr = coreClaims.length > 0
+    ? coreClaims.slice(0, 5).map((c, i) =>
+        `${i + 1}. ${String(c?.text || "").slice(0, 80)}${c?.text?.length > 80 ? "..." : ""}`
+      ).join("\n")
+    : supportClaims.length > 0
+      ? supportClaims.slice(0, 3).map((c, i) =>
+          `${i + 1}. (支持) ${String(c?.text || "").slice(0, 80)}`
+        ).join("\n")
+      : "无论点";
+
+  const prompt = REFLECT_PROMPT
+    .replace("{taskGoal}", taskGoal)
+    .replace("{coverageStats}", coverageStats)
+    .replace("{uncoveredGaps}", uncoveredGapsStr)
+    .replace("{totalClaims}", String(allClaims.length))
+    .replace("{coreClaims}", coreClaimsStr);
+
+  // === 健壮性：带超时的 LLM 调用 ===
+  const timeoutMs = 15000; // 15 秒超时
+  let timeoutId;
+
+  try {
+    const resultPromise = callModel(
+      [{ role: "user", content: prompt }],
+      { model: "auto", temperature: 0.1, maxTokens: 400 }
+    );
+
+    // 创建超时 Promise
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error(`Reflect LLM call timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    });
+
+    const result = await Promise.race([resultPromise, timeoutPromise]);
+    clearTimeout(timeoutId);
+
+    const candidate = extractJsonCandidate(result?.content);
+    if (!candidate) {
+      // Parse 失败，用规则兜底
+      return {
+        sufficient: coverageRate >= 0.6,
+        confidence: 0.4,
+        reason: "Failed to parse LLM response, using coverage fallback",
+        missingAspects: uncoveredGaps.slice(0, 3).map(g => g?.question || "?"),
+        suggestedQueries: []
+      };
+    }
+
+    const parsed = JSON.parse(candidate);
+
+    // === 健壮性：验证返回值 ===
+    const sufficient = typeof parsed.sufficient === "boolean" ? parsed.sufficient : coverageRate >= 0.6;
+    const confidence = typeof parsed.confidence === "number" && !Number.isNaN(parsed.confidence)
+      ? Math.min(1, Math.max(0, parsed.confidence))
+      : 0.5;
+
+    return {
+      sufficient,
+      confidence,
+      reason: String(parsed.reason || "").slice(0, 200),
+      missingAspects: Array.isArray(parsed.missingAspects)
+        ? parsed.missingAspects.filter(x => typeof x === "string" && x.trim()).slice(0, 5)
+        : [],
+      suggestedQueries: Array.isArray(parsed.suggestedQueries)
+        ? parsed.suggestedQueries.filter(x => typeof x === "string" && x.trim()).slice(0, 3)
+        : [],
+    };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    return {
+      sufficient: coverageRate >= 0.6,
+      confidence: 0.3,
+      reason: `Reflect error: ${String(err?.message || err).slice(0, 100)}`,
+      missingAspects: uncoveredGaps.slice(0, 3).map(g => g?.question || "?"),
+      suggestedQueries: [],
+    };
+  }
 }
 
 function toNonEmptyString(v) {
@@ -173,6 +368,133 @@ export function computeGapFill(gaps, { claims, evidenceLedger } = {}) {
   return { filledGapIds, remainingGaps };
 }
 
+/**
+ * 验证单条 evidence 是否合规
+ * @returns {{ valid: boolean, issues: string[] }}
+ */
+function validateSingleEvidence(e, { sources, sourceTextById, retrievedByChunkId }) {
+  const issues = [];
+  if (!e) {
+    issues.push("evidence is null/undefined");
+    return { valid: false, issues };
+  }
+
+  const evidenceId = toNonEmptyString(e?.evidenceId) || "(missing)";
+
+  // H4: sourceId 必须存在且可解析
+  const sourceId = toNonEmptyString(e?.sourceId);
+  if (!sourceId) {
+    issues.push("H4: sourceId missing");
+  } else if (!Array.isArray(sources) || !sources.some((s) => toNonEmptyString(s?.sourceId) === sourceId)) {
+    issues.push(`H4: sourceId "${sourceId}" not found in sources`);
+  }
+
+  // H4: chunkId 必须可解析
+  const chunkId = toNonEmptyString(e?.chunkId);
+  if (!chunkId) {
+    issues.push("H4: chunkId missing");
+  } else if (!retrievedByChunkId.has(String(chunkId))) {
+    issues.push(`H4: chunkId "${chunkId}" not found in retrievedChunks`);
+  }
+
+  // H2: locator 必须合法
+  const locator = e?.locator;
+  const charStart = safeInt(locator?.charStart);
+  const charEnd = safeInt(locator?.charEnd);
+  if (charStart === null || charEnd === null) {
+    issues.push("H2: locator missing charStart/charEnd");
+  } else if (!(charStart < charEnd)) {
+    issues.push(`H2: charStart (${charStart}) >= charEnd (${charEnd})`);
+  }
+
+  // H3: quote 必须非空
+  const quote = String(e?.quote || "");
+  if (!quote) {
+    issues.push("H3: quote is empty");
+  }
+
+  // H2 + H3: quote 必须精确匹配 sourceText 切片
+  if (sourceId && charStart !== null && charEnd !== null && quote) {
+    const sourceText = sourceTextById.get(sourceId);
+    if (typeof sourceText !== "string") {
+      issues.push(`H4: sourceTextNormalized missing for sourceId "${sourceId}"`);
+    } else if (charStart < 0 || charEnd > sourceText.length) {
+      issues.push(`H2: locator out of bounds (${charStart}-${charEnd}, text length ${sourceText.length})`);
+    } else {
+      const slice = sourceText.slice(charStart, charEnd);
+      if (slice !== quote) {
+        issues.push(`H3: quote mismatch (expected "${slice.slice(0, 50)}...", got "${quote.slice(0, 50)}...")`);
+      }
+    }
+  }
+
+  return { valid: issues.length === 0, issues };
+}
+
+/**
+ * 软降级验证：过滤不合规的 evidence，保留合规的
+ * @returns {{ validEvidence: object[], invalidEvidence: {evidence: object, issues: string[]}[], validClaims: object[], orphanedClaims: object[] }}
+ */
+function validateEvidenceWithDegradation({ sources, sourceTextById, claims, evidenceLedger, retrievedByChunkId }, { emit } = {}) {
+  const validEvidence = [];
+  const invalidEvidence = [];
+
+  // 验证每条 evidence
+  for (const e of Array.isArray(evidenceLedger) ? evidenceLedger : []) {
+    const { valid, issues } = validateSingleEvidence(e, { sources, sourceTextById, retrievedByChunkId });
+    if (valid) {
+      validEvidence.push(e);
+    } else {
+      invalidEvidence.push({ evidence: e, issues });
+      emit?.("deepsearch.evidence.invalid", {
+        evidenceId: toNonEmptyString(e?.evidenceId) || "(unknown)",
+        issues,
+      });
+    }
+  }
+
+  // 构建有效 evidenceId 集合
+  const validEvidenceIds = new Set(validEvidence.map((e) => String(e.evidenceId)));
+
+  // 过滤 claims 中无效的 evidenceIds，并识别孤儿 claims
+  const validClaims = [];
+  const orphanedClaims = [];
+
+  for (const c of Array.isArray(claims) ? claims : []) {
+    if (!c) continue;
+
+    // 过滤掉引用无效 evidence 的 evidenceIds
+    const originalIds = Array.isArray(c.evidenceIds) ? c.evidenceIds : [];
+    const filteredIds = originalIds.filter((eid) => validEvidenceIds.has(String(eid)));
+
+    // H1: claim 必须至少有 1 条证据
+    if (filteredIds.length === 0) {
+      orphanedClaims.push({
+        ...c,
+        _orphaned: true,
+        _originalEvidenceIds: originalIds,
+        _orphanReason: "all referenced evidence invalid",
+      });
+      emit?.("deepsearch.claim.orphaned", {
+        claimId: toNonEmptyString(c?.claimId) || "(unknown)",
+        originalEvidenceCount: originalIds.length,
+        reason: "all referenced evidence invalid",
+      });
+    } else {
+      validClaims.push({
+        ...c,
+        evidenceIds: filteredIds,
+      });
+    }
+  }
+
+  return { validEvidence, invalidEvidence, validClaims, orphanedClaims };
+}
+
+/**
+ * [已废弃] 硬门验证 - 保留用于严格模式或测试
+ * @deprecated 请使用 validateEvidenceWithDegradation 进行软降级验证
+ */
 function assertHardGates({ sources, sourceTextById, claims, evidenceLedger, retrievedByChunkId }) {
   const evidenceById = new Map();
   for (const e of Array.isArray(evidenceLedger) ? evidenceLedger : []) {
@@ -233,6 +555,15 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   const state = ensureState(runContext, input);
 
   checkCancelled(stageApi);
+
+  // 发射阶段开始事件
+  emitUnderstandProgress(emit, {
+    current: 0,
+    total: 1,
+    msg: "正在启动理解阶段...",
+    detail: { step: "init" },
+  });
+
   const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
   const sourceTextById = indexSourceTextById(state?.L0?.sources);
 
@@ -251,7 +582,7 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     emitUnderstandProgress(emit, {
       current: i + 1,
       total: claims.length,
-      msg: `Extracting claim ${i + 1}/${claims.length}`,
+      msg: `正在提取论点 ${i + 1}/${claims.length}`,
       detail: {
         claimId: toNonEmptyString(c?.claimId) || `claim_${i + 1}`,
         importance: toNonEmptyString(c?.importance) || undefined,
@@ -352,13 +683,61 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     });
   }
 
-  assertHardGates({
-    sources: Array.isArray(state?.L0?.sources) ? state.L0.sources : [],
-    sourceTextById,
-    claims,
-    evidenceLedger,
-    retrievedByChunkId,
-  });
+  // ===== 软降级验证：过滤不合规的 evidence，保留合规的 =====
+  const understandingStrict = understandingConfig.strictMode === true;
+  const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
+
+  let finalClaims = claims;
+  let finalEvidenceLedger = evidenceLedger;
+  let degradationStats = null;
+
+  if (understandingStrict) {
+    // 严格模式：使用原有的硬门验证（向后兼容）
+    assertHardGates({
+      sources,
+      sourceTextById,
+      claims,
+      evidenceLedger,
+      retrievedByChunkId,
+    });
+  } else {
+    // 软降级模式（默认）：过滤不合规项，保留合规项
+    const { validEvidence, invalidEvidence, validClaims, orphanedClaims } = validateEvidenceWithDegradation(
+      { sources, sourceTextById, claims, evidenceLedger, retrievedByChunkId },
+      { emit }
+    );
+
+    finalClaims = validClaims;
+    finalEvidenceLedger = validEvidence;
+
+    // 记录降级统计
+    degradationStats = {
+      originalEvidenceCount: evidenceLedger.length,
+      validEvidenceCount: validEvidence.length,
+      invalidEvidenceCount: invalidEvidence.length,
+      originalClaimCount: claims.length,
+      validClaimCount: validClaims.length,
+      orphanedClaimCount: orphanedClaims.length,
+    };
+
+    // 如果有降级发生，记录到 timeline
+    if (invalidEvidence.length > 0 || orphanedClaims.length > 0) {
+      state.addTimeline({
+        name: "deepsearch.hardgate.degraded",
+        status: "warning",
+        payload: {
+          ...degradationStats,
+          invalidEvidenceDetails: invalidEvidence.slice(0, 5).map((i) => ({
+            evidenceId: toNonEmptyString(i.evidence?.evidenceId) || "(unknown)",
+            issues: i.issues,
+          })),
+          orphanedClaimIds: orphanedClaims.slice(0, 5).map((c) => toNonEmptyString(c?.claimId) || "(unknown)"),
+        },
+      });
+
+      emit?.("deepsearch.hardgate.degraded", degradationStats);
+    }
+  }
 
   const consumedAt = new Date().toISOString();
   for (const r of retrieved) {
@@ -367,21 +746,64 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     if (!toNonEmptyString(r.consumedAt)) r.consumedAt = consumedAt;
   }
 
-  state.L1.claims = claims;
-  state.L1.evidenceLedger = evidenceLedger;
+  state.L1.claims = finalClaims;
+  state.L1.evidenceLedger = finalEvidenceLedger;
   state.L1.conflicts = conflicts;
   state.L1.openQuestions = openQuestions;
+
+  // ===== Reflect: LLM 自主判断证据是否充分 =====
+  const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+  const reflectCfg = isPlainObject(state?.userConfig?.reflect) ? state.userConfig.reflect : {};
+  const extCfg = isPlainObject(state?.userConfig?.externalSearch) ? state.userConfig.externalSearch : {};
+  const shouldRunReflectLLM = Boolean(reflectCfg.enabled) || (extCfg.enabled === true && extCfg.autoTrigger === true);
+
+  // 默认不额外消耗一次 LLM 调用；显式开启 reflect 或外搜自动触发时才启用 LLM 反思。
+  const reflectStageApi = shouldRunReflectLLM ? stageApi : { ...(isPlainObject(stageApi) ? stageApi : {}), modelRouter: null, aiApiService: null };
+  const reflectResult = await reflectOnEvidence(state, { claims: finalClaims, evidenceLedger: finalEvidenceLedger, gaps }, reflectStageApi);
+
+  // 记录 reflect 结果到 state
+  state.L1.reflectResult = reflectResult;
+
   state.addTimeline({
     name: "deepsearch.understand",
     status: "completed",
-    payload: { claimCount: claims.length, evidenceCount: evidenceLedger.length, conflictCount: conflicts.length, openQuestionCount: openQuestions.length },
+    payload: {
+      claimCount: finalClaims.length,
+      evidenceCount: finalEvidenceLedger.length,
+      conflictCount: conflicts.length,
+      openQuestionCount: openQuestions.length,
+      reflectSufficient: reflectResult.sufficient,
+      reflectConfidence: reflectResult.confidence,
+      ...(degradationStats ? { degradation: degradationStats } : {}),
+    },
   });
 
   emit?.("deepsearch.understand.completed", {
-    claimCount: claims.length,
-    evidenceCount: evidenceLedger.length,
+    claimCount: finalClaims.length,
+    evidenceCount: finalEvidenceLedger.length,
     conflictCount: conflicts.length,
     openQuestionCount: openQuestions.length,
+    reflectResult,
+    ...(degradationStats ? { degradation: degradationStats } : {}),
   });
-  return { state, claims, evidenceLedger, conflicts, openQuestions };
+
+  // 如果证据不足，发出信号
+  if (!reflectResult.sufficient) {
+    emit?.("deepsearch.reflect.needsmore", {
+      reason: reflectResult.reason,
+      confidence: reflectResult.confidence,
+      missingAspects: reflectResult.missingAspects,
+      suggestedQueries: reflectResult.suggestedQueries,
+    });
+  }
+
+  return {
+    state,
+    claims: finalClaims,
+    evidenceLedger: finalEvidenceLedger,
+    conflicts,
+    openQuestions,
+    reflectResult,
+    ...(degradationStats ? { degradation: degradationStats } : {}),
+  };
 }

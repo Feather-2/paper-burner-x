@@ -684,7 +684,7 @@ async function generateReportTocBasedWithLLM(state, { claims, evidenceLedger, ga
     claimIds: s.claimIds,
   }));
 
-  emitWriteProgress(emit, { current: 0, total: 2 + Math.max(1, sectionHints.length), step: "report_toc", msg: "Planning report TOC" });
+  emitWriteProgress(emit, { current: 0, total: 2 + Math.max(1, sectionHints.length), step: "report_toc", msg: "正在规划报告目录" });
 
   const tocMessages = buildReportTocPrompt({
     taskGoal: String(state?.taskGoal || ""),
@@ -748,7 +748,7 @@ async function generateReportTocBasedWithLLM(state, { claims, evidenceLedger, ga
       current: 1 + completedCount,
       total: totalSteps,
       step: "report_section",
-      msg: `Generating section ${i + 1}/${tocSections.length}`,
+      msg: `正在生成章节 ${i + 1}/${tocSections.length}`,
       detail: { ...detailBase, sectionStatus: "started" },
     });
 
@@ -792,7 +792,7 @@ async function generateReportTocBasedWithLLM(state, { claims, evidenceLedger, ga
       current: 1 + completedCount,
       total: totalSteps,
       step: "report_section",
-      msg: `Completed section ${i + 1}/${tocSections.length}`,
+      msg: `已完成章节 ${i + 1}/${tocSections.length}`,
       detail: doneDetail,
     });
 
@@ -805,7 +805,7 @@ async function generateReportTocBasedWithLLM(state, { claims, evidenceLedger, ga
     };
   });
 
-  emitWriteProgress(emit, { current: 1 + tocSections.length, total: totalSteps, step: "report_assemble", msg: "Assembling report" });
+  emitWriteProgress(emit, { current: 1 + tocSections.length, total: totalSteps, step: "report_assemble", msg: "正在组装报告" });
 
   const md = [];
   md.push(`# ${reportTitle}`);
@@ -930,7 +930,7 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
     current: 1,
     total: 4,
     step: "plan_slides",
-    msg: "Planning slides",
+    msg: "正在规划幻灯片",
     detail: { claimCount: claimIds.length, title: title || undefined },
   });
 
@@ -940,7 +940,7 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
     current: 2,
     total: 4,
     step: "finalize_slides",
-    msg: llm?.slideIntents ? "Finalizing slide intents (LLM)" : "Finalizing slide intents (heuristic)",
+    msg: llm?.slideIntents ? "正在确定幻灯片意图 (AI)" : "正在确定幻灯片意图 (启发式)",
     detail: { usedLLM: Boolean(llm?.slideIntents) },
   });
 
@@ -963,7 +963,7 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
     current: 3,
     total: 4,
     step: "generate_report",
-    msg: "Generating report",
+    msg: "正在生成报告",
     detail: { slideCount: slideIntents.length, outlineCount: outlineCandidates.length },
   });
 
@@ -1059,7 +1059,7 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
     current: 4,
     total: 4,
     step: "finalize",
-    msg: "Finalizing write outputs",
+    msg: "正在完成写作输出",
     detail: { citationCount: Array.isArray(report?.citations) ? report.citations.length : 0, sectionCount: Array.isArray(report?.sections) ? report.sections.length : 0 },
   });
 

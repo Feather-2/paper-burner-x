@@ -36,6 +36,7 @@ function normalizeTrajectoryCacheInputs(stageName, messages) {
   const parsed = userMsg ? safeParseJson(userMsg.content) : null;
 
   if (stage === "gaps") {
+    if (!parsed) return { rawPrompt: truncate(userMsg?.content || "", 900) };
     const taskGoal = truncate(parsed?.taskGoal || "");
     const scanSummarySummaryText = truncate(parsed?.scanSummary?.summaryText || "");
     const existingGaps = (Array.isArray(parsed?.existingGaps) ? parsed.existingGaps : [])
@@ -51,6 +52,7 @@ function normalizeTrajectoryCacheInputs(stageName, messages) {
   }
 
   if (stage === "understand") {
+    if (!parsed) return { rawPrompt: truncate(userMsg?.content || "", 900) };
     const taskGoal = truncate(parsed?.taskGoal || "");
     const rows = Array.isArray(parsed?.draftClaims) ? parsed.draftClaims : [];
     const draftClaims = rows.map((c) => ({
