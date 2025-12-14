@@ -354,6 +354,11 @@ class PropertyPanel extends EventEmitter {
     }
 
     _renderImageProperties(el) {
+        // 解析圆角值（支持 "rounded" 或 "rounded:20" 格式）
+        const isRounded = el.mask && el.mask.startsWith('rounded');
+        const radiusMatch = el.mask?.match(/rounded:(\d+)/);
+        const radiusValue = radiusMatch ? radiusMatch[1] : '12';
+
         return `
             <div class="property-section">
                 <div class="property-section-title">图片</div>
@@ -367,11 +372,16 @@ class PropertyPanel extends EventEmitter {
                 </div>
                 <div class="property-row">
                     <label>遮罩</label>
-                    <select data-prop="mask">
+                    <select data-prop="mask" data-mask-select>
                         <option value="" ${!el.mask ? 'selected' : ''}>无</option>
                         <option value="circle" ${el.mask === 'circle' ? 'selected' : ''}>圆形</option>
-                        <option value="rounded" ${el.mask === 'rounded' ? 'selected' : ''}>圆角</option>
+                        <option value="rounded:${radiusValue}" ${isRounded ? 'selected' : ''}>圆角</option>
                     </select>
+                </div>
+                <div class="property-row" id="radiusRow" style="${isRounded ? '' : 'display: none;'}">
+                    <label>圆角大小</label>
+                    <input type="range" data-prop="maskRadius" min="4" max="50" value="${radiusValue}" style="flex: 1;">
+                    <span style="width: 30px; text-align: right;">${radiusValue}px</span>
                 </div>
                 <div class="property-row" style="gap: 8px;">
                     <button class="property-btn" data-action="replace-image">更换图片</button>
@@ -532,10 +542,48 @@ class PropertyPanel extends EventEmitter {
 
         const isMultiSelect = this.selectedElements.length > 1;
 
+        // 遮罩选择器特殊处理
+        const maskSelect = this.container.querySelector('[data-mask-select]');
+        const radiusRow = this.container.querySelector('#radiusRow');
+        const radiusInput = this.container.querySelector('[data-prop="maskRadius"]');
+
+        if (maskSelect && radiusRow) {
+            maskSelect.addEventListener('change', () => {
+                const val = maskSelect.value;
+                const isRounded = val.startsWith('rounded');
+                radiusRow.style.display = isRounded ? '' : 'none';
+                // 更新元素
+                for (const el of this.selectedElements) {
+                    this.editor.updateElement(el.id, { mask: val || null });
+                }
+            });
+        }
+
+        if (radiusInput) {
+            const updateRadius = () => {
+                const val = radiusInput.value;
+                // 更新显示值
+                const span = radiusInput.nextElementSibling;
+                if (span) span.textContent = val + 'px';
+                // 更新遮罩选择器的 value
+                if (maskSelect) {
+                    maskSelect.value = `rounded:${val}`;
+                }
+                // 更新元素
+                for (const el of this.selectedElements) {
+                    this.editor.updateElement(el.id, { mask: `rounded:${val}` });
+                }
+            };
+            radiusInput.addEventListener('input', updateRadius);
+            radiusInput.addEventListener('change', updateRadius);
+        }
+
         // 输入框变化
         this.container.querySelectorAll('input, select, textarea').forEach(input => {
             const prop = input.dataset.prop;
             if (!prop) return;
+            // 跳过已单独处理的
+            if (prop === 'maskRadius' || input.dataset.maskSelect !== undefined) return;
 
             const handler = (e) => {
                 let value = input.type === 'checkbox' ? input.checked : input.value;
