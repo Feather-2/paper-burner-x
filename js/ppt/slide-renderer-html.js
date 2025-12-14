@@ -1008,13 +1008,21 @@ class HTMLSlideRenderer {
         
         // 4. 预定义形状遮罩（使用 clip-path）
         // circle, ellipse, polygon, inset
-        if (val.startsWith('circle') || val.startsWith('ellipse') || 
+        if (val.startsWith('circle') || val.startsWith('ellipse') ||
             val.startsWith('polygon') || val.startsWith('inset')) {
             // 如果只写 "circle" 没有括号，默认 circle(50%)
             let clipValue = val;
             if (val === 'circle') clipValue = 'circle(50%)';
             if (val === 'ellipse') clipValue = 'ellipse(50% 40%)';
             return `clip-path: ${clipValue};`;
+        }
+
+        // 圆角遮罩 - 使用 border-radius + overflow
+        if (val === 'rounded' || val.startsWith('rounded:')) {
+            // 支持 "rounded" 或 "rounded:20" 格式
+            const radiusMatch = val.match(/rounded:(\d+)/);
+            const radius = radiusMatch ? radiusMatch[1] : '12';
+            return `border-radius: ${radius}px; overflow: hidden;`;
         }
         
         // 5. 直接 url 或 base64 图片

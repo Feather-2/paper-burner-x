@@ -248,6 +248,22 @@
     font-size: 10px;
 }
 
+.layer-panel-tip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: linear-gradient(135deg, #eff6ff, #dbeafe);
+    border-bottom: 1px solid #bfdbfe;
+    font-size: 11px;
+    color: #1d4ed8;
+    transition: opacity 0.3s ease;
+}
+
+.layer-panel-tip iconify-icon {
+    font-size: 14px;
+}
+
 .layer-panel-empty {
     padding: 24px;
 }

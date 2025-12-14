@@ -55,15 +55,36 @@ class LayerPanel extends EventEmitter {
         // 检测烘焙组
         const bakingGroups = this._detectBakingGroups(sortedElements);
 
+        // 显示提示（仅首次）
+        const showTip = !this._tipShown;
+        this._tipShown = true;
+
         this.container.innerHTML = `
             <div class="layer-panel-header">
                 <span>图层</span>
                 <span class="layer-count">${elements.length}</span>
             </div>
+            ${showTip ? `
+            <div class="layer-panel-tip" id="layerPanelTip">
+                <iconify-icon icon="carbon:information"></iconify-icon>
+                双击图层修改内容细节
+            </div>
+            ` : ''}
             <div class="layer-list">
                 ${this._renderLayers(sortedElements, bakingGroups)}
             </div>
         `;
+
+        // 几秒后隐藏提示
+        if (showTip) {
+            setTimeout(() => {
+                const tip = document.getElementById('layerPanelTip');
+                if (tip) {
+                    tip.style.opacity = '0';
+                    setTimeout(() => tip.remove(), 300);
+                }
+            }, 4000);
+        }
 
         this._bindEvents();
         this._updateSelection();

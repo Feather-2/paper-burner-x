@@ -12,20 +12,41 @@ const PPTGeneratorEditor = {
      * 初始化编辑器
      */
     async initEditor() {
-        if (this.editor) return this.editor;
+        console.log('[PPTGeneratorEditor] initEditor() called', {
+            hasEditor: !!this.editor,
+            editorEnabled: !!this.editorEnabled,
+        });
 
-        // 检查依赖
-        if (!window.SlideEditor) {
-            console.warn('[PPTGeneratorEditor] SlideEditor 未加载');
+        if (this.editor) {
+            console.log('[PPTGeneratorEditor] initEditor() reuse existing editor');
+            return this.editor;
+        }
+
+        // 检查依赖（注意：class 声明通常不会挂到 window 上）
+        const SlideEditorCtor =
+            window.SlideEditor || (typeof SlideEditor !== 'undefined' ? SlideEditor : null);
+
+        console.log('[PPTGeneratorEditor] SlideEditor availability', {
+            windowSlideEditor: !!window.SlideEditor,
+            globalSlideEditor: typeof SlideEditor !== 'undefined',
+            resolved: !!SlideEditorCtor,
+        });
+
+        if (!SlideEditorCtor) {
+            console.warn('[PPTGeneratorEditor] SlideEditor 未加载（window.SlideEditor/global SlideEditor 均不可用）');
             return null;
         }
 
         // 创建编辑器实例
-        this.editor = new SlideEditor({
+        this.editor = new SlideEditorCtor({
             autoSave: false, // PPTGenerator 有自己的保存逻辑
         });
 
         // 同步数据：PPTGenerator.slides → editor.document
+        console.log('[PPTGeneratorEditor] initEditor() syncing slides to editor', {
+            slidesLength: Array.isArray(this.slides) ? this.slides.length : null,
+            currentSlideIndex: this.currentSlideIndex ?? null,
+        });
         this.editor.document.load(this.slides || []);
         this.editor.currentSlideIndex = this.currentSlideIndex || 0;
 
@@ -42,60 +63,67 @@ const PPTGeneratorEditor = {
     async enableEditorMode() {
         if (this.editorEnabled) return;
 
-        await this.initEditor();
-        if (!this.editor) return;
+        try {
+            await this.initEditor();
+            if (!this.editor) {
+                console.warn('[PPTGeneratorEditor] enableEditorMode aborted: editor not initialized');
+                return;
+            }
 
-        // 注入样式（首次）
-        this._injectEditorStyles();
+            // 注入样式（首次）
+            this._injectEditorStyles();
 
-        // 显示右侧面板
-        this._showEditorUI();
+            // 显示右侧面板
+            this._showEditorUI();
 
-        // 同步数据到编辑器
-        this._syncToEditor();
+            // 同步数据到编辑器
+            this._syncToEditor();
 
-        // 绑定视口
-        const viewport = document.getElementById('presSlideCanvas');
-        console.log('[PPTGeneratorEditor] viewport:', viewport);
-        
-        if (viewport) {
-            // 强制重新绑定
-            viewport._editorBound = false;
-            this.editor.viewport = viewport;
-            this.editor._createOverlayContainer();
-            this.editor._bindViewportEvents();
-            this.editor._addElementIds();
+            // 绑定视口
+            const viewport = document.getElementById('presSlideCanvas');
+            console.log('[PPTGeneratorEditor] viewport:', viewport);
+
+            if (viewport) {
+                // 强制重新绑定
+                viewport._editorBound = false;
+                this.editor.viewport = viewport;
+                this.editor._createOverlayContainer();
+                this.editor._bindViewportEvents();
+                this.editor._addElementIds();
+            }
+
+            // 初始化面板
+            this._initPanels();
+
+            // 显示编辑工具栏
+            const editorTools = document.getElementById('editorTools');
+            if (editorTools) editorTools.style.display = 'flex';
+
+            // 更新按钮状态
+            const editorModeBtn = document.getElementById('editorModeBtn');
+            if (editorModeBtn) editorModeBtn.classList.add('active');
+
+            // 绑定工具栏按钮事件
+            this._bindToolbarEvents();
+
+            // 绑定调整大小和交互行为
+            this._bindSidebarResizer();
+            this._bindPropertyPanelBehavior();
+
+            // 触发 canvas 尺寸更新
+            this._updateCanvasSize?.();
+
+            // 启用编辑器交互
+            if (this.editor) this.editor.enabled = true;
+
+            // 添加编辑模式类（用于 CSS 控制 contenteditable）
+            viewport?.classList.add('editor-enabled');
+
+            this.editorEnabled = true;
+            console.log('[PPTGeneratorEditor] 编辑模式已启用');
+        } catch (err) {
+            console.error('[PPTGeneratorEditor] enableEditorMode() failed:', err);
         }
-
-        // 初始化面板
-        this._initPanels();
-
-        // 显示编辑工具栏
-        const editorTools = document.getElementById('editorTools');
-        if (editorTools) editorTools.style.display = 'flex';
-
-        // 更新按钮状态
-        const editorModeBtn = document.getElementById('editorModeBtn');
-        if (editorModeBtn) editorModeBtn.classList.add('active');
-
-        // 绑定工具栏按钮事件
-        this._bindToolbarEvents();
-
-        // 绑定调整大小和交互行为
-        this._bindSidebarResizer();
-        this._bindPropertyPanelBehavior();
-
-        // 触发 canvas 尺寸更新
-        this._updateCanvasSize?.();
-
-        // 启用编辑器交互
-        if (this.editor) this.editor.enabled = true;
-        
-        // 添加编辑模式类（用于 CSS 控制 contenteditable）
-        viewport?.classList.add('editor-enabled');
-        
-        this.editorEnabled = true;
-        console.log('[PPTGeneratorEditor] 编辑模式已启用');
     },
     
     /**
@@ -163,6 +191,10 @@ const PPTGeneratorEditor = {
      * 切换编辑模式
      */
     toggleEditorMode() {
+        console.log('[PPTGeneratorEditor] toggleEditorMode() called', {
+            editorEnabled: !!this.editorEnabled,
+            hasEditor: !!this.editor,
+        });
         if (this.editorEnabled) {
             this.disableEditorMode();
         } else {
@@ -739,7 +771,13 @@ const PPTGeneratorEditor = {
      * 添加文本
      */
     addText() {
-        if (!this.editor || !this.editorEnabled) return;
+        if (!this.editor || !this.editorEnabled) {
+            console.warn('[PPTGeneratorEditor] addText ignored: editor not enabled. 请先点击“编辑模式”按钮。', {
+                hasEditor: !!this.editor,
+                editorEnabled: !!this.editorEnabled,
+            });
+            return;
+        }
         this.editor.addElement('text');
     },
 
@@ -747,7 +785,13 @@ const PPTGeneratorEditor = {
      * 添加图片
      */
     async addImage() {
-        if (!this.editor || !this.editorEnabled) return;
+        if (!this.editor || !this.editorEnabled) {
+            console.warn('[PPTGeneratorEditor] addImage ignored: editor not enabled. 请先点击“编辑模式”按钮。', {
+                hasEditor: !!this.editor,
+                editorEnabled: !!this.editorEnabled,
+            });
+            return;
+        }
 
         const input = document.createElement('input');
         input.type = 'file';
@@ -764,7 +808,13 @@ const PPTGeneratorEditor = {
      * 添加形状
      */
     addShape(shapeType = 'rect') {
-        if (!this.editor || !this.editorEnabled) return;
+        if (!this.editor || !this.editorEnabled) {
+            console.warn('[PPTGeneratorEditor] addShape ignored: editor not enabled. 请先点击“编辑模式”按钮。', {
+                hasEditor: !!this.editor,
+                editorEnabled: !!this.editorEnabled,
+            });
+            return;
+        }
         this.editor.addElement('shape', { shapeType });
     },
 
@@ -772,7 +822,13 @@ const PPTGeneratorEditor = {
      * 添加图表
      */
     addChart(chartType = 'bar') {
-        if (!this.editor || !this.editorEnabled) return;
+        if (!this.editor || !this.editorEnabled) {
+            console.warn('[PPTGeneratorEditor] addChart ignored: editor not enabled. 请先点击“编辑模式”按钮。', {
+                hasEditor: !!this.editor,
+                editorEnabled: !!this.editorEnabled,
+            });
+            return;
+        }
         this.editor.addElement('chart', { chartType });
     },
 
@@ -780,7 +836,13 @@ const PPTGeneratorEditor = {
      * 添加图标
      */
     addIcon(icon = 'mdi:star') {
-        if (!this.editor || !this.editorEnabled) return;
+        if (!this.editor || !this.editorEnabled) {
+            console.warn('[PPTGeneratorEditor] addIcon ignored: editor not enabled. 请先点击“编辑模式”按钮。', {
+                hasEditor: !!this.editor,
+                editorEnabled: !!this.editorEnabled,
+            });
+            return;
+        }
         this.editor.addElement('icon', { icon });
     },
 
@@ -788,7 +850,13 @@ const PPTGeneratorEditor = {
      * 添加公式
      */
     addFormula(latex = 'E = mc^2') {
-        if (!this.editor || !this.editorEnabled) return;
+        if (!this.editor || !this.editorEnabled) {
+            console.warn('[PPTGeneratorEditor] addFormula ignored: editor not enabled. 请先点击“编辑模式”按钮。', {
+                hasEditor: !!this.editor,
+                editorEnabled: !!this.editorEnabled,
+            });
+            return;
+        }
         this.editor.addElement('formula', { latex });
     },
 
@@ -1984,8 +2052,16 @@ const PPTGeneratorEditor = {
 
 // 混入到 PPTGenerator
 if (typeof window.PPTGenerator !== 'undefined') {
-    Object.assign(window.PPTGenerator, PPTGeneratorEditor);
-    console.log('[PPTGeneratorEditor] 已混入到 PPTGenerator');
+    try {
+        Object.assign(window.PPTGenerator, PPTGeneratorEditor);
+        console.log('[PPTGeneratorEditor] 已混入到 PPTGenerator', {
+            toggleEditorMode: typeof window.PPTGenerator.toggleEditorMode === 'function',
+            enableEditorMode: typeof window.PPTGenerator.enableEditorMode === 'function',
+            initEditor: typeof window.PPTGenerator.initEditor === 'function',
+        });
+    } catch (err) {
+        console.error('[PPTGeneratorEditor] 混入到 PPTGenerator 失败:', err);
+    }
 } else {
     console.warn('[PPTGeneratorEditor] PPTGenerator 未定义，混入失败');
 }

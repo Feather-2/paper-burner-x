@@ -1075,9 +1075,10 @@ class SlideEditor extends EventEmitter {
             w = h * ratio;
         }
 
-        // 添加元素
+        // 添加元素（同时传递 src，供渲染器使用）
         return this.addElement('image', {
             assetId: asset.id,
+            src: URL.createObjectURL(file),
             x: (100 - w) / 2,
             y: (100 - h) / 2,
             w,
@@ -1116,6 +1117,7 @@ class SlideEditor extends EventEmitter {
 
         return this.addElement('image', {
             assetId: asset.id,
+            src: URL.createObjectURL(blob),
             x: (100 - w) / 2,
             y: (100 - h) / 2,
             w,
@@ -1155,6 +1157,16 @@ class SlideEditor extends EventEmitter {
      */
     renderCurrentSlide() {
         if (!this.viewport) return;
+
+        // 先同步 document 数据到 PPTGenerator.slides
+        if (window.PPTGenerator && this.document) {
+            window.PPTGenerator.slides = this.document.toJSON();
+        }
+
+        console.log('[SlideEditor] renderCurrentSlide() syncing', {
+            documentSlides: this.document?.slides?.length,
+            pptSlides: window.PPTGenerator?.slides?.length,
+        });
 
         // 直接使用 PPTGenerator.slides
         const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
