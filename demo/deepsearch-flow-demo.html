@@ -1,891 +1,642 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DeepSearch Flow - 可视化演示</title>
+  <title>DeepSearch Flow - Premium Integration</title>
   <script src="https://cdn.jsdelivr.net/npm/iconify-icon@1.0.8/dist/iconify-icon.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reactflow@11.7.4/dist/style.css">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
+    /* Paper Burner X - Premium Design Tokens */
     :root {
-      --primary: #6366f1;
-      --primary-light: #818cf8;
-      --success: #22c55e;
-      --warning: #f59e0b;
-      --danger: #ef4444;
-      --bg: #f8fafc;
-      --card-bg: rgba(255, 255, 255, 0.98);
-      --border: #e2e8f0;
-      --text: #1e293b;
-      --text-secondary: #64748b;
-      --text-muted: #94a3b8;
+      --primary: #4F46E5;
+      --success: #10B981;
+      --warning: #F59E0B;
+      --danger: #EF4444;
+
+      --bg-root: #F3F4F6;
+      --text-main: #111827;
+      --text-secondary: #4B5563;
+      --text-tertiary: #9CA3AF;
+
+      --radius-card: 20px;
+      --shadow-float: 0 20px 40px -4px rgba(0, 0, 0, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+      outline: none;
     }
 
     body {
-      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-      min-height: 100vh;
-    }
-
-    .main-layout {
-      display: flex;
+      margin: 0;
+      padding: 0;
+      font-family: "Plus Jakarta Sans", "Inter", -apple-system, sans-serif;
+      background: var(--bg-root);
+      background-image: radial-gradient(#E5E7EB 1px, transparent 1px);
+      background-size: 24px 24px;
+      color: var(--text-main);
       height: 100vh;
-    }
-
-    /* 左侧内容区 */
-    .content-area {
-      flex: 1;
-      position: relative;
-      overflow: hidden;
-      display: flex;
-    }
-
-    /* ReactFlow 区域 - 左侧主要区域 */
-    #flow-container {
-      flex: 1;
-      min-width: 400px;
-      height: 100%;
-      background: linear-gradient(180deg, #fafbfc 0%, #f1f5f9 100%);
-      border-right: 1px solid var(--border);
-    }
-
-    /* 流程卡片层 - 右侧 */
-    .flow-card-layer {
-      width: 480px;
-      flex-shrink: 0;
-      display: flex;
-      align-items: flex-start;
-      padding: 24px;
-      overflow-y: auto;
-    }
-
-    .flow-card {
-      background: var(--card-bg);
-      backdrop-filter: blur(20px);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      box-shadow:
-        0 4px 6px -1px rgba(0, 0, 0, 0.05),
-        0 10px 15px -3px rgba(0, 0, 0, 0.08),
-        0 20px 25px -5px rgba(0, 0, 0, 0.04);
-      padding: 24px;
-      width: 100%;
-    }
-
-    /* 卡片头部 */
-    .card-header {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      margin-bottom: 20px;
-      padding-bottom: 16px;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .card-icon {
-      width: 44px;
-      height: 44px;
-      border-radius: 12px;
-      background: linear-gradient(135deg, var(--primary), var(--primary-light));
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-size: 20px;
-      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
-    }
-
-    .card-title-group {
-      flex: 1;
-    }
-
-    .card-title {
-      font-size: 20px;
-      font-weight: 700;
-      color: var(--text);
-      margin-bottom: 4px;
-    }
-
-    .card-subtitle {
-      font-size: 14px;
-      color: var(--text-secondary);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .card-subtitle .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--primary);
-      animation: pulse 1.5s infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.6; transform: scale(0.9); }
-    }
-
-    .iteration-badge {
-      background: linear-gradient(135deg, #fef3c7, #fde68a);
-      color: #92400e;
-      padding: 4px 10px;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: 600;
-    }
-
-    /* 阶段进度 */
-    .stage-section {
-      margin-bottom: 20px;
-    }
-
-    .stage-section-title {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 10px;
-    }
-
-    .stage-list {
+      width: 100vw;
       display: flex;
       flex-direction: column;
-      gap: 6px;
-    }
-
-    .stage-item {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 8px 12px;
-      border-radius: 10px;
-      background: #f8fafc;
-      transition: all 0.2s ease;
-    }
-
-    .stage-item.active {
-      background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(129, 140, 248, 0.05));
-      border: 1px solid rgba(99, 102, 241, 0.2);
-    }
-
-    .stage-item.completed {
-      background: rgba(34, 197, 94, 0.06);
-    }
-
-    .stage-icon {
-      width: 28px;
-      height: 28px;
-      border-radius: 7px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 14px;
-      background: white;
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-    }
-
-    .stage-item.active .stage-icon {
-      background: var(--primary);
-      border-color: var(--primary);
-      color: white;
-    }
-
-    .stage-item.completed .stage-icon {
-      background: var(--success);
-      border-color: var(--success);
-      color: white;
-    }
-
-    .stage-info {
-      flex: 1;
-    }
-
-    .stage-name {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text);
-    }
-
-    .stage-item.active .stage-name {
-      color: var(--primary);
-    }
-
-    .stage-metrics {
-      font-size: 10px;
-      color: var(--text-muted);
-      margin-top: 1px;
-    }
-
-    .stage-status {
-      font-size: 10px;
-      color: var(--text-muted);
-    }
-
-    .stage-item.active .stage-status {
-      color: var(--primary);
-    }
-
-    .stage-item.completed .stage-status {
-      color: var(--success);
-    }
-
-    /* 指标网格 */
-    .metrics-section {
-      margin-bottom: 24px;
-    }
-
-    .metrics-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 12px;
-    }
-
-    .metric-card {
-      background: linear-gradient(135deg, #f8fafc, #f1f5f9);
-      border-radius: 14px;
-      padding: 16px 12px;
-      text-align: center;
-      border: 1px solid rgba(226, 232, 240, 0.6);
-    }
-
-    .metric-value {
-      font-size: 28px;
-      font-weight: 800;
-      color: var(--text);
-      line-height: 1;
-      margin-bottom: 6px;
-    }
-
-    .metric-card.primary .metric-value { color: var(--primary); }
-    .metric-card.success .metric-value { color: var(--success); }
-    .metric-card.warning .metric-value { color: var(--warning); }
-
-    .metric-label {
-      font-size: 11px;
-      color: var(--text-muted);
-      font-weight: 500;
-    }
-
-    /* 活动日志 */
-    .log-section {
-      background: #0f172a;
-      border-radius: 14px;
       overflow: hidden;
     }
 
-    .log-header {
-      padding: 12px 16px;
-      background: rgba(255, 255, 255, 0.03);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    /* === Header === */
+    .app-header {
+      height: 64px;
+      padding: 0 32px;
       display: flex;
       align-items: center;
-      gap: 8px;
-      color: #94a3b8;
-      font-size: 12px;
-      font-weight: 600;
-    }
-
-    .log-content {
-      padding: 12px 16px;
-      max-height: 140px;
-      overflow-y: auto;
-      font-family: "SF Mono", "Monaco", "Consolas", monospace;
-      font-size: 11px;
-    }
-
-    .log-item {
-      display: flex;
-      gap: 12px;
-      padding: 6px 0;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-      color: #cbd5e1;
-    }
-
-    .log-item:last-child { border-bottom: none; }
-
-    .log-time {
-      color: #475569;
+      justify-content: space-between;
+      backdrop-filter: blur(10px);
+      z-index: 50;
       flex-shrink: 0;
+      background: rgba(243, 244, 246, 0.8);
+      border-bottom: 1px solid rgba(0, 0, 0, 0.03);
     }
 
-    .log-event {
-      color: var(--primary-light);
-    }
-
-    .log-detail {
-      color: #64748b;
-      margin-left: auto;
-    }
-
-    /* 右侧 Chatbox - 隐藏 */
-    .chatbox-area {
-      display: none;
-    }
-
-    .chatbox-header {
-      padding: 20px 24px;
-      border-bottom: 1px solid var(--border);
-      font-weight: 600;
-      font-size: 15px;
-      color: var(--text);
+    .brand {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 18px;
     }
 
-    .chatbox-messages {
-      flex: 1;
-      padding: 20px;
-      overflow-y: auto;
-    }
-
-    .chatbox-placeholder {
-      color: var(--text-muted);
-      font-size: 14px;
-      text-align: center;
-      padding: 60px 24px;
-      line-height: 1.6;
-    }
-
-    .chatbox-input {
-      padding: 16px 20px;
-      border-top: 1px solid var(--border);
-    }
-
-    .chatbox-input input {
-      width: 100%;
-      padding: 14px 18px;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      font-size: 14px;
-      outline: none;
-      transition: all 0.2s;
-    }
-
-    .chatbox-input input:focus {
-      border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-    }
-
-    /* 控制按钮 */
-    .demo-controls {
-      position: fixed;
-      bottom: 24px;
-      left: 24px;
-      z-index: 100;
-      display: flex;
-      gap: 10px;
-    }
-
-    .demo-btn {
-      padding: 12px 20px;
-      border-radius: 12px;
-      border: none;
+    .brand-logo {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
       background: var(--primary);
       color: white;
-      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 20px;
+      color: var(--text-tertiary);
+      font-size: 20px;
+    }
+
+    /* === Layout Body === */
+    .layout-body {
+      flex: 1;
+      display: flex;
+      top: 0;
+      left: 0;
+      /* Align top */
+      padding: 0 24px 24px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Main Stage: Unrestricted Layer */
+    .main-stage {
+      flex: 1;
+      display: flex;
+      position: relative;
+    }
+
+    /* Viz Panel: Full Bleed Canvas */
+    .viz-panel {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 0;
+    }
+
+    #flow-container {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Controls Overlay */
+    .controls-overlay {
+      position: absolute;
+      bottom: 24px;
+      left: 24px;
+      display: flex;
+      gap: 12px;
+      z-index: 5;
+    }
+
+    .btn-float {
+      height: 48px;
+      padding: 0 24px;
+      border-radius: 24px;
+      border: none;
+      background: var(--text-main);
+      color: white;
       font-weight: 600;
+      font-size: 14px;
       cursor: pointer;
       display: flex;
       align-items: center;
-      gap: 8px;
-      transition: all 0.2s;
-      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+      gap: 10px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+      transition: transform 0.2s;
     }
 
-    .demo-btn:hover {
-      background: #4f46e5;
-      transform: translateY(-1px);
+    .btn-float:hover {
+      transform: translateY(-2px);
     }
 
-    .demo-btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      transform: none;
+    /* Right Floating Panel (Process Card) */
+    .process-panel {
+      position: absolute;
+      top: 16px;
+      bottom: 24px;
+      right: 24px;
+      width: 42%;
+      max-width: 440px;
+
+      display: flex;
+      flex-direction: column;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(20px);
+      border: 1px solid white;
+      border-radius: var(--radius-card);
+      box-shadow: var(--shadow-float);
+      z-index: 10;
+      overflow: hidden;
+      transition: all 0.3s ease;
     }
 
-    .demo-btn.secondary {
-      background: white;
+    .panel-status-area {
+      padding: 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: linear-gradient(to bottom, #FFFFFF, #FAFAFA);
+      border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    }
+
+    .status-icon-badge {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      background: #EFF6FF;
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      flex-shrink: 0;
+      transition: all 0.3s;
+    }
+
+    .status-icon-badge.success {
+      background: #ECFDF5;
+      color: var(--success);
+    }
+
+    .status-text-group {
+      flex: 1;
+    }
+
+    .status-text-group h3 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .status-text-group p {
+      margin: 4px 0 0;
+      font-size: 12px;
       color: var(--text-secondary);
-      border: 1px solid var(--border);
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
     }
 
-    .demo-btn.secondary:hover {
-      background: #f8fafc;
-      border-color: #cbd5e1;
+    .process-content {
+      flex: 1;
+      overflow-y: auto;
+      background: #FFFFFF;
+      /* Padding included in step items */
     }
 
-    /* 滚动条 */
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
+    /* Step Item Styles - High Density */
+    .step-item {
+      padding: 14px 24px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.03);
+      display: flex;
+      gap: 14px;
+      transition: background 0.2s;
+      position: relative;
+    }
+
+    .step-item::before {
+      content: '';
+      position: absolute;
+      left: 33px;
+      top: 34px;
+      bottom: -14px;
+      width: 1px;
+      background: #E5E7EB;
+      z-index: 0;
+    }
+
+    .step-item:last-child::before {
+      display: none;
+    }
+
+    .step-icon {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #F3F4F6;
+      color: #9CA3AF;
+      border: 2px solid #FFFFFF;
+      box-shadow: 0 0 0 1px #E5E7EB;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      flex-shrink: 0;
+      z-index: 1;
+      margin-top: 2px;
+    }
+
+    .step-item.completed .step-icon {
+      background: var(--success);
+      color: white;
+      box-shadow: none;
+      border-color: transparent;
+    }
+
+    .step-item.running .step-icon {
+      background: var(--primary);
+      color: white;
+      box-shadow: none;
+      border-color: transparent;
+      animation: pulse 1.5s infinite;
+    }
+
+    .step-item.info .step-icon {
+      background: #3B82F6;
+      color: white;
+    }
+
+    .step-info {
+      flex: 1;
+    }
+
+    .step-header-line {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 4px;
+    }
+
+    .step-name {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-main);
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .step-time {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 10px;
+      color: var(--text-tertiary);
+    }
+
+    .step-desc {
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    /* Detailed Metadata Blocks */
+    .step-details {
+      margin-top: 8px;
+      background: #F8FAFC;
+      border-radius: 8px;
+      padding: 8px 10px;
+      border: 1px solid #F1F5F9;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .detail-row {
+      font-size: 11px;
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+    }
+
+    .detail-label {
+      color: #64748B;
+      font-weight: 500;
+      min-width: 60px;
+    }
+
+    .detail-val {
+      color: #334155;
+      font-family: "JetBrains Mono", monospace;
+      flex: 1;
+      word-break: break-all;
+    }
+
+    @keyframes pulse {
+      0% {
+        box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.4);
+      }
+
+      70% {
+        box-shadow: 0 0 0 6px rgba(79, 70, 229, 0);
+      }
+
+      100% {
+        box-shadow: 0 0 0 0 rgba(79, 70, 229, 0);
+      }
+    }
+
+    /* Chat Sidebar */
+    .chat-sidebar {
+      width: 340px;
+      background: #FFFFFF;
+      border-radius: 20px;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid rgba(255, 255, 255, 0.6);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02);
+      overflow: hidden;
+      z-index: 20;
+      margin-top: 16px;
+      margin-bottom: 24px;
+    }
+
+    .chat-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #F3F4F6;
+      font-size: 13px;
+      font-weight: 600;
+      background: #FAFAFA;
+    }
+
+    .chat-body {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      background: white;
+    }
+
+    .chat-msg {
+      margin-bottom: 12px;
+      display: flex;
+      gap: 10px;
+    }
+
+    .chat-avatar {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      background: #F3F4F6;
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .chat-bubble {
+      background: #F9FAFB;
+      padding: 8px 12px;
+      border-radius: 0 10px 10px 10px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      border: 1px solid #F3F4F6;
+    }
+
+    ::-webkit-scrollbar {
+      width: 4px;
+    }
+
     ::-webkit-scrollbar-thumb {
-      background: rgba(148, 163, 184, 0.3);
-      border-radius: 3px;
-    }
-    ::-webkit-scrollbar-thumb:hover {
-      background: rgba(148, 163, 184, 0.5);
+      background: #CBD5E1;
+      border-radius: 2px;
     }
   </style>
 </head>
+
 <body>
-  <div class="main-layout">
-    <!-- 左侧内容区 -->
-    <div class="content-area">
-      <!-- ReactFlow 背景层 -->
-      <div id="flow-container"></div>
 
-      <!-- 流程卡片层 -->
-      <div class="flow-card-layer">
-        <div class="flow-card">
-          <!-- 头部 -->
-          <div class="card-header">
-            <div class="card-icon">
-              <iconify-icon icon="carbon:ibm-watson-discovery"></iconify-icon>
-            </div>
-            <div class="card-title-group">
-              <div class="card-title">DeepSearch 深度研究</div>
-              <div class="card-subtitle">
-                <span class="status-dot" id="status-dot"></span>
-                <span id="current-stage">等待开始...</span>
-              </div>
-            </div>
-            <div class="iteration-badge" id="iteration-badge" style="display: none;">
-              迭代 #1
-            </div>
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-logo"><iconify-icon icon="solar:box-bold"></iconify-icon></div>
+      Paper Burner X
+    </div>
+    <div class="header-actions">
+      <iconify-icon icon="solar:settings-outline"></iconify-icon>
+      <iconify-icon icon="solar:user-circle-bold"></iconify-icon>
+    </div>
+  </header>
+
+  <div class="layout-body">
+
+    <div class="main-stage">
+      <!-- Full Canvas -->
+      <div class="viz-panel">
+        <div id="flow-container"></div>
+
+        <div class="controls-overlay">
+          <button class="btn-float" id="btn-start">
+            <iconify-icon icon="solar:play-bold"></iconify-icon> Start Analysis
+          </button>
+          <button class="btn-float" style="background:white; color:#374151;" id="btn-reset">
+            <iconify-icon icon="solar:restart-bold"></iconify-icon>
+          </button>
+        </div>
+      </div>
+
+      <!-- Floating Process Panel (High Density) -->
+      <div class="process-panel">
+        <div class="panel-status-area">
+          <div class="status-icon-badge" id="status-badge">
+            <iconify-icon icon="solar:magnifer-outline"></iconify-icon>
           </div>
-
-          <!-- 阶段进度 -->
-          <div class="stage-section">
-            <div class="stage-section-title">执行阶段</div>
-            <div class="stage-list" id="stage-list">
-              <div class="stage-item" data-stage="scan">
-                <div class="stage-icon">◎</div>
-                <div class="stage-info">
-                  <div class="stage-name">文档扫描</div>
-                  <div class="stage-metrics" id="scan-metrics">分析文档结构</div>
-                </div>
-                <div class="stage-status">待执行</div>
-              </div>
-              <div class="stage-item" data-stage="gaps">
-                <div class="stage-icon">◇</div>
-                <div class="stage-info">
-                  <div class="stage-name">知识缺口识别</div>
-                  <div class="stage-metrics" id="gaps-metrics">发现需要补充的信息</div>
-                </div>
-                <div class="stage-status">待执行</div>
-              </div>
-              <div class="stage-item" data-stage="retrieve">
-                <div class="stage-icon">⟳</div>
-                <div class="stage-info">
-                  <div class="stage-name">证据检索</div>
-                  <div class="stage-metrics" id="retrieve-metrics">搜索相关内容</div>
-                </div>
-                <div class="stage-status">待执行</div>
-              </div>
-              <div class="stage-item" data-stage="understand">
-                <div class="stage-icon">◈</div>
-                <div class="stage-info">
-                  <div class="stage-name">内容理解</div>
-                  <div class="stage-metrics" id="understand-metrics">提取论点和证据</div>
-                </div>
-                <div class="stage-status">待执行</div>
-              </div>
-              <div class="stage-item" data-stage="write">
-                <div class="stage-icon">✎</div>
-                <div class="stage-info">
-                  <div class="stage-name">内容生成</div>
-                  <div class="stage-metrics" id="write-metrics">生成演示文稿</div>
-                </div>
-                <div class="stage-status">待执行</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 指标 -->
-          <div class="metrics-section">
-            <div class="stage-section-title">实时指标</div>
-            <div class="metrics-grid">
-              <div class="metric-card primary">
-                <div class="metric-value" id="metric-claims">0</div>
-                <div class="metric-label">论点</div>
-              </div>
-              <div class="metric-card success">
-                <div class="metric-value" id="metric-evidence">0</div>
-                <div class="metric-label">证据</div>
-              </div>
-              <div class="metric-card warning">
-                <div class="metric-value" id="metric-gaps">0</div>
-                <div class="metric-label">缺口</div>
-              </div>
-              <div class="metric-card">
-                <div class="metric-value" id="metric-chunks">0</div>
-                <div class="metric-label">片段</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 日志 -->
-          <div class="log-section">
-            <div class="log-header">
-              <iconify-icon icon="carbon:terminal"></iconify-icon>
-              活动日志
-            </div>
-            <div class="log-content" id="log-area"></div>
+          <div class="status-text-group">
+            <h3 id="status-title">System Ready</h3>
+            <p id="status-sub">Waiting for research protocol...</p>
           </div>
         </div>
+
+        <div class="process-content" id="process-list"></div>
       </div>
     </div>
 
-    <!-- 右侧 Chatbox -->
-    <div class="chatbox-area">
-      <div class="chatbox-header">
-        <iconify-icon icon="carbon:chat"></iconify-icon>
-        智能问答
-      </div>
-      <div class="chatbox-messages" id="chat-messages">
-        <div class="chatbox-placeholder">
-          <iconify-icon icon="carbon:search" style="font-size: 48px; opacity: 0.3; display: block; margin-bottom: 16px;"></iconify-icon>
-          DeepSearch 正在深度研究中...<br>
-          完成后可基于研究结果提问
+    <!-- Chat Sidebar -->
+    <div class="chat-sidebar">
+      <div class="chat-header">Research Assistant (Active)</div>
+      <div class="chat-body" id="chat-body">
+        <div class="chat-msg">
+          <div class="chat-avatar"><iconify-icon icon="solar:magic-stick-3-bold"></iconify-icon></div>
+          <div class="chat-bubble">I am ready. Click 'Start Analysis' to begin the DeepSearch demo.</div>
         </div>
       </div>
-      <div class="chatbox-input">
-        <input type="text" placeholder="基于研究结果提问..." disabled>
-      </div>
     </div>
-  </div>
-
-  <!-- 控制按钮 -->
-  <div class="demo-controls">
-    <button class="demo-btn" id="btn-run">
-      <iconify-icon icon="mdi:play"></iconify-icon>
-      开始演示
-    </button>
-    <button class="demo-btn secondary" id="btn-reset">
-      <iconify-icon icon="mdi:refresh"></iconify-icon>
-      重置
-    </button>
   </div>
 
   <script type="module">
     import { initDeepSearchFlow } from '../js/ppt/deepsearch-flow-visualizer.js';
 
-    // 模拟事件 - 准确反映 DeepSearch 架构
-    // 单轨迹模式: scan → gaps → [iteration: retrieve → understand → (external)?] × N → write → condense
-    const mockEvents = [
-      { name: "deepsearch.started", payload: { runId: "run_demo_001" } },
+    // === High Fidelity Event Stream ===
+    const detailedEvents = [
+      { name: "deepsearch.started", payload: { runId: "Run_2025_X92" }, text: "Initializing DeepSearch Protocol", details: { "RunID": "Run_2025_X92", "Mode": "Deep/Recursive" } },
 
-      // ===== Scan 阶段 =====
-      { name: "deepsearch.node.started", payload: { nodeId: "scan_1", stage: "scan" } },
-      { name: "deepsearch.scan.completed", payload: { sourceCount: 8, plannedSteps: 5 } },
-      { name: "deepsearch.node.completed", payload: { nodeId: "scan_1" } },
+      { name: "deepsearch.node.started", payload: { nodeId: "scan_01", stage: "scan" }, text: "Scanning 8 input documents...", details: {} },
+      { name: "deepsearch.scan.completed", payload: { sourceCount: 8, plannedSteps: 12 }, text: "Document structure analysis complete.", details: { "Docs": 8, "Pages": 142, "Format": "PDF/DOCX" } },
+      { name: "deepsearch.node.completed", payload: { nodeId: "scan_01" }, text: "Scan phase finished.", details: {} },
 
-      // ===== Gaps 阶段（初始） =====
-      { name: "deepsearch.node.started", payload: { nodeId: "gaps_1", stage: "gaps" } },
-      { name: "deepsearch.gap.upserted", payload: { gapId: "g1", question: "量子计算的基本原理是什么？", status: "open", priority: "high" } },
-      { name: "deepsearch.gap.upserted", payload: { gapId: "g2", question: "量子比特与经典比特的本质区别？", status: "open", priority: "high" } },
-      { name: "deepsearch.gap.upserted", payload: { gapId: "g3", question: "量子纠缠如何实现量子通信？", status: "open", priority: "medium" } },
-      { name: "deepsearch.gaps.completed", payload: { gapCount: 3, totalGaps: 3, todoCount: 6 } },
-      { name: "deepsearch.node.completed", payload: { nodeId: "gaps_1" } },
+      { name: "deepsearch.node.started", payload: { nodeId: "gaps_01", stage: "gaps" }, text: "Identifying knowledge gaps...", details: {} },
+      { name: "deepsearch.gap.upserted", payload: { gapId: "g1", question: "Gap: Quantum Entanglement Mechanics breakdown?", priority: "high" }, text: "Detected information gap.", details: { "Topic": "Quantum Physics", "Priority": "High" } },
+      { name: "deepsearch.gap.upserted", payload: { gapId: "g2", question: "Gap: RSA vs ECC Encryption comparison?", priority: "high" }, text: "Detected comparison ambiguity.", details: { "Topic": "Cryptography", "Priority": "High" } },
+      { name: "deepsearch.gaps.completed", payload: { gapCount: 3, totalGaps: 3 }, text: "Gap analysis finalized.", details: { "Total Gaps": 3, "Est. Iterations": 2 } },
 
-      // ===== 迭代 0 =====
-      { name: "deepsearch.iteration.started", payload: { iteration: 0, openGapCount: 3 } },
+      { name: "deepsearch.iteration.started", payload: { iteration: 1, openGapCount: 3 }, text: "Starting Recursion Batch #1", details: { "Batch": 1, "Targets": "3 Gaps" } },
 
-      // Retrieve
-      { name: "deepsearch.node.started", payload: { nodeId: "retrieve_0", stage: "retrieve" } },
-      { name: "deepsearch.retrieve.deduped", payload: { before: 56, after: 38, duplicateCount: 18 } },
-      { name: "deepsearch.rerank.completed", payload: { inputCount: 38, outputCount: 24, duration: 312 } },
-      { name: "deepsearch.retrieve.completed", payload: { retrievedCount: 24, retrievedBeforeDedupe: 56 } },
-      { name: "deepsearch.node.completed", payload: { nodeId: "retrieve_0" } },
+      { name: "deepsearch.node.started", payload: { nodeId: "ret_01", stage: "retrieve" }, text: "Vector retrieval in progress...", details: {} },
+      { name: "deepsearch.retrieve.completed", payload: { retrievedCount: 56, retrievedBeforeDedupe: 120 }, text: "Keyword & Vector hybrid search done.", details: { "Raw Hits": 120, "Vector Cosine": ">0.75" } },
+      { name: "deepsearch.retrieve.deduped", payload: { before: 120, after: 56 }, text: "Deduplication applied.", details: { "Filtered": 64, "Kept": 56 } },
+      { name: "deepsearch.rerank.completed", payload: { inputCount: 56, outputCount: 24 }, text: "Cross-Encoder Reranking complete.", details: { "Model": "BGE-Reranker-v2", "Top-K": 24 } },
+      { name: "deepsearch.node.completed", payload: { nodeId: "ret_01" }, text: "Retrieval phase finished.", details: {} },
 
-      // Understand
-      { name: "deepsearch.node.started", payload: { nodeId: "understand_0", stage: "understand" } },
-      { name: "deepsearch.claim.snapshot", payload: {
-        claims: [
-          { claimId: "c1", textPreview: "量子计算利用量子叠加和纠缠实现并行计算能力" },
-          { claimId: "c2", textPreview: "量子比特可同时表示 0 和 1 的叠加态，经典比特只能是确定的 0 或 1" },
-        ]
-      }},
-      { name: "deepsearch.understand.completed", payload: { claimCount: 12, evidenceCount: 18, conflictCount: 1 } },
-      { name: "deepsearch.node.completed", payload: { nodeId: "understand_0" } },
+      { name: "deepsearch.node.started", payload: { nodeId: "und_01", stage: "understand" }, text: "LLM Reasoning & Extraction...", details: {} },
+      { name: "deepsearch.claim.snapshot", payload: { claims: [{ claimId: "c1", textPreview: "Shor's algorithm factors integers in polynomial time.", importance: 0.9 }] }, text: "Extracting Key Claims...", details: { "Claim": "Shor's Algorithm impact...", "Confidence": "98%" } },
+      { name: "deepsearch.understand.completed", payload: { claimCount: 12, evidenceCount: 18 }, text: "Reasoning complete.", details: { "Claims": 12, "Evidence Links": 18 } },
+      { name: "deepsearch.node.completed", payload: { nodeId: "und_01" }, text: "Understanding phase finished.", details: {} },
 
-      { name: "deepsearch.checkpoint.saved", payload: { checkpointId: "cp_iter0_abc123", iteration: 0 } },
-      { name: "iteration.completed", payload: { iteration: 0, hitCount: 15, noNewHitsRounds: 0, openGapCount: 2 } },
+      { name: "deepsearch.node.started", payload: { nodeId: "ext_01", stage: "external" }, text: "External Web Search initiated.", details: { "Trigger": "Low Confidence Context" } },
+      { name: "deepsearch.external.progress", payload: { provider: "Arxiv", query: "Shor Algorithm optimization 2024", resultCount: 5 }, text: "Querying Arxiv API...", details: { "Query": "Shor Algorithm 2024", "Hits": 5 } },
+      { name: "deepsearch.external.completed", payload: { chunksCount: 10, documentsCount: 2 }, text: "External context ingested.", details: { "New Chunks": 10 } },
 
-      // ===== Gaps 阶段（迭代后更新） =====
-      { name: "deepsearch.node.started", payload: { nodeId: "gaps_2", stage: "gaps" } },
-      { name: "deepsearch.gap.upserted", payload: { gapId: "g4", question: "Shor 算法如何威胁现有 RSA 加密？", status: "open", priority: "high" } },
-      { name: "deepsearch.gaps.completed", payload: { gapCount: 1, totalGaps: 4, todoCount: 2 } },
-      { name: "deepsearch.node.completed", payload: { nodeId: "gaps_2" } },
+      { name: "deepsearch.iteration.completed", payload: { iteration: 1, hitCount: 15 }, text: "Recursion Batch #1 Finished.", details: { "Hits": 15, "Resolved Gaps": 3 } },
 
-      // ===== 迭代 1 =====
-      { name: "deepsearch.iteration.started", payload: { iteration: 1, openGapCount: 2 } },
+      { name: "deepsearch.node.started", payload: { nodeId: "wri_01", stage: "write" }, text: "Synthesizing Final Report...", details: {} },
+      { name: "deepsearch.write.section.started", payload: { sectionTitle: "Introduction to Qubits", sectionIndex: 0, sectionCount: 4 }, text: "Drafting Section 1...", details: { "Section": "Intro to Qubits" } },
+      { name: "deepsearch.write.section.completed", payload: { sectionTitle: "Introduction to Qubits" }, text: "Section 1 Finalized.", details: { "Words": 450 } },
+      { name: "deepsearch.write.completed", payload: { slideCount: 14, claimCount: 26 }, text: "Full report generation complete.", details: { "Slides": 14, "Citations": 26 } },
 
-      // Retrieve
-      { name: "deepsearch.node.started", payload: { nodeId: "retrieve_1", stage: "retrieve" } },
-      { name: "deepsearch.retrieve.completed", payload: { retrievedCount: 18 } },
-      { name: "deepsearch.node.completed", payload: { nodeId: "retrieve_1" } },
-
-      // Understand - 触发外搜
-      { name: "deepsearch.node.started", payload: { nodeId: "understand_1", stage: "understand" } },
-      { name: "deepsearch.reflect.needsmore", payload: { confidence: 0.68, suggestions: ["补充 Shor 算法数学原理", "加入量子纠错机制"] } },
-      { name: "deepsearch.understand.completed", payload: { claimCount: 18, evidenceCount: 26, conflictCount: 0 } },
-      { name: "deepsearch.node.completed", payload: { nodeId: "understand_1" } },
-
-      // External Search（条件触发）
-      { name: "deepsearch.node.started", payload: { nodeId: "external_1", stage: "external" } },
-      { name: "deepsearch.external.started", payload: { providerCount: 2, gapCount: 2, providers: ["arxiv", "semantic_scholar"] } },
-      { name: "deepsearch.external.progress", payload: { provider: "arxiv", query: "Shor algorithm RSA factorization", resultCount: 12 } },
-      { name: "deepsearch.external.progress", payload: { provider: "semantic_scholar", query: "quantum error correction codes", resultCount: 8 } },
-      { name: "deepsearch.external.completed", payload: { chunksCount: 16, documentsCount: 5, evidencesCount: 11 } },
-      { name: "deepsearch.node.completed", payload: { nodeId: "external_1" } },
-
-      // 外搜后再次 Understand
-      { name: "deepsearch.node.started", payload: { nodeId: "understand_1b", stage: "understand" } },
-      { name: "deepsearch.claim.snapshot", payload: {
-        claims: [
-          { claimId: "c3", textPreview: "Shor 算法可在多项式时间内分解大整数，威胁 RSA 安全性" },
-          { claimId: "c4", textPreview: "量子纠错码通过冗余编码保护量子信息免受退相干影响" },
-        ]
-      }},
-      { name: "deepsearch.understand.completed", payload: { claimCount: 26, evidenceCount: 42, conflictCount: 1 } },
-      { name: "deepsearch.node.completed", payload: { nodeId: "understand_1b" } },
-
-      { name: "deepsearch.checkpoint.saved", payload: { checkpointId: "cp_iter1_def456", iteration: 1 } },
-      { name: "iteration.completed", payload: { iteration: 1, hitCount: 8, noNewHitsRounds: 1, openGapCount: 0 } },
-
-      // ===== Write 阶段 =====
-      { name: "deepsearch.node.started", payload: { nodeId: "write_1", stage: "write" } },
-      { name: "deepsearch.write.toc.planned", payload: {
-        sectionCount: 5,
-        maxParallel: 3,
-        sections: [
-          { sectionId: "s1", title: "量子计算基础：叠加与纠缠" },
-          { sectionId: "s2", title: "量子比特 vs 经典比特" },
-          { sectionId: "s3", title: "量子算法：从 Shor 到 Grover" },
-          { sectionId: "s4", title: "量子通信与量子密码学" },
-        ]
-      }},
-      { name: "deepsearch.write.section.started", payload: { sectionTitle: "量子计算基础：叠加与纠缠", sectionIndex: 0, sectionCount: 5 } },
-      { name: "deepsearch.write.section.completed", payload: { sectionTitle: "量子计算基础：叠加与纠缠", sectionIndex: 0, sectionCount: 5 } },
-      { name: "deepsearch.write.section.started", payload: { sectionTitle: "量子比特 vs 经典比特", sectionIndex: 1, sectionCount: 5 } },
-      { name: "deepsearch.write.section.completed", payload: { sectionTitle: "量子比特 vs 经典比特", sectionIndex: 1, sectionCount: 5 } },
-      { name: "deepsearch.write.review.completed", payload: { round: 1, overallScore: 8.6, issueCount: 2, patchCount: 1 } },
-      { name: "deepsearch.write.completed", payload: { slideCount: 14, claimCount: 26 } },
-      { name: "deepsearch.node.completed", payload: { nodeId: "write_1" } },
-
-      // ===== Condense 阶段 =====
-      { name: "deepsearch.node.started", payload: { nodeId: "condense_1", stage: "condense" } },
-      { name: "deepsearch.condense.completed", payload: {
-        keptChunks: 42,
-        summary: "完成量子计算深度研究：从基础原理（叠加、纠缠）到实际应用（Shor算法、量子通信），共提取26个核心论点，生成14页演示文稿。"
-      }},
-      { name: "deepsearch.node.completed", payload: { nodeId: "condense_1" } },
-
-      { name: "deepsearch.token.usage", payload: { model: "claude-3-opus", inputTokens: 52000, outputTokens: 14000, cost: 0.98 } },
-      { name: "deepsearch.completed", payload: { slideCount: 14, claimCount: 26 } },
+      { name: "deepsearch.completed", payload: { slideCount: 14 }, text: "Mission Success.", details: { "Duration": "42s", "Tokens": "12,450" } }
     ];
 
-    const stageInfo = {
-      scan: { name: "文档扫描", runningText: "正在分析文档结构..." },
-      gaps: { name: "知识缺口识别", runningText: "正在识别信息缺口..." },
-      retrieve: { name: "证据检索", runningText: "正在检索相关内容..." },
-      understand: { name: "内容理解", runningText: "正在提取论点和证据..." },
-      external: { name: "外部搜索", runningText: "正在搜索外部资源..." },
-      write: { name: "内容生成", runningText: "正在生成演示文稿..." },
-      condense: { name: "整理压缩", runningText: "正在整理研究成果..." },
-      iteration: { name: "迭代", runningText: "正在进行新一轮迭代..." }
-    };
-
     let flowViz = null;
-    let running = false;
-    let metrics = { claims: 0, evidence: 0, gaps: 0, chunks: 0 };
-    let currentIteration = -1;
-
-    function updateStageUI(stage, status, metricsData) {
-      const stageItem = document.querySelector(`.stage-item[data-stage="${stage}"]`);
-      if (!stageItem) return;
-
-      stageItem.classList.remove('active', 'completed');
-      if (status === 'running') {
-        stageItem.classList.add('active');
-        stageItem.querySelector('.stage-status').textContent = '执行中...';
-      } else if (status === 'completed') {
-        stageItem.classList.add('completed');
-        stageItem.querySelector('.stage-status').textContent = '已完成';
-      }
-
-      // 更新阶段指标
-      if (metricsData) {
-        const metricsEl = stageItem.querySelector('.stage-metrics');
-        const parts = [];
-        if (metricsData.sourceCount) parts.push(`${metricsData.sourceCount} 个文档`);
-        if (metricsData.gapCount !== undefined) parts.push(`${metricsData.gapCount} 个缺口`);
-        if (metricsData.retrievedCount) parts.push(`${metricsData.retrievedCount} 个片段`);
-        if (metricsData.chunkCount) parts.push(`${metricsData.chunkCount} 个片段`);
-        if (metricsData.claimCount) parts.push(`${metricsData.claimCount} 个论点`);
-        if (metricsData.evidenceCount) parts.push(`${metricsData.evidenceCount} 个证据`);
-        if (metricsData.slideCount) parts.push(`${metricsData.slideCount} 页幻灯片`);
-        if (metricsData.chunksCount) parts.push(`${metricsData.chunksCount} 个外部片段`);
-        if (metricsData.documentsCount) parts.push(`${metricsData.documentsCount} 个文档`);
-        if (metricsData.keptChunks) parts.push(`保留 ${metricsData.keptChunks} 个片段`);
-        if (parts.length > 0) {
-          metricsEl.textContent = parts.join(' · ');
-        }
-      }
-    }
-
-    function updateGlobalMetrics(payload) {
-      if (payload.claimCount !== undefined) {
-        metrics.claims = payload.claimCount;
-        document.getElementById('metric-claims').textContent = metrics.claims;
-      }
-      if (payload.evidenceCount !== undefined) {
-        metrics.evidence = payload.evidenceCount;
-        document.getElementById('metric-evidence').textContent = metrics.evidence;
-      }
-      if (payload.gapCount !== undefined) {
-        metrics.gaps = payload.gapCount;
-        document.getElementById('metric-gaps').textContent = metrics.gaps;
-      }
-      if (payload.openGapCount !== undefined) {
-        metrics.gaps = payload.openGapCount;
-        document.getElementById('metric-gaps').textContent = metrics.gaps;
-      }
-      if (payload.chunkCount !== undefined || payload.retrievedCount !== undefined) {
-        metrics.chunks = payload.chunkCount || payload.retrievedCount || metrics.chunks;
-        document.getElementById('metric-chunks').textContent = metrics.chunks;
-      }
-    }
-
-    function addLog(event) {
-      const logArea = document.getElementById('log-area');
-      const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-      let detail = '';
-      const p = event.payload || {};
-      if (p.sourceCount) detail = `${p.sourceCount} 源`;
-      else if (p.gapCount !== undefined) detail = `${p.gapCount} 缺口`;
-      else if (p.retrievedCount) detail = `${p.retrievedCount} 片段`;
-      else if (p.claimCount) detail = `${p.claimCount} 论点`;
-      else if (p.slideCount) detail = `${p.slideCount} 页`;
-      else if (p.iteration !== undefined) detail = `#${p.iteration + 1}`;
-
-      const div = document.createElement('div');
-      div.className = 'log-item';
-      div.innerHTML = `
-        <span class="log-time">${time}</span>
-        <span class="log-event">${event.name.replace('deepsearch.', '')}</span>
-        ${detail ? `<span class="log-detail">${detail}</span>` : ''}
-      `;
-      logArea.appendChild(div);
-      logArea.scrollTop = logArea.scrollHeight;
-    }
-
-    function processEvent(event) {
-      const name = event.name;
-      const payload = event.payload || {};
-
-      // 更新状态显示
-      if (name === 'deepsearch.started') {
-        document.getElementById('current-stage').textContent = '正在初始化研究...';
-      } else if (name === 'deepsearch.node.started') {
-        const stage = payload.stage;
-        if (stageInfo[stage]) {
-          document.getElementById('current-stage').textContent = stageInfo[stage].runningText;
-          updateStageUI(stage, 'running');
-        }
-      } else if (name === 'deepsearch.node.completed') {
-        // 找到对应的阶段
-        const nodeId = payload.nodeId;
-        const stageMatch = nodeId.match(/^([a-z]+)_/);
-        if (stageMatch) {
-          updateStageUI(stageMatch[1], 'completed');
-        }
-      } else if (name === 'deepsearch.iteration.started') {
-        currentIteration = payload.iteration;
-        const badge = document.getElementById('iteration-badge');
-        badge.style.display = 'block';
-        badge.textContent = `迭代 #${currentIteration + 1}`;
-      } else if (name === 'deepsearch.completed') {
-        document.getElementById('current-stage').textContent = '研究完成！';
-        document.getElementById('status-dot').style.animation = 'none';
-        document.getElementById('status-dot').style.background = '#22c55e';
-      }
-
-      // 阶段完成时更新指标
-      if (name.includes('.completed') && name !== 'deepsearch.completed' && name !== 'deepsearch.node.completed') {
-        const stage = name.split('.')[1];
-        updateStageUI(stage, 'completed', payload);
-        updateGlobalMetrics(payload);
-      }
-    }
 
     async function init() {
-      flowViz = await initDeepSearchFlow('flow-container', {
-        direction: 'LR',
-        height: window.innerHeight
-      });
+      // LR Direction for horizontal timeline feel
+      flowViz = await initDeepSearchFlow('flow-container', { direction: 'LR', height: 600 });
 
-      document.getElementById('btn-run').onclick = async () => {
-        if (running) return;
-        running = true;
-        document.getElementById('btn-run').disabled = true;
+      const processList = document.getElementById('process-list');
+      const chatBody = document.getElementById('chat-body');
 
-        flowViz.reset();
-        document.getElementById('log-area').innerHTML = '';
-        metrics = { claims: 0, evidence: 0, gaps: 0, chunks: 0 };
-        currentIteration = -1;
+      const statusTitle = document.getElementById('status-title');
+      const statusSub = document.getElementById('status-sub');
+      const statusBadge = document.getElementById('status-badge');
 
-        // 重置 UI
-        document.querySelectorAll('.stage-item').forEach(item => {
-          item.classList.remove('active', 'completed');
-          item.querySelector('.stage-status').textContent = '待执行';
-        });
-        document.getElementById('iteration-badge').style.display = 'none';
-        document.getElementById('status-dot').style.animation = 'pulse 1.5s infinite';
-        document.getElementById('status-dot').style.background = '#6366f1';
+      const addStep = (event) => {
+        if (!event.text) return;
+        const div = document.createElement('div');
+        div.className = 'step-item';
 
-        for (const event of mockEvents) {
-          flowViz.processEvent(event);
-          processEvent(event);
-          addLog(event);
-          await new Promise(r => setTimeout(r, 350));
+        if (event.name.includes("completed") || event.name.includes("upserted")) div.classList.add("completed");
+        if (event.name.includes("started") && !event.name.includes("node")) div.classList.add("running");
+        if (event.name.includes("external")) div.classList.add("info");
+
+        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+
+        let icon = '<iconify-icon icon="solar:record-circle-outline"></iconify-icon>';
+        if (div.classList.contains('completed')) icon = '<iconify-icon icon="solar:check-circle-bold"></iconify-icon>';
+        if (div.classList.contains('running')) icon = '<iconify-icon icon="solar:refresh-circle-bold"></iconify-icon>';
+        if (div.classList.contains('info')) icon = '<iconify-icon icon="solar:info-circle-bold"></iconify-icon>';
+
+        // Render KV Details
+        let detailsHtml = '';
+        if (event.details && Object.keys(event.details).length > 0) {
+          detailsHtml = `<div class="step-details">
+                ${Object.entries(event.details).map(([k, v]) => `
+                    <div class="detail-row">
+                        <span class="detail-label">${k}:</span>
+                        <span class="detail-val">${v}</span>
+                    </div>
+                `).join('')}
+            </div>`;
         }
 
-        running = false;
-        document.getElementById('btn-run').disabled = false;
+        div.innerHTML = `
+          <div class="step-icon">${icon}</div>
+          <div class="step-info">
+            <div class="step-header-line">
+              <span class="step-name">${event.name.split('.')[1]}</span>
+              <span class="step-time">${time}</span>
+            </div>
+            <div class="step-desc">${event.text}</div>
+            ${detailsHtml}
+          </div>
+        `;
+        processList.appendChild(div); // Append to bottom for log feel, or insertBefore for latest up
+        // Scroll to bottom
+        processList.scrollTop = processList.scrollHeight;
       };
 
-      document.getElementById('btn-reset').onclick = () => {
+      const addChat = (text) => {
+        const div = document.createElement('div');
+        div.className = 'chat-msg';
+        div.innerHTML = `<div class="chat-avatar"><iconify-icon icon="solar:magic-stick-3-bold"></iconify-icon></div><div class="chat-bubble">${text}</div>`;
+        chatBody.appendChild(div);
+        chatBody.scrollTop = chatBody.scrollHeight;
+      }
+
+      document.getElementById('btn-start').onclick = async () => {
+        document.getElementById('btn-start').disabled = true;
+        processList.innerHTML = '';
         flowViz.reset();
-        document.getElementById('log-area').innerHTML = '';
-        document.getElementById('current-stage').textContent = '等待开始...';
-        document.getElementById('iteration-badge').style.display = 'none';
-        document.getElementById('status-dot').style.animation = 'pulse 1.5s infinite';
-        document.getElementById('status-dot').style.background = '#6366f1';
 
-        document.querySelectorAll('.stage-item').forEach(item => {
-          item.classList.remove('active', 'completed');
-          item.querySelector('.stage-status').textContent = '待执行';
-        });
+        statusTitle.textContent = "Processing...";
 
-        metrics = { claims: 0, evidence: 0, gaps: 0, chunks: 0 };
-        document.getElementById('metric-claims').textContent = '0';
-        document.getElementById('metric-evidence').textContent = '0';
-        document.getElementById('metric-gaps').textContent = '0';
-        document.getElementById('metric-chunks').textContent = '0';
+        for (const event of detailedEvents) {
+          flowViz.processEvent(event);
+          addStep(event);
+
+          // Integrated Header Updates
+          if (event.name.includes("scan")) { statusSub.textContent = "Scanning documents..."; statusBadge.innerHTML = '<iconify-icon icon="solar:scanner-outline"></iconify-icon>'; }
+          if (event.name.includes("gaps")) { statusSub.textContent = "Analyzing gaps..."; statusBadge.innerHTML = '<iconify-icon icon="solar:atom-outline"></iconify-icon>'; }
+          if (event.name.includes("retrieve")) { statusSub.textContent = "Retrieving context..."; statusBadge.innerHTML = '<iconify-icon icon="solar:magnifer-outline"></iconify-icon>'; }
+          if (event.name.includes("write")) { statusSub.textContent = "Drafting report..."; statusBadge.innerHTML = '<iconify-icon icon="solar:pen-new-square-outline"></iconify-icon>'; }
+
+          if (event.name === "deepsearch.completed") {
+            statusTitle.textContent = "Analysis Complete";
+            statusSub.textContent = "Report ready.";
+            statusBadge.innerHTML = '<iconify-icon icon="solar:check-circle-bold"></iconify-icon>';
+            statusBadge.classList.add('success');
+            addChat("Research finished successfully.");
+            document.getElementById('btn-start').disabled = false;
+          }
+
+          // Variable delay for realism
+          let delay = 600;
+          if (event.name.includes("completed")) delay = 300;
+          if (event.name.includes("scan")) delay = 1000;
+          await new Promise(r => setTimeout(r, delay));
+        }
       };
+
+      document.getElementById('btn-reset').onclick = () => location.reload();
     }
 
-    init().catch(console.error);
+    init();
   </script>
 </body>
+
 </html>

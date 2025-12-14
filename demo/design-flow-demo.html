@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Design Flow - Premium Visualization</title>
+    <script src="https://cdn.jsdelivr.net/npm/iconify-icon@1.0.8/dist/iconify-icon.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reactflow@11.7.4/dist/style.css">
+    <style>
+        /* Paper Burner X - Premium Design Tokens */
+        :root {
+            --primary: #F43F5E;
+            /* Rose */
+            --success: #10B981;
+            --bg-root: #F8FAFC;
+            --text-main: #0F172A;
+            --text-secondary: #475569;
+            --shadow-float: 0 20px 40px -4px rgba(0, 0, 0, 0.08);
+            --font-body: "Plus Jakarta Sans", "Inter", sans-serif;
+            --font-mono: "JetBrains Mono", monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            outline: none;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            background: var(--bg-root);
+            background-image: radial-gradient(#E2E8F0 1px, transparent 1px);
+            background-size: 24px 24px;
+            color: var(--text-main);
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* === Header === */
+        .app-header {
+            height: 64px;
+            padding: 0 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.03);
+            z-index: 50;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 700;
+            font-size: 18px;
+            color: #1E293B;
+        }
+
+        .brand-logo {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #F43F5E, #E11D48);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .header-tag {
+            font-size: 11px;
+            background: #F1F5F9;
+            padding: 4px 8px;
+            border-radius: 6px;
+            color: #64748B;
+            font-weight: 600;
+        }
+
+        /* === Main Canvas === */
+        .main-canvas {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #flow-container {
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            position: absolute;
+        }
+
+        /* === Left Sidebar (Preview + Activity) === */
+        .left-sidebar {
+            position: absolute;
+            top: 16px;
+            bottom: 16px;
+            left: 24px;
+            /* Fill the available space up to the right chat panel */
+            right: calc(24px + 380px + 16px);
+            width: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            z-index: 20;
+            pointer-events: none;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            border-radius: 20px;
+            box-shadow: var(--shadow-float);
+            overflow: hidden;
+            pointer-events: auto;
+        }
+
+        /* 1. Top: Preview Grid */
+        .preview-panel {
+            flex: 4;
+            /* More height for preview */
+            display: flex;
+            flex-direction: column;
+            min-height: 420px;
+        }
+
+        .panel-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.03);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: linear-gradient(to bottom, #FFFFFF, rgba(255, 255, 255, 0.5));
+        }
+
+        .panel-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #1E293B;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .slide-grid {
+            flex: 1;
+            padding: 20px;
+            background: #F1F5F9;
+            display: grid;
+            /* 8 tiles => 2 even rows (4 + 4) */
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 16px;
+            overflow-y: auto;
+        }
+
+        /* Slide Card */
+        .slide-card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+            border: 1px solid transparent;
+            aspect-ratio: 16/9;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .slide-card.generating {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.1);
+            transform: scale(1.02);
+            z-index: 5;
+        }
+
+        .slide-card.completed {
+            border-color: #E2E8F0;
+        }
+
+        /* Skeletons */
+        @keyframes shimmer {
+            0% {
+                transform: translateX(-100%);
+            }
+
+            100% {
+                transform: translateX(100%);
+            }
+        }
+
+        .skeleton {
+            background: #E2E8F0;
+            position: relative;
+            overflow: hidden;
+            border-radius: 4px;
+        }
+
+        .skeleton::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.6), transparent);
+            animation: shimmer 1.5s infinite;
+        }
+
+        .layout-skeleton {
+            padding: 12px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .sk-title {
+            height: 14px;
+            width: 70%;
+            background: #CBD5E1;
+            margin-bottom: 8px;
+        }
+
+        .sk-body {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .sk-line {
+            height: 8px;
+            width: 100%;
+            background: #E2E8F0;
+        }
+
+        .sk-line.short {
+            width: 60%;
+        }
+
+        /* Slide Content */
+        .slide-content {
+            padding: 12px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            opacity: 0;
+            animation: fadeIn 0.5s forwards;
+        }
+
+        .sc-title {
+            font-size: 10px;
+            font-weight: 800;
+            color: #0F172A;
+            margin-bottom: 4px;
+        }
+
+        .sc-text {
+            font-size: 6px;
+            color: #64748B;
+            line-height: 1.4;
+            margin-bottom: 8px;
+            overflow: hidden;
+        }
+
+        .sc-visual-box {
+            flex: 1;
+            background: #FFF1F2;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--primary);
+            font-size: 16px;
+        }
+
+        @keyframes fadeIn {
+            to {
+                opacity: 1;
+            }
+        }
+
+        /* 2. Bottom: Activity Log (Horizontal) */
+        .activity-panel {
+            height: 160px;
+            /* Fixed height for horizontal strip */
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .feed-viewport {
+            flex: 1;
+            overflow-x: auto;
+            overflow-y: hidden;
+            white-space: nowrap;
+            padding: 16px 20px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            background: #FCFCFD;
+        }
+
+        /* Horizontal Feed Item (Chip Style) */
+        .feed-chip {
+            display: inline-flex;
+            flex-direction: column;
+            background: white;
+            border: 1px solid #E2E8F0;
+            border-radius: 12px;
+            padding: 12px;
+            min-width: 160px;
+            max-width: 200px;
+            height: 100%;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .feed-chip:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        .feed-chip.active {
+            border-color: var(--primary);
+            background: #FFF1F2;
+        }
+
+        .feed-chip.done {
+            border-color: var(--success);
+        }
+
+        .chip-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+
+        .chip-time {
+            font-size: 9px;
+            color: #94A3B8;
+            font-family: var(--font-mono);
+        }
+
+        .chip-status {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #CBD5E1;
+        }
+
+        .feed-chip.active .chip-status {
+            background: var(--primary);
+            box-shadow: 0 0 0 2px rgba(244, 63, 94, 0.2);
+        }
+
+        .feed-chip.done .chip-status {
+            background: var(--success);
+        }
+
+        .chip-text {
+            font-size: 11px;
+            font-weight: 600;
+            color: #334155;
+            white-space: normal;
+            line-height: 1.3;
+        }
+
+        .chip-detail {
+            font-size: 10px;
+            color: #64748B;
+            margin-top: 4px;
+        }
+
+        /* === Right Sidebar: Chat === */
+        .right-sidebar {
+            position: absolute;
+            top: 24px;
+            bottom: 24px;
+            right: 24px;
+            width: 380px;
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            /* Inherits glass-card */
+        }
+
+        .chat-body {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background: white;
+        }
+
+        .chat-footer {
+            padding: 16px;
+            background: white;
+            border-top: 1px solid #F1F5F9;
+        }
+
+        .chat-input {
+            width: 100%;
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid #E5E7EB;
+            background: #f9fafb;
+            font-size: 13px;
+        }
+
+        .chat-msg {
+            margin-bottom: 16px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: #F3F4F6;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .chat-bubble {
+            background: #F9FAFB;
+            padding: 12px 16px;
+            border-radius: 0 16px 16px 16px;
+            font-size: 13px;
+            color: #475569;
+            line-height: 1.5;
+            border: 1px solid #F3F4F6;
+        }
+
+        /* === Bottom Controls === */
+        .bottom-controls {
+            position: absolute;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 16px;
+            z-index: 30;
+            background: white;
+            padding: 6px;
+            border-radius: 32px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        .btn-circle {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            border: none;
+            background: #F1F5F9;
+            color: #1E293B;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            transition: all 0.2s;
+        }
+
+        .btn-circle:hover {
+            background: #E2E8F0;
+            transform: translateY(-2px);
+        }
+
+        .btn-circle.primary {
+            background: #1E293B;
+            color: white;
+        }
+
+        .btn-circle.primary:hover {
+            background: black;
+        }
+
+        ::-webkit-scrollbar {
+            height: 6px;
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #CBD5E1;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <header class="app-header">
+        <div class="brand">
+            <div class="brand-logo"><iconify-icon icon="solar:palette-bold"></iconify-icon></div>
+            <span>Design Agent</span>
+            <span class="header-tag">BETA v0.9</span>
+        </div>
+        <div style="display:flex; gap:16px;">
+            <div class="header-tag">Gemini 3 Pro</div>
+            <div class="header-tag">Cost: $0.12</div>
+        </div>
+    </header>
+
+    <div class="main-canvas">
+        <div id="flow-container"></div>
+
+        <!-- Left Sidebar: Preview + Activity (Horizontal) -->
+        <div class="left-sidebar">
+
+            <!-- Top: Preview -->
+            <div class="preview-panel glass-card">
+                <div class="panel-header">
+                    <span class="panel-title"><iconify-icon icon="solar:monitor-camera-bold"></iconify-icon> Live
+                        Preview</span>
+                    <span class="header-tag" id="preview-status">Idle</span>
+                </div>
+                <div class="slide-grid" id="slide-grid">
+                    <!-- Placeholders -->
+                    <div class="slide-card">
+                        <div
+                            style="display:flex;align-items:center;justify-content:center;height:100%;color:#CBD5E1;font-size:10px;">
+                            Pending</div>
+                    </div>
+                    <div class="slide-card">
+                        <div
+                            style="display:flex;align-items:center;justify-content:center;height:100%;color:#CBD5E1;font-size:10px;">
+                            Pending</div>
+                    </div>
+                    <div class="slide-card">
+                        <div
+                            style="display:flex;align-items:center;justify-content:center;height:100%;color:#CBD5E1;font-size:10px;">
+                            Pending</div>
+                    </div>
+                    <div class="slide-card">
+                        <div
+                            style="display:flex;align-items:center;justify-content:center;height:100%;color:#CBD5E1;font-size:10px;">
+                            Pending</div>
+                    </div>
+                    <div class="slide-card">
+                        <div
+                            style="display:flex;align-items:center;justify-content:center;height:100%;color:#CBD5E1;font-size:10px;">
+                            Pending</div>
+                    </div>
+                    <div class="slide-card">
+                        <div
+                            style="display:flex;align-items:center;justify-content:center;height:100%;color:#CBD5E1;font-size:10px;">
+                            Pending</div>
+                    </div>
+                    <div class="slide-card">
+                        <div
+                            style="display:flex;align-items:center;justify-content:center;height:100%;color:#CBD5E1;font-size:10px;">
+                            Pending</div>
+                    </div>
+                    <div class="slide-card">
+                        <div
+                            style="display:flex;align-items:center;justify-content:center;height:100%;color:#CBD5E1;font-size:10px;">
+                            Pending</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom: Horizontal Activity Log -->
+            <div class="activity-panel glass-card">
+                <div class="panel-header" style="background:transparent; padding: 12px 20px 0;">
+                    <span class="panel-title" style="font-size:12px;opacity:0.7">Agent Activity Stream</span>
+                </div>
+                <div class="feed-viewport" id="feed-list">
+                    <!-- Horizontal Chips -->
+                    <div class="feed-chip">
+                        <div class="chip-header"><span class="chip-time">--:--</span><span class="chip-status"></span>
+                        </div>
+                        <div class="chip-text">System Idle</div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right Sidebar: Chat -->
+        <div class="right-sidebar">
+            <div class="chat-panel glass-card">
+                <div class="panel-header">
+                    <span class="panel-title">Design Assistant</span>
+                </div>
+                <div class="chat-body" id="chat-body">
+                    <div class="chat-msg">
+                        <div class="chat-avatar"><iconify-icon icon="solar:chat-round-line-duotone"></iconify-icon>
+                        </div>
+                        <div class="chat-bubble">Hello! I'm ready to design your presentation. We will generate 8 slides
+                            based on your "Modern" theme.</div>
+                    </div>
+                </div>
+                <div class="chat-footer">
+                    <input class="chat-input" placeholder="Feedback or refinements..." disabled>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Controls -->
+        <div class="bottom-controls">
+            <button class="btn-circle primary" id="btn-run" title="Run Generation">
+                <iconify-icon icon="solar:play-bold"></iconify-icon>
+            </button>
+            <button class="btn-circle" id="btn-reset" title="Reset">
+                <iconify-icon icon="solar:restart-bold"></iconify-icon>
+            </button>
+        </div>
+
+    </div>
+
+    <script type="module">
+        import { initDeepSearchFlow } from '../js/ppt/deepsearch-flow-visualizer.js';
+
+        const designEvents = [
+            { name: "design.started", payload: { runId: "Run_DS_001" }, text: "Agent Activated", details: { "RunID": "DS_001" } },
+            { name: "design.tokens.ended", payload: { theme: "Rose" }, text: "Theme Generated", details: { "Theme": "Rose" } },
+            { name: "design.batch.started", payload: { slideCount: 8 }, text: "Batch Started", details: { "Mode": "Parallel" } },
+
+            { name: "design.slide.started", payload: { slideIndex: 0, title: "Cover: AI Future" }, text: "Slide 1: Cover", details: { "Layout": "Hero" } },
+            { name: "design.slide.started", payload: { slideIndex: 1, title: "Market Growth" }, text: "Slide 2: Charts", details: { "Layout": "Chart" } },
+
+            { name: "design.slide.completed", payload: { slideIndex: 0, title: "Cover: AI Future", type: "cover" }, text: "Slide 1 Done", details: { "Time": "1.2s" } },
+            { name: "design.slide.started", payload: { slideIndex: 2, title: "Tech Stack" }, text: "Slide 3: Grid", details: { "Layout": "Grid" } },
+
+            { name: "design.slide.completed", payload: { slideIndex: 1, title: "Market Growth", type: "chart" }, text: "Slide 2 Done", details: { "Time": "1.5s" } },
+            { name: "design.slide.started", payload: { slideIndex: 3, title: "Roadmap 2025" }, text: "Slide 4: Roadmap", details: { "Layout": "Timeline" } },
+
+            { name: "design.slide.completed", payload: { slideIndex: 2, title: "Tech Stack", type: "grid" }, text: "Slide 3 Done", details: { "Nodes": 12 } },
+            { name: "design.slide.completed", payload: { slideIndex: 3, title: "Roadmap 2025", type: "text" }, text: "Slide 4 Done", details: { "Steps": 5 } },
+
+            { name: "design.slide.started", payload: { slideIndex: 4, title: "User Personas" }, text: "Slide 5: Personas", details: { "Layout": "Cards" } },
+            { name: "design.slide.started", payload: { slideIndex: 5, title: "Architecture Overview" }, text: "Slide 6: System", details: { "Layout": "Diagram" } },
+
+            { name: "design.slide.completed", payload: { slideIndex: 4, title: "User Personas", type: "grid" }, text: "Slide 5 Done", details: { "Cards": 6 } },
+            { name: "design.slide.started", payload: { slideIndex: 6, title: "Pricing & Packaging" }, text: "Slide 7: Pricing", details: { "Layout": "Table" } },
+
+            { name: "design.slide.completed", payload: { slideIndex: 5, title: "Architecture Overview", type: "text" }, text: "Slide 6 Done", details: { "Blocks": 8 } },
+            { name: "design.slide.started", payload: { slideIndex: 7, title: "Next Steps" }, text: "Slide 8: Summary", details: { "Layout": "Checklist" } },
+
+            { name: "design.slide.completed", payload: { slideIndex: 6, title: "Pricing & Packaging", type: "chart" }, text: "Slide 7 Done", details: { "Rows": 5 } },
+            { name: "design.slide.completed", payload: { slideIndex: 7, title: "Next Steps", type: "text" }, text: "Slide 8 Done", details: { "Items": 6 } },
+
+            { name: "design.ended", payload: {}, text: "Export Ready", details: { "Size": "2.4MB" } }
+        ];
+
+        let flowViz = null;
+
+        function getSkeletonHtml(type) {
+            if (type === 0) return `<div class="layout-skeleton"><div class="sk-title" style="height:24px;width:100%"></div><div class="sk-rect"></div></div>`;
+            return `<div class="layout-skeleton"><div class="sk-title"></div><div class="sk-body"><div class="sk-line"></div><div class="sk-line"></div><div class="sk-line short"></div><div class="sk-rect" style="flex:1"></div></div></div>`;
+        }
+
+        function getSlideHtml(title, type) {
+            let visual = '';
+            if (type === 'cover') visual = '<iconify-icon icon="solar:star-bold-duotone" style="font-size:32px"></iconify-icon>';
+            if (type === 'chart') visual = '<iconify-icon icon="solar:chart-2-bold-duotone" style="font-size:32px"></iconify-icon>';
+            if (type === 'grid') visual = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;width:100%;height:100%"><div style="background:#fff;opacity:0.5"></div><div style="background:#fff;opacity:0.5"></div><div style="background:#fff;opacity:0.5"></div><div style="background:#fff;opacity:0.5"></div></div>';
+            if (type === 'text') visual = '<div style="font-size:8px;color:rgba(244,63,94,0.5)">● ● ● ●</div>';
+
+            return `
+            <div class="slide-content">
+                <div class="sc-title">${title}</div>
+                <div class="sc-text">AI generated content...</div>
+                <div class="sc-visual-box">${visual}</div>
+            </div>
+        `;
+        }
+
+        async function init() {
+            flowViz = await initDeepSearchFlow('flow-container', { direction: 'TB', height: 800 });
+
+            const feedList = document.getElementById('feed-list');
+            const slideGrid = document.getElementById('slide-grid');
+            const previewStatus = document.getElementById('preview-status');
+            const chatBody = document.getElementById('chat-body');
+
+            const addFeedChip = (evt) => {
+                if (!evt.text) return;
+                const div = document.createElement('div');
+
+                let statusClass = '';
+                if (evt.name.includes('started')) statusClass = 'active';
+                if (evt.name.includes('completed') || evt.name.includes('ended')) statusClass = 'done';
+
+                div.className = `feed-chip ${statusClass}`;
+
+                const time = new Date().toLocaleTimeString([], { hour12: false, minute: '2-digit', second: '2-digit' });
+                const detail = evt.details ? Object.values(evt.details)[0] : '';
+
+                div.innerHTML = `
+             <div class="chip-header"><span class="chip-time">${time}</span><div class="chip-status"></div></div>
+             <div class="chip-text">${evt.text}</div>
+             <div class="chip-detail">${detail}</div>
+          `;
+                // Prepend? No, Horizontal scroll usually appends to right.
+                feedList.appendChild(div);
+                feedList.scrollLeft = feedList.scrollWidth; // Auto scroll right
+            };
+
+            const updateGrid = (state, index, data) => {
+                const cards = slideGrid.children;
+                if (index >= cards.length) return;
+                const card = cards[index];
+
+                if (state === 'generating') {
+                    card.className = "slide-card generating";
+                    card.innerHTML = `<div class="skeleton" style="width:100%;height:100%">${getSkeletonHtml(index)}</div>`;
+                } else if (state === 'completed') {
+                    card.className = "slide-card completed";
+                    card.innerHTML = getSlideHtml(data.title || 'Untitled', data.type || 'text');
+                }
+            };
+
+            const addChat = (text) => {
+                const div = document.createElement('div');
+                div.className = 'chat-msg';
+                div.innerHTML = `<div class="chat-avatar"><iconify-icon icon="solar:chat-round-line-duotone"></iconify-icon></div><div class="chat-bubble">${text}</div>`;
+                chatBody.appendChild(div);
+                chatBody.scrollTop = chatBody.scrollHeight;
+            }
+
+            document.getElementById('btn-run').onclick = async () => {
+                document.getElementById('btn-run').disabled = true;
+                feedList.innerHTML = '';
+                flowViz.reset();
+                previewStatus.textContent = "Working...";
+
+                // Reset Grid
+                slideGrid.innerHTML = '';
+                for (let i = 0; i < 8; i++) {
+                    const d = document.createElement('div');
+                    d.className = 'slide-card';
+                    d.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#CBD5E1;font-size:10px;">Pending</div>';
+                    slideGrid.appendChild(d);
+                }
+
+                for (const evt of designEvents) {
+                    flowViz.processEvent(evt);
+                    addFeedChip(evt);
+
+                    if (evt.name === "design.batch.started") {
+                        previewStatus.textContent = "Processing...";
+                        for (let i = 0; i < 8; i++) slideGrid.children[i].innerHTML = `<div class="skeleton" style="width:100%;height:100%"></div>`;
+                        addChat("Starting batch generation for 8 slides. Using parallel rendering.");
+                    }
+                    if (evt.name === "design.slide.started") updateGrid('generating', evt.payload.slideIndex, evt.payload);
+                    if (evt.name === "design.slide.completed") updateGrid('completed', evt.payload.slideIndex, evt.payload);
+
+                    if (evt.name === "design.ended") {
+                        previewStatus.textContent = "Done";
+                        addChat("Generation complete. 8 slides are ready for review.");
+                        document.getElementById('btn-run').disabled = false;
+                    }
+
+                    await new Promise(r => setTimeout(r, 900));
+                }
+            };
+
+            document.getElementById('btn-reset').onclick = () => location.reload();
+        }
+
+        init();
+    </script>
+</body>
+
+</html>

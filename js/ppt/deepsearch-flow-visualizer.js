@@ -1,5 +1,5 @@
 /**
- * DeepSearch Flow Visualization v6
+ * DeepSearch Flow Visualization v6 (Premium)
  * 非线性拓扑 - 支持并行轨迹、条件分支、回溯
  */
 
@@ -21,20 +21,20 @@ function loadScript(src) {
   });
 }
 
-// 阶段配置
+// 阶段配置 - Premium Colors
 const STAGES = {
-  start: { icon: "▶", label: "开始", color: "#6366f1" },
-  scan: { icon: "◎", label: "扫描", color: "#f59e0b" },
-  gaps: { icon: "◇", label: "缺口", color: "#3b82f6" },
-  retrieve: { icon: "⟳", label: "检索", color: "#8b5cf6" },
-  understand: { icon: "◈", label: "理解", color: "#10b981" },
-  write: { icon: "✎", label: "写作", color: "#ec4899" },
-  condense: { icon: "◆", label: "压缩", color: "#06b6d4" },
-  external: { icon: "⊕", label: "外搜", color: "#0ea5e9" },
-  checkpoint: { icon: "◉", label: "存档", color: "#f97316" },
-  iteration: { icon: "↻", label: "迭代", color: "#6366f1" },
-  end: { icon: "✓", label: "完成", color: "#22c55e" },
-  error: { icon: "✕", label: "错误", color: "#ef4444" },
+  start: { icon: "▶", label: "Start", color: "#4F46E5" },
+  scan: { icon: "◎", label: "Scan", color: "#0EA5E9" },
+  gaps: { icon: "◇", label: "Gaps", color: "#F59E0B" },
+  retrieve: { icon: "⟳", label: "Retrieve", color: "#8B5CF6" },
+  understand: { icon: "◈", label: "Understand", color: "#10B981" },
+  write: { icon: "✎", label: "Write", color: "#EC4899" },
+  condense: { icon: "◆", label: "Condense", color: "#06B6D4" },
+  external: { icon: "⊕", label: "Search", color: "#3B82F6" },
+  checkpoint: { icon: "◉", label: "Save", color: "#F97316" },
+  iteration: { icon: "↻", label: "Iterate", color: "#6366F1" },
+  end: { icon: "✓", label: "Done", color: "#10B981" },
+  error: { icon: "✕", label: "Error", color: "#EF4444" },
 };
 
 /**
@@ -150,7 +150,7 @@ export class FlowBuilder {
       case "deepsearch.started": {
         const id = "start";
         this._addNode(id, "start", {
-          label: "开始研究",
+          label: "Start Research",
           status: "completed",
           metrics: { runId: payload.runId }
         });
@@ -161,7 +161,7 @@ export class FlowBuilder {
       case "deepsearch.completed": {
         const parentId = this._getCurrentParent();
         this._addNode("end", "end", {
-          label: "研究完成",
+          label: "Completed",
           status: "completed",
           parentNodeId: parentId,
           metrics: {
@@ -175,7 +175,7 @@ export class FlowBuilder {
       case "deepsearch.aborted": {
         const parentId = this._getCurrentParent();
         this._addNode("end_abort", "error", {
-          label: "研究中止",
+          label: "Aborted",
           status: "failed",
           parentNodeId: parentId,
           metrics: { iteration: payload.iteration }
@@ -188,7 +188,7 @@ export class FlowBuilder {
         const parentId = this._getCurrentParent();
         const forkId = this._genId("fork");
         this._addNode(forkId, "iteration", {
-          label: `并行探索 ×${payload.n}`,
+          label: `Parallel x${payload.n}`,
           status: "running",
           parentNodeId: parentId,
           metrics: {
@@ -205,7 +205,7 @@ export class FlowBuilder {
         const parentId = this._getCurrentParent();
         const id = `traj_${trajectoryId}`;
         this._addNode(id, "iteration", {
-          label: `轨迹 ${trajectoryId}`,
+          label: `Track ${trajectoryId}`,
           status: "running",
           parentNodeId: parentId,
           metrics: { iteration }
@@ -230,7 +230,7 @@ export class FlowBuilder {
         const parentId = this._getCurrentParent();
         const id = this._genId("merge");
         this._addNode(id, "condense", {
-          label: "合并轨迹",
+          label: "Merge Tracks",
           status: "running",
           parentNodeId: parentId,
           metrics: {
@@ -246,7 +246,7 @@ export class FlowBuilder {
       }
 
       case "deepsearch.trajectory.merge.completed": {
-        const mergeNodes = this.nodes.filter(n => n.data.label === "合并轨迹");
+        const mergeNodes = this.nodes.filter(n => n.data.label === "Merge Tracks");
         const lastMerge = mergeNodes[mergeNodes.length - 1];
         if (lastMerge) {
           this._updateNode(lastMerge.id, {
@@ -277,7 +277,7 @@ export class FlowBuilder {
 
         const id = trajectoryId ? `iter_${trajectoryId}_${iteration}` : `iter_${iteration}`;
         this._addNode(id, "iteration", {
-          label: `迭代 #${iteration + 1}`,
+          label: `Iteration #${iteration + 1}`,
           status: "running",
           parentNodeId: parentId,
           metrics: {
@@ -314,7 +314,7 @@ export class FlowBuilder {
         const parentId = this._getCurrentParent();
         const id = `cp_${iteration}_${this.idCounter}`;
         this._addNode(id, "checkpoint", {
-          label: `存档点`,
+          label: `Checkpoint`,
           status: "completed",
           parentNodeId: parentId,
           metrics: { id: checkpointId?.slice(-6), ...metrics }
@@ -358,7 +358,7 @@ export class FlowBuilder {
         const { nodeId, error } = payload;
         this._updateNode(nodeId, {
           status: "failed",
-          details: [{ type: "error", text: typeof error === "string" ? error : error?.message || "错误" }]
+          details: [{ type: "error", text: typeof error === "string" ? error : error?.message || "Error" }]
         });
         break;
       }
@@ -433,7 +433,7 @@ export class FlowBuilder {
           this._updateNode(id, {
             details: [{
               type: "dedupe",
-              text: `去重: ${payload.before} → ${payload.after}`
+              text: `Dedupe: ${payload.before} → ${payload.after}`
             }]
           });
         }
@@ -446,7 +446,7 @@ export class FlowBuilder {
           this._updateNode(id, {
             details: [{
               type: "rerank",
-              text: `重排: ${payload.inputCount} → ${payload.outputCount}`
+              text: `Rerank: ${payload.inputCount} → ${payload.outputCount}`
             }]
           });
         }
@@ -493,7 +493,7 @@ export class FlowBuilder {
           this._updateNode(id, {
             details: [{
               type: "reflect",
-              text: `需要更多: ${payload.suggestions?.join(', ') || '继续研究'}`,
+              text: `Needs More: ${payload.suggestions?.join(', ') || 'Continue Research'}`,
             }]
           });
         }
@@ -511,7 +511,7 @@ export class FlowBuilder {
             },
             details: payload.providers ? [{
               type: "providers",
-              text: `提供商: ${payload.providers.join(', ')}`
+              text: `Providers: ${payload.providers.join(', ')}`
             }] : []
           });
         }
@@ -527,7 +527,7 @@ export class FlowBuilder {
           this._updateNode(id, {
             details: [{
               type: "search",
-              text: `${provider}: "${query}" → ${resultCount}条`
+              text: `${provider}: "${query}" → ${resultCount}`
             }]
           });
         }
@@ -582,7 +582,7 @@ export class FlowBuilder {
           this._updateNode(id, {
             details: [{
               type: "writing",
-              text: `写作: ${payload.sectionTitle} (${payload.sectionIndex + 1}/${payload.sectionCount})`
+              text: `Writing: ${payload.sectionTitle} (${payload.sectionIndex + 1}/${payload.sectionCount})`
             }]
           });
         }
@@ -637,7 +637,7 @@ export class FlowBuilder {
           this._addEdge(writeId, gapsId, {
             animated: true,
             style: { stroke: "#f59e0b", strokeDasharray: "5,5" },
-            label: "回溯"
+            label: "Backtrack"
           });
         }
         break;
@@ -775,7 +775,7 @@ function applyDagreLayout(nodes, edges, direction = "TB") {
 }
 
 /**
- * 初始化流程可视化
+ * 初始化流程可视化 - Premium Edition
  */
 export async function initDeepSearchFlow(containerId, options = {}) {
   const container = document.getElementById(containerId);
@@ -799,7 +799,7 @@ export async function initDeepSearchFlow(containerId, options = {}) {
   dagreLayout = window.dagre?.layout;
   dagreGraphlib = window.dagre?.graphlib;
 
-  // 极简白卡片节点
+  // 极简白卡片节点 - Premium Design
   const RichNode = memo(({ data }) => {
     const { nodeType, label, icon, color, status, opacity = 1, metrics = {}, details = [], layoutDir = "TB" } = data;
 
@@ -808,45 +808,50 @@ export async function initDeepSearchFlow(containerId, options = {}) {
     const isFailed = status === "failed";
     const isLR = layoutDir === "LR";
 
-    // Handle 位置：LR 布局用左右，TB 布局用上下
+    // Handle 位置
     const targetPos = isLR ? Position.Left : Position.Top;
     const sourcePos = isLR ? Position.Right : Position.Bottom;
 
-    // 状态颜色
+    // 状态颜色 - Premium Palette
     const statusColors = {
-      running: { dot: "#6366f1", border: "#e0e7ff", bg: "#fafbff" },
-      completed: { dot: "#22c55e", border: "#dcfce7", bg: "#fafffe" },
-      failed: { dot: "#ef4444", border: "#fee2e2", bg: "#fffafa" },
-      pending: { dot: "#cbd5e1", border: "#f1f5f9", bg: "#fafbfc" },
+      running: { dot: "#4F46E5", border: "rgba(79, 70, 229, 0.4)", bg: "#ffffff", text: "#0F172A", shadow: "0 8px 20px -4px rgba(79, 70, 229, 0.15), 0 4px 12px -2px rgba(79, 70, 229, 0.1)" },
+      completed: { dot: "#10B981", border: "transparent", bg: "rgba(255,255,255,0.9)", text: "#334155", shadow: "0 2px 6px rgba(0,0,0,0.02)" },
+      failed: { dot: "#EF4444", border: "rgba(239, 68, 68, 0.2)", bg: "#fef2f2", text: "#7f1d1d", shadow: "0 2px 8px rgba(239, 68, 68, 0.05)" },
+      pending: { dot: "#CBD5E1", border: "transparent", bg: "rgba(248, 250, 252, 0.8)", text: "#94a3b8", shadow: "none" },
     };
     const colors = statusColors[status] || statusColors.pending;
 
-    // 指标文字 - 显示所有
+    // 指标文字 - 简化显示
     const metricsText = Object.entries(metrics)
       .filter(([k, v]) => v !== undefined && v !== null && !["iteration", "runId", "strategy", "trajectory"].includes(k))
       .map(([k, v]) => {
         const labels = {
-          sources: "源", newGaps: "+缺口", totalGaps: "缺口", retrieved: "片段",
-          claims: "论点", evidence: "证据", slides: "页", chunks: "外部",
-          kept: "保留", hits: "命中", openGaps: "待解决", trajectories: "轨迹",
-          documents: "文档", evidences: "证据", providers: "搜索源"
+          sources: "Docs", newGaps: "Gaps", totalGaps: "Tot", retrieved: "Chunks",
+          claims: "Claims", evidence: "Evid", slides: "Pg", chunks: "Ext",
+          kept: "Keep", hits: "Hits", openGaps: "Open", trajectories: "Traj",
+          documents: "Doc", evidences: "Ev"
         };
-        return `${v}${labels[k] || k}`;
+        return `${v} ${labels[k] || k}`;
       })
+      .slice(0, 3)
       .join(" · ");
+
+    // Running 状态下的边框动画
+    const borderStyle = isRunning ? `1px solid ${colors.border}` : (isCompleted ? "1px solid rgba(0,0,0,0.05)" : "1px solid transparent");
 
     return h("div", {
       style: {
-        width: 320,
+        width: 260,
         background: colors.bg,
-        borderRadius: 14,
-        border: `1.5px solid ${colors.border}`,
-        fontFamily: "Inter, -apple-system, system-ui, sans-serif",
+        borderRadius: 16,
+        border: borderStyle,
+        fontFamily: "'Inter', sans-serif",
         opacity,
-        boxShadow: isRunning
-          ? "0 0 0 3px rgba(99,102,241,0.1), 0 4px 16px rgba(0,0,0,0.06)"
-          : "0 2px 12px rgba(0,0,0,0.04)",
-        transition: "all 0.25s ease",
+        boxShadow: colors.shadow,
+        transition: "all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)",
+        transform: isRunning ? "scale(1.02) translateY(-2px)" : "scale(1)",
+        backdropFilter: "blur(8px)",
+        position: "relative"
       }
     },
       h(Handle, { type: "target", position: targetPos, style: { opacity: 0 } }),
@@ -854,76 +859,66 @@ export async function initDeepSearchFlow(containerId, options = {}) {
       // 头部
       h("div", {
         style: {
-          padding: "12px 16px",
+          padding: "14px 16px",
           display: "flex",
           alignItems: "center",
-          gap: 10,
+          gap: 12,
         }
       },
-        // 状态点
+        // 状态图标容器
         h("div", {
           style: {
-            width: 8,
-            height: 8,
-            borderRadius: "50%",
-            background: colors.dot,
+            width: 32,
+            height: 32,
+            borderRadius: 10,
+            background: isRunning ? "rgba(79, 70, 229, 0.1)" : (isCompleted ? "rgba(16, 185, 129, 0.1)" : "#f1f5f9"),
+            color: colors.dot,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 16,
             flexShrink: 0,
-            animation: isRunning ? "pulse 1.5s infinite" : "none",
+            transition: "all 0.3s"
           }
-        }),
-        // 图标 + 标签
-        h("span", { style: { fontSize: 14, opacity: 0.6 } }, icon),
-        h("span", {
-          style: { fontSize: 13, fontWeight: 600, color: "#334155", flex: 1 }
-        }, label),
-        // 指标
-        metricsText && h("span", {
-          style: {
-            fontSize: 11,
-            color: "#64748b",
-            background: "rgba(0,0,0,0.04)",
-            padding: "2px 8px",
-            borderRadius: 6,
-          }
-        }, metricsText)
+        }, icon),
+
+        // 标签与状态
+        h("div", { style: { flex: 1, minWidth: 0 } },
+          h("div", {
+            style: { fontSize: 13, fontWeight: 700, color: colors.text, marginBottom: 2, letterSpacing: "-0.01em" }
+          }, label),
+
+          metricsText && h("div", {
+            style: { fontSize: 10, color: "rgba(0,0,0,0.4)", fontWeight: 500 }
+          }, metricsText)
+        ),
+
+        // 运行中指示器 (Pulsing Dot)
+        isRunning && h("div", {
+          style: { width: 6, height: 6, borderRadius: "50%", background: "#4F46E5", boxShadow: "0 0 0 2px rgba(79,70,229,0.2)", animation: "pulse 1.5s infinite" }
+        })
       ),
 
-      // 详情 - 全部展开
+      // 详情
       details.length > 0 && h("div", {
         style: {
           padding: "0 12px 12px",
           display: "flex",
           flexDirection: "column",
-          gap: 6,
+          gap: 4,
         }
       },
         ...details.map((d, i) => {
-          const typeColors = {
-            gap: { bg: "#eff6ff", border: "#3b82f6", icon: "Q" },
-            claim: { bg: "#f0fdf4", border: "#22c55e", icon: "•" },
-            section: { bg: "#fdf4ff", border: "#d946ef", icon: "§" },
-            search: { bg: "#ecfeff", border: "#06b6d4", icon: "⊕" },
-            error: { bg: "#fef2f2", border: "#ef4444", icon: "!" },
-            reflect: { bg: "#fefce8", border: "#eab308", icon: "?" },
-            dedupe: { bg: "#f8fafc", border: "#94a3b8", icon: "−" },
-            rerank: { bg: "#f8fafc", border: "#94a3b8", icon: "↕" },
-            summary: { bg: "#f8fafc", border: "#94a3b8", icon: "∑" },
-            writing: { bg: "#faf5ff", border: "#a855f7", icon: "✎" },
-            written: { bg: "#f0fdf4", border: "#22c55e", icon: "✓" },
-            providers: { bg: "#ecfeff", border: "#06b6d4", icon: "◎" },
-          };
-          const tc = typeColors[d.type] || { bg: "#f8fafc", border: "#e2e8f0", icon: "›" };
-
           return h("div", {
             key: i,
             style: {
-              fontSize: 12,
-              color: d.type === "error" ? "#b91c1c" : "#475569",
-              padding: "8px 10px",
-              background: tc.bg,
+              fontSize: 11,
+              color: "#64748b",
+              padding: "6px 10px",
+              background: "rgba(241, 245, 249, 0.5)",
               borderRadius: 8,
-              borderLeft: `3px solid ${tc.border}`,
-              lineHeight: 1.5,
+              lineHeight: 1.4,
+              border: "1px solid rgba(0,0,0,0.02)"
             }
           }, d.text);
         })
@@ -972,7 +967,7 @@ export async function initDeepSearchFlow(containerId, options = {}) {
       proOptions: { hideAttribution: true },
       defaultEdgeOptions: {
         type: "smoothstep",
-        style: { stroke: "rgba(148,163,184,0.4)", strokeWidth: 2 },
+        style: { stroke: "#cbd5e1", strokeWidth: 1.5 },
         animated: false,
       },
     });
@@ -992,8 +987,9 @@ export async function initDeepSearchFlow(containerId, options = {}) {
       .ds-flow-rich .react-flow__minimap { display: none !important; }
       .ds-flow-rich .react-flow__attribution { display: none !important; }
       @keyframes pulse {
-        0%, 100% { opacity: 1; transform: scale(1); }
-        50% { opacity: 0.5; transform: scale(1.2); }
+        0% { transform: scale(0.95); opacity: 0.5; }
+        50% { transform: scale(1.1); opacity: 1; }
+        100% { transform: scale(0.95); opacity: 0.5; }
       }
     </style>
     <div id="ds-flow-canvas" style="width:100%;height:100%;"></div>
@@ -1024,16 +1020,14 @@ export async function initDeepSearchFlow(containerId, options = {}) {
 
     if (!latest) return;
 
-    // 计算节点实际高度
     const detailCount = latest.data.details?.length || 0;
     const nodeHeight = 60 + detailCount * 50;
     const nodeWidth = 320;
 
-    // 居中到最后更新的节点
     const centerX = latest.position.x + nodeWidth / 2;
     const centerY = latest.position.y + nodeHeight / 2;
 
-    instance.setCenter(centerX, centerY, { duration: 300, zoom: 0.85 });
+    instance.setCenter(centerX, centerY, { duration: 400, zoom: 0.95 });
   };
 
   const refresh = () => {
@@ -1042,7 +1036,6 @@ export async function initDeepSearchFlow(containerId, options = {}) {
     if (flowApi) {
       flowApi.setNodes(layout.nodes);
       flowApi.setEdges(layout.edges);
-      // 延迟确保 React 渲染完成
       setTimeout(() => focusOnLatest(layout.nodes, lastUpdatedNodeId), 150);
     } else {
       render(layout.nodes, layout.edges);
