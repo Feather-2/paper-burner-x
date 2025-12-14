@@ -521,9 +521,9 @@ class SlideEditor extends EventEmitter {
      * 递归查找元素（支持 group 子元素）
      */
     findElementById(elementId, elements = null) {
-        if (!elements) {
-            const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
-            elements = slide?.elements || [];
+        // 默认使用 document 作为数据源，确保与 SelectionManager 保持一致
+        if (elements == null) {
+            elements = this.document?.getElements(this.currentSlideIndex) || [];
         }
         
         for (const el of elements) {
@@ -684,7 +684,7 @@ class SlideEditor extends EventEmitter {
         this.history.beginBatch('批量更新');
 
         for (const { id, changes } of updates) {
-            const element = this.document.getElementById(id);
+            const element = this.findElementById(id);
             if (!element) continue;
 
             const changeList = Object.keys(changes).map(key => ({

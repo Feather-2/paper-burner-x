@@ -179,16 +179,18 @@ class TransformController extends EventEmitter {
                 rotation: changes.rotation
             };
             
-            // 更新 document
-            const element = this.editor.document.getElementById(id);
+            // 更新 document（使用当前页数据源，避免跨页同名 ID 冲突）
+            const element = this.editor.findElementById(id);
             if (element) {
                 Object.assign(element, formattedChanges);
             }
             
-            // 更新 PPTGenerator.slides（递归查找支持 group 子元素）
-            const pptElement = this.editor.findElementById?.(id);
-            if (pptElement) {
-                Object.assign(pptElement, formattedChanges);
+            // 更新 PPTGenerator.slides（使用 slideIndex 确保更新正确页面）
+            if (pptSlide?.elements) {
+                const pptElement = pptSlide.elements.find(el => el.id === id);
+                if (pptElement) {
+                    Object.assign(pptElement, formattedChanges);
+                }
             }
         }
 
@@ -356,10 +358,29 @@ class TransformController extends EventEmitter {
         document.removeEventListener('mouseup', this._onMouseUp);
 
         // 恢复初始状态
+        const slideIndex = this.editor.currentSlideIndex;
+        const pptSlide = window.PPTGenerator?.slides?.[slideIndex];
+
         for (const [id, start] of this.startElements) {
-            const element = this.editor.document.getElementById(id);
+            // 将数字转换为百分比字符串，保持数据格式一致
+            const formattedStart = {
+                x: `${start.x}%`,
+                y: `${start.y}%`,
+                w: `${start.w}%`,
+                h: `${start.h}%`,
+                rotation: start.rotation
+            };
+
+            const element = this.editor.findElementById(id);
             if (element) {
-                Object.assign(element, start);
+                Object.assign(element, formattedStart);
+            }
+
+            if (pptSlide?.elements) {
+                const pptElement = pptSlide.elements.find(el => el.id === id);
+                if (pptElement) {
+                    Object.assign(pptElement, formattedStart);
+                }
             }
         }
 

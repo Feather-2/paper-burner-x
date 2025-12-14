@@ -113,7 +113,7 @@ class SlideParser {
         slide.backgroundGradient = section.dataset.gradient || null;
         slide.backgroundImage = section.dataset.bgImage || null;
 
-        // 使用计数器对象确保所有元素（包括 group 子元素）ID 全局唯一
+        // 使用计数器对象确保所有元素（包括 group 子元素）有稳定的解析顺序（用于 z 等默认值）
         const counter = { value: 0 };
 
         // 解析支持深层 data-el：允许嵌套，优先尊重 data-group 分层
@@ -142,7 +142,7 @@ class SlideParser {
         const rawStyle = el.getAttribute('style') || '';
         
         const base = {
-            id: el.id || `el-${index}`,
+            id: el.id || `el_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
             type,
             // 原始 CSS 样式（HTML 渲染器直接使用）
             rawStyle,
@@ -272,7 +272,7 @@ class SlideParser {
                 };
 
             case 'group':
-                // 递归解析子元素（传递同一个 counter 确保 ID 唯一）
+                // 递归解析子元素（传递同一个 counter 以保持顺序一致）
                 const children = el.querySelectorAll(':scope > [data-el]');
                 return {
                     ...base,

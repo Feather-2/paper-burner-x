@@ -387,7 +387,7 @@ class LayerPanel extends EventEmitter {
                 const elementId = item.dataset.elementId;
 
                 if (action === 'toggle-lock') {
-                    const el = this.editor.document.getElementById(elementId);
+                    const el = this.editor.findElementById(elementId);
                     this.editor.updateElement(elementId, { locked: !el.locked });
                 } else if (action === 'toggle-visible') {
                     // 从 slides 获取元素（确保数据一致）
@@ -544,7 +544,7 @@ class LayerPanel extends EventEmitter {
                 if (sourceId === targetId) return;
 
                 // 获取目标元素的 z-index，设置源元素
-                const targetEl = this.editor.document.getElementById(targetId);
+                const targetEl = this.editor.findElementById(targetId);
                 const rect = item.getBoundingClientRect();
                 const above = e.clientY < rect.top + rect.height / 2;
 
