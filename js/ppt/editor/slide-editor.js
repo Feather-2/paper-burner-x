@@ -537,19 +537,22 @@ class SlideEditor extends EventEmitter {
         return null;
     }
 
-    /**
-     * 更新元素属性
-     */
-    updateElement(elementId, updates, options = {}) {
-        const { skipRender = false } = options;
-        // 递归查找元素（支持 group 子元素）
-        const element = this.findElementById(elementId);
-        if (!element) return;
+	    /**
+	     * 更新元素属性
+	     */
+	    updateElement(elementId, updates, options = {}) {
+	        const { skipRender = false } = options;
+	        // 递归查找元素（支持 group 子元素）
+	        const element = this.findElementById(elementId);
+	        if (!element) {
+	            console.warn('[SlideEditor] updateElement: 找不到元素', elementId, '当前页:', this.currentSlideIndex);
+	            return;
+	        }
 
-        // 记录旧值用于撤销
-        const oldValues = {};
-        for (const key of Object.keys(updates)) {
-            oldValues[key] = element[key];
+	        // 记录旧值用于撤销
+	        const oldValues = {};
+	        for (const key of Object.keys(updates)) {
+	            oldValues[key] = element[key];
         }
 
         // 如果元素有 rawStyle，需要同时更新 rawStyle 中的对应样式
@@ -1283,11 +1286,6 @@ class SlideEditor extends EventEmitter {
         if (window.PPTGenerator && this.document) {
             window.PPTGenerator.slides = this.document.toJSON();
         }
-
-        console.log('[SlideEditor] renderCurrentSlide() syncing', {
-            documentSlides: this.document?.slides?.length,
-            pptSlides: window.PPTGenerator?.slides?.length,
-        });
 
         // 直接使用 PPTGenerator.slides
         const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
