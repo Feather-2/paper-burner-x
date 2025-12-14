@@ -7,6 +7,74 @@
 
 const PPTGeneratorExportBaking = {
     // ═══════════════════════════════════════════════════════════════
+    // 辅助函数：精确检测透明渐变
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * 检测颜色是否透明（alpha < 0.1）
+     */
+    _isTransparentColor(color) {
+        if (!color) return false;
+        const c = color.trim().toLowerCase();
+        if (c === 'transparent') return true;
+        const rgbaMatch = c.match(/rgba\s*\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*,\s*([\d.]+)\s*\)/);
+        if (rgbaMatch) {
+            return parseFloat(rgbaMatch[1]) < 0.1;
+        }
+        return false;
+    },
+
+    /**
+     * 解析渐变字符串中的颜色停止点
+     */
+    _parseGradientStops(gradientStr) {
+        if (!gradientStr || !gradientStr.includes('gradient')) return [];
+
+        // 提取括号内内容，需要处理嵌套括号（如 rgba()）
+        const startIdx = gradientStr.indexOf('(');
+        if (startIdx === -1) return [];
+
+        let depth = 0;
+        let endIdx = -1;
+        for (let i = startIdx; i < gradientStr.length; i++) {
+            if (gradientStr[i] === '(') depth++;
+            else if (gradientStr[i] === ')') {
+                depth--;
+                if (depth === 0) {
+                    endIdx = i;
+                    break;
+                }
+            }
+        }
+        if (endIdx === -1) return [];
+
+        const content = gradientStr.slice(startIdx + 1, endIdx);
+        const stops = [];
+        const colorPattern = /(transparent|#[0-9a-f]{3,8}|rgba?\s*\([^)]+\))\s*(\d+%)?/gi;
+        let colorMatch;
+
+        while ((colorMatch = colorPattern.exec(content)) !== null) {
+            const color = colorMatch[1];
+            const pos = colorMatch[2] ? parseFloat(colorMatch[2]) / 100 : null;
+            stops.push({ color, position: pos });
+        }
+
+        if (stops.length > 0) {
+            if (stops[0].position === null) stops[0].position = 0;
+            if (stops[stops.length - 1].position === null) stops[stops.length - 1].position = 1;
+        }
+        return stops;
+    },
+
+    /**
+     * 检测渐变是否包含透明色停止点
+     */
+    _hasTransparentStop(gradientStr) {
+        const stops = this._parseGradientStops(gradientStr);
+        return stops.some(s => this._isTransparentColor(s.color));
+    },
+
+    // ═══════════════════════════════════════════════════════════════
     // 特效烘焙主入口
     // ═══════════════════════════════════════════════════════════════
     
@@ -278,7 +346,9 @@ const PPTGeneratorExportBaking = {
             }
 
             // 计算元素的边界框（百分比）
-            const bounds = this._calculateElementsBounds(elements);
+            // 当有 backdrop 元素参与渲染时，边界框应包含所有渲染的元素
+            const boundsElements = backdropElements.length > 0 ? combinedElements : elements;
+            const bounds = this._calculateElementsBounds(boundsElements);
             const boundsX = this._parsePercent(bounds.x);
             const boundsY = this._parsePercent(bounds.y);
             const boundsW = this._parsePercent(bounds.w);
@@ -293,16 +363,17 @@ const PPTGeneratorExportBaking = {
                 const cropH = Math.round(boundsH / 100 * canvas.height);
                 
                 if (cropW > 0 && cropH > 0) {
-                    // 检测是否有半透明渐变元素，需要裁剪四边边缘伪影
-                    const hasTransparentGradient = elements.some(el => 
-                        el.fill && typeof el.fill === 'string' && 
-                        el.fill.includes('gradient') && 
-                        (el.fill.includes('transparent') || el.fill.includes('rgba(') || el.fill.includes(', 0)'))
+                    // 检测是否有半透明渐变元素，需要裁剪顶部边缘伪影
+                    // 使用精确检测：渐变中是否真的包含透明色停止点
+                    const hasTransparentGradient = elements.some(el =>
+                        el.fill && typeof el.fill === 'string' &&
+                        el.fill.includes('gradient') &&
+                        this._hasTransparentStop(el.fill)
                     );
-                    
-                    // 半透明渐变各边裁剪量：左右多，顶部中等，底部少
-                    const trimLeft = hasTransparentGradient ? 22 : 0;
-                    const trimRight = hasTransparentGradient ? 22 : 0;
+
+                    // 半透明渐变裁剪量：只裁剪顶部（黑线伪影主要出现在透明边缘）
+                    const trimLeft = 0;
+                    const trimRight = 0;
                     const trimTop = hasTransparentGradient ? 12 : 0;
                     const trimBottom = hasTransparentGradient ? 4 : 0;
                     
@@ -510,10 +581,9 @@ const PPTGeneratorExportBaking = {
         if (el.mask) return true;
         // blur 效果需要烘焙
         if (el.effect && el.effect.includes('blur')) return true;
-        // 渐变背景需要烘焙（PPTX 对 CSS 渐变支持有限）
+        // 所有渐变背景都需要烘焙（PPTX 不支持 CSS 渐变语法）
         if (el.fill && typeof el.fill === 'string' && el.fill.includes('gradient')) {
-            // 带透明的渐变 PPTX 不支持
-            if (el.fill.includes('transparent') || el.fill.includes('rgba(') || el.fill.includes(', 0)')) return true;
+            return true;
         }
         if (el.type === 'svg' && el.content) {
             const content = el.content.toLowerCase();
