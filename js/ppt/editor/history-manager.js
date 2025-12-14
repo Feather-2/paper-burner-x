@@ -191,17 +191,7 @@ class HistoryManager extends EventEmitter {
                 // 使用操作记录中的 slideIndex
                 const slideIndex = op.slideIndex ?? this.editor.currentSlideIndex;
                 
-                // 更新 PPTGenerator.slides 中的元素（主数据源）
-                const pptSlide = window.PPTGenerator?.slides?.[slideIndex];
-                const pptElement = pptSlide?.elements?.find(el => el.id === op.elementId);
-                if (pptElement) {
-                    for (const change of op.changes) {
-                        const value = reverse ? change.oldValue : change.newValue;
-                        this._setByPath(pptElement, change.path, value);
-                    }
-                }
-                
-                // 同步更新 editor.document 中的元素
+                // 只更新 document（主数据源），由外部渲染流程同步到 PPTGenerator
                 const docSlide = doc.slides?.[slideIndex];
                 const docElement = docSlide?.elements?.find(el => el.id === op.elementId);
                 if (docElement) {

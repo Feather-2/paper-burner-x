@@ -622,7 +622,7 @@ class SlideEditor extends EventEmitter {
         
         try {
             // 更新 slides 数据
-            project.slides = window.PPTGenerator.slides;
+            project.slides = this.document?.toJSON?.() || [];
             project.updatedAt = Date.now();
             await window.pptStorage.saveProject(project);
             console.log('[SlideEditor] 自动保存成功');
@@ -737,7 +737,7 @@ class SlideEditor extends EventEmitter {
             return null;
         }
 
-        const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
+        const slide = this.document?.getSlide(this.currentSlideIndex);
         if (!slide?.elements) return null;
 
         // 获取选中的元素（只取顶层元素）
@@ -801,6 +801,8 @@ class SlideEditor extends EventEmitter {
 
         // 添加 group
         slide.elements.push(groupElement);
+        // 直接修改了 elements 列表，需要重建索引以保持 document 状态一致
+        this.document?._rebuildIndex?.();
 
         // 更新选择
         this.selection.clear();
@@ -824,7 +826,7 @@ class SlideEditor extends EventEmitter {
             return null;
         }
 
-        const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
+        const slide = this.document?.getSlide(this.currentSlideIndex);
         if (!slide?.elements) return null;
 
         const groupId = selectedIds[0];
@@ -867,6 +869,8 @@ class SlideEditor extends EventEmitter {
 
         // 在原位置插入解组后的元素
         slide.elements.splice(groupIndex, 0, ...extractedElements);
+        // 直接修改了 elements 列表，需要重建索引以保持 document 状态一致
+        this.document?._rebuildIndex?.();
 
         // 更新选择（选中所有解组后的元素）
         this.selection.clear();
@@ -889,7 +893,7 @@ class SlideEditor extends EventEmitter {
      * 其他元素变模糊，可以编辑组内元素
      */
     enterGroupEditMode(groupId) {
-        const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
+        const slide = this.document?.getSlide(this.currentSlideIndex);
         if (!slide?.elements) return;
 
         const group = slide.elements.find(el => el.id === groupId);
@@ -1038,7 +1042,7 @@ class SlideEditor extends EventEmitter {
         }
         if (selectedIds.length < 1) return;
         
-        const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
+        const slide = this.document?.getSlide(this.currentSlideIndex);
         if (!slide?.elements) return;
         
         // 获取选中元素的边界
@@ -1139,8 +1143,8 @@ class SlideEditor extends EventEmitter {
             this.updateElement(id, update);
         }
         
-        // 从 PPTGenerator.slides 获取最新元素数据来刷新属性面板
-        const currentSlide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
+        // 从 document 获取最新元素数据来刷新属性面板
+        const currentSlide = this.document?.getSlide(this.currentSlideIndex);
         const freshElements = selectedIds
             .map(id => currentSlide?.elements?.find(e => e.id === id))
             .filter(Boolean);
@@ -1738,7 +1742,7 @@ class SlideEditor extends EventEmitter {
         
         if (elementDom) {
             const elementId = elementDom.dataset.elementId;
-            const slide = window.PPTGenerator?.slides?.[this.currentSlideIndex];
+            const slide = this.document?.getSlide(this.currentSlideIndex);
             element = slide?.elements?.find(el => el.id === elementId);
             
             // 如果点击的元素未选中，先选中它

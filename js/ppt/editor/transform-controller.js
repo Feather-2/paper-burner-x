@@ -165,7 +165,10 @@ class TransformController extends EventEmitter {
         }
 
         // 批量更新（不记录历史，在 end 时统一记录）
-        // 同时更新 document 和 PPTGenerator.slides
+        // 注意：document 是“唯一编辑源”，但拖拽过程中仍需要同步更新 PPTGenerator.slides：
+        // - 拖拽期间仅做 _updateDOMPositions（不完全 render）以优化性能
+        // - 期间可能有其它逻辑读取 PPTGenerator（例如自动保存/导出/对齐等），如果只更新 document 会读到旧值
+        // - 在 _onMouseUp 结束时会调用 renderCurrentSlide() 做一次完整渲染/同步，确保最终一致性
         const slideIndex = this.editor.currentSlideIndex;
         const pptSlide = window.PPTGenerator?.slides?.[slideIndex];
         
@@ -358,6 +361,8 @@ class TransformController extends EventEmitter {
         document.removeEventListener('mouseup', this._onMouseUp);
 
         // 恢复初始状态
+        // 说明：拖拽过程中我们同步更新了 document 与 PPTGenerator.slides；取消时也必须同时回滚两者，
+        // 避免后续读取任一数据源时出现不一致，最终再通过 renderCurrentSlide() 统一重绘/同步。
         const slideIndex = this.editor.currentSlideIndex;
         const pptSlide = window.PPTGenerator?.slides?.[slideIndex];
 
