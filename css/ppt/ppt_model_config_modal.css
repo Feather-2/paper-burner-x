@@ -1,0 +1,480 @@
+.pmc-table-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  flex-wrap: wrap;
+}
+
+.pmc-table-search {
+  flex: 1;
+  min-width: 200px;
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.pmc-table-filter {
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 13px;
+  background: white;
+}
+
+.pmc-table-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 13px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.pmc-table-btn:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.pmc-model-table-wrap {
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.pmc-model-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.pmc-model-table th {
+  position: sticky;
+  top: 0;
+  background: #f1f5f9;
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  color: #64748b;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.pmc-model-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.pmc-model-table tbody tr:hover {
+  background: #f8fafc;
+  cursor: pointer;
+}
+
+.pmc-model-table .model-name {
+  font-weight: 500;
+  color: #1e293b;
+}
+
+.pmc-model-table .model-source {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.pmc-caps-icons {
+  display: flex;
+  gap: 4px;
+}
+.pmc-caps-icons iconify-icon {
+  color: #cbd5e1;
+  font-size: 16px;
+}
+.pmc-caps-icons iconify-icon.on {
+  color: #3b82f6;
+}
+
+.pmc-key-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.pmc-key-status.ok { color: #10b981; }
+.pmc-key-status.warn { color: #f59e0b; }
+.pmc-key-status.error { color: #ef4444; }
+
+.pmc-role-tags {
+  flex-wrap: wrap;
+  gap: 4px;
+  display: flex;
+}
+.pmc-role-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  background: #e0e7ff;
+  color: #4338ca;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.pmc-role-tag .role-name {
+  margin-right: 2px;
+}
+.pmc-role-tag .role-priority {
+  font-size: 10px;
+}
+.pmc-no-role {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+/* 角色概览区域 */
+.pmc-role-overview {
+  margin-bottom: 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.pmc-role-overview-title {
+  padding: 12px 16px;
+  background: #f8fafc;
+  font-weight: 600;
+  font-size: 14px;
+  color: #334155;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pmc-role-columns {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  min-height: 120px;
+}
+
+.pmc-role-column {
+  padding: 12px;
+  border-right: 1px solid #e2e8f0;
+  background: white;
+}
+.pmc-role-column:last-child {
+  border-right: none;
+}
+
+.pmc-role-column-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pmc-role-column-list {
+  min-height: 60px;
+}
+
+.pmc-role-column-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  background: #f1f5f9;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #334155;
+  cursor: grab;
+  transition: all 0.15s;
+}
+.pmc-role-column-item:hover {
+  background: #e2e8f0;
+}
+.pmc-role-column-item.dragging {
+  opacity: 0.5;
+  cursor: grabbing;
+}
+.pmc-role-column-item .priority-num {
+  color: #3b82f6;
+  font-weight: 600;
+  min-width: 16px;
+}
+.pmc-role-column-item .model-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pmc-role-column-item .remove-btn {
+  opacity: 0;
+  padding: 2px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.pmc-role-column-item:hover .remove-btn {
+  opacity: 1;
+}
+.pmc-role-column-item .remove-btn:hover {
+  color: #ef4444;
+}
+
+.pmc-role-column-empty {
+  padding: 12px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 12px;
+  border: 1px dashed #e2e8f0;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.pmc-role-column-empty:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+/* 拖拽指示器 */
+.pmc-role-column-item.drag-above {
+  border-top: 2px solid #3b82f6;
+}
+.pmc-role-column-item.drag-below {
+  border-bottom: 2px solid #3b82f6;
+}
+
+/* 配置弹窗角色分配 */
+.pmc-role-assign-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pmc-role-assign-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border-radius: 6px;
+}
+.pmc-role-assign-item label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  font-size: 13px;
+  color: #475569;
+  cursor: pointer;
+}
+.pmc-role-assign-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #3b82f6;
+}
+.pmc-role-assign-item .priority-input {
+  width: 50px;
+  padding: 4px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 13px;
+}
+.pmc-role-assign-item .priority-input:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+
+/* 能力标签按钮 */
+.pmc-cap-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: white;
+  font-size: 13px;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.pmc-cap-btn:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+}
+.pmc-cap-btn.selected {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: white;
+}
+.pmc-cap-btn iconify-icon {
+  font-size: 16px;
+}
+
+/* 响应式：小屏幕角色概览改为2行3列 */
+@media (max-width: 768px) {
+  .pmc-role-columns {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .pmc-role-column:nth-child(3) {
+    border-right: none;
+  }
+  .pmc-role-column:nth-child(4),
+  .pmc-role-column:nth-child(5),
+  .pmc-role-column:nth-child(6) {
+    border-top: 1px solid #e2e8f0;
+  }
+}
+
+.pmc-action-btn {
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+.pmc-action-btn:hover {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+
+.pmc-config-popup-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  z-index: 9998;
+}
+
+.pmc-config-popup {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+  z-index: 9999;
+  width: 90%;
+  max-width: 500px;
+  max-height: 80vh;
+  overflow: auto;
+}
+
+.pmc-config-popup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.pmc-config-popup-body {
+  padding: 20px;
+}
+
+.pmc-config-popup-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 20px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.pmc-config-section {
+  margin-bottom: 20px;
+}
+.pmc-config-section-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #64748b;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.pmc-config-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pmc-config-tag-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.pmc-config-tag-btn:hover {
+  background: #f8fafc;
+}
+.pmc-config-tag-btn.selected {
+  background: #3b82f6;
+  color: white;
+  border-color: #3b82f6;
+}
+
+.pmc-role-inputs {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.pmc-role-input-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pmc-role-input-label {
+  flex: 1;
+  font-size: 13px;
+  color: #475569;
+}
+.pmc-role-input {
+  width: 60px;
+  padding: 6px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  text-align: center;
+  font-size: 14px;
+}
+
+.pmc-audio-collapse {
+  margin-top: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.pmc-audio-collapse-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 12px 16px;
+  background: #f8fafc;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+  color: #475569;
+}
+.pmc-audio-collapse-body {
+  display: none;
+  padding: 16px;
+}
+.pmc-audio-collapse.open .pmc-audio-collapse-body {
+  display: block;
+}
