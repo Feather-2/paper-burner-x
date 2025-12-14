@@ -9,9 +9,59 @@
 
   const STORAGE_KEYS = {
     lang: 'pptModelConfigLanguage',
-    img: 'pptModelConfigImage',
-    vision: 'pptModelConfigVision'
+    img: 'pptModelConfigImage', 
+    vision: 'pptModelConfigVision',
+    modelTags: 'pptModelTags',        // Tab 1: 模型能力标签
+    rolePriority: 'pptRolePriority',  // Tab 2: 角色优先级
+    audio: 'pptAudioConfig'           // Tab 3: 音频配置
   };
+
+  const CAPABILITY_TAGS = [
+    { id: 'lang', name: '语言生成', icon: 'carbon:text-creation' },
+    { id: 'vision', name: '视觉理解', icon: 'carbon:visual-recognition' },
+    { id: 'image', name: '图像生成', icon: 'carbon:image' },
+    { id: 'audio', name: '音频处理', icon: 'carbon:microphone' }
+  ];
+
+  const ROLES = [
+    { id: 'analyst', name: '分析师', desc: '扫描和理解文档', icon: 'carbon:analytics' },
+    { id: 'planner', name: '规划师', desc: '研究规划和 Gap 识别', icon: 'carbon:plan' },
+    { id: 'writer', name: '撰写者', desc: '内容生成和报告撰写', icon: 'carbon:edit' },
+    { id: 'reviewer', name: '审阅者', desc: '质量检查和审阅', icon: 'carbon:checkmark-outline' },
+    { id: 'vision', name: '视觉处理', desc: '图像理解和 OCR', icon: 'carbon:view' },
+    { id: 'worker', name: '通用执行', desc: '通用任务处理', icon: 'carbon:task' }
+  ];
+
+  const TRANSCRIPTION_PROVIDERS = [
+    { id: 'groq', name: 'Groq (Whisper)', models: ['whisper-large-v3'] },
+    { id: 'openai', name: 'OpenAI Whisper', models: ['whisper-1'] },
+    { id: 'elevenlabs', name: 'ElevenLabs Scribe', models: ['scribe_v1'] },
+    { id: 'openai-compatible', name: '兼容接口', models: [] }
+  ];
+
+  const SYNTHESIS_PROVIDERS = [
+    { id: 'elevenlabs', name: 'ElevenLabs', models: ['eleven_turbo_v2_5', 'eleven_flash_v2_5'] },
+    { id: 'openai', name: 'OpenAI TTS', models: ['tts-1', 'tts-1-hd'] }
+  ];
+
+  // 常见 API 提供商列表（扩展源站选择）
+  const COMMON_API_PROVIDERS = [
+    { key: 'openai', name: 'OpenAI', endpoint: 'https://api.openai.com' },
+    { key: 'anthropic', name: 'Anthropic', endpoint: 'https://api.anthropic.com' },
+    { key: 'deepseek', name: 'DeepSeek', endpoint: 'https://api.deepseek.com' },
+    { key: 'groq', name: 'Groq', endpoint: 'https://api.groq.com/openai' },
+    { key: 'mistral', name: 'Mistral', endpoint: 'https://api.mistral.ai' },
+    { key: 'openrouter', name: 'OpenRouter', endpoint: 'https://openrouter.ai/api' },
+    { key: 'together', name: 'Together AI', endpoint: 'https://api.together.xyz' },
+    { key: 'gemini', name: 'Gemini (Google)', endpoint: 'https://generativelanguage.googleapis.com' },
+    { key: 'tongyi', name: '通义百炼', endpoint: 'https://dashscope.aliyuncs.com/compatible-mode' },
+    { key: 'volcano', name: '火山引擎', endpoint: '' },
+    { key: 'siliconflow', name: 'SiliconFlow', endpoint: 'https://api.siliconflow.cn' },
+    { key: 'zhipu', name: '智谱 AI', endpoint: 'https://open.bigmodel.cn/api/paas' },
+    { key: 'moonshot', name: 'Moonshot (Kimi)', endpoint: 'https://api.moonshot.cn' },
+    { key: 'yi', name: '零一万物', endpoint: 'https://api.lingyiwanwu.com' },
+    { key: 'baichuan', name: '百川智能', endpoint: 'https://api.baichuan-ai.com' }
+  ];
 
   const MANUAL_MODEL_ID_PROVIDERS = {
     lang: ['volcano'], // 火山引擎模型 ID 需要手动填写
@@ -22,23 +72,41 @@
   // 缓存探测到的模型 ID 列表
   const modelIdCache = { lang: [], img: [], vision: [] };
 
+  const uiState = {
+    activeTab: 'tags',
+    // Tab 1: 当前选中的模型（格式：`${sourceKey}:${modelId}`）
+    tagsActiveModelKey: null,
+    // Tab 1: 展开的源站 key 列表
+    tagsExpandedSources: [],
+    priorityActiveRole: ROLES[0]?.id || 'analyst'
+  };
+
   function getSupportedModels() {
     const list = Array.isArray(global.supportedModelsForKeyManager) ? global.supportedModelsForKeyManager : [];
     return list;
   }
 
-  function loadConfig(type) {
+  function resolveStorageKey(key) {
+    if (!key) return STORAGE_KEYS.lang;
+    if (STORAGE_KEYS[key]) return STORAGE_KEYS[key];
+    // 允许直接传 storage key 字符串
+    const values = Object.values(STORAGE_KEYS);
+    if (values.includes(key)) return key;
+    return STORAGE_KEYS.lang;
+  }
+
+  function loadConfig(key) {
     try {
-      const key = STORAGE_KEYS[type] || STORAGE_KEYS.lang;
-      const raw = localStorage.getItem(key);
+      const storageKey = resolveStorageKey(key);
+      const raw = localStorage.getItem(storageKey);
       if (raw) return JSON.parse(raw);
     } catch (_) {}
     return null;
   }
 
-  function saveConfig(type, cfg) {
-    const key = STORAGE_KEYS[type] || STORAGE_KEYS.lang;
-    localStorage.setItem(key, JSON.stringify(cfg));
+  function saveConfig(key, value) {
+    const storageKey = resolveStorageKey(key);
+    localStorage.setItem(storageKey, JSON.stringify(value));
   }
 
   function renderModal() {
@@ -72,151 +140,24 @@
         <div class="pmc-scroll-content">
             <!-- Body -->
             <div class="pmc-body">
-              <!-- 文字模型列 -->
-              <div class="pmc-col">
-                <div class="pmc-section-header">
-                  <div class="pmc-section-icon text-indigo">
-                    <iconify-icon icon="carbon:document-sentiment" width="20"></iconify-icon>
-                  </div>
-                  <span class="pmc-section-title">文字模型</span>
-                </div>
-                <p class="pmc-section-desc">用于生成 PPT 大纲、正文内容与演讲备注</p>
-                
-                <div class="pmc-form-group">
-                  <label class="pmc-label">选择源站 / 预设</label>
-                  <div class="pmc-input-row">
-                    <select id="ppt-model-lang-select" class="pmc-select"></select>
-                    <button id="ppt-model-lang-refresh" class="pmc-btn-icon" title="刷新源站列表">
-                      <iconify-icon icon="carbon:renew" width="16"></iconify-icon>
-                    </button>
-                  </div>
-                </div>
-
-                <div class="pmc-form-group">
-                  <label class="pmc-label">
-                    模型 ID
-                    <span class="pmc-label-sub">(支持搜索)</span>
-                  </label>
-                  <div class="pmc-input-row">
-                    <div class="pmc-dropdown-wrapper">
-                        <input id="ppt-model-lang-id-search" class="pmc-input" placeholder="输入或探测模型 ID..." autocomplete="off">
-                        <div id="ppt-model-lang-dropdown" class="pmc-dropdown-list"></div>
-                    </div>
-                    <button id="ppt-model-lang-refresh-models" class="pmc-btn-icon" title="探测可用模型 ID">
-                      <iconify-icon icon="carbon:connection-signal" width="16"></iconify-icon>
-                    </button>
-                  </div>
-                </div>
-
-                <div class="pmc-status-bar">
-                  <div class="pmc-model-hint" id="ppt-model-lang-hint">
-                    <iconify-icon icon="carbon:information" width="14"></iconify-icon>
-                    <span>未配置</span>
-                  </div>
-                </div>
-
-                <button id="ppt-model-lang-save" class="pmc-btn-save">
-                  <iconify-icon icon="carbon:save" width="16"></iconify-icon>
-                  保存文字配置
+              <div class="pmc-tabs-nav">
+                <button class="pmc-tab-btn active" data-tab="tags">
+                  <iconify-icon icon="carbon:tag-group"></iconify-icon>
+                  模型标签
+                </button>
+                <button class="pmc-tab-btn" data-tab="priority">
+                  <iconify-icon icon="carbon:list-numbered"></iconify-icon>
+                  角色优先级
+                </button>
+                <button class="pmc-tab-btn" data-tab="audio">
+                  <iconify-icon icon="carbon:microphone"></iconify-icon>
+                  音频模型
                 </button>
               </div>
-
-              <!-- 配图模型列 -->
-              <div class="pmc-col">
-                <div class="pmc-section-header">
-                  <div class="pmc-section-icon text-purple">
-                    <iconify-icon icon="carbon:image-search" width="20"></iconify-icon>
-                  </div>
-                  <span class="pmc-section-title">配图模型</span>
-                </div>
-                <p class="pmc-section-desc">用于根据上下文生成高质量的 PPT 配图</p>
-                
-                <div class="pmc-form-group">
-                  <label class="pmc-label">选择源站 / 预设</label>
-                  <div class="pmc-input-row">
-                    <select id="ppt-model-img-select" class="pmc-select"></select>
-                    <button id="ppt-model-img-refresh" class="pmc-btn-icon" title="刷新源站列表">
-                      <iconify-icon icon="carbon:renew" width="16"></iconify-icon>
-                    </button>
-                  </div>
-                </div>
-
-                <div class="pmc-form-group">
-                  <label class="pmc-label">
-                    模型 ID
-                    <span class="pmc-label-sub">(支持搜索)</span>
-                  </label>
-                  <div class="pmc-input-row">
-                    <div class="pmc-dropdown-wrapper">
-                        <input id="ppt-model-img-id-search" class="pmc-input" placeholder="输入或探测模型 ID..." autocomplete="off">
-                        <div id="ppt-model-img-dropdown" class="pmc-dropdown-list"></div>
-                    </div>
-                    <button id="ppt-model-img-refresh-models" class="pmc-btn-icon" title="探测可用模型 ID">
-                      <iconify-icon icon="carbon:connection-signal" width="16"></iconify-icon>
-                    </button>
-                  </div>
-                </div>
-
-                <div class="pmc-status-bar">
-                  <div class="pmc-model-hint" id="ppt-model-img-hint">
-                    <iconify-icon icon="carbon:information" width="14"></iconify-icon>
-                    <span>未配置</span>
-                  </div>
-                </div>
-
-                <button id="ppt-model-img-save" class="pmc-btn-save">
-                  <iconify-icon icon="carbon:save" width="16"></iconify-icon>
-                  保存配图配置
-                </button>
-              </div>
-
-              <!-- 视觉模型列 -->
-              <div class="pmc-col">
-                <div class="pmc-section-header">
-                  <div class="pmc-section-icon text-cyan">
-                    <iconify-icon icon="carbon:visual-recognition" width="20"></iconify-icon>
-                  </div>
-                  <span class="pmc-section-title">视觉模型</span>
-                </div>
-                <p class="pmc-section-desc">用于图片 OCR 识别、布局分析与素材理解</p>
-                
-                <div class="pmc-form-group">
-                  <label class="pmc-label">选择源站 / 预设</label>
-                  <div class="pmc-input-row">
-                    <select id="ppt-model-vision-select" class="pmc-select"></select>
-                    <button id="ppt-model-vision-refresh" class="pmc-btn-icon" title="刷新源站列表">
-                      <iconify-icon icon="carbon:renew" width="16"></iconify-icon>
-                    </button>
-                  </div>
-                </div>
-
-                <div class="pmc-form-group">
-                  <label class="pmc-label">
-                    模型 ID
-                    <span class="pmc-label-sub">(支持搜索)</span>
-                  </label>
-                  <div class="pmc-input-row">
-                    <div class="pmc-dropdown-wrapper">
-                        <input id="ppt-model-vision-id-search" class="pmc-input" placeholder="输入或探测模型 ID..." autocomplete="off">
-                        <div id="ppt-model-vision-dropdown" class="pmc-dropdown-list"></div>
-                    </div>
-                    <button id="ppt-model-vision-refresh-models" class="pmc-btn-icon" title="探测可用模型 ID">
-                      <iconify-icon icon="carbon:connection-signal" width="16"></iconify-icon>
-                    </button>
-                  </div>
-                </div>
-
-                <div class="pmc-status-bar">
-                  <div class="pmc-model-hint" id="ppt-model-vision-hint">
-                    <iconify-icon icon="carbon:information" width="14"></iconify-icon>
-                    <span>未配置</span>
-                  </div>
-                </div>
-
-                <button id="ppt-model-vision-save" class="pmc-btn-save">
-                  <iconify-icon icon="carbon:save" width="16"></iconify-icon>
-                  保存视觉配置
-                </button>
+              <div class="pmc-tabs-content">
+                <div class="pmc-tab-panel active" data-panel="tags"></div>
+                <div class="pmc-tab-panel" data-panel="priority"></div>
+                <div class="pmc-tab-panel" data-panel="audio"></div>
               </div>
             </div>
 
@@ -309,6 +250,933 @@
     
     // 绑定 Image Settings 事件
     bindImageSettingsEvents();
+
+    // Tabs
+    initTabSwitching();
+  }
+
+  function getModalRoot() {
+    return document.getElementById('ppt-model-config-modal');
+  }
+
+  function initTabSwitching() {
+    const root = getModalRoot();
+    if (!root) return;
+
+    const nav = root.querySelector('.pmc-tabs-nav');
+    if (!nav || nav.dataset.bound === '1') return;
+    nav.dataset.bound = '1';
+
+    nav.addEventListener('click', (e) => {
+      const btn = e.target?.closest?.('.pmc-tab-btn');
+      if (!btn) return;
+      const tab = btn.getAttribute('data-tab');
+      if (!tab) return;
+      activateTab(tab);
+    });
+
+    // 初始渲染当前 active tab
+    const initialBtn = nav.querySelector('.pmc-tab-btn.active') || nav.querySelector('.pmc-tab-btn');
+    const tab = initialBtn?.getAttribute('data-tab') || 'tags';
+    activateTab(tab);
+  }
+
+  function activateTab(tab) {
+    const root = getModalRoot();
+    if (!root) return;
+
+    uiState.activeTab = tab;
+
+    const btns = root.querySelectorAll('.pmc-tab-btn');
+    btns.forEach((b) => b.classList.toggle('active', b.getAttribute('data-tab') === tab));
+
+    const panels = root.querySelectorAll('.pmc-tab-panel');
+    panels.forEach((p) => p.classList.toggle('active', p.getAttribute('data-panel') === tab));
+
+    const panel = root.querySelector(`.pmc-tab-panel[data-panel="${tab}"]`);
+    if (!panel) return;
+
+    if (panel.dataset.rendered === '1') return;
+    panel.dataset.rendered = '1';
+
+    if (tab === 'tags') renderTab1Content(panel);
+    else if (tab === 'priority') renderTab2Content(panel);
+    else if (tab === 'audio') renderTab3Content(panel);
+  }
+
+  function normalizeObject(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    return value;
+  }
+
+  function uniqueByKey(list) {
+    const out = [];
+    const seen = new Set();
+    for (const item of Array.isArray(list) ? list : []) {
+      const key = item?.key;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(item);
+    }
+    return out;
+  }
+
+  function getAllConfigurableModels() {
+    const models = [];
+    const seen = new Set();
+
+    // 1. 首先添加常见 API 提供商
+    for (const p of COMMON_API_PROVIDERS) {
+      if (seen.has(p.key)) continue;
+      seen.add(p.key);
+      const keys = typeof loadModelKeys === 'function' ? (loadModelKeys(p.key) || []) : [];
+      const validKeys = keys.filter(k => k && k.status !== 'invalid' && k.value);
+      models.push({
+        key: p.key,
+        name: p.name + (validKeys.length ? ` (${validKeys.length} Key)` : ' (无 Key)'),
+        group: 'api',
+        endpoint: p.endpoint
+      });
+    }
+
+    // 2. 然后添加 supportedModelsForKeyManager 中的其他模型（排除 OCR 和已添加的）
+    const supported = getSupportedModels().filter(m => m && m.key && m.group !== 'ocr');
+    for (const m of supported) {
+      if (m.key === 'custom' || m.key === 'deeplx') continue;
+      if (seen.has(m.key)) continue;
+      seen.add(m.key);
+      const keys = typeof loadModelKeys === 'function' ? (loadModelKeys(m.key) || []) : [];
+      const validKeys = keys.filter(k => k && k.status !== 'invalid' && k.value);
+      models.push({
+        key: m.key,
+        name: (m.name || m.key) + (validKeys.length ? ` (${validKeys.length} Key)` : ' (无 Key)'),
+        group: m.group || 'unknown'
+      });
+    }
+
+    // 3. 最后添加自定义源站
+    if (typeof loadAllCustomSourceSites === 'function') {
+      try {
+        const sites = loadAllCustomSourceSites() || {};
+        for (const id of Object.keys(sites)) {
+          const site = sites[id] || {};
+          const modelKey = `custom_source_${id}`;
+          if (seen.has(modelKey)) continue;
+          seen.add(modelKey);
+          const keys = typeof loadModelKeys === 'function' ? (loadModelKeys(modelKey) || []) : [];
+          const validKeys = keys.filter(k => k && k.status !== 'invalid' && k.value);
+          models.push({
+            key: modelKey,
+            name: (site.displayName || site.name || '自定义源站') + (validKeys.length ? ` (${validKeys.length} Key)` : ' (无 Key)'),
+            group: 'custom',
+            endpoint: site.apiEndpoint || ''
+          });
+        }
+      } catch (e) {
+        console.error('[PPT Model Config] loadAllCustomSourceSites failed', e);
+      }
+    }
+
+    return models;
+  }
+
+  // ========== Tab 1: 模型标签 ==========
+
+  // Tab1 会话级缓存：源站 -> 模型列表
+  const tab1ModelsSession = {
+    cache: {},     // sourceKey -> string[]
+    inflight: {},  // sourceKey -> Promise<string[]>
+    error: {}      // sourceKey -> string
+  };
+
+  function normalizeApiBaseUrl(url) {
+    return String(url || '').trim().replace(/\/+$/, '').replace(/\/v1$/, '');
+  }
+
+  function getDefaultApiBaseUrlForSource(sourceKey) {
+    const provider = COMMON_API_PROVIDERS.find(p => p.key === sourceKey);
+    if (provider?.endpoint) return provider.endpoint;
+    return '';
+  }
+
+  function resolveApiBaseUrlForSource(sourceKey) {
+    if (!sourceKey) return '';
+
+    // 自定义源站
+    if (String(sourceKey).startsWith('custom_source_') && typeof loadAllCustomSourceSites === 'function') {
+      const sites = loadAllCustomSourceSites() || {};
+      const siteId = String(sourceKey).replace('custom_source_', '');
+      const site = sites?.[siteId] || {};
+      return normalizeApiBaseUrl(site.apiBaseUrl || site.apiEndpoint || site.baseUrl || '');
+    }
+
+    const cfg = typeof loadModelConfig === 'function' ? (loadModelConfig(sourceKey) || {}) : {};
+    return normalizeApiBaseUrl(cfg.apiBaseUrl || getDefaultApiBaseUrlForSource(sourceKey));
+  }
+
+  function resolveFirstUsableApiKeyForSource(sourceKey) {
+    if (!sourceKey || typeof loadModelKeys !== 'function') return '';
+    try {
+      const keys = loadModelKeys(sourceKey) || [];
+      const usable = keys.filter((k) => k && k.value && (k.status === 'valid' || k.status === 'untested'));
+      return usable[0]?.value || '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function parseOpenAICompatibleModelIds(payload) {
+    const pickArray = (v) => (Array.isArray(v) ? v : []);
+    const candidates = [
+      ...pickArray(payload),
+      ...pickArray(payload?.data),
+      ...pickArray(payload?.models),
+      ...pickArray(payload?.result?.data),
+      ...pickArray(payload?.data?.data),
+      ...pickArray(payload?.data?.models),
+      ...pickArray(payload?.data?.result?.data)
+    ];
+
+    const out = [];
+    const seen = new Set();
+    for (const item of candidates) {
+      if (!item || typeof item !== 'object') continue;
+      const rawId = item.id || item.model || item.name || '';
+      let id = String(rawId || '').trim();
+      if (!id) continue;
+      // 一些兼容实现会返回 "models/<id>" 或 "publishers/<p>/models/<id>"
+      if (id.includes('/')) id = id.split('/').pop();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+    }
+    return out;
+  }
+
+  // 新增：实时获取某源站的模型列表（会话级缓存）
+  async function fetchModelsForSource(sourceKey) {
+    if (!sourceKey) return [];
+    if (Array.isArray(tab1ModelsSession.cache[sourceKey])) return tab1ModelsSession.cache[sourceKey];
+    if (tab1ModelsSession.inflight[sourceKey]) return tab1ModelsSession.inflight[sourceKey];
+
+    tab1ModelsSession.error[sourceKey] = '';
+    const task = (async () => {
+      const apiKey = resolveFirstUsableApiKeyForSource(sourceKey);
+      if (!apiKey) throw new Error('NO_API_KEY');
+
+      const baseUrl = resolveApiBaseUrlForSource(sourceKey);
+      if (!baseUrl) throw new Error('NO_BASE_URL');
+
+      // 优先走 OpenAI 兼容的 /v1/models，失败时回退到 /models
+      const tryFetch = async (endpoint) => {
+        const resp = await fetch(endpoint, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Accept': 'application/json'
+          }
+        });
+        if (!resp.ok) throw new Error(`HTTP_${resp.status}`);
+        const data = await resp.json();
+        const ids = parseOpenAICompatibleModelIds(data);
+        if (!ids.length) throw new Error('EMPTY_MODELS');
+        return ids;
+      };
+
+      const endpointV1 = `${normalizeApiBaseUrl(baseUrl)}/v1/models`;
+      try {
+        return await tryFetch(endpointV1);
+      } catch (e) {
+        const endpointFallback = `${normalizeApiBaseUrl(baseUrl)}/models`;
+        return await tryFetch(endpointFallback);
+      }
+    })()
+      .then((ids) => {
+        const unique = Array.from(new Set((ids || []).map((x) => String(x || '').trim()).filter(Boolean)));
+        unique.sort((a, b) => a.localeCompare(b));
+        tab1ModelsSession.cache[sourceKey] = unique;
+        return unique;
+      })
+      .catch((err) => {
+        const msg = String(err?.message || err || '').trim();
+        if (msg === 'NO_API_KEY') tab1ModelsSession.error[sourceKey] = '未配置可用 Key，无法获取模型列表';
+        else if (msg === 'NO_BASE_URL') tab1ModelsSession.error[sourceKey] = '未配置 API Base URL';
+        else if (msg.startsWith('HTTP_')) tab1ModelsSession.error[sourceKey] = `请求失败（${msg.replace('HTTP_', '')}）`;
+        else tab1ModelsSession.error[sourceKey] = '获取失败';
+        delete tab1ModelsSession.cache[sourceKey];
+        return [];
+      })
+      .finally(() => {
+        delete tab1ModelsSession.inflight[sourceKey];
+      });
+
+    tab1ModelsSession.inflight[sourceKey] = task;
+    return task;
+  }
+
+  function normalizeModelTagsConfig(raw) {
+    const obj = normalizeObject(raw);
+    const out = {};
+    for (const [modelKey, tags] of Object.entries(obj)) {
+      if (!modelKey) continue;
+      const arr = Array.isArray(tags) ? tags : [];
+      const cleaned = [];
+      const seen = new Set();
+      for (const t of arr) {
+        const id = String(t || '').trim();
+        if (!id || seen.has(id)) continue;
+        if (!CAPABILITY_TAGS.some((x) => x.id === id)) continue;
+        seen.add(id);
+        cleaned.push(id);
+      }
+      out[modelKey] = cleaned;
+    }
+    return out;
+  }
+
+  function renderTab1Content(panel) {
+    panel.innerHTML = `
+      <div class="pmc-tab-layout pmc-tab-layout-60-40">
+        <div class="pmc-tab-left">
+          <div class="pmc-panel-title">
+            <iconify-icon icon="carbon:catalog" width="18"></iconify-icon>
+            源站 / 模型列表
+          </div>
+          <div class="pmc-form-group">
+            <input id="pmc-tags-search" class="pmc-input" placeholder="搜索模型..." autocomplete="off">
+          </div>
+          <div id="pmc-tags-source-list" class="pmc-accordion"></div>
+        </div>
+        <div class="pmc-tab-right">
+          <div class="pmc-panel-title">
+            <iconify-icon icon="carbon:tag-group" width="18"></iconify-icon>
+            能力标签
+            <span id="pmc-tags-selected-name" class="pmc-panel-subtitle">未选择模型</span>
+          </div>
+          <div id="pmc-tags-icons" class="pmc-tags-icons"></div>
+          <div class="pmc-tab-actions">
+            <button id="pmc-tags-clear" class="pmc-btn-secondary" disabled>
+              <iconify-icon icon="carbon:trash-can" width="16"></iconify-icon>
+              清空当前模型标签
+            </button>
+          </div>
+          <div class="pmc-helper-text">提示：为每个具体模型打上能力标签（存储格式：<code>{ "openai:gpt-4o": ["lang"] }</code>）。</div>
+        </div>
+      </div>
+    `;
+
+    const sourceListEl = panel.querySelector('#pmc-tags-source-list');
+    const searchEl = panel.querySelector('#pmc-tags-search');
+    const iconsEl = panel.querySelector('#pmc-tags-icons');
+    const selectedNameEl = panel.querySelector('#pmc-tags-selected-name');
+    const clearBtn = panel.querySelector('#pmc-tags-clear');
+
+    const sources = getAllConfigurableModels();
+    console.log('[PPT Model Config] Tab1 sources:', sources);
+    const cfg = normalizeModelTagsConfig(loadConfig('modelTags'));
+
+    const expandedSet = new Set(Array.isArray(uiState.tagsExpandedSources) ? uiState.tagsExpandedSources : []);
+
+    const getSourceName = (sourceKey) => sources.find((s) => s.key === sourceKey)?.name || sourceKey;
+
+    const getActiveModelParts = () => {
+      const fullKey = uiState.tagsActiveModelKey;
+      if (!fullKey || !String(fullKey).includes(':')) return null;
+      const idx = String(fullKey).indexOf(':');
+      const sourceKey = String(fullKey).slice(0, idx);
+      const modelId = String(fullKey).slice(idx + 1);
+      if (!sourceKey || !modelId) return null;
+      return { fullKey, sourceKey, modelId };
+    };
+
+    const getSelectedTags = () => {
+      const active = getActiveModelParts();
+      if (!active) return [];
+      return Array.isArray(cfg[active.fullKey]) ? cfg[active.fullKey] : [];
+    };
+
+    const countTaggedModelsForSource = (sourceKey) => {
+      const prefix = `${sourceKey}:`;
+      let count = 0;
+      for (const [k, v] of Object.entries(cfg)) {
+        if (!k.startsWith(prefix)) continue;
+        if (Array.isArray(v) && v.length) count += 1;
+      }
+      return count;
+    };
+
+    const ensureModelsLoaded = async (sourceKey) => {
+      if (!sourceKey) return;
+      if (Array.isArray(tab1ModelsSession.cache[sourceKey])) return;
+      await fetchModelsForSource(sourceKey);
+    };
+
+    const renderSourceList = () => {
+      const q = String(searchEl?.value || '').trim().toLowerCase();
+
+      sourceListEl.innerHTML = sources.length
+        ? sources.map((s) => {
+            const open = expandedSet.has(s.key);
+            const loading = !!tab1ModelsSession.inflight[s.key];
+            const models = Array.isArray(tab1ModelsSession.cache[s.key]) ? tab1ModelsSession.cache[s.key] : null;
+            const error = tab1ModelsSession.error[s.key] || '';
+            const taggedCount = countTaggedModelsForSource(s.key);
+
+            const visibleModels = Array.isArray(models)
+              ? models.filter((id) => !q || String(id || '').toLowerCase().includes(q))
+              : [];
+
+            const headerRight = Array.isArray(models)
+              ? `<span class="pmc-badge" title="模型数">${models.length}</span>`
+              : `<span class="pmc-badge pmc-badge-muted" title="未加载">-</span>`;
+
+            const taggedBadge = taggedCount
+              ? `<span class="pmc-badge pmc-badge-primary" title="已标注模型">${taggedCount}</span>`
+              : `<span class="pmc-badge pmc-badge-muted" title="已标注模型">0</span>`;
+
+            const bodyHtml = !open
+              ? ''
+              : loading
+                ? `<div class="pmc-loading">加载中…</div>`
+                : error
+                  ? `<div class="pmc-empty">${safe(error)}</div>`
+                  : Array.isArray(models) && models.length
+                    ? `
+                      <div class="pmc-model-list">
+                        ${visibleModels.length
+                          ? visibleModels.map((modelId) => {
+                              const fullKey = `${s.key}:${modelId}`;
+                              const active = uiState.tagsActiveModelKey === fullKey ? 'active' : '';
+                              const tags = Array.isArray(cfg[fullKey]) ? cfg[fullKey] : [];
+                              const tagIcons = CAPABILITY_TAGS.map((t) => {
+                                const on = tags.includes(t.id) ? 'on' : '';
+                                return `<iconify-icon class="${on}" icon="${safe(t.icon)}" width="14" title="${safe(t.name)}"></iconify-icon>`;
+                              }).join('');
+                              return `
+                                <button class="pmc-model-item ${active}" data-action="select-model" data-model-full-key="${safe(fullKey)}" title="${safe(fullKey)}">
+                                  <div class="pmc-model-item-main">
+                                    <div class="pmc-model-item-title">${safe(modelId)}</div>
+                                    <div class="pmc-model-item-sub">${safe(s.key)}</div>
+                                  </div>
+                                  <div class="pmc-model-tags">${tagIcons}</div>
+                                </button>
+                              `;
+                            }).join('')
+                          : `<div class="pmc-empty">没有匹配的模型</div>`
+                        }
+                      </div>
+                    `
+                    : `<div class="pmc-empty">未获取到模型</div>`;
+
+            return `
+              <div class="pmc-acc-item" data-source-key="${safe(s.key)}">
+                <button class="pmc-acc-header" data-action="toggle-source" data-source-key="${safe(s.key)}" title="${safe(s.key)}">
+                  <iconify-icon class="pmc-acc-chevron ${open ? 'open' : ''}" icon="carbon:chevron-right" width="16"></iconify-icon>
+                  <div class="pmc-acc-title">
+                    <div class="pmc-acc-title-main">${safe(s.name || s.key)}</div>
+                    <div class="pmc-acc-title-sub">${safe(s.key)}</div>
+                  </div>
+                  <div class="pmc-acc-meta">
+                    ${taggedBadge}
+                    ${headerRight}
+                  </div>
+                </button>
+                ${open ? `<div class="pmc-acc-body">${bodyHtml}</div>` : ''}
+              </div>
+            `;
+          }).join('')
+        : `<div class="pmc-empty">未发现可配置源站</div>`;
+    };
+
+    const renderTagIcons = () => {
+      const active = getActiveModelParts();
+      const selectedTags = getSelectedTags();
+      selectedNameEl.textContent = active ? `${getSourceName(active.sourceKey)} · ${active.modelId}` : '未选择模型';
+      clearBtn.disabled = !active || selectedTags.length === 0;
+
+      iconsEl.innerHTML = CAPABILITY_TAGS.map((t) => {
+        const selected = selectedTags.includes(t.id);
+        return `
+          <button
+            class="pmc-tag-icon-btn ${selected ? 'selected' : ''}"
+            data-action="toggle-tag"
+            data-tag-id="${safe(t.id)}"
+            title="${safe(t.name)}"
+            ${active ? '' : 'disabled'}
+          >
+            <iconify-icon icon="${safe(t.icon)}" width="22"></iconify-icon>
+          </button>
+        `;
+      }).join('');
+    };
+
+    const persist = () => {
+      saveConfig('modelTags', cfg);
+      showSaveSuccess('模型标签已保存');
+      renderSourceList();
+      renderTagIcons();
+    };
+
+    const selectModel = (fullKey) => {
+      uiState.tagsActiveModelKey = fullKey;
+      renderSourceList();
+      renderTagIcons();
+    };
+
+    sourceListEl.addEventListener('click', async (e) => {
+      const actionEl = e.target?.closest?.('[data-action]');
+      const action = actionEl?.getAttribute?.('data-action');
+      if (!action) return;
+
+      if (action === 'toggle-source') {
+        const sourceKey = actionEl.getAttribute('data-source-key');
+        if (!sourceKey) return;
+        const nextOpen = !expandedSet.has(sourceKey);
+        if (nextOpen) expandedSet.add(sourceKey);
+        else expandedSet.delete(sourceKey);
+        uiState.tagsExpandedSources = Array.from(expandedSet);
+        renderSourceList();
+        if (nextOpen) {
+          await ensureModelsLoaded(sourceKey);
+          renderSourceList();
+        }
+      } else if (action === 'select-model') {
+        const fullKey = actionEl.getAttribute('data-model-full-key');
+        if (!fullKey) return;
+        selectModel(fullKey);
+      }
+    });
+
+    searchEl?.addEventListener('input', () => renderSourceList());
+
+    iconsEl.addEventListener('click', (e) => {
+      const btn = e.target?.closest?.('[data-action="toggle-tag"]');
+      const tagId = btn?.getAttribute?.('data-tag-id');
+      if (!tagId) return;
+
+      const active = getActiveModelParts();
+      if (!active) return;
+
+      const current = Array.isArray(cfg[active.fullKey]) ? cfg[active.fullKey] : [];
+      const next = new Set(current);
+      if (next.has(tagId)) next.delete(tagId);
+      else next.add(tagId);
+      cfg[active.fullKey] = Array.from(next);
+      persist();
+    });
+
+    clearBtn.addEventListener('click', () => {
+      const active = getActiveModelParts();
+      if (!active) return;
+      cfg[active.fullKey] = [];
+      persist();
+    });
+
+    // 默认展开第一项并拉取模型列表（不强制默认选中具体模型）
+    if (sources.length && expandedSet.size === 0) {
+      expandedSet.add(sources[0].key);
+      uiState.tagsExpandedSources = Array.from(expandedSet);
+      fetchModelsForSource(sources[0].key).finally(() => renderSourceList());
+    }
+    renderSourceList();
+    renderTagIcons();
+  }
+
+  // ========== Tab 2: 角色优先级 ==========
+
+  function normalizeRolePriorityConfig(raw) {
+    const obj = normalizeObject(raw);
+    const out = {};
+    for (const r of ROLES) {
+      const list = obj[r.id];
+      out[r.id] = Array.isArray(list) ? list.map((x) => String(x || '').trim()).filter(Boolean) : [];
+    }
+    return out;
+  }
+
+  function renderTab2Content(panel) {
+    panel.innerHTML = `
+      <div class="pmc-tab-layout">
+        <div class="pmc-tab-left">
+          <div class="pmc-panel-title">
+            <iconify-icon icon="carbon:user-role" width="18"></iconify-icon>
+            角色列表
+          </div>
+          <div id="pmc-roles-list" class="pmc-list"></div>
+        </div>
+        <div class="pmc-tab-right">
+          <div class="pmc-panel-title">
+            <iconify-icon icon="carbon:list-numbered" width="18"></iconify-icon>
+            <span id="pmc-role-title">模型优先级</span>
+          </div>
+          <div class="pmc-two-col">
+            <div>
+              <div class="pmc-subheading">可用模型</div>
+              <div class="pmc-form-group">
+                <input id="pmc-available-search" class="pmc-input" placeholder="搜索可用模型..." autocomplete="off">
+              </div>
+              <div id="pmc-available-models" class="pmc-list pmc-list-compact"></div>
+            </div>
+            <div>
+              <div class="pmc-subheading">当前优先级（拖拽排序）</div>
+              <div id="pmc-priority-list" class="pmc-dnd-list"></div>
+            </div>
+          </div>
+          <div class="pmc-helper-text">提示：拖动排序后会自动保存。</div>
+        </div>
+      </div>
+    `;
+
+    const rolesListEl = panel.querySelector('#pmc-roles-list');
+    const roleTitleEl = panel.querySelector('#pmc-role-title');
+    const availableSearchEl = panel.querySelector('#pmc-available-search');
+    const availableListEl = panel.querySelector('#pmc-available-models');
+    const priorityListEl = panel.querySelector('#pmc-priority-list');
+
+    const allModels = getAllConfigurableModels();
+    const roleCfg = normalizeRolePriorityConfig(loadConfig('rolePriority'));
+
+    const persist = () => {
+      saveConfig('rolePriority', roleCfg);
+      showSaveSuccess('角色优先级已保存');
+      renderAvailableModels();
+    };
+
+    const renderRoles = () => {
+      rolesListEl.innerHTML = ROLES.map((r) => {
+        const active = uiState.priorityActiveRole === r.id ? 'active' : '';
+        return `
+          <button class="pmc-list-item ${active}" data-role-id="${safe(r.id)}">
+            <div class="pmc-list-item-main">
+              <div class="pmc-list-item-title">
+                <iconify-icon icon="${safe(r.icon)}" width="16"></iconify-icon>
+                ${safe(r.name)}
+              </div>
+              <div class="pmc-list-item-sub">${safe(r.desc)}</div>
+            </div>
+          </button>
+        `;
+      }).join('');
+    };
+
+    const renderPriorityList = () => {
+      const roleId = uiState.priorityActiveRole;
+      const order = Array.isArray(roleCfg[roleId]) ? roleCfg[roleId] : [];
+      const label = ROLES.find((r) => r.id === roleId)?.name || roleId;
+      roleTitleEl.textContent = `${label} · 模型优先级`;
+
+      const keyToName = new Map(allModels.map((m) => [m.key, m.name || m.key]));
+
+      priorityListEl.innerHTML = order.length
+        ? order.map((k) => `
+            <div class="pmc-drag-item" draggable="true" data-model-key="${safe(k)}">
+              <div class="pmc-drag-item-title">${safe(keyToName.get(k) || k)}</div>
+              <div class="pmc-drag-item-sub">${safe(k)}</div>
+              <button class="pmc-drag-item-remove" title="移除" data-remove-key="${safe(k)}">
+                <iconify-icon icon="carbon:trash-can" width="16"></iconify-icon>
+              </button>
+            </div>
+          `).join('')
+        : `<div class="pmc-empty">暂无优先级配置，可从左侧添加</div>`;
+
+      setupDragAndDrop(priorityListEl, () => {
+        const next = Array.from(priorityListEl.querySelectorAll('.pmc-drag-item'))
+          .map((el) => el.getAttribute('data-model-key'))
+          .filter(Boolean);
+        roleCfg[roleId] = next;
+        persist();
+      });
+    };
+
+    const renderAvailableModels = () => {
+      const q = String(availableSearchEl?.value || '').trim().toLowerCase();
+      const roleId = uiState.priorityActiveRole;
+      const chosen = new Set(Array.isArray(roleCfg[roleId]) ? roleCfg[roleId] : []);
+
+      const filtered = allModels.filter((m) => {
+        if (!q) return true;
+        return String(m.name || '').toLowerCase().includes(q) || String(m.key || '').toLowerCase().includes(q);
+      });
+
+      availableListEl.innerHTML = filtered.length
+        ? filtered.map((m) => {
+            const disabled = chosen.has(m.key);
+            return `
+              <div class="pmc-list-row">
+                <div class="pmc-list-row-main">
+                  <div class="pmc-list-row-title">${safe(m.name || m.key)}</div>
+                  <div class="pmc-list-row-sub">${safe(m.key)}</div>
+                </div>
+                <button class="pmc-btn-mini" data-add-key="${safe(m.key)}" ${disabled ? 'disabled' : ''}>
+                  <iconify-icon icon="carbon:add" width="14"></iconify-icon>
+                  添加
+                </button>
+              </div>
+            `;
+          }).join('')
+        : `<div class="pmc-empty">没有可用模型</div>`;
+    };
+
+    rolesListEl.addEventListener('click', (e) => {
+      const btn = e.target?.closest?.('.pmc-list-item');
+      const roleId = btn?.getAttribute('data-role-id');
+      if (!roleId) return;
+      uiState.priorityActiveRole = roleId;
+      renderRoles();
+      renderPriorityList();
+      renderAvailableModels();
+    });
+
+    availableSearchEl?.addEventListener('input', () => renderAvailableModels());
+
+    availableListEl.addEventListener('click', (e) => {
+      const addKey = e.target?.closest?.('[data-add-key]')?.getAttribute('data-add-key');
+      if (!addKey) return;
+      const roleId = uiState.priorityActiveRole;
+      const list = Array.isArray(roleCfg[roleId]) ? roleCfg[roleId] : [];
+      if (list.includes(addKey)) return;
+      list.push(addKey);
+      roleCfg[roleId] = list;
+      renderPriorityList();
+      persist();
+    });
+
+    priorityListEl.addEventListener('click', (e) => {
+      const removeKey = e.target?.closest?.('[data-remove-key]')?.getAttribute('data-remove-key');
+      if (!removeKey) return;
+      const roleId = uiState.priorityActiveRole;
+      roleCfg[roleId] = (roleCfg[roleId] || []).filter((k) => k !== removeKey);
+      renderPriorityList();
+      persist();
+    });
+
+    if (!uiState.priorityActiveRole) uiState.priorityActiveRole = ROLES[0]?.id || 'analyst';
+    renderRoles();
+    renderPriorityList();
+    renderAvailableModels();
+  }
+
+  function setupDragAndDrop(container, onReorder) {
+    if (!container) return;
+    container.__pmcOnReorder = onReorder;
+    if (container.dataset.dndBound === '1') return;
+    container.dataset.dndBound = '1';
+
+    let dragging = null;
+
+    const clearIndicators = () => {
+      container.querySelectorAll('.drag-above, .drag-below').forEach((el) => {
+        el.classList.remove('drag-above', 'drag-below');
+      });
+    };
+
+    container.addEventListener('dragstart', (e) => {
+      const item = e.target?.closest?.('.pmc-drag-item');
+      if (!item) return;
+      dragging = item;
+      item.classList.add('dragging');
+      e.dataTransfer?.setData?.('text/plain', item.getAttribute('data-model-key') || '');
+      e.dataTransfer?.setDragImage?.(item, 12, 12);
+    });
+
+    container.addEventListener('dragend', () => {
+      if (dragging) dragging.classList.remove('dragging');
+      dragging = null;
+      clearIndicators();
+      const cb = container.__pmcOnReorder;
+      if (typeof cb === 'function') cb();
+    });
+
+    container.addEventListener('dragover', (e) => {
+      if (!dragging) return;
+      e.preventDefault();
+
+      const target = e.target?.closest?.('.pmc-drag-item');
+      if (!target || target === dragging) return;
+
+      const rect = target.getBoundingClientRect();
+      const before = e.clientY < rect.top + rect.height / 2;
+
+      clearIndicators();
+      target.classList.add(before ? 'drag-above' : 'drag-below');
+
+      if (before) {
+        container.insertBefore(dragging, target);
+      } else {
+        container.insertBefore(dragging, target.nextSibling);
+      }
+    });
+
+    container.addEventListener('drop', (e) => {
+      if (!dragging) return;
+      e.preventDefault();
+      clearIndicators();
+    });
+  }
+
+  // ========== Tab 3: 音频配置 ==========
+
+  function normalizeAudioConfig(raw) {
+    const obj = normalizeObject(raw);
+    const t = normalizeObject(obj.transcription);
+    const s = normalizeObject(obj.synthesis);
+    return {
+      transcription: {
+        provider: String(t.provider || 'groq'),
+        apiKey: String(t.apiKey || ''),
+        model: String(t.model || '')
+      },
+      synthesis: {
+        provider: String(s.provider || 'elevenlabs'),
+        apiKey: String(s.apiKey || ''),
+        model: String(s.model || ''),
+        voice: String(s.voice || '')
+      }
+    };
+  }
+
+  function renderTab3Content(panel) {
+    const cfg = normalizeAudioConfig(loadConfig('audio'));
+
+    panel.innerHTML = `
+      <div class="pmc-audio-grid">
+        <div class="pmc-audio-section">
+          <div class="pmc-panel-title">
+            <iconify-icon icon="carbon:audio-console" width="18"></iconify-icon>
+            转录配置（Speech-to-Text）
+          </div>
+          <div class="pmc-form-group">
+            <label class="pmc-label">Provider</label>
+            <select id="pmc-stt-provider" class="pmc-select"></select>
+          </div>
+          <div class="pmc-form-group">
+            <label class="pmc-label">API Key</label>
+            <input id="pmc-stt-api-key" class="pmc-input" type="password" placeholder="输入转录 API Key">
+          </div>
+          <div class="pmc-form-group">
+            <label class="pmc-label">Model</label>
+            <select id="pmc-stt-model-select" class="pmc-select"></select>
+            <input id="pmc-stt-model-input" class="pmc-input" placeholder="输入模型 ID" style="display:none;">
+          </div>
+        </div>
+
+        <div class="pmc-audio-section">
+          <div class="pmc-panel-title">
+            <iconify-icon icon="carbon:volume-up" width="18"></iconify-icon>
+            合成配置（Text-to-Speech）
+          </div>
+          <div class="pmc-form-group">
+            <label class="pmc-label">Provider</label>
+            <select id="pmc-tts-provider" class="pmc-select"></select>
+          </div>
+          <div class="pmc-form-group">
+            <label class="pmc-label">API Key</label>
+            <input id="pmc-tts-api-key" class="pmc-input" type="password" placeholder="输入合成 API Key">
+          </div>
+          <div class="pmc-form-group">
+            <label class="pmc-label">Model</label>
+            <select id="pmc-tts-model-select" class="pmc-select"></select>
+          </div>
+          <div class="pmc-form-group">
+            <label class="pmc-label">Voice</label>
+            <input id="pmc-tts-voice" class="pmc-input" placeholder="例如: alloy / aria / 自定义 voice">
+          </div>
+        </div>
+
+        <div class="pmc-audio-actions">
+          <button id="pmc-audio-save" class="pmc-btn-save">
+            <iconify-icon icon="carbon:save" width="16"></iconify-icon>
+            保存音频配置
+          </button>
+        </div>
+      </div>
+    `;
+
+    const sttProviderEl = panel.querySelector('#pmc-stt-provider');
+    const sttApiKeyEl = panel.querySelector('#pmc-stt-api-key');
+    const sttModelSelectEl = panel.querySelector('#pmc-stt-model-select');
+    const sttModelInputEl = panel.querySelector('#pmc-stt-model-input');
+
+    const ttsProviderEl = panel.querySelector('#pmc-tts-provider');
+    const ttsApiKeyEl = panel.querySelector('#pmc-tts-api-key');
+    const ttsModelSelectEl = panel.querySelector('#pmc-tts-model-select');
+    const ttsVoiceEl = panel.querySelector('#pmc-tts-voice');
+
+    const saveBtn = panel.querySelector('#pmc-audio-save');
+
+    sttProviderEl.innerHTML = TRANSCRIPTION_PROVIDERS.map((p) => `<option value="${safe(p.id)}">${safe(p.name)}</option>`).join('');
+    ttsProviderEl.innerHTML = SYNTHESIS_PROVIDERS.map((p) => `<option value="${safe(p.id)}">${safe(p.name)}</option>`).join('');
+
+    const applySttModels = () => {
+      const providerId = sttProviderEl.value;
+      const provider = TRANSCRIPTION_PROVIDERS.find((p) => p.id === providerId) || TRANSCRIPTION_PROVIDERS[0];
+      const models = Array.isArray(provider?.models) ? provider.models : [];
+
+      if (models.length) {
+        sttModelSelectEl.style.display = '';
+        sttModelInputEl.style.display = 'none';
+        sttModelSelectEl.innerHTML = models.map((m) => `<option value="${safe(m)}">${safe(m)}</option>`).join('');
+        sttModelSelectEl.value = cfg.transcription.model && models.includes(cfg.transcription.model) ? cfg.transcription.model : models[0];
+      } else {
+        sttModelSelectEl.style.display = 'none';
+        sttModelInputEl.style.display = '';
+        sttModelInputEl.value = cfg.transcription.model || '';
+      }
+    };
+
+    const applyTtsModels = () => {
+      const providerId = ttsProviderEl.value;
+      const provider = SYNTHESIS_PROVIDERS.find((p) => p.id === providerId) || SYNTHESIS_PROVIDERS[0];
+      const models = Array.isArray(provider?.models) ? provider.models : [];
+      ttsModelSelectEl.innerHTML = models.map((m) => `<option value="${safe(m)}">${safe(m)}</option>`).join('');
+      ttsModelSelectEl.value = cfg.synthesis.model && models.includes(cfg.synthesis.model) ? cfg.synthesis.model : (models[0] || '');
+    };
+
+    sttProviderEl.value = TRANSCRIPTION_PROVIDERS.some((p) => p.id === cfg.transcription.provider) ? cfg.transcription.provider : TRANSCRIPTION_PROVIDERS[0].id;
+    ttsProviderEl.value = SYNTHESIS_PROVIDERS.some((p) => p.id === cfg.synthesis.provider) ? cfg.synthesis.provider : SYNTHESIS_PROVIDERS[0].id;
+
+    sttApiKeyEl.value = cfg.transcription.apiKey || '';
+    ttsApiKeyEl.value = cfg.synthesis.apiKey || '';
+    ttsVoiceEl.value = cfg.synthesis.voice || '';
+
+    applySttModels();
+    applyTtsModels();
+
+    sttProviderEl.addEventListener('change', () => {
+      cfg.transcription.provider = sttProviderEl.value;
+      applySttModels();
+    });
+
+    ttsProviderEl.addEventListener('change', () => {
+      cfg.synthesis.provider = ttsProviderEl.value;
+      applyTtsModels();
+    });
+
+    saveBtn.addEventListener('click', () => {
+      const sttProvider = sttProviderEl.value;
+      const ttsProvider = ttsProviderEl.value;
+
+      const sttModel = sttModelSelectEl.style.display === 'none'
+        ? String(sttModelInputEl.value || '').trim()
+        : String(sttModelSelectEl.value || '').trim();
+
+      const out = {
+        transcription: {
+          provider: sttProvider,
+          apiKey: String(sttApiKeyEl.value || '').trim(),
+          model: sttModel
+        },
+        synthesis: {
+          provider: ttsProvider,
+          apiKey: String(ttsApiKeyEl.value || '').trim(),
+          model: String(ttsModelSelectEl.value || '').trim(),
+          voice: String(ttsVoiceEl.value || '').trim()
+        }
+      };
+
+      saveConfig('audio', out);
+      showSaveSuccess('音频模型配置已保存');
+    });
   }
 
   function safe(str) {
@@ -567,7 +1435,20 @@
 
   function openModal() {
     renderModal();
-    populateModal();
+
+    // 每次打开都刷新 Tab 内容（避免源站列表/配置变更后不更新）
+    const root = getModalRoot();
+    if (root) {
+      root.querySelectorAll('.pmc-tab-panel').forEach((p) => {
+        p.dataset.rendered = '0';
+        p.innerHTML = '';
+      });
+      initTabSwitching();
+      activateTab(uiState.activeTab || 'tags');
+    }
+
+    // 保持图片处理设置可用
+    loadImageSettings();
     updateStatsDisplay();
     const modal = document.getElementById('ppt-model-config-modal');
     if (modal) modal.style.display = 'flex';
@@ -713,6 +1594,379 @@
     }, true);
   }
 
+  function getStyles() {
+    return `
+      /* Tabs */
+      .pmc-tabs-nav {
+        display: flex; gap: 8px;
+        padding: 12px 16px;
+        background: #fff;
+        border-bottom: 1px solid var(--pmc-border);
+      }
+      .pmc-tab-btn {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 10px 12px;
+        border: 1px solid var(--pmc-border);
+        background: #fff;
+        border-radius: 10px;
+        color: #334155;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      .pmc-tab-btn:hover { border-color: #cbd5e1; background: #f8fafc; }
+      .pmc-tab-btn.active {
+        border-color: rgba(99, 102, 241, 0.5);
+        background: rgba(99, 102, 241, 0.08);
+        color: #312e81;
+      }
+      .pmc-tab-btn iconify-icon { pointer-events: none; }
+
+      .pmc-tabs-content {
+        padding: 16px;
+      }
+      .pmc-tab-panel { display: none; }
+      .pmc-tab-panel.active { display: block; }
+
+      /* Tab Layout Helpers */
+      .pmc-tab-layout {
+        display: grid;
+        grid-template-columns: 360px 1fr;
+        gap: 16px;
+        align-items: start;
+      }
+      .pmc-tab-layout.pmc-tab-layout-60-40 {
+        grid-template-columns: 3fr 2fr;
+      }
+      .pmc-tab-left, .pmc-tab-right {
+        background: #fff;
+        border: 1px solid var(--pmc-border);
+        border-radius: 12px;
+        padding: 16px;
+        min-height: 400px;
+        max-height: 65vh;
+        overflow-y: auto;
+      }
+      .pmc-panel-title {
+        display: flex; align-items: center; gap: 8px;
+        font-size: 14px; font-weight: 700; color: var(--pmc-text-main);
+        margin-bottom: 12px;
+      }
+      .pmc-panel-subtitle {
+        margin-left: auto;
+        font-size: 12px;
+        font-weight: 500;
+        color: #94a3b8;
+      }
+      .pmc-subheading {
+        font-size: 12px;
+        font-weight: 700;
+        color: #334155;
+        margin: 2px 0 10px 0;
+      }
+      .pmc-helper-text {
+        font-size: 12px;
+        color: var(--pmc-text-sub);
+        margin-top: 12px;
+        line-height: 1.5;
+      }
+      .pmc-empty {
+        padding: 12px;
+        font-size: 12px;
+        color: #94a3b8;
+        text-align: center;
+        background: #f8fafc;
+        border: 1px dashed #e2e8f0;
+        border-radius: 10px;
+      }
+
+      .pmc-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-height: 52vh;
+        overflow: auto;
+        padding-right: 4px;
+      }
+      .pmc-list-compact { max-height: 42vh; }
+
+      /* Tab1: Source accordion + model list */
+      .pmc-accordion {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        overflow: visible;
+        padding-right: 4px;
+      }
+      .pmc-acc-item {
+        border: 1px solid var(--pmc-border);
+        border-radius: 12px;
+        background: #fff;
+        overflow: visible;
+        min-height: 48px;
+      }
+      .pmc-acc-header {
+        width: 100%;
+        border: none;
+        background: #fff;
+        padding: 14px 16px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        cursor: pointer;
+        text-align: left;
+        transition: all 0.15s;
+        min-height: 48px;
+      }
+      .pmc-acc-header:hover { background: #f8fafc; }
+      .pmc-acc-chevron { color: #94a3b8; transition: transform 0.15s; }
+      .pmc-acc-chevron.open { transform: rotate(90deg); }
+      .pmc-acc-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+      .pmc-acc-title-main { font-size: 14px; font-weight: 600; color: #0f172a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .pmc-acc-title-sub { font-size: 12px; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .pmc-acc-meta { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+      .pmc-badge {
+        font-size: 11px;
+        font-weight: 700;
+        color: #334155;
+        background: #f1f5f9;
+        border: 1px solid #e2e8f0;
+        border-radius: 999px;
+        padding: 2px 8px;
+        line-height: 16px;
+      }
+      .pmc-badge-muted { color: #94a3b8; background: #f8fafc; }
+      .pmc-badge-primary { color: #312e81; background: rgba(99, 102, 241, 0.12); border-color: rgba(99, 102, 241, 0.35); }
+      .pmc-acc-body {
+        border-top: 1px solid var(--pmc-border);
+        background: #fafbfc;
+        padding: 14px 16px 16px;
+      }
+      .pmc-loading {
+        font-size: 12px;
+        color: #64748b;
+        padding: 8px 10px;
+        border: 1px dashed #e2e8f0;
+        border-radius: 10px;
+        background: #fff;
+      }
+      .pmc-model-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        overflow: visible;
+        padding-right: 4px;
+      }
+      .pmc-model-item {
+        width: 100%;
+        border: 1px solid var(--pmc-border);
+        background: #fff;
+        border-radius: 10px;
+        padding: 12px 14px;
+        cursor: pointer;
+        text-align: left;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        transition: all 0.15s;
+      }
+      .pmc-model-item:hover { background: #f8fafc; border-color: #cbd5e1; }
+      .pmc-model-item.active { border-color: rgba(99, 102, 241, 0.55); background: rgba(99, 102, 241, 0.06); }
+      .pmc-model-item-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+      .pmc-model-item-title { font-size: 14px; font-weight: 600; color: #0f172a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .pmc-model-item-sub { font-size: 12px; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .pmc-model-tags { display: flex; align-items: center; gap: 6px; flex-shrink: 0; color: #94a3b8; }
+      .pmc-model-tags iconify-icon { opacity: 0.22; }
+      .pmc-model-tags iconify-icon.on { opacity: 1; color: var(--pmc-primary); }
+
+      /* Tab1: Tag icons (right panel) */
+      .pmc-tags-icons {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .pmc-tag-icon-btn {
+        border: 1px solid var(--pmc-border);
+        background: #fff;
+        border-radius: 14px;
+        padding: 14px 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        color: #94a3b8;
+        transition: all 0.15s;
+      }
+      .pmc-tag-icon-btn:hover { background: #f8fafc; border-color: #cbd5e1; color: #334155; }
+      .pmc-tag-icon-btn.selected {
+        color: var(--pmc-primary);
+        border-color: rgba(99, 102, 241, 0.55);
+        background: rgba(99, 102, 241, 0.10);
+        box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.15);
+      }
+      .pmc-tag-icon-btn:disabled {
+        cursor: not-allowed;
+        opacity: 0.55;
+      }
+
+      .pmc-list-item {
+        width: 100%;
+        border: 1px solid var(--pmc-border);
+        background: #fff;
+        border-radius: 10px;
+        padding: 10px 10px;
+        cursor: pointer;
+        text-align: left;
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        transition: all 0.15s;
+      }
+      .pmc-list-item:hover { background: #f8fafc; border-color: #cbd5e1; }
+      .pmc-list-item.active { border-color: rgba(99, 102, 241, 0.55); background: rgba(99, 102, 241, 0.06); }
+      .pmc-list-item-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+      .pmc-list-item-title { font-size: 13px; font-weight: 700; color: #0f172a; display:flex; align-items:center; gap:8px; }
+      .pmc-list-item-sub { font-size: 11px; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .pmc-list-item-meta { font-size: 11px; color: #64748b; flex: 0 0 auto; align-self: center; }
+
+      .pmc-two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+
+      .pmc-list-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        border: 1px solid var(--pmc-border);
+        border-radius: 10px;
+        padding: 10px;
+        background: #fff;
+      }
+      .pmc-list-row-main { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+      .pmc-list-row-title { font-size: 12px; font-weight: 700; color: #0f172a; }
+      .pmc-list-row-sub { font-size: 11px; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+      .pmc-btn-mini {
+        border: 1px solid var(--pmc-border);
+        background: #fff;
+        border-radius: 8px;
+        font-size: 12px;
+        padding: 6px 10px;
+        cursor: pointer;
+        display: inline-flex; align-items: center; gap: 6px;
+        color: #334155;
+        transition: all 0.15s;
+        flex: 0 0 auto;
+      }
+      .pmc-btn-mini:hover { border-color: rgba(99, 102, 241, 0.55); color: #312e81; background: rgba(99, 102, 241, 0.06); }
+      .pmc-btn-mini:disabled { cursor: not-allowed; opacity: 0.55; }
+      .pmc-btn-mini iconify-icon { pointer-events: none; }
+
+      .pmc-tags-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      /* Required: tag chips */
+      .pmc-tag-chip {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 8px 10px;
+        border: 1px solid var(--pmc-border);
+        border-radius: 999px;
+        background: #fff;
+        color: #334155;
+        cursor: pointer;
+        user-select: none;
+        transition: all 0.15s;
+      }
+      .pmc-tag-chip input { display: none; }
+      .pmc-tag-chip.selected {
+        border-color: rgba(99, 102, 241, 0.55);
+        background: rgba(99, 102, 241, 0.08);
+        color: #312e81;
+      }
+
+      /* Required: drag items */
+      .pmc-dnd-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        min-height: 180px;
+        padding: 10px;
+        border: 1px dashed #e2e8f0;
+        border-radius: 12px;
+        background: #f8fafc;
+      }
+      .pmc-drag-item {
+        border: 1px solid var(--pmc-border);
+        background: #fff;
+        border-radius: 12px;
+        padding: 10px 10px;
+        cursor: grab;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        grid-template-rows: auto auto;
+        gap: 4px 10px;
+        align-items: center;
+      }
+      .pmc-drag-item:active { cursor: grabbing; }
+      .pmc-drag-item.dragging { opacity: 0.6; }
+      .pmc-drag-item.drag-above { border-top: 2px solid var(--pmc-primary); }
+      .pmc-drag-item.drag-below { border-bottom: 2px solid var(--pmc-primary); }
+      .drag-above { border-top: 2px solid var(--pmc-primary) !important; }
+      .drag-below { border-bottom: 2px solid var(--pmc-primary) !important; }
+      .pmc-drag-item-title { font-size: 12px; font-weight: 700; color: #0f172a; grid-column: 1 / 2; }
+      .pmc-drag-item-sub { font-size: 11px; color: #94a3b8; grid-column: 1 / 2; }
+      .pmc-drag-item-remove {
+        grid-column: 2 / 3;
+        grid-row: 1 / 3;
+        border: 1px solid var(--pmc-border);
+        background: #fff;
+        width: 36px; height: 36px;
+        border-radius: 10px;
+        cursor: pointer;
+        color: #ef4444;
+        display: flex; align-items: center; justify-content: center;
+        transition: all 0.15s;
+      }
+      .pmc-drag-item-remove:hover { background: #fef2f2; border-color: #fecaca; }
+      .pmc-drag-item-remove iconify-icon { pointer-events: none; }
+
+      /* Audio */
+      .pmc-audio-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        align-items: start;
+      }
+      .pmc-audio-section {
+        background: #fff;
+        border: 1px solid var(--pmc-border);
+        border-radius: 12px;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .pmc-audio-actions {
+        grid-column: 1 / -1;
+      }
+
+      @media (max-width: 1024px) {
+        .pmc-tab-layout { grid-template-columns: 1fr; }
+        .pmc-two-col { grid-template-columns: 1fr; }
+        .pmc-audio-grid { grid-template-columns: 1fr; }
+        .pmc-list { max-height: 40vh; }
+        .pmc-accordion { max-height: 40vh; }
+      }
+    `;
+  }
+
   // 样式注入
   function injectStyles() {
     let style = document.getElementById('ppt-model-config-style');
@@ -747,7 +2001,7 @@
 
       .pmc-modal-container {
         position: relative; z-index: 1;
-        width: 95vw; max-width: 980px; height: auto; max-height: 85vh;
+        width: 95vw; max-width: 1200px; height: auto; max-height: 90vh;
         background: #fff;
         border-radius: var(--pmc-radius);
         box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
@@ -804,7 +2058,7 @@
       }
 
       .pmc-body {
-        display: grid; grid-template-columns: repeat(3, 1fr);
+        display: flex; flex-direction: column;
         flex-shrink: 0;
         background: #f8fafc;
         overflow: visible; /* 确保下拉菜单不被裁剪 */
@@ -866,7 +2120,8 @@
         font-size: 14px; color: #1e293b;
         outline: none; background: #fff;
         transition: all 0.2s;
-        width: 0; /* flex fix */
+        min-width: 0; /* flex fix */
+        width: 100%;
       }
       .pmc-select:focus, .pmc-input:focus {
         border-color: var(--pmc-primary);
@@ -1002,12 +2257,11 @@
 
       /* Responsive */
       @media (max-width: 1024px) {
-        .pmc-body { grid-template-columns: 1fr; }
-        .pmc-col { border-right: none; border-bottom: 1px solid var(--pmc-border); }
-        .pmc-col:last-child { border-bottom: none; }
         .pmc-modal-container { max-height: 90vh; }
         .pmc-advanced-body { grid-template-columns: 1fr; gap: 20px; }
       }
+
+      ${getStyles()}
     `;
     document.head.appendChild(style);
   }

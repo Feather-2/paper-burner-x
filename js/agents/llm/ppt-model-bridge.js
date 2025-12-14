@@ -8,7 +8,10 @@
 const STORAGE_KEYS = {
   lang: 'pptModelConfigLanguage',
   img: 'pptModelConfigImage',
-  vision: 'pptModelConfigVision'
+  vision: 'pptModelConfigVision',
+  modelTags: 'pptModelTags',
+  rolePriority: 'pptRolePriority',
+  audio: 'pptAudioConfig'
 };
 
 // Usage 到配置类型的映射
@@ -24,13 +27,55 @@ const USAGE_TO_CONFIG = {
 
 function loadPptConfig(type) {
   try {
-    const key = STORAGE_KEYS[type];
+    const key = STORAGE_KEYS[type] || (Object.values(STORAGE_KEYS).includes(type) ? type : null);
     if (!key) return null;
     const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
+}
+
+// 标签集合校验
+const VALID_CAPABILITY_TAGS = ['lang', 'vision', 'image', 'audio'];
+
+function normalizePptModelTags(raw) {
+  if (!raw || typeof raw !== 'object') return {};
+  const result = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (Array.isArray(v)) {
+      result[k] = [...new Set(v.filter(t => VALID_CAPABILITY_TAGS.includes(t)))];
+    }
+  }
+  return result;
+}
+
+function normalizePptRolePriority(raw) {
+  const roles = ['analyst', 'planner', 'writer', 'reviewer', 'vision', 'worker'];
+  const result = {};
+  for (const role of roles) {
+    const arr = raw?.[role];
+    result[role] = Array.isArray(arr)
+      ? [...new Set(arr.filter(s => typeof s === 'string' && s))]
+      : [];
+  }
+  return result;
+}
+
+function normalizePptAudioConfig(raw) {
+  return {
+    transcription: {
+      provider: raw?.transcription?.provider || 'groq',
+      apiKey: raw?.transcription?.apiKey || '',
+      model: raw?.transcription?.model || 'whisper-large-v3'
+    },
+    synthesis: {
+      provider: raw?.synthesis?.provider || 'elevenlabs',
+      apiKey: raw?.synthesis?.apiKey || '',
+      model: raw?.synthesis?.model || 'eleven_turbo_v2_5',
+      voice: raw?.synthesis?.voice || ''
+    }
+  };
 }
 
 /**
@@ -46,6 +91,77 @@ export function getPptModelConfig(usage) {
     modelKey: config.modelKey,
     modelId: config.modelId || ''
   };
+}
+
+export function getPptModelTags() {
+  return normalizePptModelTags(loadPptConfig('modelTags'));
+}
+
+export function getPptRolePriority() {
+  return normalizePptRolePriority(loadPptConfig('rolePriority'));
+}
+
+export function getPptAudioConfig() {
+  return normalizePptAudioConfig(loadPptConfig('audio'));
+}
+
+/**
+ * 构建 ModelRouter 所需的 usageConfig
+ * - 优先使用 pptRolePriority 配置
+ * - 回退到旧的单选配置
+ * - 按 pptModelTags 软过滤（未标注的模型默认允许）
+ */
+export function buildPptUsageConfigForModelRouter() {
+  const priority = getPptRolePriority();
+  const tags = getPptModelTags();
+  const legacyLang = loadPptConfig('lang')?.modelKey;
+  const legacyVision = loadPptConfig('vision')?.modelKey;
+
+  // 能力过滤：检查模型是否有所需标签（未标注则允许）
+  function getTagsForCandidate(key) {
+    if (!key) return [];
+    const direct = tags[key];
+    if (Array.isArray(direct) && direct.length) return direct;
+
+    // 兼容新格式：{ "openai:gpt-4o": ["lang"] }
+    const prefix = `${key}:`;
+    const agg = new Set();
+    for (const [k, v] of Object.entries(tags)) {
+      if (!k.startsWith(prefix)) continue;
+      if (!Array.isArray(v)) continue;
+      for (const t of v) agg.add(t);
+    }
+    return Array.from(agg);
+  }
+
+  function filterByCapability(models, requiredTag) {
+    return models.filter(key => {
+      const modelTags = getTagsForCandidate(key);
+      if (!modelTags || modelTags.length === 0) return true; // 未标注则允许
+      return modelTags.includes(requiredTag);
+    });
+  }
+
+  // 构建 usageConfig
+  const result = {};
+  const textRoles = ['analyst', 'planner', 'writer', 'reviewer', 'worker'];
+
+  for (const role of textRoles) {
+    let candidates = priority[role];
+    if (!candidates || candidates.length === 0) {
+      candidates = legacyLang ? [legacyLang] : [];
+    }
+    result[role] = filterByCapability(candidates, 'lang');
+  }
+
+  // vision 特殊处理
+  let visionCandidates = priority.vision;
+  if (!visionCandidates || visionCandidates.length === 0) {
+    visionCandidates = legacyVision ? [legacyVision] : [];
+  }
+  result.vision = filterByCapability(visionCandidates, 'vision');
+
+  return result;
 }
 
 /**
@@ -129,7 +245,10 @@ export function createPptAwareAiApiService(baseService) {
       return {
         lang: loadPptConfig('lang'),
         img: loadPptConfig('img'),
-        vision: loadPptConfig('vision')
+        vision: loadPptConfig('vision'),
+        modelTags: loadPptConfig('modelTags'),
+        rolePriority: loadPptConfig('rolePriority'),
+        audio: loadPptConfig('audio')
       };
     },
 
