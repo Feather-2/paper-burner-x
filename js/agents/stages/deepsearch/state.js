@@ -200,6 +200,14 @@ export function makeStageEmitter(stageApi, actor = "deepsearch") {
   return (name, payload, { status = "completed" } = {}) => emitFn.call(stageApi?.eventBus || null, name, { actor, status, payload });
 }
 
+export function generateNodeId(runId, kind, { stage, iteration, trajectoryId } = {}) {
+  const parts = [runId || "run", kind];
+  if (stage) parts.push(stage);
+  if (typeof iteration === "number") parts.push(`i${iteration}`);
+  if (trajectoryId) parts.push(trajectoryId);
+  return parts.join("_") + "_" + Date.now().toString(36);
+}
+
 export function checkCancelled(stageApi) {
   if (typeof stageApi?.checkCancelled === "function") stageApi.checkCancelled();
   if (stageApi?.signal?.aborted) {
@@ -236,18 +244,21 @@ function normalizeRoundHits(roundHits) {
 export function computeRoundHitsByGapId(retrievedChunks) {
   const hits = new Map();
   for (const r of Array.isArray(retrievedChunks) ? retrievedChunks : []) {
-    const matched = Array.isArray(r?.matchedGapIds) ? r.matchedGapIds.map(String).filter(Boolean) : [];
+    const matched = Array.isArray(r?.matchedGapIds) ? r.matchedGapIds.map((x) => toNonEmptyString(x)).filter(Boolean) : [];
     if (matched.length) {
-      for (const gid of matched) hits.set(gid, (hits.get(gid) || 0) + 1);
+      for (const gid of new Set(matched)) hits.set(gid, (hits.get(gid) || 0) + 1);
       continue;
     }
+
     const gid = toNonEmptyString(r?.gapId);
     if (gid) hits.set(gid, (hits.get(gid) || 0) + 1);
   }
   return hits;
 }
 
-export function validateIteration(state, { roundHits, blockAfterMisses = 2 } = {}) {
+export function validateIteration(state, { roundHits, blockAfterMisses = 2 } = {}, emit = null) {
+  const runId = toNonEmptyString(state?.runId) || "run_unknown";
+  const iteration = safeInt(state?.iteration) ?? 0;
   const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
   const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
   const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
@@ -291,13 +302,21 @@ export function validateIteration(state, { roundHits, blockAfterMisses = 2 } = {
     const gid = toNonEmptyString(g?.gapId);
     if (!gid) continue;
 
-    const status = toNonEmptyString(g?.status) || "open";
-    if (status === "filled" || status === "blocked") continue;
+    const oldStatus = toNonEmptyString(g?.status) || "open";
+    if (oldStatus === "filled" || oldStatus === "blocked") continue;
 
     if (filledGapIds.has(gid)) {
       g.status = "filled";
       g.filledAt = now;
       g.filledIteration = state?.iteration;
+      emit?.("deepsearch.gap.status.changed", {
+        runId,
+        gapId: gid,
+        from: oldStatus,
+        to: "filled",
+        reason: "evidence",
+        iteration,
+      });
       filledCount++;
       continue;
     }
@@ -316,7 +335,16 @@ export function validateIteration(state, { roundHits, blockAfterMisses = 2 } = {
     if (misses >= blockAfterMisses) {
       g.status = "blocked";
       g.blockedAt = now;
-      g.blockedReason = String(g.blockedReason || "no_retrieval_hits");
+      const blockedReason = String(g.blockedReason || "no_retrieval_hits");
+      g.blockedReason = blockedReason;
+      emit?.("deepsearch.gap.status.changed", {
+        runId,
+        gapId: gid,
+        from: oldStatus,
+        to: "blocked",
+        reason: blockedReason,
+        iteration,
+      });
       blockedCount++;
     } else {
       stillOpenCount++;
@@ -331,13 +359,29 @@ export function validateIteration(state, { roundHits, blockAfterMisses = 2 } = {
     todoByGapId.set(rgid, t);
   }
 
+  const updateTodoStatus = (todo, nextStatus) => {
+    if (!todo) return;
+    const from = toNonEmptyString(todo?.status) || "open";
+    const to = toNonEmptyString(nextStatus) || "open";
+    if (from === to) return;
+    todo.status = to;
+    emit?.("deepsearch.todo.status.changed", {
+      runId,
+      todoId: toNonEmptyString(todo?.todoId) || "todo_unknown",
+      relatedGapId: toNonEmptyString(todo?.relatedGapId),
+      from,
+      to,
+      iteration,
+    });
+  };
+
   for (const g of gaps) {
     const gid = toNonEmptyString(g?.gapId);
     if (!gid) continue;
     const todo = todoByGapId.get(gid);
     if (!todo) continue;
-    if (g.status === "filled") todo.status = "done";
-    if (g.status === "blocked") todo.status = "blocked";
+    if (g.status === "filled") updateTodoStatus(todo, "done");
+    if (g.status === "blocked") updateTodoStatus(todo, "blocked");
   }
 
   const tree = state?.planningTree;
@@ -510,7 +554,7 @@ export class DeepSearchState {
     return snapshot;
   }
 
-  reopenGaps(gapIds, { reason, timestamp } = {}) {
+  reopenGaps(gapIds, { reason, timestamp } = {}, emit = null) {
     const ids = Array.from(new Set((Array.isArray(gapIds) ? gapIds : gapIds ? [gapIds] : []).map((x) => String(x || "").trim()).filter(Boolean)));
     if (!ids.length) return { reopened: [], missing: [] };
 
@@ -528,6 +572,7 @@ export class DeepSearchState {
       if (!missing.has(gid)) continue;
       missing.delete(gid);
 
+      const oldStatus = toNonEmptyString(g?.status) || "open";
       g.status = "open";
       g.missCount = 0;
       g.reopenedAt = now;
@@ -536,6 +581,17 @@ export class DeepSearchState {
       delete g.filledIteration;
       delete g.blockedAt;
       delete g.blockedReason;
+
+      if (oldStatus !== "open") {
+        emit?.("deepsearch.gap.status.changed", {
+          runId: this.runId,
+          gapId: gid,
+          from: oldStatus,
+          to: "open",
+          reason: "backtrack",
+          iteration: this.iteration,
+        });
+      }
 
       reopened.push(gid);
     }
@@ -548,7 +604,18 @@ export class DeepSearchState {
     }
     for (const gid of reopened) {
       const t = todoByGapId.get(gid);
-      if (t) t.status = "open";
+      if (!t) continue;
+      const from = toNonEmptyString(t?.status) || "open";
+      if (from === "open") continue;
+      t.status = "open";
+      emit?.("deepsearch.todo.status.changed", {
+        runId: this.runId,
+        todoId: toNonEmptyString(t?.todoId) || "todo_unknown",
+        relatedGapId: toNonEmptyString(t?.relatedGapId),
+        from,
+        to: "open",
+        iteration: this.iteration,
+      });
     }
 
     const tree = this?.planningTree;
@@ -561,7 +628,7 @@ export class DeepSearchState {
     return { reopened, missing: Array.from(missing) };
   }
 
-  addNewGaps(newGaps, { timestamp } = {}) {
+  addNewGaps(newGaps, { timestamp } = {}, emit = null) {
     const rows = Array.isArray(newGaps) ? newGaps : [];
     if (!rows.length) return [];
 
@@ -600,6 +667,18 @@ export class DeepSearchState {
       };
       gaps.push(row);
       added.push(row);
+
+      emit?.("deepsearch.gap.upserted", {
+        runId: this.runId,
+        gapId,
+        status: "open",
+        type: row.type,
+        priority: row.priority,
+        question: row.question,
+        missCount: 0,
+        iteration: this.iteration,
+        trajectoryId: this.trajectoryId,
+      });
 
       this.addTodo({ text: `Fill gap: ${row.type} — ${row.question}`, relatedGapId: gapId, status: "open" });
       this?.planningTree?.expandFromGap?.(row);

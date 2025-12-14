@@ -90,9 +90,9 @@ test("Integration: gaps stage expands planningTree for newly created gaps", asyn
 
   const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
   assert.equal(gaps.length, 2);
-  assert.equal(state.planningTree.getNodesForGap("gap_1").length, 3);
-  assert.equal(state.planningTree.getNodesForGap("gap_2").length, 4);
-  assert.equal(state.planningTree.nodes.size, 8);
+  assert.equal(state.planningTree.getNodesForGap("gap_1").length, 5);
+  assert.equal(state.planningTree.getNodesForGap("gap_2").length, 6);
+  assert.equal(state.planningTree.nodes.size, 12);
 
   const sizeBefore = state.planningTree.nodes.size;
   await runDeepSearchGapsStage({ runId: "run_gaps" }, { state }, {});

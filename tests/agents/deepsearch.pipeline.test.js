@@ -363,6 +363,89 @@ test("DeepSearch scan: optional LLM parsing + fallback", async () => {
   }
 });
 
+test("DeepSearch scan.ensureState: input is DeepSearchState (identity preserved) + progress payload detail", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchScanStage } = await import("../../js/agents/stages/deepsearch/scan.js");
+
+  const state = new DeepSearchState({
+    runId: "run_scan_state_direct",
+    taskGoal: "Test scanning",
+    L0: {
+      sources: [
+        { sourceId: "s1", kind: "user_text", title: "Doc 1", sourceTextNormalized: "Alpha beta gamma" },
+        // missing fields to exercise scan.js fallbacks
+        { title: "Doc 2", sourceTextNormalized: "Delta epsilon" },
+      ],
+    },
+  });
+
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const out = await runDeepSearchScanStage({ runId: "run_scan_state_direct" }, state, { emit });
+  assert.equal(out.state, state);
+
+  const progress = events.filter((e) => e.name === "deepsearch.scan.progress").map(extractEventPayload);
+  assert.equal(progress.length, 2);
+  for (const p of progress) {
+    assertValidProgressPayload(p);
+    assert.equal(p.phase, "scan");
+    assert.equal(p.step, "source");
+    assert.ok(p.detail && typeof p.detail.sourceId === "string" && p.detail.sourceId.length > 0);
+    assert.ok(p.detail && typeof p.detail.kind === "string" && p.detail.kind.length > 0);
+  }
+});
+
+test("DeepSearch scan.ensureState: input.state is DeepSearchState (identity preserved)", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchScanStage } = await import("../../js/agents/stages/deepsearch/scan.js");
+
+  const state = new DeepSearchState({
+    runId: "run_scan_state_wrapped",
+    taskGoal: "Wrapped state",
+    L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Doc", sourceTextNormalized: "Alpha" }] },
+  });
+
+  const out = await runDeepSearchScanStage({ runId: "ignored" }, { state }, { emit: () => {} });
+  assert.equal(out.state, state);
+  assert.ok(out.scanSummary && typeof out.scanSummary.summaryText === "string");
+});
+
+test("DeepSearch scan.ensureState: input.state is plain object (fromJSON hydration)", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchScanStage } = await import("../../js/agents/stages/deepsearch/scan.js");
+
+  const json = new DeepSearchState({
+    runId: "run_scan_state_json",
+    taskGoal: "Hydrate state",
+    L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Doc", sourceTextNormalized: "Alpha beta" }] },
+  }).toJSON({ includeCheckpoints: false });
+
+  const out = await runDeepSearchScanStage({ runId: "ignored" }, { state: json }, { emit: () => {} });
+  assert.ok(out.state instanceof DeepSearchState);
+  assert.equal(out.state.runId, "run_scan_state_json");
+  assert.equal(out.state.taskGoal, "Hydrate state");
+  assert.equal(out.state.L0.sources.length, 1);
+});
+
+test("DeepSearch scan.ensureState: no state constructs new DeepSearchState from sources/taskGoal", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchScanStage } = await import("../../js/agents/stages/deepsearch/scan.js");
+
+  const input = {
+    taskGoal: "New state goal",
+    userConfig: { checkpointStrategy: "lite" },
+    sources: [{ sourceId: "s1", kind: "user_text", title: "Doc", sourceTextNormalized: "Alpha" }],
+  };
+
+  const out = await runDeepSearchScanStage({ runId: "run_scan_new_state" }, input, { emit: () => {} });
+  assert.ok(out.state instanceof DeepSearchState);
+  assert.equal(out.state.runId, "run_scan_new_state");
+  assert.equal(out.state.taskGoal, "New state goal");
+  assert.equal(out.state.L0.sources.length, 1);
+  assert.equal(out.state.L0.sources[0].sourceId, "s1");
+});
+
 test("generateReport: groups claims by gapIds + assigns citations", async () => {
   const { generateReport } = await import("../../js/agents/stages/deepsearch/write.js");
 
@@ -747,6 +830,95 @@ test("DeepSearch gaps/retrieve/understand/write/condense: placeholder IO contrac
     assert.ok(evt, `missing progress event: ${name}`);
     assertValidProgressPayload(extractEventPayload(evt));
   }
+});
+
+test("extractGoalTerms: empty string yields []", async () => {
+  const { __test } = await import("../../js/agents/stages/deepsearch/gaps.js");
+  assert.deepEqual(__test.extractGoalTerms("", { maxTerms: 6 }), []);
+});
+
+test("extractGoalTerms: filters short tokens (<2) + de-dupes case-insensitively", async () => {
+  const { __test } = await import("../../js/agents/stages/deepsearch/gaps.js");
+  assert.deepEqual(__test.extractGoalTerms("a b an be AN", { maxTerms: 10 }), ["an", "be"]);
+});
+
+test("extractGoalTerms: respects maxTerms", async () => {
+  const { __test } = await import("../../js/agents/stages/deepsearch/gaps.js");
+  assert.deepEqual(__test.extractGoalTerms("alpha beta gamma delta", { maxTerms: 2 }), ["alpha", "beta"]);
+});
+
+test("extractGoalTerms: handles mixed CJK + latin tokens", async () => {
+  const { __test } = await import("../../js/agents/stages/deepsearch/gaps.js");
+  assert.deepEqual(__test.extractGoalTerms("对比 Alpha 机制 BETA 案例", { maxTerms: 6 }), ["对比", "Alpha", "机制", "BETA", "案例"]);
+});
+
+test("DeepSearch gaps.ensureState: throws when input.state missing", async () => {
+  const { runDeepSearchGapsStage } = await import("../../js/agents/stages/deepsearch/gaps.js");
+  await assert.rejects(() => runDeepSearchGapsStage({ runId: "run_gaps_missing_state" }, {}, { emit: () => {} }), /input\.state is required/);
+});
+
+test('DeepSearch gaps: default gaps add "comparison" when taskGoal contains compare/vs', async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchGapsStage } = await import("../../js/agents/stages/deepsearch/gaps.js");
+
+  const state = new DeepSearchState({ runId: "run_gaps_compare", taskGoal: "Compare Alpha vs Beta", L0: { sources: [] }, L1: { scanSummary: {} } });
+  const out = await runDeepSearchGapsStage({ runId: "run_gaps_compare" }, { state }, { emit: () => {} });
+  const types = new Set(out.gaps.map((g) => g.type));
+  assert.ok(types.has("definition") && types.has("data"));
+  assert.ok(types.has("comparison"));
+});
+
+test('DeepSearch gaps: default gaps add "mechanism" when taskGoal contains how', async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchGapsStage } = await import("../../js/agents/stages/deepsearch/gaps.js");
+
+  const state = new DeepSearchState({ runId: "run_gaps_how", taskGoal: "How does Alpha work", L0: { sources: [] }, L1: { scanSummary: {} } });
+  const out = await runDeepSearchGapsStage({ runId: "run_gaps_how" }, { state }, { emit: () => {} });
+  assert.ok(out.gaps.some((g) => g.type === "mechanism"));
+});
+
+test('DeepSearch gaps: default gaps add "example" when taskGoal contains example', async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchGapsStage } = await import("../../js/agents/stages/deepsearch/gaps.js");
+
+  const state = new DeepSearchState({ runId: "run_gaps_example", taskGoal: "Give example of Alpha", L0: { sources: [] }, L1: { scanSummary: {} } });
+  const out = await runDeepSearchGapsStage({ runId: "run_gaps_example" }, { state }, { emit: () => {} });
+  assert.ok(out.gaps.some((g) => g.type === "example"));
+});
+
+test("DeepSearch gaps: default gaps do not add comparison/mechanism/example without matching keywords", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchGapsStage } = await import("../../js/agents/stages/deepsearch/gaps.js");
+
+  const state = new DeepSearchState({ runId: "run_gaps_none", taskGoal: "Summarize Alpha benefits", L0: { sources: [] }, L1: { scanSummary: {} } });
+  const out = await runDeepSearchGapsStage({ runId: "run_gaps_none" }, { state }, { emit: () => {} });
+  const types = new Set(out.gaps.map((g) => g.type));
+  assert.ok(types.has("definition") && types.has("data"));
+  assert.equal(types.has("comparison"), false);
+  assert.equal(types.has("mechanism"), false);
+  assert.equal(types.has("example"), false);
+  assert.equal(out.gaps.length, 2);
+});
+
+test("DeepSearch gaps.progress payload: emits valid progress records with phase=gaps", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchGapsStage } = await import("../../js/agents/stages/deepsearch/gaps.js");
+
+  const state = new DeepSearchState({ runId: "run_gaps_progress", taskGoal: "Compare Alpha vs Beta", L0: { sources: [] }, L1: { scanSummary: {}, gaps: [] } });
+
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  await runDeepSearchGapsStage({ runId: "run_gaps_progress" }, { state }, { emit });
+
+  const progress = events.filter((e) => e.name === "deepsearch.gaps.progress").map(extractEventPayload);
+  assert.ok(progress.length >= 3, "expected multiple gap progress events");
+  for (const p of progress) {
+    assertValidProgressPayload(p);
+    assert.equal(p.phase, "gaps");
+    assert.equal(typeof p.step, "string");
+  }
+  assert.ok(progress.some((p) => p.step === "init" && p.current === 0));
 });
 
 test("buildContentPackage: mode=deepsearch includes scanSummary/gaps/condensedMemory/openQuestions", async () => {

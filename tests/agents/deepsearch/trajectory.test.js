@@ -444,7 +444,7 @@ test("TrajectoryManager.runTrajectory: emit provided but checkpoint absent", asy
     {}
   );
 
-  assert.equal(emitted, 0);
+  assert.equal(emitted, 2);
   assert.equal(trajectory.iteration, 2);
 });
 
@@ -759,6 +759,249 @@ test("trajectory.__test extra coverage: statusRank, evidenceKey, mergeConflicts,
     };
     __test.validateIteration(state, { blockAfterMisses: 1 });
     assert.equal(updates.length, 0);
+  }
+});
+
+test("state.normalizeBudgetConfig: defaults, validation, and prices merge", async () => {
+  const { normalizeBudgetConfig } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  {
+    const cfg = normalizeBudgetConfig();
+    assert.equal(cfg.maxTokens, 50_000);
+    assert.equal(cfg.maxCostUSD, 0.5);
+    assert.equal(cfg.warnAt, 0.8);
+    assert.equal(cfg.action, "warn");
+    assert.ok(cfg.prices && typeof cfg.prices === "object");
+    assert.ok(cfg.prices["gpt-4o-mini"] && typeof cfg.prices["gpt-4o-mini"].input === "number");
+  }
+
+  {
+    const cfg = normalizeBudgetConfig({ maxTokens: 10.9, maxCostUSD: 1.23, warnAt: 1.5, action: "stop" });
+    assert.equal(cfg.maxTokens, 10);
+    assert.equal(cfg.maxCostUSD, 1.23);
+    assert.equal(cfg.warnAt, 1);
+    assert.equal(cfg.action, "stop");
+  }
+
+  {
+    const cfg = normalizeBudgetConfig({
+      prices: {
+        "gpt-4o-mini": { input: 9, output: 8 },
+        "custom-model": { input: 0.1, output: 0.2 },
+      },
+    });
+    assert.deepEqual(cfg.prices["gpt-4o-mini"], { input: 9, output: 8 });
+    assert.deepEqual(cfg.prices["custom-model"], { input: 0.1, output: 0.2 });
+    assert.ok(cfg.prices["gpt-4o"] && typeof cfg.prices["gpt-4o"].input === "number");
+  }
+
+  {
+    const cfg = normalizeBudgetConfig({
+      maxTokens: "nope",
+      maxCostUSD: -1,
+      warnAt: "bad",
+      action: "bad",
+      prices: { "": { input: 1 }, x: "nope", y: { input: "bad" } },
+    });
+    assert.equal(cfg.maxTokens, 50_000);
+    assert.equal(cfg.maxCostUSD, 0.5);
+    assert.equal(cfg.warnAt, 0.8);
+    assert.equal(cfg.action, "warn");
+    assert.equal("y" in cfg.prices, false);
+  }
+});
+
+test("state.computeRoundHitsByGapId: precedence, fallback, and accumulation", async () => {
+  const { computeRoundHitsByGapId } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  {
+    const hits = computeRoundHitsByGapId([]);
+    assert.equal(hits instanceof Map, true);
+    assert.equal(hits.size, 0);
+  }
+
+  {
+    const hits = computeRoundHitsByGapId([{ gapId: "gap_1" }]);
+    assert.equal(hits.get("gap_1"), 1);
+  }
+
+  {
+    const hits = computeRoundHitsByGapId([{ gapId: "gap_a", matchedGapIds: ["gap_b"] }]);
+    assert.equal(hits.get("gap_b"), 1);
+    assert.equal(hits.has("gap_a"), false);
+  }
+
+  {
+    const hits = computeRoundHitsByGapId([{ gapId: "g" }, { gapId: "g" }, { matchedGapIds: ["g", "h"] }]);
+    assert.equal(hits.get("g"), 3);
+    assert.equal(hits.get("h"), 1);
+  }
+});
+
+test("DeepSearchState methods: reopenGaps, addNewGaps, saveWriteSnapshot", async () => {
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  {
+    const state = new DeepSearchState({
+      runId: "run_state_reopen",
+      iteration: 3,
+      L1: {
+        gaps: [
+          { gapId: "gap_1", type: "t", question: "q1", status: "filled", missCount: 5, filledAt: "t0", filledIteration: 1 },
+          { gapId: "gap_2", type: "t", question: "q2", status: "blocked", missCount: 2, blockedAt: "t1", blockedReason: "custom" },
+          { gapId: "gap_3", type: "t", question: "q3", status: "open", missCount: 9 },
+        ],
+      },
+      todos: [
+        { todoId: "todo_1", relatedGapId: "gap_1", status: "done", text: "x" },
+        { todoId: "todo_2", relatedGapId: "gap_2", status: "blocked", text: "y" },
+        { todoId: "todo_3", relatedGapId: "gap_3", status: "open", text: "z" },
+      ],
+    });
+
+    const updates = [];
+    state.planningTree = {
+      getNodesForGap: (gid) => [{ nodeId: `n_${gid}` }],
+      updateStatus: (nodeId, status) => updates.push({ nodeId, status }),
+    };
+
+    const out = state.reopenGaps(["gap_1", "gap_2", "gap_missing"], { reason: "retry", timestamp: "2025-01-01T00:00:00.000Z" });
+    assert.deepEqual(out.reopened.sort(), ["gap_1", "gap_2"]);
+    assert.deepEqual(out.missing, ["gap_missing"]);
+
+    const g1 = state.L1.gaps.find((g) => g.gapId === "gap_1");
+    const g2 = state.L1.gaps.find((g) => g.gapId === "gap_2");
+    const g3 = state.L1.gaps.find((g) => g.gapId === "gap_3");
+
+    assert.equal(g1.status, "open");
+    assert.equal(g1.missCount, 0);
+    assert.equal(g1.reopenedAt, "2025-01-01T00:00:00.000Z");
+    assert.equal(g1.reopenedReason, "retry");
+    assert.equal("filledAt" in g1, false);
+    assert.equal("filledIteration" in g1, false);
+
+    assert.equal(g2.status, "open");
+    assert.equal(g2.missCount, 0);
+    assert.equal("blockedAt" in g2, false);
+    assert.equal("blockedReason" in g2, false);
+
+    assert.equal(g3.status, "open");
+    assert.equal(g3.missCount, 9);
+
+    assert.equal(state.todos.find((t) => t.todoId === "todo_1").status, "open");
+    assert.equal(state.todos.find((t) => t.todoId === "todo_2").status, "open");
+    assert.equal(state.todos.find((t) => t.todoId === "todo_3").status, "open");
+    assert.deepEqual(
+      updates
+        .map((u) => `${u.nodeId}:${u.status}`)
+        .sort(),
+      ["n_gap_1:pending", "n_gap_2:pending"]
+    );
+  }
+
+  {
+    const expanded = [];
+    const state = new DeepSearchState({
+      runId: "run_state_add",
+      L1: { gaps: [{ gapId: "gap_9", type: "t", question: "q", status: "open" }, { gapId: "custom", type: "t", question: "q", status: "open" }] },
+    });
+    state.planningTree = { expandFromGap: (gap) => expanded.push(gap.gapId) };
+
+    const added = state.addNewGaps(
+      [{ question: "New A" }, { question: "New B", priority: "high" }, { question: "   " }],
+      { timestamp: "2025-01-02T00:00:00.000Z" }
+    );
+
+    assert.equal(added.length, 2);
+    assert.deepEqual(
+      added.map((g) => g.gapId),
+      ["gap_10", "gap_11"]
+    );
+    assert.equal(new Set(added.map((g) => g.gapId)).size, 2);
+    assert.equal(added[0].priority, "medium");
+    assert.equal(added[1].priority, "high");
+    assert.equal(added[0].createdAt, "2025-01-02T00:00:00.000Z");
+    assert.equal(state.todos.length, 2);
+    assert.equal(state.todos.every((t) => t.status === "open"), true);
+    assert.deepEqual(expanded.sort(), ["gap_10", "gap_11"]);
+  }
+
+  {
+    const state = new DeepSearchState({
+      runId: "run_state_write_snapshot",
+      iteration: 7,
+      L1: { slideIntents: [{ slideId: "s1", title: "A" }], report: { markdown: "Hello", sections: [{ title: "T" }] } },
+    });
+
+    const snap = state.saveWriteSnapshot({ timestamp: "2025-01-03T00:00:00.000Z" });
+    assert.equal(snap.snapshotId, "wcp_1");
+    assert.equal(snap.iteration, 7);
+    assert.equal(snap.timestamp, "2025-01-03T00:00:00.000Z");
+    assert.equal(state.writeSnapshots.length, 1);
+
+    state.L1.slideIntents[0].title = "CHANGED";
+    state.L1.report.sections[0].title = "CHANGED";
+
+    assert.equal(snap.slideIntents[0].title, "A");
+    assert.equal(snap.report.sections[0].title, "T");
+  }
+});
+
+test("model.getModelCaller: resolves pricing exact/prefix/wildcard and estimates cost delta", async () => {
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+  const { getModelCaller } = await import("../../../js/agents/stages/deepsearch/model.js");
+
+  const mkStageApi = (result) => {
+    const events = [];
+    return {
+      events,
+      eventBus: {
+        emit: (name, record) => events.push({ name, record }),
+      },
+      modelRouter: {
+        call: async () => result,
+      },
+    };
+  };
+
+  const closeTo = (actual, expected, eps = 1e-12) => assert.ok(Math.abs(actual - expected) <= eps, `expected ${actual} ~= ${expected}`);
+
+  {
+    const stageApi = mkStageApi({ model: "m_exact", usage: { prompt_tokens: 1000, completion_tokens: 2000, total_tokens: 3000 }, content: "ok" });
+    const state = new DeepSearchState({
+      runId: "run_pricing_exact",
+      userConfig: { budget: { maxTokens: 1e9, maxCostUSD: 1e9, prices: { m_exact: { input: 1, output: 2 }, "*": { input: 100, output: 100 } } } },
+    });
+    const callModel = getModelCaller(stageApi, { state });
+    await callModel([{ role: "user", content: "hi" }], {});
+    closeTo(state.L2.tokenUsage.estimatedCostUSD, 5);
+  }
+
+  {
+    const stageApi = mkStageApi({
+      model: "gpt-4o-mini-2024-07-18",
+      usage: { prompt_tokens: 1000, completion_tokens: 2000, total_tokens: 3000 },
+      content: "ok",
+    });
+    const state = new DeepSearchState({
+      runId: "run_pricing_prefix",
+      userConfig: { budget: { maxTokens: 1e9, maxCostUSD: 1e9, prices: { "gpt-4o": { input: 9, output: 9 }, "gpt-4o-mini": { input: 0.1, output: 0.2 } } } },
+    });
+    const callModel = getModelCaller(stageApi, { state });
+    await callModel([{ role: "user", content: "hi" }], {});
+    closeTo(state.L2.tokenUsage.estimatedCostUSD, 0.5);
+  }
+
+  {
+    const stageApi = mkStageApi({ model: "unknown-model", usage: { prompt_tokens: 1000, completion_tokens: 2000, total_tokens: 3000 }, content: "ok" });
+    const state = new DeepSearchState({
+      runId: "run_pricing_wildcard",
+      userConfig: { budget: { maxTokens: 1e9, maxCostUSD: 1e9, prices: { "*": { input: 0.01, output: 0.02 } } } },
+    });
+    const callModel = getModelCaller(stageApi, { state });
+    await callModel([{ role: "user", content: "hi" }], {});
+    closeTo(state.L2.tokenUsage.estimatedCostUSD, 0.05);
+    assert.ok(stageApi.events.some((e) => e.name === "deepsearch.token.usage"));
   }
 });
 

@@ -2,6 +2,9 @@ import { DeepSearchState, checkCancelled, extractJsonCandidate, makeStageEmitter
 import { getModelCaller } from "./model.js";
 import { buildReportSkeleton, runReviewerAgent, validateReviewerOutput } from "./review.js";
 import { applyPatchPlan } from "./report-diff.js";
+import { finalizeCitationsInMarkdown } from "./citations.js";
+
+export { finalizeCitationsInMarkdown };
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -379,93 +382,6 @@ export function generateReport(claims, evidenceLedger, gaps, sources, taskGoal) 
   return { draftMarkdown, markdown: finalized.markdown, sections, citations: finalized.citations };
 }
 
-function buildEvidenceIndex(evidenceLedger, sources) {
-  const evidenceRows = Array.isArray(evidenceLedger) ? evidenceLedger : [];
-  const sourceRows = Array.isArray(sources) ? sources : [];
-
-  const evidenceById = new Map();
-  for (const e of evidenceRows) {
-    const eid = toNonEmptyString(e?.evidenceId);
-    if (!eid || evidenceById.has(eid)) continue;
-    evidenceById.set(eid, e);
-  }
-
-  const sourceById = new Map();
-  for (const s of sourceRows) {
-    const sid = toNonEmptyString(s?.sourceId);
-    if (!sid || sourceById.has(sid)) continue;
-    sourceById.set(sid, s);
-  }
-
-  return { evidenceById, sourceById };
-}
-
-function buildCitationsFromEvidenceIds(evidenceIdsInOrder, evidenceLedger, sources) {
-  const { evidenceById, sourceById } = buildEvidenceIndex(evidenceLedger, sources);
-  const seen = new Set();
-  const citations = [];
-  for (const rawId of evidenceIdsInOrder) {
-    const eid = toNonEmptyString(rawId);
-    if (!eid || seen.has(eid)) continue;
-    const row = evidenceById.get(eid);
-    if (!row) continue;
-    seen.add(eid);
-    const n = citations.length + 1;
-    const sourceId = toNonEmptyString(row?.sourceId);
-    const src = sourceId ? sourceById.get(String(sourceId)) : null;
-    citations.push({
-      citationId: n,
-      evidenceId: String(eid),
-      sourceId: sourceId ? String(sourceId) : undefined,
-      ...(toNonEmptyString(src?.title) ? { sourceTitle: String(src.title) } : {}),
-      ...(toNonEmptyString(src?.uri) ? { sourceUri: String(src.uri) } : {}),
-      ...(row?.locator ? { locator: row.locator } : {}),
-      ...(toNonEmptyString(row?.quote) ? { quote: String(row.quote) } : {}),
-      ...(toNonEmptyString(row?.chunkId) ? { chunkId: String(row.chunkId) } : {}),
-    });
-  }
-  return citations;
-}
-
-export function finalizeCitationsInMarkdown(markdown, evidenceLedger, sources) {
-  const src = typeof markdown === "string" ? markdown : "";
-  const citeRegex = /\{\{\s*cite\s*:\s*([A-Za-z0-9._:-]+)\s*\}\}/g;
-  const evidenceIdsInOrder = [];
-  const firstSeen = new Set();
-
-  let m;
-  while ((m = citeRegex.exec(src))) {
-    const eid = toNonEmptyString(m[1]);
-    if (!eid || firstSeen.has(eid)) continue;
-    firstSeen.add(eid);
-    evidenceIdsInOrder.push(eid);
-  }
-
-  const citations = buildCitationsFromEvidenceIds(evidenceIdsInOrder, evidenceLedger, Array.isArray(sources) ? sources : []);
-  const citationNoByEvidenceId = new Map(citations.map((c) => [c.evidenceId, c.citationId]));
-
-  const replaced = src.replace(citeRegex, (_full, evidenceId) => {
-    const eid = toNonEmptyString(evidenceId);
-    const n = eid ? citationNoByEvidenceId.get(String(eid)) : null;
-    return n ? `[${n}]` : "";
-  });
-
-  const md = replaced.trimEnd().length ? replaced.trimEnd() + "\n" : replaced;
-  if (!citations.length) return { markdown: md, citations };
-
-  if (/\n##\s+References\s*\n/i.test(md)) return { markdown: md, citations };
-
-  const lines = [md.trimEnd(), "", "## References", ""];
-  for (const c of citations) {
-    const label =
-      toNonEmptyString(c?.sourceTitle) || toNonEmptyString(c?.sourceUri) || toNonEmptyString(c?.sourceId) || "source_unknown";
-    const quote = toNonEmptyString(c?.quote);
-    lines.push(`- [${c.citationId}] ${label}${quote ? ` — “${quote}”` : ""}`);
-  }
-  lines.push("");
-  return { markdown: lines.join("\n"), citations };
-}
-
 function buildReportTocPrompt({ taskGoal, targetWords, reportLength, sectionHints, claimRows }) {
   const claimPreview = (Array.isArray(claimRows) ? claimRows : [])
     .slice(0, 32)
@@ -731,10 +647,23 @@ async function generateReportTocBasedWithLLM(state, { claims, evidenceLedger, ga
     toNonEmptyString(tocPlan.title) || toNonEmptyString(state?.userConfig?.title) || toNonEmptyString(state?.L1?.scanSummary?.title) || "Research Report";
 
   const totalSteps = 2 + Math.max(1, tocSections.length);
-  const maxParallel = resolveMaxParallelSections(state?.userConfig, tocSections.length);
+  const maxParallelSections = resolveMaxParallelSections(state?.userConfig, tocSections.length);
   let completedCount = 0;
 
-  const sectionsOut = await mapConcurrent(tocSections, maxParallel, async (plan, i, workerIndex) => {
+  emit?.("deepsearch.write.toc.planned", {
+    runId: state.runId,
+    iteration: state.iteration,
+    sectionCount: tocSections.length,
+    maxParallel: maxParallelSections,
+    sections: tocSections.map((s) => ({
+      sectionId: s.sectionId,
+      title: s.title,
+      targetWords: s.targetWords,
+      claimIds: s.claimIds,
+    })),
+  });
+
+  const sectionsOut = await mapConcurrent(tocSections, maxParallelSections, async (plan, i, workerIndex) => {
     const detailBase = {
       sectionId: String(plan?.sectionId || `sec_${i + 1}`),
       sectionTitle: toNonEmptyString(plan?.title) || `Section ${i + 1}`,

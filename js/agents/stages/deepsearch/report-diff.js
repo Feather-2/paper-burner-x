@@ -1,4 +1,4 @@
-import { finalizeCitationsInMarkdown } from "./write.js";
+import { finalizeCitationsInMarkdown } from "./citations.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);

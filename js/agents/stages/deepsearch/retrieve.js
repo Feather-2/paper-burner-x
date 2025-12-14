@@ -2,9 +2,9 @@ import { DeepSearchState, checkCancelled, extractJsonCandidate, makeStageEmitter
 import { getModelCaller } from "./model.js";
 import { chunkText } from "../textprep/chunk.js";
 import { retrieve as retrieveWithRouter } from "../../retrieval/retrieval-router.js";
-import { McpClient } from "../../mcp/mcp-client.js";
-import { LocalMcpProvider } from "../../mcp/local-mcp-provider.js";
-import { McpNexusProvider } from "../../mcp/mcp-nexus-provider.js";
+import { createMcpClient, parseExternalSearchConfig, runExternalSearch } from "./external-search.js";
+
+const defaultLocalRetriever = (...args) => retrieveWithRouter(...args);
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -323,333 +323,30 @@ function parseRerankConfig(userConfig) {
 // ===== LLM-based Rerank 结束 =====
 
 /**
- * 解析外搜配置
- */
-function parseExternalSearchConfig(userConfig) {
-  const cfg = isPlainObject(userConfig?.externalSearch) ? userConfig.externalSearch : {};
-  const headersRaw = isPlainObject(cfg.headers) ? cfg.headers : null;
-  const headers = headersRaw
-    ? Object.fromEntries(
-        Object.entries(headersRaw)
-          .map(([k, v]) => [String(k), v === undefined || v === null ? "" : String(v)])
-          .filter(([k, v]) => k && v)
-      )
-    : undefined;
-  return {
-    enabled: cfg.enabled === true, // 默认关闭（显式开启才会进行外部网络调用）
-    autoTrigger: cfg.autoTrigger === true, // 默认关闭（显式开启才自动触发）
-    minLocalHits: safeInt(cfg.minLocalHits) ?? 3, // 预留：阈值触发策略
-    maxExternalResults: safeInt(cfg.maxExternalResults) ?? 5,
-    providers: Array.isArray(cfg.providers) ? cfg.providers : [],
-    domain: toNonEmptyString(cfg.domain),
-    timeRange: toNonEmptyString(cfg.timeRange),
-    nexusEndpoint: toNonEmptyString(cfg.nexusEndpoint || cfg.endpoint),
-    authToken: toNonEmptyString(cfg.authToken),
-    headers,
-  };
-}
-
-/**
- * 创建 MCP 客户端实例
- * 支持 local-mcp（内置）和 mcp-nexus（外部）两种端点
- */
-function createMcpClient(config, { customProviders } = {}) {
-  const custom = isPlainObject(customProviders) ? customProviders : {};
-  const providers = Array.isArray(config.providers) ? config.providers : ["local-mcp"];
-
-  const mcpClient = new McpClient();
-
-  for (const id of providers) {
-    const pid = toNonEmptyString(id);
-    if (!pid) continue;
-
-    // 检查是否有自定义 provider
-    if (custom[pid]) {
-      mcpClient.addProvider(custom[pid]);
-      continue;
-    }
-
-    // 内置 local-mcp provider
-    if (pid === "local-mcp" || pid === "local") {
-      mcpClient.addProvider(new LocalMcpProvider({ id: "local-mcp" }));
-      continue;
-    }
-
-    // mcp-nexus provider（pb-mcpgateway）
-    if (pid === "mcp-nexus" || pid === "nexus" || pid === "mcpgateway") {
-      const endpoint = toNonEmptyString(config.nexusEndpoint);
-      if (!endpoint) {
-        console.warn("[MCP] mcp-nexus provider requested but config.nexusEndpoint is missing; skipping");
-        continue;
-      }
-      mcpClient.addProvider(
-        new McpNexusProvider({
-          id: "mcp-nexus",
-          endpoint,
-          ...(toNonEmptyString(config.authToken) ? { authToken: config.authToken } : {}),
-          ...(isPlainObject(config.headers) ? { headers: config.headers } : {}),
-        })
-      );
-      continue;
-    }
-
-    console.warn(`[MCP] Unknown provider: ${pid}, skipping`);
-  }
-
-  return mcpClient;
-}
-
-/**
- * 执行外部搜索并转换结果为 chunks（使用 MCP 协议）
- */
-async function runExternalSearch(gaps, config, { emit, state, stageApi } = {}) {
-  const mcpClient = createMcpClient(config, {
-    customProviders: state?.userConfig?.externalSearch?.customProviders
-  });
-
-  // 检查是否有可用的 provider
-  const availableProviders = typeof mcpClient.listProviders === "function" ? mcpClient.listProviders() : [];
-  if (availableProviders.length === 0) {
-    emit?.("deepsearch.external.skipped", { reason: "no_providers" });
-    return { chunks: [], documents: [], evidences: [] };
-  }
-
-  const enabled = Boolean(config?.enabled);
-  if (!enabled) {
-    emit?.("deepsearch.external.skipped", { reason: "disabled" });
-    return { chunks: [], documents: [], evidences: [] };
-  }
-
-  emit?.("deepsearch.external.started", {
-    providerCount: availableProviders.length,
-    gapCount: gaps.length,
-    providers: availableProviders,
-  });
-
-  const chunks = [];
-  const documents = [];
-  const evidences = [];
-  let searchSeq = 0;
-
-  try {
-    checkCancelled(stageApi);
-
-    // 从 gaps 生成搜索查询
-    const queries = [];
-    for (const g of Array.isArray(gaps) ? gaps : []) {
-      const query = toNonEmptyString(g?.query) || toNonEmptyString(g?.question) || toNonEmptyString(g?.text);
-      if (query) {
-        queries.push({ query, gapId: g?.gapId });
-      }
-    }
-
-    if (queries.length === 0) {
-      emit?.("deepsearch.external.skipped", { reason: "no_queries" });
-      return { chunks: [], documents: [], evidences: [] };
-    }
-
-    emit?.("deepsearch.external.progress", {
-      phase: "retrieve",
-      step: "mcp_search_start",
-      msg: `开始 MCP 搜索：${queries.length} 个查询`,
-      detail: { queriesCount: queries.length, providers: availableProviders },
-    });
-
-    // 执行搜索
-    let providerCursor = 0;
-    for (const { query, gapId } of queries) {
-      checkCancelled(stageApi);
-
-      const providers = availableProviders.length ? availableProviders : ["local-mcp"];
-      let searchResult = null;
-      let usedProviderId = null;
-
-      // 简单轮询 provider；遇到失败尝试下一个。
-      for (let attempt = 0; attempt < providers.length; attempt++) {
-        const pid = providers[(providerCursor + attempt) % providers.length];
-        const r = await mcpClient.search(
-          { query, domain: config.domain, timeRange: config.timeRange, limit: config.maxExternalResults || 5 },
-          { providerId: pid }
-        );
-        if (r && r.success) {
-          searchResult = r;
-          usedProviderId = pid;
-          providerCursor = (providerCursor + attempt + 1) % providers.length;
-          break;
-        }
-      }
-
-      if (!searchResult || !searchResult.success) {
-        console.warn(`[MCP Search] Failed for query "${query}":`, searchResult?.error);
-        continue;
-      }
-
-      // 解析搜索结果 JSON
-      const jsonContent = searchResult.content.find(c => c?.type === "json");
-      const results = jsonContent?.data?.results || [];
-
-      // 获取 top K 结果的内容
-      const topResults = results.slice(0, Math.min(3, config.maxExternalResults || 3));
-
-      for (const result of topResults) {
-        checkCancelled(stageApi);
-
-        const url = toNonEmptyString(result?.url);
-        if (!url) continue;
-
-        // 使用 MCP fetch_content 获取页面内容
-        let fetchResult = await mcpClient.fetch({ url }, { providerId: usedProviderId || undefined });
-        if (!fetchResult?.success) {
-          // 兜底：如果 provider 失败，尝试其他 provider
-          for (const pid of providers) {
-            if (pid === usedProviderId) continue;
-            fetchResult = await mcpClient.fetch({ url }, { providerId: pid });
-            if (fetchResult?.success) break;
-          }
-        }
-
-        if (!fetchResult || !fetchResult.success) {
-          console.warn(`[MCP Fetch] Failed for URL "${url}":`, fetchResult.error);
-          continue;
-        }
-
-        searchSeq++;
-        const sourceId = `ext_mcp_${searchSeq}_${Date.now().toString(36)}`;
-        const text = fetchResult.getText();
-        const fetchedAt = new Date().toISOString();
-
-        // 提取 metadata
-        const metaContent = fetchResult.content.find(c => c?.type === "json");
-        const metadata = metaContent?.data?.metadata || {};
-        const title = metadata.title || result.title || url;
-
-        if (!text || text.length < 50) {
-          console.warn(`[MCP Fetch] Content too short for URL "${url}"`);
-          continue;
-        }
-
-        // 创建外部 source
-        const externalSource = {
-          sourceId,
-          kind: "external_url",
-          uri: url,
-          title,
-          sourceTextNormalized: text,
-          fetchedAt,
-          providerId: usedProviderId || "unknown",
-          metadata,
-          query,
-          gapId,
-        };
-
-        // 添加到 L0.sources
-        if (!Array.isArray(state?.L0?.sources)) state.L0.sources = [];
-        const existingSourceIds = new Set(state.L0.sources.map(s => s?.sourceId));
-        if (!existingSourceIds.has(sourceId)) {
-          state.L0.sources.push(externalSource);
-        }
-
-        documents.push(externalSource);
-
-        // 切分为 chunks，并注入到检索工作集（L2.retrievedChunks）
-        const docChunks = chunkText(text, { chunkSize: 1600, overlap: 180 });
-        for (let i = 0; i < docChunks.length; i++) {
-          const c = docChunks[i];
-          const chunkId = `${sourceId}::chunk_${i + 1}`;
-          chunks.push({
-            retrievedId: `rch_ext_${chunks.length + 1}`,
-            chunkId,
-            sourceId,
-            text: c.text,
-            locator: c.locator,
-            isExternal: true,
-            externalUrl: url,
-            externalTitle: title,
-            gapId,
-            matchedGapIds: [String(gapId || "")].filter(Boolean),
-          });
-        }
-      }
-    }
-
-    // 将外搜 chunks 合并进 L2.retrievedChunks，让 Understand 能消费它们。
-    if (state && typeof state === "object") {
-      if (!isPlainObject(state.L2)) state.L2 = {};
-      const existingChunks = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
-      const deduped = deduplicateChunks(chunks, existingChunks);
-      const seenChunkIds = new Set(normalizeChunkIdList(state?.L2?.retrievedChunkIdsSeen));
-      const dedupedFresh = deduped.filter((c) => !seenChunkIds.has(String(c?.chunkId || "")));
-
-      const now = new Date().toISOString();
-      ensureAddedMeta(existingChunks, { now, startSeq: 1 });
-      const startSeq = nextAddedSeq(existingChunks);
-      ensureAddedMeta(dedupedFresh, { now, startSeq });
-
-      const maxChunks = safeInt(state?.userConfig?.retrieval?.maxChunks) ?? 100;
-      const combined = [...existingChunks, ...dedupedFresh];
-      const trimmed = applyChunkLru(combined, { maxChunks });
-      state.L2.retrievedChunks = trimmed;
-
-      trackSeenChunkIds(
-        state,
-        [...existingChunks, ...chunks].map((c) => toNonEmptyString(c?.chunkId)).filter(Boolean),
-        { maxSize: Math.max(1000, maxChunks * 50) }
-      );
-    }
-
-    emit?.("deepsearch.external.progress", {
-      phase: "retrieve",
-      step: "mcp_search_complete",
-      msg: `MCP 搜索完成：找到 ${documents.length} 个外部资源`,
-      detail: {
-        documentsCount: documents.length,
-        chunksCount: chunks.length,
-        evidencesCount: evidences.length,
-      },
-    });
-
-    emit?.("deepsearch.external.completed", {
-      chunksCount: chunks.length,
-      documentsCount: documents.length,
-      evidencesCount: evidences.length,
-    });
-
-    state.addTimeline?.({
-      name: "deepsearch.external",
-      status: "completed",
-      payload: {
-        chunksCount: chunks.length,
-        documentsCount: documents.length,
-        evidencesCount: evidences.length,
-        providers: availableProviders,
-        protocol: "mcp",
-      },
-    });
-
-    return { chunks, documents, evidences };
-
-  } catch (err) {
-    emit?.("deepsearch.external.error", {
-      message: String(err?.message || err),
-    });
-    state.addTimeline?.({
-      name: "deepsearch.external",
-      status: "error",
-      payload: { message: String(err?.message || err) },
-    });
-    return { chunks: [], documents: [], evidences: [] };
-  }
-}
-
-/**
  * S4 Retrieval Router wrapper: TOC-scope -> BM25/grep -> readAround.
+ *
+ * DI injection points (`stageApi`):
+ * - `localRetriever(sourceIndex, gaps, routerConfig)`: override local retrieval implementation (defaults to `retrieval-router`).
+ * - `modelRouter.call(...)` / `aiApiService.chat(...)`: used by rerank LLM calls (via `getModelCaller`).
+ * - `externalSearchProvider`: used by `runExternalSearch` (re-exported from this module).
+ * - `emit` / `eventBus`: event emission (via `makeStageEmitter`).
+ * - `signal` / `checkCancelled`: cancellation support.
  * @param {object} runContext
  * @param {DeepSearchState|{state:DeepSearchState|object}} input
- * @param {{emit?:Function,eventBus?:object,signal?:AbortSignal,checkCancelled?:Function}=} stageApi
+ * @param {object=} stageApi
+ * @param {Function=} stageApi.localRetriever
+ * @param {Function=} stageApi.emit
+ * @param {object=} stageApi.eventBus
+ * @param {AbortSignal=} stageApi.signal
+ * @param {Function=} stageApi.checkCancelled
+ * @param {object=} stageApi.modelRouter
+ * @param {object=} stageApi.aiApiService
+ * @param {object=} stageApi.externalSearchProvider
  */
 export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {}) {
   const emit = makeStageEmitter(stageApi, "deepsearch");
   const state = ensureState(runContext, input);
+  const localRetriever = stageApi?.localRetriever ?? defaultLocalRetriever;
 
   checkCancelled(stageApi);
 
@@ -724,6 +421,7 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
   for (let i = 0; i < gaps.length; i++) {
     const g = gaps[i];
     const gapId = toNonEmptyString(g?.gapId) || `gap_${i + 1}`;
+    const gapType = toNonEmptyString(g?.type) || "";
 
     emitRetrieveProgress(emit, {
       current: i + 1,
@@ -733,8 +431,15 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
     });
 
     for (const sourceIndex of sourceIndexes) {
-      const retrieved = retrieveWithRouter(sourceIndex, [{ ...g, gapId }], routerConfig);
+      const retrieved = localRetriever(sourceIndex, [{ ...g, gapId }], routerConfig);
       for (const r of retrieved) {
+        // Heuristic: data/metrics gaps should be supported by numeric evidence; avoid
+        // attributing non-numeric chunks to data gaps to prevent false "hits" and fills.
+        if (gapType === "data") {
+          const text = typeof r?.text === "string" ? r.text : "";
+          if (!/[0-9]/.test(text)) continue;
+        }
+
         const chunkId = String(r?.chunkId || "");
         if (!chunkId) continue;
 
@@ -855,6 +560,34 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
   const combined = [...existingChunks, ...dedupedFresh];
   const trimmed = applyChunkLru(combined, { maxChunks });
   const evictedCount = Math.max(0, combined.length - trimmed.length);
+  const trimmedIds = new Set(trimmed.map((c) => toNonEmptyString(c?.chunkId)).filter(Boolean));
+  const evictedIds = [];
+  const evictedIdSet = new Set();
+  for (const c of combined) {
+    const id = toNonEmptyString(c?.chunkId);
+    if (!id) continue;
+    if (trimmedIds.has(id)) continue;
+    if (evictedIdSet.has(id)) continue;
+    evictedIdSet.add(id);
+    evictedIds.push(id);
+  }
+
+  emit?.("deepsearch.chunks.added", {
+    runId: toNonEmptyString(state?.runId) || "run_unknown",
+    iteration: safeInt(state?.iteration) ?? 0,
+    trajectoryId: toNonEmptyString(state?.trajectoryId),
+    chunks: dedupedFresh.map((c) => ({
+      retrievedId: c.retrievedId,
+      chunkId: c.chunkId,
+      sourceId: c.sourceId,
+      gapId: c.gapId,
+      matchedGapIds: c.matchedGapIds,
+      score: c.score,
+      isExternal: c.isExternal,
+      addedSeq: c.addedSeq,
+    })),
+    evictedChunkIds: evictedIds || [],
+  });
 
   state.L2.retrievedChunks = trimmed;
   trackSeenChunkIds(

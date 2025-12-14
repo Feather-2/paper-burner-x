@@ -15,6 +15,36 @@ function safeInt(n) {
   return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
 }
 
+function collapseWhitespace(s) {
+  return String(s || "")
+    .replaceAll(/\s+/g, " ")
+    .trim();
+}
+
+function truncate(s, maxLen = 220) {
+  const t = collapseWhitespace(s);
+  if (t.length <= maxLen) return t;
+  return t.slice(0, maxLen);
+}
+
+function normalizeGapsCacheKeyInputs(taskGoal, scanSummary, existingGaps) {
+  const scanSummarySummaryText = truncate(scanSummary?.summaryText || "");
+  const normalizedGaps = (Array.isArray(existingGaps) ? existingGaps : [])
+    .map((g) => ({
+      type: truncate(g?.type || "unknown", 60),
+      question: truncate(g?.question || "", 240),
+      status: truncate(g?.status || "open", 24),
+      missCount: typeof g?.missCount === "number" && Number.isFinite(g.missCount) ? Math.max(0, Math.floor(g.missCount)) : 0,
+    }))
+    .sort((a, b) => `${a.type}::${a.question}`.localeCompare(`${b.type}::${b.question}`));
+
+  return {
+    taskGoal: truncate(taskGoal || ""),
+    scanSummarySummaryText,
+    existingGaps: normalizedGaps,
+  };
+}
+
 function clampProgress(progress) {
   if (typeof progress !== "number" || !Number.isFinite(progress)) return 0;
   return Math.max(0, Math.min(1, progress));
@@ -34,6 +64,25 @@ function emitGapProgress(emit, { step, current, total, msg, detail }) {
     },
     { status: "progress" }
   );
+}
+
+function emitGapUpserted(emit, state, g) {
+  const runId = toNonEmptyString(state?.runId) || "run_unknown";
+  const iteration = safeInt(state?.iteration) ?? 0;
+  const trajectoryId = toNonEmptyString(state?.trajectoryId);
+  const gapId = toNonEmptyString(g?.gapId);
+  if (!gapId) return;
+  emit?.("deepsearch.gap.upserted", {
+    runId,
+    gapId,
+    status: "open",
+    type: toNonEmptyString(g?.type) || "unknown",
+    priority: toNonEmptyString(g?.priority) || "medium",
+    question: toNonEmptyString(g?.question) || "",
+    missCount: 0,
+    iteration,
+    trajectoryId,
+  });
 }
 
 function ensureState(_runContext, input) {
@@ -101,6 +150,8 @@ async function tryLLMGaps(state, scanSummary, existingGaps, stageApi) {
   const callModel = getModelCaller(stageApi, { usage: "planner", state });
   if (!callModel) return null;
 
+  const cacheKeyInputs = normalizeGapsCacheKeyInputs(state?.taskGoal, scanSummary, existingGaps);
+
   const messages = [
     {
       role: "system",
@@ -129,7 +180,7 @@ async function tryLLMGaps(state, scanSummary, existingGaps, stageApi) {
   ];
 
   try {
-    const result = await callModel(messages, { model: "auto", temperature: 0.2, maxTokens: 700 });
+    const result = await callModel(messages, { model: "auto", temperature: 0.2, maxTokens: 700, cacheKeyInputs });
     const candidate = extractJsonCandidate(result?.content);
     if (!candidate) return null;
     const parsed = JSON.parse(candidate);
@@ -239,8 +290,8 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
     });
   }
 
-  const suggested = buildDefaultGaps(state.taskGoal, scanSummary);
   const llmSuggested = await tryLLMGaps(state, scanSummary, normalizedExisting, stageApi);
+  const suggested = buildDefaultGaps(state.taskGoal, scanSummary);
   const merged = [];
   const byKey = new Map();
   for (const g of normalizedExisting) {
@@ -248,8 +299,18 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
     byKey.set(gapKey(g), g);
   }
 
+  const llmTypeSet = new Set(
+    (Array.isArray(llmSuggested) ? llmSuggested : [])
+      .map((s) => toNonEmptyString(s?.type))
+      .filter(Boolean)
+      .map((t) => String(t).toLowerCase())
+  );
+
   for (let i = 0; i < suggested.length; i++) {
     const s = suggested[i];
+    // If LLM suggested a gap for this type, prefer the LLM version and skip the default one.
+    const sType = toNonEmptyString(s?.type);
+    if (sType && llmTypeSet.has(String(sType).toLowerCase())) continue;
     const key = gapKey(s);
     if (byKey.has(key)) continue;
     const ng = normalizeGap({ ...s, gapId: makeId(), status: "open", missCount: 0 }, s.gapId);
@@ -257,6 +318,7 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
     merged.push(ng);
     byKey.set(key, ng);
     state?.planningTree?.expandFromGap?.(ng);
+    emitGapUpserted(emit, state, ng);
 
     emitGapProgress(emit, {
       step: "identify_default",
@@ -284,6 +346,7 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
     merged.push(ng);
     byKey.set(key, ng);
     state?.planningTree?.expandFromGap?.(ng);
+    emitGapUpserted(emit, state, ng);
 
     emitGapProgress(emit, {
       step: "identify_llm",
@@ -307,6 +370,7 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
     merged.push(ng);
     byKey.set(key, ng);
     state?.planningTree?.expandFromGap?.(ng);
+    emitGapUpserted(emit, state, ng);
 
     emitGapProgress(emit, {
       step: "identify_open_questions",

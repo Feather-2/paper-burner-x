@@ -241,3 +241,91 @@ test("Write stage: reviewer runs multiple rounds when allowed", async () => {
   assert.equal(out.report.reviewFeedback.rounds, 2);
   assert.equal(out.report.reviewFeedback.appliedPatches, 2);
 });
+
+test("Write: finalizeCitationsInMarkdown handles duplicates + numbering + source resolution", async () => {
+  const { finalizeCitationsInMarkdown } = await import("../../../js/agents/stages/deepsearch/write.js");
+
+  const sources = [
+    { sourceId: "s1", title: "Doc 1", uri: "https://example.com/1" },
+    { sourceId: "s2", uri: "https://example.com/2" },
+  ];
+  const evidenceLedger = [
+    { evidenceId: "e1", sourceId: "s1", quote: "Alpha" },
+    { evidenceId: "e2", sourceId: "s2", quote: "Beta" },
+  ];
+
+  const out = finalizeCitationsInMarkdown("A {{cite:e1}} then {{cite:e1}} and {{cite:e2}}.", evidenceLedger, sources);
+  assert.equal(out.citations.length, 2);
+  assert.equal(out.citations[0].evidenceId, "e1");
+  assert.equal(out.citations[0].citationId, 1);
+  assert.equal(out.citations[1].evidenceId, "e2");
+  assert.equal(out.citations[1].citationId, 2);
+
+  assert.match(out.markdown, /A \[1\] then \[1\] and \[2\]\.\n/);
+  assert.match(out.markdown, /\n## References\n/);
+  assert.match(out.markdown, /- \[1\] Doc 1 — “Alpha”/);
+  assert.match(out.markdown, /- \[2\] https:\/\/example\.com\/2 — “Beta”/);
+});
+
+test("Write: finalizeCitationsInMarkdown removes missing evidence IDs + skips References when empty", async () => {
+  const { finalizeCitationsInMarkdown } = await import("../../../js/agents/stages/deepsearch/write.js");
+
+  const evidenceLedger = [{ evidenceId: "e1", sourceId: "s1", quote: "Alpha" }];
+  const sources = [{ sourceId: "s1", title: "Doc 1" }];
+
+  const out = finalizeCitationsInMarkdown("X {{cite:e999}} Y {{cite:e1}}.", evidenceLedger, sources);
+  assert.match(out.markdown, /^X\s+Y \[1\]\.\n\n## References\n/i);
+  assert.ok(!out.markdown.includes("{{cite:e999}}"));
+  assert.equal(out.citations.length, 1);
+  assert.equal(out.citations[0].evidenceId, "e1");
+
+  const outEmptyLedger = finalizeCitationsInMarkdown("X {{cite:e1}}.", [], sources);
+  assert.ok(!outEmptyLedger.markdown.includes("## References"));
+  assert.ok(!outEmptyLedger.markdown.includes("[1]"));
+  assert.equal(outEmptyLedger.citations.length, 0);
+});
+
+test("Write: finalizeCitationsInMarkdown numbers by first appearance order and matches References", async () => {
+  const { finalizeCitationsInMarkdown } = await import("../../../js/agents/stages/deepsearch/write.js");
+
+  const sources = [{ sourceId: "s1", title: "Doc 1" }];
+  const evidenceLedger = [
+    { evidenceId: "e1", sourceId: "s1", quote: "Alpha" },
+    { evidenceId: "e2", sourceId: "s1", quote: "Beta" },
+  ];
+
+  const out = finalizeCitationsInMarkdown("First {{cite:e2}} then {{cite:e1}} then {{cite:e2}}.", evidenceLedger, sources);
+  assert.match(out.markdown, /First \[1\] then \[2\] then \[1\]\.\n/);
+  assert.equal(out.citations.length, 2);
+  assert.equal(out.citations[0].evidenceId, "e2");
+  assert.equal(out.citations[0].citationId, 1);
+  assert.equal(out.citations[1].evidenceId, "e1");
+  assert.equal(out.citations[1].citationId, 2);
+  assert.match(out.markdown, /- \[1\] Doc 1 — “Beta”/);
+  assert.match(out.markdown, /- \[2\] Doc 1 — “Alpha”/);
+});
+
+test("Write: finalizeCitationsInMarkdown respects pre-existing References section", async () => {
+  const { finalizeCitationsInMarkdown } = await import("../../../js/agents/stages/deepsearch/write.js");
+
+  const sources = [{ sourceId: "s1", title: "Doc 1" }];
+  const evidenceLedger = [{ evidenceId: "e1", sourceId: "s1", quote: "Alpha" }];
+
+  const input = "Body {{cite:e1}}.\n\n## References\n- preexisting\n";
+  const out = finalizeCitationsInMarkdown(input, evidenceLedger, sources);
+  assert.match(out.markdown, /^Body \[1\]\.\n\n## References\n- preexisting\n$/);
+  assert.equal((out.markdown.match(/\n##\s+References\s*\n/gi) || []).length, 1);
+});
+
+test("Write: finalizeCitationsInMarkdown newline handling + empty/null input", async () => {
+  const { finalizeCitationsInMarkdown } = await import("../../../js/agents/stages/deepsearch/write.js");
+
+  assert.deepEqual(finalizeCitationsInMarkdown("", [], []), { markdown: "", citations: [] });
+  assert.deepEqual(finalizeCitationsInMarkdown(null, null, null), { markdown: "", citations: [] });
+
+  assert.equal(finalizeCitationsInMarkdown("Hello", [], []).markdown, "Hello\n");
+  assert.equal(finalizeCitationsInMarkdown("Hello\n\n", [], []).markdown, "Hello\n");
+
+  const outWithCite = finalizeCitationsInMarkdown("X {{cite:e1}}.", [{ evidenceId: "e1" }], []);
+  assert.ok(outWithCite.markdown.endsWith("\n"));
+});

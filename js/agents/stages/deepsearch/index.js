@@ -1,7 +1,7 @@
 // DeepSearch stage entry: S2-S7 pipeline to produce ContentPackage v0.1 (DeepSearch mode).
 
 import { buildContentPackage } from "../textprep/build-content-package.js";
-import { DeepSearchState, checkCancelled, computeRoundHitsByGapId, makeStageEmitter, validateIteration } from "./state.js";
+import { DeepSearchState, checkCancelled, computeRoundHitsByGapId, generateNodeId, makeStageEmitter, validateIteration } from "./state.js";
 import { runDeepSearchScanStage } from "./scan.js";
 import { runDeepSearchGapsStage } from "./gaps.js";
 import { parseExternalSearchConfig, runDeepSearchRetrieveStage, runExternalSearch } from "./retrieve.js";
@@ -232,9 +232,36 @@ export class DeepSearchStage {
     };
 
     const callStage = async (stage, fn, { stageState = state, fallbackValue } = {}) => {
+      const runId = String(stageState?.runId || state?.runId || runContext?.runId || "run");
+      const stageName = String(stage || "stage");
+      const stageLabel = stageName.startsWith("deepsearch.") ? stageName.slice("deepsearch.".length) : stageName;
+      const iteration = typeof stageState?.iteration === "number" ? stageState.iteration : typeof state?.iteration === "number" ? state.iteration : undefined;
+      const trajectoryId = stageState?.trajectoryId || state?.trajectoryId;
+      const nodeId = generateNodeId(runId, "stage", { stage: stageLabel, iteration, trajectoryId });
+      const parentNodeId = trajectoryId ? `${runId}_${trajectoryId}` : runId;
+
+      emit?.("deepsearch.node.started", {
+        runId,
+        nodeId,
+        parentNodeId,
+        kind: "stage",
+        label: stageLabel,
+        stage: stageLabel,
+        iteration,
+        trajectoryId,
+      });
+
       try {
         const value = await errorHandler.withRetry(fn, {
           onRetry: ({ attempt, delay, error }) => {
+            const retryErr = normalizeError(error, { stage });
+            emit?.("deepsearch.node.failed", {
+              runId,
+              nodeId,
+              error: { message: String(retryErr?.message || ""), level: retryErr?.level },
+              recovered: false,
+              retrying: true,
+            });
             stageState?.addTimeline?.({
               name: "deepsearch.retry",
               status: "warning",
@@ -242,9 +269,19 @@ export class DeepSearchStage {
             });
           },
         });
+        emit?.("deepsearch.node.completed", { runId, nodeId, outcome: "success", summary: value?.summary });
         return { ok: true, value };
       } catch (err) {
         const dsErr = normalizeError(err, { stage });
+        const recovered =
+          dsErr.level === ErrorLevel.RECOVERABLE || dsErr.level === ErrorLevel.DEGRADABLE || dsErr.level === ErrorLevel.RETRYABLE;
+        emit?.("deepsearch.node.failed", {
+          runId,
+          nodeId,
+          error: { message: dsErr.message, level: dsErr.level },
+          recovered,
+          retrying: false,
+        });
         errorHandler.recordError(stageState, dsErr, { stage });
         saveErrorCheckpoint(stageState, { stage, error: dsErr });
 
@@ -358,6 +395,13 @@ export class DeepSearchStage {
             continue;
           }
 
+          emit?.("deepsearch.iteration.started", {
+            runId: state.runId,
+            iteration: state.iteration,
+            openGapCount: openGaps(state).length,
+            trajectoryId: state.trajectoryId,
+          });
+
           const { value: retrieveOut } = await callStage("deepsearch.retrieve", () => runDeepSearchRetrieveStage(runContext, { state }, stageApiWithTap), {
             stageState: state,
             fallbackValue: { state, retrievedChunks: [] },
@@ -440,7 +484,7 @@ export class DeepSearchStage {
           }
 
           const roundHits = computeRoundHitsByGapId(retrievedChunks);
-          const validateOut = validateIteration(state, { blockAfterMisses: getGapBlockAfterMisses(state), roundHits });
+          const validateOut = validateIteration(state, { blockAfterMisses: getGapBlockAfterMisses(state), roundHits }, emit);
 
           const completedIteration = state.iteration;
           const checkpoint = state.saveCheckpoint();
@@ -448,6 +492,7 @@ export class DeepSearchStage {
           state.addTimeline({ name: "deepsearch.checkpoint.saved", status: "info", payload: { checkpointId: checkpoint.checkpointId, iteration: checkpoint.iteration } });
 
           emit?.("iteration.completed", {
+            runId: state.runId,
             iteration: completedIteration,
             hitCount,
             noNewHitsRounds,
@@ -484,8 +529,8 @@ export class DeepSearchStage {
 
           state.saveWriteSnapshot();
           state.writeBacktrackCount = (safeInt(state.writeBacktrackCount) ?? 0) + 1;
-          state.reopenGaps(reopenGaps, { reason: feedbackToResearch?.reason });
-          state.addNewGaps(newGaps);
+          state.reopenGaps(reopenGaps, { reason: feedbackToResearch?.reason }, emit);
+          state.addNewGaps(newGaps, {}, emit);
           noNewHitsRounds = 0;
 
           emit?.("deepsearch.write.backtrack.requested", {

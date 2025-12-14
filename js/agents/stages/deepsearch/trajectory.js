@@ -1,7 +1,7 @@
 import { checkCancelled, computeRoundHitsByGapId, validateIteration } from "./state.js";
 import { dedupeClaims } from "../../deepsearch/understanding/dedupe.js";
 import { TrajectoryCache } from "./trajectory-cache.js";
-import { parseExternalSearchConfig } from "./retrieve.js";
+import { parseExternalSearchConfig } from "./external-search.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -225,6 +225,7 @@ export class TrajectoryManager {
     this.config = toTrajectoryConfig({ n, mergeStrategy, qualityMetrics, divergeAt, cachePolicy, cacheMaxSize });
     this.trajectories = []; // DeepSearchState[]
     this.trajectoryCache = this.config.cachePolicy === "share" ? new TrajectoryCache({ maxSize: this.config.cacheMaxSize }) : null;
+    this.emit = null;
   }
 
   // Fork state into N trajectories
@@ -245,7 +246,7 @@ export class TrajectoryManager {
     const runRetrieveStage = stages?.runRetrieveStage;
     const runUnderstandStage = stages?.runUnderstandStage;
     const runExternalSearch = stages?.runExternalSearch; // 新增：外搜函数
-    const emit = typeof stages?.emit === "function" ? stages.emit : null;
+    const baseEmit = typeof stages?.emit === "function" ? stages.emit : null;
 
     if (!runContext) throw new TypeError("TrajectoryManager.runTrajectory(trajectory, stages): stages.runContext is required");
     if (typeof runGapsStage !== "function") throw new TypeError("TrajectoryManager.runTrajectory(trajectory, stages): stages.runGapsStage must be a function");
@@ -254,134 +255,210 @@ export class TrajectoryManager {
 
     trajectory.trajectoryConfig = { ...this.config };
 
+    const runId = toNonEmptyString(trajectory?.runId) || toNonEmptyString(runContext?.runId) || "run_unknown";
+    const trajectoryId = toNonEmptyString(trajectory?.trajectoryId) || "traj_unknown";
+
+    if (baseEmit) this.emit = baseEmit;
+    const emit =
+      baseEmit &&
+      ((name, payload) =>
+        baseEmit(name, {
+          ...(isPlainObject(payload) ? payload : {}),
+          runId,
+          trajectoryId,
+        }));
+
     const seenHitSignatures = new Set();
     let noNewHitsRounds = 0;
     let externalSearchTriggered = false; // 每个 trajectory 只触发一次外搜
 
     const wrapApiForStage = (name) => {
-      if (!this.trajectoryCache || this.config.cachePolicy !== "share") return stageApi;
       const base = stageApi && typeof stageApi === "object" ? stageApi : {};
-      return { ...base, trajectoryCache: this.trajectoryCache, trajectoryCachePolicy: this.config.cachePolicy, trajectoryCacheStageName: String(name || "") };
+      const withContext = { ...base, runId, trajectoryId };
+      if (!this.trajectoryCache || this.config.cachePolicy !== "share") return withContext;
+      return {
+        ...withContext,
+        trajectoryCache: this.trajectoryCache,
+        trajectoryCachePolicy: this.config.cachePolicy,
+        trajectoryCacheStageName: String(name || ""),
+      };
     };
 
-    while (trajectory.iteration < trajectory.maxIterations && !stageApi?.signal?.aborted) {
-      checkCancelled(stageApi);
-      await runGapsStage(runContext, { state: trajectory }, wrapApiForStage("gaps"));
+    emit?.("deepsearch.trajectory.started", {
+      runId,
+      trajectoryId: trajectory.trajectoryId,
+      config: this.config,
+      iterationStart: trajectory.iteration,
+    });
 
-      const gaps = openGaps(trajectory);
-      if (gaps.length === 0) break;
+    try {
+      while (trajectory.iteration < trajectory.maxIterations && !stageApi?.signal?.aborted) {
+        checkCancelled(stageApi);
+        await runGapsStage(runContext, { state: trajectory }, wrapApiForStage("gaps"));
 
-      checkCancelled(stageApi);
-      const { retrievedChunks } = await runRetrieveStage(runContext, { state: trajectory }, stageApi);
+        const gaps = openGaps(trajectory);
+        if (gaps.length === 0) break;
 
-      let newHitCount = 0;
-      for (const r of Array.isArray(retrievedChunks) ? retrievedChunks : []) {
-        const sig = signatureForRetrievedChunk(r);
-        if (!seenHitSignatures.has(sig)) {
-          seenHitSignatures.add(sig);
-          newHitCount++;
-        }
-      }
-      noNewHitsRounds = newHitCount === 0 ? noNewHitsRounds + 1 : 0;
+        checkCancelled(stageApi);
+        const { retrievedChunks } = await runRetrieveStage(runContext, { state: trajectory }, wrapApiForStage("retrieve"));
 
-      checkCancelled(stageApi);
-      const understandResult = await runUnderstandStage(runContext, { state: trajectory }, wrapApiForStage("understand"));
-
-      // ===== Reflect-driven 外搜触发 =====
-      const reflectResult = understandResult?.reflectResult || trajectory?.L1?.reflectResult;
-      const externalSearchConfig = parseExternalSearchConfig(trajectory?.userConfig);
-      const externalSearchEnabled = externalSearchConfig.enabled === true && externalSearchConfig.autoTrigger === true;
-
-      // 健壮性检查：
-      // 1. reflectResult 存在且 sufficient=false
-      // 2. 尚未触发过外搜 (每轨迹最多一次)
-      // 3. 外搜已启用
-      // 4. 有外搜函数
-      // 5. 有建议的搜索词或有 open gaps
-      const currentGaps = openGaps(trajectory);
-      const hasSuggestedQueries = Array.isArray(reflectResult?.suggestedQueries) && reflectResult.suggestedQueries.length > 0;
-      const hasOpenGaps = currentGaps.length > 0;
-
-      const shouldTriggerExternalSearch =
-        reflectResult &&
-        !reflectResult.sufficient &&
-        !externalSearchTriggered &&
-        externalSearchEnabled &&
-        typeof runExternalSearch === "function" &&
-        (hasSuggestedQueries || hasOpenGaps);
-
-      if (shouldTriggerExternalSearch) {
-        // LLM 判断证据不足，触发外搜
-        emit?.("deepsearch.external.reflecttriggered", {
-          reason: reflectResult.reason,
-          confidence: reflectResult.confidence,
-          suggestedQueries: reflectResult.suggestedQueries,
-          iteration: trajectory.iteration,
-        });
-
-        // 使用 LLM 建议的搜索词，或从 open gaps 生成
-        const defaultGapId = toNonEmptyString(currentGaps?.[0]?.gapId);
-        const searchGaps = hasSuggestedQueries
-          ? reflectResult.suggestedQueries.map((q, i) => ({
-              gapId: defaultGapId || `ext_${i}`,
-              query: q,
-              question: q,
-              type: "external",
-            }))
-          : currentGaps.map(g => ({
-              gapId: g?.gapId || "gap_unknown",
-              query: g?.question || g?.text || "",
-              question: g?.question || g?.text || "",
-              type: g?.type || "external",
-            })).filter(g => g.query);
-
-        if (searchGaps.length > 0) {
-          try {
-            checkCancelled(stageApi);
-            await runExternalSearch(searchGaps, externalSearchConfig, {
-              emit,
-              state: trajectory,
-              stageApi,
-            });
-            externalSearchTriggered = true;
-
-            // 外搜后重新运行 Understand 阶段
-            checkCancelled(stageApi);
-            await runUnderstandStage(runContext, { state: trajectory }, wrapApiForStage("understand"));
-          } catch (err) {
-            emit?.("deepsearch.external.error", { message: String(err?.message || err) });
-            // 外搜失败也标记为已触发，避免重复尝试
-            externalSearchTriggered = true;
+        let newHitCount = 0;
+        for (const r of Array.isArray(retrievedChunks) ? retrievedChunks : []) {
+          const sig = signatureForRetrievedChunk(r);
+          if (!seenHitSignatures.has(sig)) {
+            seenHitSignatures.add(sig);
+            newHitCount++;
           }
-        } else {
-          emit?.("deepsearch.external.skipped", { reason: "no_valid_search_queries" });
         }
+        noNewHitsRounds = newHitCount === 0 ? noNewHitsRounds + 1 : 0;
+
+        checkCancelled(stageApi);
+        const understandResult = await runUnderstandStage(runContext, { state: trajectory }, wrapApiForStage("understand"));
+
+        // ===== Reflect-driven 外搜触发 =====
+        const reflectResult = understandResult?.reflectResult || trajectory?.L1?.reflectResult;
+        const externalSearchConfig = parseExternalSearchConfig(trajectory?.userConfig);
+        const externalSearchEnabled = externalSearchConfig.enabled === true && externalSearchConfig.autoTrigger === true;
+
+        // 健壮性检查：
+        // 1. reflectResult 存在且 sufficient=false
+        // 2. 尚未触发过外搜 (每轨迹最多一次)
+        // 3. 外搜已启用
+        // 4. 有外搜函数
+        // 5. 有建议的搜索词或有 open gaps
+        const currentGaps = openGaps(trajectory);
+        const hasSuggestedQueries = Array.isArray(reflectResult?.suggestedQueries) && reflectResult.suggestedQueries.length > 0;
+        const hasOpenGaps = currentGaps.length > 0;
+
+        const shouldTriggerExternalSearch =
+          reflectResult &&
+          !reflectResult.sufficient &&
+          !externalSearchTriggered &&
+          externalSearchEnabled &&
+          typeof runExternalSearch === "function" &&
+          (hasSuggestedQueries || hasOpenGaps);
+
+        if (shouldTriggerExternalSearch) {
+          // LLM 判断证据不足，触发外搜
+          emit?.("deepsearch.external.reflecttriggered", {
+            reason: reflectResult.reason,
+            confidence: reflectResult.confidence,
+            suggestedQueries: reflectResult.suggestedQueries,
+            iteration: trajectory.iteration,
+          });
+
+          // 使用 LLM 建议的搜索词，或从 open gaps 生成
+          const defaultGapId = toNonEmptyString(currentGaps?.[0]?.gapId);
+          const searchGaps = hasSuggestedQueries
+            ? reflectResult.suggestedQueries.map((q, i) => ({
+                gapId: defaultGapId || `ext_${i}`,
+                query: q,
+                question: q,
+                type: "external",
+              }))
+            : currentGaps
+                .map((g) => ({
+                  gapId: g?.gapId || "gap_unknown",
+                  query: g?.question || g?.text || "",
+                  question: g?.question || g?.text || "",
+                  type: g?.type || "external",
+                }))
+                .filter((g) => g.query);
+
+          if (searchGaps.length > 0) {
+            try {
+              checkCancelled(stageApi);
+              await runExternalSearch(searchGaps, externalSearchConfig, {
+                emit,
+                state: trajectory,
+                stageApi: wrapApiForStage("external"),
+              });
+              externalSearchTriggered = true;
+
+              // 外搜后重新运行 Understand 阶段
+              checkCancelled(stageApi);
+              await runUnderstandStage(runContext, { state: trajectory }, wrapApiForStage("understand"));
+            } catch (err) {
+              emit?.("deepsearch.external.error", { message: String(err?.message || err) });
+              // 外搜失败也标记为已触发，避免重复尝试
+              externalSearchTriggered = true;
+            }
+          } else {
+            emit?.("deepsearch.external.skipped", { reason: "no_valid_search_queries" });
+          }
+        }
+        // ===== Reflect-driven 外搜触发结束 =====
+
+        const roundHits = computeRoundHitsByGapId(retrievedChunks);
+        validateIteration(trajectory, { blockAfterMisses: getGapBlockAfterMisses(trajectory), roundHits }, emit);
+
+        const checkpoint = trajectory.saveCheckpoint?.();
+        if (checkpoint) {
+          emit?.("deepsearch.checkpoint.saved", { checkpointId: checkpoint.checkpointId, iteration: checkpoint.iteration });
+        }
+
+        trajectory.iteration += 1;
+
+        if (openGaps(trajectory).length === 0) break;
+        if (noNewHitsRounds >= 2) break;
       }
-      // ===== Reflect-driven 外搜触发结束 =====
 
-      const roundHits = computeRoundHitsByGapId(retrievedChunks);
-      validateIteration(trajectory, { blockAfterMisses: getGapBlockAfterMisses(trajectory), roundHits });
+      emit?.("deepsearch.trajectory.completed", {
+        runId,
+        trajectoryId: trajectory.trajectoryId,
+        iterationEnd: trajectory.iteration,
+        outcome: "success",
+        quality: this.computeQuality(trajectory),
+      });
 
-      const checkpoint = trajectory.saveCheckpoint?.();
-      if (checkpoint && emit) {
-        emit("deepsearch.checkpoint.saved", { trajectoryId: trajectory.trajectoryId, checkpointId: checkpoint.checkpointId, iteration: checkpoint.iteration });
-      }
-
-      trajectory.iteration += 1;
-
-      if (openGaps(trajectory).length === 0) break;
-      if (noNewHitsRounds >= 2) break;
+      return trajectory;
+    } catch (err) {
+      emit?.("deepsearch.trajectory.completed", {
+        runId,
+        trajectoryId: trajectory.trajectoryId,
+        iterationEnd: trajectory.iteration,
+        outcome: "failed",
+        quality: this.computeQuality(trajectory),
+        error: { message: String(err?.message || err) },
+      });
+      throw err;
     }
-
-    return trajectory;
   }
 
   // Merge all trajectory results
   merge() {
-    if (this.config.mergeStrategy === "best") return this.mergeBest();
-    if (this.config.mergeStrategy === "union") return this.mergeUnion();
-    if (this.config.mergeStrategy === "vote") return this.mergeVote();
-    return this.mergeBest();
+    const emit = typeof this.emit === "function" ? this.emit : null;
+    const runId = toNonEmptyString(this.trajectories?.[0]?.runId) || "run_unknown";
+
+    if (emit) {
+      emit?.("deepsearch.trajectory.merge.started", {
+        runId,
+        mergeStrategy: this.config.mergeStrategy,
+        inputs: this.trajectories.map((t) => ({
+          trajectoryId: t.trajectoryId,
+          quality: this.computeQuality(t),
+        })),
+      });
+    }
+
+    const merged =
+      this.config.mergeStrategy === "best"
+        ? this.mergeBest()
+        : this.config.mergeStrategy === "union"
+          ? this.mergeUnion()
+          : this.config.mergeStrategy === "vote"
+            ? this.mergeVote()
+            : this.mergeBest();
+
+    if (merged && emit) {
+      emit?.("deepsearch.trajectory.merge.completed", {
+        runId,
+        mergeStrategy: this.config.mergeStrategy,
+        output: { trajectoryId: "merged", quality: this.computeQuality(merged) },
+      });
+    }
+
+    return merged;
   }
 
   mergeBest() {
