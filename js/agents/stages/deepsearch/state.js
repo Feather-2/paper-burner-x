@@ -208,6 +208,159 @@ export function checkCancelled(stageApi) {
   }
 }
 
+function normalizeRoundHits(roundHits) {
+  if (roundHits instanceof Map) return roundHits;
+
+  const hits = new Map();
+
+  if (Array.isArray(roundHits)) {
+    for (const gid of roundHits.map((x) => toNonEmptyString(x)).filter(Boolean)) {
+      hits.set(gid, (hits.get(gid) || 0) + 1);
+    }
+    return hits;
+  }
+
+  if (isPlainObject(roundHits)) {
+    for (const [k, v] of Object.entries(roundHits)) {
+      const gid = toNonEmptyString(k);
+      if (!gid) continue;
+      const n = safeInt(v);
+      hits.set(gid, n !== null && n > 0 ? n : 0);
+    }
+    return hits;
+  }
+
+  return hits;
+}
+
+export function computeRoundHitsByGapId(retrievedChunks) {
+  const hits = new Map();
+  for (const r of Array.isArray(retrievedChunks) ? retrievedChunks : []) {
+    const matched = Array.isArray(r?.matchedGapIds) ? r.matchedGapIds.map(String).filter(Boolean) : [];
+    if (matched.length) {
+      for (const gid of matched) hits.set(gid, (hits.get(gid) || 0) + 1);
+      continue;
+    }
+    const gid = toNonEmptyString(r?.gapId);
+    if (gid) hits.set(gid, (hits.get(gid) || 0) + 1);
+  }
+  return hits;
+}
+
+export function validateIteration(state, { roundHits, blockAfterMisses = 2 } = {}) {
+  const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+  const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
+  const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
+
+  const hitsByGapId = normalizeRoundHits(roundHits);
+
+  const retrievedByChunkId = new Map();
+  for (const r of retrieved) {
+    const chunkId = toNonEmptyString(r?.chunkId);
+    if (chunkId) retrievedByChunkId.set(chunkId, r);
+  }
+
+  const filledGapIds = new Set();
+  for (const e of evidenceLedger) {
+    const gapIds = Array.isArray(e?.gapIds) ? e.gapIds.map(String).filter(Boolean) : [];
+    if (gapIds.length) {
+      for (const gid of gapIds) filledGapIds.add(gid);
+      continue;
+    }
+
+    const chunkId = toNonEmptyString(e?.chunkId);
+    const row = chunkId ? retrievedByChunkId.get(chunkId) : null;
+    if (!row) continue;
+
+    const matched = Array.isArray(row?.matchedGapIds) ? row.matchedGapIds.map(String).filter(Boolean) : [];
+    if (matched.length) {
+      for (const gid of matched) filledGapIds.add(gid);
+      continue;
+    }
+
+    const gid = toNonEmptyString(row?.gapId);
+    if (gid) filledGapIds.add(gid);
+  }
+
+  let filledCount = 0;
+  let blockedCount = 0;
+  let stillOpenCount = 0;
+  const now = new Date().toISOString();
+
+  for (const g of gaps) {
+    const gid = toNonEmptyString(g?.gapId);
+    if (!gid) continue;
+
+    const status = toNonEmptyString(g?.status) || "open";
+    if (status === "filled" || status === "blocked") continue;
+
+    if (filledGapIds.has(gid)) {
+      g.status = "filled";
+      g.filledAt = now;
+      g.filledIteration = state?.iteration;
+      filledCount++;
+      continue;
+    }
+
+    const hits = hitsByGapId.get(gid) || 0;
+    if (hits > 0) {
+      g.missCount = 0;
+      stillOpenCount++;
+      continue;
+    }
+
+    const priorMisses = safeInt(g?.missCount) ?? 0;
+    const misses = Math.max(0, priorMisses) + 1;
+    g.missCount = misses;
+
+    if (misses >= blockAfterMisses) {
+      g.status = "blocked";
+      g.blockedAt = now;
+      g.blockedReason = String(g.blockedReason || "no_retrieval_hits");
+      blockedCount++;
+    } else {
+      stillOpenCount++;
+    }
+  }
+
+  const todos = Array.isArray(state?.todos) ? state.todos : [];
+  const todoByGapId = new Map();
+  for (const t of todos) {
+    const rgid = toNonEmptyString(t?.relatedGapId);
+    if (!rgid) continue;
+    todoByGapId.set(rgid, t);
+  }
+
+  for (const g of gaps) {
+    const gid = toNonEmptyString(g?.gapId);
+    if (!gid) continue;
+    const todo = todoByGapId.get(gid);
+    if (!todo) continue;
+    if (g.status === "filled") todo.status = "done";
+    if (g.status === "blocked") todo.status = "blocked";
+  }
+
+  const tree = state?.planningTree;
+  if (typeof tree?.getNodesForGap === "function" && typeof tree?.updateStatus === "function") {
+    for (const g of gaps) {
+      const gid = toNonEmptyString(g?.gapId);
+      if (!gid) continue;
+      if (g.status !== "filled" && g.status !== "blocked") continue;
+      const next = g.status === "filled" ? "completed" : "blocked";
+      for (const n of tree.getNodesForGap(gid)) tree.updateStatus(n.nodeId, next);
+    }
+  }
+
+  const openCount = gaps.filter((g) => (toNonEmptyString(g?.status) || "open") === "open").length;
+  state?.addTimeline?.({
+    name: "deepsearch.validate",
+    status: "completed",
+    payload: { filledCount, blockedCount, openCount },
+  });
+
+  return { filledCount, blockedCount, openCount, stillOpenCount };
+}
+
 export class DeepSearchState {
   constructor({
     runId,

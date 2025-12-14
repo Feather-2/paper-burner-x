@@ -112,7 +112,7 @@ test("Integration: validateIteration updates planningTree for filled/blocked gap
   ];
   state.L1.evidenceLedger = [{ chunkId: "c1" }];
 
-  __test.validateIteration(state, { blockAfterMisses: 1 });
+  __test.validateIteration(state, { blockAfterMisses: 1, roundHits: { gap_1: 1 } });
 
   const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
   const g1 = gaps.find((g) => g.gapId === "gap_1");

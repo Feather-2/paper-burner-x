@@ -12,6 +12,17 @@ class PPTGenerator {
         this.overlayId = 'pptGeneratorOverlay';
         this.isVisible = false;
         this.currentProject = null;
+
+        // Workflow Mode: auto (Auto-pilot) | guided | manual
+        this.workflowMode = 'auto';
+
+        // Unified ProjectBrief (shared contract across stages)
+        this.projectBrief = {
+            taskGoal: '',
+            projectSummary: '',
+            audience: '',
+            tone: ''
+        };
         
         // Agent State
         this.agents = {
@@ -53,6 +64,51 @@ class PPTGenerator {
 
         // 使用 SlideParser 解析 HTML 生成 slides（如果 SlideSystem 可用）
         this.slides = this._initSlides();
+    }
+
+    setWorkflowMode(mode) {
+        const allowed = new Set(['auto', 'guided', 'manual']);
+        const next = allowed.has(mode) ? mode : 'auto';
+        this.workflowMode = next;
+
+        if (!this.workflowData) this.workflowData = {};
+        this.workflowData.workflowMode = next;
+        if (this.currentProject && this.currentProject.workflowData) {
+            this.currentProject.workflowData.workflowMode = next;
+        }
+
+        this.setAutoSaveNeeded?.();
+        this.renderPreviewArea?.();
+    }
+
+    setProjectBrief(brief) {
+        const b = brief && typeof brief === 'object' ? brief : {};
+        const taskGoal = typeof b.taskGoal === 'string' ? b.taskGoal.trim() : '';
+        const projectSummary = typeof b.projectSummary === 'string' ? b.projectSummary.trim() : '';
+        const audience = typeof b.audience === 'string' ? b.audience.trim() : '';
+        const tone = typeof b.tone === 'string' ? b.tone.trim() : '';
+
+        this.projectBrief = { taskGoal, projectSummary, audience, tone };
+
+        if (!this.workflowData) this.workflowData = {};
+        this.workflowData.projectBrief = { taskGoal, projectSummary, audience, tone };
+
+        // Backward-compatible fields (existing UI code may read/write these).
+        if (projectSummary) this.workflowData.projectSummary = projectSummary;
+        if (taskGoal) this.workflowData.taskGoal = taskGoal;
+        if (audience) this.workflowData.audience = audience;
+        if (tone) this.workflowData.tone = tone;
+
+        if (this.currentProject && this.currentProject.workflowData) {
+            this.currentProject.workflowData.projectBrief = { taskGoal, projectSummary, audience, tone };
+            if (projectSummary) this.currentProject.workflowData.projectSummary = projectSummary;
+            if (taskGoal) this.currentProject.workflowData.taskGoal = taskGoal;
+            if (audience) this.currentProject.workflowData.audience = audience;
+            if (tone) this.currentProject.workflowData.tone = tone;
+        }
+
+        this.setAutoSaveNeeded?.();
+        this.renderPreviewArea?.();
     }
 
     _initSlides() {

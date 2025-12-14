@@ -118,6 +118,55 @@ function makeShapeEl({ x, y, w, h, fill, stroke, radius = 14 }) {
   return `<div ${attrs.join(" ")}></div>`;
 }
 
+function makeImageEl({ x, y, w, h, src, alt = "图片", fit = "cover", radius = 12 }) {
+  const attrs = [
+    `data-el="image"`,
+    `data-x="${x}"`,
+    `data-y="${y}"`,
+    `data-w="${w}"`,
+    `data-h="${h}"`,
+    `data-src="${escapeHtml(src)}"`,
+    `data-alt="${escapeHtml(alt)}"`,
+    `data-fit="${escapeHtml(fit)}"`,
+  ];
+  if (radius !== undefined && radius !== null) attrs.push(`data-radius="${String(radius)}"`);
+  return `<div ${attrs.join(" ")}></div>`;
+}
+
+function makeTableEl({ x, y, w, h, data, colors, fontSize = 12, radius = 8 }) {
+  const attrs = [
+    `data-el="table"`,
+    `data-x="${x}"`,
+    `data-y="${y}"`,
+    `data-w="${w}"`,
+    `data-h="${h}"`,
+    `data-data='${escapeHtml(data)}'`,
+    `data-header-bg="${colors.primary}"`,
+    `data-header-color="#FFFFFF"`,
+    `data-row-bg="${colors.panel}"`,
+    `data-alt-row-bg="${colors.panel}"`,
+    `data-cell-color="${colors.text}"`,
+    `data-border-color="${colors.border}"`,
+    `data-font-size="${String(fontSize)}"`,
+    `data-radius="${String(radius)}"`,
+  ];
+  return `<div ${attrs.join(" ")}></div>`;
+}
+
+function makeChartEl({ x, y, w, h, chartType = "bar", chartData = "{}", colors = [] }) {
+  const attrs = [
+    `data-el="chart"`,
+    `data-x="${x}"`,
+    `data-y="${y}"`,
+    `data-w="${w}"`,
+    `data-h="${h}"`,
+    `data-chart-type="${escapeHtml(chartType)}"`,
+    `data-chart-data="${escapeHtml(chartData)}"`,
+    `data-colors='${escapeHtml(JSON.stringify(colors))}'`,
+  ];
+  return `<div ${attrs.join(" ")}></div>`;
+}
+
 function makeImagePlaceholderEl(slot, box = {}) {
   const slotId = String(slot?.slotId || "").trim();
   if (!slotId) return "";
@@ -284,5 +333,99 @@ ${imageLayer}  ${makeTextEl({ x: "8%", y: titleY, w: "84%", font: titleFont, col
   ${panel}
   ${subtitle}
   ${body}
+</section>`.trim();
+}
+
+function coercePct(v) {
+  if (v === undefined || v === null) return undefined;
+  if (typeof v === "number" && Number.isFinite(v)) return `${v}%`;
+  const s = String(v).trim();
+  if (!s) return undefined;
+  return s.endsWith("%") ? s : `${s}%`;
+}
+
+function clampNum(v, min, max, fallback = min) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+/**
+ * Build one slide HTML DSL from Layout JSON.
+ *
+ * @param {object} layoutJson Layout JSON (Task-5 schema)
+ * @param {object} designSystem DesignSystem (or raw tokens)
+ * @param {object} [options] { slideId?, title?, safeMode? }
+ * @returns {string}
+ */
+export function buildFromLayoutJson(layoutJson, designSystem, options = {}) {
+  const { colors, typography } = resolveDesignTokens(designSystem);
+  const slideId = String(options?.slideId || "slide-vision");
+
+  const rawEls = Array.isArray(layoutJson?.elements) ? layoutJson.elements : [];
+  const els = rawEls.filter((e) => e && typeof e === "object" && typeof e.type === "string");
+
+  const titleText = String(options?.title || els.find((e) => e.type === "text" && e.content)?.content || "Untitled");
+
+  if (options?.safeMode || !els.length) {
+    const titleFont = Math.max(typography.minFont, typography.titleFont || 44);
+    return `
+<section data-type="freeform" data-layout="safe" id="${escapeHtml(slideId)}" data-title="${escapeHtml(titleText)}" data-bg="${colors.bg}">
+  ${makeTextEl({ x: "8%", y: "10%", w: "84%", font: titleFont, color: colors.text, bold: true, content: escapeHtml(titleText) })}
+</section>`.trim();
+  }
+
+  const palette = Array.isArray(layoutJson?.extractedPalette) ? layoutJson.extractedPalette.map((c) => String(c || "").trim()).filter(Boolean) : [];
+  const chartColors = (palette.length ? palette : [colors.primary, colors.accent, colors.text]).slice(0, 6);
+
+  const built = els
+    .map((e) => {
+      const b = e.bounds || {};
+      const x = coercePct(b.x) || "8%";
+      const y = coercePct(b.y) || "8%";
+      const w = coercePct(b.w) || "84%";
+      const h = coercePct(b.h) || "10%";
+
+      if (e.type === "text") {
+        const font = clampNum(e?.style?.fontSize ?? typography.bodyFont, 12, 80, typography.bodyFont || 16);
+        const color = String(e?.style?.color || colors.text);
+        const fw = String(e?.style?.fontWeight || "").toLowerCase();
+        const bold = fw === "bold" || Number(fw) >= 600;
+        return makeTextEl({ x, y, w, h: "auto", font, color, bold, content: escapeHtml(e?.content || " ") });
+      }
+
+      if (e.type === "shape") {
+        const fill = String(e?.style?.fill || e?.style?.color || colors.panel);
+        const stroke = String(e?.style?.stroke || colors.border);
+        const radius = clampNum(e?.style?.radius, 0, 64, 14);
+        return makeShapeEl({ x, y, w, h, fill, stroke, radius });
+      }
+
+      if (e.type === "image") {
+        const src = String(e?.content || "").trim() || "about:blank";
+        return makeImageEl({ x, y, w, h, src });
+      }
+
+      if (e.type === "table") {
+        const data =
+          e.content && typeof e.content !== "string" ? JSON.stringify(e.content) : String(e.content || "").trim() || "[]";
+        return makeTableEl({ x, y, w, h, data, colors, fontSize: Math.max(typography.minFont, typography.smallFont || 12) });
+      }
+
+      if (e.type === "chart") {
+        const chartType = String(e?.chartType || "bar");
+        const chartData =
+          e.content && typeof e.content !== "string" ? JSON.stringify(e.content) : String(e.content || "").trim() || "{}";
+        return makeChartEl({ x, y, w, h, chartType, chartData, colors: chartColors });
+      }
+
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n  ");
+
+  return `
+<section data-type="freeform" data-layout="${escapeHtml(layoutFromPageType(layoutJson?.suggestedLayout))}" id="${escapeHtml(slideId)}" data-title="${escapeHtml(titleText)}" data-bg="${colors.bg}">
+  ${built}
 </section>`.trim();
 }

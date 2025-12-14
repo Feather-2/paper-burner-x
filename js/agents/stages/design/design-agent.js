@@ -1,4 +1,5 @@
 import { generateDesignTokens } from "./design-tokens.js";
+import { generateDesignSystem } from "./design-system-generator.js";
 import { buildSlideHtml } from "./dsl-builder.js";
 import { generateBatch } from "./batch-generator.js";
 import { validateSlide } from "./qa-validator.js";
@@ -61,11 +62,35 @@ export class DesignStage {
     emitStage(emit, "design.started", "started", { runId: runContext.runId, slideCount: slideIntents.length });
     checkCancelled(context.signal);
 
-    const designSystem = generateDesignTokens(runContext.constraints || {});
+    const constraints = runContext.constraints || {};
+    const userConfig =
+      (runContext && typeof runContext === "object" ? runContext.userConfig : undefined) ||
+      (contentPackage && typeof contentPackage === "object" ? contentPackage.userConfig : undefined) ||
+      (context && typeof context === "object" ? context.userConfig : undefined) ||
+      {};
+
+    let designSystem;
+    try {
+      designSystem = await generateDesignSystem(
+        {
+          contentSummary: contentPackage?.summary || "",
+          tone: String(constraints?.tone || contentPackage?.constraints?.tone || "neutral"),
+          extractedPalette: contentPackage?.constraints?.extractedPalette || constraints?.extractedPalette,
+          userPreferences: userConfig,
+        },
+        { aiApiService: context.aiApiService, signal: context.signal, constraints }
+      );
+    } catch (e) {
+      checkCancelled(context.signal);
+      designSystem = generateDesignTokens(constraints);
+    }
+
+    if (!designSystem || !designSystem?.designTokens) {
+      designSystem = generateDesignTokens(constraints);
+    }
     emitStage(emit, "design.tokens.ended", "ended", { theme: designSystem?.theme });
     checkCancelled(context.signal);
 
-    const constraints = runContext.constraints || {};
     const imageSlots = hasImagePlanningConfig(constraints) ? ImagePlanner.plan(slideIntents, designSystem, constraints) : [];
     const pendingImages = imageSlots.map((s) => s.slotId);
     const estimatedCostUSD = imageSlots.reduce((sum, s) => sum + estimateSlotCostUSD(s), 0);

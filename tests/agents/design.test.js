@@ -301,3 +301,140 @@ test("Design: design/index.js re-exports stage surface", async () => {
   assert.ok(typeof design.DesignStage === "function");
   assert.ok(typeof design.runDesignStage === "function");
 });
+
+test("Design: validateDesignSystem passes for fallback generator output", async () => {
+  const { generateDesignSystem } = await import("../../js/agents/stages/design/design-system-generator.js");
+  const { validateDesignSystem } = await import("../../js/agents/stages/design/design-tokens.js");
+
+  const system = await generateDesignSystem(
+    { contentSummary: "x", tone: "business", extractedPalette: null, userPreferences: {} },
+    { aiApiService: null, constraints: { theme: "light" } }
+  );
+
+  const res = validateDesignSystem(system);
+  assert.equal(res.ok, true);
+  assert.ok(system?.designTokens?.colors?.primary);
+});
+
+test("Design: design-system-generator uses aiApiService and returns validated DesignSystem", async () => {
+  const { generateDesignSystem } = await import("../../js/agents/stages/design/design-system-generator.js");
+  const { validateDesignSystem } = await import("../../js/agents/stages/design/design-tokens.js");
+
+  const calls = [];
+  const aiApiService = {
+    chat: async (opts) => {
+      calls.push(opts);
+      const system = {
+        colors: {
+          background: { slide: "#ffffff", gradient: "#0ea5e9", panel: "#ffffff" },
+          text: { primary: "#0f172a", secondary: "#475569", muted: "#64748b", inverse: "#ffffff" },
+          accent: { primary: "#0ea5e9", secondary: "#22c55e" },
+          border: "#e2e8f0",
+        },
+        typography: {
+          fontFamily: "Inter, system-ui, sans-serif",
+          scale: { hero: 56, h1: 44, h2: 32, subtitle: 18, body: 16, caption: 12 },
+          lineHeight: 1.25,
+        },
+        spacing: { page: { marginX: 6, marginTop: 4, contentStartY: 10 }, element: { gapX: 8, gapY: 10 } },
+        layouts: { header: {}, cover: {}, content: {} },
+        components: { card: {}, table: {}, icon: {}, line: {} },
+        effects: { shadow: {}, blur: 0, imageMask: "none", imageRadius: 12 },
+        constraints: { minFontSize: 12, maxElementsPerSlide: 18, coordinateUnit: "percent", colorFormat: "hex" },
+      };
+      return { content: JSON.stringify(system) };
+    },
+  };
+
+  const out = await generateDesignSystem(
+    { contentSummary: "Demo", tone: "business", extractedPalette: { primary: "#0ea5e9" }, userPreferences: { theme: "light" } },
+    { aiApiService, constraints: { theme: "light" } }
+  );
+
+  assert.equal(calls.length, 1);
+  assert.ok(out?.colors?.background?.slide);
+  assert.ok(out?.designTokens?.colors?.primary);
+  assert.equal(validateDesignSystem(out).ok, true);
+});
+
+test("Design: design-system-generator falls back on invalid AI output", async () => {
+  const { generateDesignSystem } = await import("../../js/agents/stages/design/design-system-generator.js");
+  const { validateDesignSystem } = await import("../../js/agents/stages/design/design-tokens.js");
+
+  const aiApiService = { chat: async () => ({ content: JSON.stringify({ nope: true }) }) };
+  const out = await generateDesignSystem({ contentSummary: "Demo" }, { aiApiService, constraints: { theme: "dark" } });
+
+  assert.ok(out?.designTokens?.colors?.primary);
+  assert.equal(validateDesignSystem(out).ok, true);
+});
+
+test("Design: validateDesignSystem fails on broken schema + DSL violations", async () => {
+  const { validateDesignSystem } = await import("../../js/agents/stages/design/design-tokens.js");
+
+  const bad = {
+    colors: { background: { slide: "white", gradient: "#0ea5e9", panel: "#fff" } },
+    typography: { fontFamily: "", scale: { hero: 10 }, lineHeight: "1.2" },
+    spacing: { page: { marginX: 2, marginTop: 1, contentStartY: 10 }, element: { gapX: 8, gapY: 10 } },
+    layouts: { header: {}, cover: {}, content: {} },
+    components: { card: {}, table: {}, icon: {}, line: {} },
+    effects: { shadow: {}, blur: 0, imageMask: "none", imageRadius: 12 },
+    constraints: { minFontSize: 10, maxElementsPerSlide: 18, coordinateUnit: "px", colorFormat: "hex" },
+  };
+
+  const res = validateDesignSystem(bad);
+  assert.equal(res.ok, false);
+  assert.ok(res.errors.some((e) => e.includes("minFontSize")));
+  assert.ok(res.errors.some((e) => e.includes("marginX")));
+  assert.ok(res.errors.some((e) => e.includes("invalid_color")));
+ });
+
+test("Design: DesignStage prefers dynamic design system generation when AI is available", async () => {
+  const { DesignStage } = await import("../../js/agents/stages/design/design-agent.js");
+
+  const calls = [];
+  const aiApiService = {
+    chat: async (opts) => {
+      const joined = opts.messages.map((m) => m.content).join("\n");
+      if (joined.includes("Output JSON MUST match this shape")) {
+        calls.push("designSystem");
+        const system = {
+          colors: {
+            background: { slide: "#ffffff", gradient: "#7c3aed", panel: "#ffffff" },
+            text: { primary: "#0f172a", secondary: "#475569", muted: "#64748b", inverse: "#ffffff" },
+            accent: { primary: "#7c3aed", secondary: "#f59e0b" },
+            border: "#e2e8f0",
+          },
+          typography: {
+            fontFamily: "Inter, system-ui, sans-serif",
+            scale: { hero: 56, h1: 44, h2: 32, subtitle: 18, body: 16, caption: 12 },
+            lineHeight: 1.25,
+          },
+          spacing: { page: { marginX: 6, marginTop: 4, contentStartY: 10 }, element: { gapX: 8, gapY: 10 } },
+          layouts: { header: {}, cover: {}, content: {} },
+          components: { card: {}, table: {}, icon: {}, line: {} },
+          effects: { shadow: {}, blur: 0, imageMask: "none", imageRadius: 12 },
+          constraints: { minFontSize: 12, maxElementsPerSlide: 18, coordinateUnit: "percent", colorFormat: "hex" },
+        };
+        return { content: JSON.stringify(system) };
+      }
+
+      calls.push("slides");
+      const marker = "Slide intents:\n";
+      const json = joined.slice(joined.lastIndexOf(marker) + marker.length);
+      const batch = JSON.parse(json);
+      const slides = batch.map((si) => ({
+        slideIntentId: si.slideIntentId,
+        slideHtml: `<section data-type="freeform" id="slide-${si.slideIntentId}" data-bg="#ffffff" data-title="${si.title}"><div data-el="text" data-x="8%" data-y="10%" data-w="84%" data-font="16" data-color="#111111">${si.title}</div></section>`,
+      }));
+      return { content: JSON.stringify(slides) };
+    },
+  };
+
+  const contentPackage = makeContentPackage({ slideCount: 1 });
+  const stage = new DesignStage({ batchSize: 4 });
+  const deck = await stage.run(contentPackage, { runContext: { runId: "run_test", constraints: contentPackage.constraints }, aiApiService });
+
+  assert.deepEqual(calls.slice(0, 2), ["designSystem", "slides"]);
+  assert.equal(deck.designSystem?.colors?.accent?.primary, "#7c3aed");
+  assert.ok(deck.designSystem?.designTokens?.colors?.primary);
+});

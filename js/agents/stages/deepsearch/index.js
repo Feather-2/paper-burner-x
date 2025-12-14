@@ -1,7 +1,7 @@
 // DeepSearch stage entry: S2-S7 pipeline to produce ContentPackage v0.1 (DeepSearch mode).
 
 import { buildContentPackage } from "../textprep/build-content-package.js";
-import { DeepSearchState, checkCancelled, makeStageEmitter } from "./state.js";
+import { DeepSearchState, checkCancelled, computeRoundHitsByGapId, makeStageEmitter, validateIteration } from "./state.js";
 import { runDeepSearchScanStage } from "./scan.js";
 import { runDeepSearchGapsStage } from "./gaps.js";
 import { runDeepSearchRetrieveStage } from "./retrieve.js";
@@ -123,118 +123,21 @@ function signatureForRetrievedChunk(r) {
   return `${gapId}::${sourceId}::${charStart}-${charEnd}`;
 }
 
-function validateIteration(state, { blockAfterMisses = 2 } = {}) {
-  const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
-  const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
-  const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
+export function shouldContinue(state, roundResult) {
+  if (!state || typeof state !== "object") return false;
+  const it = safeInt(state?.iteration) ?? 0;
+  const maxIt = safeInt(state?.maxIterations) ?? 0;
+  if (maxIt >= 1 && it >= maxIt) return false;
 
-  const retrievedByChunkId = new Map();
-  const hitCountByGapId = new Map();
-  for (const r of retrieved) {
-    const chunkId = String(r?.chunkId || "");
-    if (chunkId) retrievedByChunkId.set(chunkId, r);
-    const matched = Array.isArray(r?.matchedGapIds) ? r.matchedGapIds.map(String).filter(Boolean) : [];
-    if (matched.length) {
-      for (const gid of matched) hitCountByGapId.set(gid, (hitCountByGapId.get(gid) || 0) + 1);
-      continue;
-    }
-    const gid = String(r?.gapId || "");
-    if (gid) hitCountByGapId.set(gid, (hitCountByGapId.get(gid) || 0) + 1);
-  }
+  if (openGaps(state).length === 0) return false;
 
-  const filledGapIds = new Set();
-  for (const e of evidenceLedger) {
-    const gapIds = Array.isArray(e?.gapIds) ? e.gapIds.map(String).filter(Boolean) : [];
-    if (gapIds.length) {
-      for (const gid of gapIds) filledGapIds.add(gid);
-      continue;
-    }
-    const chunkId = String(e?.chunkId || "");
-    const r = retrievedByChunkId.get(chunkId);
-    if (!r) continue;
-    const matched = Array.isArray(r?.matchedGapIds) ? r.matchedGapIds.map(String).filter(Boolean) : [];
-    if (matched.length) {
-      for (const gid of matched) filledGapIds.add(gid);
-      continue;
-    }
-    const gid = String(r?.gapId || "");
-    if (gid) filledGapIds.add(gid);
-  }
+  const noNewHitsRounds = safeInt(roundResult?.noNewHitsRounds);
+  if (noNewHitsRounds !== null && noNewHitsRounds >= 2) return false;
 
-  let filledCount = 0;
-  let blockedCount = 0;
-  let stillOpenCount = 0;
-  const now = new Date().toISOString();
+  if (roundResult?.aborted) return false;
+  if (roundResult?.budgetStopRequested) return false;
 
-  for (const g of gaps) {
-    const gid = String(g?.gapId || "");
-    if (!gid) continue;
-    const status = String(g?.status || "open");
-    if (status === "filled" || status === "blocked") continue;
-
-    if (filledGapIds.has(gid)) {
-      g.status = "filled";
-      g.filledAt = now;
-      g.filledIteration = state.iteration;
-      filledCount++;
-      continue;
-    }
-
-    const hits = hitCountByGapId.get(gid) || 0;
-    if (hits > 0) {
-      g.missCount = 0;
-      stillOpenCount++;
-      continue;
-    }
-
-    const priorMisses = safeInt(g?.missCount) ?? 0;
-    const misses = Math.max(0, priorMisses) + 1;
-    g.missCount = misses;
-
-    if (misses >= blockAfterMisses) {
-      g.status = "blocked";
-      g.blockedAt = now;
-      g.blockedReason = String(g.blockedReason || "no_retrieval_hits");
-      blockedCount++;
-    } else {
-      stillOpenCount++;
-    }
-  }
-
-  const todos = Array.isArray(state?.todos) ? state.todos : [];
-  const todoByGapId = new Map();
-  for (const t of todos) {
-    const rgid = String(t?.relatedGapId || "");
-    if (!rgid) continue;
-    todoByGapId.set(rgid, t);
-  }
-  for (const g of gaps) {
-    const gid = String(g?.gapId || "");
-    if (!gid) continue;
-    const t = todoByGapId.get(gid);
-    if (!t) continue;
-    if (g.status === "filled") t.status = "done";
-    if (g.status === "blocked") t.status = "blocked";
-  }
-
-  const tree = state?.planningTree;
-  if (typeof tree?.getNodesForGap === "function" && typeof tree?.updateStatus === "function") {
-    for (const g of gaps) {
-      const gid = String(g?.gapId || "");
-      if (!gid) continue;
-      if (g.status !== "filled" && g.status !== "blocked") continue;
-      const next = g.status === "filled" ? "completed" : "blocked";
-      for (const n of tree.getNodesForGap(gid)) tree.updateStatus(n.nodeId, next);
-    }
-  }
-
-  state.addTimeline({
-    name: "deepsearch.validate",
-    status: "completed",
-    payload: { filledCount, blockedCount, openCount: openGaps(state).length },
-  });
-
-  return { filledCount, blockedCount, openCount: openGaps(state).length };
+  return true;
 }
 
 export class DeepSearchStage {
@@ -376,152 +279,185 @@ export class DeepSearchStage {
         emit?.("deepsearch.budget.stop", { iteration: state.iteration });
       }
 
-    const seenHitSignatures = new Set();
-    let noNewHitsRounds = 0;
-    const runRetrieveUnderstandRound = async () => {
-      if (budgetStopRequested) return { retrievedChunks: [], newHitCount: 0 };
-      checkCancelled(stageApiWithTap);
-      const { value: retrieveOut } = await callStage("deepsearch.retrieve", () => runDeepSearchRetrieveStage(runContext, { state }, stageApiWithTap), {
-        stageState: state,
-        fallbackValue: { state, retrievedChunks: [] },
-      });
-      const retrievedChunks = retrieveOut?.retrievedChunks;
-      updateTaskProgress();
-
-      let newHitCount = 0;
-      for (const r of Array.isArray(retrievedChunks) ? retrievedChunks : []) {
-        const sig = signatureForRetrievedChunk(r);
-        if (!seenHitSignatures.has(sig)) {
-          seenHitSignatures.add(sig);
-          newHitCount++;
-        }
-      }
-      noNewHitsRounds = newHitCount === 0 ? noNewHitsRounds + 1 : 0;
-
-      if (budgetStopRequested) return { retrievedChunks, newHitCount };
-      checkCancelled(stageApiWithTap);
-      await callStage("deepsearch.understand", () => runDeepSearchUnderstandStage(runContext, { state }, stageApiWithTap), {
-        stageState: state,
-        fallbackValue: { state },
-      });
-      updateTaskProgress();
-
-      validateIteration(state, { blockAfterMisses: getGapBlockAfterMisses(state) });
-
-      const checkpoint = state.saveCheckpoint();
-      emit?.("deepsearch.checkpoint.saved", { checkpointId: checkpoint.checkpointId, iteration: checkpoint.iteration, metrics: checkpoint.metrics });
-      state.addTimeline({ name: "deepsearch.checkpoint.saved", status: "info", payload: { checkpointId: checkpoint.checkpointId, iteration: checkpoint.iteration } });
-
-      state.iteration += 1;
-
-      return { retrievedChunks, newHitCount };
-    };
-
-    const trajectoryCfg = getTrajectoryConfig(state);
-    if ((safeInt(trajectoryCfg.n) ?? 1) > 1) {
-      const manager = new TrajectoryManager(trajectoryCfg);
-      state.trajectoryConfig = { ...manager.config };
-
-      emit?.("deepsearch.trajectory.forked", { n: manager.config.n, mergeStrategy: manager.config.mergeStrategy });
-
-      const trajectories = manager.fork(state);
-      await Promise.allSettled(
-        trajectories.map((trajectory) =>
-          manager.runTrajectory(
-            trajectory,
-            {
-              runContext,
-              runGapsStage: wrapStageFn("deepsearch.gaps", runDeepSearchGapsStage, {
-                fallbackValue: (s) => ({ state: s, gaps: Array.isArray(s?.L1?.gaps) ? s.L1.gaps : [], todos: [] }),
-              }),
-              runRetrieveStage: wrapStageFn("deepsearch.retrieve", runDeepSearchRetrieveStage, {
-                fallbackValue: (s) => ({ state: s, retrievedChunks: [] }),
-              }),
-              runUnderstandStage: wrapStageFn("deepsearch.understand", runDeepSearchUnderstandStage, {
-                fallbackValue: (s) => ({ state: s }),
-              }),
-              emit: emit ? (name, payload) => emit(name, payload) : null,
-            },
-            stageApiWithTap
-          )
-        )
-      );
-
-      const merged = manager.merge();
-      if (merged) applyMergedState(state, merged);
-
-      emit?.("deepsearch.trajectory.merged", { mergeStrategy: manager.config.mergeStrategy });
-      updateTaskProgress();
-    } else {
-    while (state.iteration < state.maxIterations && !stageApiWithTap?.signal?.aborted && !budgetStopRequested) {
-      checkCancelled(stageApiWithTap);
-      await callStage("deepsearch.gaps", () => runDeepSearchGapsStage(runContext, { state }, stageApiWithTap), {
-        stageState: state,
-        fallbackValue: { state, gaps: Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [], todos: [] },
-      });
-      updateTaskProgress();
-
-      const gaps = openGaps(state);
-      if (gaps.length === 0) break;
-
-      await runRetrieveUnderstandRound();
-
-      if (openGaps(state).length === 0) break;
-      if (noNewHitsRounds >= 2) break;
-    }
-    }
-
-    if (!stageApiWithTap?.signal?.aborted && !budgetStopRequested) {
+      const seenHitSignatures = new Set();
+      let noNewHitsRounds = 0;
+      let lastRoundResult = null;
       const maxWriteBacktrack = 3;
+
+      const trajectoryCfg = getTrajectoryConfig(state);
+      const useTrajectories = (safeInt(trajectoryCfg.n) ?? 1) > 1;
+
+      if (useTrajectories) {
+        const manager = new TrajectoryManager(trajectoryCfg);
+        state.trajectoryConfig = { ...manager.config };
+
+        emit?.("deepsearch.trajectory.forked", { n: manager.config.n, mergeStrategy: manager.config.mergeStrategy });
+
+        const trajectories = manager.fork(state);
+        await Promise.allSettled(
+          trajectories.map((trajectory) =>
+            manager.runTrajectory(
+              trajectory,
+              {
+                runContext,
+                runGapsStage: wrapStageFn("deepsearch.gaps", runDeepSearchGapsStage, {
+                  fallbackValue: (s) => ({ state: s, gaps: Array.isArray(s?.L1?.gaps) ? s.L1.gaps : [], todos: [] }),
+                }),
+                runRetrieveStage: wrapStageFn("deepsearch.retrieve", runDeepSearchRetrieveStage, {
+                  fallbackValue: (s) => ({ state: s, retrievedChunks: [] }),
+                }),
+                runUnderstandStage: wrapStageFn("deepsearch.understand", runDeepSearchUnderstandStage, {
+                  fallbackValue: (s) => ({ state: s }),
+                }),
+                emit: emit ? (name, payload) => emit(name, payload) : null,
+              },
+              stageApiWithTap
+            )
+          )
+        );
+
+        const merged = manager.merge();
+        if (merged) applyMergedState(state, merged);
+
+        emit?.("deepsearch.trajectory.merged", { mergeStrategy: manager.config.mergeStrategy });
+        updateTaskProgress();
+      }
+
+      let phase = useTrajectories ? "write" : "gaps";
       while (!stageApiWithTap?.signal?.aborted && !budgetStopRequested) {
         checkCancelled(stageApiWithTap);
-        const { value: writeOut } = await callStage("deepsearch.write", () => runDeepSearchWriteStage(runContext, { state }, stageApiWithTap), { stageState: state });
-        updateTaskProgress();
 
-        const feedbackToResearch = writeOut?.feedbackToResearch;
-        const needsMoreResearch = Boolean(feedbackToResearch?.needsMoreResearch);
-        const reopenGaps = Array.isArray(feedbackToResearch?.reopenGaps) ? feedbackToResearch.reopenGaps : [];
-        const newGaps = Array.isArray(feedbackToResearch?.newGaps) ? feedbackToResearch.newGaps : [];
+        if (phase === "gaps") {
+          if (state.iteration >= state.maxIterations) {
+            phase = "write";
+            continue;
+          }
+          await callStage("deepsearch.gaps", () => runDeepSearchGapsStage(runContext, { state }, stageApiWithTap), {
+            stageState: state,
+            fallbackValue: { state, gaps: Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [], todos: [] },
+          });
+          updateTaskProgress();
 
-        if (!needsMoreResearch) break;
-        if (state.iteration >= state.maxIterations) break;
-        if ((safeInt(state.writeBacktrackCount) ?? 0) >= maxWriteBacktrack) break;
-        if (reopenGaps.length === 0 && newGaps.length === 0) break;
+          if (openGaps(state).length === 0) {
+            phase = "write";
+            continue;
+          }
 
-        state.saveWriteSnapshot();
-        state.writeBacktrackCount = (safeInt(state.writeBacktrackCount) ?? 0) + 1;
-        state.reopenGaps(reopenGaps, { reason: feedbackToResearch?.reason });
-        state.addNewGaps(newGaps);
-        noNewHitsRounds = 0;
-
-        emit?.("deepsearch.write.backtrack.requested", {
-          writeBacktrackCount: state.writeBacktrackCount,
-          maxWriteBacktrack,
-          feedbackToResearch,
-        });
-        state.addTimeline({
-          name: "deepsearch.write.backtrack.requested",
-          status: "info",
-          payload: { writeBacktrackCount: state.writeBacktrackCount, maxWriteBacktrack, ...(feedbackToResearch ? { feedbackToResearch } : {}) },
-        });
-
-        while (state.iteration < state.maxIterations && openGaps(state).length > 0 && !stageApiWithTap?.signal?.aborted && !budgetStopRequested) {
-          if (noNewHitsRounds >= 2) break;
-          await runRetrieveUnderstandRound();
-          if (openGaps(state).length === 0) break;
-          if (noNewHitsRounds >= 2) break;
+          phase = "round";
+          continue;
         }
+
+        if (phase === "round") {
+          if (state.iteration >= state.maxIterations) {
+            phase = "write";
+            continue;
+          }
+          if (openGaps(state).length === 0) {
+            phase = "write";
+            continue;
+          }
+
+          const { value: retrieveOut } = await callStage("deepsearch.retrieve", () => runDeepSearchRetrieveStage(runContext, { state }, stageApiWithTap), {
+            stageState: state,
+            fallbackValue: { state, retrievedChunks: [] },
+          });
+          const retrievedChunks = retrieveOut?.retrievedChunks;
+          updateTaskProgress();
+
+          let hitCount = 0;
+          for (const r of Array.isArray(retrievedChunks) ? retrievedChunks : []) {
+            const sig = signatureForRetrievedChunk(r);
+            if (!seenHitSignatures.has(sig)) {
+              seenHitSignatures.add(sig);
+              hitCount++;
+            }
+          }
+          noNewHitsRounds = hitCount === 0 ? noNewHitsRounds + 1 : 0;
+
+          await callStage("deepsearch.understand", () => runDeepSearchUnderstandStage(runContext, { state }, stageApiWithTap), {
+            stageState: state,
+            fallbackValue: { state },
+          });
+          updateTaskProgress();
+
+          const roundHits = computeRoundHitsByGapId(retrievedChunks);
+          const validateOut = validateIteration(state, { blockAfterMisses: getGapBlockAfterMisses(state), roundHits });
+
+          const completedIteration = state.iteration;
+          const checkpoint = state.saveCheckpoint();
+          emit?.("deepsearch.checkpoint.saved", { checkpointId: checkpoint.checkpointId, iteration: checkpoint.iteration, metrics: checkpoint.metrics });
+          state.addTimeline({ name: "deepsearch.checkpoint.saved", status: "info", payload: { checkpointId: checkpoint.checkpointId, iteration: checkpoint.iteration } });
+
+          emit?.("iteration.completed", {
+            iteration: completedIteration,
+            hitCount,
+            noNewHitsRounds,
+            ...(validateOut && typeof validateOut === "object" ? validateOut : {}),
+            openGapCount: openGaps(state).length,
+          });
+
+          state.iteration += 1;
+
+          lastRoundResult = { hitCount, noNewHitsRounds, openGapCount: openGaps(state).length };
+          phase = shouldContinue(state, lastRoundResult) ? "gaps" : "write";
+          continue;
+        }
+
+        if (phase === "write") {
+          const { value: writeOut } = await callStage("deepsearch.write", () => runDeepSearchWriteStage(runContext, { state }, stageApiWithTap), { stageState: state });
+          updateTaskProgress();
+
+          const feedbackToResearch = writeOut?.feedbackToResearch;
+          const needsMoreResearch = Boolean(feedbackToResearch?.needsMoreResearch);
+          const reopenGaps = Array.isArray(feedbackToResearch?.reopenGaps) ? feedbackToResearch.reopenGaps : [];
+          const newGaps = Array.isArray(feedbackToResearch?.newGaps) ? feedbackToResearch.newGaps : [];
+
+          const canBacktrack =
+            needsMoreResearch &&
+            state.iteration < state.maxIterations &&
+            (safeInt(state.writeBacktrackCount) ?? 0) < maxWriteBacktrack &&
+            (reopenGaps.length > 0 || newGaps.length > 0);
+
+          if (!canBacktrack) {
+            phase = "condense";
+            continue;
+          }
+
+          state.saveWriteSnapshot();
+          state.writeBacktrackCount = (safeInt(state.writeBacktrackCount) ?? 0) + 1;
+          state.reopenGaps(reopenGaps, { reason: feedbackToResearch?.reason });
+          state.addNewGaps(newGaps);
+          noNewHitsRounds = 0;
+
+          emit?.("deepsearch.write.backtrack.requested", {
+            writeBacktrackCount: state.writeBacktrackCount,
+            maxWriteBacktrack,
+            feedbackToResearch,
+          });
+          state.addTimeline({
+            name: "deepsearch.write.backtrack.requested",
+            status: "info",
+            payload: { writeBacktrackCount: state.writeBacktrackCount, maxWriteBacktrack, ...(feedbackToResearch ? { feedbackToResearch } : {}) },
+          });
+
+          phase = openGaps(state).length > 0 ? "round" : "write";
+          continue;
+        }
+
+        if (phase === "condense") {
+          await callStage("deepsearch.condense", () => runDeepSearchCondenseStage(runContext, { state }, stageApiWithTap), { stageState: state });
+          updateTaskProgress();
+          break;
+        }
+
+        // Safety: unknown phase means exit.
+        break;
       }
 
-      if (!budgetStopRequested) {
-        checkCancelled(stageApiWithTap);
-        await callStage("deepsearch.condense", () => runDeepSearchCondenseStage(runContext, { state }, stageApiWithTap), { stageState: state });
+      if (stageApiWithTap?.signal?.aborted || budgetStopRequested) {
+        state.addTimeline({ name: "deepsearch.aborted", status: "warning", payload: { iteration: state.iteration } });
+        emit?.("deepsearch.aborted", { iteration: state.iteration });
       }
-      updateTaskProgress();
-    } else {
-      state.addTimeline({ name: "deepsearch.aborted", status: "warning", payload: { iteration: state.iteration } });
-      emit?.("deepsearch.aborted", { iteration: state.iteration });
-    }
 
     const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
     const slideIntents = Array.isArray(state?.L1?.slideIntents) ? state.L1.slideIntents : [];

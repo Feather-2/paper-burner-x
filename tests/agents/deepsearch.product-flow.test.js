@@ -73,6 +73,10 @@ test("Product Flow: Orchestrator (ingest -> deepsearch.pipeline) produces Conten
   // DeepSearch internal progress events should be visible on the orchestrator bus.
   assert.ok(events.some((e) => e.name === "deepsearch.scan.progress"));
   assert.ok(events.some((e) => e.name === "deepsearch.retrieve.progress"));
+
+  const iterationEvents = events.filter((e) => e.name === "iteration.completed");
+  assert.ok(iterationEvents.length >= 1, "expected at least one iteration.completed event");
+  assert.ok(iterationEvents.every((e) => typeof e.payload?.hitCount === "number" && Number.isFinite(e.payload.hitCount)));
 });
 
 test("Product Flow: DeepSearch pipeline error propagates and aborts orchestrator.run()", async () => {

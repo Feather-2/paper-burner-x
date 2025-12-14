@@ -398,6 +398,14 @@ class SlideParser {
     }
 }
 
+// 兼容：浏览器全局 + Node.js 单测
+if (typeof window !== 'undefined') {
+    window.SlideParser = SlideParser;
+}
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { SlideParser };
+}
+
 // ============================================================
 // 3. HTMLSlideRenderer - 渲染到 HTML (浏览器预览)
 // 使用与 PPTX 相同的参数，自动缩放到预览尺寸
