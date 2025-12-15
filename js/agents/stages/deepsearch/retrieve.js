@@ -552,125 +552,129 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
   const maxIterations = safeInt(iterativeConfig.maxIterations) ?? 2;
 
   const retrievedByChunkId = new Map(); // chunkId -> merged row (without retrievedId)
-  for (let i = 0; i < gaps.length; i++) {
-    const g = gaps[i];
-    const gapId = toNonEmptyString(g?.gapId) || `gap_${i + 1}`;
-    const gapType = toNonEmptyString(g?.type) || "";
+  const allChunksForToolChain = enableToolChain
+    ? sourceIndexes.flatMap((sourceIndex) => (Array.isArray(sourceIndex?.chunks) ? sourceIndex.chunks : []))
+    : [];
+  const allChunksForToolChainById = new Map(allChunksForToolChain.map((c) => [String(c?.chunkId || ""), c]).filter(([id]) => id));
 
-    emitRetrieveProgress(emit, {
-      current: i + 1,
-      total: gaps.length,
-      msg: `正在检索 ${gapId} 的证据${g?.question ? `：${String(g.question).slice(0, 80)}` : ""}`,
-      detail: { gapId, type: toNonEmptyString(g?.type) || "unknown", priority: toNonEmptyString(g?.priority) || "medium", question: toNonEmptyString(g?.question) || "" },
-    });
+  const gapResults = await Promise.all(
+    gaps.map(async (g, i) => {
+      const gapId = toNonEmptyString(g?.gapId) || `gap_${i + 1}`;
+      const gapType = toNonEmptyString(g?.type) || "";
 
-    // 获取推荐的检索策略
-    const recommendedStrategy = state.planningTree ? state.planningTree.getBestStrategy(sources) : 'bm25';
-    const retrievalStartTime = Date.now();
+      emitRetrieveProgress(emit, {
+        current: i + 1,
+        total: gaps.length,
+        msg: `正在检索 ${gapId} 的证据${g?.question ? `：${String(g.question).slice(0, 80)}` : ""}`,
+        detail: { gapId, type: toNonEmptyString(g?.type) || "unknown", priority: toNonEmptyString(g?.priority) || "medium", question: toNonEmptyString(g?.question) || "" },
+      });
 
-    // 使用迭代检索
-    let retrieved;
-    if (enableIterative && maxIterations > 1) {
-      retrieved = await trackToolCall('iterativeRetrieve', { gapId, maxIterations }, async () =>
-        iterativeRetrieve({ ...g, gapId }, sourceIndexes, localRetriever, routerConfig, stageApi, state, emit, maxIterations)
-      );
-    } else {
-      // 单次检索（向后兼容）
-      retrieved = [];
-      for (const sourceIndex of sourceIndexes) {
-        const result = await trackToolCall('localRetriever', { gapId, sourceId: sourceIndex.sourceId }, async () =>
-          localRetriever(sourceIndex, [{ ...g, gapId }], routerConfig)
+      // 获取推荐的检索策略
+      const recommendedStrategy = state.planningTree ? state.planningTree.getBestStrategy(sources) : "bm25";
+      const retrievalStartTime = Date.now();
+
+      // 使用迭代检索
+      let retrieved;
+      if (enableIterative && maxIterations > 1) {
+        retrieved = await trackToolCall("iterativeRetrieve", { gapId, maxIterations }, async () =>
+          iterativeRetrieve({ ...g, gapId }, sourceIndexes, localRetriever, routerConfig, stageApi, state, emit, maxIterations)
         );
-        retrieved.push(...result);
-      }
-    }
-
-    // 记录检索策略结果
-    const retrievalLatency = Date.now() - retrievalStartTime;
-    if (state.planningTree) {
-      state.planningTree.recordStrategyResult(recommendedStrategy, {
-        hits: retrieved.length,
-        latency: retrievalLatency
-      });
-
-      emit?.("deepsearch.retrieve.strategy", {
-        gapId,
-        strategy: recommendedStrategy,
-        hits: retrieved.length,
-        latency: retrievalLatency,
-        hitRate: state.planningTree.getStrategyHitRate(recommendedStrategy)
-      });
-    }
-
-    // 工具链增强：如果 enableToolChain=true 且检索结果不足，使用工具链补充
-    if (enableToolChain && retrieved.length < topK) {
-      const queryHints = Array.isArray(g?.queryHints) ? g.queryHints : [];
-      const question = toNonEmptyString(g?.question) || "";
-      const keywords = [...queryHints.map((h) => String(h || "").trim()).filter(Boolean), ...question.split(/\s+/).slice(0, 5)];
-
-      if (keywords.length > 0) {
-        // 合并所有 sourceIndex 的 chunks
-        const allChunks = [];
+      } else {
+        // 单次检索（向后兼容）
+        retrieved = [];
         for (const sourceIndex of sourceIndexes) {
-          allChunks.push(...(sourceIndex.chunks || []));
-        }
-
-        try {
-          const toolChainResult = await trackToolCall('toolChainSearch', { gapId, keywords: keywords.slice(0, 10) }, async () =>
-            toolChainSearch(
-              allChunks,
-              {
-                strategy: toolChainConfig.strategy || "auto",
-                patterns: Array.isArray(toolChainConfig.patterns) ? toolChainConfig.patterns : [],
-                keywords: keywords.slice(0, 10), // 限制关键词数量
-              },
-              {
-                globTool: stageApi?.globTool,
-                basePath: toolChainConfig.basePath,
-                regex: Boolean(routerConfig.grepRegex),
-                caseSensitive: Boolean(routerConfig.caseSensitive),
-                timeoutMs: toolChainConfig.timeoutMs || 200,
-              }
-            )
+          const result = await trackToolCall("localRetriever", { gapId, sourceId: sourceIndex.sourceId }, async () =>
+            localRetriever(sourceIndex, [{ ...g, gapId }], routerConfig)
           );
+          retrieved.push(...result);
+        }
+      }
 
-          // 将工具链结果转换为 retrieved 格式
-          for (const tcr of toolChainResult.results || []) {
-            const chunk = allChunks.find((c) => c.chunkId === tcr.chunkId);
-            if (!chunk) continue;
+      // 记录检索策略结果
+      const retrievalLatency = Date.now() - retrievalStartTime;
+      if (state.planningTree) {
+        state.planningTree.recordStrategyResult(recommendedStrategy, {
+          hits: retrieved.length,
+          latency: retrievalLatency,
+        });
 
-            // 检查是否已存在
-            if (retrieved.find((r) => r.chunkId === tcr.chunkId)) continue;
+        emit?.("deepsearch.retrieve.strategy", {
+          gapId,
+          strategy: recommendedStrategy,
+          hits: retrieved.length,
+          latency: retrievalLatency,
+          hitRate: state.planningTree.getStrategyHitRate(recommendedStrategy),
+        });
+      }
 
-            retrieved.push({
-              chunkId: tcr.chunkId,
-              sourceId: chunk.sourceId || "source_unknown",
-              locator: chunk.locator,
-              text: chunk.text,
-              score: Math.log(1 + tcr.matchCount), // 使用 grep 风格的评分
-              relevance: "hit",
-              matchedGapIds: [gapId],
-              toolChainStrategy: tcr.strategy,
+      // 工具链增强：如果 enableToolChain=true 且检索结果不足，使用工具链补充
+      if (enableToolChain && retrieved.length < topK) {
+        const queryHints = Array.isArray(g?.queryHints) ? g.queryHints : [];
+        const question = toNonEmptyString(g?.question) || "";
+        const keywords = [...queryHints.map((h) => String(h || "").trim()).filter(Boolean), ...question.split(/\s+/).slice(0, 5)];
+
+        if (keywords.length > 0 && allChunksForToolChain.length > 0) {
+          try {
+            const toolChainResult = await trackToolCall("toolChainSearch", { gapId, keywords: keywords.slice(0, 10) }, async () =>
+              toolChainSearch(
+                allChunksForToolChain,
+                {
+                  strategy: toolChainConfig.strategy || "auto",
+                  patterns: Array.isArray(toolChainConfig.patterns) ? toolChainConfig.patterns : [],
+                  keywords: keywords.slice(0, 10), // 限制关键词数量
+                },
+                {
+                  globTool: stageApi?.globTool,
+                  basePath: toolChainConfig.basePath,
+                  regex: Boolean(routerConfig.grepRegex),
+                  caseSensitive: Boolean(routerConfig.caseSensitive),
+                  timeoutMs: toolChainConfig.timeoutMs || 200,
+                }
+              )
+            );
+
+            // 将工具链结果转换为 retrieved 格式
+            for (const tcr of toolChainResult.results || []) {
+              const chunk = allChunksForToolChainById.get(String(tcr?.chunkId || ""));
+              if (!chunk) continue;
+
+              // 检查是否已存在
+              if (retrieved.find((r) => r.chunkId === tcr.chunkId)) continue;
+
+              retrieved.push({
+                chunkId: tcr.chunkId,
+                sourceId: chunk.sourceId || "source_unknown",
+                locator: chunk.locator,
+                text: chunk.text,
+                score: Math.log(1 + tcr.matchCount), // 使用 grep 风格的评分
+                relevance: "hit",
+                matchedGapIds: [gapId],
+                toolChainStrategy: tcr.strategy,
+              });
+            }
+
+            emit?.("deepsearch.retrieve.toolchain", {
+              gapId,
+              strategy: toolChainResult.strategy,
+              hits: toolChainResult.results?.length || 0,
+              stats: toolChainResult.stats,
+              fallbackReason: toolChainResult.fallbackReason,
+            });
+          } catch (err) {
+            // 工具链失败不阻塞主流程
+            emit?.("deepsearch.retrieve.toolchain_error", {
+              gapId,
+              error: String(err?.message || err),
             });
           }
-
-          emit?.("deepsearch.retrieve.toolchain", {
-            gapId,
-            strategy: toolChainResult.strategy,
-            hits: toolChainResult.results?.length || 0,
-            stats: toolChainResult.stats,
-            fallbackReason: toolChainResult.fallbackReason,
-          });
-        } catch (err) {
-          // 工具链失败不阻塞主流程
-          emit?.("deepsearch.retrieve.toolchain_error", {
-            gapId,
-            error: String(err?.message || err),
-          });
         }
       }
-    }
 
+      return { gapId, gapType, retrieved, gap: g };
+    })
+  );
+
+  for (const { gapId, gapType, retrieved } of gapResults) {
     for (const r of retrieved) {
       // Heuristic: data/metrics gaps should be supported by numeric evidence; avoid
       // attributing non-numeric chunks to data gaps to prevent false "hits" and fills.

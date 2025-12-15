@@ -268,12 +268,23 @@ export function computeRoundHitsByGapId(retrievedChunks) {
   return hits;
 }
 
-export function validateIteration(state, { roundHits, blockAfterMisses = 2, minEvidenceToFill = 1 } = {}, emit = null) {
+export function validateIteration(state, { roundHits, blockAfterMisses = 2, minEvidenceToFill } = {}, emit = null) {
   const runId = toNonEmptyString(state?.runId) || "run_unknown";
   const iteration = safeInt(state?.iteration) ?? 0;
   const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
   const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
   const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
+
+  const configuredMinEvidence = (() => {
+    const cfg = isPlainObject(state?.userConfig?.gaps) ? state.userConfig.gaps : {};
+    const n = safeInt(cfg.minEvidenceToFill);
+    return n !== null && n >= 1 ? n : null;
+  })();
+  const effectiveMinEvidenceToFill = (() => {
+    const n = safeInt(minEvidenceToFill);
+    if (n !== null && n >= 1) return n;
+    return configuredMinEvidence ?? 2;
+  })();
 
   const hitsByGapId = normalizeRoundHits(roundHits);
 
@@ -326,7 +337,7 @@ export function validateIteration(state, { roundHits, blockAfterMisses = 2, minE
 
     const evidenceCount = evidenceCountByGapId.get(gid) || 0;
     // 只有当 evidence 数量 >= minEvidenceToFill 时才标记为 filled
-    if (evidenceCount >= minEvidenceToFill) {
+    if (evidenceCount >= effectiveMinEvidenceToFill) {
       g.status = "filled";
       g.filledAt = now;
       g.filledIteration = state?.iteration;

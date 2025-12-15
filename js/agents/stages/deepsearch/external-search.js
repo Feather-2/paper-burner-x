@@ -271,108 +271,156 @@ export async function runExternalSearch(gaps, config, { emit, state, stageApi } 
       detail: { queriesCount: queries.length, providers: availableProviders },
     });
 
-    let providerCursor = 0;
-    for (const { query, gapId } of queries) {
-      checkCancelled(stageApi);
+    const providers = availableProviders.length ? availableProviders : ["local-mcp"];
 
-      const providers = availableProviders.length ? availableProviders : ["local-mcp"];
-      let searchResult = null;
-      let usedProviderId = null;
-
-      for (let attempt = 0; attempt < providers.length; attempt++) {
-        const pid = providers[(providerCursor + attempt) % providers.length];
-        const r = await provider.search(
-          { query, domain: config.domain, timeRange: config.timeRange, limit: config.maxExternalResults || 5 },
-          { providerId: pid },
-          { config, state, stageApi }
-        );
-        if (r && r.success) {
-          searchResult = r;
-          usedProviderId = pid;
-          providerCursor = (providerCursor + attempt + 1) % providers.length;
-          break;
-        }
-      }
-
-      if (!searchResult || !searchResult.success) {
-        console.warn(`[MCP Search] Failed for query "${query}":`, searchResult?.error);
-        continue;
-      }
-
-      const jsonContent = searchResult.content.find((c) => c?.type === "json");
-      const results = jsonContent?.data?.results || [];
-      const topResults = results.slice(0, Math.min(3, config.maxExternalResults || 3));
-
-      for (const result of topResults) {
+    const searchResults = await Promise.all(
+      queries.map(async ({ query, gapId }, queryIndex) => {
         checkCancelled(stageApi);
 
+        let searchResult = null;
+        let usedProviderId = null;
+        const startOffset = providers.length ? queryIndex % providers.length : 0;
+
+        for (let attempt = 0; attempt < providers.length; attempt++) {
+          const pid = providers[(startOffset + attempt) % providers.length];
+          const r = await provider.search(
+            { query, domain: config.domain, timeRange: config.timeRange, limit: config.maxExternalResults || 5 },
+            { providerId: pid },
+            { config, state, stageApi }
+          );
+          if (r && r.success) {
+            searchResult = r;
+            usedProviderId = pid;
+            break;
+          }
+        }
+
+        if (!searchResult || !searchResult.success) {
+          console.warn(`[MCP Search] Failed for query "${query}":`, searchResult?.error);
+          return { query, gapId, usedProviderId: null, topResults: [] };
+        }
+
+        const jsonContent = searchResult.content.find((c) => c?.type === "json");
+        const results = jsonContent?.data?.results || [];
+        const topResults = results.slice(0, Math.min(3, config.maxExternalResults || 3));
+        return { query, gapId, usedProviderId, topResults };
+      })
+    );
+
+    const fetchTargets = [];
+    for (const sr of searchResults) {
+      for (const result of sr.topResults || []) {
         const url = toNonEmptyString(result?.url);
         if (!url) continue;
+        fetchTargets.push({
+          query: sr.query,
+          gapId: sr.gapId,
+          url,
+          resultTitle: result?.title,
+          preferredProviderId: sr.usedProviderId,
+        });
+      }
+    }
 
-        let fetchResult = await provider.fetch({ url }, { providerId: usedProviderId || undefined }, { config, state, stageApi });
+    const fetchResults = await Promise.all(
+      fetchTargets.map(async (t) => {
+        checkCancelled(stageApi);
+
+        let usedProviderId = toNonEmptyString(t.preferredProviderId) || null;
+        let fetchResult = await provider.fetch({ url: t.url }, { providerId: usedProviderId || undefined }, { config, state, stageApi });
         if (!fetchResult?.success) {
           for (const pid of providers) {
             if (pid === usedProviderId) continue;
-            fetchResult = await provider.fetch({ url }, { providerId: pid }, { config, state, stageApi });
-            if (fetchResult?.success) break;
+            fetchResult = await provider.fetch({ url: t.url }, { providerId: pid }, { config, state, stageApi });
+            if (fetchResult?.success) {
+              usedProviderId = pid;
+              break;
+            }
           }
         }
 
         if (!fetchResult || !fetchResult.success) {
-          console.warn(`[MCP Fetch] Failed for URL "${url}":`, fetchResult.error);
-          continue;
+          console.warn(`[MCP Fetch] Failed for URL "${t.url}":`, fetchResult?.error);
+          return { ...t, success: false, error: fetchResult?.error };
         }
 
-        searchSeq++;
-        const sourceId = `ext_mcp_${searchSeq}_${Date.now().toString(36)}`;
         const text = fetchResult.getText();
-        const fetchedAt = new Date().toISOString();
-
         const metaContent = fetchResult.content.find((c) => c?.type === "json");
         const metadata = metaContent?.data?.metadata || {};
-        const title = metadata.title || result.title || url;
+        const title = metadata.title || t.resultTitle || t.url;
 
         if (!text || text.length < 50) {
-          console.warn(`[MCP Fetch] Content too short for URL "${url}"`);
-          continue;
+          console.warn(`[MCP Fetch] Content too short for URL "${t.url}"`);
+          return { ...t, success: false, error: "content_too_short" };
         }
 
-        const externalSource = {
-          sourceId,
-          kind: "external_url",
-          uri: url,
-          title,
-          sourceTextNormalized: text,
-          fetchedAt,
-          providerId: usedProviderId || "unknown",
+        return {
+          ...t,
+          success: true,
+          text,
           metadata,
-          query,
-          gapId,
+          title,
+          usedProviderId: usedProviderId || "unknown",
+          fetchedAt: new Date().toISOString(),
         };
+      })
+    );
 
-        if (!Array.isArray(state?.L0?.sources)) state.L0.sources = [];
-        const existingSourceIds = new Set(state.L0.sources.map((s) => s?.sourceId));
-        if (!existingSourceIds.has(sourceId)) state.L0.sources.push(externalSource);
+    const batchId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 
-        documents.push(externalSource);
+    if (!Array.isArray(state?.L0?.sources)) state.L0.sources = [];
+    const existingSourceIds = new Set(state.L0.sources.map((s) => s?.sourceId));
 
-        const docChunks = chunkText(text, { chunkSize: 1600, overlap: 180 });
-        for (let i = 0; i < docChunks.length; i++) {
-          const c = docChunks[i];
-          const chunkId = `${sourceId}::chunk_${i + 1}`;
-          chunks.push({
-            retrievedId: `rch_ext_${chunks.length + 1}`,
-            chunkId,
-            sourceId,
-            text: c.text,
-            locator: c.locator,
-            isExternal: true,
-            externalUrl: url,
-            externalTitle: title,
-            gapId,
-            matchedGapIds: [String(gapId || "")].filter(Boolean),
-          });
-        }
+    for (const fr of fetchResults) {
+      checkCancelled(stageApi);
+      if (!fr?.success) continue;
+
+      searchSeq++;
+      const sourceId = `ext_mcp_${searchSeq}_${batchId}`;
+      const url = fr.url;
+      const text = fr.text;
+      const fetchedAt = fr.fetchedAt;
+      const metadata = fr.metadata || {};
+      const title = fr.title || url;
+      const gapId = fr.gapId;
+      const query = fr.query;
+
+      const externalSource = {
+        sourceId,
+        kind: "external_url",
+        uri: url,
+        title,
+        sourceTextNormalized: text,
+        fetchedAt,
+        providerId: fr.usedProviderId || "unknown",
+        metadata,
+        query,
+        gapId,
+      };
+
+      if (!existingSourceIds.has(sourceId)) {
+        state.L0.sources.push(externalSource);
+        existingSourceIds.add(sourceId);
+      }
+
+      documents.push(externalSource);
+
+      const docChunks = chunkText(text, { chunkSize: 1600, overlap: 180 });
+      for (let i = 0; i < docChunks.length; i++) {
+        const c = docChunks[i];
+        const chunkId = `${sourceId}::chunk_${i + 1}`;
+        chunks.push({
+          retrievedId: `rch_ext_${chunks.length + 1}`,
+          chunkId,
+          sourceId,
+          text: c.text,
+          locator: c.locator,
+          isExternal: true,
+          externalUrl: url,
+          externalTitle: title,
+          gapId,
+          matchedGapIds: [String(gapId || "")].filter(Boolean),
+        });
       }
     }
 
