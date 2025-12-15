@@ -626,6 +626,62 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     return `${sourceId}::${charStart}-${charEnd}::${quote}`;
   }
 
+  function dedupeChunksByChunkId(chunks) {
+    const out = [];
+    const seen = new Set();
+    for (const c of Array.isArray(chunks) ? chunks : []) {
+      const id = toNonEmptyString(c?.chunkId);
+      if (!id) {
+        out.push(c);
+        continue;
+      }
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push(c);
+    }
+    return out;
+  }
+
+  function rebaseSeedIds(seed, counters) {
+    const claims = Array.isArray(seed?.claims) ? seed.claims : [];
+    const evidences = Array.isArray(seed?.evidences) ? seed.evidences : [];
+    let nextSeedClaimNum = safeInt(counters?.nextSeedClaimNum) ?? 0;
+    let nextSeedEvidenceNum = safeInt(counters?.nextSeedEvidenceNum) ?? 0;
+
+    const evidenceIdRemap = new Map();
+    /** @type {any[]} */
+    const evidencesOut = [];
+    for (const e of evidences) {
+      if (!e) continue;
+      const oldId = toNonEmptyString(e?.evidenceId);
+      if (!oldId) continue;
+      nextSeedEvidenceNum += 1;
+      const newId = `se_${nextSeedEvidenceNum}`;
+      evidenceIdRemap.set(String(oldId), newId);
+      evidencesOut.push({ ...e, evidenceId: newId });
+    }
+
+    /** @type {any[]} */
+    const claimsOut = [];
+    for (const c of claims) {
+      if (!c || typeof c.text !== "string") continue;
+      nextSeedClaimNum += 1;
+      const newClaimId = `sc_${nextSeedClaimNum}`;
+      const evidenceIds = Array.from(
+        new Set(
+          (Array.isArray(c?.evidenceIds) ? c.evidenceIds : [])
+            .map((eid) => evidenceIdRemap.get(String(eid)) || null)
+            .filter((eid) => toNonEmptyString(eid))
+            .map(String)
+        )
+      );
+      if (!evidenceIds.length) continue;
+      claimsOut.push({ ...c, claimId: newClaimId, evidenceIds });
+    }
+
+    return { claims: claimsOut, evidences: evidencesOut, nextSeedClaimNum, nextSeedEvidenceNum };
+  }
+
   // 记录 understand 阶段开始
   logEvent({
     stage: 'understand',
@@ -646,7 +702,6 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   });
 
   const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
-  const newRetrieved = retrieved.filter((c) => c?.consumed !== true);
   const sourceTextById = indexSourceTextById(state?.L0?.sources);
 
   const understandingConfig = isPlainObject(state?.userConfig?.understanding) ? state.userConfig.understanding : {};
@@ -674,7 +729,52 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     if (sig) existingEvidenceIdBySignature.set(sig, String(evidenceId));
   }
 
-  const { claims: seedClaimsRaw, evidences: seedEvidencesRaw } = claimsFromChunks(newRetrieved, { maxQuoteLen });
+  // === per-gap 模式：按 gapId 分组生成 claims ===
+  const chunksByGapId = new Map();
+  /** @type {any[]} */
+  const ungappedChunks = [];
+  for (const r of retrieved) {
+    const gapIds = normalizeGapIds(r?.matchedGapIds || r?.gapId);
+    if (!gapIds.length) {
+      ungappedChunks.push(r);
+      continue;
+    }
+    for (const gapId of gapIds) {
+      const gid = String(gapId);
+      if (!chunksByGapId.has(gid)) chunksByGapId.set(gid, []);
+      chunksByGapId.get(gid).push(r);
+    }
+  }
+
+  /** @type {any[]} */
+  const seedClaimsRaw = [];
+  /** @type {any[]} */
+  const seedEvidencesRaw = [];
+  let nextSeedClaimNum = 0;
+  let nextSeedEvidenceNum = 0;
+
+  for (const [gapId, chunksForGap] of chunksByGapId) {
+    const seed = claimsFromChunks(dedupeChunksByChunkId(chunksForGap), { maxQuoteLen });
+    const rebased = rebaseSeedIds(seed, { nextSeedClaimNum, nextSeedEvidenceNum });
+    nextSeedClaimNum = rebased.nextSeedClaimNum;
+    nextSeedEvidenceNum = rebased.nextSeedEvidenceNum;
+
+    for (const c of rebased.claims) c.gapIds = [String(gapId)];
+    for (const e of rebased.evidences) e.gapIds = [String(gapId)];
+    seedClaimsRaw.push(...rebased.claims);
+    seedEvidencesRaw.push(...rebased.evidences);
+  }
+
+  // 兜底：对缺少 gapId 的 chunks，仍生成一批 seed claims（但不强行标记 gapIds）
+  if (ungappedChunks.length) {
+    const seed = claimsFromChunks(dedupeChunksByChunkId(ungappedChunks), { maxQuoteLen });
+    const rebased = rebaseSeedIds(seed, { nextSeedClaimNum, nextSeedEvidenceNum });
+    nextSeedClaimNum = rebased.nextSeedClaimNum;
+    nextSeedEvidenceNum = rebased.nextSeedEvidenceNum;
+    seedClaimsRaw.push(...rebased.claims);
+    seedEvidencesRaw.push(...rebased.evidences);
+  }
+
   const seedClaims = dedupeClaims(seedClaimsRaw, { threshold: dedupeThreshold, mergeEvidence: true });
 
   const referencedSeedEvidenceIds = new Set();
@@ -709,7 +809,12 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
 
     const derived = quoteFromSourceLocator(sourceText, seed.locator, { maxQuoteLen });
     const retrievedRow = retrievedByChunkId.get(String(seed.chunkId));
-    const gapIds = normalizeGapIds(retrievedRow?.matchedGapIds || retrievedRow?.gapId);
+    const gapIds = Array.from(
+      new Set([
+        ...normalizeGapIds(retrievedRow?.matchedGapIds || retrievedRow?.gapId),
+        ...normalizeGapIds(seed?.gapIds),
+      ])
+    );
 
     const candidateEvidence = {
       evidenceId: seedEvidenceId,
@@ -843,7 +948,7 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   }
 
   for (const c of claims) {
-    const gapIds = [];
+    const gapIds = [...normalizeGapIds(c?.gapIds)];
     for (const eid of Array.isArray(c?.evidenceIds) ? c.evidenceIds : []) {
       for (const gid of evidenceGapIdsById.get(String(eid)) || []) gapIds.push(gid);
     }
@@ -952,7 +1057,7 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   }
 
   const consumedAt = new Date().toISOString();
-  for (const r of newRetrieved) {
+  for (const r of retrieved) {
     if (!r || typeof r !== "object") continue;
     if (r.consumed !== true) r.consumed = true;
     if (!toNonEmptyString(r.consumedAt)) r.consumedAt = consumedAt;
