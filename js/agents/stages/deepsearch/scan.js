@@ -1,5 +1,6 @@
 import { DeepSearchState, checkCancelled, extractJsonCandidate, makeStageEmitter } from "./state.js";
 import { getModelCaller } from "./model.js";
+import { logEvent, setLogContext } from "./logger.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -137,6 +138,16 @@ export async function runDeepSearchScanStage(runContext, input, stageApi = {}) {
   const emit = makeStageEmitter(stageApi, "deepsearch");
   const state = ensureState(runContext, input);
 
+  // 设置日志上下文
+  setLogContext({ runId: state.runId, iteration: state.iteration || 0 });
+
+  // 记录 scan 阶段开始
+  logEvent({
+    stage: 'scan',
+    message: 'Scan stage started',
+    data: { sourceCount: Array.isArray(state?.L0?.sources) ? state.L0.sources.length : 0 },
+  });
+
   checkCancelled(stageApi);
   const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
   const sourceCards = toSourceCardsWithProgress(sources, emit);
@@ -149,6 +160,17 @@ export async function runDeepSearchScanStage(runContext, input, stageApi = {}) {
   state.L1.scanSummary = scanSummary;
   state.L1.deepDivePlan = deepDivePlan;
   state.addTimeline({ name: "deepsearch.scan", status: "completed", payload: { sourceCount: scanSummary.sourceCount } });
+
+  // 记录 scan 阶段完成
+  logEvent({
+    stage: 'scan',
+    message: 'Scan stage completed',
+    data: {
+      sourceCount: scanSummary.sourceCount,
+      plannedSteps: Array.isArray(deepDivePlan.steps) ? deepDivePlan.steps.length : 0,
+      usedLLM: !!llm,
+    },
+  });
 
   emit?.("deepsearch.scan.completed", { sourceCount: scanSummary.sourceCount, plannedSteps: Array.isArray(deepDivePlan.steps) ? deepDivePlan.steps.length : 0 });
   return { state, scanSummary, deepDivePlan };

@@ -256,7 +256,7 @@ export function computeRoundHitsByGapId(retrievedChunks) {
   return hits;
 }
 
-export function validateIteration(state, { roundHits, blockAfterMisses = 2 } = {}, emit = null) {
+export function validateIteration(state, { roundHits, blockAfterMisses = 2, minEvidenceToFill = 1 } = {}, emit = null) {
   const runId = toNonEmptyString(state?.runId) || "run_unknown";
   const iteration = safeInt(state?.iteration) ?? 0;
   const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
@@ -271,11 +271,14 @@ export function validateIteration(state, { roundHits, blockAfterMisses = 2 } = {
     if (chunkId) retrievedByChunkId.set(chunkId, r);
   }
 
-  const filledGapIds = new Set();
+  // 计算每个 gap 的 evidence 数量
+  const evidenceCountByGapId = new Map();
   for (const e of evidenceLedger) {
     const gapIds = Array.isArray(e?.gapIds) ? e.gapIds.map(String).filter(Boolean) : [];
     if (gapIds.length) {
-      for (const gid of gapIds) filledGapIds.add(gid);
+      for (const gid of gapIds) {
+        evidenceCountByGapId.set(gid, (evidenceCountByGapId.get(gid) || 0) + 1);
+      }
       continue;
     }
 
@@ -285,12 +288,16 @@ export function validateIteration(state, { roundHits, blockAfterMisses = 2 } = {
 
     const matched = Array.isArray(row?.matchedGapIds) ? row.matchedGapIds.map(String).filter(Boolean) : [];
     if (matched.length) {
-      for (const gid of matched) filledGapIds.add(gid);
+      for (const gid of matched) {
+        evidenceCountByGapId.set(gid, (evidenceCountByGapId.get(gid) || 0) + 1);
+      }
       continue;
     }
 
     const gid = toNonEmptyString(row?.gapId);
-    if (gid) filledGapIds.add(gid);
+    if (gid) {
+      evidenceCountByGapId.set(gid, (evidenceCountByGapId.get(gid) || 0) + 1);
+    }
   }
 
   let filledCount = 0;
@@ -305,16 +312,20 @@ export function validateIteration(state, { roundHits, blockAfterMisses = 2 } = {
     const oldStatus = toNonEmptyString(g?.status) || "open";
     if (oldStatus === "filled" || oldStatus === "blocked") continue;
 
-    if (filledGapIds.has(gid)) {
+    const evidenceCount = evidenceCountByGapId.get(gid) || 0;
+    // 只有当 evidence 数量 >= minEvidenceToFill 时才标记为 filled
+    if (evidenceCount >= minEvidenceToFill) {
       g.status = "filled";
       g.filledAt = now;
       g.filledIteration = state?.iteration;
+      g.evidenceCount = evidenceCount;
       emit?.("deepsearch.gap.status.changed", {
         runId,
         gapId: gid,
         from: oldStatus,
         to: "filled",
         reason: "evidence",
+        evidenceCount,
         iteration,
       });
       filledCount++;

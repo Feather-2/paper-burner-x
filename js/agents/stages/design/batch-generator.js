@@ -4,6 +4,32 @@ function nowMs() {
   return Date.now();
 }
 
+function extractJsonCandidate(text) {
+  let s = String(text || "").trim();
+  if (!s) return null;
+
+  // Remove markdown code block markers (```json, ```, etc.)
+  s = s.replace(/^```(?:json)?[\s\n]*/i, "").replace(/[\s\n]*```$/i, "");
+  s = s.trim();
+
+  // Remove leading "json" if AI prepended it
+  if (s.toLowerCase().startsWith("json")) {
+    s = s.slice(4).trim();
+  }
+
+  // Try to find JSON array
+  const firstBracket = s.indexOf("[");
+  const lastBracket = s.lastIndexOf("]");
+  if (firstBracket >= 0 && lastBracket > firstBracket) return s.slice(firstBracket, lastBracket + 1);
+
+  // Try to find JSON object
+  const firstBrace = s.indexOf("{");
+  const lastBrace = s.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) return s.slice(firstBrace, lastBrace + 1);
+
+  return s;
+}
+
 function safeEmit(emit, name, status, payload) {
   if (typeof emit !== "function") return;
   emit(name, { actor: "design", status, payload });
@@ -24,6 +50,36 @@ function chunkIndexes(len, size) {
 function looksLikeSlideHtml(html) {
   if (typeof html !== "string") return false;
   return /<section\b[^>]*\bdata-type="freeform"[^>]*>/i.test(html) && /\bdata-el=/i.test(html);
+}
+
+// Try to fix common issues with AI-generated slideHtml
+function tryFixSlideHtml(html, slideIntent) {
+  if (typeof html !== "string" || !html.trim()) return null;
+  let s = html.trim();
+
+  // If no <section>, wrap content in a section
+  if (!/<section\b/i.test(s)) {
+    const title = String(slideIntent?.title || "Slide").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    s = `<section data-type="freeform" data-bg="#ffffff" data-title="${title}">${s}</section>`;
+  }
+
+  // Ensure data-type="freeform"
+  if (!/<section\b[^>]*data-type=/i.test(s)) {
+    s = s.replace(/<section\b/i, '<section data-type="freeform"');
+  }
+
+  // If no data-el elements, try to convert common elements
+  if (!/\bdata-el=/i.test(s)) {
+    // Convert <div> or <p> to data-el="text"
+    s = s.replace(/<(div|p)\b([^>]*)>/gi, '<div data-el="text"$2>');
+    // Convert <h1>-<h6> to data-el="text" with bold
+    s = s.replace(/<h[1-6]\b([^>]*)>/gi, '<div data-el="text" data-bold="true"$1>');
+    s = s.replace(/<\/h[1-6]>/gi, '</div>');
+  }
+
+  // Still invalid? Return null to trigger fallback
+  if (!looksLikeSlideHtml(s)) return null;
+  return s;
 }
 
 function ensureSectionAttr(slideHtml, name, value) {
@@ -124,6 +180,7 @@ function makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch = []
         title: s.title,
         objective: s.objective,
         keyPoints: s.keyPoints,
+        content: s.content,
         claimIds: s.claimIds,
         dataTableIds: s.dataTableIds,
       }))
@@ -159,10 +216,11 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
         { role: "user", content: prompt },
       ],
       temperature: 0.2,
-      maxTokens: 2500,
+      maxTokens: 6000,
     });
 
-    const parsed = JSON.parse(resp?.content || "null");
+    const jsonStr = extractJsonCandidate(resp?.content);
+    const parsed = JSON.parse(jsonStr || "null");
     const candidate = Array.isArray(parsed)
       ? parsed.find((x) => x?.slideIntentId === slideIntentId) || parsed[0]
       : parsed && typeof parsed === "object"
@@ -171,7 +229,16 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
 
     let slideHtml = typeof candidate?.slideHtml === "string" ? candidate.slideHtml : "";
     slideHtml = ensureSectionAttr(slideHtml, "data-layout", layoutFromPageType(si.pageType));
-    if (!looksLikeSlideHtml(slideHtml)) throw new Error("Invalid slideHtml returned by model");
+
+    // Try to fix if validation fails
+    if (!looksLikeSlideHtml(slideHtml)) {
+      const fixed = tryFixSlideHtml(slideHtml, si);
+      if (fixed) {
+        slideHtml = ensureSectionAttr(fixed, "data-layout", layoutFromPageType(si.pageType));
+      } else {
+        throw new Error("Invalid slideHtml returned by model");
+      }
+    }
     return { slideIntentId, slideHtml, source: "llm" };
   }
 

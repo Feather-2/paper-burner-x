@@ -3,6 +3,7 @@ import { getModelCaller } from "./model.js";
 import { claimsFromChunks } from "../../deepsearch/understanding/claims-from-chunks.js";
 import { dedupeClaims } from "../../deepsearch/understanding/dedupe.js";
 import { detectConflicts } from "../../deepsearch/understanding/conflicts.js";
+import { logEvent, setLogContext } from "./logger.js";
 
 // ===== Reflect Prompt: LLM 自主判断是否需要更多信息 =====
 const REFLECT_PROMPT = `你是一个研究助手，需要判断当前收集的证据是否足以回答用户的问题。
@@ -596,7 +597,20 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   const emit = makeStageEmitter(stageApi, "deepsearch");
   const state = ensureState(runContext, input);
 
+  // 设置日志上下文
+  setLogContext({ runId: state.runId, iteration: state.iteration || 0 });
+
   checkCancelled(stageApi);
+
+  // 记录 understand 阶段开始
+  logEvent({
+    stage: 'understand',
+    message: 'Understand stage started',
+    data: {
+      retrievedChunks: Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks.length : 0,
+      existingClaims: Array.isArray(state?.L1?.claims) ? state.L1.claims.length : 0,
+    },
+  });
 
   // 发射阶段开始事件
   emitUnderstandProgress(emit, {
@@ -872,7 +886,33 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
       missingAspects: reflectResult.missingAspects,
       suggestedQueries: reflectResult.suggestedQueries,
     });
+
+    // 记录 reflect 结果
+    logEvent({
+      stage: 'understand',
+      message: 'Evidence insufficient - needs more research',
+      data: {
+        reason: reflectResult.reason,
+        confidence: reflectResult.confidence,
+        missingAspects: reflectResult.missingAspects,
+      },
+    });
   }
+
+  // 记录 understand 阶段完成
+  logEvent({
+    stage: 'understand',
+    message: 'Understand stage completed',
+    data: {
+      claimCount: finalClaims.length,
+      evidenceCount: finalEvidenceLedger.length,
+      conflictCount: conflicts.length,
+      openQuestionCount: openQuestions.length,
+      reflectSufficient: reflectResult.sufficient,
+      reflectConfidence: reflectResult.confidence,
+      degraded: !!degradationStats,
+    },
+  });
 
   return {
     state,

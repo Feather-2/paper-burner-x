@@ -40,7 +40,7 @@ function importanceFromRank(rank) {
  * Extract minimal claim units from RetrievedChunk[] (S5 seed extractor).
  *
  * @param {Array<{chunkId:string,sourceId:string,locator:{charStart:number,charEnd:number},text:string,score?:number}>} retrievedChunks
- * @param {{maxClaims?:number,maxQuoteLen?:number}=} options
+ * @param {{maxClaims?:number,maxQuoteLen?:number,minScore?:number}=} options
  * @returns {{claims:Array<{claimId:string,text:string,importance:string,evidenceIds:string[]}>,evidences:Array<{evidenceId:string,chunkId:string,sourceId:string,locator:{charStart:number,charEnd:number},quote:string}>}}
  */
 export function claimsFromChunks(retrievedChunks, options = {}) {
@@ -49,6 +49,8 @@ export function claimsFromChunks(retrievedChunks, options = {}) {
 
   const maxQuoteLen = Number.isFinite(options.maxQuoteLen) ? Math.max(40, Math.floor(options.maxQuoteLen)) : 220;
   const maxClaims = Number.isFinite(options.maxClaims) ? Math.max(0, Math.floor(options.maxClaims)) : retrievedChunks.length;
+  // 最低相关性分数阈值（0-1），低于此分数的检索结果将被过滤
+  const minScore = typeof options.minScore === "number" && Number.isFinite(options.minScore) ? options.minScore : 0.3;
 
   const rows = retrievedChunks
     .map((r, idx) => {
@@ -60,7 +62,9 @@ export function claimsFromChunks(retrievedChunks, options = {}) {
       const score = typeof r?.score === "number" && Number.isFinite(r.score) ? r.score : null;
       return { chunkId, sourceId, locator: { charStart, charEnd }, text, score };
     })
-    .filter((r) => typeof r.locator.charStart === "number" && typeof r.locator.charEnd === "number" && r.locator.charStart < r.locator.charEnd && r.text);
+    .filter((r) => typeof r.locator.charStart === "number" && typeof r.locator.charEnd === "number" && r.locator.charStart < r.locator.charEnd && r.text)
+    // 过滤低质量检索结果
+    .filter((r) => r.score === null || r.score >= minScore);
 
   const ranked = rows.slice().sort((a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity));
   const coreChunkId = ranked.length ? ranked[0].chunkId : null;

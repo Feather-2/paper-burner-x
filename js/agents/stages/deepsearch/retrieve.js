@@ -3,6 +3,8 @@ import { getModelCaller } from "./model.js";
 import { chunkText } from "../textprep/chunk.js";
 import { retrieve as retrieveWithRouter } from "../../retrieval/retrieval-router.js";
 import { createMcpClient, parseExternalSearchConfig, runExternalSearch } from "./external-search.js";
+import { logEvent, setLogContext, trackToolCall } from "./logger.js";
+import { search as toolChainSearch } from "../../retrieval/tool-chain.js";
 
 const defaultLocalRetriever = (...args) => retrieveWithRouter(...args);
 
@@ -322,6 +324,115 @@ function parseRerankConfig(userConfig) {
 
 // ===== LLM-based Rerank 结束 =====
 
+// ===== 迭代查询重写 =====
+/**
+ * 使用 LLM 分析检索结果并生成更好的查询词
+ */
+async function refineQueryHints(gap, retrievedChunks, stageApi, state) {
+  const callModel = getModelCaller(stageApi, { usage: "planner", state });
+  if (!callModel) return null;
+
+  const question = gap?.question || gap?.text || "";
+  const existingHints = Array.isArray(gap?.queryHints) ? gap.queryHints : [];
+  const chunks = (retrievedChunks || []).slice(0, 5).map(c => ({
+    text: String(c?.text || "").slice(0, 200),
+    score: c?.score
+  }));
+
+  const messages = [
+    {
+      role: "system",
+      content:
+        "You are a search query optimizer. Analyze the retrieval results and suggest better search keywords.\n\n" +
+        "If the results are irrelevant or low quality, suggest 3-5 new keywords that would find more relevant content.\n" +
+        "If the results are good, return null.\n\n" +
+        "Return ONLY JSON: {shouldRetry:boolean,newHints:string[],reason:string}",
+    },
+    {
+      role: "user",
+      content: JSON.stringify({
+        question,
+        currentHints: existingHints,
+        retrievedCount: retrievedChunks?.length || 0,
+        sampleResults: chunks,
+      }, null, 2),
+    },
+  ];
+
+  try {
+    const result = await callModel(messages, { model: "auto", temperature: 0.2, maxTokens: 400 });
+    const candidate = extractJsonCandidate(result?.content);
+    if (!candidate) return null;
+    const parsed = JSON.parse(candidate);
+    if (parsed?.shouldRetry && Array.isArray(parsed?.newHints) && parsed.newHints.length > 0) {
+      return parsed.newHints.map(h => String(h).trim()).filter(Boolean);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 迭代检索：检索 → 评估 → 调整查询 → 再检索
+ */
+async function iterativeRetrieve(gap, sourceIndexes, localRetriever, routerConfig, stageApi, state, emit, maxIterations = 2) {
+  const gapId = gap?.gapId || "gap_unknown";
+  let allRetrieved = [];
+  let currentHints = Array.isArray(gap?.queryHints) ? [...gap.queryHints] : [];
+
+  for (let iter = 0; iter < maxIterations; iter++) {
+    const currentGap = { ...gap, queryHints: currentHints };
+    const roundRetrieved = [];
+
+    for (const sourceIndex of sourceIndexes) {
+      const retrieved = localRetriever(sourceIndex, [currentGap], routerConfig);
+      roundRetrieved.push(...retrieved);
+    }
+
+    // 合并结果（去重）
+    const existingIds = new Set(allRetrieved.map(r => r.chunkId));
+    for (const r of roundRetrieved) {
+      if (!existingIds.has(r.chunkId)) {
+        allRetrieved.push(r);
+        existingIds.add(r.chunkId);
+      }
+    }
+
+    // 第一轮如果结果足够好，直接返回
+    if (iter === 0 && roundRetrieved.length >= 3) {
+      const avgScore = roundRetrieved.reduce((sum, r) => sum + (r.score || 0), 0) / roundRetrieved.length;
+      if (avgScore >= 1.0) {
+        // 结果质量好，不需要迭代
+        break;
+      }
+    }
+
+    // 最后一轮不需要再调整
+    if (iter >= maxIterations - 1) break;
+
+    // 调用 LLM 分析并生成新的查询词
+    const newHints = await refineQueryHints(gap, roundRetrieved, stageApi, state);
+    if (!newHints || newHints.length === 0) {
+      // LLM 认为结果已经足够好，或无法优化
+      break;
+    }
+
+    emit?.("deepsearch.retrieve.refine", {
+      gapId,
+      iteration: iter + 1,
+      oldHints: currentHints,
+      newHints,
+      retrievedCount: roundRetrieved.length,
+    });
+
+    currentHints = newHints;
+  }
+
+  return allRetrieved;
+}
+// ===== 迭代查询重写结束 =====
+
 /**
  * S4 Retrieval Router wrapper: TOC-scope -> BM25/grep -> readAround.
  *
@@ -348,7 +459,20 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
   const state = ensureState(runContext, input);
   const localRetriever = stageApi?.localRetriever ?? defaultLocalRetriever;
 
+  // 设置日志上下文
+  setLogContext({ runId: state.runId, iteration: state.iteration || 0 });
+
   checkCancelled(stageApi);
+
+  // 记录 retrieve 阶段开始
+  logEvent({
+    stage: 'retrieve',
+    message: 'Retrieve stage started',
+    data: {
+      openGaps: Array.isArray(state?.L1?.gaps) ? state.L1.gaps.filter((g) => String(g?.status || "open") === "open").length : 0,
+      existingChunks: Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks.length : 0,
+    },
+  });
 
   // 发射阶段开始事件
   emitRetrieveProgress(emit, {
@@ -370,6 +494,10 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
   const windowSize = Number.isFinite(retrievalConfig.windowSize) ? Math.max(0, Math.floor(retrievalConfig.windowSize)) : 1;
   const maxChunks = safeInt(retrievalConfig.maxChunks) ?? 100;
 
+  // 工具链配置
+  const enableToolChain = retrievalConfig.enableToolChain !== false; // 默认启用
+  const toolChainConfig = isPlainObject(retrievalConfig.toolChain) ? retrievalConfig.toolChain : {};
+
   const routerConfig = {
     topK,
     windowSize,
@@ -378,6 +506,7 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
     grepRegex: Boolean(retrievalConfig.grepRegex),
     caseSensitive: Boolean(retrievalConfig.caseSensitive),
     bm25: isPlainObject(retrievalConfig.bm25) ? retrievalConfig.bm25 : {},
+    minGrepHits: typeof retrievalConfig.minGrepHits === "number" ? retrievalConfig.minGrepHits : 15,
   };
 
   const sourceIndexes = [];
@@ -417,6 +546,11 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
     if (cid) existingByChunkId.set(cid, r);
   }
 
+  // 解析迭代检索配置
+  const iterativeConfig = isPlainObject(retrievalConfig.iterative) ? retrievalConfig.iterative : {};
+  const enableIterative = iterativeConfig.enabled !== false; // 默认启用
+  const maxIterations = safeInt(iterativeConfig.maxIterations) ?? 2;
+
   const retrievedByChunkId = new Map(); // chunkId -> merged row (without retrievedId)
   for (let i = 0; i < gaps.length; i++) {
     const g = gaps[i];
@@ -430,45 +564,149 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
       detail: { gapId, type: toNonEmptyString(g?.type) || "unknown", priority: toNonEmptyString(g?.priority) || "medium", question: toNonEmptyString(g?.question) || "" },
     });
 
-    for (const sourceIndex of sourceIndexes) {
-      const retrieved = localRetriever(sourceIndex, [{ ...g, gapId }], routerConfig);
-      for (const r of retrieved) {
-        // Heuristic: data/metrics gaps should be supported by numeric evidence; avoid
-        // attributing non-numeric chunks to data gaps to prevent false "hits" and fills.
-        if (gapType === "data") {
-          const text = typeof r?.text === "string" ? r.text : "";
-          if (!/[0-9]/.test(text)) continue;
-        }
+    // 获取推荐的检索策略
+    const recommendedStrategy = state.planningTree ? state.planningTree.getBestStrategy(sources) : 'bm25';
+    const retrievalStartTime = Date.now();
 
-        const chunkId = String(r?.chunkId || "");
-        if (!chunkId) continue;
-
-        const matchedGapIds = Array.isArray(r?.matchedGapIds) ? r.matchedGapIds.map(String).filter(Boolean) : [gapId];
-        if (!matchedGapIds.includes(gapId)) matchedGapIds.unshift(gapId);
-
-        const existing = retrievedByChunkId.get(chunkId);
-        if (!existing) {
-          retrievedByChunkId.set(chunkId, {
-            chunkId,
-            sourceId: String(r?.sourceId || sourceIndex.sourceId),
-            locator: r?.locator,
-            text: String(r?.text || ""),
-            ...(typeof r?.score === "number" && Number.isFinite(r.score) ? { score: r.score } : {}),
-            ...(toNonEmptyString(r?.relevance) ? { relevance: String(r.relevance) } : {}),
-            matchedGapIds: matchedGapIds.slice(),
-            gapId: matchedGapIds[0],
-          });
-          continue;
-        }
-
-        const mergedGapIds = Array.from(new Set([...(Array.isArray(existing.matchedGapIds) ? existing.matchedGapIds : []), ...matchedGapIds]));
-        existing.matchedGapIds = mergedGapIds;
-        existing.gapId = existing.gapId || mergedGapIds[0];
-        if (typeof r?.score === "number" && Number.isFinite(r.score) && (!(typeof existing.score === "number") || r.score > existing.score)) {
-          existing.score = r.score;
-        }
-        if (toNonEmptyString(r?.relevance) && !toNonEmptyString(existing.relevance)) existing.relevance = String(r.relevance);
+    // 使用迭代检索
+    let retrieved;
+    if (enableIterative && maxIterations > 1) {
+      retrieved = await trackToolCall('iterativeRetrieve', { gapId, maxIterations }, async () =>
+        iterativeRetrieve({ ...g, gapId }, sourceIndexes, localRetriever, routerConfig, stageApi, state, emit, maxIterations)
+      );
+    } else {
+      // 单次检索（向后兼容）
+      retrieved = [];
+      for (const sourceIndex of sourceIndexes) {
+        const result = await trackToolCall('localRetriever', { gapId, sourceId: sourceIndex.sourceId }, async () =>
+          localRetriever(sourceIndex, [{ ...g, gapId }], routerConfig)
+        );
+        retrieved.push(...result);
       }
+    }
+
+    // 记录检索策略结果
+    const retrievalLatency = Date.now() - retrievalStartTime;
+    if (state.planningTree) {
+      state.planningTree.recordStrategyResult(recommendedStrategy, {
+        hits: retrieved.length,
+        latency: retrievalLatency
+      });
+
+      emit?.("deepsearch.retrieve.strategy", {
+        gapId,
+        strategy: recommendedStrategy,
+        hits: retrieved.length,
+        latency: retrievalLatency,
+        hitRate: state.planningTree.getStrategyHitRate(recommendedStrategy)
+      });
+    }
+
+    // 工具链增强：如果 enableToolChain=true 且检索结果不足，使用工具链补充
+    if (enableToolChain && retrieved.length < topK) {
+      const queryHints = Array.isArray(g?.queryHints) ? g.queryHints : [];
+      const question = toNonEmptyString(g?.question) || "";
+      const keywords = [...queryHints.map((h) => String(h || "").trim()).filter(Boolean), ...question.split(/\s+/).slice(0, 5)];
+
+      if (keywords.length > 0) {
+        // 合并所有 sourceIndex 的 chunks
+        const allChunks = [];
+        for (const sourceIndex of sourceIndexes) {
+          allChunks.push(...(sourceIndex.chunks || []));
+        }
+
+        try {
+          const toolChainResult = await trackToolCall('toolChainSearch', { gapId, keywords: keywords.slice(0, 10) }, async () =>
+            toolChainSearch(
+              allChunks,
+              {
+                strategy: toolChainConfig.strategy || "auto",
+                patterns: Array.isArray(toolChainConfig.patterns) ? toolChainConfig.patterns : [],
+                keywords: keywords.slice(0, 10), // 限制关键词数量
+              },
+              {
+                globTool: stageApi?.globTool,
+                basePath: toolChainConfig.basePath,
+                regex: Boolean(routerConfig.grepRegex),
+                caseSensitive: Boolean(routerConfig.caseSensitive),
+                timeoutMs: toolChainConfig.timeoutMs || 200,
+              }
+            )
+          );
+
+          // 将工具链结果转换为 retrieved 格式
+          for (const tcr of toolChainResult.results || []) {
+            const chunk = allChunks.find((c) => c.chunkId === tcr.chunkId);
+            if (!chunk) continue;
+
+            // 检查是否已存在
+            if (retrieved.find((r) => r.chunkId === tcr.chunkId)) continue;
+
+            retrieved.push({
+              chunkId: tcr.chunkId,
+              sourceId: chunk.sourceId || "source_unknown",
+              locator: chunk.locator,
+              text: chunk.text,
+              score: Math.log(1 + tcr.matchCount), // 使用 grep 风格的评分
+              relevance: "hit",
+              matchedGapIds: [gapId],
+              toolChainStrategy: tcr.strategy,
+            });
+          }
+
+          emit?.("deepsearch.retrieve.toolchain", {
+            gapId,
+            strategy: toolChainResult.strategy,
+            hits: toolChainResult.results?.length || 0,
+            stats: toolChainResult.stats,
+            fallbackReason: toolChainResult.fallbackReason,
+          });
+        } catch (err) {
+          // 工具链失败不阻塞主流程
+          emit?.("deepsearch.retrieve.toolchain_error", {
+            gapId,
+            error: String(err?.message || err),
+          });
+        }
+      }
+    }
+
+    for (const r of retrieved) {
+      // Heuristic: data/metrics gaps should be supported by numeric evidence; avoid
+      // attributing non-numeric chunks to data gaps to prevent false "hits" and fills.
+      if (gapType === "data") {
+        const text = typeof r?.text === "string" ? r.text : "";
+        if (!/[0-9]/.test(text)) continue;
+      }
+
+      const chunkId = String(r?.chunkId || "");
+      if (!chunkId) continue;
+
+      const matchedGapIds = Array.isArray(r?.matchedGapIds) ? r.matchedGapIds.map(String).filter(Boolean) : [gapId];
+      if (!matchedGapIds.includes(gapId)) matchedGapIds.unshift(gapId);
+
+      const existing = retrievedByChunkId.get(chunkId);
+      if (!existing) {
+        retrievedByChunkId.set(chunkId, {
+          chunkId,
+          sourceId: String(r?.sourceId || "source_unknown"),
+          locator: r?.locator,
+          text: String(r?.text || ""),
+          ...(typeof r?.score === "number" && Number.isFinite(r.score) ? { score: r.score } : {}),
+          ...(toNonEmptyString(r?.relevance) ? { relevance: String(r.relevance) } : {}),
+          matchedGapIds: matchedGapIds.slice(),
+          gapId: matchedGapIds[0],
+        });
+        continue;
+      }
+
+      const mergedGapIds = Array.from(new Set([...(Array.isArray(existing.matchedGapIds) ? existing.matchedGapIds : []), ...matchedGapIds]));
+      existing.matchedGapIds = mergedGapIds;
+      existing.gapId = existing.gapId || mergedGapIds[0];
+      if (typeof r?.score === "number" && Number.isFinite(r.score) && (!(typeof existing.score === "number") || r.score > existing.score)) {
+        existing.score = r.score;
+      }
+      if (toNonEmptyString(r?.relevance) && !toNonEmptyString(existing.relevance)) existing.relevance = String(r.relevance);
     }
   }
 
@@ -595,6 +833,23 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
     [...existingChunks, ...rerankedChunks].map((c) => toNonEmptyString(c?.chunkId)).filter(Boolean),
     { maxSize: Math.max(1000, maxChunks * 50) }
   );
+
+  // 记录 retrieve 阶段完成
+  logEvent({
+    stage: 'retrieve',
+    message: 'Retrieve stage completed',
+    data: {
+      retrievedCount: dedupedFresh.length,
+      retrievedBeforeDedupe: roundChunks.length,
+      totalRetrieved: trimmed.length,
+      evictedCount,
+      maxChunks,
+      gapCount: gaps.length,
+      usedRerank: rerankConfig.enabled && rerankStats && !rerankStats.skipped,
+      rerankStats: rerankStats || undefined,
+    },
+  });
+
   state.addTimeline({
     name: "deepsearch.retrieve",
     status: "completed",

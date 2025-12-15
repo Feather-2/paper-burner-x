@@ -2993,8 +2993,11 @@
   function gatherLanguageSources() {
     // 排除通用"自定义翻译模型"，只展示具体源站/预设
     const baseModels = getSupportedModels().filter(m => m.group === 'translation' && m.key !== 'custom' && m.key !== 'deeplx');
-    const models = [];
-    
+    const models = [
+      // Auto 选项：自动选择第一个可用模型
+      { key: 'auto', name: '🔄 自动选择 (推荐)', description: '自动使用第一个可用的模型' }
+    ];
+
     // 为预设模型标记 Key 状态
     baseModels.forEach(m => {
       const keys = typeof loadModelKeys === 'function' ? (loadModelKeys(m.key) || []) : [];
@@ -3035,8 +3038,10 @@
   }
 
   function gatherImageSources() {
-    const models = [];
-    
+    const models = [
+      { key: 'auto', name: '🔄 自动选择 (推荐)', description: '自动使用第一个可用的模型' }
+    ];
+
     // 从 supportedModelsForKeyManager 获取 image 分组的模型
     const imageModels = getSupportedModels().filter(m => m.group === 'image');
     imageModels.forEach(m => {
@@ -3079,8 +3084,10 @@
   function gatherVisionSources() {
     // 和文字模型使用相同逻辑，从 supportedModelsForKeyManager 获取
     const baseModels = getSupportedModels().filter(m => m.group === 'translation' && m.key !== 'custom' && m.key !== 'deeplx');
-    const models = [];
-    
+    const models = [
+      { key: 'auto', name: '🔄 自动选择 (推荐)', description: '自动使用第一个可用的模型' }
+    ];
+
     // 为预设模型标记 Key 状态
     baseModels.forEach(m => {
       const keys = typeof loadModelKeys === 'function' ? (loadModelKeys(m.key) || []) : [];

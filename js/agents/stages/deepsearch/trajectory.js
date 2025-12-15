@@ -51,16 +51,22 @@ function openGaps(state) {
   return gaps.filter(isOpenGap);
 }
 
-function validateIterationCompat(state, { blockAfterMisses = 2 } = {}) {
+function validateIterationCompat(state, { blockAfterMisses = 2, minEvidenceToFill = 1 } = {}) {
   const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
   const roundHits = computeRoundHitsByGapId(retrieved);
-  return validateIteration(state, { blockAfterMisses, roundHits });
+  return validateIteration(state, { blockAfterMisses, roundHits, minEvidenceToFill });
 }
 
 function getGapBlockAfterMisses(state) {
   const cfg = isPlainObject(state?.userConfig?.gaps) ? state.userConfig.gaps : {};
   const n = safeInt(cfg.blockAfterMisses);
   return n !== null && n >= 1 ? n : 2;
+}
+
+function getMinEvidenceToFill(state) {
+  const cfg = isPlainObject(state?.userConfig?.gaps) ? state.userConfig.gaps : {};
+  const n = safeInt(cfg.minEvidenceToFill);
+  return n !== null && n >= 1 ? n : 1;
 }
 
 function normalizeForKey(s) {
@@ -390,7 +396,7 @@ export class TrajectoryManager {
         // ===== Reflect-driven 外搜触发结束 =====
 
         const roundHits = computeRoundHitsByGapId(retrievedChunks);
-        validateIteration(trajectory, { blockAfterMisses: getGapBlockAfterMisses(trajectory), roundHits }, emit);
+        validateIteration(trajectory, { blockAfterMisses: getGapBlockAfterMisses(trajectory), minEvidenceToFill: getMinEvidenceToFill(trajectory), roundHits }, emit);
 
         const checkpoint = trajectory.saveCheckpoint?.();
         if (checkpoint) {

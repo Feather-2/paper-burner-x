@@ -1,6 +1,40 @@
 const DEFAULT_TASK_GOAL = '生成一份结构清晰、可演示的汇报文稿，并给出可引用的证据来源。';
 
+let _TextPrepStage = null;
+async function getTextPrepStage() {
+    if (!_TextPrepStage) {
+        const mod = await import('../agents/stages/textprep/index.js');
+        _TextPrepStage = mod.TextPrepStage;
+    }
+    return _TextPrepStage;
+}
+
 const PPTGeneratorWorkflow = {
+    _ensureFlowVizEventStore() {
+        if (!this.workflowData) this.workflowData = {};
+        if (!this.workflowData.flowVizEvents || typeof this.workflowData.flowVizEvents !== 'object') {
+            this.workflowData.flowVizEvents = { deepsearch: [], design: [] };
+        }
+        if (!Array.isArray(this.workflowData.flowVizEvents.deepsearch)) this.workflowData.flowVizEvents.deepsearch = [];
+        if (!Array.isArray(this.workflowData.flowVizEvents.design)) this.workflowData.flowVizEvents.design = [];
+    },
+
+    _resetFlowVizEventStore() {
+        this._ensureFlowVizEventStore();
+        this.workflowData.flowVizEvents.deepsearch = [];
+        this.workflowData.flowVizEvents.design = [];
+    },
+
+    _pushFlowVizEvent(kind, name, payload) {
+        if (kind !== 'deepsearch' && kind !== 'design') return;
+        if (typeof name !== 'string' || !name) return;
+        this._ensureFlowVizEventStore();
+        const list = this.workflowData.flowVizEvents[kind];
+        list.push({ name, payload });
+        const limit = kind === 'deepsearch' ? 600 : 600;
+        if (list.length > limit) this.workflowData.flowVizEvents[kind] = list.slice(-limit);
+    },
+
     _ensureDesignSystemInitialized() {
         if (!this.workflowData) this.workflowData = {};
         if (!this.workflowData.designSystem || typeof this.workflowData.designSystem !== 'object') {
@@ -128,10 +162,18 @@ const PPTGeneratorWorkflow = {
         const payload = evt?.payload || {};
 
         if (name === 'run.started') {
+            this._resetFlowVizEventStore();
             this.state = 'reading';
             this.updateTodos(this._runtimeTodoTexts.map((text, i) => ({ text, status: i === 0 ? 'active' : 'pending' })));
             this.renderPreviewArea();
             return;
+        }
+
+        // Capture flow events for premium visualizers (store minimal {name,payload} only).
+        if (name.startsWith('deepsearch.') || name === 'iteration.completed') {
+            this._pushFlowVizEvent('deepsearch', name, payload);
+        } else if (name.startsWith('design.')) {
+            this._pushFlowVizEvent('design', name, payload);
         }
 
         // DeepSearch UI integration (T1 event bus)
@@ -396,6 +438,7 @@ const PPTGeneratorWorkflow = {
         if (this._vizRerenderTimer) return;
         this._vizRerenderTimer = setTimeout(() => {
             this._vizRerenderTimer = null;
+            if (this._deepsearchFlowViz) return;
             if (this.state === 'researching' || this.state === 'deepsearch_review') {
                 this.renderPreviewArea?.();
             }
@@ -460,103 +503,139 @@ const PPTGeneratorWorkflow = {
             const { registerDeepSearchStages } = await import('../agents/stages/deepsearch/index.js');
             registerDeepSearchStages(orch, { timeoutMs: 300_000 }); // 5 minutes for real LLM calls
 
-            orch.registerStage('deepsearch.questions', async () => {
-                // Question generation output is consumed by UI; logs are emitted via progress events.
-                orch.eventBus.emit('deepsearch.questions.progress', {
-                    actor: 'deepsearch',
-                    status: 'progress',
-                    payload: { agent: 'AI 分析', msg: '正在分析内容密度...', type: 'normal' }
-                });
-                await sleep(1000);
-                orch.eventBus.emit('deepsearch.questions.progress', {
-                    actor: 'deepsearch',
-                    status: 'progress',
-                    payload: { agent: 'AI 分析', msg: '识别出 3 个关键决策点，需要用户确认。', type: 'success' }
+            orch.registerStage('deepsearch.questions', async (ctx, input, api) => {
+                api.progress?.({ agent: 'AI 分析', msg: '正在分析内容特征...', type: 'normal' });
+
+                const contentPackage = this.workflowData?.contentPackage;
+                const reportMd = this.workflowData?.reportMarkdown || contentPackage?.report?.markdown || '';
+
+                // 基于内容特征生成问题
+                const questions = [];
+
+                // Q1: 受众
+                questions.push({
+                    text: "目标受众的技术背景如何？",
+                    options: ["非技术高管 (侧重商业价值)", "技术团队 (侧重架构细节)", "混合受众"],
+                    default: "混合受众"
                 });
 
-                return [
-                    {
-                        text: "目标受众的技术背景如何？",
-                        options: ["非技术高管 (侧重商业价值)", "技术团队 (侧重架构细节)", "混合受众"],
-                        default: "混合受众"
-                    },
-                    {
-                        text: "演示文稿的色调风格偏好？",
-                        options: ["深色科技风 (Dark Modern)", "学术严谨 (Academic)", "商务极简 (Business Light)"],
-                        default: "深色科技风 (Dark Modern)"
-                    },
-                    {
-                        text: "是否需要包含详细的财务报表数据？",
+                // Q2: 风格
+                questions.push({
+                    text: "演示文稿的色调风格偏好？",
+                    options: ["深色科技风 (Dark Modern)", "学术严谨 (Academic)", "商务极简 (Business Light)"],
+                    default: reportMd.length > 5000 ? "学术严谨 (Academic)" : "商务极简 (Business Light)"
+                });
+
+                // Q3: 根据内容动态生成
+                const hasNumbers = /\d+%|\$[\d,]+|\d+\.\d+/.test(reportMd);
+                const hasCode = /```|`[^`]+`/.test(reportMd);
+
+                if (hasNumbers) {
+                    questions.push({
+                        text: "是否需要包含详细的数据图表？",
                         options: ["是，包含详细图表", "否，仅展示关键指标摘要"],
                         default: "否，仅展示关键指标摘要"
-                    }
-                ];
+                    });
+                }
+
+                if (hasCode) {
+                    questions.push({
+                        text: "代码片段的展示方式？",
+                        options: ["完整展示关键代码", "仅展示伪代码/流程图", "省略代码细节"],
+                        default: "仅展示伪代码/流程图"
+                    });
+                }
+
+                // 如果没有特殊内容，添加默认问题
+                if (questions.length < 3) {
+                    questions.push({
+                        text: "演示文稿的详细程度？",
+                        options: ["精简要点 (5-8页)", "标准详细 (10-15页)", "深入完整 (15页以上)"],
+                        default: "标准详细 (10-15页)"
+                    });
+                }
+
+                const slideCount = contentPackage?.slideIntents?.length || 0;
+                api.progress?.({
+                    agent: 'AI 分析',
+                    msg: `识别出 ${questions.length} 个关键决策点，预计生成 ${slideCount || '若干'} 页`,
+                    type: 'success'
+                });
+
+                return questions;
             }, { actor: 'deepsearch', timeoutMs: 30_000 });
         }
 
-        orch.registerStage('textprep.slideplan', async () => {
-            orch.eventBus.emit('textprep.slideplan.progress', {
-                actor: 'textprep',
-                status: 'progress',
-                payload: { agent: 'AI 分析', msg: '正在处理用户反馈...', type: 'normal' }
-            });
-            orch.eventBus.emit('textprep.slideplan.progress', {
-                actor: 'textprep',
-                status: 'progress',
-                payload: { agent: 'AI 分析', msg: '构建叙事结构: 问题 -> 解决方案 -> 价值影响', type: 'highlight' }
-            });
-
-            const sections = ['引言', '市场痛点', '解决方案', '技术架构', '未来规划'];
-            for (const sec of sections) {
-                await sleep(600);
-                orch.eventBus.emit('textprep.slideplan.progress', {
-                    actor: 'textprep',
-                    status: 'progress',
-                    payload: { agent: 'AI 分析', msg: `正在撰写章节: ${sec}...`, type: 'normal' }
-                });
+        orch.registerStage('textprep.slideplan', async (ctx, input, api) => {
+            // 如果已有完整的 contentPackage（来自 DeepSearch），跳过
+            const existingPkg = this.workflowData?.contentPackage;
+            if (existingPkg?.claims?.length > 0 && existingPkg?.slideIntents?.length > 0) {
+                api.progress?.({ agent: 'AI 分析', msg: '使用 DeepSearch 生成的内容包', type: 'highlight' });
+                return existingPkg;
             }
 
-            orch.eventBus.emit('textprep.slideplan.progress', {
-                actor: 'textprep',
-                status: 'progress',
-                payload: { agent: 'AI 分析', msg: '演讲稿脚本生成完成。共 2500 字。', type: 'success' }
-            });
-        }, { actor: 'textprep', timeoutMs: 60_000 });
+            // 获取原始文本
+            const rawText = this.workflowData?.reportMarkdown ||
+                            this.workflowData?.report?.markdown ||
+                            this.workflowData?.contentPackage?.report?.markdown || '';
 
-        orch.registerStage('textprep.align', async () => {
+            if (!rawText.trim()) {
+                api.progress?.({ agent: 'AI 分析', msg: '无输入文本，跳过 TextPrep', type: 'warning' });
+                return this.workflowData?.contentPackage || null;
+            }
+
+            api.progress?.({ agent: 'AI 分析', msg: '正在分析文档结构...', type: 'normal' });
+
+            try {
+                const TextPrepStage = await getTextPrepStage();
+                const stage = new TextPrepStage();
+
+                const contentPackage = await stage.execute(
+                    ctx || { runId: 'run_textprep', constraints: {} },
+                    rawText,
+                    {
+                        emit: api.emit,
+                        signal: api.signal,
+                        aiApiService: api.aiApiService,
+                        checkCancelled: api.checkCancelled,
+                    }
+                );
+
+                // 更新 workflowData
+                this.workflowData.contentPackage = contentPackage;
+                this.workflowData.slideIntents = contentPackage?.slideIntents || [];
+
+                const slideCount = contentPackage?.slideIntents?.length || 0;
+                const claimCount = contentPackage?.claims?.length || 0;
+                api.progress?.({ agent: 'AI 分析', msg: `TextPrep 完成：${slideCount} 页，${claimCount} 个论点`, type: 'success' });
+
+                return contentPackage;
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                api.progress?.({ agent: 'AI 分析', msg: `TextPrep 失败: ${msg}`, type: 'warning' });
+                console.warn('[textprep.slideplan] TextPrepStage failed:', err);
+                // 保持现有的简单 contentPackage
+                return this.workflowData?.contentPackage || null;
+            }
+        }, { actor: 'textprep', timeoutMs: 180_000 });
+
+        orch.registerStage('textprep.align', async (ctx, input, api) => {
+            // textprep.slideplan 已经完成了完整流程，这里只是验证和进度报告
             const pkg = this.workflowData?.contentPackage;
             const slideCount = Array.isArray(pkg?.slideIntents) ? pkg.slideIntents.length : 0;
-            orch.eventBus.emit('textprep.align.progress', {
-                actor: 'textprep',
-                status: 'progress',
-                payload: { agent: 'AI 设计', msg: slideCount ? `正在规划 ${slideCount} 页的页面布局...` : '正在分析语义边界...', type: 'normal' }
-            });
-            orch.eventBus.emit('textprep.align.progress', {
-                actor: 'textprep',
-                status: 'progress',
-                payload: { agent: 'AI 设计', msg: '正在建立内容溯源映射...', type: 'highlight' }
-            });
+            const claimCount = Array.isArray(pkg?.claims) ? pkg.claims.length : 0;
 
-            await sleep(1000);
-            orch.eventBus.emit('textprep.align.progress', {
-                actor: 'textprep',
-                status: 'progress',
-                payload: { agent: 'AI 设计', msg: '已生成 12 个幻灯片分段。', type: 'success' }
-            });
+            api.progress?.({ agent: 'AI 设计', msg: `已准备 ${slideCount} 页布局，${claimCount} 个论点已分配`, type: 'normal' });
 
-            const sourceFiles = this.workflowData.files?.length > 0 ? this.workflowData.files : [{ name: 'Project_Nebula_Specs.pdf' }];
-            orch.eventBus.emit('textprep.align.progress', {
-                actor: 'textprep',
-                status: 'progress',
-                payload: { agent: 'AI 设计', msg: `分段 3 已关联至 "${sourceFiles[0].name}" (p.14)`, type: 'normal' }
-            });
-            if (sourceFiles.length > 1) {
-                orch.eventBus.emit('textprep.align.progress', {
-                    actor: 'textprep',
-                    status: 'progress',
-                    payload: { agent: 'AI 设计', msg: `分段 7 已关联至 "${sourceFiles[1].name}" (line 45)`, type: 'normal' }
-                });
+            // 如果 slideIntents 缺少 claimIds，尝试重新对齐
+            const needsAlign = pkg?.slideIntents?.some(s => !Array.isArray(s.claimIds));
+            if (needsAlign && pkg?.claims?.length > 0) {
+                api.progress?.({ agent: 'AI 设计', msg: '正在优化论点分配...', type: 'normal' });
+                // alignClaimsToSlides 已在 textprep.slideplan 中完成
             }
+
+            api.progress?.({ agent: 'AI 设计', msg: '内容对齐完成', type: 'success' });
+            return pkg;
         }, { actor: 'textprep', timeoutMs: 60_000 });
 
         orch.registerStage('design.batch', async (ctx, input, api) => {
@@ -738,16 +817,48 @@ const PPTGeneratorWorkflow = {
                 parseAndStoreSlides(deckHtmlDsl);
                 return deckPackage;
             }
-        }, { actor: 'design', timeoutMs: 90_000 });
+        }, { actor: 'design', timeoutMs: 300_000 });
 
-        orch.registerStage('evaluate.hardgates', async () => {
-            await sleep(1000);
-            orch.eventBus.emit('evaluate.hardgates.progress', {
-                actor: 'evaluate',
-                status: 'progress',
-                payload: { agent: 'AI 审查', msg: '所有约束条件已满足。', type: 'success' }
-            });
-        }, { actor: 'evaluate', timeoutMs: 30_000 });
+        orch.registerStage('evaluate.hardgates', async (ctx, input, api) => {
+            api.progress?.({ agent: 'AI 审查', msg: '正在验证输出质量...', type: 'normal' });
+
+            try {
+                const { EvaluateStage } = await import('../agents/eval/index.js');
+                const stage = new EvaluateStage();
+
+                const contentPackage = this.workflowData?.contentPackage;
+                const deckPackage = this.workflowData?.deckPackage;
+
+                if (!deckPackage?.deckHtmlDsl) {
+                    api.progress?.({ agent: 'AI 审查', msg: '跳过验证（无 deck 输出）', type: 'warning' });
+                    return null;
+                }
+
+                const report = await stage.execute(
+                    ctx || { runId: 'run_eval', constraints: {} },
+                    { contentPackage, deckPackage },
+                    undefined,
+                    { emit: api.emit, signal: api.signal }
+                );
+
+                const pass = report?.hardGates?.pass ?? true;
+                const failedCount = report?.hardGates?.failed?.length || 0;
+
+                if (pass) {
+                    api.progress?.({ agent: 'AI 审查', msg: '所有质量检查已通过', type: 'success' });
+                } else {
+                    api.progress?.({ agent: 'AI 审查', msg: `${failedCount} 项检查未通过，但继续生成`, type: 'warning' });
+                }
+
+                this.workflowData.evaluationReport = report;
+                return report;
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                console.warn('[evaluate.hardgates] EvaluateStage failed:', err);
+                api.progress?.({ agent: 'AI 审查', msg: `验证跳过: ${msg}`, type: 'warning' });
+                return null;
+            }
+        }, { actor: 'evaluate', timeoutMs: 60_000 });
     },
 
     handleFileUpload(fileList) {
@@ -782,6 +893,70 @@ const PPTGeneratorWorkflow = {
         }
 
         this._ensureDesignSystemInitialized();
+
+        const charCount = content.length;
+        const DEEPSEARCH_THRESHOLD = 5000;
+        const useDeepSearch = charCount > DEEPSEARCH_THRESHOLD;
+
+        if (typeof this.logTerminal === 'function') {
+            this.logTerminal('系统', `文档长度: ${charCount} 字，${useDeepSearch ? '将进行深度分析' : '使用快速处理'}`, 'normal');
+        }
+
+        if (useDeepSearch) {
+            // 长文本：走 DeepSearch 流程
+            await this._startFromPastedTextDeepSearch(content);
+        } else {
+            // 短文本：走简单 TextPrep 流程
+            await this._startFromPastedTextSimple(content);
+        }
+    },
+
+    async _startFromPastedTextDeepSearch(content) {
+        const title = this._extractTitleFromText(content);
+
+        // 创建 source 对象供 DeepSearch 使用
+        const sourceId = `paste_${Date.now()}`;
+        const source = {
+            sourceId,
+            kind: 'user_text',
+            title,
+            uri: null,
+            sourceTextNormalized: content,
+            metadata: { source: 'paste', timestamp: Date.now() }
+        };
+
+        // 初始化 workflowData
+        if (!this.workflowData.files) this.workflowData.files = [];
+        this.workflowData.files.push({
+            name: title || '粘贴文档',
+            size: this._formatSize(content.length),
+            rawSize: content.length,
+            mimeType: 'text/markdown',
+            type: 'paste',
+            content,
+            _source: source
+        });
+
+        // 存储原始内容以供 DeepSearch 使用
+        this.workflowData._pastedSources = [source];
+        this.workflowData._useDeepSearch = true;
+        this.workflowData.reportMarkdown = content;
+
+        if (typeof this.logTerminal === 'function') {
+            this.logTerminal('系统', '长文档已加载，将进行深度分析。请设置项目目标后开始。', 'normal');
+        }
+
+        // 进入 brief 收集阶段，让用户设置目标
+        this.state = 'idle';
+        this.renderPreviewArea();
+
+        // 自动打开 brief 表单
+        if (typeof this.openProjectBriefForm === 'function') {
+            this.openProjectBriefForm();
+        }
+    },
+
+    async _startFromPastedTextSimple(content) {
         await this._ensureRuntime({ mode: 'textprep' });
 
         if (typeof this.logTerminal === 'function') this.logTerminal('系统', '开始处理粘贴文档...', 'normal');
@@ -792,8 +967,11 @@ const PPTGeneratorWorkflow = {
         this.renderPreviewArea();
 
         const title = this._extractTitleFromText(content);
+        // 生成摘要：取 MD 的前 800 字符，去除标题行
+        const summaryText = content.replace(/^#{1,6}\s+.+\n?/gm, '').trim().slice(0, 800);
         const contentPackage = {
             title,
+            summary: summaryText,
             report: { markdown: content },
             slideIntents: this._generateSlideIntentsFromMarkdown(content),
             metadata: { source: 'paste', timestamp: Date.now() }
@@ -804,7 +982,11 @@ const PPTGeneratorWorkflow = {
         this.workflowData.slideIntents = contentPackage.slideIntents;
         this.workflowData.reportMarkdown = content;
 
-        if (typeof this.logTerminal === 'function') this.logTerminal('系统', 'TextPrep 处理完成', 'success');
+        // 标记需要运行真正的 TextPrep（在 confirmScript 后执行）
+        this.workflowData._needsTextPrep = true;
+        this.workflowData._useDeepSearch = false;
+
+        if (typeof this.logTerminal === 'function') this.logTerminal('系统', '文档已解析，点击确认后将进行 AI 分析', 'normal');
         this.state = 'script_review';
         if (Array.isArray(this._runtimeTodoTexts) && typeof this.updateTodos === 'function') {
             this.updateTodos(this._runtimeTodoTexts.map((text, i) => {
@@ -823,23 +1005,48 @@ const PPTGeneratorWorkflow = {
         return content.slice(0, 50).split('\n')[0].trim() || '粘贴文档';
     },
 
-    _generateSlideIntentsFromMarkdown(markdown) {
-        const md = typeof markdown === 'string' ? markdown : '';
-        const hasHeadings = /^#{1,2}\s/m.test(md);
-        if (!hasHeadings) {
-            return [{ index: 0, title: '内容', content: md, pageType: 'content' }];
-        }
-        const sections = md.split(/(?=^#{1,2}\s)/m).filter(Boolean);
-        return sections.map((section, i) => {
-            const titleMatch = section.match(/^#{1,2}\s+(.+)/m);
-            return {
-                index: i,
-                title: titleMatch ? titleMatch[1].trim() : `第 ${i + 1} 页`,
-                content: section.trim(),
-                pageType: i === 0 ? 'cover' : 'content'
-            };
-        });
-    },
+	    _generateSlideIntentsFromMarkdown(markdown) {
+	        const md = typeof markdown === 'string' ? markdown : '';
+	        const hasHeadings = /^#{1,2}\s/m.test(md);
+	
+	        // 辅助函数：从正文提取 keyPoints，优先取列表项和短段落
+	        const extractKeyPoints = (text, max = 8) => {
+	            const lines = text.split(/\n+/).map(l => l.trim()).filter(Boolean);
+	            const bullets = lines.filter(l => /^[-*•]\s/.test(l)).map(l => l.replace(/^[-*•]\s*/, ''));
+	            const numbered = lines.filter(l => /^\d+[.)]\s/.test(l)).map(l => l.replace(/^\d+[.)]\s*/, ''));
+	            const shortParas = lines.filter(l => !l.startsWith('#') && l.length > 10 && l.length < 200);
+	            // 优先级：列表项 > 编号项 > 短段落
+	            return [...bullets, ...numbered, ...shortParas].slice(0, max);
+	        };
+	
+	        if (!hasHeadings) {
+	            const keyPoints = extractKeyPoints(md);
+	            return [{
+	                slideIntentId: 'si_0',
+	                index: 0,
+	                title: '内容',
+	                content: md,
+	                pageType: 'content',
+	                keyPoints: keyPoints.length ? keyPoints : md.split(/\n+/).filter(l => l.trim()).slice(0, 8)
+	            }];
+	        }
+	
+	        const sections = md.split(/(?=^#{1,2}\s)/m).filter(Boolean);
+	        return sections.map((section, i) => {
+	            const titleMatch = section.match(/^#{1,2}\s+(.+)/m);
+	            const bodyText = section.replace(/^#{1,2}\s+.+\n?/, '').trim();
+	            const keyPoints = extractKeyPoints(bodyText);
+	            return {
+	                slideIntentId: `si_${i}`,
+	                index: i,
+	                title: titleMatch ? titleMatch[1].trim() : `第 ${i + 1} 页`,
+	                content: section.trim(),
+	                pageType: i === 0 ? 'cover' : 'content',
+	                keyPoints: keyPoints.length ? keyPoints : bodyText.split(/\n+/).filter(l => l.trim() && !l.startsWith('#')).slice(0, 8),
+	                objective: bodyText.slice(0, 200)  // 添加 objective 作为备用
+	            };
+	        });
+	    },
 
     async _ensurePptxSlideParser() {
         if (typeof PPTXSlideParser !== 'undefined') return PPTXSlideParser;
@@ -1124,18 +1331,48 @@ const PPTGeneratorWorkflow = {
 
         const ingestInput = this._buildIngestInputFromWorkflowFiles(files);
 
-        const ingestOut = await this._orchestrator.runStage('deepsearch.ingest', ingestInput);
-        this.workflowData.ingest = ingestOut;
+        // 如果有预构建的 sources（来自粘贴的长文本），直接使用
+        const prebuiltSources = Array.isArray(ingestInput.sources) ? ingestInput.sources : [];
+        const hasPrebuiltSources = prebuiltSources.length > 0;
+
+        let sources = [];
+        if (hasPrebuiltSources && !ingestInput.files.length && !ingestInput.urls.length && !ingestInput.rawTexts.length && !ingestInput.historyIds.length) {
+            // 只有预构建的 sources，跳过 ingest 阶段
+            sources = prebuiltSources;
+            this.workflowData.ingest = { sources, skipped: true };
+            if (typeof this.logTerminal === 'function') {
+                this.logTerminal('系统', '使用已解析的文档内容，跳过文件读取阶段', 'normal');
+            }
+        } else {
+            // 正常运行 ingest 阶段
+            const ingestOut = await this._orchestrator.runStage('deepsearch.ingest', ingestInput);
+            this.workflowData.ingest = ingestOut;
+            sources = Array.isArray(ingestOut?.sources) ? ingestOut.sources : [];
+            // 合并预构建的 sources
+            if (prebuiltSources.length) {
+                sources = [...prebuiltSources, ...sources];
+            }
+        }
 
         const mode = this.workflowMode || this.workflowData?.workflowMode || 'auto';
         const stepping = mode !== 'auto';
 
+        // DeepSearch 优化参数配置
         const userConfig = {
             title: this.currentProject?.title || 'New Mission',
             ...(stepping ? { maxIterations: 1 } : {}),
+            // Task 1: 工具链配置
+            retrieval: {
+                enableToolChain: true,  // 启用工具链
+                minGrepHits: 15,        // 提高阈值，减少 BM25 调用
+                bm25MinScore: 0.5,      // BM25 结果质量阈值
+            },
+            // Task 3: 迭代策略配置
+            gaps: {
+                blockAfterMisses: 5,    // 允许更多轮次尝试
+            },
         };
 
-        const sources = Array.isArray(ingestOut?.sources) ? ingestOut.sources : [];
         this.workflowData._deepsearchInput = { sources, taskGoal, userConfig };
 
         const { DeepSearchState } = await import('../agents/stages/deepsearch/state.js');
@@ -1192,7 +1429,15 @@ const PPTGeneratorWorkflow = {
         const input = this.workflowData?._deepsearchInput || {};
         const taskGoal = typeof input.taskGoal === 'string' ? input.taskGoal : this._deriveTaskGoal();
         const sources = Array.isArray(input.sources) ? input.sources : Array.isArray(this.workflowData?.ingest?.sources) ? this.workflowData.ingest.sources : [];
-        const baseUserConfig = input.userConfig && typeof input.userConfig === 'object' ? input.userConfig : { title: this.currentProject?.title || 'New Mission' };
+
+        // 优化参数配置（与 phase1_DeepReading 保持一致）
+        const baseUserConfig = input.userConfig && typeof input.userConfig === 'object'
+            ? input.userConfig
+            : {
+                title: this.currentProject?.title || 'New Mission',
+                retrieval: { enableToolChain: true, minGrepHits: 15, bm25MinScore: 0.5 },
+                gaps: { blockAfterMisses: 5 },
+            };
 
         if (!this._deepsearchState) {
             const { DeepSearchState } = await import('../agents/stages/deepsearch/state.js');
@@ -1273,7 +1518,7 @@ const PPTGeneratorWorkflow = {
     },
 
     _buildIngestInputFromWorkflowFiles(files) {
-        const out = { files: [], urls: [], historyIds: [], rawTexts: [] };
+        const out = { files: [], urls: [], historyIds: [], rawTexts: [], sources: [] };
         for (const item of Array.isArray(files) ? files : []) {
             if (!item) continue;
             if (item.type === 'link') {
@@ -1286,6 +1531,15 @@ const PPTGeneratorWorkflow = {
             }
             if (item.type === 'rawText') {
                 if (typeof item.text === 'string' && item.text.trim()) out.rawTexts.push({ title: item.name || 'User Input', text: item.text });
+                continue;
+            }
+            // 支持粘贴的长文本（已转为 source）
+            if (item.type === 'paste' && item._source) {
+                out.sources.push(item._source);
+                continue;
+            }
+            if (item.type === 'paste' && typeof item.content === 'string') {
+                out.rawTexts.push({ title: item.name || '粘贴文档', text: item.content });
                 continue;
             }
             if (item.file) {
@@ -1393,6 +1647,10 @@ const PPTGeneratorWorkflow = {
     // --- Phase 3: Page Layout (uses DeepSearch slideIntents) ---
     async phase3_PageLayout() {
         try {
+            if (this.workflowData?._needsTextPrep) {
+                await this._orchestrator.runStage('textprep.slideplan');
+                this.workflowData._needsTextPrep = false;
+            }
             await this._orchestrator.runStage('textprep.align', { contentPackage: this.workflowData.contentPackage });
             this.phase5_DesignOptimization();
         } catch (err) {

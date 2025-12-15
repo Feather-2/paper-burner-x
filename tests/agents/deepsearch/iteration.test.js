@@ -294,11 +294,12 @@ test("DeepSearch shouldContinue: stops on maxIterations/openGaps/noNewHitsRounds
     const state = new DeepSearchState({
       runId: "run_sc_2",
       iteration: 0,
-      maxIterations: 2,
+      maxIterations: 10,
       L1: { gaps: [{ gapId: "g1", type: "t", question: "q", status: "open", missCount: 0 }] },
     });
-    assert.equal(shouldContinue(state, { hitCount: 0, noNewHitsRounds: 2 }), false);
-    assert.equal(shouldContinue(state, { hitCount: 0, noNewHitsRounds: 1 }), true);
+    // noNewHitsRounds 阈值现在是 4
+    assert.equal(shouldContinue(state, { hitCount: 0, noNewHitsRounds: 4 }), false);
+    assert.equal(shouldContinue(state, { hitCount: 0, noNewHitsRounds: 3 }), true);
   }
 
   {
@@ -330,7 +331,7 @@ test("DeepSearch exit condition: iteration >= maxIterations", async () => {
   assert.equal(g2.status, "open");
 });
 
-test("DeepSearch exit condition: no new hits 2 rounds", async () => {
+test("DeepSearch exit condition: no new hits 4 rounds", async () => {
   const { stage, state } = await makeStageAndState({
     runId: "run_nohits",
     taskGoal: "Define Alpha and provide key metrics",
@@ -340,9 +341,10 @@ test("DeepSearch exit condition: no new hits 2 rounds", async () => {
   });
 
   await stage.execute({ runId: "run_nohits", mode: "deepsearch", constraints: {} }, { state }, {});
-  assert.equal(state.checkpoints.length, 2);
-  assert.equal(state.iteration, 2);
-  assert.ok(state.checkpoints[1].metrics.retrievedCount === 0);
+  // noNewHitsRounds 阈值现在是 4
+  assert.equal(state.checkpoints.length, 4);
+  assert.equal(state.iteration, 4);
+  assert.ok(state.checkpoints[state.checkpoints.length - 1].metrics.retrievedCount === 0);
 });
 
 test("DeepSearch exit condition: signal.aborted stops loop after checkpoint", async () => {

@@ -1,5 +1,7 @@
 import { DeepSearchState, checkCancelled, extractJsonCandidate, makeStageEmitter } from "./state.js";
 import { getModelCaller } from "./model.js";
+import { logEvent, setLogContext } from "./logger.js";
+import { search as toolChainSearch } from "../../retrieval/tool-chain.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -128,19 +130,33 @@ function buildDefaultGaps(taskGoal, scanSummary) {
   const topics = Array.isArray(scanSummary?.keyTopics) ? scanSummary.keyTopics : [];
   const goalTerms = extractGoalTerms(goal, { maxTerms: 6 });
 
+  // 确保 LLM 失败时至少生成 8 个 fallback gaps（覆盖多种知识类型）
   const out = [
-    gap("gap_1", "definition", "核心定义和研究范围是什么？", { priority: "high", queryHints: ["定义", "范围", ...goalTerms.slice(0, 3), ...topics.slice(0, 2)] }),
-    gap("gap_2", "data", "有哪些关键数据和指标需要引用？", { priority: "high", queryHints: ["数据", "统计", "指标", ...goalTerms.slice(0, 3)] }),
+    // 核心 gaps (high priority)
+    gap("gap_1", "definition", "核心定义和研究范围是什么？", { priority: "high", queryHints: ["定义", "范围", "概念", ...goalTerms.slice(0, 3), ...topics.slice(0, 2)] }),
+    gap("gap_2", "data", "有哪些关键数据和指标需要引用？", { priority: "high", queryHints: ["数据", "统计", "指标", "数字", ...goalTerms.slice(0, 3)] }),
+    gap("gap_3", "background", "背景和历史发展是什么？", { priority: "high", queryHints: ["背景", "历史", "发展", "起源", ...goalTerms.slice(0, 3)] }),
+
+    // 支撑 gaps (medium priority)
+    gap("gap_4", "mechanism", "核心原理和工作机制是什么？", { priority: "medium", queryHints: ["原理", "机制", "流程", "方法", ...goalTerms.slice(0, 3)] }),
+    gap("gap_5", "application", "主要应用场景和实际案例是什么？", { priority: "medium", queryHints: ["应用", "案例", "实例", "场景", ...goalTerms.slice(0, 3)] }),
+    gap("gap_6", "comparison", "主要替代方案和对比分析是什么？", { priority: "medium", queryHints: ["对比", "替代", "优缺点", "比较", ...goalTerms.slice(0, 3)] }),
+    gap("gap_7", "challenge", "面临的主要挑战和问题是什么？", { priority: "medium", queryHints: ["挑战", "问题", "局限", "风险", ...goalTerms.slice(0, 3)] }),
+    gap("gap_8", "trend", "未来发展趋势和方向是什么？", { priority: "medium", queryHints: ["趋势", "未来", "发展", "展望", ...goalTerms.slice(0, 3)] }),
   ];
 
-  if (/compare|vs|versus|对比|比较/i.test(goal)) {
-    out.push(gap(`gap_${out.length + 1}`, "comparison", "主要的替代方案和权衡是什么？", { priority: "medium", queryHints: ["对比", "优缺点", ...goalTerms.slice(0, 3)] }));
+  // 根据目标内容动态添加更多 gaps (8-12 个)
+  if (/solution|解决|方案|策略/i.test(goal)) {
+    out.push(gap(`gap_${out.length + 1}`, "solution", "有哪些解决方案和最佳实践？", { priority: "high", queryHints: ["方案", "解决", "最佳实践", ...goalTerms.slice(0, 3)] }));
   }
-  if (/how|mechanism|原理|机制/i.test(goal)) {
-    out.push(gap(`gap_${out.length + 1}`, "mechanism", "它是如何工作的（原理/流程）？", { priority: "medium", queryHints: ["原理", "流程", "机制", ...goalTerms.slice(0, 3)] }));
+  if (/benefit|advantage|优势|好处/i.test(goal)) {
+    out.push(gap(`gap_${out.length + 1}`, "benefit", "主要优势和收益是什么？", { priority: "medium", queryHints: ["优势", "好处", "收益", ...goalTerms.slice(0, 3)] }));
   }
-  if (/example|case|案例/i.test(goal)) {
-    out.push(gap(`gap_${out.length + 1}`, "example", "有哪些具体的案例或实例？", { priority: "low", queryHints: ["案例", "实例", ...goalTerms.slice(0, 3)] }));
+  if (/implement|实现|部署/i.test(goal)) {
+    out.push(gap(`gap_${out.length + 1}`, "implementation", "如何实现和部署？", { priority: "medium", queryHints: ["实现", "部署", "步骤", ...goalTerms.slice(0, 3)] }));
+  }
+  if (/cost|价格|成本|费用/i.test(goal)) {
+    out.push(gap(`gap_${out.length + 1}`, "cost", "成本和资源要求是什么？", { priority: "medium", queryHints: ["成本", "价格", "资源", ...goalTerms.slice(0, 3)] }));
   }
 
   return out;
@@ -152,12 +168,38 @@ async function tryLLMGaps(state, scanSummary, existingGaps, stageApi) {
 
   const cacheKeyInputs = normalizeGapsCacheKeyInputs(state?.taskGoal, scanSummary, existingGaps);
 
+  // 工具链支持：允许 LLM 在生成 gaps 时探索代码库
+  const enableToolChain = state?.userConfig?.retrieval?.enableToolChain !== false;
+  const toolCallLimit = 10; // 限制工具调用次数
+  let toolCallCount = 0;
+
+  // 提供给 LLM 的工具：探索性搜索
+  const toolExplanation = enableToolChain
+    ? "\n\nYou can optionally use a search tool to explore the codebase before generating gaps. " +
+      "If you need to search, add a 'toolCalls' array in your response with format:\n" +
+      '{toolCalls:[{tool:"search",keywords:["keyword1","keyword2"]}]}\n' +
+      "The search results will help you generate more accurate gaps."
+    : "";
+
   const messages = [
     {
       role: "system",
       content:
-        "You are a DeepSearch gap planner. Return ONLY JSON: {gaps:[{type,question,priority,queryHints[]}]}.\n" +
-        "gap.type examples: definition,data,comparison,mechanism,example. Keep question short and concrete.",
+        "You are a DeepSearch gap planner. Analyze the task goal and identify knowledge gaps that need to be filled.\n\n" +
+        "IMPORTANT: Generate 5-10 diverse gaps covering different aspects:\n" +
+        "- definition: core concepts and scope\n" +
+        "- background: context, history, motivation\n" +
+        "- data: key statistics, metrics, evidence\n" +
+        "- mechanism: how it works, principles, processes\n" +
+        "- application: use cases, examples, implementations\n" +
+        "- comparison: alternatives, trade-offs, pros/cons\n" +
+        "- challenge: problems, limitations, risks\n" +
+        "- solution: methods, approaches, best practices\n" +
+        "- trend: future directions, developments\n\n" +
+        "Return ONLY JSON: {gaps:[{type,question,priority,queryHints[]}]}.\n" +
+        "priority: 'high' for core gaps, 'medium' for supporting, 'low' for optional.\n" +
+        "queryHints: 3-5 search keywords for each gap." +
+        toolExplanation,
     },
     {
       role: "user",
@@ -180,7 +222,7 @@ async function tryLLMGaps(state, scanSummary, existingGaps, stageApi) {
   ];
 
   try {
-    const result = await callModel(messages, { model: "auto", temperature: 0.2, maxTokens: 700, cacheKeyInputs });
+    const result = await callModel(messages, { model: "auto", temperature: 0.3, maxTokens: 1200, cacheKeyInputs });
     const candidate = extractJsonCandidate(result?.content);
     if (!candidate) return null;
     const parsed = JSON.parse(candidate);
@@ -260,7 +302,17 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
   const emit = makeStageEmitter(stageApi, "deepsearch");
   const state = ensureState(runContext, input);
 
+  // 设置日志上下文
+  setLogContext({ runId: state.runId, iteration: state.iteration || 0 });
+
   checkCancelled(stageApi);
+
+  // 记录 gaps 阶段开始
+  logEvent({
+    stage: 'gaps',
+    message: 'Gaps stage started',
+    data: { existingGaps: Array.isArray(state?.L1?.gaps) ? state.L1.gaps.length : 0 },
+  });
 
   // 发射阶段开始事件
   emitGapProgress(emit, {
@@ -291,6 +343,17 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
   }
 
   const llmSuggested = await tryLLMGaps(state, scanSummary, normalizedExisting, stageApi);
+
+  // 记录 LLM 调用结果
+  logEvent({
+    stage: 'gaps',
+    message: 'LLM gaps generation',
+    data: {
+      usedLLM: !!llmSuggested,
+      llmSuggestedCount: Array.isArray(llmSuggested) ? llmSuggested.length : 0,
+    },
+  });
+
   const suggested = buildDefaultGaps(state.taskGoal, scanSummary);
   const merged = [];
   const byKey = new Map();
@@ -381,21 +444,49 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
     });
   }
 
-  // Prioritize: open gaps first, then priority, then stable by id.
+  // Prioritize: open gaps first, then use PlanningTree intelligent sorting
   merged.sort((a, b) => {
     const aOpen = a?.status === "open";
     const bOpen = b?.status === "open";
     if (aOpen !== bOpen) return aOpen ? -1 : 1;
-    const pr = priorityRank(a?.priority) - priorityRank(b?.priority);
-    if (pr) return pr;
-    return String(a?.gapId || "").localeCompare(String(b?.gapId || ""));
+    // For non-open gaps, keep simple priority-based sorting
+    if (!aOpen && !bOpen) {
+      const pr = priorityRank(a?.priority) - priorityRank(b?.priority);
+      if (pr) return pr;
+      return String(a?.gapId || "").localeCompare(String(b?.gapId || ""));
+    }
+    return 0; // Open gaps will be sorted by PlanningTree below
   });
-  emitGapProgress(emit, { step: "prioritize_sort", current: 1, total: 1, msg: "正在排序和设定优先级", detail: { totalGaps: merged.length } });
+
+  // Use PlanningTree to intelligently sort open gaps
+  const openGapsList = merged.filter(g => g?.status === "open");
+  const closedGapsList = merged.filter(g => g?.status !== "open");
+
+  if (state?.planningTree && openGapsList.length > 0) {
+    const sortedOpenGaps = state.planningTree.sortGapsByPriority(openGapsList);
+    merged.length = 0; // Clear array
+    merged.push(...sortedOpenGaps, ...closedGapsList);
+  }
+
+  emitGapProgress(emit, { step: "prioritize_sort", current: 1, total: 1, msg: "正在使用 PlanningTree 智能排序", detail: { totalGaps: merged.length, openGaps: openGapsList.length } });
 
   state.L1.gaps = merged;
 
   const openGapCount = merged.filter((g) => g.status === "open").length;
   state.addTimeline({ name: "deepsearch.gaps", status: "completed", payload: { gapCount: openGapCount, totalGaps: merged.length } });
+
+  // 记录 gaps 阶段完成
+  logEvent({
+    stage: 'gaps',
+    message: 'Gaps stage completed',
+    data: {
+      totalGaps: merged.length,
+      openGaps: openGapCount,
+      closedGaps: merged.length - openGapCount,
+      defaultGaps: suggested.length,
+      llmGaps: Array.isArray(llmSuggested) ? llmSuggested.length : 0,
+    },
+  });
 
   const todos = ensureTodosForGaps(state, merged, emit);
   emit?.("deepsearch.gaps.completed", { gapCount: openGapCount, totalGaps: merged.length, todoCount: todos.length });

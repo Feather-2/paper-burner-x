@@ -258,7 +258,21 @@ function buildBodyHtml(pageType, slideIntent, claims, evidences) {
     ...asLines(slideIntent?.keyPoints, 6),
     ...asLines(pickClaimsText(slideIntent, claims, 6), 6),
   ].slice(0, 8);
-  return points.length ? points.map((v) => `• ${escapeHtml(v)}`).join("<br>") : escapeHtml(slideIntent?.objective || " ");
+
+  if (points.length) {
+    return points.map((v) => `• ${escapeHtml(v)}`).join("<br>");
+  }
+
+  // Fallback: 使用 content 字段（如果存在）
+  const contentText = typeof slideIntent?.content === "string" ? slideIntent.content : "";
+  const contentBody = contentText.replace(/^#{1,6}\s+.+\n?/gm, "").trim();
+  if (contentBody) {
+    // 从 content 中提取显示内容，最多 300 字符
+    const displayText = contentBody.slice(0, 300) + (contentBody.length > 300 ? "..." : "");
+    return escapeHtml(displayText);
+  }
+
+  return escapeHtml(slideIntent?.objective || " ");
 }
 
 /**

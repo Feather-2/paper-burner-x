@@ -160,7 +160,7 @@ export class EvaluateStage {
     const scenario = runContext?.scenario || contentPackage?.constraints?.tone || null;
     const scenarioScore = scenario ? computeScenarioScore(scenario, metrics) : undefined;
     if (scenarioScore) {
-      emit?.("evaluate.scenario_score.completed", {
+      emit?.("evaluate.scenarioscore.completed", {
         actor: "evaluate",
         status: "ended",
         payload: { scenario, score: scenarioScore.score },

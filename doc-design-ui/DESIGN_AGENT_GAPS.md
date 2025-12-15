@@ -367,3 +367,72 @@ pending → generating → completed
 4. **Gemini 3 Pro 做 DSL 生成，每批 1-4 页可配置**
 5. **流程可视化优先用缩略图联动，改动最小，复用现有结构**
 6. **参考图风格提取可显著提升设计一致性，推荐作为 Design Spec 的扩展功能**
+
+## 十二、Design Agent 埋点增强路线（后续迭代）
+
+> 当前埋点已覆盖基本生命周期，以下为对标 DeepSearch Agent 的增强方向。
+
+### 现状
+
+| 文件 | 已有事件 |
+|------|----------|
+| `design-agent.js` | `design.started/ended`, `design.tokens.ended`, `design.image.planning.completed`, `design.qa.ended`, `design.degraded` |
+| `batch-generator.js` | `design.batch.started/completed`, `design.slide.started/progress/completed/failed/retrying` |
+| `image-generator.js` | `design.image.generate.started/succeeded/failed/skipped`, `design.image.fill.completed` |
+
+### 增强方向
+
+| # | 增强项 | 说明 | 参考 DeepSearch |
+|---|--------|------|-----------------|
+| 1 | **引入 EmitTap** | 支持通配符监听 `on("*")`，方便 Dashboard 统一订阅所有 design.* 事件 | `index.js:22-54` createEmitTap |
+| 2 | **统一 Progress 格式** | 加 `phase`、`progress` 百分比、`detail` 字段，便于进度条渲染 | `gaps.js:53-67` emitGapProgress |
+| 3 | **Timeline 持久化** | 在 DeckPackage 中加 `timeline[]` 字段，记录关键事件供回放/调试 | `state.addTimeline()` |
+| 4 | **Checkpoint 机制** | 支持中断恢复，对长 PPT（20+ 页）生成有意义 | `index.js:216-232` saveErrorCheckpoint |
+| 5 | **Budget 监控** | 扩展 `estimatedCostUSD`，加 `design.budget.warning/exceeded` 事件 | `index.js:184-207` budget 响应机制 |
+
+### 统一 Progress 格式示例
+
+```javascript
+// 当前
+safeEmit(emit, "design.slide.progress", "progress", { slideIndex, step, msg });
+
+// 增强后
+safeEmit(emit, "design.slide.progress", "progress", {
+  phase: "slide",           // batch | slide | image
+  slideIndex,
+  step,                     // llm | fallback | qa
+  current: slideIndex + 1,
+  total: totalSlides,
+  progress: (slideIndex + 1) / totalSlides,  // 0-1
+  msg,
+  detail: { attempt: 1 }
+});
+```
+
+### Timeline 持久化示例
+
+```javascript
+// DeckPackage 输出增加 timeline 字段
+return {
+  schemaVersion: "0.1",
+  runId,
+  designSystem,
+  deckHtmlDsl,
+  slidesMeta,
+  imageSlots,
+  imageReport,
+  timeline: [  // 新增
+    { ts: "...", name: "design.started", status: "started", payload: {...} },
+    { ts: "...", name: "design.slide.completed", status: "completed", payload: {...} },
+    // ...
+  ],
+};
+```
+
+### 优先级
+
+1. ★★★ 统一 Progress 格式（对 UI 进度条最有价值）
+2. ★★☆ Timeline 持久化（调试/回放需要）
+3. ★★☆ EmitTap 通配符（Dashboard 统一订阅）
+4. ★☆☆ Checkpoint 机制（长 PPT 场景）
+5. ★☆☆ Budget 监控（图片成本控制）

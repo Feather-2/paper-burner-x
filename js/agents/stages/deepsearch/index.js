@@ -10,6 +10,7 @@ import { generateReport, runDeepSearchWriteStage } from "./write.js";
 import { runDeepSearchCondenseStage } from "./condense.js";
 import { TrajectoryManager } from "./trajectory.js";
 import { DeepSearchError, ErrorHandler, ErrorLevel } from "../../core/error-handler.js";
+import { logEvent, setLogContext, setEventBus } from "./logger.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -112,7 +113,8 @@ function openGaps(state) {
 function getGapBlockAfterMisses(state) {
   const cfg = isPlainObject(state?.userConfig?.gaps) ? state.userConfig.gaps : {};
   const n = safeInt(cfg.blockAfterMisses);
-  return n !== null && n >= 1 ? n : 2;
+  // 默认值从 2 调整为 5，给更多机会尝试不同工具组合
+  return n !== null && n >= 1 ? n : 5;
 }
 
 function signatureForRetrievedChunk(r) {
@@ -131,8 +133,9 @@ export function shouldContinue(state, roundResult) {
 
   if (openGaps(state).length === 0) return false;
 
+  // noNewHitsRounds 阈值从 2 调整为 4，允许更多轮次尝试不同工具组合
   const noNewHitsRounds = safeInt(roundResult?.noNewHitsRounds);
-  if (noNewHitsRounds !== null && noNewHitsRounds >= 2) return false;
+  if (noNewHitsRounds !== null && noNewHitsRounds >= 4) return false;
 
   if (roundResult?.aborted) return false;
   if (roundResult?.budgetStopRequested) return false;
@@ -151,6 +154,23 @@ export class DeepSearchStage {
   async execute(runContext, input, stageApi = {}) {
     const state = ensureState(runContext, input);
     if (runContext?.runId) state.runId = String(runContext.runId);
+
+    // 设置日志上下文和 EventBus
+    setLogContext({ runId: state.runId, iteration: state.iteration || 0 });
+    if (stageApi?.eventBus) {
+      setEventBus(stageApi.eventBus);
+    }
+
+    // 记录 DeepSearch 流程开始
+    logEvent({
+      stage: 'deepsearch',
+      message: 'DeepSearch pipeline started',
+      data: {
+        runId: state.runId,
+        maxIterations: state.maxIterations,
+        sourceCount: Array.isArray(state?.L0?.sources) ? state.L0.sources.length : 0,
+      },
+    });
 
     const baseEmitFn = typeof stageApi?.emit === "function" ? stageApi.emit.bind(stageApi) : null;
     const tap = createEmitTap(baseEmitFn);
@@ -395,11 +415,32 @@ export class DeepSearchStage {
             continue;
           }
 
+          // Re-sort open gaps by priority at the start of each iteration
+          if (state?.planningTree && state?.L1?.gaps) {
+            const currentOpenGaps = state.L1.gaps.filter(isOpenGap);
+            const currentClosedGaps = state.L1.gaps.filter(g => !isOpenGap(g));
+            if (currentOpenGaps.length > 0) {
+              const sortedOpenGaps = state.planningTree.sortGapsByPriority(currentOpenGaps);
+              state.L1.gaps = [...sortedOpenGaps, ...currentClosedGaps];
+            }
+          }
+
           emit?.("deepsearch.iteration.started", {
             runId: state.runId,
             iteration: state.iteration,
             openGapCount: openGaps(state).length,
             trajectoryId: state.trajectoryId,
+          });
+
+          // 记录迭代开始
+          logEvent({
+            stage: 'deepsearch',
+            message: `Iteration ${state.iteration} started`,
+            data: {
+              iteration: state.iteration,
+              openGaps: openGaps(state).length,
+              trajectoryId: state.trajectoryId,
+            },
           });
 
           const { value: retrieveOut } = await callStage("deepsearch.retrieve", () => runDeepSearchRetrieveStage(runContext, { state }, stageApiWithTap), {
@@ -498,6 +539,19 @@ export class DeepSearchStage {
             noNewHitsRounds,
             ...(validateOut && typeof validateOut === "object" ? validateOut : {}),
             openGapCount: openGaps(state).length,
+          });
+
+          // 记录迭代完成
+          logEvent({
+            stage: 'deepsearch',
+            message: `Iteration ${completedIteration} completed`,
+            data: {
+              iteration: completedIteration,
+              hitCount,
+              noNewHitsRounds,
+              openGaps: openGaps(state).length,
+              decision: shouldContinue(state, lastRoundResult) ? 'continue' : 'stop',
+            },
           });
 
           state.iteration += 1;
@@ -611,6 +665,21 @@ export class DeepSearchStage {
     }
 
     emit?.("deepsearch.completed", { runId: state.runId, slideCount: slideIntents.length, claimCount: claims.length });
+
+    // 记录 DeepSearch 流程完成
+    logEvent({
+      stage: 'deepsearch',
+      message: 'DeepSearch pipeline completed',
+      data: {
+        runId: state.runId,
+        finalIteration: state.iteration,
+        slideCount: slideIntents.length,
+        claimCount: claims.length,
+        evidenceCount: evidenceLedger.length,
+        gapCount: Array.isArray(state?.L1?.gaps) ? state.L1.gaps.length : 0,
+      },
+    });
+
     if (taskManager && taskId) {
       if (stageApi?.signal?.aborted && typeof taskManager.cancel === "function") {
         taskManager.cancel(taskId, "aborted");

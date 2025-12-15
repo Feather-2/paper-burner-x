@@ -33,6 +33,12 @@ const STAGES = {
   external: { icon: "⊕", label: "Search", color: "#3B82F6" },
   checkpoint: { icon: "◉", label: "Save", color: "#F97316" },
   iteration: { icon: "↻", label: "Iterate", color: "#6366F1" },
+  // Design Flow (复用同一可视化引擎)
+  design_start: { icon: "▣", label: "Design", color: "#EC4899" },
+  design_theme: { icon: "✦", label: "Theme", color: "#F43F5E" },
+  design_batch: { icon: "▦", label: "Batch", color: "#8B5CF6" },
+  design_slide: { icon: "▤", label: "Slide", color: "#0EA5E9" },
+  design_qa: { icon: "✓", label: "QA", color: "#10B981" },
   end: { icon: "✓", label: "Done", color: "#10B981" },
   error: { icon: "✕", label: "Error", color: "#EF4444" },
 };
@@ -61,6 +67,10 @@ export class FlowBuilder {
     this.sections = [];
     this.tokenUsage = { input: 0, output: 0, cost: 0 };
     this.externalProgress = [];
+
+    // Design flow tracking
+    this.designBatchNodes = new Map(); // batchIndex -> nodeId
+    this.designSlideNodes = new Map(); // slideIndex -> nodeId
   }
 
   _genId(prefix = "n") {
@@ -668,6 +678,150 @@ export class FlowBuilder {
         this.tokenUsage.cost += payload.cost || 0;
         break;
       }
+
+      // === Design Flow ===
+      case "design.started": {
+        const id = "design_start";
+        this._addNode(id, "design_start", {
+          label: "Design Started",
+          status: "completed",
+          metrics: { runId: payload.runId, slides: payload.slideCount }
+        });
+        this.parentStack.push(id);
+        break;
+      }
+
+      case "design.tokens.ended": {
+        const parentId = this._getCurrentParent();
+        const id = this._genId("theme");
+        this._addNode(id, "design_theme", {
+          label: "Theme",
+          status: "completed",
+          parentNodeId: parentId,
+          metrics: { theme: payload.theme }
+        });
+        break;
+      }
+
+      case "design.image.planning.completed": {
+        const parentId = this._getCurrentParent();
+        const id = this._genId("img");
+        this._addNode(id, "checkpoint", {
+          label: "Image Plan",
+          status: "completed",
+          parentNodeId: parentId,
+          metrics: { planned: payload.planned, cost: payload.estimatedCostUSD }
+        });
+        break;
+      }
+
+      case "design.batch.started": {
+        const batchIndex = typeof payload.batchIndex === "number" ? payload.batchIndex : 0;
+        const slideIndexes = Array.isArray(payload.slideIndexes) ? payload.slideIndexes : [];
+        const parentId = this._getCurrentParent();
+        const id = `batch_${batchIndex}`;
+        this._addNode(id, "design_batch", {
+          label: `Batch #${batchIndex + 1}`,
+          status: "running",
+          parentNodeId: parentId,
+          metrics: { slides: slideIndexes.length || undefined }
+        });
+        this.designBatchNodes.set(batchIndex, id);
+        this.parentStack.push(id);
+        break;
+      }
+
+      case "design.batch.completed": {
+        const batchIndex = typeof payload.batchIndex === "number" ? payload.batchIndex : 0;
+        const id = this.designBatchNodes.get(batchIndex) || `batch_${batchIndex}`;
+        this._updateNode(id, {
+          status: "completed",
+          metrics: { duration: payload.duration }
+        });
+        if (this.parentStack[this.parentStack.length - 1] === id) this.parentStack.pop();
+        break;
+      }
+
+      case "design.slide.started": {
+        const slideIndex = typeof payload.slideIndex === "number" ? payload.slideIndex : 0;
+        const slideIntent = payload.slideIntent && typeof payload.slideIntent === "object" ? payload.slideIntent : {};
+        const parentId = this._getCurrentParent();
+        const id = `slide_${slideIndex}`;
+        const title = typeof slideIntent.title === "string" ? slideIntent.title : "";
+        const label = title ? `S${slideIndex + 1} ${title}` : `Slide ${slideIndex + 1}`;
+        this._addNode(id, "design_slide", {
+          label,
+          status: "running",
+          parentNodeId: parentId,
+          metrics: { pageType: slideIntent.pageType }
+        });
+        this.designSlideNodes.set(slideIndex, id);
+        break;
+      }
+
+      case "design.slide.progress": {
+        const slideIndex = typeof payload.slideIndex === "number" ? payload.slideIndex : 0;
+        const id = this.designSlideNodes.get(slideIndex) || `slide_${slideIndex}`;
+        const detail = `${payload.step || "progress"}${payload.msg ? `: ${payload.msg}` : ""}`;
+        this._updateNode(id, {
+          status: "running",
+          details: detail ? [{ text: detail }] : []
+        });
+        break;
+      }
+
+      case "design.slide.retrying": {
+        const slideIndex = typeof payload.slideIndex === "number" ? payload.slideIndex : 0;
+        const id = this.designSlideNodes.get(slideIndex) || `slide_${slideIndex}`;
+        this._updateNode(id, {
+          status: "running",
+          details: [{ text: `Retrying (attempt ${Number(payload.attempt || 0)})` }]
+        });
+        break;
+      }
+
+      case "design.slide.failed": {
+        const slideIndex = typeof payload.slideIndex === "number" ? payload.slideIndex : 0;
+        const id = this.designSlideNodes.get(slideIndex) || `slide_${slideIndex}`;
+        this._updateNode(id, {
+          status: "failed",
+          details: [{ text: `Failed: ${payload.error || "unknown error"}` }]
+        });
+        break;
+      }
+
+      case "design.slide.completed": {
+        const slideIndex = typeof payload.slideIndex === "number" ? payload.slideIndex : 0;
+        const id = this.designSlideNodes.get(slideIndex) || `slide_${slideIndex}`;
+        this._updateNode(id, {
+          status: "completed",
+          metrics: { duration: payload.duration }
+        });
+        break;
+      }
+
+      case "design.qa.ended": {
+        const parentId = this._getCurrentParent();
+        const id = this._genId("qa");
+        this._addNode(id, "design_qa", {
+          label: "QA Complete",
+          status: "completed",
+          parentNodeId: parentId,
+          metrics: { degraded: payload.degradedCount, slides: payload.slides }
+        });
+        break;
+      }
+
+      case "design.ended": {
+        const parentId = this._getCurrentParent();
+        this._addNode("design_end", "end", {
+          label: "Design Done",
+          status: "completed",
+          parentNodeId: parentId,
+          metrics: { slides: payload.slides, degraded: payload.degradedCount }
+        });
+        break;
+      }
     }
   }
 
@@ -705,6 +859,8 @@ export class FlowBuilder {
     this.sections = [];
     this.tokenUsage = { input: 0, output: 0, cost: 0 };
     this.externalProgress = [];
+    this.designBatchNodes.clear();
+    this.designSlideNodes.clear();
   }
 }
 
@@ -781,7 +937,12 @@ export async function initDeepSearchFlow(containerId, options = {}) {
   const container = document.getElementById(containerId);
   if (!container) return null;
 
-  const { direction = "TB", height = 600 } = options;
+  const {
+    direction = "TB",
+    height = 600,
+    acceptPrefixes = ["deepsearch.", "design."],
+    acceptNames = ["iteration.completed"],
+  } = options;
 
   const [ReactMod, ReactDOMMod, RFMod] = await Promise.all([
     import(CDN.react),
@@ -1052,11 +1213,12 @@ export async function initDeepSearchFlow(containerId, options = {}) {
       refresh();
     },
     subscribe(eventBus) {
+      const prefixes = Array.isArray(acceptPrefixes) ? acceptPrefixes.filter(Boolean).map(String) : [];
+      const names = new Set(Array.isArray(acceptNames) ? acceptNames.filter(Boolean).map(String) : []);
       return eventBus.on("*", event => {
         const name = event?.name || "";
-        if (name.startsWith("deepsearch.") || name === "iteration.completed") {
-          this.processEvent(event);
-        }
+        if (names.has(name)) return this.processEvent(event);
+        if (prefixes.some(p => name.startsWith(p))) return this.processEvent(event);
       });
     },
     getStats() {

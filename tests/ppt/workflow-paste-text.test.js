@@ -113,7 +113,7 @@ Content B
   assert.ok(Array.isArray(gen.workflowData.contentPackage.slideIntents));
   assert.equal(gen.workflowData.contentPackage.slideIntents.length, 3);
   assert.ok(seen.logs.some((l) => l.msg.includes('开始处理粘贴文档')));
-  assert.ok(seen.logs.some((l) => l.msg.includes('TextPrep 处理完成')));
+  assert.ok(seen.logs.some((l) => l.msg.includes('文档已解析')));
 
   assert.equal(gen.workflowData.report.markdown, md);
   assert.equal(gen.workflowData.slideIntents.length, 3);

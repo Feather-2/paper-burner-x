@@ -5,6 +5,7 @@ import { generateBatch } from "./batch-generator.js";
 import { validateSlide } from "./qa-validator.js";
 import { ImagePlanner } from "./image-planner.js";
 import { ImageGenerator, fillImagePlaceholders } from "./image-generator.js";
+import { DSL_RULES } from "./dsl-rules.js";
 
 const SCHEMA_VERSION = "0.1";
 
@@ -111,6 +112,7 @@ export class DesignStage {
       imageSlots,
       emit,
       signal: context.signal,
+      dslRules: DSL_RULES,
     });
     emitStage(emit, "design.generate.ended", "ended", { slides: generated.length });
     checkCancelled(context.signal);

@@ -137,18 +137,35 @@ export function retrieve(sourceIndex, gaps, config = {}) {
 
     const scopedIdSet = new Set(scopedChunks.map((c) => c.chunkId));
     const scored = new Map(); // chunkId -> score
+    let grepHitCount = 0;
 
+    // 优先使用 grep 精确匹配
     for (const query of queries) {
       if (useGrep) {
         const grepMatches = grepChunks(scopedChunks, query, { regex: Boolean(config.grepRegex), caseSensitive: Boolean(config.caseSensitive) });
-        for (const m of grepMatches) scored.set(m.chunkId, Math.max(scored.get(m.chunkId) || 0, scoreFromGrepMatchCount(m.matchCount)));
+        for (const m of grepMatches) {
+          // grep 匹配给更高的基础分，确保优先级
+          const grepScore = scoreFromGrepMatchCount(m.matchCount) + 1.0;
+          scored.set(m.chunkId, Math.max(scored.get(m.chunkId) || 0, grepScore));
+          grepHitCount++;
+        }
       }
+    }
 
-      if (useBm25 && bm25Index) {
+    // 只在 grep 结果不足时使用 BM25 补充
+    const minGrepHits = typeof config.minGrepHits === "number" ? config.minGrepHits : 15;
+    const bm25MinScore = typeof config.bm25MinScore === "number" ? config.bm25MinScore : 0.5;
+    if (useBm25 && bm25Index && grepHitCount < minGrepHits) {
+      for (const query of queries) {
         const results = bm25Search(bm25Index, query, topK * 5, {
           filterDocIndex: (docIndex) => scopedIdSet.has(bm25Index.chunkIds[docIndex]),
         });
-        for (const r of results) scored.set(r.chunkId, Math.max(scored.get(r.chunkId) || 0, r.score));
+        for (const r of results) {
+          // BM25 结果需要超过阈值才使用
+          if (r.score >= bm25MinScore) {
+            scored.set(r.chunkId, Math.max(scored.get(r.chunkId) || 0, r.score));
+          }
+        }
       }
     }
 

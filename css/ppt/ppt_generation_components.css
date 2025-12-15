@@ -500,6 +500,205 @@
     position: relative;
 }
 
+/* ==================== Workflow Mode (Upload View) ==================== */
+.ppt-workmode-panel {
+    width: 100%;
+    max-width: 900px;
+    margin: 0 auto 20px;
+}
+
+.ppt-workmode-card {
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid var(--ppt-border);
+    border-radius: var(--ppt-radius-xl);
+    padding: 18px;
+    box-shadow: var(--ppt-shadow-sm);
+    backdrop-filter: blur(6px);
+}
+
+.ppt-workmode-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 14px;
+}
+
+.ppt-workmode-title {
+    font-weight: 750;
+    font-size: 14px;
+    color: var(--ppt-text-main);
+    letter-spacing: -0.01em;
+}
+
+.ppt-workmode-desc {
+    font-size: 12px;
+    color: var(--ppt-text-secondary);
+    margin-top: 4px;
+    line-height: 1.45;
+    max-width: 52ch;
+}
+
+.ppt-workmode-edit-btn {
+    padding: 8px 10px;
+    border-radius: 10px;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.ppt-workmode-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+@media (max-width: 860px) {
+    .ppt-workmode-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.ppt-workmode-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 14px 14px 12px;
+    border-radius: 14px;
+    border: 1px solid var(--ppt-border);
+    background: rgba(255, 255, 255, 0.85);
+    box-shadow: var(--ppt-shadow-sm);
+    cursor: pointer;
+    transition: all 0.2s var(--ppt-ease);
+    text-align: left;
+    width: 100%;
+}
+
+.ppt-workmode-option:hover {
+    border-color: var(--ppt-primary-light);
+    box-shadow: var(--ppt-shadow-md);
+    transform: translateY(-1px);
+}
+
+.ppt-workmode-option.is-selected {
+    border-color: var(--ppt-primary);
+    background: rgba(79, 70, 229, 0.08);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12), var(--ppt-shadow-sm);
+}
+
+.ppt-workmode-option-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--ppt-bg-app);
+    color: var(--ppt-text-secondary);
+    flex-shrink: 0;
+}
+
+.ppt-workmode-option.is-selected .ppt-workmode-option-icon {
+    background: var(--ppt-primary);
+    color: white;
+}
+
+.ppt-workmode-option-body {
+    min-width: 0;
+    flex: 1;
+}
+
+.ppt-workmode-option-title {
+    font-weight: 650;
+    font-size: 13px;
+    color: var(--ppt-text-main);
+}
+
+.ppt-workmode-option-desc {
+    font-size: 12px;
+    color: var(--ppt-text-secondary);
+    margin-top: 3px;
+    line-height: 1.4;
+}
+
+.ppt-workmode-brief {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: var(--ppt-bg-app);
+    border: 1px solid var(--ppt-border);
+}
+
+.ppt-workmode-brief-title {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    color: var(--ppt-text-secondary);
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.ppt-workmode-brief-title iconify-icon {
+    margin-top: 1px;
+    flex-shrink: 0;
+}
+
+.ppt-workmode-brief-summary {
+    margin-top: 8px;
+    color: var(--ppt-text-main);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+/* ==================== Flow Visualizer Embed ==================== */
+.ppt-flow-embed {
+    margin-top: 14px;
+    width: 100%;
+    text-align: left;
+}
+
+.ppt-flow-embed.compact {
+    margin-top: 12px;
+}
+
+.ppt-flow-embed-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.ppt-flow-embed-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 650;
+    font-size: 13px;
+    color: var(--ppt-text-main);
+}
+
+.ppt-flow-embed-title iconify-icon {
+    font-size: 16px;
+    color: var(--ppt-primary);
+}
+
+.ppt-flow-embed-hint {
+    font-size: 12px;
+    color: var(--ppt-text-secondary);
+    white-space: nowrap;
+}
+
+.ppt-flow-canvas {
+    width: 100%;
+    border-radius: 14px;
+    border: 1px solid var(--ppt-border);
+    background: rgba(248, 250, 252, 0.65);
+    overflow: hidden;
+}
+
 /* Upload Zone */
 .ppt-upload-zone {
     width: 100%;

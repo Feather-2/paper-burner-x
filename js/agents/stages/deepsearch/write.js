@@ -803,12 +803,28 @@ async function tryLLMSlidePlan(state, { title, claimIds, claims }, stageApi) {
   const callModel = getModelCaller(stageApi, { usage: "writer", state });
   if (!callModel) return null;
 
+  const claimCount = Array.isArray(claims) ? claims.length : 0;
+  // 建议的幻灯片数量：基于 claims 数量，每 2-3 个 claims 一页，加上核心页面
+  const suggestedSlideCount = Math.max(8, Math.min(20, 4 + Math.ceil(claimCount / 2.5)));
+
   const messages = [
     {
       role: "system",
       content:
-        "You are a PPT slide planner. Return ONLY JSON: {slideIntents:[{slideIntentId,pageType,title,objective,keyPoints,claimIds}],outlineCandidates:[{outlineId,title,bullets}]}. " +
-        "pageType examples: cover, agenda, overview, comparison, process, summary, appendix. Do not invent facts.",
+        "You are a PPT slide planner. Create a comprehensive presentation structure.\n\n" +
+        "IMPORTANT: Generate " + suggestedSlideCount + " slides (can be more if content requires).\n\n" +
+        "Required slide types:\n" +
+        "- cover: title slide (1)\n" +
+        "- agenda: outline of presentation (1)\n" +
+        "- overview: executive summary (1)\n" +
+        "- content: main content slides (multiple, group related claims)\n" +
+        "- comparison: if comparing alternatives\n" +
+        "- process: if explaining workflows\n" +
+        "- data: for statistics and metrics\n" +
+        "- summary: key takeaways (1)\n\n" +
+        "Each content slide should have 2-4 claims assigned via claimIds.\n\n" +
+        "Return ONLY JSON: {slideIntents:[{slideIntentId,pageType,title,objective,keyPoints,claimIds}],outlineCandidates:[{outlineId,title,bullets}]}.\n" +
+        "Do not invent facts. Use only the provided claims.",
     },
     {
       role: "user",
@@ -816,8 +832,9 @@ async function tryLLMSlidePlan(state, { title, claimIds, claims }, stageApi) {
         {
           taskGoal: String(state?.taskGoal || ""),
           title: String(title || ""),
+          targetSlideCount: suggestedSlideCount,
           claimIds: Array.isArray(claimIds) ? claimIds : [],
-          claims: (Array.isArray(claims) ? claims : []).slice(0, 24).map((c) => ({ claimId: c?.claimId, text: c?.text, importance: c?.importance, gapIds: c?.gapIds })),
+          claims: (Array.isArray(claims) ? claims : []).slice(0, 30).map((c) => ({ claimId: c?.claimId, text: c?.text, importance: c?.importance, gapIds: c?.gapIds })),
         },
         null,
         2
@@ -826,7 +843,7 @@ async function tryLLMSlidePlan(state, { title, claimIds, claims }, stageApi) {
   ];
 
   try {
-    const result = await callModel(messages, { model: "auto", temperature: 0.2, maxTokens: 1000 });
+    const result = await callModel(messages, { model: "auto", temperature: 0.3, maxTokens: 2000 });
     const candidate = extractJsonCandidate(result?.content);
     if (!candidate) return null;
     const parsed = JSON.parse(candidate);
