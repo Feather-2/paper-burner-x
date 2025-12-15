@@ -913,7 +913,10 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   }
 
   const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
-  const unconsumedCount = retrieved.filter((c) => c?.consumed !== true).length;
+  // 只处理未消费的新 chunks，避免每轮重复处理历史累计 chunks
+  const newRetrieved = retrieved.filter((c) => c?.consumed !== true);
+  const existingClaims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
+  const existingEvidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
 
   // 记录 understand 阶段开始
   logEvent({
@@ -921,8 +924,8 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     message: 'Understand stage started',
     data: {
       retrievedChunks: retrieved.length,
-      unconsumedChunks: unconsumedCount,
-      existingClaims: Array.isArray(state?.L1?.claims) ? state.L1.claims.length : 0,
+      unconsumedChunks: newRetrieved.length,
+      existingClaims: existingClaims.length,
     },
   });
 
@@ -933,47 +936,6 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     msg: "正在启动理解阶段...",
     detail: { step: "init" },
   });
-
-  // 如果没有未消费的 chunks，提前返回
-  if (unconsumedCount === 0) {
-    logEvent({
-      stage: 'understand',
-      message: 'No unconsumed chunks to process - early return',
-      data: { totalChunks: retrieved.length },
-    });
-    emit?.("deepsearch.understand.completed", {
-      claimCount: Array.isArray(state?.L1?.claims) ? state.L1.claims.length : 0,
-      evidenceCount: Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger.length : 0,
-      skipped: true,
-      reason: "no_unconsumed_chunks",
-    });
-    return {
-      state,
-      claims: Array.isArray(state?.L1?.claims) ? state.L1.claims : [],
-      evidenceLedger: Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [],
-      conflicts: Array.isArray(state?.L1?.conflicts) ? state.L1.conflicts : [],
-      openQuestions: Array.isArray(state?.L1?.openQuestions) ? state.L1.openQuestions : [],
-      reflectResult: { sufficient: true, confidence: 0.5, reason: "no_new_chunks", missingAspects: [], suggestedQueries: [] },
-    };
-  }
-  // 只处理未消费的新 chunks，避免每轮重复处理历史累计 chunks
-  const newRetrieved = retrieved.filter((c) => c?.consumed !== true);
-  const sourceTextById = indexSourceTextById(state?.L0?.sources);
-
-  const understandingConfig = isPlainObject(state?.userConfig?.understanding) ? state.userConfig.understanding : {};
-  const maxQuoteLen = Number.isFinite(understandingConfig.maxQuoteLen) ? Math.max(60, Math.floor(understandingConfig.maxQuoteLen)) : 220;
-  const useLLMClaims = understandingConfig.useLLMClaims !== false;
-  const minScore =
-    typeof understandingConfig.minScore === "number" && Number.isFinite(understandingConfig.minScore)
-      ? Math.max(0, understandingConfig.minScore)
-      : 0.15;
-  const dedupeThreshold =
-    typeof understandingConfig.dedupeThreshold === "number" && Number.isFinite(understandingConfig.dedupeThreshold)
-      ? understandingConfig.dedupeThreshold
-      : 0.82;
-
-  const existingClaims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
-  const existingEvidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
 
   if (!newRetrieved.length) {
     logEvent({ stage: "understand", message: "No unconsumed chunks to process" });
@@ -996,6 +958,16 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     state.L1.openQuestions = openQuestions;
     state.L1.reflectResult = reflectResult;
 
+    emit?.("deepsearch.understand.completed", {
+      claimCount: existingClaims.length,
+      evidenceCount: existingEvidenceLedger.length,
+      conflictCount: conflicts.length,
+      openQuestionCount: openQuestions.length,
+      reflectResult,
+      skipped: true,
+      reason: "no_unconsumed_chunks",
+    });
+
     return {
       state,
       claims: existingClaims,
@@ -1005,6 +977,20 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
       reflectResult,
     };
   }
+
+  const sourceTextById = indexSourceTextById(state?.L0?.sources);
+
+  const understandingConfig = isPlainObject(state?.userConfig?.understanding) ? state.userConfig.understanding : {};
+  const maxQuoteLen = Number.isFinite(understandingConfig.maxQuoteLen) ? Math.max(60, Math.floor(understandingConfig.maxQuoteLen)) : 220;
+  const useLLMClaims = understandingConfig.useLLMClaims !== false;
+  const minScore =
+    typeof understandingConfig.minScore === "number" && Number.isFinite(understandingConfig.minScore)
+      ? Math.max(0, understandingConfig.minScore)
+      : 0.15;
+  const dedupeThreshold =
+    typeof understandingConfig.dedupeThreshold === "number" && Number.isFinite(understandingConfig.dedupeThreshold)
+      ? understandingConfig.dedupeThreshold
+      : 0.82;
 
   function isValidSeed(seed) {
     return Boolean(seed && Array.isArray(seed.claims) && seed.claims.length && Array.isArray(seed.evidences) && seed.evidences.length);
