@@ -150,11 +150,136 @@ const PPTGeneratorWorkflow = {
         const mod = await import('../agents/runtime/orchestrator.js');
         const { AgentOrchestrator } = mod;
 
-        // Inject global AI services
+        const baseAiApiService = typeof window !== 'undefined' && window.aiApiService ? window.aiApiService : null;
+        const visionApi = typeof window !== 'undefined' && window.visionApi ? window.visionApi : null;
+        const whisperApi = typeof window !== 'undefined' && window.whisperApi ? window.whisperApi : null;
+
+        // Inject global AI services + ModelRouter (for pptRolePriority-aware routing)
+        let aiApiService = baseAiApiService;
+        let modelRouter = null;
+        try {
+            const { buildPptUsageConfigForModelRouter, createPptAwareAiApiService } = await import('../agents/llm/ppt-model-bridge.js');
+            aiApiService = typeof createPptAwareAiApiService === 'function' ? createPptAwareAiApiService(baseAiApiService) : baseAiApiService;
+
+            const usageConfig = typeof buildPptUsageConfigForModelRouter === 'function' ? buildPptUsageConfigForModelRouter() : null;
+            if (usageConfig && typeof usageConfig === 'object') {
+                const { ModelRouter } = await import('../agents/llm/model-router.js');
+
+                const textUsages = ['worker', 'analyst', 'planner', 'writer', 'reviewer'];
+                const textSet = new Set();
+                const visionSet = new Set();
+
+                for (const u of textUsages) {
+                    for (const id of Array.isArray(usageConfig?.[u]) ? usageConfig[u] : []) textSet.add(id);
+                }
+                for (const id of Array.isArray(usageConfig?.vision) ? usageConfig.vision : []) visionSet.add(id);
+
+                const allModelIds = new Set([...textSet, ...visionSet]);
+
+                const available = typeof baseAiApiService?.getAvailableModels === 'function' ? baseAiApiService.getAvailableModels() : [];
+                for (const provider of Array.isArray(available) ? available : []) {
+                    const providerId = String(provider?.id || '').trim();
+                    if (providerId) allModelIds.add(providerId);
+                    const modelNames = Array.isArray(provider?.models) ? provider.models : [];
+                    for (const modelName of modelNames) {
+                        const mn = String(modelName || '').trim();
+                        if (!providerId || !mn) continue;
+                        allModelIds.add(`${providerId}:${mn}`);
+                    }
+                }
+
+                const models = Array.from(allModelIds).map((id) => {
+                    const tags = [];
+                    if (textSet.has(id)) tags.push('text');
+                    if (visionSet.has(id)) tags.push('vision');
+                    if (tags.length === 0) tags.push('text');
+                    return { id, provider: 'ppt_ai_api_service', tags };
+                });
+
+                const providerCallContext = new WeakMap();
+                const provider = {
+                    id: 'ppt_ai_api_service',
+                    name: 'PPT AI API Service',
+                    chat: async ({ model, messages, images } = {}) => {
+                        const modelId = typeof model === 'string' ? model.trim() : '';
+                        const hasImages = Array.isArray(images) && images.length > 0;
+                        const ctx = (Array.isArray(messages) && providerCallContext.get(messages)) || {};
+                        const temperature = typeof ctx?.temperature === 'number' && Number.isFinite(ctx.temperature) ? ctx.temperature : 0.7;
+                        const maxTokens = typeof ctx?.maxTokens === 'number' && Number.isFinite(ctx.maxTokens) ? ctx.maxTokens : 4096;
+                        const signal = ctx?.signal;
+
+                        if (hasImages && visionApi?.describe) {
+                            const promptMsg = Array.isArray(messages) ? messages[messages.length - 1]?.content : '';
+                            const prompt = typeof promptMsg === 'string' ? promptMsg : JSON.stringify(promptMsg || '');
+                            const resp = await visionApi.describe(images[0], prompt, signal ? { signal } : undefined);
+                            if (resp && typeof resp === 'object' && typeof resp.content === 'string') return resp;
+                            return { content: typeof resp === 'string' ? resp : JSON.stringify(resp ?? '') };
+                        }
+
+                        if (!baseAiApiService) throw new Error('aiApiService not available');
+                        if (typeof baseAiApiService?._resolveModelConfig === 'function' && typeof baseAiApiService?._callApi === 'function') {
+                            const idx = modelId.indexOf(':');
+                            const sourceKey = idx > 0 ? modelId.slice(0, idx) : modelId;
+                            const specificModel = idx > 0 ? modelId.slice(idx + 1) : null;
+
+                            const config = baseAiApiService._resolveModelConfig(sourceKey || 'auto', specificModel);
+                            if (!config) throw new Error(`No available model config for: ${modelId || 'auto'}`);
+
+                            return await baseAiApiService._callApi(config, messages, temperature, maxTokens);
+                        }
+
+                        if (typeof baseAiApiService?.chat !== 'function') throw new Error('aiApiService.chat not available');
+                        return await baseAiApiService.chat({ messages, model: modelId || 'auto', temperature, maxTokens });
+                    }
+                };
+
+                const router = new ModelRouter({
+                    models,
+                    usageConfig,
+                    providers: new Map([[provider.id, provider]])
+                });
+
+                // Backward-compatible call signature: call(messagesOrPrompt, {usage, images})
+                modelRouter = {
+                    on: router.on.bind(router),
+                    off: router.off.bind(router),
+                    getModelEntry: router.getModelEntry.bind(router),
+                    getHealth: router.getHealth.bind(router),
+                    resetUnhealthy: router.resetUnhealthy.bind(router),
+                    isAvailable: router.isAvailable.bind(router),
+                    markUnhealthy: router.markUnhealthy.bind(router),
+                    async call(arg1, arg2) {
+                        if (arg2 === undefined && arg1 && typeof arg1 === 'object' && !Array.isArray(arg1)) {
+                            return router.call(arg1);
+                        }
+                        const opts = arg2 && typeof arg2 === 'object' ? arg2 : {};
+                        const usage = typeof opts.usage === 'string' && opts.usage ? opts.usage : 'worker';
+                        const images = Array.isArray(opts.images) ? opts.images : undefined;
+                        const messages = Array.isArray(arg1) ? arg1 : [{ role: 'user', content: String(arg1 ?? '') }];
+                        const ctx = { temperature: opts.temperature, maxTokens: opts.maxTokens, signal: opts.signal };
+                        providerCallContext.set(messages, ctx);
+                        try {
+                            return await router.call({ usage, messages, ...(images ? { images } : {}) });
+                        } finally {
+                            providerCallContext.delete(messages);
+                        }
+                    }
+                };
+
+                this._modelRouter = modelRouter;
+                if (typeof window !== 'undefined') window.modelRouter = modelRouter;
+            }
+        } catch (e) {
+            console.warn('[PPTGeneratorWorkflow] ModelRouter init skipped:', e);
+            aiApiService = baseAiApiService;
+            modelRouter = null;
+        }
+
         const services = {
-            aiApiService: typeof window !== 'undefined' && window.aiApiService ? window.aiApiService : null,
-            visionApi: typeof window !== 'undefined' && window.visionApi ? window.visionApi : null,
-            whisperApi: typeof window !== 'undefined' && window.whisperApi ? window.whisperApi : null,
+            aiApiService,
+            modelRouter,
+            visionApi,
+            whisperApi,
         };
 
         this._orchestrator = new AgentOrchestrator({

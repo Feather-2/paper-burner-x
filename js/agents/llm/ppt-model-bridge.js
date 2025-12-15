@@ -179,22 +179,30 @@ export function createPptConfiguredChat(aiApiService, usage = 'worker') {
 
   return async function chat({ messages, ...opts } = {}) {
     const callOpts = { messages, ...opts };
+    const modelExplicit = typeof callOpts.model === 'string' && callOpts.model.trim();
 
-    // 如果有 PPT 配置，使用配置的 modelKey 和 modelId
-    if (config) {
-      if (!callOpts.modelId && config.modelKey) {
-        // 构建 modelId：对于自定义源站使用 "siteId:modelId" 格式
-        if (config.modelKey.startsWith('custom_source_')) {
-          callOpts.modelId = config.modelId
-            ? `${config.modelKey}:${config.modelId}`
-            : config.modelKey;
-        } else {
-          callOpts.modelId = config.modelKey;
-          if (config.modelId) {
-            callOpts.model = config.modelId;
-          }
-        }
+    // 如果调用者没有指定 model / 或使用 auto，则用 PPT 配置
+    if (config?.modelKey && (!modelExplicit || callOpts.model === 'auto')) {
+      // 优先走内部 resolve + callApi，确保可用 modelId 生效（包括预设源站）
+      if (typeof aiApiService._resolveModelConfig === 'function' && typeof aiApiService._callApi === 'function') {
+        const temperature = typeof callOpts.temperature === 'number' ? callOpts.temperature : 0.7;
+        const maxTokens = typeof callOpts.maxTokens === 'number' ? callOpts.maxTokens : 4096;
+        const apiConfig = aiApiService._resolveModelConfig(config.modelKey, config.modelId || null);
+        if (apiConfig) return aiApiService._callApi(apiConfig, messages, temperature, maxTokens);
       }
+
+      // 兼容公开 chat 接口（无法为预设源站指定 modelId 时，退回到源站默认模型）
+      if (config.modelKey.startsWith('custom_source_') && config.modelId) {
+        const siteId = config.modelKey.slice('custom_source_'.length);
+        callOpts.model = `${siteId}:${config.modelId}`;
+      } else {
+        callOpts.model = config.modelKey;
+      }
+    }
+
+    // 兼容旧字段：modelId -> model
+    if (!callOpts.model && typeof callOpts.modelId === 'string' && callOpts.modelId.trim()) {
+      callOpts.model = callOpts.modelId.trim();
     }
 
     return aiApiService.chat(callOpts);
@@ -220,19 +228,30 @@ export function createPptAwareAiApiService(baseService) {
       const config = getPptModelConfig(usage);
 
       const callOpts = { ...rest };
+      const modelExplicit = typeof callOpts.model === 'string' && callOpts.model.trim();
 
-      // 如果调用者没有指定 modelId，使用 PPT 配置
-      if (!callOpts.modelId && config?.modelKey) {
-        if (config.modelKey.startsWith('custom_source_')) {
-          callOpts.modelId = config.modelId
-            ? `${config.modelKey}:${config.modelId}`
-            : config.modelKey;
-        } else {
-          callOpts.modelId = config.modelKey;
-          if (config.modelId) {
-            callOpts.model = config.modelId;
-          }
+      // 如果调用者没有指定 model / 或使用 auto，则用 PPT 配置
+      if (config?.modelKey && (!modelExplicit || callOpts.model === 'auto')) {
+        // 优先走内部 resolve + callApi，确保可用 modelId 生效（包括预设源站）
+        if (typeof baseService._resolveModelConfig === 'function' && typeof baseService._callApi === 'function' && Array.isArray(callOpts.messages)) {
+          const temperature = typeof callOpts.temperature === 'number' ? callOpts.temperature : 0.7;
+          const maxTokens = typeof callOpts.maxTokens === 'number' ? callOpts.maxTokens : 4096;
+          const apiConfig = baseService._resolveModelConfig(config.modelKey, config.modelId || null);
+          if (apiConfig) return baseService._callApi(apiConfig, callOpts.messages, temperature, maxTokens);
         }
+
+        // 兼容公开 chat 接口（无法为预设源站指定 modelId 时，退回到源站默认模型）
+        if (config.modelKey.startsWith('custom_source_') && config.modelId) {
+          const siteId = config.modelKey.slice('custom_source_'.length);
+          callOpts.model = `${siteId}:${config.modelId}`;
+        } else {
+          callOpts.model = config.modelKey;
+        }
+      }
+
+      // 兼容旧字段：modelId -> model
+      if (!callOpts.model && typeof callOpts.modelId === 'string' && callOpts.modelId.trim()) {
+        callOpts.model = callOpts.modelId.trim();
       }
 
       return baseService.chat(callOpts);
