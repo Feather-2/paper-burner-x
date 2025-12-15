@@ -670,7 +670,7 @@ const PPTGeneratorWorkflow = {
 
             // Real DeepSearch pipeline (scan/gaps/retrieve/understand/write/condense + build ContentPackage).
             const { registerDeepSearchStages } = await import('../agents/stages/deepsearch/index.js');
-            registerDeepSearchStages(orch, { timeoutMs: 300_000 }); // 5 minutes for real LLM calls
+            registerDeepSearchStages(orch, { timeoutMs: 900_000 }); // 15 minutes for real LLM calls
 
             orch.registerStage('deepsearch.questions', async (ctx, input, api) => {
                 api.progress?.({ agent: 'AI 分析', msg: '正在分析内容特征...', type: 'normal' });
