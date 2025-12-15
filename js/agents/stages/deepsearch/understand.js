@@ -602,12 +602,37 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
 
   checkCancelled(stageApi);
 
+  function maxNumericId(rows, idSelector, { prefix } = {}) {
+    const rx = prefix ? new RegExp(`^${prefix.replaceAll(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}(\\d+)$`) : null;
+    let max = 0;
+    for (const r of Array.isArray(rows) ? rows : []) {
+      const raw = typeof idSelector === "function" ? idSelector(r) : null;
+      const id = toNonEmptyString(raw);
+      if (!id) continue;
+      const m = rx ? id.match(rx) : null;
+      if (!m) continue;
+      const n = Number.parseInt(m[1], 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+    return max;
+  }
+
+  function evidenceSignature(e) {
+    const sourceId = toNonEmptyString(e?.sourceId) || "";
+    const charStart = safeInt(e?.locator?.charStart);
+    const charEnd = safeInt(e?.locator?.charEnd);
+    const quote = typeof e?.quote === "string" ? e.quote : "";
+    if (!sourceId || charStart === null || charEnd === null || !quote) return null;
+    return `${sourceId}::${charStart}-${charEnd}::${quote}`;
+  }
+
   // 记录 understand 阶段开始
   logEvent({
     stage: 'understand',
     message: 'Understand stage started',
     data: {
       retrievedChunks: Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks.length : 0,
+      unconsumedChunks: Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks.filter((c) => c?.consumed !== true).length : 0,
       existingClaims: Array.isArray(state?.L1?.claims) ? state.L1.claims.length : 0,
     },
   });
@@ -621,6 +646,7 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   });
 
   const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
+  const newRetrieved = retrieved.filter((c) => c?.consumed !== true);
   const sourceTextById = indexSourceTextById(state?.L0?.sources);
 
   const understandingConfig = isPlainObject(state?.userConfig?.understanding) ? state.userConfig.understanding : {};
@@ -630,8 +656,120 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
       ? understandingConfig.dedupeThreshold
       : 0.82;
 
-  const { claims: seedClaims, evidences: seedEvidences } = claimsFromChunks(retrieved, { maxQuoteLen });
-  const claims = dedupeClaims(seedClaims, { threshold: dedupeThreshold, mergeEvidence: true });
+  const existingClaims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
+  const existingEvidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
+
+  const maxExistingClaimNum = maxNumericId(existingClaims, (c) => c?.claimId, { prefix: "c_" });
+  const maxExistingEvidenceNum = maxNumericId(existingEvidenceLedger, (e) => e?.evidenceId, { prefix: "e_" });
+  let nextClaimNum = maxExistingClaimNum;
+  let nextEvidenceNum = maxExistingEvidenceNum;
+
+  const existingEvidenceById = new Map();
+  const existingEvidenceIdBySignature = new Map();
+  for (const e of existingEvidenceLedger) {
+    const evidenceId = toNonEmptyString(e?.evidenceId);
+    if (!evidenceId) continue;
+    existingEvidenceById.set(String(evidenceId), e);
+    const sig = evidenceSignature(e);
+    if (sig) existingEvidenceIdBySignature.set(sig, String(evidenceId));
+  }
+
+  const { claims: seedClaimsRaw, evidences: seedEvidencesRaw } = claimsFromChunks(newRetrieved, { maxQuoteLen });
+  const seedClaims = dedupeClaims(seedClaimsRaw, { threshold: dedupeThreshold, mergeEvidence: true });
+
+  const referencedSeedEvidenceIds = new Set();
+  for (const c of seedClaims) for (const eid of Array.isArray(c?.evidenceIds) ? c.evidenceIds : []) referencedSeedEvidenceIds.add(String(eid));
+
+  const retrievedByChunkId = new Map();
+  for (const r of retrieved) {
+    const cid = toNonEmptyString(r?.chunkId);
+    if (cid) retrievedByChunkId.set(cid, r);
+  }
+
+  const seedToFinalEvidenceId = new Map();
+  /** @type {any[]} */
+  const newEvidenceLedger = [];
+
+  for (const seed of Array.isArray(seedEvidencesRaw) ? seedEvidencesRaw : []) {
+    if (!seed || !referencedSeedEvidenceIds.has(String(seed.evidenceId))) continue;
+
+    const sourceId = toNonEmptyString(seed?.sourceId) || "source_unknown";
+    const sourceText = sourceTextById.get(sourceId);
+    const seedEvidenceId = String(seed.evidenceId);
+
+    if (seedToFinalEvidenceId.has(seedEvidenceId)) continue;
+
+    // 如果无法映射回 sourceTextNormalized（H4），保持 evidenceId 引用但不写入 evidenceLedger，让硬/软验证负责抛错/降级
+    if (typeof sourceText !== "string") {
+      nextEvidenceNum += 1;
+      const finalEvidenceId = `e_${nextEvidenceNum}`;
+      seedToFinalEvidenceId.set(seedEvidenceId, finalEvidenceId);
+      continue;
+    }
+
+    const derived = quoteFromSourceLocator(sourceText, seed.locator, { maxQuoteLen });
+    const retrievedRow = retrievedByChunkId.get(String(seed.chunkId));
+    const gapIds = normalizeGapIds(retrievedRow?.matchedGapIds || retrievedRow?.gapId);
+
+    const candidateEvidence = {
+      evidenceId: seedEvidenceId,
+      chunkId: String(seed.chunkId),
+      sourceId: String(sourceId),
+      locator: derived.locator,
+      quote: derived.quote,
+      gapIds,
+    };
+
+    const sig = evidenceSignature(candidateEvidence);
+    if (sig) {
+      const existingEvidenceId = existingEvidenceIdBySignature.get(sig);
+      if (existingEvidenceId) {
+        seedToFinalEvidenceId.set(seedEvidenceId, existingEvidenceId);
+        const existing = existingEvidenceById.get(existingEvidenceId);
+        if (existing && gapIds.length) {
+          const mergedGapIds = Array.from(new Set([...normalizeGapIds(existing?.gapIds), ...gapIds]));
+          if (mergedGapIds.length) existing.gapIds = mergedGapIds;
+        }
+        continue;
+      }
+    }
+
+    nextEvidenceNum += 1;
+    const finalEvidenceId = `e_${nextEvidenceNum}`;
+    seedToFinalEvidenceId.set(seedEvidenceId, finalEvidenceId);
+    if (sig) existingEvidenceIdBySignature.set(sig, finalEvidenceId);
+
+    newEvidenceLedger.push({
+      ...candidateEvidence,
+      evidenceId: finalEvidenceId,
+    });
+    existingEvidenceById.set(finalEvidenceId, newEvidenceLedger[newEvidenceLedger.length - 1]);
+  }
+
+  /** @type {any[]} */
+  const newClaims = [];
+  for (const c of Array.isArray(seedClaims) ? seedClaims : []) {
+    if (!c || typeof c.text !== "string") continue;
+    const seedEvidenceIds = Array.isArray(c?.evidenceIds) ? c.evidenceIds : [];
+    const finalEvidenceIds = Array.from(
+      new Set(
+        seedEvidenceIds
+          .map((eid) => seedToFinalEvidenceId.get(String(eid)))
+          .filter((eid) => toNonEmptyString(eid))
+          .map(String)
+      )
+    );
+    if (!finalEvidenceIds.length) continue;
+    nextClaimNum += 1;
+    newClaims.push({
+      ...c,
+      claimId: `c_${nextClaimNum}`,
+      evidenceIds: finalEvidenceIds,
+    });
+  }
+
+  const combinedClaims = [...existingClaims, ...newClaims];
+  const claims = dedupeClaims(combinedClaims, { threshold: dedupeThreshold, mergeEvidence: true });
 
   for (let i = 0; i < claims.length; i++) {
     const c = claims[i];
@@ -650,35 +788,51 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   const referencedEvidenceIds = new Set();
   for (const c of claims) for (const eid of Array.isArray(c?.evidenceIds) ? c.evidenceIds : []) referencedEvidenceIds.add(String(eid));
 
-  const retrievedByChunkId = new Map();
-  for (const r of retrieved) {
-    const cid = toNonEmptyString(r?.chunkId);
-    if (cid) retrievedByChunkId.set(cid, r);
-  }
+  const evidenceLedgerRaw = [...existingEvidenceLedger, ...newEvidenceLedger];
+  let evidenceLedger = evidenceLedgerRaw.filter((e) => e && referencedEvidenceIds.has(String(e.evidenceId)));
 
-  const evidenceLedger = [];
-  for (const e of Array.isArray(seedEvidences) ? seedEvidences : []) {
-    if (!e || !referencedEvidenceIds.has(String(e.evidenceId))) continue;
+  // 避免重复 evidence：基于 (sourceId, locator, quote) 去重，并同步改写 claims[].evidenceIds
+  {
+    const evidenceIdRemap = new Map();
+    const kept = [];
+    const keptBySig = new Map();
+    const keptById = new Set();
 
-    const sourceId = toNonEmptyString(e?.sourceId) || "source_unknown";
-    const sourceText = sourceTextById.get(sourceId);
-    if (typeof sourceText !== "string") {
-      // Degrade gracefully: if the retrieved chunk doesn't map back to a known source,
-      // drop this evidence row and let downstream validation prune orphaned claims.
-      continue;
+    for (const e of Array.isArray(evidenceLedger) ? evidenceLedger : []) {
+      const evidenceId = toNonEmptyString(e?.evidenceId);
+      if (!evidenceId) continue;
+      if (keptById.has(evidenceId)) continue;
+
+      const sig = evidenceSignature(e);
+      if (sig && keptBySig.has(sig)) {
+        const winner = keptBySig.get(sig);
+        if (winner && toNonEmptyString(winner?.evidenceId)) {
+          evidenceIdRemap.set(evidenceId, String(winner.evidenceId));
+          const mergedGapIds = Array.from(new Set([...normalizeGapIds(winner?.gapIds), ...normalizeGapIds(e?.gapIds)]));
+          if (mergedGapIds.length) winner.gapIds = mergedGapIds;
+        }
+        continue;
+      }
+
+      kept.push(e);
+      keptById.add(evidenceId);
+      if (sig) keptBySig.set(sig, e);
     }
 
-    const derived = quoteFromSourceLocator(sourceText, e.locator, { maxQuoteLen });
-    const retrievedRow = retrievedByChunkId.get(String(e.chunkId));
-    const gapIds = normalizeGapIds(retrievedRow?.matchedGapIds || retrievedRow?.gapId);
-    evidenceLedger.push({
-      evidenceId: String(e.evidenceId),
-      chunkId: String(e.chunkId),
-      sourceId: String(sourceId),
-      locator: derived.locator,
-      quote: derived.quote,
-      gapIds,
-    });
+    if (evidenceIdRemap.size) {
+      for (const c of claims) {
+        if (!c || !Array.isArray(c.evidenceIds)) continue;
+        const remapped = c.evidenceIds
+          .map((eid) => evidenceIdRemap.get(String(eid)) || String(eid))
+          .filter((eid) => toNonEmptyString(eid));
+        c.evidenceIds = Array.from(new Set(remapped));
+      }
+    }
+
+    const referencedAfterRemap = new Set();
+    for (const c of claims) for (const eid of Array.isArray(c?.evidenceIds) ? c.evidenceIds : []) referencedAfterRemap.add(String(eid));
+    evidenceLedger = kept.filter((e) => referencedAfterRemap.has(String(e?.evidenceId)));
+
   }
 
   const evidenceGapIdsById = new Map();
@@ -798,9 +952,9 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   }
 
   const consumedAt = new Date().toISOString();
-  for (const r of retrieved) {
+  for (const r of newRetrieved) {
     if (!r || typeof r !== "object") continue;
-    if (!r.consumed) r.consumed = true;
+    if (r.consumed !== true) r.consumed = true;
     if (!toNonEmptyString(r.consumedAt)) r.consumedAt = consumedAt;
   }
 

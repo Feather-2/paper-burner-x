@@ -176,8 +176,20 @@ function buildLiteSnapshot(state) {
   };
 }
 
+/**
+ * Strip DeepSeek-R1 style <think>...</think> reasoning blocks from LLM output.
+ * These blocks contain chain-of-thought reasoning that should not be part of the final output.
+ */
+export function stripThinkingTags(text) {
+  const s = String(text || "");
+  // Remove <think>...</think> blocks (non-greedy, handles nested content)
+  return s.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+}
+
 export function extractJsonCandidate(text) {
-  const s = String(text || "").trim();
+  // First strip any <think> reasoning blocks from R1 models
+  const stripped = stripThinkingTags(text);
+  const s = stripped.trim();
   if (!s) return null;
 
   const fenced = s.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);

@@ -35,6 +35,47 @@ const PPTGeneratorWorkflow = {
         if (list.length > limit) this.workflowData.flowVizEvents[kind] = list.slice(-limit);
     },
 
+    _pushToProcessPanel(name, payload) {
+        if (typeof this.addProcessPanelStep !== 'function') return;
+
+        // Map event names to human-readable descriptions
+        const eventDescriptions = {
+            'deepsearch.started': '开始深度分析流程',
+            'deepsearch.scan.started': '正在扫描文档结构',
+            'deepsearch.scan.completed': '文档扫描完成',
+            'deepsearch.gaps.started': '正在识别知识空白',
+            'deepsearch.gaps.completed': `识别了 ${payload?.totalGaps || 0} 个研究问题`,
+            'deepsearch.retrieve.started': '正在检索相关内容',
+            'deepsearch.retrieve.completed': '内容检索完成',
+            'deepsearch.understand.started': '正在分析提取要点',
+            'deepsearch.understand.completed': '要点提取完成',
+            'deepsearch.write.started': '正在撰写研究报告',
+            'deepsearch.write.completed': '报告撰写完成',
+            'deepsearch.completed': '深度分析完成',
+            'iteration.completed': `完成第 ${(payload?.iteration || 0) + 1} 轮迭代`,
+            'design.started': '开始视觉设计',
+            'design.tokens.started': '正在提取设计规范',
+            'design.tokens.ended': '设计规范已确定',
+            'design.brainstorm.started': '正在进行创意脑暴',
+            'design.brainstorm.completed': `脑暴完成：${payload?.totalIdeas || 0} 个创意`,
+            'design.batch.started': `正在生成页面 ${payload?.slideRange?.join?.('-') || ''}`,
+            'design.batch.completed': '批次生成完成',
+            'design.ended': '设计阶段完成',
+        };
+
+        const text = eventDescriptions[name];
+        if (!text) return; // Skip events we don't want to show
+
+        this.addProcessPanelStep({
+            name,
+            text,
+            details: payload?.totalGaps ? { gaps: payload.totalGaps } :
+                     payload?.iteration !== undefined ? { iteration: payload.iteration + 1 } :
+                     payload?.slideRange ? { slides: payload.slideRange.join('-') } :
+                     null
+        });
+    },
+
     _ensureDesignSystemInitialized() {
         if (!this.workflowData) this.workflowData = {};
         if (!this.workflowData.designSystem || typeof this.workflowData.designSystem !== 'object') {
@@ -172,8 +213,11 @@ const PPTGeneratorWorkflow = {
         // Capture flow events for premium visualizers (store minimal {name,payload} only).
         if (name.startsWith('deepsearch.') || name === 'iteration.completed') {
             this._pushFlowVizEvent('deepsearch', name, payload);
+            // Also push to floating process panel
+            this._pushToProcessPanel(name, payload);
         } else if (name.startsWith('design.')) {
             this._pushFlowVizEvent('design', name, payload);
+            this._pushToProcessPanel(name, payload);
         }
 
         // DeepSearch UI integration (T1 event bus)
@@ -1288,6 +1332,15 @@ const PPTGeneratorWorkflow = {
     },
 
     async startMultiAgentWorkflow({ skipBriefCheck = false } = {}) {
+        // 防止重复触发
+        if (this._workflowLock) {
+            console.warn('[Workflow] startMultiAgentWorkflow 已在运行中，忽略重复调用');
+            if (typeof this.logTerminal === 'function') {
+                this.logTerminal('系统', '工作流已在运行中，请勿重复点击', 'warning');
+            }
+            return;
+        }
+
         const files = Array.isArray(this.workflowData?.files) ? this.workflowData.files : [];
         if (!files.length) {
             this.addChatMessage('ai', '请先上传至少一个文档或粘贴文本素材。');
@@ -1301,6 +1354,10 @@ const PPTGeneratorWorkflow = {
             this.openProjectBriefForm();
             return;
         }
+
+        // 设置锁
+        this._workflowLock = true;
+        console.log('[Workflow] startMultiAgentWorkflow 开始执行');
 
         const brief = this.workflowData?.projectBrief || {};
         const constraints = {
@@ -1316,6 +1373,10 @@ const PPTGeneratorWorkflow = {
             await this.phase1_DeepReading();
         } catch (err) {
             this._abortWorkflow(err);
+        } finally {
+            // 释放锁
+            this._workflowLock = false;
+            console.log('[Workflow] startMultiAgentWorkflow 执行完毕');
         }
     },
 
@@ -1389,6 +1450,8 @@ const PPTGeneratorWorkflow = {
         this._syncDeepSearchVizFromState(state);
 
         const pkg = await this._orchestrator.runStage('deepsearch.pipeline', { state });
+        console.log('[Workflow] deepsearch.pipeline 完成，准备转换状态', { mode, hasPkg: !!pkg });
+
         this.workflowData.contentPackage = pkg;
         this.workflowData.report = pkg?.report || null;
         this.workflowData.slideIntents = pkg?.slideIntents || [];
@@ -1396,10 +1459,12 @@ const PPTGeneratorWorkflow = {
         this._syncDeepSearchVizFromState(state);
 
         if (mode === 'auto') {
+            console.log('[Workflow] Auto 模式，继续执行 phase2_Scripting');
             await this.phase2_Scripting();
             return;
         }
 
+        console.log('[Workflow] 非 Auto 模式，进入 deepsearch_review 状态');
         this.state = 'deepsearch_review';
         this.addChatMessage('ai', 'DeepSearch 已完成当前轮次。您可以继续下一轮迭代，或进入脚本编辑。');
         this.renderPreviewArea();
@@ -1561,10 +1626,12 @@ const PPTGeneratorWorkflow = {
 
     // --- Phase 2: Analyst Agent (Scripting) ---
     async phase2_Scripting() {
+        console.log('[Workflow] phase2_Scripting 开始');
         const reportMd = this.workflowData?.report?.markdown || '';
         this.workflowData.reportMarkdown = reportMd;
 
         this.state = 'script_review';
+        console.log('[Workflow] 进入 script_review 状态');
         this.addChatMessage('ai', '研究报告已生成。请在中间区域审阅并编辑脚本内容，确认后进入页面规划。');
         this.updateTodos(this._runtimeTodoTexts.map((text, i) => {
             if (i < 2) return { text, status: 'completed' };
@@ -1583,6 +1650,7 @@ const PPTGeneratorWorkflow = {
     },
 
     confirmScript() {
+        console.log('[Workflow] confirmScript 被调用，进入 page_layout');
         this.state = 'page_layout';
         this.renderPreviewArea();
         this.updateTodos(this._runtimeTodoTexts.map((text, i) => {
@@ -1653,14 +1721,18 @@ const PPTGeneratorWorkflow = {
 
     // --- Phase 3: Page Layout (uses DeepSearch slideIntents) ---
     async phase3_PageLayout() {
+        console.log('[Workflow] phase3_PageLayout 开始');
         try {
             if (this.workflowData?._needsTextPrep) {
+                console.log('[Workflow] 执行 textprep.slideplan');
                 await this._orchestrator.runStage('textprep.slideplan');
                 this.workflowData._needsTextPrep = false;
             }
+            console.log('[Workflow] 执行 textprep.align');
             await this._orchestrator.runStage('textprep.align', { contentPackage: this.workflowData.contentPackage });
             this.phase5_DesignOptimization();
         } catch (err) {
+            console.error('[Workflow] phase3_PageLayout 失败:', err);
             this._abortWorkflow(err);
         }
     },
@@ -1673,25 +1745,32 @@ const PPTGeneratorWorkflow = {
 
     // --- Phase 5: Designer Agent (Design Optimization) ---
     async phase5_DesignOptimization() {
+        console.log('[Workflow] phase5_DesignOptimization 开始');
         try {
             this._ensureDesignSystemInitialized();
+            console.log('[Workflow] 执行 design.batch');
             await this._orchestrator.runStage('design.batch');
             this.phase6_FinalReview();
         } catch (err) {
+            console.error('[Workflow] phase5_DesignOptimization 失败:', err);
             this._abortWorkflow(err);
         }
     },
 
     // --- Phase 6: Reviewer Agent ---
     async phase6_FinalReview() {
+        console.log('[Workflow] phase6_FinalReview 开始');
         try {
+            console.log('[Workflow] 执行 evaluate.hardgates');
             await this._orchestrator.runStage('evaluate.hardgates');
             this._orchestrator.end();
         } catch (err) {
+            console.error('[Workflow] phase6_FinalReview 失败:', err);
             this._abortWorkflow(err);
             return;
         }
 
+        console.log('[Workflow] 工作流完成，进入 completed 状态');
         this.state = 'completed';
         this.currentProject.status = 'completed';
         this._saveProject();
@@ -1765,6 +1844,16 @@ const PPTGeneratorWorkflow = {
         this.currentProject.logs = this.processLogs;
         this._saveProject();
         this._appendLogToTerminal(entry);
+
+        // Update floating process panel if available
+        if (typeof this.addProcessPanelStep === 'function') {
+            this.addProcessPanelStep({
+                name: `log.${type}`,
+                text: msg,
+                details: { agent }
+            });
+        }
+
         await new Promise(r => setTimeout(r, 300)); // Typing delay
     },
 
