@@ -973,17 +973,26 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   let nextSeedClaimNum = 0;
   let nextSeedEvidenceNum = 0;
 
-  for (const [gapId, chunksForGap] of chunksByGapId) {
-    const deduped = dedupeChunksByChunkId(chunksForGap);
-    const gap = gapsById.get(String(gapId)) || { gapId: String(gapId) };
+  // 并行调用所有 gap 的 LLM（后续 ID rebase 仍按原顺序串行执行，保持行为稳定）
+  const gapEntries = Array.from(chunksByGapId.entries());
+  const llmResults = await Promise.all(
+    gapEntries.map(async ([gapId, chunksForGap]) => {
+      const deduped = dedupeChunksByChunkId(chunksForGap);
+      const gap = gapsById.get(String(gapId)) || { gapId: String(gapId) };
 
-    let seed = null;
-    if (useLLMClaims) {
-      seed = await generateClaimsWithLLM(gap, deduped, stageApi, state, { maxQuoteLen });
-    }
-    if (!seed || !Array.isArray(seed.claims) || !seed.claims.length || !Array.isArray(seed.evidences) || !seed.evidences.length) {
-      seed = claimsFromChunks(deduped, { maxQuoteLen });
-    }
+      let seed = null;
+      if (useLLMClaims) {
+        seed = await generateClaimsWithLLM(gap, deduped, stageApi, state, { maxQuoteLen });
+      }
+      if (!seed || !Array.isArray(seed.claims) || !seed.claims.length || !Array.isArray(seed.evidences) || !seed.evidences.length) {
+        seed = claimsFromChunks(deduped, { maxQuoteLen });
+      }
+
+      return { gapId, seed };
+    })
+  );
+
+  for (const { gapId, seed } of llmResults) {
     const rebased = rebaseSeedIds(seed, { nextSeedClaimNum, nextSeedEvidenceNum });
     nextSeedClaimNum = rebased.nextSeedClaimNum;
     nextSeedEvidenceNum = rebased.nextSeedEvidenceNum;
