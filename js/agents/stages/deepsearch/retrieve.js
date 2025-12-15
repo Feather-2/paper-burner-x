@@ -780,9 +780,8 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
     if (toNonEmptyString(r?.relevance) && !toNonEmptyString(existing.relevance)) existing.relevance = String(r.relevance);
   }
 
-  const deduped = deduplicateChunks(rerankedChunks, existingChunks);
-  const seenChunkIds = new Set(normalizeChunkIdList(state?.L2?.retrievedChunkIdsSeen));
-  const dedupedFresh = deduped.filter((c) => !seenChunkIds.has(String(c?.chunkId || "")));
+  const dedupedFresh = deduplicateChunks(rerankedChunks, existingChunks);
+  // `retrievedChunkIdsSeen` 仅用于日志统计，不用于过滤新增 chunks
   emit?.("deepsearch.retrieve.deduped", {
     before: rerankedChunks.length,
     after: dedupedFresh.length,
