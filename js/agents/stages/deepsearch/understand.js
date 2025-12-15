@@ -36,6 +36,33 @@ const REFLECT_PROMPT = `你是一个研究助手，需要判断当前收集的�
 
 只返回 JSON，不要其他内容。`;
 
+// ===== LLM Claims Prompt: 基于 gap.question 从 chunks 提取更精准论点 =====
+const LLM_CLAIMS_PROMPT = `你是一个研究助手，需要从文档片段中提取与问题相关的关键论点。
+
+## 问题
+{gapQuestion}
+
+## 文档片段
+{chunkTexts}
+
+## 任务
+1. 仔细阅读文档片段
+2. 提取能够回答或部分回答问题的关键论点
+3. 每个论点必须有原文引用支持
+
+## 输出格式 (JSON)
+{
+  "claims": [
+    {
+      "text": "论点陈述（简洁、清晰）",
+      "importance": "core|support",
+      "quote": "原文引用（必须是文档中的原文）",
+      "chunkIndex": 0  // 引用来自哪个 chunk
+    }
+  ]
+}
+`;
+
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
@@ -50,6 +77,191 @@ function truncate(s, maxLen = 220) {
   const t = collapseWhitespace(s);
   if (t.length <= maxLen) return t;
   return t.slice(0, maxLen);
+}
+
+function safeArray(v) {
+  return Array.isArray(v) ? v : [];
+}
+
+function normalizeImportance(v) {
+  const s = toNonEmptyString(v);
+  if (s === "core" || s === "support") return s;
+  return null;
+}
+
+function safeChunkIndex(v) {
+  if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
+  if (typeof v === "string" && v.trim()) {
+    const n = Number.parseInt(v, 10);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function formatChunksForLLM(chunks) {
+  return safeArray(chunks)
+    .map((c, i) => {
+      const text = typeof c?.text === "string" ? c.text : "";
+      return `### Chunk ${i}\n${text}`;
+    })
+    .join("\n\n");
+}
+
+function locateQuoteInSourceSlice(sourceText, baseLocator, quote) {
+  const baseStart = safeInt(baseLocator?.charStart);
+  const baseEnd = safeInt(baseLocator?.charEnd);
+  if (baseStart === null || baseEnd === null) return null;
+  if (!(baseStart < baseEnd)) return null;
+  if (baseStart < 0 || baseEnd > sourceText.length) return null;
+  if (typeof quote !== "string" || !quote) return null;
+
+  const window = sourceText.slice(baseStart, baseEnd);
+  const idx = window.indexOf(quote);
+  if (idx < 0) return null;
+
+  const charStart = baseStart + idx;
+  const charEnd = charStart + quote.length;
+  if (!(charStart < charEnd) || charEnd > baseEnd) return null;
+  if (sourceText.slice(charStart, charEnd) !== quote) return null;
+  return { charStart, charEnd };
+}
+
+/**
+ * Generate claims with LLM for a specific gap, grounded in provided chunks.
+ * - Returns null on "LLM unavailable" or fatal errors so caller can fallback to rules.
+ * - Skips any claim whose quote cannot be precisely located in sourceTextNormalized.
+ *
+ * @param {{gapId?:string,question?:string,type?:string}} gap
+ * @param {Array<{chunkId:string,sourceId:string,locator:{charStart:number,charEnd:number},text:string,score?:number}>} chunks
+ * @param {object} stageApi
+ * @param {DeepSearchState} state
+ * @param {{maxQuoteLen:number}} options
+ * @returns {Promise<null|{claims:any[],evidences:any[]}>}
+ */
+async function generateClaimsWithLLM(gap, chunks, stageApi, state, { maxQuoteLen }) {
+  const callModel = getModelCaller(stageApi, { usage: "analyst", state });
+  if (!callModel) return null;
+
+  const gapQuestion = toNonEmptyString(gap?.question);
+  if (!gapQuestion) return null;
+
+  const sourceTextById = indexSourceTextById(state?.L0?.sources);
+
+  const promptChunks = safeArray(chunks).filter((c) => typeof c?.text === "string" && toNonEmptyString(c?.chunkId) && toNonEmptyString(c?.sourceId));
+
+  if (!promptChunks.length) return null;
+
+  const prompt = LLM_CLAIMS_PROMPT
+    .replace("{gapQuestion}", gapQuestion)
+    .replace("{chunkTexts}", formatChunksForLLM(promptChunks));
+
+  const cacheKeyInputs = {
+    gapId: toNonEmptyString(gap?.gapId) || "",
+    question: truncate(gapQuestion, 220),
+    chunkPreviews: promptChunks.map((c) => truncate(c?.text, 240)),
+  };
+
+  const timeoutMs = 15000;
+  let timeoutId;
+
+  try {
+    checkCancelled(stageApi);
+    const messages = [
+      {
+        role: "system",
+        content:
+          "你是一个严谨的研究助手。只能基于提供的文档片段提取论点，不得编造。输出必须为严格 JSON，且 quote 必须为原文精确片段。",
+      },
+      { role: "user", content: prompt },
+    ];
+
+    const resultPromise = callModel(messages, {
+      model: "auto",
+      temperature: 0.2,
+      maxTokens: 900,
+      cacheKeyInputs,
+    });
+
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(`LLM claims call timed out after ${timeoutMs}ms`)), timeoutMs);
+    });
+
+    const result = await Promise.race([resultPromise, timeoutPromise]);
+    clearTimeout(timeoutId);
+    checkCancelled(stageApi);
+
+    const candidate = extractJsonCandidate(result?.content);
+    if (!candidate) return null;
+
+    let parsed;
+    try {
+      parsed = JSON.parse(candidate);
+    } catch {
+      return null;
+    }
+
+    if (!isPlainObject(parsed) || !Array.isArray(parsed.claims)) return null;
+
+    /** @type {any[]} */
+    const evidences = [];
+    /** @type {any[]} */
+    const claims = [];
+    const evidenceIdBySig = new Map();
+    let claimNum = 0;
+    let evidenceNum = 0;
+
+    for (const row of parsed.claims) {
+      if (!isPlainObject(row)) continue;
+      const claimText = toNonEmptyString(row.text);
+      const importance = normalizeImportance(row.importance);
+      const quote = typeof row.quote === "string" ? row.quote : "";
+      const chunkIndex = safeChunkIndex(row.chunkIndex);
+      if (!claimText || !importance || chunkIndex === null) continue;
+      if (chunkIndex < 0 || chunkIndex >= promptChunks.length) continue;
+
+      if (typeof maxQuoteLen === "number" && Number.isFinite(maxQuoteLen) && maxQuoteLen > 0 && quote.length > maxQuoteLen) {
+        continue;
+      }
+
+      const chunk = promptChunks[chunkIndex];
+      const chunkId = toNonEmptyString(chunk?.chunkId);
+      const sourceId = toNonEmptyString(chunk?.sourceId);
+      const sourceText = sourceId ? sourceTextById.get(sourceId) : null;
+      if (!chunkId || !sourceId || typeof sourceText !== "string") continue;
+
+      const resolved = locateQuoteInSourceSlice(sourceText, chunk?.locator, quote);
+      if (!resolved) continue;
+
+      const sig = `${sourceId}::${resolved.charStart}-${resolved.charEnd}::${quote}`;
+      let evidenceId = evidenceIdBySig.get(sig);
+      if (!evidenceId) {
+        evidenceNum += 1;
+        evidenceId = `e_${evidenceNum}`;
+        evidenceIdBySig.set(sig, evidenceId);
+        evidences.push({
+          evidenceId,
+          chunkId: String(chunkId),
+          sourceId: String(sourceId),
+          locator: { charStart: resolved.charStart, charEnd: resolved.charEnd },
+          quote,
+          quoteExact: true,
+        });
+      }
+
+      claimNum += 1;
+      claims.push({
+        claimId: `c_${claimNum}`,
+        text: collapseWhitespace(claimText),
+        importance,
+        evidenceIds: [String(evidenceId)],
+      });
+    }
+
+    return { claims, evidences };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    return null;
+  }
 }
 
 function normalizeUnderstandClaimEditsCacheKeyInputs(taskGoal, claims, evidenceById) {
@@ -706,6 +918,7 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
 
   const understandingConfig = isPlainObject(state?.userConfig?.understanding) ? state.userConfig.understanding : {};
   const maxQuoteLen = Number.isFinite(understandingConfig.maxQuoteLen) ? Math.max(60, Math.floor(understandingConfig.maxQuoteLen)) : 220;
+  const useLLMClaims = understandingConfig.useLLMClaims !== false;
   const dedupeThreshold =
     typeof understandingConfig.dedupeThreshold === "number" && Number.isFinite(understandingConfig.dedupeThreshold)
       ? understandingConfig.dedupeThreshold
@@ -746,6 +959,13 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     }
   }
 
+  const gapsById = new Map();
+  for (const g of Array.isArray(state?.L1?.gaps) ? state.L1.gaps : []) {
+    const gid = toNonEmptyString(g?.gapId);
+    if (!gid) continue;
+    gapsById.set(String(gid), g);
+  }
+
   /** @type {any[]} */
   const seedClaimsRaw = [];
   /** @type {any[]} */
@@ -754,7 +974,16 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   let nextSeedEvidenceNum = 0;
 
   for (const [gapId, chunksForGap] of chunksByGapId) {
-    const seed = claimsFromChunks(dedupeChunksByChunkId(chunksForGap), { maxQuoteLen });
+    const deduped = dedupeChunksByChunkId(chunksForGap);
+    const gap = gapsById.get(String(gapId)) || { gapId: String(gapId) };
+
+    let seed = null;
+    if (useLLMClaims) {
+      seed = await generateClaimsWithLLM(gap, deduped, stageApi, state, { maxQuoteLen });
+    }
+    if (!seed || !Array.isArray(seed.claims) || !seed.claims.length || !Array.isArray(seed.evidences) || !seed.evidences.length) {
+      seed = claimsFromChunks(deduped, { maxQuoteLen });
+    }
     const rebased = rebaseSeedIds(seed, { nextSeedClaimNum, nextSeedEvidenceNum });
     nextSeedClaimNum = rebased.nextSeedClaimNum;
     nextSeedEvidenceNum = rebased.nextSeedEvidenceNum;
@@ -807,7 +1036,18 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
       continue;
     }
 
-    const derived = quoteFromSourceLocator(sourceText, seed.locator, { maxQuoteLen });
+    const wantsExactQuote = seed?.quoteExact === true;
+    let derived = null;
+    if (wantsExactQuote && typeof seed?.quote === "string" && seed.quote) {
+      const charStart = safeInt(seed?.locator?.charStart);
+      const charEnd = safeInt(seed?.locator?.charEnd);
+      if (charStart !== null && charEnd !== null && charStart >= 0 && charEnd <= sourceText.length && charStart < charEnd) {
+        const slice = sourceText.slice(charStart, charEnd);
+        if (slice === seed.quote) derived = { locator: { charStart, charEnd }, quote: seed.quote };
+      }
+    }
+    if (!derived && wantsExactQuote) continue;
+    if (!derived) derived = quoteFromSourceLocator(sourceText, seed.locator, { maxQuoteLen });
     const retrievedRow = retrievedByChunkId.get(String(seed.chunkId));
     const gapIds = Array.from(
       new Set([
