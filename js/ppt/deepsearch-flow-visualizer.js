@@ -61,6 +61,7 @@ export class FlowBuilder {
     this.trajectoryNodes = new Map(); // trajectoryId -> nodeId
     this.iterationNodes = new Map(); // iteration -> nodeId
     this.stageLatestNodeId = new Map(); // stage -> nodeId
+    this.runIdToStartNode = new Map(); // runId -> start node id (修复边连接问题)
 
     // 累计数据
     this.gaps = new Map();
@@ -84,7 +85,12 @@ export class FlowBuilder {
 
   _addNode(id, type, data = {}) {
     const config = STAGES[type] || STAGES.start;
-    const parentId = data.parentNodeId || this._getCurrentParent();
+    let parentId = data.parentNodeId || this._getCurrentParent();
+
+    // 如果 parentId 是 runId，尝试映射到实际的 start 节点
+    if (parentId && this.runIdToStartNode.has(parentId)) {
+      parentId = this.runIdToStartNode.get(parentId);
+    }
 
     const node = {
       id,
@@ -166,6 +172,10 @@ export class FlowBuilder {
           metrics: { runId: payload.runId }
         });
         this.parentStack.push(id);
+        // 建立 runId -> start 节点的映射，解决后续事件 parentNodeId 为 runId 时找不到父节点的问题
+        if (payload.runId) {
+          this.runIdToStartNode.set(payload.runId, id);
+        }
         break;
       }
 
@@ -338,13 +348,14 @@ export class FlowBuilder {
         const { nodeId, stage, iteration, trajectoryId, parentNodeId: eventParent } = payload;
         const id = nodeId || this._genId(stage);
 
-        // 确定父节点
-        let parentId = eventParent;
+        // 确定父节点：优先使用 parentStack（迭代节点），这样阶段节点会正确连接到迭代
+        // 只有在栈为空时才使用 eventParent 或 trajectoryNodes
+        let parentId = this._getCurrentParent();
         if (!parentId && trajectoryId) {
           parentId = this.trajectoryNodes.get(trajectoryId);
         }
         if (!parentId) {
-          parentId = this._getCurrentParent();
+          parentId = eventParent;
         }
 
         this._addNode(id, stage, {
@@ -887,6 +898,7 @@ export class FlowBuilder {
     this.trajectoryNodes.clear();
     this.iterationNodes.clear();
     this.stageLatestNodeId.clear();
+    this.runIdToStartNode.clear();
     this.gaps.clear();
     this.claims = [];
     this.sections = [];
@@ -921,15 +933,15 @@ function applyDagreLayout(nodes, edges, direction = "TB") {
     nodesep: 80,      // 同一层级节点间距
     ranksep: 120,     // 不同层级间距
     edgesep: 30,      // 边之间的间距
-    marginx: 60,
+    marginx: 120,     // 增加左右边距，让节点更居中
     marginy: 60,
     ranker: 'tight-tree'  // 更紧凑的层级分配
   });
 
   for (const n of nodes) {
-    const detailCount = n.data.details?.length || 0;
-    const height = 60 + detailCount * 50;
-    g.setNode(n.id, { width: 320, height });
+    const detailCount = Math.min(n.data.details?.length || 0, 3); // Max 3 details shown
+    const height = Math.min(60 + detailCount * 40, 180); // Cap height at 180px
+    g.setNode(n.id, { width: 280, height });
   }
   for (const e of validEdges) {
     g.setEdge(e.source, e.target);
@@ -1093,7 +1105,7 @@ export async function initDeepSearchFlow(containerId, options = {}) {
         })
       ),
 
-      // 详情
+      // 详情 (最多显示3条)
       details.length > 0 && h("div", {
         style: {
           padding: "0 12px 12px",
@@ -1102,20 +1114,27 @@ export async function initDeepSearchFlow(containerId, options = {}) {
           gap: 4,
         }
       },
-        ...details.map((d, i) => {
+        ...details.slice(0, 3).map((d, i) => {
           return h("div", {
             key: i,
             style: {
-              fontSize: 11,
+              fontSize: 10,
               color: "#64748b",
-              padding: "6px 10px",
+              padding: "4px 8px",
               background: "rgba(241, 245, 249, 0.5)",
-              borderRadius: 8,
-              lineHeight: 1.4,
-              border: "1px solid rgba(0,0,0,0.02)"
+              borderRadius: 6,
+              lineHeight: 1.3,
+              border: "1px solid rgba(0,0,0,0.02)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              maxWidth: "100%"
             }
-          }, d.text);
-        })
+          }, d.text?.slice?.(0, 50) || d.text);
+        }),
+        details.length > 3 && h("div", {
+          style: { fontSize: 9, color: "#94a3b8", paddingLeft: 8 }
+        }, `+${details.length - 3} more`)
       ),
 
       h(Handle, { type: "source", position: sourcePos, style: { opacity: 0 } })
@@ -1150,7 +1169,7 @@ export async function initDeepSearchFlow(containerId, options = {}) {
       onEdgesChange,
       onInit,
       fitView: true,
-      fitViewOptions: { padding: 0.2, maxZoom: 1 },
+      fitViewOptions: { padding: 0.35, maxZoom: 1 },
       minZoom: 0.3,
       maxZoom: 1.5,
       panOnDrag: true,
@@ -1173,7 +1192,7 @@ export async function initDeepSearchFlow(containerId, options = {}) {
     <style>
       .ds-flow-rich {
         width: 100%;
-        height: ${height}px;
+        height: ${height ? `${height}px` : '100%'};
       }
       .ds-flow-rich .react-flow { background: transparent !important; }
       .ds-flow-rich .react-flow__background { display: none !important; }
@@ -1202,7 +1221,7 @@ export async function initDeepSearchFlow(containerId, options = {}) {
 
   render([], []);
 
-  // 聚焦最后更新的节点
+  // 智能聚焦：只在节点即将出视野时才移动，且保持更多卡片可见
   const focusOnLatest = (nodes, lastUpdatedId) => {
     const instance = flowApi?.getInstance?.();
     if (!instance || nodes.length === 0) return;
@@ -1214,15 +1233,69 @@ export async function initDeepSearchFlow(containerId, options = {}) {
 
     if (!latest) return;
 
-    const detailCount = latest.data.details?.length || 0;
-    const nodeHeight = 60 + detailCount * 50;
-    const nodeWidth = 320;
+    const nodeWidth = 280;
+    const nodeHeight = 80;
+    const nodeCenterX = latest.position.x + nodeWidth / 2;
+    const nodeCenterY = latest.position.y + nodeHeight / 2;
 
-    const centerX = latest.position.x + nodeWidth / 2;
-    const centerY = latest.position.y + nodeHeight / 2;
+    // 获取当前视口信息
+    const { x: vpX, y: vpY, zoom } = instance.getViewport();
+    const container = document.getElementById(containerId);
+    if (!container) return;
 
-    instance.setCenter(centerX, centerY, { duration: 400, zoom: 0.95 });
+    const containerWidth = container.clientWidth;
+    const containerHeight = container.clientHeight;
+
+    // 计算节点在屏幕上的位置
+    const screenX = nodeCenterX * zoom + vpX;
+    const screenY = nodeCenterY * zoom + vpY;
+
+    // 定义安全边距（节点距离边缘多近时才移动）
+    const marginX = containerWidth * 0.15;
+    const marginY = containerHeight * 0.15;
+
+    const inViewX = screenX > marginX && screenX < containerWidth - marginX;
+    const inViewY = screenY > marginY && screenY < containerHeight - marginY;
+
+    // 如果节点在安全区域内，不移动
+    if (inViewX && inViewY) return;
+
+    // 节点快出视野了，计算最小移动量让它回到安全区域
+    let targetVpX = vpX;
+    let targetVpY = vpY;
+
+    if (!inViewX) {
+      if (screenX <= marginX) {
+        // 节点在左边，视口往左移（vpX 增大）
+        targetVpX = vpX + (marginX - screenX) + 50;
+      } else {
+        // 节点在右边，视口往右移（vpX 减小）
+        targetVpX = vpX - (screenX - (containerWidth - marginX)) - 50;
+      }
+    }
+
+    if (!inViewY) {
+      if (screenY <= marginY) {
+        targetVpY = vpY + (marginY - screenY) + 30;
+      } else {
+        targetVpY = vpY - (screenY - (containerHeight - marginY)) - 30;
+      }
+    }
+
+    // 平滑移动到新视口位置，保持当前 zoom
+    instance.setViewport({ x: targetVpX, y: targetVpY, zoom }, { duration: 300 });
   };
+
+  // 动态计算 fitView padding：节点少时紧凑，节点多时扩大
+  const getDynamicPadding = (nodeCount) => {
+    if (nodeCount <= 3) return 0.25;
+    if (nodeCount <= 6) return 0.35;
+    if (nodeCount <= 10) return 0.45;
+    return 0.5;
+  };
+
+  let lastNodeCount = 0;
+  let hasInitialFit = false;
 
   const refresh = () => {
     const { nodes, edges, lastUpdatedNodeId } = builder.getFlowData();
@@ -1230,7 +1303,33 @@ export async function initDeepSearchFlow(containerId, options = {}) {
     if (flowApi) {
       flowApi.setNodes(layout.nodes);
       flowApi.setEdges(layout.edges);
-      setTimeout(() => focusOnLatest(layout.nodes, lastUpdatedNodeId), 150);
+
+      const instance = flowApi.getInstance?.();
+      const nodeCount = nodes.length;
+
+      if (instance && nodeCount > 0) {
+        // 策略：
+        // 1. 首次渲染或节点很少时 -> fitView 全览
+        // 2. 节点数量增加较多时（如新迭代开始）-> fitView 重新适配
+        // 3. 其他情况 -> 只用智能追踪，不打断用户视角
+
+        const shouldFitView = !hasInitialFit
+          || nodeCount <= 4
+          || (nodeCount - lastNodeCount >= 3);  // 节点增加3个以上才重新适配
+
+        if (shouldFitView) {
+          const padding = getDynamicPadding(nodeCount);
+          setTimeout(() => {
+            instance.fitView({ padding, maxZoom: 0.9, duration: 300 });
+            hasInitialFit = true;
+          }, 100);
+        } else {
+          // 节点数量变化不大，只用智能追踪
+          setTimeout(() => focusOnLatest(layout.nodes, lastUpdatedNodeId), 100);
+        }
+
+        lastNodeCount = nodeCount;
+      }
     } else {
       render(layout.nodes, layout.edges);
     }

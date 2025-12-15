@@ -39,46 +39,8 @@ const PPTGeneratorAgentDashboard = {
         } else if (this.state === 'outline_review') {
             visContent = this._renderOutlineReview();
         } else {
-            // Default: Simplified Generation View
-            visContent = `
-                <div class="generation-container" style="background: transparent;">
-                    <!-- Progress Stepper -->
-                    <div class="gen-stepper">
-                        ${this._renderStep('reading', '1', '阅读')}
-                        <div class="gen-step-line"></div>
-                        ${this._renderStep('researching', '2', '研究')}
-                        <div class="gen-step-line"></div>
-                        ${this._renderStep('script_review', '3', '脚本')}
-                        <div class="gen-step-line"></div>
-                        ${this._renderStep('page_layout', '4', '规划')}
-                        <div class="gen-step-line"></div>
-                        ${this._renderStep('designer', '5', '设计')}
-                    </div>
-
-                    <!-- Main Visualizer -->
-                    <div class="gen-visualizer" style="background: white; border: 1px solid var(--ppt-border); box-shadow: var(--ppt-shadow-lg);">
-                        <div class="gen-status-icon">
-                            <iconify-icon icon="${this._getCurrentStatusIcon()}"></iconify-icon>
-                        </div>
-                        <h2 class="gen-title">${this._getCurrentStatusTitle()}</h2>
-                        <p class="gen-subtitle">${this._getCurrentStatusDesc()}</p>
-
-                        ${this.state === 'researching'
-                            ? this._renderDeepSearchVisualization({ compact: true })
-                            : (this.state === 'designer' ? this._renderDesignVisualization({ compact: true }) : '')}
-
-                        <!-- File List (Only show during reading) -->
-                        <div id="fileProcessingGrid" class="gen-file-list" style="display: ${this.state === 'reading' ? 'flex' : 'none'}">
-                            <!-- Dynamic File Nodes -->
-                        </div>
-
-                        <!-- Minimal Log Ticker -->
-                        <div class="gen-log-ticker" id="agentTerminal">
-                            <!-- Logs go here -->
-                        </div>
-                    </div>
-                </div>
-            `;
+            // Default: DeepSearch Premium UI (researching/designer states)
+            visContent = this._renderDeepSearchPremiumUI();
         }
 
         // Render Simplified Dashboard (No more grid layout)
@@ -329,6 +291,211 @@ const PPTGeneratorAgentDashboard = {
         `;
     },
 
+    /**
+     * Premium DeepSearch UI - Flow fullscreen, Stepper top-center, Status bottom-left, Logs center
+     */
+    _renderDeepSearchPremiumUI() {
+        const isDesigner = this.state === 'designer';
+        const flowCanvasId = isDesigner ? 'pptDesignFlowVizFull' : 'pptDeepSearchFlowVizFull';
+
+        return `
+            <div class="ds-research-stage">
+                <!-- Flow Canvas - Full Screen Background -->
+                <div class="ds-viz-panel">
+                    <div id="${flowCanvasId}" class="ppt-flow-canvas"></div>
+                </div>
+
+                <!-- Stepper Bar - Top Center -->
+                <div class="ds-stepper-bar">
+                    <div class="ds-stepper-left">
+                        ${this._renderDsStep('reading', '1', '阅读')}
+                        <div class="ds-step-line ${this._isStepCompleted('reading') ? 'completed' : ''}"></div>
+                        ${this._renderDsStep('researching', '2', '研究')}
+                        <div class="ds-step-line ${this._isStepCompleted('researching') ? 'completed' : ''}"></div>
+                        ${this._renderDsStep('script_review', '3', '脚本')}
+                        <div class="ds-step-line ${this._isStepCompleted('script_review') ? 'completed' : ''}"></div>
+                        ${this._renderDsStep('page_layout', '4', '规划')}
+                        <div class="ds-step-line ${this._isStepCompleted('page_layout') ? 'completed' : ''}"></div>
+                        ${this._renderDsStep('designer', '5', '设计')}
+                    </div>
+                </div>
+
+                <!-- Status Card - Bottom Left -->
+                <div class="ds-stepper-status">
+                    <div class="ds-status-badge-sm" id="dsPanelStatusBadge">
+                        <iconify-icon icon="${this._getCurrentStatusIcon()}"></iconify-icon>
+                    </div>
+                    <span class="ds-status-label" id="dsPanelStatusTitle">${this._getCurrentStatusTitle()}</span>
+                </div>
+
+                <!-- Process Panel - Full Screen Center (execution logs) -->
+                <div class="ds-process-panel">
+                    <div class="ds-panel-header">
+                        <span class="ds-panel-title">执行日志</span>
+                        <span class="ds-panel-hint" id="dsPanelStatusSub">${this._getCurrentStatusDesc()}</span>
+                    </div>
+                    <div class="ds-process-content" id="dsProcessList">
+                        <!-- Step items will be appended here -->
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    _renderDsStep(stepState, num, label) {
+        const states = ['idle', 'reading', 'researching', 'script_review', 'page_layout', 'designer', 'reviewer', 'completed', 'failed'];
+        const currentIndex = states.indexOf(this.state);
+        const stepIndex = states.indexOf(stepState);
+
+        let className = 'ds-step';
+        if (this.state === stepState) className += ' active';
+        if (currentIndex > stepIndex) className += ' completed';
+
+        const icon = currentIndex > stepIndex ? '<iconify-icon icon="carbon:checkmark"></iconify-icon>' : num;
+
+        return `
+            <div class="${className}">
+                <div class="ds-step-num">${icon}</div>
+                <span class="ds-step-text">${label}</span>
+            </div>
+        `;
+    },
+
+    _isStepCompleted(stepState) {
+        const states = ['idle', 'reading', 'researching', 'script_review', 'page_layout', 'designer', 'reviewer', 'completed', 'failed'];
+        const currentIndex = states.indexOf(this.state);
+        const stepIndex = states.indexOf(stepState);
+        return currentIndex > stepIndex;
+    },
+
+    /**
+     * Add a step item to the floating process panel
+     * Merges consecutive progress items (e.g., "提取论点 1/20", "2/20"...) into single updating row
+     */
+    addProcessPanelStep(event) {
+        const list = document.getElementById('dsProcessList');
+        if (!list || !event?.text) return;
+
+        // Check if this is a progress update that should merge with previous
+        const progressMatch = event.text.match(/(\d+)\s*\/\s*(\d+)/);
+        if (progressMatch) {
+            const lastItem = list.querySelector('.ds-step-item.progress-item:last-of-type');
+            if (lastItem) {
+                // Check if same type of progress (same prefix before the numbers)
+                const prefix = event.text.replace(/\d+\s*\/\s*\d+.*$/, '').trim();
+                const lastPrefix = lastItem.dataset.progressPrefix;
+                if (lastPrefix === prefix) {
+                    // Update existing progress item
+                    const descEl = lastItem.querySelector('.ds-step-desc');
+                    const timeEl = lastItem.querySelector('.ds-step-time');
+                    if (descEl) descEl.textContent = event.text;
+                    if (timeEl) timeEl.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+                    list.scrollTop = list.scrollHeight;
+                    return;
+                }
+            }
+        }
+
+        const div = document.createElement('div');
+        div.className = 'ds-step-item';
+
+        // Mark as progress item if it contains X/Y pattern
+        if (progressMatch) {
+            div.classList.add('progress-item');
+            div.dataset.progressPrefix = event.text.replace(/\d+\s*\/\s*\d+.*$/, '').trim();
+        }
+
+        // Determine step status
+        if (event.name?.includes('completed') || event.name?.includes('upserted')) {
+            div.classList.add('completed');
+        } else if (event.name?.includes('started') && !event.name?.includes('node')) {
+            div.classList.add('running');
+        } else if (event.name?.includes('external')) {
+            div.classList.add('info');
+        } else if (event.name?.includes('warning') || event.name?.includes('error')) {
+            div.classList.add('warning');
+        }
+
+        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+        const stageName = event.name?.split('.')[1] || 'event';
+
+        // Determine icon
+        let icon = '<iconify-icon icon="solar:record-circle-outline"></iconify-icon>';
+        if (div.classList.contains('completed')) icon = '<iconify-icon icon="solar:check-circle-bold"></iconify-icon>';
+        if (div.classList.contains('running')) icon = '<iconify-icon icon="solar:refresh-circle-bold"></iconify-icon>';
+        if (div.classList.contains('info')) icon = '<iconify-icon icon="solar:info-circle-bold"></iconify-icon>';
+        if (div.classList.contains('warning')) icon = '<iconify-icon icon="solar:danger-triangle-bold"></iconify-icon>';
+
+        // Build details HTML (skip for progress items to keep compact)
+        let detailsHtml = '';
+        if (!progressMatch && event.details && Object.keys(event.details).length > 0) {
+            detailsHtml = `
+                <div class="ds-step-details">
+                    ${Object.entries(event.details).map(([k, v]) => `
+                        <div class="ds-detail-row">
+                            <span class="ds-detail-label">${this._escapeHtml(k)}:</span>
+                            <span class="ds-detail-val">${this._escapeHtml(String(v))}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        div.innerHTML = `
+            <div class="ds-step-icon">${icon}</div>
+            <div class="ds-step-info">
+                <div class="ds-step-header-line">
+                    <span class="ds-step-name">${this._escapeHtml(stageName)}</span>
+                    <span class="ds-step-time">${time}</span>
+                </div>
+                <div class="ds-step-desc">${this._escapeHtml(event.text)}</div>
+                ${detailsHtml}
+            </div>
+        `;
+
+        list.appendChild(div);
+        list.scrollTop = list.scrollHeight;
+
+        // Update status header
+        this._updatePanelStatus(event);
+    },
+
+    _updatePanelStatus(event) {
+        const badge = document.getElementById('dsPanelStatusBadge');
+        const title = document.getElementById('dsPanelStatusTitle');
+        const sub = document.getElementById('dsPanelStatusSub');
+
+        if (!badge || !title || !sub) return;
+
+        // Update based on event type
+        if (event.name?.includes('scan')) {
+            sub.textContent = '正在扫描文档...';
+            badge.innerHTML = '<iconify-icon icon="solar:scanner-outline"></iconify-icon>';
+        } else if (event.name?.includes('gaps')) {
+            sub.textContent = '正在分析知识空白...';
+            badge.innerHTML = '<iconify-icon icon="solar:atom-outline"></iconify-icon>';
+        } else if (event.name?.includes('retrieve')) {
+            sub.textContent = '正在检索相关内容...';
+            badge.innerHTML = '<iconify-icon icon="solar:magnifer-outline"></iconify-icon>';
+        } else if (event.name?.includes('understand')) {
+            sub.textContent = '正在理解和提取要点...';
+            badge.innerHTML = '<iconify-icon icon="solar:brain-outline"></iconify-icon>';
+        } else if (event.name?.includes('write')) {
+            sub.textContent = '正在撰写报告...';
+            badge.innerHTML = '<iconify-icon icon="solar:pen-new-square-outline"></iconify-icon>';
+        } else if (event.name?.includes('design')) {
+            sub.textContent = '正在设计页面...';
+            badge.innerHTML = '<iconify-icon icon="solar:pallete-outline"></iconify-icon>';
+        }
+
+        if (event.name === 'deepsearch.completed') {
+            title.textContent = '研究完成';
+            sub.textContent = '报告已生成';
+            badge.innerHTML = '<iconify-icon icon="solar:check-circle-bold"></iconify-icon>';
+            badge.classList.add('success');
+        }
+    },
+
     _renderDesignVisualization({ compact } = {}) {
         const id = compact ? 'pptDesignFlowVizCompact' : 'pptDesignFlowViz';
         const height = compact ? 360 : 560;
@@ -396,7 +563,7 @@ const PPTGeneratorAgentDashboard = {
 
         const k = kind === 'design' ? 'design' : 'deepsearch';
         this._destroyFlowViz(k);
-        el.innerHTML = `<div style="padding:12px 14px; color: var(--ppt-text-secondary); font-size:12px;">流程可视化加载中...</div>`;
+        el.innerHTML = ''; // Clear without loading message
 
         let mod = null;
         try {
@@ -458,7 +625,13 @@ const PPTGeneratorAgentDashboard = {
 
     _mountActiveFlowVisualizers() {
         if (this.state === 'researching') {
-            this._mountFlowViz({ kind: 'deepsearch', containerId: 'pptDeepSearchFlowVizCompact', direction: 'LR', height: 320 });
+            // Mount full-screen canvas
+            const fullEl = document.getElementById('pptDeepSearchFlowVizFull');
+            if (fullEl) {
+                this._mountFlowViz({ kind: 'deepsearch', containerId: 'pptDeepSearchFlowVizFull', direction: 'LR', height: null });
+            } else {
+                this._mountFlowViz({ kind: 'deepsearch', containerId: 'pptDeepSearchFlowVizCompact', direction: 'LR', height: 400 });
+            }
             return;
         }
         if (this.state === 'deepsearch_review') {
@@ -466,7 +639,13 @@ const PPTGeneratorAgentDashboard = {
             return;
         }
         if (this.state === 'designer') {
-            this._mountFlowViz({ kind: 'design', containerId: 'pptDesignFlowVizCompact', direction: 'TB', height: 360 });
+            // Mount full-screen canvas
+            const fullEl = document.getElementById('pptDesignFlowVizFull');
+            if (fullEl) {
+                this._mountFlowViz({ kind: 'design', containerId: 'pptDesignFlowVizFull', direction: 'TB', height: null });
+            } else {
+                this._mountFlowViz({ kind: 'design', containerId: 'pptDesignFlowVizCompact', direction: 'TB', height: 400 });
+            }
         }
     },
 

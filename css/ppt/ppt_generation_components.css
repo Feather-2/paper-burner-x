@@ -1308,3 +1308,341 @@
     color: white;
     border-color: var(--ppt-primary);
 }
+
+/* ==================== DeepSearch Premium UI ==================== */
+/* Layout: Flow full-screen, Stepper top-center, Status bottom-left, Logs center */
+
+.ds-research-stage {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--ppt-bg-root);
+    background-image: radial-gradient(#E5E7EB 1px, transparent 1px);
+    background-size: 24px 24px;
+}
+
+/* Stepper Bar - Top Center (no background) */
+.ds-stepper-bar {
+    position: absolute;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 8px 20px;
+    z-index: 20;
+}
+
+.ds-stepper-left {
+    display: flex;
+    align-items: center;
+    gap: 0;
+}
+
+/* Status Card - Bottom Left */
+.ds-stepper-status {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px 10px 12px;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(12px);
+    border-radius: 14px;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+    z-index: 20;
+}
+
+.ds-status-badge-sm {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: var(--ppt-primary-subtle);
+    color: var(--ppt-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+}
+
+.ds-status-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ppt-text);
+}
+
+.ds-step {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+}
+
+.ds-step-num {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.8);
+    color: #9CA3AF;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid #E5E7EB;
+    transition: all 0.3s;
+}
+
+.ds-step.active .ds-step-num {
+    background: var(--ppt-primary);
+    color: white;
+    border-color: var(--ppt-primary);
+    box-shadow: 0 2px 6px rgba(79, 70, 229, 0.25);
+}
+
+.ds-step.completed .ds-step-num {
+    background: var(--ppt-success);
+    color: white;
+    border-color: var(--ppt-success);
+}
+
+.ds-step-text {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ppt-text-muted);
+}
+
+.ds-step.active .ds-step-text {
+    color: var(--ppt-text);
+    font-weight: 600;
+}
+
+.ds-step.completed .ds-step-text {
+    color: var(--ppt-success);
+}
+
+.ds-step-line {
+    width: 24px;
+    height: 2px;
+    background: #E5E7EB;
+    border-radius: 1px;
+}
+
+.ds-step-line.completed {
+    background: var(--ppt-success);
+}
+
+/* Main Content Area - removed, not needed */
+
+/* Flow Canvas - Left Side */
+.ds-viz-panel {
+    position: absolute;
+    top: 60px;
+    left: 0;
+    width: 55%;
+    bottom: 0;
+    z-index: 0;
+}
+
+.ds-viz-panel .ppt-flow-canvas {
+    width: 100%;
+    height: 100%;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+}
+
+/* Process Panel - Center-Right (execution logs) */
+.ds-process-panel {
+    position: absolute;
+    top: 80px;
+    left: 50%;
+    width: min(480px, 42%);
+    max-height: calc(100% - 120px);
+    display: flex;
+    flex-direction: column;
+    background: rgba(255, 255, 255, 0.97);
+    backdrop-filter: blur(20px);
+    border-radius: 16px;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    z-index: 15;
+    overflow: hidden;
+    transition: left 0.3s ease-out;
+}
+
+/* When chat sidebar is hidden, move logs panel to the right */
+.ppt-preview-area.expanded .ds-process-panel {
+    left: 58%;
+}
+
+.ds-panel-header {
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    flex-shrink: 0;
+}
+
+.ds-panel-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ppt-text);
+}
+
+.ds-panel-hint {
+    font-size: 11px;
+    color: var(--ppt-text-secondary);
+}
+
+.ds-process-content {
+    flex: 1;
+    overflow-y: auto;
+    background: transparent;
+}
+
+/* Step Item Styles */
+.ds-step-item {
+    padding: 10px 20px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.03);
+    display: flex;
+    gap: 10px;
+    transition: background 0.2s;
+    position: relative;
+}
+
+.ds-step-item::before {
+    content: '';
+    position: absolute;
+    left: 29px;
+    top: 28px;
+    bottom: -10px;
+    width: 1px;
+    background: #E5E7EB;
+    z-index: 0;
+}
+
+.ds-step-item:last-child::before {
+    display: none;
+}
+
+.ds-step-icon {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #F3F4F6;
+    color: #9CA3AF;
+    border: 2px solid #FFFFFF;
+    box-shadow: 0 0 0 1px #E5E7EB;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    flex-shrink: 0;
+    z-index: 1;
+    margin-top: 2px;
+}
+
+.ds-step-item.completed .ds-step-icon {
+    background: var(--ppt-success);
+    color: white;
+    box-shadow: none;
+    border-color: transparent;
+}
+
+.ds-step-item.running .ds-step-icon {
+    background: var(--ppt-primary);
+    color: white;
+    box-shadow: none;
+    border-color: transparent;
+    animation: step-pulse 1.5s infinite;
+}
+
+.ds-step-item.info .ds-step-icon {
+    background: #3B82F6;
+    color: white;
+}
+
+.ds-step-item.warning .ds-step-icon {
+    background: var(--ppt-warning);
+    color: white;
+}
+
+@keyframes step-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.4); }
+    70% { box-shadow: 0 0 0 5px rgba(79, 70, 229, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); }
+}
+
+.ds-step-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.ds-step-header-line {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 2px;
+}
+
+.ds-step-name {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--ppt-text-secondary);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.ds-step-time {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--ppt-text-muted);
+}
+
+.ds-step-desc {
+    font-size: 12px;
+    color: var(--ppt-text);
+    line-height: 1.4;
+}
+
+/* Step Details Block */
+.ds-step-details {
+    margin-top: 4px;
+    background: #F8FAFC;
+    border-radius: 4px;
+    padding: 4px 6px;
+    border: 1px solid #F1F5F9;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.ds-detail-row {
+    font-size: 9px;
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+}
+
+.ds-detail-label {
+    color: #64748B;
+    font-weight: 500;
+    min-width: 40px;
+    flex-shrink: 0;
+}
+
+.ds-detail-val {
+    color: #334155;
+    font-family: 'JetBrains Mono', monospace;
+    flex: 1;
+    word-break: break-all;
+}
