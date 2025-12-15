@@ -806,13 +806,31 @@ function assertHardGates({ sources, sourceTextById, claims, evidenceLedger, retr
  * @param {{emit?:Function,eventBus?:object,signal?:AbortSignal,checkCancelled?:Function}=} stageApi
  */
 export async function runDeepSearchUnderstandStage(runContext, input, stageApi = {}) {
+  // 最早的入口日志
+  console.log("[DeepSearch] understand stage entry", {
+    hasState: !!input?.state,
+    stateType: input?.state?.constructor?.name,
+  });
+
   const emit = makeStageEmitter(stageApi, "deepsearch");
-  const state = ensureState(runContext, input);
+
+  let state;
+  try {
+    state = ensureState(runContext, input);
+  } catch (err) {
+    console.error("[DeepSearch] understand ensureState failed:", err);
+    throw err;
+  }
 
   // 设置日志上下文
   setLogContext({ runId: state.runId, iteration: state.iteration || 0 });
 
-  checkCancelled(stageApi);
+  try {
+    checkCancelled(stageApi);
+  } catch (err) {
+    console.error("[DeepSearch] understand checkCancelled failed:", err);
+    throw err;
+  }
 
   function maxNumericId(rows, idSelector, { prefix } = {}) {
     const rx = prefix ? new RegExp(`^${prefix.replaceAll(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}(\\d+)$`) : null;
@@ -894,13 +912,16 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     return { claims: claimsOut, evidences: evidencesOut, nextSeedClaimNum, nextSeedEvidenceNum };
   }
 
+  const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
+  const unconsumedCount = retrieved.filter((c) => c?.consumed !== true).length;
+
   // 记录 understand 阶段开始
   logEvent({
     stage: 'understand',
     message: 'Understand stage started',
     data: {
-      retrievedChunks: Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks.length : 0,
-      unconsumedChunks: Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks.filter((c) => c?.consumed !== true).length : 0,
+      retrievedChunks: retrieved.length,
+      unconsumedChunks: unconsumedCount,
       existingClaims: Array.isArray(state?.L1?.claims) ? state.L1.claims.length : 0,
     },
   });
@@ -913,7 +934,28 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     detail: { step: "init" },
   });
 
-  const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
+  // 如果没有未消费的 chunks，提前返回
+  if (unconsumedCount === 0) {
+    logEvent({
+      stage: 'understand',
+      message: 'No unconsumed chunks to process - early return',
+      data: { totalChunks: retrieved.length },
+    });
+    emit?.("deepsearch.understand.completed", {
+      claimCount: Array.isArray(state?.L1?.claims) ? state.L1.claims.length : 0,
+      evidenceCount: Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger.length : 0,
+      skipped: true,
+      reason: "no_unconsumed_chunks",
+    });
+    return {
+      state,
+      claims: Array.isArray(state?.L1?.claims) ? state.L1.claims : [],
+      evidenceLedger: Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [],
+      conflicts: Array.isArray(state?.L1?.conflicts) ? state.L1.conflicts : [],
+      openQuestions: Array.isArray(state?.L1?.openQuestions) ? state.L1.openQuestions : [],
+      reflectResult: { sufficient: true, confidence: 0.5, reason: "no_new_chunks", missingAspects: [], suggestedQueries: [] },
+    };
+  }
   // 只处理未消费的新 chunks，避免每轮重复处理历史累计 chunks
   const newRetrieved = retrieved.filter((c) => c?.consumed !== true);
   const sourceTextById = indexSourceTextById(state?.L0?.sources);
@@ -921,6 +963,10 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   const understandingConfig = isPlainObject(state?.userConfig?.understanding) ? state.userConfig.understanding : {};
   const maxQuoteLen = Number.isFinite(understandingConfig.maxQuoteLen) ? Math.max(60, Math.floor(understandingConfig.maxQuoteLen)) : 220;
   const useLLMClaims = understandingConfig.useLLMClaims !== false;
+  const minScore =
+    typeof understandingConfig.minScore === "number" && Number.isFinite(understandingConfig.minScore)
+      ? Math.max(0, understandingConfig.minScore)
+      : 0.15;
   const dedupeThreshold =
     typeof understandingConfig.dedupeThreshold === "number" && Number.isFinite(understandingConfig.dedupeThreshold)
       ? understandingConfig.dedupeThreshold
@@ -928,6 +974,158 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
 
   const existingClaims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
   const existingEvidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
+
+  if (!newRetrieved.length) {
+    logEvent({ stage: "understand", message: "No unconsumed chunks to process" });
+    const conflicts = Array.isArray(state?.L1?.conflicts) ? state.L1.conflicts : [];
+    const openQuestions = Array.isArray(state?.L1?.openQuestions) ? state.L1.openQuestions : [];
+    const reflectResult = isPlainObject(state?.L1?.reflectResult)
+      ? state.L1.reflectResult
+      : {
+          sufficient: existingClaims.length > 0,
+          confidence: 0.3,
+          reason: "No unconsumed chunks to process",
+          missingAspects: [],
+          suggestedQueries: [],
+        };
+
+    if (!state.L1 || typeof state.L1 !== "object") state.L1 = {};
+    state.L1.claims = existingClaims;
+    state.L1.evidenceLedger = existingEvidenceLedger;
+    state.L1.conflicts = conflicts;
+    state.L1.openQuestions = openQuestions;
+    state.L1.reflectResult = reflectResult;
+
+    return {
+      state,
+      claims: existingClaims,
+      evidenceLedger: existingEvidenceLedger,
+      conflicts,
+      openQuestions,
+      reflectResult,
+    };
+  }
+
+  function isValidSeed(seed) {
+    return Boolean(seed && Array.isArray(seed.claims) && seed.claims.length && Array.isArray(seed.evidences) && seed.evidences.length);
+  }
+
+  function chunkStatsForClaimsFromChunks(chunks, { minScore } = {}) {
+    const rows = Array.isArray(chunks) ? chunks : [];
+    let validTextAndLocator = 0;
+    let scored = 0;
+    let missingScore = 0;
+    let belowMinScore = 0;
+    for (const c of rows) {
+      const hasText = typeof c?.text === "string" && c.text;
+      const charStart = safeInt(c?.locator?.charStart);
+      const charEnd = safeInt(c?.locator?.charEnd);
+      const hasLocator = charStart !== null && charEnd !== null && charStart < charEnd;
+      if (hasText && hasLocator) validTextAndLocator += 1;
+
+      const score = typeof c?.score === "number" && Number.isFinite(c.score) ? c.score : null;
+      if (score === null) {
+        missingScore += 1;
+      } else {
+        scored += 1;
+        if (typeof minScore === "number" && Number.isFinite(minScore) && score < minScore) belowMinScore += 1;
+      }
+    }
+    return { total: rows.length, validTextAndLocator, scored, missingScore, belowMinScore };
+  }
+
+  function claimsFromChunksWithDiagnostics(chunks, { label, gapId } = {}) {
+    const stats = chunkStatsForClaimsFromChunks(chunks, { minScore });
+    console.log("[DeepSearch] understand claimsFromChunks input", { label, gapId, minScore, ...stats });
+
+    let seed = null;
+    try {
+      seed = claimsFromChunks(chunks, { maxQuoteLen, minScore });
+    } catch (err) {
+      console.error("[DeepSearch] understand claimsFromChunks failed:", { label, gapId, err });
+      seed = null;
+    }
+
+    console.log("[DeepSearch] understand claimsFromChunks output", {
+      label,
+      gapId,
+      claimCount: Array.isArray(seed?.claims) ? seed.claims.length : 0,
+      evidenceCount: Array.isArray(seed?.evidences) ? seed.evidences.length : 0,
+    });
+
+    // 如果全被 minScore 过滤或无法产出，尝试用更低门槛重试一次
+    if (!isValidSeed(seed) && stats.total > 0 && minScore > 0) {
+      console.warn("[DeepSearch] understand claimsFromChunks retry with minScore=0", { label, gapId, prevMinScore: minScore });
+      try {
+        const retried = claimsFromChunks(chunks, { maxQuoteLen, minScore: 0 });
+        console.log("[DeepSearch] understand claimsFromChunks retry output", {
+          label,
+          gapId,
+          claimCount: Array.isArray(retried?.claims) ? retried.claims.length : 0,
+          evidenceCount: Array.isArray(retried?.evidences) ? retried.evidences.length : 0,
+        });
+        if (isValidSeed(retried)) seed = retried;
+      } catch (err) {
+        console.error("[DeepSearch] understand claimsFromChunks retry failed:", { label, gapId, err });
+      }
+    }
+
+    return seed;
+  }
+
+  function basicSeedFromChunks(chunks, { label, gapId } = {}) {
+    const rows = Array.isArray(chunks) ? chunks : [];
+    const ranked = rows.slice().sort((a, b) => (b?.score ?? -Infinity) - (a?.score ?? -Infinity));
+    const coreChunkId = toNonEmptyString(ranked?.[0]?.chunkId) || null;
+
+    /** @type {any[]} */
+    const evidences = [];
+    /** @type {any[]} */
+    const claims = [];
+
+    for (const c of rows) {
+      const chunkId = toNonEmptyString(c?.chunkId);
+      const sourceId = toNonEmptyString(c?.sourceId);
+      if (!chunkId || !sourceId) continue;
+      const sourceText = sourceTextById.get(sourceId);
+      if (typeof sourceText !== "string") continue;
+
+      let derived;
+      try {
+        derived = quoteFromSourceLocator(sourceText, c?.locator, { maxQuoteLen });
+      } catch {
+        continue;
+      }
+
+      const evidenceId = `e_${evidences.length + 1}`;
+      const claimId = `c_${claims.length + 1}`;
+      evidences.push({
+        evidenceId,
+        chunkId: String(chunkId),
+        sourceId: String(sourceId),
+        locator: derived.locator,
+        quote: derived.quote,
+        quoteExact: true,
+      });
+
+      claims.push({
+        claimId,
+        text: collapseWhitespace(derived.quote),
+        importance: coreChunkId && String(chunkId) === coreChunkId ? "core" : "support",
+        evidenceIds: [evidenceId],
+      });
+    }
+
+    console.log("[DeepSearch] understand basic seed from chunks", {
+      label,
+      gapId,
+      inputChunks: rows.length,
+      claimCount: claims.length,
+      evidenceCount: evidences.length,
+    });
+
+    return { claims, evidences };
+  }
 
   const maxExistingClaimNum = maxNumericId(existingClaims, (c) => c?.claimId, { prefix: "c_" });
   const maxExistingEvidenceNum = maxNumericId(existingEvidenceLedger, (e) => e?.evidenceId, { prefix: "e_" });
@@ -984,11 +1182,20 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
 
       let seed = null;
       if (useLLMClaims) {
-        seed = await generateClaimsWithLLM(gap, deduped, stageApi, state, { maxQuoteLen });
+        try {
+          seed = await generateClaimsWithLLM(gap, deduped, stageApi, state, { maxQuoteLen });
+        } catch (err) {
+          console.error("[DeepSearch] understand generateClaimsWithLLM failed:", { gapId, err });
+          seed = null;
+        }
       }
-      if (!seed || !Array.isArray(seed.claims) || !seed.claims.length || !Array.isArray(seed.evidences) || !seed.evidences.length) {
-        seed = claimsFromChunks(deduped, { maxQuoteLen });
+      if (!isValidSeed(seed)) {
+        seed = claimsFromChunksWithDiagnostics(deduped, { label: "gap", gapId });
       }
+      if (!isValidSeed(seed)) {
+        seed = basicSeedFromChunks(deduped, { label: "gap", gapId });
+      }
+      if (!seed || !Array.isArray(seed.claims) || !Array.isArray(seed.evidences)) seed = { claims: [], evidences: [] };
 
       return { gapId, seed };
     })
@@ -1007,7 +1214,9 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
 
   // 兜底：对缺少 gapId 的 chunks，仍生成一批 seed claims（但不强行标记 gapIds）
   if (ungappedChunks.length) {
-    const seed = claimsFromChunks(dedupeChunksByChunkId(ungappedChunks), { maxQuoteLen });
+    const deduped = dedupeChunksByChunkId(ungappedChunks);
+    let seed = claimsFromChunksWithDiagnostics(deduped, { label: "ungapped", gapId: null });
+    if (!isValidSeed(seed)) seed = basicSeedFromChunks(deduped, { label: "ungapped", gapId: null });
     const rebased = rebaseSeedIds(seed, { nextSeedClaimNum, nextSeedEvidenceNum });
     nextSeedClaimNum = rebased.nextSeedClaimNum;
     nextSeedEvidenceNum = rebased.nextSeedEvidenceNum;
@@ -1058,7 +1267,20 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
       }
     }
     if (!derived && wantsExactQuote) continue;
-    if (!derived) derived = quoteFromSourceLocator(sourceText, seed.locator, { maxQuoteLen });
+    if (!derived) {
+      try {
+        derived = quoteFromSourceLocator(sourceText, seed.locator, { maxQuoteLen });
+      } catch (err) {
+        if (understandingConfig.strictMode === true) throw err;
+        console.warn("[DeepSearch] understand quoteFromSourceLocator failed:", {
+          seedEvidenceId: toNonEmptyString(seed?.evidenceId),
+          chunkId: toNonEmptyString(seed?.chunkId),
+          sourceId,
+          err: String(err?.message || err),
+        });
+        continue;
+      }
+    }
     const retrievedRow = retrievedByChunkId.get(String(seed.chunkId));
     const gapIds = Array.from(
       new Set([

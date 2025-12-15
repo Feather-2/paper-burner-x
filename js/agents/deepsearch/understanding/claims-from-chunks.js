@@ -49,22 +49,38 @@ export function claimsFromChunks(retrievedChunks, options = {}) {
 
   const maxQuoteLen = Number.isFinite(options.maxQuoteLen) ? Math.max(40, Math.floor(options.maxQuoteLen)) : 220;
   const maxClaims = Number.isFinite(options.maxClaims) ? Math.max(0, Math.floor(options.maxClaims)) : retrievedChunks.length;
-  // 最低相关性分数阈值（0-1），低于此分数的检索结果将被过滤
-  const minScore = typeof options.minScore === "number" && Number.isFinite(options.minScore) ? options.minScore : 0.3;
+  // 最低相关性分数阈值 - 默认 0（不过滤），因为 BM25 分数可能很低但仍然有效
+  const minScore = typeof options.minScore === "number" && Number.isFinite(options.minScore) ? options.minScore : 0;
 
-  const rows = retrievedChunks
-    .map((r, idx) => {
-      const chunkId = String(r?.chunkId || `chunk_${idx + 1}`);
-      const sourceId = String(r?.sourceId || "source_unknown");
-      const charStart = safeInt(r?.locator?.charStart);
-      const charEnd = safeInt(r?.locator?.charEnd);
-      const text = typeof r?.text === "string" ? r.text : "";
-      const score = typeof r?.score === "number" && Number.isFinite(r.score) ? r.score : null;
-      return { chunkId, sourceId, locator: { charStart, charEnd }, text, score };
-    })
-    .filter((r) => typeof r.locator.charStart === "number" && typeof r.locator.charEnd === "number" && r.locator.charStart < r.locator.charEnd && r.text)
-    // 过滤低质量检索结果
-    .filter((r) => r.score === null || r.score >= minScore);
+  const mapped = retrievedChunks.map((r, idx) => {
+    const chunkId = String(r?.chunkId || `chunk_${idx + 1}`);
+    const sourceId = String(r?.sourceId || "source_unknown");
+    const charStart = safeInt(r?.locator?.charStart);
+    const charEnd = safeInt(r?.locator?.charEnd);
+    const text = typeof r?.text === "string" ? r.text : "";
+    const score = typeof r?.score === "number" && Number.isFinite(r.score) ? r.score : null;
+    return { chunkId, sourceId, locator: { charStart, charEnd }, text, score };
+  });
+
+  const withValidLocator = mapped.filter(
+    (r) => typeof r.locator.charStart === "number" && typeof r.locator.charEnd === "number" && r.locator.charStart < r.locator.charEnd && r.text
+  );
+
+  // 只在 minScore > 0 时过滤低质量结果
+  const rows = minScore > 0 ? withValidLocator.filter((r) => r.score === null || r.score >= minScore) : withValidLocator;
+
+  // 调试日志
+  if (retrievedChunks.length > 0 && rows.length === 0) {
+    console.warn("[claimsFromChunks] All chunks filtered out:", {
+      input: retrievedChunks.length,
+      afterMap: mapped.length,
+      afterLocatorFilter: withValidLocator.length,
+      afterScoreFilter: rows.length,
+      minScore,
+      sampleLocators: mapped.slice(0, 3).map((r) => ({ charStart: r.locator.charStart, charEnd: r.locator.charEnd, hasText: !!r.text })),
+      sampleScores: mapped.slice(0, 3).map((r) => r.score),
+    });
+  }
 
   const ranked = rows.slice().sort((a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity));
   const coreChunkId = ranked.length ? ranked[0].chunkId : null;
