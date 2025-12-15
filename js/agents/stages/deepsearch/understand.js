@@ -914,6 +914,8 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   });
 
   const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
+  // 只处理未消费的新 chunks，避免每轮重复处理历史累计 chunks
+  const newRetrieved = retrieved.filter((c) => c?.consumed !== true);
   const sourceTextById = indexSourceTextById(state?.L0?.sources);
 
   const understandingConfig = isPlainObject(state?.userConfig?.understanding) ? state.userConfig.understanding : {};
@@ -946,7 +948,7 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   const chunksByGapId = new Map();
   /** @type {any[]} */
   const ungappedChunks = [];
-  for (const r of retrieved) {
+  for (const r of newRetrieved) {
     const gapIds = normalizeGapIds(r?.matchedGapIds || r?.gapId);
     if (!gapIds.length) {
       ungappedChunks.push(r);
@@ -1306,7 +1308,7 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   }
 
   const consumedAt = new Date().toISOString();
-  for (const r of retrieved) {
+  for (const r of newRetrieved) {
     if (!r || typeof r !== "object") continue;
     if (r.consumed !== true) r.consumed = true;
     if (!toNonEmptyString(r.consumedAt)) r.consumedAt = consumedAt;
