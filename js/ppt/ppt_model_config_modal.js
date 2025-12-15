@@ -24,32 +24,48 @@
   ];
 
   const ROLES = [
-    { id: 'analyst', name: '分析师', desc: '扫描和理解文档', icon: 'carbon:analytics' },
-    { id: 'planner', name: '规划师', desc: '研究规划和 Gap 识别', icon: 'carbon:plan' },
-    { id: 'writer', name: '撰写者', desc: '内容生成和报告撰写', icon: 'carbon:edit' },
-    { id: 'reviewer', name: '审阅者', desc: '质量检查和审阅', icon: 'carbon:checkmark-outline' },
-    { id: 'vision', name: '视觉处理', desc: '图像理解和 OCR', icon: 'carbon:view' },
-    { id: 'worker', name: '通用执行', desc: '通用任务处理', icon: 'carbon:task' }
+    // DeepSearch 角色
+    { id: 'analyst', name: '分析师', desc: '扫描和理解文档', icon: 'carbon:analytics', group: 'deepsearch' },
+    { id: 'planner', name: '规划师', desc: '研究规划和 Gap 识别', icon: 'carbon:plan', group: 'deepsearch' },
+    { id: 'writer', name: '撰写者', desc: '内容生成和报告撰写', icon: 'carbon:edit', group: 'deepsearch' },
+    { id: 'reviewer', name: '审阅者', desc: '质量检查和审阅', icon: 'carbon:checkmark-outline', group: 'deepsearch' },
+    { id: 'vision', name: '视觉处理', desc: '图像理解和 OCR', icon: 'carbon:view', group: 'shared' },
+    { id: 'worker', name: '通用执行', desc: '通用任务处理', icon: 'carbon:task', group: 'shared' },
+    // Design 角色
+    { id: 'design_tokens', name: '设计规范', desc: '提取设计系统 Tokens', icon: 'carbon:color-palette', group: 'design' },
+    { id: 'design_brainstorm', name: '创意策划', desc: '脑暴视觉创意方案', icon: 'carbon:idea', group: 'design' },
+    { id: 'design_layout', name: '布局排版', desc: '页面结构和元素布局', icon: 'carbon:grid', group: 'design' },
+    { id: 'design_svg', name: 'SVG 绘制', desc: '矢量图形和图标生成', icon: 'carbon:svg', group: 'design' },
+    { id: 'design_image', name: '图像生成', desc: 'AI 配图和素材生成', icon: 'carbon:image-search', group: 'design' },
+    { id: 'design_review', name: '设计审阅', desc: '视觉质量检查和评审', icon: 'carbon:task-approved', group: 'design' }
   ];
 
-  const ROLE_SHORT = { analyst: 'A', planner: 'P', writer: 'W', reviewer: 'R', vision: 'V', worker: 'K' };
-  const ROLE_DISPLAY_ORDER = ['worker', 'analyst', 'planner', 'writer', 'reviewer', 'vision'];
+  const ROLE_SHORT = {
+    analyst: 'A', planner: 'P', writer: 'W', reviewer: 'R', vision: 'V', worker: 'K',
+    design_tokens: 'T', design_brainstorm: 'B', design_layout: 'L', design_svg: 'S', design_image: 'I', design_review: 'Q'
+  };
+  const ROLE_DISPLAY_ORDER = [
+    // Shared
+    'worker', 'vision',
+    // DeepSearch
+    'analyst', 'planner', 'writer', 'reviewer',
+    // Design
+    'design_tokens', 'design_brainstorm', 'design_layout', 'design_svg', 'design_image', 'design_review'
+  ];
   const ROLE_NAMES = {
-    analyst: '分析师',
-    planner: '规划师',
-    writer: '撰写者',
-    reviewer: '审阅者',
-    vision: '视觉',
-    worker: '通用'
+    analyst: '分析师', planner: '规划师', writer: '撰写者', reviewer: '审阅者', vision: '视觉', worker: '通用',
+    design_tokens: '规范', design_brainstorm: '脑暴', design_layout: '布局', design_svg: 'SVG', design_image: '配图', design_review: '审阅'
   };
 
   const ROLE_NAMES_TABLE = {
-    analyst: '分析',
-    planner: '规划',
-    writer: '撰写',
-    reviewer: '审阅',
-    vision: '视觉',
-    worker: '通用'
+    analyst: '分析', planner: '规划', writer: '撰写', reviewer: '审阅', vision: '视觉', worker: '通用',
+    design_tokens: '规范', design_brainstorm: '脑暴', design_layout: '布局', design_svg: 'SVG', design_image: '配图', design_review: '审阅'
+  };
+
+  const ROLE_GROUPS = {
+    shared: { name: '通用', roles: ['worker', 'vision'] },
+    deepsearch: { name: 'DeepSearch', roles: ['analyst', 'planner', 'writer', 'reviewer'] },
+    design: { name: 'Design', roles: ['design_tokens', 'design_brainstorm', 'design_layout', 'design_svg', 'design_image', 'design_review'] }
   };
 
   const TRANSCRIPTION_PROVIDERS = [
@@ -555,41 +571,50 @@
     const roleCfg = normalizeRolePriorityConfig(loadConfig('rolePriority'));
     const rowsById = new Map((Array.isArray(rows) ? rows : []).map((r) => [r.id, r]));
 
+    const renderRoleColumn = (r) => {
+      const list = Array.isArray(roleCfg[r.id]) ? roleCfg[r.id] : [];
+      const items = list.map((fullKey, idx) => {
+        const label = getModelLabelForFullKey(fullKey, rowsById);
+        return `
+          <div class="pmc-drag-item pmc-role-column-item" draggable="true" data-model-key="${safe(fullKey)}">
+            <span class="priority-num">${safe(String(idx + 1))}.</span>
+            <span class="model-name">${safe(label.title || fullKey)}</span>
+            <button class="pmc-drag-item-remove remove-btn" title="移除" data-remove-key="${safe(fullKey)}" type="button">
+              <iconify-icon icon="carbon:trash-can" width="14"></iconify-icon>
+            </button>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div class="pmc-role-column">
+          <div class="pmc-role-column-header">
+            <iconify-icon icon="${safe(r.icon)}" width="14"></iconify-icon>
+            ${safe(ROLE_NAMES[r.id] || r.name)}
+          </div>
+          <div class="pmc-role-column-list pmc-role-dnd-list" data-role-id="${safe(r.id)}">
+            ${items || `<div class="pmc-role-column-empty" data-action="add-to-role" data-role-id="${safe(r.id)}">（空） 点击添加</div>`}
+          </div>
+        </div>
+      `;
+    };
+
+    const roleById = new Map(ROLES.map(r => [r.id, r]));
+
     container.innerHTML = `
       <div class="pmc-role-overview">
         <div class="pmc-role-overview-title">
           <iconify-icon icon="carbon:user-role" width="16"></iconify-icon>
           角色配置概览
         </div>
-        <div class="pmc-role-columns">
-          ${ROLES.map((r) => {
-            const list = Array.isArray(roleCfg[r.id]) ? roleCfg[r.id] : [];
-            const items = list.map((fullKey, idx) => {
-              const label = getModelLabelForFullKey(fullKey, rowsById);
-              return `
-                <div class="pmc-drag-item pmc-role-column-item" draggable="true" data-model-key="${safe(fullKey)}">
-                  <span class="priority-num">${safe(String(idx + 1))}.</span>
-                  <span class="model-name">${safe(label.title || fullKey)}</span>
-                  <button class="pmc-drag-item-remove remove-btn" title="移除" data-remove-key="${safe(fullKey)}" type="button">
-                    <iconify-icon icon="carbon:trash-can" width="14"></iconify-icon>
-                  </button>
-                </div>
-              `;
-            }).join('');
-
-            return `
-              <div class="pmc-role-column">
-                <div class="pmc-role-column-header">
-                  <iconify-icon icon="${safe(r.icon)}" width="14"></iconify-icon>
-                  ${safe(ROLE_NAMES[r.id] || r.name)}
-                </div>
-                <div class="pmc-role-column-list pmc-role-dnd-list" data-role-id="${safe(r.id)}">
-                  ${items || `<div class="pmc-role-column-empty" data-action="add-to-role" data-role-id="${safe(r.id)}">（空） 点击添加</div>`}
-                </div>
-              </div>
-            `;
-          }).join('')}
-        </div>
+        ${Object.entries(ROLE_GROUPS).map(([groupKey, group]) => `
+          <div class="pmc-role-group">
+            <div class="pmc-role-group-header">${safe(group.name)}</div>
+            <div class="pmc-role-columns">
+              ${group.roles.map(rid => roleById.get(rid)).filter(Boolean).map(renderRoleColumn).join('')}
+            </div>
+          </div>
+        `).join('')}
       </div>
     `;
 
@@ -628,11 +653,9 @@
       btn.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        const roleCol = btn.closest('.pmc-role-column');
-        const roleId = (() => {
-          const addBtn = roleCol?.querySelector?.('[data-action="add-to-role"]');
-          return addBtn?.getAttribute?.('data-role-id') || '';
-        })();
+        // 从父级 .pmc-role-dnd-list 获取 roleId
+        const roleList = btn.closest('.pmc-role-dnd-list');
+        const roleId = roleList?.getAttribute?.('data-role-id') || '';
 
         const fullKey = btn.getAttribute('data-remove-key');
         if (!fullKey || !roleId) return;

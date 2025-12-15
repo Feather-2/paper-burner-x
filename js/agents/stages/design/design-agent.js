@@ -6,6 +6,7 @@ import { validateSlide } from "./qa-validator.js";
 import { ImagePlanner } from "./image-planner.js";
 import { ImageGenerator, fillImagePlaceholders } from "./image-generator.js";
 import { DSL_RULES } from "./dsl-rules.js";
+import { brainstorm } from "./brainstorm.js";
 
 const SCHEMA_VERSION = "0.1";
 
@@ -93,7 +94,10 @@ export class DesignStage {
     emitStage(emit, "design.tokens.ended", "ended", { theme: designSystem?.theme });
     checkCancelled(context.signal);
 
-    const imageSlots = hasImagePlanningConfig(constraints) ? ImagePlanner.plan(slideIntents, designSystem, constraints) : [];
+    // Brainstorm: generate IdeaPool + ImageSlots
+    const brainstormResult = await brainstorm(contentPackage, designSystem, constraints, { emit });
+    const { ideaPool, selectedIdeas, imageSlots } = brainstormResult;
+
     let pendingImages = imageSlots.map((s) => s.slotId);
     const estimatedCostUSD = imageSlots.reduce((sum, s) => sum + estimateSlotCostUSD(s), 0);
     if (hasImagePlanningConfig(constraints)) {

@@ -36,6 +36,7 @@ const STAGES = {
   // Design Flow (复用同一可视化引擎)
   design_start: { icon: "▣", label: "Design", color: "#EC4899" },
   design_theme: { icon: "✦", label: "Theme", color: "#F43F5E" },
+  design_brainstorm: { icon: "💡", label: "Brainstorm", color: "#F59E0B" },
   design_batch: { icon: "▦", label: "Batch", color: "#8B5CF6" },
   design_slide: { icon: "▤", label: "Slide", color: "#0EA5E9" },
   design_qa: { icon: "✓", label: "QA", color: "#10B981" },
@@ -700,6 +701,38 @@ export class FlowBuilder {
           parentNodeId: parentId,
           metrics: { theme: payload.theme }
         });
+        break;
+      }
+
+      case "design.brainstorm.started": {
+        const parentId = this._getCurrentParent();
+        const id = this._genId("brainstorm");
+        this._addNode(id, "design_brainstorm", {
+          label: "Brainstorm",
+          status: "running",
+          parentNodeId: parentId,
+          metrics: { slides: payload.slideCount }
+        });
+        this._brainstormNodeId = id;
+        break;
+      }
+
+      case "design.brainstorm.completed": {
+        const id = this._brainstormNodeId || this._genId("brainstorm");
+        if (this._brainstormNodeId) {
+          this._updateNode(id, {
+            status: "completed",
+            metrics: { ideas: payload.totalIdeas, selected: payload.selectedIdeas, images: payload.imageSlots }
+          });
+        } else {
+          const parentId = this._getCurrentParent();
+          this._addNode(id, "design_brainstorm", {
+            label: "Brainstorm",
+            status: "completed",
+            parentNodeId: parentId,
+            metrics: { ideas: payload.totalIdeas, selected: payload.selectedIdeas, images: payload.imageSlots }
+          });
+        }
         break;
       }
 

@@ -700,6 +700,13 @@ const PPTGeneratorWorkflow = {
                     const p = recordOrPayload?.payload || recordOrPayload || {};
                     if (p?.theme) progress(`主题已确定: ${p.theme}`, 'highlight');
                 }
+                if (eventName === 'design.brainstorm.started') {
+                    progress('正在进行创意脑暴...', 'normal');
+                }
+                if (eventName === 'design.brainstorm.completed') {
+                    const p = recordOrPayload?.payload || recordOrPayload || {};
+                    progress(`脑暴完成：${p.totalIdeas || 0} 个创意，${p.imageSlots || 0} 个图像槽位`, 'highlight');
+                }
                 if (eventName === 'design.batch.started') {
                     const p = recordOrPayload?.payload || recordOrPayload || {};
                     const range = Array.isArray(p.slideRange) ? `${p.slideRange[0]}-${p.slideRange[1]}` : '';

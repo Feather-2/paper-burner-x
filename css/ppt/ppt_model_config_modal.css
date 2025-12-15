@@ -155,10 +155,27 @@
   gap: 8px;
 }
 
+.pmc-role-group {
+  border-bottom: 1px solid #e2e8f0;
+}
+.pmc-role-group:last-child {
+  border-bottom: none;
+}
+
+.pmc-role-group-header {
+  padding: 8px 16px;
+  background: #f1f5f9;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
 .pmc-role-columns {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  min-height: 120px;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  min-height: 80px;
 }
 
 .pmc-role-column {
@@ -323,17 +340,15 @@
   font-size: 16px;
 }
 
-/* 响应式：小屏幕角色概览改为2行3列 */
+/* 响应式：小屏幕角色概览 */
 @media (max-width: 768px) {
   .pmc-role-columns {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
   }
-  .pmc-role-column:nth-child(3) {
+  .pmc-role-column:nth-child(2n) {
     border-right: none;
   }
-  .pmc-role-column:nth-child(4),
-  .pmc-role-column:nth-child(5),
-  .pmc-role-column:nth-child(6) {
+  .pmc-role-column:nth-child(n+3) {
     border-top: 1px solid #e2e8f0;
   }
 }
