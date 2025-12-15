@@ -13,10 +13,43 @@ function isPlainObject(v) {
 }
 
 export function deduplicateChunks(newChunks, existingChunks) {
-  const existingIds = new Set((Array.isArray(existingChunks) ? existingChunks : []).map((c) => c?.chunkId));
-  const existingTexts = new Set((Array.isArray(existingChunks) ? existingChunks : []).map((c) => c?.text?.slice(0, 200)));
+  const existingById = new Map();
+  const existingByText = new Map();
 
-  return (Array.isArray(newChunks) ? newChunks : []).filter((c) => !existingIds.has(c?.chunkId) && !existingTexts.has(c?.text?.slice(0, 200)));
+  for (const c of Array.isArray(existingChunks) ? existingChunks : []) {
+    const chunkId = toNonEmptyString(c?.chunkId);
+    if (chunkId) existingById.set(chunkId, c);
+    const textKey = typeof c?.text === "string" && c.text ? c.text.slice(0, 200) : null;
+    if (textKey) existingByText.set(textKey, c);
+  }
+
+  const fresh = [];
+  for (const c of Array.isArray(newChunks) ? newChunks : []) {
+    const chunkId = toNonEmptyString(c?.chunkId);
+    const textKey = typeof c?.text === "string" && c.text ? c.text.slice(0, 200) : null;
+    const existingByIdMatch = chunkId ? existingById.get(chunkId) : null;
+    const existingByTextMatch = textKey ? existingByText.get(textKey) : null;
+    const existing = existingByIdMatch || existingByTextMatch;
+
+    if (existing) {
+      const newGapIds = Array.isArray(c?.matchedGapIds) ? c.matchedGapIds : c?.gapId ? [c.gapId] : [];
+      const existingGapIds = Array.isArray(existing.matchedGapIds) ? existing.matchedGapIds : [];
+      const existingGapIdsNormalized = existingGapIds.map(String).filter(Boolean);
+      const merged = Array.from(new Set([...existingGapIdsNormalized, ...newGapIds.map(String).filter(Boolean)]));
+
+      if (merged.length > existingGapIdsNormalized.length) {
+        existing.matchedGapIds = merged;
+        if (!toNonEmptyString(existing.gapId) && merged.length) existing.gapId = merged[0];
+        // 重要：清除 consumed 标记，让 understand 阶段能重新处理
+        existing.consumed = false;
+      }
+      continue;
+    }
+
+    fresh.push(c);
+  }
+
+  return fresh;
 }
 
 function ensureState(_runContext, input) {
@@ -774,12 +807,13 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
   for (const r of rerankedChunks) {
     const existing = existingByChunkId.get(String(r?.chunkId || ""));
     if (!existing) continue;
-    const mergedGapIds = Array.from(
-      new Set([...(Array.isArray(existing.matchedGapIds) ? existing.matchedGapIds.map(String) : []), ...(Array.isArray(r.matchedGapIds) ? r.matchedGapIds.map(String) : [])])
-    ).filter(Boolean);
+    const existingGapIds = Array.isArray(existing.matchedGapIds) ? existing.matchedGapIds.map(String).filter(Boolean) : [];
+    const incomingGapIds = Array.isArray(r.matchedGapIds) ? r.matchedGapIds.map(String).filter(Boolean) : [];
+    const mergedGapIds = Array.from(new Set([...existingGapIds, ...incomingGapIds])).filter(Boolean);
     if (mergedGapIds.length) existing.matchedGapIds = mergedGapIds;
     if (!toNonEmptyString(existing.gapId) && toNonEmptyString(r.gapId)) existing.gapId = String(r.gapId);
     if (mergedGapIds.length) existing.gapId = existing.gapId || mergedGapIds[0];
+    if (mergedGapIds.length > existingGapIds.length) existing.consumed = false;
     if (typeof r?.score === "number" && Number.isFinite(r.score) && (!(typeof existing.score === "number") || r.score > existing.score)) existing.score = r.score;
     if (toNonEmptyString(r?.relevance) && !toNonEmptyString(existing.relevance)) existing.relevance = String(r.relevance);
   }

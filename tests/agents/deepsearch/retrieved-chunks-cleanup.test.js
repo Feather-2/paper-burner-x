@@ -27,6 +27,17 @@ test("deduplicateChunks: filters by chunkId and text prefix", async () => {
   );
 });
 
+test("deduplicateChunks: merges matchedGapIds and clears consumed on new gap", async () => {
+  const { deduplicateChunks } = await import("../../../js/agents/stages/deepsearch/retrieve.js");
+
+  const existing = [{ chunkId: "c1", text: "hello world", matchedGapIds: ["gap_1"], consumed: true }];
+  const out = deduplicateChunks([{ chunkId: "c1", text: "hello world", gapId: "gap_2" }], existing);
+
+  assert.deepEqual(out, []);
+  assert.deepEqual(existing[0].matchedGapIds.slice().sort(), ["gap_1", "gap_2"]);
+  assert.equal(existing[0].consumed, false);
+});
+
 test("DeepSearch retrieve: dedupes against state.L2 + emits deepsearch.retrieve.deduped", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
   const { runDeepSearchRetrieveStage } = await import("../../../js/agents/stages/deepsearch/retrieve.js");
