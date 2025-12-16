@@ -2281,6 +2281,29 @@ const PPTGeneratorWorkflow = {
                 out.rawTexts.push({ title: item.name || '粘贴文档', text: item.content });
                 continue;
             }
+            // 历史项目导入 - 报告作为参考文本
+            if (item.type === 'history-report' && typeof item.content === 'string' && item.content.trim()) {
+                out.rawTexts.push({ title: item.name || '历史研究报告', text: item.content });
+                continue;
+            }
+            // 历史项目导入 - 原始源内容（预构建为 source）
+            if (item.type === 'history-source' && typeof item.content === 'string' && item.content.trim()) {
+                out.sources.push({
+                    sourceId: item.sourceId || `hist_src_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                    kind: 'history_import',
+                    uri: item.sourceUri || '',
+                    title: item.name || '历史来源',
+                    sourceTextNormalized: item.content,
+                    fetchedAt: new Date().toISOString(),
+                    metadata: { importedFrom: 'history' },
+                });
+                continue;
+            }
+            // 历史项目导入 - checkpoint fallback
+            if ((item.type === 'history-checkpoint' || item.type === 'history-document') && typeof item.content === 'string' && item.content.trim()) {
+                out.rawTexts.push({ title: item.name || '历史项目', text: item.content });
+                continue;
+            }
             if (item.file) {
                 out.files.push(item.file);
                 continue;

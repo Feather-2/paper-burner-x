@@ -586,7 +586,7 @@ const PPTGeneratorAgentDashboard = {
                         <div class="rd-sidebar-list">
                             ${files.map((f, i) => `
                                 <div class="rd-file-item">
-                                    <iconify-icon icon="${f.type === 'history' ? 'solar:history-bold-duotone' : f.type === 'url' ? 'solar:link-circle-bold-duotone' : 'solar:document-bold-duotone'}" class="rd-file-icon"></iconify-icon>
+                                    <iconify-icon icon="${this._getFileIcon(f.type)}" class="rd-file-icon"></iconify-icon>
                                     <div class="rd-file-info">
                                         <div class="rd-file-name" title="${this._escapeAttr(String(f?.name ?? ''))}">${this._escapeHtml(String(f?.name ?? ''))}</div>
                                         <div class="rd-file-meta">${this._escapeHtml(String(f?.size ?? ''))}</div>
@@ -1130,6 +1130,19 @@ const PPTGeneratorAgentDashboard = {
         return this._escapeHtml(value).replaceAll('\n', ' ').replaceAll('\r', ' ');
     },
 
+    _getFileIcon(type) {
+        const icons = {
+            'history': 'solar:history-bold-duotone',
+            'history-report': 'solar:notebook-bold-duotone',
+            'history-source': 'solar:database-bold-duotone',
+            'history-checkpoint': 'solar:folder-check-bold-duotone',
+            'history-document': 'solar:document-text-bold-duotone',
+            'url': 'solar:link-circle-bold-duotone',
+            'pdf': 'solar:file-bold-duotone',
+        };
+        return icons[type] || 'solar:document-bold-duotone';
+    },
+
     _destroyFlowViz(kind) {
         const k = kind === 'design' ? 'design' : 'deepsearch';
         if (!this._flowVizUnsubs || typeof this._flowVizUnsubs !== 'object') this._flowVizUnsubs = {};
@@ -1591,22 +1604,61 @@ const PPTGeneratorAgentDashboard = {
         for (const key of this._selectedHistoryItems) {
             const [type, id] = key.split(':');
             if (type === 'cp') {
-                // Checkpoint - extract content from state
+                // Checkpoint - extract report + original sources
                 try {
                     const data = JSON.parse(localStorage.getItem(id));
                     const latest = Array.isArray(data) ? data[data.length - 1] : null;
                     if (latest?.state) {
                         const title = latest.metadata?.title || latest.state?.userConfig?.taskGoal || '深度研究项目';
                         const report = latest.state?.report?.markdown || latest.state?.L1?.report?.markdown || '';
-                        this.workflowData.files.push({
-                            name: title,
-                            type: 'history-checkpoint',
-                            size: '研究项目',
-                            content: report || JSON.stringify(latest.state, null, 2).slice(0, 5000),
-                            checkpointKey: id,
-                        });
+
+                        // 1. 添加报告 markdown 作为参考
+                        if (report) {
+                            this.workflowData.files.push({
+                                name: `${title} - 研究报告`,
+                                type: 'history-report',
+                                size: '参考报告',
+                                content: report,
+                                checkpointKey: id,
+                            });
+                        }
+
+                        // 2. 提取原始源内容（L0.sources）
+                        const sources = Array.isArray(latest.state?.L0?.sources) ? latest.state.L0.sources : [];
+                        for (const src of sources) {
+                            const text = src?.sourceTextNormalized || '';
+                            if (!text || text.length < 100) continue; // 跳过空内容
+
+                            const srcTitle = src?.title || src?.uri || '未知来源';
+                            const srcUri = src?.uri || '';
+
+                            let sizeLabel = '历史来源';
+                            try {
+                                if (srcUri) sizeLabel = `来源: ${new URL(srcUri).hostname}`;
+                            } catch {}
+
+                            this.workflowData.files.push({
+                                name: srcTitle,
+                                type: 'history-source',
+                                size: sizeLabel,
+                                content: text,
+                                sourceUri: srcUri,
+                                sourceId: src?.sourceId,
+                            });
+                        }
+
+                        // 3. 如果没有报告也没有源，fallback 到 JSON
+                        if (!report && sources.length === 0) {
+                            this.workflowData.files.push({
+                                name: title,
+                                type: 'history-checkpoint',
+                                size: '研究项目',
+                                content: JSON.stringify(latest.state, null, 2).slice(0, 5000),
+                                checkpointKey: id,
+                            });
+                        }
                     }
-                } catch {}
+                } catch (e) { console.warn('[HistoryImport] checkpoint parse error:', e); }
             } else if (type === 'doc') {
                 // Document from IndexedDB
                 try {
