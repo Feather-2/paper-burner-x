@@ -2,7 +2,7 @@
  * PPT Model Bridge - 将 PPT 模型配置桥接到 Agent Runtime
  *
  * 从 localStorage 读取 PPT 模型配置，转换为 aiApiService 可用的格式
- * 支持 usage-based 路由：analyst/planner/writer/vision
+ * 支持 usage-based 路由：analyst/planner/writer/reviewer/worker/designer/vision
  */
 
 const STORAGE_KEYS = {
@@ -21,6 +21,7 @@ const USAGE_TO_CONFIG = {
   writer: 'lang',     // 报告撰写
   worker: 'lang',     // 通用任务
   reviewer: 'lang',   // 审阅
+  designer: 'lang',   // 设计阶段（Design / Brainstorm / DSL）
   vision: 'vision',   // 图像理解
   image: 'img'        // 图像生成
 };
@@ -51,7 +52,7 @@ function normalizePptModelTags(raw) {
 }
 
 function normalizePptRolePriority(raw) {
-  const roles = ['analyst', 'planner', 'writer', 'reviewer', 'vision', 'worker'];
+  const roles = ['analyst', 'planner', 'writer', 'reviewer', 'designer', 'vision', 'worker'];
   const result = {};
   for (const role of roles) {
     const arr = raw?.[role];
@@ -160,7 +161,7 @@ export function buildPptUsageConfigForModelRouter() {
 
   // 构建 usageConfig
   const result = {};
-  const textRoles = ['analyst', 'planner', 'writer', 'reviewer', 'worker'];
+  const textRoles = ['analyst', 'planner', 'writer', 'reviewer', 'designer', 'worker'];
 
   for (const role of textRoles) {
     let candidates = priority[role];

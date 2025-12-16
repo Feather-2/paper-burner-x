@@ -106,7 +106,11 @@ const PPTGeneratorWorkflow = {
             this._orchestrator?._services?.aiApiService ||
             (typeof window !== 'undefined' && window.aiApiService ? window.aiApiService : null);
 
-        const res = await brainstormRegenerate(slideIntentId, pkg, designSystem, constraints, { keepOthers, emit, aiApiService });
+        const modelRouter =
+            this._orchestrator?._services?.modelRouter ||
+            (typeof window !== 'undefined' && window.modelRouter ? window.modelRouter : null);
+
+        const res = await brainstormRegenerate(slideIntentId, pkg, designSystem, constraints, { keepOthers, emit, aiApiService, modelRouter });
 
         if (!emit) {
             const row = { slideIntentId: res?.slideIntentId, candidates: res?.candidates, selectedCandidate: res?.selectedCandidate };
@@ -327,7 +331,7 @@ const PPTGeneratorWorkflow = {
             if (usageConfig && typeof usageConfig === 'object') {
                 const { ModelRouter } = await import('../agents/llm/model-router.js');
 
-                const textUsages = ['worker', 'analyst', 'planner', 'writer', 'reviewer'];
+                const textUsages = ['worker', 'analyst', 'planner', 'writer', 'reviewer', 'designer'];
                 const textSet = new Set();
                 const visionSet = new Set();
 
@@ -1176,7 +1180,8 @@ const PPTGeneratorWorkflow = {
                     runContext: { ...(ctx || {}), userConfig: this._getDesignStageUserConfig() },
                     emit: forwardEmit,
                     signal: api.signal,
-                    aiApiService: api.aiApiService
+                    aiApiService: api.aiApiService,
+                    modelRouter: api.modelRouter
                 });
 
                 const deckHtmlDsl = deckPackage?.deckHtmlDsl;

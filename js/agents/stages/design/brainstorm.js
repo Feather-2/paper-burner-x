@@ -20,6 +20,7 @@ import {
   buildBrainstormPrompt,
   buildReviewPrompt,
 } from "./brainstorm-prompts.js";
+import { getDesignModelCaller } from "./model.js";
 
 const VISUAL_CONCEPT_TYPES = [
   "metaphor",      // 视觉隐喻
@@ -306,72 +307,91 @@ export function mapVisualSlotsToImageSlots(visualSlots = [], slideIntents = []) 
     .filter((s) => s.slotId);
 }
 
-function normalizeAiApiService(aiApiService) {
-  if (!aiApiService || typeof aiApiService.chat !== "function") return null;
-  return aiApiService;
-}
-
-async function generateCandidatesForSlide(slideIntent, designSystem, { aiApiService, slideIndex, dslEffects } = {}) {
+async function generateCandidatesForSlide(slideIntent, designSystem, { modelCaller, signal, slideIndex, dslEffects } = {}) {
   const slideIntentId = toNonEmptyString(slideIntent?.slideIntentId || slideIntent?.slideIntentID);
   const prompt = buildBrainstormPrompt(slideIntent, designSystem, dslEffects);
-  const resp = await aiApiService.chat({
-    messages: [
-      { role: "system", content: BRAINSTORM_SYSTEM_PROMPT },
-      { role: "user", content: prompt },
-    ],
-    temperature: 0.8,
-    maxTokens: 2500,
-  });
+  if (typeof modelCaller !== "function") throw new Error("No model caller for brainstorm");
 
-  const jsonStr = extractJsonCandidate(resp?.content);
-  const parsed = JSON.parse(jsonStr || "null");
-  const rawCandidates = Array.isArray(parsed?.candidates) ? parsed.candidates : Array.isArray(parsed) ? parsed : [];
+  const messages = [
+    { role: "system", content: BRAINSTORM_SYSTEM_PROMPT },
+    { role: "user", content: prompt },
+  ];
 
-  const normalized = rawCandidates.map((c) => normalizeCandidate(c, { slideIntentId, slideIndex }));
-  return clampToTwoOrThree(normalized);
-}
+  let lastErr = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (signal?.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "Run cancelled");
+    try {
+      const resp = await modelCaller(messages, { temperature: 0.8, maxTokens: 2500, signal, timeoutMs: 30_000 });
 
-async function reviewCandidatesForSlide(slideIntent, candidates, designSystem, { aiApiService } = {}) {
-  const prompt = buildReviewPrompt(slideIntent, candidates, designSystem);
-  const resp = await aiApiService.chat({
-    messages: [
-      { role: "system", content: BRAINSTORM_REVIEW_PROMPT },
-      { role: "user", content: prompt },
-    ],
-    temperature: 0.2,
-    maxTokens: 1200,
-  });
+      const jsonStr = extractJsonCandidate(resp?.content);
+      const parsed = JSON.parse(jsonStr || "null");
+      const rawCandidates = Array.isArray(parsed?.candidates) ? parsed.candidates : Array.isArray(parsed) ? parsed : [];
 
-  const jsonStr = extractJsonCandidate(resp?.content);
-  const parsed = JSON.parse(jsonStr || "null");
-  const reviews = Array.isArray(parsed?.reviews) ? parsed.reviews : [];
-  const selectedCandidateId = toNonEmptyString(parsed?.selectedCandidateId);
-
-  const byId = new Map(reviews.map((r) => [toNonEmptyString(r?.candidateId), r?.scores || null]));
-
-  const scored = candidates.map((c) => {
-    const scores = byId.get(c.candidateId) || null;
-    const mergedScores = scores
-      ? {
-          visualImpact: normalizeScore(scores.visualImpact),
-          clarity: normalizeScore(scores.clarity),
-          novelty: normalizeScore(scores.novelty),
-          consistency: normalizeScore(scores.consistency),
-        }
-      : c.scores;
-
-    const composite = computeCompositeScore(mergedScores);
-    return { ...c, scores: mergedScores, composite, selected: false };
-  });
-
-  let selectedId = selectedCandidateId;
-  if (!selectedId || !scored.some((c) => c.candidateId === selectedId)) {
-    selectedId = scored.slice().sort((a, b) => b.composite - a.composite)[0]?.candidateId || "";
+      const normalized = rawCandidates.map((c) => normalizeCandidate(c, { slideIntentId, slideIndex }));
+      return clampToTwoOrThree(normalized);
+    } catch (e) {
+      lastErr = e;
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn("[design.brainstorm] generateCandidatesForSlide failed", { slideIntentId, slideIndex, attempt: attempt + 1, error: msg });
+    }
   }
 
-  for (const c of scored) c.selected = c.candidateId === selectedId;
+  throw lastErr || new Error("generateCandidatesForSlide failed");
+}
 
-  return { candidates: scored, selectedCandidateId: selectedId };
+async function reviewCandidatesForSlide(slideIntent, candidates, designSystem, { modelCaller, signal } = {}) {
+  const prompt = buildReviewPrompt(slideIntent, candidates, designSystem);
+  if (typeof modelCaller !== "function") throw new Error("No model caller for brainstorm review");
+
+  const messages = [
+    { role: "system", content: BRAINSTORM_REVIEW_PROMPT },
+    { role: "user", content: prompt },
+  ];
+
+  let lastErr = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (signal?.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "Run cancelled");
+    try {
+      const resp = await modelCaller(messages, { temperature: 0.2, maxTokens: 1200, signal, timeoutMs: 30_000 });
+
+      const jsonStr = extractJsonCandidate(resp?.content);
+      const parsed = JSON.parse(jsonStr || "null");
+      const reviews = Array.isArray(parsed?.reviews) ? parsed.reviews : [];
+      const selectedCandidateId = toNonEmptyString(parsed?.selectedCandidateId);
+
+      const byId = new Map(reviews.map((r) => [toNonEmptyString(r?.candidateId), r?.scores || null]));
+
+      const scored = candidates.map((c) => {
+        const scores = byId.get(c.candidateId) || null;
+        const mergedScores = scores
+          ? {
+              visualImpact: normalizeScore(scores.visualImpact),
+              clarity: normalizeScore(scores.clarity),
+              novelty: normalizeScore(scores.novelty),
+              consistency: normalizeScore(scores.consistency),
+            }
+          : c.scores;
+
+        const composite = computeCompositeScore(mergedScores);
+        return { ...c, scores: mergedScores, composite, selected: false };
+      });
+
+      let selectedId = selectedCandidateId;
+      if (!selectedId || !scored.some((c) => c.candidateId === selectedId)) {
+        selectedId = scored.slice().sort((a, b) => b.composite - a.composite)[0]?.candidateId || "";
+      }
+
+      for (const c of scored) c.selected = c.candidateId === selectedId;
+
+      return { candidates: scored, selectedCandidateId: selectedId };
+    } catch (e) {
+      lastErr = e;
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn("[design.brainstorm] reviewCandidatesForSlide failed", { attempt: attempt + 1, error: msg });
+    }
+  }
+
+  throw lastErr || new Error("reviewCandidatesForSlide failed");
 }
 
 /**
@@ -587,13 +607,14 @@ function selectIdeasForSlides(ideaPool, maxPerSlide = 2) {
  * @param {object} contentPackage - Contains slideIntents, summary, etc.
  * @param {object} designSystem - Design tokens and system spec.
  * @param {object} constraints - Contains imagePolicy, imageBudget, etc.
- * @param {object} options - Optional: aiApiService for LLM brainstorming, emit for events.
+ * @param {object} options - Optional: modelRouter/aiApiService for LLM brainstorming, emit for events.
  * @returns {Promise<{ideaPool: Array, imageSlots: Array, selectedIdeas: Array}>}
  */
 export async function brainstorm(contentPackage, designSystem, constraints = {}, options = {}) {
   const slideIntents = Array.isArray(contentPackage?.slideIntents) ? contentPackage.slideIntents : [];
   const emit = typeof options?.emit === "function" ? options.emit : null;
-  const aiApiService = normalizeAiApiService(options?.aiApiService);
+  const stageApi = { modelRouter: options?.modelRouter, aiApiService: options?.aiApiService, signal: options?.signal };
+  const modelCaller = getDesignModelCaller(stageApi, { usage: "designer", timeoutMs: 30_000 });
 
   emit?.("design.brainstorm.started", {
     actor: "design",
@@ -601,7 +622,7 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
     payload: { slideCount: slideIntents.length },
   });
 
-  if (aiApiService) {
+  if (typeof modelCaller === "function") {
     const candidatesBySlide = [];
     const allCandidates = [];
 
@@ -612,7 +633,8 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
       let candidates = [];
       try {
         candidates = await generateCandidatesForSlide(si, designSystem, {
-          aiApiService,
+          modelCaller,
+          signal: stageApi.signal,
           slideIndex,
           dslEffects: options?.dslEffects || constraints?.dslEffects || DEFAULT_DSL_EFFECTS,
         });
@@ -642,7 +664,7 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
 
       let reviewed = { candidates, selectedCandidateId: candidates[0]?.candidateId || "" };
       try {
-        reviewed = await reviewCandidatesForSlide(si, candidates, designSystem, { aiApiService });
+        reviewed = await reviewCandidatesForSlide(si, candidates, designSystem, { modelCaller, signal: stageApi.signal });
       } catch {
         const scored = candidates.map((c, idx) => {
           const scores = { visualImpact: 0.55 - idx * 0.02, clarity: 0.6, novelty: 0.5, consistency: 0.65 };
@@ -808,7 +830,7 @@ export async function brainstormRegenerate(
   contentPackage,
   designSystem,
   constraints,
-  { keepOthers = true, emit, aiApiService } = {}
+  { keepOthers = true, emit, aiApiService, modelRouter, signal } = {}
 ) {
   const slideIntents = Array.isArray(contentPackage?.slideIntents) ? contentPackage.slideIntents : [];
   const emitFn = typeof emit === "function" ? emit : null;
@@ -819,14 +841,16 @@ export async function brainstormRegenerate(
   if (slideIndex < 0) throw new Error(`brainstormRegenerate: unknown slideIntentId: ${targetId}`);
 
   const slideIntent = slideIntents[slideIndex] || {};
-  const normalizedAi = normalizeAiApiService(aiApiService);
+  const stageApi = { modelRouter, aiApiService, signal };
+  const modelCaller = getDesignModelCaller(stageApi, { usage: "designer", timeoutMs: 30_000 });
 
   let row;
-  if (normalizedAi) {
+  if (typeof modelCaller === "function") {
     let candidates = [];
     try {
       candidates = await generateCandidatesForSlide(slideIntent, designSystem, {
-        aiApiService: normalizedAi,
+        modelCaller,
+        signal: stageApi.signal,
         slideIndex,
         dslEffects: constraints?.dslEffects || DEFAULT_DSL_EFFECTS,
       });
@@ -849,7 +873,7 @@ export async function brainstormRegenerate(
 
     let reviewed = { candidates, selectedCandidateId: candidates[0]?.candidateId || "" };
     try {
-      reviewed = await reviewCandidatesForSlide(slideIntent, candidates, designSystem, { aiApiService: normalizedAi });
+      reviewed = await reviewCandidatesForSlide(slideIntent, candidates, designSystem, { modelCaller, signal: stageApi.signal });
     } catch {
       const scored = candidates.map((c, idx) => {
         const scores = { visualImpact: 0.55 - idx * 0.02, clarity: 0.6, novelty: 0.5, consistency: 0.65 };

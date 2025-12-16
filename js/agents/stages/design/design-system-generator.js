@@ -1,4 +1,5 @@
 import { generateDesignTokens, validateDesignSystem } from "./design-tokens.js";
+import { getDesignModelCaller } from "./model.js";
 
 function isPlainObject(v) {
   return !!v && typeof v === "object" && !Array.isArray(v);
@@ -285,11 +286,12 @@ function syncLegacyTokens(system, constraints) {
 /**
  * Generate DesignSystem via AI with strict validation; fallback to template on failure.
  * @param {{contentSummary?:string,tone?:string,extractedPalette?:object,userPreferences?:object}} input
- * @param {{aiApiService?:object,signal?:AbortSignal,constraints?:object}=} options
+ * @param {{aiApiService?:object,modelRouter?:object,signal?:AbortSignal,constraints?:object}=} options
  * @returns {Promise<object>} DesignSystem
  */
 export async function generateDesignSystem(input = {}, options = {}) {
   const aiApiService = options?.aiApiService;
+  const modelRouter = options?.modelRouter;
   const signal = options?.signal;
   const constraints = options?.constraints;
 
@@ -299,31 +301,39 @@ export async function generateDesignSystem(input = {}, options = {}) {
   const overrides = isPlainObject(userPreferences?.designSystemOverrides) ? userPreferences.designSystemOverrides : {};
 
   const generateFromLLMOrFallback = async () => {
-    if (!aiApiService || typeof aiApiService.chat !== "function") return fallbackDesignSystem({ constraints });
+    const callModel = getDesignModelCaller({ modelRouter, aiApiService, signal }, { usage: "designer", timeoutMs: 30_000 });
+    if (typeof callModel !== "function") return fallbackDesignSystem({ constraints });
 
-    try {
-      const prompt = buildPrompt({ ...input, constraints });
-      const resp = await aiApiService.chat({
-        messages: [
-          { role: "system", content: "You are a strict JSON generator." },
-          { role: "user", content: prompt },
-        ],
-        temperature: 0.2,
-        maxTokens: 1200,
-      });
+    const prompt = buildPrompt({ ...input, constraints });
+    const messages = [
+      { role: "system", content: "You are a strict JSON generator." },
+      { role: "user", content: prompt },
+    ];
 
-      const parsed = JSON.parse(resp?.content || "null");
-      assertValidDesignSystem(parsed, "invalid_design_system");
+    let lastErr = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (signal?.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "Run cancelled");
+      try {
+        const resp = await callModel(messages, { temperature: 0.2, maxTokens: 1200, signal, timeoutMs: 30_000 });
+        const parsed = JSON.parse(resp?.content || "null");
+        assertValidDesignSystem(parsed, "invalid_design_system");
 
-      const fallbackTheme = inferThemeFromLegacyTokens(parsed?.designTokens || {});
-      return {
-        ...parsed,
-        visualPreference: normalizeVisualPreference(parsed?.visualPreference) || { mode: "balanced" },
-        theme: normalizeCompatTheme(parsed?.theme, fallbackTheme),
-      };
-    } catch {
-      return fallbackDesignSystem({ constraints });
+        const fallbackTheme = inferThemeFromLegacyTokens(parsed?.designTokens || {});
+        return {
+          ...parsed,
+          visualPreference: normalizeVisualPreference(parsed?.visualPreference) || { mode: "balanced" },
+          theme: normalizeCompatTheme(parsed?.theme, fallbackTheme),
+        };
+      } catch (e) {
+        lastErr = e;
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn("[design.system] generateDesignSystem model call failed", { attempt: attempt + 1, error: msg });
+      }
     }
+
+    const errMsg = lastErr instanceof Error ? lastErr.message : String(lastErr || "Unknown error");
+    console.warn("[design.system] generateDesignSystem falling back after retries", { error: errMsg });
+    return fallbackDesignSystem({ constraints });
   };
 
   let designSystem = await generateFromLLMOrFallback();

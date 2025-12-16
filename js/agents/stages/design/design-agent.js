@@ -73,6 +73,9 @@ export class DesignStage {
     const slideIntents = Array.isArray(contentPackage?.slideIntents) ? contentPackage.slideIntents : [];
     if (slideIntents.length === 0) throw new Error("DesignStage: contentPackage.slideIntents is required");
 
+    const modelRouter =
+      Object.prototype.hasOwnProperty.call(context || {}, "modelRouter") ? context.modelRouter : (context?.runContext && context.runContext.modelRouter) || null;
+
     emitStage(emit, "design.started", "started", { runId: runContext.runId, slideCount: slideIntents.length });
     checkCancelled(context.signal);
 
@@ -94,7 +97,7 @@ export class DesignStage {
           extractedPalette: contentPackage?.constraints?.extractedPalette || constraints?.extractedPalette,
           userPreferences: userConfig,
         },
-        { aiApiService: context.aiApiService, signal: context.signal, constraints }
+        { modelRouter, aiApiService: context.aiApiService, signal: context.signal, constraints }
       );
     } catch (e) {
       checkCancelled(context.signal);
@@ -108,7 +111,12 @@ export class DesignStage {
     checkCancelled(context.signal);
 
     // Brainstorm: generate IdeaPool + ImageSlots
-    const brainstormResult = await brainstorm(contentPackage, designSystem, constraints, { emit, aiApiService: context.aiApiService });
+    const brainstormResult = await brainstorm(contentPackage, designSystem, constraints, {
+      emit,
+      modelRouter,
+      aiApiService: context.aiApiService,
+      signal: context.signal,
+    });
     const { ideaPool, selectedIdeas, imageSlots } = brainstormResult;
     const selectedIdeasForPrompt = Array.isArray(brainstormResult?.candidatesBySlide)
       ? brainstormResult.candidatesBySlide
@@ -136,6 +144,7 @@ export class DesignStage {
 
     const generated = await generateBatch(slideIntents, contentPackage, designSystem, {
       batchSize: this.batchSize,
+      modelRouter,
       aiApiService: context.aiApiService,
       imageSlots,
       selectedIdeas: selectedIdeasForPrompt,
