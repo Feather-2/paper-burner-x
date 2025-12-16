@@ -110,7 +110,7 @@ const PPTGeneratorAgentDashboard = {
                     display: flex;
                     gap: 24px;
                     padding: 24px;
-                    max-width: 1200px;
+                    max-width: 1400px;
                     margin: 0 auto;
                     height: calc(100vh - 140px);
                     min-height: 500px;
@@ -376,8 +376,8 @@ const PPTGeneratorAgentDashboard = {
                 }
                 .rd-form-grid {
                     display: grid;
-                    grid-template-columns: repeat(2, 1fr);
-                    gap: 12px 20px;
+                    grid-template-columns: repeat(4, 1fr);
+                    gap: 16px;
                 }
                 .rd-form-row {
                     display: flex;
@@ -391,13 +391,11 @@ const PPTGeneratorAgentDashboard = {
                 }
                 .rd-form-cell {
                     display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    gap: 12px;
+                    flex-direction: column;
+                    gap: 6px;
                 }
                 .rd-form-cell .rd-select {
-                    flex: 1;
-                    min-width: 0;
+                    width: 100%;
                 }
                 .rd-form-label {
                     font-size: 13px;
