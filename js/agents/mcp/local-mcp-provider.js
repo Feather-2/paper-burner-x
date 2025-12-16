@@ -30,14 +30,27 @@ function safeInt(n, fallback = 0) {
  * 简单的 HTML 解析器 - 提取文本内容
  */
 function extractTextFromHtml(html) {
-  // 移除 script 和 style 标签
+  // 移除 script, style, noscript, svg 等标签
   let text = html
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, " ")
     .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, " ")
-    .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gi, " ");
+    .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gi, " ")
+    .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, " ")
+    .replace(/<link\b[^>]*>/gi, " ")
+    .replace(/<meta\b[^>]*>/gi, " ");
 
   // 移除所有 HTML 标签
   text = text.replace(/<[^>]+>/g, " ");
+
+  // 移除 CSS 代码（选择器 { 属性 } 格式）
+  text = text.replace(/[a-zA-Z0-9_.#\-\[\]=:,\s]+\{[^}]*\}/g, " ");
+
+  // 移除残留的 CSS 属性（如 font-size:14px; background:#fff;）
+  text = text.replace(/[a-zA-Z-]+\s*:\s*[^;]+;/g, " ");
+
+  // 移除 URL
+  text = text.replace(/url\([^)]*\)/gi, " ");
+  text = text.replace(/https?:\/\/[^\s<>"']+/gi, " ");
 
   // 解码 HTML 实体
   text = text
