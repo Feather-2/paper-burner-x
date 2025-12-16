@@ -524,20 +524,20 @@ const PPTGeneratorNavigation = {
         const sidebar = document.getElementById('pptChatSidebar');
         const previewArea = document.getElementById('pptPreviewArea');
         const resizer = document.getElementById('pptResizer');
-        
+
         if (sidebar && previewArea) {
             const isCollapsed = sidebar.classList.toggle('collapsed');
             previewArea.classList.toggle('expanded');
-            
+
             if (resizer) {
                 resizer.classList.toggle('collapsed', isCollapsed);
             }
-            
+
             if (isCollapsed) {
                 previewArea.style.marginRight = '0';
             } else {
-                const sidebarWidth = sidebar.style.width ? parseInt(sidebar.style.width) : 400;
-                previewArea.style.marginRight = `${sidebarWidth + 40}px`;
+                // 移除内联样式，让 CSS calc(19% + 40px) 接管
+                previewArea.style.marginRight = '';
             }
         }
     },
