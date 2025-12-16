@@ -763,11 +763,17 @@ const PPTGeneratorPresentation = {
      * 根据侧边栏宽度更新缩略图缩放比例
      */
     _updateThumbnailScale(sidebarWidth) {
-        const thumbWidth = sidebarWidth - 24; // 减去 padding
+        const thumbWidth = Math.max(0, sidebarWidth - 24); // 减去 padding
+        const thumbHeight = thumbWidth * 9 / 16;
         const scale = thumbWidth / 960;
-        const thumbContents = document.querySelectorAll('.pres-thumb-content');
-        thumbContents.forEach(el => {
-            el.style.transform = `scale(${scale})`;
+
+        document.querySelectorAll('.ppt-thumb-preview').forEach(preview => {
+            preview.style.width = `${thumbWidth}px`;
+            preview.style.height = `${thumbHeight}px`;
+        });
+
+        document.querySelectorAll('.pres-thumb-content').forEach(el => {
+            el.style.transform = `translate(-50%, -50%) scale(${scale})`;
         });
     },
 

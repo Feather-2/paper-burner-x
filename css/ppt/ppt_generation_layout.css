@@ -561,12 +561,12 @@
 /* 缩略图内容容器 - 缩放显示完整幻灯片 */
 .ppt-thumb-preview .pres-thumb-content {
     position: absolute;
-    top: 0;
-    left: 0;
+    top: 50%;
+    left: 50%;
     width: 960px;
     height: 540px;
-    transform-origin: top left;
-    transform: scale(0.115); /* ~110px / 960px (140px - padding) */
+    transform-origin: center center;
+    transform: translate(-50%, -50%) scale(0.115); /* ~110px / 960px (140px - padding) */
 }
 
 .ppt-thumb-preview .pres-thumb-content > * {
