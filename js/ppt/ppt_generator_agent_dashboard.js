@@ -105,15 +105,21 @@ const PPTGeneratorAgentDashboard = {
     _renderUploadSharedStyles() {
         return `
             <style>
-                /* Two-column Layout */
+                /* 父容器调整 - 让内容与 chat 底部对齐 */
+                #pptPreviewArea {
+                    padding-bottom: 24px;
+                    box-sizing: border-box;
+                }
+                /* Two-column Layout - 与右侧 chat 对齐 */
                 .rd-layout {
                     display: flex;
                     gap: 24px;
-                    padding: 24px;
+                    padding: 0 24px;
                     max-width: 1400px;
                     margin: 0 auto;
-                    height: calc(100vh - 104px);
-                    min-height: 500px;
+                    height: 100%;
+                    min-height: 400px;
+                    box-sizing: border-box;
                 }
                 .rd-sidebar {
                     width: 280px;
