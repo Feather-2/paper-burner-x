@@ -111,24 +111,22 @@ const PPTGeneratorAgentDashboard = {
                 }
                 /* Two-column Layout - 绝对定位与 chat 对齐 */
                 /* chat: top:80px, header:64px, 所以 top = 80-64 = 16px */
-                /* 间距: preview-area margin-right = 19% + 40px, chat right = 24px */
-                /* 所以中间与 chat 间距 = 40px - 24px = 16px，统一用 16px */
+                /* preview-area margin-right 到 chat 间距 = 16px，gap 统一 16px */
                 .rd-layout {
                     position: absolute;
                     top: 16px;
                     bottom: 24px;
                     left: 24px;
-                    right: 16px; /* 与 chat 间距 16px */
+                    right: 0; /* 紧贴 preview-area 右边界，由 preview-area margin-right 控制与 chat 间距 */
                     display: flex;
-                    gap: 16px; /* 统一间距 */
+                    gap: 16px;
                     box-sizing: border-box;
                 }
-                /* chat 隐藏时 (ppt-preview-area.expanded)，宽度自适应居中 */
+                /* chat 隐藏时 (ppt-preview-area.expanded)，居中且限制宽度 */
                 .ppt-preview-area.expanded .rd-layout {
                     left: 50%;
                     right: auto;
-                    width: calc(100% - 48px);
-                    max-width: 1400px;
+                    width: min(1100px, calc(100% - 48px));
                     transform: translateX(-50%);
                 }
                 .rd-sidebar {
