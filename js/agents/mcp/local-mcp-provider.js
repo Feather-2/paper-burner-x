@@ -28,14 +28,20 @@ function safeInt(n, fallback = 0) {
 }
 
 /**
- * 简单的 HTML 解析器 - 提取文本内容
+ * 简单的 HTML 解析器 - 提取文本内容（带基础噪音过滤）
  */
 function extractTextFromHtml(html) {
-  // 移除 script 和 style 标签
+  // 移除 script, style, noscript, svg, path 等标签
   let text = html
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, " ")
     .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, " ")
-    .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gi, " ");
+    .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gi, " ")
+    .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, " ")
+    .replace(/<path\b[^>]*>/gi, " ")
+    .replace(/<nav\b[^<]*(?:(?!<\/nav>)<[^<]*)*<\/nav>/gi, " ")
+    .replace(/<header\b[^<]*(?:(?!<\/header>)<[^<]*)*<\/header>/gi, " ")
+    .replace(/<footer\b[^<]*(?:(?!<\/footer>)<[^<]*)*<\/footer>/gi, " ")
+    .replace(/<aside\b[^<]*(?:(?!<\/aside>)<[^<]*)*<\/aside>/gi, " ");
 
   // 移除所有 HTML 标签
   text = text.replace(/<[^>]+>/g, " ");

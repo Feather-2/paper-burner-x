@@ -10,12 +10,23 @@
 
 // 主内容选择器（按优先级）
 const MAIN_CONTENT_SELECTORS = [
+  // 语义化标签
   'article',
   'main',
   '[role="main"]',
+  // 博客/文章类
   '.post-content',
   '.article-content',
   '.entry-content',
+  '.blog-content',
+  '.blog-post',
+  '.single-post',
+  '.post-body',
+  '.article-body',
+  '.content-area',
+  '.page-content',
+  '.main-content',
+  // 通用类名
   '.content',
   '.post',
   '.article',
@@ -23,8 +34,16 @@ const MAIN_CONTENT_SELECTORS = [
   '#content',
   '#main',
   '#article',
+  '#post',
+  // 代码/文档类
   '.markdown-body',
   '.prose',
+  '.rich-text',
+  '.text-content',
+  // 其他常见
+  '[itemprop="articleBody"]',
+  '[itemprop="blogPost"]',
+  '.hentry',
 ];
 
 // 噪音元素选择器
