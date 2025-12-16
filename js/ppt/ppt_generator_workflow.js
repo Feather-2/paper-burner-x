@@ -9,7 +9,248 @@ async function getTextPrepStage() {
     return _TextPrepStage;
 }
 
+let _CheckpointModule = null;
+async function getCheckpointModule() {
+    if (_CheckpointModule) return _CheckpointModule;
+    const mod = await import('./checkpoint-manager.js');
+    _CheckpointModule = mod;
+    return mod;
+}
+
 const PPTGeneratorWorkflow = {
+    _getCheckpointProjectId() {
+        const id = this.currentProject?.id;
+        if (typeof id === 'string' && id.trim()) return id.trim();
+        return 'default';
+    },
+
+    async _ensureCheckpointManager() {
+        if (this._checkpointManager && this._checkpointProjectId === this._getCheckpointProjectId()) return this._checkpointManager;
+
+        const hasWindow = typeof window !== 'undefined';
+        const hasLocalStorage = hasWindow && typeof window.localStorage !== 'undefined' && window.localStorage;
+        if (!hasLocalStorage) return null;
+
+        try {
+            const { CheckpointManager } = await getCheckpointModule();
+            const projectId = this._getCheckpointProjectId();
+            this._checkpointManager = new CheckpointManager(projectId);
+            this._checkpointProjectId = projectId;
+            return this._checkpointManager;
+        } catch (e) {
+            console.warn('[Checkpoint] Init failed:', e);
+            return null;
+        }
+    },
+
+    _buildCheckpointStateSnapshot(stage) {
+        const state = this._deepsearchState;
+        const snapshot = state && typeof state.toJSON === 'function' ? state.toJSON() : (state && typeof state === 'object' ? state : {});
+
+        // Attach workflow payloads as extra fields (DeepSearchState.fromJSON ignores unknown keys).
+        const contentPackage = this.workflowData?.contentPackage;
+        const reportMarkdown = this.workflowData?.reportMarkdown;
+        const brainstormCandidates = this.workflowData?.brainstormCandidates;
+        const includeDeck = stage === 'design.batch';
+        const deckPackage = includeDeck ? this.workflowData?.deckPackage : null;
+
+        return {
+            ...(snapshot && typeof snapshot === 'object' ? snapshot : {}),
+            ...(contentPackage ? { contentPackage } : {}),
+            ...(deckPackage ? { deckPackage } : {}),
+            ...(typeof reportMarkdown === 'string' ? { reportMarkdown } : {}),
+            ...(brainstormCandidates && typeof brainstormCandidates === 'object' ? { brainstormCandidates } : {}),
+            workflowUiState: this.state,
+        };
+    },
+
+    async _saveCheckpoint(stage, metadata = {}) {
+        const mgr = await this._ensureCheckpointManager();
+        if (!mgr) return null;
+
+        const snapshot = this._buildCheckpointStateSnapshot(stage);
+        const cp = mgr.save(stage, snapshot, metadata);
+        this._refreshRecoveryButton?.();
+        return cp;
+    },
+
+    async _applyCheckpoint(checkpoint) {
+        if (!checkpoint?.state || typeof checkpoint.state !== 'object') return false;
+
+        const { DeepSearchState } = await import('../agents/stages/deepsearch/state.js');
+        try {
+            this._deepsearchState = DeepSearchState.fromJSON(checkpoint.state);
+        } catch (e) {
+            console.warn('[Workflow] DeepSearchState.fromJSON failed:', e);
+            return false;
+        }
+
+        if (!this.workflowData) this.workflowData = {};
+        const st = checkpoint.state;
+
+        if (st.contentPackage) this.workflowData.contentPackage = st.contentPackage;
+        if (st.contentPackage?.report) this.workflowData.report = st.contentPackage.report;
+        if (Array.isArray(st.contentPackage?.slideIntents)) this.workflowData.slideIntents = st.contentPackage.slideIntents;
+
+        if (st.deckPackage) this.workflowData.deckPackage = st.deckPackage;
+        if (typeof st.deckPackage?.deckHtmlDsl === 'string') this.workflowData.deckHtmlDsl = st.deckPackage.deckHtmlDsl;
+        if (typeof st.deckHtmlDsl === 'string' && typeof this.workflowData.deckHtmlDsl !== 'string') this.workflowData.deckHtmlDsl = st.deckHtmlDsl;
+        if (typeof st.reportMarkdown === 'string') this.workflowData.reportMarkdown = st.reportMarkdown;
+        if (st.brainstormCandidates && typeof st.brainstormCandidates === 'object') this.workflowData.brainstormCandidates = st.brainstormCandidates;
+
+        this._syncDeepSearchVizFromState?.(this._deepsearchState);
+        return true;
+    },
+
+    async _tryRecoverFromCheckpoint(preferredStage) {
+        const mgr = await this._ensureCheckpointManager();
+        if (!mgr) return false;
+
+        const checkpoint = (preferredStage && mgr.getLatestByStage(preferredStage)) || mgr.getLatest();
+        if (!checkpoint) return false;
+
+        const ok = await this._applyCheckpoint(checkpoint);
+        if (!ok) return false;
+
+        // Ensure orchestrator is runnable again (stage failures may cancel the current run).
+        try {
+            const brief = this.workflowData?.projectBrief || {};
+            const constraints = {
+                ...(typeof brief?.audience === 'string' && brief.audience.trim() ? { audience: brief.audience.trim() } : {}),
+                ...(typeof brief?.tone === 'string' && brief.tone.trim() ? { tone: brief.tone.trim() } : {}),
+            };
+            if (!this._orchestrator || (this._orchestrator.state !== 'running' && this._orchestrator.state !== 'idle')) {
+                await this._ensureRuntime?.({ constraints });
+            }
+        } catch {
+            // ignore
+        }
+
+        const stage = checkpoint.stage || '';
+        if (stage === 'deepsearch.complete') {
+            this.state = 'script_review';
+            this.updateTodos?.(this._runtimeTodoTexts.map((text, i) => {
+                if (i < 2) return { text, status: 'completed' };
+                if (i === 2) return { text, status: 'active' };
+                return { text, status: 'pending' };
+            }));
+        } else if (stage.startsWith('deepsearch')) {
+            this.state = 'deepsearch_review';
+        } else if (stage === 'design.script') {
+            this.state = 'script_review';
+        } else if (stage === 'design.layout') {
+            this.state = 'page_layout';
+        } else if (stage.startsWith('design')) {
+            this.state = 'designer';
+        }
+
+        this.renderPreviewArea?.();
+        console.log('[Workflow] Recovered from checkpoint:', checkpoint.stage, { id: checkpoint.id });
+        return true;
+    },
+
+    hasRecoverableProgress() {
+        return this._checkpointManager?.hasRecoverable?.() || false;
+    },
+
+    getRecoverySummary() {
+        return this._checkpointManager?.getRecoverySummary?.() || null;
+    },
+
+    async recoverProgress() {
+        const mgr = await this._ensureCheckpointManager();
+        const latest = mgr?.getLatest?.();
+        if (!latest) return false;
+
+        const ok = await this._tryRecoverFromCheckpoint(latest.stage);
+        if (ok) {
+            const stage = latest.stage || 'unknown';
+            let stageName = stage;
+            try {
+                const { getStageName } = await getCheckpointModule();
+                stageName = getStageName(stage);
+            } catch {
+                // ignore
+            }
+            this.addChatMessage?.('ai', `已恢复上次进度：${stageName}`);
+        }
+        return ok;
+    },
+
+    _ensureRecoveryButton() {
+        if (typeof document === 'undefined') return;
+        if (document.getElementById('pptRecoveryButton')) return;
+        const host = this.elements?.overlay || document.getElementById('pptGeneratorOverlay') || document.body;
+        if (!host) return;
+
+        const btn = document.createElement('button');
+        btn.id = 'pptRecoveryButton';
+        btn.type = 'button';
+        btn.style.cssText = [
+            'position: fixed',
+            'right: 16px',
+            'bottom: 16px',
+            'z-index: 99999',
+            'padding: 10px 12px',
+            'border-radius: 10px',
+            'border: 1px solid rgba(148,163,184,0.35)',
+            'background: rgba(15,23,42,0.92)',
+            'color: #e2e8f0',
+            'font-size: 13px',
+            'cursor: pointer',
+            'display: none',
+            'backdrop-filter: blur(6px)',
+            '-webkit-backdrop-filter: blur(6px)',
+        ].join(';');
+        btn.textContent = '恢复上次进度';
+        btn.addEventListener('click', async () => {
+            const summary = await this._getRecoverySummaryAsync?.();
+            const stageLabel = summary?.stageName ? `（${summary.stageName}）` : '';
+            const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
+                ? window.confirm(`恢复上次进度${stageLabel}？这将覆盖当前未保存的操作。`)
+                : true;
+            if (!ok) return;
+            await this.recoverProgress?.();
+        });
+
+        host.appendChild(btn);
+    },
+
+    async _getRecoverySummaryAsync() {
+        const mgr = await this._ensureCheckpointManager();
+        const summary = mgr?.getRecoverySummary?.();
+        if (!summary) return null;
+
+        let stageName = summary.stage;
+        try {
+            const { getStageName } = await getCheckpointModule();
+            stageName = getStageName(summary.stage);
+        } catch {
+            // ignore
+        }
+
+        return { ...summary, stageName };
+    },
+
+    _refreshRecoveryButton() {
+        // Fire-and-forget async refresh (keep renderPreviewArea sync).
+        Promise.resolve().then(async () => {
+            if (typeof document === 'undefined') return;
+            const btn = document.getElementById('pptRecoveryButton');
+            if (!btn) return;
+
+            const summary = await this._getRecoverySummaryAsync?.();
+            if (!summary?.canRecover) {
+                btn.style.display = 'none';
+                return;
+            }
+
+            btn.style.display = 'block';
+            const ts = summary.timestamp ? new Date(summary.timestamp).toLocaleString() : '';
+            btn.title = ts ? `${summary.stageName || summary.stage}\n${ts}` : (summary.stageName || summary.stage);
+        });
+    },
+
     _getDesignStageUserConfig() {
         const ds = this._ensureDesignSystemInitialized();
         const prefs = ds?.designPreferences && typeof ds.designPreferences === 'object' ? ds.designPreferences : {};
@@ -71,6 +312,14 @@ const PPTGeneratorWorkflow = {
     },
 
     _confirmScriptToPageLayout() {
+        // Save checkpoint for script confirmation (manual step, no orchestrator stage boundary).
+        const contentPackage = this.workflowData?.contentPackage;
+        this._saveCheckpoint?.('design.script', {
+            reportTitle: contentPackage?.report?.title,
+            slideCount: Array.isArray(contentPackage?.slideIntents) ? contentPackage.slideIntents.length : undefined,
+            markdownLength: typeof this.workflowData?.reportMarkdown === 'string' ? this.workflowData.reportMarkdown.length : undefined,
+        });
+
         this.state = 'page_layout';
         this.renderPreviewArea?.();
         this.updateTodos?.(this._runtimeTodoTexts.map((text, i) => {
@@ -1813,8 +2062,20 @@ const PPTGeneratorWorkflow = {
         this._deepsearchState = state;
         this._syncDeepSearchVizFromState(state);
 
-        const pkg = await this._orchestrator.runStage('deepsearch.pipeline', { state });
-        console.log('[Workflow] deepsearch.pipeline 完成，准备转换状态', { mode, hasPkg: !!pkg });
+        let pkg = null;
+        try {
+            pkg = await this._orchestrator.runStage('deepsearch.pipeline', { state });
+            console.log('[Workflow] deepsearch.pipeline 完成，准备转换状态', { mode, hasPkg: !!pkg });
+        } catch (err) {
+            console.error('[Workflow] deepsearch.pipeline 失败:', err);
+            const recovered = await this._tryRecoverFromCheckpoint?.('deepsearch.complete');
+            if (recovered) {
+                const msg = err instanceof Error ? err.message : String(err || 'unknown error');
+                this.addChatMessage?.('ai', `DeepSearch 执行失败，已恢复到最近检查点。错误: ${msg}`);
+                return;
+            }
+            throw err;
+        }
 
         this.workflowData.contentPackage = pkg;
         this.workflowData.report = pkg?.report || null;
@@ -1822,6 +2083,11 @@ const PPTGeneratorWorkflow = {
         this._onReportUpdated?.(pkg?.report?.markdown || '', `DeepSearch 报告（第 ${(typeof state?.iteration === 'number' ? state.iteration : 0) + 1} 轮）`);
 
         this._syncDeepSearchVizFromState(state);
+
+        await this._saveCheckpoint?.('deepsearch.complete', {
+            reportTitle: pkg?.report?.title,
+            slideCount: Array.isArray(pkg?.slideIntents) ? pkg.slideIntents.length : undefined,
+        });
 
         if (mode === 'auto') {
             console.log('[Workflow] Auto 模式，继续执行 phase2_Scripting');
@@ -1928,7 +2194,17 @@ const PPTGeneratorWorkflow = {
             this._syncDeepSearchVizFromState(state);
             this.state = 'deepsearch_review';
             this.renderPreviewArea();
+            await this._saveCheckpoint?.('deepsearch.complete', {
+                reportTitle: pkg?.report?.title,
+                slideCount: Array.isArray(pkg?.slideIntents) ? pkg.slideIntents.length : undefined,
+            });
         } catch (err) {
+            const recovered = await this._tryRecoverFromCheckpoint?.('deepsearch.complete');
+            if (recovered) {
+                const msg = err instanceof Error ? err.message : String(err || 'unknown error');
+                this.addChatMessage?.('ai', `DeepSearch 执行失败，已恢复到最近检查点。错误: ${msg}`);
+                return;
+            }
             this._abortWorkflow(err);
         }
     },
@@ -2201,9 +2477,21 @@ const PPTGeneratorWorkflow = {
             }
             console.log('[Workflow] 执行 textprep.align');
             await this._orchestrator.runStage('textprep.align', { contentPackage: this.workflowData.contentPackage });
+
+            const contentPackage = this.workflowData?.contentPackage;
+            await this._saveCheckpoint?.('design.layout', {
+                slideCount: Array.isArray(contentPackage?.slideIntents) ? contentPackage.slideIntents.length : undefined,
+            });
+
             this.phase5_DesignOptimization();
         } catch (err) {
             console.error('[Workflow] phase3_PageLayout 失败:', err);
+            const recovered = await this._tryRecoverFromCheckpoint?.('design.script');
+            if (recovered) {
+                const msg = err instanceof Error ? err.message : String(err || 'unknown error');
+                this.addChatMessage?.('ai', `页面规划失败，已恢复到上一个检查点。错误: ${msg}`);
+                return;
+            }
             this._abortWorkflow(err);
         }
     },
@@ -2220,10 +2508,22 @@ const PPTGeneratorWorkflow = {
         try {
             this._ensureDesignSystemInitialized();
             console.log('[Workflow] 执行 design.batch');
-            await this._orchestrator.runStage('design.batch');
+            const deckPackage = await this._orchestrator.runStage('design.batch');
+
+            await this._saveCheckpoint?.('design.batch', {
+                slideCount: Array.isArray(deckPackage?.slidesMeta) ? deckPackage.slidesMeta.length : undefined,
+                degradedCount: typeof deckPackage?.editHints?.degradedCount === 'number' ? deckPackage.editHints.degradedCount : undefined,
+            });
+
             this.phase6_FinalReview();
         } catch (err) {
             console.error('[Workflow] phase5_DesignOptimization 失败:', err);
+            const recovered = await this._tryRecoverFromCheckpoint?.('design.layout');
+            if (recovered) {
+                const msg = err instanceof Error ? err.message : String(err || 'unknown error');
+                this.addChatMessage?.('ai', `视觉设计失败，已恢复到上一个检查点。错误: ${msg}`);
+                return;
+            }
             this._abortWorkflow(err);
         }
     },
@@ -2362,3 +2662,27 @@ const PPTGeneratorWorkflow = {
 };
 
 Object.assign(PPTGenerator.prototype, PPTGeneratorWorkflow);
+
+// Add a lightweight recovery UI entry without touching dashboard templates.
+(() => {
+    try {
+        if (typeof PPTGenerator === 'undefined') return;
+        const proto = PPTGenerator.prototype;
+        if (proto.__pptRecoveryUiWrapped) return;
+        const original = proto.renderPreviewArea;
+        if (typeof original !== 'function') return;
+
+        proto.renderPreviewArea = function (...args) {
+            try {
+                this._ensureRecoveryButton?.();
+                this._refreshRecoveryButton?.();
+            } catch {
+                // ignore
+            }
+            return original.apply(this, args);
+        };
+        proto.__pptRecoveryUiWrapped = true;
+    } catch {
+        // ignore
+    }
+})();
