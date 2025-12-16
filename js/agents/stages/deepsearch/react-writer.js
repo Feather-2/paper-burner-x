@@ -437,6 +437,7 @@ const WRITER_SYSTEM_PROMPT = `You are an expert research report writer. Your tas
 - **Reader-first**: Guide readers through a logical narrative, not a Q&A dump
 - **Evidence-backed**: Every claim needs citation, but weave them naturally into prose
 - **Professional tone**: Match the specified style (academic/business/casual)
+- **Follow language instructions**: Obey any language requirement in the user prompt
 
 ## Report Structure
 1. **Executive Summary**: Key findings and implications (written LAST)
@@ -479,6 +480,9 @@ Use {{cite:EVIDENCE_ID}} inline. Example:
 
 const WRITER_INITIAL_PROMPT = `## Research Task
 {taskGoal}
+
+## Language
+{languageInstruction}
 
 ## Report Requirements
 - Target length: {targetWords} words (min: {minWords}, max: {maxWords})
@@ -532,6 +536,16 @@ export async function runReactWriter(context, options = {}) {
   const taskGoal = toNonEmptyString(state?.taskGoal) || "Generate research report";
   const toneText = toNonEmptyString(tone) || "business";
   const audienceText = toNonEmptyString(audience) || "general";
+  const language = toNonEmptyString(options.language) || 'auto';
+
+  let languageInstruction = '';
+  if (language === 'zh') {
+    languageInstruction = '**IMPORTANT: Write the entire report in Chinese (中文).**';
+  } else if (language === 'en') {
+    languageInstruction = '**IMPORTANT: Write the entire report in English.**';
+  } else {
+    languageInstruction = '**IMPORTANT: Write in the same language as the task goal. If the task is in Chinese, write in Chinese. If in English, write in English.**';
+  }
 
   const messages = [
     { role: "system", content: WRITER_SYSTEM_PROMPT },
@@ -539,6 +553,7 @@ export async function runReactWriter(context, options = {}) {
       role: "user",
       content: WRITER_INITIAL_PROMPT
         .replace("{taskGoal}", taskGoal)
+        .replace("{languageInstruction}", languageInstruction)
         .replace("{targetWords}", String(targetWords))
         .replace("{minWords}", String(minWords))
         .replace("{maxWords}", String(maxWords))

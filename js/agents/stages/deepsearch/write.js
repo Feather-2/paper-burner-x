@@ -973,6 +973,9 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
           minWords: reportConfig.minWords,
           maxWords: reportConfig.maxWords,
           hardLimit: 30,
+          tone: toNonEmptyString(state?.userConfig?.write?.tone),
+          audience: toNonEmptyString(state?.userConfig?.write?.audience),
+          language: toNonEmptyString(state?.userConfig?.write?.language),
           onStep: (step) => {
             emit?.("deepsearch.write.react.step", {
               stepNumber: step.stepNumber,

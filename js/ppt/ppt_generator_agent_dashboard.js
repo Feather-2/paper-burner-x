@@ -108,6 +108,7 @@ const PPTGeneratorAgentDashboard = {
         const reportLength = typeof reportCfg.reportLength === 'string' ? reportCfg.reportLength : 'standard';
         const tone = typeof reportCfg.tone === 'string' ? reportCfg.tone : 'business';
         const audience = typeof reportCfg.audience === 'string' ? reportCfg.audience : 'general';
+        const language = reportCfg.language || 'auto';
         const enableReviewer = !!reportCfg.enableReviewer;
 
         const modeCard = (key, title, desc) => {
@@ -191,6 +192,15 @@ const PPTGeneratorAgentDashboard = {
                                     <option value="expert" ${audience === 'expert' ? 'selected' : ''}>专业人士</option>
                                     <option value="general" ${audience === 'general' ? 'selected' : ''}>一般读者</option>
                                     <option value="executive" ${audience === 'executive' ? 'selected' : ''}>高管决策层</option>
+                                </select>
+                            </div>
+
+                            <div class="config-row" style="display:flex; align-items:center; justify-content:space-between; gap: 12px; margin: 10px 0;">
+                                <label style="font-size: 13px; color: var(--ppt-text-main);">输出语言</label>
+                                <select class="ppt-input-field" style="max-width: 260px;" onchange="window.PPTGenerator.updateWriteLanguage(this.value)">
+                                    <option value="auto" ${language === 'auto' ? 'selected' : ''}>自动（跟随任务语言）</option>
+                                    <option value="zh" ${language === 'zh' ? 'selected' : ''}>中文</option>
+                                    <option value="en" ${language === 'en' ? 'selected' : ''}>English</option>
                                 </select>
                             </div>
 

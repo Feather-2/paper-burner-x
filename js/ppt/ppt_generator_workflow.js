@@ -2051,15 +2051,18 @@ const PPTGeneratorWorkflow = {
         const allowedLengths = new Set(['brief', 'standard', 'detailed', 'comprehensive']);
         const allowedTones = new Set(['academic', 'business', 'casual']);
         const allowedAudiences = new Set(['expert', 'general', 'executive']);
+        const allowedLanguages = new Set(['auto', 'zh', 'en']);
 
         const nextReportLengthCandidate = typeof patch.reportLength === 'string' ? patch.reportLength : prev.reportLength;
         const nextToneCandidate = typeof patch.tone === 'string' ? patch.tone : prev.tone;
         const nextAudienceCandidate = typeof patch.audience === 'string' ? patch.audience : prev.audience;
+        const nextLanguageCandidate = typeof patch.language === 'string' ? patch.language : prev.language;
 
         const next = {
             reportLength: allowedLengths.has(nextReportLengthCandidate) ? nextReportLengthCandidate : 'standard',
             tone: allowedTones.has(nextToneCandidate) ? nextToneCandidate : 'business',
             audience: allowedAudiences.has(nextAudienceCandidate) ? nextAudienceCandidate : 'general',
+            language: allowedLanguages.has(nextLanguageCandidate) ? nextLanguageCandidate : 'auto',
             enableReviewer: typeof patch.enableReviewer === 'boolean'
                 ? patch.enableReviewer
                 : (typeof prev.enableReviewer === 'boolean' ? prev.enableReviewer : false),
@@ -2095,6 +2098,12 @@ const PPTGeneratorWorkflow = {
         const v = String(value || '').trim();
         if (!new Set(['expert', 'general', 'executive']).has(v)) return;
         this._setReportConfig({ audience: v });
+    },
+
+    updateWriteLanguage(value) {
+        const v = String(value || '').trim();
+        if (!new Set(['auto', 'zh', 'en']).has(v)) return;
+        this._setReportConfig({ language: v });
     },
 
     updateEnableReviewer(checked) {
