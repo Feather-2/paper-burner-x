@@ -489,6 +489,10 @@ const PPTGeneratorNavigation = {
                     </div>
                     <div class="ppt-chat-sidebar" id="pptChatSidebar">
                         <div class="ppt-chat-wrapper">
+                            <div class="ppt-chat-header">
+                                <iconify-icon icon="solar:chat-round-dots-bold-duotone"></iconify-icon>
+                                <span>AI 助手</span>
+                            </div>
                             <div class="ppt-todo-tracker" id="pptTodoTracker"></div>
                             <div class="ppt-chat-history" id="pptChatHistory"></div>
                             <div class="ppt-chat-input-area">

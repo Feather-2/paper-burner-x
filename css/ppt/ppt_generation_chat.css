@@ -5,6 +5,25 @@
 /* 注意: 布局和定位样式在 ppt_generation_layout.css 中 */
 /* 这里只包含内容和样式相关的属性 */
 
+/* ==================== Chat Header ==================== */
+.ppt-chat-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 16px 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ppt-text-main);
+    border-bottom: 1px solid var(--ppt-border);
+    background: white;
+    flex-shrink: 0;
+}
+
+.ppt-chat-header iconify-icon {
+    font-size: 20px;
+    color: var(--ppt-primary);
+}
+
 /* ==================== Todo Tracker ==================== */
 .ppt-todo-tracker {
     padding: 16px 16px 8px 16px;
