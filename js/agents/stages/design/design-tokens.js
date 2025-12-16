@@ -2,7 +2,7 @@
 //
 // Contract (tests + docs):
 //   generateDesignTokens(constraints) -> DesignSystem
-//   DesignSystem: { theme, designTokens: { colors, typography, spacing, grid } }
+//   DesignSystem: { theme, visualPreference?, designTokens: { colors, typography, spacing, grid, visualPreference? } }
 //
 // Extensions (design system dynamic generation):
 //   validateDesignSystem(system) -> { ok:boolean, errors:string[] }
@@ -62,6 +62,12 @@ function isRgbaColor(s) {
 
 function isColorToken(s) {
   return isHexColor(s) || isRgbaColor(s);
+}
+
+function normalizeVisualPreferenceMode(mode) {
+  const m = String(mode || "").toLowerCase().trim();
+  if (m === "ai-first" || m === "svg-first" || m === "balanced") return m;
+  return "";
 }
 
 function getPath(obj, path) {
@@ -193,6 +199,16 @@ export function validateDesignSystem(system) {
     }
   }
 
+  const vp = system?.visualPreference;
+  if (vp !== undefined && vp !== null) {
+    if (!isPlainObject(vp)) {
+      errors.push("visualPreference must be an object");
+    } else {
+      const mode = normalizeVisualPreferenceMode(vp?.mode);
+      if (!mode) errors.push("visualPreference.mode must be 'ai-first' | 'svg-first' | 'balanced'");
+    }
+  }
+
   return { ok: errors.length === 0, errors };
 }
 
@@ -253,5 +269,6 @@ export function generateDesignTokens(constraints = {}) {
     safe: safeBox(safeMarginPct),
   };
 
-  return { theme: resolvedTheme, designTokens: { colors, typography, spacing, grid } };
+  const visualPreference = { mode: "balanced" };
+  return { theme: resolvedTheme, visualPreference, designTokens: { colors, typography, spacing, grid, visualPreference } };
 }

@@ -249,3 +249,5 @@ export function applyPatchPlan(report, patchPlan, evidenceLedger, sources) {
 
 export const __test = { normalizeReportForPatching, renderDraftMarkdown, parseSectionsFromMarkdown, extractTitleFromMarkdown, countWordsApprox };
 
+export { countWordsApprox };
+

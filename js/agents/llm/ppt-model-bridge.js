@@ -117,6 +117,13 @@ export function buildPptUsageConfigForModelRouter() {
   const legacyLang = loadPptConfig('lang')?.modelKey;
   const legacyVision = loadPptConfig('vision')?.modelKey;
 
+  console.log('[ppt-model-bridge] buildPptUsageConfigForModelRouter:', {
+    priority,
+    legacyLang,
+    legacyVision,
+    tagsCount: Object.keys(tags).length
+  });
+
   // 能力过滤：检查模型是否有所需标签（未标注则允许）
   function getTagsForCandidate(key) {
     if (!key) return [];
@@ -135,11 +142,20 @@ export function buildPptUsageConfigForModelRouter() {
   }
 
   function filterByCapability(models, requiredTag) {
-    return models.filter(key => {
+    const filtered = models.filter(key => {
       const modelTags = getTagsForCandidate(key);
       if (!modelTags || modelTags.length === 0) return true; // 未标注则允许
       return modelTags.includes(requiredTag);
     });
+    // 如果过滤后变空，记录警告
+    if (models.length > 0 && filtered.length === 0) {
+      console.warn('[ppt-model-bridge] filterByCapability filtered out all models:', {
+        models,
+        requiredTag,
+        modelTagsMap: models.map(m => ({ model: m, tags: getTagsForCandidate(m) }))
+      });
+    }
+    return filtered;
   }
 
   // 构建 usageConfig
@@ -161,6 +177,7 @@ export function buildPptUsageConfigForModelRouter() {
   }
   result.vision = filterByCapability(visionCandidates, 'vision');
 
+  console.log('[ppt-model-bridge] usageConfig result:', result);
   return result;
 }
 

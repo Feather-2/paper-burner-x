@@ -73,7 +73,7 @@ test("TrajectoryManager: shared cache dedupes gaps + understand LLM calls across
     taskGoal: "Test goal",
     maxIterations: 2,
     userConfig: { gaps: { blockAfterMisses: 1 } },
-    L0: { sources: [] },
+    L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Doc", sourceTextNormalized: "Alpha Beta" }] },
     L1: { scanSummary: { summaryText: "Scan summary" } },
   });
 
@@ -101,8 +101,19 @@ test("TrajectoryManager: shared cache dedupes gaps + understand LLM calls across
     runGapsStage: (rc, input, api) => runDeepSearchGapsStage(rc, input, api),
     runRetrieveStage: async (_rc, input) => {
       const s = input?.state || input;
-      s.L2.retrievedChunks = [];
-      return { state: s, retrievedChunks: [] };
+      s.L2.retrievedChunks = [
+        {
+          retrievedId: "rch_1",
+          chunkId: "chunk_1",
+          sourceId: "s1",
+          locator: { charStart: 0, charEnd: 5 },
+          text: "Alpha",
+          gapId: "gap_1",
+          matchedGapIds: ["gap_1"],
+          score: 1,
+        },
+      ];
+      return { state: s, retrievedChunks: s.L2.retrievedChunks };
     },
     runUnderstandStage: (rc, input, api) => runDeepSearchUnderstandStage(rc, input, api),
     emit: null,
@@ -113,7 +124,8 @@ test("TrajectoryManager: shared cache dedupes gaps + understand LLM calls across
   await Promise.all(trajectories.map((t) => manager.runTrajectory(t, stages, stageApi)));
 
   const calls = modelRouter.calls;
-  assert.equal(calls.length, 2);
+  // gaps planner + claim edits extractor + reflect-on-evidence (deduped via shared cache)
+  assert.equal(calls.length, 3);
   assert.ok(calls.some((c) => String(c.messages?.[0]?.content || "").includes("DeepSearch gap planner")));
   assert.ok(calls.some((c) => String(c.messages?.[0]?.content || "").includes("DeepSearch claim extractor")));
 });
@@ -129,7 +141,7 @@ test("TrajectoryManager: cachePolicy=off does not dedupe LLM calls", async () =>
     taskGoal: "Test goal",
     maxIterations: 2,
     userConfig: { gaps: { blockAfterMisses: 1 } },
-    L0: { sources: [] },
+    L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Doc", sourceTextNormalized: "Alpha Beta" }] },
     L1: { scanSummary: { summaryText: "Scan summary" } },
   });
 
@@ -152,8 +164,19 @@ test("TrajectoryManager: cachePolicy=off does not dedupe LLM calls", async () =>
     runGapsStage: (rc, input, api) => runDeepSearchGapsStage(rc, input, api),
     runRetrieveStage: async (_rc, input) => {
       const s = input?.state || input;
-      s.L2.retrievedChunks = [];
-      return { state: s, retrievedChunks: [] };
+      s.L2.retrievedChunks = [
+        {
+          retrievedId: "rch_1",
+          chunkId: "chunk_1",
+          sourceId: "s1",
+          locator: { charStart: 0, charEnd: 5 },
+          text: "Alpha",
+          gapId: "gap_1",
+          matchedGapIds: ["gap_1"],
+          score: 1,
+        },
+      ];
+      return { state: s, retrievedChunks: s.L2.retrievedChunks };
     },
     runUnderstandStage: (rc, input, api) => runDeepSearchUnderstandStage(rc, input, api),
     emit: null,
@@ -163,6 +186,6 @@ test("TrajectoryManager: cachePolicy=off does not dedupe LLM calls", async () =>
   const trajectories = manager.fork(state);
   await Promise.all(trajectories.map((t) => manager.runTrajectory(t, stages, stageApi)));
 
-  assert.equal(modelRouter.calls.length, 4);
+  // No caching: each trajectory runs gaps planner + claim edits extractor + reflect-on-evidence.
+  assert.equal(modelRouter.calls.length, 6);
 });
-

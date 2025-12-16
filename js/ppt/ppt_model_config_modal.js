@@ -489,6 +489,141 @@
     return { title: parts.modelId, sub: parts.sourceKey };
   }
 
+  /**
+   * 角色热备配置弹窗
+   * 支持：查看/排序热备列表、添加模型、（未来）频次比例
+   */
+  function openRoleHotspareConfig({ roleId, rows, roleCfg, onSave } = {}) {
+    if (!roleId) return;
+
+    const role = ROLES.find(r => r.id === roleId);
+    if (!role) return;
+
+    const popup = document.createElement('div');
+    popup.className = 'fixed inset-0 flex items-center justify-center';
+    popup.style.zIndex = '9999';
+
+    const rowsById = new Map((Array.isArray(rows) ? rows : []).map((r) => [r.id, r]));
+    let currentList = Array.isArray(roleCfg?.[roleId]) ? [...roleCfg[roleId]] : [];
+
+    const renderHotspareList = () => {
+      const listEl = popup.querySelector('#pmc-hotspare-list');
+      if (!listEl) return;
+
+      if (currentList.length === 0) {
+        listEl.innerHTML = `
+          <div class="py-8 text-center text-slate-400 text-sm">
+            暂无热备模型，点击下方按钮添加
+          </div>
+        `;
+        return;
+      }
+
+      listEl.innerHTML = currentList.map((fullKey, idx) => {
+        const label = getModelLabelForFullKey(fullKey, rowsById);
+        return `
+          <div class="pmc-hotspare-item pmc-drag-item" draggable="true" data-model-key="${safe(fullKey)}">
+            <div class="pmc-hotspare-item-drag">
+              <iconify-icon icon="carbon:draggable" width="16"></iconify-icon>
+            </div>
+            <div class="pmc-hotspare-item-num">${idx + 1}</div>
+            <div class="pmc-hotspare-item-info">
+              <div class="pmc-hotspare-item-name">${safe(label.title || fullKey)}</div>
+              <div class="pmc-hotspare-item-source">${safe(label.sub || '')}</div>
+            </div>
+            <button class="pmc-hotspare-item-remove" data-remove-key="${safe(fullKey)}" title="移除" type="button">
+              <iconify-icon icon="carbon:trash-can" width="16"></iconify-icon>
+            </button>
+          </div>
+        `;
+      }).join('');
+
+      // 拖拽排序
+      setupDragAndDrop(listEl, () => {
+        currentList = Array.from(listEl.querySelectorAll('.pmc-drag-item'))
+          .map(el => el.getAttribute('data-model-key'))
+          .filter(Boolean);
+        renderHotspareList();
+      });
+
+      // 移除按钮
+      listEl.querySelectorAll('[data-remove-key]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const key = btn.getAttribute('data-remove-key');
+          currentList = currentList.filter(k => k !== key);
+          renderHotspareList();
+        });
+      });
+    };
+
+    popup.innerHTML = `
+      <div class="absolute inset-0 bg-black/40"></div>
+      <div class="relative w-[min(480px,95vw)] max-h-[85vh] overflow-auto bg-white rounded-2xl shadow-2xl border border-slate-200">
+        <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-4">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-600">
+              <iconify-icon icon="${safe(role.icon)}" width="20"></iconify-icon>
+            </div>
+            <div>
+              <div class="text-sm font-semibold text-slate-900">${safe(ROLE_NAMES[roleId] || role.name)}</div>
+              <div class="text-xs text-slate-500">${safe(role.desc || '')}</div>
+            </div>
+          </div>
+          <button class="w-9 h-9 inline-flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-500" data-action="close" type="button" title="关闭">
+            <iconify-icon icon="carbon:close" width="20"></iconify-icon>
+          </button>
+        </div>
+
+        <div class="p-5">
+          <div class="text-xs font-medium text-slate-500 mb-2">热备模型（按优先级排序，可拖拽调整）</div>
+          <div id="pmc-hotspare-list" class="pmc-hotspare-list border border-slate-200 rounded-xl overflow-hidden min-h-[100px]"></div>
+
+          <button class="pmc-btn-secondary w-full mt-3" data-action="add-model" type="button">
+            <iconify-icon icon="carbon:add" width="16"></iconify-icon>
+            添加模型
+          </button>
+        </div>
+
+        <div class="px-5 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
+          <button class="pmc-btn-secondary" data-action="cancel" type="button">取消</button>
+          <button class="pmc-btn-save" data-action="save" type="button">
+            <iconify-icon icon="carbon:save" width="16"></iconify-icon>
+            保存
+          </button>
+        </div>
+      </div>
+    `;
+
+    const close = () => popup.remove();
+    popup.querySelector('.absolute.inset-0')?.addEventListener('click', close);
+    popup.querySelector('[data-action="close"]')?.addEventListener('click', close);
+    popup.querySelector('[data-action="cancel"]')?.addEventListener('click', close);
+
+    popup.querySelector('[data-action="add-model"]')?.addEventListener('click', () => {
+      openRoleAddPicker({
+        roleId,
+        rows,
+        roleCfg: { ...roleCfg, [roleId]: currentList },
+        onSave: (nextCfg) => {
+          currentList = Array.isArray(nextCfg?.[roleId]) ? [...nextCfg[roleId]] : [];
+          renderHotspareList();
+        }
+      });
+    });
+
+    popup.querySelector('[data-action="save"]')?.addEventListener('click', () => {
+      const nextCfg = { ...roleCfg, [roleId]: currentList };
+      if (typeof onSave === 'function') onSave(nextCfg);
+      showSaveSuccess(`「${ROLE_NAMES[roleId] || roleId}」热备配置已保存`);
+      close();
+    });
+
+    document.body.appendChild(popup);
+    renderHotspareList();
+  }
+
   function openRoleAddPicker({ roleId, rows, roleCfg, onSave } = {}) {
     if (!roleId) return;
 
@@ -573,6 +708,7 @@
 
     const renderRoleColumn = (r) => {
       const list = Array.isArray(roleCfg[r.id]) ? roleCfg[r.id] : [];
+      const modelCount = list.length;
       const items = list.map((fullKey, idx) => {
         const label = getModelLabelForFullKey(fullKey, rowsById);
         return `
@@ -589,8 +725,14 @@
       return `
         <div class="pmc-role-column">
           <div class="pmc-role-column-header">
-            <iconify-icon icon="${safe(r.icon)}" width="14"></iconify-icon>
-            ${safe(ROLE_NAMES[r.id] || r.name)}
+            <div class="pmc-role-column-title">
+              <iconify-icon icon="${safe(r.icon)}" width="14"></iconify-icon>
+              <span class="pmc-role-column-name">${safe(ROLE_NAMES[r.id] || r.name)}</span>
+              <span class="pmc-role-column-count">(${modelCount})</span>
+            </div>
+            <button class="pmc-role-config-btn" data-action="config-role" data-role-id="${safe(r.id)}" title="配置热备" type="button">
+              <iconify-icon icon="carbon:settings" width="14"></iconify-icon>
+            </button>
           </div>
           <div class="pmc-role-column-list pmc-role-dnd-list" data-role-id="${safe(r.id)}">
             ${items || `<div class="pmc-role-column-empty" data-action="add-to-role" data-role-id="${safe(r.id)}">（空） 点击添加</div>`}
@@ -664,6 +806,25 @@
         nextCfg[roleId] = (Array.isArray(nextCfg[roleId]) ? nextCfg[roleId] : []).filter((x) => x !== fullKey);
         saveConfig('rolePriority', nextCfg);
         if (typeof onChange === 'function') onChange();
+      });
+    });
+
+    // 齿轮按钮 - 打开角色热备配置弹窗
+    container.querySelectorAll('[data-action="config-role"]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const roleId = btn.getAttribute('data-role-id');
+        if (!roleId) return;
+        openRoleHotspareConfig({
+          roleId,
+          rows,
+          roleCfg: normalizeRolePriorityConfig(loadConfig('rolePriority')),
+          onSave: (nextCfg) => {
+            saveConfig('rolePriority', nextCfg);
+            if (typeof onChange === 'function') onChange();
+          }
+        });
       });
     });
   }
@@ -766,8 +927,8 @@
             <iconify-icon icon="${safe(keyIcon.icon)}" width="16" style="${safe(keyIcon.style)}"></iconify-icon>
           </div>
         </td>
-        <td class="px-4 py-3 text-slate-700 whitespace-nowrap">
-          ${rolesReadable ? `<span class="text-xs">${safe(rolesReadable)}</span>` : `<span class="text-slate-400 text-xs">-</span>`}
+        <td class="px-4 py-3 text-slate-700 max-w-[160px]">
+          ${rolesReadable ? `<span class="text-xs break-words">${safe(rolesReadable)}</span>` : `<span class="text-slate-400 text-xs">-</span>`}
         </td>
         <td class="px-4 py-3 text-right whitespace-nowrap">
           <button class="pmc-model-config-btn inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs" data-action="open-config" type="button">
@@ -2704,12 +2865,351 @@
         grid-column: 1 / -1;
       }
 
+      /* Role Overview */
+      .pmc-role-overview {
+        background: #fff;
+        border: 1px solid var(--pmc-border);
+        border-radius: 16px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      .pmc-role-overview-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--pmc-text-main);
+        margin-bottom: 16px;
+      }
+      .pmc-role-group {
+        margin-bottom: 16px;
+      }
+      .pmc-role-group:last-child {
+        margin-bottom: 0;
+      }
+      .pmc-role-group-header {
+        font-size: 12px;
+        font-weight: 600;
+        color: #64748b;
+        margin-bottom: 10px;
+        padding-left: 4px;
+      }
+      .pmc-role-columns {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .pmc-role-column {
+        flex: 1 1 150px;
+        min-width: 0;
+        background: #f8fafc;
+        border: 1px solid var(--pmc-border);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      .pmc-role-column-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 12px;
+        background: #fff;
+        border-bottom: 1px solid var(--pmc-border);
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--pmc-text-main);
+      }
+      .pmc-role-column-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex: 1;
+        min-width: 0;
+      }
+      .pmc-role-column-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .pmc-role-column-count {
+        color: #94a3b8;
+        font-size: 12px;
+        font-weight: 500;
+        flex-shrink: 0;
+      }
+      .pmc-role-config-btn {
+        width: 26px;
+        height: 26px;
+        border: 1px solid var(--pmc-border);
+        background: #fff;
+        border-radius: 6px;
+        cursor: pointer;
+        color: #94a3b8;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.15s;
+        flex-shrink: 0;
+      }
+      .pmc-role-config-btn:hover {
+        border-color: var(--pmc-primary);
+        color: var(--pmc-primary);
+        background: rgba(99, 102, 241, 0.06);
+      }
+      .pmc-role-column-list {
+        padding: 8px;
+        min-height: 60px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .pmc-role-column-empty {
+        padding: 12px 8px;
+        text-align: center;
+        font-size: 11px;
+        color: #94a3b8;
+        cursor: pointer;
+        border: 1px dashed #e2e8f0;
+        border-radius: 8px;
+        transition: all 0.15s;
+      }
+      .pmc-role-column-empty:hover {
+        border-color: var(--pmc-primary);
+        color: var(--pmc-primary);
+        background: rgba(99, 102, 241, 0.04);
+      }
+      .pmc-role-column-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 8px;
+        background: #fff;
+        border: 1px solid var(--pmc-border);
+        border-radius: 8px;
+        font-size: 11px;
+        cursor: grab;
+      }
+      .pmc-role-column-item:active { cursor: grabbing; }
+      .pmc-role-column-item .priority-num {
+        color: var(--pmc-primary);
+        font-weight: 700;
+        flex-shrink: 0;
+      }
+      .pmc-role-column-item .model-name {
+        color: #334155;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex: 1;
+        min-width: 0;
+      }
+      .pmc-role-column-item .remove-btn {
+        width: 20px;
+        height: 20px;
+        border: none;
+        background: transparent;
+        border-radius: 4px;
+        cursor: pointer;
+        color: #94a3b8;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.15s;
+        flex-shrink: 0;
+        opacity: 0;
+      }
+      .pmc-role-column-item:hover .remove-btn { opacity: 1; }
+      .pmc-role-column-item .remove-btn:hover {
+        color: #ef4444;
+        background: #fef2f2;
+      }
+
+      /* Hotspare Config Popup */
+      .pmc-hotspare-list {
+        display: flex;
+        flex-direction: column;
+      }
+      .pmc-hotspare-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 14px;
+        border-bottom: 1px solid #f1f5f9;
+        background: #fff;
+        transition: background 0.15s;
+      }
+      .pmc-hotspare-item:last-child { border-bottom: none; }
+      .pmc-hotspare-item:hover { background: #f8fafc; }
+      .pmc-hotspare-item-drag {
+        color: #cbd5e1;
+        cursor: grab;
+        flex-shrink: 0;
+      }
+      .pmc-hotspare-item-drag:active { cursor: grabbing; }
+      .pmc-hotspare-item-num {
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
+        background: rgba(99, 102, 241, 0.1);
+        color: var(--pmc-primary);
+        font-size: 12px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .pmc-hotspare-item-info {
+        flex: 1;
+        min-width: 0;
+      }
+      .pmc-hotspare-item-name {
+        font-size: 14px;
+        font-weight: 600;
+        color: #0f172a;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .pmc-hotspare-item-source {
+        font-size: 12px;
+        color: #94a3b8;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .pmc-hotspare-item-remove {
+        width: 32px;
+        height: 32px;
+        border: 1px solid var(--pmc-border);
+        background: #fff;
+        border-radius: 8px;
+        cursor: pointer;
+        color: #94a3b8;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.15s;
+        flex-shrink: 0;
+      }
+      .pmc-hotspare-item-remove:hover {
+        color: #ef4444;
+        background: #fef2f2;
+        border-color: #fecaca;
+      }
+
+      /* Capability Button */
+      .pmc-cap-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 16px;
+        border: 1px solid var(--pmc-border);
+        border-radius: 10px;
+        background: #fff;
+        cursor: pointer;
+        color: #64748b;
+        transition: all 0.15s;
+      }
+      .pmc-cap-btn:hover {
+        border-color: #cbd5e1;
+        background: #f8fafc;
+        color: #334155;
+      }
+      .pmc-cap-btn.selected {
+        border-color: rgba(99, 102, 241, 0.5);
+        background: rgba(99, 102, 241, 0.08);
+        color: var(--pmc-primary);
+      }
+
+      /* Role Assign List */
+      .pmc-role-assign-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 10px;
+      }
+      .pmc-role-assign-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 12px;
+        border: 1px solid var(--pmc-border);
+        border-radius: 10px;
+        background: #fff;
+      }
+      .pmc-role-assign-item label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        color: #334155;
+        cursor: pointer;
+      }
+      .pmc-role-assign-item .pmc-role-check {
+        accent-color: var(--pmc-primary);
+      }
+      .pmc-role-assign-item .pmc-role-priority {
+        width: 50px;
+        padding: 6px 8px;
+        border: 1px solid var(--pmc-border);
+        border-radius: 6px;
+        font-size: 13px;
+        text-align: center;
+      }
+      .pmc-role-assign-item .pmc-role-priority:disabled {
+        background: #f1f5f9;
+        color: #94a3b8;
+      }
+
+      /* Audio Collapse */
+      .pmc-audio-collapse {
+        margin: 0 16px 16px;
+        border: 1px solid var(--pmc-border);
+        border-radius: 12px;
+        background: #fff;
+        overflow: hidden;
+      }
+      .pmc-audio-collapse-header {
+        width: 100%;
+        padding: 14px 16px;
+        border: none;
+        background: #fff;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--pmc-text-main);
+        transition: background 0.15s;
+      }
+      .pmc-audio-collapse-header:hover {
+        background: #f8fafc;
+      }
+      .pmc-audio-collapse-chevron {
+        color: #94a3b8;
+        transition: transform 0.2s;
+      }
+      .pmc-audio-collapse-body {
+        display: none;
+        padding: 16px;
+        border-top: 1px solid var(--pmc-border);
+        background: #fafbfc;
+      }
+      .pmc-audio-collapse.open .pmc-audio-collapse-body {
+        display: block;
+      }
+
       @media (max-width: 1024px) {
         .pmc-tab-layout { grid-template-columns: 1fr; }
         .pmc-two-col { grid-template-columns: 1fr; }
         .pmc-audio-grid { grid-template-columns: 1fr; }
         .pmc-list { max-height: 40vh; }
         .pmc-accordion { max-height: 40vh; }
+        .pmc-role-columns { gap: 8px; }
+        .pmc-role-column { flex: 1 1 120px; }
+        .pmc-role-assign-list { grid-template-columns: 1fr; }
       }
     `;
   }

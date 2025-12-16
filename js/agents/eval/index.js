@@ -160,6 +160,12 @@ export class EvaluateStage {
     const scenario = runContext?.scenario || contentPackage?.constraints?.tone || null;
     const scenarioScore = scenario ? computeScenarioScore(scenario, metrics) : undefined;
     if (scenarioScore) {
+      // Backward compatible event name (tests + UI listeners).
+      emit?.("evaluate.scenario_score.completed", {
+        actor: "evaluate",
+        status: "ended",
+        payload: { scenario, score: scenarioScore.score },
+      });
       emit?.("evaluate.scenarioscore.completed", {
         actor: "evaluate",
         status: "ended",

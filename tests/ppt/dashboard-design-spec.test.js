@@ -12,6 +12,7 @@ function setupDom(html = '<!doctype html><html><head></head><body></body></html>
 function teardownDom() {
   delete globalThis.window;
   delete globalThis.document;
+  delete globalThis.SlideParser;
 }
 
 // Provide a global PPTGenerator binding before requiring mixins.
@@ -23,13 +24,23 @@ if (!globalThis.PPTGenerator) {
       this.workflowMode = 'auto';
       this.workflowData = {};
       this.processLogs = [];
-      this.currentProject = { title: 'Demo' };
+      this.currentProject = { title: 'Demo', chatHistory: [] };
       this.elements = { overlay: null };
+      this.agents = { reader: {}, analyst: {}, designer: {}, reviewer: {} };
+      this._runtimeTodoTexts = [
+        '深度阅读与信息提取',
+        '研究分析与报告生成',
+        '脚本审阅与编辑',
+        '页面规划与内容映射',
+        '视觉设计与排版优化',
+        '最终渲染与质量检查'
+      ];
     }
   };
 }
 
 require('../../js/ppt/ppt_generator_agent_dashboard.js');
+require('../../js/ppt/ppt_generator_workflow.js');
 
 test.afterEach(() => {
   teardownDom();
@@ -46,11 +57,16 @@ test('design spec: renders with defaults and current values', () => {
 
   // Defaults are initialized on render
   assert.equal(gen.workflowData.batchSize, 4);
-  assert.equal(gen.workflowData.designSystem.colors.primary, '#0ea5e9');
+  assert.equal(gen.workflowData.designSystem.designSystemOverrides.colors.primary, '#0ea5e9');
+  assert.equal(gen.workflowData.designSystem.designSystemOverrides.visualPreference.mode, 'balanced');
 
   const primaryInput = document.getElementById('pptDesignColor-primary');
   assert.ok(primaryInput);
   assert.equal(primaryInput.value.toLowerCase(), '#0ea5e9');
+
+  const modeBalanced = document.querySelector("button[onclick*=\"updateVisualPreferenceMode('balanced')\"]");
+  assert.ok(modeBalanced);
+  assert.ok(modeBalanced.classList.contains('active'));
 
   const modelSelect = document.getElementById('pptDesignModel');
   assert.ok(modelSelect);
@@ -64,7 +80,7 @@ test('color edit updates workflowData.designSystem.colors.primary', () => {
   gen.renderPreviewArea();
 
   gen.updateDesignSystemColor('primary', '#ff0000');
-  assert.equal(gen.workflowData.designSystem.colors.primary, '#ff0000');
+  assert.equal(gen.workflowData.designSystem.designSystemOverrides.colors.primary, '#ff0000');
 
   const primaryRow = document.querySelector('[data-design-color="primary"] .ppt-design-spec-swatch');
   assert.ok(primaryRow);
@@ -82,7 +98,7 @@ test('font change refreshes preview', () => {
   gen.renderPreviewArea();
 
   gen.updateDesignSystemFont('titleFont', 'Georgia');
-  assert.equal(gen.workflowData.designSystem.fonts.titleFont, 'Georgia');
+  assert.equal(gen.workflowData.designSystem.designSystemOverrides.typography.titleFont, 'Georgia');
 
   const title = document.querySelector('.ppt-design-spec-preview-title');
   assert.ok(title);
@@ -117,3 +133,62 @@ test('model selection updates designSystem.model', () => {
   assert.equal(modelSelect.value, 'gpt-4o');
 });
 
+test('visualPreference.mode change updates UI + userConfig', () => {
+  setupDom('<!doctype html><html><head></head><body><div id="pptPreviewArea"></div></body></html>');
+
+  const gen = new globalThis.PPTGenerator();
+  gen.renderPreviewArea();
+
+  gen.updateVisualPreferenceMode('svg-first');
+  assert.equal(gen.workflowData.designSystem.designSystemOverrides.visualPreference.mode, 'svg-first');
+
+  const btn = document.querySelector("button[onclick*=\"updateVisualPreferenceMode('svg-first')\"]");
+  assert.ok(btn);
+  assert.ok(btn.classList.contains('active'));
+});
+
+test('visualPreference is passed into DesignStage via runContext.userConfig', async () => {
+  setupDom('<!doctype html><html><head></head><body></body></html>');
+
+  globalThis.SlideParser = { parse: () => [{ id: 's1' }] };
+
+  const gen = new globalThis.PPTGenerator();
+  gen.updateTodos = () => {};
+  gen.renderPreviewArea = () => {};
+  gen.logTerminal = () => {};
+  gen.addChatMessage = () => {};
+  gen._setAgentStatus = () => {};
+
+  gen.workflowData.contentPackage = {
+    schemaVersion: '0.1',
+    title: 'Demo',
+    summary: 'Demo summary',
+    constraints: {},
+    slideIntents: [{ slideIntentId: 'si_1', pageType: 'cover', title: 'Cover', objective: '', keyPoints: [], claimIds: [], dataTableIds: [] }]
+  };
+
+  gen.updateVisualPreferenceMode('ai-first');
+
+  await gen._ensureRuntime({ mode: 'textprep' });
+
+  const design = await import('../../js/agents/stages/design/index.js');
+  const originalRun = design.DesignStage.prototype.run;
+  let seenUserConfig = null;
+  design.DesignStage.prototype.run = async function (_contentPackage, context) {
+    seenUserConfig = context?.runContext?.userConfig || null;
+    return {
+      schemaVersion: '0.1',
+      runId: context?.runContext?.runId || 'run_test',
+      deckHtmlDsl: '<section data-type="freeform" id="s1"></section>',
+      slidesMeta: [],
+    };
+  };
+
+  try {
+    await gen._orchestrator.runStage('design.batch');
+    assert.ok(seenUserConfig && typeof seenUserConfig === 'object');
+    assert.equal(seenUserConfig.designSystemOverrides.visualPreference.mode, 'ai-first');
+  } finally {
+    design.DesignStage.prototype.run = originalRun;
+  }
+});

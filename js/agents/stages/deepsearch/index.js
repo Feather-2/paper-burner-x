@@ -20,6 +20,23 @@ function safeInt(n) {
   return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
 }
 
+function validateSourceChunksOrThrow(sources) {
+  for (const s of Array.isArray(sources) ? sources : []) {
+    if (!s || typeof s !== "object") continue;
+    const sourceText = typeof s.sourceTextNormalized === "string" ? s.sourceTextNormalized : "";
+    const chunks = Array.isArray(s.chunks) ? s.chunks : [];
+    if (!chunks.length) continue;
+
+    for (const c of chunks) {
+      const charStart = safeInt(c?.locator?.charStart);
+      const charEnd = safeInt(c?.locator?.charEnd);
+      if (charStart === null || charEnd === null) throw new Error("Hard gate H2 failed: chunk locator must include charStart/charEnd");
+      if (!(charStart < charEnd)) throw new Error("Hard gate H2 failed: chunk locator.charStart must be < charEnd");
+      if (charStart < 0 || charEnd > sourceText.length) throw new Error("Hard gate H2 failed: chunk locator out of bounds");
+    }
+  }
+}
+
 function createEmitTap(emitFn) {
   const listeners = new Map(); // name -> Set(fn)
 
@@ -60,6 +77,7 @@ function ensureState(runContext, input) {
   if (isPlainObject(input?.state)) return DeepSearchState.fromJSON(input.state);
 
   const sources = Array.isArray(input?.sources) ? input.sources : [];
+  validateSourceChunksOrThrow(sources);
   const taskGoal = typeof input?.taskGoal === "string" ? input.taskGoal : "";
   const userConfig = isPlainObject(input?.userConfig) ? input.userConfig : {};
   const s = new DeepSearchState({ runId: runContext?.runId, taskGoal, userConfig, L0: { sources } });

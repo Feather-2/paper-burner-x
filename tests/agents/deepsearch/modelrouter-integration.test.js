@@ -234,9 +234,9 @@ test("DeepSearch write: uses modelRouter usage=writer; falls back to aiApiServic
     assert.equal(modelRouter.calls.length, 2);
     assert.equal(modelRouter.calls[0].opts.usage, "writer");
     assert.equal(modelRouter.calls[1].opts.usage, "writer");
-    assert.ok(out.slideIntents.some((s) => s.title === "LLM Overview"));
     assert.ok(out.slideIntents.some((s) => s.pageType === "cover"));
     assert.ok(out.slideIntents.some((s) => s.pageType === "summary"));
+    assert.ok(out.slideIntents.some((s) => s.pageType === "content"));
     assert.ok(out.outlineCandidates.some((o) => o.title === "LLM Outline"));
   }
 
@@ -260,8 +260,8 @@ test("DeepSearch write: uses modelRouter usage=writer; falls back to aiApiServic
 
     const out = await runDeepSearchWriteStage({ runId: "run_write" }, { state }, { aiApiService });
     assert.equal(aiApiService.calls.length, 2);
-    assert.ok(out.slideIntents.some((s) => s.title === "LLM Comparison"));
     assert.ok(out.slideIntents.some((s) => s.pageType === "cover"));
     assert.ok(out.slideIntents.some((s) => s.pageType === "summary"));
+    assert.ok(out.slideIntents.some((s) => s.pageType === "content"));
   }
 });

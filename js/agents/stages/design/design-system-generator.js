@@ -4,6 +4,51 @@ function isPlainObject(v) {
   return !!v && typeof v === "object" && !Array.isArray(v);
 }
 
+function normalizeVisualPreference(v) {
+  if (typeof v === "string") return { mode: v.trim().toLowerCase() };
+  if (!isPlainObject(v)) return v;
+  const mode = typeof v.mode === "string" ? v.mode.trim().toLowerCase() : v.mode;
+  return { ...v, ...(mode !== undefined ? { mode } : {}) };
+}
+
+function deepMerge(base, override) {
+  if (override === undefined) return base;
+  if (Array.isArray(override)) return override.slice();
+  if (isPlainObject(base) && isPlainObject(override)) {
+    const out = {};
+    const keys = new Set([...Object.keys(base), ...Object.keys(override)]);
+    for (const k of Array.from(keys).sort()) {
+      const bv = base[k];
+      const ov = override[k];
+      if (ov === undefined) {
+        out[k] = isPlainObject(bv) ? deepMerge({}, bv) : Array.isArray(bv) ? bv.slice() : bv;
+      } else {
+        out[k] = deepMerge(bv, ov);
+      }
+    }
+    return out;
+  }
+  if (isPlainObject(override)) return deepMerge({}, override);
+  return override;
+}
+
+// merge 策略：深度合并，overrides 优先；特殊处理 visualPreference（支持 string → {mode}）
+function mergeDesignSystemOverrides(generated, overrides) {
+  const base = isPlainObject(generated) ? generated : {};
+  const ov = isPlainObject(overrides) ? overrides : {};
+
+  const normalizedBase =
+    base && Object.prototype.hasOwnProperty.call(base, "visualPreference")
+      ? { ...base, visualPreference: normalizeVisualPreference(base.visualPreference) }
+      : base;
+  const normalizedOverrides =
+    ov && Object.prototype.hasOwnProperty.call(ov, "visualPreference")
+      ? { ...ov, visualPreference: normalizeVisualPreference(ov.visualPreference) }
+      : ov;
+
+  return deepMerge(normalizedBase, normalizedOverrides);
+}
+
 function coerceFiniteNumber(v, fallback) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
@@ -11,6 +56,17 @@ function coerceFiniteNumber(v, fallback) {
 
 function clamp(n, lo, hi) {
   return Math.max(lo, Math.min(hi, n));
+}
+
+function normalizeCompatTheme(theme, fallbackTheme = "light") {
+  const t = String(theme || "").toLowerCase().trim();
+  if (t === "light" || t === "dark" || t === "colorful") return t;
+  return fallbackTheme;
+}
+
+function safeBox(marginPct) {
+  const m = clamp(Number(marginPct) || 0, 0, 40);
+  return { x: `${m}%`, y: `${m}%`, w: `${100 - 2 * m}%`, h: `${100 - 2 * m}%` };
 }
 
 function hexFromMaybe(v, fallback) {
@@ -98,6 +154,7 @@ function legacyTokensToDesignSystem(legacy) {
       coordinateUnit: "percent",
       colorFormat: "hex",
     },
+    visualPreference: normalizeVisualPreference(tokens?.visualPreference) || normalizeVisualPreference(legacy?.visualPreference) || { mode: "balanced" },
     // Compatibility with existing design stage implementation.
     theme,
     designTokens: legacy?.designTokens || legacy,
@@ -111,8 +168,12 @@ function fallbackDesignSystem({ constraints } = {}) {
   const legacy = generateDesignTokens(constraints || {});
   const system = legacyTokensToDesignSystem(legacy);
   if (system) return system;
-  // Extremely defensive fallback (should not happen): return legacy as-is.
-  return { theme: legacy?.theme || "light", designTokens: legacy?.designTokens || legacy };
+  // Extremely defensive fallback: synthesize a minimal valid system.
+  return legacyTokensToDesignSystem(generateDesignTokens({})) || {
+    theme: legacy?.theme || "light",
+    designTokens: legacy?.designTokens || legacy,
+    visualPreference: { mode: "balanced" },
+  };
 }
 
 function buildPrompt({ contentSummary, tone, extractedPalette, userPreferences, constraints }) {
@@ -170,6 +231,57 @@ function buildPrompt({ contentSummary, tone, extractedPalette, userPreferences, 
   ].join("\n");
 }
 
+function assertValidDesignSystem(system, label) {
+  const res = validateDesignSystem(system);
+  if (!res.ok) throw new Error(`${label || "invalid_design_system"}: ${res.errors.join("; ")}`);
+}
+
+function syncLegacyTokens(system, constraints) {
+  const baseLegacy = generateDesignTokens(constraints || {})?.designTokens || {};
+  const pageMarginX = system?.spacing?.page?.marginX;
+  const safeMarginPct = clamp(coerceFiniteNumber(pageMarginX, baseLegacy?.spacing?.safeMarginPct ?? 6), 0, 40);
+  const grid = isPlainObject(baseLegacy?.grid)
+    ? { ...baseLegacy.grid, safe: safeBox(safeMarginPct) }
+    : { aspect: "16:9", columns: 12, gutterPct: 2, safe: safeBox(safeMarginPct) };
+
+  const tokens = {
+    ...(isPlainObject(baseLegacy) ? baseLegacy : null),
+    colors: {
+      ...(isPlainObject(baseLegacy?.colors) ? baseLegacy.colors : null),
+      bg: system?.colors?.background?.slide,
+      panel: system?.colors?.background?.panel,
+      text: system?.colors?.text?.primary,
+      muted: system?.colors?.text?.muted,
+      border: system?.colors?.border,
+      primary: system?.colors?.accent?.primary,
+      accent: system?.colors?.accent?.secondary,
+    },
+    typography: {
+      ...(isPlainObject(baseLegacy?.typography) ? baseLegacy.typography : null),
+      fontFamily: system?.typography?.fontFamily,
+      minFont: system?.constraints?.minFontSize,
+      titleFont: system?.typography?.scale?.h1,
+      subtitleFont: system?.typography?.scale?.subtitle,
+      bodyFont: system?.typography?.scale?.body,
+      smallFont: system?.typography?.scale?.caption,
+    },
+    spacing: {
+      ...(isPlainObject(baseLegacy?.spacing) ? baseLegacy.spacing : null),
+      base: system?.spacing?.element?.gapX,
+      safeMarginPct,
+    },
+    grid,
+  };
+
+  if (system && Object.prototype.hasOwnProperty.call(system, "visualPreference")) {
+    tokens.visualPreference = normalizeVisualPreference(system.visualPreference);
+  } else if (baseLegacy && Object.prototype.hasOwnProperty.call(baseLegacy, "visualPreference")) {
+    tokens.visualPreference = normalizeVisualPreference(baseLegacy.visualPreference);
+  }
+
+  return tokens;
+}
+
 /**
  * Generate DesignSystem via AI with strict validation; fallback to template on failure.
  * @param {{contentSummary?:string,tone?:string,extractedPalette?:object,userPreferences?:object}} input
@@ -183,63 +295,46 @@ export async function generateDesignSystem(input = {}, options = {}) {
 
   if (signal?.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "Run cancelled");
 
-  if (!aiApiService || typeof aiApiService.chat !== "function") {
-    return fallbackDesignSystem({ constraints });
-  }
+  const userPreferences = isPlainObject(input?.userPreferences) ? input.userPreferences : {};
+  const overrides = isPlainObject(userPreferences?.designSystemOverrides) ? userPreferences.designSystemOverrides : {};
 
-  try {
-    const prompt = buildPrompt({ ...input, constraints });
-    const resp = await aiApiService.chat({
-      messages: [
-        { role: "system", content: "You are a strict JSON generator." },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.2,
-      maxTokens: 1200,
-    });
+  const generateFromLLMOrFallback = async () => {
+    if (!aiApiService || typeof aiApiService.chat !== "function") return fallbackDesignSystem({ constraints });
 
-    const parsed = JSON.parse(resp?.content || "null");
-    const res = validateDesignSystem(parsed);
-    if (!res.ok) throw new Error(`invalid_design_system: ${res.errors.join("; ")}`);
+    try {
+      const prompt = buildPrompt({ ...input, constraints });
+      const resp = await aiApiService.chat({
+        messages: [
+          { role: "system", content: "You are a strict JSON generator." },
+          { role: "user", content: prompt },
+        ],
+        temperature: 0.2,
+        maxTokens: 1200,
+      });
 
-    // Provide compatibility aliases expected by the existing Design stage code.
-    const theme = String(parsed?.theme || "").toLowerCase();
-    const withCompat = {
-      ...parsed,
-      theme: theme === "dark" || theme === "light" || theme === "colorful" ? theme : "light",
-      designTokens: parsed?.designTokens || {
-        colors: {
-          bg: parsed?.colors?.background?.slide,
-          panel: parsed?.colors?.background?.panel,
-          text: parsed?.colors?.text?.primary,
-          muted: parsed?.colors?.text?.muted,
-          border: parsed?.colors?.border,
-          primary: parsed?.colors?.accent?.primary,
-          accent: parsed?.colors?.accent?.secondary,
-        },
-        typography: {
-          fontFamily: parsed?.typography?.fontFamily,
-          minFont: parsed?.constraints?.minFontSize,
-          titleFont: parsed?.typography?.scale?.h1,
-          subtitleFont: parsed?.typography?.scale?.subtitle,
-          bodyFont: parsed?.typography?.scale?.body,
-          smallFont: parsed?.typography?.scale?.caption,
-        },
-        spacing: { base: parsed?.spacing?.element?.gapX, safeMarginPct: parsed?.spacing?.page?.marginX },
-        grid: { aspect: "16:9", columns: 12, gutterPct: 2, safe: null },
-      },
-    };
+      const parsed = JSON.parse(resp?.content || "null");
+      assertValidDesignSystem(parsed, "invalid_design_system");
 
-    // If the AI omitted required legacy token fields, rebuild from fallback tokens instead.
-    if (!withCompat?.designTokens?.colors?.primary || !withCompat?.designTokens?.typography?.fontFamily) {
-      const legacy = generateDesignTokens(constraints || {});
-      const upgraded = legacyTokensToDesignSystem(legacy);
-      if (upgraded) return upgraded;
+      const fallbackTheme = inferThemeFromLegacyTokens(parsed?.designTokens || {});
+      return {
+        ...parsed,
+        visualPreference: normalizeVisualPreference(parsed?.visualPreference) || { mode: "balanced" },
+        theme: normalizeCompatTheme(parsed?.theme, fallbackTheme),
+      };
+    } catch {
+      return fallbackDesignSystem({ constraints });
     }
+  };
 
-    return withCompat;
-  } catch {
-    return fallbackDesignSystem({ constraints });
-  }
+  let designSystem = await generateFromLLMOrFallback();
+  designSystem = mergeDesignSystemOverrides(designSystem, overrides);
+  assertValidDesignSystem(designSystem, "invalid_design_system_after_overrides");
+
+  const fallbackTheme = inferThemeFromLegacyTokens(designSystem?.designTokens || {});
+  const theme = normalizeCompatTheme(designSystem?.theme, fallbackTheme);
+  const visualPreference = normalizeVisualPreference(designSystem?.visualPreference) || { mode: "balanced" };
+
+  const withCompat = { ...designSystem, theme, visualPreference };
+  withCompat.designTokens = syncLegacyTokens(withCompat, constraints);
+  return withCompat;
 }
-

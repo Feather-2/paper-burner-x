@@ -7,6 +7,15 @@ const PPTGeneratorAgentDashboard = {
         const container = document.getElementById('pptPreviewArea');
         if (!container) return;
 
+        // Ensure report review UI is mounted (fixed button + floating panel).
+        try {
+            const panel = this._ensureReportReviewPanel?.();
+            const host = this.elements?.overlay || document.getElementById('pptGeneratorOverlay') || document.body;
+            panel?.mount?.(host);
+        } catch {
+            // ignore
+        }
+
         this._syncWorkflowModeAndBriefFromData();
         const prevState = this._prevState;
 
@@ -866,10 +875,10 @@ const PPTGeneratorAgentDashboard = {
                 <div class="form-footer">
                     <div style="flex: 1; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ppt-text-secondary);">
                         <iconify-icon icon="carbon:information"></iconify-icon>
-                        <span>确认后将使用 slideIntents 进行页面规划</span>
+                        <span>请先在「报告审阅」面板中确认后进入页面规划</span>
                     </div>
                     <button class="ppt-btn-primary" onclick="window.PPTGenerator.confirmScript()">
-                        确认并继续 <iconify-icon icon="carbon:arrow-right"></iconify-icon>
+                        打开审阅并确认 <iconify-icon icon="carbon:arrow-right"></iconify-icon>
                     </button>
                 </div>
             </div>
@@ -941,17 +950,60 @@ const PPTGeneratorAgentDashboard = {
 
         const ds = this.workflowData.designSystem;
 
-        if (!ds.colors || typeof ds.colors !== 'object') ds.colors = {};
-        if (typeof ds.colors.primary !== 'string') ds.colors.primary = '#0ea5e9';
-        if (typeof ds.colors.secondary !== 'string') ds.colors.secondary = '#7c3aed';
-        if (typeof ds.colors.bg !== 'string') ds.colors.bg = '#ffffff';
-        if (typeof ds.colors.text !== 'string') ds.colors.text = '#0f172a';
-        if (typeof ds.colors.accent !== 'string') ds.colors.accent = '#22c55e';
+        // === DesignSystem UI v2 userConfig model ===
+        // Keep backwards compatibility with legacy {colors,fonts,...} by migrating into designSystemOverrides.
+        const legacyColors = ds.colors && typeof ds.colors === 'object' ? ds.colors : null;
+        const legacyFonts = ds.fonts && typeof ds.fonts === 'object' ? ds.fonts : null;
+        const legacyVisualPref = ds.visualPreference && typeof ds.visualPreference === 'object' ? ds.visualPreference : null;
 
-        if (!ds.fonts || typeof ds.fonts !== 'object') ds.fonts = {};
-        if (typeof ds.fonts.titleFont !== 'string') ds.fonts.titleFont = 'Inter';
-        if (typeof ds.fonts.bodyFont !== 'string') ds.fonts.bodyFont = 'Inter';
-        if (typeof ds.fonts.fontSize !== 'number') ds.fonts.fontSize = 16;
+        if (!ds.designPreferences || typeof ds.designPreferences !== 'object') ds.designPreferences = {};
+        const prefs = ds.designPreferences;
+        if (!Array.isArray(prefs.styleKeywords)) prefs.styleKeywords = [];
+        if (typeof prefs.referenceImageSummary !== 'string') prefs.referenceImageSummary = '';
+        if (typeof prefs.industry !== 'string') prefs.industry = '';
+        if (typeof prefs.tone !== 'string') prefs.tone = '';
+
+        if (!ds.designSystemOverrides || typeof ds.designSystemOverrides !== 'object') ds.designSystemOverrides = {};
+        const overrides = ds.designSystemOverrides;
+
+        if (!overrides.colors || typeof overrides.colors !== 'object') overrides.colors = {};
+        if (legacyColors) {
+            for (const [k, v] of Object.entries(legacyColors)) {
+                if (typeof overrides.colors[k] !== 'string' && typeof v === 'string') overrides.colors[k] = v;
+            }
+        }
+        if (typeof overrides.colors.primary !== 'string') overrides.colors.primary = '#0ea5e9';
+        if (typeof overrides.colors.secondary !== 'string') overrides.colors.secondary = '#7c3aed';
+        if (typeof overrides.colors.bg !== 'string') overrides.colors.bg = '#ffffff';
+        if (typeof overrides.colors.text !== 'string') overrides.colors.text = '#0f172a';
+        if (typeof overrides.colors.accent !== 'string') overrides.colors.accent = '#22c55e';
+
+        if (!overrides.typography || typeof overrides.typography !== 'object') overrides.typography = {};
+        if (legacyFonts) {
+            for (const [k, v] of Object.entries(legacyFonts)) {
+                if (typeof overrides.typography[k] === 'undefined') overrides.typography[k] = v;
+            }
+        }
+        if (typeof overrides.typography.titleFont !== 'string') overrides.typography.titleFont = 'Inter';
+        if (typeof overrides.typography.bodyFont !== 'string') overrides.typography.bodyFont = 'Inter';
+        if (typeof overrides.typography.fontSize !== 'number') overrides.typography.fontSize = 16;
+
+        if (!overrides.spacing || typeof overrides.spacing !== 'object') overrides.spacing = {};
+        if (!overrides.effects || typeof overrides.effects !== 'object') overrides.effects = {};
+
+        if (!overrides.visualPreference || typeof overrides.visualPreference !== 'object') overrides.visualPreference = {};
+        if (legacyVisualPref && typeof overrides.visualPreference.mode !== 'string' && typeof legacyVisualPref.mode === 'string') {
+            overrides.visualPreference.mode = legacyVisualPref.mode;
+        }
+        const allowedVisualModes = new Set(['ai-first', 'svg-first', 'balanced']);
+        if (typeof overrides.visualPreference.mode !== 'string' || !allowedVisualModes.has(overrides.visualPreference.mode)) {
+            overrides.visualPreference.mode = 'balanced';
+        }
+
+        // Legacy aliases (UI code historically reads ds.colors / ds.fonts)
+        ds.colors = overrides.colors;
+        ds.fonts = overrides.typography;
+        ds.visualPreference = overrides.visualPreference;
 
         const allowedDensity = new Set(['compact', 'balanced', 'spacious']);
         if (typeof ds.density !== 'string' || !allowedDensity.has(ds.density)) ds.density = 'balanced';
@@ -988,8 +1040,10 @@ const PPTGeneratorAgentDashboard = {
         const ds = this._ensureDesignSpecInitialized();
         const k = String(key || '').trim();
         if (!k) return;
-        const prev = this._coerceHexColor(ds.colors?.[k], '#000000');
+        const colors = ds.designSystemOverrides?.colors || ds.colors || {};
+        const prev = this._coerceHexColor(colors?.[k], '#000000');
         const next = this._coerceHexColor(value, prev);
+        if (ds.designSystemOverrides?.colors) ds.designSystemOverrides.colors[k] = next;
         ds.colors[k] = next;
         this.renderPreviewArea?.();
     },
@@ -998,7 +1052,11 @@ const PPTGeneratorAgentDashboard = {
         const ds = this._ensureDesignSpecInitialized();
         const k = String(key || '').trim();
         if (!k) return;
-        ds.fonts[k] = typeof value === 'string' ? value : String(value ?? '');
+        const typography = ds.designSystemOverrides?.typography || ds.fonts || {};
+        const next = typeof value === 'string' ? value : String(value ?? '');
+        if (ds.designSystemOverrides?.typography) ds.designSystemOverrides.typography[k] = next;
+        typography[k] = next;
+        ds.fonts[k] = next;
         this.renderPreviewArea?.();
     },
 
@@ -1006,7 +1064,18 @@ const PPTGeneratorAgentDashboard = {
         const ds = this._ensureDesignSpecInitialized();
         const n = Number(value);
         if (!Number.isFinite(n)) return;
-        ds.fonts.fontSize = Math.max(10, Math.min(60, Math.round(n)));
+        const next = Math.max(10, Math.min(60, Math.round(n)));
+        if (ds.designSystemOverrides?.typography) ds.designSystemOverrides.typography.fontSize = next;
+        ds.fonts.fontSize = next;
+        this.renderPreviewArea?.();
+    },
+
+    updateVisualPreferenceMode(mode) {
+        const ds = this._ensureDesignSpecInitialized();
+        const v = String(mode || '').trim();
+        if (!new Set(['ai-first', 'svg-first', 'balanced']).has(v)) return;
+        if (ds.designSystemOverrides?.visualPreference) ds.designSystemOverrides.visualPreference.mode = v;
+        if (ds.visualPreference) ds.visualPreference.mode = v;
         this.renderPreviewArea?.();
     },
 
@@ -1132,8 +1201,10 @@ const PPTGeneratorAgentDashboard = {
 
     _renderDesignSpecView() {
         const ds = this._ensureDesignSpecInitialized();
-        const colors = ds.colors || {};
-        const fonts = ds.fonts || {};
+        const overrides = ds.designSystemOverrides || {};
+        const colors = overrides.colors || ds.colors || {};
+        const fonts = overrides.typography || ds.fonts || {};
+        const visualMode = typeof overrides?.visualPreference?.mode === 'string' ? overrides.visualPreference.mode : (ds.visualPreference?.mode || 'balanced');
         const density = ds.density || 'balanced';
         const batchSize = Number(this.workflowData?.batchSize) || 4;
 
@@ -1220,6 +1291,15 @@ const PPTGeneratorAgentDashboard = {
                                     value="${this._escapeAttr(String(fontSize))}"
                                     oninput="window.PPTGenerator.updateDesignSystemFontSize(this.value)">
                             </label>
+                        </div>
+                    </div>
+
+                    <div class="ppt-design-spec-section">
+                        <div class="ppt-design-spec-section-title">Visual Preference</div>
+                        <div class="ppt-design-spec-seg">
+                            ${segBtn('updateVisualPreferenceMode', 'ai-first', 'AI-first', visualMode === 'ai-first')}
+                            ${segBtn('updateVisualPreferenceMode', 'svg-first', 'SVG-first', visualMode === 'svg-first')}
+                            ${segBtn('updateVisualPreferenceMode', 'balanced', 'Balanced', visualMode === 'balanced')}
                         </div>
                     </div>
 

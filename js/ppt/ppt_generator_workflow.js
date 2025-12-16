@@ -10,6 +10,111 @@ async function getTextPrepStage() {
 }
 
 const PPTGeneratorWorkflow = {
+    _getDesignStageUserConfig() {
+        const ds = this._ensureDesignSystemInitialized();
+        const prefs = ds?.designPreferences && typeof ds.designPreferences === 'object' ? ds.designPreferences : {};
+        const overrides = ds?.designSystemOverrides && typeof ds.designSystemOverrides === 'object' ? ds.designSystemOverrides : {};
+        return { designPreferences: prefs, designSystemOverrides: overrides };
+    },
+
+    _ensureReportReviewPanel() {
+        if (this._reportReviewPanel) return this._reportReviewPanel;
+        if (typeof ReportReviewPanel === 'undefined') return null;
+        this._reportReviewPanel = new ReportReviewPanel();
+        try {
+            const host = this.elements?.overlay || (typeof document !== 'undefined' ? document.body : null);
+            this._reportReviewPanel.mount?.(host);
+        } catch {
+            // ignore DOM mount failures (e.g. test environments)
+        }
+        return this._reportReviewPanel;
+    },
+
+    _onReportUpdated(markdown, label) {
+        const panel = this._ensureReportReviewPanel();
+        if (!panel) return;
+
+        const md = typeof markdown === 'string' ? markdown : '';
+        if (!md.trim()) return;
+
+        const last = panel.versions?.[panel.versions.length - 1];
+        if (last && last.markdown === md) return;
+
+        panel.addVersion(md, label);
+    },
+
+    toggleReportReview() {
+        const panel = this._ensureReportReviewPanel();
+        if (!panel) return;
+        panel.toggle();
+    },
+
+    selectReportVersion(index) {
+        const panel = this._ensureReportReviewPanel();
+        if (!panel) return;
+        const idx = Number(index);
+        if (!Number.isFinite(idx) || idx < 0 || idx >= panel.versions.length) return;
+
+        panel.selectedVersionIndex = idx;
+        const v = panel.versions[idx];
+        if (v) v.isNew = false;
+        panel.updateBadge();
+        panel.render();
+    },
+
+    _confirmScriptToPageLayout() {
+        this.state = 'page_layout';
+        this.renderPreviewArea?.();
+        this.updateTodos?.(this._runtimeTodoTexts.map((text, i) => {
+            if (i < 3) return { text, status: 'completed' };
+            if (i === 3) return { text, status: 'active' };
+            return { text, status: 'pending' };
+        }));
+        this.phase3_PageLayout?.();
+    },
+
+    confirmReport() {
+        this._reportReviewPanel?.close?.();
+        this._confirmScriptToPageLayout();
+    },
+
+    async regenerateBrainstormForSlide(slideIntentId, { keepOthers = true } = {}) {
+        const contentPackage = this.workflowData?.contentPackage;
+        const designSystem = this.workflowData?.deckPackage?.designSystem;
+        const constraints = this._orchestrator?.runContext?.constraints || contentPackage?.constraints || {};
+
+        if (!contentPackage) throw new Error('regenerateBrainstormForSlide: contentPackage not ready');
+        if (!designSystem) throw new Error('regenerateBrainstormForSlide: designSystem not ready');
+
+        const { brainstormRegenerate } = await import('../agents/stages/design/brainstorm.js');
+        const cached = this.workflowData?.brainstormCandidates;
+        const pkg = contentPackage && typeof contentPackage === 'object' ? { ...contentPackage, brainstormCandidates: cached } : contentPackage;
+
+        const emit = this._orchestrator?.eventBus?.emit
+            ? (name, record) => this._orchestrator.eventBus.emit(name, record)
+            : null;
+
+        const aiApiService =
+            this._orchestrator?._services?.aiApiService ||
+            (typeof window !== 'undefined' && window.aiApiService ? window.aiApiService : null);
+
+        const res = await brainstormRegenerate(slideIntentId, pkg, designSystem, constraints, { keepOthers, emit, aiApiService });
+
+        if (!emit) {
+            const row = { slideIntentId: res?.slideIntentId, candidates: res?.candidates, selectedCandidate: res?.selectedCandidate };
+            const existing = Array.isArray(this.workflowData?.brainstormCandidates?.candidatesBySlide)
+                ? this.workflowData.brainstormCandidates.candidatesBySlide
+                : [];
+            this.workflowData.brainstormCandidates = {
+                candidatesBySlide: keepOthers ? existing.map(r => (r?.slideIntentId === row.slideIntentId ? row : r)) : [row],
+                selectedIdeas: Array.isArray(this.workflowData?.brainstormCandidates?.selectedIdeas) ? this.workflowData.brainstormCandidates.selectedIdeas : [],
+                updatedAt: Date.now(),
+            };
+        }
+
+        return res;
+    },
+
     _ensureFlowVizEventStore() {
         if (!this.workflowData) this.workflowData = {};
         if (!this.workflowData.flowVizEvents || typeof this.workflowData.flowVizEvents !== 'object') {
@@ -84,17 +189,60 @@ const PPTGeneratorWorkflow = {
 
         const ds = this.workflowData.designSystem;
 
-        if (!ds.colors || typeof ds.colors !== 'object') ds.colors = {};
-        if (typeof ds.colors.primary !== 'string') ds.colors.primary = '#0ea5e9';
-        if (typeof ds.colors.secondary !== 'string') ds.colors.secondary = '#7c3aed';
-        if (typeof ds.colors.bg !== 'string') ds.colors.bg = '#ffffff';
-        if (typeof ds.colors.text !== 'string') ds.colors.text = '#0f172a';
-        if (typeof ds.colors.accent !== 'string') ds.colors.accent = '#22c55e';
+        // DesignSystem UI v2 userConfig model: {designPreferences, designSystemOverrides}
+        // Migrate legacy {colors,fonts,visualPreference} fields into designSystemOverrides.
+        const legacyColors = ds.colors && typeof ds.colors === 'object' ? ds.colors : null;
+        const legacyFonts = ds.fonts && typeof ds.fonts === 'object' ? ds.fonts : null;
+        const legacyVisualPref = ds.visualPreference && typeof ds.visualPreference === 'object' ? ds.visualPreference : null;
 
-        if (!ds.fonts || typeof ds.fonts !== 'object') ds.fonts = {};
-        if (typeof ds.fonts.titleFont !== 'string') ds.fonts.titleFont = 'Inter';
-        if (typeof ds.fonts.bodyFont !== 'string') ds.fonts.bodyFont = 'Inter';
-        if (typeof ds.fonts.fontSize !== 'number') ds.fonts.fontSize = 16;
+        if (!ds.designPreferences || typeof ds.designPreferences !== 'object') ds.designPreferences = {};
+        const prefs = ds.designPreferences;
+        if (!Array.isArray(prefs.styleKeywords)) prefs.styleKeywords = [];
+        if (typeof prefs.referenceImageSummary !== 'string') prefs.referenceImageSummary = '';
+        if (typeof prefs.industry !== 'string') prefs.industry = '';
+        if (typeof prefs.tone !== 'string') prefs.tone = '';
+
+        if (!ds.designSystemOverrides || typeof ds.designSystemOverrides !== 'object') ds.designSystemOverrides = {};
+        const overrides = ds.designSystemOverrides;
+
+        if (!overrides.colors || typeof overrides.colors !== 'object') overrides.colors = {};
+        if (legacyColors) {
+            for (const [k, v] of Object.entries(legacyColors)) {
+                if (typeof overrides.colors[k] !== 'string' && typeof v === 'string') overrides.colors[k] = v;
+            }
+        }
+        if (typeof overrides.colors.primary !== 'string') overrides.colors.primary = '#0ea5e9';
+        if (typeof overrides.colors.secondary !== 'string') overrides.colors.secondary = '#7c3aed';
+        if (typeof overrides.colors.bg !== 'string') overrides.colors.bg = '#ffffff';
+        if (typeof overrides.colors.text !== 'string') overrides.colors.text = '#0f172a';
+        if (typeof overrides.colors.accent !== 'string') overrides.colors.accent = '#22c55e';
+
+        if (!overrides.typography || typeof overrides.typography !== 'object') overrides.typography = {};
+        if (legacyFonts) {
+            for (const [k, v] of Object.entries(legacyFonts)) {
+                if (typeof overrides.typography[k] === 'undefined') overrides.typography[k] = v;
+            }
+        }
+        if (typeof overrides.typography.titleFont !== 'string') overrides.typography.titleFont = 'Inter';
+        if (typeof overrides.typography.bodyFont !== 'string') overrides.typography.bodyFont = 'Inter';
+        if (typeof overrides.typography.fontSize !== 'number') overrides.typography.fontSize = 16;
+
+        if (!overrides.spacing || typeof overrides.spacing !== 'object') overrides.spacing = {};
+        if (!overrides.effects || typeof overrides.effects !== 'object') overrides.effects = {};
+
+        if (!overrides.visualPreference || typeof overrides.visualPreference !== 'object') overrides.visualPreference = {};
+        if (legacyVisualPref && typeof overrides.visualPreference.mode !== 'string' && typeof legacyVisualPref.mode === 'string') {
+            overrides.visualPreference.mode = legacyVisualPref.mode;
+        }
+        const allowedVisualModes = new Set(['ai-first', 'svg-first', 'balanced']);
+        if (typeof overrides.visualPreference.mode !== 'string' || !allowedVisualModes.has(overrides.visualPreference.mode)) {
+            overrides.visualPreference.mode = 'balanced';
+        }
+
+        // Legacy aliases (kept for existing UI + stored projects)
+        ds.colors = overrides.colors;
+        ds.fonts = overrides.typography;
+        ds.visualPreference = overrides.visualPreference;
 
         const allowedDensity = new Set(['compact', 'balanced', 'spacious']);
         if (typeof ds.density !== 'string' || !allowedDensity.has(ds.density)) ds.density = 'balanced';
@@ -196,12 +344,35 @@ const PPTGeneratorWorkflow = {
                     return { id, provider: 'ppt_ai_api_service', tags };
                 });
 
+                // Debug: Log ModelRouter configuration
+                console.log('[PPTGeneratorWorkflow] ModelRouter config:', {
+                    usageConfig,
+                    textSet: Array.from(textSet),
+                    visionSet: Array.from(visionSet),
+                    allModelIds: Array.from(allModelIds),
+                    modelsCount: models.length,
+                });
+
+                // 关键检查：验证每个 usage 都有模型配置
+                const missingUsages = textUsages.filter(u => !usageConfig[u]?.length);
+                if (missingUsages.length) {
+                    console.warn('[PPTGeneratorWorkflow] WARNING: Missing models for usages:', missingUsages);
+                }
+                // 特别检查 writer
+                if (!usageConfig.writer?.length) {
+                    console.error('[PPTGeneratorWorkflow] CRITICAL: No models configured for writer!', {
+                        writerConfig: usageConfig.writer,
+                        allUsageConfigs: Object.fromEntries(textUsages.map(u => [u, usageConfig[u]?.length || 0]))
+                    });
+                }
+
                 const providerCallContext = new WeakMap();
                 const provider = {
                     id: 'ppt_ai_api_service',
                     name: 'PPT AI API Service',
                     chat: async ({ model, messages, images } = {}) => {
                         const modelId = typeof model === 'string' ? model.trim() : '';
+                        console.log('[PPTGeneratorWorkflow] provider.chat called:', { modelId, hasMessages: !!messages?.length, hasImages: !!images?.length });
                         const hasImages = Array.isArray(images) && images.length > 0;
                         const ctx = (Array.isArray(messages) && providerCallContext.get(messages)) || {};
                         const temperature = typeof ctx?.temperature === 'number' && Number.isFinite(ctx.temperature) ? ctx.temperature : 0.7;
@@ -217,26 +388,48 @@ const PPTGeneratorWorkflow = {
                         }
 
                         if (!baseAiApiService) throw new Error('aiApiService not available');
-                        if (typeof baseAiApiService?._resolveModelConfig === 'function' && typeof baseAiApiService?._callApi === 'function') {
-                            const idx = modelId.indexOf(':');
-                            const sourceKey = idx > 0 ? modelId.slice(0, idx) : modelId;
-                            const specificModel = idx > 0 ? modelId.slice(idx + 1) : null;
 
-                            const config = baseAiApiService._resolveModelConfig(sourceKey || 'auto', specificModel);
-                            if (!config) throw new Error(`No available model config for: ${modelId || 'auto'}`);
+                        // 重试逻辑：对于 401/429 错误，等待后重试一次
+                        const attemptCall = async () => {
+                            if (typeof baseAiApiService?._resolveModelConfig === 'function' && typeof baseAiApiService?._callApi === 'function') {
+                                const idx = modelId.indexOf(':');
+                                const sourceKey = idx > 0 ? modelId.slice(0, idx) : modelId;
+                                const specificModel = idx > 0 ? modelId.slice(idx + 1) : null;
 
-                            return await baseAiApiService._callApi(config, messages, temperature, maxTokens);
+                                console.log('[PPTGeneratorWorkflow] _resolveModelConfig:', { sourceKey, specificModel });
+                                const config = baseAiApiService._resolveModelConfig(sourceKey || 'auto', specificModel);
+                                if (!config) {
+                                    console.error('[PPTGeneratorWorkflow] No model config found:', { modelId, sourceKey, specificModel });
+                                    throw new Error(`No available model config for: ${modelId || 'auto'}`);
+                                }
+
+                                return await baseAiApiService._callApi(config, messages, temperature, maxTokens);
+                            }
+
+                            if (typeof baseAiApiService?.chat !== 'function') throw new Error('aiApiService.chat not available');
+                            return await baseAiApiService.chat({ messages, model: modelId || 'auto', temperature, maxTokens });
+                        };
+
+                        try {
+                            return await attemptCall();
+                        } catch (err) {
+                            const status = err?.status || err?.response?.status || (err?.message?.match?.(/4\d{2}/)?.[0]);
+                            // 对于 401/429，等待 2 秒后重试一次（可能是限流）
+                            if (status === 401 || status === 429 || status === '401' || status === '429') {
+                                console.warn('[PPTGeneratorWorkflow] Rate limit detected, retrying in 2s...', { status });
+                                await new Promise(r => setTimeout(r, 2000));
+                                return await attemptCall();
+                            }
+                            throw err;
                         }
-
-                        if (typeof baseAiApiService?.chat !== 'function') throw new Error('aiApiService.chat not available');
-                        return await baseAiApiService.chat({ messages, model: modelId || 'auto', temperature, maxTokens });
                     }
                 };
 
                 const router = new ModelRouter({
                     models,
                     usageConfig,
-                    providers: new Map([[provider.id, provider]])
+                    providers: new Map([[provider.id, provider]]),
+                    cooldownMs: 5000  // 5秒冷却，避免限流误判导致长时间不可用
                 });
 
                 // Backward-compatible call signature: call(messagesOrPrompt, {usage, images})
@@ -343,6 +536,16 @@ const PPTGeneratorWorkflow = {
         } else if (name.startsWith('design.')) {
             this._pushFlowVizEvent('design', name, payload);
             this._pushToProcessPanel(name, payload);
+        }
+
+        if (name === 'design.brainstorm.candidates') {
+            if (!this.workflowData) this.workflowData = {};
+            this.workflowData.brainstormCandidates = {
+                candidatesBySlide: Array.isArray(payload?.candidatesBySlide) ? payload.candidatesBySlide : [],
+                selectedIdeas: Array.isArray(payload?.selectedIdeas) ? payload.selectedIdeas : [],
+                updatedAt: Date.now(),
+            };
+            this._scheduleVizRerender?.();
         }
 
         // DeepSearch UI integration (T1 event bus)
@@ -956,7 +1159,7 @@ const PPTGeneratorWorkflow = {
                 const stage = new DesignStage(batchSize ? { batchSize } : undefined);
 
                 const deckPackage = await stage.run(contentPackage, {
-                    runContext: { ...(ctx || {}), userConfig: this.workflowData.designSystem || {} },
+                    runContext: { ...(ctx || {}), userConfig: this._getDesignStageUserConfig() },
                     emit: forwardEmit,
                     signal: api.signal,
                     aiApiService: api.aiApiService
@@ -1117,6 +1320,8 @@ const PPTGeneratorWorkflow = {
         this.workflowData._pastedSources = [source];
         this.workflowData._useDeepSearch = true;
         this.workflowData.reportMarkdown = content;
+        // 注意：不在这里调用 _onReportUpdated，原始输入不应记录为报告版本
+        // 只有 AI 生成的报告才应该被版本化
 
         if (typeof this.logTerminal === 'function') {
             this.logTerminal('系统', '长文档已加载，将进行深度分析。请设置项目目标后开始。', 'normal');
@@ -1157,6 +1362,7 @@ const PPTGeneratorWorkflow = {
         this.workflowData.report = contentPackage.report;
         this.workflowData.slideIntents = contentPackage.slideIntents;
         this.workflowData.reportMarkdown = content;
+        // 注意：不在这里调用 _onReportUpdated，初始输入不应记录为报告版本
 
         // 标记需要运行真正的 TextPrep（在 confirmScript 后执行）
         this.workflowData._needsTextPrep = true;
@@ -1564,6 +1770,10 @@ const PPTGeneratorWorkflow = {
             gaps: {
                 blockAfterMisses: 5,    // 允许更多轮次尝试
             },
+            // ReAct Writer: 问题驱动的渐进式写作
+            write: {
+                writerMode: 'react',    // 'react' | 'legacy'
+            },
         };
 
         this.workflowData._deepsearchInput = { sources, taskGoal, userConfig };
@@ -1580,6 +1790,7 @@ const PPTGeneratorWorkflow = {
         this.workflowData.contentPackage = pkg;
         this.workflowData.report = pkg?.report || null;
         this.workflowData.slideIntents = pkg?.slideIntents || [];
+        this._onReportUpdated?.(pkg?.report?.markdown || '', `DeepSearch 报告（第 ${(typeof state?.iteration === 'number' ? state.iteration : 0) + 1} 轮）`);
 
         this._syncDeepSearchVizFromState(state);
 
@@ -1634,6 +1845,7 @@ const PPTGeneratorWorkflow = {
                 title: this.currentProject?.title || 'New Mission',
                 retrieval: { enableToolChain: true, minGrepHits: 15, bm25MinScore: 0.5 },
                 gaps: { blockAfterMisses: 5 },
+                write: { writerMode: 'react' },
             };
 
         if (!this._deepsearchState) {
@@ -1659,6 +1871,7 @@ const PPTGeneratorWorkflow = {
             this.workflowData.contentPackage = pkg;
             this.workflowData.report = pkg?.report || null;
             this.workflowData.slideIntents = pkg?.slideIntents || [];
+            this._onReportUpdated?.(pkg?.report?.markdown || '', `DeepSearch 报告（第 ${state.iteration + 1} 轮）`);
             this._syncDeepSearchVizFromState(state);
             this.state = 'deepsearch_review';
             this.renderPreviewArea();
@@ -1754,6 +1967,8 @@ const PPTGeneratorWorkflow = {
         console.log('[Workflow] phase2_Scripting 开始');
         const reportMd = this.workflowData?.report?.markdown || '';
         this.workflowData.reportMarkdown = reportMd;
+        const iter = typeof this.workflowData?.deepsearchViz?.iteration === 'number' ? this.workflowData.deepsearchViz.iteration : null;
+        this._onReportUpdated?.(reportMd, iter !== null ? `DeepSearch 报告（第 ${iter + 1} 轮）` : 'DeepSearch 报告');
 
         this.state = 'script_review';
         console.log('[Workflow] 进入 script_review 状态');
@@ -1775,15 +1990,25 @@ const PPTGeneratorWorkflow = {
     },
 
     confirmScript() {
-        console.log('[Workflow] confirmScript 被调用，进入 page_layout');
-        this.state = 'page_layout';
-        this.renderPreviewArea();
-        this.updateTodos(this._runtimeTodoTexts.map((text, i) => {
-            if (i < 3) return { text, status: 'completed' };
-            if (i === 3) return { text, status: 'active' };
-            return { text, status: 'pending' };
-        }));
-        this.phase3_PageLayout();
+        const md = typeof this.workflowData?.reportMarkdown === 'string'
+            ? this.workflowData.reportMarkdown
+            : (this.workflowData?.report?.markdown || '');
+
+        this._onReportUpdated?.(md, '当前编辑稿');
+
+        const panel = this._ensureReportReviewPanel?.();
+        if (!panel) {
+            this._confirmScriptToPageLayout();
+            return;
+        }
+
+        if (panel.versions.length > 0) {
+            panel.selectedVersionIndex = panel.versions.length - 1;
+            const v = panel.versions[panel.selectedVersionIndex];
+            if (v) v.isNew = false;
+            panel.updateBadge();
+        }
+        panel.open();
     },
 
     autoFillAnswers() {

@@ -3,6 +3,10 @@ import { getModelCaller } from "./model.js";
 import { buildReportSkeleton, runReviewerAgent, validateReviewerOutput } from "./review.js";
 import { applyPatchPlan } from "./report-diff.js";
 import { finalizeCitationsInMarkdown } from "./citations.js";
+import { runReactReviewer } from "./react-reviewer.js";
+import { createToolExecutor } from "./react-reviewer-tools.js";
+import { runReactWriter } from "./react-writer.js";
+import { deriveSlideIntentsFromReport } from "./report-to-slide-intents.js";
 
 export { finalizeCitationsInMarkdown };
 
@@ -872,6 +876,32 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
   const claimIds = claims.map((c) => toNonEmptyString(c?.claimId)).filter(Boolean);
   const title = toNonEmptyString(state?.userConfig?.title) || toNonEmptyString(state?.L1?.scanSummary?.title) || "";
 
+  // 诊断日志：检查 write 阶段获取的数据
+  const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
+  const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+  const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
+  console.log("[DeepSearch] write stage data check:", {
+    claimCount: claims.length,
+    claimIds: claimIds.slice(0, 5),
+    evidenceCount: evidenceLedger.length,
+    gapCount: gaps.length,
+    sourceCount: sources.length,
+    iteration: state?.iteration,
+    hasL1: !!state?.L1,
+    L1Keys: state?.L1 ? Object.keys(state.L1) : [],
+  });
+
+  // 如果 claims 为空，记录警告
+  if (claims.length === 0) {
+    console.warn("[DeepSearch] write stage WARNING: claims is empty!", {
+      hasState: !!state,
+      stateType: state?.constructor?.name,
+      L1Type: typeof state?.L1,
+      L1ClaimsType: typeof state?.L1?.claims,
+      L1ClaimsIsArray: Array.isArray(state?.L1?.claims),
+    });
+  }
+
   emitWriteProgress(emit, {
     current: 1,
     total: 4,
@@ -890,7 +920,7 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
     detail: { usedLLM: Boolean(llm?.slideIntents) },
   });
 
-  const slideIntents = llm?.slideIntents ? ensureCoreSlidesMerged(llm.slideIntents, { title, claimIds }) : ensureCoreSlides({ title, claimIds });
+  let slideIntents = llm?.slideIntents ? ensureCoreSlidesMerged(llm.slideIntents, { title, claimIds }) : ensureCoreSlides({ title, claimIds });
   const outlineCandidates =
     llm?.outlineCandidates && Array.isArray(llm.outlineCandidates) && llm.outlineCandidates.length
       ? llm.outlineCandidates
@@ -919,24 +949,82 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
   const gapsForReport = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
   const sourcesForReport = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
 
+  // 检查写作模式：react（问题驱动）或 legacy（JSON dump）
+  const writerMode = toNonEmptyString(state?.userConfig?.write?.writerMode) || "legacy";
+
   let report = null;
   let reportStrategy = "single";
-  if (reportConfig.strategy === "toc-based") {
-    report = await generateReportTocBasedWithLLM(
-      state,
-      { claims: claimsForReport, evidenceLedger: evidenceForReport, gaps: gapsForReport, sources: sourcesForReport, config: reportConfig },
-      stageApi,
-      emit
-    );
-    if (report) reportStrategy = "toc-based";
+
+  if (writerMode === "react" && claimsForReport.length > 0) {
+    // ReAct Writer 模式：问题驱动的渐进式写作
+    emit?.("deepsearch.write.mode", { mode: "react", reason: "问题驱动写作，逐步检索证据" });
+
+    try {
+      const reactWriterResult = await runReactWriter(
+        {
+          state,
+          claims: claimsForReport,
+          evidenceLedger: evidenceForReport,
+          sources: sourcesForReport,
+          stageApi,
+        },
+        {
+          targetWords: reportConfig.targetWords,
+          minWords: reportConfig.minWords,
+          maxWords: reportConfig.maxWords,
+          hardLimit: 30,
+          onStep: (step) => {
+            emit?.("deepsearch.write.react.step", {
+              stepNumber: step.stepNumber,
+              thought: step.thought,
+              tool: step.action?.tool,
+              hasObservation: !!step.observation,
+            });
+          },
+        }
+      );
+
+      if (reactWriterResult && reactWriterResult.markdown) {
+        report = {
+          title: reactWriterResult.title,
+          draftMarkdown: reactWriterResult.draftMarkdown,
+          markdown: reactWriterResult.markdown,
+          sections: reactWriterResult.sections,
+          citations: reactWriterResult.citations,
+        };
+        reportStrategy = "react";
+        console.log("[DeepSearch] ReAct Writer completed:", {
+          stepCount: reactWriterResult.stepCount,
+          sectionsCount: reactWriterResult.sections?.length,
+          wordCount: countWordsApprox(reactWriterResult.markdown),
+        });
+      }
+    } catch (err) {
+      console.warn("[DeepSearch] ReAct Writer failed, falling back to legacy:", err);
+      emit?.("deepsearch.write.react.failed", { error: String(err?.message || err) });
+      report = null;
+    }
   }
+
+  // Legacy 模式或 ReAct 失败时的回退
   if (!report) {
-    report =
-      (await generateReportSingleWithLLM(
+    if (reportConfig.strategy === "toc-based") {
+      report = await generateReportTocBasedWithLLM(
         state,
         { claims: claimsForReport, evidenceLedger: evidenceForReport, gaps: gapsForReport, sources: sourcesForReport, config: reportConfig },
-        stageApi
-      )) || generateReport(claimsForReport, evidenceForReport, gapsForReport, sourcesForReport, String(state?.taskGoal || ""));
+        stageApi,
+        emit
+      );
+      if (report) reportStrategy = "toc-based";
+    }
+    if (!report) {
+      report =
+        (await generateReportSingleWithLLM(
+          state,
+          { claims: claimsForReport, evidenceLedger: evidenceForReport, gaps: gapsForReport, sources: sourcesForReport, config: reportConfig },
+          stageApi
+        )) || generateReport(claimsForReport, evidenceForReport, gapsForReport, sourcesForReport, String(state?.taskGoal || ""));
+    }
   }
 
   report = {
@@ -952,52 +1040,210 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
   let reviewFeedback = { reviewed: false, rounds: 0, finalScore: 1, appliedPatches: 0 };
 
   if (reviewerConfig.enableReviewer) {
-    let current = report;
-    let rounds = 0;
-    let appliedPatches = 0;
-    let finalScore = 1;
+    const reviewerMode = toNonEmptyString(state?.userConfig?.write?.reviewerMode) || "legacy";
 
-    for (let round = 1; round <= reviewerConfig.maxReviewRounds; round++) {
-      rounds = round;
-      const reportSkeleton = buildReportSkeleton(current, { targetWords: reportConfig.targetWords });
-      const constraints = {
-        tone: toNonEmptyString(state?.userConfig?.write?.tone) || toNonEmptyString(state?.userConfig?.tone) || "neutral",
-        audience: toNonEmptyString(state?.userConfig?.write?.audience) || toNonEmptyString(state?.userConfig?.audience) || "general",
-        reportLength: String(reportConfig.reportLength || ""),
-      };
+    if (reviewerMode === "react") {
+      // ReAct Reviewer 模式
+      try {
+        const toolExecutor = createToolExecutor({
+          report,
+          state,
+          evidenceLedger: evidenceForReport,
+          claims: claimsForReport,
+          sources: sourcesForReport,
+        });
 
-      emit?.("deepsearch.write.review.started", {
-        round,
-        maxRounds: reviewerConfig.maxReviewRounds,
-        sectionCount: reportSkeleton.sections.length,
-        citationCount: reportSkeleton.globalStats.citationCount,
-      });
+        emit?.("deepsearch.write.review.started", {
+          mode: "react",
+          recommendedSteps: 5,
+          hardLimit: 15,
+          wordCount: countWordsApprox(report?.markdown),
+        });
 
-      checkCancelled(stageApi);
-      const reviewerOverride = stageApi?.reviewer && typeof stageApi.reviewer.review === "function" ? stageApi.reviewer.review : null;
-      const raw = reviewerOverride
-        ? await reviewerOverride({ reportSkeleton, constraints, report: current, state })
-        : await runReviewerAgent(runContext, { reportSkeleton, constraints, state }, stageApi);
+        const reactResult = await runReactReviewer(
+          report,
+          {
+            state,
+            evidenceLedger: evidenceForReport,
+            claims: claimsForReport,
+            sources: sourcesForReport,
+            stageApi,
+          },
+          {
+            recommendedSteps: 5,
+            hardLimit: 15,
+            toolExecutor,
+            onStep: (step) => {
+              emit?.("deepsearch.write.react.step", {
+                actor: "write",
+                status: "progress",
+                payload: {
+                  ...step,
+                  wordCount: countWordsApprox(report?.markdown),
+                },
+              });
+            },
+          }
+        );
 
-      const out = validateReviewerOutput(raw);
+        report = reactResult.finalReport;
+        reviewFeedback = {
+          reviewed: true,
+          rounds: reactResult.steps.length,
+          finalScore: reactResult.qualityScore / 10, // 转换为 0-1 范围
+          appliedPatches: reactResult.toolCalls.filter((t) => t.tool === "applyPatch" && t.result?.success).length,
+          mode: "react",
+          terminationReason: reactResult.terminationReason,
+        };
 
-      emit?.("deepsearch.write.review.completed", { round, overallScore: out.overallScore, issueCount: out.issues.length, patchCount: out.patchPlan.length });
+        emit?.("deepsearch.write.review.completed", {
+          mode: "react",
+          qualityScore: reactResult.qualityScore,
+          remainingIssues: reactResult.remainingIssues,
+          totalSteps: reactResult.steps.length,
+          toolCalls: reactResult.toolCalls.length,
+          wordCount: countWordsApprox(report?.markdown),
+        });
+      } catch (err) {
+        // ReAct Reviewer 失败，降级到 legacy 模式
+        console.warn("[write] ReAct reviewer failed, falling back to legacy:", err);
+        emit?.("deepsearch.write.react.fallback", {
+          error: String(err.message || err),
+          fallbackMode: "legacy",
+        });
 
-      finalScore = out.overallScore;
-      if (!out.patchPlan.length) break;
+        // 继续执行 legacy 逻辑（下面的代码）
+        let current = report;
+        let rounds = 0;
+        let appliedPatches = 0;
+        let finalScore = 1;
 
-      current = applyPatchPlan(current, out.patchPlan, evidenceForReport, sourcesForReport);
-      appliedPatches += out.patchPlan.length;
-      emit?.("deepsearch.write.patch.applied", { round, patchCount: out.patchPlan.length, appliedPatches });
+        for (let round = 1; round <= reviewerConfig.maxReviewRounds; round++) {
+          rounds = round;
+          const reportSkeleton = buildReportSkeleton(current, { targetWords: reportConfig.targetWords });
+          const constraints = {
+            tone: toNonEmptyString(state?.userConfig?.write?.tone) || toNonEmptyString(state?.userConfig?.tone) || "neutral",
+            audience: toNonEmptyString(state?.userConfig?.write?.audience) || toNonEmptyString(state?.userConfig?.audience) || "general",
+            reportLength: String(reportConfig.reportLength || ""),
+          };
+
+          emit?.("deepsearch.write.review.started", {
+            mode: "legacy",
+            round,
+            maxRounds: reviewerConfig.maxReviewRounds,
+            sectionCount: reportSkeleton.sections.length,
+            citationCount: reportSkeleton.globalStats.citationCount,
+            wordCount: countWordsApprox(current?.markdown),
+          });
+
+          checkCancelled(stageApi);
+          const reviewerOverride = stageApi?.reviewer && typeof stageApi.reviewer.review === "function" ? stageApi.reviewer.review : null;
+          const raw = reviewerOverride
+            ? await reviewerOverride({ reportSkeleton, constraints, report: current, state })
+            : await runReviewerAgent(runContext, { reportSkeleton, constraints, state }, stageApi);
+
+          const out = validateReviewerOutput(raw);
+
+          emit?.("deepsearch.write.review.completed", {
+            mode: "legacy",
+            round,
+            overallScore: out.overallScore,
+            issueCount: out.issues.length,
+            patchCount: out.patchPlan.length,
+            wordCount: countWordsApprox(current?.markdown),
+          });
+
+          finalScore = out.overallScore;
+          if (!out.patchPlan.length) break;
+
+          current = applyPatchPlan(current, out.patchPlan, evidenceForReport, sourcesForReport);
+          appliedPatches += out.patchPlan.length;
+          emit?.("deepsearch.write.patch.applied", {
+            mode: "legacy",
+            round,
+            patchCount: out.patchPlan.length,
+            appliedPatches,
+            wordCount: countWordsApprox(current?.markdown),
+          });
+        }
+
+        report = current;
+        reviewFeedback = { reviewed: true, rounds, finalScore, appliedPatches, mode: "legacy", fallbackFrom: "react" };
+      }
+    } else {
+      // Legacy 模式（默认）
+      let current = report;
+      let rounds = 0;
+      let appliedPatches = 0;
+      let finalScore = 1;
+
+      for (let round = 1; round <= reviewerConfig.maxReviewRounds; round++) {
+        rounds = round;
+        const reportSkeleton = buildReportSkeleton(current, { targetWords: reportConfig.targetWords });
+        const constraints = {
+          tone: toNonEmptyString(state?.userConfig?.write?.tone) || toNonEmptyString(state?.userConfig?.tone) || "neutral",
+          audience: toNonEmptyString(state?.userConfig?.write?.audience) || toNonEmptyString(state?.userConfig?.audience) || "general",
+          reportLength: String(reportConfig.reportLength || ""),
+        };
+
+        emit?.("deepsearch.write.review.started", {
+          mode: "legacy",
+          round,
+          maxRounds: reviewerConfig.maxReviewRounds,
+          sectionCount: reportSkeleton.sections.length,
+          citationCount: reportSkeleton.globalStats.citationCount,
+          wordCount: countWordsApprox(current?.markdown),
+        });
+
+        checkCancelled(stageApi);
+        const reviewerOverride = stageApi?.reviewer && typeof stageApi.reviewer.review === "function" ? stageApi.reviewer.review : null;
+        const raw = reviewerOverride
+          ? await reviewerOverride({ reportSkeleton, constraints, report: current, state })
+          : await runReviewerAgent(runContext, { reportSkeleton, constraints, state }, stageApi);
+
+        const out = validateReviewerOutput(raw);
+
+        emit?.("deepsearch.write.review.completed", {
+          mode: "legacy",
+          round,
+          overallScore: out.overallScore,
+          issueCount: out.issues.length,
+          patchCount: out.patchPlan.length,
+          wordCount: countWordsApprox(current?.markdown),
+        });
+
+        finalScore = out.overallScore;
+        if (!out.patchPlan.length) break;
+
+        current = applyPatchPlan(current, out.patchPlan, evidenceForReport, sourcesForReport);
+        appliedPatches += out.patchPlan.length;
+        emit?.("deepsearch.write.patch.applied", {
+          mode: "legacy",
+          round,
+          patchCount: out.patchPlan.length,
+          appliedPatches,
+          wordCount: countWordsApprox(current?.markdown),
+        });
+      }
+
+      report = current;
+      reviewFeedback = { reviewed: true, rounds, finalScore, appliedPatches, mode: "legacy" };
     }
-
-    report = current;
-    reviewFeedback = { reviewed: true, rounds, finalScore, appliedPatches };
   }
 
   report.reviewFeedback = reviewFeedback;
   report.actualWords = countWordsApprox(report?.markdown);
   state.L1.report = report;
+
+  // Design Stage v2: derive slideIntents from report.sections to keep content consistent.
+  slideIntents = deriveSlideIntentsFromReport(report, {
+    includeCore: true,
+    idPrefix: "s_",
+    keepClaimIds: true,
+    keepContentString: true,
+    targetSlides: state?.userConfig?.targetSlides,
+  });
+  state.L1.slideIntents = slideIntents;
 
   const feedbackToResearch = computeFeedbackToResearch(state, { minResolvedEvidencePerClaim: 1 });
 
@@ -1009,9 +1255,9 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
     detail: { citationCount: Array.isArray(report?.citations) ? report.citations.length : 0, sectionCount: Array.isArray(report?.sections) ? report.sections.length : 0 },
   });
 
-  state.addTimeline({ name: "deepsearch.write", status: "completed", payload: { slideCount: slideIntents.length, citationCount: report.citations.length } });
+  state.addTimeline({ name: "deepsearch.write", status: "completed", payload: { slideCount: slideIntents.length, citationCount: report.citations.length, wordCount: countWordsApprox(report?.markdown) } });
 
-  emit?.("deepsearch.write.completed", { slideCount: slideIntents.length, claimCount: claimIds.length });
+  emit?.("deepsearch.write.completed", { slideCount: slideIntents.length, claimCount: claimIds.length, wordCount: countWordsApprox(report?.markdown) });
   return { state, slideIntents, outlineCandidates, report, feedbackToResearch };
 }
 

@@ -228,13 +228,63 @@ function pickClaimsText(slideIntent, claims, max = 6) {
   return out;
 }
 
+function extractContentFromSlideIntent(slideIntent) {
+  const content = slideIntent?.content;
+
+  if (typeof content === "string" && content.trim()) {
+    return { text: content.trim(), source: "content" };
+  }
+
+  if (content && typeof content === "object") {
+    const markdown = content?.markdown;
+    if (typeof markdown === "string" && markdown.trim()) {
+      return { text: markdown.trim(), source: "content.markdown" };
+    }
+  }
+
+  const keyPoints = asLines(slideIntent?.keyPoints, 12);
+  if (keyPoints.length) return { text: keyPoints.join("\n"), source: "keyPoints" };
+
+  const objective = String(slideIntent?.objective || "").trim();
+  if (objective) return { text: objective, source: "objective" };
+
+  return { text: "", source: "empty" };
+}
+
+function stripMarkdownNoise(markdown) {
+  return String(markdown || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/^#{1,6}\s+.+\n?/gm, "");
+}
+
+function toDisplayLines(markdownOrText, max = 8) {
+  const cleaned = stripMarkdownNoise(markdownOrText);
+  const lines = cleaned
+    .split("\n")
+    .map((l) => l.trim())
+    .map((l) => l.replace(/^[-*+]\s+/, "").replace(/^\d+\.\s+/, ""))
+    .filter(Boolean);
+  if (!lines.length) {
+    const one = cleaned.trim().replace(/\s+/g, " ");
+    return one ? [one.slice(0, 240) + (one.length > 240 ? "..." : "")] : [];
+  }
+  return lines.slice(0, max);
+}
+
 function buildBodyHtml(pageType, slideIntent, claims, evidences) {
   const t = normalizePageType(pageType);
+  const extracted = extractContentFromSlideIntent(slideIntent);
 
-  if (t === "cover") return escapeHtml(slideIntent?.objective || "");
+  if (t === "cover") {
+    const objective = String(slideIntent?.objective || "").trim();
+    if (objective) return escapeHtml(objective);
+    const lines = toDisplayLines(extracted.text, 4);
+    return escapeHtml(lines.join(" · ") || " ");
+  }
 
   if (t === "agenda") {
-    const items = asLines(slideIntent?.keyPoints, 10);
+    const items = toDisplayLines(extracted.text, 10);
     return items.length ? items.map((v, i) => `${String(i + 1).padStart(2, "0")}  ${escapeHtml(v)}`).join("<br>") : " ";
   }
 
@@ -246,7 +296,7 @@ function buildBodyHtml(pageType, slideIntent, claims, evidences) {
   }
 
   if (t === "comparison") {
-    const hints = asLines(slideIntent?.keyPoints, 8);
+    const hints = toDisplayLines(extracted.text, 8);
     const left = hints.filter((_, i) => i % 2 === 0).slice(0, 4);
     const right = hints.filter((_, i) => i % 2 === 1).slice(0, 4);
     const l = left.length ? left.map((v) => `• ${escapeHtml(v)}`).join("<br>") : " ";
@@ -254,22 +304,14 @@ function buildBodyHtml(pageType, slideIntent, claims, evidences) {
     return `<span style="font-weight:700">Option A</span><br>${l}<br><br><span style="font-weight:700">Option B</span><br>${r}`;
   }
 
+  const shouldIncludeClaims = extracted.source !== "content" && extracted.source !== "content.markdown";
   const points = [
-    ...asLines(slideIntent?.keyPoints, 6),
-    ...asLines(pickClaimsText(slideIntent, claims, 6), 6),
+    ...toDisplayLines(extracted.text, 8),
+    ...(shouldIncludeClaims ? asLines(pickClaimsText(slideIntent, claims, 6), 6) : []),
   ].slice(0, 8);
 
   if (points.length) {
     return points.map((v) => `• ${escapeHtml(v)}`).join("<br>");
-  }
-
-  // Fallback: 使用 content 字段（如果存在）
-  const contentText = typeof slideIntent?.content === "string" ? slideIntent.content : "";
-  const contentBody = contentText.replace(/^#{1,6}\s+.+\n?/gm, "").trim();
-  if (contentBody) {
-    // 从 content 中提取显示内容，最多 300 字符
-    const displayText = contentBody.slice(0, 300) + (contentBody.length > 300 ? "..." : "");
-    return escapeHtml(displayText);
   }
 
   return escapeHtml(slideIntent?.objective || " ");

@@ -1527,6 +1527,15 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   state.L1.conflicts = conflicts;
   state.L1.openQuestions = openQuestions;
 
+  // 确认日志：验证 claims 被正确写入 state
+  console.log("[DeepSearch] understand stage wrote to state.L1:", {
+    claimCount: finalClaims.length,
+    evidenceCount: finalEvidenceLedger.length,
+    stateL1ClaimCount: Array.isArray(state?.L1?.claims) ? state.L1.claims.length : "not array",
+    stateL1EvidenceCount: Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger.length : "not array",
+    iteration: state?.iteration,
+  });
+
   emit?.("deepsearch.claim.snapshot", {
     runId: toNonEmptyString(state?.runId) || "run_unknown",
     iteration: safeInt(state?.iteration) ?? 0,

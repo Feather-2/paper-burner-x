@@ -208,13 +208,30 @@ export class ModelRouter extends EventEmitter {
     const requiredTags = this._requiredTags({ usage: u, images });
     let lastError = null;
 
+    // Debug: 记录候选模型和健康状态
+    const debugCandidates = candidates.map((id) => {
+      const entry = this._models.get(id);
+      const health = this._health.get(id);
+      const available = this.isAvailable(id);
+      const hasRequiredTags = entry ? this._supportsTags(entry, requiredTags) : false;
+      return { id, available, hasRequiredTags, unhealthyUntilMs: health?.unhealthyUntilMs, failures: health?.failures };
+    });
+    console.log(`[ModelRouter] call usage=${u}`, { candidates: debugCandidates, requiredTags: Array.from(requiredTags) });
+
     for (let idx = 0; idx < candidates.length; idx++) {
       const modelId = candidates[idx];
       const entry = this._models.get(modelId);
       if (!entry) throw new Error(`Unknown model id: ${modelId}`);
 
-      if (!this._supportsTags(entry, requiredTags)) continue;
-      if (!this.isAvailable(modelId)) continue;
+      if (!this._supportsTags(entry, requiredTags)) {
+        console.log(`[ModelRouter] skip ${modelId}: missing required tags`);
+        continue;
+      }
+      if (!this.isAvailable(modelId)) {
+        const h = this._health.get(modelId);
+        console.log(`[ModelRouter] skip ${modelId}: unhealthy until ${new Date(h?.unhealthyUntilMs || 0).toISOString()}`);
+        continue;
+      }
 
       const provider = this._getProvider(entry.provider);
       if (!provider) throw new Error(`Missing provider: ${entry.provider} for model ${modelId}`);

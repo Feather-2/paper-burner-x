@@ -4,7 +4,10 @@ import { buildSlideHtml } from "./dsl-builder.js";
 import { generateBatch } from "./batch-generator.js";
 import { validateSlide } from "./qa-validator.js";
 import { ImagePlanner } from "./image-planner.js";
-import { ImageGenerator, fillImagePlaceholders } from "./image-generator.js";
+import { fillImagePlaceholders } from "./image-generator.js";
+import { SVGGenerator, fillSvgPlaceholders } from "./svg-generator.js";
+import { fillAssetPlaceholders } from "./asset-resolver.js";
+import { VisualRenderer } from "./visual-renderer.js";
 import { DSL_RULES } from "./dsl-rules.js";
 import { brainstorm } from "./brainstorm.js";
 
@@ -34,6 +37,14 @@ function estimateSlotCostUSD(slot) {
   const style = String(slot?.style || "").toLowerCase();
   if (style.includes("3d") || style.includes("photo") || style.includes("hd") || style.includes("cinematic")) return 0.04;
   return 0.003;
+}
+
+function normalizeRenderType(rt) {
+  const t = String(rt || "").trim().toLowerCase();
+  if (t === "ai-image" || t === "ai_image" || t === "image") return "ai-image";
+  if (t === "svg") return "svg";
+  if (t === "asset" || t === "doc-asset" || t === "document-asset") return "asset";
+  return "ai-image";
 }
 
 export class DesignStage {
@@ -71,6 +82,8 @@ export class DesignStage {
       (contentPackage && typeof contentPackage === "object" ? contentPackage.userConfig : undefined) ||
       (context && typeof context === "object" ? context.userConfig : undefined) ||
       {};
+    // userConfig.refine schema (optional)
+    // userConfig.refine = { enabled: false, recommendedSteps: 5, hardLimit: 15 };
 
     let designSystem;
     try {
@@ -95,8 +108,19 @@ export class DesignStage {
     checkCancelled(context.signal);
 
     // Brainstorm: generate IdeaPool + ImageSlots
-    const brainstormResult = await brainstorm(contentPackage, designSystem, constraints, { emit });
+    const brainstormResult = await brainstorm(contentPackage, designSystem, constraints, { emit, aiApiService: context.aiApiService });
     const { ideaPool, selectedIdeas, imageSlots } = brainstormResult;
+    const selectedIdeasForPrompt = Array.isArray(brainstormResult?.candidatesBySlide)
+      ? brainstormResult.candidatesBySlide
+          .map((row) => ({
+            slideIntentId: String(row?.slideIntentId || "").trim(),
+            slideIndex: Number.isFinite(row?.slideIndex) ? row.slideIndex : undefined,
+            atmosphere: row?.selectedCandidate?.atmosphere,
+            elementsMarkdown: row?.selectedCandidate?.elementsMarkdown,
+            visualSlots: row?.selectedCandidate?.visualSlots,
+          }))
+          .filter((x) => x.slideIntentId)
+      : [];
 
     let pendingImages = imageSlots.map((s) => s.slotId);
     const estimatedCostUSD = imageSlots.reduce((sum, s) => sum + estimateSlotCostUSD(s), 0);
@@ -114,6 +138,7 @@ export class DesignStage {
       batchSize: this.batchSize,
       aiApiService: context.aiApiService,
       imageSlots,
+      selectedIdeas: selectedIdeasForPrompt,
       emit,
       signal: context.signal,
       dslRules: DSL_RULES,
@@ -121,7 +146,7 @@ export class DesignStage {
     emitStage(emit, "design.generate.ended", "ended", { slides: generated.length });
     checkCancelled(context.signal);
 
-    const slidesMeta = [];
+    let slidesMeta = [];
     let slideHtmls = [];
     let degradedCount = 0;
 
@@ -171,32 +196,82 @@ export class DesignStage {
       });
     }
 
+    if (degradedCount > 0) emitStage(emit, "design.degraded", "warn", { degradedCount });
     emitStage(emit, "design.qa.ended", "ended", { slides: slideHtmls.length, degradedCount });
 
     let imageReport = null;
+    let visualReport = null;
+    let refineResult = null;
     let finalImageSlots = imageSlots;
     let deckHtmlDsl = slideHtmls.join("\n\n");
 
     const imageProvider = context.imageProvider || context.imageService;
-    if (imageSlots.length && imageProvider) {
+    const candidatesBySlide = Array.isArray(brainstormResult?.candidatesBySlide) ? brainstormResult.candidatesBySlide : [];
+    const selectedVisualSlots = candidatesBySlide.flatMap((row) => (Array.isArray(row?.selectedCandidate?.visualSlots) ? row.selectedCandidate.visualSlots : []));
+    const visualSlotsForRender = selectedVisualSlots.length
+      ? selectedVisualSlots
+      : imageSlots.map((s) => ({
+          slotId: s.slotId,
+          slideIntentId: s.slideIntentId,
+          slideIndex: s.slideIndex,
+          renderType: normalizeRenderType(s.renderType),
+          priority: s.priority,
+          aspectRatio: s.aspectRatio,
+          purpose: s.purpose,
+          imageSpec: { prompt: s.promptHint, style: s.style },
+          ...(s.effects ? { effects: s.effects } : {}),
+          ...(s.assetId ? { assetSpec: { assetId: s.assetId } } : {}),
+        }));
+
+    const aiImageSlotIds = imageSlots.filter((s) => normalizeRenderType(s.renderType) === "ai-image").map((s) => s.slotId);
+    pendingImages = aiImageSlotIds.slice();
+
+    if (visualSlotsForRender.length) {
       try {
-        const generator = new ImageGenerator({
-          imageProvider,
-          budget: constraints?.imageBudget,
-          concurrency: Math.min(4, Math.max(1, Math.floor(this.batchSize))),
+        const svgGenerator =
+          Object.prototype.hasOwnProperty.call(context || {}, "svgGenerator") ? context.svgGenerator : new SVGGenerator();
+        const renderer = new VisualRenderer({
+          imageProvider: imageProvider || null,
+          svgGenerator,
+          assets: Array.isArray(context?.assets) ? context.assets : Array.isArray(contentPackage?.assets) ? contentPackage.assets : null,
         });
-        const imgRes = await generator.generate(imageSlots, contentPackage, designSystem, {
+
+        const res = await renderer.render(visualSlotsForRender, contentPackage, designSystem, {
           emit,
           runId: runContext.runId,
           policy: constraints?.imagePolicy,
           budget: constraints?.imageBudget,
+          concurrency: Math.min(4, Math.max(1, Math.floor(this.batchSize))),
+          aiApiService: context.aiApiService,
+          imageProvider: imageProvider || null,
         });
-        finalImageSlots = Array.isArray(imgRes?.filledSlots) ? imgRes.filledSlots : imageSlots;
-        imageReport = imgRes?.report || null;
 
-        const filled = fillImagePlaceholders(deckHtmlDsl, finalImageSlots);
-        deckHtmlDsl = filled.deckHtmlDsl;
-        pendingImages = imageSlots.map((s) => s.slotId).filter((slotId) => !filled.filledSlotIds.includes(slotId));
+        visualReport = res?.report || null;
+        imageReport = res?.imageResults?.report || visualReport?.imageReport || null;
+
+        const filledById = new Map(
+          (Array.isArray(res?.imageResults?.filledSlots) ? res.imageResults.filledSlots : []).map((s) => [String(s?.slotId || ""), s])
+        );
+        if (filledById.size) {
+          finalImageSlots = imageSlots.map((s) => (filledById.has(String(s?.slotId || "")) ? filledById.get(String(s?.slotId || "")) : s));
+        }
+
+        // Apply fills (ai-image/svg/asset) independently.
+        if (Array.isArray(res?.imageResults?.filledSlots) && res.imageResults.filledSlots.length) {
+          const filled = fillImagePlaceholders(deckHtmlDsl, res.imageResults.filledSlots);
+          deckHtmlDsl = filled.deckHtmlDsl;
+          pendingImages = aiImageSlotIds.filter((slotId) => !filled.filledSlotIds.includes(slotId));
+        }
+
+        if (Array.isArray(res?.svgResults) && res.svgResults.length) {
+          const filledSvg = fillSvgPlaceholders(deckHtmlDsl, res.svgResults);
+          deckHtmlDsl = filledSvg.html;
+        }
+
+        if (Array.isArray(res?.assetResults) && res.assetResults.length) {
+          const filledAssets = fillAssetPlaceholders(deckHtmlDsl, res.assetResults);
+          deckHtmlDsl = filledAssets.html;
+        }
       } catch (e) {
         checkCancelled(context.signal);
         imageReport = {
@@ -212,6 +287,41 @@ export class DesignStage {
       }
     }
 
+    // If refine is enabled (userConfig.refine?.enabled), run ReAct loop after VisualRenderer.
+    if (userConfig?.refine?.enabled) {
+      const { runReactRefiner } = await import("./react-refiner.js");
+      const { createToolExecutor } = await import("./react-refiner-tools.js");
+
+      const toolContext = {
+        deckPackage: { deckHtmlDsl, slidesMeta, designSystem, imageSlots: finalImageSlots },
+        contentPackage,
+        stageApi: context,
+      };
+      const toolExecutor = createToolExecutor(toolContext);
+
+      refineResult = await runReactRefiner(
+        toolContext.deckPackage,
+        { contentPackage, runContext, stageApi: context },
+        {
+          recommendedSteps: userConfig.refine.recommendedSteps || 5,
+          hardLimit: userConfig.refine.hardLimit || 15,
+          toolExecutor,
+          mode: "generation", // generation stage only enables base tools
+          onStep: (step) => emit?.("design.refine.step", { actor: "design", status: "step", payload: step }),
+        }
+      );
+
+      // Update results
+      deckHtmlDsl = refineResult.finalDeck?.deckHtmlDsl || deckHtmlDsl;
+      slidesMeta = refineResult.finalDeck?.slidesMeta || slidesMeta;
+
+      emitStage(emit, "design.refine.ended", "ended", {
+        qualityScore: refineResult.qualityScore,
+        stepCount: refineResult.steps?.length || 0,
+        terminationReason: refineResult.terminationReason,
+      });
+    }
+
     emitStage(emit, "design.ended", "ended", { slides: slideHtmls.length, degradedCount });
 
     return {
@@ -223,7 +333,9 @@ export class DesignStage {
       editHints: { degradedCount },
       imageSlots: finalImageSlots,
       imageReport,
+      visualReport,
       pendingImages,
+      refineReport: refineResult || null,
     };
   }
 }

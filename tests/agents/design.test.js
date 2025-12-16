@@ -1,6 +1,18 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
+function extractSlideIntentsFromPrompt(prompt) {
+  const marker = "Slide intents:\n";
+  const s = String(prompt || "");
+  const idx = s.lastIndexOf(marker);
+  if (idx < 0) throw new Error("Missing Slide intents marker");
+
+  const tail = s.slice(idx + marker.length);
+  const stop = "\n\nDSL rules";
+  const jsonPart = tail.includes(stop) ? tail.slice(0, tail.indexOf(stop)) : tail;
+  return JSON.parse(jsonPart.trim());
+}
+
 function makeContentPackage({ runId = "run_test", slideCount = 6 } = {}) {
   const slideIntents = [
     { slideIntentId: "s_cover", pageType: "cover", title: "Demo Deck", objective: "A concise demo." },
@@ -49,6 +61,8 @@ test("Design: DesignStage generates design tokens + emits design.* events", asyn
 
   assert.ok(events.some((e) => e.name === "design.started"));
   assert.ok(events.some((e) => e.name === "design.tokens.ended"));
+  assert.ok(events.some((e) => e.name === "design.brainstorm.started"));
+  assert.ok(events.some((e) => e.name === "design.brainstorm.completed"));
   assert.ok(events.some((e) => e.name === "design.generate.ended"));
   assert.ok(events.some((e) => e.name === "design.qa.ended"));
   assert.ok(events.some((e) => e.name === "design.ended"));
@@ -75,6 +89,72 @@ test("Design: dsl-builder supports core page types and passes QA in safe mode", 
     const qa = validateSlide(html);
     assert.equal(qa.pass, true);
   }
+});
+
+test("Design: dsl-builder prefers slideIntent.content (string) over keyPoints/objective", async () => {
+  const { buildSlideHtml } = await import("../../js/agents/stages/design/dsl-builder.js");
+
+  const contentPackage = makeContentPackage({ slideCount: 1 });
+  const designSystem = {
+    designTokens: {
+      colors: { bg: "#ffffff", text: "#0f172a", muted: "#64748b", primary: "#0ea5e9", border: "#e2e8f0", panel: "#ffffff" },
+      typography: { minFont: 12, titleFont: 44, subtitleFont: 18, bodyFont: 16, smallFont: 12 },
+    },
+  };
+
+  const si = {
+    slideIntentId: "s1",
+    pageType: "overview",
+    title: "Content First",
+    keyPoints: ["SHOULD_NOT_RENDER"],
+    objective: "OBJ_SHOULD_NOT_RENDER",
+    content: "## Heading\nThis should render from content.",
+  };
+
+  const html = buildSlideHtml(si, designSystem, contentPackage, { safeMode: true, slideNo: 1 });
+  assert.ok(html.includes("This should render from content."));
+  assert.ok(!html.includes("SHOULD_NOT_RENDER"));
+  assert.ok(!html.includes("OBJ_SHOULD_NOT_RENDER"));
+});
+
+test("Design: dsl-builder supports slideIntent.content.markdown (object) and falls back when missing", async () => {
+  const { buildSlideHtml } = await import("../../js/agents/stages/design/dsl-builder.js");
+
+  const contentPackage = makeContentPackage({ slideCount: 1 });
+  const designSystem = {
+    designTokens: {
+      colors: { bg: "#ffffff", text: "#0f172a", muted: "#64748b", primary: "#0ea5e9", border: "#e2e8f0", panel: "#ffffff" },
+      typography: { minFont: 12, titleFont: 44, subtitleFont: 18, bodyFont: 16, smallFont: 12 },
+    },
+  };
+
+  const siObj = {
+    slideIntentId: "s_obj",
+    pageType: "overview",
+    title: "Markdown Object",
+    content: { markdown: "- Alpha\n- Beta", citations: [{ id: "c1" }] },
+  };
+  const htmlObj = buildSlideHtml(siObj, designSystem, contentPackage, { safeMode: true, slideNo: 1 });
+  assert.ok(htmlObj.includes("Alpha"));
+  assert.ok(htmlObj.includes("Beta"));
+
+  const siFallbackKeyPoints = {
+    slideIntentId: "s_kp",
+    pageType: "overview",
+    title: "Fallback KeyPoints",
+    keyPoints: ["KP_1"],
+  };
+  const htmlKp = buildSlideHtml(siFallbackKeyPoints, designSystem, contentPackage, { safeMode: true, slideNo: 1 });
+  assert.ok(htmlKp.includes("KP_1"));
+
+  const siFallbackObjective = {
+    slideIntentId: "s_obj2",
+    pageType: "overview",
+    title: "Fallback Objective",
+    objective: "OBJ_1",
+  };
+  const htmlObjective = buildSlideHtml(siFallbackObjective, designSystem, contentPackage, { safeMode: true, slideNo: 1 });
+  assert.ok(htmlObjective.includes("OBJ_1"));
 });
 
 test("Design: generateSingleSlide returns valid HTML", async () => {
@@ -112,9 +192,7 @@ test("Design: batch-generator respects concurrency, emits events, and retries on
       maxActive = Math.max(maxActive, active);
       try {
         const prompt = opts.messages.map((m) => m.content).join("\n");
-        const marker = "Slide intents:\n";
-        const json = prompt.slice(prompt.lastIndexOf(marker) + marker.length);
-        const batch = JSON.parse(json);
+        const batch = extractSlideIntentsFromPrompt(prompt);
         const si = batch[0];
 
         const n = (attempts.get(si.slideIntentId) || 0) + 1;
@@ -210,9 +288,7 @@ test("Design: batch-generator makePrompt includes image slot placeholder instruc
     chat: async (opts) => {
       calls.push(opts);
       const prompt = opts.messages.map((m) => m.content).join("\n");
-      const marker = "Slide intents:\n";
-      const json = prompt.slice(prompt.lastIndexOf(marker) + marker.length);
-      const batch = JSON.parse(json);
+      const batch = extractSlideIntentsFromPrompt(prompt);
       const slides = batch.map((si) => ({
         slideIntentId: si.slideIntentId,
         slideHtml: `<section data-type="freeform" id="slide-${si.slideIntentId}" data-bg="#ffffff" data-title="${si.title}"><div data-el="text" data-x="8%" data-y="10%" data-w="84%" data-font="16" data-color="#111111">${si.title}</div></section>`,
@@ -231,6 +307,110 @@ test("Design: batch-generator makePrompt includes image slot placeholder instruc
   assert.ok(prompts.some((p) => p.includes("Image slots (placeholders):")));
   assert.ok(prompts.some((p) => p.includes('data-el="image-placeholder"')));
   assert.ok(prompts.some((p) => p.includes("img_s0_hero")));
+});
+
+test("Design: generateBatch injects brainstorm outputs and patches placeholder data-* attrs", async () => {
+  const { generateBatch } = await import("../../js/agents/stages/design/batch-generator.js");
+
+  const contentPackage = makeContentPackage({ slideCount: 1 });
+  const designSystem = { designTokens: { colors: { bg: "#fff", text: "#111" } } };
+
+  const slideIntents = [{ slideIntentId: "s1", pageType: "cover", title: "Hello", keyPoints: [] }];
+  const imageSlots = [{ slotId: "img_s0_hero", slideIntentId: "s1", slideIndex: 0, purpose: "hero", aspectRatio: "16:9", priority: "critical" }];
+  const selectedIdeas = [
+    {
+      slideIntentId: "s1",
+      atmosphere: { mood: "Neo noir", colorScheme: "Indigo + cyan accents", visualWeight: "Heavy" },
+      elementsMarkdown: "- Strong title hierarchy\n- Full-bleed hero image\n- Subtle grid texture",
+      visualSlots: [
+        {
+          slotId: "img_s0_hero",
+          slideIntentId: "s1",
+          slideIndex: 0,
+          renderType: "ai-image",
+          position: { x: "11%", y: "22%", w: "33%", h: "44%" },
+          effects: { blend: "multiply", opacity: 0.8 },
+        },
+      ],
+    },
+  ];
+
+  const prompts = [];
+  const aiApiService = {
+    chat: async (opts) => {
+      const prompt = opts.messages.map((m) => m.content).join("\n");
+      prompts.push(prompt);
+      const batch = extractSlideIntentsFromPrompt(prompt);
+      const slides = batch.map((si) => ({
+        slideIntentId: si.slideIntentId,
+        slideHtml: `<section data-type="freeform" id="slide-${si.slideIntentId}" data-bg="#ffffff" data-title="${si.title}"><div data-el="image-placeholder" id="img_s0_hero" data-slot-id="img_s0_hero" data-status="pending" data-aspect-ratio="16:9" data-fallback="gradient"></div><div data-el="text" data-x="8%" data-y="10%" data-w="84%" data-font="16" data-color="#111111">${si.title}</div></section>`,
+      }));
+      return { content: JSON.stringify(slides) };
+    },
+  };
+
+  const out = await generateBatch(slideIntents, contentPackage, designSystem, { aiApiService, imageSlots, selectedIdeas, batchSize: 4 });
+  assert.equal(out.length, 1);
+
+  const promptIntents = extractSlideIntentsFromPrompt(prompts[0]);
+  assert.equal(promptIntents[0].slideIntentId, "s1");
+  assert.equal(promptIntents[0].brainstorm.atmosphere.mood, "Neo noir");
+  assert.ok(promptIntents[0].brainstorm.elementsMarkdown.includes("Full-bleed"));
+  assert.equal(promptIntents[0].brainstorm.visualSlots[0].position.x, "11%");
+
+  const html = out[0].slideHtml;
+  assert.ok(html.includes('data-render-type="ai-image"'));
+  assert.ok(html.includes('data-x="11%"'));
+  assert.ok(html.includes('data-y="22%"'));
+  assert.ok(html.includes('data-w="33%"'));
+  assert.ok(html.includes('data-h="44%"'));
+  assert.ok(/data-effects="[^"]*blend[^"]*multiply/i.test(html));
+});
+
+test("Design: batch-generator prompt serializes content and exposes contentMarkdown", async () => {
+  const { generateBatch } = await import("../../js/agents/stages/design/batch-generator.js");
+
+  const contentPackage = makeContentPackage({ slideCount: 1 });
+  const designSystem = { designTokens: { colors: { bg: "#fff", text: "#111" } } };
+
+  const slideIntents = [
+    { slideIntentId: "s1", pageType: "overview", title: "S1", content: "## H\nHello", keyPoints: ["KP"] },
+    { slideIntentId: "s2", pageType: "overview", title: "S2", content: { markdown: "- A\n- B", citations: [] } },
+    { slideIntentId: "s3", pageType: "overview", title: "S3", keyPoints: ["K3"] },
+  ];
+
+  const captured = [];
+  const aiApiService = {
+    chat: async (opts) => {
+      const prompt = opts.messages.map((m) => m.content).join("\n");
+      const batch = extractSlideIntentsFromPrompt(prompt);
+      captured.push(batch[0]);
+      return {
+        content: JSON.stringify([
+          {
+            slideIntentId: batch[0].slideIntentId,
+            slideHtml: `<section data-type="freeform" id="slide-${batch[0].slideIntentId}" data-bg="#ffffff" data-title="${batch[0].title}"><div data-el="text" data-x="8%" data-y="10%" data-w="84%" data-font="16" data-color="#111111">${batch[0].title}</div></section>`,
+          },
+        ]),
+      };
+    },
+  };
+
+  await generateBatch(slideIntents, contentPackage, designSystem, { aiApiService, batchSize: 4 });
+  assert.equal(captured.length, 3);
+
+  const c1 = captured.find((c) => c.slideIntentId === "s1");
+  assert.equal(typeof c1.content, "string");
+  assert.equal(c1.contentMarkdown, "## H\nHello");
+
+  const c2 = captured.find((c) => c.slideIntentId === "s2");
+  assert.equal(typeof c2.content, "object");
+  assert.equal(c2.content.markdown, "- A\n- B");
+  assert.equal(c2.contentMarkdown, "- A\n- B");
+
+  const c3 = captured.find((c) => c.slideIntentId === "s3");
+  assert.equal(c3.content, null);
+  assert.equal(c3.contentMarkdown, "");
 });
 
 test("Design: imagePolicy=none yields no placeholders and no pending images", async () => {
@@ -327,9 +507,7 @@ test("Design: DesignStage triggers last-resort downgrade and deckHtmlDsl is pars
   const aiApiService = {
     chat: async (opts) => {
       const prompt = opts.messages.map((m) => m.content).join("\n");
-      const marker = "Slide intents:\n";
-      const json = prompt.slice(prompt.lastIndexOf(marker) + marker.length);
-      const batch = JSON.parse(json);
+      const batch = extractSlideIntentsFromPrompt(prompt);
 
       // Intentionally produce QA-failing slides (min font + overflow + low contrast),
       // so DesignStage must downgrade to safe templates.
@@ -441,6 +619,125 @@ test("Design: design-system-generator falls back on invalid AI output", async ()
   assert.equal(validateDesignSystem(out).ok, true);
 });
 
+function makeValidDynamicDesignSystem() {
+  return {
+    theme: "light",
+    colors: {
+      background: { slide: "#ffffff", gradient: "#0ea5e9", panel: "#ffffff" },
+      text: { primary: "#0f172a", secondary: "#475569", muted: "#64748b", inverse: "#ffffff" },
+      accent: { primary: "#0ea5e9", secondary: "#22c55e" },
+      border: "#e2e8f0",
+    },
+    typography: {
+      fontFamily: "Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
+      scale: { hero: 56, h1: 44, h2: 32, subtitle: 18, body: 16, caption: 12 },
+      lineHeight: 1.25,
+    },
+    spacing: { page: { marginX: 6, marginTop: 4, contentStartY: 10 }, element: { gapX: 8, gapY: 10 } },
+    layouts: { header: {}, cover: {}, content: {} },
+    components: { card: {}, table: {}, icon: {}, line: {} },
+    effects: { shadow: {}, blur: 0, imageMask: "none", imageRadius: 12 },
+    constraints: { minFontSize: 12, maxElementsPerSlide: 18, coordinateUnit: "percent", colorFormat: "hex" },
+  };
+}
+
+test("Design: generateDesignSystem applies no overrides (explicit empty overrides)", async () => {
+  const { generateDesignSystem } = await import("../../js/agents/stages/design/design-system-generator.js");
+
+  const aiApiService = {
+    chat: async () => ({ content: JSON.stringify(makeValidDynamicDesignSystem()) }),
+  };
+
+  const out = await generateDesignSystem(
+    { contentSummary: "Demo", userPreferences: { designSystemOverrides: {} } },
+    { aiApiService, constraints: { theme: "light" } }
+  );
+
+  assert.equal(out.colors.accent.primary, "#0ea5e9");
+  assert.ok(out.designTokens?.colors?.primary);
+});
+
+test("Design: generateDesignSystem applies partial overrides and re-syncs legacy designTokens", async () => {
+  const { generateDesignSystem } = await import("../../js/agents/stages/design/design-system-generator.js");
+
+  const aiApiService = {
+    chat: async () => ({ content: JSON.stringify(makeValidDynamicDesignSystem()) }),
+  };
+
+  const out = await generateDesignSystem(
+    {
+      contentSummary: "Demo",
+      userPreferences: {
+        designSystemOverrides: {
+          colors: { accent: { primary: "#ff0000" } },
+          typography: { fontFamily: "Comic Sans MS, cursive" },
+          spacing: { page: { marginX: 10 } },
+        },
+      },
+    },
+    { aiApiService, constraints: { theme: "light" } }
+  );
+
+  assert.equal(out.colors.accent.primary, "#ff0000");
+  assert.equal(out.typography.fontFamily, "Comic Sans MS, cursive");
+  assert.equal(out.spacing.page.marginX, 10);
+
+  assert.equal(out.designTokens.colors.primary, "#ff0000");
+  assert.equal(out.designTokens.typography.fontFamily, "Comic Sans MS, cursive");
+  assert.equal(out.designTokens.spacing.safeMarginPct, 10);
+  assert.equal(out.designTokens.grid.safe.x, "10%");
+});
+
+test("Design: generateDesignSystem applies complete overrides (colors/typography/spacing/effects)", async () => {
+  const { generateDesignSystem } = await import("../../js/agents/stages/design/design-system-generator.js");
+
+  const aiApiService = {
+    chat: async () => ({ content: JSON.stringify(makeValidDynamicDesignSystem()) }),
+  };
+
+  const out = await generateDesignSystem(
+    {
+      contentSummary: "Demo",
+      userPreferences: {
+        designSystemOverrides: {
+          colors: {
+            background: { slide: "#0b1220", gradient: "#38bdf8", panel: "#111827" },
+            text: { primary: "#e5e7eb", secondary: "#94a3b8", muted: "#94a3b8", inverse: "#0b1220" },
+            accent: { primary: "#38bdf8", secondary: "#a3e635" },
+            border: "#1f2937",
+          },
+          typography: { fontFamily: "Inter, system-ui", scale: { hero: 60, h1: 48, h2: 36, subtitle: 20, body: 16, caption: 12 } },
+          spacing: { page: { marginX: 7, marginTop: 3, contentStartY: 12 }, element: { gapX: 10, gapY: 12 } },
+          effects: { blur: 2, imageRadius: 16 },
+        },
+      },
+    },
+    { aiApiService, constraints: { theme: "dark" } }
+  );
+
+  assert.equal(out.colors.background.slide, "#0b1220");
+  assert.equal(out.typography.scale.h1, 48);
+  assert.equal(out.spacing.element.gapX, 10);
+  assert.equal(out.effects.blur, 2);
+  assert.equal(out.designTokens.colors.bg, "#0b1220");
+});
+
+test("Design: generateDesignSystem applies visualPreference override and syncs to legacy designTokens", async () => {
+  const { generateDesignSystem } = await import("../../js/agents/stages/design/design-system-generator.js");
+
+  const aiApiService = {
+    chat: async () => ({ content: JSON.stringify(makeValidDynamicDesignSystem()) }),
+  };
+
+  const out = await generateDesignSystem(
+    { contentSummary: "Demo", userPreferences: { designSystemOverrides: { visualPreference: "svg-first" } } },
+    { aiApiService, constraints: { theme: "light" } }
+  );
+
+  assert.equal(out.visualPreference.mode, "svg-first");
+  assert.equal(out.designTokens.visualPreference.mode, "svg-first");
+});
+
 test("Design: validateDesignSystem fails on broken schema + DSL violations", async () => {
   const { validateDesignSystem } = await import("../../js/agents/stages/design/design-tokens.js");
 
@@ -465,6 +762,7 @@ test("Design: DesignStage prefers dynamic design system generation when AI is av
   const { DesignStage } = await import("../../js/agents/stages/design/design-agent.js");
 
   const calls = [];
+  const prompts = [];
   const aiApiService = {
     chat: async (opts) => {
       const joined = opts.messages.map((m) => m.content).join("\n");
@@ -491,10 +789,55 @@ test("Design: DesignStage prefers dynamic design system generation when AI is av
         return { content: JSON.stringify(system) };
       }
 
+      if (joined.includes("Create 2-3 design candidates for the following slide.")) {
+        calls.push("brainstorm.generate");
+        return {
+          content: JSON.stringify({
+            candidates: [
+              {
+                candidateId: "cand_1",
+                atmosphere: { mood: "Confident, modern", colorScheme: "Use accent + neutrals", visualWeight: "Balanced" },
+                elementsMarkdown: "- Full-bleed hero background\n- Title + subtitle in left column\n- Subtle glow accents",
+                visualSlots: [
+                  {
+                    slotId: "img_s0_hero",
+                    slideIntentId: "s_cover",
+                    slideIndex: 0,
+                    renderType: "ai-image",
+                    position: { x: "0%", y: "0%", w: "100%", h: "100%" },
+                    effects: { opacity: 0.9, blend: "multiply" },
+                    priority: "critical",
+                    imageSpec: { prompt: "Abstract hero background", style: "illustration" },
+                  },
+                ],
+              },
+              {
+                candidateId: "cand_2",
+                atmosphere: { mood: "Minimal, crisp", colorScheme: "Light with purple accent", visualWeight: "Light" },
+                elementsMarkdown: "- Clean title block\n- Small corner graphic\n- Strong whitespace",
+                visualSlots: [],
+              },
+            ],
+          }),
+        };
+      }
+
+      if (joined.includes("Review the candidates for the given slide")) {
+        calls.push("brainstorm.review");
+        return {
+          content: JSON.stringify({
+            reviews: [
+              { candidateId: "cand_1", scores: { visualImpact: 0.8, clarity: 0.7, novelty: 0.6, consistency: 0.7 } },
+              { candidateId: "cand_2", scores: { visualImpact: 0.6, clarity: 0.8, novelty: 0.4, consistency: 0.8 } },
+            ],
+            selectedCandidateId: "cand_1",
+          }),
+        };
+      }
+
       calls.push("slides");
-      const marker = "Slide intents:\n";
-      const json = joined.slice(joined.lastIndexOf(marker) + marker.length);
-      const batch = JSON.parse(json);
+      prompts.push(joined);
+      const batch = extractSlideIntentsFromPrompt(joined);
       const slides = batch.map((si) => ({
         slideIntentId: si.slideIntentId,
         slideHtml: `<section data-type="freeform" id="slide-${si.slideIntentId}" data-bg="#ffffff" data-title="${si.title}"><div data-el="text" data-x="8%" data-y="10%" data-w="84%" data-font="16" data-color="#111111">${si.title}</div></section>`,
@@ -507,7 +850,16 @@ test("Design: DesignStage prefers dynamic design system generation when AI is av
   const stage = new DesignStage({ batchSize: 4 });
   const deck = await stage.run(contentPackage, { runContext: { runId: "run_test", constraints: contentPackage.constraints }, aiApiService });
 
-  assert.deepEqual(calls.slice(0, 2), ["designSystem", "slides"]);
+  assert.equal(calls[0], "designSystem");
+  assert.ok(calls.includes("brainstorm.generate"));
+  assert.ok(calls.includes("brainstorm.review"));
+  assert.equal(calls[calls.length - 1], "slides");
   assert.equal(deck.designSystem?.colors?.accent?.primary, "#7c3aed");
   assert.ok(deck.designSystem?.designTokens?.colors?.primary);
+
+  const promptIntents = extractSlideIntentsFromPrompt(prompts[0]);
+  assert.equal(promptIntents[0].slideIntentId, "s_cover");
+  assert.ok(promptIntents[0].brainstorm);
+  assert.ok(promptIntents[0].brainstorm.elementsMarkdown.includes("hero"));
+  assert.equal(promptIntents[0].brainstorm.visualSlots[0].slotId, "img_s0_hero");
 });

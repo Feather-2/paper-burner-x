@@ -127,7 +127,6 @@ test("ImageGeneration E2E: PromptBuilder includes claim-derived keywords (integr
 test("ImageGeneration E2E: DesignStage imagePolicy=rich plans enough slots and populates DeckPackage fields", async () => {
   const { DesignStage } = await import("../../../js/agents/stages/design/design-agent.js");
 
-  const aiApiService = makeMockAiApiService({ mode: "fallback" });
   const events = [];
   const emit = (name, record) => events.push({ name, record });
 
@@ -135,9 +134,8 @@ test("ImageGeneration E2E: DesignStage imagePolicy=rich plans enough slots and p
     constraints: { imagePolicy: "rich", imageBudget: { maxImages: 10, maxCostUSD: 10 } },
   });
   const stage = new DesignStage({ batchSize: 4 });
-  const deck = await stage.run(contentPackage, { runContext: { runId: contentPackage.runId, constraints: contentPackage.constraints }, emit, aiApiService });
+  const deck = await stage.run(contentPackage, { runContext: { runId: contentPackage.runId, constraints: contentPackage.constraints }, emit });
 
-  assert.ok(aiApiService.calls.length >= 1);
   assert.ok(Array.isArray(deck.imageSlots) && deck.imageSlots.length >= 4);
   assert.ok(deck.imageSlots.some((s) => s.priority === "critical"));
   assert.ok(deck.imageSlots.some((s) => s.priority === "important"));
@@ -152,13 +150,12 @@ test("ImageGeneration E2E: DesignStage imagePolicy=rich plans enough slots and p
 test("ImageGeneration E2E: DesignStage imagePolicy=minimal plans only critical slots", async () => {
   const { DesignStage } = await import("../../../js/agents/stages/design/design-agent.js");
 
-  const aiApiService = makeMockAiApiService({ mode: "fallback" });
   const contentPackage = makeContentPackage({
     constraints: { imagePolicy: "minimal", imageBudget: { maxImages: 10, maxCostUSD: 10 } },
   });
 
   const stage = new DesignStage({ batchSize: 4 });
-  const deck = await stage.run(contentPackage, { runContext: { runId: contentPackage.runId, constraints: contentPackage.constraints }, aiApiService });
+  const deck = await stage.run(contentPackage, { runContext: { runId: contentPackage.runId, constraints: contentPackage.constraints } });
 
   assert.ok(Array.isArray(deck.imageSlots));
   assert.equal(deck.imageSlots.length, 1);
@@ -169,13 +166,12 @@ test("ImageGeneration E2E: DesignStage imagePolicy=minimal plans only critical s
 test("ImageGeneration E2E: DesignStage inserts placeholders for each planned slot", async () => {
   const { DesignStage } = await import("../../../js/agents/stages/design/design-agent.js");
 
-  const aiApiService = makeMockAiApiService({ mode: "fallback" });
   const contentPackage = makeContentPackage({
     constraints: { imagePolicy: "rich", imageBudget: { maxImages: 10, maxCostUSD: 10 } },
   });
 
   const stage = new DesignStage({ batchSize: 4 });
-  const deck = await stage.run(contentPackage, { runContext: { runId: contentPackage.runId, constraints: contentPackage.constraints }, aiApiService });
+  const deck = await stage.run(contentPackage, { runContext: { runId: contentPackage.runId, constraints: contentPackage.constraints } });
 
   const placeholders = deck.deckHtmlDsl.match(/data-el="image-placeholder"/g) || [];
   assert.equal(placeholders.length, deck.imageSlots.length);
@@ -186,17 +182,45 @@ test("ImageGeneration E2E: DesignStage inserts placeholders for each planned slo
   }
 });
 
+test("ImageGeneration E2E: DesignStage uses VisualRenderer and emits design.visual.render.* when imageProvider is set", async () => {
+  const { DesignStage } = await import("../../../js/agents/stages/design/design-agent.js");
+
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const contentPackage = makeContentPackage({
+    constraints: { imagePolicy: "minimal", imageBudget: { maxImages: 10, maxCostUSD: 10 } },
+  });
+
+  const provider = makeMockBase64Provider({ base64: "QUJD" }); // ABC
+  const stage = new DesignStage({ batchSize: 2 });
+  const deck = await stage.run(contentPackage, {
+    runContext: { runId: contentPackage.runId, constraints: contentPackage.constraints },
+    emit,
+    imageProvider: provider,
+  });
+
+  assert.equal(provider.calls.length, 1);
+  assert.ok(deck.deckHtmlDsl.includes('data-el="image"'));
+  assert.ok(deck.deckHtmlDsl.includes("data:image/png;base64,QUJD"));
+  assert.deepEqual(deck.pendingImages, []);
+  assert.ok(deck.imageReport && deck.imageReport.runId === contentPackage.runId);
+
+  const names = events.map((e) => e.name);
+  assert.ok(names.includes("design.visual.render.started"));
+  assert.ok(names.includes("design.visual.render.completed"));
+});
+
 test("ImageGeneration E2E: async fill replaces placeholder with <img data-el=\"image\"> (base64)", async () => {
   const { DesignStage } = await import("../../../js/agents/stages/design/design-agent.js");
   const { ImageGenerator, fillImagePlaceholders } = await import("../../../js/agents/stages/design/image-generator.js");
 
-  const aiApiService = makeMockAiApiService({ mode: "fallback" });
   const contentPackage = makeContentPackage({
     constraints: { imagePolicy: "minimal", imageBudget: { maxImages: 10, maxCostUSD: 10 } },
   });
 
   const stage = new DesignStage({ batchSize: 4 });
-  const deck = await stage.run(contentPackage, { runContext: { runId: contentPackage.runId, constraints: contentPackage.constraints }, aiApiService });
+  const deck = await stage.run(contentPackage, { runContext: { runId: contentPackage.runId, constraints: contentPackage.constraints } });
   const slotId = deck.imageSlots[0].slotId;
 
   const provider = makeMockBase64Provider({ base64: "QUJD" }); // ABC
@@ -228,12 +252,11 @@ test("ImageGeneration E2E: provider failure retries then succeeds (retryCount=1)
   const { DesignStage } = await import("../../../js/agents/stages/design/design-agent.js");
   const { ImageGenerator, fillImagePlaceholders } = await import("../../../js/agents/stages/design/image-generator.js");
 
-  const aiApiService = makeMockAiApiService({ mode: "fallback" });
   const contentPackage = makeContentPackage({
     constraints: { imagePolicy: "minimal", imageBudget: { maxImages: 10, maxCostUSD: 10 } },
   });
   const stage = new DesignStage({ batchSize: 4 });
-  const deck = await stage.run(contentPackage, { runContext: { runId: contentPackage.runId, constraints: contentPackage.constraints }, aiApiService });
+  const deck = await stage.run(contentPackage, { runContext: { runId: contentPackage.runId, constraints: contentPackage.constraints } });
   const slotId = deck.imageSlots[0].slotId;
 
   let calls = 0;
@@ -264,13 +287,12 @@ test("ImageGeneration E2E: exceeds maxRetries leaves placeholder (degraded) and 
   const { DesignStage } = await import("../../../js/agents/stages/design/design-agent.js");
   const { ImageGenerator, fillImagePlaceholders } = await import("../../../js/agents/stages/design/image-generator.js");
 
-  const aiApiService = makeMockAiApiService({ mode: "fallback" });
   const contentPackage = makeContentPackage({
     constraints: { imagePolicy: "minimal", imageBudget: { maxImages: 10, maxCostUSD: 10 } },
   });
 
   const stage = new DesignStage({ batchSize: 4 });
-  const deck = await stage.run(contentPackage, { runContext: { runId: contentPackage.runId, constraints: contentPackage.constraints }, aiApiService });
+  const deck = await stage.run(contentPackage, { runContext: { runId: contentPackage.runId, constraints: contentPackage.constraints } });
   const slotId = deck.imageSlots[0].slotId;
 
   const provider = {
