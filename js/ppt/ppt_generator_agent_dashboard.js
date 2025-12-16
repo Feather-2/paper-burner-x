@@ -102,6 +102,14 @@ const PPTGeneratorAgentDashboard = {
         const taskGoal = typeof brief.taskGoal === 'string' ? brief.taskGoal.trim() : '';
         const summary = typeof brief.projectSummary === 'string' ? brief.projectSummary.trim() : '';
 
+        const reportCfg = this.workflowData?.reportConfig && typeof this.workflowData.reportConfig === 'object'
+            ? this.workflowData.reportConfig
+            : {};
+        const reportLength = typeof reportCfg.reportLength === 'string' ? reportCfg.reportLength : 'standard';
+        const tone = typeof reportCfg.tone === 'string' ? reportCfg.tone : 'business';
+        const audience = typeof reportCfg.audience === 'string' ? reportCfg.audience : 'general';
+        const enableReviewer = !!reportCfg.enableReviewer;
+
         const modeCard = (key, title, desc) => {
             const selected = mode === key;
             const icon = key === 'auto' ? 'carbon:rocket' : key === 'guided' ? 'carbon:map' : 'carbon:cursor-1';
@@ -149,6 +157,47 @@ const PPTGeneratorAgentDashboard = {
                                 <span>当前需求：${taskGoal ? this._escapeHtml(taskGoal) : '未填写（将无法开始 DeepSearch）'}</span>
                             </div>
                             ${summary ? `<div class="ppt-workmode-brief-summary">${this._escapeHtml(summary)}</div>` : ''}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="ppt-workmode-panel">
+                    <div class="ppt-workmode-card">
+                        <div class="ppt-report-config">
+                            <h4 style="margin: 0 0 12px; font-weight: 750; font-size: 14px; color: var(--ppt-text-main);">报告设置</h4>
+
+                            <div class="config-row" style="display:flex; align-items:center; justify-content:space-between; gap: 12px; margin: 10px 0;">
+                                <label style="font-size: 13px; color: var(--ppt-text-main);">报告长度</label>
+                                <select class="ppt-input-field" style="max-width: 260px;" onchange="window.PPTGenerator.updateReportLength(this.value)">
+                                    <option value="brief" ${reportLength === 'brief' ? 'selected' : ''}>简要 (800-2000字)</option>
+                                    <option value="standard" ${reportLength === 'standard' ? 'selected' : ''}>标准 (2000-5000字)</option>
+                                    <option value="detailed" ${reportLength === 'detailed' ? 'selected' : ''}>详细 (5000-10000字)</option>
+                                    <option value="comprehensive" ${reportLength === 'comprehensive' ? 'selected' : ''}>全面 (10000-20000字)</option>
+                                </select>
+                            </div>
+
+                            <div class="config-row" style="display:flex; align-items:center; justify-content:space-between; gap: 12px; margin: 10px 0;">
+                                <label style="font-size: 13px; color: var(--ppt-text-main);">写作风格</label>
+                                <select class="ppt-input-field" style="max-width: 260px;" onchange="window.PPTGenerator.updateWriteTone(this.value)">
+                                    <option value="academic" ${tone === 'academic' ? 'selected' : ''}>学术严谨</option>
+                                    <option value="business" ${tone === 'business' ? 'selected' : ''}>商务专业</option>
+                                    <option value="casual" ${tone === 'casual' ? 'selected' : ''}>通俗易懂</option>
+                                </select>
+                            </div>
+
+                            <div class="config-row" style="display:flex; align-items:center; justify-content:space-between; gap: 12px; margin: 10px 0;">
+                                <label style="font-size: 13px; color: var(--ppt-text-main);">目标受众</label>
+                                <select class="ppt-input-field" style="max-width: 260px;" onchange="window.PPTGenerator.updateWriteAudience(this.value)">
+                                    <option value="expert" ${audience === 'expert' ? 'selected' : ''}>专业人士</option>
+                                    <option value="general" ${audience === 'general' ? 'selected' : ''}>一般读者</option>
+                                    <option value="executive" ${audience === 'executive' ? 'selected' : ''}>高管决策层</option>
+                                </select>
+                            </div>
+
+                            <div class="config-row" style="display:flex; align-items:center; justify-content:space-between; gap: 12px; margin: 10px 0;">
+                                <label style="font-size: 13px; color: var(--ppt-text-main);">启用AI审阅</label>
+                                <input type="checkbox" ${enableReviewer ? 'checked' : ''} onchange="window.PPTGenerator.updateEnableReviewer(this.checked)">
+                            </div>
                         </div>
                     </div>
                 </div>

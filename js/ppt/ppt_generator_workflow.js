@@ -1776,6 +1776,12 @@ const PPTGeneratorWorkflow = {
         const stepping = mode !== 'auto';
 
         // DeepSearch 优化参数配置
+        const reportConfig = this.workflowData?.reportConfig && typeof this.workflowData.reportConfig === 'object'
+            ? this.workflowData.reportConfig
+            : {};
+        const allowedReportLengths = new Set(['brief', 'standard', 'detailed', 'comprehensive']);
+        const allowedWriteTones = new Set(['academic', 'business', 'casual']);
+        const allowedWriteAudiences = new Set(['expert', 'general', 'executive']);
         const userConfig = {
             title: this.currentProject?.title || 'New Mission',
             ...(stepping ? { maxIterations: 1 } : {}),
@@ -1791,7 +1797,11 @@ const PPTGeneratorWorkflow = {
             },
             // ReAct Writer: 问题驱动的渐进式写作
             write: {
-                writerMode: 'react',    // 'react' | 'legacy'
+                writerMode: 'react',
+                reportLength: allowedReportLengths.has(reportConfig.reportLength) ? reportConfig.reportLength : 'standard',
+                tone: allowedWriteTones.has(reportConfig.tone) ? reportConfig.tone : 'business',
+                audience: allowedWriteAudiences.has(reportConfig.audience) ? reportConfig.audience : 'general',
+                enableReviewer: !!reportConfig.enableReviewer,
             },
         };
 
@@ -1858,6 +1868,12 @@ const PPTGeneratorWorkflow = {
         const sources = Array.isArray(input.sources) ? input.sources : Array.isArray(this.workflowData?.ingest?.sources) ? this.workflowData.ingest.sources : [];
 
         // 优化参数配置（与 phase1_DeepReading 保持一致）
+        const reportConfig = this.workflowData?.reportConfig && typeof this.workflowData.reportConfig === 'object'
+            ? this.workflowData.reportConfig
+            : {};
+        const allowedReportLengths = new Set(['brief', 'standard', 'detailed', 'comprehensive']);
+        const allowedWriteTones = new Set(['academic', 'business', 'casual']);
+        const allowedWriteAudiences = new Set(['expert', 'general', 'executive']);
         const baseUserConfig = input.userConfig && typeof input.userConfig === 'object'
             ? input.userConfig
             : {
@@ -1866,6 +1882,24 @@ const PPTGeneratorWorkflow = {
                 gaps: { blockAfterMisses: 5 },
                 write: { writerMode: 'react' },
             };
+
+        const writeCfg = baseUserConfig.write && typeof baseUserConfig.write === 'object' ? baseUserConfig.write : {};
+        baseUserConfig.write = {
+            ...writeCfg,
+            writerMode: writeCfg.writerMode || 'react',
+            reportLength: allowedReportLengths.has(writeCfg.reportLength)
+                ? writeCfg.reportLength
+                : (allowedReportLengths.has(reportConfig.reportLength) ? reportConfig.reportLength : 'standard'),
+            tone: allowedWriteTones.has(writeCfg.tone)
+                ? writeCfg.tone
+                : (allowedWriteTones.has(reportConfig.tone) ? reportConfig.tone : 'business'),
+            audience: allowedWriteAudiences.has(writeCfg.audience)
+                ? writeCfg.audience
+                : (allowedWriteAudiences.has(reportConfig.audience) ? reportConfig.audience : 'general'),
+            enableReviewer: typeof writeCfg.enableReviewer === 'boolean'
+                ? writeCfg.enableReviewer
+                : !!reportConfig.enableReviewer,
+        };
 
         if (!this._deepsearchState) {
             const { DeepSearchState } = await import('../agents/stages/deepsearch/state.js');
@@ -2006,6 +2040,65 @@ const PPTGeneratorWorkflow = {
         if (this.workflowData.contentPackage?.report) {
             this.workflowData.contentPackage.report = { ...(this.workflowData.contentPackage.report || {}), markdown: value };
         }
+    },
+
+    _setReportConfig(patch = {}) {
+        if (!this.workflowData) this.workflowData = {};
+        const prev = this.workflowData.reportConfig && typeof this.workflowData.reportConfig === 'object'
+            ? this.workflowData.reportConfig
+            : {};
+
+        const allowedLengths = new Set(['brief', 'standard', 'detailed', 'comprehensive']);
+        const allowedTones = new Set(['academic', 'business', 'casual']);
+        const allowedAudiences = new Set(['expert', 'general', 'executive']);
+
+        const nextReportLengthCandidate = typeof patch.reportLength === 'string' ? patch.reportLength : prev.reportLength;
+        const nextToneCandidate = typeof patch.tone === 'string' ? patch.tone : prev.tone;
+        const nextAudienceCandidate = typeof patch.audience === 'string' ? patch.audience : prev.audience;
+
+        const next = {
+            reportLength: allowedLengths.has(nextReportLengthCandidate) ? nextReportLengthCandidate : 'standard',
+            tone: allowedTones.has(nextToneCandidate) ? nextToneCandidate : 'business',
+            audience: allowedAudiences.has(nextAudienceCandidate) ? nextAudienceCandidate : 'general',
+            enableReviewer: typeof patch.enableReviewer === 'boolean'
+                ? patch.enableReviewer
+                : (typeof prev.enableReviewer === 'boolean' ? prev.enableReviewer : false),
+        };
+
+        this.workflowData.reportConfig = next;
+
+        const applyToUserConfig = (userConfig) => {
+            if (!userConfig || typeof userConfig !== 'object') return;
+            const write = userConfig.write && typeof userConfig.write === 'object' ? userConfig.write : {};
+            userConfig.write = { ...write, writerMode: write.writerMode || 'react', ...next };
+        };
+
+        applyToUserConfig(this.workflowData?._deepsearchInput?.userConfig);
+        applyToUserConfig(this._deepsearchState?.userConfig);
+
+        this.setAutoSaveNeeded?.();
+    },
+
+    updateReportLength(value) {
+        const v = String(value || '').trim();
+        if (!new Set(['brief', 'standard', 'detailed', 'comprehensive']).has(v)) return;
+        this._setReportConfig({ reportLength: v });
+    },
+
+    updateWriteTone(value) {
+        const v = String(value || '').trim();
+        if (!new Set(['academic', 'business', 'casual']).has(v)) return;
+        this._setReportConfig({ tone: v });
+    },
+
+    updateWriteAudience(value) {
+        const v = String(value || '').trim();
+        if (!new Set(['expert', 'general', 'executive']).has(v)) return;
+        this._setReportConfig({ audience: v });
+    },
+
+    updateEnableReviewer(checked) {
+        this._setReportConfig({ enableReviewer: !!checked });
     },
 
     confirmScript() {

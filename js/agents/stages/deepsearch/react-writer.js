@@ -10,8 +10,11 @@
  * - getEvidence(evidenceId): 获取证据详情（含原文引用）
  * - getSourceChunk(sourceId, start, end): 读取更多原文上下文
  * - searchEvidence(query): 语义搜索证据库
- * - writeSection(gapId, markdown): 写入一个章节
- * - finishReport(title, summary): 完成报告
+ * - planOutline(sections): 规划报告大纲
+ * - writeSection({sectionId?, gapId?, title?, markdown}): 写入/更新一个章节
+ * - editSection({sectionId, markdown}): 编辑已写章节
+ * - getProgress(): 获取写作进度
+ * - finishReport({title, executiveSummary}): 完成报告
  *
  * 流程：
  * 1. AI 调用 getGaps() 了解需要回答的问题
@@ -49,6 +52,7 @@ function safeInt(n) {
  */
 export function createWriterToolExecutor(context) {
   const { state, claims, evidenceLedger, sources, gaps } = context;
+  const targetWords = safeInt(context?._targetWords) ?? 3500;
 
   // 索引构建
   const claimById = new Map();
@@ -274,52 +278,127 @@ export function createWriterToolExecutor(context) {
       };
     },
 
-    /**
-     * 写入一个章节（问题驱动）
-     */
-    writeSection: async ({ gapId, title, markdown }) => {
-      const gid = toNonEmptyString(gapId);
-      const md = toNonEmptyString(markdown);
+    // 大纲规划
+    planOutline: async ({ sections }) => {
+      if (!Array.isArray(sections) || !sections.length) {
+        return { error: "sections array is required" };
+      }
 
-      if (!md) return { error: "markdown content is required" };
-
-      const gap = gid ? gapById.get(gid) : null;
-      const sectionTitle = toNonEmptyString(title) || (gap ? gap.question : `Section ${writtenSections.length + 1}`);
-
-      writtenSections.push({
-        sectionId: `sec_${writtenSections.length + 1}`,
-        gapId: gid || null,
-        title: sectionTitle,
-        markdown: md,
-        wordCount: countWordsApprox(md),
-      });
+      context._plannedOutline = sections.map((s, i) => ({
+        sectionId: s.sectionId || `sec_${i + 1}`,
+        title: s.title || `Section ${i + 1}`,
+        gapIds: Array.isArray(s.gapIds) ? s.gapIds : [],
+        targetWords: s.targetWords || Math.floor(targetWords / sections.length),
+      }));
 
       return {
         success: true,
-        sectionId: `sec_${writtenSections.length}`,
-        gapId: gid || null,
+        outline: context._plannedOutline,
+        message: "Outline planned. Now write sections in order.",
+      };
+    },
+
+    // 编辑已写章节
+    editSection: async ({ sectionId, markdown }) => {
+      const sid = toNonEmptyString(sectionId);
+      const md = toNonEmptyString(markdown);
+      if (!sid || !md) return { error: "sectionId and markdown required" };
+
+      const idx = writtenSections.findIndex(s => s.sectionId === sid);
+      if (idx === -1) return { error: `Section not found: ${sid}` };
+
+      writtenSections[idx].markdown = md;
+      writtenSections[idx].wordCount = countWordsApprox(md);
+
+      return {
+        success: true,
+        sectionId: sid,
+        newWordCount: writtenSections[idx].wordCount,
+      };
+    },
+
+    // 获取写作进度
+    getProgress: async () => {
+      const currentWords = writtenSections.reduce((sum, s) => sum + (s.wordCount || 0), 0);
+      const plannedSections = context._plannedOutline || [];
+      const writtenIds = new Set(writtenSections.map(s => s.sectionId));
+      const remaining = plannedSections.filter(s => !writtenIds.has(s.sectionId));
+
+      return {
+        currentWords,
+        targetWords: context._targetWords || 3500,
+        minWords: context._minWords || 2000,
+        maxWords: context._maxWords || 5000,
+        progress: currentWords / (context._targetWords || 3500),
+        sectionsWritten: writtenSections.length,
+        sectionsRemaining: remaining.length,
+        remainingSectionIds: remaining.map(s => s.sectionId),
+        onTrack: currentWords >= (context._minWords || 2000) * 0.8,
+      };
+    },
+
+    /**
+     * 写入一个章节（问题驱动）
+     */
+    writeSection: async ({ sectionId, gapId, title, markdown }) => {
+      const md = toNonEmptyString(markdown);
+      if (!md) return { error: "markdown content is required" };
+
+      const sid = toNonEmptyString(sectionId) || `sec_${writtenSections.length + 1}`;
+      const gid = toNonEmptyString(gapId);
+      const gap = gid ? gapById.get(gid) : null;
+      const sectionTitle = toNonEmptyString(title) || (gap ? gap.question : `Section ${writtenSections.length + 1}`);
+
+      // 检查是否已存在该 sectionId，如果是则更新
+      const existingIdx = writtenSections.findIndex(s => s.sectionId === sid);
+      if (existingIdx !== -1) {
+        writtenSections[existingIdx] = {
+          ...writtenSections[existingIdx],
+          title: sectionTitle,
+          markdown: md,
+          wordCount: countWordsApprox(md),
+        };
+      } else {
+        writtenSections.push({
+          sectionId: sid,
+          gapId: gid || null,
+          title: sectionTitle,
+          markdown: md,
+          wordCount: countWordsApprox(md),
+        });
+      }
+
+      const currentWords = writtenSections.reduce((sum, s) => sum + (s.wordCount || 0), 0);
+
+      return {
+        success: true,
+        sectionId: sid,
         title: sectionTitle,
         wordCount: countWordsApprox(md),
-        totalSectionsWritten: writtenSections.length,
+        totalWords: currentWords,
+        targetWords: context._targetWords || 3500,
+        progress: `${currentWords}/${context._targetWords || 3500} words`,
       };
     },
 
     /**
      * 完成报告
      */
-    finishReport: async ({ title, summary }) => {
+    finishReport: async ({ title, executiveSummary, summary }) => {
       reportTitle = toNonEmptyString(title) || "Research Report";
-      reportSummary = toNonEmptyString(summary) || "";
+      reportSummary = toNonEmptyString(executiveSummary) || toNonEmptyString(summary) || "";
       reportFinished = true;
 
       const totalWords = writtenSections.reduce((sum, s) => sum + (s.wordCount || 0), 0);
+      const meetsMin = totalWords >= (context._minWords || 1500);
 
       return {
         success: true,
         title: reportTitle,
         sectionsCount: writtenSections.length,
         totalWords,
-        message: "Report completed successfully",
+        meetsMinimum: meetsMin,
+        warning: meetsMin ? null : `Report is ${(context._minWords || 1500) - totalWords} words short of minimum`,
       };
     },
   };
@@ -351,61 +430,68 @@ export function createWriterToolExecutor(context) {
 
 // ===== ReAct Writer 主循环 =====
 
-const WRITER_SYSTEM_PROMPT = `You are a research report writer using a ReAct (Reason-Act) approach.
+const WRITER_SYSTEM_PROMPT = `You are an expert research report writer. Your task is to write a well-structured, insightful report.
 
-Your task is to write a comprehensive research report by:
-1. Understanding the research questions (gaps)
-2. Gathering evidence for each question
-3. Writing sections that answer each question with proper citations
+## Writing Philosophy
+- **Synthesize, don't enumerate**: Connect ideas across questions, find patterns and insights
+- **Reader-first**: Guide readers through a logical narrative, not a Q&A dump
+- **Evidence-backed**: Every claim needs citation, but weave them naturally into prose
+- **Professional tone**: Match the specified style (academic/business/casual)
+
+## Report Structure
+1. **Executive Summary**: Key findings and implications (written LAST)
+2. **Introduction**: Context, scope, why this matters
+3. **Main Sections**: Organized by THEME, not by question
+   - Group related questions into coherent sections
+   - Use transitions between sections
+   - Synthesize findings, don't just list them
+4. **Conclusion**: Key takeaways, implications, recommendations
 
 ## Available Tools
-
-- getGaps(): Get all research questions to answer
-- getGapDetail({gapId}): Get question details and related claims
-- getClaimsForGap({gapId}): Get all claims for a question with evidence previews
-- getEvidence({evidenceId}): Get full evidence details including quote
-- getSourceChunk({sourceId, start, end}): Read more context from source document
-- searchEvidence({query, limit?}): Search evidence by keyword
-- writeSection({gapId?, title?, markdown}): Write a report section (use {{cite:EVIDENCE_ID}} for citations)
-- finishReport({title, summary}): Complete the report
+- getGaps(): Get research questions to understand scope
+- getGapDetail({gapId}): Get question details and claims
+- getClaimsForGap({gapId}): Get all claims with evidence
+- getEvidence({evidenceId}): Get full quote and source
+- getSourceChunk({sourceId, start, end}): Read more context
+- searchEvidence({query}): Search evidence by keyword
+- planOutline({sections}): Plan report structure BEFORE writing
+- writeSection({sectionId, title, markdown}): Write a section
+- editSection({sectionId, markdown}): Edit existing section
+- getProgress(): Check current word count vs target
+- finishReport({title, executiveSummary}): Complete with summary
 
 ## Response Format
-
-Respond with JSON only:
 {
-  "thought": "Your reasoning about what to do next",
-  "action": {
-    "tool": "toolName",
-    "params": { ... }
-  }
+  "thought": "Reasoning about current state and next action",
+  "action": { "tool": "...", "params": {...} }
 }
 
-OR when all sections are written:
-{
-  "thought": "All questions answered, finishing report",
-  "finish": {
-    "tool": "finishReport",
-    "params": { "title": "Report Title", "summary": "Brief summary" }
-  }
-}
+## Writing Process
+1. FIRST: Call getGaps() to understand all questions
+2. THEN: Call planOutline() to design report structure
+3. FOR EACH section: gather evidence, then writeSection
+4. PERIODICALLY: call getProgress() to check word count
+5. FINALLY: write executive summary and finishReport
 
-## Writing Guidelines
+## Citation Format
+Use {{cite:EVIDENCE_ID}} inline. Example:
+"The market grew 15% {{cite:e_1}} driven by AI adoption {{cite:e_2}}."`;
 
-1. Process ONE question at a time
-2. For each question:
-   - First call getGapDetail or getClaimsForGap to understand what claims support it
-   - Call getEvidence for important claims to see the full quotes
-   - Use getSourceChunk if you need more context
-   - Write the section with proper citations using {{cite:EVIDENCE_ID}}
-3. Use markdown formatting (## for section titles, bullet points, etc.)
-4. Every factual claim must have a citation
-5. Do not invent facts - only use information from the evidence`;
+const WRITER_INITIAL_PROMPT = `## Research Task
+{taskGoal}
 
-const WRITER_INITIAL_PROMPT = `Task Goal: {taskGoal}
+## Report Requirements
+- Target length: {targetWords} words (min: {minWords}, max: {maxWords})
+- Writing style: {tone}
+- Target audience: {audience}
 
-Target word count: {targetWords} words (minimum: {minWords}, maximum: {maxWords})
+## Instructions
+1. Start by calling getGaps() to see all research questions
+2. Then call planOutline() to design your report structure
+3. Write sections that SYNTHESIZE findings (don't just answer questions one by one)
+4. Check getProgress() periodically to stay on target
 
-Begin by calling getGaps() to see all research questions you need to answer.`;
+Begin now.`;
 
 /**
  * 运行 ReAct Writer
@@ -418,6 +504,8 @@ export async function runReactWriter(context, options = {}) {
     targetWords = 2000,
     minWords = 1500,
     maxWords = 3000,
+    tone,
+    audience,
     hardLimit = 30,
     onStep,
   } = options;
@@ -433,9 +521,17 @@ export async function runReactWriter(context, options = {}) {
     evidenceLedger,
     sources,
     gaps,
+    // 新增：传递配置
+    _targetWords: targetWords,
+    _minWords: minWords,
+    _maxWords: maxWords,
+    _tone: tone || "business",
+    _audience: audience || "general",
   });
 
   const taskGoal = toNonEmptyString(state?.taskGoal) || "Generate research report";
+  const toneText = toNonEmptyString(tone) || "business";
+  const audienceText = toNonEmptyString(audience) || "general";
 
   const messages = [
     { role: "system", content: WRITER_SYSTEM_PROMPT },
@@ -445,7 +541,9 @@ export async function runReactWriter(context, options = {}) {
         .replace("{taskGoal}", taskGoal)
         .replace("{targetWords}", String(targetWords))
         .replace("{minWords}", String(minWords))
-        .replace("{maxWords}", String(maxWords)),
+        .replace("{maxWords}", String(maxWords))
+        .replace("{tone}", toneText)
+        .replace("{audience}", audienceText),
     },
   ];
 
@@ -529,6 +627,10 @@ export async function runReactWriter(context, options = {}) {
       steps.push(step);
 
       onStep?.(step);
+
+      if (toolName === "finishReport" || toolExecutor.getResult().finished) {
+        break;
+      }
 
       // 将观察结果返回给模型
       messages.push({
