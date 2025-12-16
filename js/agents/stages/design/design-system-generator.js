@@ -5,6 +5,60 @@ function isPlainObject(v) {
   return !!v && typeof v === "object" && !Array.isArray(v);
 }
 
+function extractJsonCandidate(text) {
+  let s = String(text || "").trim();
+  if (!s) return null;
+
+  const jsonFence = s.match(/```json\s*([\s\S]*?)\s*```/i);
+  const anyFence = jsonFence ? null : s.match(/```\s*([\s\S]*?)\s*```/);
+  if (jsonFence?.[1]) s = String(jsonFence[1]).trim();
+  else if (anyFence?.[1]) s = String(anyFence[1]).trim();
+  else s = s.replace(/^```(?:json)?[\s\n]*/i, "").replace(/[\s\n]*```$/i, "").trim();
+
+  s = s.replace(/^json\b[:\s]*/i, "").trim();
+
+  const firstBrace = s.indexOf("{");
+  const firstBracket = s.indexOf("[");
+  const start =
+    firstBrace === -1 ? firstBracket : firstBracket === -1 ? firstBrace : Math.min(firstBrace, firstBracket);
+  if (start < 0) return s || null;
+
+  const stack = [];
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+
+    if (inString) {
+      if (escape) escape = false;
+      else if (ch === "\\") escape = true;
+      else if (ch === "\"") inString = false;
+      continue;
+    }
+
+    if (ch === "\"") {
+      inString = true;
+      continue;
+    }
+
+    if (ch === "{" || ch === "[") {
+      stack.push(ch);
+      continue;
+    }
+
+    if (ch === "}" || ch === "]") {
+      const expected = ch === "}" ? "{" : "[";
+      if (stack.length && stack[stack.length - 1] === expected) stack.pop();
+      if (!stack.length) return s.slice(start, i + 1).trim();
+    }
+  }
+
+  const opener = s[start];
+  const last = opener === "{" ? s.lastIndexOf("}") : opener === "[" ? s.lastIndexOf("]") : -1;
+  if (last > start) return s.slice(start, last + 1).trim();
+  return s.slice(start).trim();
+}
+
 function normalizeVisualPreference(v) {
   if (typeof v === "string") return { mode: v.trim().toLowerCase() };
   if (!isPlainObject(v)) return v;
@@ -315,7 +369,8 @@ export async function generateDesignSystem(input = {}, options = {}) {
       if (signal?.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "Run cancelled");
       try {
         const resp = await callModel(messages, { temperature: 0.2, maxTokens: 1200, signal, timeoutMs: 30_000 });
-        const parsed = JSON.parse(resp?.content || "null");
+        const candidate = extractJsonCandidate(resp?.content);
+        const parsed = JSON.parse(candidate || "null");
         assertValidDesignSystem(parsed, "invalid_design_system");
 
         const fallbackTheme = inferThemeFromLegacyTokens(parsed?.designTokens || {});
