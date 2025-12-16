@@ -29,18 +29,45 @@ const MAIN_CONTENT_SELECTORS = [
 
 // 噪音元素选择器
 const NOISE_SELECTORS = [
-  'script', 'style', 'noscript', 'template', 'iframe', 'svg',
+  // 脚本和样式
+  'script', 'style', 'noscript', 'template', 'iframe', 'svg', 'canvas',
+  // 结构性噪音
   'nav', 'header', 'footer', 'aside',
-  '.nav', '.navigation', '.menu', '.sidebar', '.widget',
+  '.nav', '.navigation', '.menu', '.sidebar', '.widget', '.widgets',
+  '#nav', '#navigation', '#menu', '#sidebar', '#footer', '#header',
+  // 广告（扩展）
   '.ad', '.ads', '.advertisement', '.sponsor', '.promotion', '.adsbygoogle',
-  '.comment', '.comments', '#comments', '.reply', '.respond',
-  '.social', '.share', '.sharing', '.social-share',
-  '.related', '.recommended', '.more-posts', '.related-posts',
-  '.breadcrumb', '.breadcrumbs', '.pagination',
-  '.toc', '.table-of-contents',
-  '[role="navigation"]', '[role="banner"]', '[role="complementary"]',
+  '.ad-container', '.ad-wrapper', '.ad-slot', '.ad-unit', '.ad-banner',
+  '[class*="advert"]', '[class*="sponsor"]', '[id*="advert"]', '[id*="sponsor"]',
+  '[data-ad]', '[data-ads]', '[data-advertisement]',
+  '.google-ad', '.adsense', '.dfp-ad',
+  // 评论
+  '.comment', '.comments', '#comments', '.reply', '.respond', '#respond',
+  '.comment-form', '.comment-list', '.disqus',
+  // 社交
+  '.social', '.share', '.sharing', '.social-share', '.social-links',
+  '.follow', '.subscribe', '.newsletter',
+  // 相关/推荐
+  '.related', '.recommended', '.more-posts', '.related-posts', '.also-read',
+  '.popular-posts', '.trending', '.suggestions',
+  // 导航辅助
+  '.breadcrumb', '.breadcrumbs', '.pagination', '.pager',
+  '.prev-next', '.post-navigation', '.nav-links',
+  // 目录
+  '.toc', '.table-of-contents', '#toc',
+  // ARIA 角色
+  '[role="navigation"]', '[role="banner"]', '[role="complementary"]', '[role="contentinfo"]',
   '[aria-hidden="true"]',
-  '.hidden', '.hide', '.invisible',
+  // 隐藏元素
+  '.hidden', '.hide', '.invisible', '.sr-only', '.visually-hidden',
+  '[hidden]', '[style*="display:none"]', '[style*="display: none"]',
+  // 弹窗/覆盖层
+  '.modal', '.popup', '.overlay', '.lightbox', '.dialog',
+  // 其他常见噪音
+  '.cookie', '.cookies', '.gdpr', '.consent',
+  '.promo', '.cta', '.banner', '.alert', '.notice',
+  '.author-bio', '.author-box', '.about-author',
+  '.tags', '.tag-list', '.categories', '.meta', '.post-meta',
 ];
 
 // 跳过的文本模式
@@ -298,53 +325,138 @@ function inlineToMarkdown(el) {
 /**
  * 移除噪音元素
  */
-function removeNoiseElements(doc) {
+function removeNoiseElements(container) {
+  if (!container) return 0;
   let removed = 0;
-  const selector = NOISE_SELECTORS.join(', ');
 
-  try {
-    const noiseElements = doc.querySelectorAll(selector);
-    for (const el of noiseElements) {
-      el.remove();
-      removed++;
+  // 分批处理选择器，避免太长的选择器字符串
+  const batchSize = 20;
+  for (let i = 0; i < NOISE_SELECTORS.length; i += batchSize) {
+    const batch = NOISE_SELECTORS.slice(i, i + batchSize);
+    const selector = batch.join(', ');
+    try {
+      const noiseElements = container.querySelectorAll(selector);
+      for (const el of noiseElements) {
+        el.remove();
+        removed++;
+      }
+    } catch (e) {
+      // 某些选择器可能不支持，逐个尝试
+      for (const sel of batch) {
+        try {
+          const els = container.querySelectorAll(sel);
+          for (const el of els) {
+            el.remove();
+            removed++;
+          }
+        } catch (_) {}
+      }
     }
-  } catch (e) {
-    // 某些选择器可能不支持，忽略
   }
 
   return removed;
 }
 
 /**
+ * 检查元素是否可能是广告容器
+ */
+function isLikelyAdContainer(el) {
+  if (!el) return false;
+  const className = (el.className || '').toLowerCase();
+  const id = (el.id || '').toLowerCase();
+  const text = el.textContent || '';
+
+  // 检查类名/ID 是否包含广告相关词汇
+  const adKeywords = ['ad', 'ads', 'advert', 'sponsor', 'promo', 'banner', 'widget', 'sidebar'];
+  for (const kw of adKeywords) {
+    if (className.includes(kw) || id.includes(kw)) return true;
+  }
+
+  // 文本内容太短但包含很多链接，可能是广告
+  const links = el.querySelectorAll('a');
+  if (text.length < 500 && links.length > 10) return true;
+
+  // 检查是否主要是图片/iframe
+  const images = el.querySelectorAll('img, iframe');
+  if (images.length > 3 && text.trim().length < 200) return true;
+
+  return false;
+}
+
+/**
+ * 计算内容质量分数
+ */
+function contentQualityScore(el) {
+  if (!el) return 0;
+  const text = el.textContent || '';
+  const textLen = text.trim().length;
+
+  // 基础分数
+  let score = textLen;
+
+  // 有段落加分
+  const paragraphs = el.querySelectorAll('p');
+  score += paragraphs.length * 50;
+
+  // 有标题加分
+  const headings = el.querySelectorAll('h1, h2, h3, h4, h5, h6');
+  score += headings.length * 100;
+
+  // 广告容器扣分
+  if (isLikelyAdContainer(el)) score *= 0.1;
+
+  // 链接密度太高扣分（可能是导航或广告）
+  const links = el.querySelectorAll('a');
+  const linkTextLen = Array.from(links).reduce((sum, a) => sum + (a.textContent?.length || 0), 0);
+  const linkDensity = textLen > 0 ? linkTextLen / textLen : 0;
+  if (linkDensity > 0.5) score *= 0.3;
+
+  return score;
+}
+
+/**
  * 查找主内容区域
  */
 function findMainContent(doc) {
+  // 优先使用语义化选择器
   for (const selector of MAIN_CONTENT_SELECTORS) {
     try {
-      const el = doc.querySelector(selector);
-      if (el && el.textContent?.trim().length > 100) {
-        return { element: el, selector };
+      const elements = doc.querySelectorAll(selector);
+      // 如果有多个匹配，选择质量最高的
+      let best = null;
+      let bestScore = 0;
+      for (const el of elements) {
+        if (isLikelyAdContainer(el)) continue;
+        const score = contentQualityScore(el);
+        if (score > bestScore) {
+          bestScore = score;
+          best = el;
+        }
+      }
+      if (best && bestScore > 500) {
+        return { element: best, selector };
       }
     } catch (e) {
       // 忽略选择器错误
     }
   }
 
-  // Fallback: 找最长文本的 div
-  const divs = doc.querySelectorAll('div');
+  // Fallback: 找质量最高的 div/section
+  const containers = doc.querySelectorAll('div, section');
   let best = null;
-  let bestLen = 0;
+  let bestScore = 0;
 
-  for (const div of divs) {
-    const len = div.textContent?.trim().length || 0;
-    if (len > bestLen && len > 200) {
-      bestLen = len;
-      best = div;
+  for (const el of containers) {
+    if (isLikelyAdContainer(el)) continue;
+    const score = contentQualityScore(el);
+    if (score > bestScore) {
+      bestScore = score;
+      best = el;
     }
   }
 
-  if (best) {
-    return { element: best, selector: 'div (heuristic)' };
+  if (best && bestScore > 500) {
+    return { element: best, selector: 'div/section (heuristic)' };
   }
 
   // 最终 fallback: body
@@ -485,19 +597,23 @@ export function extractSmartContent(html, options = {}) {
     // 提取元数据（在移除噪音前）
     const metadata = extractMetadata(doc);
 
-    // 移除噪音元素
-    const removedElements = removeNoiseElements(doc);
+    // 第一遍：全局移除噪音
+    let removedElements = removeNoiseElements(doc);
 
     // 查找主内容
     const { element: mainContent, selector: mainContentSelector } = findMainContent(doc);
 
+    // 第二遍：主内容内部再次清理（克隆以避免影响原 DOM）
+    const contentClone = mainContent.cloneNode(true);
+    removedElements += removeNoiseElements(contentClone);
+
     // 提取结构化信息
-    metadata.headings = extractHeadings(mainContent);
-    metadata.links = preserveLinks ? extractLinks(mainContent) : [];
-    metadata.images = extractImages(mainContent);
+    metadata.headings = extractHeadings(contentClone);
+    metadata.links = preserveLinks ? extractLinks(contentClone) : [];
+    metadata.images = extractImages(contentClone);
 
     // 转换为 Markdown
-    let markdown = elementToMarkdown(mainContent);
+    let markdown = elementToMarkdown(contentClone);
 
     // 清理 Markdown
     markdown = markdown
