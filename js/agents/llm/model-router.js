@@ -193,11 +193,26 @@ export class ModelRouter extends EventEmitter {
     return null;
   }
 
+  _getShortestCooldown(candidates) {
+    const now = this._time.now();
+    let shortest = null;
+    for (const modelId of candidates) {
+      const h = this._health.get(modelId);
+      if (h?.unhealthyUntilMs > now) {
+        const remaining = h.unhealthyUntilMs - now;
+        if (!shortest || remaining < shortest.remainingMs) {
+          shortest = { modelId, remainingMs: remaining };
+        }
+      }
+    }
+    return shortest;
+  }
+
   /**
    * @param {{usage: 'worker'|'planner'|'analyst'|'writer'|'vision', messages: Array<object>, images?: Array<any>}} input
    * @returns {Promise<{content: string, model: string, provider: string}>}
    */
-  async call({ usage, messages, images } = {}) {
+  async call({ usage, messages, images, _waitRetryCount } = {}) {
     const u = toNonEmptyString(usage);
     if (!u) throw new TypeError("call({usage, messages}): usage must be a non-empty string");
     assertChatMessages(messages);
@@ -207,6 +222,11 @@ export class ModelRouter extends EventEmitter {
 
     const requiredTags = this._requiredTags({ usage: u, images });
     let lastError = null;
+    const waitRetryCount = typeof _waitRetryCount === "number" && Number.isFinite(_waitRetryCount) ? _waitRetryCount : 0;
+    let triedCount = 0;
+    let eligibleCount = 0;
+    let cooldownCount = 0;
+    const eligibleCandidates = [];
 
     // Debug: 记录候选模型和健康状态
     const debugCandidates = candidates.map((id) => {
@@ -227,9 +247,12 @@ export class ModelRouter extends EventEmitter {
         console.log(`[ModelRouter] skip ${modelId}: missing required tags`);
         continue;
       }
+      eligibleCount++;
+      eligibleCandidates.push(modelId);
       if (!this.isAvailable(modelId)) {
         const h = this._health.get(modelId);
         console.log(`[ModelRouter] skip ${modelId}: unhealthy until ${new Date(h?.unhealthyUntilMs || 0).toISOString()}`);
+        cooldownCount++;
         continue;
       }
 
@@ -240,6 +263,7 @@ export class ModelRouter extends EventEmitter {
       if (limiter) await limiter.waitTurn();
 
       try {
+        triedCount++;
         const resp = await provider.chat({ model: entry.id, messages, images });
         assertChatResponse(resp);
         return { ...resp, model: entry.id, provider: entry.provider };
@@ -268,10 +292,20 @@ export class ModelRouter extends EventEmitter {
       }
     }
 
+    // 遍历完所有候选后：若所有可用候选都处于 cooldown，则按最短剩余时间等待并重试一次
+    if (triedCount === 0 && eligibleCount > 0 && cooldownCount === eligibleCount) {
+      const waitInfo = this._getShortestCooldown(eligibleCandidates);
+      if (waitRetryCount < 1 && waitInfo && waitInfo.remainingMs > 0 && waitInfo.remainingMs < 30_000) {
+        const waitMs = Math.ceil(waitInfo.remainingMs);
+        console.log(`[ModelRouter] All models in cooldown, waiting ${waitMs}ms for ${waitInfo.modelId}`);
+        await this._time.sleep(waitMs + 100);
+        return this.call({ usage: u, messages, images, _waitRetryCount: waitRetryCount + 1 });
+      }
+    }
+
     const msg = `All models failed for usage: ${u}`;
     const e = new Error(msg);
     e.cause = lastError instanceof Error ? lastError : undefined;
     throw e;
   }
 }
-

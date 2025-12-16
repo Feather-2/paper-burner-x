@@ -146,6 +146,33 @@ test("ModelRouter: unhealthy cooldown recovery retries model after time passes",
   assert.equal(out2.content, "m1-back");
 });
 
+test("ModelRouter: waits for shortest cooldown (<30s) then retries once", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const time = createFakeTime(0);
+  const provider = new MockProvider({ id: "mock" });
+  provider.setBehaviors("m1", [{ throw: new Error("down") }, { content: "m1-back" }]);
+
+  const router = new ModelRouter({
+    models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+    usageConfig: { worker: ["m1"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    cooldownMs: 10_000,
+    time,
+  });
+
+  await assert.rejects(() => router.call({ usage: "worker", messages: [{ role: "user", content: "x" }] }), /All models failed for usage: worker/);
+  assert.equal(router.isAvailable("m1"), false);
+  assert.equal(provider.calls.length, 1);
+
+  const out = await router.call({ usage: "worker", messages: [{ role: "user", content: "y" }] });
+  assert.equal(out.model, "m1");
+  assert.equal(out.content, "m1-back");
+  assert.equal(provider.calls.length, 2);
+  assert.ok(time.now() >= 10_000);
+});
+
 test("ModelRouter: throws when all candidates fail", async () => {
   const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
   const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
@@ -197,4 +224,3 @@ test("ModelRouter + validators: bad configs throw early", async () => {
     /unknown tag/i
   );
 });
-
