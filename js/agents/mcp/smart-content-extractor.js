@@ -1,0 +1,577 @@
+/**
+ * 智能网页内容提取器
+ *
+ * 参考 WEB_TRANSLATION_ANALYSIS.md 思路：
+ * 1. 主内容区域识别
+ * 2. 结构化提取（转 Markdown）
+ * 3. 噪音过滤
+ * 4. 文本过滤
+ */
+
+// 主内容选择器（按优先级）
+const MAIN_CONTENT_SELECTORS = [
+  'article',
+  'main',
+  '[role="main"]',
+  '.post-content',
+  '.article-content',
+  '.entry-content',
+  '.content',
+  '.post',
+  '.article',
+  '.entry',
+  '#content',
+  '#main',
+  '#article',
+  '.markdown-body',
+  '.prose',
+];
+
+// 噪音元素选择器
+const NOISE_SELECTORS = [
+  'script', 'style', 'noscript', 'template', 'iframe', 'svg',
+  'nav', 'header', 'footer', 'aside',
+  '.nav', '.navigation', '.menu', '.sidebar', '.widget',
+  '.ad', '.ads', '.advertisement', '.sponsor', '.promotion', '.adsbygoogle',
+  '.comment', '.comments', '#comments', '.reply', '.respond',
+  '.social', '.share', '.sharing', '.social-share',
+  '.related', '.recommended', '.more-posts', '.related-posts',
+  '.breadcrumb', '.breadcrumbs', '.pagination',
+  '.toc', '.table-of-contents',
+  '[role="navigation"]', '[role="banner"]', '[role="complementary"]',
+  '[aria-hidden="true"]',
+  '.hidden', '.hide', '.invisible',
+];
+
+// 跳过的文本模式
+const SKIP_PATTERNS = [
+  /^https?:\/\/[^\s]+$/i,                          // 纯 URL
+  /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/, // 邮箱
+  /^\d+(\.\d+)?$/,                                  // 纯数字
+  /^v?\d+(\.\d+)+$/,                                // 版本号
+  /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?$/,      // 日期时间
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, // UUID
+  /^[.#][\w-]+$/,                                   // CSS 选择器
+  /^&\w+;$/,                                        // HTML 实体
+  /^[\s\d\p{P}]+$/u,                                // 纯标点/数字/空白
+];
+
+// 块级元素
+const BLOCK_TAGS = new Set([
+  'DIV', 'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+  'ARTICLE', 'SECTION', 'ASIDE', 'HEADER', 'FOOTER',
+  'NAV', 'MAIN', 'UL', 'OL', 'LI', 'BLOCKQUOTE',
+  'PRE', 'TABLE', 'FORM', 'FIELDSET', 'HR', 'BR',
+  'FIGURE', 'FIGCAPTION', 'DL', 'DT', 'DD',
+]);
+
+/**
+ * 检查文本是否应该跳过
+ */
+function shouldSkipText(text) {
+  const trimmed = (text || '').trim();
+  if (trimmed.length < 2 || trimmed.length > 10000) return true;
+  return SKIP_PATTERNS.some(p => p.test(trimmed));
+}
+
+/**
+ * HTML 实体解码
+ */
+function decodeHtmlEntities(text) {
+  return (text || '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&#(\d+);/gi, (_, code) => String.fromCharCode(parseInt(code, 10)));
+}
+
+/**
+ * 清理文本（合并空白，去除首尾空白）
+ */
+function cleanText(text) {
+  return decodeHtmlEntities(text || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * 从 DOM 元素提取结构化 Markdown
+ */
+function elementToMarkdown(el, depth = 0) {
+  if (!el) return '';
+
+  const tag = el.tagName?.toUpperCase();
+  const parts = [];
+
+  // 处理不同标签类型
+  switch (tag) {
+    case 'H1':
+    case 'H2':
+    case 'H3':
+    case 'H4':
+    case 'H5':
+    case 'H6': {
+      const level = parseInt(tag[1], 10);
+      const text = cleanText(el.textContent);
+      if (text && !shouldSkipText(text)) {
+        parts.push('\n' + '#'.repeat(level) + ' ' + text + '\n');
+      }
+      break;
+    }
+
+    case 'P': {
+      const text = inlineToMarkdown(el);
+      if (text && !shouldSkipText(text)) {
+        parts.push('\n' + text + '\n');
+      }
+      break;
+    }
+
+    case 'UL':
+    case 'OL': {
+      const items = el.querySelectorAll(':scope > li');
+      const isOrdered = tag === 'OL';
+      let idx = 1;
+      for (const li of items) {
+        const text = inlineToMarkdown(li);
+        if (text && !shouldSkipText(text)) {
+          const prefix = isOrdered ? `${idx++}. ` : '- ';
+          parts.push(prefix + text);
+        }
+      }
+      if (parts.length) {
+        return '\n' + parts.join('\n') + '\n';
+      }
+      break;
+    }
+
+    case 'BLOCKQUOTE': {
+      const text = inlineToMarkdown(el);
+      if (text && !shouldSkipText(text)) {
+        const lines = text.split('\n').map(l => '> ' + l.trim()).join('\n');
+        parts.push('\n' + lines + '\n');
+      }
+      break;
+    }
+
+    case 'PRE': {
+      const code = el.querySelector('code');
+      const text = (code || el).textContent || '';
+      if (text.trim()) {
+        // 尝试获取语言
+        const lang = code?.className?.match(/language-(\w+)/)?.[1] || '';
+        parts.push('\n```' + lang + '\n' + text.trim() + '\n```\n');
+      }
+      break;
+    }
+
+    case 'CODE': {
+      // 独立的 code 标签（非 pre 内）
+      if (el.parentElement?.tagName !== 'PRE') {
+        const text = el.textContent?.trim();
+        if (text) {
+          return '`' + text + '`';
+        }
+      }
+      break;
+    }
+
+    case 'TABLE': {
+      const rows = el.querySelectorAll('tr');
+      const tableRows = [];
+      for (const row of rows) {
+        const cells = row.querySelectorAll('th, td');
+        const rowText = Array.from(cells)
+          .map(c => cleanText(c.textContent))
+          .join(' | ');
+        if (rowText.trim()) {
+          tableRows.push('| ' + rowText + ' |');
+        }
+      }
+      if (tableRows.length) {
+        // 添加表头分隔符
+        if (tableRows.length > 1) {
+          const headerCols = tableRows[0].split('|').length - 2;
+          const separator = '|' + ' --- |'.repeat(headerCols);
+          tableRows.splice(1, 0, separator);
+        }
+        parts.push('\n' + tableRows.join('\n') + '\n');
+      }
+      break;
+    }
+
+    case 'IMG': {
+      const alt = el.getAttribute('alt') || '';
+      const src = el.getAttribute('src') || '';
+      if (src) {
+        parts.push(`![${cleanText(alt)}](${src})`);
+      }
+      break;
+    }
+
+    case 'HR': {
+      parts.push('\n---\n');
+      break;
+    }
+
+    case 'BR': {
+      parts.push('\n');
+      break;
+    }
+
+    default: {
+      // 递归处理子节点
+      for (const child of el.childNodes) {
+        if (child.nodeType === 1) { // Element
+          parts.push(elementToMarkdown(child, depth + 1));
+        } else if (child.nodeType === 3) { // Text
+          const text = cleanText(child.textContent);
+          if (text && !shouldSkipText(text)) {
+            parts.push(text);
+          }
+        }
+      }
+    }
+  }
+
+  return parts.join('');
+}
+
+/**
+ * 处理内联元素（保留格式）
+ */
+function inlineToMarkdown(el) {
+  if (!el) return '';
+
+  const parts = [];
+
+  for (const child of el.childNodes) {
+    if (child.nodeType === 3) { // Text node
+      parts.push(cleanText(child.textContent));
+    } else if (child.nodeType === 1) { // Element node
+      const tag = child.tagName?.toUpperCase();
+      const text = inlineToMarkdown(child);
+
+      switch (tag) {
+        case 'STRONG':
+        case 'B':
+          if (text) parts.push('**' + text + '**');
+          break;
+        case 'EM':
+        case 'I':
+          if (text) parts.push('*' + text + '*');
+          break;
+        case 'CODE':
+          if (text) parts.push('`' + text + '`');
+          break;
+        case 'A': {
+          const href = child.getAttribute('href');
+          if (text && href && !href.startsWith('#') && !href.startsWith('javascript:')) {
+            parts.push('[' + text + '](' + href + ')');
+          } else if (text) {
+            parts.push(text);
+          }
+          break;
+        }
+        case 'BR':
+          parts.push('\n');
+          break;
+        case 'IMG': {
+          const alt = child.getAttribute('alt') || '';
+          const src = child.getAttribute('src') || '';
+          if (src) parts.push(`![${cleanText(alt)}](${src})`);
+          break;
+        }
+        default:
+          if (text) parts.push(text);
+      }
+    }
+  }
+
+  return parts.join(' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * 移除噪音元素
+ */
+function removeNoiseElements(doc) {
+  let removed = 0;
+  const selector = NOISE_SELECTORS.join(', ');
+
+  try {
+    const noiseElements = doc.querySelectorAll(selector);
+    for (const el of noiseElements) {
+      el.remove();
+      removed++;
+    }
+  } catch (e) {
+    // 某些选择器可能不支持，忽略
+  }
+
+  return removed;
+}
+
+/**
+ * 查找主内容区域
+ */
+function findMainContent(doc) {
+  for (const selector of MAIN_CONTENT_SELECTORS) {
+    try {
+      const el = doc.querySelector(selector);
+      if (el && el.textContent?.trim().length > 100) {
+        return { element: el, selector };
+      }
+    } catch (e) {
+      // 忽略选择器错误
+    }
+  }
+
+  // Fallback: 找最长文本的 div
+  const divs = doc.querySelectorAll('div');
+  let best = null;
+  let bestLen = 0;
+
+  for (const div of divs) {
+    const len = div.textContent?.trim().length || 0;
+    if (len > bestLen && len > 200) {
+      bestLen = len;
+      best = div;
+    }
+  }
+
+  if (best) {
+    return { element: best, selector: 'div (heuristic)' };
+  }
+
+  // 最终 fallback: body
+  return { element: doc.body, selector: 'body (fallback)' };
+}
+
+/**
+ * 提取元数据
+ */
+function extractMetadata(doc) {
+  const meta = {
+    title: '',
+    description: '',
+    author: '',
+    publishDate: '',
+  };
+
+  // Title
+  meta.title = doc.querySelector('title')?.textContent?.trim() ||
+               doc.querySelector('h1')?.textContent?.trim() ||
+               doc.querySelector('[property="og:title"]')?.getAttribute('content') ||
+               '';
+
+  // Description
+  meta.description = doc.querySelector('meta[name="description"]')?.getAttribute('content') ||
+                     doc.querySelector('[property="og:description"]')?.getAttribute('content') ||
+                     '';
+
+  // Author
+  meta.author = doc.querySelector('meta[name="author"]')?.getAttribute('content') ||
+                doc.querySelector('[rel="author"]')?.textContent?.trim() ||
+                doc.querySelector('.author')?.textContent?.trim() ||
+                '';
+
+  // Publish date
+  meta.publishDate = doc.querySelector('meta[property="article:published_time"]')?.getAttribute('content') ||
+                     doc.querySelector('time')?.getAttribute('datetime') ||
+                     doc.querySelector('.date, .published, .post-date')?.textContent?.trim() ||
+                     '';
+
+  return meta;
+}
+
+/**
+ * 提取标题结构
+ */
+function extractHeadings(doc) {
+  const headings = [];
+  const hElements = doc.querySelectorAll('h1, h2, h3, h4, h5, h6');
+
+  for (const h of hElements) {
+    const text = cleanText(h.textContent);
+    if (text && !shouldSkipText(text)) {
+      headings.push({
+        level: parseInt(h.tagName[1], 10),
+        text,
+      });
+    }
+  }
+
+  return headings;
+}
+
+/**
+ * 提取重要链接
+ */
+function extractLinks(el) {
+  const links = [];
+  const seen = new Set();
+  const anchors = el.querySelectorAll('a[href]');
+
+  for (const a of anchors) {
+    const href = a.getAttribute('href');
+    const text = cleanText(a.textContent);
+
+    if (href && text && !seen.has(href) &&
+        href.startsWith('http') &&
+        text.length > 3 &&
+        !shouldSkipText(text)) {
+      seen.add(href);
+      links.push({ text, url: href });
+    }
+  }
+
+  return links.slice(0, 50); // 限制数量
+}
+
+/**
+ * 提取图片
+ */
+function extractImages(el) {
+  const images = [];
+  const seen = new Set();
+  const imgs = el.querySelectorAll('img[src]');
+
+  for (const img of imgs) {
+    const src = img.getAttribute('src');
+    const alt = img.getAttribute('alt') || '';
+
+    if (src && !seen.has(src)) {
+      seen.add(src);
+      images.push({ alt: cleanText(alt), src });
+    }
+  }
+
+  return images.slice(0, 20); // 限制数量
+}
+
+/**
+ * 主函数：智能提取网页内容
+ *
+ * @param {string} html - 原始 HTML
+ * @param {Object} options - 选项
+ * @returns {{ markdown: string, plainText: string, metadata: Object, structure: Object }}
+ */
+export function extractSmartContent(html, options = {}) {
+  const {
+    preserveLinks = true,
+    maxLength = 50000,
+    fallbackOnError = true,
+  } = options;
+
+  // 边界检查
+  if (!html || typeof html !== 'string') {
+    return {
+      markdown: '',
+      plainText: '',
+      metadata: { title: '', description: '', author: '', publishDate: '', wordCount: 0, headings: [], links: [], images: [] },
+      structure: { mainContentSelector: null, removedElements: 0, extractedSections: 0 },
+    };
+  }
+
+  try {
+    // 解析 HTML
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+
+    // 提取元数据（在移除噪音前）
+    const metadata = extractMetadata(doc);
+
+    // 移除噪音元素
+    const removedElements = removeNoiseElements(doc);
+
+    // 查找主内容
+    const { element: mainContent, selector: mainContentSelector } = findMainContent(doc);
+
+    // 提取结构化信息
+    metadata.headings = extractHeadings(mainContent);
+    metadata.links = preserveLinks ? extractLinks(mainContent) : [];
+    metadata.images = extractImages(mainContent);
+
+    // 转换为 Markdown
+    let markdown = elementToMarkdown(mainContent);
+
+    // 清理 Markdown
+    markdown = markdown
+      .replace(/\n{3,}/g, '\n\n')  // 合并多余空行
+      .replace(/^\s+|\s+$/g, '');   // 去除首尾空白
+
+    // 限制长度
+    if (markdown.length > maxLength) {
+      markdown = markdown.slice(0, maxLength) + '\n\n...(内容已截断)';
+    }
+
+    // 生成纯文本版本
+    const plainText = markdown
+      .replace(/```[\s\S]*?```/g, '')  // 移除代码块
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')  // 移除链接格式
+      .replace(/[*_`#>|-]/g, '')  // 移除 Markdown 符号
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    metadata.wordCount = plainText.length;
+
+    // 统计提取的章节数
+    const extractedSections = (markdown.match(/^#+\s/gm) || []).length;
+
+    return {
+      markdown,
+      plainText,
+      metadata,
+      structure: {
+        mainContentSelector,
+        removedElements,
+        extractedSections,
+      },
+    };
+
+  } catch (err) {
+    console.warn('[SmartContentExtractor] Error:', err?.message);
+
+    if (fallbackOnError) {
+      // Fallback: 简单文本提取
+      const plainText = html
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, ' ')
+        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, maxLength);
+
+      return {
+        markdown: plainText,
+        plainText,
+        metadata: { title: '', description: '', author: '', publishDate: '', wordCount: plainText.length, headings: [], links: [], images: [] },
+        structure: { mainContentSelector: 'fallback', removedElements: 0, extractedSections: 0 },
+      };
+    }
+
+    throw err;
+  }
+}
+
+/**
+ * 简单包装：只返回 Markdown
+ */
+export function htmlToMarkdown(html, options = {}) {
+  const { markdown } = extractSmartContent(html, options);
+  return markdown;
+}
+
+/**
+ * 简单包装：只返回纯文本
+ */
+export function htmlToPlainText(html, options = {}) {
+  const { plainText } = extractSmartContent(html, options);
+  return plainText;
+}
+
+export default extractSmartContent;

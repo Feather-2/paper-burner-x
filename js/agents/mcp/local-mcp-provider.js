@@ -11,6 +11,7 @@
  */
 
 import { McpProvider, McpToolDefinition, McpToolResult } from "./mcp-client.js";
+import { extractSmartContent } from "./smart-content-extractor.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -455,9 +456,43 @@ export class LocalMcpProvider extends McpProvider {
         tryDirect: true,
       });
 
-      const title = extractTitle(html);
-      const description = extractMetaDescription(html);
-      const extractedText = extractTextFromHtml(html);
+      // 尝试智能提取
+      let extractedText, extractionMethod, metadata;
+      try {
+        const smart = extractSmartContent(html, { maxLength: 50000 });
+        extractedText = smart.markdown || smart.plainText;
+        extractionMethod = 'smart';
+        metadata = {
+          url: targetUrl,
+          title: smart.metadata?.title || extractTitle(html),
+          description: smart.metadata?.description || extractMetaDescription(html),
+          author: smart.metadata?.author,
+          publishDate: smart.metadata?.publishDate,
+          fetchedAt: new Date().toISOString(),
+          contentLength: html.length,
+          extractedLength: extractedText.length,
+          wordCount: smart.metadata?.wordCount,
+          headings: smart.metadata?.headings,
+          structure: smart.structure,
+          proxy,
+          extractionMethod,
+        };
+      } catch (smartErr) {
+        // Fallback 到简单提取
+        console.warn('[LocalMcpProvider] Smart extraction failed, using fallback:', smartErr?.message);
+        extractedText = extractTextFromHtml(html);
+        extractionMethod = 'fallback';
+        metadata = {
+          url: targetUrl,
+          title: extractTitle(html),
+          description: extractMetaDescription(html),
+          fetchedAt: new Date().toISOString(),
+          contentLength: html.length,
+          extractedLength: extractedText.length,
+          proxy,
+          extractionMethod,
+        };
+      }
 
       // 限制文本长度
       const maxLength = 50000;
@@ -465,22 +500,12 @@ export class LocalMcpProvider extends McpProvider {
         ? extractedText.slice(0, maxLength) + "...(truncated)"
         : extractedText;
 
-      const metadata = {
-        url: targetUrl,
-        title,
-        description,
-        fetchedAt: new Date().toISOString(),
-        contentLength: html.length,
-        extractedLength: extractedText.length,
-        proxy,
-      };
-
       return new McpToolResult({
         success: true,
         isError: false,
         content: [
           { type: "text", text: truncatedText },
-          { type: "json", data: { metadata, title, url: targetUrl } },
+          { type: "json", data: { metadata, title: metadata.title, url: targetUrl, text: truncatedText } },
         ],
       });
     } catch (err) {
