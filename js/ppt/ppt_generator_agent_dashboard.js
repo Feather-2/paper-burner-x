@@ -232,7 +232,7 @@ const PPTGeneratorAgentDashboard = {
                 /* Source Buttons Grid */
                 .rd-upload-grid {
                     display: grid;
-                    grid-template-columns: repeat(2, 1fr);
+                    grid-template-columns: repeat(4, 1fr);
                     gap: 12px;
                     margin-bottom: 20px;
                 }
