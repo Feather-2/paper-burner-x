@@ -105,20 +105,19 @@ const PPTGeneratorAgentDashboard = {
     _renderUploadSharedStyles() {
         return `
             <style>
-                /* 父容器调整 - 让内容与 chat 底部对齐 */
+                /* 父容器调整 - 确保可以绝对定位 */
                 #pptPreviewArea {
-                    padding-bottom: 24px;
-                    box-sizing: border-box;
+                    position: relative;
                 }
-                /* Two-column Layout - 与右侧 chat 对齐 */
+                /* Two-column Layout - 绝对定位与 chat 对齐 */
                 .rd-layout {
+                    position: absolute;
+                    top: 0;
+                    bottom: 24px; /* 与 chat 的 bottom: 24px 对齐 */
+                    left: 24px;
+                    right: 24px;
                     display: flex;
                     gap: 24px;
-                    padding: 0 24px;
-                    max-width: 1400px;
-                    margin: 0 auto;
-                    height: 100%;
-                    min-height: 400px;
                     box-sizing: border-box;
                 }
                 .rd-sidebar {
@@ -203,9 +202,14 @@ const PPTGeneratorAgentDashboard = {
                 .rd-main {
                     flex: 1;
                     min-width: 0;
+                    display: flex;
+                    flex-direction: column;
                 }
                 /* Redesigned Card Container (rd-card) */
                 .rd-card {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
                     background: rgba(255, 255, 255, 0.82);
                     backdrop-filter: blur(12px);
                     border: 1px solid rgba(255, 255, 255, 0.6);
