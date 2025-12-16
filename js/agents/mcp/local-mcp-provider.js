@@ -11,7 +11,6 @@
  */
 
 import { McpProvider, McpToolDefinition, McpToolResult } from "./mcp-client.js";
-import { extractSmartContent } from "./smart-content-extractor.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -28,20 +27,14 @@ function safeInt(n, fallback = 0) {
 }
 
 /**
- * 简单的 HTML 解析器 - 提取文本内容（带基础噪音过滤）
+ * 简单的 HTML 解析器 - 提取文本内容
  */
 function extractTextFromHtml(html) {
-  // 移除 script, style, noscript, svg, path 等标签
+  // 移除 script 和 style 标签
   let text = html
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, " ")
     .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, " ")
-    .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gi, " ")
-    .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, " ")
-    .replace(/<path\b[^>]*>/gi, " ")
-    .replace(/<nav\b[^<]*(?:(?!<\/nav>)<[^<]*)*<\/nav>/gi, " ")
-    .replace(/<header\b[^<]*(?:(?!<\/header>)<[^<]*)*<\/header>/gi, " ")
-    .replace(/<footer\b[^<]*(?:(?!<\/footer>)<[^<]*)*<\/footer>/gi, " ")
-    .replace(/<aside\b[^<]*(?:(?!<\/aside>)<[^<]*)*<\/aside>/gi, " ");
+    .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gi, " ");
 
   // 移除所有 HTML 标签
   text = text.replace(/<[^>]+>/g, " ");
@@ -462,63 +455,9 @@ export class LocalMcpProvider extends McpProvider {
         tryDirect: true,
       });
 
-      // 尝试智能提取
-      let extractedText, extractionMethod, metadata;
-      try {
-        const smart = extractSmartContent(html, { maxLength: 50000 });
-        const smartText = smart.markdown || smart.plainText;
-
-        // 如果智能提取结果太短，说明可能识别错了，fallback 到简单提取
-        const simpleText = extractTextFromHtml(html);
-        if (smartText.length < 200 || smartText.length < simpleText.length * 0.3) {
-          // 智能提取结果不可靠，使用简单提取
-          extractedText = simpleText;
-          extractionMethod = 'fallback (smart too short)';
-          metadata = {
-            url: targetUrl,
-            title: smart.metadata?.title || extractTitle(html),
-            description: smart.metadata?.description || extractMetaDescription(html),
-            fetchedAt: new Date().toISOString(),
-            contentLength: html.length,
-            extractedLength: extractedText.length,
-            proxy,
-            extractionMethod,
-          };
-        } else {
-          extractedText = smartText;
-          extractionMethod = 'smart';
-          metadata = {
-            url: targetUrl,
-            title: smart.metadata?.title || extractTitle(html),
-            description: smart.metadata?.description || extractMetaDescription(html),
-            author: smart.metadata?.author,
-            publishDate: smart.metadata?.publishDate,
-            fetchedAt: new Date().toISOString(),
-            contentLength: html.length,
-            extractedLength: extractedText.length,
-            wordCount: smart.metadata?.wordCount,
-            headings: smart.metadata?.headings,
-            structure: smart.structure,
-            proxy,
-            extractionMethod,
-          };
-        }
-      } catch (smartErr) {
-        // Fallback 到简单提取
-        console.warn('[LocalMcpProvider] Smart extraction failed, using fallback:', smartErr?.message);
-        extractedText = extractTextFromHtml(html);
-        extractionMethod = 'fallback';
-        metadata = {
-          url: targetUrl,
-          title: extractTitle(html),
-          description: extractMetaDescription(html),
-          fetchedAt: new Date().toISOString(),
-          contentLength: html.length,
-          extractedLength: extractedText.length,
-          proxy,
-          extractionMethod,
-        };
-      }
+      const title = extractTitle(html);
+      const description = extractMetaDescription(html);
+      const extractedText = extractTextFromHtml(html);
 
       // 限制文本长度
       const maxLength = 50000;
@@ -526,12 +465,22 @@ export class LocalMcpProvider extends McpProvider {
         ? extractedText.slice(0, maxLength) + "...(truncated)"
         : extractedText;
 
+      const metadata = {
+        url: targetUrl,
+        title,
+        description,
+        fetchedAt: new Date().toISOString(),
+        contentLength: html.length,
+        extractedLength: extractedText.length,
+        proxy,
+      };
+
       return new McpToolResult({
         success: true,
         isError: false,
         content: [
           { type: "text", text: truncatedText },
-          { type: "json", data: { metadata, title: metadata.title, url: targetUrl, text: truncatedText } },
+          { type: "json", data: { metadata, title, url: targetUrl } },
         ],
       });
     } catch (err) {
