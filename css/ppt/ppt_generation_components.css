@@ -1066,9 +1066,9 @@
 /* ==================== Requirements Form ==================== */
 .ppt-question-form {
     width: 100%;
-    max-width: 900px;
-    height: calc(100vh - 120px); /* Account for header and margins */
-    margin: 24px auto;
+    height: 100%;
+    max-width: none;
+    margin: 0;
     background: var(--ppt-surface);
     border-radius: var(--ppt-radius-xl);
     padding: 32px 40px;
@@ -1079,6 +1079,103 @@
     animation: slideUp 0.4s ease-out;
     box-sizing: border-box;
     overflow: hidden; /* Prevent content overflow */
+    flex: 1;
+    min-height: 0;
+}
+
+.ppt-question-form:not(.page-layout) {
+    max-width: 900px;
+    height: calc(100vh - 120px); /* Account for header and margins */
+    margin: 24px auto;
+}
+
+.ppt-question-form.page-layout {
+    padding: 0;
+}
+
+/* ==================== Page Layout Tabs ==================== */
+.ppt-page-layout-editor {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    min-height: 0;
+}
+
+.ppt-page-layout-tabs {
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid var(--ppt-border);
+    background: var(--ppt-surface);
+    flex-shrink: 0;
+}
+
+.ppt-page-layout-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ppt-text-secondary);
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.ppt-page-layout-tab:hover {
+    background: var(--ppt-bg-subtle);
+    color: var(--ppt-text-main);
+}
+
+.ppt-page-layout-tab.active {
+    background: var(--ppt-primary);
+    color: #fff;
+}
+
+.ppt-page-layout-content {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    padding: 16px;
+}
+
+.ppt-page-layout-footer {
+    height: 64px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--ppt-border);
+    background: var(--ppt-surface);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+.slide-intent-card {
+    border: 1px solid var(--ppt-border);
+    border-radius: var(--ppt-radius-lg);
+    padding: 12px 14px;
+    background: var(--ppt-bg-app);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.12s ease;
+}
+
+.slide-intent-card:hover {
+    border-color: color-mix(in srgb, var(--ppt-primary) 35%, var(--ppt-border));
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
+    transform: translateY(-1px);
+}
+
+.slide-intent-card.dragging {
+    opacity: 0.5;
+}
+
+.slide-intent-card.drag-above {
+    border-top: 2px solid var(--ppt-primary);
+}
+
+.slide-intent-card.drag-below {
+    border-bottom: 2px solid var(--ppt-primary);
 }
 
 .form-header {
