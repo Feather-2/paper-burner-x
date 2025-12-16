@@ -17,9 +17,23 @@ function teardownDom() {
 
 test.afterEach(() => {
   teardownDom();
-  delete require.cache[require.resolve('../../js/ppt/ppt_generator_agent_dashboard.js')];
   delete require.cache[require.resolve('../../js/ppt/vision/layout-from-image.js')];
 });
+
+// Load the split dashboard modules once and reuse the mixin across tests.
+setupDom();
+require('../../js/ppt/ppt_dashboard_utils.js');
+require('../../js/ppt/ppt_dashboard_upload.js');
+require('../../js/ppt/ppt_dashboard_history.js');
+require('../../js/ppt/ppt_dashboard_url_input.js');
+require('../../js/ppt/ppt_dashboard_paste.js');
+require('../../js/ppt/ppt_dashboard_modals.js');
+require('../../js/ppt/ppt_dashboard_deepsearch.js');
+require('../../js/ppt/ppt_dashboard_page_layout.js');
+require('../../js/ppt/ppt_dashboard_design_spec.js');
+require('../../js/ppt/ppt_dashboard_outline.js');
+require('../../js/ppt/ppt_dashboard_core.js');
+const DASHBOARD_MIXIN = globalThis.window?.PPTDashboard?.PPTGeneratorAgentDashboard || {};
 
 // Test 1: VLM prompt includes styleDescription schema for style_reference intent
 test('layout-from-image: buildPrompt includes styleDescription schema for style_reference intent', () => {
@@ -83,7 +97,7 @@ test('dashboard: _ensureDesignSpecInitialized creates styleReference', () => {
     }
   };
 
-  require('../../js/ppt/ppt_generator_agent_dashboard.js');
+  Object.assign(globalThis.PPTGenerator.prototype, DASHBOARD_MIXIN);
 
   const gen = new globalThis.PPTGenerator();
   gen.renderPreviewArea();
@@ -108,7 +122,7 @@ test('dashboard: removeStyleReference clears extracted when no images left', () 
     }
   };
 
-  require('../../js/ppt/ppt_generator_agent_dashboard.js');
+  Object.assign(globalThis.PPTGenerator.prototype, DASHBOARD_MIXIN);
 
   const gen = new globalThis.PPTGenerator();
   gen.renderPreviewArea = () => {};
@@ -137,7 +151,7 @@ test('dashboard: updateStyleReferenceNotes updates userNotes', () => {
     }
   };
 
-  require('../../js/ppt/ppt_generator_agent_dashboard.js');
+  Object.assign(globalThis.PPTGenerator.prototype, DASHBOARD_MIXIN);
 
   const gen = new globalThis.PPTGenerator();
   gen._ensureDesignSpecInitialized();
@@ -170,7 +184,7 @@ test('dashboard: _renderStyleReferenceSection renders upload area', () => {
     }
   };
 
-  require('../../js/ppt/ppt_generator_agent_dashboard.js');
+  Object.assign(globalThis.PPTGenerator.prototype, DASHBOARD_MIXIN);
 
   const gen = new globalThis.PPTGenerator();
   gen.renderPreviewArea();
@@ -208,7 +222,7 @@ test('dashboard: _renderStyleReferenceSection renders extracted fields', () => {
     }
   };
 
-  require('../../js/ppt/ppt_generator_agent_dashboard.js');
+  Object.assign(globalThis.PPTGenerator.prototype, DASHBOARD_MIXIN);
 
   const gen = new globalThis.PPTGenerator();
   gen.renderPreviewArea();

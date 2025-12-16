@@ -151,6 +151,14 @@ class PropertyPanel extends EventEmitter {
                     <div class="property-section-title">效果</div>
                     ${this._renderEffectProperties(element)}
                 </div>
+                <div class="property-section">
+                    <div class="property-section-title">AI</div>
+                    <div class="property-row" style="flex-direction: column; gap: 8px;">
+                        <button class="property-btn" data-action="ai-style-element" style="width: 100%; background: linear-gradient(135deg, #10b981, #06b6d4); color: white;">
+                            AI 微调
+                        </button>
+                    </div>
+                </div>
             </div>
         `;
     }

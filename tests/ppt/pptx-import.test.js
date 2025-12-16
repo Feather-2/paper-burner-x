@@ -95,6 +95,7 @@ test('import PPTX as deck: parsed → slideIntents set → design.batch template
     }
   };
 
+  await gen.__pptWorkflowMixinsReady;
   const res = await gen.importPptxAsDeck(fakeFile);
   assert.equal(res.ok, true);
   assert.equal(Array.isArray(gen.workflowData.slideIntents), true);
@@ -152,6 +153,7 @@ test('import PPTX as deck: parse failure falls back to manual flow', async () =>
     }
   };
 
+  await gen.__pptWorkflowMixinsReady;
   const res = await gen.importPptxAsDeck(fakeFile);
   assert.equal(res.ok, false);
   assert.equal(gen.state, 'idle');
