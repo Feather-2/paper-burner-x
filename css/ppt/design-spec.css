@@ -132,6 +132,30 @@
     gap: 8px;
 }
 
+.ppt-design-spec-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+}
+
+.ppt-design-spec-row > label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ppt-text-secondary);
+    margin: 0;
+}
+
+.ppt-design-spec-toggle {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    flex: 1;
+    min-width: 180px;
+}
+
 .ppt-design-spec-seg-btn {
     border: 1px solid var(--ppt-border);
     background: white;

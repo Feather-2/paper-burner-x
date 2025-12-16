@@ -1010,6 +1010,12 @@ const PPTGeneratorAgentDashboard = {
 
         if (typeof ds.model !== 'string') ds.model = 'gemini-1.5-pro';
 
+        // Initialize refiner config (ReAct)
+        if (!ds.refine || typeof ds.refine !== 'object') ds.refine = {};
+        if (typeof ds.refine.enabled !== 'boolean') ds.refine.enabled = false;
+        if (!Number.isFinite(ds.refine.recommendedSteps) || ds.refine.recommendedSteps <= 0) ds.refine.recommendedSteps = 5;
+        if (!Number.isFinite(ds.refine.hardLimit) || ds.refine.hardLimit <= 0) ds.refine.hardLimit = 15;
+
         // Initialize styleReference
         if (!ds.styleReference || typeof ds.styleReference !== 'object') {
             ds.styleReference = {
@@ -1077,6 +1083,13 @@ const PPTGeneratorAgentDashboard = {
         if (ds.designSystemOverrides?.visualPreference) ds.designSystemOverrides.visualPreference.mode = v;
         if (ds.visualPreference) ds.visualPreference.mode = v;
         this.renderPreviewArea?.();
+    },
+
+    updateRefineEnabled(enabled) {
+        this.workflowData.designSystem = this.workflowData.designSystem || {};
+        this.workflowData.designSystem.refine = this.workflowData.designSystem.refine || {};
+        this.workflowData.designSystem.refine.enabled = !!enabled;
+        this.renderPreviewArea();
     },
 
     updateDesignSystemDensity(value) {
@@ -1205,6 +1218,7 @@ const PPTGeneratorAgentDashboard = {
         const colors = overrides.colors || ds.colors || {};
         const fonts = overrides.typography || ds.fonts || {};
         const visualMode = typeof overrides?.visualPreference?.mode === 'string' ? overrides.visualPreference.mode : (ds.visualPreference?.mode || 'balanced');
+        const refineEnabled = !!ds.refine?.enabled;
         const density = ds.density || 'balanced';
         const batchSize = Number(this.workflowData?.batchSize) || 4;
 
@@ -1300,6 +1314,14 @@ const PPTGeneratorAgentDashboard = {
                             ${segBtn('updateVisualPreferenceMode', 'ai-first', 'AI-first', visualMode === 'ai-first')}
                             ${segBtn('updateVisualPreferenceMode', 'svg-first', 'SVG-first', visualMode === 'svg-first')}
                             ${segBtn('updateVisualPreferenceMode', 'balanced', 'Balanced', visualMode === 'balanced')}
+                        </div>
+
+                        <div class="ppt-design-spec-row">
+                            <label>Refiner (ReAct)</label>
+                            <div class="ppt-design-spec-toggle">
+                                <button onclick="window.PPTGenerator.updateRefineEnabled(false)" class="ppt-design-spec-seg-btn ${!refineEnabled ? 'active' : ''}">关闭</button>
+                                <button onclick="window.PPTGenerator.updateRefineEnabled(true)" class="ppt-design-spec-seg-btn ${refineEnabled ? 'active' : ''}">启用</button>
+                            </div>
                         </div>
                     </div>
 

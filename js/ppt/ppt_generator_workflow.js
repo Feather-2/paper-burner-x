@@ -14,7 +14,15 @@ const PPTGeneratorWorkflow = {
         const ds = this._ensureDesignSystemInitialized();
         const prefs = ds?.designPreferences && typeof ds.designPreferences === 'object' ? ds.designPreferences : {};
         const overrides = ds?.designSystemOverrides && typeof ds.designSystemOverrides === 'object' ? ds.designSystemOverrides : {};
-        return { designPreferences: prefs, designSystemOverrides: overrides };
+        return {
+            designPreferences: prefs,
+            designSystemOverrides: overrides,
+            refine: {
+                enabled: ds.refine?.enabled || false,
+                recommendedSteps: ds.refine?.recommendedSteps || 5,
+                hardLimit: ds.refine?.hardLimit || 15,
+            },
+        };
     },
 
     _ensureReportReviewPanel() {
@@ -248,6 +256,12 @@ const PPTGeneratorWorkflow = {
         if (typeof ds.density !== 'string' || !allowedDensity.has(ds.density)) ds.density = 'balanced';
 
         if (typeof ds.model !== 'string') ds.model = 'gemini-1.5-pro';
+
+        // Initialize refiner config (ReAct)
+        if (!ds.refine || typeof ds.refine !== 'object') ds.refine = {};
+        if (typeof ds.refine.enabled !== 'boolean') ds.refine.enabled = false;
+        if (!Number.isFinite(ds.refine.recommendedSteps) || ds.refine.recommendedSteps <= 0) ds.refine.recommendedSteps = 5;
+        if (!Number.isFinite(ds.refine.hardLimit) || ds.refine.hardLimit <= 0) ds.refine.hardLimit = 15;
 
         const allowedBatch = new Set([1, 2, 4]);
         const batchSize = Number(this.workflowData.batchSize);
