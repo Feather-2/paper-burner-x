@@ -112,9 +112,8 @@ const PPTGeneratorAgentDashboard = {
                     padding: 24px;
                     max-width: 1400px;
                     margin: 0 auto;
-                    height: calc(100vh - 140px);
+                    height: calc(100vh - 104px);
                     min-height: 500px;
-                    max-height: 720px;
                 }
                 .rd-sidebar {
                     width: 280px;
