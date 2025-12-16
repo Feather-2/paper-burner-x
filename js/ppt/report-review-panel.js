@@ -93,8 +93,9 @@ class ReportReviewPanel {
         }
     }
 
-    // 渲染左下角按钮（固定）
+    // 渲染左下角按钮（固定）- 没有版本时不显示
     renderButton() {
+        if (this.versions.length === 0) return '';
         const newCount = this.getNewCount();
         return `
             <button id="reportReviewBtn" class="ppt-report-review-btn" onclick="window.PPTGenerator.toggleReportReview()">
