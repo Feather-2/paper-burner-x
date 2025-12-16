@@ -110,15 +110,23 @@ const PPTGeneratorAgentDashboard = {
                     position: relative;
                 }
                 /* Two-column Layout - 绝对定位与 chat 对齐 */
+                /* chat: top:80px, header:64px, 所以 top = 80-64 = 16px */
                 .rd-layout {
                     position: absolute;
-                    top: 0;
-                    bottom: 24px; /* 与 chat 的 bottom: 24px 对齐 */
+                    top: 16px;
+                    bottom: 24px;
                     left: 24px;
                     right: 24px;
                     display: flex;
                     gap: 24px;
                     box-sizing: border-box;
+                }
+                /* chat 隐藏时 (ppt-preview-area.expanded)，限制最大宽度 */
+                .ppt-preview-area.expanded .rd-layout {
+                    max-width: 1200px;
+                    left: 50%;
+                    right: auto;
+                    transform: translateX(-50%);
                 }
                 .rd-sidebar {
                     width: 280px;
@@ -293,30 +301,36 @@ const PPTGeneratorAgentDashboard = {
                 /* Dropzone */
                 .rd-dropzone {
                     border: 2px dashed var(--ppt-border);
-                    border-radius: 14px;
+                    border-radius: 16px;
                     background: rgba(255, 255, 255, 0.5);
-                    padding: 28px 20px;
+                    padding: 48px 24px;
                     text-align: center;
                     cursor: pointer;
                     transition: all 0.2s;
                     margin-bottom: 20px;
                     position: relative;
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    min-height: 180px;
                 }
                 .rd-dropzone:hover {
                     border-color: var(--ppt-primary);
                     background: var(--ppt-primary-subtle, rgba(79, 70, 229, 0.05));
                 }
                 .rd-dropzone-icon {
-                    font-size: 48px;
+                    font-size: 56px;
                     color: var(--ppt-primary);
                     opacity: 0.8;
-                    margin-bottom: 12px;
+                    margin-bottom: 16px;
                 }
                 .rd-dropzone-title {
-                    font-size: 16px;
+                    font-size: 18px;
                     font-weight: 600;
                     color: var(--ppt-text-main);
-                    margin-bottom: 6px;
+                    margin-bottom: 8px;
                 }
                 .rd-dropzone-hint {
                     font-size: 13px;
