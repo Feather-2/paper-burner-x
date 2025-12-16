@@ -105,48 +105,335 @@ const PPTGeneratorAgentDashboard = {
     _renderUploadSharedStyles() {
         return `
             <style>
-                .ppt-source-grid {
+                /* Redesigned Card Container (rd-card) */
+                .rd-card {
+                    background: rgba(255, 255, 255, 0.82);
+                    backdrop-filter: blur(12px);
+                    border: 1px solid rgba(255, 255, 255, 0.6);
+                    border-radius: 24px;
+                    box-shadow:
+                        0 4px 6px -1px rgba(0, 0, 0, 0.05),
+                        0 10px 15px -3px rgba(0, 0, 0, 0.05),
+                        0 0 0 1px rgba(255, 255, 255, 0.5) inset;
+                    padding: 40px;
+                    width: 100%;
+                    max-width: 760px;
+                    position: relative;
+                }
+                .rd-header {
+                    text-align: center;
+                    margin-bottom: 32px;
+                }
+                .rd-title {
+                    font-size: 24px;
+                    font-weight: 700;
+                    color: var(--ppt-text-main);
+                    margin: 0 0 8px;
+                    letter-spacing: -0.02em;
+                }
+                .rd-subtitle {
+                    font-size: 15px;
+                    color: var(--ppt-text-secondary);
+                    margin: 0;
+                }
+                /* Source Buttons Grid */
+                .rd-upload-grid {
                     display: grid;
                     grid-template-columns: repeat(2, 1fr);
-                    gap: 12px;
-                    margin-bottom: 16px;
+                    gap: 16px;
+                    margin-bottom: 24px;
                 }
-                .ppt-source-card {
+                .rd-source-btn {
                     display: flex;
-                    flex-direction: column;
                     align-items: center;
-                    justify-content: center;
-                    gap: 8px;
-                    padding: 20px 16px;
-                    background: var(--ppt-bg-app);
+                    gap: 16px;
+                    padding: 20px;
+                    background: white;
                     border: 1px solid var(--ppt-border);
-                    border-radius: 12px;
+                    border-radius: 16px;
                     cursor: pointer;
-                    transition: all 0.2s ease;
+                    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                    text-align: left;
                 }
-                .ppt-source-card:hover {
+                .rd-source-btn:hover {
                     border-color: var(--ppt-primary);
-                    background: rgba(var(--ppt-primary-rgb, 14, 165, 233), 0.05);
+                    box-shadow: var(--ppt-shadow-md);
                     transform: translateY(-2px);
                 }
-                .ppt-source-card iconify-icon {
-                    font-size: 28px;
+                .rd-source-icon {
+                    width: 48px;
+                    height: 48px;
+                    border-radius: 12px;
+                    background: var(--ppt-bg-subtle);
+                    color: var(--ppt-primary);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 24px;
+                    transition: all 0.2s;
+                    flex-shrink: 0;
+                }
+                .rd-source-btn:hover .rd-source-icon {
+                    background: var(--ppt-primary);
+                    color: white;
+                }
+                .rd-source-info h3 {
+                    font-size: 15px;
+                    font-weight: 600;
+                    color: var(--ppt-text-main);
+                    margin: 0 0 4px 0;
+                }
+                .rd-source-info p {
+                    font-size: 13px;
+                    color: var(--ppt-text-secondary);
+                    margin: 0;
+                }
+                /* Dropzone */
+                .rd-dropzone {
+                    border: 2px dashed var(--ppt-border);
+                    border-radius: 16px;
+                    background: rgba(255, 255, 255, 0.5);
+                    padding: 40px;
+                    text-align: center;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    margin-bottom: 24px;
+                    position: relative;
+                }
+                .rd-dropzone:hover {
+                    border-color: var(--ppt-primary);
+                    background: var(--ppt-primary-subtle, rgba(79, 70, 229, 0.05));
+                }
+                .rd-dropzone-icon {
+                    font-size: 64px;
+                    color: var(--ppt-primary);
+                    opacity: 0.8;
+                    margin-bottom: 16px;
+                }
+                .rd-dropzone-title {
+                    font-size: 18px;
+                    font-weight: 600;
+                    color: var(--ppt-text-main);
+                    margin-bottom: 8px;
+                }
+                .rd-dropzone-hint {
+                    font-size: 14px;
+                    color: var(--ppt-text-muted);
+                }
+                /* Mode Cards */
+                .rd-mode-grid {
+                    display: grid;
+                    grid-template-columns: repeat(3, 1fr);
+                    gap: 16px;
+                    margin-bottom: 32px;
+                }
+                .rd-mode-card {
+                    background: white;
+                    border: 2px solid transparent;
+                    border-radius: 16px;
+                    padding: 20px;
+                    cursor: pointer;
+                    text-align: center;
+                    transition: all 0.2s;
+                    box-shadow: var(--ppt-shadow-sm);
+                }
+                .rd-mode-card:hover {
+                    transform: translateY(-2px);
+                    box-shadow: var(--ppt-shadow-md);
+                }
+                .rd-mode-card.active {
+                    border-color: var(--ppt-primary);
+                    background: #f5f3ff;
+                }
+                .rd-mode-icon {
+                    font-size: 32px;
+                    color: var(--ppt-text-muted);
+                    margin-bottom: 12px;
+                }
+                .rd-mode-card.active .rd-mode-icon {
                     color: var(--ppt-primary);
                 }
-                .ppt-source-card span {
-                    font-size: 13px;
+                .rd-mode-title {
+                    font-weight: 700;
+                    font-size: 15px;
+                    color: var(--ppt-text-main);
+                    margin-bottom: 6px;
+                }
+                .rd-mode-desc {
+                    font-size: 12px;
+                    color: var(--ppt-text-secondary);
+                    line-height: 1.4;
+                }
+                /* Section Title */
+                .rd-section-title {
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: var(--ppt-text-secondary);
+                    text-transform: uppercase;
+                    letter-spacing: 0.05em;
+                    margin-bottom: 16px;
+                    padding-left: 4px;
+                }
+                /* Form Elements */
+                .rd-form-panel {
+                    background: white;
+                    border: 1px solid var(--ppt-border);
+                    border-radius: 16px;
+                    padding: 20px;
+                }
+                .rd-form-row {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: 6px 0;
+                    margin-bottom: 12px;
+                }
+                .rd-form-row:last-child {
+                    margin-bottom: 0;
+                }
+                .rd-form-label {
+                    font-size: 14px;
                     font-weight: 500;
                     color: var(--ppt-text-main);
                 }
-                .ppt-btn-primary:disabled {
+                .rd-select {
+                    padding: 8px 32px 8px 12px;
+                    border-radius: 8px;
+                    border: 1px solid var(--ppt-border);
+                    font-size: 14px;
+                    color: var(--ppt-text-main);
+                    background-color: white;
+                    cursor: pointer;
+                    outline: none;
+                    appearance: none;
+                    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+                    background-repeat: no-repeat;
+                    background-position: right 8px center;
+                    min-width: 180px;
+                }
+                .rd-select:focus {
+                    border-color: var(--ppt-primary);
+                    box-shadow: 0 0 0 2px var(--ppt-primary-light, rgba(79, 70, 229, 0.15));
+                }
+                /* Footer Actions */
+                .rd-footer {
+                    display: flex;
+                    align-items: center;
+                    justify-content: flex-end;
+                    gap: 16px;
+                    margin-top: 40px;
+                    padding-top: 24px;
+                    border-top: 1px solid var(--ppt-border);
+                }
+                .rd-btn {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 12px 24px;
+                    border-radius: 12px;
+                    font-size: 15px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    border: none;
+                }
+                .rd-btn-primary {
+                    background: linear-gradient(135deg, var(--ppt-primary) 0%, var(--ppt-primary-hover, #6366f1) 100%);
+                    color: white;
+                    box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
+                }
+                .rd-btn-primary:hover {
+                    transform: translateY(-1px);
+                    box-shadow: 0 6px 16px rgba(79, 70, 229, 0.35);
+                }
+                .rd-btn-primary:disabled {
                     opacity: 0.55;
                     cursor: not-allowed;
                     transform: none;
-                    box-shadow: var(--ppt-shadow-sm), 0 4px 12px rgba(79, 70, 229, 0.12);
                 }
-                .ppt-btn-primary:disabled:hover {
-                    background: var(--ppt-primary);
-                    transform: none;
+                .rd-btn-ghost {
+                    background: transparent;
+                    color: var(--ppt-text-secondary);
+                }
+                .rd-btn-ghost:hover {
+                    background: var(--ppt-bg-subtle);
+                    color: var(--ppt-text-main);
+                }
+                /* File List */
+                .rd-file-list {
+                    background: var(--ppt-bg-subtle);
+                    border-radius: 12px;
+                    padding: 12px;
+                    max-height: 200px;
+                    overflow-y: auto;
+                }
+                .rd-file-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    padding: 10px 12px;
+                    background: white;
+                    border-radius: 8px;
+                    margin-bottom: 8px;
+                }
+                .rd-file-item:last-child {
+                    margin-bottom: 0;
+                }
+                .rd-file-icon {
+                    font-size: 20px;
+                    color: var(--ppt-primary);
+                }
+                .rd-file-info {
+                    flex: 1;
+                    min-width: 0;
+                }
+                .rd-file-name {
+                    font-size: 14px;
+                    font-weight: 500;
+                    color: var(--ppt-text-main);
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+                .rd-file-meta {
+                    font-size: 12px;
+                    color: var(--ppt-text-secondary);
+                }
+                .rd-file-remove {
+                    font-size: 18px;
+                    color: var(--ppt-text-muted);
+                    cursor: pointer;
+                    padding: 4px;
+                    border-radius: 4px;
+                    transition: all 0.15s;
+                }
+                .rd-file-remove:hover {
+                    color: #ef4444;
+                    background: rgba(239, 68, 68, 0.1);
+                }
+                /* Brief Info */
+                .rd-brief-info {
+                    background: var(--ppt-bg-subtle);
+                    border-radius: 12px;
+                    padding: 16px;
+                    margin-top: 24px;
+                }
+                .rd-brief-title {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    font-size: 14px;
+                    font-weight: 500;
+                    color: var(--ppt-text-main);
+                }
+                .rd-brief-title iconify-icon {
+                    color: var(--ppt-primary);
+                }
+                .rd-brief-summary {
+                    margin-top: 8px;
+                    font-size: 13px;
+                    color: var(--ppt-text-secondary);
+                    line-height: 1.5;
                 }
             </style>
         `;
@@ -164,62 +451,80 @@ const PPTGeneratorAgentDashboard = {
 
         return `
             ${this._renderUploadSharedStyles()}
-            <div class="generation-container" style="background: transparent; max-width: 600px; margin: 0 auto;">
-                <div class="ppt-step-header" style="text-align: center; margin-bottom: 24px;">
-                    <h2 style="margin: 0 0 8px; font-size: 20px; font-weight: 600;">上传研究资源</h2>
-                    <p style="margin: 0; color: var(--ppt-text-secondary); font-size: 14px;">支持文档、链接、历史项目等多种来源</p>
-                </div>
-
-                <div class="ppt-source-grid">
-                    <button class="ppt-source-card" type="button" onclick="window.PPTGenerator.openHistorySelector()">
-                        <iconify-icon icon="carbon:time"></iconify-icon>
-                        <span>历史项目</span>
-                    </button>
-                    <button class="ppt-source-card" type="button" onclick="window.PPTGenerator.openUrlInput()">
-                        <iconify-icon icon="carbon:link"></iconify-icon>
-                        <span>链接资源</span>
-                    </button>
-                    <button class="ppt-source-card" type="button" onclick="window.PPTGenerator.openPasteDocumentModal()">
-                        <iconify-icon icon="carbon:paste"></iconify-icon>
-                        <span>粘贴文档</span>
-                    </button>
-                    <button class="ppt-source-card" type="button" onclick="window.PPTGenerator.importPptxAsDeckFromPicker && window.PPTGenerator.importPptxAsDeckFromPicker()">
-                        <iconify-icon icon="carbon:document-import"></iconify-icon>
-                        <span>导入模板</span>
-                    </button>
-                </div>
-
-                <div class="ppt-upload-zone" id="pptUploadZone">
-                    <iconify-icon icon="carbon:cloud-upload" class="ppt-upload-icon"></iconify-icon>
-                    <div class="ppt-upload-text">点击或拖拽上传文档</div>
-                    <div class="ppt-upload-subtext">支持 PDF, DOCX, MD, TXT (最大 50MB)</div>
-                    <input type="file" id="pptFileInput" class="ppt-file-input" multiple onchange="window.PPTGenerator.handleFileUpload(this.files)">
-                </div>
-
-                ${hasFiles ? `
-                    <div class="ppt-upload-list" style="max-height: 200px; overflow-y: auto; margin-top: 16px;">
-                        ${files.map((f, i) => `
-                            <div class="ppt-upload-item">
-                                <iconify-icon icon="${f.type === 'history' ? 'carbon:time' : 'carbon:document'}" class="ppt-upload-item-icon"></iconify-icon>
-                                <div class="ppt-upload-item-info">
-                                    <div class="ppt-upload-item-name">${this._escapeHtml(String(f?.name ?? ''))}</div>
-                                    <div class="ppt-upload-item-meta">${this._escapeHtml(String(f?.size ?? ''))}</div>
-                                </div>
-                                <iconify-icon icon="carbon:close" class="ppt-upload-item-remove" onclick="window.PPTGenerator.removeFile(${i})"></iconify-icon>
-                            </div>
-                        `).join('')}
+            <div style="display: flex; justify-content: center; padding: 20px;">
+                <div class="rd-card">
+                    <div class="rd-header">
+                        <h2 class="rd-title">开始新的研究</h2>
+                        <p class="rd-subtitle">上传文档或导入链接，AI 将为您生成深度报告和演示文稿。</p>
                     </div>
-                ` : `
-                    <p style="margin-top: 16px; text-align: center; color: var(--ppt-text-secondary); font-size: 13px;">请先添加至少一个资源</p>
-                `}
 
-                <button
-                    class="ppt-btn-primary"
-                    style="margin-top: 24px; width: 100%; justify-content: center; padding: 16px; font-size: 16px;"
-                    ${hasFiles ? 'onclick="window.PPTGenerator._goToUploadStep(2)"' : 'disabled'}
-                >
-                    下一步：配置选项 <iconify-icon icon="carbon:arrow-right"></iconify-icon>
-                </button>
+                    <div class="rd-dropzone" onclick="document.getElementById('pptFileInput').click()">
+                        <iconify-icon icon="solar:cloud-upload-bold-duotone" class="rd-dropzone-icon"></iconify-icon>
+                        <div class="rd-dropzone-title">点击或拖拽文件至此处</div>
+                        <div class="rd-dropzone-hint">支持 PDF, DOCX, MD, TXT (最大 50MB)</div>
+                        <input type="file" id="pptFileInput" style="display:none;" multiple onchange="window.PPTGenerator.handleFileUpload(this.files)">
+                    </div>
+
+                    <div class="rd-upload-grid">
+                        <button class="rd-source-btn" type="button" onclick="window.PPTGenerator.openHistorySelector()">
+                            <div class="rd-source-icon">
+                                <iconify-icon icon="solar:history-bold-duotone"></iconify-icon>
+                            </div>
+                            <div class="rd-source-info">
+                                <h3>历史项目</h3>
+                                <p>从过往项目中提取</p>
+                            </div>
+                        </button>
+                        <button class="rd-source-btn" type="button" onclick="window.PPTGenerator.openUrlInput()">
+                            <div class="rd-source-icon">
+                                <iconify-icon icon="solar:link-circle-bold-duotone"></iconify-icon>
+                            </div>
+                            <div class="rd-source-info">
+                                <h3>网页链接</h3>
+                                <p>解析 URL 内容</p>
+                            </div>
+                        </button>
+                        <button class="rd-source-btn" type="button" onclick="window.PPTGenerator.openPasteDocumentModal()">
+                            <div class="rd-source-icon">
+                                <iconify-icon icon="solar:clipboard-text-bold-duotone"></iconify-icon>
+                            </div>
+                            <div class="rd-source-info">
+                                <h3>粘贴文本</h3>
+                                <p>直接输入文本内容</p>
+                            </div>
+                        </button>
+                        <button class="rd-source-btn" type="button" onclick="window.PPTGenerator.importPptxAsDeckFromPicker && window.PPTGenerator.importPptxAsDeckFromPicker()">
+                            <div class="rd-source-icon">
+                                <iconify-icon icon="solar:file-text-bold-duotone"></iconify-icon>
+                            </div>
+                            <div class="rd-source-info">
+                                <h3>导入模板</h3>
+                                <p>使用现有 PPTX</p>
+                            </div>
+                        </button>
+                    </div>
+
+                    ${hasFiles ? `
+                        <div class="rd-file-list">
+                            ${files.map((f, i) => `
+                                <div class="rd-file-item">
+                                    <iconify-icon icon="${f.type === 'history' ? 'solar:history-bold-duotone' : 'solar:document-bold-duotone'}" class="rd-file-icon"></iconify-icon>
+                                    <div class="rd-file-info">
+                                        <div class="rd-file-name">${this._escapeHtml(String(f?.name ?? ''))}</div>
+                                        <div class="rd-file-meta">${this._escapeHtml(String(f?.size ?? ''))}</div>
+                                    </div>
+                                    <iconify-icon icon="solar:close-circle-linear" class="rd-file-remove" onclick="window.PPTGenerator.removeFile(${i})"></iconify-icon>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+
+                    <div class="rd-footer">
+                        <button class="rd-btn rd-btn-primary" ${hasFiles ? 'onclick="window.PPTGenerator._goToUploadStep(2)"' : 'disabled'}>
+                            下一步：配置选项 <iconify-icon icon="solar:arrow-right-linear"></iconify-icon>
+                        </button>
+                    </div>
+                </div>
             </div>
         `;
     },
@@ -239,23 +544,14 @@ const PPTGeneratorAgentDashboard = {
         const language = reportCfg.language || 'auto';
         const enableReviewer = !!reportCfg.enableReviewer;
 
-        const modeCard = (key, title, desc) => {
+        const modeCard = (key, title, desc, icon) => {
             const selected = mode === key;
-            const icon = key === 'auto' ? 'carbon:rocket' : key === 'guided' ? 'carbon:map' : 'carbon:cursor-1';
             return `
-                <button
-                    type="button"
-                    onclick="window.PPTGenerator.setWorkflowMode && window.PPTGenerator.setWorkflowMode('${key}')"
-                    class="ppt-workmode-option ${selected ? 'is-selected' : ''}"
-                >
-                    <div class="ppt-workmode-option-icon">
-                        <iconify-icon icon="${icon}"></iconify-icon>
-                    </div>
-                    <div class="ppt-workmode-option-body">
-                        <div class="ppt-workmode-option-title">${title}</div>
-                        <div class="ppt-workmode-option-desc">${desc}</div>
-                    </div>
-                </button>
+                <div class="rd-mode-card ${selected ? 'active' : ''}" onclick="window.PPTGenerator.setWorkflowMode && window.PPTGenerator.setWorkflowMode('${key}')">
+                    <div class="rd-mode-icon"><iconify-icon icon="${icon}"></iconify-icon></div>
+                    <div class="rd-mode-title">${title}</div>
+                    <div class="rd-mode-desc">${desc}</div>
+                </div>
             `;
         };
 
@@ -265,97 +561,78 @@ const PPTGeneratorAgentDashboard = {
 
         return `
             ${this._renderUploadSharedStyles()}
-            <div class="generation-container" style="background: transparent; max-width: 600px; margin: 0 auto;">
-                <div class="ppt-step-header" style="text-align: center; margin-bottom: 24px;">
-                    <h2 style="margin: 0 0 8px; font-size: 20px; font-weight: 600;">配置选项</h2>
-                    <p style="margin: 0; color: var(--ppt-text-secondary); font-size: 14px;">设置工作模式和报告参数</p>
-                </div>
+            <div style="display: flex; justify-content: center; padding: 20px;">
+                <div class="rd-card">
+                    <div class="rd-header">
+                        <h2 class="rd-title">生成配置</h2>
+                        <p class="rd-subtitle">选择工作模式并调整报告参数以获得最佳结果。</p>
+                    </div>
 
-                <div class="ppt-workmode-panel">
-                    <div class="ppt-workmode-card">
-                        <div class="ppt-workmode-header">
-                            <div>
-                                <div class="ppt-workmode-title">选择工作模式</div>
-                                <div class="ppt-workmode-desc">Auto-pilot 自动推进；Guided/Manual 会在关键节点暂停等待确认</div>
-                            </div>
-                            <button class="ppt-btn-secondary ppt-workmode-edit-btn" type="button" onclick="window.PPTGenerator.openProjectBriefForm && window.PPTGenerator.openProjectBriefForm()">
-                                <iconify-icon icon="carbon:edit"></iconify-icon> 编辑需求
-                            </button>
+                    <div class="rd-section-title">工作模式</div>
+                    <div class="rd-mode-grid">
+                        ${modeCard('auto', 'Auto-pilot', '全自动执行，适合快速生成', 'solar:rocket-2-bold-duotone')}
+                        ${modeCard('guided', 'Guided', '关键节点确认，可控迭代', 'solar:map-point-wave-bold-duotone')}
+                        ${modeCard('manual', 'Manual', '每步确认，精细调参', 'solar:slider-minimalistic-horizontal-bold-duotone')}
+                    </div>
+
+                    <div class="rd-section-title" style="margin-top: 32px;">报告参数</div>
+                    <div class="rd-form-panel">
+                        <div class="rd-form-row">
+                            <label class="rd-form-label">报告长度</label>
+                            <select class="rd-select" onchange="window.PPTGenerator.updateReportLength(this.value)">
+                                <option value="brief" ${reportLength === 'brief' ? 'selected' : ''}>简要 (800-2000字)</option>
+                                <option value="standard" ${reportLength === 'standard' ? 'selected' : ''}>标准 (2000-5000字)</option>
+                                <option value="detailed" ${reportLength === 'detailed' ? 'selected' : ''}>详细 (5000-10000字)</option>
+                                <option value="comprehensive" ${reportLength === 'comprehensive' ? 'selected' : ''}>全面 (10000-20000字)</option>
+                            </select>
                         </div>
-
-                        <div class="ppt-workmode-grid" role="group" aria-label="工作模式">
-                            ${modeCard('auto', 'Auto-pilot', '默认自动推进，适合快速生成')}
-                            ${modeCard('guided', 'Guided', '关键节点确认，适合可控迭代')}
-                            ${modeCard('manual', 'Manual', '一步一确认，适合精细调参')}
+                        <div class="rd-form-row">
+                            <label class="rd-form-label">写作风格</label>
+                            <select class="rd-select" onchange="window.PPTGenerator.updateWriteTone(this.value)">
+                                <option value="business" ${tone === 'business' ? 'selected' : ''}>商务专业</option>
+                                <option value="academic" ${tone === 'academic' ? 'selected' : ''}>学术严谨</option>
+                                <option value="casual" ${tone === 'casual' ? 'selected' : ''}>通俗易懂</option>
+                            </select>
                         </div>
-
-                        <div class="ppt-workmode-brief">
-                            <div class="ppt-workmode-brief-title">
-                                <iconify-icon icon="carbon:information"></iconify-icon>
-                                <span>当前需求：${taskGoal ? this._escapeHtml(taskGoal) : '未填写（将无法开始 DeepSearch）'}</span>
-                            </div>
-                            ${summary ? `<div class="ppt-workmode-brief-summary">${this._escapeHtml(summary)}</div>` : ''}
+                        <div class="rd-form-row">
+                            <label class="rd-form-label">目标受众</label>
+                            <select class="rd-select" onchange="window.PPTGenerator.updateWriteAudience(this.value)">
+                                <option value="general" ${audience === 'general' ? 'selected' : ''}>一般读者</option>
+                                <option value="expert" ${audience === 'expert' ? 'selected' : ''}>专业人士</option>
+                                <option value="executive" ${audience === 'executive' ? 'selected' : ''}>高管决策层</option>
+                            </select>
+                        </div>
+                        <div class="rd-form-row">
+                            <label class="rd-form-label">输出语言</label>
+                            <select class="rd-select" onchange="window.PPTGenerator.updateWriteLanguage(this.value)">
+                                <option value="auto" ${language === 'auto' ? 'selected' : ''}>自动检测</option>
+                                <option value="zh" ${language === 'zh' ? 'selected' : ''}>简体中文</option>
+                                <option value="en" ${language === 'en' ? 'selected' : ''}>English</option>
+                            </select>
                         </div>
                     </div>
-                </div>
 
-                <div class="ppt-workmode-panel" style="margin-top: 16px;">
-                    <div class="ppt-workmode-card">
-                        <div class="ppt-report-config">
-                            <h4 style="margin: 0 0 12px; font-weight: 750; font-size: 14px; color: var(--ppt-text-main);">报告设置</h4>
-
-                            <div class="config-row" style="display:flex; align-items:center; justify-content:space-between; gap: 12px; margin: 10px 0;">
-                                <label style="font-size: 13px; color: var(--ppt-text-main);">报告长度</label>
-                                <select class="ppt-input-field" style="max-width: 260px;" onchange="window.PPTGenerator.updateReportLength(this.value)">
-                                    <option value="brief" ${reportLength === 'brief' ? 'selected' : ''}>简要 (800-2000字)</option>
-                                    <option value="standard" ${reportLength === 'standard' ? 'selected' : ''}>标准 (2000-5000字)</option>
-                                    <option value="detailed" ${reportLength === 'detailed' ? 'selected' : ''}>详细 (5000-10000字)</option>
-                                    <option value="comprehensive" ${reportLength === 'comprehensive' ? 'selected' : ''}>全面 (10000-20000字)</option>
-                                </select>
+                    ${taskGoal || summary ? `
+                        <div class="rd-brief-info">
+                            <div class="rd-brief-title">
+                                <iconify-icon icon="solar:info-circle-bold-duotone"></iconify-icon>
+                                <span>当前需求：${taskGoal ? this._escapeHtml(taskGoal) : '未填写'}</span>
                             </div>
-
-                            <div class="config-row" style="display:flex; align-items:center; justify-content:space-between; gap: 12px; margin: 10px 0;">
-                                <label style="font-size: 13px; color: var(--ppt-text-main);">写作风格</label>
-                                <select class="ppt-input-field" style="max-width: 260px;" onchange="window.PPTGenerator.updateWriteTone(this.value)">
-                                    <option value="academic" ${tone === 'academic' ? 'selected' : ''}>学术严谨</option>
-                                    <option value="business" ${tone === 'business' ? 'selected' : ''}>商务专业</option>
-                                    <option value="casual" ${tone === 'casual' ? 'selected' : ''}>通俗易懂</option>
-                                </select>
-                            </div>
-
-                            <div class="config-row" style="display:flex; align-items:center; justify-content:space-between; gap: 12px; margin: 10px 0;">
-                                <label style="font-size: 13px; color: var(--ppt-text-main);">目标受众</label>
-                                <select class="ppt-input-field" style="max-width: 260px;" onchange="window.PPTGenerator.updateWriteAudience(this.value)">
-                                    <option value="expert" ${audience === 'expert' ? 'selected' : ''}>专业人士</option>
-                                    <option value="general" ${audience === 'general' ? 'selected' : ''}>一般读者</option>
-                                    <option value="executive" ${audience === 'executive' ? 'selected' : ''}>高管决策层</option>
-                                </select>
-                            </div>
-
-                            <div class="config-row" style="display:flex; align-items:center; justify-content:space-between; gap: 12px; margin: 10px 0;">
-                                <label style="font-size: 13px; color: var(--ppt-text-main);">输出语言</label>
-                                <select class="ppt-input-field" style="max-width: 260px;" onchange="window.PPTGenerator.updateWriteLanguage(this.value)">
-                                    <option value="auto" ${language === 'auto' ? 'selected' : ''}>自动（跟随任务语言）</option>
-                                    <option value="zh" ${language === 'zh' ? 'selected' : ''}>中文</option>
-                                    <option value="en" ${language === 'en' ? 'selected' : ''}>English</option>
-                                </select>
-                            </div>
-
-                            <div class="config-row" style="display:flex; align-items:center; justify-content:space-between; gap: 12px; margin: 10px 0;">
-                                <label style="font-size: 13px; color: var(--ppt-text-main);">启用AI审阅</label>
-                                <input type="checkbox" ${enableReviewer ? 'checked' : ''} onchange="window.PPTGenerator.updateEnableReviewer(this.checked)">
-                            </div>
+                            ${summary ? `<div class="rd-brief-summary">${this._escapeHtml(summary)}</div>` : ''}
                         </div>
-                    </div>
-                </div>
+                    ` : ''}
 
-                <div style="display: flex; gap: 12px; margin-top: 24px;">
-                    <button class="ppt-btn-secondary" style="flex: 1;" type="button" onclick="window.PPTGenerator._goToUploadStep(1)">
-                        <iconify-icon icon="carbon:arrow-left"></iconify-icon> 返回
-                    </button>
-                    <button class="ppt-btn-primary" style="flex: 2; justify-content: center; padding: 14px 16px;" type="button" onclick="${startOnClick}">
-                        <iconify-icon icon="carbon:rocket"></iconify-icon> ${taskGoal ? '开始分析' : '填写需求后开始'}
-                    </button>
+                    <div class="rd-footer">
+                        <button class="rd-btn rd-btn-ghost" onclick="window.PPTGenerator._goToUploadStep(1)">
+                            <iconify-icon icon="solar:arrow-left-linear"></iconify-icon> 返回
+                        </button>
+                        <button class="rd-btn rd-btn-ghost" onclick="window.PPTGenerator.openProjectBriefForm && window.PPTGenerator.openProjectBriefForm()">
+                            <iconify-icon icon="solar:pen-2-linear"></iconify-icon> 编辑需求
+                        </button>
+                        <button class="rd-btn rd-btn-primary" onclick="${startOnClick}">
+                            <iconify-icon icon="solar:rocket-bold-duotone"></iconify-icon> ${taskGoal ? '开始分析' : '填写需求'}
+                        </button>
+                    </div>
                 </div>
             </div>
         `;
