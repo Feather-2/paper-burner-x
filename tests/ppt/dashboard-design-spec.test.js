@@ -15,6 +15,9 @@ function teardownDom() {
   delete globalThis.SlideParser;
 }
 
+// Ensure a window exists before loading dashboard modules (they register on `window.PPTDashboard`).
+setupDom();
+
 // Provide a global PPTGenerator binding before requiring mixins.
 if (!globalThis.PPTGenerator) {
   globalThis.PPTGenerator = class PPTGenerator {
@@ -39,7 +42,17 @@ if (!globalThis.PPTGenerator) {
   };
 }
 
-require('../../js/ppt/ppt_generator_agent_dashboard.js');
+require('../../js/ppt/ppt_dashboard_utils.js');
+require('../../js/ppt/ppt_dashboard_upload.js');
+require('../../js/ppt/ppt_dashboard_history.js');
+require('../../js/ppt/ppt_dashboard_url_input.js');
+require('../../js/ppt/ppt_dashboard_paste.js');
+require('../../js/ppt/ppt_dashboard_modals.js');
+require('../../js/ppt/ppt_dashboard_deepsearch.js');
+require('../../js/ppt/ppt_dashboard_page_layout.js');
+require('../../js/ppt/ppt_dashboard_design_spec.js');
+require('../../js/ppt/ppt_dashboard_outline.js');
+require('../../js/ppt/ppt_dashboard_core.js');
 require('../../js/ppt/ppt_generator_workflow.js');
 
 test.afterEach(() => {

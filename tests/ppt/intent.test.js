@@ -80,7 +80,7 @@ test("IntentParser: LLM fallback + unknown fallback", async () => {
   assert.equal(i1.content, "更有冲击力的标题");
 
   // regex 不命中 → llm.chat(JSON)
-  const i2 = await parseIntent("把第1页标题换成更短的版本", {
+  const i2 = await parseIntent("把第1页标题改得更短一些", {
     llm: {
       chat: async () =>
         JSON.stringify({ type: "MODIFY_ELEMENT", target: { slideIndex: 0, elementSelector: "title" }, content: "短标题" }),
