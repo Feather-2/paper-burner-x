@@ -34,6 +34,7 @@ const PPTGeneratorAgentDashboard = {
         let visContent = '';
 
         if (this.state === 'idle') {
+            if (this._uploadStep !== 1 && this._uploadStep !== 2) this._uploadStep = 1;
             visContent = this._renderUploadView();
         } else if (this.state === 'briefing') {
             visContent = this._renderProjectBriefForm();
@@ -93,10 +94,137 @@ const PPTGeneratorAgentDashboard = {
         }
     },
 
+    _goToUploadStep(step) {
+        const nextStep = step === 2 ? 2 : 1;
+        const files = Array.isArray(this.workflowData?.files) ? this.workflowData.files : [];
+        if (nextStep === 2 && files.length === 0) return;
+        this._uploadStep = nextStep;
+        this.renderPreviewArea();
+    },
+
+    _renderUploadSharedStyles() {
+        return `
+            <style>
+                .ppt-source-grid {
+                    display: grid;
+                    grid-template-columns: repeat(2, 1fr);
+                    gap: 12px;
+                    margin-bottom: 16px;
+                }
+                .ppt-source-card {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 8px;
+                    padding: 20px 16px;
+                    background: var(--ppt-bg-app);
+                    border: 1px solid var(--ppt-border);
+                    border-radius: 12px;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                }
+                .ppt-source-card:hover {
+                    border-color: var(--ppt-primary);
+                    background: rgba(var(--ppt-primary-rgb, 14, 165, 233), 0.05);
+                    transform: translateY(-2px);
+                }
+                .ppt-source-card iconify-icon {
+                    font-size: 28px;
+                    color: var(--ppt-primary);
+                }
+                .ppt-source-card span {
+                    font-size: 13px;
+                    font-weight: 500;
+                    color: var(--ppt-text-main);
+                }
+                .ppt-btn-primary:disabled {
+                    opacity: 0.55;
+                    cursor: not-allowed;
+                    transform: none;
+                    box-shadow: var(--ppt-shadow-sm), 0 4px 12px rgba(79, 70, 229, 0.12);
+                }
+                .ppt-btn-primary:disabled:hover {
+                    background: var(--ppt-primary);
+                    transform: none;
+                }
+            </style>
+        `;
+    },
+
     _renderUploadView() {
-        const files = this.workflowData.files || [];
+        const step = this._uploadStep || 1;
+        if (step === 1) return this._renderUploadStep1();
+        return this._renderUploadStep2();
+    },
+
+    _renderUploadStep1() {
+        const files = Array.isArray(this.workflowData?.files) ? this.workflowData.files : [];
         const hasFiles = files.length > 0;
 
+        return `
+            ${this._renderUploadSharedStyles()}
+            <div class="generation-container" style="background: transparent; max-width: 600px; margin: 0 auto;">
+                <div class="ppt-step-header" style="text-align: center; margin-bottom: 24px;">
+                    <h2 style="margin: 0 0 8px; font-size: 20px; font-weight: 600;">上传研究资源</h2>
+                    <p style="margin: 0; color: var(--ppt-text-secondary); font-size: 14px;">支持文档、链接、历史项目等多种来源</p>
+                </div>
+
+                <div class="ppt-source-grid">
+                    <button class="ppt-source-card" type="button" onclick="window.PPTGenerator.openHistorySelector()">
+                        <iconify-icon icon="carbon:time"></iconify-icon>
+                        <span>历史项目</span>
+                    </button>
+                    <button class="ppt-source-card" type="button" onclick="window.PPTGenerator.openUrlInput()">
+                        <iconify-icon icon="carbon:link"></iconify-icon>
+                        <span>链接资源</span>
+                    </button>
+                    <button class="ppt-source-card" type="button" onclick="window.PPTGenerator.openPasteDocumentModal()">
+                        <iconify-icon icon="carbon:paste"></iconify-icon>
+                        <span>粘贴文档</span>
+                    </button>
+                    <button class="ppt-source-card" type="button" onclick="window.PPTGenerator.importPptxAsDeckFromPicker && window.PPTGenerator.importPptxAsDeckFromPicker()">
+                        <iconify-icon icon="carbon:document-import"></iconify-icon>
+                        <span>导入模板</span>
+                    </button>
+                </div>
+
+                <div class="ppt-upload-zone" id="pptUploadZone">
+                    <iconify-icon icon="carbon:cloud-upload" class="ppt-upload-icon"></iconify-icon>
+                    <div class="ppt-upload-text">点击或拖拽上传文档</div>
+                    <div class="ppt-upload-subtext">支持 PDF, DOCX, MD, TXT (最大 50MB)</div>
+                    <input type="file" id="pptFileInput" class="ppt-file-input" multiple onchange="window.PPTGenerator.handleFileUpload(this.files)">
+                </div>
+
+                ${hasFiles ? `
+                    <div class="ppt-upload-list" style="max-height: 200px; overflow-y: auto; margin-top: 16px;">
+                        ${files.map((f, i) => `
+                            <div class="ppt-upload-item">
+                                <iconify-icon icon="${f.type === 'history' ? 'carbon:time' : 'carbon:document'}" class="ppt-upload-item-icon"></iconify-icon>
+                                <div class="ppt-upload-item-info">
+                                    <div class="ppt-upload-item-name">${this._escapeHtml(String(f?.name ?? ''))}</div>
+                                    <div class="ppt-upload-item-meta">${this._escapeHtml(String(f?.size ?? ''))}</div>
+                                </div>
+                                <iconify-icon icon="carbon:close" class="ppt-upload-item-remove" onclick="window.PPTGenerator.removeFile(${i})"></iconify-icon>
+                            </div>
+                        `).join('')}
+                    </div>
+                ` : `
+                    <p style="margin-top: 16px; text-align: center; color: var(--ppt-text-secondary); font-size: 13px;">请先添加至少一个资源</p>
+                `}
+
+                <button
+                    class="ppt-btn-primary"
+                    style="margin-top: 24px; width: 100%; justify-content: center; padding: 16px; font-size: 16px;"
+                    ${hasFiles ? 'onclick="window.PPTGenerator._goToUploadStep(2)"' : 'disabled'}
+                >
+                    下一步：配置选项 <iconify-icon icon="carbon:arrow-right"></iconify-icon>
+                </button>
+            </div>
+        `;
+    },
+
+    _renderUploadStep2() {
         const mode = this.workflowMode || this.workflowData?.workflowMode || 'auto';
         const brief = this.workflowData?.projectBrief || this.projectBrief || {};
         const taskGoal = typeof brief.taskGoal === 'string' ? brief.taskGoal.trim() : '';
@@ -131,9 +259,18 @@ const PPTGeneratorAgentDashboard = {
             `;
         };
 
+        const startOnClick = taskGoal
+            ? 'window.PPTGenerator.startMultiAgentWorkflow()'
+            : '(window.PPTGenerator.openProjectBriefForm && window.PPTGenerator.openProjectBriefForm())';
+
         return `
-            <div class="generation-container" style="background: transparent;">
-                <!-- Workflow Mode -->
+            ${this._renderUploadSharedStyles()}
+            <div class="generation-container" style="background: transparent; max-width: 600px; margin: 0 auto;">
+                <div class="ppt-step-header" style="text-align: center; margin-bottom: 24px;">
+                    <h2 style="margin: 0 0 8px; font-size: 20px; font-weight: 600;">配置选项</h2>
+                    <p style="margin: 0; color: var(--ppt-text-secondary); font-size: 14px;">设置工作模式和报告参数</p>
+                </div>
+
                 <div class="ppt-workmode-panel">
                     <div class="ppt-workmode-card">
                         <div class="ppt-workmode-header">
@@ -162,7 +299,7 @@ const PPTGeneratorAgentDashboard = {
                     </div>
                 </div>
 
-                <div class="ppt-workmode-panel">
+                <div class="ppt-workmode-panel" style="margin-top: 16px;">
                     <div class="ppt-workmode-card">
                         <div class="ppt-report-config">
                             <h4 style="margin: 0 0 12px; font-weight: 750; font-size: 14px; color: var(--ppt-text-main);">报告设置</h4>
@@ -212,49 +349,14 @@ const PPTGeneratorAgentDashboard = {
                     </div>
                 </div>
 
-                <div class="ppt-upload-zone" id="pptUploadZone" style="background: var(--ppt-bg-app); border: 2px dashed var(--ppt-primary-light);">
-                    <iconify-icon icon="carbon:cloud-upload" class="ppt-upload-icon" style="color: var(--ppt-primary);"></iconify-icon>
-                    <div class="ppt-upload-text">点击或拖拽上传文档</div>
-                    <div class="ppt-upload-subtext">支持 PDF, DOCX, MD, TXT (最大 50MB)</div>
-                    <input type="file" id="pptFileInput" class="ppt-file-input" multiple onchange="window.PPTGenerator.handleFileUpload(this.files)">
-                </div>
-
-                <div class="ppt-upload-actions">
-                    <button class="ppt-upload-btn" onclick="window.PPTGenerator.openHistorySelector()">
-                        <iconify-icon icon="carbon:time"></iconify-icon> 从历史项目选择
+                <div style="display: flex; gap: 12px; margin-top: 24px;">
+                    <button class="ppt-btn-secondary" style="flex: 1;" type="button" onclick="window.PPTGenerator._goToUploadStep(1)">
+                        <iconify-icon icon="carbon:arrow-left"></iconify-icon> 返回
                     </button>
-                    <button class="ppt-upload-btn" onclick="window.PPTGenerator.openUrlInput()">
-                        <iconify-icon icon="carbon:link"></iconify-icon> 添加链接资源
-                    </button>
-                    <button class="ppt-upload-btn" onclick="window.PPTGenerator.openPasteDocumentModal()">
-                        <iconify-icon icon="carbon:paste"></iconify-icon> 直接粘贴文档
-                    </button>
-                    <button class="ppt-upload-btn" onclick="window.PPTGenerator.importPptxAsDeckFromPicker && window.PPTGenerator.importPptxAsDeckFromPicker()">
-                        <iconify-icon icon="carbon:document-import"></iconify-icon> 导入 PPTX 作为模板
+                    <button class="ppt-btn-primary" style="flex: 2; justify-content: center; padding: 14px 16px;" type="button" onclick="${startOnClick}">
+                        <iconify-icon icon="carbon:rocket"></iconify-icon> ${taskGoal ? '开始分析' : '填写需求后开始'}
                     </button>
                 </div>
-
-                ${hasFiles ? `
-                    <div class="ppt-upload-list">
-                        ${files.map((f, i) => `
-                            <div class="ppt-upload-item">
-                                <iconify-icon icon="${f.type === 'history' ? 'carbon:time' : 'carbon:document'}" class="ppt-upload-item-icon"></iconify-icon>
-                                <div class="ppt-upload-item-info">
-                                    <div class="ppt-upload-item-name">${f.name}</div>
-                                    <div class="ppt-upload-item-meta">${f.size || 'History Project'}</div>
-                                </div>
-                                <iconify-icon icon="carbon:close" class="ppt-upload-item-remove" onclick="window.PPTGenerator.removeFile(${i})"></iconify-icon>
-                            </div>
-                        `).join('')}
-                    </div>
-                    <button class="ppt-btn-primary" style="margin-top: 24px; width: 100%; max-width: 600px; justify-content: center; padding: 16px; font-size: 16px;" onclick="window.PPTGenerator.startMultiAgentWorkflow()">
-                        <iconify-icon icon="${taskGoal ? 'carbon:rocket' : 'carbon:edit'}"></iconify-icon> ${taskGoal ? `开始分析 (${files.length} 个资源)` : '下一步：填写需求'}
-                    </button>
-                ` : `
-                    <div style="margin-top: 24px; text-align: center; color: var(--ppt-text-secondary); font-size: 13px;">
-                        <p>AI 将自动分析文档结构、提取关键信息并生成演示大纲</p>
-                    </div>
-                `}
             </div>
         `;
     },
