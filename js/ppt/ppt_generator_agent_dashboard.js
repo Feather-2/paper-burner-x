@@ -1629,17 +1629,375 @@ const PPTGeneratorAgentDashboard = {
         this.renderPreviewArea();
     },
 
-    openUrlInput() {
-        const url = prompt("请输入文章或文档链接:");
-        if (url && url.trim()) {
-            if (!this.workflowData.files) this.workflowData.files = [];
-            this.workflowData.files.push({
-                name: url,
-                type: "link",
-                size: "URL"
-            });
-            this.renderPreviewArea();
+    async openUrlInput() {
+        const modalId = 'pptUrlInputModal';
+        let existing = document.getElementById(modalId);
+        if (existing) {
+            existing.classList.add('open');
+            return;
         }
+
+        const overlay = document.createElement('div');
+        overlay.id = modalId;
+        overlay.className = 'ppt-modal-overlay';
+        overlay.innerHTML = `
+            <div class="ppt-modal ppt-url-input-modal">
+                <div class="ppt-modal-header">
+                    <div class="ppt-modal-title">
+                        <iconify-icon icon="solar:link-circle-bold-duotone"></iconify-icon>
+                        <span>网页链接</span>
+                    </div>
+                    <button class="ppt-modal-close" onclick="document.getElementById('${modalId}').classList.remove('open')">
+                        <iconify-icon icon="carbon:close"></iconify-icon>
+                    </button>
+                </div>
+                <div class="ppt-modal-body">
+                    <div class="ppt-url-input-section">
+                        <label class="ppt-url-label">输入网页链接</label>
+                        <div class="ppt-url-input-row">
+                            <input type="url" id="pptUrlInputField" class="ppt-url-input"
+                                   placeholder="https://example.com/article"
+                                   onkeydown="if(event.key==='Enter'){window.PPTGenerator._fetchUrlPreview()}">
+                            <button class="ppt-btn ppt-btn-secondary" onclick="window.PPTGenerator._fetchUrlPreview()">
+                                <iconify-icon icon="solar:magnifer-linear"></iconify-icon>
+                                解析
+                            </button>
+                        </div>
+                        <p class="ppt-url-hint">支持文章、博客、文档等网页链接</p>
+                    </div>
+                    <div class="ppt-url-preview-section" id="pptUrlPreviewSection" style="display:none;">
+                        <div class="ppt-url-preview-header">
+                            <iconify-icon icon="solar:document-text-bold-duotone"></iconify-icon>
+                            <span>解析结果</span>
+                        </div>
+                        <div class="ppt-url-preview-content" id="pptUrlPreviewContent"></div>
+                    </div>
+                    <div class="ppt-url-added-list" id="pptUrlAddedList"></div>
+                </div>
+                <div class="ppt-modal-footer">
+                    <button class="ppt-btn ppt-btn-secondary" onclick="document.getElementById('${modalId}').classList.remove('open')">取消</button>
+                    <button class="ppt-btn ppt-btn-primary" id="pptUrlConfirmBtn" onclick="window.PPTGenerator._confirmUrlImport()">
+                        确认添加
+                    </button>
+                </div>
+            </div>
+            <style>
+                .ppt-url-input-modal {
+                    width: min(600px, 90vw);
+                }
+                .ppt-url-input-section {
+                    margin-bottom: 20px;
+                }
+                .ppt-url-label {
+                    display: block;
+                    font-size: 13px;
+                    font-weight: 500;
+                    color: var(--ppt-text-main);
+                    margin-bottom: 8px;
+                }
+                .ppt-url-input-row {
+                    display: flex;
+                    gap: 8px;
+                }
+                .ppt-url-input {
+                    flex: 1;
+                    padding: 10px 14px;
+                    border: 1px solid var(--ppt-border);
+                    border-radius: 8px;
+                    font-size: 14px;
+                    transition: all 0.15s;
+                }
+                .ppt-url-input:focus {
+                    outline: none;
+                    border-color: var(--ppt-primary);
+                    box-shadow: 0 0 0 3px var(--ppt-primary-light);
+                }
+                .ppt-url-hint {
+                    font-size: 12px;
+                    color: var(--ppt-text-muted);
+                    margin-top: 6px;
+                }
+                .ppt-url-preview-section {
+                    background: var(--ppt-bg-subtle);
+                    border-radius: 10px;
+                    padding: 16px;
+                    margin-bottom: 16px;
+                }
+                .ppt-url-preview-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    font-size: 13px;
+                    font-weight: 500;
+                    color: var(--ppt-text-main);
+                    margin-bottom: 12px;
+                }
+                .ppt-url-preview-header iconify-icon {
+                    color: var(--ppt-primary);
+                }
+                .ppt-url-preview-content {
+                    font-size: 13px;
+                    color: var(--ppt-text-secondary);
+                    line-height: 1.6;
+                }
+                .ppt-url-preview-title {
+                    font-size: 15px;
+                    font-weight: 600;
+                    color: var(--ppt-text-main);
+                    margin-bottom: 8px;
+                }
+                .ppt-url-preview-meta {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    font-size: 12px;
+                    color: var(--ppt-text-muted);
+                    margin-bottom: 10px;
+                }
+                .ppt-url-preview-excerpt {
+                    max-height: 120px;
+                    overflow-y: auto;
+                    padding: 10px;
+                    background: white;
+                    border-radius: 6px;
+                    border: 1px solid var(--ppt-border);
+                }
+                .ppt-url-preview-loading {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 10px;
+                    padding: 30px;
+                    color: var(--ppt-text-muted);
+                }
+                .ppt-url-preview-error {
+                    padding: 12px;
+                    background: #fef2f2;
+                    border: 1px solid #fecaca;
+                    border-radius: 6px;
+                    color: #dc2626;
+                    font-size: 13px;
+                }
+                .ppt-url-added-list {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                }
+                .ppt-url-added-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    padding: 10px 12px;
+                    background: var(--ppt-primary-subtle);
+                    border: 1px solid var(--ppt-primary);
+                    border-radius: 8px;
+                }
+                .ppt-url-added-item iconify-icon {
+                    color: var(--ppt-primary);
+                    font-size: 18px;
+                }
+                .ppt-url-added-info {
+                    flex: 1;
+                    min-width: 0;
+                }
+                .ppt-url-added-title {
+                    font-size: 13px;
+                    font-weight: 500;
+                    color: var(--ppt-text-main);
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .ppt-url-added-url {
+                    font-size: 11px;
+                    color: var(--ppt-text-muted);
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .ppt-url-added-remove {
+                    padding: 4px;
+                    background: transparent;
+                    border: none;
+                    color: var(--ppt-text-muted);
+                    cursor: pointer;
+                    border-radius: 4px;
+                    transition: all 0.15s;
+                }
+                .ppt-url-added-remove:hover {
+                    background: #fee2e2;
+                    color: #dc2626;
+                }
+            </style>
+        `;
+
+        document.body.appendChild(overlay);
+
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) overlay.classList.remove('open');
+        });
+
+        overlay.classList.add('open');
+        this._pendingUrls = [];
+        this._currentUrlPreview = null;
+        document.getElementById('pptUrlInputField').focus();
+    },
+
+    _pendingUrls: [],
+    _currentUrlPreview: null,
+
+    async _fetchUrlPreview() {
+        const input = document.getElementById('pptUrlInputField');
+        const previewSection = document.getElementById('pptUrlPreviewSection');
+        const previewContent = document.getElementById('pptUrlPreviewContent');
+        const url = input?.value?.trim();
+
+        if (!url) return;
+
+        // Validate URL
+        try {
+            new URL(url);
+        } catch {
+            previewSection.style.display = 'block';
+            previewContent.innerHTML = '<div class="ppt-url-preview-error">请输入有效的网址</div>';
+            return;
+        }
+
+        // Show loading
+        previewSection.style.display = 'block';
+        previewContent.innerHTML = `
+            <div class="ppt-url-preview-loading">
+                <iconify-icon icon="svg-spinners:180-ring"></iconify-icon>
+                正在解析网页内容...
+            </div>
+        `;
+
+        try {
+            // Try to fetch via LocalMcpProvider
+            const { LocalMcpProvider } = await import('../agents/mcp/local-mcp-provider.js');
+            const provider = new LocalMcpProvider({
+                workerEndpoint: window.CF_WORKER_ENDPOINT || null,
+            });
+
+            const result = await provider.callTool('fetch_content', { url });
+
+            if (!result.success) {
+                throw new Error(result.error || '解析失败');
+            }
+
+            const jsonContent = result.content.find(c => c?.type === 'json');
+            const textContent = result.content.find(c => c?.type === 'text');
+            const metadata = jsonContent?.data?.metadata || {};
+            const text = textContent?.text || jsonContent?.data?.text || '';
+
+            this._currentUrlPreview = {
+                url,
+                title: metadata.title || new URL(url).hostname,
+                text: text.slice(0, 10000), // Limit text length
+                wordCount: text.length,
+            };
+
+            previewContent.innerHTML = `
+                <div class="ppt-url-preview-title">${this._escapeHtml(this._currentUrlPreview.title)}</div>
+                <div class="ppt-url-preview-meta">
+                    <span><iconify-icon icon="carbon:link"></iconify-icon> ${this._escapeHtml(new URL(url).hostname)}</span>
+                    <span><iconify-icon icon="carbon:text-align-left"></iconify-icon> ${this._currentUrlPreview.wordCount} 字符</span>
+                </div>
+                <div class="ppt-url-preview-excerpt">${this._escapeHtml(text.slice(0, 500))}${text.length > 500 ? '...' : ''}</div>
+                <button class="ppt-btn ppt-btn-primary" style="margin-top:12px;width:100%;" onclick="window.PPTGenerator._addUrlToList()">
+                    <iconify-icon icon="carbon:add"></iconify-icon> 添加此链接
+                </button>
+            `;
+        } catch (err) {
+            previewContent.innerHTML = `
+                <div class="ppt-url-preview-error">
+                    <strong>解析失败</strong><br>
+                    ${this._escapeHtml(err.message || '无法获取网页内容')}
+                </div>
+                <button class="ppt-btn ppt-btn-secondary" style="margin-top:12px;" onclick="window.PPTGenerator._addUrlAsLink()">
+                    仍然添加链接（稍后解析）
+                </button>
+            `;
+        }
+    },
+
+    _addUrlToList() {
+        if (!this._currentUrlPreview) return;
+
+        this._pendingUrls.push({ ...this._currentUrlPreview });
+        this._renderPendingUrls();
+
+        // Clear input and preview
+        document.getElementById('pptUrlInputField').value = '';
+        document.getElementById('pptUrlPreviewSection').style.display = 'none';
+        this._currentUrlPreview = null;
+        document.getElementById('pptUrlInputField').focus();
+    },
+
+    _addUrlAsLink() {
+        const url = document.getElementById('pptUrlInputField')?.value?.trim();
+        if (!url) return;
+
+        this._pendingUrls.push({
+            url,
+            title: new URL(url).hostname,
+            text: '',
+            wordCount: 0,
+            pending: true, // Mark as not yet fetched
+        });
+        this._renderPendingUrls();
+
+        document.getElementById('pptUrlInputField').value = '';
+        document.getElementById('pptUrlPreviewSection').style.display = 'none';
+        this._currentUrlPreview = null;
+        document.getElementById('pptUrlInputField').focus();
+    },
+
+    _removePendingUrl(index) {
+        this._pendingUrls.splice(index, 1);
+        this._renderPendingUrls();
+    },
+
+    _renderPendingUrls() {
+        const list = document.getElementById('pptUrlAddedList');
+        if (!list) return;
+
+        if (this._pendingUrls.length === 0) {
+            list.innerHTML = '';
+            return;
+        }
+
+        list.innerHTML = this._pendingUrls.map((item, i) => `
+            <div class="ppt-url-added-item">
+                <iconify-icon icon="${item.pending ? 'solar:link-broken-linear' : 'solar:check-circle-bold'}"></iconify-icon>
+                <div class="ppt-url-added-info">
+                    <div class="ppt-url-added-title">${this._escapeHtml(item.title)}</div>
+                    <div class="ppt-url-added-url">${this._escapeHtml(item.url)}</div>
+                </div>
+                <button class="ppt-url-added-remove" onclick="window.PPTGenerator._removePendingUrl(${i})">
+                    <iconify-icon icon="carbon:close"></iconify-icon>
+                </button>
+            </div>
+        `).join('');
+    },
+
+    _confirmUrlImport() {
+        if (!this.workflowData.files) this.workflowData.files = [];
+
+        for (const item of this._pendingUrls) {
+            this.workflowData.files.push({
+                name: item.title || item.url,
+                type: 'link',
+                size: item.wordCount ? `${item.wordCount} 字符` : 'URL',
+                url: item.url,
+                content: item.text || '',
+                pending: item.pending || false,
+            });
+        }
+
+        this._pendingUrls = [];
+        document.getElementById('pptUrlInputModal')?.classList.remove('open');
+        this.renderPreviewArea();
     },
 
     removeFile(index) {
