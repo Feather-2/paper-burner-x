@@ -109,27 +109,34 @@ const PPTGeneratorAgentDashboard = {
                 .rd-layout {
                     display: flex;
                     gap: 24px;
-                    padding: 20px;
-                    max-width: 1000px;
+                    padding: 24px;
+                    max-width: 1200px;
                     margin: 0 auto;
-                    min-height: 480px;
+                    height: calc(100vh - 140px);
+                    min-height: 500px;
+                    max-height: 720px;
                 }
                 .rd-sidebar {
-                    width: 260px;
+                    width: 280px;
                     flex-shrink: 0;
                     display: flex;
                     flex-direction: column;
+                    height: 100%;
                 }
                 .rd-sidebar-card {
-                    background: rgba(255, 255, 255, 0.75);
-                    backdrop-filter: blur(12px);
-                    border: 1px solid rgba(255, 255, 255, 0.6);
-                    border-radius: 16px;
+                    background: rgba(255, 255, 255, 0.78);
+                    backdrop-filter: blur(16px);
+                    border: 1px solid rgba(255, 255, 255, 0.7);
+                    border-radius: 18px;
                     padding: 20px;
                     flex: 1;
                     display: flex;
                     flex-direction: column;
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+                    box-shadow:
+                        0 4px 12px rgba(0, 0, 0, 0.04),
+                        0 0 0 1px rgba(255, 255, 255, 0.5) inset;
+                    overflow: hidden;
+                    min-height: 0;
                 }
                 .rd-sidebar-title {
                     font-size: 14px;
@@ -141,14 +148,29 @@ const PPTGeneratorAgentDashboard = {
                     gap: 8px;
                 }
                 .rd-sidebar-title iconify-icon {
-                    font-size: 18px;
+                    font-size: 20px;
                     color: var(--ppt-primary);
                 }
                 .rd-sidebar-list {
                     flex: 1;
                     overflow-y: auto;
                     margin: 0 -8px;
-                    padding: 0 8px;
+                    padding: 0 8px 4px;
+                    min-height: 0;
+                }
+                /* Custom Scrollbar */
+                .rd-sidebar-list::-webkit-scrollbar {
+                    width: 6px;
+                }
+                .rd-sidebar-list::-webkit-scrollbar-track {
+                    background: transparent;
+                }
+                .rd-sidebar-list::-webkit-scrollbar-thumb {
+                    background: rgba(0, 0, 0, 0.12);
+                    border-radius: 3px;
+                }
+                .rd-sidebar-list::-webkit-scrollbar-thumb:hover {
+                    background: rgba(0, 0, 0, 0.2);
                 }
                 .rd-sidebar-empty {
                     flex: 1;
@@ -352,6 +374,11 @@ const PPTGeneratorAgentDashboard = {
                     border-radius: 12px;
                     padding: 16px;
                 }
+                .rd-form-grid {
+                    display: grid;
+                    grid-template-columns: repeat(2, 1fr);
+                    gap: 12px 20px;
+                }
                 .rd-form-row {
                     display: flex;
                     align-items: center;
@@ -361,6 +388,16 @@ const PPTGeneratorAgentDashboard = {
                 }
                 .rd-form-row:last-child {
                     margin-bottom: 0;
+                }
+                .rd-form-cell {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 12px;
+                }
+                .rd-form-cell .rd-select {
+                    flex: 1;
+                    min-width: 0;
                 }
                 .rd-form-label {
                     font-size: 13px;
@@ -671,38 +708,40 @@ const PPTGeneratorAgentDashboard = {
 
                         <div class="rd-section-title" style="margin-top: 24px;">报告参数</div>
                         <div class="rd-form-panel">
-                            <div class="rd-form-row">
-                                <label class="rd-form-label">报告长度</label>
-                                <select class="rd-select" onchange="window.PPTGenerator.updateReportLength(this.value)">
-                                    <option value="brief" ${reportLength === 'brief' ? 'selected' : ''}>简要 (800-2000字)</option>
-                                    <option value="standard" ${reportLength === 'standard' ? 'selected' : ''}>标准 (2000-5000字)</option>
-                                    <option value="detailed" ${reportLength === 'detailed' ? 'selected' : ''}>详细 (5000-10000字)</option>
-                                    <option value="comprehensive" ${reportLength === 'comprehensive' ? 'selected' : ''}>全面 (10000-20000字)</option>
-                                </select>
-                            </div>
-                            <div class="rd-form-row">
-                                <label class="rd-form-label">写作风格</label>
-                                <select class="rd-select" onchange="window.PPTGenerator.updateWriteTone(this.value)">
-                                    <option value="business" ${tone === 'business' ? 'selected' : ''}>商务专业</option>
-                                    <option value="academic" ${tone === 'academic' ? 'selected' : ''}>学术严谨</option>
-                                    <option value="casual" ${tone === 'casual' ? 'selected' : ''}>通俗易懂</option>
-                                </select>
-                            </div>
-                            <div class="rd-form-row">
-                                <label class="rd-form-label">目标受众</label>
-                                <select class="rd-select" onchange="window.PPTGenerator.updateWriteAudience(this.value)">
-                                    <option value="general" ${audience === 'general' ? 'selected' : ''}>一般读者</option>
-                                    <option value="expert" ${audience === 'expert' ? 'selected' : ''}>专业人士</option>
-                                    <option value="executive" ${audience === 'executive' ? 'selected' : ''}>高管决策层</option>
-                                </select>
-                            </div>
-                            <div class="rd-form-row">
-                                <label class="rd-form-label">输出语言</label>
-                                <select class="rd-select" onchange="window.PPTGenerator.updateWriteLanguage(this.value)">
-                                    <option value="auto" ${language === 'auto' ? 'selected' : ''}>自动检测</option>
-                                    <option value="zh" ${language === 'zh' ? 'selected' : ''}>简体中文</option>
-                                    <option value="en" ${language === 'en' ? 'selected' : ''}>English</option>
-                                </select>
+                            <div class="rd-form-grid">
+                                <div class="rd-form-cell">
+                                    <label class="rd-form-label">报告长度</label>
+                                    <select class="rd-select" onchange="window.PPTGenerator.updateReportLength(this.value)">
+                                        <option value="brief" ${reportLength === 'brief' ? 'selected' : ''}>简要</option>
+                                        <option value="standard" ${reportLength === 'standard' ? 'selected' : ''}>标准</option>
+                                        <option value="detailed" ${reportLength === 'detailed' ? 'selected' : ''}>详细</option>
+                                        <option value="comprehensive" ${reportLength === 'comprehensive' ? 'selected' : ''}>全面</option>
+                                    </select>
+                                </div>
+                                <div class="rd-form-cell">
+                                    <label class="rd-form-label">写作风格</label>
+                                    <select class="rd-select" onchange="window.PPTGenerator.updateWriteTone(this.value)">
+                                        <option value="business" ${tone === 'business' ? 'selected' : ''}>商务专业</option>
+                                        <option value="academic" ${tone === 'academic' ? 'selected' : ''}>学术严谨</option>
+                                        <option value="casual" ${tone === 'casual' ? 'selected' : ''}>通俗易懂</option>
+                                    </select>
+                                </div>
+                                <div class="rd-form-cell">
+                                    <label class="rd-form-label">目标受众</label>
+                                    <select class="rd-select" onchange="window.PPTGenerator.updateWriteAudience(this.value)">
+                                        <option value="general" ${audience === 'general' ? 'selected' : ''}>一般读者</option>
+                                        <option value="expert" ${audience === 'expert' ? 'selected' : ''}>专业人士</option>
+                                        <option value="executive" ${audience === 'executive' ? 'selected' : ''}>高管决策层</option>
+                                    </select>
+                                </div>
+                                <div class="rd-form-cell">
+                                    <label class="rd-form-label">输出语言</label>
+                                    <select class="rd-select" onchange="window.PPTGenerator.updateWriteLanguage(this.value)">
+                                        <option value="auto" ${language === 'auto' ? 'selected' : ''}>自动检测</option>
+                                        <option value="zh" ${language === 'zh' ? 'selected' : ''}>简体中文</option>
+                                        <option value="en" ${language === 'en' ? 'selected' : ''}>English</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
 
