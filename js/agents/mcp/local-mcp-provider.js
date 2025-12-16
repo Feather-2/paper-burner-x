@@ -460,23 +460,43 @@ export class LocalMcpProvider extends McpProvider {
       let extractedText, extractionMethod, metadata;
       try {
         const smart = extractSmartContent(html, { maxLength: 50000 });
-        extractedText = smart.markdown || smart.plainText;
-        extractionMethod = 'smart';
-        metadata = {
-          url: targetUrl,
-          title: smart.metadata?.title || extractTitle(html),
-          description: smart.metadata?.description || extractMetaDescription(html),
-          author: smart.metadata?.author,
-          publishDate: smart.metadata?.publishDate,
-          fetchedAt: new Date().toISOString(),
-          contentLength: html.length,
-          extractedLength: extractedText.length,
-          wordCount: smart.metadata?.wordCount,
-          headings: smart.metadata?.headings,
-          structure: smart.structure,
-          proxy,
-          extractionMethod,
-        };
+        const smartText = smart.markdown || smart.plainText;
+
+        // 如果智能提取结果太短，说明可能识别错了，fallback 到简单提取
+        const simpleText = extractTextFromHtml(html);
+        if (smartText.length < 200 || smartText.length < simpleText.length * 0.3) {
+          // 智能提取结果不可靠，使用简单提取
+          extractedText = simpleText;
+          extractionMethod = 'fallback (smart too short)';
+          metadata = {
+            url: targetUrl,
+            title: smart.metadata?.title || extractTitle(html),
+            description: smart.metadata?.description || extractMetaDescription(html),
+            fetchedAt: new Date().toISOString(),
+            contentLength: html.length,
+            extractedLength: extractedText.length,
+            proxy,
+            extractionMethod,
+          };
+        } else {
+          extractedText = smartText;
+          extractionMethod = 'smart';
+          metadata = {
+            url: targetUrl,
+            title: smart.metadata?.title || extractTitle(html),
+            description: smart.metadata?.description || extractMetaDescription(html),
+            author: smart.metadata?.author,
+            publishDate: smart.metadata?.publishDate,
+            fetchedAt: new Date().toISOString(),
+            contentLength: html.length,
+            extractedLength: extractedText.length,
+            wordCount: smart.metadata?.wordCount,
+            headings: smart.metadata?.headings,
+            structure: smart.structure,
+            proxy,
+            extractionMethod,
+          };
+        }
       } catch (smartErr) {
         // Fallback 到简单提取
         console.warn('[LocalMcpProvider] Smart extraction failed, using fallback:', smartErr?.message);
