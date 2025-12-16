@@ -11,6 +11,8 @@ import { runDeepSearchCondenseStage } from "./condense.js";
 import { TrajectoryManager } from "./trajectory.js";
 import { DeepSearchError, ErrorHandler, ErrorLevel } from "../../core/error-handler.js";
 import { logEvent, setLogContext, setEventBus } from "./logger.js";
+import { SharedContext } from "./shared-context.js";
+import { shouldUseDirectMode, runDirectAnalysis } from "./direct-analysis.js";
 
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -151,9 +153,9 @@ export function shouldContinue(state, roundResult) {
 
   if (openGaps(state).length === 0) return false;
 
-  // noNewHitsRounds 阈值从 2 调整为 4，允许更多轮次尝试不同工具组合
+  // noNewHitsRounds 阈值：连续 2 轮无高质量 hit 则停止（现在只计算 score >= threshold 的 hit）
   const noNewHitsRounds = safeInt(roundResult?.noNewHitsRounds);
-  if (noNewHitsRounds !== null && noNewHitsRounds >= 4) return false;
+  if (noNewHitsRounds !== null && noNewHitsRounds >= 2) return false;
 
   if (roundResult?.aborted) return false;
   if (roundResult?.budgetStopRequested) return false;
@@ -172,6 +174,9 @@ export class DeepSearchStage {
   async execute(runContext, input, stageApi = {}) {
     const state = ensureState(runContext, input);
     if (runContext?.runId) state.runId = String(runContext.runId);
+
+    // 创建 SharedContext 用于阶段间通信和分层记忆
+    const sharedCtx = new SharedContext({ runId: state.runId });
 
     // 设置日志上下文和 EventBus
     setLogContext({ runId: state.runId, iteration: state.iteration || 0 });
@@ -347,8 +352,32 @@ export class DeepSearchStage {
 
     try {
       checkCancelled(stageApiWithTap);
+
+      // 小文档直通模式检测
+      const directModeCheck = shouldUseDirectMode(state);
+      if (directModeCheck.shouldUse) {
+        logEvent({
+          stage: "deepsearch",
+          message: "Using direct analysis mode for small document",
+          data: directModeCheck,
+        });
+        emit?.("deepsearch.direct.triggered", directModeCheck);
+
+        const pkg = await runDirectAnalysis(runContext, { state }, stageApiWithTap);
+        emit?.("deepsearch.completed", { runId: state.runId, mode: "direct" });
+        return pkg;
+      }
+
       await callStage("deepsearch.scan", () => runDeepSearchScanStage(runContext, { state }, stageApiWithTap), { stageState: state });
       updateTaskProgress();
+
+      // SharedContext: 记录 scan 阶段摘要
+      const scanSources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
+      const totalChars = scanSources.reduce((sum, s) => sum + (s?.sourceTextNormalized?.length || 0), 0);
+      sharedCtx.commit("scan", {
+        summary: `${scanSources.length} 个来源，共 ${totalChars} 字符，主题：${String(state.taskGoal || "").slice(0, 60)}`,
+        keywords: [state.taskGoal, ...(state?.L1?.scanSummary?.keyTopics || [])].filter(Boolean).slice(0, 10),
+      });
 
       if (budgetStopRequested) {
         emit?.("deepsearch.budget.stop", { iteration: state.iteration });
@@ -414,6 +443,16 @@ export class DeepSearchStage {
           });
           updateTaskProgress();
 
+          // SharedContext: 记录 gaps 阶段摘要
+          const allGaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+          const openGapsList = allGaps.filter(g => g?.status === "open" || !g?.status);
+          const gapTypes = [...new Set(openGapsList.map(g => g?.type).filter(Boolean))];
+          sharedCtx.commit("gaps", {
+            summary: `${openGapsList.length}/${allGaps.length} 个开放缺口，类型：${gapTypes.join(", ")}`,
+            keywords: [...gapTypes, ...openGapsList.map(g => g?.question).filter(Boolean).slice(0, 5)],
+            full: openGapsList,
+          });
+
           if (openGaps(state).length === 0) {
             phase = "write";
             continue;
@@ -468,21 +507,50 @@ export class DeepSearchStage {
           const retrievedChunks = retrieveOut?.retrievedChunks;
           updateTaskProgress();
 
+          // 只计算高质量 hit（score >= 阈值），低质量匹配不算有效 hit
+          const qualityThreshold = safeInt(state?.userConfig?.retrieval?.qualityThreshold) ?? 0.3;
           let hitCount = 0;
+          let qualityHitCount = 0;
           for (const r of Array.isArray(retrievedChunks) ? retrievedChunks : []) {
             const sig = signatureForRetrievedChunk(r);
             if (!seenHitSignatures.has(sig)) {
               seenHitSignatures.add(sig);
               hitCount++;
+              // 只有高质量 hit 才计入有效 hit
+              const score = typeof r?.score === "number" && Number.isFinite(r.score) ? r.score : 0;
+              if (score >= qualityThreshold) {
+                qualityHitCount++;
+              }
             }
           }
-          noNewHitsRounds = hitCount === 0 ? noNewHitsRounds + 1 : 0;
+          // 使用 qualityHitCount 而非 hitCount 判断是否有新发现
+          noNewHitsRounds = qualityHitCount === 0 ? noNewHitsRounds + 1 : 0;
+
+          // SharedContext: 记录 retrieve 阶段摘要
+          const totalRetrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks.length : 0;
+          sharedCtx.commit("retrieve", {
+            summary: `检索 ${hitCount} 个 chunk（高质量 ${qualityHitCount} 个），累计 ${totalRetrieved} 个`,
+            keywords: retrievedChunks?.slice(0, 5).flatMap(r => r?.matchedGapIds || []).filter(Boolean) || [],
+          });
+          // 发送信号：如果高质量 hit 为 0，可能需要外搜
+          if (qualityHitCount === 0) {
+            sharedCtx.signal("retrieve", { type: "NO_QUALITY_HITS", iteration: state.iteration, noNewHitsRounds });
+          }
 
           await callStage("deepsearch.understand", () => runDeepSearchUnderstandStage(runContext, { state }, stageApiWithTap), {
             stageState: state,
             fallbackValue: { state },
           });
           updateTaskProgress();
+
+          // SharedContext: 记录 understand 阶段摘要
+          const claims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
+          const evidenceCount = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger.length : 0;
+          const filledGapsCount = (Array.isArray(state?.L1?.gaps) ? state.L1.gaps : []).filter(g => g?.status === "filled").length;
+          sharedCtx.commit("understand", {
+            summary: `提取 ${claims.length} 个论点，${evidenceCount} 条证据，${filledGapsCount} 个缺口已填充`,
+            keywords: claims.slice(0, 5).map(c => c?.text?.slice(0, 30)).filter(Boolean),
+          });
 
           // Reflect-driven 外搜（单轨迹主流程）
           // 显式开启（userConfig.externalSearch.enabled=true && autoTrigger=true）才会触发。
@@ -554,6 +622,7 @@ export class DeepSearchStage {
             runId: state.runId,
             iteration: completedIteration,
             hitCount,
+            qualityHitCount,
             noNewHitsRounds,
             ...(validateOut && typeof validateOut === "object" ? validateOut : {}),
             openGapCount: openGaps(state).length,
@@ -566,6 +635,7 @@ export class DeepSearchStage {
             data: {
               iteration: completedIteration,
               hitCount,
+              qualityHitCount,
               noNewHitsRounds,
               openGaps: openGaps(state).length,
               decision: shouldContinue(state, lastRoundResult) ? 'continue' : 'stop',
@@ -574,7 +644,7 @@ export class DeepSearchStage {
 
           state.iteration += 1;
 
-          lastRoundResult = { hitCount, noNewHitsRounds, openGapCount: openGaps(state).length };
+          lastRoundResult = { hitCount, qualityHitCount, noNewHitsRounds, openGapCount: openGaps(state).length };
           phase = shouldContinue(state, lastRoundResult) ? "gaps" : "write";
           continue;
         }

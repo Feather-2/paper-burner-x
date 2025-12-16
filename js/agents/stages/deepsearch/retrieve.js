@@ -5,6 +5,7 @@ import { retrieve as retrieveWithRouter } from "../../retrieval/retrieval-router
 import { createMcpClient, parseExternalSearchConfig, runExternalSearch } from "./external-search.js";
 import { logEvent, setLogContext, trackToolCall } from "./logger.js";
 import { search as toolChainSearch } from "../../retrieval/tool-chain.js";
+import { ShadowAgent, shouldValidateWithShadow } from "./shadow-agent.js";
 
 const defaultLocalRetriever = (...args) => retrieveWithRouter(...args);
 
@@ -796,6 +797,90 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
   }
   // ===== LLM Rerank 结束 =====
 
+  // ===== Shadow Agent 验证 =====
+  const shadowConfig = isPlainObject(state?.userConfig?.retrieval?.shadow) ? state.userConfig.retrieval.shadow : {};
+  const enableShadow = shadowConfig.enabled === true; // 默认关闭，需显式启用
+  let shadowStats = null;
+
+  if (enableShadow && rerankedChunks.length > 0) {
+    const shadowAgent = new ShadowAgent(stageApi, state, shadowConfig);
+    const iteration = safeInt(state?.iteration) ?? 0;
+    const gapsById = new Map(gaps.map(g => [g.gapId, g]));
+
+    emitRetrieveProgress(emit, {
+      current: gaps.length,
+      total: gaps.length,
+      msg: `正在验证灰色地带 chunks...`,
+      detail: { step: "shadow_validation", chunkCount: rerankedChunks.length },
+    });
+
+    // 并行验证（但受预算控制）
+    const validationPromises = rerankedChunks.map(async (chunk) => {
+      const gapId = chunk.gapId || (chunk.matchedGapIds?.[0]);
+      const gap = gapId ? gapsById.get(gapId) : null;
+
+      const decision = shouldValidateWithShadow(chunk, gap, shadowConfig);
+      if (!decision.shouldValidate) {
+        return { chunk, validated: false, reason: decision.reason };
+      }
+
+      const verdict = await shadowAgent.validateRelevance(chunk, gap, { round: iteration });
+      if (verdict.skipped) {
+        return { chunk, validated: false, reason: verdict.reason };
+      }
+
+      // 根据验证结果调整 chunk
+      return {
+        chunk,
+        validated: true,
+        verdict,
+      };
+    });
+
+    const validationResults = await Promise.all(validationPromises);
+
+    // 更新 chunk metadata
+    for (const result of validationResults) {
+      if (!result.validated || !result.verdict) continue;
+
+      const { chunk, verdict } = result;
+      // 添加 shadow 验证结果
+      chunk.shadowValidated = true;
+      chunk.shadowRelevant = verdict.relevant;
+      chunk.shadowConfidence = verdict.confidence;
+      if (verdict.keyInfo) {
+        chunk.shadowKeyInfo = verdict.keyInfo;
+      }
+
+      // 调整 score：如果验证确认相关，提升置信度；否则降低
+      if (typeof chunk.score === "number") {
+        if (verdict.relevant && verdict.confidence >= 0.7) {
+          chunk.score = Math.min(10, chunk.score * 1.3); // 提升 30%
+        } else if (!verdict.relevant && verdict.confidence >= 0.7) {
+          chunk.score = chunk.score * 0.5; // 降低 50%
+        }
+      }
+    }
+
+    shadowStats = shadowAgent.getStats();
+    const validatedCount = validationResults.filter(r => r.validated).length;
+    const confirmedRelevant = validationResults.filter(r => r.verdict?.relevant).length;
+
+    emit?.("deepsearch.shadow.completed", {
+      totalChunks: rerankedChunks.length,
+      validated: validatedCount,
+      confirmedRelevant,
+      stats: shadowStats,
+    });
+
+    logEvent({
+      stage: "retrieve",
+      message: "Shadow validation completed",
+      data: { validated: validatedCount, confirmedRelevant, stats: shadowStats },
+    });
+  }
+  // ===== Shadow Agent 验证结束 =====
+
   // === 外搜说明 ===
   // 外搜现在由 Reflect 机制驱动（在 trajectory.js 中）
   // 不再使用 minLocalHits 固定阈值
@@ -899,6 +984,7 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
       externalSearchTriggered,
       externalChunksCount: externalChunks.length,
       ...(rerankStats ? { rerank: rerankStats } : {}),
+      ...(shadowStats ? { shadow: shadowStats } : {}),
     },
   });
 
@@ -913,6 +999,7 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
     externalSearchTriggered,
     externalChunksCount: externalChunks.length,
     ...(rerankStats ? { rerank: rerankStats } : {}),
+    ...(shadowStats ? { shadow: shadowStats } : {}),
   });
   return { state, retrievedChunks: rerankedChunks };
 }
