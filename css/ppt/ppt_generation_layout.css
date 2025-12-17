@@ -1,6 +1,134 @@
 /* PPT Generation - Layout Styles */
 /* Header, Main Layout, Sidebar, Toolbar */
 
+/* ==================== Brainstorm Candidates Panel ==================== */
+.brainstorm-candidates-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.brainstorm-panel-header {
+    padding: 12px 12px;
+    border: 1px solid var(--ppt-border);
+    border-radius: var(--ppt-radius-lg);
+    background: var(--ppt-surface);
+}
+
+.brainstorm-panel-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 900;
+    color: var(--ppt-text-main);
+}
+
+.brainstorm-panel-subtitle {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--ppt-text-muted);
+}
+
+.brainstorm-slide-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.brainstorm-slide-group {
+    padding: 12px 12px;
+    border: 1px solid var(--ppt-border);
+    border-radius: var(--ppt-radius-lg);
+    background: var(--ppt-surface);
+}
+
+.brainstorm-slide-group-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.brainstorm-slide-title {
+    font-weight: 800;
+    color: var(--ppt-text-main);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.brainstorm-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+}
+
+.brainstorm-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 12px;
+    border: 1px solid var(--ppt-border);
+    border-radius: var(--ppt-radius-lg);
+    background: white;
+    cursor: pointer;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+    min-height: 170px;
+}
+
+.brainstorm-card:hover {
+    border-color: var(--ppt-border-hover);
+    box-shadow: 0 10px 25px -10px rgba(0, 0, 0, 0.18);
+    transform: translateY(-1px);
+}
+
+.brainstorm-card.selected {
+    border-color: rgba(79, 70, 229, 0.55);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+}
+
+.brainstorm-card-title {
+    font-weight: 900;
+    color: var(--ppt-text-main);
+}
+
+.brainstorm-card-meta {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ppt-text-secondary);
+}
+
+.brainstorm-card-summary {
+    margin: 0;
+    white-space: pre-wrap;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--ppt-text-secondary);
+    flex: 1;
+}
+
+.brainstorm-card-summary.muted {
+    color: var(--ppt-text-muted);
+    font-style: italic;
+}
+
+.brainstorm-card-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding-top: 4px;
+}
+
+.brainstorm-empty {
+    padding: 14px;
+    border: 1px dashed var(--ppt-border);
+    border-radius: var(--ppt-radius-lg);
+    background: var(--ppt-surface);
+    color: var(--ppt-text-secondary);
+    line-height: 1.6;
+}
+
 /* ==================== Header (Glass) ==================== */
 .ppt-header {
     height: 64px;

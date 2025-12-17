@@ -262,6 +262,98 @@ test("Brainstorm v2: brainstormRegenerate regenerates one slide and keepOthers c
   assert.equal(keepNoneEvt.record?.payload?.candidatesBySlide[0]?.slideIntentId, "s_overview");
 });
 
+test("Brainstorm v2: source=user candidatesBySlide skips LLM generation and returns selected candidates", async () => {
+  const { brainstorm } = await import("../../../js/agents/stages/design/brainstorm.js");
+
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  let calls = 0;
+  const aiApiService = {
+    chat: async () => {
+      calls += 1;
+      throw new Error("LLM should not be called when source=user candidates exist");
+    },
+  };
+
+  const contentPackage = makeContentPackage({ slideCount: 2 });
+  const designSystem = {
+    theme: "dark",
+    designTokens: { colors: { bg: "#0f172a", text: "#f8fafc", primary: "#22d3ee" }, typography: { fontFamily: "Inter" } },
+    visualPreference: { mode: "balanced" },
+  };
+
+  const candidatesBySlide = [
+    {
+      slideIndex: 0,
+      slideIntentId: "s_cover",
+      candidates: [
+        { candidateId: "s_cover_a", elementsMarkdown: "- A", visualSlots: [] },
+        {
+          candidateId: "s_cover_b",
+          elementsMarkdown: "- B",
+          visualSlots: [
+            {
+              slotId: "s_cover_hero",
+              slideIntentId: "s_cover",
+              slideIndex: 0,
+              renderType: "ai-image",
+              position: { x: "10%", y: "10%", w: "80%", h: "45%" },
+              imageSpec: { prompt: "Hero", style: "flat" },
+              priority: "critical",
+            },
+          ],
+        },
+      ],
+      selectedCandidateId: "s_cover_b",
+      selectedCandidate: { candidateId: "s_cover_b", elementsMarkdown: "- B", visualSlots: [] },
+    },
+    {
+      slideIndex: 1,
+      slideIntentId: "s_overview",
+      candidates: [
+        {
+          candidateId: "s_overview_a",
+          elementsMarkdown: "- A",
+          visualSlots: [
+            {
+              slotId: "s_overview_flow",
+              slideIntentId: "s_overview",
+              slideIndex: 1,
+              renderType: "svg",
+              position: { x: "10%", y: "80%", w: "80%", h: "10%" },
+              svgSpec: { type: "flowchart", description: "Flow" },
+              priority: "important",
+            },
+          ],
+        },
+        { candidateId: "s_overview_b", elementsMarkdown: "- B", visualSlots: [] },
+      ],
+      selectedCandidateId: "s_overview_a",
+      selectedCandidate: { candidateId: "s_overview_a", elementsMarkdown: "- A", visualSlots: [] },
+    },
+  ];
+
+  const res = await brainstorm(
+    { ...contentPackage, brainstormCandidates: { schemaVersion: "0.1", candidatesBySlide, selectedIdeas: [], updatedAt: Date.now(), source: "user" } },
+    designSystem,
+    { imagePolicy: "balanced" },
+    { emit, aiApiService }
+  );
+
+  assert.equal(calls, 0);
+  assert.ok(Array.isArray(res.candidatesBySlide) && res.candidatesBySlide.length === 2);
+  assert.ok(Array.isArray(res.selectedCandidates) && res.selectedCandidates.length === 2);
+  assert.ok(res.candidatesBySlide.every((r) => r.selectedCandidate?.selected === true));
+  assert.ok(Array.isArray(res.imageSlots));
+  assert.ok(res.imageSlots.some((s) => s.slotId === "s_cover_hero"));
+  assert.ok(res.imageSlots.some((s) => s.slotId === "s_overview_flow"));
+
+  assert.ok(events.some((e) => e.name === "design.brainstorm.candidates" && e.record?.payload?.source === "user"));
+  assert.ok(!events.some((e) => e.name === "design.brainstorm.llm.generated"));
+  assert.ok(!events.some((e) => e.name === "design.brainstorm.reviewed"));
+});
+
 test("Brainstorm v2: composite score calculation and mapping helpers", async () => {
   const { __test, mapVisualSlotsToImageSlots } = await import("../../../js/agents/stages/design/brainstorm.js");
 

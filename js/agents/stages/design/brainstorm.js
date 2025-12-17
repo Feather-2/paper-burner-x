@@ -622,6 +622,107 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
     payload: { slideCount: slideIntents.length },
   });
 
+  const cachedCandidates = contentPackage?.brainstormCandidates;
+  if (
+    cachedCandidates &&
+    typeof cachedCandidates === "object" &&
+    String(cachedCandidates?.source || "").trim() === "user" &&
+    Array.isArray(cachedCandidates?.candidatesBySlide)
+  ) {
+    const byIntentId = new Map(
+      (Array.isArray(slideIntents) ? slideIntents : []).map((si, idx) => [
+        toNonEmptyString(si?.slideIntentId || si?.slideIntentID),
+        idx,
+      ])
+    );
+
+    const candidatesBySlide = cachedCandidates.candidatesBySlide
+      .map((raw) => {
+        const slideIntentId = toNonEmptyString(raw?.slideIntentId);
+        if (!slideIntentId) return null;
+        const slideIndex = Number.isFinite(raw?.slideIndex) ? raw.slideIndex : byIntentId.get(slideIntentId);
+
+        const candidates = (Array.isArray(raw?.candidates) ? raw.candidates : [])
+          .filter((c) => c && typeof c === "object")
+          .map((c) => ({ ...c, candidateId: toNonEmptyString(c?.candidateId) }))
+          .filter((c) => c.candidateId);
+
+        const selectedCandidateId =
+          toNonEmptyString(raw?.selectedCandidateId) || toNonEmptyString(raw?.selectedCandidate?.candidateId);
+
+        const selectedFromList = selectedCandidateId
+          ? candidates.find((c) => c.candidateId === selectedCandidateId) || null
+          : null;
+        const selectedFromRow =
+          raw?.selectedCandidate && typeof raw.selectedCandidate === "object" && toNonEmptyString(raw.selectedCandidate.candidateId)
+            ? { ...raw.selectedCandidate, candidateId: toNonEmptyString(raw.selectedCandidate.candidateId) }
+            : null;
+
+        const selectedCandidate = selectedFromList || selectedFromRow || candidates[0] || null;
+        if (!selectedCandidate) return null;
+
+        const pickedId = selectedCandidate.candidateId || selectedCandidateId;
+        const nextCandidates = candidates.length
+          ? candidates.map((c) => ({ ...c, selected: c.candidateId === pickedId }))
+          : [{ ...selectedCandidate, selected: true }];
+
+        const nextSelected =
+          nextCandidates.find((c) => c.candidateId === pickedId) || { ...selectedCandidate, selected: true };
+
+        if (nextCandidates.length && !nextCandidates.some((c) => c.candidateId === nextSelected.candidateId)) {
+          nextCandidates.push(nextSelected);
+        }
+
+        return {
+          ...(slideIndex !== undefined ? { slideIndex } : {}),
+          slideIntentId,
+          candidates: nextCandidates,
+          selectedCandidateId: nextSelected.candidateId,
+          selectedCandidate: { ...nextSelected, selected: true },
+        };
+      })
+      .filter(Boolean);
+
+    const selectedCandidates = candidatesBySlide.map((x) => x.selectedCandidate).filter(Boolean);
+    if (candidatesBySlide.length > 0 && selectedCandidates.length > 0) {
+      const selectedVisualSlots = selectedCandidates.flatMap((c) => (Array.isArray(c?.visualSlots) ? c.visualSlots : []));
+      const imageSlots = mapVisualSlotsToImageSlots(selectedVisualSlots, slideIntents);
+
+      const allCandidates = candidatesBySlide.flatMap((x) => (Array.isArray(x?.candidates) ? x.candidates : []));
+
+      emit?.("design.brainstorm.candidates", {
+        actor: "design",
+        status: "data",
+        payload: {
+          candidatesBySlide,
+          selectedIdeas: buildSelectedIdeasFromCandidatesBySlide(candidatesBySlide),
+          source: "user",
+        },
+      });
+
+      emit?.("design.brainstorm.completed", {
+        actor: "design",
+        status: "completed",
+        payload: {
+          totalCandidates: allCandidates.length,
+          selectedCandidates: selectedCandidates.length,
+          visualSlots: selectedVisualSlots.length,
+          imageSlots: imageSlots.length,
+          source: "user",
+        },
+      });
+
+      return {
+        ideaPool: [],
+        selectedIdeas: [],
+        imageSlots,
+        candidatesBySlide,
+        candidates: allCandidates,
+        selectedCandidates,
+      };
+    }
+  }
+
   if (typeof modelCaller === "function") {
     const candidatesBySlide = [];
     const allCandidates = [];

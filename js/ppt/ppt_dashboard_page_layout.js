@@ -4,7 +4,11 @@
   NS.pageLayout = NS.pageLayout || {};
   Object.assign(NS.pageLayout, {
     _renderPageLayoutReview() {
-        const activeTab = Number.isInteger(this._pageLayoutTab) ? this._pageLayoutTab : 2;
+        const hasBrainstorm = this._hasBrainstormCandidates?.() || false;
+        const maxTab = hasBrainstorm ? 3 : 2;
+        let activeTab = Number.isInteger(this._pageLayoutTab) ? this._pageLayoutTab : 2;
+        activeTab = Math.max(0, Math.min(maxTab, Math.floor(activeTab)));
+        if (this._pageLayoutTab !== activeTab) this._pageLayoutTab = activeTab;
         return `
             <div class="ppt-question-form page-layout">
                 <div class="ppt-page-layout-editor">
@@ -18,10 +22,16 @@
                         <div class="ppt-page-layout-tab ${activeTab === 2 ? 'active' : ''}" onclick="window.PPTGenerator._setPageLayoutTab(2)">
                             <iconify-icon icon="carbon:color-palette"></iconify-icon> 设计规范
                         </div>
+                        ${hasBrainstorm ? `
+                            <div class="ppt-page-layout-tab ${activeTab === 3 ? 'active' : ''}" onclick="window.PPTGenerator._setPageLayoutTab(3)">
+                                <iconify-icon icon="carbon:idea"></iconify-icon> 创意候选
+                            </div>
+                        ` : ''}
                     </div>
                     <div class="ppt-page-layout-content custom-scrollbar">
                         ${activeTab === 0 ? this._renderPagePlanTab() :
                           activeTab === 1 ? this._renderPageDetailTab() :
+                          activeTab === 3 ? this._renderBrainstormCandidatesPanel() :
                           this._renderDesignSpecView()}
                     </div>
                     <div class="ppt-page-layout-footer">
@@ -41,8 +51,175 @@
     _setPageLayoutTab(index) {
         const i = Number(index);
         if (!Number.isFinite(i)) return;
-        this._pageLayoutTab = Math.max(0, Math.min(2, Math.floor(i)));
+        const maxTab = this._hasBrainstormCandidates?.() ? 3 : 2;
+        this._pageLayoutTab = Math.max(0, Math.min(maxTab, Math.floor(i)));
         this.renderPreviewArea?.();
+    },
+
+    _hasBrainstormCandidates() {
+        const bc = this.workflowData?.brainstormCandidates;
+        return Array.isArray(bc?.candidatesBySlide) && bc.candidatesBySlide.length > 0;
+    },
+
+    _selectBrainstormCandidateFromUI(slideIntentId, candidateId) {
+        try {
+            const ok = this.selectBrainstormCandidate?.(slideIntentId, candidateId);
+            if (!ok) this.addChatMessage?.('ai', '选择失败：候选数据不存在或已过期。');
+            this.renderPreviewArea?.();
+            return !!ok;
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            this.addChatMessage?.('ai', `选择失败：${msg}`);
+            return false;
+        }
+    },
+
+    async _regenerateBrainstormForSlideFromUI(slideIntentId) {
+        const id = String(slideIntentId || '');
+        if (!id) return false;
+        if (!this._brainstormRegenInProgress || typeof this._brainstormRegenInProgress !== 'object') {
+            this._brainstormRegenInProgress = Object.create(null);
+        }
+        if (this._brainstormRegenInProgress[id]) return false;
+        this._brainstormRegenInProgress[id] = true;
+        this.renderPreviewArea?.();
+        let ok = false;
+        try {
+            await this.regenerateBrainstormForSlide?.(id, { keepOthers: true });
+            ok = true;
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            this.addChatMessage?.('ai', `Regenerate 失败：${msg}`);
+        } finally {
+            delete this._brainstormRegenInProgress[id];
+            this.renderPreviewArea?.();
+        }
+        return ok;
+    },
+
+    _renderBrainstormCandidatesPanel() {
+        const bc = this.workflowData?.brainstormCandidates;
+        const rows = Array.isArray(bc?.candidatesBySlide) ? bc.candidatesBySlide : [];
+
+        if (!rows.length) {
+            return `
+                <div class="brainstorm-candidates-panel">
+                    <div class="brainstorm-empty">
+                        暂无创意候选。请先运行设计阶段以生成 brainstormCandidates。
+                    </div>
+                </div>
+            `;
+        }
+
+        const esc = (v) => (typeof this._escapeHtml === 'function' ? this._escapeHtml(v) : String(v ?? ''));
+        const attr = (v) => (typeof this._escapeAttr === 'function' ? this._escapeAttr(v) : String(v ?? ''));
+
+        const pkg = this.workflowData?.contentPackage;
+        const slideIntents = Array.isArray(pkg?.slideIntents) ? pkg.slideIntents : [];
+        const slideMetaById = new Map(
+            slideIntents.map((s, i) => {
+                const id = String(s?.slideIntentId || '');
+                const idx = Number.isFinite(Number(s?.index)) ? Number(s.index) : i;
+                const title = typeof s?.title === 'string' && s.title.trim() ? s.title.trim() : `第 ${idx + 1} 页`;
+                return [id, { idx, title }];
+            })
+        );
+
+        const orderKey = (r) => {
+            const id = String(r?.slideIntentId || '');
+            const meta = slideMetaById.get(id);
+            const idx = meta?.idx;
+            if (Number.isFinite(idx)) return idx;
+            return Number.isFinite(r?.slideIndex) ? r.slideIndex : 9999;
+        };
+
+        const sortedRows = [...rows].sort((a, b) => orderKey(a) - orderKey(b));
+
+        const summarize = (candidate) => {
+            const md = typeof candidate?.elementsMarkdown === 'string' ? candidate.elementsMarkdown : '';
+            const lines = md
+                .split('\n')
+                .map((l) => l.trim())
+                .filter(Boolean)
+                .map((l) => l.replace(/^\s*[-*]\s+/, '• '))
+                .map((l) => l.replace(/\{\{(IMAGE|SVG|ASSET):[^}]+\}\}/g, '〔占位符〕'));
+            return lines.slice(0, 3).join('\n');
+        };
+
+        const formatScore = (v) => {
+            const n = Number(v);
+            if (!Number.isFinite(n)) return '';
+            return `${Math.round(n * 100)}%`;
+        };
+
+        const renderCandidateCard = (slideIntentId, c, idxInSlide, selectedCandidateId) => {
+            const candidateId = String(c?.candidateId || '');
+            const isSelected = (String(selectedCandidateId || '') && candidateId === String(selectedCandidateId || '')) || !!c?.selected;
+            const mood = typeof c?.atmosphere?.mood === 'string' ? c.atmosphere.mood : '';
+            const title = `方案 ${String.fromCharCode(65 + Math.max(0, Math.min(25, idxInSlide)))}${mood ? ` · ${mood}` : ''}`;
+            const summary = summarize(c);
+            const composite = formatScore(c?.composite);
+
+            return `
+                <div class="brainstorm-card ${isSelected ? 'selected' : ''}"
+                    data-slide-intent-id="${attr(slideIntentId)}" data-candidate-id="${attr(candidateId)}"
+                    onclick="window.PPTGenerator._selectBrainstormCandidateFromUI(${JSON.stringify(slideIntentId)}, ${JSON.stringify(candidateId)})">
+                    <div class="brainstorm-card-title">${esc(title)}</div>
+                    ${composite ? `<div class="brainstorm-card-meta">综合得分：${esc(composite)}</div>` : ''}
+                    ${summary ? `<pre class="brainstorm-card-summary">${esc(summary)}</pre>` : `<div class="brainstorm-card-summary muted">（暂无摘要）</div>`}
+                    <div class="brainstorm-card-actions">
+                        <button class="ppt-btn-secondary" type="button" ${isSelected ? 'disabled' : ''}
+                            onclick="event.stopPropagation(); window.PPTGenerator._selectBrainstormCandidateFromUI(${JSON.stringify(slideIntentId)}, ${JSON.stringify(candidateId)})">
+                            ${isSelected ? '已选择' : '选择'}
+                        </button>
+                    </div>
+                </div>
+            `;
+        };
+
+        const renderSlideGroup = (row) => {
+            const slideIntentId = String(row?.slideIntentId || '');
+            if (!slideIntentId) return '';
+            const meta = slideMetaById.get(slideIntentId) || null;
+            const title = meta?.title || slideIntentId;
+            const idx = Number.isFinite(meta?.idx) ? meta.idx : (Number.isFinite(row?.slideIndex) ? row.slideIndex : undefined);
+            const label = idx !== undefined ? `${idx + 1}. ${title}` : title;
+
+            const candidates = Array.isArray(row?.candidates) ? row.candidates : [];
+            const selectedCandidateId = row?.selectedCandidateId || row?.selectedCandidate?.candidateId || '';
+
+            const regenBusy = !!this._brainstormRegenInProgress?.[slideIntentId];
+
+            return `
+                <div class="brainstorm-slide-group" data-slide-intent-id="${attr(slideIntentId)}">
+                    <div class="brainstorm-slide-group-header">
+                        <div class="brainstorm-slide-title">${esc(label)}</div>
+                        <button class="ppt-btn-secondary" type="button" ${regenBusy ? 'disabled' : ''}
+                            onclick="window.PPTGenerator._regenerateBrainstormForSlideFromUI(${JSON.stringify(slideIntentId)})">
+                            <iconify-icon icon="carbon:renew"></iconify-icon> ${regenBusy ? 'Regenerating...' : 'Regenerate'}
+                        </button>
+                    </div>
+                    <div class="brainstorm-card-grid">
+                        ${candidates.map((c, i) => renderCandidateCard(slideIntentId, c, i, selectedCandidateId)).join('')}
+                    </div>
+                </div>
+            `;
+        };
+
+        return `
+            <div class="brainstorm-candidates-panel">
+                <div class="brainstorm-panel-header">
+                    <div class="brainstorm-panel-title">
+                        <iconify-icon icon="carbon:idea"></iconify-icon>
+                        <span>Brainstorm 候选（${sortedRows.length} 页）</span>
+                    </div>
+                    <div class="brainstorm-panel-subtitle">每页 2-3 个候选方案，点击卡片或「选择」进行保存</div>
+                </div>
+                <div class="brainstorm-slide-groups">
+                    ${sortedRows.map(renderSlideGroup).join('')}
+                </div>
+            </div>
+        `;
     },
 
 
