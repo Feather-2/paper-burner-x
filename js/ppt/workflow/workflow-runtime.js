@@ -1378,7 +1378,7 @@ export const runtimeMixin = {
                 parseAndStoreSlides(deckHtmlDsl);
                 return deckPackage;
             }
-        }, { actor: 'design', timeoutMs: 300_000 });
+        }, { actor: 'design', timeoutMs: 600_000 }); // 10 minutes for complex decks
 
         orch.registerStage('evaluate.hardgates', async (ctx, input, api) => {
             api.progress?.({ agent: 'AI 审查', msg: '正在验证输出质量...', type: 'normal' });

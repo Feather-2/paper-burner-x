@@ -12,6 +12,8 @@
  * - remainingIssues <= 3
  */
 
+import { robustParseJson } from "../../shared/robust-json.js";
+
 function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
@@ -350,9 +352,11 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
     let parseError = null;
     if (candidate) {
       try {
-        parsedStep = JSON.parse(candidate);
+        parsedStep = robustParseJson(candidate);
+        if (!isPlainObject(parsedStep)) parseError = "JSON parse failed";
       } catch (err) {
-        parseError = `JSON parse failed: ${err.message}`;
+        const msg = err instanceof Error ? err.message : String(err);
+        parseError = `JSON parse failed: ${msg}`;
       }
     } else {
       parseError = "No JSON candidate found in model output";
@@ -368,11 +372,18 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
         });
         const retryCandidate = extractJsonCandidate(retryResp?.content || "");
         if (retryCandidate) {
-          parsedStep = JSON.parse(retryCandidate);
-          parseError = null;
+          try {
+            parsedStep = robustParseJson(retryCandidate);
+            if (!isPlainObject(parsedStep)) parseError = "Retry JSON parse failed";
+            else parseError = null;
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            parseError = `Retry JSON parse failed: ${msg}`;
+          }
         }
       } catch (err) {
-        parseError = parseError || `Retry failed: ${err.message}`;
+        const msg = err instanceof Error ? err.message : String(err);
+        parseError = parseError || `Retry failed: ${msg}`;
       }
     }
 

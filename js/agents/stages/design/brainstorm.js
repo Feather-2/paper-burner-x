@@ -21,6 +21,7 @@ import {
   buildReviewPrompt,
 } from "./brainstorm-prompts.js";
 import { getDesignModelCaller } from "./model.js";
+import { robustParseJson } from "../../shared/robust-json.js";
 
 const VISUAL_CONCEPT_TYPES = [
   "metaphor",      // 视觉隐喻
@@ -307,9 +308,9 @@ export function mapVisualSlotsToImageSlots(visualSlots = [], slideIntents = []) 
     .filter((s) => s.slotId);
 }
 
-async function generateCandidatesForSlide(slideIntent, designSystem, { modelCaller, signal, slideIndex, dslEffects } = {}) {
+async function generateCandidatesForSlide(slideIntent, designSystem, { modelCaller, signal, slideIndex, dslEffects } = {}, styleSpec) {
   const slideIntentId = toNonEmptyString(slideIntent?.slideIntentId || slideIntent?.slideIntentID);
-  const prompt = buildBrainstormPrompt(slideIntent, designSystem, dslEffects);
+  const prompt = buildBrainstormPrompt(slideIntent, designSystem, dslEffects, styleSpec);
   if (typeof modelCaller !== "function") throw new Error("No model caller for brainstorm");
 
   const messages = [
@@ -321,14 +322,15 @@ async function generateCandidatesForSlide(slideIntent, designSystem, { modelCall
   for (let attempt = 0; attempt < 2; attempt++) {
     if (signal?.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "Run cancelled");
     try {
-      const resp = await modelCaller(messages, { temperature: 0.8, maxTokens: 2500, signal, timeoutMs: 30_000 });
+	      const resp = await modelCaller(messages, { temperature: 0.8, maxTokens: 2500, signal, timeoutMs: 30_000 });
 
-      const jsonStr = extractJsonCandidate(resp?.content);
-      const parsed = JSON.parse(jsonStr || "null");
-      const rawCandidates = Array.isArray(parsed?.candidates) ? parsed.candidates : Array.isArray(parsed) ? parsed : [];
+	      const jsonStr = extractJsonCandidate(resp?.content);
+	      const parsed = robustParseJson(jsonStr);
+	      if (parsed === null) throw new Error("Failed to parse brainstorm JSON");
+	      const rawCandidates = Array.isArray(parsed?.candidates) ? parsed.candidates : Array.isArray(parsed) ? parsed : [];
 
-      const normalized = rawCandidates.map((c) => normalizeCandidate(c, { slideIntentId, slideIndex }));
-      return clampToTwoOrThree(normalized);
+	      const normalized = rawCandidates.map((c) => normalizeCandidate(c, { slideIntentId, slideIndex }));
+	      return clampToTwoOrThree(normalized);
     } catch (e) {
       lastErr = e;
       const msg = e instanceof Error ? e.message : String(e);
@@ -352,12 +354,13 @@ async function reviewCandidatesForSlide(slideIntent, candidates, designSystem, {
   for (let attempt = 0; attempt < 2; attempt++) {
     if (signal?.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "Run cancelled");
     try {
-      const resp = await modelCaller(messages, { temperature: 0.2, maxTokens: 1200, signal, timeoutMs: 30_000 });
+	      const resp = await modelCaller(messages, { temperature: 0.2, maxTokens: 1200, signal, timeoutMs: 30_000 });
 
-      const jsonStr = extractJsonCandidate(resp?.content);
-      const parsed = JSON.parse(jsonStr || "null");
-      const reviews = Array.isArray(parsed?.reviews) ? parsed.reviews : [];
-      const selectedCandidateId = toNonEmptyString(parsed?.selectedCandidateId);
+	      const jsonStr = extractJsonCandidate(resp?.content);
+	      const parsed = robustParseJson(jsonStr);
+	      if (parsed === null) throw new Error("Failed to parse brainstorm review JSON");
+	      const reviews = Array.isArray(parsed?.reviews) ? parsed.reviews : [];
+	      const selectedCandidateId = toNonEmptyString(parsed?.selectedCandidateId);
 
       const byId = new Map(reviews.map((r) => [toNonEmptyString(r?.candidateId), r?.scores || null]));
 
@@ -615,6 +618,7 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
   const emit = typeof options?.emit === "function" ? options.emit : null;
   const stageApi = { modelRouter: options?.modelRouter, aiApiService: options?.aiApiService, signal: options?.signal };
   const modelCaller = getDesignModelCaller(stageApi, { usage: "designer", timeoutMs: 30_000 });
+  const styleSpec = options?.styleSpec ?? designSystem?.styleReference?.extracted;
 
   emit?.("design.brainstorm.started", {
     actor: "design",
@@ -724,72 +728,85 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
   }
 
   if (typeof modelCaller === "function") {
-    const candidatesBySlide = [];
+    const candidatesBySlide = new Array(slideIntents.length);
     const allCandidates = [];
 
-    for (let slideIndex = 0; slideIndex < slideIntents.length; slideIndex++) {
-      const si = slideIntents[slideIndex] || {};
-      const slideIntentId = toNonEmptyString(si?.slideIntentId || si?.slideIntentID);
+    // Parallel brainstorm with concurrency limit (3 at a time to avoid API overload)
+    const concurrency = Math.min(3, slideIntents.length);
+    let nextIndex = 0;
 
-      let candidates = [];
-      try {
-        candidates = await generateCandidatesForSlide(si, designSystem, {
-          modelCaller,
-          signal: stageApi.signal,
+    const processSlide = async () => {
+      while (nextIndex < slideIntents.length) {
+        const slideIndex = nextIndex++;
+        const si = slideIntents[slideIndex] || {};
+        const slideIntentId = toNonEmptyString(si?.slideIntentId || si?.slideIntentID);
+
+        let candidates = [];
+        try {
+          candidates = await generateCandidatesForSlide(si, designSystem, {
+            modelCaller,
+            signal: stageApi.signal,
+            slideIndex,
+            dslEffects: options?.dslEffects || constraints?.dslEffects || DEFAULT_DSL_EFFECTS,
+          }, styleSpec);
+        } catch {
+          candidates = [];
+        }
+
+        emit?.("design.brainstorm.llm.generated", {
+          actor: "design",
+          status: "generated",
+          payload: { slideIndex, slideIntentId, candidateCount: candidates.length },
+        });
+
+        // Ensure we always have at least 2 candidates (even if model failed).
+        if (candidates.length === 0) {
+          const fallback = normalizeCandidate(
+            {
+              candidateId: `cand_s${slideIndex}_fallback`,
+              atmosphere: { mood: "Clean modern", colorScheme: "Design-system aligned", visualWeight: "Balanced" },
+              elementsMarkdown: `- Title + key points with strong hierarchy\n- One supporting visual slot if needed`,
+              visualSlots: [],
+            },
+            { slideIntentId, slideIndex }
+          );
+          candidates = clampToTwoOrThree([fallback]);
+        }
+
+        let reviewed = { candidates, selectedCandidateId: candidates[0]?.candidateId || "" };
+        try {
+          reviewed = await reviewCandidatesForSlide(si, candidates, designSystem, { modelCaller, signal: stageApi.signal });
+        } catch {
+          const scored = candidates.map((c, idx) => {
+            const scores = { visualImpact: 0.55 - idx * 0.02, clarity: 0.6, novelty: 0.5, consistency: 0.65 };
+            return { ...c, scores, composite: computeCompositeScore(scores), selected: idx === 0 };
+          });
+          reviewed = { candidates: scored, selectedCandidateId: scored[0]?.candidateId || "" };
+        }
+
+        emit?.("design.brainstorm.reviewed", {
+          actor: "design",
+          status: "reviewed",
+          payload: { slideIndex, slideIntentId, selectedCandidateId: reviewed.selectedCandidateId },
+        });
+
+        const selected = reviewed.candidates.find((c) => c.selected) || reviewed.candidates[0] || null;
+        candidatesBySlide[slideIndex] = {
           slideIndex,
-          dslEffects: options?.dslEffects || constraints?.dslEffects || DEFAULT_DSL_EFFECTS,
-        });
-      } catch {
-        candidates = [];
+          slideIntentId,
+          candidates: reviewed.candidates,
+          selectedCandidateId: reviewed.selectedCandidateId,
+          selectedCandidate: selected,
+        };
       }
+    };
 
-      emit?.("design.brainstorm.llm.generated", {
-        actor: "design",
-        status: "generated",
-        payload: { slideIndex, slideIntentId, candidateCount: candidates.length },
-      });
+    // Launch concurrent workers
+    await Promise.all(Array.from({ length: concurrency }, () => processSlide()));
 
-      // Ensure we always have at least 2 candidates (even if model failed).
-      if (candidates.length === 0) {
-        const fallback = normalizeCandidate(
-          {
-            candidateId: `cand_s${slideIndex}_fallback`,
-            atmosphere: { mood: "Clean modern", colorScheme: "Design-system aligned", visualWeight: "Balanced" },
-            elementsMarkdown: `- Title + key points with strong hierarchy\n- One supporting visual slot if needed`,
-            visualSlots: [],
-          },
-          { slideIntentId, slideIndex }
-        );
-        candidates = clampToTwoOrThree([fallback]);
-      }
-
-      let reviewed = { candidates, selectedCandidateId: candidates[0]?.candidateId || "" };
-      try {
-        reviewed = await reviewCandidatesForSlide(si, candidates, designSystem, { modelCaller, signal: stageApi.signal });
-      } catch {
-        const scored = candidates.map((c, idx) => {
-          const scores = { visualImpact: 0.55 - idx * 0.02, clarity: 0.6, novelty: 0.5, consistency: 0.65 };
-          return { ...c, scores, composite: computeCompositeScore(scores), selected: idx === 0 };
-        });
-        reviewed = { candidates: scored, selectedCandidateId: scored[0]?.candidateId || "" };
-      }
-
-      emit?.("design.brainstorm.reviewed", {
-        actor: "design",
-        status: "reviewed",
-        payload: { slideIndex, slideIntentId, selectedCandidateId: reviewed.selectedCandidateId },
-      });
-
-      const selected = reviewed.candidates.find((c) => c.selected) || reviewed.candidates[0] || null;
-      candidatesBySlide.push({
-        slideIndex,
-        slideIntentId,
-        candidates: reviewed.candidates,
-        selectedCandidateId: reviewed.selectedCandidateId,
-        selectedCandidate: selected,
-      });
-
-      allCandidates.push(...reviewed.candidates);
+    // Collect all candidates (in order)
+    for (const row of candidatesBySlide) {
+      if (row?.candidates) allCandidates.push(...row.candidates);
     }
 
     const selectedCandidates = candidatesBySlide.map((x) => x.selectedCandidate).filter(Boolean);
@@ -931,7 +948,7 @@ export async function brainstormRegenerate(
   contentPackage,
   designSystem,
   constraints,
-  { keepOthers = true, emit, aiApiService, modelRouter, signal } = {}
+  { keepOthers = true, emit, aiApiService, modelRouter, signal, styleSpec } = {}
 ) {
   const slideIntents = Array.isArray(contentPackage?.slideIntents) ? contentPackage.slideIntents : [];
   const emitFn = typeof emit === "function" ? emit : null;
@@ -944,6 +961,7 @@ export async function brainstormRegenerate(
   const slideIntent = slideIntents[slideIndex] || {};
   const stageApi = { modelRouter, aiApiService, signal };
   const modelCaller = getDesignModelCaller(stageApi, { usage: "designer", timeoutMs: 30_000 });
+  const resolvedStyleSpec = styleSpec ?? designSystem?.styleReference?.extracted;
 
   let row;
   if (typeof modelCaller === "function") {
@@ -954,7 +972,7 @@ export async function brainstormRegenerate(
         signal: stageApi.signal,
         slideIndex,
         dslEffects: constraints?.dslEffects || DEFAULT_DSL_EFFECTS,
-      });
+      }, resolvedStyleSpec);
     } catch {
       candidates = [];
     }

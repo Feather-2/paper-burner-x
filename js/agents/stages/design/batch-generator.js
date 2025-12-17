@@ -1,5 +1,6 @@
 import { buildSlideHtml } from "./dsl-builder.js";
 import { getDesignModelCaller } from "./model.js";
+import { robustParseJson } from "../../shared/robust-json.js";
 
 function nowMs() {
   return Date.now();
@@ -399,14 +400,15 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
     for (let attempt = 0; attempt < 2; attempt++) {
       if (options.signal?.aborted) throw new Error(typeof options.signal.reason === "string" ? options.signal.reason : "Run cancelled");
       try {
-        const resp = await modelCaller(messages, { temperature: 0.2, maxTokens: 6000, signal: options.signal, timeoutMs: 30_000 });
+	        const resp = await modelCaller(messages, { temperature: 0.2, maxTokens: 6000, signal: options.signal, timeoutMs: 30_000 });
 
-        const jsonStr = extractJsonCandidate(resp?.content);
-        const parsed = JSON.parse(jsonStr || "null");
-        const candidate = Array.isArray(parsed)
-          ? parsed.find((x) => x?.slideIntentId === slideIntentId) || parsed[0]
-          : parsed && typeof parsed === "object"
-            ? parsed
+	        const jsonStr = extractJsonCandidate(resp?.content);
+	        const parsed = robustParseJson(jsonStr);
+	        if (parsed === null) throw new Error("Failed to parse slide DSL JSON");
+	        const candidate = Array.isArray(parsed)
+	          ? parsed.find((x) => x?.slideIntentId === slideIntentId) || parsed[0]
+	          : parsed && typeof parsed === "object"
+	            ? parsed
             : null;
 
         let slideHtml = typeof candidate?.slideHtml === "string" ? candidate.slideHtml : "";

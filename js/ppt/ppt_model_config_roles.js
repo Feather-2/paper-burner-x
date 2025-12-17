@@ -10,8 +10,9 @@
   ns.roles = ns.roles || {};
 
   const { ROLES = [], ROLE_NAMES = {}, ROLE_GROUPS = {} } = ns.constants || {};
-  const { safe: _safe } = ns.utils || {};
+  const { safe: _safe, normalizeObject: _normalizeObject } = ns.utils || {};
   const safe = typeof _safe === 'function' ? _safe : (v) => String(v || '');
+  const normalizeObject = typeof _normalizeObject === 'function' ? _normalizeObject : (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
 
   const loadConfig = (...args) => (ns.core && typeof ns.core.loadConfig === 'function' ? ns.core.loadConfig(...args) : null);
   const saveConfig = (...args) => { if (ns.core && typeof ns.core.saveConfig === 'function') ns.core.saveConfig(...args); };

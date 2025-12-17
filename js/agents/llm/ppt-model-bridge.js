@@ -52,14 +52,45 @@ function normalizePptModelTags(raw) {
 }
 
 function normalizePptRolePriority(raw) {
-  const roles = ['analyst', 'planner', 'writer', 'reviewer', 'designer', 'vision', 'worker'];
+  // 基础角色（与 agent runtime 对应）
+  const baseRoles = ['analyst', 'planner', 'writer', 'reviewer', 'vision', 'worker'];
+  // Design 子角色（UI 配置中使用的）
+  const designSubRoles = ['design_tokens', 'design_brainstorm', 'design_layout', 'design_svg', 'design_image', 'design_review'];
+
   const result = {};
-  for (const role of roles) {
+
+  // 处理基础角色
+  for (const role of baseRoles) {
     const arr = raw?.[role];
     result[role] = Array.isArray(arr)
       ? [...new Set(arr.filter(s => typeof s === 'string' && s))]
       : [];
   }
+
+  // 合并 design_* 子角色为统一的 designer usage
+  // 优先级：design_brainstorm > design_layout > design_tokens > 其他
+  const designPriorityOrder = ['design_brainstorm', 'design_layout', 'design_tokens', 'design_svg', 'design_image', 'design_review'];
+  const designModels = new Set();
+
+  for (const subRole of designPriorityOrder) {
+    const arr = raw?.[subRole];
+    if (Array.isArray(arr)) {
+      for (const m of arr) {
+        if (typeof m === 'string' && m) designModels.add(m);
+      }
+    }
+  }
+
+  // 也检查旧的 designer 配置（向后兼容）
+  const legacyDesigner = raw?.designer;
+  if (Array.isArray(legacyDesigner)) {
+    for (const m of legacyDesigner) {
+      if (typeof m === 'string' && m) designModels.add(m);
+    }
+  }
+
+  result.designer = [...designModels];
+
   return result;
 }
 

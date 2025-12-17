@@ -17,6 +17,12 @@ class PPTXSlideParser {
         
         // 主题颜色映射（解析时填充）
         this.themeColors = {};
+
+        // 字体方案（解析时填充）
+        this.fontScheme = {};
+
+        // 颜色使用频率统计（用于分析主导颜色）
+        this.colorUsage = {};
         
         // 媒体文件缓存
         this.mediaCache = {};
@@ -129,6 +135,9 @@ class PPTXSlideParser {
         if (!themeXml) return;
         
         const doc = this.parseXml(themeXml);
+
+        // 解析字体方案
+        this.parseFontScheme(doc);
         
         // 解析颜色方案
         const clrScheme = doc.querySelector('clrScheme');
@@ -143,15 +152,161 @@ class PPTXSlideParser {
                     const sysClr = colorEl.querySelector('sysClr');
                     
                     if (srgbClr) {
-                        this.themeColors[name] = '#' + srgbClr.getAttribute('val');
+                        this.themeColors[name] = { name, value: '#' + srgbClr.getAttribute('val') };
                     } else if (sysClr) {
-                        this.themeColors[name] = '#' + (sysClr.getAttribute('lastClr') || '000000');
+                        this.themeColors[name] = { name, value: '#' + (sysClr.getAttribute('lastClr') || '000000') };
                     }
                 }
             });
         }
         
         console.log('[PPTXSlideParser] Theme colors:', this.themeColors);
+    }
+
+    parseFontScheme(doc) {
+        if (!doc) return;
+        
+        const fontScheme = doc.querySelector('fontScheme');
+        if (!fontScheme) return;
+        
+        const majorFont = fontScheme.querySelector('majorFont > latin')?.getAttribute('typeface') || '';
+        const minorFont = fontScheme.querySelector('minorFont > latin')?.getAttribute('typeface') || '';
+        
+        this.fontScheme = { majorFont, minorFont };
+        console.log('[PPTXSlideParser] Font scheme:', this.fontScheme);
+    }
+
+    async extractStyleSpec() {
+        if (!this.zip) {
+            throw new Error('PPTX 未解析，无法提取样式信息');
+        }
+        
+        // 确保主题已解析
+        if (!Object.keys(this.themeColors || {}).length || !Object.keys(this.fontScheme || {}).length) {
+            await this.parseTheme(this.zip);
+        }
+        
+        return {
+            themeColors: this.themeColors,
+            fontScheme: this.fontScheme,
+            designTraits: this.analyzeDesignTraits()
+        };
+    }
+
+    analyzeDesignTraits() {
+        // 分析主色调冷暖
+        const colorTone = this.analyzeColorTone(this.themeColors);
+        // 提取主导颜色（使用频率最高的）
+        const dominantColors = this.extractDominantColors();
+        
+        return {
+            colorTone,
+            dominantColors
+        };
+    }
+
+    analyzeColorTone(themeColors) {
+        const keys = ['accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6'];
+        const colors = keys.map(k => themeColors?.[k]?.value).filter(Boolean);
+        
+        let warm = 0;
+        let cool = 0;
+        let neutral = 0;
+        
+        colors.forEach(hex => {
+            const rgb = this.hexToRgb(hex);
+            if (!rgb) return;
+            
+            const hsl = this.rgbToHsl(rgb.r, rgb.g, rgb.b);
+            if (!hsl) return;
+            
+            const { h, s, l } = hsl;
+            
+            // 低饱和、接近黑白认为是中性
+            if (s < 0.15 || l < 0.12 || l > 0.88) {
+                neutral++;
+                return;
+            }
+            
+            // 暖色：红-橙-黄 & 紫红区；冷色：绿-青-蓝区
+            if (h < 60 || h >= 300) warm++;
+            else if (h >= 120 && h < 240) cool++;
+            else neutral++;
+        });
+        
+        if (warm > cool && warm > neutral) return 'warm';
+        if (cool > warm && cool > neutral) return 'cool';
+        return 'neutral';
+    }
+
+    extractDominantColors() {
+        const usageEntries = Object.entries(this.colorUsage || {});
+        usageEntries.sort((a, b) => (b[1] || 0) - (a[1] || 0));
+        
+        const dominant = [];
+        for (const [hex] of usageEntries) {
+            if (dominant.length >= 3) break;
+            if (!dominant.includes(hex)) dominant.push(hex);
+        }
+        
+        // 如果没有统计到使用频率，回退到主题色
+        if (!dominant.length) {
+            const fallbackKeys = ['accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6'];
+            fallbackKeys.forEach(k => {
+                const hex = this.themeColors?.[k]?.value;
+                if (hex && dominant.length < 3 && !dominant.includes(hex.toUpperCase())) {
+                    dominant.push(hex.toUpperCase());
+                }
+            });
+        }
+        
+        return dominant.slice(0, 3);
+    }
+
+    hexToRgb(hex) {
+        if (!hex || typeof hex !== 'string') return null;
+        const m = hex.trim().match(/^#?([0-9a-fA-F]{6})$/);
+        if (!m) return null;
+        const v = m[1];
+        return {
+            r: parseInt(v.slice(0, 2), 16),
+            g: parseInt(v.slice(2, 4), 16),
+            b: parseInt(v.slice(4, 6), 16)
+        };
+    }
+
+    rgbToHsl(r, g, b) {
+        if ([r, g, b].some(v => typeof v !== 'number' || Number.isNaN(v))) return null;
+        r /= 255;
+        g /= 255;
+        b /= 255;
+        
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const d = max - min;
+        
+        let h = 0;
+        let s = 0;
+        const l = (max + min) / 2;
+        
+        if (d !== 0) {
+            s = d / (1 - Math.abs(2 * l - 1));
+            switch (max) {
+                case r:
+                    h = ((g - b) / d) % 6;
+                    break;
+                case g:
+                    h = (b - r) / d + 2;
+                    break;
+                case b:
+                    h = (r - g) / d + 4;
+                    break;
+            }
+            h = Math.round(h * 60);
+            if (h < 0) h += 360;
+        }
+        
+        return { h, s, l };
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -323,7 +478,7 @@ class PPTXSlideParser {
             // 纯色背景
             const solidFill = bgPr.querySelector('solidFill');
             if (solidFill) {
-                return this.parseColor(solidFill);
+                return this.parseColorValue(solidFill);
             }
             
             // 渐变背景
@@ -979,6 +1134,9 @@ class PPTXSlideParser {
         let align = 'left';
         let hasBullets = false;
         let bulletType = null;
+        let spaceBeforePt;
+        let spaceAfterPt;
+        let lineSpacingPt;
         
         // 解析文本框属性 (bodyPr)
         const bodyPr = txBody.querySelector('bodyPr');
@@ -992,6 +1150,19 @@ class PPTXSlideParser {
             const algn = pPr?.getAttribute('algn');
             if (algn) {
                 align = { l: 'left', ctr: 'center', r: 'right', just: 'justify' }[algn] || 'left';
+            }
+
+            // 段前/段后/行距
+            if (pPr) {
+                if (spaceBeforePt === undefined) {
+                    const spcBefPts = pPr.querySelector('spcBef > spcPts')?.getAttribute('val');
+                    if (spcBefPts) spaceBeforePt = parseInt(spcBefPts) / 100;
+                }
+                
+                if (spaceAfterPt === undefined) {
+                    const spcAftPts = pPr.querySelector('spcAft > spcPts')?.getAttribute('val');
+                    if (spcAftPts) spaceAfterPt = parseInt(spcAftPts) / 100;
+                }
             }
             
             // 项目符号检测
@@ -1015,6 +1186,20 @@ class PPTXSlideParser {
             const lvl = pPr?.getAttribute('lvl') || '0';
             const indent = '  '.repeat(parseInt(lvl));
             
+            // 行距（可能是 spcPts 或 spcPct）
+            let lnSpcSpec = null;
+            if (pPr && lineSpacingPt === undefined) {
+                const lnSpc = pPr.querySelector('lnSpc');
+                const spcPts = lnSpc?.querySelector('spcPts')?.getAttribute('val');
+                const spcPct = lnSpc?.querySelector('spcPct')?.getAttribute('val');
+                
+                if (spcPts) {
+                    lnSpcSpec = { type: 'pts', val: parseInt(spcPts) / 100 };
+                } else if (spcPct) {
+                    lnSpcSpec = { type: 'pct', val: parseInt(spcPct) / 100000 };
+                }
+            }
+            
             // 文本运行
             const runs = [];
             p.querySelectorAll('r').forEach(r => {
@@ -1032,7 +1217,7 @@ class PPTXSlideParser {
                     
                     const solidFill = rPr.querySelector('solidFill');
                     if (solidFill) {
-                        color = this.parseColor(solidFill);
+                        color = this.parseColorValue(solidFill);
                     }
                     
                     // 超链接
@@ -1048,6 +1233,14 @@ class PPTXSlideParser {
                     }
                 }
             });
+
+            if (lnSpcSpec && lineSpacingPt === undefined) {
+                if (lnSpcSpec.type === 'pts') {
+                    lineSpacingPt = lnSpcSpec.val;
+                } else if (lnSpcSpec.type === 'pct') {
+                    lineSpacingPt = fontSize * lnSpcSpec.val;
+                }
+            }
             
             if (runs.length > 0) {
                 paragraphs.push(indent + bulletPrefix + runs.join(''));
@@ -1068,6 +1261,9 @@ class PPTXSlideParser {
             lineHeight: 1.4,
             wrap: wrap === 'none' ? 'nowrap' : 'normal',
             overflow: overflow === 'clip' ? 'hidden' : 'visible',
+            spaceBeforePt,
+            spaceAfterPt,
+            lineSpacingPt,
             hasBullets,
             bulletType,
             links: links.length > 0 ? links : undefined
@@ -1079,7 +1275,7 @@ class PPTXSlideParser {
         
         const solidFill = spPr.querySelector('solidFill');
         if (solidFill) {
-            return this.parseColor(solidFill);
+            return this.parseColorValue(solidFill);
         }
         
         // 图片填充
@@ -1101,22 +1297,48 @@ class PPTXSlideParser {
     }
 
     parseColor(fillEl) {
-        if (!fillEl) return '#333333';
+        if (!fillEl) return { type: 'rgb', value: '#333333' };
         
         // sRGB 颜色
         const srgbClr = fillEl.querySelector('srgbClr');
         if (srgbClr) {
-            return '#' + srgbClr.getAttribute('val');
+            return { type: 'rgb', value: '#' + srgbClr.getAttribute('val') };
+        }
+        
+        // 系统颜色
+        const sysClr = fillEl.querySelector('sysClr');
+        if (sysClr) {
+            return { type: 'rgb', value: '#' + (sysClr.getAttribute('lastClr') || '000000') };
         }
         
         // 主题颜色
         const schemeClr = fillEl.querySelector('schemeClr');
         if (schemeClr) {
-            const val = schemeClr.getAttribute('val');
-            return this.themeColors[val] || '#333333';
+            const name = schemeClr.getAttribute('val');
+            const themeEntry = this.themeColors[name];
+            return {
+                type: 'theme',
+                name,
+                value: themeEntry?.value || '#333333'
+            };
         }
         
-        return '#333333';
+        return { type: 'rgb', value: '#333333' };
+    }
+
+    parseColorValue(fillEl) {
+        const spec = this.parseColor(fillEl);
+        const value = typeof spec === 'string' ? spec : (spec?.value || '#333333');
+        this.recordColorUsage(value);
+        return value;
+    }
+
+    recordColorUsage(colorValue) {
+        if (!colorValue || typeof colorValue !== 'string') return;
+        const hex = colorValue.trim();
+        if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return;
+        const key = hex.toUpperCase();
+        this.colorUsage[key] = (this.colorUsage[key] || 0) + 1;
     }
 
     parseGradient(gradFill) {
@@ -1125,7 +1347,7 @@ class PPTXSlideParser {
         
         gsLst.forEach(gs => {
             const pos = parseInt(gs.getAttribute('pos')) / 1000;
-            const color = this.parseColor(gs);
+            const color = this.parseColorValue(gs);
             colors.push(`${color} ${pos}%`);
         });
         
@@ -1154,7 +1376,7 @@ class PPTXSlideParser {
         const strokeWidth = w ? parseInt(w) / this.EMU_PER_PT : 1;
         
         const solidFill = ln.querySelector('solidFill');
-        const stroke = solidFill ? this.parseColor(solidFill) : null;
+        const stroke = solidFill ? this.parseColorValue(solidFill) : null;
         
         const noFill = ln.querySelector('noFill');
         if (noFill) return { stroke: null, strokeWidth: 0 };

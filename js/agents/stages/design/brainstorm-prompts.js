@@ -67,8 +67,8 @@ export const BRAINSTORM_REVIEW_PROMPT = [
   "- Be strict: penalize clutter, weak hierarchy, or mismatch with designSystem.",
 ].join("\n");
 
-export function buildBrainstormPrompt(slideIntent, designSystem, dslEffects) {
-  return [
+export function buildBrainstormPrompt(slideIntent, designSystem, dslEffects, styleSpec) {
+  const parts = [
     "Create 2-3 design candidates for the following slide.",
     "",
     "slideIntent:",
@@ -99,9 +99,25 @@ export function buildBrainstormPrompt(slideIntent, designSystem, dslEffects) {
     "",
     "dslEffects (available building blocks):",
     safeJson(dslEffects, 4000),
-    "",
-    "Return JSON ONLY.",
-  ].join("\n");
+  ];
+
+  if (styleSpec) {
+    parts.push(
+      "",
+      "styleSpec (extracted from reference PPT; use as inspiration, not a hard constraint):",
+      safeJson(
+        {
+          colorTone: styleSpec?.designTraits?.colorTone,
+          dominantColors: styleSpec?.designTraits?.dominantColors,
+          fontScheme: styleSpec?.fontScheme,
+        },
+        2000
+      )
+    );
+  }
+
+  parts.push("", "Return JSON ONLY.");
+  return parts.join("\n");
 }
 
 export function buildReviewPrompt(slideIntent, candidates) {
@@ -135,4 +151,3 @@ export function buildReviewPrompt(slideIntent, candidates) {
 }
 
 export const __test = { safeJson };
-
