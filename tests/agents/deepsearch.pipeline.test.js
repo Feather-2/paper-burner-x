@@ -754,7 +754,7 @@ test("DeepSearch write: reportLength config + single vs toc-based strategies", a
     new DeepSearchState({
       runId: "run_write_len",
       taskGoal: "Explain Alpha and Beta",
-      userConfig: { title: "Alpha vs Beta", ...(userConfig || {}) },
+      userConfig: { title: "Alpha vs Beta", write: { writerMode: "legacy" }, ...(userConfig || {}) },
       L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Doc", uri: "doc.txt", sourceTextNormalized: "Alpha Beta" }] },
       L1: {
         gaps: [{ gapId: "gap_1", question: "What is Alpha?" }],
@@ -866,7 +866,7 @@ test("DeepSearch write: toc-based sections run in parallel with maxParallelSecti
   const state = new DeepSearchState({
     runId: "run_write_parallel",
     taskGoal: "Explain Alpha/Beta/Gamma/Delta",
-    userConfig: { title: "Parallel Report", reportLength: "detailed", write: { maxParallelSections: 2 } },
+    userConfig: { title: "Parallel Report", reportLength: "detailed", write: { maxParallelSections: 2, writerMode: "legacy" } },
     L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Doc", uri: "doc.txt", sourceTextNormalized: "Alpha Beta Gamma Delta" }] },
     L1: {
       gaps: [{ gapId: "gap_1", question: "What are the parts?" }],

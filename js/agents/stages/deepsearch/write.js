@@ -941,7 +941,8 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
   const sourcesForReport = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
 
   // 检查写作模式：react（问题驱动）或 legacy（JSON dump）
-  const writerMode = toNonEmptyString(state?.userConfig?.write?.writerMode) || "legacy";
+  // 默认使用 react 模式（问题驱动写作），可通过 userConfig.write.writerMode 配置
+  const writerMode = toNonEmptyString(state?.userConfig?.write?.writerMode) || "react";
 
   let report = null;
   let reportStrategy = "single";
@@ -949,6 +950,10 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
   if (writerMode === "react" && claimsForReport.length > 0) {
     // ReAct Writer 模式：问题驱动的渐进式写作
     emit?.("deepsearch.write.mode", { mode: "react", reason: "问题驱动写作，逐步检索证据" });
+
+    // 用于保存中间结果
+    let partialSections = [];
+    let lastStepNumber = 0;
 
     try {
       const reactWriterResult = await runReactWriter(
@@ -968,11 +973,47 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
           audience: toNonEmptyString(state?.userConfig?.write?.audience),
           language: toNonEmptyString(state?.userConfig?.write?.language),
           onStep: (step) => {
+            lastStepNumber = step.stepNumber || lastStepNumber;
+
+            // 获取写作内容预览（如果是 writeSection）
+            const params = step.action?.params || {};
+            const markdownPreview = params.markdown
+              ? String(params.markdown).slice(0, 200) + (params.markdown.length > 200 ? '...' : '')
+              : null;
+
+            // 保存中间结果（writeSection 时）
+            if (step.action?.tool === 'writeSection' && params.markdown) {
+              partialSections.push({
+                sectionId: params.sectionId || `sec_${partialSections.length + 1}`,
+                title: params.title || '未命名章节',
+                markdown: params.markdown,
+              });
+              // 保存到 state 以便恢复
+              state.L1.partialReport = {
+                sections: partialSections,
+                lastStepNumber,
+                timestamp: Date.now(),
+              };
+            }
+
             emit?.("deepsearch.write.react.step", {
               stepNumber: step.stepNumber,
               thought: step.thought,
               tool: step.action?.tool,
+              toolParams: {
+                sectionId: params.sectionId,
+                title: params.title,
+                gapId: params.gapId,
+              },
+              markdownPreview,
               hasObservation: !!step.observation,
+              observationPreview: step.observation?.error
+                ? `错误: ${step.observation.error}`
+                : step.observation?.sectionId
+                  ? `已写入章节: ${step.observation.sectionId}`
+                  : null,
+              // 添加进度信息
+              sectionsWritten: partialSections.length,
             });
           },
         }
@@ -994,9 +1035,32 @@ export async function runDeepSearchWriteStage(runContext, input, stageApi = {}) 
         });
       }
     } catch (err) {
-      console.warn("[DeepSearch] ReAct Writer failed, falling back to legacy:", err);
-      emit?.("deepsearch.write.react.failed", { error: String(err?.message || err) });
-      report = null;
+      console.warn("[DeepSearch] ReAct Writer failed:", err);
+      emit?.("deepsearch.write.react.failed", { error: String(err?.message || err), sectionsWritten: partialSections.length });
+
+      // 尝试使用已写的部分内容
+      if (partialSections.length > 0) {
+        console.log("[DeepSearch] Recovering partial report with", partialSections.length, "sections");
+        const sectionsMarkdown = partialSections
+          .map(s => `## ${s.title}\n\n${s.markdown}`)
+          .join("\n\n");
+        const partialMarkdown = `# Research Report (Partial)\n\n> ⚠️ 报告未完成，以下是已写入的 ${partialSections.length} 个章节\n\n${sectionsMarkdown}`;
+        const finalized = finalizeCitationsInMarkdown(partialMarkdown, evidenceForReport, sourcesForReport);
+
+        report = {
+          title: "Research Report (Partial)",
+          draftMarkdown: partialMarkdown,
+          markdown: finalized.markdown,
+          sections: partialSections,
+          citations: finalized.citations,
+          partial: true,
+          error: String(err?.message || err),
+        };
+        reportStrategy = "react-partial";
+        emit?.("deepsearch.write.partial.recovered", { sectionsCount: partialSections.length });
+      } else {
+        report = null;
+      }
     }
   }
 

@@ -191,7 +191,7 @@ test("DeepSearch write: uses modelRouter usage=writer; falls back to aiApiServic
     new DeepSearchState({
       runId: "run_write",
       taskGoal: "Compare Alpha vs Beta",
-      userConfig: { title: "Alpha vs Beta" },
+      userConfig: { title: "Alpha vs Beta", write: { writerMode: "legacy" } },
       L0: { sources: [{ sourceId: "s_1", kind: "user_text", title: "Doc", sourceTextNormalized: "Alpha Beta" }] },
       L1: {
         claims: [

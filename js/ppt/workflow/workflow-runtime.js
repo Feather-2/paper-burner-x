@@ -282,6 +282,31 @@ export const runtimeMixin = {
             'deepsearch.understand.started': '正在分析提取要点',
             'deepsearch.understand.completed': '要点提取完成',
             'deepsearch.write.started': '正在撰写研究报告',
+            'deepsearch.write.progress': normalizedPayload?.msg || `写作进度: ${normalizedPayload?.current || 0}/${normalizedPayload?.total || 4}`,
+            'deepsearch.write.mode': `写作模式: ${normalizedPayload?.mode === 'react' ? '问题驱动' : '传统模式'}`,
+            'deepsearch.write.react.step': (() => {
+                const step = normalizedPayload?.stepNumber || '?';
+                const tool = normalizedPayload?.tool;
+                const title = normalizedPayload?.toolParams?.title;
+                const thought = normalizedPayload?.thought;
+                const preview = normalizedPayload?.markdownPreview;
+                const obs = normalizedPayload?.observationPreview;
+
+                if (tool === 'writeSection' && title) {
+                    return `[步骤${step}] 写入章节: ${title}${preview ? `\n${preview}` : ''}`;
+                }
+                if (tool === 'searchEvidence') {
+                    return `[步骤${step}] 搜索证据...`;
+                }
+                if (tool === 'finishReport') {
+                    return `[步骤${step}] 完成报告`;
+                }
+                if (thought) {
+                    return `[步骤${step}] 思考: ${String(thought).slice(0, 80)}...`;
+                }
+                return `[步骤${step}] ${tool || '处理中'}${obs ? ` - ${obs}` : ''}`;
+            })(),
+            'deepsearch.write.react.failed': '问题驱动写作失败，回退到传统模式',
             'deepsearch.write.completed': '报告撰写完成',
             'deepsearch.completed': '深度分析完成',
             'iteration.completed': `完成第 ${(normalizedPayload?.iteration || 0) + 1} 轮迭代`,

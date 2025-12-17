@@ -768,7 +768,7 @@ test("P0 E2E: Report fields (markdown/sections/citations) + citations traceable 
     maxIterations: 2,
     userConfig: {
       reportLength: "detailed",
-      write: { maxParallelSections: 1 },
+      write: { maxParallelSections: 1, writerMode: "legacy" },
       retrieval: { topK: 3, windowSize: 1, useBm25: true, useGrep: true },
     },
     rawTexts: [
@@ -867,7 +867,7 @@ test("P0 E2E: Fine-grained progress events (scan/retrieve/write) + write include
     runId: "run_ds_e2e_progress",
     taskGoal: "Define Alpha and cite key stats",
     maxIterations: 2,
-    userConfig: { reportLength: "detailed", write: { maxParallelSections: 1 }, retrieval: { topK: 3, windowSize: 1, useBm25: true, useGrep: true } },
+    userConfig: { reportLength: "detailed", write: { maxParallelSections: 1, writerMode: "legacy" }, retrieval: { topK: 3, windowSize: 1, useBm25: true, useGrep: true } },
     rawTexts: [
       { title: "Alpha Definition", text: "Definition: Alpha is a thing.\n" },
       { title: "Metrics", text: "Statistics: Alpha adoption reached 42% in 2024.\n" },
@@ -949,7 +949,7 @@ test("P2 E2E: Reviewer + Diff (enableReviewer) applies patch and populates revie
     runId: "run_ds_e2e_reviewer",
     taskGoal: "Define Alpha and cite a metric",
     maxIterations: 2,
-    userConfig: { reportLength: "detailed", write: { enableReviewer: true, maxReviewRounds: 1, maxParallelSections: 1 }, retrieval: { topK: 2, windowSize: 0, useBm25: true, useGrep: true } },
+    userConfig: { reportLength: "detailed", write: { enableReviewer: true, maxReviewRounds: 1, maxParallelSections: 1, writerMode: "legacy" }, retrieval: { topK: 2, windowSize: 0, useBm25: true, useGrep: true } },
     rawTexts: [{ title: "Alpha", text: "Definition: Alpha.\nStatistics: 42%.\n" }],
     aiApiService,
     reviewer,
