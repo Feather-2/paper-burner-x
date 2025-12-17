@@ -13,14 +13,7 @@ import { DeepSearchError, ErrorHandler, ErrorLevel } from "../../core/error-hand
 import { logEvent, setLogContext, setEventBus } from "./logger.js";
 import { SharedContext } from "./shared-context.js";
 import { shouldUseDirectMode, runDirectAnalysis } from "./direct-analysis.js";
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function safeInt(n) {
-  return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
-}
+import { isPlainObject, safeInt } from "../../shared/value-utils.js";
 
 function validateSourceChunksOrThrow(sources) {
   for (const s of Array.isArray(sources) ? sources : []) {
@@ -611,8 +604,8 @@ export class DeepSearchStage {
           }
 
           const blockAfterMisses = getGapBlockAfterMisses(state);
-          const { allHits, qualityHits: qualityHitsByGapId } = computeRoundHitsByGapId(retrievedChunks, 0.5);
-          const validateOut = validateIteration(state, allHits, qualityHitsByGapId, blockAfterMisses, undefined, emit);
+          const roundHits = computeRoundHitsByGapId(retrievedChunks, 0.5);
+          const validateOut = validateIteration(state, { roundHits, blockAfterMisses, emit });
 
           const completedIteration = state.iteration;
           const checkpoint = state.saveCheckpoint();

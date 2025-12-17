@@ -3,14 +3,7 @@ import { buildBaseCaller } from "./model/caller.js";
 import { emitBudgetEvents, ensureBudgetState } from "./model/budget.js";
 import { estimateCostUSDDelta, resolveModelPricing } from "./model/pricing.js";
 import { normalizeTokenUsage } from "./model/usage.js";
-
-function safeInt(n) {
-  return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
-}
-
-function safeNumber(n) {
-  return typeof n === "number" && Number.isFinite(n) ? n : null;
-}
+import { isPlainObject, toNonEmptyString, safeInt, safeNumber } from "../../shared/value-utils.js";
 
 export { buildBaseCaller, emitBudgetEvents, ensureBudgetState, estimateCostUSDDelta, normalizeTokenUsage, resolveModelPricing };
 

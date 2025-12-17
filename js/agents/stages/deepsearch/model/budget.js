@@ -3,17 +3,7 @@
  *
  * Tracks warning/exceeded state in `state.L2.budgetState` and emits budget-related events.
  */
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function safeInt(n) {
-  return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
-}
-
-function safeNumber(n) {
-  return typeof n === "number" && Number.isFinite(n) ? n : null;
-}
+import { isPlainObject, safeInt, safeNumber } from "../../../shared/value-utils.js";
 
 export function ensureBudgetState(state) {
   if (!state || typeof state !== "object") return null;

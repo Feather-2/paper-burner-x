@@ -3,13 +3,7 @@
  *
  * Normalizes model provider usage payloads into a consistent `{input, output, total}` shape.
  */
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function safeInt(n) {
-  return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
-}
+import { isPlainObject, safeInt } from "../../../shared/value-utils.js";
 
 export function normalizeTokenUsage(usage) {
   if (!isPlainObject(usage)) return null;

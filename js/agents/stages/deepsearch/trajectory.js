@@ -2,20 +2,7 @@ import { checkCancelled, computeRoundHitsByGapId, validateIteration } from "./st
 import { dedupeClaims } from "../../deepsearch/understanding/dedupe.js";
 import { TrajectoryCache } from "./trajectory-cache.js";
 import { parseExternalSearchConfig } from "./external-search.js";
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function safeInt(n) {
-  return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
+import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/value-utils.js";
 
 function clampInt(n, { min = 1, max = 8 } = {}) {
   const v = safeInt(n);
@@ -396,7 +383,12 @@ export class TrajectoryManager {
         // ===== Reflect-driven 外搜触发结束 =====
 
         const roundHits = computeRoundHitsByGapId(retrievedChunks);
-        validateIteration(trajectory, { blockAfterMisses: getGapBlockAfterMisses(trajectory), minEvidenceToFill: getMinEvidenceToFill(trajectory), roundHits }, emit);
+        validateIteration(trajectory, {
+          blockAfterMisses: getGapBlockAfterMisses(trajectory),
+          minEvidenceToFill: getMinEvidenceToFill(trajectory),
+          roundHits,
+          emit,
+        });
 
         const checkpoint = trajectory.saveCheckpoint?.();
         if (checkpoint) {

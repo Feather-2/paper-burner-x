@@ -1,4 +1,5 @@
 import { PlanningTree } from "./planning-tree.js";
+import { isPlainObject, safeInt, safeNumber, toNonEmptyString } from "../../shared/value-utils.js";
 
 const STATE_SCHEMA_VERSION = "0.1";
 const DEFAULT_MAX_ITERATIONS = 5;
@@ -23,24 +24,6 @@ const DEFAULT_MODEL_PRICES_USD_PER_1K = Object.freeze({
 
   // Gemini & others: default to unknown/0 unless configured.
 });
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
-
-function safeInt(n) {
-  return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
-}
-
-function safeNumber(n) {
-  return typeof n === "number" && Number.isFinite(n) ? n : null;
-}
 
 function normalizeTokenUsage(usage) {
   if (!isPlainObject(usage)) return null;
@@ -134,8 +117,8 @@ function getCheckpointStrategyFromState(state, override) {
   return normalizeCheckpointStrategy(direct || DEFAULT_CHECKPOINT_STRATEGY);
 }
 
-function deepCloneJsonSafe(v) {
-  return JSON.parse(JSON.stringify(v));
+function cloneValue(v) {
+  return typeof structuredClone === "function" ? structuredClone(v) : JSON.parse(JSON.stringify(v));
 }
 
 function buildLiteSnapshot(state) {
@@ -151,28 +134,28 @@ function buildLiteSnapshot(state) {
     runId: state.runId,
     createdAt: state.createdAt,
     taskGoal: state.taskGoal,
-    userConfig: deepCloneJsonSafe(state.userConfig),
+    userConfig: cloneValue(state.userConfig),
     planningTree: state.planningTree?.serialize ? state.planningTree.serialize() : null,
     ...(toNonEmptyString(state.trajectoryId) ? { trajectoryId: state.trajectoryId } : {}),
-    ...(isPlainObject(state.trajectoryConfig) ? { trajectoryConfig: deepCloneJsonSafe(state.trajectoryConfig) } : {}),
+    ...(isPlainObject(state.trajectoryConfig) ? { trajectoryConfig: cloneValue(state.trajectoryConfig) } : {}),
     iteration: state.iteration,
     maxIterations: state.maxIterations,
     writeBacktrackCount: state.writeBacktrackCount,
-    writeSnapshots: deepCloneJsonSafe(state.writeSnapshots),
+    writeSnapshots: cloneValue(state.writeSnapshots),
     L0: {
       sourcesRef: "state.L0.sources",
       sourceIndexRef: "state.L0.sourceIndex",
       sourcesCount: sources.length,
       hasSourceIndex,
     },
-    L1: deepCloneJsonSafe(state.L1),
+    L1: cloneValue(state.L1),
     L2: {
       retrievedChunkIds,
-      tokenUsage: deepCloneJsonSafe(ensureTokenUsage(state?.L2?.tokenUsage)),
+      tokenUsage: cloneValue(ensureTokenUsage(state?.L2?.tokenUsage)),
       incomplete: true,
     },
-    todos: deepCloneJsonSafe(state.todos),
-    timeline: deepCloneJsonSafe(state.timeline),
+    todos: cloneValue(state.todos),
+    timeline: cloneValue(state.timeline),
   };
 }
 
@@ -275,47 +258,21 @@ export function computeRoundHitsByGapId(roundHits, qualityThreshold = 0.5) {
   return { allHits, qualityHits };
 }
 
-export function validateIteration(state, hitsByGapIdOrOptions, qualityHitsByGapId = null, blockAfterMisses = 2, minEvidenceToFill, emit = null) {
+export function validateIteration(state, options = {}) {
   const runId = toNonEmptyString(state?.runId) || "run_unknown";
   const iteration = safeInt(state?.iteration) ?? 0;
   const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
   const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
   const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
 
-  const normalizedArgs = (() => {
-    if (
-      isPlainObject(hitsByGapIdOrOptions) &&
-      ("roundHits" in hitsByGapIdOrOptions || "blockAfterMisses" in hitsByGapIdOrOptions || "minEvidenceToFill" in hitsByGapIdOrOptions)
-    ) {
-      const opts = hitsByGapIdOrOptions;
-      const roundHits = opts.roundHits;
-      const allHitsRaw = roundHits && typeof roundHits === "object" && roundHits.allHits instanceof Map ? roundHits.allHits : roundHits;
-      const qualityHitsRaw =
-        opts.qualityHitsByGapId ??
-        (roundHits && typeof roundHits === "object" && roundHits.qualityHits instanceof Map ? roundHits.qualityHits : null);
-      const bam = safeInt(opts.blockAfterMisses);
-      return {
-        allHitsRaw,
-        qualityHitsRaw,
-        blockAfterMisses: bam !== null && bam >= 1 ? bam : 2,
-        minEvidenceToFill: opts.minEvidenceToFill,
-        emit: typeof qualityHitsByGapId === "function" ? qualityHitsByGapId : null,
-      };
-    }
-
-    const allHitsRaw = hitsByGapIdOrOptions && typeof hitsByGapIdOrOptions === "object" && hitsByGapIdOrOptions.allHits instanceof Map ? hitsByGapIdOrOptions.allHits : hitsByGapIdOrOptions;
-    const qualityHitsRaw =
-      qualityHitsByGapId ??
-      (hitsByGapIdOrOptions && typeof hitsByGapIdOrOptions === "object" && hitsByGapIdOrOptions.qualityHits instanceof Map ? hitsByGapIdOrOptions.qualityHits : null);
-    const bam = safeInt(blockAfterMisses);
-    return {
-      allHitsRaw,
-      qualityHitsRaw,
-      blockAfterMisses: bam !== null && bam >= 1 ? bam : 2,
-      minEvidenceToFill,
-      emit: typeof emit === "function" ? emit : null,
-    };
-  })();
+  const opts = options && typeof options === "object" ? options : {};
+  const roundHits = opts.roundHits;
+  const allHitsRaw = roundHits && typeof roundHits === "object" && roundHits.allHits instanceof Map ? roundHits.allHits : roundHits;
+  const qualityHitsRaw =
+    opts.qualityHitsByGapId ?? (roundHits && typeof roundHits === "object" && roundHits.qualityHits instanceof Map ? roundHits.qualityHits : null);
+  const bam = safeInt(opts.blockAfterMisses);
+  const effectiveBlockAfterMisses = bam !== null && bam >= 1 ? bam : 2;
+  const emitFn = typeof opts.emit === "function" ? opts.emit : null;
 
   const configuredMinEvidence = (() => {
     const cfg = isPlainObject(state?.userConfig?.gaps) ? state.userConfig.gaps : {};
@@ -323,15 +280,13 @@ export function validateIteration(state, hitsByGapIdOrOptions, qualityHitsByGapI
     return n !== null && n >= 1 ? n : null;
   })();
   const effectiveMinEvidenceToFill = (() => {
-    const n = safeInt(normalizedArgs.minEvidenceToFill);
+    const n = safeInt(opts.minEvidenceToFill);
     if (n !== null && n >= 1) return n;
     return configuredMinEvidence ?? 2;
   })();
 
-  const hitsByGapId = normalizeRoundHits(normalizedArgs.allHitsRaw);
-  const qualityHitsByGapIdMap = normalizeRoundHits(normalizedArgs.qualityHitsRaw);
-  const effectiveBlockAfterMisses = normalizedArgs.blockAfterMisses;
-  const emitFn = normalizedArgs.emit;
+  const hitsByGapId = normalizeRoundHits(allHitsRaw);
+  const qualityHitsByGapIdMap = normalizeRoundHits(qualityHitsRaw);
 
   const retrievedByChunkId = new Map();
   for (const r of retrieved) {
@@ -631,8 +586,8 @@ export class DeepSearchState {
       snapshotId: `wcp_${this.writeSnapshots.length + 1}`,
       iteration: this.iteration,
       timestamp: String(ts),
-      slideIntents: Array.isArray(this?.L1?.slideIntents) ? deepCloneJsonSafe(this.L1.slideIntents) : [],
-      report: isPlainObject(this?.L1?.report) ? deepCloneJsonSafe(this.L1.report) : null,
+      slideIntents: Array.isArray(this?.L1?.slideIntents) ? cloneValue(this.L1.slideIntents) : [],
+      report: isPlainObject(this?.L1?.report) ? cloneValue(this.L1.report) : null,
     };
     this.writeSnapshots.push(snapshot);
     return snapshot;
@@ -777,7 +732,7 @@ export class DeepSearchState {
     const checkpointStrategy = getCheckpointStrategyFromState(this);
     const snapshot =
       checkpointStrategy === "full"
-        ? DeepSearchState.fromJSON(deepCloneJsonSafe(this.toJSON({ includeCheckpoints: false })))
+        ? DeepSearchState.fromJSON(cloneValue(this.toJSON({ includeCheckpoints: false })))
         : buildLiteSnapshot(this);
 
     const gaps = Array.isArray(this?.L1?.gaps) ? this.L1.gaps : [];
@@ -903,7 +858,7 @@ export class DeepSearchState {
 
   clone({ includeCheckpoints = true } = {}) {
     const snapshotObj = this.toJSON({ includeCheckpoints });
-    return DeepSearchState.fromJSON(deepCloneJsonSafe(snapshotObj));
+    return DeepSearchState.fromJSON(cloneValue(snapshotObj));
   }
 
   static fromJSON(json) {

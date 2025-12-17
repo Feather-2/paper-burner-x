@@ -13,6 +13,8 @@ function browserHash(s) {
   return simpleHash(str) + simpleHash(str.slice(Math.floor(str.length / 2))) + simpleHash(str.slice(0, Math.floor(str.length / 3)));
 }
 
+import { isPlainObject, toNonEmptyString, safeInt, safeNumber } from "../../shared/value-utils.js";
+
 // 环境检测：浏览器直接用 browserHash，Node.js 用 crypto
 const isBrowser = typeof window !== "undefined" || typeof process === "undefined" || !process.versions?.node;
 
@@ -23,10 +25,6 @@ if (isBrowser) {
   // Node.js 环境：同步导入 crypto
   const { createHash } = await import("node:crypto");
   sha256Hex = (s) => createHash("sha256").update(String(s)).digest("hex");
-}
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
 function stableStringify(value) {
@@ -124,4 +122,3 @@ export const __test = {
   stableStringify,
   sha256Hex,
 };
-

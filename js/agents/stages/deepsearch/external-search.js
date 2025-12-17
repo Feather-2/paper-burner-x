@@ -9,20 +9,7 @@ import { chunkText } from "../textprep/chunk.js";
 import { McpClient } from "../../mcp/mcp-client.js";
 import { LocalMcpProvider } from "../../mcp/local-mcp-provider.js";
 import { McpNexusProvider } from "../../mcp/mcp-nexus-provider.js";
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
-
-function safeInt(n) {
-  return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
-}
+import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
 
 function normalizeChunkIdList(v) {
   const out = [];

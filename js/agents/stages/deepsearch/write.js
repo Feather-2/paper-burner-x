@@ -7,12 +7,9 @@ import { runReactReviewer } from "./react-reviewer.js";
 import { createToolExecutor } from "./react-reviewer-tools.js";
 import { runReactWriter } from "./react-writer.js";
 import { deriveSlideIntentsFromReport } from "./report-to-slide-intents.js";
+import { isPlainObject, toNonEmptyString } from "../../shared/value-utils.js";
 
 export { finalizeCitationsInMarkdown };
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
 
 const REPORT_LENGTH_PRESETS = Object.freeze({
   brief: { minWords: 800, maxWords: 2000, targetWords: 1200 },
@@ -20,12 +17,6 @@ const REPORT_LENGTH_PRESETS = Object.freeze({
   detailed: { minWords: 5000, maxWords: 10000, targetWords: 8000 },
   comprehensive: { minWords: 10000, maxWords: 20000, targetWords: 15000 },
 });
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
 
 function safeFiniteNumber(v) {
   const n = typeof v === "string" && v.trim().length ? Number(v) : v;

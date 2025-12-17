@@ -4,11 +4,7 @@
  * Supports `{{cite:<evidenceId>}}` markers in Markdown, building a citation list from the
  * evidence ledger + sources, and rewriting markers into numbered `[n]` citations.
  */
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
+import { toNonEmptyString } from "../../shared/value-utils.js";
 
 const CITE_REGEX = /\{\{\s*cite\s*:\s*([A-Za-z0-9._:-]+)\s*\}\}/g;
 

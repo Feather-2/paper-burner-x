@@ -6,12 +6,9 @@ import { createMcpClient, parseExternalSearchConfig, runExternalSearch } from ".
 import { logEvent, setLogContext, trackToolCall } from "./logger.js";
 import { search as toolChainSearch } from "../../retrieval/tool-chain.js";
 import { ShadowAgent, shouldValidateWithShadow } from "./shadow-agent.js";
+import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
 
 const defaultLocalRetriever = (...args) => retrieveWithRouter(...args);
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
 
 export function deduplicateChunks(newChunks, existingChunks) {
   const existingById = new Map();
@@ -58,16 +55,6 @@ function ensureState(_runContext, input) {
   if (input?.state instanceof DeepSearchState) return input.state;
   if (isPlainObject(input?.state)) return DeepSearchState.fromJSON(input.state);
   throw new TypeError("DeepSearch retrieve: input.state is required");
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
-
-function safeInt(n) {
-  return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
 }
 
 function clampProgress(progress) {

@@ -17,24 +17,7 @@
 import { extractJsonCandidate, checkCancelled } from "./state.js";
 import { getModelCaller } from "./model.js";
 import { countWordsApprox } from "./report-diff.js";
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
-
-function safeInt(n) {
-  return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
-}
-
-function safeNumber(n) {
-  return typeof n === "number" && Number.isFinite(n) ? n : null;
-}
+import { isPlainObject, toNonEmptyString, safeInt, safeNumber } from "../../shared/value-utils.js";
 
 // Tool availability by level
 const LEVEL_1_TOOLS = ["getWordCount", "getSectionFull", "searchEvidence", "getEvidence", "applyPatch"];

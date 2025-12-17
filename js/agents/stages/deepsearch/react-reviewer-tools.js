@@ -7,20 +7,7 @@
 import { buildIndex, search as bm25Search } from "../../retrieval/bm25.js";
 import { applyPatchPlan } from "./report-diff.js";
 import { finalizeCitationsInMarkdown } from "./citations.js";
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
-
-function safeInt(n) {
-  return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
-}
+import { isPlainObject, toNonEmptyString, safeInt, safeNumber } from "../../shared/value-utils.js";
 
 /**
  * 统计字数（中英文混合）

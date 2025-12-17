@@ -2,20 +2,7 @@ import { DeepSearchState, checkCancelled, extractJsonCandidate, makeStageEmitter
 import { getModelCaller } from "./model.js";
 import { logEvent, setLogContext } from "./logger.js";
 import { search as toolChainSearch } from "../../retrieval/tool-chain.js";
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
-
-function safeInt(n) {
-  return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
-}
+import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
 
 function collapseWhitespace(s) {
   return String(s || "")

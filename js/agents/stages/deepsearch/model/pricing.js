@@ -3,17 +3,7 @@
  *
  * Resolves per-model price entries and estimates incremental USD cost from token usage.
  */
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function safeInt(n) {
-  return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
-}
-
-function safeNumber(n) {
-  return typeof n === "number" && Number.isFinite(n) ? n : null;
-}
+import { isPlainObject, safeInt, safeNumber } from "../../../shared/value-utils.js";
 
 export function resolveModelPricing(modelId, prices) {
   if (!isPlainObject(prices)) return null;

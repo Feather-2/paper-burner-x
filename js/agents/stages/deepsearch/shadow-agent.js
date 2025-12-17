@@ -10,20 +10,7 @@
 import { extractJsonCandidate } from "./state.js";
 import { getModelCaller } from "./model.js";
 import { logEvent } from "./logger.js";
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
-
-function safeInt(n) {
-  return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
-}
+import { toNonEmptyString } from "../../shared/value-utils.js";
 
 // 默认配置
 const DEFAULT_CONFIG = {

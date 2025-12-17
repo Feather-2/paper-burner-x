@@ -4,6 +4,7 @@ import { claimsFromChunks } from "../../deepsearch/understanding/claims-from-chu
 import { dedupeClaims } from "../../deepsearch/understanding/dedupe.js";
 import { detectConflicts } from "../../deepsearch/understanding/conflicts.js";
 import { logEvent, setLogContext } from "./logger.js";
+import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
 
 // ===== Reflect Prompt: LLM 自主判断是否需要更多信息 =====
 const REFLECT_PROMPT = `你是一个研究助手，需要判断当前收集的证据是否足以回答用户的问题。
@@ -62,10 +63,6 @@ const LLM_CLAIMS_PROMPT = `你是一个研究助手，需要从文档片段中�
   ]
 }
 `;
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
 
 function collapseWhitespace(s) {
   return String(s || "")
@@ -456,12 +453,6 @@ async function reflectOnEvidence(state, { claims, evidenceLedger, gaps }, stageA
   }
 }
 
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
-
 function normalizeGapIds(v) {
   const raw = Array.isArray(v) ? v : v ? [v] : [];
   return Array.from(new Set(raw.map((x) => String(x || "").trim()).filter(Boolean)));
@@ -537,10 +528,6 @@ function indexSourceTextById(sources) {
     if (typeof s?.sourceTextNormalized === "string") m.set(id, s.sourceTextNormalized);
   }
   return m;
-}
-
-function safeInt(n) {
-  return typeof n === "number" && Number.isFinite(n) ? n : null;
 }
 
 function clampProgress(progress) {

@@ -1,10 +1,7 @@
 import { DeepSearchState, checkCancelled, makeStageEmitter } from "./state.js";
 import { condenseDeepSearchState } from "../../deepsearch/condense/condense.js";
 import { writeDeepSearchArtifacts } from "../../deepsearch/condense/cache-writer.js";
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
+import { isPlainObject } from "../../shared/value-utils.js";
 
 function ensureState(_runContext, input) {
   if (input instanceof DeepSearchState) return input;

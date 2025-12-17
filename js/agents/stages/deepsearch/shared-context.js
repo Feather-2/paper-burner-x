@@ -7,19 +7,7 @@
  * - L3 Store: 完整数据，按需加载
  */
 
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
-
-function safeInt(n) {
-  return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
-}
+import { isPlainObject, toNonEmptyString } from "../../shared/value-utils.js";
 
 /**
  * 生成内容指纹（用于去重）

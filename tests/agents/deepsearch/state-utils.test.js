@@ -70,3 +70,40 @@ test("extractJsonCandidate: handles empty or null input", async () => {
   assert.equal(extractJsonCandidate("   "), null);
   assert.equal(extractJsonCandidate("<think>only thinking</think>"), null);
 });
+
+test("DeepSearchState.clone: uses structuredClone for non-JSON types when available", async () => {
+  if (typeof structuredClone !== "function") return;
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  const state = new DeepSearchState({ runId: "run_clone_types", taskGoal: "t" });
+  const when = new Date("2020-01-01T00:00:00.000Z");
+  const meta = new Map([["k", "v"]]);
+  const tags = new Set(["a", "b"]);
+  state.todos = [{ todoId: "t1", status: "open", text: "x", when, meta, tags }];
+
+  const cloned = state.clone();
+  assert.notEqual(cloned, state);
+  assert.notEqual(cloned.todos, state.todos);
+  assert.equal(cloned.todos[0].when instanceof Date, true);
+  assert.equal(cloned.todos[0].meta instanceof Map, true);
+  assert.equal(cloned.todos[0].tags instanceof Set, true);
+  assert.deepEqual([...cloned.todos[0].meta.entries()], [...meta.entries()]);
+  assert.deepEqual([...cloned.todos[0].tags.values()], [...tags.values()]);
+});
+
+test("DeepSearchState.clone: structuredClone throws on function/symbol values", async () => {
+  if (typeof structuredClone !== "function") return;
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  {
+    const state = new DeepSearchState({ runId: "run_clone_throw_fn", taskGoal: "t" });
+    state.todos = [{ todoId: "t1", bad: () => {} }];
+    assert.throws(() => state.clone(), /clone|DataCloneError|could not be cloned/i);
+  }
+
+  {
+    const state = new DeepSearchState({ runId: "run_clone_throw_sym", taskGoal: "t" });
+    state.todos = [{ todoId: "t1", bad: Symbol("x") }];
+    assert.throws(() => state.clone(), /clone|DataCloneError|could not be cloned/i);
+  }
+});

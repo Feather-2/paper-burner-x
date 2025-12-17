@@ -30,20 +30,7 @@ import { extractJsonCandidate, checkCancelled } from "./state.js";
 import { getModelCaller } from "./model.js";
 import { countWordsApprox } from "./report-diff.js";
 import { finalizeCitationsInMarkdown } from "./citations.js";
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
-
-function safeInt(n) {
-  return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
-}
+import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
 
 // ===== 工具实现 =====
 
@@ -351,9 +338,11 @@ export function createWriterToolExecutor(context) {
 
       // 检查是否已存在该 sectionId，如果是则更新
       const existingIdx = writtenSections.findIndex(s => s.sectionId === sid);
+      const resolvedGapId = gid || (existingIdx !== -1 ? writtenSections[existingIdx]?.gapId : null) || null;
       if (existingIdx !== -1) {
         writtenSections[existingIdx] = {
           ...writtenSections[existingIdx],
+          gapId: resolvedGapId,
           title: sectionTitle,
           markdown: md,
           wordCount: countWordsApprox(md),
@@ -361,7 +350,7 @@ export function createWriterToolExecutor(context) {
       } else {
         writtenSections.push({
           sectionId: sid,
-          gapId: gid || null,
+          gapId: resolvedGapId,
           title: sectionTitle,
           markdown: md,
           wordCount: countWordsApprox(md),
@@ -372,6 +361,7 @@ export function createWriterToolExecutor(context) {
 
       return {
         success: true,
+        gapId: resolvedGapId,
         sectionId: sid,
         title: sectionTitle,
         wordCount: countWordsApprox(md),

@@ -244,6 +244,18 @@ test("DeepSearch validateIteration helper: hit/no-evidence keeps open, blockAfte
     assert.equal(state.L1.gaps[0].filledIteration, 3);
   }
 
+  {
+    const events = [];
+    const emit = (name, payload) => events.push({ name, payload });
+    const state = new DeepSearchState({ runId: "run_validate_emit", iteration: 1 });
+    state.L1.gaps = [{ gapId: "g1", type: "x", question: "q", status: "open", missCount: 0 }];
+    state.L2.retrievedChunks = [{ chunkId: "c1", gapId: "g1", sourceId: "s1", locator: { charStart: 0, charEnd: 2 }, text: "hi" }];
+    state.L1.evidenceLedger = [{ evidenceId: "e1", chunkId: "c1" }];
+
+    __test.validateIteration(state, { blockAfterMisses: 2, minEvidenceToFill: 1, roundHits: {}, emit });
+    assert.equal(events.some((e) => e.name === "deepsearch.gap.status.changed" && e.payload?.gapId === "g1" && e.payload?.to === "filled"), true);
+  }
+
   assert.equal(__test.signatureForRetrievedChunk({ gapId: "g1", sourceId: "s1" }), "g1::s1::-1--1");
 });
 

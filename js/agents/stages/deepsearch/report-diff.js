@@ -1,22 +1,9 @@
 import { finalizeCitationsInMarkdown } from "./citations.js";
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
+import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
 
 function normalizeStringArray(v) {
   const raw = Array.isArray(v) ? v : v ? [v] : [];
   return raw.map((x) => String(x || "").trim()).filter(Boolean);
-}
-
-function safeInt(n) {
-  return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
 }
 
 function countWordsApprox(text) {
@@ -250,4 +237,3 @@ export function applyPatchPlan(report, patchPlan, evidenceLedger, sources) {
 export const __test = { normalizeReportForPatching, renderDraftMarkdown, parseSectionsFromMarkdown, extractTitleFromMarkdown, countWordsApprox };
 
 export { countWordsApprox };
-

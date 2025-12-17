@@ -9,20 +9,7 @@ import { DeepSearchState, extractJsonCandidate, makeStageEmitter } from "./state
 import { getModelCaller } from "./model.js";
 import { buildContentPackage } from "../textprep/build-content-package.js";
 import { logEvent } from "./logger.js";
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
-
-function safeInt(n) {
-  return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : null;
-}
+import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
 
 // 小文档直通阈值（默认 20000 字符，约 5000 中文字）
 const DEFAULT_SMALL_DOC_THRESHOLD = 20000;
