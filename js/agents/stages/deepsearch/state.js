@@ -2,6 +2,7 @@ import { PlanningTree } from "./planning-tree.js";
 import { isPlainObject, safeInt, safeNumber, toNonEmptyString } from "../../shared/value-utils.js";
 
 const STATE_SCHEMA_VERSION = "0.1";
+const CHECKPOINT_SCHEMA_VERSION = "1.0";
 const DEFAULT_MAX_ITERATIONS = 5;
 const DEFAULT_CHECKPOINT_STRATEGY = "lite";
 const DEFAULT_BUDGET_CONFIG = Object.freeze({
@@ -121,6 +122,30 @@ function cloneValue(v) {
   return typeof structuredClone === "function" ? structuredClone(v) : JSON.parse(JSON.stringify(v));
 }
 
+// Migration registry for checkpoint objects (not DeepSearchState snapshots).
+// Keys are the *source* checkpoint schemaVersion, and each migrator returns a checkpoint object compatible with the current schema.
+const CHECKPOINT_MIGRATIONS = Object.freeze({
+  // Legacy checkpoints had no schemaVersion; treat them as "0.0" and simply stamp the current version.
+  "0.0": (checkpoint) => ({ ...checkpoint, schemaVersion: CHECKPOINT_SCHEMA_VERSION }),
+});
+
+function loadCheckpoint(checkpoint) {
+  if (!isPlainObject(checkpoint)) throw new TypeError("loadCheckpoint(checkpoint): checkpoint must be an object");
+
+  const version = toNonEmptyString(checkpoint?.schemaVersion) || "0.0";
+  if (version === CHECKPOINT_SCHEMA_VERSION) return checkpoint;
+
+  const migrate = CHECKPOINT_MIGRATIONS[version];
+  if (typeof migrate === "function") {
+    const migrated = migrate(checkpoint);
+    if (!isPlainObject(migrated)) throw new TypeError(`Checkpoint migration ${version} -> ${CHECKPOINT_SCHEMA_VERSION} must return an object`);
+    return { ...migrated, schemaVersion: CHECKPOINT_SCHEMA_VERSION };
+  }
+
+  console.warn(`Unknown checkpoint schema version: ${version} (expected ${CHECKPOINT_SCHEMA_VERSION}); attempting to load anyway`);
+  return checkpoint;
+}
+
 function buildLiteSnapshot(state) {
   const retrievedChunks = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
   const retrievedChunkIds = retrievedChunks.map((r) => toNonEmptyString(r?.chunkId)).filter(Boolean);
@@ -131,6 +156,7 @@ function buildLiteSnapshot(state) {
   return {
     snapshotStrategy: "lite",
     schemaVersion: state.schemaVersion,
+    checkpointSchemaVersion: CHECKPOINT_SCHEMA_VERSION,
     runId: state.runId,
     createdAt: state.createdAt,
     taskGoal: state.taskGoal,
@@ -764,6 +790,7 @@ export class DeepSearchState {
         };
 
     const checkpoint = {
+      schemaVersion: CHECKPOINT_SCHEMA_VERSION,
       checkpointId: String(id),
       iteration: this.iteration,
       timestamp: String(ts),
@@ -785,8 +812,12 @@ export class DeepSearchState {
     const id = toNonEmptyString(checkpointId);
     if (!id) throw new TypeError("DeepSearchState.restoreCheckpoint(checkpointId): checkpointId is required");
 
-    const cp = this.checkpoints.find((c) => toNonEmptyString(c?.checkpointId) === id);
+    const idx = this.checkpoints.findIndex((c) => toNonEmptyString(c?.checkpointId) === id);
+    const existing = idx >= 0 ? this.checkpoints[idx] : null;
+    const cp = existing ? loadCheckpoint(existing) : null;
+    if (existing && cp !== existing) this.checkpoints[idx] = cp;
     if (!cp) throw new Error(`Checkpoint not found: ${String(id)}`);
+    if (!("stateSnapshot" in cp)) throw new Error(`Invalid checkpoint: missing stateSnapshot (${String(id)})`);
 
     const explicitStrategy = toNonEmptyString(cp?.strategy);
     const checkpointStrategy = explicitStrategy

@@ -9,6 +9,7 @@ import { ShadowAgent, shouldValidateWithShadow } from "./shadow-agent.js";
 import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
 import { LRUMap } from "../../shared/lru-map.js";
 import { mapConcurrent } from "../../shared/concurrency.js";
+import { CHUNK_CONFIG } from "./constants.js";
 
 const defaultLocalRetriever = (...args) => retrieveWithRouter(...args);
 
@@ -609,10 +610,16 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
   const existingChunks = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
 
   const { config: retrievalConfig } = normalizeRetrievalConfig(state?.userConfig?.retrieval, { emit });
-  const chunkSize = Number.isFinite(retrievalConfig.chunkSize) ? Math.max(200, Math.floor(retrievalConfig.chunkSize)) : 1600;
-  const overlap = Number.isFinite(retrievalConfig.overlap) ? Math.max(0, Math.floor(retrievalConfig.overlap)) : 180;
-  const topK = Number.isFinite(retrievalConfig.topK) ? Math.max(1, Math.floor(retrievalConfig.topK)) : 6;
-  const windowSize = Number.isFinite(retrievalConfig.windowSize) ? Math.max(0, Math.floor(retrievalConfig.windowSize)) : 1;
+  const chunkSize = Number.isFinite(retrievalConfig.chunkSize)
+    ? Math.max(200, Math.floor(retrievalConfig.chunkSize))
+    : CHUNK_CONFIG.DEFAULT_SIZE;
+  const overlap = Number.isFinite(retrievalConfig.overlap)
+    ? Math.max(0, Math.floor(retrievalConfig.overlap))
+    : CHUNK_CONFIG.DEFAULT_OVERLAP;
+  const topK = Number.isFinite(retrievalConfig.topK) ? Math.max(1, Math.floor(retrievalConfig.topK)) : CHUNK_CONFIG.DEFAULT_TOP_K;
+  const windowSize = Number.isFinite(retrievalConfig.windowSize)
+    ? Math.max(0, Math.floor(retrievalConfig.windowSize))
+    : CHUNK_CONFIG.DEFAULT_WINDOW_SIZE;
   const maxChunks = safeInt(retrievalConfig.maxChunks) ?? 100;
 
   // 工具链配置
@@ -1044,10 +1051,11 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
   });
 
   state.L2.retrievedChunks = trimmed;
+  const seenCap = Math.min(CHUNK_CONFIG.MAX_CHUNKS_LRU, Math.max(1000, maxChunks * 50));
   trackSeenChunkIds(
     state,
     [...existingChunks, ...rerankedChunks].map((c) => toNonEmptyString(c?.chunkId)).filter(Boolean),
-    { maxSize: Math.max(1000, maxChunks * 50) }
+    { maxSize: seenCap }
   );
 
   // 记录 retrieve 阶段完成

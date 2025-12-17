@@ -3,23 +3,9 @@ import { getModelCaller } from "./model.js";
 import { logEvent, setLogContext } from "./logger.js";
 import { search as toolChainSearch } from "../../retrieval/tool-chain.js";
 import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
+import { GAP_CONFIG, GAP_TYPES } from "./constants.js";
 
-const ALLOWED_GAP_TYPES = new Set([
-  "unknown",
-  "definition",
-  "background",
-  "data",
-  "mechanism",
-  "application",
-  "comparison",
-  "challenge",
-  "solution",
-  "trend",
-  "benefit",
-  "implementation",
-  "cost",
-  "question",
-]);
+const ALLOWED_GAP_TYPES = new Set(["unknown", ...GAP_TYPES]);
 
 function collapseWhitespace(s) {
   return String(s || "")
@@ -40,7 +26,10 @@ function normalizeGapsCacheKeyInputs(taskGoal, scanSummary, existingGaps) {
       type: truncate(g?.type || "unknown", 60),
       question: truncate(g?.question || "", 240),
       status: truncate(g?.status || "open", 24),
-      missCount: typeof g?.missCount === "number" && Number.isFinite(g.missCount) ? Math.max(0, Math.floor(g.missCount)) : 0,
+      missCount:
+        typeof g?.missCount === "number" && Number.isFinite(g.missCount)
+          ? Math.min(GAP_CONFIG.BLOCK_AFTER_MISSES, Math.max(0, Math.floor(g.missCount)))
+          : 0,
     }))
     .sort((a, b) => `${a.type}::${a.question}`.localeCompare(`${b.type}::${b.question}`));
 

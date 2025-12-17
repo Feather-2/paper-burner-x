@@ -126,3 +126,51 @@ test("DeepSearchState.clone: structuredClone throws on function/symbol values", 
     assert.throws(() => state.clone(), /clone|DataCloneError|could not be cloned/i);
   }
 });
+
+test("DeepSearchState.saveCheckpoint: stamps checkpoint schema version", async () => {
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  const state = new DeepSearchState({ runId: "run_ckpt_schema", taskGoal: "t" });
+  const cp = state.saveCheckpoint({ checkpointId: "cp1" });
+
+  assert.equal(cp.schemaVersion, "1.0");
+  assert.equal(cp.stateSnapshot.checkpointSchemaVersion, "1.0");
+});
+
+test("DeepSearchState.restoreCheckpoint: migrates legacy checkpoints without schemaVersion", async () => {
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  const state = new DeepSearchState({ runId: "run_ckpt_migrate", taskGoal: "t" });
+  state.iteration = 2;
+  state.saveCheckpoint({ checkpointId: "cp_legacy" });
+
+  delete state.checkpoints[0].schemaVersion;
+
+  state.iteration = 99;
+  state.restoreCheckpoint("cp_legacy");
+
+  assert.equal(state.iteration, 2);
+  assert.equal(state.checkpoints[0].schemaVersion, "1.0");
+});
+
+test("DeepSearchState.restoreCheckpoint: warns on unknown checkpoint schema versions", async () => {
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  const state = new DeepSearchState({ runId: "run_ckpt_warn", taskGoal: "t" });
+  state.saveCheckpoint({ checkpointId: "cp_unknown" });
+  state.checkpoints[0].schemaVersion = "999.0";
+
+  let warnCount = 0;
+  const originalWarn = console.warn;
+  console.warn = () => {
+    warnCount += 1;
+  };
+
+  try {
+    state.restoreCheckpoint("cp_unknown");
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.ok(warnCount >= 1);
+});

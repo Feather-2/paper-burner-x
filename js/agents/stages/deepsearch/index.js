@@ -15,6 +15,7 @@ import { SharedContext } from "./shared-context.js";
 import { shouldUseDirectMode, runDirectAnalysis } from "./direct-analysis.js";
 import { isPlainObject, safeInt } from "../../shared/value-utils.js";
 import { mapConcurrent } from "../../shared/concurrency.js";
+import { CONCURRENCY_CONFIG, GAP_CONFIG } from "./constants.js";
 
 function validateSourceChunksOrThrow(sources) {
   for (const s of Array.isArray(sources) ? sources : []) {
@@ -141,7 +142,32 @@ function getGapBlockAfterMisses(state) {
   const cfg = isPlainObject(state?.userConfig?.gaps) ? state.userConfig.gaps : {};
   const n = safeInt(cfg.blockAfterMisses);
   // 默认值从 5 调整为 3，减少无效空转
-  return n !== null && n >= 1 ? n : 3;
+  return n !== null && n >= 1 ? n : GAP_CONFIG.BLOCK_AFTER_MISSES;
+}
+
+function normalizeQualityThreshold(v) {
+  if (typeof v === "number" && Number.isFinite(v)) return Math.max(0, Math.min(1, v));
+  if (typeof v === "string" && v.trim()) {
+    const n = Number(v);
+    if (Number.isFinite(n)) return Math.max(0, Math.min(1, n));
+  }
+  return null;
+}
+
+function getQualityThreshold(state) {
+  const gapsCfg = isPlainObject(state?.userConfig?.gaps) ? state.userConfig.gaps : {};
+  const retrievalCfg = isPlainObject(state?.userConfig?.retrieval) ? state.userConfig.retrieval : {};
+  return (
+    normalizeQualityThreshold(gapsCfg.qualityThreshold) ??
+    normalizeQualityThreshold(retrievalCfg.qualityThreshold) ??
+    GAP_CONFIG.QUALITY_THRESHOLD
+  );
+}
+
+function getTrajectoryParallel(state) {
+  const cfg = isPlainObject(state?.userConfig?.concurrency) ? state.userConfig.concurrency : {};
+  const n = safeInt(cfg.maxTrajectoryParallel);
+  return n !== null && n >= 1 ? n : CONCURRENCY_CONFIG.MAX_TRAJECTORY_PARALLEL;
 }
 
 function signatureForRetrievedChunk(r) {
@@ -428,7 +454,7 @@ export class DeepSearchStage {
           } catch {
             // keep all-settled semantics: trajectory failures should not abort merging others
           }
-        });
+        }, getTrajectoryParallel(state));
 
         const merged = manager.merge();
         if (merged) applyMergedState(state, merged);
@@ -517,7 +543,7 @@ export class DeepSearchStage {
           updateTaskProgress();
 
           // 只计算高质量 hit（score >= 阈值），低质量匹配不算有效 hit
-          const qualityThreshold = safeInt(state?.userConfig?.retrieval?.qualityThreshold) ?? 0.3;
+          const qualityThreshold = getQualityThreshold(state);
           let hitCount = 0;
           let qualityHitCount = 0;
           for (const r of Array.isArray(retrievedChunks) ? retrievedChunks : []) {
@@ -620,7 +646,7 @@ export class DeepSearchStage {
           }
 
           const blockAfterMisses = getGapBlockAfterMisses(state);
-          const roundHits = computeRoundHitsByGapId(retrievedChunks, 0.5);
+          const roundHits = computeRoundHitsByGapId(retrievedChunks, qualityThreshold);
           const validateOut = validateIteration(state, { roundHits, blockAfterMisses, emit });
 
           const completedIteration = state.iteration;

@@ -11,6 +11,7 @@ import { extractJsonCandidate } from "./state.js";
 import { getModelCaller } from "./model.js";
 import { logEvent } from "./logger.js";
 import { toNonEmptyString } from "../../shared/value-utils.js";
+import { CONCURRENCY_CONFIG, GAP_CONFIG } from "./constants.js";
 
 // 默认配置
 const DEFAULT_CONFIG = {
@@ -18,9 +19,13 @@ const DEFAULT_CONFIG = {
   timeoutMs: 10000,
   temperature: 0.1,
   // 预算控制
-  maxCallsPerRound: 5,
-  maxCallsPerGap: 2,
-  maxCallsTotal: 20,
+  maxCallsPerRound: CONCURRENCY_CONFIG.DEFAULT_PARALLEL,
+  maxCallsPerGap: GAP_CONFIG.MIN_EVIDENCE_TO_FILL,
+  maxCallsTotal: CONCURRENCY_CONFIG.DEFAULT_PARALLEL * 4,
+  // 为高优先级 gap 预留部分预算，避免被同轮其他 gap 挤占
+  priorityReserve: { high: 0.3, medium: 0.1, low: 0 },
+  // 添加优先级队列支持：队列需要并发上限才有意义
+  maxConcurrentCalls: CONCURRENCY_CONFIG.DEFAULT_PARALLEL,
 };
 
 // 相关性验证 prompt
@@ -68,36 +73,224 @@ const EVIDENCE_PROMPT = `评估这段内容作为证据的质量。
 class ShadowStats {
   constructor() {
     this.totalCalls = 0;
+    this.inflightCalls = 0;
     this.callsByRound = new Map(); // round → count
+    this.inflightByRound = new Map(); // round → count
     this.callsByGap = new Map();   // gapId → count
+    this.inflightByGap = new Map(); // gapId → count
+    this.callsByPriority = new Map(); // priority → count
+    this.inflightByPriority = new Map(); // priority → count
+    this.callsByRoundByPriority = new Map(); // round → (priority → count)
+    this.inflightByRoundByPriority = new Map(); // round → (priority → count)
     this.results = [];
   }
 
-  canCall(round, gapId, config) {
-    const roundCalls = this.callsByRound.get(round) || 0;
-    const gapCalls = this.callsByGap.get(gapId) || 0;
+  static normalizePriority(priority) {
+    if (priority === "high" || priority === "medium" || priority === "low") return priority;
+    return "medium";
+  }
 
-    if (this.totalCalls >= config.maxCallsTotal) return false;
-    if (roundCalls >= config.maxCallsPerRound) return false;
-    if (gapCalls >= config.maxCallsPerGap) return false;
+  static normalizeReserveConfig(priorityReserve) {
+    const defaults = { high: 0.3, medium: 0.1, low: 0 };
+    const r = priorityReserve && typeof priorityReserve === "object" ? priorityReserve : {};
+    const clamp01 = (v) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0);
+    return {
+      high: clamp01(r.high ?? defaults.high),
+      medium: clamp01(r.medium ?? defaults.medium),
+      low: clamp01(r.low ?? defaults.low),
+    };
+  }
+
+  static gapMeta(gapOrId) {
+    if (gapOrId && typeof gapOrId === "object") {
+      const gapId = toNonEmptyString(gapOrId?.gapId) || "unknown";
+      const priority = ShadowStats.normalizePriority(gapOrId?.priority);
+      return { gapId, priority };
+    }
+    return { gapId: toNonEmptyString(gapOrId) || "unknown", priority: "medium" };
+  }
+
+  static safeLimit(n) {
+    if (typeof n !== "number" || !Number.isFinite(n)) return 0;
+    return Math.max(0, Math.floor(n));
+  }
+
+  getTotalCallsInFlight() {
+    return this.totalCalls + this.inflightCalls;
+  }
+
+  getRoundCallsInFlight(round) {
+    return (this.callsByRound.get(round) || 0) + (this.inflightByRound.get(round) || 0);
+  }
+
+  getGapCallsInFlight(gapId) {
+    return (this.callsByGap.get(gapId) || 0) + (this.inflightByGap.get(gapId) || 0);
+  }
+
+  getPriorityCallsInFlight(priority) {
+    return (this.callsByPriority.get(priority) || 0) + (this.inflightByPriority.get(priority) || 0);
+  }
+
+  getRoundPriorityCallsInFlight(round, priority) {
+    const byRound = this.callsByRoundByPriority.get(round);
+    const inflightByRound = this.inflightByRoundByPriority.get(round);
+    return (byRound?.get(priority) || 0) + (inflightByRound?.get(priority) || 0);
+  }
+
+  static computeReservedRemaining(max, reserveRatio, usedByPriority) {
+    const m = ShadowStats.safeLimit(max);
+    const ratio = ShadowStats.normalizeReserveConfig(reserveRatio);
+    const reservedHigh = Math.floor(m * ratio.high);
+    const reservedMedium = Math.floor(m * ratio.medium);
+    const highUsed = usedByPriority?.high || 0;
+    const mediumUsed = usedByPriority?.medium || 0;
+    return {
+      reservedHighRemaining: Math.max(0, reservedHigh - highUsed),
+      reservedMediumRemaining: Math.max(0, reservedMedium - mediumUsed),
+    };
+  }
+
+  canCall(round, gapOrId, config) {
+    const { gapId, priority } = ShadowStats.gapMeta(gapOrId);
+    const maxCallsTotal = ShadowStats.safeLimit(config?.maxCallsTotal);
+    const maxCallsPerRound = ShadowStats.safeLimit(config?.maxCallsPerRound);
+    const maxCallsPerGap = ShadowStats.safeLimit(config?.maxCallsPerGap);
+
+    const totalCalls = this.getTotalCallsInFlight();
+    const roundCalls = this.getRoundCallsInFlight(round);
+    const gapCalls = this.getGapCallsInFlight(gapId);
+
+    if (maxCallsPerGap > 0 && gapCalls >= maxCallsPerGap) return false;
+
+    const reserve = ShadowStats.normalizeReserveConfig(config?.priorityReserve);
+
+    const reservedTotal = ShadowStats.computeReservedRemaining(maxCallsTotal, reserve, {
+      high: this.getPriorityCallsInFlight("high"),
+      medium: this.getPriorityCallsInFlight("medium"),
+    });
+
+    const reservedRound = ShadowStats.computeReservedRemaining(maxCallsPerRound, reserve, {
+      high: this.getRoundPriorityCallsInFlight(round, "high"),
+      medium: this.getRoundPriorityCallsInFlight(round, "medium"),
+    });
+
+    const effectiveTotalLimit =
+      priority === "high"
+        ? maxCallsTotal
+        : priority === "medium"
+          ? Math.max(0, maxCallsTotal - reservedTotal.reservedHighRemaining)
+          : Math.max(0, maxCallsTotal - reservedTotal.reservedHighRemaining - reservedTotal.reservedMediumRemaining);
+
+    const effectiveRoundLimit =
+      priority === "high"
+        ? maxCallsPerRound
+        : priority === "medium"
+          ? Math.max(0, maxCallsPerRound - reservedRound.reservedHighRemaining)
+          : Math.max(0, maxCallsPerRound - reservedRound.reservedHighRemaining - reservedRound.reservedMediumRemaining);
+
+    if (maxCallsTotal > 0 && totalCalls >= effectiveTotalLimit) return false;
+    if (maxCallsPerRound > 0 && roundCalls >= effectiveRoundLimit) return false;
 
     return true;
   }
 
-  recordCall(round, gapId, result) {
+  reserveCall(round, gapOrId, config) {
+    if (!this.canCall(round, gapOrId, config)) return null;
+    const { gapId, priority } = ShadowStats.gapMeta(gapOrId);
+
+    this.inflightCalls++;
+    this.inflightByRound.set(round, (this.inflightByRound.get(round) || 0) + 1);
+    this.inflightByGap.set(gapId, (this.inflightByGap.get(gapId) || 0) + 1);
+    this.inflightByPriority.set(priority, (this.inflightByPriority.get(priority) || 0) + 1);
+
+    if (!this.inflightByRoundByPriority.has(round)) this.inflightByRoundByPriority.set(round, new Map());
+    const inflightByRound = this.inflightByRoundByPriority.get(round);
+    inflightByRound.set(priority, (inflightByRound.get(priority) || 0) + 1);
+
+    return { round, gapId, priority };
+  }
+
+  finishCall(reservation, result) {
+    const round = reservation?.round ?? 0;
+    const gapId = toNonEmptyString(reservation?.gapId) || "unknown";
+    const priority = ShadowStats.normalizePriority(reservation?.priority);
+
     this.totalCalls++;
+    this.inflightCalls = Math.max(0, this.inflightCalls - 1);
     this.callsByRound.set(round, (this.callsByRound.get(round) || 0) + 1);
     this.callsByGap.set(gapId, (this.callsByGap.get(gapId) || 0) + 1);
+    this.callsByPriority.set(priority, (this.callsByPriority.get(priority) || 0) + 1);
+
+    this.inflightByRound.set(round, Math.max(0, (this.inflightByRound.get(round) || 0) - 1));
+    this.inflightByGap.set(gapId, Math.max(0, (this.inflightByGap.get(gapId) || 0) - 1));
+    this.inflightByPriority.set(priority, Math.max(0, (this.inflightByPriority.get(priority) || 0) - 1));
+
+    if (!this.callsByRoundByPriority.has(round)) this.callsByRoundByPriority.set(round, new Map());
+    const completedByRound = this.callsByRoundByPriority.get(round);
+    completedByRound.set(priority, (completedByRound.get(priority) || 0) + 1);
+
+    const inflightByRound = this.inflightByRoundByPriority.get(round);
+    if (inflightByRound) inflightByRound.set(priority, Math.max(0, (inflightByRound.get(priority) || 0) - 1));
+
     this.results.push({ round, gapId, result, ts: Date.now() });
   }
 
   getStats() {
     return {
       totalCalls: this.totalCalls,
+      inflightCalls: this.inflightCalls,
       callsByRound: Object.fromEntries(this.callsByRound),
       callsByGap: Object.fromEntries(this.callsByGap),
       successRate: this.results.filter(r => r.result?.success).length / Math.max(1, this.results.length),
     };
+  }
+}
+
+class ShadowPriorityQueue {
+  constructor({ maxConcurrent = CONCURRENCY_CONFIG.DEFAULT_PARALLEL } = {}) {
+    this.maxConcurrent = typeof maxConcurrent === "number" && Number.isFinite(maxConcurrent) ? Math.max(1, Math.floor(maxConcurrent)) : CONCURRENCY_CONFIG.DEFAULT_PARALLEL;
+    this.inflight = 0;
+    this.drainScheduled = false;
+    this.queues = { high: [], medium: [], low: [] };
+  }
+
+  enqueue(priority, fn) {
+    const p = ShadowStats.normalizePriority(priority);
+    return new Promise((resolve, reject) => {
+      this.queues[p].push({ fn, resolve, reject });
+      this.scheduleDrain();
+    });
+  }
+
+  nextTask() {
+    if (this.queues.high.length) return this.queues.high.shift();
+    if (this.queues.medium.length) return this.queues.medium.shift();
+    if (this.queues.low.length) return this.queues.low.shift();
+    return null;
+  }
+
+  drain() {
+    while (this.inflight < this.maxConcurrent) {
+      const task = this.nextTask();
+      if (!task) return;
+      this.inflight++;
+      Promise.resolve()
+        .then(task.fn)
+        .then(task.resolve, task.reject)
+        .finally(() => {
+          this.inflight = Math.max(0, this.inflight - 1);
+          this.scheduleDrain();
+        });
+    }
+  }
+
+  scheduleDrain() {
+    if (this.drainScheduled) return;
+    this.drainScheduled = true;
+    queueMicrotask(() => {
+      this.drainScheduled = false;
+      this.drain();
+    });
   }
 }
 
@@ -111,6 +304,8 @@ export class ShadowAgent {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.stats = new ShadowStats();
     this.callModel = getModelCaller(stageApi, { usage: "shadow", state });
+    const maxConcurrentCalls = ShadowStats.safeLimit(this.config.maxConcurrentCalls) || ShadowStats.safeLimit(this.config.maxCallsPerRound) || CONCURRENCY_CONFIG.DEFAULT_PARALLEL;
+    this.queue = new ShadowPriorityQueue({ maxConcurrent: maxConcurrentCalls });
   }
 
   /**
@@ -118,18 +313,9 @@ export class ShadowAgent {
    */
   async validateRelevance(chunk, gap, { round = 0 } = {}) {
     const gapId = toNonEmptyString(gap?.gapId) || "unknown";
+    const priority = ShadowStats.normalizePriority(gap?.priority);
     const question = toNonEmptyString(gap?.question) || toNonEmptyString(gap?.text) || "";
     const content = toNonEmptyString(chunk?.text) || "";
-
-    // 预算检查
-    if (!this.stats.canCall(round, gapId, this.config)) {
-      logEvent({
-        stage: "shadow",
-        message: "Shadow budget exceeded",
-        data: { round, gapId, stats: this.stats.getStats() },
-      });
-      return { skipped: true, reason: "budget_exceeded" };
-    }
 
     // 内容太短，用启发式
     if (content.length < 100) {
@@ -146,52 +332,64 @@ export class ShadowAgent {
       return { skipped: true, reason: "no_model" };
     }
 
-    const prompt = RELEVANCE_PROMPT
-      .replace("{question}", question)
-      .replace("{content}", content.slice(0, 1500));
-
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), this.config.timeoutMs);
-
-      const result = await this.callModel(
-        [{ role: "user", content: prompt }],
-        {
-          temperature: this.config.temperature,
-          maxTokens: this.config.maxTokens,
-        }
-      );
-
-      clearTimeout(timeoutId);
-
-      const candidate = extractJsonCandidate(result?.content);
-      if (!candidate) {
-        this.stats.recordCall(round, gapId, { success: false, reason: "parse_failed" });
-        return { skipped: true, reason: "parse_failed" };
+    return this.queue.enqueue(priority, async () => {
+      const reservation = this.stats.reserveCall(round, gap, this.config);
+      if (!reservation) {
+        logEvent({
+          stage: "shadow",
+          message: "Shadow budget exceeded",
+          data: { round, gapId, priority, stats: this.stats.getStats() },
+        });
+        return { skipped: true, reason: "budget_exceeded" };
       }
 
-      const parsed = JSON.parse(candidate);
-      const verdict = {
-        relevant: Boolean(parsed.relevant),
-        confidence: typeof parsed.confidence === "number" ? Math.min(1, Math.max(0, parsed.confidence)) : 0.5,
-        reason: toNonEmptyString(parsed.reason) || "",
-        keyInfo: toNonEmptyString(parsed.keyInfo),
-        success: true,
-      };
+      const prompt = RELEVANCE_PROMPT
+        .replace("{question}", question)
+        .replace("{content}", content.slice(0, 1500));
 
-      this.stats.recordCall(round, gapId, { success: true, relevant: verdict.relevant });
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.config.timeoutMs);
 
-      logEvent({
-        stage: "shadow",
-        message: "Relevance validation completed",
-        data: { gapId, chunkId: chunk?.chunkId, verdict },
-      });
+        const result = await this.callModel(
+          [{ role: "user", content: prompt }],
+          {
+            temperature: this.config.temperature,
+            maxTokens: this.config.maxTokens,
+          }
+        );
 
-      return verdict;
-    } catch (err) {
-      this.stats.recordCall(round, gapId, { success: false, error: err?.message });
-      return { skipped: true, reason: String(err?.message || err) };
-    }
+        clearTimeout(timeoutId);
+
+        const candidate = extractJsonCandidate(result?.content);
+        if (!candidate) {
+          this.stats.finishCall(reservation, { success: false, reason: "parse_failed" });
+          return { skipped: true, reason: "parse_failed" };
+        }
+
+        const parsed = JSON.parse(candidate);
+        const verdict = {
+          relevant: Boolean(parsed.relevant),
+          confidence: typeof parsed.confidence === "number" ? Math.min(1, Math.max(0, parsed.confidence)) : 0.5,
+          reason: toNonEmptyString(parsed.reason) || "",
+          keyInfo: toNonEmptyString(parsed.keyInfo),
+          success: true,
+        };
+
+        this.stats.finishCall(reservation, { success: true, relevant: verdict.relevant });
+
+        logEvent({
+          stage: "shadow",
+          message: "Relevance validation completed",
+          data: { gapId, chunkId: chunk?.chunkId, verdict },
+        });
+
+        return verdict;
+      } catch (err) {
+        this.stats.finishCall(reservation, { success: false, error: err?.message });
+        return { skipped: true, reason: String(err?.message || err) };
+      }
+    });
   }
 
   /**
@@ -199,52 +397,54 @@ export class ShadowAgent {
    */
   async validateEvidence(claim, evidence, { round = 0 } = {}) {
     const gapId = claim?.gapIds?.[0] || "unknown";
+    const priority = ShadowStats.normalizePriority(claim?.priority);
     const claimText = toNonEmptyString(claim?.text) || "";
     const content = toNonEmptyString(evidence?.text) || toNonEmptyString(evidence?.quote) || "";
-
-    if (!this.stats.canCall(round, gapId, this.config)) {
-      return { skipped: true, reason: "budget_exceeded" };
-    }
 
     if (!this.callModel) {
       return { skipped: true, reason: "no_model" };
     }
 
-    const prompt = EVIDENCE_PROMPT
-      .replace("{claim}", claimText)
-      .replace("{content}", content.slice(0, 1500));
+    return this.queue.enqueue(priority, async () => {
+      const reservation = this.stats.reserveCall(round, { gapId, priority }, this.config);
+      if (!reservation) return { skipped: true, reason: "budget_exceeded" };
 
-    try {
-      const result = await this.callModel(
-        [{ role: "user", content: prompt }],
-        {
-          temperature: this.config.temperature,
-          maxTokens: this.config.maxTokens,
+      const prompt = EVIDENCE_PROMPT
+        .replace("{claim}", claimText)
+        .replace("{content}", content.slice(0, 1500));
+
+      try {
+        const result = await this.callModel(
+          [{ role: "user", content: prompt }],
+          {
+            temperature: this.config.temperature,
+            maxTokens: this.config.maxTokens,
+          }
+        );
+
+        const candidate = extractJsonCandidate(result?.content);
+        if (!candidate) {
+          this.stats.finishCall(reservation, { success: false, reason: "parse_failed" });
+          return { skipped: true, reason: "parse_failed" };
         }
-      );
 
-      const candidate = extractJsonCandidate(result?.content);
-      if (!candidate) {
-        this.stats.recordCall(round, gapId, { success: false, reason: "parse_failed" });
-        return { skipped: true, reason: "parse_failed" };
+        const parsed = JSON.parse(candidate);
+        const verdict = {
+          supports: Boolean(parsed.supports),
+          strength: ["strong", "moderate", "weak", "none"].includes(parsed.strength) ? parsed.strength : "weak",
+          confidence: typeof parsed.confidence === "number" ? Math.min(1, Math.max(0, parsed.confidence)) : 0.5,
+          reason: toNonEmptyString(parsed.reason) || "",
+          betterQuote: toNonEmptyString(parsed.betterQuote),
+          success: true,
+        };
+
+        this.stats.finishCall(reservation, { success: true, supports: verdict.supports });
+        return verdict;
+      } catch (err) {
+        this.stats.finishCall(reservation, { success: false, error: err?.message });
+        return { skipped: true, reason: String(err?.message || err) };
       }
-
-      const parsed = JSON.parse(candidate);
-      const verdict = {
-        supports: Boolean(parsed.supports),
-        strength: ["strong", "moderate", "weak", "none"].includes(parsed.strength) ? parsed.strength : "weak",
-        confidence: typeof parsed.confidence === "number" ? Math.min(1, Math.max(0, parsed.confidence)) : 0.5,
-        reason: toNonEmptyString(parsed.reason) || "",
-        betterQuote: toNonEmptyString(parsed.betterQuote),
-        success: true,
-      };
-
-      this.stats.recordCall(round, gapId, { success: true, supports: verdict.supports });
-      return verdict;
-    } catch (err) {
-      this.stats.recordCall(round, gapId, { success: false, error: err?.message });
-      return { skipped: true, reason: String(err?.message || err) };
-    }
+    });
   }
 
   /**
@@ -279,7 +479,7 @@ export function shouldValidateWithShadow(chunk, gap, config = {}) {
   }
 
   // 灰色地带（0.3-0.5），验证
-  if (score >= 0.3 && score < 0.5) {
+  if (score >= 0.3 && score < GAP_CONFIG.QUALITY_THRESHOLD) {
     return { shouldValidate: true, reason: "gray_zone" };
   }
 
@@ -294,3 +494,8 @@ export function createShadowAgent(stageApi, state, config = {}) {
 }
 
 export default ShadowAgent;
+
+export const __test = {
+  ShadowStats,
+  ShadowPriorityQueue,
+};

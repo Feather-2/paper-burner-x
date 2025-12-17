@@ -10,9 +10,7 @@ import { getModelCaller } from "./model.js";
 import { buildContentPackage } from "../textprep/build-content-package.js";
 import { logEvent } from "./logger.js";
 import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
-
-// 小文档直通阈值（默认 20000 字符，约 5000 中文字）
-const DEFAULT_SMALL_DOC_THRESHOLD = 20000;
+import { SMALL_DOC_THRESHOLD } from "./constants.js";
 
 const DIRECT_ANALYSIS_PROMPT = `你是一个文档分析专家。请仔细阅读以下文档，并根据用户目标完成分析。
 
@@ -81,7 +79,7 @@ const DIRECT_ANALYSIS_PROMPT = `你是一个文档分析专家。请仔细阅读
 export function shouldUseDirectMode(state, { threshold } = {}) {
   const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
   const totalChars = sources.reduce((sum, s) => sum + (s?.sourceTextNormalized?.length || 0), 0);
-  const th = safeInt(threshold) ?? safeInt(state?.userConfig?.directAnalysis?.threshold) ?? DEFAULT_SMALL_DOC_THRESHOLD;
+  const th = safeInt(threshold) ?? safeInt(state?.userConfig?.directAnalysis?.threshold) ?? SMALL_DOC_THRESHOLD;
 
   // 默认禁用，需要显式启用
   if (state?.userConfig?.directAnalysis?.enabled !== true) {

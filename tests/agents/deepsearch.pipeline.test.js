@@ -1440,3 +1440,76 @@ test("DeepSearch pipeline: budget.exceeded action=degrade clamps maxIterations",
   assert.equal(state.maxIterations, 1);
   assert.ok(state.timeline.some((e) => e && e.name === "deepsearch.budget.degraded"));
 });
+
+test("ShadowAgent budget: reserves calls for high priority gaps (total + round)", async () => {
+  const { __test } = await import("../../js/agents/stages/deepsearch/shadow-agent.js");
+
+  const stats = new __test.ShadowStats();
+  const config = {
+    maxCallsTotal: 10,
+    maxCallsPerRound: 5,
+    maxCallsPerGap: 100,
+    priorityReserve: { high: 0.3, medium: 0.1, low: 0 },
+  };
+
+  const round = 0;
+  const lowGap = { gapId: "g_low", priority: "low" };
+  const highGap = { gapId: "g_high", priority: "high" };
+
+  // round reserve: maxCallsPerRound=5, high reserve=1 -> low can consume at most 4 in this round.
+  for (let i = 0; i < 4; i++) {
+    const r = stats.reserveCall(round, lowGap, config);
+    assert.ok(r, `expected low to reserve call ${i + 1}`);
+    stats.finishCall(r, { success: true });
+  }
+  assert.equal(stats.canCall(round, lowGap, config), false, "low should be blocked by round reserve");
+  assert.equal(stats.canCall(round, highGap, config), true, "high should still be allowed by round reserve");
+
+  // total reserve: maxCallsTotal=10, high reserve=3 and medium reserve=1 -> low total cap is 6.
+  for (let i = 0; i < 2; i++) {
+    const r = stats.reserveCall(round + 1, lowGap, config);
+    assert.ok(r, `expected low to reserve total call ${i + 1}`);
+    stats.finishCall(r, { success: true });
+  }
+  assert.equal(stats.getStats().totalCalls, 6);
+  assert.equal(stats.canCall(round + 1, lowGap, config), false, "low should be blocked by total reserve");
+  assert.equal(stats.canCall(round + 1, highGap, config), true, "high should still be allowed by total reserve");
+});
+
+test("ShadowAgent queue: high priority executes before medium/low", async () => {
+  const { ShadowAgent } = await import("../../js/agents/stages/deepsearch/shadow-agent.js");
+
+  const modelRouter = createMockModelRouter(async () => {
+    return {
+      content: JSON.stringify({ relevant: true, confidence: 0.9, reason: "ok", keyInfo: "x" }),
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+      model: "m1",
+    };
+  });
+
+  const stageApi = { modelRouter };
+  const agent = new ShadowAgent(stageApi, {}, { maxConcurrentCalls: 1, maxCallsTotal: 20, maxCallsPerRound: 20, maxCallsPerGap: 20 });
+
+  const longText = makeWordBlob(200, "alpha");
+  const chunk = { chunkId: "c1", text: longText };
+
+  const lowGap = { gapId: "g_low", priority: "low", question: "Q_LOW" };
+  const highGap = { gapId: "g_high", priority: "high", question: "Q_HIGH" };
+  const mediumGap = { gapId: "g_med", priority: "medium", question: "Q_MED" };
+
+  await Promise.all([
+    agent.validateRelevance(chunk, lowGap, { round: 0 }),
+    agent.validateRelevance(chunk, highGap, { round: 0 }),
+    agent.validateRelevance(chunk, mediumGap, { round: 0 }),
+  ]);
+
+  const callOrder = modelRouter.calls.map((c) => {
+    const content = c?.messages?.[0]?.content || "";
+    if (content.includes("Q_HIGH")) return "high";
+    if (content.includes("Q_MED")) return "medium";
+    if (content.includes("Q_LOW")) return "low";
+    return "unknown";
+  });
+
+  assert.deepEqual(callOrder, ["high", "medium", "low"]);
+});
