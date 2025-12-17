@@ -4,6 +4,23 @@ import { logEvent, setLogContext } from "./logger.js";
 import { search as toolChainSearch } from "../../retrieval/tool-chain.js";
 import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
 
+const ALLOWED_GAP_TYPES = new Set([
+  "unknown",
+  "definition",
+  "background",
+  "data",
+  "mechanism",
+  "application",
+  "comparison",
+  "challenge",
+  "solution",
+  "trend",
+  "benefit",
+  "implementation",
+  "cost",
+  "question",
+]);
+
 function collapseWhitespace(s) {
   return String(s || "")
     .replaceAll(/\s+/g, " ")
@@ -81,10 +98,20 @@ function ensureState(_runContext, input) {
   throw new TypeError("DeepSearch gaps: input.state is required");
 }
 
+function normalizeGapType(type) {
+  const t = toNonEmptyString(type);
+  const normalized = t ? String(t).toLowerCase() : "unknown";
+  if (!ALLOWED_GAP_TYPES.has(normalized)) {
+    console.warn("[DeepSearch] gaps: invalid gap type; using 'unknown':", { type: t });
+    return "unknown";
+  }
+  return normalized;
+}
+
 function gap(gapId, type, question, { priority = "medium", queryHints = [], status = "open", missCount = 0, blockedReason } = {}) {
   return {
     gapId,
-    type,
+    type: normalizeGapType(type),
     question,
     priority,
     status,
@@ -227,11 +254,29 @@ function gapKey(g) {
 }
 
 function normalizeGap(existing, fallbackGapId) {
-  if (!isPlainObject(existing)) return null;
+  if (!isPlainObject(existing)) {
+    logEvent({ stage: "gaps", message: "normalizeGap skipped", data: { reason: "not_object", type: typeof existing } });
+    return null;
+  }
   const gapId = toNonEmptyString(existing.gapId) || toNonEmptyString(fallbackGapId);
   const type = toNonEmptyString(existing.type) || "unknown";
   const question = toNonEmptyString(existing.question) || "";
-  if (!gapId || !question) return null;
+  if (!gapId) {
+    logEvent({
+      stage: "gaps",
+      message: "normalizeGap skipped",
+      data: { reason: "missing_gapId", fallbackGapId: toNonEmptyString(fallbackGapId) || null, type, hasQuestion: Boolean(question) },
+    });
+    return null;
+  }
+  if (!question) {
+    logEvent({
+      stage: "gaps",
+      message: "normalizeGap skipped",
+      data: { reason: "missing_question", gapId, type },
+    });
+    return null;
+  }
   const status = ["open", "filled", "blocked"].includes(String(existing.status)) ? String(existing.status) : "open";
   const priority = toNonEmptyString(existing.priority) || "medium";
   const queryHints = Array.isArray(existing.queryHints) ? existing.queryHints : [];
@@ -484,6 +529,7 @@ export const __test = {
   gap,
   gapKey,
   extractGoalTerms,
+  normalizeGapType,
   normalizeGap,
   nextGapId,
   ensureTodosForGaps,

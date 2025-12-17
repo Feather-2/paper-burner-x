@@ -52,6 +52,41 @@ function makeWordBlob(n, word = "w") {
   return Array.from({ length: n }, () => word).join(" ");
 }
 
+test("LRUMap: evicts oldest and refreshes on get", async () => {
+  const { LRUMap } = await import("../../js/agents/shared/lru-map.js");
+
+  {
+    const m = new LRUMap(2);
+    m.set("a", 1);
+    m.set("b", 2);
+    m.set("c", 3);
+    assert.equal(m.has("a"), false);
+    assert.equal(m.has("b"), true);
+    assert.equal(m.has("c"), true);
+  }
+
+  {
+    const m = new LRUMap(2);
+    m.set("a", 1);
+    m.set("b", 2);
+    assert.equal(m.get("a"), 1); // refresh a
+    m.set("c", 3);
+    assert.equal(m.has("b"), false);
+    assert.equal(m.has("a"), true);
+    assert.equal(m.has("c"), true);
+  }
+
+  {
+    const m = new LRUMap(2);
+    m.set("a", 1);
+    m.set("b", 2);
+    m.set("a", 11); // refresh a
+    m.set("c", 3);
+    assert.equal(m.has("b"), false);
+    assert.equal(m.get("a"), 11);
+  }
+});
+
 test("DeepSearchState: serialization/deserialization preserves L0/L1/L2", async () => {
   const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
 
@@ -856,6 +891,86 @@ test("extractGoalTerms: handles mixed CJK + latin tokens", async () => {
 test("DeepSearch gaps.ensureState: throws when input.state missing", async () => {
   const { runDeepSearchGapsStage } = await import("../../js/agents/stages/deepsearch/gaps.js");
   await assert.rejects(() => runDeepSearchGapsStage({ runId: "run_gaps_missing_state" }, {}, { emit: () => {} }), /input\.state is required/);
+});
+
+test("DeepSearch gaps.gap: invalid type degrades to 'unknown' and warns", async () => {
+  const { __test } = await import("../../js/agents/stages/deepsearch/gaps.js");
+
+  const originalWarn = console.warn;
+  const warnings = [];
+  console.warn = (...args) => warnings.push(args);
+  try {
+    const g = __test.gap("gap_invalid_type", "NOT_A_REAL_TYPE", "What is this?");
+    assert.equal(g.type, "unknown");
+    assert.ok(warnings.length >= 1);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("DeepSearch retrieve: invalid gaps/sources/config are skipped and emit events", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchRetrieveStage } = await import("../../js/agents/stages/deepsearch/retrieve.js");
+
+  const state = new DeepSearchState({
+    runId: "run_retrieve_invalid_inputs",
+    taskGoal: "Test invalid inputs",
+    userConfig: {
+      retrieval: {
+        enableToolChain: false,
+        iterative: { enabled: false },
+        grepRegex: "false",
+        caseSensitive: "no",
+        chunkSize: "bad",
+        maxChunks: "bad",
+      },
+    },
+    L0: {
+      sources: [
+        { kind: "user_text", title: "missing_id", sourceTextNormalized: "alpha beta gamma" }, // invalid (missing sourceId)
+        { sourceId: "s1", kind: "user_text", title: "ok", sourceTextNormalized: "alpha beta gamma" },
+      ],
+    },
+    L1: {
+      gaps: [
+        { type: "definition", status: "open" }, // invalid (missing gapId)
+        { gapId: "gap_no_query", status: "open", queryHints: [] }, // invalid (missing question + queryHints)
+        { gapId: "gap_1", type: "definition", question: "What is alpha?", status: "open", queryHints: [] },
+      ],
+    },
+    L2: { retrievedChunks: [] },
+  });
+
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const localRetriever = (sourceIndex, gaps) => {
+    assert.equal(sourceIndex.sourceId, "s1");
+    assert.equal(gaps.length, 1);
+    assert.equal(gaps[0].gapId, "gap_1");
+
+    const first = sourceIndex.chunks[0];
+    return [
+      {
+        chunkId: first.chunkId,
+        sourceId: sourceIndex.sourceId,
+        locator: first.locator,
+        text: first.text,
+        score: 1,
+        relevance: "hit",
+        matchedGapIds: ["gap_1"],
+      },
+    ];
+  };
+
+  const out = await runDeepSearchRetrieveStage({ runId: "run_retrieve_invalid_inputs" }, { state }, { emit, localRetriever });
+  assert.ok(Array.isArray(out.retrievedChunks));
+  assert.ok(out.retrievedChunks.length >= 1);
+
+  assert.ok(events.some((e) => e.name === "deepsearch.retrieve.config.invalid"));
+  assert.ok(events.some((e) => e.name === "deepsearch.gap.invalid"));
+  assert.ok(events.some((e) => e.name === "deepsearch.source.invalid"));
+  assert.ok(events.some((e) => e.name === "deepsearch.retrieve.completed"));
 });
 
 test('DeepSearch gaps: default gaps add "comparison" when taskGoal contains compare/vs', async () => {

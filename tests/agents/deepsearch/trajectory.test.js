@@ -1,5 +1,29 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { setTimeout: delay } = require("node:timers/promises");
+
+test("mapConcurrent: enforces concurrency and preserves order", async () => {
+  const { mapConcurrent } = await import("../../../js/agents/shared/concurrency.js");
+
+  const items = Array.from({ length: 17 }, (_, i) => i);
+  let inFlight = 0;
+  let maxInFlight = 0;
+
+  const out = await mapConcurrent(
+    items,
+    async (n) => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await delay(10);
+      inFlight--;
+      return n * 2;
+    },
+    3
+  );
+
+  assert.ok(maxInFlight <= 3, `expected max concurrency <= 3, got ${maxInFlight}`);
+  assert.deepEqual(out, items.map((n) => n * 2));
+});
 
 test("TrajectoryManager.fork: creates N independent DeepSearchState clones", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");

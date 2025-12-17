@@ -7,8 +7,76 @@ import { logEvent, setLogContext, trackToolCall } from "./logger.js";
 import { search as toolChainSearch } from "../../retrieval/tool-chain.js";
 import { ShadowAgent, shouldValidateWithShadow } from "./shadow-agent.js";
 import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
+import { LRUMap } from "../../shared/lru-map.js";
+import { mapConcurrent } from "../../shared/concurrency.js";
 
 const defaultLocalRetriever = (...args) => retrieveWithRouter(...args);
+
+function isObjectLike(v) {
+  return v !== null && (typeof v === "object" || typeof v === "function");
+}
+
+function isFiniteNumber(v) {
+  return typeof v === "number" && Number.isFinite(v);
+}
+
+function emitInvalidInput(emit, name, payload) {
+  emit?.(name, payload, { status: "warning" });
+}
+
+function normalizeRetrievalConfig(raw, { emit } = {}) {
+  const issues = [];
+  const cfg = isPlainObject(raw) ? raw : {};
+  const config = { ...cfg };
+
+  if (raw !== undefined && raw !== null && !isPlainObject(raw)) {
+    issues.push({ path: "retrieval", issue: "must be an object" });
+  }
+
+  const numbers = ["chunkSize", "overlap", "topK", "windowSize", "minGrepHits"];
+  for (const k of numbers) {
+    if (!(k in cfg)) continue;
+    if (!isFiniteNumber(cfg[k])) {
+      issues.push({ path: `retrieval.${k}`, issue: "must be a finite number" });
+      delete config[k];
+    }
+  }
+
+  if ("maxChunks" in cfg) {
+    const n = safeInt(cfg.maxChunks);
+    if (n === null) {
+      issues.push({ path: "retrieval.maxChunks", issue: "must be an integer" });
+      delete config.maxChunks;
+    } else {
+      config.maxChunks = n;
+    }
+  }
+
+  const bools = ["enableToolChain", "useBm25", "useGrep", "grepRegex", "caseSensitive", "includeLineNumbers"];
+  for (const k of bools) {
+    if (!(k in cfg)) continue;
+    if (typeof cfg[k] !== "boolean") {
+      issues.push({ path: `retrieval.${k}`, issue: "must be a boolean" });
+      delete config[k];
+    }
+  }
+
+  const objects = ["bm25", "toolChain", "iterative", "shadow"];
+  for (const k of objects) {
+    if (!(k in cfg)) continue;
+    if (!isPlainObject(cfg[k])) {
+      issues.push({ path: `retrieval.${k}`, issue: "must be an object" });
+      delete config[k];
+    }
+  }
+
+  if (issues.length) {
+    emitInvalidInput(emit, "deepsearch.retrieve.config.invalid", { issues });
+    logEvent({ stage: "retrieve", message: "Invalid retrievalConfig; falling back to defaults", data: { issuesCount: issues.length, issues } });
+  }
+
+  return { config, issues };
+}
 
 export function deduplicateChunks(newChunks, existingChunks) {
   const existingById = new Map();
@@ -261,7 +329,7 @@ async function rerankWithLLM(chunks, query, { stageApi, state, emit, topK = 10, 
     const rankedIds = Array.isArray(parsed?.ranked) ? parsed.ranked : [];
 
     // 根据 LLM 返回的排序重排 chunks
-    const chunkById = new Map();
+    const chunkById = new LRUMap();
     for (const c of inputChunks) {
       const id = c.chunkId || c.retrievedId;
       if (id) chunkById.set(id, c);
@@ -476,9 +544,21 @@ async function iterativeRetrieve(gap, sourceIndexes, localRetriever, routerConfi
  * @param {object=} stageApi.externalSearchProvider
  */
 export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {}) {
-  const emit = makeStageEmitter(stageApi, "deepsearch");
+  const safeStageApi = isObjectLike(stageApi) ? stageApi : {};
+  if (stageApi !== safeStageApi) {
+    console.warn("[DeepSearch] retrieve: invalid stageApi; expected an object", { stageApiType: typeof stageApi });
+  }
+
+  stageApi = safeStageApi;
+  const emit = makeStageEmitter(safeStageApi, "deepsearch");
   const state = ensureState(runContext, input);
-  const localRetriever = stageApi?.localRetriever ?? defaultLocalRetriever;
+
+  const localRetriever =
+    typeof stageApi?.localRetriever === "function"
+      ? stageApi.localRetriever
+      : stageApi?.localRetriever !== undefined
+        ? (emitInvalidInput(emit, "deepsearch.retrieve.input.invalid", { field: "stageApi.localRetriever", issue: "must be a function" }), defaultLocalRetriever)
+        : defaultLocalRetriever;
 
   // 设置日志上下文
   setLogContext({ runId: state.runId, iteration: state.iteration || 0 });
@@ -505,10 +585,28 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
 
   const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
   const gapsAll = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
-  const gaps = gapsAll.filter((g) => String(g?.status || "open") === "open");
+  const openGapsRaw = gapsAll.filter((g) => String(g?.status || "open") === "open");
+  const gaps = [];
+  for (let i = 0; i < openGapsRaw.length; i++) {
+    const g = openGapsRaw[i];
+    const gapId = toNonEmptyString(g?.gapId);
+    const question = toNonEmptyString(g?.question) || toNonEmptyString(g?.text);
+    const queryHints = Array.isArray(g?.queryHints) ? g.queryHints : [];
+    const hasHint = queryHints.some((h) => Boolean(toNonEmptyString(h)));
+    if (!gapId || (!question && !hasHint)) {
+      emitInvalidInput(emit, "deepsearch.gap.invalid", {
+        stage: "retrieve",
+        gapIndex: i,
+        gapId: gapId || null,
+        issue: !gapId ? "missing_gapId" : "missing_question_and_queryHints",
+      });
+      continue;
+    }
+    gaps.push(g);
+  }
   const existingChunks = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
 
-  const retrievalConfig = isPlainObject(state?.userConfig?.retrieval) ? state.userConfig.retrieval : {};
+  const { config: retrievalConfig } = normalizeRetrievalConfig(state?.userConfig?.retrieval, { emit });
   const chunkSize = Number.isFinite(retrievalConfig.chunkSize) ? Math.max(200, Math.floor(retrievalConfig.chunkSize)) : 1600;
   const overlap = Number.isFinite(retrievalConfig.overlap) ? Math.max(0, Math.floor(retrievalConfig.overlap)) : 180;
   const topK = Number.isFinite(retrievalConfig.topK) ? Math.max(1, Math.floor(retrievalConfig.topK)) : 6;
@@ -531,10 +629,19 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
   };
 
   const sourceIndexes = [];
-  for (const s of sources) {
-    const sourceId = toNonEmptyString(s?.sourceId) || "source_unknown";
+  for (let i = 0; i < sources.length; i++) {
+    const s = sources[i];
+    const sourceId = toNonEmptyString(s?.sourceId);
+    if (!sourceId) {
+      emitInvalidInput(emit, "deepsearch.source.invalid", { stage: "retrieve", sourceIndex: i, issue: "missing_sourceId" });
+      continue;
+    }
+
     const fullText = typeof s?.sourceTextNormalized === "string" ? s.sourceTextNormalized : "";
-    if (!fullText) continue;
+    if (!fullText) {
+      emitInvalidInput(emit, "deepsearch.source.invalid", { stage: "retrieve", sourceIndex: i, sourceId, issue: "missing_sourceTextNormalized" });
+      continue;
+    }
 
     const rawChunks = Array.isArray(s?.chunks)
       ? s.chunks
@@ -561,7 +668,7 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
     sourceIndexes.push(sourceIndex);
   }
 
-  const existingByChunkId = new Map();
+  const existingByChunkId = new LRUMap();
   for (const r of existingChunks) {
     const cid = toNonEmptyString(r?.chunkId);
     if (cid) existingByChunkId.set(cid, r);
@@ -572,14 +679,13 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
   const enableIterative = iterativeConfig.enabled !== false; // 默认启用
   const maxIterations = safeInt(iterativeConfig.maxIterations) ?? 2;
 
-  const retrievedByChunkId = new Map(); // chunkId -> merged row (without retrievedId)
+  const retrievedByChunkId = new LRUMap(); // chunkId -> merged row (without retrievedId)
   const allChunksForToolChain = enableToolChain
     ? sourceIndexes.flatMap((sourceIndex) => (Array.isArray(sourceIndex?.chunks) ? sourceIndex.chunks : []))
     : [];
   const allChunksForToolChainById = new Map(allChunksForToolChain.map((c) => [String(c?.chunkId || ""), c]).filter(([id]) => id));
 
-  const gapResults = await Promise.all(
-    gaps.map(async (g, i) => {
+  const gapResults = await mapConcurrent(gaps, async (g, i) => {
       const gapId = toNonEmptyString(g?.gapId) || `gap_${i + 1}`;
       const gapType = toNonEmptyString(g?.type) || "";
 
@@ -692,8 +798,7 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
       }
 
       return { gapId, gapType, retrieved, gap: g };
-    })
-  );
+  });
 
   for (const { gapId, gapType, retrieved } of gapResults) {
     for (const r of retrieved) {

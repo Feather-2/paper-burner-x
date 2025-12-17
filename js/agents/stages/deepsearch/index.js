@@ -14,6 +14,7 @@ import { logEvent, setLogContext, setEventBus } from "./logger.js";
 import { SharedContext } from "./shared-context.js";
 import { shouldUseDirectMode, runDirectAnalysis } from "./direct-analysis.js";
 import { isPlainObject, safeInt } from "../../shared/value-utils.js";
+import { mapConcurrent } from "../../shared/concurrency.js";
 
 function validateSourceChunksOrThrow(sources) {
   for (const s of Array.isArray(sources) ? sources : []) {
@@ -391,9 +392,9 @@ export class DeepSearchStage {
         emit?.("deepsearch.trajectory.forked", { n: manager.config.n, mergeStrategy: manager.config.mergeStrategy });
 
         const trajectories = manager.fork(state);
-        await Promise.allSettled(
-          trajectories.map((trajectory) =>
-            manager.runTrajectory(
+        await mapConcurrent(trajectories, async (trajectory) => {
+          try {
+            await manager.runTrajectory(
               trajectory,
               {
                 runContext,
@@ -410,9 +411,11 @@ export class DeepSearchStage {
                 emit: emit ? (name, payload) => emit(name, payload) : null,
               },
               stageApiWithTap
-            )
-          )
-        );
+            );
+          } catch {
+            // keep all-settled semantics: trajectory failures should not abort merging others
+          }
+        });
 
         const merged = manager.merge();
         if (merged) applyMergedState(state, merged);
