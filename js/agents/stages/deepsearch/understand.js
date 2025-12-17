@@ -1199,8 +1199,9 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
 
   const seedClaims = dedupeClaims(seedClaimsRaw, { threshold: dedupeThreshold, mergeEvidence: true });
 
-  const referencedSeedEvidenceIds = new Set();
-  for (const c of seedClaims) for (const eid of Array.isArray(c?.evidenceIds) ? c.evidenceIds : []) referencedSeedEvidenceIds.add(String(eid));
+  const referencedSeedEvidenceIds = new Set(
+    seedClaims.flatMap((c) => (Array.isArray(c?.evidenceIds) ? c.evidenceIds : [])).map(String)
+  );
 
   const retrievedByChunkId = new Map();
   for (const r of retrieved) {
@@ -1336,8 +1337,9 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     });
   }
 
-  const referencedEvidenceIds = new Set();
-  for (const c of claims) for (const eid of Array.isArray(c?.evidenceIds) ? c.evidenceIds : []) referencedEvidenceIds.add(String(eid));
+  const referencedEvidenceIds = new Set(
+    claims.flatMap((c) => (Array.isArray(c?.evidenceIds) ? c.evidenceIds : [])).map(String)
+  );
 
   const evidenceLedgerRaw = [...existingEvidenceLedger, ...newEvidenceLedger];
   let evidenceLedger = evidenceLedgerRaw.filter((e) => e && referencedEvidenceIds.has(String(e.evidenceId)));
@@ -1380,8 +1382,9 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
       }
     }
 
-    const referencedAfterRemap = new Set();
-    for (const c of claims) for (const eid of Array.isArray(c?.evidenceIds) ? c.evidenceIds : []) referencedAfterRemap.add(String(eid));
+    const referencedAfterRemap = new Set(
+      claims.flatMap((c) => (Array.isArray(c?.evidenceIds) ? c.evidenceIds : [])).map(String)
+    );
     evidenceLedger = kept.filter((e) => referencedAfterRemap.has(String(e?.evidenceId)));
 
   }

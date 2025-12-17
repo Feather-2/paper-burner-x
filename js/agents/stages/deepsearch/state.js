@@ -178,13 +178,26 @@ export function extractJsonCandidate(text) {
   const fenced = s.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
   if (fenced && fenced[1]) return fenced[1].trim();
 
-  const firstBrace = s.indexOf("{");
-  const lastBrace = s.lastIndexOf("}");
-  if (firstBrace >= 0 && lastBrace > firstBrace) return s.slice(firstBrace, lastBrace + 1);
+  // Try to extract a valid JSON value (supports {} and []), even when the text
+  // contains multiple brace/bracket pairs or trailing noise.
+  const pairs = [
+    ["{", "}"],
+    ["[", "]"],
+  ]
+    .map(([open, close]) => ({ open, close, first: s.indexOf(open) }))
+    .filter((p) => p.first >= 0)
+    .sort((a, b) => a.first - b.first);
 
-  const firstBracket = s.indexOf("[");
-  const lastBracket = s.lastIndexOf("]");
-  if (firstBracket >= 0 && lastBracket > firstBracket) return s.slice(firstBracket, lastBracket + 1);
+  for (const { open, close, first } of pairs) {
+    for (let j = s.length - 1; j > first; j--) {
+      if (s[j] !== close) continue;
+      const candidate = s.slice(first, j + 1);
+      try {
+        JSON.parse(candidate);
+        return candidate;
+      } catch {}
+    }
+  }
 
   return s;
 }

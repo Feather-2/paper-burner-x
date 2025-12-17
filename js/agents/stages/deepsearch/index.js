@@ -33,17 +33,24 @@ function validateSourceChunksOrThrow(sources) {
   }
 }
 
-function createEmitTap(emitFn) {
+function createEmitTap(emitFn, { maxListeners } = {}) {
   const listeners = new Map(); // name -> Set(fn)
+  let destroyed = false;
 
   const on = (name, handler) => {
     if (typeof handler !== "function") throw new TypeError("createEmitTap().on(name, handler): handler must be a function");
     const key = String(name || "");
     if (!key) throw new TypeError("createEmitTap().on(name, handler): name must be a non-empty string");
+    if (destroyed) return () => {};
     let set = listeners.get(key);
     if (!set) {
       set = new Set();
       listeners.set(key, set);
+    }
+    if (typeof maxListeners === "number" && Number.isFinite(maxListeners) && maxListeners > 0) {
+      if (!set.has(handler) && set.size >= maxListeners) {
+        throw new RangeError(`createEmitTap().on(name, handler): maxListeners (${maxListeners}) exceeded for "${key}"`);
+      }
     }
     set.add(handler);
     return () => {
@@ -54,8 +61,14 @@ function createEmitTap(emitFn) {
     };
   };
 
+  const destroy = () => {
+    destroyed = true;
+    listeners.clear();
+  };
+
   const emit = (name, record) => {
     const result = typeof emitFn === "function" ? emitFn(name, record) : undefined;
+    if (destroyed) return result;
     const key = String(name || "");
     const direct = listeners.get(key);
     if (direct) for (const fn of [...direct]) fn({ name: key, record });
@@ -64,7 +77,7 @@ function createEmitTap(emitFn) {
     return result;
   };
 
-  return { emit, on };
+  return { emit, on, destroy };
 }
 
 function ensureState(runContext, input) {
@@ -776,6 +789,8 @@ export class DeepSearchStage {
     } catch (err) {
       if (taskManager && taskId) taskManager.fail(taskId, err);
       throw err;
+    } finally {
+      tap.destroy();
     }
   }
 

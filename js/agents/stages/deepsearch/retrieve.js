@@ -180,16 +180,18 @@ function applyChunkLru(chunks, { maxChunks } = {}) {
   const over = arr.length - max;
   if (over <= 0) return arr;
 
-  const removeConsumedIndexes = [];
-  for (let i = 0; i < arr.length; i++) {
-    if (arr[i] && arr[i].consumed) removeConsumedIndexes.push(i);
+  // LRU eviction rule (stable, single decision):
+  // 1) Evict oldest consumed chunks first.
+  // 2) If still over capacity, evict oldest remaining chunks.
+  // 3) Preserve original order; newer chunks are later in the array.
+  const toRemove = new Set();
+  for (let i = 0; i < arr.length && toRemove.size < over; i++) {
+    if (arr[i] && arr[i].consumed) toRemove.add(i);
   }
-
-  const consumedToRemove = new Set(removeConsumedIndexes.slice(0, over));
-  const afterConsumed = consumedToRemove.size ? arr.filter((_, i) => !consumedToRemove.has(i)) : arr;
-  if (afterConsumed.length <= max) return afterConsumed;
-
-  return afterConsumed.slice(afterConsumed.length - max);
+  for (let i = 0; i < arr.length && toRemove.size < over; i++) {
+    if (!toRemove.has(i)) toRemove.add(i);
+  }
+  return arr.filter((_, i) => !toRemove.has(i));
 }
 
 function normalizeChunkIdList(v) {

@@ -62,6 +62,25 @@ test("extractJsonCandidate: handles fenced code blocks after think tags", async 
   assert.equal(parsed.title, "Test");
 });
 
+test("extractJsonCandidate: supports top-level JSON arrays", async () => {
+  const { extractJsonCandidate } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  const input = 'prefix [{"a":1},{"b":2}] suffix';
+  const result = extractJsonCandidate(input);
+  const parsed = JSON.parse(result);
+  assert.ok(Array.isArray(parsed));
+  assert.equal(parsed[0].a, 1);
+  assert.equal(parsed[1].b, 2);
+});
+
+test("extractJsonCandidate: selects the correct closing brace when extra braces exist", async () => {
+  const { extractJsonCandidate } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  const input = 'prefix {"a":1} suffix } trailing';
+  const result = extractJsonCandidate(input);
+  assert.equal(result, '{"a":1}');
+});
+
 test("extractJsonCandidate: handles empty or null input", async () => {
   const { extractJsonCandidate } = await import("../../../js/agents/stages/deepsearch/state.js");
 

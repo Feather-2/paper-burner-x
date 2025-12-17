@@ -87,6 +87,40 @@ test("LRUMap: evicts oldest and refreshes on get", async () => {
   }
 });
 
+test("applyChunkLru: evicts oldest consumed first, then oldest overall (stable LRU)", async () => {
+  const { __test } = await import("../../js/agents/stages/deepsearch/retrieve.js");
+
+  {
+    const chunks = [
+      { chunkId: "a" }, // oldest
+      { chunkId: "b", consumed: true },
+      { chunkId: "c" },
+      { chunkId: "d", consumed: true },
+      { chunkId: "e" },
+      { chunkId: "f" }, // newest
+    ];
+    const out = __test.applyChunkLru(chunks, { maxChunks: 3 });
+    assert.deepEqual(
+      out.map((c) => c.chunkId),
+      ["c", "e", "f"]
+    );
+  }
+
+  {
+    const chunks = [
+      { chunkId: "c1", consumed: true }, // oldest consumed
+      { chunkId: "u2" },
+      { chunkId: "c3", consumed: true }, // newer consumed; should be kept
+      { chunkId: "u4" },
+    ];
+    const out = __test.applyChunkLru(chunks, { maxChunks: 3 });
+    assert.deepEqual(
+      out.map((c) => c.chunkId),
+      ["u2", "c3", "u4"]
+    );
+  }
+});
+
 test("DeepSearchState: serialization/deserialization preserves L0/L1/L2", async () => {
   const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
 

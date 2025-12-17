@@ -171,8 +171,9 @@ function withUniqueIds(trajectory) {
 }
 
 function reindexEvidenceAndClaims(claims, evidenceLedger) {
-  const referenced = new Set();
-  for (const c of claims) for (const eid of Array.isArray(c?.evidenceIds) ? c.evidenceIds : []) referenced.add(String(eid));
+  const referenced = new Set(
+    (Array.isArray(claims) ? claims : []).flatMap((c) => (Array.isArray(c?.evidenceIds) ? c.evidenceIds : [])).map(String)
+  );
 
   const byKey = new Map();
   const evidenceIdMap = new Map();
