@@ -545,7 +545,7 @@ test("trajectory.__test helpers: validateIteration, mergeGaps, signatures, ids",
       },
       L2: {
         retrievedChunks: [
-          { chunkId: "c1", gapId: "g1", sourceId: "s1", locator: { charStart: 0, charEnd: 2 }, text: "hi" },
+          { chunkId: "c1", gapId: "g1", sourceId: "s1", locator: { charStart: 0, charEnd: 2 }, text: "hi", score: 0.9 },
           { chunkId: "", gapId: "g1", sourceId: "s1", locator: { charStart: 0, charEnd: 2 }, text: "skip_chunkid" },
           { chunkId: "c2", gapId: "", sourceId: "s1", locator: { charStart: 0, charEnd: 2 }, text: "skip_gapid" },
         ],
@@ -815,26 +815,37 @@ test("state.computeRoundHitsByGapId: precedence, fallback, and accumulation", as
   const { computeRoundHitsByGapId } = await import("../../../js/agents/stages/deepsearch/state.js");
 
   {
-    const hits = computeRoundHitsByGapId([]);
-    assert.equal(hits instanceof Map, true);
-    assert.equal(hits.size, 0);
+    const { allHits, qualityHits } = computeRoundHitsByGapId([]);
+    assert.equal(allHits instanceof Map, true);
+    assert.equal(qualityHits instanceof Map, true);
+    assert.equal(allHits.size, 0);
+    assert.equal(qualityHits.size, 0);
   }
 
   {
-    const hits = computeRoundHitsByGapId([{ gapId: "gap_1" }]);
-    assert.equal(hits.get("gap_1"), 1);
+    const { allHits, qualityHits } = computeRoundHitsByGapId([{ gapId: "gap_1", score: 0.6 }]);
+    assert.equal(allHits.get("gap_1"), 1);
+    assert.equal(qualityHits.get("gap_1"), 1);
   }
 
   {
-    const hits = computeRoundHitsByGapId([{ gapId: "gap_a", matchedGapIds: ["gap_b"] }]);
-    assert.equal(hits.get("gap_b"), 1);
-    assert.equal(hits.has("gap_a"), false);
+    const { allHits, qualityHits } = computeRoundHitsByGapId([{ gapId: "gap_a", matchedGapIds: ["gap_b"], score: 1 }]);
+    assert.equal(allHits.get("gap_b"), 1);
+    assert.equal(allHits.has("gap_a"), false);
+    assert.equal(qualityHits.get("gap_b"), 1);
+    assert.equal(qualityHits.has("gap_a"), false);
   }
 
   {
-    const hits = computeRoundHitsByGapId([{ gapId: "g" }, { gapId: "g" }, { matchedGapIds: ["g", "h"] }]);
-    assert.equal(hits.get("g"), 3);
-    assert.equal(hits.get("h"), 1);
+    const { allHits, qualityHits } = computeRoundHitsByGapId([
+      { gapId: "g", score: 0.4 },
+      { gapId: "g", score: 0.6 },
+      { matchedGapIds: ["g", "h"], score: 0.9 },
+    ]);
+    assert.equal(allHits.get("g"), 3);
+    assert.equal(allHits.get("h"), 1);
+    assert.equal(qualityHits.get("g"), 2);
+    assert.equal(qualityHits.get("h"), 1);
   }
 });
 

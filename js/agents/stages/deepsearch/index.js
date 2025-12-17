@@ -133,8 +133,8 @@ function openGaps(state) {
 function getGapBlockAfterMisses(state) {
   const cfg = isPlainObject(state?.userConfig?.gaps) ? state.userConfig.gaps : {};
   const n = safeInt(cfg.blockAfterMisses);
-  // 默认值从 2 调整为 5，给更多机会尝试不同工具组合
-  return n !== null && n >= 1 ? n : 5;
+  // 默认值从 5 调整为 3，减少无效空转
+  return n !== null && n >= 1 ? n : 3;
 }
 
 function signatureForRetrievedChunk(r) {
@@ -610,8 +610,9 @@ export class DeepSearchStage {
             }
           }
 
-          const roundHits = computeRoundHitsByGapId(retrievedChunks);
-          const validateOut = validateIteration(state, { blockAfterMisses: getGapBlockAfterMisses(state), roundHits }, emit);
+          const blockAfterMisses = getGapBlockAfterMisses(state);
+          const { allHits, qualityHits: qualityHitsByGapId } = computeRoundHitsByGapId(retrievedChunks, 0.5);
+          const validateOut = validateIteration(state, allHits, qualityHitsByGapId, blockAfterMisses, undefined, emit);
 
           const completedIteration = state.iteration;
           const checkpoint = state.saveCheckpoint();

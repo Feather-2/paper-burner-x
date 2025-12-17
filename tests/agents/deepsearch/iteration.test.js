@@ -84,8 +84,8 @@ test("DeepSearch loop: validate updates gap status + checkpoints saved", async (
   const { stage, state } = await makeStageAndState({
     taskGoal: "Define Alpha and provide key metrics",
     sourceText,
-    userConfig: { gaps: { blockAfterMisses: 2 } },
-    maxIterations: 5,
+    userConfig: { gaps: { blockAfterMisses: 2, minEvidenceToFill: 1 } },
+    maxIterations: 2,
   });
 
   const pkg = await stage.execute({ runId: "run_iter", mode: "deepsearch", constraints: {} }, { state }, {});
@@ -115,8 +115,8 @@ test("DeepSearch checkpoints: restoreCheckpoint rewinds gaps + iteration", async
     runId: "run_restore",
     taskGoal: "Define Alpha and provide key metrics",
     sourceText,
-    userConfig: { gaps: { blockAfterMisses: 2 } },
-    maxIterations: 5,
+    userConfig: { gaps: { blockAfterMisses: 2, minEvidenceToFill: 1 } },
+    maxIterations: 2,
   });
 
   await stage.execute({ runId: "run_restore", mode: "deepsearch", constraints: {} }, { state }, {});
@@ -199,12 +199,24 @@ test("DeepSearch validateIteration helper: hit/no-evidence keeps open, blockAfte
       { todoId: "t3", relatedGapId: "g3", status: "open", text: "z" },
     ];
 
-    const out = __test.validateIteration(state, { blockAfterMisses: 2, roundHits: { g1: 1 } });
+    const out = __test.validateIteration(state, { blockAfterMisses: 2, roundHits: { g1: 1 }, qualityHitsByGapId: { g1: 1 } });
     assert.equal(out.openCount, 1);
     assert.equal(state.L1.gaps[0].status, "open");
     assert.equal(state.L1.gaps[0].missCount, 0);
     assert.equal(state.todos.find((t) => t.relatedGapId === "g2").status, "done");
     assert.equal(state.todos.find((t) => t.relatedGapId === "g3").status, "blocked");
+  }
+
+  {
+    const state = new DeepSearchState({ runId: "run_validate_low_quality_hit", iteration: 0 });
+    state.L1.gaps = [{ gapId: "g1", type: "x", question: "q", status: "open", missCount: 1 }];
+    state.L2.retrievedChunks = [];
+    state.L1.evidenceLedger = [];
+    state.todos = [{ todoId: "t1", relatedGapId: "g1", status: "open", text: "x" }];
+
+    __test.validateIteration(state, { blockAfterMisses: 2, roundHits: { g1: 1 } });
+    assert.equal(state.L1.gaps[0].status, "open");
+    assert.equal(state.L1.gaps[0].missCount, 1);
   }
 
   {
@@ -226,7 +238,7 @@ test("DeepSearch validateIteration helper: hit/no-evidence keeps open, blockAfte
     state.L2.retrievedChunks = [{ chunkId: "c1", gapId: "g1", sourceId: "s1", locator: { charStart: 0, charEnd: 2 }, text: "hi" }];
     state.L1.evidenceLedger = [{ evidenceId: "e1", chunkId: "c1", sourceId: "s1", locator: { charStart: 0, charEnd: 2 }, quote: "hi" }];
 
-    const out = __test.validateIteration(state, { blockAfterMisses: 2, roundHits: {} });
+    const out = __test.validateIteration(state, { blockAfterMisses: 2, minEvidenceToFill: 1, roundHits: {} });
     assert.equal(out.openCount, 0);
     assert.equal(state.L1.gaps[0].status, "filled");
     assert.equal(state.L1.gaps[0].filledIteration, 3);
@@ -297,9 +309,9 @@ test("DeepSearch shouldContinue: stops on maxIterations/openGaps/noNewHitsRounds
       maxIterations: 10,
       L1: { gaps: [{ gapId: "g1", type: "t", question: "q", status: "open", missCount: 0 }] },
     });
-    // noNewHitsRounds 阈值现在是 4
-    assert.equal(shouldContinue(state, { hitCount: 0, noNewHitsRounds: 4 }), false);
-    assert.equal(shouldContinue(state, { hitCount: 0, noNewHitsRounds: 3 }), true);
+    // noNewHitsRounds 阈值：连续 2 轮无高质量 hit 则停止
+    assert.equal(shouldContinue(state, { hitCount: 0, noNewHitsRounds: 2 }), false);
+    assert.equal(shouldContinue(state, { hitCount: 0, noNewHitsRounds: 1 }), true);
   }
 
   {
@@ -331,7 +343,7 @@ test("DeepSearch exit condition: iteration >= maxIterations", async () => {
   assert.equal(g2.status, "open");
 });
 
-test("DeepSearch exit condition: no new hits 4 rounds", async () => {
+test("DeepSearch exit condition: no new hits 2 rounds", async () => {
   const { stage, state } = await makeStageAndState({
     runId: "run_nohits",
     taskGoal: "Define Alpha and provide key metrics",
@@ -341,9 +353,9 @@ test("DeepSearch exit condition: no new hits 4 rounds", async () => {
   });
 
   await stage.execute({ runId: "run_nohits", mode: "deepsearch", constraints: {} }, { state }, {});
-  // noNewHitsRounds 阈值现在是 4
-  assert.equal(state.checkpoints.length, 4);
-  assert.equal(state.iteration, 4);
+  // noNewHitsRounds 阈值：连续 2 轮无高质量 hit 则停止
+  assert.equal(state.checkpoints.length, 2);
+  assert.equal(state.iteration, 2);
   assert.ok(state.checkpoints[state.checkpoints.length - 1].metrics.retrievedCount === 0);
 });
 

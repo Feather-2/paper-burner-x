@@ -253,27 +253,69 @@ function normalizeRoundHits(roundHits) {
   return hits;
 }
 
-export function computeRoundHitsByGapId(retrievedChunks) {
-  const hits = new Map();
-  for (const r of Array.isArray(retrievedChunks) ? retrievedChunks : []) {
-    const matched = Array.isArray(r?.matchedGapIds) ? r.matchedGapIds.map((x) => toNonEmptyString(x)).filter(Boolean) : [];
-    if (matched.length) {
-      for (const gid of new Set(matched)) hits.set(gid, (hits.get(gid) || 0) + 1);
-      continue;
-    }
+export function computeRoundHitsByGapId(roundHits, qualityThreshold = 0.5) {
+  const allHits = new Map();
+  const qualityHits = new Map();
+  const threshold = typeof qualityThreshold === "number" && Number.isFinite(qualityThreshold) ? qualityThreshold : 0.5;
 
-    const gid = toNonEmptyString(r?.gapId);
-    if (gid) hits.set(gid, (hits.get(gid) || 0) + 1);
+  const bump = (m, gid) => m.set(gid, (m.get(gid) || 0) + 1);
+
+  for (const r of Array.isArray(roundHits) ? roundHits : []) {
+    const score = typeof r?.score === "number" && Number.isFinite(r.score) ? r.score : 0;
+    const matched = Array.isArray(r?.matchedGapIds) ? r.matchedGapIds.map((x) => toNonEmptyString(x)).filter(Boolean) : [];
+    const gids = matched.length ? [...new Set(matched)] : [toNonEmptyString(r?.gapId)].filter(Boolean);
+    if (!gids.length) continue;
+
+    for (const gid of gids) {
+      bump(allHits, gid);
+      if (score >= threshold) bump(qualityHits, gid);
+    }
   }
-  return hits;
+
+  return { allHits, qualityHits };
 }
 
-export function validateIteration(state, { roundHits, blockAfterMisses = 2, minEvidenceToFill } = {}, emit = null) {
+export function validateIteration(state, hitsByGapIdOrOptions, qualityHitsByGapId = null, blockAfterMisses = 2, minEvidenceToFill, emit = null) {
   const runId = toNonEmptyString(state?.runId) || "run_unknown";
   const iteration = safeInt(state?.iteration) ?? 0;
   const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
   const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
   const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
+
+  const normalizedArgs = (() => {
+    if (
+      isPlainObject(hitsByGapIdOrOptions) &&
+      ("roundHits" in hitsByGapIdOrOptions || "blockAfterMisses" in hitsByGapIdOrOptions || "minEvidenceToFill" in hitsByGapIdOrOptions)
+    ) {
+      const opts = hitsByGapIdOrOptions;
+      const roundHits = opts.roundHits;
+      const allHitsRaw = roundHits && typeof roundHits === "object" && roundHits.allHits instanceof Map ? roundHits.allHits : roundHits;
+      const qualityHitsRaw =
+        opts.qualityHitsByGapId ??
+        (roundHits && typeof roundHits === "object" && roundHits.qualityHits instanceof Map ? roundHits.qualityHits : null);
+      const bam = safeInt(opts.blockAfterMisses);
+      return {
+        allHitsRaw,
+        qualityHitsRaw,
+        blockAfterMisses: bam !== null && bam >= 1 ? bam : 2,
+        minEvidenceToFill: opts.minEvidenceToFill,
+        emit: typeof qualityHitsByGapId === "function" ? qualityHitsByGapId : null,
+      };
+    }
+
+    const allHitsRaw = hitsByGapIdOrOptions && typeof hitsByGapIdOrOptions === "object" && hitsByGapIdOrOptions.allHits instanceof Map ? hitsByGapIdOrOptions.allHits : hitsByGapIdOrOptions;
+    const qualityHitsRaw =
+      qualityHitsByGapId ??
+      (hitsByGapIdOrOptions && typeof hitsByGapIdOrOptions === "object" && hitsByGapIdOrOptions.qualityHits instanceof Map ? hitsByGapIdOrOptions.qualityHits : null);
+    const bam = safeInt(blockAfterMisses);
+    return {
+      allHitsRaw,
+      qualityHitsRaw,
+      blockAfterMisses: bam !== null && bam >= 1 ? bam : 2,
+      minEvidenceToFill,
+      emit: typeof emit === "function" ? emit : null,
+    };
+  })();
 
   const configuredMinEvidence = (() => {
     const cfg = isPlainObject(state?.userConfig?.gaps) ? state.userConfig.gaps : {};
@@ -281,12 +323,15 @@ export function validateIteration(state, { roundHits, blockAfterMisses = 2, minE
     return n !== null && n >= 1 ? n : null;
   })();
   const effectiveMinEvidenceToFill = (() => {
-    const n = safeInt(minEvidenceToFill);
+    const n = safeInt(normalizedArgs.minEvidenceToFill);
     if (n !== null && n >= 1) return n;
     return configuredMinEvidence ?? 2;
   })();
 
-  const hitsByGapId = normalizeRoundHits(roundHits);
+  const hitsByGapId = normalizeRoundHits(normalizedArgs.allHitsRaw);
+  const qualityHitsByGapIdMap = normalizeRoundHits(normalizedArgs.qualityHitsRaw);
+  const effectiveBlockAfterMisses = normalizedArgs.blockAfterMisses;
+  const emitFn = normalizedArgs.emit;
 
   const retrievedByChunkId = new Map();
   for (const r of retrieved) {
@@ -342,7 +387,7 @@ export function validateIteration(state, { roundHits, blockAfterMisses = 2, minE
       g.filledAt = now;
       g.filledIteration = state?.iteration;
       g.evidenceCount = evidenceCount;
-      emit?.("deepsearch.gap.status.changed", {
+      emitFn?.("deepsearch.gap.status.changed", {
         runId,
         gapId: gid,
         from: oldStatus,
@@ -355,9 +400,14 @@ export function validateIteration(state, { roundHits, blockAfterMisses = 2, minE
       continue;
     }
 
-    const hits = hitsByGapId.get(gid) || 0;
-    if (hits > 0) {
+    const roundQualityHits = qualityHitsByGapIdMap.get(gid) || 0;
+    const roundAllHits = hitsByGapId.get(gid) || 0;
+    if (roundQualityHits > 0) {
       g.missCount = 0;
+      stillOpenCount++;
+      continue;
+    }
+    if (roundAllHits > 0) {
       stillOpenCount++;
       continue;
     }
@@ -366,12 +416,12 @@ export function validateIteration(state, { roundHits, blockAfterMisses = 2, minE
     const misses = Math.max(0, priorMisses) + 1;
     g.missCount = misses;
 
-    if (misses >= blockAfterMisses) {
+    if (misses >= effectiveBlockAfterMisses) {
       g.status = "blocked";
       g.blockedAt = now;
       const blockedReason = String(g.blockedReason || "no_retrieval_hits");
       g.blockedReason = blockedReason;
-      emit?.("deepsearch.gap.status.changed", {
+      emitFn?.("deepsearch.gap.status.changed", {
         runId,
         gapId: gid,
         from: oldStatus,
@@ -399,7 +449,7 @@ export function validateIteration(state, { roundHits, blockAfterMisses = 2, minE
     const to = toNonEmptyString(nextStatus) || "open";
     if (from === to) return;
     todo.status = to;
-    emit?.("deepsearch.todo.status.changed", {
+    emitFn?.("deepsearch.todo.status.changed", {
       runId,
       todoId: toNonEmptyString(todo?.todoId) || "todo_unknown",
       relatedGapId: toNonEmptyString(todo?.relatedGapId),
