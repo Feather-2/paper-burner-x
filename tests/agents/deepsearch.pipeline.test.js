@@ -87,6 +87,66 @@ test("LRUMap: evicts oldest and refreshes on get", async () => {
   }
 });
 
+test("Stress test: LRU Map 处理 10000 个 chunk", async () => {
+  const { LRUMap } = await import("../../js/agents/shared/lru-map.js");
+
+  const maxSize = 1000;
+  const total = 10000;
+
+  const m = new LRUMap(maxSize);
+  for (let i = 0; i < total; i++) m.set(`chunk_${i}`, i);
+
+  assert.equal(m.size, maxSize);
+
+  // oldest should be evicted; newest should be kept.
+  assert.equal(m.has("chunk_0"), false);
+  assert.equal(m.has(`chunk_${total - 1}`), true);
+  assert.equal(m.has(`chunk_${total - maxSize}`), true);
+  assert.equal(m.has(`chunk_${total - maxSize - 1}`), false);
+
+  // get should refresh LRU order.
+  assert.equal(m.get(`chunk_${total - maxSize}`), total - maxSize);
+  m.set(`chunk_${total}`, total);
+  assert.equal(m.size, maxSize);
+  assert.equal(m.has(`chunk_${total}`), true);
+  assert.equal(m.has(`chunk_${total - maxSize}`), true);
+  assert.equal(m.has(`chunk_${total - maxSize + 1}`), false); // was oldest after refresh
+});
+
+test("Stress test: 并发限制处理 50 个并行任务", async () => {
+  const { mapConcurrent } = await import("../../js/agents/shared/concurrency.js");
+
+  const total = 50;
+  const concurrency = 7;
+  const items = Array.from({ length: total }, (_, i) => i);
+
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const started = [];
+  const completed = [];
+
+  const results = await mapConcurrent(
+    items,
+    async (_item, i) => {
+      started.push(i);
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 8));
+      inFlight -= 1;
+      completed.push(i);
+      return i;
+    },
+    concurrency
+  );
+
+  assert.equal(maxInFlight <= concurrency, true);
+  assert.equal(maxInFlight, concurrency);
+  assert.equal(started.length, total);
+  assert.equal(completed.length, total);
+  assert.deepEqual(started, items);
+  assert.deepEqual(results, items);
+});
+
 test("applyChunkLru: evicts oldest consumed first, then oldest overall (stable LRU)", async () => {
   const { __test } = await import("../../js/agents/stages/deepsearch/retrieve.js");
 
@@ -119,6 +179,118 @@ test("applyChunkLru: evicts oldest consumed first, then oldest overall (stable L
       ["u2", "c3", "u4"]
     );
   }
+});
+
+test("Stress test: 大量 gaps 的迭代处理", async () => {
+  const { DeepSearchState, computeRoundHitsByGapId, validateIteration } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchRetrieveStage } = await import("../../js/agents/stages/deepsearch/retrieve.js");
+
+  const gapCount = 30;
+  const gaps = Array.from({ length: gapCount }, (_, i) => ({
+    gapId: `gap_${i}`,
+    type: "definition",
+    question: `Q${i}`,
+    status: "open",
+    missCount: i >= 5 && i < 10 ? 2 : 0, // will be reset by quality hits
+  }));
+
+  const evidenceLedger = Array.from({ length: 5 }, (_, i) => ({
+    evidenceId: `e_${i}`,
+    gapIds: [`gap_${i}`],
+    sourceId: "s1",
+    locator: { charStart: 0, charEnd: 1 },
+    quote: "x",
+  }));
+
+  const state = new DeepSearchState({
+    runId: "run_stress_gaps",
+    taskGoal: "Stress gaps",
+    userConfig: {
+      retrieval: {
+        iterative: { enabled: false }, // allow async localRetriever path (awaited)
+        enableToolChain: false,
+        topK: 1,
+        maxChunks: 1000,
+      },
+    },
+    L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Doc", sourceTextNormalized: "alpha beta gamma delta" }] },
+    L1: { gaps, evidenceLedger },
+    L2: { retrievedChunks: [] },
+  });
+
+  const stageEvents = [];
+  const stageEmit = (name, record) => stageEvents.push({ name, record });
+
+  let inFlight = 0;
+  let maxInFlight = 0;
+  let callCount = 0;
+
+  const localRetriever = async (sourceIndex, gapRows) => {
+    callCount += 1;
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise((r) => setTimeout(r, 6));
+    inFlight -= 1;
+
+    const gapId = String(gapRows?.[0]?.gapId || "");
+    const idx = Number(gapId.split("_")[1]);
+    if (!Number.isFinite(idx)) return [];
+    if (idx >= 10) return [];
+
+    return [
+      {
+        chunkId: `${sourceIndex.sourceId}::${gapId}::chunk`,
+        sourceId: sourceIndex.sourceId,
+        locator: { charStart: 0, charEnd: 1 },
+        text: `hit ${gapId}`,
+        score: 0.9,
+        gapId,
+        matchedGapIds: [gapId],
+      },
+    ];
+  };
+
+  await runDeepSearchRetrieveStage({ runId: state.runId }, { state }, { emit: stageEmit, localRetriever });
+
+  assert.equal(callCount, gapCount);
+  assert.equal(maxInFlight <= 5, true);
+  assert.equal(maxInFlight, 5);
+
+  const { allHits, qualityHits } = computeRoundHitsByGapId(state.L2.retrievedChunks, 0.5);
+
+  const validateEvents = [];
+  const validateEmit = (name, payload) => validateEvents.push({ name, payload });
+
+  validateIteration(state, { roundHits: { allHits, qualityHits }, blockAfterMisses: 1, minEvidenceToFill: 1, emit: validateEmit });
+
+  const byId = new Map(state.L1.gaps.map((g) => [g.gapId, g]));
+  for (let i = 0; i < 5; i++) {
+    const g = byId.get(`gap_${i}`);
+    assert.equal(g.status, "filled");
+    assert.equal(g.evidenceCount, 1);
+  }
+  for (let i = 5; i < 10; i++) {
+    const g = byId.get(`gap_${i}`);
+    assert.equal(g.status, "open");
+    assert.equal(g.missCount, 0);
+  }
+  for (let i = 10; i < gapCount; i++) {
+    const g = byId.get(`gap_${i}`);
+    assert.equal(g.status, "blocked");
+  }
+
+  const statusEvents = validateEvents.filter((e) => e.name === "deepsearch.gap.status.changed");
+  assert.equal(
+    statusEvents.filter((e) => e.payload?.to === "filled").length,
+    5
+  );
+  assert.equal(
+    statusEvents.filter((e) => e.payload?.to === "blocked").length,
+    20
+  );
+
+  // Sanity: retrieve stage still emitted progress.
+  assert.ok(stageEvents.some((e) => e.name === "deepsearch.retrieve.progress"));
 });
 
 test("DeepSearchState: serialization/deserialization preserves L0/L1/L2", async () => {

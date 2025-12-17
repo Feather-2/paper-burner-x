@@ -174,3 +174,134 @@ test("DeepSearchState.restoreCheckpoint: warns on unknown checkpoint schema vers
 
   assert.ok(warnCount >= 1);
 });
+
+test("Checkpoint E2E: 保存完整状态并恢复", async () => {
+  if (typeof structuredClone !== "function") return;
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  const createdAt = "2020-01-01T00:00:00.000Z";
+  const when = new Date("2021-01-01T00:00:00.000Z");
+  const gapMeta = new Map([["k", "v"]]);
+  const gapTags = new Set(["t1", "t2"]);
+
+  const state = new DeepSearchState({
+    runId: "run_ckpt_e2e_full",
+    taskGoal: "Test checkpoint E2E full flow",
+    createdAt,
+    iteration: 2,
+    maxIterations: 5,
+    userConfig: { checkpointStrategy: "full" },
+  });
+
+  state.L0 = {
+    sources: [{ sourceId: "s1", title: "Source 1", url: "https://example.com" }],
+    sourceIndex: { s1: 0 },
+  };
+  state.L1.gaps = [{ gapId: "gap_1", question: "What is X?", priority: "high", status: "open", createdAt: when, meta: gapMeta, tags: gapTags }];
+  state.L1.claims = [{ claimId: "claim_1", text: "X is Y", createdAt: when, meta: new Map([["c", "1"]]) }];
+  state.L1.evidenceLedger = [{ evidenceId: "ev_1", claimId: "claim_1", quote: "Evidence", createdAt: when, refs: new Set(["r1"]) }];
+  state.L2.retrievedChunks = [{ chunkId: "ch_1", text: "chunk", score: 0.5 }];
+  state.L2.scratchpad = { rounds: [1, 2], ctx: new Map([["a", { b: 1 }]]) };
+  state.todos = [{ todoId: "t1", status: "open", text: "Fill gap", tags: new Set(["todo"]) }];
+  state.timeline = [{ name: "deepsearch.test", status: "info", payload: { ok: true }, timestamp: "2020-01-01T00:00:01.000Z" }];
+
+  const original = structuredClone(state.toJSON({ includeCheckpoints: false }));
+  const cp = state.saveCheckpoint({ checkpointId: "cp_full_e2e" });
+
+  assert.equal(cp.schemaVersion, "1.0");
+  assert.equal(cp.strategy, "full");
+  assert.ok(cp.stateSnapshot instanceof DeepSearchState);
+
+  assert.notEqual(cp.stateSnapshot, state);
+  assert.notEqual(cp.stateSnapshot.L1, state.L1);
+  assert.notEqual(cp.stateSnapshot.L1.gaps, state.L1.gaps);
+  assert.equal(cp.stateSnapshot.L1.gaps[0].createdAt instanceof Date, true);
+  assert.equal(cp.stateSnapshot.L1.gaps[0].meta instanceof Map, true);
+  assert.equal(cp.stateSnapshot.L1.gaps[0].tags instanceof Set, true);
+  assert.notEqual(cp.stateSnapshot.L1.gaps[0].meta, state.L1.gaps[0].meta);
+  assert.notEqual(cp.stateSnapshot.L1.gaps[0].tags, state.L1.gaps[0].tags);
+
+  state.L1.gaps[0].question = "mutated";
+  state.L1.gaps[0].meta.set("k", "mutated");
+  state.L2.scratchpad.rounds.push(999);
+
+  assert.equal(cp.stateSnapshot.L1.gaps[0].question, "What is X?");
+  assert.equal(cp.stateSnapshot.L1.gaps[0].meta.get("k"), "v");
+  assert.deepEqual(cp.stateSnapshot.L2.scratchpad.rounds, [1, 2]);
+
+  state.iteration = 123;
+  state.L0.sources = [];
+  state.L1.claims = [];
+  state.L2.retrievedChunks = [];
+
+  state.restoreCheckpoint("cp_full_e2e");
+
+  const restored = state.toJSON({ includeCheckpoints: false });
+  assert.deepEqual({ ...restored, timeline: restored.timeline.slice(0, -1) }, original);
+  assert.equal(restored.timeline.at(-1).name, "deepsearch.checkpoint.restored");
+});
+
+test("Checkpoint E2E: legacy checkpoint 迁移", async () => {
+  const { loadCheckpoint } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  const legacy = {
+    checkpointId: "cp_legacy_no_version",
+    iteration: 1,
+    timestamp: "2020-01-01T00:00:00.000Z",
+    strategy: "lite",
+    stateSnapshot: { snapshotStrategy: "lite", runId: "run_legacy", iteration: 1 },
+    metrics: { gapCount: 1, claimCount: 1, evidenceCount: 1, retrievedCount: 1 },
+  };
+
+  const migrated = loadCheckpoint(legacy);
+  assert.notEqual(migrated, legacy);
+  assert.equal(migrated.schemaVersion, "1.0");
+  assert.equal(migrated.checkpointId, "cp_legacy_no_version");
+  assert.equal(loadCheckpoint(migrated), migrated);
+});
+
+test("Checkpoint E2E: 中断恢复场景", async () => {
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  const runRounds = (state, { stopAfterIteration } = {}) => {
+    while (state.iteration < state.maxIterations) {
+      const next = state.iteration + 1;
+      if (!state.L2.scratchpad || typeof state.L2.scratchpad !== "object") state.L2.scratchpad = {};
+      if (!Array.isArray(state.L2.scratchpad.rounds)) state.L2.scratchpad.rounds = [];
+      state.L2.scratchpad.rounds.push(next);
+      state.L1.claims.push({ claimId: `claim_${next}`, text: `Claim ${next}` });
+      state.iteration = next;
+      if (typeof stopAfterIteration === "number" && state.iteration === stopAfterIteration) return;
+    }
+  };
+
+  const state = new DeepSearchState({
+    runId: "run_ckpt_interrupt",
+    taskGoal: "Interrupt and resume",
+    createdAt: "2020-01-01T00:00:00.000Z",
+    iteration: 0,
+    maxIterations: 5,
+    userConfig: { checkpointStrategy: "full" },
+  });
+
+  let checkpoint;
+  try {
+    runRounds(state, { stopAfterIteration: 2 });
+    checkpoint = state.saveCheckpoint({ checkpointId: "cp_interrupt" });
+    throw new Error("interrupted");
+  } catch (err) {
+    assert.equal(String(err?.message), "interrupted");
+  }
+
+  const resumed = new DeepSearchState({ runId: "run_new", taskGoal: "new" });
+  resumed.checkpoints = [checkpoint];
+  resumed.restoreCheckpoint("cp_interrupt");
+
+  assert.equal(resumed.runId, "run_ckpt_interrupt");
+  assert.equal(resumed.iteration, 2);
+  assert.deepEqual(resumed.L2.scratchpad.rounds, [1, 2]);
+
+  runRounds(resumed);
+  assert.equal(resumed.iteration, 5);
+  assert.deepEqual(resumed.L2.scratchpad.rounds, [1, 2, 3, 4, 5]);
+});

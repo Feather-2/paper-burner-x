@@ -129,7 +129,7 @@ const CHECKPOINT_MIGRATIONS = Object.freeze({
   "0.0": (checkpoint) => ({ ...checkpoint, schemaVersion: CHECKPOINT_SCHEMA_VERSION }),
 });
 
-function loadCheckpoint(checkpoint) {
+export function loadCheckpoint(checkpoint) {
   if (!isPlainObject(checkpoint)) throw new TypeError("loadCheckpoint(checkpoint): checkpoint must be an object");
 
   const version = toNonEmptyString(checkpoint?.schemaVersion) || "0.0";

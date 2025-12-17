@@ -166,6 +166,10 @@ function assertContentPackageBasics(pkg) {
 }
 
 function makeMockModelRouter() {
+  return makeMockModelRouterWithAi(makeMockAiApiService());
+}
+
+function makeMockModelRouterWithAi(aiApiService) {
   const calls = [];
   return {
     calls,
@@ -178,6 +182,9 @@ function makeMockModelRouter() {
             ? { ...messages }
             : {};
       calls.push({ messages: actualMessages, opts: actualOpts });
+      if (aiApiService && typeof aiApiService.chat === "function") {
+        return aiApiService.chat({ messages: actualMessages, ...(actualOpts && typeof actualOpts === "object" ? actualOpts : {}) });
+      }
       return { content: "{}" };
     },
   };
@@ -200,6 +207,9 @@ async function runDeepSearchE2E({
   userConfig,
   maxIterations = 5,
   aiApiService,
+  modelRouter,
+  localRetriever,
+  eventBus,
   reviewer,
   onEmit,
 } = {}) {
@@ -230,11 +240,292 @@ async function runDeepSearchE2E({
   const pkg = await stage.execute(
     { runId: String(runId), mode: "deepsearch", constraints: {} },
     { state },
-    { emit, aiApiService, ...(reviewer ? { reviewer } : {}) }
+    { emit, aiApiService, modelRouter, localRetriever, eventBus, ...(reviewer ? { reviewer } : {}) }
   );
 
   return { pkg, state, events, ingestOut };
 }
+
+function makeMockEventBus() {
+  const events = [];
+  return {
+    events,
+    emit(name, payload) {
+      events.push({ name, payload });
+    },
+  };
+}
+
+function pickChunkByNeedle(sourceIndex, needle) {
+  const chunks = Array.isArray(sourceIndex?.chunks) ? sourceIndex.chunks : [];
+  const n = String(needle || "");
+  if (!n) return chunks[0] || null;
+  return chunks.find((c) => typeof c?.text === "string" && c.text.includes(n)) || chunks[0] || null;
+}
+
+function toRetrievedRowFromChunk(chunk, sourceId, { gapId, score, relevance = "hit", matchedGapIds } = {}) {
+  if (!chunk) return null;
+  const gid = String(gapId || "");
+  const matched = Array.isArray(matchedGapIds) ? matchedGapIds.map(String).filter(Boolean) : gid ? [gid] : [];
+  return {
+    chunkId: String(chunk.chunkId || ""),
+    sourceId: String(sourceId || "source_unknown"),
+    locator: chunk.locator,
+    text: String(chunk.text || ""),
+    score: typeof score === "number" ? score : 1,
+    relevance,
+    matchedGapIds: matched.length ? matched : undefined,
+    gapId: matched.length ? matched[0] : gid || undefined,
+  };
+}
+
+test("Refactor E2E: 完整 scan→gaps→retrieve→understand→write 流程", async () => {
+  const { IngestStage } = await import("../../../js/agents/ingest/ingest-stage.js");
+  const { DeepSearchStage } = await import("../../../js/agents/stages/deepsearch/index.js");
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+  const { setEventBus } = await import("../../../js/agents/stages/deepsearch/logger.js");
+
+  const modelRouter = makeMockModelRouter();
+  const bus = makeMockEventBus();
+
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const rawTexts = [
+    {
+      title: "Doc",
+      text: ["Definition: Alpha is the first letter.", "Statistics: Alpha adoption reached 42% in 2024.", "Mechanism: scan→gaps→retrieve→understand→write."].join(
+        "\n"
+      ),
+    },
+  ];
+
+  const ingest = new IngestStage({ defaultChunkOptions: { chunkSize: 120, overlap: 0, includeLineNumbers: true } });
+  const ingestOut = await ingest.execute({ runId: "run_ds_refactor_flow", constraints: {} }, { rawTexts }, { emit });
+
+  const state = new DeepSearchState({
+    runId: "run_ds_refactor_flow",
+    taskGoal: "Explain Alpha with definition and a cited metric",
+    maxIterations: 1,
+    userConfig: {
+      title: "Alpha DeepSearch",
+      gaps: { minEvidenceToFill: 1, blockAfterMisses: 2 },
+      retrieval: { iterative: { enabled: true, maxIterations: 2 }, topK: 2, windowSize: 0, useBm25: false, useGrep: false },
+    },
+    L0: { sources: ingestOut.sources },
+  });
+
+  let localRetrieverCalls = 0;
+  const localRetriever = (sourceIndex, gaps) => {
+    localRetrieverCalls += 1;
+    const out = [];
+    for (const g of Array.isArray(gaps) ? gaps : []) {
+      const q = String(g?.question || "").toLowerCase();
+      const type = String(g?.type || "").toLowerCase();
+      const wantDefinition = type === "definition" || q.includes("define") || q.includes("定义");
+      const wantData = type === "data" || q.includes("metric") || q.includes("stat") || q.includes("数据") || q.includes("指标");
+      const chunk = wantDefinition ? pickChunkByNeedle(sourceIndex, "Definition:") : wantData ? pickChunkByNeedle(sourceIndex, "42%") : null;
+      const row = toRetrievedRowFromChunk(chunk, sourceIndex?.sourceId, { gapId: g?.gapId, score: 1.2 });
+      if (row) out.push(row);
+    }
+    return out;
+  };
+
+  const stage = new DeepSearchStage();
+  const pkg = await stage.execute(
+    { runId: state.runId, mode: "deepsearch", constraints: {} },
+    { state },
+    { emit, modelRouter, localRetriever, eventBus: bus }
+  );
+  setEventBus(null);
+
+  assert.ok(localRetrieverCalls > 0, "expected localRetriever to be called");
+  assert.ok(modelRouter.calls.length > 0, "expected modelRouter to be used");
+
+  const seen = new Set(events.map((e) => e.name));
+  assert.ok(seen.has("deepsearch.scan.completed"));
+  assert.ok(seen.has("deepsearch.gaps.completed"));
+  assert.ok(seen.has("deepsearch.retrieve.completed"));
+  assert.ok(seen.has("deepsearch.understand.completed"));
+  assert.ok(seen.has("deepsearch.write.completed"));
+  assert.ok(seen.has("deepsearch.completed"));
+
+  // validateIteration options API: should emit status changes via provided `emit`.
+  assert.ok(events.some((e) => e.name === "deepsearch.gap.status.changed"));
+
+  // Shared tool wrappers: retrieve stage should log tool calls via EventBus.
+  const toolLogs = bus.events.filter((e) => e.name === "deepsearch.log.tool");
+  assert.ok(toolLogs.length >= 1, "expected at least one deepsearch.log.tool event");
+  assert.ok(toolLogs.some((e) => String(e.payload?.payload?.message || "").includes("Tool call: iterativeRetrieve")));
+
+  assert.ok(pkg && typeof pkg === "object");
+  assert.ok(pkg.report && typeof pkg.report === "object" && typeof pkg.report.markdown === "string" && pkg.report.markdown.length > 0);
+  assert.ok(Array.isArray(pkg.slideIntents) && pkg.slideIntents.length > 0);
+});
+
+test("Refactor E2E: 质量命中机制验证", async () => {
+  const { IngestStage } = await import("../../../js/agents/ingest/ingest-stage.js");
+  const { DeepSearchStage } = await import("../../../js/agents/stages/deepsearch/index.js");
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+  const { setEventBus } = await import("../../../js/agents/stages/deepsearch/logger.js");
+
+  const modelRouter = makeMockModelRouter();
+  const bus = makeMockEventBus();
+
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const rawTexts = [
+    {
+      title: "Corpus",
+      text: [
+        "KEEP_0: high quality seed.",
+        "X".repeat(240),
+        "KEEP_1: high quality seed.",
+        "Y".repeat(240),
+        "LOW_1: weak match (low score).",
+        "Z".repeat(240),
+        "KEEP_2: high quality seed.",
+        "A".repeat(240),
+        "HIGH_2: strong match (high score).",
+        "B".repeat(240),
+        "KEEP_3: high quality seed.",
+        "C".repeat(240),
+        "KEEP_4: high quality seed.",
+      ].join("\n"),
+    },
+  ];
+
+  const ingest = new IngestStage({ defaultChunkOptions: { chunkSize: 80, overlap: 0, includeLineNumbers: true } });
+  const ingestOut = await ingest.execute({ runId: "run_ds_refactor_quality", constraints: {} }, { rawTexts }, { emit });
+
+  const state = new DeepSearchState({
+    runId: "run_ds_refactor_quality",
+    taskGoal: "Validate quality hit logic",
+    maxIterations: 5,
+    userConfig: {
+      gaps: { blockAfterMisses: 2, minEvidenceToFill: 999, qualityThreshold: 0.5 },
+      retrieval: { enableToolChain: false, iterative: { enabled: false }, topK: 1, windowSize: 0, useBm25: false, useGrep: false },
+    },
+    L0: { sources: ingestOut.sources },
+    L1: {
+      gaps: [
+        { gapId: "gap_keepalive", type: "custom", question: "Keepalive gap", priority: "high", queryHints: ["KEEP"] },
+        { gapId: "gap_target", type: "custom", question: "Target gap", priority: "high", queryHints: ["TARGET"] },
+      ],
+    },
+  });
+
+  const localRetriever = (sourceIndex, gaps) => {
+    const out = [];
+    const it = state.iteration || 0;
+    for (const g of Array.isArray(gaps) ? gaps : []) {
+      if (g?.gapId === "gap_keepalive") {
+        const chunk = pickChunkByNeedle(sourceIndex, `KEEP_${it}`);
+        const row = toRetrievedRowFromChunk(chunk, sourceIndex?.sourceId, { gapId: g.gapId, score: 0.9 });
+        if (row) out.push(row);
+        continue;
+      }
+      if (g?.gapId === "gap_target") {
+        if (it === 1) {
+          const chunk = pickChunkByNeedle(sourceIndex, "LOW_1");
+          const row = toRetrievedRowFromChunk(chunk, sourceIndex?.sourceId, { gapId: g.gapId, score: 0.2 });
+          if (row) out.push(row);
+        } else if (it === 2) {
+          const chunk = pickChunkByNeedle(sourceIndex, "HIGH_2");
+          const row = toRetrievedRowFromChunk(chunk, sourceIndex?.sourceId, { gapId: g.gapId, score: 0.9 });
+          if (row) out.push(row);
+        }
+      }
+    }
+    return out;
+  };
+
+  const snapshots = [];
+  const emitWithSnapshots = (name, record) => {
+    events.push({ name, record });
+    if (name === "iteration.completed") {
+      const g = (Array.isArray(state?.L1?.gaps) ? state.L1.gaps : []).find((x) => x?.gapId === "gap_target");
+      snapshots.push({ iteration: record?.payload?.iteration, missCount: g?.missCount, status: g?.status });
+    }
+  };
+
+  const stage = new DeepSearchStage();
+  await stage.execute({ runId: state.runId, mode: "deepsearch", constraints: {} }, { state }, { emit: emitWithSnapshots, modelRouter, localRetriever, eventBus: bus });
+  setEventBus(null);
+
+  // Expected missCount evolution for gap_target:
+  // iter0: miss (no hits) => 1
+  // iter1: low-quality hit => stays 1
+  // iter2: high-quality hit => resets to 0
+  // iter3: miss => 1
+  // iter4: miss => 2 and blocked
+  assert.deepEqual(
+    snapshots.map((s) => [s.iteration, s.missCount, s.status]),
+    [
+      [0, 1, "open"],
+      [1, 1, "open"],
+      [2, 0, "open"],
+      [3, 1, "open"],
+      [4, 2, "blocked"],
+    ]
+  );
+
+  // validateIteration should emit gap status change when blocked (options API carries `emit`).
+  const blockedEvt = events.find((e) => e.name === "deepsearch.gap.status.changed" && e.record?.payload?.gapId === "gap_target" && e.record?.payload?.to === "blocked");
+  assert.ok(blockedEvt, "expected deepsearch.gap.status.changed for gap_target blocked");
+});
+
+test("Refactor E2E: 多轮迭代收敛验证", async () => {
+  const { IngestStage } = await import("../../../js/agents/ingest/ingest-stage.js");
+  const { DeepSearchStage } = await import("../../../js/agents/stages/deepsearch/index.js");
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+  const { setEventBus } = await import("../../../js/agents/stages/deepsearch/logger.js");
+
+  const modelRouter = makeMockModelRouter();
+  const bus = makeMockEventBus();
+
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  const rawTexts = [{ title: "LowQuality", text: ["LOW: always low quality hit.", "LOW: always low quality hit."].join("\n") }];
+  const ingest = new IngestStage({ defaultChunkOptions: { chunkSize: 120, overlap: 0, includeLineNumbers: true } });
+  const ingestOut = await ingest.execute({ runId: "run_ds_refactor_converge", constraints: {} }, { rawTexts }, { emit });
+
+  const state = new DeepSearchState({
+    runId: "run_ds_refactor_converge",
+    taskGoal: "Validate convergence on noNewHitsRounds",
+    maxIterations: 3,
+    writeBacktrackCount: 3,
+    userConfig: {
+      gaps: { blockAfterMisses: 10, minEvidenceToFill: 999, qualityThreshold: 0.5 },
+      retrieval: { enableToolChain: false, iterative: { enabled: false }, topK: 1, windowSize: 0, useBm25: false, useGrep: false },
+    },
+    L0: { sources: ingestOut.sources },
+    L1: { gaps: [{ gapId: "gap_low", type: "custom", question: "Low quality only", priority: "high", queryHints: ["LOW"] }] },
+  });
+
+  const localRetriever = (sourceIndex, gaps) => {
+    const out = [];
+    for (const g of Array.isArray(gaps) ? gaps : []) {
+      if (g?.gapId !== "gap_low") continue;
+      const chunk = pickChunkByNeedle(sourceIndex, "LOW:");
+      const row = toRetrievedRowFromChunk(chunk, sourceIndex?.sourceId, { gapId: g.gapId, score: 0.2 });
+      if (row) out.push(row);
+    }
+    return out;
+  };
+
+  const stage = new DeepSearchStage();
+  const pkg = await stage.execute({ runId: state.runId, mode: "deepsearch", constraints: {} }, { state }, { emit, modelRouter, localRetriever, eventBus: bus });
+  setEventBus(null);
+
+  const rounds = events.filter((e) => e.name === "iteration.completed").map((e) => e.record?.payload);
+  assert.equal(rounds.length, 2);
+  assert.equal(rounds[0]?.noNewHitsRounds, 1);
+  assert.equal(rounds[1]?.noNewHitsRounds, 2);
+  assert.equal(pkg.metrics.deepsearch.iteration, 2);
+});
 
 test("DeepSearch P0 E2E: Happy Path (Ingest rawTexts -> DeepSearchStage -> ContentPackage)", async () => {
   const { IngestStage } = await import("../../../js/agents/ingest/ingest-stage.js");
