@@ -228,10 +228,21 @@ test("DeepSearch S5: understand soft-degrades invalid evidence and emits degrade
     runId: "run_soft_degrade",
     taskGoal: "Test soft degradation",
     L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Doc", sourceTextNormalized: sourceText }] },
-    L1: { gaps: [] },
+    L1: {
+      gaps: [],
+      claims: [{ claimId: "c_bad", text: "Bad claim", importance: "support", evidenceIds: ["e_bad"] }],
+      evidenceLedger: [
+        {
+          evidenceId: "e_bad",
+          sourceId: "s1",
+          locator: { charStart: aStart, charEnd: aEnd },
+          quote: "Alpha is second.",
+        },
+      ],
+    },
     L2: {
       retrievedChunks: [
-        // Missing chunkId -> claimsFromChunks assigns chunk_1, but retrievedByChunkId won't contain it -> invalid evidence in soft mode.
+        // Missing chunkId is allowed: validation is grounded on sourceId + locator + quote only.
         { sourceId: "s1", locator: { charStart: aStart, charEnd: aEnd }, text: sourceText.slice(aStart, aEnd), score: 2.0 },
         { chunkId: "ch_ok", sourceId: "s1", locator: { charStart: bStart, charEnd: bEnd }, text: sourceText.slice(bStart, bEnd), score: 1.0 },
       ],
@@ -243,19 +254,22 @@ test("DeepSearch S5: understand soft-degrades invalid evidence and emits degrade
 
   assert.ok(out.degradation);
   assert.equal(out.degradation.invalidEvidenceCount, 1);
-  assert.equal(out.degradation.validEvidenceCount, 1);
-  assert.equal(out.evidenceLedger.length, 1);
-  assert.ok(!out.evidenceLedger.some((e) => e.evidenceId === "e_1"));
+  assert.ok(out.degradation.validEvidenceCount >= 1);
+  assert.ok(out.evidenceLedger.length >= 1);
+  assert.ok(!out.evidenceLedger.some((e) => e.evidenceId === "e_bad"));
 
   const invalidEvents = events.filter((e) => e.name === "deepsearch.evidence.invalid");
   assert.equal(invalidEvents.length, 1);
-  assert.equal(invalidEvents[0].payload?.payload?.evidenceId, "e_1");
+  assert.equal(invalidEvents[0].payload?.payload?.evidenceId, "e_bad");
   assert.ok(Array.isArray(invalidEvents[0].payload?.payload?.issues));
-  assert.ok(invalidEvents[0].payload.payload.issues.some((s) => String(s).includes("chunkId")));
+  assert.ok(invalidEvents[0].payload.payload.issues.some((s) => String(s).includes("quote mismatch")));
 
   const degradedEmits = events.filter((e) => e.name === "deepsearch.hardgate.degraded");
   assert.equal(degradedEmits.length, 1);
   assert.equal(degradedEmits[0].payload?.payload?.invalidEvidenceCount, 1);
+
+  const orphanedEmits = events.filter((e) => e.name === "deepsearch.claim.orphaned");
+  assert.equal(orphanedEmits.length, 1);
 
   assert.ok(out.state.timeline.some((t) => t?.name === "deepsearch.hardgate.degraded"));
 });

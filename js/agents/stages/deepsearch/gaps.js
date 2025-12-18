@@ -1,6 +1,7 @@
 import { DeepSearchState, checkCancelled, extractJsonCandidate, makeStageEmitter } from "./state.js";
 import { getModelCaller } from "./model.js";
-import { logEvent, setLogContext } from "./logger.js";
+import { createLogger } from "./logger.js";
+import { extractServices } from "./stage-api.js";
 import { search as toolChainSearch } from "../../retrieval/tool-chain.js";
 import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
 import { GAP_CONFIG, GAP_TYPES } from "./constants.js";
@@ -57,7 +58,7 @@ function emitGapProgress(emit, { step, current, total, msg, detail }) {
       msg: String(msg || ""),
       ...(detail && typeof detail === "object" && !Array.isArray(detail) ? { detail } : {}),
     },
-    { status: "progress" }
+    { status: "progress", throttle: false }
   );
 }
 
@@ -169,6 +170,7 @@ async function tryLLMGaps(state, scanSummary, existingGaps, stageApi) {
   const callModel = getModelCaller(stageApi, { usage: "planner", state });
   if (!callModel) return null;
 
+  const contextSummary = stageApi?.getContextSummary?.() || "";
   const cacheKeyInputs = normalizeGapsCacheKeyInputs(state?.taskGoal, scanSummary, existingGaps);
 
   // 工具链支持：允许 LLM 在生成 gaps 时探索代码库
@@ -206,21 +208,25 @@ async function tryLLMGaps(state, scanSummary, existingGaps, stageApi) {
     },
     {
       role: "user",
-      content: JSON.stringify(
-        {
-          taskGoal: String(state?.taskGoal || ""),
-          scanSummary: isPlainObject(scanSummary) ? scanSummary : {},
-          existingGaps: (Array.isArray(existingGaps) ? existingGaps : []).map((g) => ({
-            type: g?.type,
-            question: g?.question,
-            priority: g?.priority,
-            status: g?.status,
-            missCount: g?.missCount,
-          })),
-        },
-        null,
-        2
-      ),
+      content: (() => {
+        const originalPrompt = JSON.stringify(
+          {
+            taskGoal: String(state?.taskGoal || ""),
+            scanSummary: isPlainObject(scanSummary) ? scanSummary : {},
+            existingGaps: (Array.isArray(existingGaps) ? existingGaps : []).map((g) => ({
+              type: g?.type,
+              question: g?.question,
+              priority: g?.priority,
+              status: g?.status,
+              missCount: g?.missCount,
+            })),
+          },
+          null,
+          2
+        );
+
+        return contextSummary ? `## 已知上下文\n${contextSummary}\n\n${originalPrompt}` : originalPrompt;
+      })(),
     },
   ];
 
@@ -242,28 +248,23 @@ function gapKey(g) {
   return `${type}::${question}`;
 }
 
-function normalizeGap(existing, fallbackGapId) {
+function normalizeGap(existing, fallbackGapId, logger) {
   if (!isPlainObject(existing)) {
-    logEvent({ stage: "gaps", message: "normalizeGap skipped", data: { reason: "not_object", type: typeof existing } });
+    logger?.warn?.("normalizeGap skipped", { stage: "gaps", data: { reason: "not_object", type: typeof existing } });
     return null;
   }
   const gapId = toNonEmptyString(existing.gapId) || toNonEmptyString(fallbackGapId);
   const type = toNonEmptyString(existing.type) || "unknown";
   const question = toNonEmptyString(existing.question) || "";
   if (!gapId) {
-    logEvent({
+    logger?.warn?.("normalizeGap skipped", {
       stage: "gaps",
-      message: "normalizeGap skipped",
       data: { reason: "missing_gapId", fallbackGapId: toNonEmptyString(fallbackGapId) || null, type, hasQuestion: Boolean(question) },
     });
     return null;
   }
   if (!question) {
-    logEvent({
-      stage: "gaps",
-      message: "normalizeGap skipped",
-      data: { reason: "missing_question", gapId, type },
-    });
+    logger?.warn?.("normalizeGap skipped", { stage: "gaps", data: { reason: "missing_question", gapId, type } });
     return null;
   }
   const status = ["open", "filled", "blocked"].includes(String(existing.status)) ? String(existing.status) : "open";
@@ -320,20 +321,21 @@ function priorityRank(priority) {
  * @param {{emit?:Function,eventBus?:object,signal?:AbortSignal,checkCancelled?:Function}=} stageApi
  */
 export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
+  const { emit: rawEmit, logger: injectedLogger } = extractServices(stageApi);
   const emit = makeStageEmitter(stageApi, "deepsearch");
   const state = ensureState(runContext, input);
-
-  // 设置日志上下文
-  setLogContext({ runId: state.runId, iteration: state.iteration || 0 });
+  const logger =
+    injectedLogger && typeof injectedLogger.info === "function"
+      ? injectedLogger
+      : createLogger({
+          emit: rawEmit,
+          getContext: () => ({ runId: state.runId, iteration: state.iteration || 0, trajectoryId: state.trajectoryId, stage: "gaps" }),
+        });
 
   checkCancelled(stageApi);
 
   // 记录 gaps 阶段开始
-  logEvent({
-    stage: 'gaps',
-    message: 'Gaps stage started',
-    data: { existingGaps: Array.isArray(state?.L1?.gaps) ? state.L1.gaps.length : 0 },
-  });
+  logger.info("Gaps stage started", { stage: "gaps", data: { existingGaps: Array.isArray(state?.L1?.gaps) ? state.L1.gaps.length : 0 } });
 
   // 发射阶段开始事件
   emitGapProgress(emit, {
@@ -351,7 +353,7 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
   const makeId = nextGapId(existingRaw, 1);
   for (let i = 0; i < existingRaw.length; i++) {
     const g = existingRaw[i];
-    const ng = normalizeGap(g, toNonEmptyString(g?.gapId) ? undefined : makeId());
+    const ng = normalizeGap(g, toNonEmptyString(g?.gapId) ? undefined : makeId(), logger);
     if (ng) normalizedExisting.push(ng);
 
     emitGapProgress(emit, {
@@ -366,13 +368,9 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
   const llmSuggested = await tryLLMGaps(state, scanSummary, normalizedExisting, stageApi);
 
   // 记录 LLM 调用结果
-  logEvent({
-    stage: 'gaps',
-    message: 'LLM gaps generation',
-    data: {
-      usedLLM: !!llmSuggested,
-      llmSuggestedCount: Array.isArray(llmSuggested) ? llmSuggested.length : 0,
-    },
+  logger.debug("LLM gaps generation", {
+    stage: "gaps",
+    data: { usedLLM: !!llmSuggested, llmSuggestedCount: Array.isArray(llmSuggested) ? llmSuggested.length : 0 },
   });
 
   const suggested = buildDefaultGaps(state.taskGoal, scanSummary);
@@ -397,7 +395,7 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
     if (sType && llmTypeSet.has(String(sType).toLowerCase())) continue;
     const key = gapKey(s);
     if (byKey.has(key)) continue;
-    const ng = normalizeGap({ ...s, gapId: makeId(), status: "open", missCount: 0 }, s.gapId);
+    const ng = normalizeGap({ ...s, gapId: makeId(), status: "open", missCount: 0 }, s.gapId, logger);
     if (!ng) continue;
     merged.push(ng);
     byKey.set(key, ng);
@@ -425,7 +423,7 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
     };
     const key = gapKey(candidate);
     if (byKey.has(key)) continue;
-    const ng = normalizeGap({ ...candidate, gapId: makeId(), status: "open", missCount: 0 }, undefined);
+    const ng = normalizeGap({ ...candidate, gapId: makeId(), status: "open", missCount: 0 }, undefined, logger);
     if (!ng) continue;
     merged.push(ng);
     byKey.set(key, ng);
@@ -449,7 +447,7 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
     const candidate = { type: "question", question: qt, priority: "low", queryHints: qt.split(/\s+/).slice(0, 6) };
     const key = gapKey(candidate);
     if (byKey.has(key)) continue;
-    const ng = normalizeGap({ ...candidate, gapId: makeId(), status: "open", missCount: 0 }, candidate.gapId);
+    const ng = normalizeGap({ ...candidate, gapId: makeId(), status: "open", missCount: 0 }, candidate.gapId, logger);
     if (!ng) continue;
     merged.push(ng);
     byKey.set(key, ng);
@@ -493,13 +491,35 @@ export async function runDeepSearchGapsStage(runContext, input, stageApi = {}) {
 
   state.L1.gaps = merged;
 
+  // 分析长期未填充/已阻塞的 gaps，给出下一轮策略建议
+  if (state?.planningTree && typeof state.planningTree.analyzeGapFailure === "function") {
+    const blockedGaps = merged.filter((g) => (toNonEmptyString(g?.status) || "open") === "blocked");
+    for (const gap of blockedGaps) {
+      const gapId = toNonEmptyString(gap?.gapId);
+      if (!gapId) continue;
+
+      const analysis = state.planningTree.analyzeGapFailure(gapId);
+      if (analysis && Array.isArray(analysis.suggestedActions) && analysis.suggestedActions.length > 0) {
+        logger.info("Gap failure analysis", {
+          stage: "gaps",
+          data: {
+            gapId,
+            failureCount: analysis.failureCount,
+            suggestions: analysis.suggestedActions.slice(0, 2),
+          },
+        });
+
+        gap.suggestedActions = analysis.suggestedActions;
+      }
+    }
+  }
+
   const openGapCount = merged.filter((g) => g.status === "open").length;
   state.addTimeline({ name: "deepsearch.gaps", status: "completed", payload: { gapCount: openGapCount, totalGaps: merged.length } });
 
   // 记录 gaps 阶段完成
-  logEvent({
-    stage: 'gaps',
-    message: 'Gaps stage completed',
+  logger.info("Gaps stage completed", {
+    stage: "gaps",
     data: {
       totalGaps: merged.length,
       openGaps: openGapCount,

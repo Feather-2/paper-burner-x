@@ -3,8 +3,10 @@ import { getModelCaller } from "./model.js";
 import { claimsFromChunks } from "../../deepsearch/understanding/claims-from-chunks.js";
 import { dedupeClaims } from "../../deepsearch/understanding/dedupe.js";
 import { detectConflicts } from "../../deepsearch/understanding/conflicts.js";
-import { logEvent, setLogContext } from "./logger.js";
+import { createLogger } from "./logger.js";
+import { extractServices } from "./stage-api.js";
 import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
+import { mapConcurrentWithPool } from "../../shared/concurrency.js";
 
 // ===== Reflect Prompt: LLM 自主判断是否需要更多信息 =====
 const REFLECT_PROMPT = `你是一个研究助手，需要判断当前收集的证据是否足以回答用户的问题。
@@ -139,6 +141,7 @@ async function generateClaimsWithLLM(gap, chunks, stageApi, state, { maxQuoteLen
   const callModel = getModelCaller(stageApi, { usage: "analyst", state });
   if (!callModel) return null;
 
+  const contextSummary = stageApi?.getContextSummary?.() || "";
   const gapQuestion = toNonEmptyString(gap?.question);
   if (!gapQuestion) return null;
 
@@ -151,6 +154,8 @@ async function generateClaimsWithLLM(gap, chunks, stageApi, state, { maxQuoteLen
   const prompt = LLM_CLAIMS_PROMPT
     .replace("{gapQuestion}", gapQuestion)
     .replace("{chunkTexts}", formatChunksForLLM(promptChunks));
+
+  const promptWithContext = contextSummary ? `## 已知上下文\n${contextSummary}\n\n${prompt}` : prompt;
 
   const cacheKeyInputs = {
     gapId: toNonEmptyString(gap?.gapId) || "",
@@ -169,7 +174,7 @@ async function generateClaimsWithLLM(gap, chunks, stageApi, state, { maxQuoteLen
         content:
           "你是一个严谨的研究助手。只能基于提供的文档片段提取论点，不得编造。输出必须为严格 JSON，且 quote 必须为原文精确片段。",
       },
-      { role: "user", content: prompt },
+      { role: "user", content: promptWithContext },
     ];
 
     const resultPromise = callModel(messages, {
@@ -293,6 +298,7 @@ function normalizeUnderstandClaimEditsCacheKeyInputs(taskGoal, claims, evidenceB
  */
 async function reflectOnEvidence(state, { claims, evidenceLedger, gaps }, stageApi) {
   const callModel = getModelCaller(stageApi, { usage: "analyst", state });
+  const contextSummary = stageApi?.getContextSummary?.() || "";
 
   // 计算覆盖统计
   const allGaps = Array.isArray(gaps) ? gaps : [];
@@ -388,7 +394,9 @@ async function reflectOnEvidence(state, { claims, evidenceLedger, gaps }, stageA
     .replace("{totalClaims}", String(allClaims.length))
     .replace("{coreClaims}", coreClaimsStr);
 
-  const cacheKeyInputs = { rawPrompt: truncate(prompt, 900) };
+  const promptWithContext = contextSummary ? `## 已知上下文\n${contextSummary}\n\n${prompt}` : prompt;
+
+  const cacheKeyInputs = { rawPrompt: truncate(promptWithContext, 900) };
 
   // === 健壮性：带超时的 LLM 调用 ===
   const timeoutMs = 15000; // 15 秒超时
@@ -396,7 +404,7 @@ async function reflectOnEvidence(state, { claims, evidenceLedger, gaps }, stageA
 
   try {
     const resultPromise = callModel(
-      [{ role: "user", content: prompt }],
+      [{ role: "user", content: promptWithContext }],
       { model: "auto", temperature: 0.1, maxTokens: 400, cacheKeyInputs }
     );
 
@@ -462,6 +470,7 @@ async function tryLLMClaimEdits(state, claims, evidenceLedger, stageApi) {
   const callModel = getModelCaller(stageApi, { usage: "analyst", state });
   if (!callModel) return null;
 
+  const contextSummary = stageApi?.getContextSummary?.() || "";
   const evidenceById = new Map();
   for (const e of Array.isArray(evidenceLedger) ? evidenceLedger : []) {
     if (!e || !toNonEmptyString(e?.evidenceId)) continue;
@@ -480,24 +489,28 @@ async function tryLLMClaimEdits(state, claims, evidenceLedger, stageApi) {
     },
     {
       role: "user",
-      content: JSON.stringify(
-        {
-          taskGoal: String(state?.taskGoal || ""),
-          draftClaims: (Array.isArray(claims) ? claims : []).map((c) => ({
-            claimId: c?.claimId,
-            text: c?.text,
-            importance: c?.importance,
-            evidence: (Array.isArray(c?.evidenceIds) ? c.evidenceIds : [])
-              .map((eid) => {
-                const row = evidenceById.get(String(eid));
-                return row ? { evidenceId: String(eid), ...row } : { evidenceId: String(eid) };
-              })
-              .slice(0, 3),
-          })),
-        },
-        null,
-        2
-      ),
+      content: (() => {
+        const originalPrompt = JSON.stringify(
+          {
+            taskGoal: String(state?.taskGoal || ""),
+            draftClaims: (Array.isArray(claims) ? claims : []).map((c) => ({
+              claimId: c?.claimId,
+              text: c?.text,
+              importance: c?.importance,
+              evidence: (Array.isArray(c?.evidenceIds) ? c.evidenceIds : [])
+                .map((eid) => {
+                  const row = evidenceById.get(String(eid));
+                  return row ? { evidenceId: String(eid), ...row } : { evidenceId: String(eid) };
+                })
+                .slice(0, 3),
+            })),
+          },
+          null,
+          2
+        );
+
+        return contextSummary ? `## 已知上下文\n${contextSummary}\n\n${originalPrompt}` : originalPrompt;
+      })(),
     },
   ];
 
@@ -614,14 +627,14 @@ export function computeGapFill(gaps, { claims, evidenceLedger } = {}) {
  * 验证单条 evidence 是否合规
  * @returns {{ valid: boolean, issues: string[] }}
  */
-function validateSingleEvidence(e, { sources, sourceTextById, retrievedByChunkId }) {
+function validateSingleEvidence(e, { sources, sourceTextById }) {
   const issues = [];
   if (!e) {
     issues.push("evidence is null/undefined");
     return { valid: false, issues };
   }
 
-  const evidenceId = toNonEmptyString(e?.evidenceId) || "(missing)";
+  // chunkId is an optional trace field; validation is grounded on sourceId + locator + quote only.
 
   // H4: sourceId 必须存在且可解析
   const sourceId = toNonEmptyString(e?.sourceId);
@@ -629,14 +642,6 @@ function validateSingleEvidence(e, { sources, sourceTextById, retrievedByChunkId
     issues.push("H4: sourceId missing");
   } else if (!Array.isArray(sources) || !sources.some((s) => toNonEmptyString(s?.sourceId) === sourceId)) {
     issues.push(`H4: sourceId "${sourceId}" not found in sources`);
-  }
-
-  // H4: chunkId 必须可解析
-  const chunkId = toNonEmptyString(e?.chunkId);
-  if (!chunkId) {
-    issues.push("H4: chunkId missing");
-  } else if (!retrievedByChunkId.has(String(chunkId))) {
-    issues.push(`H4: chunkId "${chunkId}" not found in retrievedChunks`);
   }
 
   // H2: locator 必须合法
@@ -677,13 +682,13 @@ function validateSingleEvidence(e, { sources, sourceTextById, retrievedByChunkId
  * 软降级验证：过滤不合规的 evidence，保留合规的
  * @returns {{ validEvidence: object[], invalidEvidence: {evidence: object, issues: string[]}[], validClaims: object[], orphanedClaims: object[] }}
  */
-function validateEvidenceWithDegradation({ sources, sourceTextById, claims, evidenceLedger, retrievedByChunkId }, { emit } = {}) {
+function validateEvidenceWithDegradation({ sources, sourceTextById, claims, evidenceLedger }, { emit } = {}) {
   const validEvidence = [];
   const invalidEvidence = [];
 
   // 验证每条 evidence
   for (const e of Array.isArray(evidenceLedger) ? evidenceLedger : []) {
-    const { valid, issues } = validateSingleEvidence(e, { sources, sourceTextById, retrievedByChunkId });
+    const { valid, issues } = validateSingleEvidence(e, { sources, sourceTextById });
     if (valid) {
       validEvidence.push(e);
     } else {
@@ -737,7 +742,7 @@ function validateEvidenceWithDegradation({ sources, sourceTextById, claims, evid
  * [已废弃] 硬门验证 - 保留用于严格模式或测试
  * @deprecated 请使用 validateEvidenceWithDegradation 进行软降级验证
  */
-function assertHardGates({ sources, sourceTextById, claims, evidenceLedger, retrievedByChunkId }) {
+function assertHardGates({ sources, sourceTextById, claims, evidenceLedger }) {
   const evidenceById = new Map();
   for (const e of Array.isArray(evidenceLedger) ? evidenceLedger : []) {
     if (!e || !toNonEmptyString(e.evidenceId)) continue;
@@ -762,11 +767,6 @@ function assertHardGates({ sources, sourceTextById, claims, evidenceLedger, retr
     if (!sourceId) throw new Error("Hard gate H4 failed: evidence.sourceId is required");
     if (!Array.isArray(sources) || !sources.some((s) => toNonEmptyString(s?.sourceId) === sourceId)) {
       throw new Error(`Hard gate H4 failed: Unresolvable sourceId reference for evidence ${String(evidenceId)}: ${String(sourceId)}`);
-    }
-
-    const chunkId = toNonEmptyString(e?.chunkId);
-    if (!chunkId || !retrievedByChunkId.has(String(chunkId))) {
-      throw new Error(`Hard gate H4 failed: Unresolvable chunkId reference for evidence ${String(evidenceId)}: ${String(chunkId || "")}`);
     }
 
     const locator = e?.locator;
@@ -799,6 +799,7 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     stateType: input?.state?.constructor?.name,
   });
 
+  const { emit: rawEmit, logger: injectedLogger } = extractServices(stageApi);
   const emit = makeStageEmitter(stageApi, "deepsearch");
 
   let state;
@@ -809,8 +810,13 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     throw err;
   }
 
-  // 设置日志上下文
-  setLogContext({ runId: state.runId, iteration: state.iteration || 0 });
+  const logger =
+    injectedLogger && typeof injectedLogger.info === "function"
+      ? injectedLogger
+      : createLogger({
+          emit: rawEmit,
+          getContext: () => ({ runId: state.runId, iteration: state.iteration || 0, trajectoryId: state.trajectoryId, stage: "understand" }),
+        });
 
   try {
     checkCancelled(stageApi);
@@ -906,14 +912,9 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   const existingEvidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
 
   // 记录 understand 阶段开始
-  logEvent({
-    stage: 'understand',
-    message: 'Understand stage started',
-    data: {
-      retrievedChunks: retrieved.length,
-      unconsumedChunks: newRetrieved.length,
-      existingClaims: existingClaims.length,
-    },
+  logger.info("Understand stage started", {
+    stage: "understand",
+    data: { retrievedChunks: retrieved.length, unconsumedChunks: newRetrieved.length, existingClaims: existingClaims.length },
   });
 
   // 发射阶段开始事件
@@ -925,7 +926,7 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   });
 
   if (!newRetrieved.length) {
-    logEvent({ stage: "understand", message: "No unconsumed chunks to process" });
+    logger.info("No unconsumed chunks to process", { stage: "understand" });
     const conflicts = Array.isArray(state?.L1?.conflicts) ? state.L1.conflicts : [];
     const openQuestions = Array.isArray(state?.L1?.openQuestions) ? state.L1.openQuestions : [];
     const reflectResult = isPlainObject(state?.L1?.reflectResult)
@@ -1148,8 +1149,9 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
 
   // 并行调用所有 gap 的 LLM（后续 ID rebase 仍按原顺序串行执行，保持行为稳定）
   const gapEntries = Array.from(chunksByGapId.entries());
-  const llmResults = await Promise.all(
-    gapEntries.map(async ([gapId, chunksForGap]) => {
+  const llmResults = await mapConcurrentWithPool(
+    gapEntries,
+    async ([gapId, chunksForGap]) => {
       const deduped = dedupeChunksByChunkId(chunksForGap);
       const gap = gapsById.get(String(gapId)) || { gapId: String(gapId) };
 
@@ -1171,7 +1173,8 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
       if (!seed || !Array.isArray(seed.claims) || !Array.isArray(seed.evidences)) seed = { claims: [], evidences: [] };
 
       return { gapId, seed };
-    })
+    },
+    10
   );
 
   for (const { gapId, seed } of llmResults) {
@@ -1464,12 +1467,11 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
       sourceTextById,
       claims,
       evidenceLedger,
-      retrievedByChunkId,
     });
   } else {
     // 软降级模式（默认）：过滤不合规项，保留合规项
     const { validEvidence, invalidEvidence, validClaims, orphanedClaims } = validateEvidenceWithDegradation(
-      { sources, sourceTextById, claims, evidenceLedger, retrievedByChunkId },
+      { sources, sourceTextById, claims, evidenceLedger },
       { emit }
     );
 
@@ -1605,21 +1607,15 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
     });
 
     // 记录 reflect 结果
-    logEvent({
-      stage: 'understand',
-      message: 'Evidence insufficient - needs more research',
-      data: {
-        reason: reflectResult.reason,
-        confidence: reflectResult.confidence,
-        missingAspects: reflectResult.missingAspects,
-      },
+    logger.warn("Evidence insufficient - needs more research", {
+      stage: "understand",
+      data: { reason: reflectResult.reason, confidence: reflectResult.confidence, missingAspects: reflectResult.missingAspects },
     });
   }
 
   // 记录 understand 阶段完成
-  logEvent({
-    stage: 'understand',
-    message: 'Understand stage completed',
+  logger.info("Understand stage completed", {
+    stage: "understand",
     data: {
       claimCount: finalClaims.length,
       evidenceCount: finalEvidenceLedger.length,

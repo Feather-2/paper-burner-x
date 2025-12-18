@@ -109,7 +109,9 @@ test("DeepSearch gap-fill logic: partial fill keeps remaining gaps", async () =>
 });
 
 test("DeepSearchState utilities: extractJsonCandidate, emitter, cancellation, checkpoints", async () => {
-  const { DeepSearchState, extractJsonCandidate, makeStageEmitter, checkCancelled } = await import("../../../js/agents/stages/deepsearch/state.js");
+  const { DeepSearchState, extractJsonCandidate, makeStageEmitter, checkCancelled, EVENT_SCHEMA_VERSION, EventStatus } = await import(
+    "../../../js/agents/stages/deepsearch/state.js"
+  );
 
   const objJson = JSON.stringify({ a: 1 }, null, 2);
   assert.equal(extractJsonCandidate("```json\n" + objJson + "\n```"), objJson);
@@ -122,7 +124,12 @@ test("DeepSearchState utilities: extractJsonCandidate, emitter, cancellation, ch
   const stageEmit = makeStageEmitter({ emit }, "deepsearch");
   assert.ok(typeof stageEmit === "function");
   stageEmit("evt", { ok: true }, { status: "started" });
-  assert.deepEqual(events[0], { name: "evt", payload: { actor: "deepsearch", status: "started", payload: { ok: true } } });
+  assert.equal(events[0].name, "evt");
+  assert.equal(events[0].payload.schemaVersion, EVENT_SCHEMA_VERSION);
+  assert.equal(events[0].payload.name, "evt");
+  assert.equal(events[0].payload.actor, "deepsearch");
+  assert.equal(events[0].payload.status, EventStatus.STARTED);
+  assert.deepEqual(events[0].payload.payload, { ok: true });
 
   let checked = false;
   checkCancelled({ checkCancelled: () => (checked = true) });

@@ -1,8 +1,13 @@
-import { checkCancelled, computeRoundHitsByGapId, validateIteration } from "./state.js";
+import { DeepSearchState, checkCancelled, computeRoundHitsByGapId, validateIteration } from "./state.js";
 import { dedupeClaims } from "../../deepsearch/understanding/dedupe.js";
 import { TrajectoryCache } from "./trajectory-cache.js";
 import { parseExternalSearchConfig } from "./external-search.js";
+import { extractServices } from "./stage-api.js";
 import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/value-utils.js";
+
+function cloneValue(v) {
+  return typeof structuredClone === "function" ? structuredClone(v) : JSON.parse(JSON.stringify(v));
+}
 
 function clampInt(n, { min = 1, max = 8 } = {}) {
   const v = safeInt(n);
@@ -86,9 +91,14 @@ function evidenceKey(e) {
 
 function mergeGaps(trajectories) {
   const byKey = new Map();
+  const oldGapIdsByKey = new Map(); // key -> Set of oldGapIds
   for (const t of trajectories) {
     for (const g of Array.isArray(t?.L1?.gaps) ? t.L1.gaps : []) {
       const key = gapKey(g);
+      const oldGapId = String(g?.gapId || "");
+      if (!oldGapIdsByKey.has(key)) oldGapIdsByKey.set(key, new Set());
+      if (oldGapId) oldGapIdsByKey.get(key).add(oldGapId);
+
       const existing = byKey.get(key);
       if (!existing) {
         byKey.set(key, { ...g });
@@ -108,8 +118,29 @@ function mergeGaps(trajectories) {
     }
   }
 
-  const gaps = [...byKey.values()];
-  return gaps.map((g, i) => ({ ...g, gapId: String(g?.gapId || `gap_${i + 1}`) }));
+  const gaps = [...byKey.values()].sort((a, b) => gapKey(a).localeCompare(gapKey(b)));
+  const gapIdMapping = new Map(); // oldGapId -> newGapId
+
+  gaps.forEach((g, i) => {
+    const key = gapKey(g);
+    const newGapId = `gap_${i + 1}`;
+    for (const oldId of oldGapIdsByKey.get(key) || []) gapIdMapping.set(oldId, newGapId);
+    g.gapId = newGapId;
+  });
+
+  return { gaps, gapIdMapping };
+}
+
+function rewriteGapIds(items, gapIdMapping) {
+  if (!gapIdMapping || typeof gapIdMapping.get !== "function") return;
+  if (!Array.isArray(items)) return;
+
+  for (const item of items) {
+    if (!item || typeof item !== "object") continue;
+    if (Array.isArray(item.gapIds)) item.gapIds = item.gapIds.map((gid) => gapIdMapping.get(String(gid)) || gid);
+    if (item.gapId) item.gapId = gapIdMapping.get(String(item.gapId)) || item.gapId;
+    if (Array.isArray(item.matchedGapIds)) item.matchedGapIds = item.matchedGapIds.map((gid) => gapIdMapping.get(String(gid)) || gid);
+  }
 }
 
 function mergeRetrievedChunks(trajectories) {
@@ -225,7 +256,17 @@ export class TrajectoryManager {
   // Fork state into N trajectories
   fork(baseState) {
     this.trajectories = Array.from({ length: this.config.n }, (_, i) => {
-      const clone = baseState.clone();
+      // 轻量克隆：共享 L0，只克隆可变部分
+      const clone = new DeepSearchState({
+        runId: baseState.runId,
+        taskGoal: baseState.taskGoal,
+        userConfig: baseState.userConfig,
+        iteration: baseState.iteration,
+        maxIterations: baseState.maxIterations,
+        L0: baseState.L0, // 共享引用（源文档不可变）
+        L1: JSON.parse(JSON.stringify(baseState.L1 || {})),
+        L2: { retrievedChunks: [], scratchpad: {}, logs: [], tokenUsage: { input: 0, output: 0, total: 0 } },
+      });
       clone.trajectoryId = `traj_${i}`;
       clone.trajectoryConfig = { ...this.config };
       return clone;
@@ -265,6 +306,7 @@ export class TrajectoryManager {
     const seenHitSignatures = new Set();
     let noNewHitsRounds = 0;
     let externalSearchTriggered = false; // 每个 trajectory 只触发一次外搜
+    const { signal } = extractServices(stageApi);
 
     const wrapApiForStage = (name) => {
       const base = stageApi && typeof stageApi === "object" ? stageApi : {};
@@ -286,7 +328,7 @@ export class TrajectoryManager {
     });
 
     try {
-      while (trajectory.iteration < trajectory.maxIterations && !stageApi?.signal?.aborted) {
+      while (trajectory.iteration < trajectory.maxIterations && !signal?.aborted) {
         checkCancelled(stageApi);
         await runGapsStage(runContext, { state: trajectory }, wrapApiForStage("gaps"));
 
@@ -502,10 +544,14 @@ export class TrajectoryManager {
 
     merged.L1.claims = claims;
     merged.L1.evidenceLedger = evidenceLedger;
-    merged.L1.gaps = mergeGaps(this.trajectories);
+    const { gaps, gapIdMapping } = mergeGaps(this.trajectories);
+    merged.L1.gaps = gaps;
+    rewriteGapIds(merged.L1.claims, gapIdMapping);
+    rewriteGapIds(merged.L1.evidenceLedger, gapIdMapping);
     merged.L1.conflicts = mergeConflicts(this.trajectories);
     merged.L1.openQuestions = mergeOpenQuestions(this.trajectories);
     merged.L2.retrievedChunks = mergeRetrievedChunks(this.trajectories);
+    rewriteGapIds(merged.L2.retrievedChunks, gapIdMapping);
 
     return merged;
   }
@@ -553,10 +599,14 @@ export class TrajectoryManager {
 
     merged.L1.claims = claims;
     merged.L1.evidenceLedger = evidenceLedger;
-    merged.L1.gaps = mergeGaps(this.trajectories);
+    const { gaps, gapIdMapping } = mergeGaps(this.trajectories);
+    merged.L1.gaps = gaps;
+    rewriteGapIds(merged.L1.claims, gapIdMapping);
+    rewriteGapIds(merged.L1.evidenceLedger, gapIdMapping);
     merged.L1.conflicts = mergeConflicts(this.trajectories);
     merged.L1.openQuestions = mergeOpenQuestions(this.trajectories);
     merged.L2.retrievedChunks = mergeRetrievedChunks(this.trajectories);
+    rewriteGapIds(merged.L2.retrievedChunks, gapIdMapping);
 
     return merged;
   }
@@ -586,6 +636,7 @@ export class TrajectoryManager {
 }
 
 export const __test = {
+  cloneValue,
   clampInt,
   toTrajectoryConfig,
   signatureForRetrievedChunk,
@@ -593,6 +644,7 @@ export const __test = {
   statusRank,
   evidenceKey,
   mergeGaps,
+  rewriteGapIds,
   mergeRetrievedChunks,
   mergeConflicts,
   mergeOpenQuestions,

@@ -10,12 +10,15 @@ import { generateReport, runDeepSearchWriteStage } from "./write.js";
 import { runDeepSearchCondenseStage } from "./condense.js";
 import { TrajectoryManager } from "./trajectory.js";
 import { DeepSearchError, ErrorHandler, ErrorLevel } from "../../core/error-handler.js";
-import { logEvent, setLogContext, setEventBus } from "./logger.js";
+import { createLogger } from "./logger.js";
 import { SharedContext } from "./shared-context.js";
 import { shouldUseDirectMode, runDirectAnalysis } from "./direct-analysis.js";
 import { isPlainObject, safeInt } from "../../shared/value-utils.js";
 import { mapConcurrent } from "../../shared/concurrency.js";
 import { CONCURRENCY_CONFIG, GAP_CONFIG } from "./constants.js";
+import { BudgetAction, createBudgetManager } from "./budget.js";
+import { validateUserConfig } from "./config-schema.js";
+import { extractServices } from "./stage-api.js";
 
 function validateSourceChunksOrThrow(sources) {
   for (const s of Array.isArray(sources) ? sources : []) {
@@ -79,6 +82,31 @@ function createEmitTap(emitFn, { maxListeners } = {}) {
   };
 
   return { emit, on, destroy };
+}
+
+function safeMergeConfig(base, override) {
+  const baseObj = isPlainObject(base) ? base : {};
+  const overrideObj = isPlainObject(override) ? override : null;
+  if (!overrideObj) return { ...baseObj };
+
+  const out = { ...baseObj };
+  for (const [k, v] of Object.entries(overrideObj)) {
+    if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
+    const existing = out[k];
+    if (isPlainObject(existing) && isPlainObject(v)) {
+      out[k] = safeMergeConfig(existing, v);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+function isResumedInput(input) {
+  if (input instanceof DeepSearchState) return true;
+  if (input?.state instanceof DeepSearchState) return true;
+  if (isPlainObject(input?.state)) return true;
+  return false;
 }
 
 function ensureState(runContext, input) {
@@ -211,28 +239,46 @@ export class DeepSearchStage {
     // 创建 SharedContext 用于阶段间通信和分层记忆
     const sharedCtx = new SharedContext({ runId: state.runId });
 
-    // 设置日志上下文和 EventBus
-    setLogContext({ runId: state.runId, iteration: state.iteration || 0 });
-    if (stageApi?.eventBus) {
-      setEventBus(stageApi.eventBus);
+    const baseEmitFn = typeof stageApi?.emit === "function" ? stageApi.emit.bind(stageApi) : null;
+    const tap = createEmitTap(baseEmitFn);
+    const stageApiWithTap = { ...(isPlainObject(stageApi) ? stageApi : {}), emit: tap.emit };
+
+    let currentStage = "deepsearch";
+    const logger = createLogger({
+      emit: stageApiWithTap?.emit,
+      getContext: () => ({
+        runId: state.runId,
+        iteration: state.iteration,
+        trajectoryId: state.trajectoryId,
+        stage: currentStage,
+      }),
+    });
+    stageApiWithTap.logger = logger;
+
+    // Validate + normalize DeepSearch config early to avoid runtime errors.
+    const { config: normalizedUserConfig } = validateUserConfig(state?.userConfig, { emit: stageApiWithTap?.emit, logger });
+    state.userConfig = safeMergeConfig(state?.userConfig, normalizedUserConfig);
+    if (!isResumedInput(input)) {
+      const maxIt = safeInt(state?.userConfig?.maxIterations);
+      if (maxIt !== null && maxIt >= 1) state.maxIterations = maxIt;
     }
 
-    // 记录 DeepSearch 流程开始
-    logEvent({
-      stage: 'deepsearch',
-      message: 'DeepSearch pipeline started',
+    const stageApiWithContext = {
+      ...stageApiWithTap,
+      sharedContext: sharedCtx,
+      getContextSummary: () => sharedCtx.buildSummaryText(),
+    };
+
+    const emit = makeStageEmitter(stageApiWithContext, "deepsearch");
+
+    logger.info("DeepSearch pipeline started", {
+      stage: "deepsearch",
       data: {
         runId: state.runId,
         maxIterations: state.maxIterations,
         sourceCount: Array.isArray(state?.L0?.sources) ? state.L0.sources.length : 0,
       },
     });
-
-    const baseEmitFn = typeof stageApi?.emit === "function" ? stageApi.emit.bind(stageApi) : null;
-    const tap = createEmitTap(baseEmitFn);
-    const stageApiWithTap = { ...(isPlainObject(stageApi) ? stageApi : {}), emit: tap.emit };
-
-    const emit = makeStageEmitter(stageApiWithTap, "deepsearch");
 
     const taskManager = stageApi?.taskManager;
     const taskId = state.runId;
@@ -257,6 +303,124 @@ export class DeepSearchStage {
     const budgetConfig = typeof state?.getBudgetConfig === "function" ? state.getBudgetConfig() : null;
     let budgetStopRequested = false;
 
+    const budgetManager = createBudgetManager(state?.userConfig);
+    stageApiWithContext.budgetManager = budgetManager;
+    stageApiWithContext.getBudgetStats = () => budgetManager.getStats();
+
+    let budgetDegradeApplied = false;
+    const applyBudgetDegrade = ({ ratio, reason } = {}) => {
+      if (budgetDegradeApplied) return;
+      budgetDegradeApplied = true;
+
+      // Prefer "skip expensive optional ops" over terminating immediately.
+      if (!isPlainObject(state.userConfig)) state.userConfig = {};
+      if (!isPlainObject(state.userConfig.retrieval)) state.userConfig.retrieval = {};
+
+      if (!isPlainObject(state.userConfig.retrieval.rerank)) state.userConfig.retrieval.rerank = {};
+      state.userConfig.retrieval.rerank.enabled = false;
+
+      if (!isPlainObject(state.userConfig.retrieval.shadow)) state.userConfig.retrieval.shadow = {};
+      state.userConfig.retrieval.shadow.enabled = false;
+
+      if (!isPlainObject(state.userConfig.externalSearch)) state.userConfig.externalSearch = {};
+      state.userConfig.externalSearch.autoTrigger = false;
+
+      const curIt = safeInt(state.iteration) ?? 0;
+      const nextMax = curIt + 1;
+      const prevMax = safeInt(state.maxIterations) ?? nextMax;
+      state.maxIterations = Math.min(prevMax, nextMax);
+
+      state.addTimeline?.({
+        name: "deepsearch.budget.degraded.runtime",
+        status: "warning",
+        payload: {
+          maxIterations: state.maxIterations,
+          iteration: state.iteration,
+          ...(typeof ratio === "number" && Number.isFinite(ratio) ? { ratio } : {}),
+          ...(reason ? { reason: String(reason) } : {}),
+        },
+      });
+
+      emit?.(
+        "deepsearch.budget.degraded",
+        {
+          usage: budgetManager.usage,
+          limits: budgetManager.limits,
+          degraded: true,
+          ...(typeof ratio === "number" && Number.isFinite(ratio) ? { ratio } : {}),
+          ...(reason ? { reason: String(reason) } : {}),
+        },
+        { status: "info", throttle: false }
+      );
+    };
+
+    budgetManager.onThresholdReached = ({ action, usage, limits, ratio }) => {
+      if (action === BudgetAction.DEGRADE) {
+        applyBudgetDegrade({ ratio, reason: "threshold" });
+        return;
+      }
+
+      if (action === BudgetAction.STOP) {
+        budgetStopRequested = true;
+        state.addTimeline?.({
+          name: "deepsearch.budget.stop",
+          status: "warning",
+          payload: { usage, limits, ratio },
+        });
+        emit?.("deepsearch.budget.stop", { usage, limits, ratio }, { status: "warning", throttle: false });
+      }
+    };
+
+    const baseCheckCancelled =
+      typeof stageApiWithContext?.checkCancelled === "function" ? stageApiWithContext.checkCancelled.bind(stageApiWithContext) : null;
+    stageApiWithContext.checkCancelled = () => {
+      baseCheckCancelled?.();
+      if (budgetStopRequested || budgetManager?.stopped) {
+        throw new DeepSearchError("Budget stop requested", { level: ErrorLevel.DEGRADABLE, context: { stage: currentStage } });
+      }
+    };
+
+    // Preflight estimate: rough token budget forecast for the full run.
+    const preflightGapCount = Math.max(1, safeInt(state?.userConfig?.budget?.estimateGapCount) ?? 5);
+    const preflightSourceCount = Array.isArray(state?.L0?.sources) ? state.L0.sources.length : 0;
+    const enableRerank = Boolean(state?.userConfig?.retrieval?.rerank?.enabled);
+    const enableShadow = Boolean(state?.userConfig?.retrieval?.shadow?.enabled);
+    const externalCfgForEstimate = parseExternalSearchConfig(state?.userConfig);
+    const enableExternal = Boolean(externalCfgForEstimate?.enabled) && Boolean(externalCfgForEstimate?.autoTrigger);
+    const preflightEstimate = budgetManager.estimateIteration({
+      maxIterations: safeInt(state?.maxIterations) ?? 5,
+      gapCount: preflightGapCount,
+      sourceCount: preflightSourceCount,
+      enableRerank,
+      enableShadow,
+      enableExternal,
+    });
+    const preflightRatio = {
+      input: preflightEstimate.input / budgetManager.limits.input,
+      output: preflightEstimate.output / budgetManager.limits.output,
+      total: preflightEstimate.total / budgetManager.limits.total,
+    };
+    const preflightMaxRatio = Math.max(preflightRatio.input, preflightRatio.output, preflightRatio.total);
+    state.addTimeline?.({
+      name: "deepsearch.budget.estimated",
+      status: preflightMaxRatio >= 1 ? "warning" : "info",
+      payload: { estimate: preflightEstimate, limits: budgetManager.limits, ratio: preflightRatio, config: { preflightGapCount } },
+    });
+    emit?.("deepsearch.budget.estimated", { estimate: preflightEstimate, limits: budgetManager.limits, ratio: preflightRatio }, { status: "info", throttle: false });
+    if (preflightMaxRatio >= 1) {
+      budgetManager.stopped = true;
+      budgetStopRequested = true;
+      state.addTimeline?.({
+        name: "deepsearch.budget.preflight.stop",
+        status: "warning",
+        payload: { ratio: preflightMaxRatio, estimate: preflightEstimate, limits: budgetManager.limits },
+      });
+      emit?.("deepsearch.budget.stop", { reason: "preflight", ratio: preflightMaxRatio, estimate: preflightEstimate, limits: budgetManager.limits }, { status: "warning", throttle: false });
+    } else if (preflightMaxRatio >= budgetManager.degradeThreshold) {
+      budgetManager.degraded = true;
+      budgetManager.onThresholdReached?.({ action: BudgetAction.DEGRADE, usage: budgetManager.usage, limits: budgetManager.limits, ratio: preflightMaxRatio });
+    }
+
     tap.on("deepsearch.budget.exceeded", ({ record }) => {
       const payload = isPlainObject(record) && "payload" in record ? record.payload : record;
       const action = typeof budgetConfig?.action === "string" ? budgetConfig.action : "warn";
@@ -279,6 +443,19 @@ export class DeepSearchStage {
       if (action === "stop") {
         budgetStopRequested = true;
         state.addTimeline?.({ name: "deepsearch.budget.stop", status: "warning", payload: { iteration: state.iteration } });
+      }
+    });
+
+    tap.on("deepsearch.token.usage", ({ record }) => {
+      const payload = isPlainObject(record) && "payload" in record ? record.payload : record;
+      const usage = isPlainObject(payload?.usage) ? payload.usage : null;
+      const input = safeInt(usage?.input) ?? 0;
+      const output = safeInt(usage?.output) ?? 0;
+      const action = budgetManager.recordUsage({ input, output });
+      if (action === BudgetAction.STOP) {
+        budgetStopRequested = true;
+      } else if (action === BudgetAction.DEGRADE) {
+        applyBudgetDegrade({ ratio: Math.max(...Object.values(budgetManager.getUsageRatio())), reason: "token_usage" });
       }
     });
 
@@ -311,6 +488,7 @@ export class DeepSearchStage {
       const runId = String(stageState?.runId || state?.runId || runContext?.runId || "run");
       const stageName = String(stage || "stage");
       const stageLabel = stageName.startsWith("deepsearch.") ? stageName.slice("deepsearch.".length) : stageName;
+      currentStage = stageLabel;
       const iteration = typeof stageState?.iteration === "number" ? stageState.iteration : typeof state?.iteration === "number" ? state.iteration : undefined;
       const trajectoryId = stageState?.trajectoryId || state?.trajectoryId;
       const nodeId = generateNodeId(runId, "stage", { stage: stageLabel, iteration, trajectoryId });
@@ -327,12 +505,51 @@ export class DeepSearchStage {
         trajectoryId,
       });
 
-      try {
-        const value = await errorHandler.withRetry(fn, {
-          onRetry: ({ attempt, delay, error }) => {
-            const retryErr = normalizeError(error, { stage });
-            emit?.("deepsearch.node.failed", {
-              runId,
+      const budgetOp =
+        stageLabel === "scan"
+          ? "scan"
+          : stageLabel === "gaps"
+            ? "gaps"
+            : stageLabel === "retrieve"
+              ? "retrieve"
+              : stageLabel === "understand"
+                ? "understand"
+                : stageLabel === "write"
+                  ? "write"
+                  : stageLabel === "external"
+                    ? "external"
+                    : null;
+      if (budgetOp) {
+        const probe = budgetManager.canExecute(budgetOp);
+        if (probe.action === BudgetAction.DEGRADE) applyBudgetDegrade({ reason: `precheck:${budgetOp}` });
+        if (!probe.canExecute || probe.action === BudgetAction.STOP) {
+          budgetStopRequested = true;
+          budgetManager.stopped = true;
+          const dsErr = new DeepSearchError("Budget stop requested", { level: ErrorLevel.DEGRADABLE, context: { stage: stageLabel } });
+          const value = typeof fallbackValue === "function" ? fallbackValue(dsErr) : fallbackValue;
+          emit?.("deepsearch.node.failed", {
+            runId,
+            nodeId,
+            error: { message: dsErr.message, level: dsErr.level },
+            recovered: true,
+            retrying: false,
+          });
+          stageState?.addTimeline?.({
+            name: "deepsearch.budget.stop",
+            status: "warning",
+            payload: { stage: stageLabel, operation: budgetOp, estimated: probe.estimated, stats: budgetManager.getStats() },
+          });
+          return { ok: false, recovered: true, error: dsErr, value };
+        }
+      }
+
+	      try {
+	        const value = await errorHandler.withRetry(fn, {
+	          signal: stageApiWithContext?.signal,
+	          onRetry: ({ attempt, delay, error }) => {
+	            const retryErr = normalizeError(error, { stage });
+	            emit?.("deepsearch.node.failed", {
+	              runId,
               nodeId,
               error: { message: String(retryErr?.message || ""), level: retryErr?.level },
               recovered: false,
@@ -384,25 +601,31 @@ export class DeepSearchStage {
     emit?.("deepsearch.started", { runId: state.runId });
 
     try {
-      checkCancelled(stageApiWithTap);
+      if (!budgetStopRequested) checkCancelled(stageApiWithContext);
 
       // 小文档直通模式检测
       const directModeCheck = shouldUseDirectMode(state);
       if (directModeCheck.shouldUse) {
-        logEvent({
-          stage: "deepsearch",
-          message: "Using direct analysis mode for small document",
-          data: directModeCheck,
-        });
+        if (budgetStopRequested) {
+          emit?.("deepsearch.aborted", { iteration: state.iteration, reason: "budget_preflight" });
+          state.addTimeline?.({ name: "deepsearch.aborted", status: "warning", payload: { iteration: state.iteration, reason: "budget_preflight" } });
+          // Skip direct mode when budget is already exhausted by preflight.
+        } else {
+        currentStage = "deepsearch";
+        logger.info("Using direct analysis mode for small document", { stage: "deepsearch", data: directModeCheck });
         emit?.("deepsearch.direct.triggered", directModeCheck);
 
-        const pkg = await runDirectAnalysis(runContext, { state }, stageApiWithTap);
+        currentStage = "direct";
+        const pkg = await runDirectAnalysis(runContext, { state }, stageApiWithContext);
         emit?.("deepsearch.completed", { runId: state.runId, mode: "direct" });
         return pkg;
+        }
       }
 
-      await callStage("deepsearch.scan", () => runDeepSearchScanStage(runContext, { state }, stageApiWithTap), { stageState: state });
-      updateTaskProgress();
+      if (!budgetStopRequested) {
+        await callStage("deepsearch.scan", () => runDeepSearchScanStage(runContext, { state }, stageApiWithContext), { stageState: state });
+        updateTaskProgress();
+      }
 
       // SharedContext: 记录 scan 阶段摘要
       const scanSources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
@@ -416,67 +639,73 @@ export class DeepSearchStage {
         emit?.("deepsearch.budget.stop", { iteration: state.iteration });
       }
 
-      const seenHitSignatures = new Set();
-      let noNewHitsRounds = 0;
-      let lastRoundResult = null;
-      const maxWriteBacktrack = 3;
+      if (!budgetStopRequested) {
+        const seenHitSignatures = new Set();
+        let noNewHitsRounds = 0;
+        let lastRoundResult = null;
+        const maxWriteBacktrack = 3;
 
-      const trajectoryCfg = getTrajectoryConfig(state);
-      const useTrajectories = (safeInt(trajectoryCfg.n) ?? 1) > 1;
+        const trajectoryCfg = getTrajectoryConfig(state);
+        const useTrajectories = (safeInt(trajectoryCfg.n) ?? 1) > 1;
 
-      if (useTrajectories) {
-        const manager = new TrajectoryManager(trajectoryCfg);
-        state.trajectoryConfig = { ...manager.config };
+        if (useTrajectories) {
+          const manager = new TrajectoryManager(trajectoryCfg);
+          state.trajectoryConfig = { ...manager.config };
 
-        emit?.("deepsearch.trajectory.forked", { n: manager.config.n, mergeStrategy: manager.config.mergeStrategy });
+          emit?.("deepsearch.trajectory.forked", { n: manager.config.n, mergeStrategy: manager.config.mergeStrategy });
 
-        const trajectories = manager.fork(state);
-        await mapConcurrent(trajectories, async (trajectory) => {
-          try {
-            await manager.runTrajectory(
-              trajectory,
-              {
-                runContext,
-                runGapsStage: wrapStageFn("deepsearch.gaps", runDeepSearchGapsStage, {
-                  fallbackValue: (s) => ({ state: s, gaps: Array.isArray(s?.L1?.gaps) ? s.L1.gaps : [], todos: [] }),
-                }),
-                runRetrieveStage: wrapStageFn("deepsearch.retrieve", runDeepSearchRetrieveStage, {
-                  fallbackValue: (s) => ({ state: s, retrievedChunks: [] }),
-                }),
-                runUnderstandStage: wrapStageFn("deepsearch.understand", runDeepSearchUnderstandStage, {
-                  fallbackValue: (s) => ({ state: s }),
-                }),
-                runExternalSearch,
-                emit: emit ? (name, payload) => emit(name, payload) : null,
-              },
-              stageApiWithTap
-            );
-          } catch {
-            // keep all-settled semantics: trajectory failures should not abort merging others
-          }
-        }, getTrajectoryParallel(state));
+          const trajectories = manager.fork(state);
+          await mapConcurrent(
+            trajectories,
+            async (trajectory) => {
+              try {
+                await manager.runTrajectory(
+                  trajectory,
+                  {
+                    runContext,
+                    runGapsStage: wrapStageFn("deepsearch.gaps", runDeepSearchGapsStage, {
+                      fallbackValue: (s) => ({ state: s, gaps: Array.isArray(s?.L1?.gaps) ? s.L1.gaps : [], todos: [] }),
+                    }),
+                    runRetrieveStage: wrapStageFn("deepsearch.retrieve", runDeepSearchRetrieveStage, {
+                      fallbackValue: (s) => ({ state: s, retrievedChunks: [] }),
+                    }),
+                    runUnderstandStage: wrapStageFn("deepsearch.understand", runDeepSearchUnderstandStage, {
+                      fallbackValue: (s) => ({ state: s }),
+                    }),
+                    runExternalSearch,
+                    emit: emit ? (name, payload) => emit(name, payload) : null,
+                  },
+                  stageApiWithContext
+                );
+              } catch {
+                // keep all-settled semantics: trajectory failures should not abort merging others
+              }
+            },
+            getTrajectoryParallel(state)
+          );
 
-        const merged = manager.merge();
-        if (merged) applyMergedState(state, merged);
+          const merged = manager.merge();
+          if (merged) applyMergedState(state, merged);
 
-        emit?.("deepsearch.trajectory.merged", { mergeStrategy: manager.config.mergeStrategy });
-        updateTaskProgress();
-      }
+          emit?.("deepsearch.trajectory.merged", { mergeStrategy: manager.config.mergeStrategy });
+          updateTaskProgress();
+        }
 
-      let phase = useTrajectories ? "write" : "gaps";
-      while (!stageApiWithTap?.signal?.aborted && !budgetStopRequested) {
-        checkCancelled(stageApiWithTap);
+        let phase = useTrajectories ? "write" : "gaps";
+        while (!stageApiWithContext?.signal?.aborted && !budgetStopRequested) {
+          checkCancelled(stageApiWithContext);
 
         if (phase === "gaps") {
           if (state.iteration >= state.maxIterations) {
             phase = "write";
             continue;
           }
-          await callStage("deepsearch.gaps", () => runDeepSearchGapsStage(runContext, { state }, stageApiWithTap), {
+          await callStage("deepsearch.gaps", () => runDeepSearchGapsStage(runContext, { state }, stageApiWithContext), {
             stageState: state,
             fallbackValue: { state, gaps: Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [], todos: [] },
           });
           updateTaskProgress();
+          if (budgetStopRequested) break;
 
           // SharedContext: 记录 gaps 阶段摘要
           const allGaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
@@ -525,22 +754,18 @@ export class DeepSearchStage {
           });
 
           // 记录迭代开始
-          logEvent({
-            stage: 'deepsearch',
-            message: `Iteration ${state.iteration} started`,
-            data: {
-              iteration: state.iteration,
-              openGaps: openGaps(state).length,
-              trajectoryId: state.trajectoryId,
-            },
+          logger.info(`Iteration ${state.iteration} started`, {
+            stage: "deepsearch",
+            data: { iteration: state.iteration, openGaps: openGaps(state).length, trajectoryId: state.trajectoryId },
           });
 
-          const { value: retrieveOut } = await callStage("deepsearch.retrieve", () => runDeepSearchRetrieveStage(runContext, { state }, stageApiWithTap), {
+          const { value: retrieveOut } = await callStage("deepsearch.retrieve", () => runDeepSearchRetrieveStage(runContext, { state }, stageApiWithContext), {
             stageState: state,
             fallbackValue: { state, retrievedChunks: [] },
           });
           const retrievedChunks = retrieveOut?.retrievedChunks;
           updateTaskProgress();
+          if (budgetStopRequested) break;
 
           // 只计算高质量 hit（score >= 阈值），低质量匹配不算有效 hit
           const qualityThreshold = getQualityThreshold(state);
@@ -572,11 +797,12 @@ export class DeepSearchStage {
             sharedCtx.signal("retrieve", { type: "NO_QUALITY_HITS", iteration: state.iteration, noNewHitsRounds });
           }
 
-          await callStage("deepsearch.understand", () => runDeepSearchUnderstandStage(runContext, { state }, stageApiWithTap), {
+          await callStage("deepsearch.understand", () => runDeepSearchUnderstandStage(runContext, { state }, stageApiWithContext), {
             stageState: state,
             fallbackValue: { state },
           });
           updateTaskProgress();
+          if (budgetStopRequested) break;
 
           // SharedContext: 记录 understand 阶段摘要
           const claims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
@@ -613,9 +839,10 @@ export class DeepSearchStage {
             if (searchGaps.length) {
               const { value: externalOut } = await callStage(
                 "deepsearch.external",
-                () => runExternalSearch(searchGaps, externalCfg, { emit, state, stageApi: stageApiWithTap }),
+                () => runExternalSearch(searchGaps, externalCfg, { emit, state, stageApi: stageApiWithContext }),
                 { stageState: state, fallbackValue: { chunks: [], documents: [], evidences: [] } }
               );
+              if (budgetStopRequested) break;
 
               if (!state.L2 || typeof state.L2 !== "object") state.L2 = {};
               state.L2.externalSearchTriggered = true;
@@ -637,11 +864,12 @@ export class DeepSearchStage {
                 }
               }
 
-              await callStage("deepsearch.understand", () => runDeepSearchUnderstandStage(runContext, { state }, stageApiWithTap), {
+              await callStage("deepsearch.understand", () => runDeepSearchUnderstandStage(runContext, { state }, stageApiWithContext), {
                 stageState: state,
                 fallbackValue: { state },
               });
               updateTaskProgress();
+              if (budgetStopRequested) break;
             }
           }
 
@@ -654,7 +882,7 @@ export class DeepSearchStage {
           emit?.("deepsearch.checkpoint.saved", { checkpointId: checkpoint.checkpointId, iteration: checkpoint.iteration, metrics: checkpoint.metrics });
           state.addTimeline({ name: "deepsearch.checkpoint.saved", status: "info", payload: { checkpointId: checkpoint.checkpointId, iteration: checkpoint.iteration } });
 
-          emit?.("iteration.completed", {
+          emit?.("deepsearch.iteration.completed", {
             runId: state.runId,
             iteration: completedIteration,
             hitCount,
@@ -665,16 +893,15 @@ export class DeepSearchStage {
           });
 
           // 记录迭代完成
-          logEvent({
-            stage: 'deepsearch',
-            message: `Iteration ${completedIteration} completed`,
+          logger.info(`Iteration ${completedIteration} completed`, {
+            stage: "deepsearch",
             data: {
               iteration: completedIteration,
               hitCount,
               qualityHitCount,
               noNewHitsRounds,
               openGaps: openGaps(state).length,
-              decision: shouldContinue(state, lastRoundResult) ? 'continue' : 'stop',
+              decision: shouldContinue(state, lastRoundResult) ? "continue" : "stop",
             },
           });
 
@@ -686,8 +913,9 @@ export class DeepSearchStage {
         }
 
         if (phase === "write") {
-          const { value: writeOut } = await callStage("deepsearch.write", () => runDeepSearchWriteStage(runContext, { state }, stageApiWithTap), { stageState: state });
+          const { value: writeOut } = await callStage("deepsearch.write", () => runDeepSearchWriteStage(runContext, { state }, stageApiWithContext), { stageState: state });
           updateTaskProgress();
+          if (budgetStopRequested) break;
 
           const feedbackToResearch = writeOut?.feedbackToResearch;
           const needsMoreResearch = Boolean(feedbackToResearch?.needsMoreResearch);
@@ -711,11 +939,15 @@ export class DeepSearchStage {
           state.addNewGaps(newGaps, {}, emit);
           noNewHitsRounds = 0;
 
-          emit?.("deepsearch.write.backtrack.requested", {
-            writeBacktrackCount: state.writeBacktrackCount,
-            maxWriteBacktrack,
-            feedbackToResearch,
-          });
+          emit?.(
+            "deepsearch.write.backtrack.requested",
+            {
+              writeBacktrackCount: state.writeBacktrackCount,
+              maxWriteBacktrack,
+              feedbackToResearch,
+            },
+            { status: "info", throttle: false }
+          );
           state.addTimeline({
             name: "deepsearch.write.backtrack.requested",
             status: "info",
@@ -727,16 +959,17 @@ export class DeepSearchStage {
         }
 
         if (phase === "condense") {
-          await callStage("deepsearch.condense", () => runDeepSearchCondenseStage(runContext, { state }, stageApiWithTap), { stageState: state });
+          await callStage("deepsearch.condense", () => runDeepSearchCondenseStage(runContext, { state }, stageApiWithContext), { stageState: state });
           updateTaskProgress();
           break;
         }
 
         // Safety: unknown phase means exit.
         break;
+        }
       }
 
-      if (stageApiWithTap?.signal?.aborted || budgetStopRequested) {
+      if (stageApiWithContext?.signal?.aborted || budgetStopRequested) {
         state.addTimeline({ name: "deepsearch.aborted", status: "warning", payload: { iteration: state.iteration } });
         emit?.("deepsearch.aborted", { iteration: state.iteration });
       }
@@ -791,9 +1024,9 @@ export class DeepSearchStage {
     emit?.("deepsearch.completed", { runId: state.runId, slideCount: slideIntents.length, claimCount: claims.length });
 
     // 记录 DeepSearch 流程完成
-    logEvent({
-      stage: 'deepsearch',
-      message: 'DeepSearch pipeline completed',
+    currentStage = "deepsearch";
+    logger.info("DeepSearch pipeline completed", {
+      stage: "deepsearch",
       data: {
         runId: state.runId,
         finalIteration: state.iteration,
@@ -805,7 +1038,8 @@ export class DeepSearchStage {
     });
 
     if (taskManager && taskId) {
-      if (stageApi?.signal?.aborted && typeof taskManager.cancel === "function") {
+      const { signal } = extractServices(stageApi);
+      if (signal?.aborted && typeof taskManager.cancel === "function") {
         taskManager.cancel(taskId, "aborted");
       } else {
         taskManager.complete(taskId, { runId: state.runId, metrics: pkg?.metrics?.deepsearch || null });

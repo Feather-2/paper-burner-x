@@ -310,6 +310,7 @@ export const runtimeMixin = {
             'deepsearch.write.completed': '报告撰写完成',
             'deepsearch.completed': '深度分析完成',
             'iteration.completed': `完成第 ${(normalizedPayload?.iteration || 0) + 1} 轮迭代`,
+            'deepsearch.iteration.completed': `完成第 ${(normalizedPayload?.iteration || 0) + 1} 轮迭代`,
             'design.started': '开始视觉设计',
             'design.tokens.started': '正在提取设计规范',
             'design.tokens.ended': '设计规范已确定',
@@ -704,7 +705,7 @@ export const runtimeMixin = {
         }
 
         // Capture flow events for premium visualizers (store minimal {name,payload} only).
-        if (name.startsWith('deepsearch.') || name === 'iteration.completed') {
+        if (name.startsWith('deepsearch.') || name === 'iteration.completed' || name === 'deepsearch.iteration.completed') {
             this._pushFlowVizEvent('deepsearch', name, payload);
             // Also push to floating process panel
             this._pushToProcessPanel(name, payload);
@@ -757,7 +758,7 @@ export const runtimeMixin = {
         }
 
         // DeepSearch UI integration (T1 event bus)
-        if (name === 'iteration.completed') {
+        if (name === 'iteration.completed' || name === 'deepsearch.iteration.completed') {
             this._ensureDeepSearchViz();
             const viz = this.workflowData.deepsearchViz;
             const completed = typeof payload.iteration === 'number' ? payload.iteration : null;

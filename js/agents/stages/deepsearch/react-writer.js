@@ -29,10 +29,26 @@
 import { extractJsonCandidate, checkCancelled } from "./state.js";
 import { getModelCaller } from "./model.js";
 import { countWordsApprox } from "./report-diff.js";
-import { finalizeCitationsInMarkdown } from "./citations.js";
+import { extractEvidenceIdsFromMarkdownCitations, finalizeCitationsInMarkdown } from "./citations.js";
 import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
 
 // ===== 工具实现 =====
+
+export function normalizeHeading(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5]/g, "")
+    .trim();
+}
+
+export function stripLeadingDuplicateHeading(markdown, title) {
+  let md = typeof markdown === "string" ? markdown : String(markdown || "");
+  const headingMatch = md.match(/^(#{1,6})\s*(.+?)\s*\n/);
+  if (headingMatch && normalizeHeading(headingMatch[2]) === normalizeHeading(title)) {
+    md = md.slice(headingMatch[0].length);
+  }
+  return md;
+}
 
 /**
  * 创建 ReAct Writer 的工具执行器
@@ -43,9 +59,18 @@ export function createWriterToolExecutor(context) {
 
   // 索引构建
   const claimById = new Map();
+  const claimIdsByEvidenceId = new Map();
   for (const c of Array.isArray(claims) ? claims : []) {
     const cid = toNonEmptyString(c?.claimId);
-    if (cid) claimById.set(cid, c);
+    if (!cid) continue;
+    claimById.set(cid, c);
+    const eids = Array.isArray(c?.evidenceIds) ? c.evidenceIds : [];
+    for (const rawEid of eids) {
+      const eid = toNonEmptyString(rawEid);
+      if (!eid) continue;
+      if (!claimIdsByEvidenceId.has(eid)) claimIdsByEvidenceId.set(eid, new Set());
+      claimIdsByEvidenceId.get(eid).add(cid);
+    }
   }
 
   const evidenceById = new Map();
@@ -85,6 +110,27 @@ export function createWriterToolExecutor(context) {
 
   // 收集写入的章节
   const writtenSections = [];
+  const sectionClaimIdsBySectionId = new Map();
+  const usedClaimIds = new Set();
+
+  const recomputeUsedClaimIds = () => {
+    usedClaimIds.clear();
+    for (const claimIds of sectionClaimIdsBySectionId.values()) {
+      for (const cid of claimIds) usedClaimIds.add(cid);
+    }
+  };
+
+  const computeClaimIdsUsedByMarkdown = (markdown) => {
+    const evidenceIds = extractEvidenceIdsFromMarkdownCitations(markdown);
+    const claimIds = new Set();
+    for (const rawEid of evidenceIds) {
+      const eid = toNonEmptyString(rawEid);
+      const claimIdsForEvidence = eid ? claimIdsByEvidenceId.get(String(eid)) : null;
+      if (!claimIdsForEvidence) continue;
+      for (const cid of claimIdsForEvidence) claimIds.add(cid);
+    }
+    return claimIds;
+  };
   let reportFinished = false;
   let reportTitle = "";
   let reportSummary = "";
@@ -160,6 +206,7 @@ export function createWriterToolExecutor(context) {
           text: c.text,
           importance: c.importance,
           evidenceIds: c.evidenceIds,
+          usedInOtherSection: usedClaimIds.has(String(c.claimId)),
           // 预览每个 evidence 的引用
           evidencePreviews: (Array.isArray(c.evidenceIds) ? c.evidenceIds : []).slice(0, 5).map(eid => {
             const e = evidenceById.get(String(eid));
@@ -296,6 +343,8 @@ export function createWriterToolExecutor(context) {
 
       writtenSections[idx].markdown = md;
       writtenSections[idx].wordCount = countWordsApprox(md);
+      sectionClaimIdsBySectionId.set(sid, computeClaimIdsUsedByMarkdown(md));
+      recomputeUsedClaimIds();
 
       return {
         success: true,
@@ -356,6 +405,9 @@ export function createWriterToolExecutor(context) {
           wordCount: countWordsApprox(md),
         });
       }
+
+      sectionClaimIdsBySectionId.set(sid, computeClaimIdsUsedByMarkdown(md));
+      recomputeUsedClaimIds();
 
       const currentWords = writtenSections.reduce((sum, s) => sum + (s.wordCount || 0), 0);
 
@@ -466,7 +518,14 @@ const WRITER_SYSTEM_PROMPT = `You are an expert research report writer. Your tas
 
 ## Citation Format
 Use {{cite:EVIDENCE_ID}} inline. Example:
-"The market grew 15% {{cite:e_1}} driven by AI adoption {{cite:e_2}}."`;
+"The market grew 15% {{cite:e_1}} driven by AI adoption {{cite:e_2}}."
+
+## Anti-patterns (NEVER do these)
+- ❌ Do NOT repeat section titles in markdown headings
+- ❌ Do NOT create a "References" or "Bibliography" section (handled automatically)
+- ❌ Do NOT cite the same evidence more than 3 times per section
+- ❌ Do NOT include raw tables or code blocks in citations
+- ❌ Do NOT generate section summaries at the end of each section`;
 
 const WRITER_INITIAL_PROMPT = `## Research Task
 {taskGoal}
@@ -657,7 +716,10 @@ export async function runReactWriter(context, options = {}) {
 
   // 组装报告
   const sectionsMarkdown = writerResult.sections
-    .map(s => `## ${s.title}\n\n${s.markdown}`)
+    .map(s => {
+      const md = stripLeadingDuplicateHeading(s.markdown, s.title);
+      return `## ${s.title}\n\n${md}`;
+    })
     .join("\n\n");
 
   const fullMarkdown = `# ${writerResult.title || "Research Report"}\n\n${writerResult.summary ? writerResult.summary + "\n\n" : ""}${sectionsMarkdown}`;

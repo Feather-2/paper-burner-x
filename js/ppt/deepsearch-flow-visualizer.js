@@ -310,7 +310,8 @@ export class FlowBuilder {
         break;
       }
 
-      case "iteration.completed": {
+      case "iteration.completed":
+      case "deepsearch.iteration.completed": {
         const { iteration, hitCount, noNewHitsRounds, openGapCount } = payload;
         const id = this.iterationNodes.get(iteration);
         if (id) {
@@ -986,7 +987,7 @@ export async function initDeepSearchFlow(containerId, options = {}) {
     direction = "TB",
     height = 600,
     acceptPrefixes = ["deepsearch.", "design."],
-    acceptNames = ["iteration.completed"],
+    acceptNames = ["deepsearch.iteration.completed", "iteration.completed"],
   } = options;
 
   const [ReactMod, ReactDOMMod, RFMod] = await Promise.all([

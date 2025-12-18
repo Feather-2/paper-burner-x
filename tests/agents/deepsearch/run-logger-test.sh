@@ -1,6 +1,8 @@
 #!/bin/bash
 # 运行 logger 测试
-cd /mnt/f/pb/paper-burner
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$ROOT"
 node --test tests/agents/deepsearch/logger.test.js \
   --experimental-test-coverage \
   --test-coverage-lines=90 \

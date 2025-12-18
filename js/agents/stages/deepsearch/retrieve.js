@@ -3,7 +3,8 @@ import { getModelCaller } from "./model.js";
 import { chunkText } from "../textprep/chunk.js";
 import { retrieve as retrieveWithRouter } from "../../retrieval/retrieval-router.js";
 import { createMcpClient, parseExternalSearchConfig, runExternalSearch } from "./external-search.js";
-import { logEvent, setLogContext, trackToolCall } from "./logger.js";
+import { createLogger, trackToolCall } from "./logger.js";
+import { extractServices } from "./stage-api.js";
 import { search as toolChainSearch } from "../../retrieval/tool-chain.js";
 import { ShadowAgent, shouldValidateWithShadow } from "./shadow-agent.js";
 import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
@@ -25,7 +26,7 @@ function emitInvalidInput(emit, name, payload) {
   emit?.(name, payload, { status: "warning" });
 }
 
-function normalizeRetrievalConfig(raw, { emit } = {}) {
+function normalizeRetrievalConfig(raw, { emit, logger } = {}) {
   const issues = [];
   const cfg = isPlainObject(raw) ? raw : {};
   const config = { ...cfg };
@@ -73,7 +74,7 @@ function normalizeRetrievalConfig(raw, { emit } = {}) {
 
   if (issues.length) {
     emitInvalidInput(emit, "deepsearch.retrieve.config.invalid", { issues });
-    logEvent({ stage: "retrieve", message: "Invalid retrievalConfig; falling back to defaults", data: { issuesCount: issues.length, issues } });
+    logger?.warn?.("Invalid retrievalConfig; falling back to defaults", { stage: "retrieve", data: { issuesCount: issues.length, issues } });
   }
 
   return { config, issues };
@@ -145,6 +146,34 @@ function emitRetrieveProgress(emit, { current, total, msg, detail }) {
     },
     { status: "progress" }
   );
+}
+
+function collectSourceTypes(sources) {
+  const sourceTypes = new Set();
+  for (const src of Array.isArray(sources) ? sources : []) {
+    const kind = String(src?.kind || src?.type || "unknown").toLowerCase();
+    sourceTypes.add(kind);
+  }
+  return sourceTypes;
+}
+
+function buildStrategyRouterConfig(baseConfig, strategy) {
+  const s = String(strategy || "").toLowerCase();
+  const out = { ...(baseConfig && typeof baseConfig === "object" ? baseConfig : {}) };
+
+  if (s === "grep") {
+    out.useGrep = true;
+    out.useBm25 = false;
+  } else if (s === "bm25") {
+    out.useGrep = false;
+    out.useBm25 = true;
+  } else if (s === "tool-chain") {
+    // Keep local router permissive; tool-chain is handled separately as an enhancement/override.
+    out.useGrep = true;
+    out.useBm25 = true;
+  }
+
+  return out;
 }
 
 function nextAddedSeq(existingChunks) {
@@ -263,7 +292,7 @@ const RERANK_PROMPT = `你是一个检索结果排序助手。根据用户问题
  * @param {object} options - 配置选项
  * @returns {Promise<{ranked: Array, stats: object}>}
  */
-async function rerankWithLLM(chunks, query, { stageApi, state, emit, topK = 10, timeoutMs = 12000 } = {}) {
+async function rerankWithLLM(chunks, query, { stageApi, state, emit, topK = 10, timeoutMs = 12000, signal } = {}) {
   const inputChunks = Array.isArray(chunks) ? chunks : [];
   if (inputChunks.length === 0) {
     return { ranked: [], stats: { inputCount: 0, outputCount: 0, skipped: true, reason: "no_chunks" } };
@@ -300,23 +329,48 @@ async function rerankWithLLM(chunks, query, { stageApi, state, emit, topK = 10, 
 
   const prompt = RERANK_PROMPT.replace("{query}", String(query || "")).replace("{chunks}", chunksText);
 
+  const controller = new AbortController();
+  let timeoutId = null;
+  let timedOut = false;
+  let abortError = null;
+  const externalSignal = signal;
+
+  const abortWithReason = (reason, fallbackMessage) => {
+    const err =
+      reason instanceof Error
+        ? reason
+        : new Error(typeof reason === "string" && reason ? reason : fallbackMessage);
+    abortError = err;
+    controller.abort(err);
+  };
+
+  const onExternalAbort = () => abortWithReason(externalSignal?.reason, "Rerank LLM cancelled");
+
   try {
-    // 带超时的 LLM 调用
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    if (externalSignal) {
+      if (externalSignal.aborted) onExternalAbort();
+      else externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+    }
 
-    const resultPromise = callModel([{ role: "user", content: prompt }], {
-      temperature: 0.1,
-      maxTokens: 600,
-    });
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      abortWithReason(new Error("Rerank LLM timeout"), "Rerank LLM timeout");
+    }, timeoutMs);
 
-    const result = await Promise.race([
-      resultPromise,
-      new Promise((_, reject) => {
-        controller.signal.addEventListener("abort", () => reject(new Error("Rerank LLM timeout")));
-      }),
-    ]);
-    clearTimeout(timeoutId);
+    const result = await callModel(
+      [{ role: "user", content: prompt }],
+      {
+        temperature: 0.1,
+        maxTokens: 600,
+        signal: controller.signal,
+      }
+    );
+
+    if (timedOut || controller.signal.aborted) {
+      if (abortError instanceof Error) throw abortError;
+      if (controller.signal.reason instanceof Error) throw controller.signal.reason;
+      throw new Error(timedOut ? "Rerank LLM timeout" : "Rerank LLM cancelled");
+    }
 
     const candidate = extractJsonCandidate(result?.content);
     if (!candidate) {
@@ -328,7 +382,17 @@ async function rerankWithLLM(chunks, query, { stageApi, state, emit, topK = 10, 
       };
     }
 
-    const parsed = JSON.parse(candidate);
+    let parsed;
+    try {
+      parsed = JSON.parse(candidate);
+    } catch {
+      emit?.("deepsearch.rerank.failed", { reason: "parse_failed", inputCount: inputChunks.length });
+      const sorted = [...inputChunks].sort((a, b) => (b.score || 0) - (a.score || 0));
+      return {
+        ranked: sorted.slice(0, topK),
+        stats: { inputCount: inputChunks.length, outputCount: Math.min(topK, inputChunks.length), skipped: true, reason: "parse_failed" },
+      };
+    }
     const rankedIds = Array.isArray(parsed?.ranked) ? parsed.ranked : [];
 
     // 根据 LLM 返回的排序重排 chunks
@@ -398,6 +462,9 @@ async function rerankWithLLM(chunks, query, { stageApi, state, emit, topK = 10, 
       ranked: sorted.slice(0, topK),
       stats: { inputCount: inputChunks.length, outputCount: Math.min(topK, inputChunks.length), skipped: true, reason: String(err?.message || err) },
     };
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
+    if (externalSignal) externalSignal.removeEventListener("abort", onExternalAbort);
   }
 }
 
@@ -553,8 +620,16 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
   }
 
   stageApi = safeStageApi;
+  const { emit: rawEmit, logger: injectedLogger } = extractServices(stageApi);
   const emit = makeStageEmitter(safeStageApi, "deepsearch");
   const state = ensureState(runContext, input);
+  const logger =
+    injectedLogger && typeof injectedLogger.info === "function"
+      ? injectedLogger
+      : createLogger({
+          emit: rawEmit,
+          getContext: () => ({ runId: state.runId, iteration: state.iteration || 0, trajectoryId: state.trajectoryId, stage: "retrieve" }),
+        });
 
   const localRetriever =
     typeof stageApi?.localRetriever === "function"
@@ -563,15 +638,11 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
         ? (emitInvalidInput(emit, "deepsearch.retrieve.input.invalid", { field: "stageApi.localRetriever", issue: "must be a function" }), defaultLocalRetriever)
         : defaultLocalRetriever;
 
-  // 设置日志上下文
-  setLogContext({ runId: state.runId, iteration: state.iteration || 0 });
-
   checkCancelled(stageApi);
 
   // 记录 retrieve 阶段开始
-  logEvent({
-    stage: 'retrieve',
-    message: 'Retrieve stage started',
+  logger.info("Retrieve stage started", {
+    stage: "retrieve",
     data: {
       openGaps: Array.isArray(state?.L1?.gaps) ? state.L1.gaps.filter((g) => String(g?.status || "open") === "open").length : 0,
       existingChunks: Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks.length : 0,
@@ -587,6 +658,12 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
   });
 
   const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
+  const planningTree = state?.planningTree;
+  const selectedStrategy = planningTree?.getBestStrategy(sources) || "bm25";
+  const sourceTypes = collectSourceTypes(sources);
+
+  logger.debug?.("Selected retrieval strategy", { stage: "retrieve", data: { strategy: selectedStrategy, sourceTypes: [...sourceTypes] } });
+
   const gapsAll = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
   const openGapsRaw = gapsAll.filter((g) => String(g?.status || "open") === "open");
   const gaps = [];
@@ -609,7 +686,7 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
   }
   const existingChunks = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
 
-  const { config: retrievalConfig } = normalizeRetrievalConfig(state?.userConfig?.retrieval, { emit });
+  const { config: retrievalConfig } = normalizeRetrievalConfig(state?.userConfig?.retrieval, { emit, logger });
   const chunkSize = Number.isFinite(retrievalConfig.chunkSize)
     ? Math.max(200, Math.floor(retrievalConfig.chunkSize))
     : CHUNK_CONFIG.DEFAULT_SIZE;
@@ -694,6 +771,7 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
     : [];
   const allChunksForToolChainById = new Map(allChunksForToolChain.map((c) => [String(c?.chunkId || ""), c]).filter(([id]) => id));
 
+  const latencyByGapId = new Map();
   const gapResults = await mapConcurrent(gaps, async (g, i) => {
       const gapId = toNonEmptyString(g?.gapId) || `gap_${i + 1}`;
       const gapType = toNonEmptyString(g?.type) || "";
@@ -706,104 +784,137 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
       });
 
       // 获取推荐的检索策略
-      const recommendedStrategy = state.planningTree ? state.planningTree.getBestStrategy(sources) : "bm25";
       const retrievalStartTime = Date.now();
+
+      const routerConfigForGap = buildStrategyRouterConfig(routerConfig, selectedStrategy);
+      const shouldForceToolChain = enableToolChain && selectedStrategy === "tool-chain";
+
+      const queryHints = Array.isArray(g?.queryHints) ? g.queryHints : [];
+      const question = toNonEmptyString(g?.question) || "";
+      const keywords = [...queryHints.map((h) => String(h || "").trim()).filter(Boolean), ...question.split(/\s+/).slice(0, 5)];
+
+      const runToolChainForGap = async (reasonTag) => {
+        if (!enableToolChain) return null;
+        if (keywords.length === 0 || allChunksForToolChain.length === 0) return null;
+
+        try {
+          const toolChainResult = await trackToolCall(logger, "toolChainSearch", { gapId, reason: reasonTag, keywords: keywords.slice(0, 10) }, async () =>
+            toolChainSearch(
+              allChunksForToolChain,
+              {
+                strategy: toolChainConfig.strategy || "auto",
+                patterns: Array.isArray(toolChainConfig.patterns) ? toolChainConfig.patterns : [],
+                keywords: keywords.slice(0, 10),
+              },
+              {
+                globTool: stageApi?.globTool,
+                basePath: toolChainConfig.basePath,
+                regex: Boolean(routerConfigForGap.grepRegex),
+                caseSensitive: Boolean(routerConfigForGap.caseSensitive),
+                timeoutMs: toolChainConfig.timeoutMs || 200,
+              }
+            )
+          );
+
+          return toolChainResult;
+        } catch (err) {
+          emit?.("deepsearch.retrieve.toolchain_error", {
+            gapId,
+            error: String(err?.message || err),
+          });
+          return null;
+        }
+      };
+
+      const appendToolChainResults = (retrieved, toolChainResult) => {
+        if (!toolChainResult || !Array.isArray(toolChainResult.results)) return 0;
+        let added = 0;
+        for (const tcr of toolChainResult.results || []) {
+          const chunk = allChunksForToolChainById.get(String(tcr?.chunkId || ""));
+          if (!chunk) continue;
+          if (retrieved.find((r) => r.chunkId === tcr.chunkId)) continue;
+
+          retrieved.push({
+            chunkId: tcr.chunkId,
+            sourceId: chunk.sourceId || "source_unknown",
+            locator: chunk.locator,
+            text: chunk.text,
+            score: Math.log(1 + (tcr.matchCount || 0)),
+            relevance: "hit",
+            matchedGapIds: [gapId],
+            toolChainStrategy: tcr.strategy,
+          });
+          added++;
+        }
+        return added;
+      };
 
       // 使用迭代检索
       let retrieved;
+      if (shouldForceToolChain) {
+        retrieved = [];
+        const toolChainResult = await runToolChainForGap("primary");
+        if (toolChainResult) {
+          appendToolChainResults(retrieved, toolChainResult);
+          emit?.("deepsearch.retrieve.toolchain", {
+            gapId,
+            strategy: toolChainResult.strategy,
+            hits: toolChainResult.results?.length || 0,
+            stats: toolChainResult.stats,
+            fallbackReason: toolChainResult.fallbackReason,
+          });
+        }
+      }
+
       if (enableIterative && maxIterations > 1) {
-        retrieved = await trackToolCall("iterativeRetrieve", { gapId, maxIterations }, async () =>
-          iterativeRetrieve({ ...g, gapId }, sourceIndexes, localRetriever, routerConfig, stageApi, state, emit, maxIterations)
+        const iterativeOut = await trackToolCall(logger, "iterativeRetrieve", { gapId, maxIterations }, async () =>
+          iterativeRetrieve({ ...g, gapId }, sourceIndexes, localRetriever, routerConfigForGap, stageApi, state, emit, maxIterations)
         );
+        retrieved = Array.isArray(retrieved) ? retrieved : [];
+        retrieved.push(...(Array.isArray(iterativeOut) ? iterativeOut : []));
       } else {
         // 单次检索（向后兼容）
-        retrieved = [];
+        retrieved = Array.isArray(retrieved) ? retrieved : [];
         for (const sourceIndex of sourceIndexes) {
-          const result = await trackToolCall("localRetriever", { gapId, sourceId: sourceIndex.sourceId }, async () =>
-            localRetriever(sourceIndex, [{ ...g, gapId }], routerConfig)
+          const result = await trackToolCall(logger, "localRetriever", { gapId, sourceId: sourceIndex.sourceId }, async () =>
+            localRetriever(sourceIndex, [{ ...g, gapId }], routerConfigForGap)
           );
           retrieved.push(...result);
         }
       }
 
-      // 记录检索策略结果
+      // 工具链增强：如果 enableToolChain=true 且检索结果不足，使用工具链补充
+      if (enableToolChain && retrieved.length < topK) {
+        const toolChainResult = await runToolChainForGap("fallback");
+        if (toolChainResult) {
+          appendToolChainResults(retrieved, toolChainResult);
+          emit?.("deepsearch.retrieve.toolchain", {
+            gapId,
+            strategy: toolChainResult.strategy,
+            hits: toolChainResult.results?.length || 0,
+            stats: toolChainResult.stats,
+            fallbackReason: toolChainResult.fallbackReason,
+          });
+        }
+      }
+
+      // 记录检索策略结果（包含 tool-chain 增强在内的整体耗时）
       const retrievalLatency = Date.now() - retrievalStartTime;
-      if (state.planningTree) {
-        state.planningTree.recordStrategyResult(recommendedStrategy, {
-          hits: retrieved.length,
+      latencyByGapId.set(gapId, retrievalLatency);
+      if (planningTree) {
+        const uniqueHits = new Set(retrieved.map((r) => String(r?.chunkId || "")).filter(Boolean)).size;
+        planningTree.recordStrategyResult(selectedStrategy, {
+          hits: uniqueHits,
           latency: retrievalLatency,
         });
 
         emit?.("deepsearch.retrieve.strategy", {
           gapId,
-          strategy: recommendedStrategy,
-          hits: retrieved.length,
+          strategy: selectedStrategy,
+          hits: uniqueHits,
           latency: retrievalLatency,
-          hitRate: state.planningTree.getStrategyHitRate(recommendedStrategy),
+          hitRate: planningTree.getStrategyHitRate(selectedStrategy),
         });
-      }
-
-      // 工具链增强：如果 enableToolChain=true 且检索结果不足，使用工具链补充
-      if (enableToolChain && retrieved.length < topK) {
-        const queryHints = Array.isArray(g?.queryHints) ? g.queryHints : [];
-        const question = toNonEmptyString(g?.question) || "";
-        const keywords = [...queryHints.map((h) => String(h || "").trim()).filter(Boolean), ...question.split(/\s+/).slice(0, 5)];
-
-        if (keywords.length > 0 && allChunksForToolChain.length > 0) {
-          try {
-            const toolChainResult = await trackToolCall("toolChainSearch", { gapId, keywords: keywords.slice(0, 10) }, async () =>
-              toolChainSearch(
-                allChunksForToolChain,
-                {
-                  strategy: toolChainConfig.strategy || "auto",
-                  patterns: Array.isArray(toolChainConfig.patterns) ? toolChainConfig.patterns : [],
-                  keywords: keywords.slice(0, 10), // 限制关键词数量
-                },
-                {
-                  globTool: stageApi?.globTool,
-                  basePath: toolChainConfig.basePath,
-                  regex: Boolean(routerConfig.grepRegex),
-                  caseSensitive: Boolean(routerConfig.caseSensitive),
-                  timeoutMs: toolChainConfig.timeoutMs || 200,
-                }
-              )
-            );
-
-            // 将工具链结果转换为 retrieved 格式
-            for (const tcr of toolChainResult.results || []) {
-              const chunk = allChunksForToolChainById.get(String(tcr?.chunkId || ""));
-              if (!chunk) continue;
-
-              // 检查是否已存在
-              if (retrieved.find((r) => r.chunkId === tcr.chunkId)) continue;
-
-              retrieved.push({
-                chunkId: tcr.chunkId,
-                sourceId: chunk.sourceId || "source_unknown",
-                locator: chunk.locator,
-                text: chunk.text,
-                score: Math.log(1 + tcr.matchCount), // 使用 grep 风格的评分
-                relevance: "hit",
-                matchedGapIds: [gapId],
-                toolChainStrategy: tcr.strategy,
-              });
-            }
-
-            emit?.("deepsearch.retrieve.toolchain", {
-              gapId,
-              strategy: toolChainResult.strategy,
-              hits: toolChainResult.results?.length || 0,
-              stats: toolChainResult.stats,
-              fallbackReason: toolChainResult.fallbackReason,
-            });
-          } catch (err) {
-            // 工具链失败不阻塞主流程
-            emit?.("deepsearch.retrieve.toolchain_error", {
-              gapId,
-              error: String(err?.message || err),
-            });
-          }
-        }
       }
 
       return { gapId, gapType, retrieved, gap: g };
@@ -974,13 +1085,38 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
       stats: shadowStats,
     });
 
-    logEvent({
-      stage: "retrieve",
-      message: "Shadow validation completed",
-      data: { validated: validatedCount, confirmedRelevant, stats: shadowStats },
-    });
+    logger.info("Shadow validation completed", { stage: "retrieve", data: { validated: validatedCount, confirmedRelevant, stats: shadowStats } });
   }
   // ===== Shadow Agent 验证结束 =====
+
+  // 记录每个 gap 的检索决策（基于最终进入 understand 的 chunks）
+  if (planningTree && gaps.length > 0) {
+    const hitsByGapId = new Map();
+    for (const c of Array.isArray(rerankedChunks) ? rerankedChunks : []) {
+      const matched = Array.isArray(c?.matchedGapIds) ? c.matchedGapIds.map(String).filter(Boolean) : [];
+      const primary = toNonEmptyString(c?.gapId);
+      const gapIds = matched.length ? matched : primary ? [primary] : [];
+      for (const gid of gapIds) hitsByGapId.set(gid, (hitsByGapId.get(gid) || 0) + 1);
+    }
+
+    for (const gap of gaps) {
+      const gapId = toNonEmptyString(gap?.gapId);
+      if (!gapId) continue;
+      const nodes = planningTree.getNodesForGap(gapId) || [];
+      const nodeId = nodes[0]?.nodeId;
+      if (!nodeId) continue;
+
+      const hits = hitsByGapId.get(gapId) || 0;
+      const latency = latencyByGapId.get(gapId);
+      planningTree.recordDecision(nodeId, {
+        stage: "retrieve",
+        action: `${selectedStrategy} search`,
+        reason: `Gap: ${String(gap?.question || gap?.text || "").slice(0, 50)}`,
+        outcome: hits > 0 ? "success" : "fail",
+        metrics: { hits, strategy: selectedStrategy, ...(typeof latency === "number" ? { latency } : {}) },
+      });
+    }
+  }
 
   // === 外搜说明 ===
   // 外搜现在由 Reflect 机制驱动（在 trajectory.js 中）
@@ -1059,9 +1195,8 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
   );
 
   // 记录 retrieve 阶段完成
-  logEvent({
-    stage: 'retrieve',
-    message: 'Retrieve stage completed',
+  logger.info("Retrieve stage completed", {
+    stage: "retrieve",
     data: {
       retrievedCount: dedupedFresh.length,
       retrievedBeforeDedupe: roundChunks.length,
@@ -1114,6 +1249,7 @@ export const __test = {
   ensureAddedMeta,
   nextAddedSeq,
   trackSeenChunkIds,
+  rerankWithLLM,
   parseExternalSearchConfig,
   createMcpClient,
   runExternalSearch,

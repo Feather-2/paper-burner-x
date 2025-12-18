@@ -9,7 +9,20 @@ import { chunkText } from "../textprep/chunk.js";
 import { McpClient } from "../../mcp/mcp-client.js";
 import { LocalMcpProvider } from "../../mcp/local-mcp-provider.js";
 import { McpNexusProvider } from "../../mcp/mcp-nexus-provider.js";
+import { mapConcurrentWithPool } from "../../shared/concurrency.js";
 import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
+
+const MAX_SOURCE_TEXT_LENGTH = 80000;
+
+function truncateSourceText(text, maxLen = MAX_SOURCE_TEXT_LENGTH) {
+  if (!text || text.length <= maxLen) return { text: text || "", truncated: false };
+  const keepEach = Math.floor(maxLen / 2);
+  return {
+    text: text.slice(0, keepEach) + `\n\n[... 省略 ${text.length - maxLen} 字符 ...]\n\n` + text.slice(-keepEach),
+    truncated: true,
+    originalLength: text.length,
+  };
+}
 
 function normalizeChunkIdList(v) {
   const out = [];
@@ -260,8 +273,9 @@ export async function runExternalSearch(gaps, config, { emit, state, stageApi } 
 
     const providers = availableProviders.length ? availableProviders : ["local-mcp"];
 
-    const searchResults = await Promise.all(
-      queries.map(async ({ query, gapId }, queryIndex) => {
+    const searchResults = await mapConcurrentWithPool(
+      queries,
+      async ({ query, gapId }, queryIndex) => {
         checkCancelled(stageApi);
 
         let searchResult = null;
@@ -291,7 +305,8 @@ export async function runExternalSearch(gaps, config, { emit, state, stageApi } 
         const results = jsonContent?.data?.results || [];
         const topResults = results.slice(0, Math.min(3, config.maxExternalResults || 3));
         return { query, gapId, usedProviderId, topResults };
-      })
+      },
+      10
     );
 
     const fetchTargets = [];
@@ -309,8 +324,9 @@ export async function runExternalSearch(gaps, config, { emit, state, stageApi } 
       }
     }
 
-    const fetchResults = await Promise.all(
-      fetchTargets.map(async (t) => {
+    const fetchResults = await mapConcurrentWithPool(
+      fetchTargets,
+      async (t) => {
         checkCancelled(stageApi);
 
         let usedProviderId = toNonEmptyString(t.preferredProviderId) || null;
@@ -350,7 +366,8 @@ export async function runExternalSearch(gaps, config, { emit, state, stageApi } 
           usedProviderId: usedProviderId || "unknown",
           fetchedAt: new Date().toISOString(),
         };
-      })
+      },
+      10
     );
 
     const batchId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
@@ -372,17 +389,20 @@ export async function runExternalSearch(gaps, config, { emit, state, stageApi } 
       const gapId = fr.gapId;
       const query = fr.query;
 
+      const { text: truncatedText, truncated, originalLength } = truncateSourceText(text);
+
       const externalSource = {
         sourceId,
         kind: "external_url",
         uri: url,
         title,
-        sourceTextNormalized: text,
+        sourceTextNormalized: truncatedText,
         fetchedAt,
         providerId: fr.usedProviderId || "unknown",
         metadata,
         query,
         gapId,
+        ...(truncated ? { truncated: true, originalLength } : {}),
       };
 
       if (!existingSourceIds.has(sourceId)) {
@@ -392,7 +412,7 @@ export async function runExternalSearch(gaps, config, { emit, state, stageApi } 
 
       documents.push(externalSource);
 
-      const docChunks = chunkText(text, { chunkSize: 1600, overlap: 180 });
+      const docChunks = chunkText(truncatedText, { chunkSize: 1600, overlap: 180 });
       for (let i = 0; i < docChunks.length; i++) {
         const c = docChunks[i];
         const chunkId = `${sourceId}::chunk_${i + 1}`;

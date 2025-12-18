@@ -32,7 +32,9 @@ function gapById(state, gapId) {
 }
 
 test("DeepSearchState: extractJsonCandidate + cancellation + checkpoint errors", async () => {
-  const { DeepSearchState, extractJsonCandidate, checkCancelled, makeStageEmitter } = await import("../../../js/agents/stages/deepsearch/state.js");
+  const { DeepSearchState, extractJsonCandidate, checkCancelled, makeStageEmitter, EVENT_SCHEMA_VERSION, EventStatus } = await import(
+    "../../../js/agents/stages/deepsearch/state.js"
+  );
 
   assert.equal(extractJsonCandidate("```json\n{\"a\":1}\n```"), "{\"a\":1}");
   assert.equal(extractJsonCandidate("prefix {\"a\":1} suffix"), "{\"a\":1}");
@@ -55,13 +57,79 @@ test("DeepSearchState: extractJsonCandidate + cancellation + checkpoint errors",
 
   {
     const events = [];
-    const emit = makeStageEmitter({ emit: (name, record) => events.push({ name, record }) }, "deepsearch");
+    const ctx = () => ({ runId: "r_ctx", iteration: 2 });
+
+    const stageApi = {
+      emit: function (name, record) {
+        events.push({ name, record, thisValue: this });
+      },
+    };
+
+    const emit = makeStageEmitter(stageApi, "deepsearch", ctx);
     assert.ok(typeof emit === "function");
-    emit("evt", { a: 1 }, { status: "started" });
-    assert.equal(events[0].name, "evt");
-    assert.equal(events[0].record.actor, "deepsearch");
-    assert.equal(events[0].record.status, "started");
-    assert.deepEqual(events[0].record.payload, { a: 1 });
+
+    const origNow = Date.now;
+    try {
+      let t = 1700000000000;
+      Date.now = () => t;
+
+      emit("evt", { a: 1 }, { status: EventStatus.STARTED });
+      emit("evt", { a: 2 }, { status: EventStatus.STARTED }); // throttled (same name, same time)
+      assert.equal(events.length, 1);
+
+      t += 101;
+      emit("evt", { a: 3 }, { status: EventStatus.PROGRESS });
+      assert.equal(events.length, 2);
+
+      // throttle can be bypassed per-call
+      emit("evt", { a: 4 }, { status: EventStatus.PROGRESS, throttle: false });
+      assert.equal(events.length, 3);
+
+      // different names have independent throttles
+      emit("evt2", { ok: true });
+      emit("evt2", { ok: false }); // throttled
+      assert.equal(events.length, 4);
+
+      const e0 = events[0];
+      assert.equal(e0.name, "evt");
+      assert.equal(e0.thisValue, stageApi);
+      assert.equal(e0.record.schemaVersion, EVENT_SCHEMA_VERSION);
+      assert.equal(e0.record.name, "evt");
+      assert.ok(Number.isFinite(Date.parse(e0.record.ts)));
+      assert.equal(e0.record.actor, "deepsearch");
+      assert.equal(e0.record.status, EventStatus.STARTED);
+      assert.equal(e0.record.runId, "r_ctx");
+      assert.equal(e0.record.iteration, 2);
+      assert.deepEqual(e0.record.payload, { a: 1 });
+
+      const eLast = events[events.length - 1];
+      assert.equal(eLast.name, "evt2");
+      assert.equal(eLast.record.status, EventStatus.COMPLETED);
+      assert.deepEqual(eLast.record.payload, { ok: true });
+    } finally {
+      Date.now = origNow;
+    }
+  }
+
+  {
+    const events = [];
+    const bus = {
+      emit: function (name, record) {
+        events.push({ name, record, thisValue: this });
+      },
+    };
+
+    const emit = makeStageEmitter({ eventBus: bus }, "deepsearch", () => ({ extra: 1 }));
+    assert.ok(typeof emit === "function");
+    emit("evt_bus", { ok: true }, { throttle: false });
+    assert.equal(events[0].name, "evt_bus");
+    assert.equal(events[0].thisValue, bus);
+    assert.equal(events[0].record.extra, 1);
+  }
+
+  {
+    const emit = makeStageEmitter({});
+    assert.equal(emit, null);
   }
 
   {

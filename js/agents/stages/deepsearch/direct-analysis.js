@@ -8,7 +8,8 @@
 import { DeepSearchState, extractJsonCandidate, makeStageEmitter } from "./state.js";
 import { getModelCaller } from "./model.js";
 import { buildContentPackage } from "../textprep/build-content-package.js";
-import { logEvent } from "./logger.js";
+import { createLogger } from "./logger.js";
+import { extractServices } from "./stage-api.js";
 import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
 import { SMALL_DOC_THRESHOLD } from "./constants.js";
 
@@ -78,7 +79,11 @@ const DIRECT_ANALYSIS_PROMPT = `你是一个文档分析专家。请仔细阅读
  */
 export function shouldUseDirectMode(state, { threshold } = {}) {
   const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
-  const totalChars = sources.reduce((sum, s) => sum + (s?.sourceTextNormalized?.length || 0), 0);
+  const totalChars = sources.reduce((sum, s) => {
+    const sourceId = toNonEmptyString(s?.sourceId);
+    if (sourceId === "direct_merged" || s?.kind === "direct_merged") return sum;
+    return sum + (s?.sourceTextNormalized?.length || 0);
+  }, 0);
   const th = safeInt(threshold) ?? safeInt(state?.userConfig?.directAnalysis?.threshold) ?? SMALL_DOC_THRESHOLD;
 
   // 默认禁用，需要显式启用
@@ -97,8 +102,21 @@ export function shouldUseDirectMode(state, { threshold } = {}) {
  * 合并所有源文档文本
  */
 function mergeSourceTexts(sources) {
+  const rows = Array.isArray(sources) ? sources : [];
+  const eligible = rows.filter((s) => {
+    const sourceId = toNonEmptyString(s?.sourceId);
+    if (sourceId === "direct_merged" || s?.kind === "direct_merged") return false;
+    const text = s?.sourceTextNormalized;
+    return typeof text === "string" && text.trim();
+  });
+
+  if (eligible.length <= 1) {
+    const s = eligible[0];
+    return typeof s?.sourceTextNormalized === "string" ? s.sourceTextNormalized : "";
+  }
+
   const parts = [];
-  for (const s of Array.isArray(sources) ? sources : []) {
+  for (const s of eligible) {
     const text = s?.sourceTextNormalized;
     if (typeof text === "string" && text.trim()) {
       const title = toNonEmptyString(s?.title);
@@ -116,34 +134,48 @@ function mergeSourceTexts(sources) {
  * 验证并修复 evidence 的 charStart/charEnd
  */
 function validateAndFixEvidence(evidence, fullText, sourceId) {
-  const quote = toNonEmptyString(evidence?.quote);
-  if (!quote) return null;
+  const initialQuote = toNonEmptyString(evidence?.quote);
+  if (!initialQuote) return null;
 
   let charStart = safeInt(evidence?.charStart);
   let charEnd = safeInt(evidence?.charEnd);
 
-  // 尝试在全文中查找 quote
-  if (charStart === null || charEnd === null || charStart >= charEnd) {
+  let quote = initialQuote;
+
+  const canUseProvidedLocator = typeof charStart === "number" && typeof charEnd === "number" && charStart >= 0 && charEnd <= fullText.length && charStart < charEnd;
+  if (canUseProvidedLocator) {
+    const slice = fullText.slice(charStart, charEnd);
+    if (slice === quote) {
+      // ok
+    } else {
+      // Try to relocate within the given window, otherwise fall back to a global search.
+      const rel = slice.indexOf(quote);
+      if (rel >= 0) {
+        charStart = charStart + rel;
+        charEnd = charStart + quote.length;
+      } else {
+        const idx = fullText.indexOf(quote);
+        if (idx >= 0) {
+          charStart = idx;
+          charEnd = idx + quote.length;
+        } else {
+          // If the locator is valid, prefer a consistent slice over a mismatched quote.
+          quote = slice;
+        }
+      }
+    }
+  } else {
     const idx = fullText.indexOf(quote);
     if (idx >= 0) {
       charStart = idx;
       charEnd = idx + quote.length;
     } else {
-      // 尝试模糊匹配（去除空白差异）
-      const normalizedQuote = quote.replace(/\s+/g, " ").trim();
-      const normalizedText = fullText.replace(/\s+/g, " ");
-      const fuzzyIdx = normalizedText.indexOf(normalizedQuote);
-      if (fuzzyIdx >= 0) {
-        // 粗略估算原始位置
-        charStart = Math.max(0, fuzzyIdx - 50);
-        charEnd = Math.min(fullText.length, fuzzyIdx + normalizedQuote.length + 50);
-      } else {
-        // 找不到，使用整个文档
-        charStart = 0;
-        charEnd = Math.min(fullText.length, quote.length + 100);
-      }
+      return null;
     }
   }
+
+  if (!toNonEmptyString(quote)) return null;
+  if (typeof charStart !== "number" || typeof charEnd !== "number" || !(charStart < charEnd) || charStart < 0 || charEnd > fullText.length) return null;
 
   return {
     evidenceId: evidence.evidenceId,
@@ -157,19 +189,46 @@ function validateAndFixEvidence(evidence, fullText, sourceId) {
  * 直通模式分析
  */
 export async function runDirectAnalysis(runContext, input, stageApi = {}) {
+  const { emit: rawEmit, logger: injectedLogger } = extractServices(stageApi);
   const emit = makeStageEmitter(stageApi, "deepsearch");
   const state = input?.state instanceof DeepSearchState ? input.state : DeepSearchState.fromJSON(input?.state || {});
+  const logger =
+    injectedLogger && typeof injectedLogger.info === "function"
+      ? injectedLogger
+      : createLogger({
+          emit: rawEmit,
+          getContext: () => ({ runId: state.runId, iteration: state.iteration || 0, trajectoryId: state.trajectoryId, stage: "direct_analysis" }),
+        });
 
   const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
-  const primarySource = sources[0];
-  const sourceId = toNonEmptyString(primarySource?.sourceId) || "source_1";
-  const fullText = mergeSourceTexts(sources);
-
-  logEvent({
-    stage: "direct_analysis",
-    message: "Direct analysis started",
-    data: { sourceCount: sources.length, totalChars: fullText.length },
+  const sourcesWithText = sources.filter((s) => {
+    const sourceId = toNonEmptyString(s?.sourceId);
+    if (sourceId === "direct_merged" || s?.kind === "direct_merged") return false;
+    return typeof s?.sourceTextNormalized === "string" && s.sourceTextNormalized.trim();
   });
+  const fullText = mergeSourceTexts(sourcesWithText);
+
+  const shouldMergeSources = sourcesWithText.length > 1;
+  const directMergedSourceId = "direct_merged";
+  const evidenceSourceId = shouldMergeSources
+    ? directMergedSourceId
+    : toNonEmptyString(sourcesWithText[0]?.sourceId) || toNonEmptyString(sources[0]?.sourceId) || "source_1";
+
+  if (shouldMergeSources) {
+    const hasMergedAlready = sources.some((s) => toNonEmptyString(s?.sourceId) === directMergedSourceId);
+    if (!hasMergedAlready) {
+      const mergedSource = {
+        sourceId: directMergedSourceId,
+        kind: "direct_merged",
+        title: "Direct merged sources",
+        sourceTextNormalized: fullText,
+      };
+      state.L0.sources = [...sources, mergedSource];
+    }
+  }
+  const resolvedSources = Array.isArray(state?.L0?.sources) ? state.L0.sources : sources;
+
+  logger.info("Direct analysis started", { stage: "direct_analysis", data: { sourceCount: sources.length, totalChars: fullText.length } });
 
   emit?.("deepsearch.direct.started", {
     runId: state.runId,
@@ -185,7 +244,7 @@ export async function runDirectAnalysis(runContext, input, stageApi = {}) {
   const prompt = DIRECT_ANALYSIS_PROMPT
     .replace("{taskGoal}", String(state.taskGoal || "分析文档内容"))
     .replace("{fullText}", fullText.slice(0, 50000)) // 限制长度
-    .replace("{sourceId}", sourceId);
+    .replace("{sourceId}", evidenceSourceId);
 
   const result = await callModel(
     [{ role: "user", content: prompt }],
@@ -214,20 +273,23 @@ export async function runDirectAnalysis(runContext, input, stageApi = {}) {
       const fixed = validateAndFixEvidence(
         { ...e, evidenceId: toNonEmptyString(e?.evidenceId) || `evi_${i + 1}` },
         fullText,
-        sourceId
+        evidenceSourceId
       );
       return fixed;
     })
     .filter(Boolean);
+  const validEvidenceIds = new Set(evidenceLedger.map((e) => String(e.evidenceId)));
 
   // 处理 claims
-  const claims = (Array.isArray(parsed?.claims) ? parsed.claims : []).map((c, i) => ({
-    claimId: toNonEmptyString(c?.claimId) || `clm_${i + 1}`,
-    text: toNonEmptyString(c?.text) || "",
-    importance: c?.importance === "core" ? "core" : "support",
-    gapIds: Array.isArray(c?.gapIds) ? c.gapIds : [],
-    evidenceIds: Array.isArray(c?.evidenceIds) ? c.evidenceIds : [],
-  }));
+  const claims = (Array.isArray(parsed?.claims) ? parsed.claims : [])
+    .map((c, i) => ({
+      claimId: toNonEmptyString(c?.claimId) || `clm_${i + 1}`,
+      text: toNonEmptyString(c?.text) || "",
+      importance: c?.importance === "core" ? "core" : "support",
+      gapIds: Array.isArray(c?.gapIds) ? c.gapIds : [],
+      evidenceIds: (Array.isArray(c?.evidenceIds) ? c.evidenceIds : []).filter((eid) => validEvidenceIds.has(String(eid))),
+    }))
+    .filter((c) => Array.isArray(c?.evidenceIds) && c.evidenceIds.length >= 1);
 
   // 处理 report
   const report = isPlainObject(parsed?.report) ? {
@@ -254,14 +316,9 @@ export async function runDirectAnalysis(runContext, input, stageApi = {}) {
     keyTopics: gaps.map(g => g.question).slice(0, 5),
   };
 
-  logEvent({
+  logger.info("Direct analysis completed", {
     stage: "direct_analysis",
-    message: "Direct analysis completed",
-    data: {
-      gapCount: gaps.length,
-      claimCount: claims.length,
-      evidenceCount: evidenceLedger.length,
-    },
+    data: { gapCount: gaps.length, claimCount: claims.length, evidenceCount: evidenceLedger.length },
   });
 
   emit?.("deepsearch.direct.completed", {
@@ -274,7 +331,7 @@ export async function runDirectAnalysis(runContext, input, stageApi = {}) {
   // 构建 ContentPackage
   const pkg = buildContentPackage(
     runContext,
-    sources,
+    resolvedSources,
     [], // slideIntents
     claims,
     evidenceLedger,

@@ -283,10 +283,8 @@ test("Refactor E2E: 完整 scan→gaps→retrieve→understand→write 流程", 
   const { IngestStage } = await import("../../../js/agents/ingest/ingest-stage.js");
   const { DeepSearchStage } = await import("../../../js/agents/stages/deepsearch/index.js");
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
-  const { setEventBus } = await import("../../../js/agents/stages/deepsearch/logger.js");
 
   const modelRouter = makeMockModelRouter();
-  const bus = makeMockEventBus();
 
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -335,9 +333,8 @@ test("Refactor E2E: 完整 scan→gaps→retrieve→understand→write 流程", 
   const pkg = await stage.execute(
     { runId: state.runId, mode: "deepsearch", constraints: {} },
     { state },
-    { emit, modelRouter, localRetriever, eventBus: bus }
+    { emit, modelRouter, localRetriever }
   );
-  setEventBus(null);
 
   assert.ok(localRetrieverCalls > 0, "expected localRetriever to be called");
   assert.ok(modelRouter.calls.length > 0, "expected modelRouter to be used");
@@ -353,10 +350,10 @@ test("Refactor E2E: 完整 scan→gaps→retrieve→understand→write 流程", 
   // validateIteration options API: should emit status changes via provided `emit`.
   assert.ok(events.some((e) => e.name === "deepsearch.gap.status.changed"));
 
-  // Shared tool wrappers: retrieve stage should log tool calls via EventBus.
-  const toolLogs = bus.events.filter((e) => e.name === "deepsearch.log.tool");
-  assert.ok(toolLogs.length >= 1, "expected at least one deepsearch.log.tool event");
-  assert.ok(toolLogs.some((e) => String(e.payload?.payload?.message || "").includes("Tool call: iterativeRetrieve")));
+  // retrieve stage should log tool calls via `emit` (deepsearch.log.info + stage="tool").
+  const toolLogs = events.filter((e) => e.name === "deepsearch.log.info" && e.record?.stage === "tool");
+  assert.ok(toolLogs.length >= 1, "expected at least one deepsearch.log.info tool event");
+  assert.ok(toolLogs.some((e) => String(e.record?.message || "").includes("Tool call: iterativeRetrieve")));
 
   assert.ok(pkg && typeof pkg === "object");
   assert.ok(pkg.report && typeof pkg.report === "object" && typeof pkg.report.markdown === "string" && pkg.report.markdown.length > 0);
@@ -367,10 +364,8 @@ test("Refactor E2E: 质量命中机制验证", async () => {
   const { IngestStage } = await import("../../../js/agents/ingest/ingest-stage.js");
   const { DeepSearchStage } = await import("../../../js/agents/stages/deepsearch/index.js");
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
-  const { setEventBus } = await import("../../../js/agents/stages/deepsearch/logger.js");
 
   const modelRouter = makeMockModelRouter();
-  const bus = makeMockEventBus();
 
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -444,15 +439,14 @@ test("Refactor E2E: 质量命中机制验证", async () => {
   const snapshots = [];
   const emitWithSnapshots = (name, record) => {
     events.push({ name, record });
-    if (name === "iteration.completed") {
+    if (name === "deepsearch.iteration.completed") {
       const g = (Array.isArray(state?.L1?.gaps) ? state.L1.gaps : []).find((x) => x?.gapId === "gap_target");
       snapshots.push({ iteration: record?.payload?.iteration, missCount: g?.missCount, status: g?.status });
     }
   };
 
   const stage = new DeepSearchStage();
-  await stage.execute({ runId: state.runId, mode: "deepsearch", constraints: {} }, { state }, { emit: emitWithSnapshots, modelRouter, localRetriever, eventBus: bus });
-  setEventBus(null);
+  await stage.execute({ runId: state.runId, mode: "deepsearch", constraints: {} }, { state }, { emit: emitWithSnapshots, modelRouter, localRetriever });
 
   // Expected missCount evolution for gap_target:
   // iter0: miss (no hits) => 1
@@ -480,10 +474,8 @@ test("Refactor E2E: 多轮迭代收敛验证", async () => {
   const { IngestStage } = await import("../../../js/agents/ingest/ingest-stage.js");
   const { DeepSearchStage } = await import("../../../js/agents/stages/deepsearch/index.js");
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
-  const { setEventBus } = await import("../../../js/agents/stages/deepsearch/logger.js");
 
   const modelRouter = makeMockModelRouter();
-  const bus = makeMockEventBus();
 
   const events = [];
   const emit = (name, record) => events.push({ name, record });
@@ -517,10 +509,9 @@ test("Refactor E2E: 多轮迭代收敛验证", async () => {
   };
 
   const stage = new DeepSearchStage();
-  const pkg = await stage.execute({ runId: state.runId, mode: "deepsearch", constraints: {} }, { state }, { emit, modelRouter, localRetriever, eventBus: bus });
-  setEventBus(null);
+  const pkg = await stage.execute({ runId: state.runId, mode: "deepsearch", constraints: {} }, { state }, { emit, modelRouter, localRetriever });
 
-  const rounds = events.filter((e) => e.name === "iteration.completed").map((e) => e.record?.payload);
+  const rounds = events.filter((e) => e.name === "deepsearch.iteration.completed").map((e) => e.record?.payload);
   assert.equal(rounds.length, 2);
   assert.equal(rounds[0]?.noNewHitsRounds, 1);
   assert.equal(rounds[1]?.noNewHitsRounds, 2);

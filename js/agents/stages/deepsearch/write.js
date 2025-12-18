@@ -236,7 +236,7 @@ function emitWriteProgress(emit, { current, total, step, msg, detail }) {
       msg: String(msg || ""),
       ...(detail && typeof detail === "object" && !Array.isArray(detail) ? { detail } : {}),
     },
-    { status: "progress" }
+    { status: "progress", throttle: false }
   );
 }
 
@@ -667,7 +667,7 @@ async function generateReportTocBasedWithLLM(state, { claims, evidenceLedger, ga
       targetWords: plan?.targetWords,
     };
 
-    emit?.("deepsearch.write.section.started", { ...detailBase, sectionIndex: i, sectionCount: tocSections.length });
+    emit?.("deepsearch.write.section.started", { ...detailBase, sectionIndex: i, sectionCount: tocSections.length }, { throttle: false });
     emitWriteProgress(emit, {
       current: 1 + completedCount,
       total: totalSteps,
@@ -711,7 +711,7 @@ async function generateReportTocBasedWithLLM(state, { claims, evidenceLedger, ga
 
     completedCount += 1;
     const doneDetail = { ...detailBase, sectionTitle, claimCount: mergedClaimIds.length, sectionStatus: "completed" };
-    emit?.("deepsearch.write.section.completed", { ...doneDetail, sectionIndex: i, sectionCount: tocSections.length });
+    emit?.("deepsearch.write.section.completed", { ...doneDetail, sectionIndex: i, sectionCount: tocSections.length }, { throttle: false });
     emitWriteProgress(emit, {
       current: 1 + completedCount,
       total: totalSteps,

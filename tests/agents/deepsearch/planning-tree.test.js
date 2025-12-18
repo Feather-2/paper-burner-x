@@ -129,3 +129,146 @@ test("Integration: validateIteration updates planningTree for filled/blocked gap
   for (const n of state.planningTree.getNodesForGap("gap_2")) assert.equal(n.status, "blocked");
 });
 
+test("Integration: retrieve stage records retrieval decisions per gap", async () => {
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchRetrieveStage } = await import("../../../js/agents/stages/deepsearch/retrieve.js");
+
+  const state = new DeepSearchState({ runId: "run_retrieve_decisions", taskGoal: "Explain topic" });
+  state.L0.sources = [{ sourceId: "s1", kind: "url", sourceTextNormalized: "X is a concept. X has properties." }];
+  state.userConfig = { retrieval: { enableToolChain: false, iterative: { enabled: false }, topK: 3 } };
+
+  state.L1.gaps = [
+    { gapId: "gap_1", status: "open", type: "definition", priority: "high", question: "What is X?", queryHints: ["X"] },
+  ];
+  state.planningTree.expandFromGap(state.L1.gaps[0]);
+
+  await runDeepSearchRetrieveStage(
+    { runId: state.runId },
+    { state },
+    {
+      localRetriever: (sourceIndex, gaps, config) => {
+        assert.equal(config.useBm25, true);
+        assert.equal(config.useGrep, false);
+        const gapId = gaps[0]?.gapId;
+        return [
+          {
+            chunkId: `${sourceIndex.sourceId}::c1`,
+            sourceId: sourceIndex.sourceId,
+            locator: { charStart: 0, charEnd: 10 },
+            text: "X is a concept.",
+            matchedGapIds: [gapId],
+            score: 1.0,
+          },
+        ];
+      },
+    },
+  );
+
+  const nodes = state.planningTree.getNodesForGap("gap_1");
+  assert(nodes.length > 0);
+  const history = state.planningTree.getDecisionHistory(nodes[0].nodeId);
+  assert(history.some((d) => d.stage === "retrieve" && d.outcome === "success"), "Should record a successful retrieve decision");
+});
+
+test("Integration: validateIteration records gap transition decisions", async () => {
+  const { DeepSearchState, validateIteration } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  const state = new DeepSearchState({ runId: "run_gap_transition_decisions", taskGoal: "Explain topic" });
+  state.L1.gaps = [
+    { gapId: "gap_1", status: "open", type: "definition", priority: "high", question: "What is X?", queryHints: ["X"] },
+    { gapId: "gap_2", status: "open", type: "data", priority: "medium", question: "Stats?", queryHints: ["stats"] },
+  ];
+  for (const g of state.L1.gaps) state.planningTree.expandFromGap(g);
+
+  // Fill gap_1 via evidence threshold, block gap_2 via miss threshold.
+  state.L1.evidenceLedger = [{ gapIds: ["gap_1"] }, { gapIds: ["gap_1"] }];
+  state.L2.retrievedChunks = [{ chunkId: "c1", gapId: "gap_1" }];
+
+  validateIteration(state, { blockAfterMisses: 1, roundHits: { allHits: new Map(), qualityHits: new Map() } });
+
+  const nodes1 = state.planningTree.getNodesForGap("gap_1");
+  const nodes2 = state.planningTree.getNodesForGap("gap_2");
+  assert(nodes1.length > 0 && nodes2.length > 0);
+
+  const h1 = state.planningTree.getDecisionHistory(nodes1[0].nodeId);
+  const h2 = state.planningTree.getDecisionHistory(nodes2[0].nodeId);
+
+  assert(h1.some((d) => d.stage === "gaps" && d.action.includes("transition to filled") && d.outcome === "success"));
+  assert(h2.some((d) => d.stage === "gaps" && d.action.includes("transition to blocked") && d.outcome === "fail"));
+});
+
+test("Integration: PlanningTree strategy selection influences retrieve router config", async () => {
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchRetrieveStage } = await import("../../../js/agents/stages/deepsearch/retrieve.js");
+
+  // Doc-only sources -> bm25.
+  {
+    const state = new DeepSearchState({ runId: "run_strategy_bm25", taskGoal: "Explain topic" });
+    state.L0.sources = [{ sourceId: "s1", kind: "url", sourceTextNormalized: "Some documentation about X." }];
+    state.userConfig = { retrieval: { enableToolChain: false, iterative: { enabled: false }, topK: 1 } };
+    state.L1.gaps = [{ gapId: "gap_1", status: "open", question: "What is X?", queryHints: ["X"] }];
+    state.planningTree.expandFromGap(state.L1.gaps[0]);
+
+    const seen = [];
+    await runDeepSearchRetrieveStage(
+      { runId: state.runId },
+      { state },
+      {
+        localRetriever: (_sourceIndex, _gaps, config) => {
+          seen.push({ useGrep: config.useGrep, useBm25: config.useBm25 });
+          return [];
+        },
+      },
+    );
+    assert(seen.length > 0);
+    assert(seen.every((c) => c.useBm25 === true && c.useGrep === false));
+  }
+
+  // Code-only sources + stats that favor grep -> grep.
+  {
+    const state = new DeepSearchState({ runId: "run_strategy_grep", taskGoal: "Explain topic" });
+    state.L0.sources = [{ sourceId: "s1", kind: "file", sourceTextNormalized: "function foo() { return 1; }" }];
+    state.userConfig = { retrieval: { enableToolChain: false, iterative: { enabled: false }, topK: 1 } };
+    state.L1.gaps = [{ gapId: "gap_1", status: "open", question: "Where is foo?", queryHints: ["foo"] }];
+    state.planningTree.expandFromGap(state.L1.gaps[0]);
+
+    // Make grep clearly better than tool-chain so getBestStrategy picks grep for code-only.
+    for (let i = 0; i < 3; i++) state.planningTree.recordStrategyResult("grep", { hits: 5, latency: 1 });
+    for (let i = 0; i < 3; i++) state.planningTree.recordStrategyResult("tool-chain", { hits: 0, latency: 1 });
+
+    const seen = [];
+    await runDeepSearchRetrieveStage(
+      { runId: state.runId },
+      { state },
+      {
+        localRetriever: (_sourceIndex, _gaps, config) => {
+          seen.push({ useGrep: config.useGrep, useBm25: config.useBm25 });
+          return [];
+        },
+      },
+    );
+    assert(seen.length > 0);
+    assert(seen.every((c) => c.useBm25 === false && c.useGrep === true));
+  }
+});
+
+test("PlanningTree: analyzeGapFailure produces suggestions from repeated failures", async () => {
+  const { PlanningTree } = await import("../../../js/agents/stages/deepsearch/planning-tree.js");
+
+  const tree = new PlanningTree({ rootGoal: "Goal", runId: "run_failure_analysis" });
+  tree.expandFromGap({ gapId: "gap_1", question: "What is X?", queryHints: ["x"] });
+
+  const nodes = tree.getNodesForGap("gap_1");
+  assert(nodes.length > 0);
+  const nodeId = nodes[0].nodeId;
+
+  for (let i = 0; i < 3; i++) {
+    tree.recordDecision(nodeId, { stage: "retrieve", action: "bm25 search", reason: "no hits", outcome: "fail", metrics: { hits: 0 } });
+  }
+  tree.recordDecision(nodeId, { stage: "gaps", action: "transition to blocked", reason: "no hits", outcome: "fail", metrics: { missCount: 2 } });
+
+  const analysis = tree.analyzeGapFailure("gap_1");
+  assert(analysis.failureCount >= 3);
+  assert(Array.isArray(analysis.suggestedActions) && analysis.suggestedActions.length > 0, "Should suggest actions for repeated failures");
+});
+

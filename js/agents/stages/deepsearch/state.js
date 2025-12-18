@@ -26,6 +26,71 @@ const DEFAULT_MODEL_PRICES_USD_PER_1K = Object.freeze({
   // Gemini & others: default to unknown/0 unless configured.
 });
 
+export const EVENT_SCHEMA_VERSION = "deepsearch.event.v1";
+
+export const EventStatus = Object.freeze({
+  STARTED: "started",
+  PROGRESS: "progress",
+  COMPLETED: "completed",
+  FAILED: "failed",
+  WARNING: "warning",
+  INFO: "info",
+});
+
+export const GapStatus = Object.freeze({
+  OPEN: "open",
+  FILLED: "filled",
+  BLOCKED: "blocked",
+});
+
+/**
+ * 统一的 gap 状态转换函数，确保字段一致性
+ */
+export function transitionGap(g, to, { runId, iteration, reason, ts, evidenceCount }, emitFn) {
+  const from = toNonEmptyString(g?.status) || GapStatus.OPEN;
+  if (from === to) return false; // 无转换
+
+  const gapId = toNonEmptyString(g?.gapId) || "unknown";
+
+  if (to === GapStatus.FILLED) {
+    g.status = GapStatus.FILLED;
+    g.filledAt = ts;
+    g.filledIteration = iteration;
+    if (typeof evidenceCount === "number") g.evidenceCount = evidenceCount;
+    // 清理 blocked 相关字段
+    delete g.blockedAt;
+    delete g.blockedReason;
+  } else if (to === GapStatus.BLOCKED) {
+    g.status = GapStatus.BLOCKED;
+    g.blockedAt = ts;
+    g.blockedReason = String(g.blockedReason || reason || "no_retrieval_hits");
+    // 清理 filled 相关字段
+    delete g.filledAt;
+    delete g.filledIteration;
+    delete g.evidenceCount;
+  } else {
+    // OPEN
+    g.status = GapStatus.OPEN;
+    g.missCount = 0;
+    delete g.filledAt;
+    delete g.filledIteration;
+    delete g.evidenceCount;
+    delete g.blockedAt;
+    delete g.blockedReason;
+  }
+
+  emitFn?.("deepsearch.gap.status.changed", {
+    runId,
+    gapId,
+    from,
+    to: g.status,
+    reason: reason || (to === GapStatus.FILLED ? "evidence" : to === GapStatus.BLOCKED ? "no_hits" : "reopen"),
+    iteration,
+  });
+
+  return true;
+}
+
 function normalizeTokenUsage(usage) {
   if (!isPlainObject(usage)) return null;
 
@@ -118,8 +183,82 @@ function getCheckpointStrategyFromState(state, override) {
   return normalizeCheckpointStrategy(direct || DEFAULT_CHECKPOINT_STRATEGY);
 }
 
-function cloneValue(v) {
-  return typeof structuredClone === "function" ? structuredClone(v) : JSON.parse(JSON.stringify(v));
+function cloneValueFallback(v, seen) {
+  if (v === null || typeof v !== "object") return v;
+  if (seen.has(v)) return "[Circular]";
+  seen.add(v);
+
+  if (Array.isArray(v)) return v.map((item) => cloneValueFallback(item, seen));
+  if (v instanceof Date) return new Date(v.getTime());
+  if (v instanceof RegExp) return new RegExp(v);
+  if (v instanceof Map) {
+    const out = new Map();
+    for (const [k, val] of v.entries()) out.set(cloneValueFallback(k, seen), cloneValueFallback(val, seen));
+    return out;
+  }
+  if (v instanceof Set) {
+    const out = new Set();
+    for (const item of v.values()) out.add(cloneValueFallback(item, seen));
+    return out;
+  }
+
+  const cloned = {};
+  for (const [k, val] of Object.entries(v)) {
+    if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
+    cloned[k] = cloneValueFallback(val, seen);
+  }
+  return cloned;
+}
+
+function hasCycle(root) {
+  if (root === null || typeof root !== "object") return false;
+
+  const visited = new WeakSet();
+  const stack = new WeakSet();
+
+  const walk = (v) => {
+    if (v === null || typeof v !== "object") return false;
+    if (stack.has(v)) return true;
+    if (visited.has(v)) return false;
+
+    visited.add(v);
+    stack.add(v);
+
+    if (Array.isArray(v)) {
+      for (const item of v) if (walk(item)) return true;
+      stack.delete(v);
+      return false;
+    }
+
+    if (v instanceof Map) {
+      for (const [k, val] of v.entries()) if (walk(k) || walk(val)) return true;
+      stack.delete(v);
+      return false;
+    }
+
+    if (v instanceof Set) {
+      for (const item of v.values()) if (walk(item)) return true;
+      stack.delete(v);
+      return false;
+    }
+
+    for (const val of Object.values(v)) if (walk(val)) return true;
+    stack.delete(v);
+    return false;
+  };
+
+  return walk(root);
+}
+
+function cloneValue(v, seen = new WeakSet()) {
+  if (v === null || typeof v !== "object") return v;
+  if (typeof structuredClone === "function") {
+    try {
+      if (!hasCycle(v)) return structuredClone(v);
+    } catch {}
+  }
+
+  return cloneValueFallback(v, seen);
 }
 
 // Migration registry for checkpoint objects (not DeepSearchState snapshots).
@@ -153,6 +292,9 @@ function buildLiteSnapshot(state) {
   const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
   const hasSourceIndex = Boolean(state?.L0?.sourceIndex);
 
+  const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+  const claims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
+
   return {
     snapshotStrategy: "lite",
     schemaVersion: state.schemaVersion,
@@ -174,7 +316,11 @@ function buildLiteSnapshot(state) {
       sourcesCount: sources.length,
       hasSourceIndex,
     },
-    L1: cloneValue(state.L1),
+    L1Summary: {
+      gapCount: gaps.length,
+      claimCount: claims.length,
+      gapIds: gaps.map((g) => toNonEmptyString(g?.gapId)).filter(Boolean),
+    },
     L2: {
       retrievedChunkIds,
       tokenUsage: cloneValue(ensureTokenUsage(state?.L2?.tokenUsage)),
@@ -228,10 +374,39 @@ export function extractJsonCandidate(text) {
   return s;
 }
 
-export function makeStageEmitter(stageApi, actor = "deepsearch") {
-  const emitFn = stageApi?.emit || stageApi?.eventBus?.emit;
-  if (typeof emitFn !== "function") return null;
-  return (name, payload, { status = "completed" } = {}) => emitFn.call(stageApi?.eventBus || null, name, { actor, status, payload });
+export function makeStageEmitter(stageApi, actor = "deepsearch", getContext) {
+  const emitFn =
+    typeof stageApi?.emit === "function"
+      ? stageApi.emit.bind(stageApi)
+      : typeof stageApi?.eventBus?.emit === "function"
+        ? stageApi.eventBus.emit.bind(stageApi.eventBus)
+        : null;
+
+  if (!emitFn) return null;
+
+  // 简单限流：同一事件名 100ms 内只发一次
+  const lastEmitTime = new Map();
+  const MIN_INTERVAL_MS = 100;
+
+  return (name, payload, { status = EventStatus.COMPLETED, throttle = true } = {}) => {
+    if (throttle) {
+      const now = Date.now();
+      const last = lastEmitTime.get(name) || 0;
+      if (now - last < MIN_INTERVAL_MS) return; // 限流
+      lastEmitTime.set(name, now);
+    }
+
+    const ctx = typeof getContext === "function" ? getContext() : {};
+    emitFn(name, {
+      schemaVersion: EVENT_SCHEMA_VERSION,
+      name,
+      ts: new Date().toISOString(),
+      actor,
+      status,
+      ...ctx,
+      payload,
+    });
+  };
 }
 
 export function generateNodeId(runId, kind, { stage, iteration, trajectoryId } = {}) {
@@ -366,30 +541,43 @@ export function validateIteration(state, options = {}) {
   let blockedCount = 0;
   let stillOpenCount = 0;
   const now = new Date().toISOString();
+  const treeForDecisions = state?.planningTree;
+  const canRecordDecision =
+    typeof treeForDecisions?.getNodesForGap === "function" && typeof treeForDecisions?.recordDecision === "function";
+
+  const recordGapTransitionDecision = (gapId, newStatus, { reason, outcome, metrics } = {}) => {
+    if (!canRecordDecision) return;
+    const nodes = treeForDecisions.getNodesForGap(gapId) || [];
+    const nodeId = toNonEmptyString(nodes?.[0]?.nodeId);
+    if (!nodeId) return;
+
+    treeForDecisions.recordDecision(nodeId, {
+      stage: "gaps",
+      action: `transition to ${newStatus}`,
+      reason: String(reason || "auto"),
+      outcome,
+      metrics: isPlainObject(metrics) ? { ...metrics } : {},
+    });
+  };
 
   for (const g of gaps) {
     const gid = toNonEmptyString(g?.gapId);
     if (!gid) continue;
 
-    const oldStatus = toNonEmptyString(g?.status) || "open";
-    if (oldStatus === "filled" || oldStatus === "blocked") continue;
+    const oldStatus = toNonEmptyString(g?.status) || GapStatus.OPEN;
+    if (oldStatus === GapStatus.FILLED || oldStatus === GapStatus.BLOCKED) continue;
 
     const evidenceCount = evidenceCountByGapId.get(gid) || 0;
     // 只有当 evidence 数量 >= minEvidenceToFill 时才标记为 filled
     if (evidenceCount >= effectiveMinEvidenceToFill) {
-      g.status = "filled";
-      g.filledAt = now;
-      g.filledIteration = state?.iteration;
-      g.evidenceCount = evidenceCount;
-      emitFn?.("deepsearch.gap.status.changed", {
-        runId,
-        gapId: gid,
-        from: oldStatus,
-        to: "filled",
-        reason: "evidence",
-        evidenceCount,
-        iteration,
-      });
+      const didTransition = transitionGap(g, GapStatus.FILLED, { runId, iteration, ts: now, evidenceCount }, emitFn);
+      if (didTransition) {
+        recordGapTransitionDecision(gid, GapStatus.FILLED, {
+          reason: `evidence>=${effectiveMinEvidenceToFill}`,
+          outcome: "success",
+          metrics: { evidenceCount, missCount: safeInt(g?.missCount) ?? 0 },
+        });
+      }
       filledCount++;
       continue;
     }
@@ -411,18 +599,15 @@ export function validateIteration(state, options = {}) {
     g.missCount = misses;
 
     if (misses >= effectiveBlockAfterMisses) {
-      g.status = "blocked";
-      g.blockedAt = now;
       const blockedReason = String(g.blockedReason || "no_retrieval_hits");
-      g.blockedReason = blockedReason;
-      emitFn?.("deepsearch.gap.status.changed", {
-        runId,
-        gapId: gid,
-        from: oldStatus,
-        to: "blocked",
-        reason: blockedReason,
-        iteration,
-      });
+      const didTransition = transitionGap(g, GapStatus.BLOCKED, { runId, iteration, reason: blockedReason, ts: now }, emitFn);
+      if (didTransition) {
+        recordGapTransitionDecision(gid, GapStatus.BLOCKED, {
+          reason: blockedReason,
+          outcome: "fail",
+          metrics: { evidenceCount, missCount: misses },
+        });
+      }
       blockedCount++;
     } else {
       stillOpenCount++;
@@ -458,8 +643,8 @@ export function validateIteration(state, options = {}) {
     if (!gid) continue;
     const todo = todoByGapId.get(gid);
     if (!todo) continue;
-    if (g.status === "filled") updateTodoStatus(todo, "done");
-    if (g.status === "blocked") updateTodoStatus(todo, "blocked");
+    if (g.status === GapStatus.FILLED) updateTodoStatus(todo, "done");
+    if (g.status === GapStatus.BLOCKED) updateTodoStatus(todo, "blocked");
   }
 
   const tree = state?.planningTree;
@@ -467,8 +652,8 @@ export function validateIteration(state, options = {}) {
     for (const g of gaps) {
       const gid = toNonEmptyString(g?.gapId);
       if (!gid) continue;
-      if (g.status !== "filled" && g.status !== "blocked") continue;
-      const next = g.status === "filled" ? "completed" : "blocked";
+      if (g.status !== GapStatus.FILLED && g.status !== GapStatus.BLOCKED) continue;
+      const next = g.status === GapStatus.FILLED ? "completed" : "blocked";
       const nodes = tree.getNodesForGap(gid) || [];
       for (const n of Array.isArray(nodes) ? nodes : []) {
         const nodeId = toNonEmptyString(n?.nodeId) || toNonEmptyString(n?.planNodeId) || toNonEmptyString(n?.id);
@@ -477,7 +662,7 @@ export function validateIteration(state, options = {}) {
     }
   }
 
-  const openCount = gaps.filter((g) => (toNonEmptyString(g?.status) || "open") === "open").length;
+  const openCount = gaps.filter((g) => (toNonEmptyString(g?.status) || GapStatus.OPEN) === GapStatus.OPEN).length;
   state?.addTimeline?.({
     name: "deepsearch.validate",
     status: "completed",
@@ -522,6 +707,9 @@ export class DeepSearchState {
         : isPlainObject(planningTree)
           ? PlanningTree.fromJSON(planningTree)
           : new PlanningTree({ rootGoal: this.taskGoal, runId: this.runId });
+    if (!this.planningTree) {
+      this.planningTree = new PlanningTree({ rootGoal: this.taskGoal || "", runId: this.runId });
+    }
 
     const it = safeInt(iteration);
     this.iteration = it !== null && it >= 0 ? it : 0;
@@ -616,6 +804,9 @@ export class DeepSearchState {
     const st = toNonEmptyString(status) || "info";
     const row = { ts: new Date().toISOString(), name: n, status: st, ...(payload !== undefined ? { payload } : {}) };
     this.timeline.push(row);
+
+    const max = Math.max(0, safeInt(this?.userConfig?.memory?.maxTimeline) ?? 1000);
+    while (this.timeline.length > max) this.timeline.shift();
     return row;
   }
 
@@ -650,26 +841,19 @@ export class DeepSearchState {
       if (!missing.has(gid)) continue;
       missing.delete(gid);
 
-      const oldStatus = toNonEmptyString(g?.status) || "open";
-      g.status = "open";
-      g.missCount = 0;
+      const didTransition = transitionGap(g, GapStatus.OPEN, { runId: this.runId, iteration: this.iteration, reason: "backtrack", ts: now }, emit);
+      if (!didTransition) {
+        // Even when status is already OPEN, normalize fields without emitting.
+        g.status = GapStatus.OPEN;
+        g.missCount = 0;
+        delete g.filledAt;
+        delete g.filledIteration;
+        delete g.evidenceCount;
+        delete g.blockedAt;
+        delete g.blockedReason;
+      }
       g.reopenedAt = now;
       if (toNonEmptyString(reason)) g.reopenedReason = String(reason);
-      delete g.filledAt;
-      delete g.filledIteration;
-      delete g.blockedAt;
-      delete g.blockedReason;
-
-      if (oldStatus !== "open") {
-        emit?.("deepsearch.gap.status.changed", {
-          runId: this.runId,
-          gapId: gid,
-          from: oldStatus,
-          to: "open",
-          reason: "backtrack",
-          iteration: this.iteration,
-        });
-      }
 
       reopened.push(gid);
     }
@@ -771,7 +955,7 @@ export class DeepSearchState {
     const checkpointStrategy = getCheckpointStrategyFromState(this);
     const snapshot =
       checkpointStrategy === "full"
-        ? DeepSearchState.fromJSON(cloneValue(this.toJSON({ includeCheckpoints: false })))
+        ? DeepSearchState.fromJSON(this.toJSON({ includeCheckpoints: false }))
         : buildLiteSnapshot(this);
 
     const gaps = Array.isArray(this?.L1?.gaps) ? this.L1.gaps : [];
@@ -805,6 +989,9 @@ export class DeepSearchState {
     };
 
     this.checkpoints.push(checkpoint);
+
+    const max = Math.max(0, safeInt(this?.userConfig?.memory?.maxCheckpoints) ?? 30);
+    while (this.checkpoints.length > max) this.checkpoints.shift();
     return checkpoint;
   }
 
@@ -830,6 +1017,7 @@ export class DeepSearchState {
             ? "lite"
             : "full";
     const preservedL0 = this.L0;
+    const preservedL1 = this.L1;
     const snapshot = cp.stateSnapshot instanceof DeepSearchState ? cp.stateSnapshot : DeepSearchState.fromJSON(cp.stateSnapshot);
     const preservedCheckpoints = this.checkpoints;
 
@@ -842,7 +1030,7 @@ export class DeepSearchState {
     this.iteration = safeInt(restored.iteration) ?? 0;
     this.maxIterations = safeInt(restored.maxIterations) ?? DEFAULT_MAX_ITERATIONS;
     this.L0 = checkpointStrategy === "lite" ? preservedL0 : restored.L0;
-    this.L1 = restored.L1;
+    this.L1 = checkpointStrategy === "lite" ? preservedL1 : restored.L1;
     this.L2 = restored.L2;
     this.planningTree =
       restored.planningTree instanceof PlanningTree
@@ -874,7 +1062,7 @@ export class DeepSearchState {
   }
 
   toJSON({ includeCheckpoints = true } = {}) {
-    return {
+    return cloneValue({
       schemaVersion: this.schemaVersion,
       runId: this.runId,
       createdAt: this.createdAt,
@@ -893,7 +1081,7 @@ export class DeepSearchState {
       L2: this.L2,
       todos: this.todos,
       timeline: this.timeline,
-    };
+    });
   }
 
   serialize({ pretty = false } = {}) {
@@ -902,7 +1090,7 @@ export class DeepSearchState {
 
   clone({ includeCheckpoints = true } = {}) {
     const snapshotObj = this.toJSON({ includeCheckpoints });
-    return DeepSearchState.fromJSON(cloneValue(snapshotObj));
+    return DeepSearchState.fromJSON(snapshotObj);
   }
 
   static fromJSON(json) {

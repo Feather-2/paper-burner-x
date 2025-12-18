@@ -221,3 +221,119 @@ test("ExternalSearch: results are stored into L0 DocumentLibrary and L1 Evidence
   }
 });
 
+test("DeepSearch ExternalSearch stage: concurrency limit is enforced (mcp search + fetch)", async () => {
+  const { runExternalSearch } = await import("../../js/agents/stages/deepsearch/external-search.js");
+
+  let inFlightSearch = 0;
+  let maxInFlightSearch = 0;
+  let startedSearch = 0;
+  let resolveSearchGate;
+  const searchGate = new Promise((r) => (resolveSearchGate = r));
+
+  let inFlightFetch = 0;
+  let maxInFlightFetch = 0;
+  let startedFetch = 0;
+  let resolveFetchGate;
+  const fetchGate = new Promise((r) => (resolveFetchGate = r));
+
+  const provider = {
+    listProviders: () => ["mock"],
+    search: async ({ query }) => {
+      inFlightSearch++;
+      maxInFlightSearch = Math.max(maxInFlightSearch, inFlightSearch);
+      startedSearch++;
+      if (startedSearch === 10) resolveSearchGate();
+      await searchGate;
+      await new Promise((r) => setImmediate(r));
+      inFlightSearch--;
+      return {
+        success: true,
+        content: [{ type: "json", data: { results: [{ url: `https://example.com/${encodeURIComponent(query)}`, title: `T ${query}` }] } }],
+      };
+    },
+    fetch: async ({ url }) => {
+      inFlightFetch++;
+      maxInFlightFetch = Math.max(maxInFlightFetch, inFlightFetch);
+      startedFetch++;
+      if (startedFetch === 10) resolveFetchGate();
+      await fetchGate;
+      await new Promise((r) => setImmediate(r));
+      inFlightFetch--;
+      return {
+        success: true,
+        content: [{ type: "json", data: { metadata: { title: `Title ${url}` } } }],
+        getText: () => `body for ${url} `.repeat(10), // >= 50 chars
+      };
+    },
+  };
+
+  const gaps = Array.from({ length: 13 }, (_, i) => ({ gapId: `g${i + 1}`, text: `q_${i + 1}` }));
+  const config = { enabled: true, maxExternalResults: 1 };
+  const state = { L0: { sources: [] }, L2: {}, userConfig: { retrieval: { maxChunks: 1000 } }, addTimeline: () => {} };
+  const stageApi = { externalSearchProvider: provider };
+
+  const out = await runExternalSearch(gaps, config, { state, stageApi });
+
+  assert.ok(out.documents.length >= 1);
+  assert.ok(out.chunks.length >= 1);
+  assert.ok(maxInFlightSearch <= 10);
+  assert.ok(maxInFlightFetch <= 10);
+});
+
+test("DeepSearch ExternalSearch stage: sourceTextNormalized is truncated for long documents", async () => {
+  const { runExternalSearch } = await import("../../js/agents/stages/deepsearch/external-search.js");
+
+  const longText = `BEGIN\n${"x".repeat(80050)}\nEND`;
+  const shortText = "short ".repeat(20); // >= 50 chars
+
+  const provider = {
+    listProviders: () => ["mock"],
+    search: async ({ query }) => {
+      return {
+        success: true,
+        content: [
+          {
+            type: "json",
+            data: {
+              results: [
+                { url: `https://example.com/${encodeURIComponent(query)}/long`, title: "Long" },
+                { url: `https://example.com/${encodeURIComponent(query)}/short`, title: "Short" },
+              ],
+            },
+          },
+        ],
+      };
+    },
+    fetch: async ({ url }) => {
+      const text = url.includes("/long") ? longText : shortText;
+      return {
+        success: true,
+        content: [{ type: "json", data: { metadata: { title: url.includes("/long") ? "LongDoc" : "ShortDoc" } } }],
+        getText: () => text,
+      };
+    },
+  };
+
+  const gaps = [{ gapId: "g1", text: "alpha" }];
+  const config = { enabled: true, maxExternalResults: 2 };
+  const state = { L0: { sources: [] }, L2: {}, userConfig: { retrieval: { maxChunks: 1000 } }, addTimeline: () => {} };
+  const stageApi = { externalSearchProvider: provider };
+
+  const out = await runExternalSearch(gaps, config, { state, stageApi });
+  assert.equal(out.documents.length, 2);
+
+  const longDoc = out.documents.find((d) => String(d?.uri || "").includes("/long"));
+  const shortDoc = out.documents.find((d) => String(d?.uri || "").includes("/short"));
+  assert.ok(longDoc);
+  assert.ok(shortDoc);
+
+  assert.equal(longDoc.truncated, true);
+  assert.equal(longDoc.originalLength, longText.length);
+  assert.ok(String(longDoc.sourceTextNormalized).includes(`[... 省略 ${longText.length - 80000} 字符 ...]`));
+  assert.ok(String(longDoc.sourceTextNormalized).startsWith(longText.slice(0, 20)));
+  assert.ok(String(longDoc.sourceTextNormalized).endsWith(longText.slice(-20)));
+
+  assert.equal("truncated" in shortDoc, false);
+  assert.equal("originalLength" in shortDoc, false);
+  assert.equal(shortDoc.sourceTextNormalized, shortText);
+});

@@ -354,7 +354,7 @@
                 direction,
                 height,
                 acceptPrefixes: k === 'design' ? ['design.'] : ['deepsearch.'],
-                acceptNames: k === 'design' ? [] : ['iteration.completed'],
+                acceptNames: k === 'design' ? [] : ['deepsearch.iteration.completed', 'iteration.completed'],
             });
         } catch (e) {
             console.warn('[flow-viz] init failed:', e);

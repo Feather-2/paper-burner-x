@@ -110,20 +110,26 @@ test("DeepSearchState.clone: uses structuredClone for non-JSON types when availa
   assert.deepEqual([...cloned.todos[0].tags.values()], [...tags.values()]);
 });
 
-test("DeepSearchState.clone: structuredClone throws on function/symbol values", async () => {
+test("DeepSearchState.clone: falls back safely for function/symbol values", async () => {
   if (typeof structuredClone !== "function") return;
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
 
   {
-    const state = new DeepSearchState({ runId: "run_clone_throw_fn", taskGoal: "t" });
-    state.todos = [{ todoId: "t1", bad: () => {} }];
-    assert.throws(() => state.clone(), /clone|DataCloneError|could not be cloned/i);
+    const state = new DeepSearchState({ runId: "run_clone_fallback_fn", taskGoal: "t" });
+    const fn = () => {};
+    state.todos = [{ todoId: "t1", bad: fn }];
+    const cloned = state.clone();
+    assert.equal(typeof cloned.todos[0].bad, "function");
+    assert.equal(cloned.todos[0].bad, fn);
   }
 
   {
-    const state = new DeepSearchState({ runId: "run_clone_throw_sym", taskGoal: "t" });
-    state.todos = [{ todoId: "t1", bad: Symbol("x") }];
-    assert.throws(() => state.clone(), /clone|DataCloneError|could not be cloned/i);
+    const state = new DeepSearchState({ runId: "run_clone_fallback_sym", taskGoal: "t" });
+    const sym = Symbol("x");
+    state.todos = [{ todoId: "t1", bad: sym }];
+    const cloned = state.clone();
+    assert.equal(typeof cloned.todos[0].bad, "symbol");
+    assert.equal(cloned.todos[0].bad, sym);
   }
 });
 
@@ -135,6 +141,128 @@ test("DeepSearchState.saveCheckpoint: stamps checkpoint schema version", async (
 
   assert.equal(cp.schemaVersion, "1.0");
   assert.equal(cp.stateSnapshot.checkpointSchemaVersion, "1.0");
+});
+
+test("DeepSearchState.addTimeline: enforces maxTimeline cap", async () => {
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  const state = new DeepSearchState({
+    runId: "run_timeline_cap",
+    taskGoal: "t",
+    userConfig: { memory: { maxTimeline: 2 } },
+  });
+
+  state.addTimeline({ name: "e1" });
+  state.addTimeline({ name: "e2" });
+  state.addTimeline({ name: "e3" });
+
+  assert.equal(state.timeline.length, 2);
+  assert.equal(state.timeline[0].name, "e2");
+  assert.equal(state.timeline[1].name, "e3");
+});
+
+test("DeepSearchState.saveCheckpoint: enforces maxCheckpoints cap", async () => {
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+
+  const state = new DeepSearchState({
+    runId: "run_ckpt_cap",
+    taskGoal: "t",
+    userConfig: { memory: { maxCheckpoints: 2 } },
+  });
+
+  state.saveCheckpoint({ checkpointId: "cp1" });
+  state.saveCheckpoint({ checkpointId: "cp2" });
+  state.saveCheckpoint({ checkpointId: "cp3" });
+
+  assert.equal(state.checkpoints.length, 2);
+  assert.equal(state.checkpoints[0].checkpointId, "cp2");
+  assert.equal(state.checkpoints[1].checkpointId, "cp3");
+});
+
+test("SharedContext: prunes store, signals, decisions, seen, and index", async () => {
+  const { SharedContext } = await import("../../../js/agents/stages/deepsearch/shared-context.js");
+
+  {
+    const ctx = new SharedContext({ runId: "ctx_store", limits: { storeMax: 2 } });
+    ctx.store("a", { v: 1 });
+    ctx.store("b", { v: 2 });
+    ctx.store("c", { v: 3 });
+    assert.equal(ctx.has("a"), false);
+    assert.equal(ctx.has("b"), true);
+    assert.equal(ctx.has("c"), true);
+    assert.equal(ctx.getStats().storeItems, 2);
+  }
+
+  {
+    const ctx = new SharedContext({ runId: "ctx_sig", limits: { signalsMax: 2 } });
+    ctx.signal("s", { type: "t1" });
+    ctx.signal("s", { type: "t2" });
+    ctx.signal("s", { type: "t3" });
+    assert.deepEqual(
+      ctx.getSignals().map((s) => s.id),
+      ["sig_2", "sig_3"]
+    );
+  }
+
+  {
+    const ctx = new SharedContext({ runId: "ctx_dec", limits: { decisionsMax: 2 } });
+    ctx.recordDecision({ action: "a" });
+    ctx.recordDecision({ action: "b" });
+    ctx.recordDecision({ action: "c" });
+    assert.deepEqual(
+      ctx.getDecisions().map((d) => d.id),
+      ["dec_2", "dec_3"]
+    );
+  }
+
+  {
+    const ctx = new SharedContext({ runId: "ctx_seen", limits: { seenMax: 2 } });
+    ctx.markSeen("alpha");
+    ctx.markSeen("beta");
+    ctx.markSeen("gamma");
+    assert.equal(ctx.hasSeen("alpha"), false);
+    assert.equal(ctx.hasSeen("beta"), true);
+    assert.equal(ctx.hasSeen("gamma"), true);
+  }
+
+  {
+    const originalNow = Date.now;
+    let now = 1_700_000_000_000;
+    Date.now = () => (now += 1);
+
+    try {
+      const ctx = new SharedContext({ runId: "ctx_index", limits: { indexKeywordsMax: 2, storeMax: 100 } });
+      const id1 = ctx.commit("s", { full: { n: 1 }, keywords: ["a"] });
+      const id2 = ctx.commit("s", { full: { n: 2 }, keywords: ["b"] });
+      const id3 = ctx.commit("s", { full: { n: 3 }, keywords: ["c"] });
+      assert.equal(ctx.search("a").length, 0);
+      assert.deepEqual(ctx.search("b"), [id2]);
+      assert.deepEqual(ctx.search("c"), [id3]);
+      assert.equal(ctx.has(id1), true);
+    } finally {
+      Date.now = originalNow;
+    }
+  }
+
+  {
+    const originalNow = Date.now;
+    let now = 1_700_000_100_000;
+    Date.now = () => (now += 1);
+
+    try {
+      const ctx = new SharedContext({
+        runId: "ctx_ids_per_kw",
+        limits: { indexIdsPerKeywordMax: 2, indexKeywordsMax: 10, storeMax: 100 },
+      });
+      const id1 = ctx.commit("s", { full: { n: 1 }, keywords: ["k"] });
+      const id2 = ctx.commit("s", { full: { n: 2 }, keywords: ["k"] });
+      const id3 = ctx.commit("s", { full: { n: 3 }, keywords: ["k"] });
+      assert.deepEqual(ctx.search("k"), [id2, id3]);
+      assert.equal(ctx.has(id1), true);
+    } finally {
+      Date.now = originalNow;
+    }
+  }
 });
 
 test("DeepSearchState.restoreCheckpoint: migrates legacy checkpoints without schemaVersion", async () => {

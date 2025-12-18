@@ -321,7 +321,190 @@ test("DeepSearchState: serialization/deserialization preserves L0/L1/L2", async 
   assert.ok(Array.isArray(roundtrip.writeSnapshots));
 });
 
-test("DeepSearch checkpoints: lite snapshots skip L0 bulk, summarize L2, and restore L1", async () => {
+test("DeepSearch model caller: injects stageApi.signal by default (new signature)", async () => {
+  const { buildBaseCaller } = await import("../../js/agents/stages/deepsearch/model/caller.js");
+
+  const controller = new AbortController();
+  const calls = [];
+  const stageApi = {
+    signal: controller.signal,
+    modelRouter: {
+      call: async (payload) => {
+        calls.push(payload);
+        return { content: "ok" };
+      },
+    },
+  };
+
+  const call = buildBaseCaller(stageApi, { usage: "worker" });
+  await call([{ role: "user", content: "hi" }], { temperature: 0.2 });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].usage, "worker");
+  assert.equal(calls[0].signal, controller.signal);
+
+  const override = new AbortController();
+  await call([{ role: "user", content: "hi2" }], { signal: override.signal });
+  assert.equal(calls[1].signal, override.signal);
+});
+
+test("DeepSearch model caller: injects stageApi.signal by default (legacy signature)", async () => {
+  const { buildBaseCaller } = await import("../../js/agents/stages/deepsearch/model/caller.js");
+
+  const controller = new AbortController();
+  const calls = [];
+  const stageApi = {
+    signal: controller.signal,
+    modelRouter: {
+      call: async (messages, opts) => {
+        calls.push({ messages, opts });
+        return { content: "ok" };
+      },
+    },
+  };
+
+  const call = buildBaseCaller(stageApi, { usage: "worker" });
+  await call([{ role: "user", content: "hi" }], { temperature: 0.2 });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].opts.usage, "worker");
+  assert.equal(calls[0].opts.signal, controller.signal);
+});
+
+test("DeepSearch cancellation: stageApi.signal abort propagates into model calls", async () => {
+  const { getModelCaller } = await import("../../js/agents/stages/deepsearch/model.js");
+
+  const controller = new AbortController();
+  const stageApi = {
+    signal: controller.signal,
+    checkCancelled: () => {},
+    modelRouter: {
+      call: async (payload) => {
+        const signal = payload?.signal;
+        return new Promise((_resolve, reject) => {
+          if (!signal) return reject(new Error("missing signal"));
+          const onAbort = () => reject(new Error(String(signal.reason || "aborted")));
+          if (signal.aborted) return onAbort();
+          signal.addEventListener("abort", onAbort, { once: true });
+        });
+      },
+    },
+  };
+
+  const callModel = getModelCaller(stageApi, { usage: "worker" });
+  const p = callModel([{ role: "user", content: "hi" }]);
+  controller.abort("cancelled");
+  await assert.rejects(() => p, /cancelled|abort/i);
+});
+
+test("ShadowAgent: clears timeout and passes signal to callModel", async () => {
+  const { ShadowAgent } = await import("../../js/agents/stages/deepsearch/shadow-agent.js");
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+
+  const originalClearTimeout = global.clearTimeout;
+  const cleared = [];
+  global.clearTimeout = (id) => {
+    cleared.push(id);
+    return originalClearTimeout(id);
+  };
+
+  try {
+    const modelCalls = [];
+    const stageApi = {
+      checkCancelled: () => {},
+      modelRouter: {
+        call: async (payload) => {
+          modelCalls.push(payload);
+          return {
+            content: "```json\n" + JSON.stringify({ relevant: true, confidence: 0.9, reason: "ok", keyInfo: "k" }) + "\n```",
+          };
+        },
+      },
+    };
+
+    const state = new DeepSearchState({ runId: "run_shadow_timeout", taskGoal: "t" });
+    const agent = new ShadowAgent(stageApi, state, { timeoutMs: 100, maxConcurrentCalls: 1 });
+
+    const out = await agent.validateRelevance(
+      { chunkId: "c1", text: makeWordBlob(200, "chunk") },
+      { gapId: "gap_1", question: "q", priority: "medium" },
+      { round: 1 }
+    );
+
+    assert.equal(out.relevant, true);
+    assert.equal(modelCalls.length, 1);
+    assert.ok(modelCalls[0].signal && typeof modelCalls[0].signal.aborted === "boolean");
+    assert.ok(cleared.length >= 1);
+  } finally {
+    global.clearTimeout = originalClearTimeout;
+  }
+});
+
+test("ShadowAgent: clears timeout on timeout/abort", async () => {
+  const { ShadowAgent } = await import("../../js/agents/stages/deepsearch/shadow-agent.js");
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+
+  const originalClearTimeout = global.clearTimeout;
+  const cleared = [];
+  global.clearTimeout = (id) => {
+    cleared.push(id);
+    return originalClearTimeout(id);
+  };
+
+  try {
+    const stageApi = {
+      checkCancelled: () => {},
+      modelRouter: {
+        call: async (payload) => {
+          const signal = payload?.signal;
+          return new Promise((_resolve, reject) => {
+            const onAbort = () => reject(new Error(String(signal?.reason || "timeout")));
+            if (!signal) return reject(new Error("missing signal"));
+            if (signal.aborted) return onAbort();
+            signal.addEventListener("abort", onAbort, { once: true });
+          });
+        },
+      },
+    };
+
+    const state = new DeepSearchState({ runId: "run_shadow_timeout_err", taskGoal: "t" });
+    const agent = new ShadowAgent(stageApi, state, { timeoutMs: 5, maxConcurrentCalls: 1 });
+
+    const out = await agent.validateRelevance(
+      { chunkId: "c1", text: makeWordBlob(200, "chunk") },
+      { gapId: "gap_1", question: "q", priority: "medium" },
+      { round: 1 }
+    );
+
+    assert.equal(out.skipped, true);
+    assert.ok(cleared.length >= 1);
+  } finally {
+    global.clearTimeout = originalClearTimeout;
+  }
+});
+
+test("DeepSearchState.toJSON: returns deep clone and breaks cycles", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+
+  const state = new DeepSearchState({
+    runId: "run_tojson_clone",
+    taskGoal: "t",
+    L1: { gaps: [{ gapId: "gap_1", question: "q1" }] },
+    L2: { scratchpad: { a: 1 } },
+  });
+
+  state.L2.scratchpad.self = state.L2.scratchpad;
+
+  const json = state.toJSON({ includeCheckpoints: false });
+  assert.equal(json.L2.scratchpad.self, "[Circular]");
+
+  json.L1.gaps[0].question = "mutated";
+  json.L2.scratchpad.a = 2;
+  assert.equal(state.L1.gaps[0].question, "q1");
+  assert.equal(state.L2.scratchpad.a, 1);
+});
+
+test("DeepSearch checkpoints: lite snapshots skip L0 bulk, summarize L1/L2, and restore without mutating L1", async () => {
   const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
 
   const bigSourceText = makeWordBlob(25000, "alpha"); // large-ish to make size differences obvious
@@ -365,8 +548,13 @@ test("DeepSearch checkpoints: lite snapshots skip L0 bulk, summarize L2, and res
   assert.equal(Array.isArray(cpLite.stateSnapshot.L0.sources), false);
   assert.equal(typeof cpLite.stateSnapshot.L0.sourcesRef, "string");
 
-  // L1 should be fully preserved (core artifact).
-  assert.deepEqual(cpLite.stateSnapshot.L1, originalL1);
+  // L1 is summarized to avoid serializing full mutable artifacts.
+  assert.equal("L1" in cpLite.stateSnapshot, false);
+  assert.deepEqual(cpLite.stateSnapshot.L1Summary, {
+    gapCount: 1,
+    claimCount: 1,
+    gapIds: ["gap_1"],
+  });
 
   // L2 should be summarized: only ids + tokenUsage; scratchpad/logs skipped.
   assert.deepEqual(new Set(cpLite.stateSnapshot.L2.retrievedChunkIds), new Set(["s1::chunk_1", "s2::chunk_2"]));
@@ -375,7 +563,7 @@ test("DeepSearch checkpoints: lite snapshots skip L0 bulk, summarize L2, and res
   assert.equal("scratchpad" in cpLite.stateSnapshot.L2, false);
   assert.equal("logs" in cpLite.stateSnapshot.L2, false);
 
-  // Mutate L0/L1 then restore: lite restore should keep current L0, but rewind L1.
+  // Mutate L0/L1 then restore: lite restore should keep current L0 and preserve L1 (L1 is not serialized in lite snapshots).
   state.L0.sources.push({ sourceId: "s3", kind: "user_text", title: "Added", sourceTextNormalized: "new" });
   const preservedL0 = state.L0;
   state.taskGoal = "mutated";
@@ -384,7 +572,10 @@ test("DeepSearch checkpoints: lite snapshots skip L0 bulk, summarize L2, and res
   state.restoreCheckpoint("cp_lite");
 
   assert.equal(state.taskGoal, "Test lite checkpoint");
-  assert.deepEqual(state.L1, new DeepSearchState({ runId: "x", taskGoal: "x", L1: originalL1 }).L1);
+  assert.equal(originalL1.claims.length, 1);
+  assert.equal(state.L1.claims.length, 0);
+  assert.equal(state.L1.gaps.length, 1);
+  assert.equal(state.L1.gaps[0].gapId, "gap_1");
   assert.equal(state.L0, preservedL0);
   assert.equal(state.L0.sources.length, 3);
   assert.deepEqual(new Set(state.L2.retrievedChunkIds), new Set(["s1::chunk_1", "s2::chunk_2"]));
@@ -1072,6 +1263,155 @@ test("DeepSearch gaps/retrieve/understand/write/condense: placeholder IO contrac
     assert.ok(evt, `missing progress event: ${name}`);
     assertValidProgressPayload(extractEventPayload(evt));
   }
+});
+
+test("DeepSearch pipeline: SharedContext summary is injected into gaps prompt", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchStage } = await import("../../js/agents/stages/deepsearch/index.js");
+
+  const ac = new AbortController();
+  const modelRouter = createMockModelRouter(async (messages) => {
+    const system = messages?.[0]?.role === "system" ? String(messages[0].content || "") : "";
+
+    if (system.includes("DeepSearch scanner")) {
+      return {
+        content: JSON.stringify(
+          {
+            scanSummary: { summaryText: "ok", topSources: [{ sourceId: "s1", reason: "only" }] },
+            deepDivePlan: { steps: [{ action: "review_source", sourceId: "s1", notes: "ok" }] },
+          },
+          null,
+          2
+        ),
+      };
+    }
+
+    if (system.includes("DeepSearch gap planner")) {
+      const user = String(messages?.[1]?.content || "");
+      assert.ok(user.startsWith("## 已知上下文\n"), "expected context header in gaps prompt");
+      assert.ok(user.includes("[scan]"), "expected scan summary included in context summary");
+      assert.ok(user.includes("主题：GoalXYZ"), "expected taskGoal included in scan summary");
+      assert.ok(user.includes("5 字符"), "expected char count included in scan summary");
+      ac.abort("stop after verifying gaps prompt");
+      return { content: JSON.stringify({ gaps: [] }, null, 2) };
+    }
+
+    return { content: JSON.stringify({ gaps: [] }, null, 2) };
+  });
+
+  const state = new DeepSearchState({
+    runId: "run_ctx_pipeline",
+    taskGoal: "GoalXYZ",
+    userConfig: { maxIterations: 2 },
+    L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Input", sourceTextNormalized: "hello" }] },
+  });
+
+  await runDeepSearchStage(
+    { runId: "run_ctx_pipeline", mode: "deepsearch", constraints: {} },
+    { state },
+    { emit: () => {}, modelRouter, signal: ac.signal, checkCancelled: () => {} }
+  );
+
+  assert.ok(ac.signal.aborted, "expected run to abort after gaps prompt verification");
+  assert.ok(modelRouter.calls.length >= 2, "expected scan + gaps LLM calls");
+});
+
+test("DeepSearch gaps: injects context summary into LLM prompt when provided", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchGapsStage } = await import("../../js/agents/stages/deepsearch/gaps.js");
+
+  {
+    const modelRouter = createMockModelRouter(async () => ({ content: JSON.stringify({ gaps: [] }, null, 2) }));
+    const state = new DeepSearchState({
+      runId: "run_ctx_gaps_yes",
+      taskGoal: "Goal",
+      userConfig: {},
+      L0: { sources: [] },
+    });
+
+    await runDeepSearchGapsStage(
+      { runId: "run_ctx_gaps_yes" },
+      { state },
+      { emit: () => {}, modelRouter, getContextSummary: () => "ctx_line" }
+    );
+
+    const call = modelRouter.calls[0];
+    assert.ok(call, "expected one LLM call");
+    assert.equal(call.messages[1].role, "user");
+    assert.ok(String(call.messages[1].content).startsWith("## 已知上下文\nctx_line\n\n"), "expected prompt to be prefixed with context summary");
+  }
+
+  {
+    const modelRouter = createMockModelRouter(async () => ({ content: JSON.stringify({ gaps: [] }, null, 2) }));
+    const state = new DeepSearchState({
+      runId: "run_ctx_gaps_no",
+      taskGoal: "Goal",
+      userConfig: {},
+      L0: { sources: [] },
+    });
+
+    await runDeepSearchGapsStage(
+      { runId: "run_ctx_gaps_no" },
+      { state },
+      { emit: () => {}, modelRouter, getContextSummary: () => "" }
+    );
+
+    const call = modelRouter.calls[0];
+    assert.ok(call, "expected one LLM call");
+    assert.equal(call.messages[1].role, "user");
+    assert.ok(!String(call.messages[1].content).startsWith("## 已知上下文\n"), "expected no context header when summary is empty");
+  }
+});
+
+test("DeepSearch understand: injects context summary into claimEdits and reflect prompts", async () => {
+  const { DeepSearchState } = await import("../../js/agents/stages/deepsearch/state.js");
+  const { runDeepSearchUnderstandStage } = await import("../../js/agents/stages/deepsearch/understand.js");
+
+  const modelRouter = createMockModelRouter(async (messages) => {
+    const system = messages?.[0]?.role === "system" ? String(messages[0].content || "") : "";
+    if (system.includes("DeepSearch claim extractor")) {
+      return { content: JSON.stringify({ claims: [] }, null, 2) };
+    }
+    return {
+      content: JSON.stringify(
+        {
+          sufficient: false,
+          confidence: 0.9,
+          reason: "not enough",
+          missingAspects: ["x"],
+          suggestedQueries: ["y"],
+        },
+        null,
+        2
+      ),
+    };
+  });
+
+  const state = new DeepSearchState({
+    runId: "run_ctx_understand",
+    taskGoal: "Goal",
+    userConfig: { reflect: { enabled: true } },
+    L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Input", sourceTextNormalized: "hello" }] },
+  });
+  state.L1.gaps = [{ gapId: "gap_1", type: "definition", question: "Q", status: "open", priority: "high" }];
+  state.L2 = {
+    retrievedChunks: [{ chunkId: "ch_1", sourceId: "s1", locator: { charStart: 0, charEnd: 5 }, text: "hello", score: 1 }],
+  };
+
+  await runDeepSearchUnderstandStage(
+    { runId: "run_ctx_understand" },
+    { state },
+    { emit: () => {}, modelRouter, getContextSummary: () => "ctx_line" }
+  );
+
+  const claimEditsCall = modelRouter.calls.find((c) => String(c?.messages?.[0]?.content || "").includes("DeepSearch claim extractor"));
+  assert.ok(claimEditsCall, "expected claimEdits LLM call");
+  assert.ok(String(claimEditsCall.messages[1].content).startsWith("## 已知上下文\nctx_line\n\n"));
+
+  const reflectCall = modelRouter.calls.find((c) => c?.messages?.length === 1 && String(c?.messages?.[0]?.content || "").includes("覆盖情况统计"));
+  assert.ok(reflectCall, "expected reflect LLM call");
+  assert.ok(String(reflectCall.messages[0].content).startsWith("## 已知上下文\nctx_line\n\n"));
+  assert.ok(state?.L1?.reflectResult && typeof state.L1.reflectResult === "object");
 });
 
 test("extractGoalTerms: empty string yields []", async () => {

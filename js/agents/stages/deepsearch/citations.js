@@ -8,6 +8,19 @@ import { toNonEmptyString } from "../../shared/value-utils.js";
 
 const CITE_REGEX = /\{\{\s*cite\s*:\s*([A-Za-z0-9._:-]+)\s*\}\}/g;
 
+export function formatQuoteForCitation(quote, { maxLen = 200 } = {}) {
+  if (!quote) return "";
+  const src = typeof quote === "string" ? quote : String(quote);
+  if (/^\|.*\|$/m.test(src)) return "[表格数据]";
+  const normalized = src.replace(/\s+/g, " ").trim();
+  const limit = Number.isFinite(maxLen) ? maxLen : 200;
+  if (normalized.length > limit) {
+    const headLen = Math.max(0, limit - 3);
+    return normalized.slice(0, headLen) + "...";
+  }
+  return normalized;
+}
+
 /**
  * Extracts unique evidence IDs referenced via `{{cite:<evidenceId>}}` in Markdown.
  * @param {string} markdown
@@ -119,7 +132,7 @@ export function finalizeCitationsInMarkdown(markdown, evidenceLedger, sources) {
   for (const c of citations) {
     const label =
       toNonEmptyString(c?.sourceTitle) || toNonEmptyString(c?.sourceUri) || toNonEmptyString(c?.sourceId) || "source_unknown";
-    const quote = toNonEmptyString(c?.quote);
+    const quote = formatQuoteForCitation(c?.quote);
     lines.push(`- [${c.citationId}] ${label}${quote ? ` — “${quote}”` : ""}`);
   }
   lines.push("");

@@ -30,17 +30,21 @@ export function getModelCaller(stageApi, { usage = "worker", state } = {}) {
             const total = state.addTokenUsage({ ...normalized, estimatedCostUSD: estimatedCostUSDDelta });
             const totalCostUSD = safeNumber(total?.estimatedCostUSD) ?? 0;
 
-            emit?.("deepsearch.token.usage", {
-              usage: { ...normalized, estimatedCostUSD: estimatedCostUSDDelta },
-              total: {
-                input: typeof total?.input === "number" && Number.isFinite(total.input) ? total.input : 0,
-                output: typeof total?.output === "number" && Number.isFinite(total.output) ? total.output : 0,
-                total: typeof total?.total === "number" && Number.isFinite(total.total) ? total.total : 0,
-                estimatedCostUSD: totalCostUSD,
+            emit?.(
+              "deepsearch.token.usage",
+              {
+                usage: { ...normalized, estimatedCostUSD: estimatedCostUSDDelta },
+                total: {
+                  input: typeof total?.input === "number" && Number.isFinite(total.input) ? total.input : 0,
+                  output: typeof total?.output === "number" && Number.isFinite(total.output) ? total.output : 0,
+                  total: typeof total?.total === "number" && Number.isFinite(total.total) ? total.total : 0,
+                  estimatedCostUSD: totalCostUSD,
+                },
+                ...(typeof result?.model === "string" ? { model: result.model } : {}),
+                ...(typeof result?.provider === "string" ? { provider: result.provider } : {}),
               },
-              ...(typeof result?.model === "string" ? { model: result.model } : {}),
-              ...(typeof result?.provider === "string" ? { provider: result.provider } : {}),
-            });
+              { throttle: false }
+            );
             const totalTokens = safeInt(total?.total) ?? 0;
             emitBudgetEvents({ emit, state, budget, totalTokens, totalCostUSD });
           }

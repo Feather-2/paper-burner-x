@@ -9,7 +9,8 @@
 
 import { extractJsonCandidate } from "./state.js";
 import { getModelCaller } from "./model.js";
-import { logEvent } from "./logger.js";
+import { createLogger } from "./logger.js";
+import { extractServices } from "./stage-api.js";
 import { toNonEmptyString } from "../../shared/value-utils.js";
 import { CONCURRENCY_CONFIG, GAP_CONFIG } from "./constants.js";
 
@@ -299,11 +300,24 @@ class ShadowPriorityQueue {
  */
 export class ShadowAgent {
   constructor(stageApi, state, config = {}) {
+    const { emit: rawEmit, logger: injectedLogger } = extractServices(stageApi);
     this.stageApi = stageApi;
     this.state = state;
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.stats = new ShadowStats();
     this.callModel = getModelCaller(stageApi, { usage: "shadow", state });
+    this.logger =
+      injectedLogger && typeof injectedLogger.info === "function"
+        ? injectedLogger
+        : createLogger({
+            emit: rawEmit,
+            getContext: () => ({
+              runId: state?.runId,
+              iteration: state?.iteration || 0,
+              trajectoryId: state?.trajectoryId,
+              stage: "shadow",
+            }),
+          });
     const maxConcurrentCalls = ShadowStats.safeLimit(this.config.maxConcurrentCalls) || ShadowStats.safeLimit(this.config.maxCallsPerRound) || CONCURRENCY_CONFIG.DEFAULT_PARALLEL;
     this.queue = new ShadowPriorityQueue({ maxConcurrent: maxConcurrentCalls });
   }
@@ -335,11 +349,7 @@ export class ShadowAgent {
     return this.queue.enqueue(priority, async () => {
       const reservation = this.stats.reserveCall(round, gap, this.config);
       if (!reservation) {
-        logEvent({
-          stage: "shadow",
-          message: "Shadow budget exceeded",
-          data: { round, gapId, priority, stats: this.stats.getStats() },
-        });
+        this.logger.warn("Shadow budget exceeded", { stage: "shadow", data: { round, gapId, priority, stats: this.stats.getStats() } });
         return { skipped: true, reason: "budget_exceeded" };
       }
 
@@ -347,19 +357,15 @@ export class ShadowAgent {
         .replace("{question}", question)
         .replace("{content}", content.slice(0, 1500));
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort("timeout"), this.config.timeoutMs);
+
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), this.config.timeoutMs);
-
-        const result = await this.callModel(
-          [{ role: "user", content: prompt }],
-          {
-            temperature: this.config.temperature,
-            maxTokens: this.config.maxTokens,
-          }
-        );
-
-        clearTimeout(timeoutId);
+        const result = await this.callModel([{ role: "user", content: prompt }], {
+          temperature: this.config.temperature,
+          maxTokens: this.config.maxTokens,
+          signal: controller.signal,
+        });
 
         const candidate = extractJsonCandidate(result?.content);
         if (!candidate) {
@@ -378,16 +384,14 @@ export class ShadowAgent {
 
         this.stats.finishCall(reservation, { success: true, relevant: verdict.relevant });
 
-        logEvent({
-          stage: "shadow",
-          message: "Relevance validation completed",
-          data: { gapId, chunkId: chunk?.chunkId, verdict },
-        });
+        this.logger.info("Relevance validation completed", { stage: "shadow", data: { gapId, chunkId: chunk?.chunkId, verdict } });
 
         return verdict;
       } catch (err) {
         this.stats.finishCall(reservation, { success: false, error: err?.message });
         return { skipped: true, reason: String(err?.message || err) };
+      } finally {
+        clearTimeout(timeoutId);
       }
     });
   }

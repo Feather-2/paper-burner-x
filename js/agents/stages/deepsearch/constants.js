@@ -22,6 +22,7 @@ export const GAP_CONFIG = Object.freeze({
 export const CONCURRENCY_CONFIG = Object.freeze({
   DEFAULT_PARALLEL: 5,
   MAX_TRAJECTORY_PARALLEL: 3,
+  GLOBAL_LLM_POOL_SIZE: 10,
 });
 
 // Gap 类型

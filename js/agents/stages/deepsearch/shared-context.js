@@ -25,9 +25,19 @@ function contentFingerprint(text, maxLen = 200) {
 }
 
 export class SharedContext {
-  constructor({ runId } = {}) {
+  constructor({ runId, limits } = {}) {
     this.runId = toNonEmptyString(runId) || `ctx_${Date.now()}`;
     this.createdAt = new Date().toISOString();
+
+    this.limits = {
+      storeMax: 50,
+      signalsMax: 200,
+      decisionsMax: 200,
+      seenMax: 5000,
+      indexKeywordsMax: 500,
+      indexIdsPerKeywordMax: 20,
+      ...(limits && typeof limits === "object" ? limits : {}),
+    };
 
     // L1: 压缩摘要 (stage → summary string)
     this._summaries = new Map();
@@ -46,6 +56,19 @@ export class SharedContext {
 
     // 内容指纹 (去重用)
     this._seenFingerprints = new Set();
+  }
+
+  _pruneArray(arr, max) {
+    const cap = Number.isFinite(max) ? Math.max(0, Math.floor(max)) : 0;
+    while (arr.length > cap) arr.shift();
+  }
+
+  _pruneMap(map, max) {
+    const cap = Number.isFinite(max) ? Math.max(0, Math.floor(max)) : 0;
+    while (map.size > cap) {
+      const firstKey = map.keys().next().value;
+      map.delete(firstKey);
+    }
   }
 
   // ===== L1: Summaries =====
@@ -102,6 +125,8 @@ export class SharedContext {
       this._index.set(kw, new Set());
     }
     this._index.get(kw).add(String(id));
+    this._pruneMap(this._index.get(kw), this.limits.indexIdsPerKeywordMax);
+    this._pruneMap(this._index, this.limits.indexKeywordsMax);
   }
 
   /**
@@ -155,6 +180,7 @@ export class SharedContext {
     const key = toNonEmptyString(id);
     if (!key) return;
     this._store.set(key, data);
+    this._pruneMap(this._store, this.limits.storeMax);
   }
 
   /**
@@ -199,6 +225,11 @@ export class SharedContext {
       this.indexMany(keywords, id);
     }
 
+    this._pruneMap(this._index, this.limits.indexKeywordsMax);
+    for (const ids of this._index.values()) {
+      this._pruneMap(ids, this.limits.indexIdsPerKeywordMax);
+    }
+
     return id;
   }
 
@@ -217,6 +248,7 @@ export class SharedContext {
       ts: Date.now(),
     };
     this._signals.push(sig);
+    this._pruneArray(this._signals, this.limits.signalsMax);
     return sig;
   }
 
@@ -263,6 +295,7 @@ export class SharedContext {
       ts: Date.now(),
     };
     this._decisions.push(d);
+    this._pruneArray(this._decisions, this.limits.decisionsMax);
     return d;
   }
 
@@ -292,6 +325,7 @@ export class SharedContext {
   markSeen(content) {
     const fp = contentFingerprint(content);
     this._seenFingerprints.add(fp);
+    this._pruneMap(this._seenFingerprints, this.limits.seenMax);
     return fp;
   }
 
@@ -304,6 +338,7 @@ export class SharedContext {
       return { seen: true, fingerprint: fp };
     }
     this._seenFingerprints.add(fp);
+    this._pruneMap(this._seenFingerprints, this.limits.seenMax);
     return { seen: false, fingerprint: fp };
   }
 

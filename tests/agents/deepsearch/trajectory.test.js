@@ -28,6 +28,7 @@ test("mapConcurrent: enforces concurrency and preserves order", async () => {
 test("TrajectoryManager.fork: creates N independent DeepSearchState clones", async () => {
   const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
   const { TrajectoryManager } = await import("../../../js/agents/stages/deepsearch/trajectory.js");
+  const { performance } = require("node:perf_hooks");
 
   const base = new DeepSearchState({
     runId: "run_traj_fork",
@@ -52,9 +53,30 @@ test("TrajectoryManager.fork: creates N independent DeepSearchState clones", asy
   trajectories[0].L1.gaps[0].status = "filled";
   trajectories[0].L2.scratchpad.x = 999;
   assert.equal(trajectories[1].L1.gaps[0].status, "open");
-  assert.equal(trajectories[2].L2.scratchpad.x, 1);
+  assert.equal(trajectories[2].L2.scratchpad.x, undefined);
   assert.equal(base.L1.gaps[0].status, "open");
   assert.equal(base.L2.scratchpad.x, 1);
+
+  assert.equal(trajectories[0].L0, base.L0);
+  assert.equal(trajectories[1].L0, base.L0);
+  assert.equal(trajectories[2].L0, base.L0);
+
+  // Performance: avoid deep cloning large L0 sources on fork.
+  const bigText = "x".repeat(1_000_000);
+  const largeBase = new DeepSearchState({
+    runId: "run_traj_fork_perf",
+    taskGoal: "t",
+    L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Input", sourceTextNormalized: bigText }] },
+    L1: { gaps: [{ gapId: "gap_1", type: "definition", question: "q", status: "open" }] },
+    L2: { retrievedChunks: [], scratchpad: {}, logs: [] },
+  });
+
+  const perfManager = new TrajectoryManager({ n: 8, mergeStrategy: "best" });
+  perfManager.fork(base); // warmup
+  const start = performance.now();
+  perfManager.fork(largeBase);
+  const ms = performance.now() - start;
+  assert.ok(ms < 10, `expected fork < 10ms, got ${ms.toFixed(2)}ms`);
 });
 
 test("TrajectoryManager.computeQuality: coverage/evidence/conflict/efficiency scoring", async () => {
@@ -541,6 +563,152 @@ test("TrajectoryManager.runTrajectory: breaks when gaps are filled and covers du
   }
 });
 
+test("TrajectoryManager.runTrajectory: reflect-driven external search trigger (success/skip/error)", async () => {
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+  const { TrajectoryManager } = await import("../../../js/agents/stages/deepsearch/trajectory.js");
+
+  const mkState = ({ question = "q", runId = "run_extsearch", maxIterations = 2 } = {}) => {
+    const state = new DeepSearchState({
+      runId,
+      iteration: 0,
+      maxIterations,
+      userConfig: { externalSearch: { enabled: true, autoTrigger: true } },
+      L1: { gaps: [{ gapId: "gap_1", type: "t", question, status: "open" }], claims: [], evidenceLedger: [], conflicts: [], openQuestions: [] },
+      L2: { retrievedChunks: [], logs: [] },
+    });
+    state.trajectoryId = "traj_ext";
+    return state;
+  };
+
+  // Success path (suggestedQueries -> runExternalSearch + second understand call)
+  {
+    const state = mkState({ runId: "run_extsearch_ok", maxIterations: 1 });
+    const events = [];
+    const manager = new TrajectoryManager({ n: 1 });
+
+    let understandCalls = 0;
+    let externalCalls = 0;
+    await manager.runTrajectory(
+      state,
+      {
+        runContext: { runId: "run_extsearch_ok" },
+        emit: (name, payload) => events.push({ name, payload }),
+        runGapsStage: async () => {},
+        runRetrieveStage: async () => ({ retrievedChunks: [] }),
+        runUnderstandStage: async () => {
+          understandCalls++;
+          return {
+            reflectResult: {
+              sufficient: false,
+              reason: "need more",
+              confidence: 0.2,
+              suggestedQueries: ["Alpha", "Beta"],
+            },
+          };
+        },
+        runExternalSearch: async (searchGaps) => {
+          externalCalls++;
+          assert.equal(searchGaps.length, 2);
+          assert.ok(searchGaps.every((g) => g.gapId === "gap_1" && g.type === "external"));
+        },
+      },
+      {}
+    );
+
+    assert.equal(externalCalls, 1);
+    assert.equal(understandCalls, 2);
+    assert.ok(events.some((e) => e.name === "deepsearch.external.reflecttriggered"));
+  }
+
+  // Skipped path (open gaps exist, but gap question/text empty -> no_valid_search_queries)
+  {
+    const state = mkState({ runId: "run_extsearch_skip", question: "", maxIterations: 1 });
+    const events = [];
+    const manager = new TrajectoryManager({ n: 1 });
+
+    await manager.runTrajectory(
+      state,
+      {
+        runContext: { runId: "run_extsearch_skip" },
+        emit: (name, payload) => events.push({ name, payload }),
+        runGapsStage: async () => {},
+        runRetrieveStage: async () => ({ retrievedChunks: [] }),
+        runUnderstandStage: async () => ({ reflectResult: { sufficient: false, reason: "need more", confidence: 0.2, suggestedQueries: [] } }),
+        runExternalSearch: async () => {
+          throw new Error("should not run");
+        },
+      },
+      {}
+    );
+
+    assert.ok(events.some((e) => e.name === "deepsearch.external.skipped" && e.payload?.reason === "no_valid_search_queries"));
+  }
+
+  // Error path (runExternalSearch throws; handled via deepsearch.external.error)
+  {
+    const state = mkState({ runId: "run_extsearch_err", maxIterations: 1 });
+    const events = [];
+    const manager = new TrajectoryManager({ n: 1 });
+
+    await manager.runTrajectory(
+      state,
+      {
+        runContext: { runId: "run_extsearch_err" },
+        emit: (name, payload) => events.push({ name, payload }),
+        runGapsStage: async () => {},
+        runRetrieveStage: async () => ({ retrievedChunks: [] }),
+        runUnderstandStage: async () => ({ reflectResult: { sufficient: false, reason: "need more", confidence: 0.2, suggestedQueries: ["Alpha"] } }),
+        runExternalSearch: async () => {
+          throw new Error("boom");
+        },
+      },
+      {}
+    );
+
+    assert.ok(events.some((e) => e.name === "deepsearch.external.error" && String(e.payload?.message || "").includes("boom")));
+  }
+});
+
+test("TrajectoryManager.runTrajectory: emits failed completion and rethrows errors", async () => {
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+  const { TrajectoryManager } = await import("../../../js/agents/stages/deepsearch/trajectory.js");
+
+  const state = new DeepSearchState({
+    runId: "run_traj_fail",
+    iteration: 0,
+    maxIterations: 2,
+    L1: { gaps: [{ gapId: "gap_1", type: "t", question: "q", status: "open" }], claims: [], evidenceLedger: [], conflicts: [], openQuestions: [] },
+    L2: { retrievedChunks: [] },
+  });
+  state.trajectoryId = "traj_fail";
+
+  const events = [];
+  const manager = new TrajectoryManager({ n: 1 });
+
+  await assert.rejects(
+    () =>
+      manager.runTrajectory(
+        state,
+        {
+          runContext: { runId: "run_traj_fail" },
+          emit: (name, payload) => events.push({ name, payload }),
+          runGapsStage: async () => {},
+          runRetrieveStage: async () => ({ retrievedChunks: [] }),
+          runUnderstandStage: async () => {
+            throw new Error("understand exploded");
+          },
+        },
+        {}
+      ),
+    /understand exploded/
+  );
+
+  const failed = events.filter((e) => e.name === "deepsearch.trajectory.completed");
+  assert.equal(failed.length >= 1, true);
+  assert.equal(failed.at(-1).payload?.outcome, "failed");
+  assert.ok(String(failed.at(-1).payload?.error?.message || "").includes("understand exploded"));
+});
+
 test("trajectory.__test helpers: validateIteration, mergeGaps, signatures, ids", async () => {
   const { __test } = await import("../../../js/agents/stages/deepsearch/trajectory.js");
 
@@ -623,15 +791,17 @@ test("trajectory.__test helpers: validateIteration, mergeGaps, signatures, ids",
   {
     const a = { L1: { gaps: [{ gapId: "g1", type: "t", question: "q", status: "open", missCount: 5 }] } };
     const b = { L1: { gaps: [{ gapId: "g1", type: "t", question: "q", status: "open", missCount: 1 }] } };
-    const merged = __test.mergeGaps([a, b]);
-    assert.equal(merged.length, 1);
-    assert.equal(merged[0].missCount, 1);
+    const { gaps, gapIdMapping } = __test.mergeGaps([a, b]);
+    assert.equal(gaps.length, 1);
+    assert.equal(gaps[0].missCount, 1);
+    assert.equal(gapIdMapping.get("g1"), "gap_1");
   }
 
   {
     // gapKey default branches (missing type/question)
-    const merged = __test.mergeGaps([{ L1: { gaps: [{ gapId: "g1", status: "filled" }] } }]);
-    assert.equal(merged.length, 1);
+    const { gaps, gapIdMapping } = __test.mergeGaps([{ L1: { gaps: [{ gapId: "g1", status: "filled" }] } }]);
+    assert.equal(gaps.length, 1);
+    assert.equal(gapIdMapping.get("g1"), "gap_1");
   }
 
   {
@@ -699,6 +869,80 @@ test("TrajectoryManager.mergeVote: chooses best claim by score and keeps gapIds"
   assert.ok(Array.isArray(merged.L1.claims[0].gapIds) && merged.L1.claims[0].gapIds.includes("gap_1"));
   assert.ok(merged.L1.claims[0].evidenceIds.length >= 2);
   assert.ok(merged.L1.evidenceLedger.length >= 2);
+});
+
+test("TrajectoryManager.mergeUnion: rewrites gapId references after mergeGaps reindex", async () => {
+  const { DeepSearchState } = await import("../../../js/agents/stages/deepsearch/state.js");
+  const { TrajectoryManager } = await import("../../../js/agents/stages/deepsearch/trajectory.js");
+
+  const mk = (trajectoryId, { q1GapId, q2GapId } = {}) =>
+    new DeepSearchState({
+      runId: "run_gap_remap",
+      trajectoryId,
+      iteration: 1,
+      L0: { sources: [{ sourceId: "s1", kind: "user_text", title: "Input", sourceTextNormalized: "x" }] },
+      L1: {
+        gaps: [
+          { gapId: q1GapId, type: "t", question: "A", status: "open" },
+          { gapId: q2GapId, type: "t", question: "B", status: "open" },
+        ],
+        claims: [
+          { claimId: "c_1", text: `Claim A (${trajectoryId})`, evidenceIds: ["e_1"], gapIds: [q1GapId] },
+          { claimId: "c_2", text: `Claim B (${trajectoryId})`, evidenceIds: ["e_2"], gapIds: [q2GapId] },
+        ],
+        evidenceLedger: [
+          { evidenceId: "e_1", chunkId: "c1", sourceId: "s1", locator: { charStart: 0, charEnd: 1 }, quote: "x", gapIds: [q1GapId] },
+          { evidenceId: "e_2", chunkId: "c2", sourceId: "s1", locator: { charStart: 1, charEnd: 2 }, quote: "y", gapIds: [q2GapId] },
+        ],
+        conflicts: [],
+        openQuestions: [],
+      },
+      L2: {
+        retrievedChunks: [
+          {
+            chunkId: `${trajectoryId}::cA`,
+            gapId: q1GapId,
+            matchedGapIds: [q1GapId],
+            sourceId: "s1",
+            locator: { charStart: 0, charEnd: 1 },
+            text: "x",
+          },
+          {
+            chunkId: `${trajectoryId}::cB`,
+            gapId: q2GapId,
+            matchedGapIds: [q2GapId],
+            sourceId: "s1",
+            locator: { charStart: 1, charEnd: 2 },
+            text: "y",
+          },
+        ],
+      },
+    });
+
+  // Same gap keys across trajectories, but different old ids -> mapping must cover all old ids.
+  const t0 = mk("traj_0", { q1GapId: "gap_old_A0", q2GapId: "gap_old_B0" });
+  const t1 = mk("traj_1", { q1GapId: "gap_old_A1", q2GapId: "gap_old_B1" });
+
+  const manager = new TrajectoryManager({ n: 2, mergeStrategy: "union" });
+  manager.trajectories = [t0, t1];
+  const merged = manager.mergeUnion();
+
+  const mergedGapIds = new Set(merged.L1.gaps.map((g) => g.gapId));
+  assert.deepEqual([...mergedGapIds].sort(), ["gap_1", "gap_2"]);
+
+  // All references point at valid merged gaps.
+  for (const c of merged.L1.claims) for (const gid of c.gapIds || []) assert.ok(mergedGapIds.has(gid));
+  for (const e of merged.L1.evidenceLedger) for (const gid of e.gapIds || []) assert.ok(mergedGapIds.has(gid));
+  for (const r of merged.L2.retrievedChunks) {
+    assert.ok(mergedGapIds.has(r.gapId));
+    for (const gid of r.matchedGapIds || []) assert.ok(mergedGapIds.has(gid));
+  }
+
+  // Old ids are rewritten to the canonical ids derived from gap keys.
+  const claimA1 = merged.L1.claims.find((c) => c.text === "Claim A (traj_1)");
+  const claimB1 = merged.L1.claims.find((c) => c.text === "Claim B (traj_1)");
+  assert.deepEqual(claimA1.gapIds, ["gap_1"]);
+  assert.deepEqual(claimB1.gapIds, ["gap_2"]);
 });
 
 test("trajectory.__test extra coverage: statusRank, evidenceKey, mergeConflicts, reindex, claimScore", async () => {

@@ -1,6 +1,7 @@
 import { DeepSearchState, checkCancelled, extractJsonCandidate, makeStageEmitter } from "./state.js";
 import { getModelCaller } from "./model.js";
-import { logEvent, setLogContext } from "./logger.js";
+import { createLogger } from "./logger.js";
+import { extractServices } from "./stage-api.js";
 import { isPlainObject, toNonEmptyString } from "../../shared/value-utils.js";
 
 function ensureState(runContext, input) {
@@ -49,7 +50,7 @@ function toSourceCardsWithProgress(sources, emit) {
         msg: `正在扫描来源 ${card.sourceId}${card.title ? `：${card.title}` : ""}`,
         detail: card,
       },
-      { status: "progress" }
+      { status: "progress", throttle: false }
     );
   }
 
@@ -126,16 +127,21 @@ async function tryLLMScan(state, sourceCards, stageApi) {
  * @param {{emit?:Function,eventBus?:object,signal?:AbortSignal,checkCancelled?:Function,aiApiService?:object}=} stageApi
  */
 export async function runDeepSearchScanStage(runContext, input, stageApi = {}) {
+  const { emit: rawEmit, logger: injectedLogger } = extractServices(stageApi);
   const emit = makeStageEmitter(stageApi, "deepsearch");
   const state = ensureState(runContext, input);
 
-  // 设置日志上下文
-  setLogContext({ runId: state.runId, iteration: state.iteration || 0 });
+  const logger =
+    injectedLogger && typeof injectedLogger.info === "function"
+      ? injectedLogger
+      : createLogger({
+          emit: rawEmit,
+          getContext: () => ({ runId: state.runId, iteration: state.iteration || 0, trajectoryId: state.trajectoryId, stage: "scan" }),
+        });
 
   // 记录 scan 阶段开始
-  logEvent({
-    stage: 'scan',
-    message: 'Scan stage started',
+  logger.info("Scan stage started", {
+    stage: "scan",
     data: { sourceCount: Array.isArray(state?.L0?.sources) ? state.L0.sources.length : 0 },
   });
 
@@ -153,9 +159,8 @@ export async function runDeepSearchScanStage(runContext, input, stageApi = {}) {
   state.addTimeline({ name: "deepsearch.scan", status: "completed", payload: { sourceCount: scanSummary.sourceCount } });
 
   // 记录 scan 阶段完成
-  logEvent({
-    stage: 'scan',
-    message: 'Scan stage completed',
+  logger.info("Scan stage completed", {
+    stage: "scan",
     data: {
       sourceCount: scanSummary.sourceCount,
       plannedSteps: Array.isArray(deepDivePlan.steps) ? deepDivePlan.steps.length : 0,

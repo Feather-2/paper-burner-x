@@ -17,6 +17,7 @@
 import { extractJsonCandidate, checkCancelled } from "./state.js";
 import { getModelCaller } from "./model.js";
 import { countWordsApprox } from "./report-diff.js";
+import { extractServices } from "./stage-api.js";
 import { isPlainObject, toNonEmptyString, safeInt, safeNumber } from "../../shared/value-utils.js";
 
 // Tool availability by level
@@ -268,9 +269,8 @@ export async function runReactReviewer(report, context, options = {}) {
   const onStep = typeof options.onStep === "function" ? options.onStep : null;
 
   const { state, stageApi } = context;
-  const emit = typeof stageApi?.emit === "function"
-    ? (name, payload) => stageApi.emit(name, { actor: "deepsearch", status: "completed", payload })
-    : null;
+  const { emit: rawEmit } = extractServices(stageApi);
+  const emit = (name, payload) => rawEmit(name, { actor: "deepsearch", status: "completed", payload });
 
   // Get model caller
   const callModel = getModelCaller(stageApi, { usage: "reviewer", state });
