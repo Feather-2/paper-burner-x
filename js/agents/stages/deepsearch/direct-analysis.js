@@ -329,6 +329,7 @@ export async function runDirectAnalysis(runContext, input, stageApi = {}) {
   });
 
   // 构建 ContentPackage
+  const assets = Array.isArray(state?.L0?.assets) ? state.L0.assets : [];
   const pkg = buildContentPackage(
     runContext,
     resolvedSources,
@@ -342,6 +343,7 @@ export async function runDirectAnalysis(runContext, input, stageApi = {}) {
       gaps,
       report,
       openQuestions: [],
+      assets,
     }
   );
 

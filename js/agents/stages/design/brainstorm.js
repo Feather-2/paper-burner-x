@@ -23,6 +23,35 @@ import {
 import { getDesignModelCaller } from "./model.js";
 import { robustParseJson } from "../../shared/robust-json.js";
 
+/**
+ * Simple concurrency limiter (pLimit-style).
+ * @param {number} concurrency Max concurrent tasks
+ * @returns {<T>(fn: () => Promise<T>) => Promise<T>}
+ */
+function createLimiter(concurrency) {
+  const queue = [];
+  let running = 0;
+
+  const run = async () => {
+    if (running >= concurrency || queue.length === 0) return;
+    running++;
+    const { fn, resolve, reject } = queue.shift();
+    try {
+      resolve(await fn());
+    } catch (e) {
+      reject(e);
+    } finally {
+      running--;
+      run();
+    }
+  };
+
+  return (fn) => new Promise((resolve, reject) => {
+    queue.push({ fn, resolve, reject });
+    run();
+  });
+}
+
 const VISUAL_CONCEPT_TYPES = [
   "metaphor",      // 视觉隐喻
   "chart_variant", // 图表变体
@@ -308,9 +337,9 @@ export function mapVisualSlotsToImageSlots(visualSlots = [], slideIntents = []) 
     .filter((s) => s.slotId);
 }
 
-async function generateCandidatesForSlide(slideIntent, designSystem, { modelCaller, signal, slideIndex, dslEffects } = {}, styleSpec) {
+async function generateCandidatesForSlide(slideIntent, designSystem, { modelCaller, signal, slideIndex, dslEffects, availableAssets } = {}, styleSpec) {
   const slideIntentId = toNonEmptyString(slideIntent?.slideIntentId || slideIntent?.slideIntentID);
-  const prompt = buildBrainstormPrompt(slideIntent, designSystem, dslEffects, styleSpec);
+  const prompt = buildBrainstormPrompt(slideIntent, designSystem, dslEffects, styleSpec, availableAssets);
   if (typeof modelCaller !== "function") throw new Error("No model caller for brainstorm");
 
   const messages = [
@@ -327,7 +356,12 @@ async function generateCandidatesForSlide(slideIntent, designSystem, { modelCall
 	      const jsonStr = extractJsonCandidate(resp?.content);
 	      const parsed = robustParseJson(jsonStr);
 	      if (parsed === null) throw new Error("Failed to parse brainstorm JSON");
-	      const rawCandidates = Array.isArray(parsed?.candidates) ? parsed.candidates : Array.isArray(parsed) ? parsed : [];
+	      // Handle both old single-slide format and new batch format
+	      const rawCandidates = Array.isArray(parsed?.slideResults)
+	        ? (parsed.slideResults[0]?.candidates || [])
+	        : Array.isArray(parsed?.candidates)
+	          ? parsed.candidates
+	          : Array.isArray(parsed) ? parsed : [];
 
 	      const normalized = rawCandidates.map((c) => normalizeCandidate(c, { slideIntentId, slideIndex }));
 	      return clampToTwoOrThree(normalized);
@@ -339,6 +373,86 @@ async function generateCandidatesForSlide(slideIntent, designSystem, { modelCall
   }
 
   throw lastErr || new Error("generateCandidatesForSlide failed");
+}
+
+/**
+ * Generate candidates for a batch of slides (up to 4).
+ * Returns Map<slideIndex, candidates[]>
+ */
+async function generateCandidatesForBatch(slideIntentsBatch, designSystem, { modelCaller, signal, dslEffects, startIndex = 0, availableAssets } = {}, styleSpec) {
+  if (typeof modelCaller !== "function") throw new Error("No model caller for brainstorm");
+  const batch = Array.isArray(slideIntentsBatch) ? slideIntentsBatch : [];
+  if (batch.length === 0) return new Map();
+
+  // Enrich slideIntents with slideIndex
+  const enriched = batch.map((si, idx) => ({
+    ...si,
+    slideIndex: si.slideIndex ?? (startIndex + idx),
+  }));
+
+  const prompt = buildBrainstormPrompt(enriched, designSystem, dslEffects, styleSpec, availableAssets);
+  const messages = [
+    { role: "system", content: BRAINSTORM_SYSTEM_PROMPT },
+    { role: "user", content: prompt },
+  ];
+
+  let lastErr = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (signal?.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "Run cancelled");
+    try {
+      const resp = await modelCaller(messages, { temperature: 0.8, maxTokens: 6000, signal, timeoutMs: 45_000 });
+
+      const jsonStr = extractJsonCandidate(resp?.content);
+      const parsed = robustParseJson(jsonStr);
+      if (parsed === null) throw new Error("Failed to parse batch brainstorm JSON");
+
+      const resultMap = new Map();
+
+      // Handle new batch format: { slideResults: [...] }
+      if (Array.isArray(parsed?.slideResults)) {
+        for (const result of parsed.slideResults) {
+          const slideIntentId = toNonEmptyString(result?.slideIntentId);
+          const slideIndex = Number.isFinite(result?.slideIndex) ? result.slideIndex : null;
+          const rawCandidates = Array.isArray(result?.candidates) ? result.candidates : [];
+
+          const matchedSlide = enriched.find((si) =>
+            toNonEmptyString(si?.slideIntentId || si?.slideIntentID) === slideIntentId ||
+            si.slideIndex === slideIndex
+          );
+          const resolvedIndex = matchedSlide?.slideIndex ?? slideIndex ?? startIndex;
+          const resolvedId = slideIntentId || toNonEmptyString(matchedSlide?.slideIntentId || matchedSlide?.slideIntentID);
+
+          const normalized = rawCandidates.map((c) => normalizeCandidate(c, { slideIntentId: resolvedId, slideIndex: resolvedIndex }));
+          resultMap.set(resolvedIndex, clampToTwoOrThree(normalized));
+        }
+      }
+      // Handle old single-slide format: { candidates: [...] } - apply to first slide in batch
+      else if (Array.isArray(parsed?.candidates) || Array.isArray(parsed)) {
+        const rawCandidates = Array.isArray(parsed?.candidates) ? parsed.candidates : Array.isArray(parsed) ? parsed : [];
+        const firstSlide = enriched[0];
+        if (firstSlide) {
+          const slideIntentId = toNonEmptyString(firstSlide?.slideIntentId || firstSlide?.slideIntentID);
+          const normalized = rawCandidates.map((c) => normalizeCandidate(c, { slideIntentId, slideIndex: firstSlide.slideIndex }));
+          resultMap.set(firstSlide.slideIndex, clampToTwoOrThree(normalized));
+        }
+      }
+
+      // Fill missing slides with empty arrays (will trigger fallback later)
+      for (const si of enriched) {
+        if (!resultMap.has(si.slideIndex)) {
+          resultMap.set(si.slideIndex, []);
+        }
+      }
+
+      return resultMap;
+    } catch (e) {
+      lastErr = e;
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn("[design.brainstorm] generateCandidatesForBatch failed", { batchSize: batch.length, attempt: attempt + 1, error: msg });
+    }
+  }
+
+  throw lastErr || new Error("generateCandidatesForBatch failed");
 }
 
 async function reviewCandidatesForSlide(slideIntent, candidates, designSystem, { modelCaller, signal } = {}) {
@@ -359,8 +473,13 @@ async function reviewCandidatesForSlide(slideIntent, candidates, designSystem, {
 	      const jsonStr = extractJsonCandidate(resp?.content);
 	      const parsed = robustParseJson(jsonStr);
 	      if (parsed === null) throw new Error("Failed to parse brainstorm review JSON");
-	      const reviews = Array.isArray(parsed?.reviews) ? parsed.reviews : [];
-	      const selectedCandidateId = toNonEmptyString(parsed?.selectedCandidateId);
+	      // Handle both old single-slide format and new batch format
+	      const reviews = Array.isArray(parsed?.slideReviews)
+	        ? (parsed.slideReviews[0]?.reviews || [])
+	        : Array.isArray(parsed?.reviews) ? parsed.reviews : [];
+	      const selectedCandidateId = Array.isArray(parsed?.slideReviews)
+	        ? toNonEmptyString(parsed.slideReviews[0]?.selectedCandidateId)
+	        : toNonEmptyString(parsed?.selectedCandidateId);
 
       const byId = new Map(reviews.map((r) => [toNonEmptyString(r?.candidateId), r?.scores || null]));
 
@@ -395,6 +514,109 @@ async function reviewCandidatesForSlide(slideIntent, candidates, designSystem, {
   }
 
   throw lastErr || new Error("reviewCandidatesForSlide failed");
+}
+
+/**
+ * Review candidates for a batch of slides.
+ * @param {Array} batchData - Array of { slideIntentId, slideIndex, candidates, pageType, title, objective }
+ * @returns {Map<slideIndex, { candidates, selectedCandidateId }>}
+ */
+async function reviewCandidatesForBatch(batchData, designSystem, { modelCaller, signal } = {}) {
+  if (typeof modelCaller !== "function") throw new Error("No model caller for brainstorm review");
+  const batch = Array.isArray(batchData) ? batchData : [];
+  if (batch.length === 0) return new Map();
+
+  // Build slide intents array for batch review prompt
+  const slideIntents = batch.map((item) => ({
+    slideIntentId: item.slideIntentId,
+    slideIndex: item.slideIndex,
+    pageType: item.pageType,
+    title: item.title,
+    objective: item.objective,
+  }));
+
+  const prompt = buildReviewPrompt(slideIntents, batch, designSystem);
+  const messages = [
+    { role: "system", content: BRAINSTORM_REVIEW_PROMPT },
+    { role: "user", content: prompt },
+  ];
+
+  let lastErr = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (signal?.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "Run cancelled");
+    try {
+      const resp = await modelCaller(messages, { temperature: 0.2, maxTokens: 3000, signal, timeoutMs: 45_000 });
+
+      const jsonStr = extractJsonCandidate(resp?.content);
+      const parsed = robustParseJson(jsonStr);
+      if (parsed === null) throw new Error("Failed to parse batch review JSON");
+
+      const slideReviews = Array.isArray(parsed?.slideReviews) ? parsed.slideReviews : [];
+      const resultMap = new Map();
+
+      for (const review of slideReviews) {
+        const slideIntentId = toNonEmptyString(review?.slideIntentId);
+        const slideIndex = Number.isFinite(review?.slideIndex) ? review.slideIndex : null;
+        const reviews = Array.isArray(review?.reviews) ? review.reviews : [];
+        const selectedCandidateId = toNonEmptyString(review?.selectedCandidateId);
+
+        // Find matching batch item
+        const matchedItem = batch.find((item) =>
+          item.slideIntentId === slideIntentId || item.slideIndex === slideIndex
+        );
+        if (!matchedItem) continue;
+
+        const candidates = matchedItem.candidates || [];
+        const byId = new Map(reviews.map((r) => [toNonEmptyString(r?.candidateId), r?.scores || null]));
+
+        const scored = candidates.map((c) => {
+          const scores = byId.get(c.candidateId) || null;
+          const mergedScores = scores
+            ? {
+                visualImpact: normalizeScore(scores.visualImpact),
+                clarity: normalizeScore(scores.clarity),
+                novelty: normalizeScore(scores.novelty),
+                consistency: normalizeScore(scores.consistency),
+              }
+            : c.scores;
+
+          const composite = computeCompositeScore(mergedScores);
+          return { ...c, scores: mergedScores, composite, selected: false };
+        });
+
+        let selectedId = selectedCandidateId;
+        if (!selectedId || !scored.some((c) => c.candidateId === selectedId)) {
+          selectedId = scored.slice().sort((a, b) => b.composite - a.composite)[0]?.candidateId || "";
+        }
+
+        for (const c of scored) c.selected = c.candidateId === selectedId;
+
+        resultMap.set(matchedItem.slideIndex, { candidates: scored, selectedCandidateId: selectedId });
+      }
+
+      // Fill missing slides with fallback scores
+      for (const item of batch) {
+        if (!resultMap.has(item.slideIndex)) {
+          const candidates = (item.candidates || []).map((c, idx) => {
+            const scores = { visualImpact: 0.55 - idx * 0.02, clarity: 0.6, novelty: 0.5, consistency: 0.65 };
+            return { ...c, scores, composite: computeCompositeScore(scores), selected: idx === 0 };
+          });
+          resultMap.set(item.slideIndex, {
+            candidates,
+            selectedCandidateId: candidates[0]?.candidateId || "",
+          });
+        }
+      }
+
+      return resultMap;
+    } catch (e) {
+      lastErr = e;
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn("[design.brainstorm] reviewCandidatesForBatch failed", { batchSize: batch.length, attempt: attempt + 1, error: msg });
+    }
+  }
+
+  throw lastErr || new Error("reviewCandidatesForBatch failed");
 }
 
 /**
@@ -701,6 +923,8 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
           candidatesBySlide,
           selectedIdeas: buildSelectedIdeasFromCandidatesBySlide(candidatesBySlide),
           source: "user",
+          totalIdeas: allCandidates.length,
+          selectedCount: selectedCandidates.length,
         },
       });
 
@@ -730,79 +954,112 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
   if (typeof modelCaller === "function") {
     const candidatesBySlide = new Array(slideIntents.length);
     const allCandidates = [];
+    const BATCH_SIZE = 4;
+    const BATCH_CONCURRENCY = 2; // Max parallel batches to avoid rate limits
 
-    // Parallel brainstorm with concurrency limit (3 at a time to avoid API overload)
-    const concurrency = Math.min(3, slideIntents.length);
-    let nextIndex = 0;
+    // Extract available assets from contentPackage
+    const availableAssets = Array.isArray(contentPackage?.assets) ? contentPackage.assets : [];
 
-    const processSlide = async () => {
-      while (nextIndex < slideIntents.length) {
-        const slideIndex = nextIndex++;
-        const si = slideIntents[slideIndex] || {};
-        const slideIntentId = toNonEmptyString(si?.slideIntentId || si?.slideIntentID);
+    // Build batch list
+    const batches = [];
+    for (let batchStart = 0; batchStart < slideIntents.length; batchStart += BATCH_SIZE) {
+      const batchEnd = Math.min(batchStart + BATCH_SIZE, slideIntents.length);
+      const batchSlides = slideIntents.slice(batchStart, batchEnd).map((si, idx) => ({
+        ...si,
+        slideIndex: batchStart + idx,
+        slideIntentId: toNonEmptyString(si?.slideIntentId || si?.slideIntentID),
+      }));
+      batches.push({ batchStart, batchSlides });
+    }
 
-        let candidates = [];
-        try {
-          candidates = await generateCandidatesForSlide(si, designSystem, {
-            modelCaller,
-            signal: stageApi.signal,
-            slideIndex,
-            dslEffects: options?.dslEffects || constraints?.dslEffects || DEFAULT_DSL_EFFECTS,
-          }, styleSpec);
-        } catch {
-          candidates = [];
+    // Process batches with concurrency limit
+    const limiter = createLimiter(BATCH_CONCURRENCY);
+    await Promise.all(batches.map(({ batchStart, batchSlides }) => limiter(async () => {
+      if (stageApi.signal?.aborted) throw new Error(typeof stageApi.signal.reason === "string" ? stageApi.signal.reason : "Run cancelled");
+
+      // Generate candidates for batch
+      let candidatesMap = new Map();
+      try {
+        candidatesMap = await generateCandidatesForBatch(batchSlides, designSystem, {
+          modelCaller,
+          signal: stageApi.signal,
+          dslEffects: options?.dslEffects || constraints?.dslEffects || DEFAULT_DSL_EFFECTS,
+          startIndex: batchStart,
+          availableAssets,
+        }, styleSpec);
+      } catch {
+        // Fallback: empty map, will trigger fallback candidates below
+      }
+
+      // Apply fallback for slides with no candidates
+      for (const si of batchSlides) {
+        let candidates = candidatesMap.get(si.slideIndex) || [];
+        if (candidates.length === 0) {
+          const fallback = normalizeCandidate(
+            {
+              candidateId: `cand_s${si.slideIndex}_fallback`,
+              atmosphere: { mood: "Clean modern", colorScheme: "Design-system aligned", visualWeight: "Balanced" },
+              elementsMarkdown: `- Title + key points with strong hierarchy\n- One supporting visual slot if needed`,
+              visualSlots: [],
+            },
+            { slideIntentId: si.slideIntentId, slideIndex: si.slideIndex }
+          );
+          candidates = clampToTwoOrThree([fallback]);
+          candidatesMap.set(si.slideIndex, candidates);
         }
 
         emit?.("design.brainstorm.llm.generated", {
           actor: "design",
           status: "generated",
-          payload: { slideIndex, slideIntentId, candidateCount: candidates.length },
+          payload: { slideIndex: si.slideIndex, slideIntentId: si.slideIntentId, candidateCount: candidates.length },
         });
+      }
 
-        // Ensure we always have at least 2 candidates (even if model failed).
-        if (candidates.length === 0) {
-          const fallback = normalizeCandidate(
-            {
-              candidateId: `cand_s${slideIndex}_fallback`,
-              atmosphere: { mood: "Clean modern", colorScheme: "Design-system aligned", visualWeight: "Balanced" },
-              elementsMarkdown: `- Title + key points with strong hierarchy\n- One supporting visual slot if needed`,
-              visualSlots: [],
-            },
-            { slideIntentId, slideIndex }
-          );
-          candidates = clampToTwoOrThree([fallback]);
-        }
+      // Build batch data for review
+      const reviewBatchData = batchSlides.map((si) => ({
+        slideIntentId: si.slideIntentId,
+        slideIndex: si.slideIndex,
+        pageType: si.pageType,
+        title: si.title,
+        objective: si.objective,
+        candidates: candidatesMap.get(si.slideIndex) || [],
+      }));
 
-        let reviewed = { candidates, selectedCandidateId: candidates[0]?.candidateId || "" };
-        try {
-          reviewed = await reviewCandidatesForSlide(si, candidates, designSystem, { modelCaller, signal: stageApi.signal });
-        } catch {
-          const scored = candidates.map((c, idx) => {
+      // Review candidates for batch
+      let reviewResults = new Map();
+      try {
+        reviewResults = await reviewCandidatesForBatch(reviewBatchData, designSystem, { modelCaller, signal: stageApi.signal });
+      } catch {
+        // Fallback: apply default scores
+        for (const item of reviewBatchData) {
+          const scored = (item.candidates || []).map((c, idx) => {
             const scores = { visualImpact: 0.55 - idx * 0.02, clarity: 0.6, novelty: 0.5, consistency: 0.65 };
             return { ...c, scores, composite: computeCompositeScore(scores), selected: idx === 0 };
           });
-          reviewed = { candidates: scored, selectedCandidateId: scored[0]?.candidateId || "" };
+          reviewResults.set(item.slideIndex, { candidates: scored, selectedCandidateId: scored[0]?.candidateId || "" });
         }
+      }
+
+      // Populate candidatesBySlide
+      for (const si of batchSlides) {
+        const reviewed = reviewResults.get(si.slideIndex) || { candidates: candidatesMap.get(si.slideIndex) || [], selectedCandidateId: "" };
+        const selected = reviewed.candidates.find((c) => c.selected) || reviewed.candidates[0] || null;
 
         emit?.("design.brainstorm.reviewed", {
           actor: "design",
           status: "reviewed",
-          payload: { slideIndex, slideIntentId, selectedCandidateId: reviewed.selectedCandidateId },
+          payload: { slideIndex: si.slideIndex, slideIntentId: si.slideIntentId, selectedCandidateId: reviewed.selectedCandidateId },
         });
 
-        const selected = reviewed.candidates.find((c) => c.selected) || reviewed.candidates[0] || null;
-        candidatesBySlide[slideIndex] = {
-          slideIndex,
-          slideIntentId,
+        candidatesBySlide[si.slideIndex] = {
+          slideIndex: si.slideIndex,
+          slideIntentId: si.slideIntentId,
           candidates: reviewed.candidates,
           selectedCandidateId: reviewed.selectedCandidateId,
           selectedCandidate: selected,
         };
       }
-    };
-
-    // Launch concurrent workers
-    await Promise.all(Array.from({ length: concurrency }, () => processSlide()));
+    })));
 
     // Collect all candidates (in order)
     for (const row of candidatesBySlide) {
@@ -819,6 +1076,8 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
       payload: {
         candidatesBySlide,
         selectedIdeas: buildSelectedIdeasFromCandidatesBySlide(candidatesBySlide),
+        totalIdeas: allCandidates.length,
+        selectedCount: selectedCandidates.length,
       },
     });
 
@@ -920,6 +1179,8 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
     payload: {
       candidatesBySlide,
       selectedIdeas: buildSelectedIdeasFromCandidatesBySlide(candidatesBySlide),
+      totalIdeas: ideaPool.length,
+      selectedCount: selectedIdeas.length,
     },
   });
 
@@ -1079,6 +1340,8 @@ export async function brainstormRegenerate(
     payload: {
       candidatesBySlide,
       selectedIdeas: buildSelectedIdeasFromCandidatesBySlide(candidatesBySlide),
+      totalIdeas: candidatesBySlide.flatMap((r) => r?.candidates || []).length,
+      selectedCount: candidatesBySlide.filter((r) => r?.selectedCandidate).length,
     },
   });
 

@@ -615,12 +615,19 @@ const PPTGeneratorNavigation = {
         const fileInput = document.getElementById('pptFileInput');
         const attachmentsContainer = document.getElementById('pptChatAttachments');
 
+        // 防御性检查：确保核心元素存在
+        if (!input || !sendBtn) {
+            console.warn('[PPTGenerator] _bindChatEvents: pptChatInput or pptSendBtn not found, skipping event binding');
+            return;
+        }
+
         // 存储待发送的附件
         this.pendingAttachments = [];
 
         const sendMessage = () => {
             const text = input.value.trim();
             if (!text && this.pendingAttachments.length === 0) return;
+            console.log('[PPTGenerator] Chat: sending message:', text.slice(0, 50));
             this.handleUserMessage(text, this.pendingAttachments);
             input.value = '';
             this.pendingAttachments = [];
@@ -635,23 +642,27 @@ const PPTGeneratorNavigation = {
             }
         });
 
-        // 附件按钮点击
-        attachBtn.addEventListener('click', () => fileInput.click());
+        // 附件按钮点击（可选元素）
+        if (attachBtn && fileInput) {
+            attachBtn.addEventListener('click', () => fileInput.click());
 
-        // 文件选择处理
-        fileInput.addEventListener('change', (e) => {
-            const files = Array.from(e.target.files);
-            files.forEach(file => {
-                this.pendingAttachments.push({
-                    file,
-                    name: file.name,
-                    type: file.type,
-                    preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : null
+            // 文件选择处理
+            fileInput.addEventListener('change', (e) => {
+                const files = Array.from(e.target.files);
+                files.forEach(file => {
+                    this.pendingAttachments.push({
+                        file,
+                        name: file.name,
+                        type: file.type,
+                        preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : null
+                    });
                 });
+                this._renderAttachments();
+                fileInput.value = ''; // 重置以允许重复选择
             });
-            this._renderAttachments();
-            fileInput.value = ''; // 重置以允许重复选择
-        });
+        }
+
+        console.log('[PPTGenerator] _bindChatEvents: events bound successfully');
     },
 
     _renderAttachments() {

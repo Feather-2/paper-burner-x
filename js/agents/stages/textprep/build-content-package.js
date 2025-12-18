@@ -190,6 +190,7 @@ export function buildContentPackage(runContext, sources, slideIntents, claims, e
     createdAt: new Date().toISOString(),
     constraints: isPlainObject(runContext.constraints) ? runContext.constraints : {},
     ...(srcRefs.length ? { sources: srcRefs } : {}),
+    ...(Array.isArray(extra.assets) && extra.assets.length ? { assets: extra.assets } : {}),
     summary: derivedSummary,
     outlineCandidates,
     slideIntents: Array.isArray(slideIntents) ? slideIntents : [],

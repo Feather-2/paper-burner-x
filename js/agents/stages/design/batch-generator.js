@@ -2,6 +2,35 @@ import { buildSlideHtml } from "./dsl-builder.js";
 import { getDesignModelCaller } from "./model.js";
 import { robustParseJson } from "../../shared/robust-json.js";
 
+/**
+ * Simple concurrency limiter (pLimit-style).
+ * @param {number} concurrency Max concurrent tasks
+ * @returns {<T>(fn: () => Promise<T>) => Promise<T>}
+ */
+function createLimiter(concurrency) {
+  const queue = [];
+  let running = 0;
+
+  const run = async () => {
+    if (running >= concurrency || queue.length === 0) return;
+    running++;
+    const { fn, resolve, reject } = queue.shift();
+    try {
+      resolve(await fn());
+    } catch (e) {
+      reject(e);
+    } finally {
+      running--;
+      run();
+    }
+  };
+
+  return (fn) => new Promise((resolve, reject) => {
+    queue.push({ fn, resolve, reject });
+    run();
+  });
+}
+
 function nowMs() {
   return Date.now();
 }
@@ -436,7 +465,12 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
     }
 
     const errMsg = lastErr instanceof Error ? lastErr.message : String(lastErr || "Unknown error");
+    const errStack = lastErr instanceof Error ? lastErr.stack : undefined;
     console.warn("[design.batch] generateSingleSlide falling back after retries", { slideIntentId, error: errMsg });
+    safeEmit(emit, "design.slide.failed", "failed", {
+      slideIndex,
+      error: { message: errMsg, stack: errStack }
+    });
   }
 
   const slideHtml = buildSlideHtml(si, designSystem, contentPackage, {
@@ -472,16 +506,20 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
   const dslRules = normalizeDslRules(options.dslRules);
   const selectedIdeas = Array.isArray(options.selectedIdeas) ? options.selectedIdeas : [];
   const selected = normalizeSelectedIdeas(selectedIdeas);
-  const modelCaller = getDesignModelCaller({ modelRouter, aiApiService, signal }, { usage: "designer", timeoutMs: 30_000 });
+  const modelCaller = typeof options.modelCaller === "function"
+    ? options.modelCaller
+    : getDesignModelCaller({ modelRouter, aiApiService, signal }, { usage: "designer", timeoutMs: 30_000 });
 
   /** @type {Array<{slideIntentId:string,slideHtml:string,source:"llm"|"fallback"}>} */
   const out = new Array(intents.length);
-  const batches = chunkIndexes(intents.length, batchSize);
+  const batchList = chunkIndexes(intents.length, batchSize);
+  const BATCH_CONCURRENCY = 2; // Max parallel batches to avoid rate limits
 
-  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+  // Process batches with concurrency limit
+  const limiter = createLimiter(BATCH_CONCURRENCY);
+  await Promise.all(batchList.map((slideIndexes, batchIndex) => limiter(async () => {
     if (signal?.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "Run cancelled");
 
-    const slideIndexes = batches[batchIndex];
     safeEmit(emit, "design.batch.started", "started", { batchIndex, slideIndexes });
 
     const tBatch = nowMs();
@@ -491,7 +529,18 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
         const imageSlotsForSlide = imageSlots.filter((s) => s.slideIndex === slideIndex);
 
         const t0 = nowMs();
-        safeEmit(emit, "design.slide.started", "started", { slideIndex, slideIntent });
+        safeEmit(emit, "design.slide.started", "started", {
+          slideIndex,
+          slideIntent: {
+            id: slideIntent?.slideIntentId || slideIntent?.slideIntentID,
+            title: slideIntent?.title,
+            pageType: slideIntent?.pageType,
+            objective: slideIntent?.objective,
+            keyPoints: slideIntent?.keyPoints,
+            claimIds: slideIntent?.claimIds,
+            dataTableIds: slideIntent?.dataTableIds,
+          }
+        });
 
         safeEmit(emit, "design.slide.progress", "progress", { slideIndex, step: "llm", msg: "Generating" });
 
@@ -516,7 +565,11 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
           return;
         } catch (e) {
           const errMsg = e instanceof Error ? e.message : String(e || "Unknown error");
-          safeEmit(emit, "design.slide.failed", "failed", { slideIndex, error: errMsg });
+          const errStack = e instanceof Error ? e.stack : undefined;
+          safeEmit(emit, "design.slide.failed", "failed", {
+            slideIndex,
+            error: { message: errMsg, stack: errStack }
+          });
           safeEmit(emit, "design.slide.progress", "progress", { slideIndex, step: "fallback", msg: "Falling back to templates" });
 
           const res = await generateSingleSlide(slideIntent, designSystem, dslRules, {
@@ -535,7 +588,7 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
     );
 
     safeEmit(emit, "design.batch.completed", "completed", { batchIndex, slideIndexes, duration: nowMs() - tBatch });
-  }
+  })));
 
   return out;
 }

@@ -11,6 +11,29 @@
         this.renderPreviewArea();
     },
 
+    // ========== 生成模式管理 ==========
+    setGenerationMode(mode) {
+        if (!this.workflowData) this.workflowData = {};
+        this.workflowData.generationMode = mode;
+        this.renderPreviewArea();
+    },
+
+    getGenerationMode() {
+        return this.workflowData?.generationMode || 'deepsearch';
+    },
+
+    _renderGenerationModeCard(key, title, desc, icon) {
+        const currentMode = this.getGenerationMode();
+        const selected = currentMode === key;
+        return `
+            <div class="rd-mode-card ${selected ? 'active' : ''}" onclick="window.PPTGenerator.setGenerationMode('${key}')">
+                <div class="rd-mode-icon"><iconify-icon icon="${icon}"></iconify-icon></div>
+                <div class="rd-mode-title">${title}</div>
+                <div class="rd-mode-desc">${desc}</div>
+            </div>
+        `;
+    },
+
 
     _renderUploadSharedStyles() {
         return `
@@ -632,7 +655,14 @@
                     <div class="rd-card">
                         <div class="rd-header">
                             <h2 class="rd-title">生成配置</h2>
-                            <p class="rd-subtitle">选择工作模式并调整报告参数</p>
+                            <p class="rd-subtitle">选择生成模式并调整参数</p>
+                        </div>
+
+                        <div class="rd-section-title">生成模式</div>
+                        <div class="rd-mode-grid" style="margin-bottom: 20px;">
+                            ${this._renderGenerationModeCard('simple', '快速生成', '直接通读素材，按结构生成页面', 'solar:bolt-bold-duotone')}
+                            ${this._renderGenerationModeCard('planned', '规划模式', 'AI 扫描后，您来配置每页内容和参考资料', 'solar:clipboard-list-bold-duotone')}
+                            ${this._renderGenerationModeCard('deepsearch', '深度研究', 'DeepSearch 深度分析、联网扩展信息', 'solar:magnifer-zoom-in-bold-duotone')}
                         </div>
 
                         <div class="rd-section-title">工作模式</div>
