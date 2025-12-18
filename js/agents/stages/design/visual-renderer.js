@@ -1,6 +1,7 @@
 import { ImageGenerator } from "./image-generator.js";
 import { SVGGenerator } from "./svg-generator.js";
 import { AssetResolver } from "./asset-resolver.js";
+import { normalizeRenderType } from "../../shared/value-utils.js";
 
 function nowMs() {
   return Date.now();
@@ -20,14 +21,6 @@ function safeNumber(v, fallback) {
 function safeEmit(emit, name, status, payload) {
   if (typeof emit !== "function") return;
   emit(name, { actor: "design", status, payload });
-}
-
-function normalizeRenderType(rt) {
-  const t = String(rt || "").trim().toLowerCase();
-  if (t === "ai-image" || t === "ai_image" || t === "image") return "ai-image";
-  if (t === "svg") return "svg";
-  if (t === "asset" || t === "doc-asset" || t === "document-asset") return "asset";
-  return "ai-image";
 }
 
 function parsePercent(v) {
@@ -175,13 +168,15 @@ export class VisualRenderer {
             slideHtmlBySlotId: options?.slideHtmlBySlotId,
             concurrency: options?.svgConcurrency || options?.concurrency,
           })
-        : Promise.resolve([]),
+        : Promise.resolve({ results: [], report: null }),
       assetSlots.length && assetResolver ? Promise.resolve(assetResolver.resolve(assetSlots)) : Promise.resolve([]),
     ]);
 
     const errors = [];
     const imageResults = settled[0].status === "fulfilled" ? settled[0].value : (errors.push({ renderer: "ai-image", error: String(settled[0].reason) }), { filledSlots: [], report: null });
-    const svgResults = settled[1].status === "fulfilled" ? settled[1].value : (errors.push({ renderer: "svg", error: String(settled[1].reason) }), []);
+    const svgOut = settled[1].status === "fulfilled" ? settled[1].value : (errors.push({ renderer: "svg", error: String(settled[1].reason) }), { results: [], report: null });
+    const svgResults = Array.isArray(svgOut?.results) ? svgOut.results : [];
+    const svgReport = svgOut?.report || null;
     const assetResults = settled[2].status === "fulfilled" ? settled[2].value : (errors.push({ renderer: "asset", error: String(settled[2].reason) }), []);
 
     const mergedSlots = mergeFilledImageSlots(slotsRaw, imageResults?.filledSlots);
@@ -199,6 +194,7 @@ export class VisualRenderer {
       durationMs: Math.max(0, t1 - t0),
       errors,
       imageReport: imageResults?.report || null,
+      svgReport,
     };
 
     if (errors.length) {

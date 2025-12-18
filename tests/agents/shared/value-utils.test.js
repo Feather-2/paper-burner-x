@@ -95,3 +95,40 @@ test("safeInt: floors finite numeric input and rejects invalid", async () => {
   assert.equal(safeInt(undefined), null);
 });
 
+test("normalizeRenderType: handles ai-image variants", async () => {
+  const { normalizeRenderType } = await import("../../../js/agents/shared/value-utils.js");
+
+  assert.equal(normalizeRenderType("ai-image"), "ai-image");
+  assert.equal(normalizeRenderType("ai_image"), "ai-image");
+  assert.equal(normalizeRenderType("image"), "ai-image");
+  assert.equal(normalizeRenderType("IMAGE"), "ai-image");
+  assert.equal(normalizeRenderType("  AI-IMAGE  "), "ai-image");
+});
+
+test("normalizeRenderType: handles svg", async () => {
+  const { normalizeRenderType } = await import("../../../js/agents/shared/value-utils.js");
+
+  assert.equal(normalizeRenderType("svg"), "svg");
+  assert.equal(normalizeRenderType("SVG"), "svg");
+  assert.equal(normalizeRenderType("  svg  "), "svg");
+});
+
+test("normalizeRenderType: handles asset variants", async () => {
+  const { normalizeRenderType } = await import("../../../js/agents/shared/value-utils.js");
+
+  assert.equal(normalizeRenderType("asset"), "asset");
+  assert.equal(normalizeRenderType("doc-asset"), "asset");
+  assert.equal(normalizeRenderType("document-asset"), "asset");
+  assert.equal(normalizeRenderType("ASSET"), "asset");
+});
+
+test("normalizeRenderType: defaults to ai-image for unknown/empty", async () => {
+  const { normalizeRenderType } = await import("../../../js/agents/shared/value-utils.js");
+
+  assert.equal(normalizeRenderType(""), "ai-image");
+  assert.equal(normalizeRenderType(null), "ai-image");
+  assert.equal(normalizeRenderType(undefined), "ai-image");
+  assert.equal(normalizeRenderType("unknown"), "ai-image");
+  assert.equal(normalizeRenderType(123), "ai-image");
+});
+

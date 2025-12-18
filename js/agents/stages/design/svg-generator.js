@@ -1,5 +1,6 @@
 import { getDesignModelCaller } from "./model.js";
 import { robustParseJson } from "../../shared/robust-json.js";
+import { getCircuitBreaker } from "../../core/error-handler.js";
 
 /**
  * Simple concurrency limiter (pLimit-style).
@@ -42,6 +43,112 @@ function safeNumber(v, fallback) {
 function safeEmit(emit, name, status, payload) {
   if (typeof emit !== "function") return;
   emit(name, { actor: "design", status, payload });
+}
+
+/**
+ * Classify error for appropriate handling strategy.
+ * @param {Error|string} err
+ * @returns {{ level: string, code: string, canRetry: boolean }}
+ */
+function classifySvgError(err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  const msgLower = msg.toLowerCase();
+
+  // FATAL - 配置/鉴权错误，不重试
+  if (
+    msgLower.includes("no available model") ||
+    msgLower.includes("not available") ||
+    msgLower.includes("api key") ||
+    msg.includes("401") ||
+    msg.includes("403")
+  ) {
+    return { level: "fatal", code: "CONFIG_OR_AUTH", canRetry: false };
+  }
+
+  // RETRYABLE - 网络/限流错误
+  if (
+    msgLower.includes("timeout") ||
+    msgLower.includes("etimedout") ||
+    msgLower.includes("econnreset") ||
+    msgLower.includes("network") ||
+    msg.includes("429") ||
+    msg.includes("503") ||
+    msg.includes("502")
+  ) {
+    return { level: "retryable", code: "NETWORK", canRetry: true };
+  }
+
+  // DEGRADABLE - 其他错误（解析失败等）
+  return { level: "degradable", code: "GENERATION_FAILED", canRetry: false };
+}
+
+// SVG generator circuit breaker registry
+const svgBreakerRegistry = new Map();
+
+/**
+ * Get or create circuit breaker for SVG generation.
+ * @param {string} name - Breaker name (default: "svg-generator")
+ * @returns {object} Circuit breaker instance or fallback
+ */
+function getSvgCircuitBreaker(name = "svg-generator") {
+  if (svgBreakerRegistry.has(name)) {
+    return svgBreakerRegistry.get(name);
+  }
+
+  // Try to use project's CircuitBreaker if available
+  if (typeof getCircuitBreaker === "function") {
+    try {
+      const coreBreaker = getCircuitBreaker(name, {
+        threshold: 3, // 连续 3 次失败后熔断
+        resetTimeMs: 60000, // 60s 后尝试恢复
+        halfOpenRequests: 1,
+      });
+
+      // Adapter to a minimal interface used by this module.
+      const breaker = {
+        name,
+        canExecute: () => (typeof coreBreaker?.canExecute === "function" ? coreBreaker.canExecute() : true),
+        recordSuccess: () => {
+          if (typeof coreBreaker?._onSuccess === "function") coreBreaker._onSuccess();
+          else if (typeof coreBreaker?.reset === "function") coreBreaker.reset();
+        },
+        recordFailure: () => {
+          if (typeof coreBreaker?._onFailure === "function") coreBreaker._onFailure();
+        },
+        getState: () => (typeof coreBreaker?.getState === "function" ? coreBreaker.getState() : undefined),
+      };
+
+      svgBreakerRegistry.set(name, breaker);
+      return breaker;
+    } catch (e) {
+      console.warn("[svg-generator] Failed to create circuit breaker:", e?.message || String(e));
+    }
+  }
+
+  // Fallback: simple in-memory breaker
+  const fallbackBreaker = {
+    failures: 0,
+    openUntil: 0,
+    threshold: 3,
+    resetTimeMs: 60000,
+    canExecute() {
+      if (Date.now() < this.openUntil) return false;
+      return true;
+    },
+    recordSuccess() {
+      this.failures = 0;
+      this.openUntil = 0;
+    },
+    recordFailure() {
+      this.failures++;
+      if (this.failures >= this.threshold) {
+        this.openUntil = Date.now() + this.resetTimeMs;
+        console.warn("[svg-generator] Circuit breaker opened, will reset in 60s");
+      }
+    },
+  };
+  svgBreakerRegistry.set(name, fallbackBreaker);
+  return fallbackBreaker;
 }
 
 function escapeAttr(s) {
@@ -217,26 +324,47 @@ function makeFallbackSvg({ width, height, colors, label }) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="${escapeAttr(label)}">${inner}</svg>`;
 }
 
+/**
+ * Create a fallback result object for a slot.
+ */
+function makeFallbackResult(slot, colors, error = null) {
+  const slotId = toNonEmptyString(slot?.slotId);
+  const size = sizeFromPosition(slot?.position) || { width: 600, height: 400 };
+  const label = toNonEmptyString(slot?.svgSpec?.description) || slotId || "Visual";
+  return {
+    slotId,
+    svgContent: makeFallbackSvg({ width: size.width, height: size.height, colors, label }),
+    width: size.width,
+    height: size.height,
+    source: "fallback",
+    ...(error ? { error } : {}),
+  };
+}
+
 async function generateBatchWithLLM(batchSlots, designSystem, slideHtmlMap, options = {}) {
-  const { modelRouter, aiApiService, signal } = options;
+  const { modelRouter, aiApiService, signal, emit } = options;
   const colors = pickColors(designSystem);
+  const slotIds = batchSlots.map((s) => s?.slotId).filter(Boolean);
+  const breaker = getSvgCircuitBreaker("svg-generator");
+
+  const makeStructuredError = (err, extra = {}) => {
+    const base = classifySvgError(err);
+    const message = err instanceof Error ? err.message : String(err);
+    return { ...base, message, ...extra };
+  };
 
   const modelCaller = getDesignModelCaller({ modelRouter, aiApiService, signal }, { usage: "designer", timeoutMs: 60_000 });
 
   if (typeof modelCaller !== "function") {
-    // No model available, return fallbacks
-    return batchSlots.map((slot) => {
-      const slotId = toNonEmptyString(slot?.slotId);
-      const size = sizeFromPosition(slot?.position) || { width: 600, height: 400 };
-      const label = toNonEmptyString(slot?.svgSpec?.description) || slotId || "Visual";
-      return {
-        slotId,
-        svgContent: makeFallbackSvg({ width: size.width, height: size.height, colors, label }),
-        width: size.width,
-        height: size.height,
-        source: "fallback",
-      };
-    });
+    const error = makeStructuredError("No available model for SVG generation");
+    safeEmit(emit, "design.svg.batch.failed", "failed", { slotIds, error });
+    return { results: batchSlots.map((slot) => makeFallbackResult(slot, colors, error)), hasError: true };
+  }
+
+  if (!breaker.canExecute()) {
+    const error = makeStructuredError("Circuit breaker is OPEN", { code: "CIRCUIT_OPEN", canRetry: true });
+    safeEmit(emit, "design.svg.batch.failed", "failed", { slotIds, error, circuit: { name: "svg-generator" } });
+    return { results: batchSlots.map((slot) => makeFallbackResult(slot, colors, error)), hasError: true };
   }
 
   const prompt = buildBatchPrompt(batchSlots, designSystem, slideHtmlMap);
@@ -245,11 +373,11 @@ async function generateBatchWithLLM(batchSlots, designSystem, slideHtmlMap, opti
     { role: "user", content: prompt },
   ];
 
-  const slotIds = batchSlots.map(s => s?.slotId).filter(Boolean);
   console.log("[svg-generator] generateBatchWithLLM started", { slotIds, promptLength: prompt.length });
 
-  // Retry up to 2 times (skip retry for config errors)
+  // Retry up to 2 times based on classification
   let lastErr = null;
+  let lastStructuredError = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     if (signal?.aborted) break;
 
@@ -257,83 +385,75 @@ async function generateBatchWithLLM(batchSlots, designSystem, slideHtmlMap, opti
       console.log("[svg-generator] LLM call attempt", { attempt: attempt + 1, slotIds });
       const resp = await modelCaller(messages, { temperature: 0.5, maxTokens: 6000, signal, timeoutMs: 90_000 });
       const rawContent = resp?.content || "";
-      console.log("[svg-generator] LLM response received", {
-        contentLength: rawContent.length,
-        preview: rawContent.slice(0, 500)
-      });
+      console.log("[svg-generator] LLM response received", { contentLength: rawContent.length, preview: rawContent.slice(0, 500) });
 
       const parsed = extractJsonFromResponse(rawContent);
       console.log("[svg-generator] JSON parse result", {
         isArray: Array.isArray(parsed),
         itemCount: Array.isArray(parsed) ? parsed.length : 0,
-        parseResult: parsed === null ? "null" : typeof parsed
+        parseResult: parsed === null ? "null" : typeof parsed,
       });
 
-      if (Array.isArray(parsed)) {
-        const resultById = new Map();
-        for (const item of parsed) {
-          const slotId = toNonEmptyString(item?.slotId);
-          let svgContent = toNonEmptyString(item?.svg) || extractSvgFromText(item?.svg);
-          if (slotId && svgContent) {
-            resultById.set(slotId, svgContent);
-            console.log("[svg-generator] SVG extracted", { slotId, svgLength: svgContent.length });
-          } else {
-            console.warn("[svg-generator] Failed to extract SVG", { slotId, hasSvg: !!item?.svg, svgPreview: String(item?.svg || "").slice(0, 200) });
-          }
-        }
-
-        console.log("[svg-generator] Batch complete", { requested: slotIds, extracted: [...resultById.keys()] });
-        return batchSlots.map((slot) => {
-          const slotId = toNonEmptyString(slot?.slotId);
-          const size = sizeFromPosition(slot?.position) || { width: 600, height: 400 };
-          const svgContent = resultById.get(slotId);
-          const label = toNonEmptyString(slot?.svgSpec?.description) || slotId || "Visual";
-
-          if (svgContent) {
-            return { slotId, svgContent, width: size.width, height: size.height, source: "llm" };
-          }
-          return {
-            slotId,
-            svgContent: makeFallbackSvg({ width: size.width, height: size.height, colors, label }),
-            width: size.width,
-            height: size.height,
-            source: "fallback",
-          };
-        });
+      if (!Array.isArray(parsed)) {
+        throw new Error("Invalid SVG batch response: expected a JSON array");
       }
+
+      const resultById = new Map();
+      for (const item of parsed) {
+        const slotId = toNonEmptyString(item?.slotId);
+        const svgContent = toNonEmptyString(item?.svg) || extractSvgFromText(item?.svg);
+        if (slotId && svgContent) {
+          resultById.set(slotId, svgContent);
+          console.log("[svg-generator] SVG extracted", { slotId, svgLength: svgContent.length });
+        } else {
+          console.warn("[svg-generator] Failed to extract SVG", {
+            slotId,
+            hasSvg: !!item?.svg,
+            svgPreview: String(item?.svg || "").slice(0, 200),
+          });
+        }
+      }
+
+      console.log("[svg-generator] Batch complete", { requested: slotIds, extracted: [...resultById.keys()] });
+
+      const results = batchSlots.map((slot) => {
+        const slotId = toNonEmptyString(slot?.slotId);
+        const size = sizeFromPosition(slot?.position) || { width: 600, height: 400 };
+        const svgContent = resultById.get(slotId);
+        if (svgContent) return { slotId, svgContent, width: size.width, height: size.height, source: "llm" };
+        const err = makeStructuredError("Missing SVG for slot", { code: "MISSING_SVG", canRetry: false, slotId });
+        return makeFallbackResult(slot, colors, err);
+      });
+
+      breaker.recordSuccess();
+      return { results, hasError: results.some((r) => r?.error) };
     } catch (e) {
       lastErr = e;
-      const msg = e instanceof Error ? e.message : String(e);
-      console.warn("[svg-generator] Batch LLM attempt failed:", { attempt: attempt + 1, error: msg });
+      lastStructuredError = makeStructuredError(e);
+      breaker.recordFailure();
 
-      // Don't retry for config/auth errors - fail fast
-      if (msg.includes("No available model config") || msg.includes("not available") || msg.includes("401") || msg.includes("403")) {
-        console.warn("[svg-generator] Config/auth error detected, skipping retry");
-        break;
-      }
-      if (attempt < 1) continue; // retry once for transient errors
+      console.warn("[svg-generator] Batch LLM attempt failed:", {
+        attempt: attempt + 1,
+        error: lastStructuredError.message,
+        code: lastStructuredError.code,
+        level: lastStructuredError.level,
+      });
+
+      safeEmit(emit, "design.svg.batch.failed", "failed", {
+        slotIds,
+        attempt: attempt + 1,
+        error: lastStructuredError,
+      });
+
+      if (!lastStructuredError.canRetry) break;
+      if (attempt < 1) continue;
     }
   }
 
-  const errorMsg = lastErr ? (lastErr instanceof Error ? lastErr.message : String(lastErr)) : null;
-  if (errorMsg) {
-    console.warn("[svg-generator] Batch LLM generation failed after retries:", errorMsg);
-  }
+  const error = lastStructuredError || (lastErr ? makeStructuredError(lastErr) : makeStructuredError("SVG batch generation failed"));
+  console.warn("[svg-generator] Batch LLM generation failed after retries:", error.message);
 
-  // Fallback for entire batch
-  return batchSlots.map((slot) => {
-    const slotId = toNonEmptyString(slot?.slotId);
-    const size = sizeFromPosition(slot?.position) || { width: 600, height: 400 };
-    const label = toNonEmptyString(slot?.svgSpec?.description) || slotId || "Visual";
-    return {
-      slotId,
-      svgContent: makeFallbackSvg({ width: size.width, height: size.height, colors, label }),
-      width: size.width,
-      height: size.height,
-      source: "fallback",
-      ...(errorMsg ? { error: errorMsg } : {}),
-    };
-  });
+  return { results: batchSlots.map((slot) => makeFallbackResult(slot, colors, error)), hasError: true };
 }
 
 function chunkArray(arr, size) {
@@ -352,10 +472,24 @@ export class SVGGenerator {
 
   async generate(svgSlots, designSystem, { emit, aiApiService, modelRouter, signal, slideHtmlBySlotId, concurrency } = {}) {
     const slots = Array.isArray(svgSlots) ? svgSlots : [];
-    if (slots.length === 0) return [];
-
     const htmlMap = slideHtmlBySlotId instanceof Map ? slideHtmlBySlotId : new Map();
     const effectiveConcurrency = Math.max(1, Math.min(6, concurrency || this.concurrency || 3));
+
+    if (slots.length === 0) {
+      const report = {
+        schemaVersion: "0.1",
+        planned: 0,
+        completed: 0,
+        llmGenerated: 0,
+        fallback: 0,
+        skipped: 0,
+        concurrency: effectiveConcurrency,
+        errors: [],
+      };
+      return { results: [], report };
+    }
+
+    const totalErrors = [];
 
     safeEmit(emit, "design.svg.generate.started", "started", { slots: slots.length, concurrency: effectiveConcurrency });
 
@@ -366,40 +500,74 @@ export class SVGGenerator {
     const limiter = createLimiter(effectiveConcurrency);
     await Promise.all(batches.map((batch, batchIndex) => limiter(async () => {
       if (signal?.aborted) {
-        allResults[batchIndex] = batch.map((slot) => ({
-          slotId: toNonEmptyString(slot?.slotId),
-          svgContent: "",
-          width: 0,
-          height: 0,
-          source: "skipped",
-        }));
+        const abortError = { level: "degradable", code: "ABORTED", canRetry: false, message: String(signal?.reason || "aborted") };
+        const skipped = batch.map((slot) => {
+          const slotId = toNonEmptyString(slot?.slotId);
+          return { slotId, svgContent: "", width: 0, height: 0, source: "skipped", error: abortError };
+        });
+        allResults[batchIndex] = skipped;
+        totalErrors.push(abortError);
         return;
       }
 
-      const results = await generateBatchWithLLM(batch, designSystem, htmlMap, { modelRouter, aiApiService, signal });
+      const batchRes = await generateBatchWithLLM(batch, designSystem, htmlMap, { modelRouter, aiApiService, signal, emit });
+      const results = Array.isArray(batchRes?.results) ? batchRes.results : [];
       allResults[batchIndex] = results;
+
+      for (const r of results) {
+        if (r?.error) totalErrors.push(r.error);
+      }
 
       safeEmit(emit, "design.svg.batch.completed", "completed", {
         batchIndex,
         batchCount: batches.length,
+        hasError: !!batchRes?.hasError,
         generated: results.filter((s) => s.source === "llm").length,
         fallback: results.filter((s) => s.source === "fallback").length,
+        skipped: results.filter((s) => s.source === "skipped").length,
       });
     })));
 
     const flatResults = allResults.flat();
+    const llmGenerated = flatResults.filter((s) => s.source === "llm").length;
+    const fallback = flatResults.filter((s) => s.source === "fallback").length;
+    const skipped = flatResults.filter((s) => s.source === "skipped").length;
+    const fatalErrors = totalErrors.filter((e) => e && typeof e === "object" && e.level === "fatal");
 
-    // Collect unique errors
-    const errors = [...new Set(flatResults.filter((s) => s.error).map((s) => s.error))];
+    const report = {
+      schemaVersion: "0.1",
+      planned: slots.length,
+      completed: flatResults.length,
+      batches: batches.length,
+      batchSize: this.batchSize,
+      concurrency: effectiveConcurrency,
+      llmGenerated,
+      fallback,
+      skipped,
+      errors: totalErrors,
+    };
 
-    safeEmit(emit, "design.svg.generate.completed", "completed", {
-      slots: flatResults.length,
-      llmGenerated: flatResults.filter((s) => s.source === "llm").length,
-      fallback: flatResults.filter((s) => s.source === "fallback").length,
-      ...(errors.length ? { errors } : {}),
-    });
+    if (fatalErrors.length && llmGenerated === 0) {
+      safeEmit(emit, "design.svg.generate.failed", "failed", {
+        slots: flatResults.length,
+        llmGenerated,
+        fallback,
+        skipped,
+        errors: totalErrors,
+        report,
+      });
+    } else {
+      safeEmit(emit, "design.svg.generate.completed", "completed", {
+        slots: flatResults.length,
+        llmGenerated,
+        fallback,
+        skipped,
+        errors: totalErrors,
+        report,
+      });
+    }
 
-    return flatResults;
+    return { results: flatResults, report };
   }
 }
 

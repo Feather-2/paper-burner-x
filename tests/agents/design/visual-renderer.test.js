@@ -22,7 +22,10 @@ test("VisualRenderer: dispatches by renderType + emits unified events", async ()
   const svgGenerator = {
     async generate(slots) {
       calls.svg = { slots };
-      return slots.map((s) => ({ slotId: s.slotId, svgContent: `<svg id="${s.slotId}"></svg>`, width: 100, height: 50 }));
+      return {
+        results: slots.map((s) => ({ slotId: s.slotId, svgContent: `<svg id="${s.slotId}"></svg>`, width: 100, height: 50 })),
+        report: { schemaVersion: "0.1", planned: slots.length, completed: slots.length, llmGenerated: slots.length, fallback: 0, skipped: 0, errors: [] },
+      };
     },
   };
 
@@ -68,7 +71,7 @@ test("SVGGenerator: generates deterministic SVG and fillSvgPlaceholders patches 
   const { SVGGenerator, fillSvgPlaceholders } = await import("../../../js/agents/stages/design/svg-generator.js");
 
   const gen = new SVGGenerator();
-  const res = await gen.generate(
+  const { results: res } = await gen.generate(
     [
       {
         slotId: "data_flow",
@@ -111,5 +114,70 @@ test("AssetResolver: resolves assetId and fillAssetPlaceholders patches HTML", a
   assert.ok(patched.html.includes('data-el="image"'));
   assert.ok(patched.html.includes('data-src="data:image/png;base64,QUJD"'));
   assert.ok(!patched.html.includes('data-el="image-placeholder" id="fig_1"'));
+});
+
+test("SVGGenerator: classifySvgError categorizes errors correctly", async () => {
+  const { SVGGenerator } = await import("../../../js/agents/stages/design/svg-generator.js");
+
+  const gen = new SVGGenerator();
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  // 测试无模型时的 fatal 错误
+  const { results, report } = await gen.generate(
+    [{ slotId: "test_1", renderType: "svg", svgSpec: { description: "Test" } }],
+    { designTokens: { colors: { primary: "#111", textMuted: "#666" } } },
+    { emit, modelRouter: null, aiApiService: null }
+  );
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0].source, "fallback");
+  assert.ok(results[0].error);
+  assert.equal(results[0].error.level, "fatal");
+  assert.equal(results[0].error.code, "CONFIG_OR_AUTH");
+
+  // 验证 report 结构
+  assert.ok(report);
+  assert.equal(report.llmGenerated, 0);
+  assert.equal(report.fallback, 1);
+  assert.ok(report.errors.length > 0);
+});
+
+test("SVGGenerator: emits design.svg.batch.failed on error", async () => {
+  const { SVGGenerator } = await import("../../../js/agents/stages/design/svg-generator.js");
+
+  const gen = new SVGGenerator();
+  const events = [];
+  const emit = (name, record) => events.push({ name, record });
+
+  await gen.generate(
+    [{ slotId: "err_1", renderType: "svg", svgSpec: { description: "Fail test" } }],
+    { designTokens: { colors: { primary: "#000", textMuted: "#999" } } },
+    { emit }
+  );
+
+  const failedEvents = events.filter((e) => e.name === "design.svg.batch.failed");
+  assert.ok(failedEvents.length > 0, "Should emit batch.failed event");
+  assert.ok(failedEvents[0].record.payload.error);
+});
+
+test("SVGGenerator: returns structured report with errors array", async () => {
+  const { SVGGenerator } = await import("../../../js/agents/stages/design/svg-generator.js");
+
+  const gen = new SVGGenerator();
+  const { report } = await gen.generate(
+    [
+      { slotId: "s1", renderType: "svg", svgSpec: { description: "Test 1" } },
+      { slotId: "s2", renderType: "svg", svgSpec: { description: "Test 2" } },
+    ],
+    { designTokens: { colors: { primary: "#123", textMuted: "#456" } } },
+    { emit: () => {} }
+  );
+
+  assert.ok(report);
+  assert.equal(typeof report.planned, "number");
+  assert.equal(typeof report.llmGenerated, "number");
+  assert.equal(typeof report.fallback, "number");
+  assert.ok(Array.isArray(report.errors));
 });
 

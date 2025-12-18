@@ -61,3 +61,18 @@ export function safeInt(n) {
   return v === null ? null : Math.floor(v);
 }
 
+/**
+ * Normalize render type string to one of: "ai-image", "svg", "asset".
+ * Default fallback is "ai-image".
+ *
+ * @param {any} rt - Input render type
+ * @returns {"ai-image" | "svg" | "asset"}
+ */
+export function normalizeRenderType(rt) {
+  const t = String(rt || "").trim().toLowerCase();
+  if (t === "ai-image" || t === "ai_image" || t === "image") return "ai-image";
+  if (t === "svg") return "svg";
+  if (t === "asset" || t === "doc-asset" || t === "document-asset") return "asset";
+  return "ai-image";
+}
+
