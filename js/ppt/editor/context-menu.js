@@ -196,9 +196,9 @@ class ContextMenu {
     show(x, y, element) {
         this.currentElement = element;
 
-        // 图片或可编辑的 SVG（有原图可回退）
+        // 图片或可编辑的 SVG（有原图可回退，或有 layers 可继续编辑）
         const isImage = element?.type === 'image';
-        const isEditableSvg = element?.type === 'svg' && element?.originalAssetId;
+        const isEditableSvg = element?.type === 'svg' && (element?.originalAssetId || element?.editParams?.layers);
         const canEditImage = isImage || isEditableSvg;
 
         // 显示图片编辑菜单
@@ -398,19 +398,25 @@ class ContextMenu {
         // 获取图片 DOM
         const elementDom = document.querySelector(`[data-element-id="${element.id}"]`);
         const imgElement = elementDom?.querySelector('img');
-        
+
         // 获取图片源：优先从 <img> 标签获取，其次从元素数据获取
-        // 如果是 SVG，使用原图进行编辑
+        // 如果是 SVG，使用原图或 preview 进行编辑
         let imgSrc = imgElement?.src || element?.src || element?.preview;
-        if (element?.type === 'svg' && element?.originalAssetId) {
-            // 从原图重新加载
-            const storageManager = window.storageManager;
-            if (storageManager?.getAssetUrl) {
-                try {
-                    imgSrc = await storageManager.getAssetUrl(element.originalAssetId);
-                } catch (e) {
-                    console.warn('[ContextMenu] 获取原图失败，回退到预览/现有 src:', e);
+        if (element?.type === 'svg') {
+            if (element?.originalAssetId) {
+                // 从原图重新加载
+                const storageManager = window.storageManager;
+                if (storageManager?.getAssetUrl) {
+                    try {
+                        imgSrc = await storageManager.getAssetUrl(element.originalAssetId);
+                    } catch (e) {
+                        console.warn('[ContextMenu] 获取原图失败，回退到预览:', e);
+                        imgSrc = element?.preview || imgSrc;
+                    }
                 }
+            } else if (element?.preview) {
+                // 无原图但有 preview，使用 preview
+                imgSrc = element.preview;
             }
         }
         if (!imgSrc) {
@@ -418,15 +424,18 @@ class ContextMenu {
             alert('该图片没有设置图片源，请先添加图片');
             return;
         }
-        
+
         // 如果 DOM 中没有 <img>，创建一个临时的带 src 的对象传给编辑器
-        const editorElement = imgElement || { src: imgSrc, dataset: {} };
+        // 同时传递 editParams 用于恢复图层状态
+        const editorElement = imgElement
+            ? { src: imgElement.src, dataset: imgElement.dataset, editParams: element?.editParams }
+            : { src: imgSrc, dataset: {}, editParams: element?.editParams };
 
         // 打开编辑器
         await window.imageProcessor.openEditor(editorElement, async (result) => {
             if (result.type === 'svg' && result.svg) {
-                // 矢量结果：替换为 SVG 元素
-                this._replaceWithSvg(element.id, result.svg, result.dataUrl);
+                // 矢量结果：替换为 SVG 元素，同时保存 layers 用于继续编辑
+                this._replaceWithSvg(element.id, result.svg, result.dataUrl, result.layers);
                 return;
             }
 
@@ -461,7 +470,7 @@ class ContextMenu {
     /**
      * 将图片元素替换为 SVG
      */
-    _replaceWithSvg(elementId, svgString, previewDataUrl) {
+    _replaceWithSvg(elementId, svgString, previewDataUrl, layers) {
         const processedSvg = (typeof svgString === 'string' ? svgString : '').replace(
             /<svg\b([^>]*)>/i,
             (match, attrs) => {
@@ -497,12 +506,22 @@ class ContextMenu {
             preview: previewDataUrl
         };
 
+        // 保存 layers 数据用于继续编辑
+        if (layers && layers.length > 0) {
+            updates.editParams = { layers };
+        }
+
         // 更新 slides 数据
         const slide = window.PPTGenerator?.slides?.[this.editor.currentSlideIndex];
         const element = slide?.elements?.find(el => el.id === elementId);
         if (element) {
             // 保留原有位置和尺寸
             const { x, y, w, h } = element;
+
+            // 如果原始元素有 assetId，保存为 originalAssetId 以便二次编辑时能从原图开始
+            if (element.assetId && !element.originalAssetId) {
+                updates.originalAssetId = element.assetId;
+            }
 
             // 保存 SVG 内容
             Object.assign(element, { x, y, w, h, ...updates });

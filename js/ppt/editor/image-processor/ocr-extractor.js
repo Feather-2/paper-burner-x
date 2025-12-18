@@ -377,21 +377,20 @@ class OcrExtractor {
      * 原生 Grounding Prompt（统一 0-1000 坐标）
      */
     _getNativeGroundingPrompt() {
-        return `You are a precise OCR tool. Detect all text in this image and provide bounding box coordinates.
+        return `OCR task: Extract ALL text from this image with bounding boxes.
 
-Output format (JSON only, no markdown):
-{"regions":[{"text":"content","bbox":[x1,y1,x2,y2]}]}
+Output ONLY valid JSON (no markdown, no explanation):
+{"regions":[{"text":"content","bbox":[left,top,right,bottom]}]}
 
-Coordinate system:
-- Values are normalized to 0-1000 scale
-- (0,0) = top-left corner, (1000,1000) = bottom-right corner
-- bbox = [left, top, right, bottom]
+Coordinates: 0-1000 scale, (0,0)=top-left, (1000,1000)=bottom-right.
 
-Requirements:
-- Include ALL visible text (titles, labels, annotations, etc.)
-- bbox should tightly fit the text
-- Merge text on the same line into one region
-- Output text in its ORIGINAL language (do not translate)`;
+CRITICAL rules:
+1. Extract EVERY text region - titles, body text, labels, captions, watermarks, small annotations. Do NOT skip any visible text.
+2. Keep text in the SAME visual container together as ONE region (e.g., a text box, a paragraph block, a title bar). Include line breaks as \\n within the "text" field.
+3. SEPARATE text from DIFFERENT visual containers into different regions (e.g., title vs body, sidebar vs main content, different cards/boxes).
+4. bbox must tightly wrap all text in that region.
+5. Preserve original language - do NOT translate.
+6. Escape special JSON characters in text (quotes as \\", backslash as \\\\).`;
     }
     
     /**
@@ -499,7 +498,30 @@ Requirements:
                         height: Math.max(0.01, Math.min(1, bottom - top))
                     };
                 }
-                // 格式4: 旧格式 bbox { left, top, width, height }
+                // 格式4: rotate_rect [centerX, centerY, width, height, angle] (qwen-vl-ocr)
+                // 坐标是像素值，需要归一化
+                else if (Array.isArray(item.rotate_rect) && item.rotate_rect.length >= 4) {
+                    const [cx, cy, rw, rh, angle = 0] = item.rotate_rect;
+                    // 当 angle 接近 90 或 270 度时，交换宽高
+                    const isVertical = Math.abs(angle % 180 - 90) < 45;
+                    const w = isVertical ? rh : rw;
+                    const h = isVertical ? rw : rh;
+                    // 转换为左上角坐标
+                    const left = (cx - w / 2) / imgWidth;
+                    const top = (cy - h / 2) / imgHeight;
+                    const width = w / imgWidth;
+                    const height = h / imgHeight;
+
+                    if (![left, top, width, height].every(Number.isFinite)) return;
+
+                    bbox = {
+                        left: Math.max(0, Math.min(1, left)),
+                        top: Math.max(0, Math.min(1, top)),
+                        width: Math.max(0.01, Math.min(1, width)),
+                        height: Math.max(0.01, Math.min(1, height))
+                    };
+                }
+                // 格式5: 旧格式 bbox { left, top, width, height }
                 else {
                     return;
                 }

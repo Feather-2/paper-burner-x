@@ -48,10 +48,15 @@ class HTMLSlideRenderer {
     // ═══════════════════════════════════════════════════════════════
 
     renderFreeform(slide, index) {
+        // 防御性检查：slide 未定义时返回空白占位
+        if (!slide) {
+            return `<div style="position:relative;width:100%;height:100%;background:#f5f5f5;display:flex;align-items:center;justify-content:center;color:#999;">幻灯片数据加载中...</div>`;
+        }
+
         const { htmlWidth, htmlHeight } = this.styles.dimensions;
 
-        // 背景样式
-        let bgStyle = `background: ${slide.background};`;
+        // 背景样式（提供默认值）
+        let bgStyle = `background: ${slide.background || '#ffffff'};`;
         if (slide.backgroundGradient) {
             bgStyle = `background: ${slide.backgroundGradient};`;
         }
@@ -805,15 +810,19 @@ class HTMLSlideRenderer {
      * 渲染内联 SVG - AI 可以画复杂图形、流程图、示意图等
      */
     renderFreeformSvg(el, baseStyle) {
+        // 如果有 preview 栅格图，使用双层结构：栅格图在下，SVG 在上
+        const hasPreview = el.preview && el.preview.startsWith('data:');
+
         let containerStyle = `
             ${baseStyle}
             ${el.bgColor ? `background: ${el.bgColor};` : ''}
             ${el.radius ? `border-radius: ${el.radius}px; overflow: hidden;` : ''}
+            ${hasPreview ? `background-image: url("${el.preview}"); background-size: contain; background-repeat: no-repeat; background-position: center;` : ''}
         `.replace(/\s+/g, ' ').trim();
 
         // SVG 内容可能包含完整的 <svg> 标签，或者只是内部元素
         let svgContent = el.content || '';
-        
+
         // 如果不是以 <svg 开头，包装一个 svg 标签
         if (!svgContent.trim().toLowerCase().startsWith('<svg')) {
             svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" preserveAspectRatio="${el.preserveAspectRatio || 'xMidYMid meet'}">${svgContent}</svg>`;
