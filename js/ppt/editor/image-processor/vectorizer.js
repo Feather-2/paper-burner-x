@@ -8,6 +8,8 @@ class ImageVectorizer {
         this.engine = null;
         this.vectortracer = null;
         this.vectorizerModule = null;  // 新版模块化引擎
+        this._simplifyPathD = null;    // 路径简化函数（来自 vecburner/path-simplifier.js）
+        this._simplifyPathDLoading = null;
         
         // Web Worker 支持
         this.worker = null;
@@ -540,10 +542,39 @@ ${pathsStr}
      * @param {string} pathD - SVG path d 属性
      * @param {number} tolerance - 简化容差
      */
+    _ensureSimplifyPathD() {
+        if (this._simplifyPathD) return;
+        if (this._simplifyPathDLoading) return;
+
+        this._simplifyPathDLoading = import('./vecburner/path-simplifier.js')
+            .then(({ simplifyPathD }) => {
+                this._simplifyPathD = simplifyPathD;
+            })
+            .catch((e) => {
+                console.warn('[ImageVectorizer] path-simplifier 懒加载失败:', e.message);
+            })
+            .finally(() => {
+                this._simplifyPathDLoading = null;
+            });
+    }
+
     simplifyPath(pathD, tolerance = 1) {
-        // 简单实现：使用 Douglas-Peucker 算法
-        // 这里只是基础实现，可以后续用更好的库
-        return pathD; // TODO: 实现路径简化
+        // 复用已有的路径简化实现（支持多子路径/曲线采样）
+        if (!this._simplifyPathD) {
+            // 懒加载：允许用户直接调用 simplifyPath()，无需先 load()
+            this._ensureSimplifyPathD();
+            return pathD;
+        }
+
+        const level = Number.isFinite(tolerance) ? tolerance : 1;
+        const clampedLevel = Math.max(0, Math.min(100, level));
+
+        try {
+            return this._simplifyPathD(pathD, clampedLevel);
+        } catch (e) {
+            console.warn('[ImageVectorizer] simplifyPath 失败:', e.message);
+            return pathD;
+        }
     }
 
     /**

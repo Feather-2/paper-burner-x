@@ -46,6 +46,10 @@ class ContextMenu {
                 <span>智能编辑图片</span>
                 <iconify-icon icon="carbon:arrow-right" style="margin-left:auto; opacity:0.5;"></iconify-icon>
             </div>
+            <div class="context-menu-item" data-action="revert-original" data-type="editable-image">
+                <iconify-icon icon="carbon:reset" class="menu-icon"></iconify-icon>
+                <span>回退到原图</span>
+            </div>
             <div class="context-menu-item" data-action="remove-bg" data-type="image">
                 <iconify-icon icon="carbon:subtract-alt" class="menu-icon"></iconify-icon>
                 <span>去除背景</span>
@@ -192,16 +196,27 @@ class ContextMenu {
     show(x, y, element) {
         this.currentElement = element;
 
-        // 根据元素类型显示/隐藏图片相关菜单项
+        // 图片或可编辑的 SVG（有原图可回退）
         const isImage = element?.type === 'image';
+        const isEditableSvg = element?.type === 'svg' && element?.originalAssetId;
+        const canEditImage = isImage || isEditableSvg;
+
+        // 显示图片编辑菜单
         this.menuElement.querySelectorAll('[data-type="image"]').forEach(item => {
-            item.style.display = isImage ? '' : 'none';
+            item.style.display = canEditImage ? '' : 'none';
+        });
+
+        // "回退到原图"只在有编辑历史时显示
+        const hasEditHistory = element?.originalAssetId &&
+            (element?.editHistory?.length > 0 || element?.type === 'svg');
+        this.menuElement.querySelectorAll('[data-type="editable-image"]').forEach(item => {
+            item.style.display = hasEditHistory ? '' : 'none';
         });
         
         // 隐藏图片处理前的分割线（如果不是图片）
         const dividers = this.menuElement.querySelectorAll('.context-menu-divider');
         if (dividers[1]) {
-            dividers[1].style.display = isImage ? '' : 'none';
+            dividers[1].style.display = (canEditImage || hasEditHistory) ? '' : 'none';
         }
 
         // 编组/解组菜单项显示逻辑
@@ -240,7 +255,7 @@ class ContextMenu {
 
     async _executeAction(action) {
         const element = this.currentElement;
-        if (!element && ['edit', 'edit-image', 'vectorize', 'ocr', 'remove-bg', 'delete'].includes(action)) {
+        if (!element && ['edit', 'edit-image', 'revert-original', 'vectorize', 'ocr', 'remove-bg', 'delete'].includes(action)) {
             return;
         }
 
@@ -251,6 +266,10 @@ class ContextMenu {
 
             case 'edit-image':
                 await this._openImageEditor(element);
+                break;
+
+            case 'revert-original':
+                await this._revertToOriginal(element);
                 break;
 
             case 'ai-generate':
@@ -303,6 +322,74 @@ class ContextMenu {
         }
     }
 
+    async _revertToOriginal(element) {
+        if (!element?.originalAssetId) {
+            alert('该元素没有原始版本');
+            return false;
+        }
+
+        if (typeof this.editor.revertImageToOriginal !== 'function') {
+            alert('回退功能未加载');
+            return false;
+        }
+
+        const confirmed = confirm('确定要回退到原始图片吗？所有编辑将丢失。');
+        if (!confirmed) return false;
+
+        // 合并为一个撤销步骤
+        this.editor.history?.beginBatch?.('回退到原图');
+
+        try {
+            const success = await this.editor.revertImageToOriginal?.(element.id);
+            if (!success) {
+                this.editor.history?.cancelBatch?.();
+                return false;
+            }
+
+            // 如果是 SVG，回退后需要恢复为 image 元素（否则渲染仍走 SVG content）
+            const docElement = this.editor?.document?.getElementById?.(element.id);
+            if (docElement?.type === 'svg') {
+                const oldValues = {
+                    type: docElement.type,
+                    content: docElement.content,
+                    svg: docElement.svg,
+                    preview: docElement.preview,
+                };
+
+                const updates = {
+                    type: 'image',
+                    content: docElement.src,
+                    svg: null,
+                    preview: null,
+                };
+
+                this.editor?.document?.updateElement?.(element.id, updates);
+                this.editor.history?.push?.({
+                    type: 'element.update',
+                    elementId: element.id,
+                    slideIndex: this.editor.currentSlideIndex,
+                    timestamp: Date.now(),
+                    changes: [
+                        { path: 'type', oldValue: oldValues.type, newValue: updates.type },
+                        { path: 'content', oldValue: oldValues.content, newValue: updates.content },
+                        { path: 'svg', oldValue: oldValues.svg, newValue: updates.svg },
+                        { path: 'preview', oldValue: oldValues.preview, newValue: updates.preview },
+                    ],
+                });
+
+                this.editor.renderCurrentSlide?.();
+            }
+
+            this.editor.history?.commitBatch?.();
+            console.log('[ContextMenu] 已回退到原图');
+            return true;
+        } catch (e) {
+            console.warn('[ContextMenu] 回退到原图失败:', e);
+            this.editor.history?.cancelBatch?.();
+            return false;
+        }
+    }
+
     async _openImageEditor(element) {
         // 懒加载 ImageProcessor
         await this._ensureImageProcessor();
@@ -313,7 +400,19 @@ class ContextMenu {
         const imgElement = elementDom?.querySelector('img');
         
         // 获取图片源：优先从 <img> 标签获取，其次从元素数据获取
-        const imgSrc = imgElement?.src || element?.src;
+        // 如果是 SVG，使用原图进行编辑
+        let imgSrc = imgElement?.src || element?.src || element?.preview;
+        if (element?.type === 'svg' && element?.originalAssetId) {
+            // 从原图重新加载
+            const storageManager = window.storageManager;
+            if (storageManager?.getAssetUrl) {
+                try {
+                    imgSrc = await storageManager.getAssetUrl(element.originalAssetId);
+                } catch (e) {
+                    console.warn('[ContextMenu] 获取原图失败，回退到预览/现有 src:', e);
+                }
+            }
+        }
         if (!imgSrc) {
             console.warn('[ContextMenu] 图片元素没有图片源:', element.id);
             alert('该图片没有设置图片源，请先添加图片');
@@ -324,12 +423,36 @@ class ContextMenu {
         const editorElement = imgElement || { src: imgSrc, dataset: {} };
 
         // 打开编辑器
-        await window.imageProcessor.openEditor(editorElement, (result) => {
+        await window.imageProcessor.openEditor(editorElement, async (result) => {
             if (result.type === 'svg' && result.svg) {
                 // 矢量结果：替换为 SVG 元素
                 this._replaceWithSvg(element.id, result.svg, result.dataUrl);
-            } else {
-                // 栅格结果：更新图片
+                return;
+            }
+
+            // 栅格结果：持久化并更新引用
+            try {
+                const operation = 'edit-image';
+                const params = {};
+
+                const saved = await window.imageProcessor.saveProcessedImage(
+                    { dataUrl: result.dataUrl },
+                    element.id,
+                    operation,
+                    params
+                );
+
+                if (saved?.assetId) {
+                    this._updateElementImage(element.id, saved.url || result.dataUrl, {
+                        assetId: saved.assetId,
+                        operation,
+                        params
+                    });
+                } else {
+                    this._updateElementImage(element.id, result.dataUrl);
+                }
+            } catch (e) {
+                console.warn('[ContextMenu] 图片保存失败，使用临时结果:', e);
                 this._updateElementImage(element.id, result.dataUrl);
             }
         });
@@ -339,38 +462,67 @@ class ContextMenu {
      * 将图片元素替换为 SVG
      */
     _replaceWithSvg(elementId, svgString, previewDataUrl) {
+        const processedSvg = (typeof svgString === 'string' ? svgString : '').replace(
+            /<svg\b([^>]*)>/i,
+            (match, attrs) => {
+                const widthMatch = attrs.match(/\bwidth\s*=\s*["']([^"']*)["']/i);
+                const heightMatch = attrs.match(/\bheight\s*=\s*["']([^"']*)["']/i);
+
+                let newAttrs = attrs
+                    .replace(/\s*width\s*=\s*["'][^"']*["']/gi, '')
+                    .replace(/\s*height\s*=\s*["'][^"']*["']/gi, '');
+
+                // 如果缺少 viewBox，则尝试用原始 width/height 补一个（让 viewBox 控制比例）
+                if (!/\bviewBox\s*=/i.test(newAttrs) && widthMatch && heightMatch) {
+                    const w = parseFloat(widthMatch[1]);
+                    const h = parseFloat(heightMatch[1]);
+                    if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+                        newAttrs += ` viewBox="0 0 ${w} ${h}"`;
+                    }
+                }
+
+                // 确保有 preserveAspectRatio
+                if (!/\bpreserveAspectRatio\s*=/i.test(newAttrs)) {
+                    newAttrs += ' preserveAspectRatio="xMidYMid meet"';
+                }
+
+                return `<svg${newAttrs}>`;
+            }
+        );
+
+        const updates = {
+            type: 'svg',
+            svg: processedSvg,
+            content: processedSvg,
+            preview: previewDataUrl
+        };
+
         // 更新 slides 数据
         const slide = window.PPTGenerator?.slides?.[this.editor.currentSlideIndex];
         const element = slide?.elements?.find(el => el.id === elementId);
         if (element) {
+            // 保留原有位置和尺寸
+            const { x, y, w, h } = element;
+
             // 保存 SVG 内容
-            element.type = 'svg';
-            element.svg = svgString;
-            element.content = svgString;
-            element.preview = previewDataUrl; // 保留预览图
+            Object.assign(element, { x, y, w, h, ...updates });
         }
 
-        // 更新 DOM：替换为 SVG
-        const elementDom = document.querySelector(`[data-element-id="${elementId}"]`);
-        if (elementDom) {
-            const img = elementDom.querySelector('img');
-            if (img) {
-                // 创建 SVG 容器
-                const svgContainer = document.createElement('div');
-                svgContainer.innerHTML = svgString;
-                const svgElement = svgContainer.querySelector('svg');
-                if (svgElement) {
-                    svgElement.style.width = '100%';
-                    svgElement.style.height = '100%';
-                    img.replaceWith(svgElement);
-                }
-            }
+        // 【关键】同步到 document（解决 bug 2 和 3）
+        try {
+            this.editor?.document?.updateElement?.(elementId, updates);
+        } catch (e) {
+            console.warn('[ContextMenu] 同步 SVG 到 document 失败:', e);
         }
+
+        // 【关键】重新渲染当前 slide（解决 bug 1）
+        // 不要直接操作 DOM，让渲染器统一处理
+        this.editor.renderCurrentSlide?.();
 
         // 标记为已修改
         this.editor.history?.markDirty?.();
         this.editor.emit('element:update', { elementId, type: 'svg' });
-        
+
         console.log('[ContextMenu] 图片已转换为 SVG 矢量图');
     }
 
@@ -440,13 +592,48 @@ class ContextMenu {
         });
     }
 
-    _updateElementImage(elementId, dataUrl) {
-        // 更新 slides 数据
+    async _updateElementImage(elementId, dataUrl, options = {}) {
         const slide = window.PPTGenerator?.slides?.[this.editor.currentSlideIndex];
         const element = slide?.elements?.find(el => el.id === elementId);
-        if (element) {
-            element.src = dataUrl;
-            element.content = dataUrl;
+        if (!element) return;
+
+        // 如果有新的 assetId，更新引用
+        if (options.assetId) {
+            const oldAssetId = element.assetId;
+            element.assetId = options.assetId;
+
+            // 更新编辑历史
+            if (!element.editHistory) element.editHistory = [];
+            element.editHistory.push({
+                assetId: options.assetId,
+                timestamp: Date.now(),
+                operation: options.operation || 'edit',
+                params: options.params || {}
+            });
+
+            // 补齐 originalAssetId（兼容旧数据）
+            if (!element.originalAssetId) {
+                element.originalAssetId = oldAssetId || options.assetId;
+            }
+
+            console.log('[ContextMenu] 更新 assetId:', oldAssetId, '->', options.assetId);
+        }
+
+        // 更新显示
+        element.src = dataUrl;
+        element.content = dataUrl;
+
+        // 同步到 document（用于项目保存）
+        try {
+            this.editor?.document?.updateElement?.(elementId, {
+                assetId: element.assetId,
+                originalAssetId: element.originalAssetId,
+                editHistory: element.editHistory,
+                src: dataUrl,
+                content: dataUrl
+            });
+        } catch (e) {
+            console.warn('[ContextMenu] 同步到 document 失败:', e);
         }
 
         // 更新 DOM
@@ -456,9 +643,8 @@ class ContextMenu {
             img.src = dataUrl;
         }
 
-        // 标记为已修改
+        // 标记已修改
         this.editor.history?.markDirty?.();
-        this.editor.emit('element:update', { elementId });
     }
 
     /**

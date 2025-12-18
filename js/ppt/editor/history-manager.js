@@ -188,15 +188,18 @@ class HistoryManager extends EventEmitter {
 
         switch (op.type) {
             case 'element.update': {
-                // 使用操作记录中的 slideIndex
-                const slideIndex = op.slideIndex ?? this.editor.currentSlideIndex;
-                
-                // 只更新 document（主数据源），由外部渲染流程同步到 PPTGenerator
-                const docSlide = doc.slides?.[slideIndex];
-                const docElement = docSlide?.elements?.find(el => el.id === op.elementId);
-                if (docElement) {
-                    for (const change of op.changes) {
-                        const value = reverse ? change.oldValue : change.newValue;
+                const docElement = doc.getElementById(op.elementId);
+                if (!docElement) break;
+
+                for (const change of op.changes) {
+                    const value = reverse ? change.oldValue : change.newValue;
+
+                    // 特殊处理 assetId：需要异步加载图片
+                    if (change.path === 'assetId') {
+                        docElement.assetId = value;
+                        // 异步更新 src（不阻塞撤销操作）
+                        this._updateElementSrc(docElement, value);
+                    } else {
                         this._setByPath(docElement, change.path, value);
                     }
                 }
@@ -268,6 +271,23 @@ class HistoryManager extends EventEmitter {
                 doc.moveSlide(fromIndex, toIndex);
                 break;
             }
+        }
+    }
+
+    async _updateElementSrc(element, assetId) {
+        const storageManager = window.storageManager;
+        if (!storageManager || !assetId) return;
+
+        try {
+            const url = await storageManager.getAssetUrl(assetId);
+            if (url) {
+                element.src = url;
+                // 更新 DOM
+                const dom = document.querySelector(`[data-element-id="${element.id}"] img`);
+                if (dom) dom.src = url;
+            }
+        } catch (e) {
+            console.warn('[HistoryManager] 加载 asset 失败:', assetId, e);
         }
     }
 
