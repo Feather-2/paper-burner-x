@@ -45,6 +45,42 @@ function toErrorInfo(err) {
   return { name: e.name, message: e.message };
 }
 
+function createNoopLogger() {
+  const noop = () => {};
+  return { debug: noop, info: noop, warn: noop, error: noop };
+}
+
+function assertLoggerLike(logger) {
+  if (!isPlainObject(logger)) throw new TypeError("ModelRouter: logger must be an object");
+  for (const k of ["debug", "info", "warn", "error"]) {
+    if (typeof logger[k] !== "function") throw new TypeError(`ModelRouter: logger.${k} must be a function`);
+  }
+}
+
+function resolveLogger({ debug, logger } = {}) {
+  if (!debug) return createNoopLogger();
+  if (logger !== undefined) {
+    assertLoggerLike(logger);
+    return logger;
+  }
+
+  // Default to console in Node.js / browsers.
+  const c = typeof console !== "undefined" ? console : null;
+  return {
+    debug: typeof c?.debug === "function" ? c.debug.bind(c) : () => {},
+    info: typeof c?.info === "function" ? c.info.bind(c) : () => {},
+    warn: typeof c?.warn === "function" ? c.warn.bind(c) : () => {},
+    error: typeof c?.error === "function" ? c.error.bind(c) : () => {},
+  };
+}
+
+function rotateFromIndex(list, startIndex) {
+  const arr = Array.isArray(list) ? list : [];
+  if (arr.length <= 1) return arr.slice();
+  const start = ((startIndex || 0) % arr.length + arr.length) % arr.length;
+  return arr.slice(start).concat(arr.slice(0, start));
+}
+
 class RateLimiter {
   constructor({ perSecond = Infinity, time } = {}) {
     this._minIntervalMs = perSecond === Infinity ? 0 : Math.max(0, Math.ceil(1000 / Math.max(1, perSecond)));
@@ -69,8 +105,16 @@ function defaultTime() {
 }
 
 export class ModelRouter extends EventEmitter {
-  constructor({ models, usageConfig, providers, cooldownMs = 60_000, usageTags, time } = {}) {
+  constructor({ models, usageConfig, providers, cooldownMs = 60_000, usageTags, time, debug = false, logger, strategy = "round_robin" } = {}) {
     super();
+
+    if (debug !== undefined && typeof debug !== "boolean") throw new TypeError("ModelRouter: debug must be a boolean");
+    if (strategy !== "priority" && strategy !== "round_robin") throw new TypeError("ModelRouter: strategy must be 'priority' or 'round_robin'");
+
+    this._debug = debug;
+    this._logger = resolveLogger({ debug, logger });
+    this._strategy = strategy;
+    this._rrNextIndexByUsage = new Map(); // usage -> next start index
 
     this._time = isPlainObject(time) && typeof time.now === "function" && typeof time.sleep === "function" ? time : defaultTime();
     this._cooldownMs = typeof cooldownMs === "number" && cooldownMs > 0 ? Math.floor(cooldownMs) : 60_000;
@@ -228,77 +272,94 @@ export class ModelRouter extends EventEmitter {
     let cooldownCount = 0;
     const eligibleCandidates = [];
 
+    const baseCandidates = candidates;
+    const strategy = this._strategy;
+    const startIndex = strategy === "round_robin" ? (this._rrNextIndexByUsage.get(u) || 0) % baseCandidates.length : 0;
+    const orderedCandidates = strategy === "round_robin" ? rotateFromIndex(baseCandidates, startIndex) : baseCandidates;
+
+    let selectedModelId = null;
+
     // Debug: 记录候选模型和健康状态
-    const debugCandidates = candidates.map((id) => {
+    const debugCandidates = baseCandidates.map((id) => {
       const entry = this._models.get(id);
       const health = this._health.get(id);
       const available = this.isAvailable(id);
       const hasRequiredTags = entry ? this._supportsTags(entry, requiredTags) : false;
       return { id, available, hasRequiredTags, unhealthyUntilMs: health?.unhealthyUntilMs, failures: health?.failures };
     });
-    console.log(`[ModelRouter] call usage=${u}`, { candidates: debugCandidates, requiredTags: Array.from(requiredTags) });
+    this._logger.debug(`[ModelRouter] call usage=${u} strategy=${strategy} startIndex=${startIndex}`, {
+      candidates: debugCandidates,
+      requiredTags: Array.from(requiredTags),
+    });
 
-    for (let idx = 0; idx < candidates.length; idx++) {
-      const modelId = candidates[idx];
-      const entry = this._models.get(modelId);
-      if (!entry) throw new Error(`Unknown model id: ${modelId}`);
+    try {
+      for (let idx = 0; idx < orderedCandidates.length; idx++) {
+        const modelId = orderedCandidates[idx];
+        const entry = this._models.get(modelId);
+        if (!entry) throw new Error(`Unknown model id: ${modelId}`);
 
-      if (!this._supportsTags(entry, requiredTags)) {
-        console.log(`[ModelRouter] skip ${modelId}: missing required tags`);
-        continue;
-      }
-      eligibleCount++;
-      eligibleCandidates.push(modelId);
-      if (!this.isAvailable(modelId)) {
-        const h = this._health.get(modelId);
-        console.log(`[ModelRouter] skip ${modelId}: unhealthy until ${new Date(h?.unhealthyUntilMs || 0).toISOString()}`);
-        cooldownCount++;
-        continue;
-      }
-
-      const provider = this._getProvider(entry.provider);
-      if (!provider) throw new Error(`Missing provider: ${entry.provider} for model ${modelId}`);
-
-      const limiter = this._getRateLimiter(entry);
-      if (limiter) await limiter.waitTurn();
-
-      try {
-        triedCount++;
-        const resp = await provider.chat({ model: entry.id, messages, images });
-        assertChatResponse(resp);
-        return { ...resp, model: entry.id, provider: entry.provider };
-      } catch (err) {
-        lastError = err;
-        const health = this.markUnhealthy(modelId, err);
-        this.emit("model.unhealthy", {
-          usage: u,
-          modelId,
-          provider: entry.provider,
-          error: toErrorInfo(err),
-          cooldownMs: this._cooldownMs,
-          unhealthyUntilMs: health?.unhealthyUntilMs,
-        });
-
-        const nextModelId = this._findNextCandidate(idx + 1, candidates, requiredTags);
-        if (nextModelId) {
-          this.emit("model.failover", {
-            usage: u,
-            fromModelId: modelId,
-            toModelId: nextModelId,
-            error: toErrorInfo(err),
-          });
+        if (!this._supportsTags(entry, requiredTags)) {
+          this._logger.debug(`[ModelRouter] skip ${modelId}: missing required tags`);
+          continue;
         }
-        continue;
+        eligibleCount++;
+        eligibleCandidates.push(modelId);
+        if (!this.isAvailable(modelId)) {
+          const h = this._health.get(modelId);
+          this._logger.debug(`[ModelRouter] skip ${modelId}: unhealthy until ${new Date(h?.unhealthyUntilMs || 0).toISOString()}`);
+          cooldownCount++;
+          continue;
+        }
+
+        const provider = this._getProvider(entry.provider);
+        if (!provider) throw new Error(`Missing provider: ${entry.provider} for model ${modelId}`);
+
+        const limiter = this._getRateLimiter(entry);
+        if (limiter) await limiter.waitTurn();
+
+        try {
+          triedCount++;
+          this._logger.debug(`[ModelRouter] try ${modelId} via ${entry.provider}`);
+          const resp = await provider.chat({ model: entry.id, messages, images });
+          assertChatResponse(resp);
+          selectedModelId = entry.id;
+          this._logger.debug(`[ModelRouter] ok ${modelId} via ${entry.provider}`);
+          return { ...resp, model: entry.id, provider: entry.provider };
+        } catch (err) {
+          lastError = err;
+          this._logger.warn(`[ModelRouter] fail ${modelId} via ${entry.provider}: ${toErrorInfo(err).message}`);
+          const health = this.markUnhealthy(modelId, err);
+          this.emit("model.unhealthy", {
+            usage: u,
+            modelId,
+            provider: entry.provider,
+            error: toErrorInfo(err),
+            cooldownMs: this._cooldownMs,
+            unhealthyUntilMs: health?.unhealthyUntilMs,
+          });
+
+          const nextModelId = this._findNextCandidate(idx + 1, orderedCandidates, requiredTags);
+          if (nextModelId) {
+            this.emit("model.failover", {
+              usage: u,
+              fromModelId: modelId,
+              toModelId: nextModelId,
+              error: toErrorInfo(err),
+            });
+            this._logger.info(`[ModelRouter] failover ${modelId} -> ${nextModelId}`);
+          }
+          continue;
+        }
       }
-    }
 
     // 遍历完所有候选后：若所有可用候选都处于 cooldown，则按最短剩余时间等待并重试一次
     if (triedCount === 0 && eligibleCount > 0 && cooldownCount === eligibleCount) {
       const waitInfo = this._getShortestCooldown(eligibleCandidates);
       if (waitRetryCount < 1 && waitInfo && waitInfo.remainingMs > 0 && waitInfo.remainingMs < 30_000) {
         const waitMs = Math.ceil(waitInfo.remainingMs);
-        console.log(`[ModelRouter] All models in cooldown, waiting ${waitMs}ms for ${waitInfo.modelId}`);
+        this._logger.info(`[ModelRouter] all models in cooldown, waiting ${waitMs}ms for ${waitInfo.modelId}`);
         await this._time.sleep(waitMs + 100);
+        this._logger.info(`[ModelRouter] retry after cooldown wait`);
         return this.call({ usage: u, messages, images, _waitRetryCount: waitRetryCount + 1 });
       }
     }
@@ -307,5 +368,16 @@ export class ModelRouter extends EventEmitter {
     const e = new Error(msg);
     e.cause = lastError instanceof Error ? lastError : undefined;
     throw e;
+    } finally {
+      if (strategy === "round_robin" && baseCandidates.length > 0) {
+        const start = ((startIndex || 0) % baseCandidates.length + baseCandidates.length) % baseCandidates.length;
+        let next = (start + 1) % baseCandidates.length;
+        if (selectedModelId) {
+          const usedIdx = baseCandidates.indexOf(selectedModelId);
+          if (usedIdx >= 0) next = (usedIdx + 1) % baseCandidates.length;
+        }
+        this._rrNextIndexByUsage.set(u, next);
+      }
+    }
   }
 }
