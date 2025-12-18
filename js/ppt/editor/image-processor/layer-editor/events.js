@@ -31,6 +31,7 @@ export const EventsMixin = {
         });
         this.container.querySelector('[data-action="ocr"]')?.addEventListener('click', () => this._runOcr());
         this.container.querySelector('[data-action="remove-bg"]')?.addEventListener('click', () => this._removeBackground());
+        this.container.querySelector('[data-action="sam-segment"]')?.addEventListener('click', () => this._initSamMode());
         this.container.querySelector('[data-action="undo"]')?.addEventListener('click', () => this._undo());
         this.container.querySelector('[data-action="redo"]')?.addEventListener('click', () => this._redo());
 
@@ -81,6 +82,20 @@ export const EventsMixin = {
         // 键盘快捷键
         document.addEventListener('keydown', (e) => {
             if (!this.container || !document.body.contains(this.container)) return;
+
+            // 元素选择模式优先处理（ESC 退出，Delete 删除选中元素）
+            if (this.elementSelectMode) {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    this._exitElementSelectMode?.();
+                    return;
+                }
+                if (e.key === 'Delete') {
+                    e.preventDefault();
+                    this._deleteSelectedElements?.();
+                    return;
+                }
+            }
 
             // Ctrl+Z 撤销
             if (e.ctrlKey && e.key === 'z') {

@@ -47,7 +47,12 @@ export const LayerListMixin = {
         } else if (layer.type === 'vector' && layer.color) {
             preview = `<div class="color-preview" style="background:${layer.color};width:100%;height:100%;"></div>`;
         } else if (layer.type === 'group') {
-            const icon = layer.ocrGroup ? 'carbon:text-recognition' : 'carbon:folder';
+            let icon = 'carbon:folder';
+            if (layer.ocrGroup || layer.textOverlayConfig) {
+                icon = 'carbon:text-recognition';
+            } else if (layer.samGroup) {
+                icon = 'carbon:cut-out';
+            }
             preview = `<iconify-icon icon="${icon}"></iconify-icon>`;
         } else {
             preview = `<iconify-icon icon="carbon:image"></iconify-icon>`;
@@ -98,6 +103,8 @@ export const LayerListMixin = {
             preview = `<iconify-icon icon="carbon:text-font"></iconify-icon>`;
         } else if (child.type === 'subgroup') {
             preview = `<iconify-icon icon="carbon:folder"></iconify-icon>`;
+        } else if (child.type === 'sam-layer') {
+            preview = `<iconify-icon icon="${child.isForeground ? 'carbon:image-copy' : 'carbon:image'}"></iconify-icon>`;
         } else {
             preview = `<iconify-icon icon="carbon:shape"></iconify-icon>`;
         }

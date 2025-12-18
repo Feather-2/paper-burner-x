@@ -64,6 +64,12 @@ export const RenderMixin = {
                 case 'text-overlay':
                     this._drawTextOverlayLayer(layer, svgContainer);
                     break;
+                case 'sam-layer':
+                    // 渲染 SAM 分割图层
+                    if (layer.canvas) {
+                        this.ctx.drawImage(layer.canvas, 0, 0);
+                    }
+                    break;
             }
         };
 
@@ -74,6 +80,16 @@ export const RenderMixin = {
         
         // 更新图层列表选中状态
         this._updateLayerList();
+
+        // 元素选择模式覆盖层（render 会清空 svgContainer，需要在末尾重建）
+        if (this.elementSelectMode && this._elementSelectLayerId) {
+            const layer = this.processedImage.layers?.find?.((l) => l.id === this._elementSelectLayerId);
+            if (layer?.elements?.length) {
+                this._createElementOverlay?.(layer);
+            } else {
+                this._exitElementSelectMode?.();
+            }
+        }
     },
 
     /**

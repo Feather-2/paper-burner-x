@@ -39,6 +39,9 @@ export function getEditorHTML() {
                 <button class="tool-btn" data-action="remove-bg" title="去除背景">
                     <iconify-icon icon="carbon:erase"></iconify-icon>
                 </button>
+                <button class="tool-btn" data-action="sam-segment" title="AI 智能分割">
+                    <iconify-icon icon="carbon:cut-out"></iconify-icon>
+                </button>
                 <div class="toolbar-divider"></div>
                 <button class="tool-btn" data-action="undo" title="撤销">
                     <iconify-icon icon="carbon:undo"></iconify-icon>
