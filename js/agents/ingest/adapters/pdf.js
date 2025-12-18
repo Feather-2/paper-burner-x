@@ -21,14 +21,26 @@ function hasProcessFile(v) {
   return v && typeof v === "object" && typeof v.processFile === "function";
 }
 
+// 缓存 OcrManager 实例，避免重复创建
+let _cachedOcrManager = null;
+
 function resolveOcr(stageApi) {
+  // 1. 优先使用注入的 OCR 引擎
   if (hasProcessFile(stageApi?.ocr)) return stageApi.ocr;
 
-  const g = globalThis?.OcrManager;
-  if (hasProcessFile(g)) return g;
-  if (typeof g === "function") {
-    const instance = new g();
-    if (hasProcessFile(instance)) return instance;
+  // 2. 检测全局 OcrManager（浏览器环境）
+  const OcrManagerClass = globalThis?.OcrManager;
+  if (OcrManagerClass) {
+    // 如果是已实例化的对象
+    if (hasProcessFile(OcrManagerClass)) return OcrManagerClass;
+
+    // 如果是类，使用缓存的实例或创建新实例
+    if (typeof OcrManagerClass === "function") {
+      if (!_cachedOcrManager) {
+        _cachedOcrManager = new OcrManagerClass();
+      }
+      if (hasProcessFile(_cachedOcrManager)) return _cachedOcrManager;
+    }
   }
 
   return null;
@@ -78,7 +90,12 @@ export class PdfAdapter extends BaseAdapter {
     const t0 = Date.now();
 
     const ocr = resolveOcr(stageApi);
-    if (!ocr) throw new Error("PdfAdapter.parse(input): OCR engine is required (stageApi.ocr or globalThis.OcrManager)");
+    if (!ocr) {
+      const hint = typeof globalThis?.OcrManager === "undefined"
+        ? "In browser, ensure ocr-manager.js and ocr-adapters are loaded."
+        : "OcrManager found but processFile() unavailable.";
+      throw new Error(`PdfAdapter: OCR engine required. Provide stageApi.ocr or load globalThis.OcrManager. ${hint}`);
+    }
 
     let file = input;
     let filename = "";

@@ -9,6 +9,7 @@ import { HtmlAdapter } from "./adapters/html.js";
 import { EpubAdapter } from "./adapters/epub.js";
 import { AudioAdapter } from "./adapters/audio.js";
 import { VideoAdapter } from "./adapters/video.js";
+import { CodeAdapter } from "./adapters/code.js";
 import { understandAssets as runAssetUnderstanding } from "./asset-understanding.js";
 
 function isPlainObject(v) {
@@ -116,6 +117,7 @@ export class IngestStage {
       epub: new EpubAdapter({ defaultChunkOptions: chunkOptions }),
       audio: new AudioAdapter({ defaultChunkOptions: chunkOptions, whisperApi: stageApi?.whisperApi || config?.whisperApi || null }),
       video: new VideoAdapter({ defaultChunkOptions: chunkOptions, whisperApi: stageApi?.whisperApi || config?.whisperApi || null }),
+      code: new CodeAdapter({ defaultChunkOptions: chunkOptions }),
     };
 
     const sources = [];
@@ -179,8 +181,9 @@ export class IngestStage {
       const isEpub = mimeType === "application/epub+zip" || ext === "epub";
       const isAudio = mimeType.startsWith("audio/") || ["mp3", "wav", "m4a", "aac", "flac", "ogg", "oga", "webm"].includes(ext);
       const isVideo = mimeType.startsWith("video/") || ["mp4", "m4v", "webm", "mov", "mkv", "avi"].includes(ext);
+      const isCode = CodeAdapter.isSupported(label);
 
-      if (!isMarkdown && !isPdf && !isDocx && !isPptx && !isHtml && !isEpub && !isAudio && !isVideo) {
+      if (!isMarkdown && !isPdf && !isDocx && !isPptx && !isHtml && !isEpub && !isAudio && !isVideo && !isCode) {
         failedDocs++;
         const msg = `Unsupported file type: .${ext || "(none)"}${mimeType ? ` (${mimeType})` : ""}`;
         parseErrors.push({ origin, error: msg });
@@ -203,7 +206,9 @@ export class IngestStage {
                     ? await adapters.video.parse(f, stageApi)
                     : isAudio
                       ? await adapters.audio.parse(f, stageApi)
-                      : await adapters.markdown.parse(f);
+                      : isCode
+                        ? await adapters.code.parse(f)
+                        : await adapters.markdown.parse(f);
         const addedAssetIds = assets.addAssets(Array.isArray(parsed.assets) ? parsed.assets.map((a) => ({ ...a, docId: parsed.docId })) : []);
         const assetIds = Array.from(new Set(addedAssetIds));
         sources.push(sourceFromParsed(parsed, assetIds));
@@ -217,14 +222,15 @@ export class IngestStage {
       }
     }
 
-    // urls (not implemented in P0)
+    // urls - 通过 MCP fetch_content 获取后再传入 rawTexts 或 files
     for (const url of urls) {
       checkCancelled(stageApi);
       const origin = `url:${url}`;
       emit?.("ingest.doc.started", { origin, url }, { status: "started" });
       failedDocs++;
-      parseErrors.push({ origin, error: "URL ingest not implemented" });
-      emit?.("ingest.doc.failed", { origin, error: "URL ingest not implemented" }, { status: "failed" });
+      const error = "URL ingest not supported directly. Use MCP fetch_content to retrieve content first, then pass as rawTexts or files.";
+      parseErrors.push({ origin, error });
+      emit?.("ingest.doc.failed", { origin, error }, { status: "failed" });
     }
 
     const understandingOpt = config?.understandAssets;
