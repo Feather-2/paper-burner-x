@@ -26,6 +26,31 @@ function safeInt(n, fallback = 0) {
   return typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : fallback;
 }
 
+function normalizeCorsProxies(v) {
+  if (!Array.isArray(v)) return null;
+  const out = [];
+  const seen = new Set();
+  for (const raw of v) {
+    if (raw === "") {
+      if (seen.has("")) continue;
+      seen.add("");
+      out.push("");
+      continue;
+    }
+    const s = toNonEmptyString(raw);
+    if (!s) continue;
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+function requireFiniteNumber(v, name) {
+  if (typeof v !== "number" || !Number.isFinite(v)) throw new Error(`${name} must be a finite number`);
+  return v;
+}
+
 /**
  * 简单的 HTML 解析器 - 提取文本内容
  */
@@ -186,47 +211,6 @@ const CORS_PROXIES = [
 ];
 
 /**
- * 带 CORS 代理的 fetch
- */
-async function fetchWithCorsProxy(url, { timeoutMs = 10000, tryDirect = true } = {}) {
-  const proxies = tryDirect ? CORS_PROXIES : CORS_PROXIES.slice(1);
-  let lastError = null;
-
-  for (const proxy of proxies) {
-    const targetUrl = proxy ? `${proxy}${encodeURIComponent(url)}` : url;
-
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-      const response = await fetch(targetUrl, {
-        method: "GET",
-        headers: {
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        },
-        signal: controller.signal,
-        mode: proxy ? "cors" : "no-cors",
-      });
-
-      clearTimeout(timeoutId);
-
-      if (response.ok || response.status === 0) {
-        const text = await response.text();
-        if (text && text.length > 100) {
-          return { text, url: targetUrl, proxy: proxy || "direct" };
-        }
-      }
-    } catch (e) {
-      lastError = e;
-      // 继续尝试下一个代理
-    }
-  }
-
-  throw new Error(`Failed to fetch ${url}: ${lastError?.message || "All proxies failed"}`);
-}
-
-/**
  * Local MCP Provider 实现
  */
 export class LocalMcpProvider extends McpProvider {
@@ -235,18 +219,29 @@ export class LocalMcpProvider extends McpProvider {
     name = "Local MCP",
     workerEndpoint = null, // CF Worker 端点 URL（推荐）
     corsProxies = CORS_PROXIES,
+    proxyCooldownMs = 60_000,
     defaultTimeoutMs = 15000,
     searchTimeoutMs = 60000, // 搜索需要尝试多个实例，给更长时间
     maxResults = 10,
+    fetchImpl,
   } = {}) {
     super({ id, name, endpoint: "local" });
 
     // 优先使用 Worker 端点
     this.workerEndpoint = toNonEmptyString(workerEndpoint);
-    this.corsProxies = Array.isArray(corsProxies) ? corsProxies : CORS_PROXIES;
+    const normalizedCorsProxies = normalizeCorsProxies(corsProxies);
+    this.corsProxies = normalizedCorsProxies && normalizedCorsProxies.length ? normalizedCorsProxies : CORS_PROXIES.slice();
     this.defaultTimeoutMs = safeInt(defaultTimeoutMs, 10000);
     this.searchTimeoutMs = safeInt(searchTimeoutMs, 15000);
     this.maxResults = safeInt(maxResults, 10);
+
+    if (fetchImpl !== undefined && typeof fetchImpl !== "function") throw new Error("fetchImpl must be a function");
+    this._fetch = typeof fetchImpl === "function" ? fetchImpl : globalThis.fetch;
+    if (typeof this._fetch !== "function") throw new Error("LocalMcpProvider requires global fetch or fetchImpl");
+
+    this.proxyCooldownMs = Math.max(0, safeInt(requireFiniteNumber(proxyCooldownMs, "proxyCooldownMs"), 60_000));
+    this._corsProxyUnhealthyUntilMs = new Map(); // proxy -> ts (ms)
+    this._lastGoodProxy = undefined; // proxy string, may be ""
 
     // 工具定义
     this._tools = [
@@ -323,6 +318,91 @@ export class LocalMcpProvider extends McpProvider {
     });
   }
 
+  _nowMs() {
+    return Date.now();
+  }
+
+  _markCorsProxyFailure(proxy) {
+    const until = this._nowMs() + this.proxyCooldownMs;
+    this._corsProxyUnhealthyUntilMs.set(proxy, until);
+  }
+
+  _markCorsProxySuccess(proxy) {
+    this._lastGoodProxy = proxy;
+    this._corsProxyUnhealthyUntilMs.delete(proxy);
+  }
+
+  _buildCorsProxyCandidates({ tryDirect }) {
+    const base = (Array.isArray(this.corsProxies) ? this.corsProxies : CORS_PROXIES).slice();
+    const candidates = tryDirect ? base : base.filter((p) => p);
+
+    if (candidates.length === 0) return [];
+
+    // last-good proxy priority (only if still in candidate set)
+    if (this._lastGoodProxy !== undefined && candidates.includes(this._lastGoodProxy)) {
+      const reordered = [this._lastGoodProxy, ...candidates.filter((p) => p !== this._lastGoodProxy)];
+      return reordered;
+    }
+
+    return candidates;
+  }
+
+  _filterCorsProxyCooldown(candidates) {
+    const now = this._nowMs();
+    const available = candidates.filter((p) => {
+      const until = this._corsProxyUnhealthyUntilMs.get(p);
+      return until === undefined || until <= now;
+    });
+    // 如果全部都在冷却期，为避免完全不可用，则忽略冷却策略尝试所有候选
+    return available.length ? available : candidates;
+  }
+
+  /**
+   * 通过 CORS 代理链抓取 HTML（会抛出 AggregateError）
+   */
+  async _fetchWithCorsFallback(url, { timeoutMs = 10000, tryDirect = true } = {}) {
+    const candidates = this._filterCorsProxyCooldown(this._buildCorsProxyCandidates({ tryDirect }));
+    const errors = [];
+
+    for (const proxy of candidates) {
+      const targetUrl = proxy ? `${proxy}${encodeURIComponent(url)}` : url;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+      try {
+        const response = await this._fetch(targetUrl, {
+          method: "GET",
+          headers: {
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+          },
+          signal: controller.signal,
+          mode: "cors",
+        });
+
+        if (response.ok || response.status === 0) {
+          const text = await response.text();
+          if (text && text.length > 100) {
+            this._markCorsProxySuccess(proxy);
+            return { text, url: targetUrl, proxy: proxy || "direct" };
+          }
+        }
+
+        const err = new Error(`CORS proxy failed: ${proxy || "direct"} (HTTP ${response.status})`);
+        errors.push(err);
+        this._markCorsProxyFailure(proxy);
+      } catch (e) {
+        const err = new Error(`CORS proxy failed: ${proxy || "direct"} (${e?.message || String(e)})`);
+        errors.push(err);
+        this._markCorsProxyFailure(proxy);
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    }
+
+    throw new AggregateError(errors, `All CORS proxy attempts failed for ${url}`);
+  }
+
   /**
    * 搜索实现
    */
@@ -341,13 +421,14 @@ export class LocalMcpProvider extends McpProvider {
 
     // 优先使用 Worker 端点
     if (this.workerEndpoint) {
-      return this._searchViaWorker({ query: q, domain, time_range, limit: maxResults });
+      const workerResult = await this._searchViaWorker({ query: q, domain, time_range, limit: maxResults });
+      if (workerResult?.success) return workerResult;
     }
 
     // 备用：CORS 代理模式
     try {
       const searchUrl = buildDuckDuckGoUrl(q, { domain, timeRange: time_range });
-      const { text: html } = await fetchWithCorsProxy(searchUrl, {
+      const { text: html } = await this._fetchWithCorsFallback(searchUrl, {
         timeoutMs: this.searchTimeoutMs,
         tryDirect: false, // DuckDuckGo 需要代理
       });
@@ -388,22 +469,29 @@ export class LocalMcpProvider extends McpProvider {
    * 通过 Worker 端点搜索
    */
   async _searchViaWorker({ query, domain, time_range, limit }) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), this.searchTimeoutMs);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.searchTimeoutMs);
 
-      const response = await fetch(`${this.workerEndpoint}/search`, {
+    try {
+      const response = await this._fetch(`${this.workerEndpoint}/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query, domain, time_range, limit }),
         signal: controller.signal,
       });
 
-      clearTimeout(timeoutId);
+      const data = await response.json().catch(() => null);
 
-      const data = await response.json();
+      if (!response.ok) {
+        return new McpToolResult({
+          success: false,
+          isError: true,
+          error: `Worker search failed: HTTP ${response.status}`,
+          content: [{ type: "text", text: `Worker search failed: HTTP ${response.status}` }],
+        });
+      }
 
-      if (!data.success) {
+      if (!data?.success) {
         return new McpToolResult({
           success: false,
           isError: true,
@@ -439,6 +527,8 @@ export class LocalMcpProvider extends McpProvider {
         error: String(err?.message || err),
         content: [{ type: "text", text: `Worker search failed: ${err?.message || err}` }],
       });
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
@@ -458,12 +548,13 @@ export class LocalMcpProvider extends McpProvider {
 
     // 优先使用 Worker 端点
     if (this.workerEndpoint) {
-      return this._fetchContentViaWorker({ url: targetUrl });
+      const workerResult = await this._fetchContentViaWorker({ url: targetUrl });
+      if (workerResult?.success) return workerResult;
     }
 
     // 备用：CORS 代理模式
     try {
-      const { text: html, proxy } = await fetchWithCorsProxy(targetUrl, {
+      const { text: html, proxy } = await this._fetchWithCorsFallback(targetUrl, {
         timeoutMs: this.defaultTimeoutMs,
         tryDirect: true,
       });
@@ -510,22 +601,29 @@ export class LocalMcpProvider extends McpProvider {
    * 通过 Worker 端点获取内容
    */
   async _fetchContentViaWorker({ url }) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), this.defaultTimeoutMs);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.defaultTimeoutMs);
 
-      const response = await fetch(`${this.workerEndpoint}/fetch`, {
+    try {
+      const response = await this._fetch(`${this.workerEndpoint}/fetch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
         signal: controller.signal,
       });
 
-      clearTimeout(timeoutId);
+      const data = await response.json().catch(() => null);
 
-      const data = await response.json();
+      if (!response.ok) {
+        return new McpToolResult({
+          success: false,
+          isError: true,
+          error: `Worker fetch failed: HTTP ${response.status}`,
+          content: [{ type: "text", text: `Worker fetch failed: HTTP ${response.status}` }],
+        });
+      }
 
-      if (!data.success) {
+      if (!data?.success) {
         return new McpToolResult({
           success: false,
           isError: true,
@@ -560,6 +658,8 @@ export class LocalMcpProvider extends McpProvider {
         error: String(err?.message || err),
         content: [{ type: "text", text: `Worker fetch failed: ${err?.message || err}` }],
       });
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 }

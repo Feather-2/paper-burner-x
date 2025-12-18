@@ -14,6 +14,28 @@ function createFakeTime(startMs = 0) {
   };
 }
 
+function createCaptureLogger() {
+  const calls = [];
+  const make = (level) => (msg, meta) => calls.push({ level, msg: String(msg), meta });
+  return {
+    calls,
+    logger: { debug: make("debug"), info: make("info"), warn: make("warn"), error: make("error") },
+  };
+}
+
+function withPatchedConsole(methods, fn) {
+  const originals = {};
+  for (const [k, v] of Object.entries(methods)) {
+    originals[k] = console[k];
+    console[k] = v;
+  }
+  return Promise.resolve()
+    .then(fn)
+    .finally(() => {
+      for (const [k, v] of Object.entries(originals)) console[k] = v;
+    });
+}
+
 test("ModelRouter: usage-based selection picks first healthy candidate", async () => {
   const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
   const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
@@ -41,6 +63,59 @@ test("ModelRouter: usage-based selection picks first healthy candidate", async (
   assert.equal(out.provider, "mock");
   assert.equal(provider.calls.length, 1);
   assert.equal(provider.calls[0].model, "m1");
+});
+
+test("ModelRouter: debug=false is silent (no logger calls)", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const { logger, calls } = createCaptureLogger();
+  const provider = new MockProvider({ id: "mock", behaviors: { m1: [{ content: "ok" }] } });
+
+  const router = new ModelRouter({
+    models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+    usageConfig: { worker: ["m1"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    debug: false,
+    logger,
+  });
+
+  const out = await router.call({ usage: "worker", messages: [{ role: "user", content: "hi" }] });
+  assert.equal(out.model, "m1");
+  assert.equal(calls.length, 0);
+});
+
+test("ModelRouter: debug=true uses injected logger for selection + failover logs", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const { logger, calls } = createCaptureLogger();
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: {
+      bad: [{ throw: new Error("boom") }],
+      good: [{ content: "ok-good" }],
+    },
+  });
+
+  const router = new ModelRouter({
+    models: [
+      { id: "bad", provider: "mock", tags: ["text"], limits: {} },
+      { id: "good", provider: "mock", tags: ["text"], limits: {} },
+    ],
+    usageConfig: { worker: ["bad", "good"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    debug: true,
+    logger,
+  });
+
+  const out = await router.call({ usage: "worker", messages: [{ role: "user", content: "x" }] });
+  assert.equal(out.model, "good");
+
+  assert.ok(calls.some((c) => c.level === "debug" && c.msg.includes("try bad")));
+  assert.ok(calls.some((c) => c.level === "warn" && c.msg.includes("fail bad")));
+  assert.ok(calls.some((c) => c.level === "info" && c.msg.includes("failover bad -> good")));
+  assert.ok(calls.some((c) => c.level === "debug" && c.msg.includes("ok good")));
 });
 
 test("ModelRouter: capability tag filtering skips non-vision model when images present", async () => {
@@ -153,6 +228,7 @@ test("ModelRouter: waits for shortest cooldown (<30s) then retries once", async 
   const time = createFakeTime(0);
   const provider = new MockProvider({ id: "mock" });
   provider.setBehaviors("m1", [{ throw: new Error("down") }, { content: "m1-back" }]);
+  const { logger, calls } = createCaptureLogger();
 
   const router = new ModelRouter({
     models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
@@ -160,6 +236,8 @@ test("ModelRouter: waits for shortest cooldown (<30s) then retries once", async 
     providers: { mock: provider },
     cooldownMs: 10_000,
     time,
+    debug: true,
+    logger,
   });
 
   await assert.rejects(() => router.call({ usage: "worker", messages: [{ role: "user", content: "x" }] }), /All models failed for usage: worker/);
@@ -171,6 +249,105 @@ test("ModelRouter: waits for shortest cooldown (<30s) then retries once", async 
   assert.equal(out.content, "m1-back");
   assert.equal(provider.calls.length, 2);
   assert.ok(time.now() >= 10_000);
+  assert.ok(calls.some((c) => c.level === "info" && c.msg.includes("waiting")));
+  assert.ok(calls.some((c) => c.level === "info" && c.msg.includes("retry after cooldown wait")));
+});
+
+test("ModelRouter: round_robin strategy distributes calls across models", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: {
+      m1: [{ content: "ok-m1" }],
+      m2: [{ content: "ok-m2" }],
+      m3: [{ content: "ok-m3" }],
+    },
+  });
+
+  const router = new ModelRouter({
+    models: [
+      { id: "m1", provider: "mock", tags: ["text"], limits: {} },
+      { id: "m2", provider: "mock", tags: ["text"], limits: {} },
+      { id: "m3", provider: "mock", tags: ["text"], limits: {} },
+    ],
+    usageConfig: { worker: ["m1", "m2", "m3"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+  });
+
+  const seen = [];
+  for (let i = 0; i < 10; i++) {
+    const out = await router.call({ usage: "worker", messages: [{ role: "user", content: `hi-${i}` }] });
+    seen.push(out.model);
+  }
+
+  const counts = new Map();
+  for (const m of seen) counts.set(m, (counts.get(m) || 0) + 1);
+  const values = [...counts.values()];
+  assert.equal(values.reduce((a, b) => a + b, 0), 10);
+  assert.ok(Math.max(...values) - Math.min(...values) <= 1);
+});
+
+test("ModelRouter: priority strategy preserves original first-healthy behavior", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: {
+      m1: [{ content: "ok-m1" }, { content: "ok-m1-2" }, { content: "ok-m1-3" }],
+      m2: [{ content: "ok-m2" }],
+    },
+  });
+
+  const router = new ModelRouter({
+    models: [
+      { id: "m1", provider: "mock", tags: ["text"], limits: {} },
+      { id: "m2", provider: "mock", tags: ["text"], limits: {} },
+    ],
+    usageConfig: { worker: ["m1", "m2"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    strategy: "priority",
+  });
+
+  for (let i = 0; i < 3; i++) {
+    const out = await router.call({ usage: "worker", messages: [{ role: "user", content: `x-${i}` }] });
+    assert.equal(out.model, "m1");
+  }
+  assert.ok(provider.calls.every((c) => c.model === "m1"));
+});
+
+test("ModelRouter: round_robin pointer skips failed model and continues rotation", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: {
+      m1: [{ throw: new Error("down") }],
+      m2: [{ content: "ok-m2" }],
+      m3: [{ content: "ok-m3" }],
+    },
+  });
+
+  const router = new ModelRouter({
+    models: [
+      { id: "m1", provider: "mock", tags: ["text"], limits: {} },
+      { id: "m2", provider: "mock", tags: ["text"], limits: {} },
+      { id: "m3", provider: "mock", tags: ["text"], limits: {} },
+    ],
+    usageConfig: { worker: ["m1", "m2", "m3"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    time: createFakeTime(0),
+  });
+
+  const out1 = await router.call({ usage: "worker", messages: [{ role: "user", content: "a" }] });
+  assert.equal(out1.model, "m2");
+  assert.equal(router.isAvailable("m1"), false);
+
+  const out2 = await router.call({ usage: "worker", messages: [{ role: "user", content: "b" }] });
+  assert.equal(out2.model, "m3");
 });
 
 test("ModelRouter: throws when all candidates fail", async () => {
@@ -222,5 +399,259 @@ test("ModelRouter + validators: bad configs throw early", async () => {
         providers: { mock: provider },
       }),
     /unknown tag/i
+  );
+});
+
+test("ModelRouter: invalid strategy throws clear error", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  assert.throws(() => new ModelRouter({ strategy: "nope" }), /strategy/i);
+});
+
+test("ModelRouter: debug=true without logger uses console methods (but gated by debug)", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const provider = new MockProvider({ id: "mock", behaviors: { m1: [{ content: "ok" }] } });
+
+  const consoleCalls = [];
+  await withPatchedConsole(
+    {
+      debug: (msg) => consoleCalls.push({ level: "debug", msg }),
+      info: (msg) => consoleCalls.push({ level: "info", msg }),
+      warn: (msg) => consoleCalls.push({ level: "warn", msg }),
+      error: (msg) => consoleCalls.push({ level: "error", msg }),
+    },
+    async () => {
+      const router = new ModelRouter({
+        models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+        usageConfig: { worker: ["m1"], planner: [], analyst: [], writer: [], vision: [] },
+        providers: { mock: provider },
+        debug: true,
+      });
+
+      const out = await router.call({ usage: "worker", messages: [{ role: "user", content: "hi" }] });
+      assert.equal(out.model, "m1");
+    }
+  );
+
+  assert.ok(consoleCalls.length > 0);
+
+  await withPatchedConsole(
+    {
+      debug: () => {
+        throw new Error("console.debug should not be called");
+      },
+      info: () => {
+        throw new Error("console.info should not be called");
+      },
+      warn: () => {
+        throw new Error("console.warn should not be called");
+      },
+      error: () => {
+        throw new Error("console.error should not be called");
+      },
+    },
+    async () => {
+      const router = new ModelRouter({
+        models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+        usageConfig: { worker: ["m1"], planner: [], analyst: [], writer: [], vision: [] },
+        providers: { mock: provider },
+        debug: false,
+      });
+      const out = await router.call({ usage: "worker", messages: [{ role: "user", content: "hi" }] });
+      assert.equal(out.model, "m1");
+    }
+  );
+});
+
+test("ModelRouter: supports providers Map + usageTags and exposes health helpers", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const time = createFakeTime(0);
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: {
+      slow: [{ content: "slow" }],
+      fast: [{ content: "fast" }],
+    },
+  });
+
+  const router = new ModelRouter({
+    models: [
+      { id: "slow", provider: "mock", tags: ["text"], limits: {} },
+      { id: "fast", provider: "mock", tags: ["text", "fast"], limits: {} },
+    ],
+    usageConfig: { worker: ["slow", "fast"], planner: [], analyst: [], writer: [], vision: [] },
+    usageTags: { worker: ["fast"], "   ": ["cheap"] },
+    providers: new Map([["mock", provider]]),
+    time,
+    strategy: "priority",
+  });
+
+  assert.equal(router.getModelEntry("fast")?.id, "fast");
+  assert.equal(router.getModelEntry("   "), null);
+  assert.equal(router.getHealth("fast"), null);
+
+  const out = await router.call({ usage: "worker", messages: [{ role: "user", content: "x" }] });
+  assert.equal(out.model, "fast");
+});
+
+test("ModelRouter: resetUnhealthy clears cooldown; EventEmitter off/removeAllListeners work", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const time = createFakeTime(0);
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: {
+      bad: [{ throw: new Error("boom") }],
+      good: [{ content: "ok" }],
+    },
+  });
+
+  const router = new ModelRouter({
+    models: [
+      { id: "bad", provider: "mock", tags: ["text"], limits: {} },
+      { id: "good", provider: "mock", tags: ["text"], limits: {} },
+    ],
+    usageConfig: { worker: ["bad", "good"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    cooldownMs: 60_000,
+    time,
+    strategy: "priority",
+  });
+
+  let unhealthyCount = 0;
+  const handler = () => unhealthyCount++;
+  router.on("model.unhealthy", handler);
+  router.off("model.unhealthy", () => {});
+  router.off("model.unhealthy", handler);
+
+  const out = await router.call({ usage: "worker", messages: [{ role: "user", content: "x" }] });
+  assert.equal(out.model, "good");
+  assert.equal(unhealthyCount, 0);
+
+  assert.equal(router.isAvailable("bad"), false);
+  router.resetUnhealthy("bad");
+  assert.equal(router.isAvailable("bad"), true);
+  router.resetUnhealthy("   ");
+
+  router.on("model.failover", () => {});
+  router.removeAllListeners("model.failover");
+  router.on("model.failover", () => {});
+  router.removeAllListeners();
+});
+
+test("ModelRouter: rateLimit waits between calls (and Infinity disables waiting)", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const time = createFakeTime(0);
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: {
+      m1: [{ content: "ok1" }, { content: "ok2" }],
+      m2: [{ content: "ok" }, { content: "ok" }],
+    },
+  });
+
+  const router = new ModelRouter({
+    models: [
+      { id: "m1", provider: "mock", tags: ["text"], limits: { rateLimit: 2 } },
+      { id: "m2", provider: "mock", tags: ["text"], limits: { rateLimit: Infinity } },
+    ],
+    usageConfig: { worker: ["m1"], planner: ["m2"], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+    time,
+  });
+
+  const before = time.now();
+  await router.call({ usage: "worker", messages: [{ role: "user", content: "a" }] });
+  await router.call({ usage: "worker", messages: [{ role: "user", content: "b" }] });
+  assert.ok(time.now() - before >= 500);
+
+  const before2 = time.now();
+  await router.call({ usage: "planner", messages: [{ role: "user", content: "a" }] });
+  await router.call({ usage: "planner", messages: [{ role: "user", content: "b" }] });
+  assert.equal(time.now() - before2, 0);
+});
+
+test("ModelRouter: default logger fallbacks cover missing console methods", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const time = createFakeTime(0);
+  const provider = new MockProvider({
+    id: "mock",
+    behaviors: {
+      bad: [{ throw: new Error("boom") }],
+      good: [{ content: "ok" }],
+    },
+  });
+
+  await withPatchedConsole(
+    { debug: undefined, info: undefined, warn: undefined, error: undefined },
+    async () => {
+      const router = new ModelRouter({
+        models: [
+          { id: "bad", provider: "mock", tags: ["text"], limits: {} },
+          { id: "good", provider: "mock", tags: ["text"], limits: {} },
+        ],
+        usageConfig: { worker: ["bad", "good"], planner: [], analyst: [], writer: [], vision: [] },
+        providers: { mock: provider },
+        time,
+        debug: true,
+      });
+
+      const out = await router.call({ usage: "worker", messages: [{ role: "user", content: "x" }] });
+      assert.equal(out.model, "good");
+
+      router._logger.error("covered");
+      router._logger.debug("covered");
+      router._logger.info("covered");
+      router._logger.warn("covered");
+    }
+  );
+});
+
+test("ModelRouter: defaultTime.sleep is callable and toErrorInfo handles non-Error", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+  const { MockProvider } = await import("../../../js/agents/llm/mock-provider.js");
+
+  const provider = new MockProvider({ id: "mock", behaviors: { m1: [{ content: "ok" }] } });
+  const router = new ModelRouter({
+    models: [{ id: "m1", provider: "mock", tags: ["text"], limits: {} }],
+    usageConfig: { worker: ["m1"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: { mock: provider },
+  });
+
+  await router._time.sleep(0);
+  router.markUnhealthy("m1", "not-an-error");
+  assert.ok(router.getHealth("m1")?.lastError?.message);
+});
+
+test("ModelRouter: throws clear errors for unknown model and missing provider; _getProvider validates id", async () => {
+  const { ModelRouter } = await import("../../../js/agents/llm/model-router.js");
+
+  const routerUnknownModel = new ModelRouter({
+    models: [{ id: "m1", provider: "p1", tags: ["text"], limits: {} }],
+    usageConfig: { worker: ["ghost"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: {},
+  });
+  await assert.rejects(
+    () => routerUnknownModel.call({ usage: "worker", messages: [{ role: "user", content: "x" }] }),
+    /Unknown model id: ghost/
+  );
+
+  const routerMissingProvider = new ModelRouter({
+    models: [{ id: "m1", provider: "p1", tags: ["text"], limits: {} }],
+    usageConfig: { worker: ["m1"], planner: [], analyst: [], writer: [], vision: [] },
+    providers: null,
+  });
+  assert.equal(routerMissingProvider._getProvider(" "), null);
+  await assert.rejects(
+    () => routerMissingProvider.call({ usage: "worker", messages: [{ role: "user", content: "x" }] }),
+    /Missing provider: p1/
   );
 });
