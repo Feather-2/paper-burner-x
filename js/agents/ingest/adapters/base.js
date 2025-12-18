@@ -1,16 +1,7 @@
 import { normalizeText } from "../../stages/textprep/normalize.js";
 import { chunkText } from "../../stages/textprep/chunk.js";
 import { buildToc } from "../../retrieval/toc-builder.js";
-
-function isPlainObject(v) {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function toNonEmptyString(v) {
-  if (v === undefined || v === null) return undefined;
-  const s = String(v).trim();
-  return s.length ? s : undefined;
-}
+import { isPlainObject, toNonEmptyString } from "../../shared/value-utils.js";
 
 function safeDocId(sourceType, textHash) {
   const kind = toNonEmptyString(sourceType) || "doc";
@@ -18,6 +9,9 @@ function safeDocId(sourceType, textHash) {
   const short = hex.slice(0, 12) || "unknown";
   return `${kind}_${short}`;
 }
+
+// Re-export for adapters that need these
+export { isPlainObject, toNonEmptyString };
 
 export class BaseAdapter {
   constructor({ adapterName, defaultChunkOptions } = {}) {
