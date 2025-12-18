@@ -194,6 +194,13 @@ function getQualityThreshold(state) {
   );
 }
 
+function getNoNewHitsRoundsStopThreshold(state) {
+  const gapsCfg = isPlainObject(state?.userConfig?.gaps) ? state.userConfig.gaps : {};
+  const n = safeInt(gapsCfg.noNewHitsRounds);
+  if (n !== null && n >= 1) return Math.min(10, n);
+  return GAP_CONFIG.NO_NEW_HITS_ROUNDS;
+}
+
 function getTrajectoryParallel(state) {
   const cfg = isPlainObject(state?.userConfig?.concurrency) ? state.userConfig.concurrency : {};
   const n = safeInt(cfg.maxTrajectoryParallel);
@@ -216,9 +223,10 @@ export function shouldContinue(state, roundResult) {
 
   if (openGaps(state).length === 0) return false;
 
-  // noNewHitsRounds 阈值：连续 2 轮无高质量 hit 则停止（现在只计算 score >= threshold 的 hit）
+  // noNewHitsRounds 阈值：连续 N 轮无高质量 hit 则停止（现在只计算 score >= threshold 的 hit）
   const noNewHitsRounds = safeInt(roundResult?.noNewHitsRounds);
-  if (noNewHitsRounds !== null && noNewHitsRounds >= 2) return false;
+  const stopAfterRounds = getNoNewHitsRoundsStopThreshold(state);
+  if (noNewHitsRounds !== null && noNewHitsRounds >= stopAfterRounds) return false;
 
   if (roundResult?.aborted) return false;
   if (roundResult?.budgetStopRequested) return false;

@@ -28,7 +28,7 @@ test("config-schema: getDefaultConfig returns expected defaults", async () => {
     shadow: { enabled: false, budgetPerIteration: 5 },
   });
 
-  assert.deepEqual(cfg.gaps, { maxGaps: 10, blockAfterMisses: 3, minEvidenceToFill: 2 });
+  assert.deepEqual(cfg.gaps, { maxGaps: 10, blockAfterMisses: 3, minEvidenceToFill: 2, qualityThreshold: 0.5, noNewHitsRounds: 2 });
   assert.deepEqual(cfg.budget, { maxInputTokens: 500000, maxOutputTokens: 200000, maxTotalTokens: 700000, degradeThreshold: 0.8 });
   assert.deepEqual(cfg.externalSearch, { enabled: false, provider: "tavily", maxResults: 5, timeoutMs: 10000 });
   assert.deepEqual(cfg.write, { maxSections: 10, maxWordsPerSection: 1000, style: "professional" });
@@ -48,6 +48,7 @@ test("config-schema: validates int/float/bool/enum/object and clamps ranges", as
       useGrep: "yes",
       rerank: { enabled: "nope", timeoutMs: 999999, minChunksToRerank: 0 },
     },
+    gaps: { qualityThreshold: "2.5", noNewHitsRounds: 999 },
     budget: { degradeThreshold: "2.5" },
     externalSearch: { provider: "SERPER", timeoutMs: 999999 },
     trajectory: { n: 1, mergeStrategy: "unknown" },
@@ -63,6 +64,11 @@ test("config-schema: validates int/float/bool/enum/object and clamps ranges", as
   assert.equal(config.retrieval.rerank.enabled, defaults.retrieval.rerank.enabled);
   assert.equal(config.retrieval.rerank.timeoutMs, 60000);
   assert.equal(config.retrieval.rerank.minChunksToRerank, 1);
+
+  assert.equal(config.gaps.qualityThreshold, 1.0);
+  assert.equal(config.gaps.noNewHitsRounds, 10);
+  assert.ok(issuesFor(issues, "gaps.qualityThreshold").length >= 1);
+  assert.ok(issuesFor(issues, "gaps.noNewHitsRounds").length >= 1);
 
   assert.equal(config.budget.degradeThreshold, 0.99);
   assert.equal(config.externalSearch.provider, "serper");

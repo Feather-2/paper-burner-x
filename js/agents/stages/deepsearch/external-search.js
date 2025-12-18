@@ -12,9 +12,9 @@ import { McpNexusProvider } from "../../mcp/mcp-nexus-provider.js";
 import { mapConcurrentWithPool } from "../../shared/concurrency.js";
 import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
 
-const MAX_SOURCE_TEXT_LENGTH = 80000;
+const DEFAULT_MAX_SOURCE_TEXT_LENGTH = 80000;
 
-function truncateSourceText(text, maxLen = MAX_SOURCE_TEXT_LENGTH) {
+function truncateSourceText(text, maxLen = DEFAULT_MAX_SOURCE_TEXT_LENGTH) {
   if (!text || text.length <= maxLen) return { text: text || "", truncated: false };
   const keepEach = Math.floor(maxLen / 2);
   return {
@@ -22,6 +22,14 @@ function truncateSourceText(text, maxLen = MAX_SOURCE_TEXT_LENGTH) {
     truncated: true,
     originalLength: text.length,
   };
+}
+
+function resolveMaxSourceTextLength(config, userConfig) {
+  const fromConfig = safeInt(config?.maxSourceTextLength);
+  if (fromConfig !== null && fromConfig > 0) return fromConfig;
+  const fromUserConfig = safeInt(userConfig?.externalSearch?.maxSourceTextLength);
+  if (fromUserConfig !== null && fromUserConfig > 0) return fromUserConfig;
+  return DEFAULT_MAX_SOURCE_TEXT_LENGTH;
 }
 
 function normalizeChunkIdList(v) {
@@ -121,6 +129,7 @@ function trackSeenChunkIds(state, chunkIds, { maxSize } = {}) {
  *   autoTrigger: boolean,
  *   minLocalHits: number,
  *   maxExternalResults: number,
+ *   maxSourceTextLength: number,
  *   providers: string[],
  *   domain?: string,
  *   timeRange?: string,
@@ -144,6 +153,7 @@ export function parseExternalSearchConfig(userConfig) {
     autoTrigger: cfg.autoTrigger === true, // 默认关闭（显式开启才自动触发）
     minLocalHits: safeInt(cfg.minLocalHits) ?? 3, // 预留：阈值触发策略
     maxExternalResults: safeInt(cfg.maxExternalResults) ?? 5,
+    maxSourceTextLength: safeInt(cfg.maxSourceTextLength) ?? DEFAULT_MAX_SOURCE_TEXT_LENGTH,
     providers: Array.isArray(cfg.providers) ? cfg.providers : [],
     domain: toNonEmptyString(cfg.domain),
     timeRange: toNonEmptyString(cfg.timeRange),
@@ -226,10 +236,10 @@ function createDefaultMcpProvider(config) {
  * 执行外部搜索并转换结果为 chunks（使用 MCP 协议）
  * @param {Array} gaps
  * @param {ReturnType<parseExternalSearchConfig>} config
- * @param {{emit?:Function,state?:object,stageApi?:object}=} options
+ * @param {{emit?:Function,state?:object,stageApi?:object,userConfig?:object}=} options
  * @returns {Promise<{chunks:Array,documents:Array,evidences:Array}>}
  */
-export async function runExternalSearch(gaps, config, { emit, state, stageApi } = {}) {
+export async function runExternalSearch(gaps, config, { emit, state, stageApi, userConfig } = {}) {
   const provider = stageApi?.externalSearchProvider ?? createDefaultMcpProvider(config);
   const availableProviders = typeof provider.listProviders === "function" ? provider.listProviders({ config, state, stageApi }) : [];
   if (availableProviders.length === 0) {
@@ -249,6 +259,7 @@ export async function runExternalSearch(gaps, config, { emit, state, stageApi } 
   const documents = [];
   const evidences = [];
   let searchSeq = 0;
+  const maxSourceTextLength = resolveMaxSourceTextLength(config, userConfig ?? state?.userConfig);
 
   try {
     checkCancelled(stageApi);
@@ -389,7 +400,7 @@ export async function runExternalSearch(gaps, config, { emit, state, stageApi } 
       const gapId = fr.gapId;
       const query = fr.query;
 
-      const { text: truncatedText, truncated, originalLength } = truncateSourceText(text);
+      const { text: truncatedText, truncated, originalLength } = truncateSourceText(text, maxSourceTextLength);
 
       const externalSource = {
         sourceId,

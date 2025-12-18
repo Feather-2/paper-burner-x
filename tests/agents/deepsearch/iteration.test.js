@@ -167,12 +167,13 @@ test("DeepSearch loop: validate updates gap status + checkpoints saved", async (
   assert.ok(state.checkpoints[0].stateSnapshot);
   assert.ok(state.checkpoints[0].metrics && typeof state.checkpoints[0].metrics.gapCount === "number");
 
-  const g1 = gapById(state, "gap_1");
-  const g2 = gapById(state, "gap_2");
-  assert.ok(g1 && g2);
-  assert.equal(g1.status, "filled");
-  assert.equal(g2.status, "blocked");
-  assert.equal(g2.missCount, 2);
+  const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+  const defGap = gaps.find((g) => g?.type === "definition");
+  const dataGap = gaps.find((g) => g?.type === "data");
+  assert.ok(defGap && dataGap);
+  assert.equal(defGap.status, "filled");
+  assert.equal(dataGap.status, "blocked");
+  assert.equal(dataGap.missCount, 2);
 
   assert.equal(state.iteration, 2);
 });
@@ -194,12 +195,13 @@ test("DeepSearch checkpoints: restoreCheckpoint rewinds gaps + iteration", async
   state.restoreCheckpoint(cp0.checkpointId);
 
   assert.equal(state.iteration, 0);
-  const g1 = gapById(state, "gap_1");
-  const g2 = gapById(state, "gap_2");
-  assert.ok(g1 && g2);
-  assert.equal(g1.status, "filled");
-  assert.equal(g2.status, "open");
-  assert.equal(g2.missCount, 1);
+  const gaps = Array.isArray(state?.L1?.gaps) ? state.L1.gaps : [];
+  const defGap = gaps.find((g) => g?.type === "definition");
+  const dataGap = gaps.find((g) => g?.type === "data");
+  assert.ok(defGap && dataGap);
+  assert.equal(defGap.status, "filled");
+  assert.equal(dataGap.status, "blocked");
+  assert.equal(dataGap.missCount, 2);
 });
 
 test("DeepSearch gaps: incremental merge keeps existing + adds openQuestions", async () => {
@@ -392,6 +394,18 @@ test("DeepSearch shouldContinue: stops on maxIterations/openGaps/noNewHitsRounds
     // noNewHitsRounds 阈值：连续 2 轮无高质量 hit 则停止
     assert.equal(shouldContinue(state, { hitCount: 0, noNewHitsRounds: 2 }), false);
     assert.equal(shouldContinue(state, { hitCount: 0, noNewHitsRounds: 1 }), true);
+  }
+
+  {
+    const state = new DeepSearchState({
+      runId: "run_sc_cfg_1",
+      iteration: 0,
+      maxIterations: 10,
+      userConfig: { gaps: { noNewHitsRounds: 4 } },
+      L1: { gaps: [{ gapId: "g1", type: "t", question: "q", status: "open", missCount: 0 }] },
+    });
+    assert.equal(shouldContinue(state, { hitCount: 0, noNewHitsRounds: 3 }), true);
+    assert.equal(shouldContinue(state, { hitCount: 0, noNewHitsRounds: 4 }), false);
   }
 
   {

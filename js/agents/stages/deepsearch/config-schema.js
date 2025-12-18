@@ -62,6 +62,8 @@ export const CONFIG_SCHEMA = {
       maxGaps: { type: ConfigTypes.INT, default: 10, min: 1, max: 50 },
       blockAfterMisses: { type: ConfigTypes.INT, default: 3, min: 1, max: 10 },
       minEvidenceToFill: { type: ConfigTypes.INT, default: 2, min: 1, max: 10 },
+      qualityThreshold: { type: ConfigTypes.FLOAT, default: 0.5, min: 0.0, max: 1.0 },
+      noNewHitsRounds: { type: ConfigTypes.INT, default: 2, min: 1, max: 10 },
     },
   },
 
