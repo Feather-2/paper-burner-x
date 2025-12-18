@@ -301,8 +301,8 @@ class AIApiService {
                 if (model) return this._buildApiConfig(model, modelName);
             }
 
-            // 否则按原逻辑：siteId 或 custom_source_siteId
-            const model = models.find(m => m.siteId === siteId || m.id === `custom_source_${siteId}`);
+            // 否则按原逻辑：siteId 或 id 或 custom_source_siteId
+            const model = models.find(m => m.siteId === siteId || m.id === siteId || m.id === `custom_source_${siteId}`);
             if (model) return this._buildApiConfig(model, modelName);
             return null;
         }
@@ -443,7 +443,8 @@ class AIApiService {
     /**
      * 调用 API
      */
-    async _callApi(config, messages, temperature, maxTokens) {
+    async _callApi(config, messages, temperature, maxTokens, options = {}) {
+        const signal = options?.signal;
         const format = config.format || 'openai';
         let endpoint = config.endpoint;
         let headers = { 'Content-Type': 'application/json' };
@@ -493,11 +494,12 @@ class AIApiService {
         }
         
         console.log(`[AIApiService] 调用 ${config.name} (${config.model}) -> ${endpoint}`);
-        
+
         const response = await fetch(endpoint, {
             method: 'POST',
             headers,
-            body: JSON.stringify(body)
+            body: JSON.stringify(body),
+            ...(signal ? { signal } : {})
         });
         
         if (!response.ok) {
