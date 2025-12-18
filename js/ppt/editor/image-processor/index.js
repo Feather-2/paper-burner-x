@@ -308,8 +308,6 @@ class ImageProcessor {
             element: slideElement,
             processor: this,
             onSave: async (result) => {
-                // 保存到 IndexedDB
-                await this.saveProcessedImage(result);
                 // 回调更新 PPT
                 onUpdate?.(result);
             }
@@ -323,12 +321,101 @@ class ImageProcessor {
 
     /**
      * 保存处理后的图片到 IndexedDB
-     * 注：pptStorage 目前不支持 saveResource，此功能暂时跳过
+     * 返回 { assetId, url }，供外部更新引用
      */
-    async saveProcessedImage(processedImage) {
-        // pptStorage 目前只支持项目级别的存储
-        // 图片处理结果暂时不持久化
-        console.log('[ImageProcessor] 图片处理完成 (未持久化):', processedImage.id);
+    async saveProcessedImage(processedImage, elementId, operation, params = {}) {
+        // 兼容旧调用：LayerEditor 内部会调用 saveProcessedImage(processedImage)
+        if (arguments.length <= 1) {
+            return null;
+        }
+
+        const projectId = window.slideEditor?.currentProject?.id;
+        if (!projectId || !elementId) {
+            console.warn('[ImageProcessor] 无法保存：缺少 projectId 或 elementId');
+            return null;
+        }
+
+        const storageManager = window.storageManager;
+        if (!storageManager) {
+            console.warn('[ImageProcessor] StorageManager 不可用');
+            return null;
+        }
+
+        // 获取当前元素
+        const element = window.slideEditor?.document?.getElementById(elementId);
+        const originalAssetId = element?.originalAssetId || element?.assetId;
+
+        // 将处理结果转为 Blob
+        let blob;
+        if (processedImage?.canvas) {
+            blob = await new Promise(resolve => processedImage.canvas.toBlob(resolve, 'image/png'));
+        } else if (processedImage?.svg) {
+            blob = new Blob([processedImage.svg], { type: 'image/svg+xml' });
+        } else if (processedImage?.dataUrl) {
+            const response = await fetch(processedImage.dataUrl);
+            blob = await response.blob();
+        } else {
+            console.warn('[ImageProcessor] 无法识别的处理结果格式');
+            return null;
+        }
+
+        if (!blob) {
+            console.warn('[ImageProcessor] 无法生成 Blob');
+            return null;
+        }
+
+        const width = processedImage?.width ?? processedImage?.canvas?.width;
+        const height = processedImage?.height ?? processedImage?.canvas?.height;
+
+        // 保存新 asset
+        const newAsset = await storageManager.saveAsset(projectId, blob, {
+            name: `${operation || 'edit'}_${Date.now()}`,
+            width,
+            height,
+            source: {
+                type: 'processed',
+                originalAssetId,
+                parentAssetId: element?.assetId,
+                operation: operation || 'edit',
+                params
+            }
+        });
+
+        console.log('[ImageProcessor] 已保存处理结果:', newAsset.id, operation);
+
+        // 清理旧版本（保留原图 + 最近 3 个版本）
+        await this._cleanupOldVersions(element, newAsset.id);
+
+        return {
+            assetId: newAsset.id,
+            url: await storageManager.getAssetUrl(newAsset.id)
+        };
+    }
+
+    async _cleanupOldVersions(element, newAssetId) {
+        if (!element?.editHistory || element.editHistory.length < 3) return;
+
+        const storageManager = window.storageManager;
+        if (!storageManager) return;
+
+        // 保留原图 + 最近 3 个版本
+        const keepAssetIds = new Set([
+            element.originalAssetId,
+            newAssetId,
+            ...element.editHistory.slice(-2).map(h => h.assetId)
+        ]);
+
+        // 找出需要删除的旧版本
+        for (const history of element.editHistory.slice(0, -2)) {
+            if (!keepAssetIds.has(history.assetId)) {
+                try {
+                    await storageManager.deleteAsset(history.assetId);
+                    console.log('[ImageProcessor] 已清理旧版本:', history.assetId);
+                } catch (e) {
+                    console.warn('[ImageProcessor] 清理失败:', history.assetId, e);
+                }
+            }
+        }
     }
 
     /**

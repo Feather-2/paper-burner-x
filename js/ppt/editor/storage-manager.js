@@ -331,6 +331,30 @@ class StorageManager {
         });
     }
 
+    async getAssetChain(assetId) {
+        const chain = [];
+        let currentId = assetId;
+        const seen = new Set();
+
+        while (currentId && !seen.has(currentId)) {
+            seen.add(currentId);
+
+            const asset = await this.getAssetMeta(currentId);
+            if (!asset) break;
+
+            chain.unshift({
+                assetId: asset.id,
+                timestamp: asset.created,
+                operation: asset.source?.operation,
+                params: asset.source?.params
+            });
+
+            currentId = asset.source?.parentAssetId;
+        }
+
+        return chain;
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // 快照管理
     // ═══════════════════════════════════════════════════════════════

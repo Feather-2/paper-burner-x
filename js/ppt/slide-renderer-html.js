@@ -326,6 +326,33 @@ class HTMLSlideRenderer {
             innerImgStyle += ` filter: ${el.filter};`;
         }
 
+        // 检查裁剪参数（非破坏性）
+        const crop = el.editParams?.crop;
+        if (crop) {
+            if (
+                (crop.x !== 0 && crop.x !== undefined) ||
+                (crop.y !== 0 && crop.y !== undefined) ||
+                (crop.w !== 1 && crop.w !== undefined) ||
+                (crop.h !== 1 && crop.h !== undefined)
+            ) {
+                const x = crop.x || 0;
+                const y = crop.y || 0;
+                const w = crop.w ?? 1;
+                const h = crop.h ?? 1;
+
+                const top = y * 100;
+                const right = (1 - x - w) * 100;
+                const bottom = (1 - y - h) * 100;
+                const left = x * 100;
+
+                innerImgStyle += ` clip-path: inset(${top}% ${right}% ${bottom}% ${left}%);`;
+            }
+
+            if (crop.rotation) {
+                innerImgStyle += ` transform: rotate(${crop.rotation}deg);`;
+            }
+        }
+
         if (el.src) {
             return `<div style="${containerStyle}"><img src="${el.src}" alt="${el.alt}" style="${innerImgStyle}"></div>`;
         } else {

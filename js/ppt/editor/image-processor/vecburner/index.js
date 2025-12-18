@@ -72,7 +72,7 @@ import {
     retractHandles
 } from './curve-fitter.js';
 import { PRESETS } from './presets.js';
-import { simplifyPathD, simplifyVectorResult, getSimplifyPreview } from './path-simplifier.js';
+import { simplifyPathD, simplifyVectorResult, getSimplifyPreview, parsePathToSubpaths } from './path-simplifier.js';
 import { buildCompoundPaths } from './compound-path.js';
 
 function computeBoundsFromPoints(points) {
@@ -111,6 +111,47 @@ function polygonSignedArea(points) {
         area2 += ring[i].x * ring[j].y - ring[j].x * ring[i].y;
     }
     return area2 / 2;
+}
+
+/**
+ * 使用鞋带公式计算单个多边形（闭合点集）的绝对面积
+ * @param {Array<{x:number,y:number}>} points
+ * @returns {number} 面积（非负）
+ */
+function computePolygonAbsArea(points) {
+    if (!points || points.length < 3) return 0;
+
+    let sum = 0;
+    const n = points.length;
+    for (let i = 0; i < n; i++) {
+        const p1 = points[i];
+        const p2 = points[(i + 1) % n];
+        sum += p1.x * p2.y - p2.x * p1.y;
+    }
+
+    return Math.abs(sum) / 2;
+}
+
+/**
+ * 计算 SVG path.d 的近似面积（多子路径 + 曲线采样）
+ * - 使用 parsePathToSubpaths() 将 C/Q 曲线采样成点
+ * - 直接返回所有子路径的绝对面积之和（用于过滤/阈值判断足够）
+ * @param {string} pathD
+ * @returns {number} 面积（非负）
+ */
+function computePathArea(pathD) {
+    if (!pathD) return 0;
+
+    const subpaths = parsePathToSubpaths(pathD);
+    if (!subpaths || subpaths.length === 0) return 0;
+
+    let totalArea = 0;
+    for (const points of subpaths) {
+        const a = computePolygonAbsArea(points);
+        if (Number.isFinite(a)) totalArea += a;
+    }
+
+    return totalArea;
 }
 
 /**
@@ -411,15 +452,40 @@ export async function vectorize(imageData, options = {}) {
             const maxContourArea = Math.max(...contourAreas, 0);
             const totalContourArea = contourAreas.reduce((a, b) => a + b, 0);
             
-            // 碎片图层检测：总面积占图像 < 0.5% 且没有大轮廓（最大 < 300）且轮廓数量 > 10
-            // 更严格的条件，避免误删有意义的小图形
+            // 碎片图层检测：很多小轮廓 + 总面积很小 + 没有大轮廓
+            // 阈值按预设与图像尺寸动态调整，避免在不同场景下误判
+            const presetName = options?.preset;
+            let fragmentedAreaRatio = 0.005;
+            let fragmentedMaxContourArea = 300;
+
+            if (presetName === 'logo' || presetName === 'lineart') {
+                // logo/lineart：更激进过滤
+                fragmentedAreaRatio = 0.003;
+                fragmentedMaxContourArea = 200;
+            } else if (presetName === 'photo' || presetName === 'illustration') {
+                // photo/illustration：更保守
+                fragmentedAreaRatio = 0.008;
+                fragmentedMaxContourArea = 500;
+            }
+
+            // 小图（按原始尺寸判断）：降低面积阈值，减少误删
+            const originalMaxDim = Math.max(originalWidth, originalHeight);
+            if (originalMaxDim < 500) {
+                const factor = Math.max(0.4, originalMaxDim / 500);
+                fragmentedAreaRatio *= factor;
+                fragmentedMaxContourArea = Math.max(30, fragmentedMaxContourArea * factor);
+            }
+
             const isFragmented = 
-                totalContourArea < imageArea * 0.005 && 
-                maxContourArea < 300 && 
+                totalContourArea < imageArea * fragmentedAreaRatio && 
+                maxContourArea < fragmentedMaxContourArea && 
                 contours.length > 10;
             
             if (isFragmented) {
-                console.log(`[Vecburner] 跳过碎片图层: ${contours.length} 个轮廓, 最大 ${maxContourArea.toFixed(0)}, 总 ${totalContourArea.toFixed(0)}`);
+                console.log(
+                    `[Vecburner] 跳过碎片图层: ${contours.length} 个轮廓, 最大 ${maxContourArea.toFixed(0)} (<${fragmentedMaxContourArea.toFixed(0)}), ` +
+                    `总 ${totalContourArea.toFixed(0)} (<${(imageArea * fragmentedAreaRatio).toFixed(0)})`
+                );
                 continue;
             }
         }
@@ -655,51 +721,28 @@ export async function vectorize(imageData, options = {}) {
         }
     }
     
-    // 全局后处理：基于所有图层中最大轮廓面积过滤小碎片图层
-    // 找到全局最大轮廓面积
+    // 全局后处理：基于所有图层中最大路径面积过滤小碎片图层
+    // 合并遍历：一次计算每层总面积，同时记录全局最大路径面积（避免重复 computePathArea）
     let globalMaxArea = 0;
+    const layerAreas = [];
+
     for (const layer of layers) {
+        let layerArea = 0;
         for (const path of layer.paths) {
-            // 从 path.d 估算面积（用边界框近似）
-            const matches = path.d.match(/[-+]?\d*\.?\d+/g);
-            if (matches && matches.length >= 4) {
-                const nums = matches.map(Number);
-                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-                for (let i = 0; i < nums.length - 1; i += 2) {
-                    minX = Math.min(minX, nums[i]);
-                    maxX = Math.max(maxX, nums[i]);
-                    minY = Math.min(minY, nums[i + 1]);
-                    maxY = Math.max(maxY, nums[i + 1]);
-                }
-                const area = (maxX - minX) * (maxY - minY);
-                if (area > globalMaxArea) globalMaxArea = area;
-            }
+            const area = computePathArea(path.d);
+            layerArea += area;
+            if (area > globalMaxArea) globalMaxArea = area;
         }
+        layerAreas.push({ layer, area: layerArea });
     }
-    
+
     // 过滤掉面积远小于全局最大（1:500 比例）的图层，更宽松避免误删
     // 增加上限：最大阈值不超过 100 像素，防止大图中误删有效的小图层
     // 像素画模式下完全禁用过滤，保留所有像素
     const minLayerArea = isPixelArt ? 0 : Math.max(4, Math.min(100, globalMaxArea / 500));
-    const filteredLayers = layers.filter(layer => {
-        // 计算该图层的总面积
-        let layerArea = 0;
-        for (const path of layer.paths) {
-            const matches = path.d.match(/[-+]?\d*\.?\d+/g);
-            if (matches && matches.length >= 4) {
-                const nums = matches.map(Number);
-                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-                for (let i = 0; i < nums.length - 1; i += 2) {
-                    minX = Math.min(minX, nums[i]);
-                    maxX = Math.max(maxX, nums[i]);
-                    minY = Math.min(minY, nums[i + 1]);
-                    maxY = Math.max(maxY, nums[i + 1]);
-                }
-                layerArea += (maxX - minX) * (maxY - minY);
-            }
-        }
-        return layerArea >= minLayerArea;
-    });
+    const filteredLayers = layerAreas
+        .filter(({ area }) => area >= minLayerArea)
+        .map(({ layer }) => layer);
     
     console.log(`[Vecburner] 生成 ${layers.length} 个颜色图层，过滤后 ${filteredLayers.length} 个`);
 

@@ -1272,6 +1272,81 @@ class SlideEditor extends EventEmitter {
         return null;
     }
 
+    /**
+     * 回退图片到原始版本
+     * @param {string} elementId
+     */
+    async revertImageToOriginal(elementId) {
+        const element = this.document.getElementById(elementId);
+        if (!element?.originalAssetId) {
+            console.warn('[SlideEditor] 无法回退：缺少 originalAssetId');
+            return false;
+        }
+
+        const oldAssetId = element.assetId;
+        const oldParams = element.editParams ? JSON.parse(JSON.stringify(element.editParams)) : {};
+        const oldHistory = element.editHistory ? [...element.editHistory] : [];
+
+        // 1. 重置资源引用
+        element.assetId = element.originalAssetId;
+
+        // 2. 清除编辑参数和历史
+        element.editParams = {};
+        element.editHistory = [];
+
+        // 3. 重新加载图片
+        const storageManager = window.storageManager;
+        if (storageManager) {
+            element.src = await storageManager.getAssetUrl(element.originalAssetId);
+        }
+
+        // 4. 记录历史
+        this.history.push({
+            type: 'element.update',
+            elementId,
+            slideIndex: this.currentSlideIndex,
+            timestamp: Date.now(),
+            changes: [
+                { path: 'assetId', oldValue: oldAssetId, newValue: element.originalAssetId },
+                { path: 'editParams', oldValue: oldParams, newValue: {} },
+                { path: 'editHistory', oldValue: oldHistory, newValue: [] }
+            ]
+        });
+
+        this.renderCurrentSlide();
+        console.log('[SlideEditor] 已回退到原图:', elementId);
+        return true;
+    }
+
+    /**
+     * 更新图片裁剪参数（非破坏性）
+     * @param {string} elementId
+     * @param {Object} cropParams - { x, y, w, h, rotation }（百分比 0-1）
+     */
+    updateImageCrop(elementId, cropParams) {
+        const element = this.document.getElementById(elementId);
+        if (!element) return false;
+
+        const oldCrop = element.editParams?.crop ? { ...element.editParams.crop } : { x: 0, y: 0, w: 1, h: 1, rotation: 0 };
+
+        if (!element.editParams) element.editParams = {};
+        element.editParams.crop = { ...cropParams };
+
+        // 记录历史
+        this.history.push({
+            type: 'element.update',
+            elementId,
+            slideIndex: this.currentSlideIndex,
+            timestamp: Date.now(),
+            changes: [
+                { path: 'editParams.crop', oldValue: oldCrop, newValue: cropParams }
+            ]
+        });
+
+        this.renderCurrentSlide();
+        return true;
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // 渲染
     // ═══════════════════════════════════════════════════════════════

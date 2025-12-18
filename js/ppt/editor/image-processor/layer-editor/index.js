@@ -34,6 +34,16 @@ class LayerEditor {
         this.element = options.element;
         this.processor = options.processor;
         this.onSave = options.onSave;
+
+        this._mainEditor = options.editor || window.slideEditor;
+        this._elementId =
+            options.elementId ||
+            options.element?.closest?.('[data-element-id]')?.dataset?.elementId ||
+            null;
+        this._slideIndex = options.slideIndex ?? this._mainEditor?.currentSlideIndex;
+        this._originalAssetId = null;
+        this._originalEditHistory = [];
+        this._originalLayersParams = null;
         
         // UI 状态
         this.container = null;
@@ -74,6 +84,16 @@ class LayerEditor {
      * 打开编辑器
      */
     async open() {
+        // 记录编辑开始前的状态
+        if (this._mainEditor?.document && this._elementId) {
+            const element = this._mainEditor.document.getElementById(this._elementId);
+            this._originalAssetId = element?.assetId;
+            this._originalEditHistory = element?.editHistory ? [...element.editHistory] : [];
+            this._originalLayersParams = element?.editParams?.layers
+                ? JSON.parse(JSON.stringify(element.editParams.layers))
+                : null;
+        }
+
         // 创建 UI（内部会调用 _bindEvents）
         this._createUI();
         
@@ -116,7 +136,36 @@ class LayerEditor {
             // 设置 Canvas 尺寸
             this.canvas.width = this.processedImage.original.width;
             this.canvas.height = this.processedImage.original.height;
-            
+
+            // 尝试恢复已保存的图层数据
+            const savedLayers = this._getSavedLayers();
+            if (Array.isArray(savedLayers) && savedLayers.length > 0) {
+                try {
+                    const restoredLayers = JSON.parse(JSON.stringify(savedLayers));
+                    const attachOriginalImage = (layers) =>
+                        (layers || []).map(layer => {
+                            const next = { ...layer };
+                            if (next.type === 'original') {
+                                next.image = this.processedImage.original.element;
+                            }
+                            if (Array.isArray(next.children)) {
+                                next.children = attachOriginalImage(next.children);
+                            }
+                            // 清理潜在的不可用 inpaintedBackground（旧数据可能残留）
+                            if (next.inpaintedBackground?.canvas && typeof HTMLCanvasElement !== 'undefined') {
+                                if (!(next.inpaintedBackground.canvas instanceof HTMLCanvasElement)) {
+                                    delete next.inpaintedBackground;
+                                }
+                            }
+                            return next;
+                        });
+
+                    this.processedImage.layers = attachOriginalImage(restoredLayers);
+                } catch (e) {
+                    console.warn('[LayerEditor] 恢复已保存图层失败，回退到默认图层:', e);
+                }
+            }
+
             // 添加原始图层（如果还没有）
             if (!this.processedImage.layers.find(l => l.type === 'original')) {
                 this.processedImage.layers.unshift({
@@ -144,6 +193,71 @@ class LayerEditor {
      * 应用更改
      */
     async _apply() {
+        // 序列化图层数据（排除不可序列化的 DOM/Canvas 对象）
+        const isNonSerializable = (value) => {
+            if (value == null) return false;
+            if (typeof value === 'function') return true;
+
+            const checks = [
+                typeof HTMLImageElement !== 'undefined' && value instanceof HTMLImageElement,
+                typeof HTMLElement !== 'undefined' && value instanceof HTMLElement,
+                typeof HTMLCanvasElement !== 'undefined' && value instanceof HTMLCanvasElement,
+                typeof CanvasRenderingContext2D !== 'undefined' && value instanceof CanvasRenderingContext2D,
+                typeof ImageData !== 'undefined' && value instanceof ImageData,
+                typeof Blob !== 'undefined' && value instanceof Blob,
+                typeof File !== 'undefined' && value instanceof File,
+                typeof ArrayBuffer !== 'undefined' && value instanceof ArrayBuffer,
+            ];
+
+            // TypedArray
+            if (typeof ArrayBuffer !== 'undefined' && typeof ArrayBuffer.isView === 'function') {
+                if (ArrayBuffer.isView(value)) return true;
+            }
+
+            return checks.some(Boolean);
+        };
+
+        const serializeAny = (value) => {
+            if (value == null) return value;
+            const t = typeof value;
+            if (t === 'string' || t === 'number' || t === 'boolean') return value;
+            if (isNonSerializable(value)) return undefined;
+
+            if (Array.isArray(value)) {
+                return value
+                    .map(serializeAny)
+                    .filter(v => v !== undefined);
+            }
+
+            if (t === 'object') {
+                const out = {};
+                for (const [k, v] of Object.entries(value)) {
+                    // 兼容旧字段：image 永远不持久化
+                    if (k === 'image') continue;
+                    const next = serializeAny(v);
+                    if (next !== undefined) out[k] = next;
+                }
+                return out;
+            }
+
+            return undefined;
+        };
+
+        const layersData = serializeAny(this.processedImage.layers);
+
+        // 更新元素的 editParams.layers
+        let oldLayersParams = null;
+        if (this._mainEditor?.document && this._elementId) {
+            const element = this._mainEditor.document.getElementById(this._elementId);
+            if (element) {
+                oldLayersParams = element?.editParams?.layers
+                    ? JSON.parse(JSON.stringify(element.editParams.layers))
+                    : null;
+                if (!element.editParams) element.editParams = {};
+                element.editParams.layers = layersData;
+            }
+        }
+
         // 扁平化所有图层用于导出
         const flatLayers = [];
         
@@ -185,9 +299,40 @@ class LayerEditor {
         await this.processor.saveProcessedImage(this.processedImage);
 
         // 回调更新 PPT
-        this.onSave?.(result);
+        const onSaveResult = this.onSave?.(result);
+        if (onSaveResult && typeof onSaveResult.then === 'function') {
+            await onSaveResult;
+        }
+
+        const mainHistory = this._mainEditor?.history;
+        if (mainHistory && this._elementId) {
+            const element = this._mainEditor?.document?.getElementById(this._elementId);
+
+            mainHistory.beginBatch('图片编辑');
+            mainHistory.push({
+                type: 'element.update',
+                elementId: this._elementId,
+                slideIndex: this._slideIndex,
+                timestamp: Date.now(),
+                changes: [
+                    { path: 'assetId', oldValue: this._originalAssetId, newValue: element?.assetId },
+                    { path: 'editHistory', oldValue: this._originalEditHistory, newValue: element?.editHistory },
+                    { path: 'editParams.layers', oldValue: this._originalLayersParams ?? oldLayersParams, newValue: element?.editParams?.layers }
+                ]
+            });
+            mainHistory.commitBatch();
+        }
 
         this.close();
+    }
+
+    /**
+     * 获取已保存的图层数据
+     */
+    _getSavedLayers() {
+        if (!this._mainEditor?.document || !this._elementId) return null;
+        const element = this._mainEditor.document.getElementById(this._elementId);
+        return element?.editParams?.layers || null;
     }
 }
 

@@ -382,6 +382,9 @@ class SlideDocument extends EventEmitter {
             h: options.h ?? 30,
             z: options.z,
             assetId,
+            originalAssetId: options.originalAssetId ?? assetId,
+            editParams: options.editParams ?? {},
+            editHistory: options.editHistory ?? [],
             objectFit: options.objectFit ?? 'cover',
             ...options,
         };
