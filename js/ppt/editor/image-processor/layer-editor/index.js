@@ -142,6 +142,10 @@ class LayerEditor {
             if (Array.isArray(savedLayers) && savedLayers.length > 0) {
                 try {
                     const restoredLayers = JSON.parse(JSON.stringify(savedLayers));
+
+                    // 收集需要恢复 inpaintedBackground 的图层
+                    const inpaintRestoreTasks = [];
+
                     const attachOriginalImage = (layers) =>
                         (layers || []).map(layer => {
                             const next = { ...layer };
@@ -151,8 +155,13 @@ class LayerEditor {
                             if (Array.isArray(next.children)) {
                                 next.children = attachOriginalImage(next.children);
                             }
-                            // 清理潜在的不可用 inpaintedBackground（旧数据可能残留）
-                            if (next.inpaintedBackground?.canvas && typeof HTMLCanvasElement !== 'undefined') {
+                            // 从 dataUrl 恢复 inpaintedBackground canvas
+                            if (next.inpaintedBackground?.dataUrl) {
+                                inpaintRestoreTasks.push({ layer: next, dataUrl: next.inpaintedBackground.dataUrl });
+                                // 先清空，等异步加载完成后填充
+                                next.inpaintedBackground = null;
+                            } else if (next.inpaintedBackground?.canvas && typeof HTMLCanvasElement !== 'undefined') {
+                                // 清理无效的 canvas 引用
                                 if (!(next.inpaintedBackground.canvas instanceof HTMLCanvasElement)) {
                                     delete next.inpaintedBackground;
                                 }
@@ -161,6 +170,31 @@ class LayerEditor {
                         });
 
                     this.processedImage.layers = attachOriginalImage(restoredLayers);
+
+                    // 异步恢复 inpaintedBackground canvas
+                    if (inpaintRestoreTasks.length > 0) {
+                        Promise.all(inpaintRestoreTasks.map(async ({ layer, dataUrl }) => {
+                            try {
+                                const img = new Image();
+                                await new Promise((resolve, reject) => {
+                                    img.onload = resolve;
+                                    img.onerror = reject;
+                                    img.src = dataUrl;
+                                });
+                                const canvas = document.createElement('canvas');
+                                canvas.width = img.width;
+                                canvas.height = img.height;
+                                const ctx = canvas.getContext('2d');
+                                ctx.drawImage(img, 0, 0);
+                                layer.inpaintedBackground = { canvas, ctx, dataUrl };
+                            } catch (e) {
+                                console.warn('[LayerEditor] 恢复 inpaintedBackground 失败:', e);
+                            }
+                        })).then(() => {
+                            // 恢复完成后重新渲染
+                            this._render();
+                        });
+                    }
                 } catch (e) {
                     console.warn('[LayerEditor] 恢复已保存图层失败，回退到默认图层:', e);
                 }
@@ -274,24 +308,187 @@ class LayerEditor {
                 flatLayers.push(layer);
             }
         });
-        
+
         // 检查是否有可见的矢量图层
         const visibleVectorLayers = flatLayers.filter(
             l => l.visible && l.type === 'vector'
         );
-        
+
+        // 生成包含文字层的 dataUrl
+        const generateDataUrl = () => {
+            // 查找所有 OCR 文字组
+            const textGroups = this.processedImage.layers.filter(
+                l => l.type === 'group' && (l.textOverlayConfig || l.ocrGroup) && l.visible !== false
+            );
+
+            console.log('[LayerEditor] 导出检查 - 文字组数量:', textGroups.length);
+            textGroups.forEach(g => {
+                console.log('[LayerEditor] 组:', g.name, '子图层:', g.children?.length);
+            });
+
+            // 如果没有文字组，直接返回 canvas
+            if (textGroups.length === 0) {
+                return this.canvas.toDataURL('image/png');
+            }
+
+            // 创建临时 canvas 绘制文字层
+            const exportCanvas = document.createElement('canvas');
+            exportCanvas.width = this.canvas.width;
+            exportCanvas.height = this.canvas.height;
+            const ctx = exportCanvas.getContext('2d');
+
+            // 复制当前 canvas 内容
+            ctx.drawImage(this.canvas, 0, 0);
+
+            // 绘制所有文字组的文字
+            for (const group of textGroups) {
+                if (!group.children) continue;
+
+                for (const child of group.children) {
+                    if (child.visible === false || child.type !== 'text-overlay') continue;
+
+                    const { bbox, style } = child;
+                    const displayText = child.content?.displayText || child.content?.originalText ||
+                                       child.translatedText || child.text || '';
+
+                    console.log('[LayerEditor] 绘制文字:', displayText?.substring(0, 20), 'bbox:', bbox, 'style:', style);
+
+                    if (!displayText || !bbox) continue;
+
+                    const x = bbox.left * exportCanvas.width;
+                    const y = bbox.top * exportCanvas.height;
+                    const w = bbox.width * exportCanvas.width;
+                    const h = bbox.height * exportCanvas.height;
+
+                    // 背景（非 inpainted 时绘制）
+                    if (!child.inpainted) {
+                        ctx.fillStyle = style?.backgroundColor || 'rgba(255, 255, 255, 0.95)';
+                        ctx.fillRect(x, y, w, h);
+                    }
+
+                    // 文字
+                    ctx.fillStyle = style?.color || '#000000';
+                    const fontFamily = style?.fontFamily || 'sans-serif';
+                    ctx.font = `${style?.fontWeight || 'normal'} ${style?.fontSize || 14}px ${fontFamily}`;
+                    ctx.textAlign = style?.textAlign || 'left';
+                    ctx.textBaseline = 'top';
+
+                    // 换行绘制
+                    const lineHeight = (style?.fontSize || 14) * 1.3;
+                    const words = displayText.split('');
+                    let line = '';
+                    let lineY = y + 4;
+
+                    for (const char of words) {
+                        if (char === '\n') {
+                            const drawX = style?.textAlign === 'center' ? x + w / 2 :
+                                         style?.textAlign === 'right' ? x + w - 4 : x + 4;
+                            ctx.fillText(line, drawX, lineY);
+                            line = '';
+                            lineY += lineHeight;
+                            continue;
+                        }
+                        const testLine = line + char;
+                        const metrics = ctx.measureText(testLine);
+
+                        if (metrics.width > w - 8) {
+                            const drawX = style?.textAlign === 'center' ? x + w / 2 :
+                                         style?.textAlign === 'right' ? x + w - 4 : x + 4;
+                            ctx.fillText(line, drawX, lineY);
+                            line = char;
+                            lineY += lineHeight;
+                        } else {
+                            line = testLine;
+                        }
+                    }
+
+                    if (line) {
+                        const drawX = style?.textAlign === 'center' ? x + w / 2 :
+                                     style?.textAlign === 'right' ? x + w - 4 : x + 4;
+                        ctx.fillText(line, drawX, lineY);
+                    }
+                }
+            }
+
+            return exportCanvas.toDataURL('image/png');
+        };
+
         let result = {
             id: this.processedImage.id,
-            layers: flatLayers
+            layers: layersData  // 使用完整的图层数据（含 group 结构），而非扁平化的 flatLayers
         };
-        
+
         if (visibleVectorLayers.length > 0) {
-            const mergedSvg = this._mergeVectorLayers(visibleVectorLayers);
+            // 合并矢量图层
+            let mergedSvg = this._mergeVectorLayers(visibleVectorLayers);
+
+            // 添加文字层到 SVG
+            const textGroups = this.processedImage.layers.filter(
+                l => l.type === 'group' && (l.textOverlayConfig || l.ocrGroup) && l.visible !== false
+            );
+
+            if (textGroups.length > 0 && mergedSvg) {
+                const textElements = [];
+                const svgWidth = this.canvas.width;
+                const svgHeight = this.canvas.height;
+
+                for (const group of textGroups) {
+                    if (!group.children) continue;
+
+                    for (const child of group.children) {
+                        if (child.visible === false || child.type !== 'text-overlay') continue;
+
+                        const { bbox, style } = child;
+                        const displayText = child.content?.displayText || child.content?.originalText ||
+                                           child.translatedText || child.text || '';
+                        if (!displayText || !bbox) continue;
+
+                        const x = bbox.left * svgWidth;
+                        const y = bbox.top * svgHeight;
+                        const w = bbox.width * svgWidth;
+                        const h = bbox.height * svgHeight;
+
+                        const fontSize = style?.fontSize || 14;
+                        const fontFamily = (style?.fontFamily || 'sans-serif').replace(/"/g, "'");
+                        const color = style?.color || '#000000';
+                        const bgColor = style?.backgroundColor || 'rgba(255,255,255,0.95)';
+                        const textAlign = style?.textAlign || 'left';
+
+                        // 背景矩形（非 inpainted 时）
+                        if (!child.inpainted) {
+                            textElements.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${bgColor}"/>`);
+                        }
+
+                        // 文字元素
+                        const textAnchor = textAlign === 'center' ? 'middle' : textAlign === 'right' ? 'end' : 'start';
+                        const textX = textAlign === 'center' ? x + w / 2 : textAlign === 'right' ? x + w - 4 : x + 4;
+
+                        // 处理多行和自动换行
+                        const lines = displayText.split('\n');
+                        const lineHeight = fontSize * 1.3;
+                        let lineY = y + fontSize + 4;
+
+                        for (const line of lines) {
+                            if (line.trim()) {
+                                const escapedText = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                                textElements.push(`<text x="${textX}" y="${lineY}" font-family="${fontFamily}" font-size="${fontSize}" fill="${color}" text-anchor="${textAnchor}">${escapedText}</text>`);
+                            }
+                            lineY += lineHeight;
+                        }
+                    }
+                }
+
+                // 在 </svg> 前插入文字元素
+                if (textElements.length > 0) {
+                    mergedSvg = mergedSvg.replace('</svg>', textElements.join('\n') + '\n</svg>');
+                }
+            }
+
             result.svg = mergedSvg;
             result.type = 'svg';
-            result.dataUrl = this.canvas.toDataURL('image/png');
+            result.dataUrl = generateDataUrl();
         } else {
-            result.dataUrl = this.canvas.toDataURL('image/png');
+            result.dataUrl = generateDataUrl();
             result.type = 'image';
         }
         
@@ -330,6 +527,11 @@ class LayerEditor {
      * 获取已保存的图层数据
      */
     _getSavedLayers() {
+        // 优先使用传入的 element.editParams（适用于 SVG 等通过临时对象传入的情况）
+        if (this.element?.editParams?.layers) {
+            return this.element.editParams.layers;
+        }
+        // 其次从 document 获取（适用于普通图片元素）
         if (!this._mainEditor?.document || !this._elementId) return null;
         const element = this._mainEditor.document.getElementById(this._elementId);
         return element?.editParams?.layers || null;

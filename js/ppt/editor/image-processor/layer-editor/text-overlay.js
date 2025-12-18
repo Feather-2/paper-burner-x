@@ -6,7 +6,7 @@
 /**
  * 可用的免费商用字体列表
  */
-const AVAILABLE_FONTS = [
+export const AVAILABLE_FONTS = [
     { name: '系统默认', value: 'system-ui, sans-serif', loaded: true },
     { name: '思源黑体', value: '"Noto Sans SC", sans-serif', css: 'https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700&display=swap' },
     { name: '思源宋体', value: '"Noto Serif SC", serif', css: 'https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&display=swap' },
@@ -16,20 +16,20 @@ const AVAILABLE_FONTS = [
 ];
 
 // 已加载的字体 CSS
-const loadedFontCSS = new Set();
+const loadedFontCSSSet = new Set();
 
 /**
  * 加载字体 CSS（懒加载）
  */
-function loadFontCSS(cssUrl) {
-    if (loadedFontCSS.has(cssUrl)) return Promise.resolve();
-    
+export function loadFontCSS(cssUrl) {
+    if (loadedFontCSSSet.has(cssUrl)) return Promise.resolve();
+
     return new Promise((resolve) => {
         const link = document.createElement('link');
         link.rel = 'stylesheet';
         link.href = cssUrl;
         link.onload = () => {
-            loadedFontCSS.add(cssUrl);
+            loadedFontCSSSet.add(cssUrl);
             resolve();
         };
         link.onerror = () => resolve(); // 失败也继续
@@ -109,7 +109,11 @@ export const TextOverlayMixin = {
                     <iconify-icon icon="carbon:tools"></iconify-icon>
                     批量操作
                 </div>
-                <button class="btn-action" data-batch-action="inpaint-all">
+                <button class="btn-action" data-batch-action="merge-all">
+                    <iconify-icon icon="carbon:group-objects"></iconify-icon>
+                    合并选中区域
+                </button>
+                <button class="btn-action" data-batch-action="inpaint-all" style="margin-top:8px;">
                     <iconify-icon icon="carbon:erase"></iconify-icon>
                     去除选中区域原文字
                 </button>
@@ -127,6 +131,78 @@ export const TextOverlayMixin = {
      * 绑定多选操作事件
      */
     _bindMultiSelectEvents(panel, parentLayer, selectedChildren) {
+        // 合并区域
+        panel.querySelector('[data-batch-action="merge-all"]')?.addEventListener('click', () => {
+            if (selectedChildren.length < 2) {
+                this._showToast('请至少选择 2 个区域');
+                return;
+            }
+
+            // 按 top 坐标排序，保证文字顺序合理
+            const sorted = [...selectedChildren].sort((a, b) => {
+                const topDiff = a.bbox.top - b.bbox.top;
+                if (Math.abs(topDiff) > 0.02) return topDiff;
+                return a.bbox.left - b.bbox.left;
+            });
+
+            // 计算合并后的边界框
+            let minLeft = Infinity, minTop = Infinity, maxRight = -Infinity, maxBottom = -Infinity;
+            for (const child of sorted) {
+                minLeft = Math.min(minLeft, child.bbox.left);
+                minTop = Math.min(minTop, child.bbox.top);
+                maxRight = Math.max(maxRight, child.bbox.left + child.bbox.width);
+                maxBottom = Math.max(maxBottom, child.bbox.top + child.bbox.height);
+            }
+
+            // 合并文字内容
+            const mergedText = sorted.map(child => {
+                return child.content?.displayText || child.content?.originalText ||
+                       child.translatedText || child.text || '';
+            }).filter(t => t).join('\n');
+
+            // 使用第一个区域的样式
+            const firstChild = sorted[0];
+            const mergedRegion = {
+                id: `text_${Date.now()}`,
+                type: 'text-overlay',
+                name: mergedText.slice(0, 20) + (mergedText.length > 20 ? '...' : ''),
+                visible: true,
+                text: mergedText,
+                content: { originalText: mergedText, displayText: mergedText },
+                bbox: {
+                    left: minLeft,
+                    top: minTop,
+                    width: maxRight - minLeft,
+                    height: maxBottom - minTop
+                },
+                style: { ...(firstChild.style || {}) },
+                inpainted: sorted.every(c => c.inpainted)
+            };
+
+            // 删除原区域
+            for (const child of selectedChildren) {
+                const idx = parentLayer.children.findIndex(c => c.id === child.id);
+                if (idx >= 0) parentLayer.children.splice(idx, 1);
+            }
+
+            // 添加合并后的区域
+            parentLayer.children.push(mergedRegion);
+            parentLayer.name = `文字识别 (${parentLayer.children.length} 区域)`;
+
+            // 自动估算字体大小
+            this._autoEstimateFontSize(mergedRegion);
+
+            // 选中新区域
+            this.selectedChildIndex = parentLayer.children.length - 1;
+            this.selectedChildIndices = [];
+
+            this._saveHistory();
+            this._updateLayerList();
+            this._updatePropertyPanel();
+            this._render();
+            this._showToast(`已合并 ${selectedChildren.length} 个区域`);
+        });
+
         // 应用变换
         panel.querySelector('[data-batch-action="apply-transform"]')?.addEventListener('click', () => {
             const offsetX = parseFloat(panel.querySelector('[data-batch-action="offset-x"]').value) / 100;
@@ -292,6 +368,10 @@ export const TextOverlayMixin = {
                     <iconify-icon icon="carbon:erase"></iconify-icon>
                     ${childLayer.inpainted ? '已去除原文字' : '去除原文字'}
                 </button>
+                <button class="btn-action" data-text-action="add-region" style="margin-top:8px;">
+                    <iconify-icon icon="carbon:add"></iconify-icon>
+                    手动添加区域
+                </button>
                 <button class="btn-action danger" data-text-action="delete" style="margin-top:8px;">
                     <iconify-icon icon="carbon:trash-can"></iconify-icon>
                     删除此区域
@@ -345,6 +425,7 @@ export const TextOverlayMixin = {
         panel.querySelector('[data-text-prop="fontSize"]')?.addEventListener('change', (e) => {
             childLayer.style = childLayer.style || {};
             childLayer.style.fontSize = parseInt(e.target.value);
+            childLayer.style.customFontSize = true; // 标记用户手动设置了字号
             this._render();
             this._saveHistory();
         });
@@ -409,6 +490,9 @@ export const TextOverlayMixin = {
         
         // 自动估算字号
         panel.querySelector('[data-text-action="auto-fontsize"]')?.addEventListener('click', () => {
+            if (childLayer.style) {
+                delete childLayer.style.customFontSize; // 清除手动标志，允许后续自动估算
+            }
             this._autoEstimateFontSize(childLayer);
             const fontSizeInput = panel.querySelector('[data-text-prop="fontSize"]');
             if (fontSizeInput) fontSizeInput.value = childLayer.style.fontSize;
@@ -425,7 +509,7 @@ export const TextOverlayMixin = {
         // 删除
         panel.querySelector('[data-text-action="delete"]')?.addEventListener('click', () => {
             if (!confirm('确定要删除这个文字区域吗？')) return;
-            
+
             const idx = parentLayer.children.findIndex(c => c.id === childLayer.id);
             if (idx !== -1) {
                 parentLayer.children.splice(idx, 1);
@@ -436,6 +520,11 @@ export const TextOverlayMixin = {
                 this._updatePropertyPanel();
                 this._render();
             }
+        });
+
+        // 手动添加区域
+        panel.querySelector('[data-text-action="add-region"]')?.addEventListener('click', () => {
+            this._startDrawBbox(parentLayer);
         });
     },
 

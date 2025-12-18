@@ -461,9 +461,12 @@ export const OcrMixin = {
             const h = Math.ceil(bbox.height * imgHeight);
             
             await this._performInpainting(ctx, x, y, w, h, this.processedImage.original.imageData);
-            
+
             region.inpainted = true;
-            
+
+            // 保存 inpaintedBackground 的 dataUrl 以便序列化持久化
+            group.inpaintedBackground.dataUrl = canvas.toDataURL('image/png');
+
             this._saveHistory();
             this._render();
             

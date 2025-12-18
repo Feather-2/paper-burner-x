@@ -3,6 +3,8 @@
  * 从 layer-editor.js 拆分出的属性面板方法
  */
 
+import { AVAILABLE_FONTS, loadFontCSS } from './text-overlay.js';
+
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 function identityMatrix() {
@@ -219,6 +221,96 @@ export const PropertyPanelMixin = {
         
         // OCR 组特有操作
         if (isOcrGroup) {
+            // 获取当前组的全局字体
+            const globalFont = layer.globalFont || 'system-ui, sans-serif';
+            const globalFontIndex = AVAILABLE_FONTS.findIndex(f => f.value === globalFont);
+
+            // 字号分类（当区域数 >= 6 时启用）
+            const textChildren = (layer.children || []).filter(c => c.type === 'text-overlay' && c.visible !== false);
+            const fontSizes = textChildren.map(c => c.style?.fontSize || 14);
+            const showSizeCategories = textChildren.length >= 6;
+
+            let sizeCategories = null;
+            if (showSizeCategories && fontSizes.length > 0) {
+                sizeCategories = this._classifyFontSizes(fontSizes, textChildren);
+            }
+
+            content += `
+                <div class="property-group">
+                    <div class="property-group-title">
+                        <iconify-icon icon="carbon:text-font"></iconify-icon>
+                        全局字体样式
+                    </div>
+                    <div class="property-row">
+                        <span class="property-label">统一字体</span>
+                        <select class="property-select" data-group-action="global-font" style="width:120px;">
+                            ${AVAILABLE_FONTS.map((f, idx) => `<option value="${idx}" ${idx === globalFontIndex || (globalFontIndex < 0 && idx === 0) ? 'selected' : ''}>${f.name}</option>`).join('')}
+                            <option value="local">系统字体...</option>
+                            <option value="custom" ${layer.globalFont && globalFontIndex < 0 ? 'selected' : ''}>手动输入...</option>
+                        </select>
+                    </div>
+                    <div class="property-row" id="local-font-row" style="display:none;">
+                        <span class="property-label">系统字体</span>
+                        <select class="property-select" data-group-action="local-font-select" style="width:120px;">
+                            <option value="">加载中...</option>
+                        </select>
+                    </div>
+                    <div class="property-row" id="custom-font-row" style="display:${layer.globalFont && globalFontIndex < 0 ? 'flex' : 'none'};">
+                        <span class="property-label">字体名称</span>
+                        <input type="text" class="property-input" data-group-action="custom-font-name"
+                               placeholder="如: Arial, 微软雅黑" value="${layer.globalFont && globalFontIndex < 0 ? layer.globalFont : ''}" style="width:120px;">
+                    </div>
+                    <button class="btn-action" data-group-action="apply-global-font" style="margin-top:4px;">
+                        <iconify-icon icon="carbon:checkmark"></iconify-icon>
+                        应用到所有区域
+                    </button>
+                </div>
+            `;
+
+            // 字号分类管理（当区域数 >= 6 时显示）
+            if (showSizeCategories && sizeCategories) {
+                content += `
+                    <div class="property-group">
+                        <div class="property-group-title">
+                            <iconify-icon icon="carbon:text-scale"></iconify-icon>
+                            字号分类管理
+                        </div>
+                        <div style="font-size:11px;color:var(--ie-text-secondary);margin-bottom:8px;">
+                            共 ${textChildren.length} 个区域，按字号自动分为大/中/小三类
+                        </div>
+                        ${sizeCategories.large.count > 0 ? `
+                        <div class="property-row">
+                            <span class="property-label">大字体 (${sizeCategories.large.count}个)</span>
+                            <input type="number" class="property-input" value="${sizeCategories.large.avgSize}"
+                                   data-size-category="large" style="width:60px;" min="8" max="200">
+                        </div>
+                        ` : ''}
+                        ${sizeCategories.medium.count > 0 ? `
+                        <div class="property-row">
+                            <span class="property-label">中字体 (${sizeCategories.medium.count}个)</span>
+                            <input type="number" class="property-input" value="${sizeCategories.medium.avgSize}"
+                                   data-size-category="medium" style="width:60px;" min="8" max="200">
+                        </div>
+                        ` : ''}
+                        ${sizeCategories.small.count > 0 ? `
+                        <div class="property-row">
+                            <span class="property-label">小字体 (${sizeCategories.small.count}个)</span>
+                            <input type="number" class="property-input" value="${sizeCategories.small.avgSize}"
+                                   data-size-category="small" style="width:60px;" min="8" max="200">
+                        </div>
+                        ` : ''}
+                        <button class="btn-action" data-group-action="apply-size-categories" style="margin-top:8px;">
+                            <iconify-icon icon="carbon:checkmark"></iconify-icon>
+                            应用字号分类
+                        </button>
+                        <button class="btn-action" data-group-action="auto-optimize-sizes" style="margin-top:4px;">
+                            <iconify-icon icon="carbon:magic-wand"></iconify-icon>
+                            智能优化字号
+                        </button>
+                    </div>
+                `;
+            }
+
             // 遮罩背景控制（如果有 inpainted background）
             if (hasInpaintedBg) {
                 content += `
@@ -922,6 +1014,170 @@ export const PropertyPanelMixin = {
         panel.querySelector('[data-group-action="add-region"]')?.addEventListener('click', () => {
             this._startDrawBbox(layer);
         });
+
+        // 全局字体选择
+        panel.querySelector('[data-group-action="global-font"]')?.addEventListener('change', async (e) => {
+            const value = e.target.value;
+            const customFontRow = panel.querySelector('#custom-font-row');
+            const localFontRow = panel.querySelector('#local-font-row');
+
+            // 隐藏所有额外行
+            if (customFontRow) customFontRow.style.display = 'none';
+            if (localFontRow) localFontRow.style.display = 'none';
+
+            if (value === 'custom') {
+                if (customFontRow) customFontRow.style.display = 'flex';
+            } else if (value === 'local') {
+                if (localFontRow) localFontRow.style.display = 'flex';
+                // 加载系统字体
+                await this._loadLocalFonts(panel.querySelector('[data-group-action="local-font-select"]'));
+            } else {
+                const fontIndex = parseInt(value);
+                const fontDef = AVAILABLE_FONTS[fontIndex];
+                if (fontDef) {
+                    layer.globalFont = fontDef.value;
+                }
+            }
+        });
+
+        // 系统字体选择
+        panel.querySelector('[data-group-action="local-font-select"]')?.addEventListener('change', (e) => {
+            const fontFamily = e.target.value;
+            if (fontFamily) {
+                layer.globalFont = fontFamily;
+            }
+        });
+
+        // 应用全局字体到所有区域
+        panel.querySelector('[data-group-action="apply-global-font"]')?.addEventListener('click', async () => {
+            const fontSelect = panel.querySelector('[data-group-action="global-font"]');
+            const value = fontSelect?.value;
+            let fontFamily = '';
+            let fontName = '';
+
+            if (value === 'custom') {
+                // 手动输入字体
+                const customInput = panel.querySelector('[data-group-action="custom-font-name"]');
+                fontFamily = customInput?.value?.trim();
+                if (!fontFamily) {
+                    this._showToast('请输入字体名称');
+                    return;
+                }
+                fontName = fontFamily;
+            } else if (value === 'local') {
+                // 系统字体
+                const localSelect = panel.querySelector('[data-group-action="local-font-select"]');
+                fontFamily = localSelect?.value;
+                if (!fontFamily) {
+                    this._showToast('请选择系统字体');
+                    return;
+                }
+                fontName = fontFamily;
+            } else {
+                // 预设字体
+                const fontIndex = parseInt(value || 0);
+                const fontDef = AVAILABLE_FONTS[fontIndex];
+                if (!fontDef) return;
+
+                fontFamily = fontDef.value;
+                fontName = fontDef.name;
+
+                // 加载字体
+                if (fontDef.css) {
+                    this._showLoading('加载字体...');
+                    await loadFontCSS(fontDef.css);
+                    this._hideLoading();
+                }
+            }
+
+            // 应用到所有子区域
+            layer.globalFont = fontFamily;
+            (layer.children || []).forEach(child => {
+                if (child.type === 'text-overlay') {
+                    child.style = child.style || {};
+                    child.style.fontFamily = fontFamily;
+                }
+            });
+
+            this._saveHistory();
+            this._render();
+            this._showToast(`已应用字体: ${fontName}`);
+        });
+
+        // 应用字号分类
+        panel.querySelector('[data-group-action="apply-size-categories"]')?.addEventListener('click', () => {
+            const textChildren = (layer.children || []).filter(c => c.type === 'text-overlay' && c.visible !== false);
+            if (textChildren.length < 6) return;
+
+            const sizeCategories = this._classifyFontSizes(
+                textChildren.map(c => c.style?.fontSize || 14),
+                textChildren
+            );
+
+            const largeSize = parseInt(panel.querySelector('[data-size-category="large"]')?.value) || sizeCategories.large.avgSize;
+            const mediumSize = parseInt(panel.querySelector('[data-size-category="medium"]')?.value) || sizeCategories.medium.avgSize;
+            const smallSize = parseInt(panel.querySelector('[data-size-category="small"]')?.value) || sizeCategories.small.avgSize;
+
+            // 应用新字号
+            sizeCategories.large.children.forEach(c => {
+                c.style = c.style || {};
+                c.style.fontSize = largeSize;
+                c.style.customFontSize = true;
+            });
+            sizeCategories.medium.children.forEach(c => {
+                c.style = c.style || {};
+                c.style.fontSize = mediumSize;
+                c.style.customFontSize = true;
+            });
+            sizeCategories.small.children.forEach(c => {
+                c.style = c.style || {};
+                c.style.fontSize = smallSize;
+                c.style.customFontSize = true;
+            });
+
+            this._saveHistory();
+            this._render();
+            this._showToast('已应用字号分类');
+        });
+
+        // 智能优化字号
+        panel.querySelector('[data-group-action="auto-optimize-sizes"]')?.addEventListener('click', () => {
+            const textChildren = (layer.children || []).filter(c => c.type === 'text-overlay' && c.visible !== false);
+            if (textChildren.length < 6) return;
+
+            const sizeCategories = this._classifyFontSizes(
+                textChildren.map(c => c.style?.fontSize || 14),
+                textChildren
+            );
+
+            // 设计最佳实践：大字号是小字号的 1.5-2 倍，中字号居中
+            const baseSize = Math.round(sizeCategories.small.avgSize);
+            const optimizedSmall = Math.max(12, baseSize);
+            const optimizedLarge = Math.round(optimizedSmall * 1.618); // 黄金比例
+            const optimizedMedium = Math.round((optimizedSmall + optimizedLarge) / 2);
+
+            // 应用优化后的字号
+            sizeCategories.large.children.forEach(c => {
+                c.style = c.style || {};
+                c.style.fontSize = optimizedLarge;
+                delete c.style.customFontSize;
+            });
+            sizeCategories.medium.children.forEach(c => {
+                c.style = c.style || {};
+                c.style.fontSize = optimizedMedium;
+                delete c.style.customFontSize;
+            });
+            sizeCategories.small.children.forEach(c => {
+                c.style = c.style || {};
+                c.style.fontSize = optimizedSmall;
+                delete c.style.customFontSize;
+            });
+
+            this._saveHistory();
+            this._updatePropertyPanel();
+            this._render();
+            this._showToast(`已优化: 大${optimizedLarge} / 中${optimizedMedium} / 小${optimizedSmall}`);
+        });
         
         // 切换 inpainted background 显示
         panel.querySelector('[data-group-action="toggle-inpaint-bg"]')?.addEventListener('change', (e) => {
@@ -1144,5 +1400,116 @@ export const PropertyPanelMixin = {
         panel.querySelector('[data-child-action="delete"]')?.addEventListener('click', () => {
             this._deleteChildLayer(this.selectedLayerIndex, this.selectedChildIndex);
         });
+    },
+
+    /**
+     * 字号分类 - 将字号分为大/中/小三类
+     * 使用 K-means 聚类算法（k=3）
+     */
+    _classifyFontSizes(fontSizes, children) {
+        if (!fontSizes.length) {
+            return {
+                large: { children: [], avgSize: 24, count: 0 },
+                medium: { children: [], avgSize: 16, count: 0 },
+                small: { children: [], avgSize: 12, count: 0 }
+            };
+        }
+
+        // 获取字号范围
+        const sorted = [...fontSizes].sort((a, b) => a - b);
+        const min = sorted[0];
+        const max = sorted[sorted.length - 1];
+        const range = max - min;
+
+        // 如果所有字号相近（范围 < 6），都归为中等
+        if (range < 6) {
+            const avgSize = Math.round(fontSizes.reduce((a, b) => a + b, 0) / fontSizes.length);
+            return {
+                large: { children: [], avgSize: avgSize + 8, count: 0 },
+                medium: { children: [...children], avgSize, count: children.length },
+                small: { children: [], avgSize: Math.max(12, avgSize - 6), count: 0 }
+            };
+        }
+
+        // 三分位数分类
+        const q1 = sorted[Math.floor(sorted.length * 0.33)];
+        const q2 = sorted[Math.floor(sorted.length * 0.67)];
+
+        const result = {
+            large: { children: [], sizes: [], avgSize: 0, count: 0 },
+            medium: { children: [], sizes: [], avgSize: 0, count: 0 },
+            small: { children: [], sizes: [], avgSize: 0, count: 0 }
+        };
+
+        fontSizes.forEach((size, idx) => {
+            const child = children[idx];
+            if (size > q2) {
+                result.large.children.push(child);
+                result.large.sizes.push(size);
+            } else if (size >= q1) {
+                result.medium.children.push(child);
+                result.medium.sizes.push(size);
+            } else {
+                result.small.children.push(child);
+                result.small.sizes.push(size);
+            }
+        });
+
+        // 计算平均值
+        ['large', 'medium', 'small'].forEach(cat => {
+            const sizes = result[cat].sizes;
+            result[cat].count = sizes.length;
+            result[cat].avgSize = sizes.length > 0
+                ? Math.round(sizes.reduce((a, b) => a + b, 0) / sizes.length)
+                : (cat === 'large' ? 24 : cat === 'medium' ? 16 : 12);
+            delete result[cat].sizes;
+        });
+
+        return result;
+    },
+
+    /**
+     * 加载系统本地字体列表
+     * 使用 Local Font Access API (需要用户授权)
+     */
+    async _loadLocalFonts(selectElement) {
+        if (!selectElement) return;
+
+        // 检查 API 是否可用
+        if (!('queryLocalFonts' in window)) {
+            selectElement.innerHTML = '<option value="">浏览器不支持获取系统字体</option>';
+            this._showToast('请使用 Chrome/Edge 浏览器，或手动输入字体名');
+            return;
+        }
+
+        try {
+            // 请求字体访问权限
+            const fonts = await window.queryLocalFonts();
+
+            // 去重并按字体系列分组
+            const fontFamilies = new Map();
+            for (const font of fonts) {
+                if (!fontFamilies.has(font.family)) {
+                    fontFamilies.set(font.family, font.family);
+                }
+            }
+
+            // 排序
+            const sortedFamilies = [...fontFamilies.keys()].sort((a, b) => a.localeCompare(b, 'zh-CN'));
+
+            // 更新下拉列表
+            selectElement.innerHTML = '<option value="">请选择字体...</option>' +
+                sortedFamilies.map(family => `<option value="${family}">${family}</option>`).join('');
+
+            this._showToast(`已加载 ${sortedFamilies.length} 个系统字体`);
+        } catch (err) {
+            console.warn('[PropertyPanel] 获取系统字体失败:', err);
+            if (err.name === 'NotAllowedError') {
+                selectElement.innerHTML = '<option value="">已拒绝字体访问权限</option>';
+                this._showToast('需要授权才能访问系统字体');
+            } else {
+                selectElement.innerHTML = '<option value="">获取字体失败</option>';
+            }
+        }
     }
 };

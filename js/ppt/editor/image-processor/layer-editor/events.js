@@ -118,12 +118,13 @@ export const EventsMixin = {
                     this.drawBboxParent = null;
                     this.canvas.style.cursor = 'default';
                     this._showToast('已取消绘制模式');
-                } else {
-                    this.selectedLayerIndex = -1;
-                    this.selectedChildIndex = -1;
-                    this._updateLayerList();
-                    this._updatePropertyPanel();
                 }
+                // 无论是否在绘制模式，都清除选择
+                this.selectedLayerIndex = -1;
+                this.selectedChildIndex = -1;
+                this._updateLayerList();
+                this._updatePropertyPanel();
+                this._render();
             }
         });
         
@@ -238,7 +239,8 @@ export const EventsMixin = {
         // 只在绘制模式下才启用
         svgContainer.addEventListener('mousedown', (e) => {
             if (!this.drawBboxMode) return;
-            if (e.target.closest('.bbox-handle, .bbox-overlay')) return;
+            // 只阻止调整手柄，不阻止在已有区域上绘制新区域
+            if (e.target.closest('.bbox-handle')) return;
             
             e.preventDefault();
             
@@ -484,13 +486,19 @@ export const EventsMixin = {
         
         const endDrag = () => {
             if (isDragging && dragLayer) {
-                // 批量移动时为每个图层重新估算字号
-                if (allStartBboxes.length > 1) {
-                    allStartBboxes.forEach(({ layer }) => {
-                        this._autoEstimateFontSize(layer);
-                    });
-                } else {
-                    this._autoEstimateFontSize(dragLayer);
+                // 只在调整大小时重新估算字号（移动不触发）
+                // 且如果用户手动设置了字号，不自动覆盖
+                const isResize = dragMode && dragMode.startsWith('resize-');
+                if (isResize) {
+                    if (allStartBboxes.length > 1) {
+                        allStartBboxes.forEach(({ layer }) => {
+                            if (!layer.style?.customFontSize) {
+                                this._autoEstimateFontSize(layer);
+                            }
+                        });
+                    } else if (!dragLayer.style?.customFontSize) {
+                        this._autoEstimateFontSize(dragLayer);
+                    }
                 }
                 this._saveHistory();
                 this._updatePropertyPanel();
