@@ -1470,8 +1470,28 @@ const PPTGeneratorEditor = {
      */
     _showAiImageDialog(element, initialReferenceImages = []) {
         return new Promise((resolve) => {
-            // 获取保存的配置
-            const cfg = typeof loadModelConfig === 'function' ? (loadModelConfig('gemini-image') || {}) : {};
+            // 获取保存的配置（优先使用 pptRolePriority.design_image 指定的 provider）
+            const imageProviderKey = (() => {
+                try {
+                    if (typeof localStorage === 'undefined') return 'gemini-image';
+                    const rolePriorityRaw = localStorage.getItem('pptRolePriority');
+                    if (!rolePriorityRaw) return 'gemini-image';
+                    const rolePriority = JSON.parse(rolePriorityRaw);
+                    const imageModels = rolePriority?.design_image;
+                    if (!Array.isArray(imageModels) || imageModels.length === 0) return 'gemini-image';
+                    const modelKey = imageModels[0];
+                    if (typeof modelKey !== 'string' || !modelKey.trim()) return 'gemini-image';
+                    console.log(`[PPTGeneratorEditor] 使用 pptRolePriority.design_image: ${modelKey}`);
+                    return modelKey.includes(':') ? modelKey.split(':')[0] : modelKey;
+                } catch (e) {
+                    console.warn('[PPTGeneratorEditor] 读取 pptRolePriority 失败:', e);
+                    return 'gemini-image';
+                }
+            })();
+
+            const cfg = typeof loadModelConfig === 'function'
+                ? (loadModelConfig(imageProviderKey) || loadModelConfig('gemini-image') || {})
+                : {};
             // 根据元素尺寸自动检测比例（优先使用百分比转换后的像素值）
             const slideWidth = 960, slideHeight = 540; // 标准幻灯片尺寸
             let elWidth = element.width || 200;

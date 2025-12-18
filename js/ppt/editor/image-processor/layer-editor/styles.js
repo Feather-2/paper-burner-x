@@ -188,6 +188,15 @@ export const EDITOR_STYLES = `
         background: #fff;
         transition: transform 0.1s cubic-bezier(0, 0, 0.2, 1);
     }
+
+    .image-editor-svg-container {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+    }
     
     .zoom-indicator {
         position: absolute;
