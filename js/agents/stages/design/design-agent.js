@@ -7,7 +7,7 @@ import { fillImagePlaceholders } from "./image-generator.js";
 import { SVGGenerator, fillSvgPlaceholders } from "./svg-generator.js";
 import { fillAssetPlaceholders } from "./asset-resolver.js";
 import { VisualRenderer } from "./visual-renderer.js";
-import { DSL_RULES } from "./dsl-rules.js";
+import { getDslRules } from "./dsl-rules.js";
 import { brainstorm } from "./brainstorm.js";
 import { normalizeRenderType } from "../../shared/value-utils.js";
 
@@ -371,6 +371,10 @@ export class DesignStage {
       checkCancelled(context.signal);
     }
 
+    // Load DSL rules asynchronously
+    const dslRules = await getDslRules();
+    checkCancelled(context.signal);
+
     const generated = await generateBatch(slideIntents, contentPackage, designSystem, {
       batchSize: this.batchSize,
       batchConcurrency: this.batchConcurrency,
@@ -380,7 +384,7 @@ export class DesignStage {
       selectedIdeas: selectedIdeasForPrompt,
       emit,
       signal: context.signal,
-      dslRules: DSL_RULES,
+      dslRules,
     });
     emitStage(emit, "design.generate.ended", "ended", { slides: generated.length });
     checkCancelled(context.signal);

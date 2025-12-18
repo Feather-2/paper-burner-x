@@ -12,6 +12,24 @@ import { createLogger } from "./logger.js";
 import { extractServices } from "./stage-api.js";
 import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
 import { SMALL_DOC_THRESHOLD } from "./constants.js";
+import { loadPrompt } from "../../prompts/prompt-loader.js";
+
+// 缓存的提示词
+let _directAnalysisPrompt = null;
+
+/**
+ * 异步获取 direct analysis prompt
+ */
+export async function getDirectAnalysisPrompt() {
+  if (_directAnalysisPrompt) return _directAnalysisPrompt;
+  try {
+    _directAnalysisPrompt = await loadPrompt("deepsearch/direct-analysis");
+    return _directAnalysisPrompt;
+  } catch (e) {
+    console.warn("[direct-analysis] Failed to load direct-analysis.md:", e.message);
+    return DIRECT_ANALYSIS_PROMPT;
+  }
+}
 
 const DIRECT_ANALYSIS_PROMPT = `你是一个文档分析专家。请仔细阅读以下文档，并根据用户目标完成分析。
 

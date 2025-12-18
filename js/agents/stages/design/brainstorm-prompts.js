@@ -1,88 +1,70 @@
+import { loadPrompt } from "../../prompts/prompt-loader.js";
+
 function safeJson(v, maxLen = 8000) {
   const s = JSON.stringify(v ?? null, null, 2);
   if (s.length <= maxLen) return s;
   return s.slice(0, maxLen) + "\n...<truncated>";
 }
 
-export const BRAINSTORM_SYSTEM_PROMPT = [
-  "You are a Visual Planner for presentation design.",
-  "Your task: for EACH slide, decide what visual elements are needed and where to place them.",
-  "",
-  "IMPORTANT: When availableAssets are provided, PREFER reusing existing assets over generating new images.",
-  "",
-  "Output format: return ONLY valid JSON.",
-  "JSON schema:",
-  "{",
-  '  "slideResults": [',
-  "    {",
-  '      "slideIntentId": "string",',
-  '      "slideIndex": number,',
-  '      "visualSlots": [',
-  "        {",
-  '          "slotId": "string (unique, e.g. hero_img, bg_pattern, main_illustration)",',
-  '          "renderType": "ai-image | svg | asset",',
-  '          "position": { "x": "10%", "y": "20%", "w": "40%", "h": "50%" },',
-  '          "purpose": "string (what is this visual for, e.g. 产品展示, 装饰背景, 数据图表)",',
-  '          "prompt": "string (for ai-image: generation prompt)",',
-  '          "style": "photo | illustration | 3d | flat (for ai-image)",',
-  '          "svgDescription": "string (for svg: what to draw, be specific)",',
-  '          "svgType": "diagram | icon | pattern | chart (for svg)",',
-  '          "assetId": "string (for asset: which asset to reuse)",',
-  '          "effects": { "opacity": "0-1", "radius": "8px", "blend": "multiply", "filter": "blur(4px)" }',
-  "        }",
-  "      ]",
-  "    }",
-  "  ]",
-  "}",
-  "",
-  "Position guidelines (use percentages, be flexible):",
-  "- Full background: x=0%, y=0%, w=100%, h=100%",
-  "- Left half: x=2%, y=15%, w=45%, h=70%",
-  "- Right half: x=53%, y=15%, w=45%, h=70%",
-  "- Small icon: w=8%-15%, h=8%-15%",
-  "- Hero image: w=50%-80%, centered or offset",
-  "- Adjust based on text layout and visual balance",
-  "",
-  "Constraints:",
-  "- Process ALL slides, return one entry per slide.",
-  "- Each slide can have 0-3 visualSlots (don't clutter).",
-  "- For text-heavy slides (agenda, summary), fewer or no visuals is fine.",
-  "- Reuse availableAssets when content matches.",
-  "- Keep it simple: just plan what visuals go where.",
-  "- Use effects.radius for rounded corners on images.",
-].join("\n");
+// 缓存的提示词
+let _brainstormSystemPrompt = null;
+let _brainstormReviewPrompt = null;
 
-export const BRAINSTORM_REVIEW_PROMPT = [
-  "You are an Art Director reviewing presentation slide visual concepts.",
-  "Score each candidate from 0.0 to 1.0 (higher is better) across:",
-  "- visualImpact: immediate visual punch",
-  "- clarity: communicates the slide intent clearly",
-  "- novelty: freshness without being distracting",
-  "- consistency: aligns with the given designSystem style",
-  "",
-  "Output format: return ONLY valid JSON (no markdown, no commentary).",
-  "JSON schema:",
-  "{",
-  '  "slideReviews": [',
-  "    {",
-  '      "slideIntentId": "string",',
-  '      "slideIndex": "number",',
-  '      "reviews": [',
-  "        {",
-  '          "candidateId": "string",',
-  '          "scores": { "visualImpact": 0.0, "clarity": 0.0, "novelty": 0.0, "consistency": 0.0 }',
-  "        }",
-  "      ],",
-  '      "selectedCandidateId": "string"',
-  "    }",
-  "  ]",
-  "}",
-  "",
-  "Notes:",
-  "- Process ALL slides in the batch, return one entry per slide in slideReviews.",
-  "- selectedCandidateId should match the highest composite impression based on the scores for that slide.",
-  "- Be strict: penalize clutter, weak hierarchy, or mismatch with designSystem.",
-].join("\n");
+// Fallback prompts (minimal version)
+const FALLBACK_BRAINSTORM_SYSTEM = `You are a Visual Planner for presentation design.
+For EACH slide, decide what visual elements are needed and where to place them.
+Output JSON: {"slideResults": [{"slideIntentId": "string", "slideIndex": number, "visualSlots": [...]}]}`;
+
+const FALLBACK_REVIEW_SYSTEM = `You are an Art Director reviewing presentation slide visual concepts.
+Score each candidate from 0.0 to 1.0 on: visualImpact, clarity, novelty, consistency.
+Output JSON: {"slideReviews": [{"slideIntentId": "string", "selectedCandidateId": "string", "reviews": [...]}]}`;
+
+/**
+ * 异步获取 brainstorm system prompt
+ */
+export async function getBrainstormSystemPrompt() {
+  if (_brainstormSystemPrompt) return _brainstormSystemPrompt;
+  try {
+    _brainstormSystemPrompt = await loadPrompt("design/brainstorm-system");
+    return _brainstormSystemPrompt;
+  } catch (e) {
+    console.warn("[brainstorm-prompts] Failed to load brainstorm-system.md:", e.message);
+    return FALLBACK_BRAINSTORM_SYSTEM;
+  }
+}
+
+/**
+ * 异步获取 review system prompt
+ */
+export async function getBrainstormReviewPrompt() {
+  if (_brainstormReviewPrompt) return _brainstormReviewPrompt;
+  try {
+    _brainstormReviewPrompt = await loadPrompt("design/brainstorm-review");
+    return _brainstormReviewPrompt;
+  } catch (e) {
+    console.warn("[brainstorm-prompts] Failed to load brainstorm-review.md:", e.message);
+    return FALLBACK_REVIEW_SYSTEM;
+  }
+}
+
+// 向后兼容：同步导出（首次访问时返回 fallback）
+export const BRAINSTORM_SYSTEM_PROMPT = new Proxy({}, {
+  get(_, prop) {
+    if (prop === Symbol.toPrimitive || prop === "toString" || prop === "valueOf") {
+      return () => _brainstormSystemPrompt || FALLBACK_BRAINSTORM_SYSTEM;
+    }
+    return (_brainstormSystemPrompt || FALLBACK_BRAINSTORM_SYSTEM)[prop];
+  }
+});
+
+export const BRAINSTORM_REVIEW_PROMPT = new Proxy({}, {
+  get(_, prop) {
+    if (prop === Symbol.toPrimitive || prop === "toString" || prop === "valueOf") {
+      return () => _brainstormReviewPrompt || FALLBACK_REVIEW_SYSTEM;
+    }
+    return (_brainstormReviewPrompt || FALLBACK_REVIEW_SYSTEM)[prop];
+  }
+});
 
 export function buildBrainstormPrompt(slideIntentsOrSingle, designSystem, dslEffects, styleSpec, availableAssets) {
   const slideIntents = Array.isArray(slideIntentsOrSingle) ? slideIntentsOrSingle : [slideIntentsOrSingle];

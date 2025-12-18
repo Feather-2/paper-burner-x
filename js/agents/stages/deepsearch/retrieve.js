@@ -11,6 +11,24 @@ import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-uti
 import { LRUMap } from "../../shared/lru-map.js";
 import { mapConcurrent } from "../../shared/concurrency.js";
 import { CHUNK_CONFIG } from "./constants.js";
+import { loadPrompt } from "../../prompts/prompt-loader.js";
+
+// 缓存的提示词
+let _rerankPrompt = null;
+
+/**
+ * 异步获取 rerank prompt
+ */
+export async function getRerankPrompt() {
+  if (_rerankPrompt) return _rerankPrompt;
+  try {
+    _rerankPrompt = await loadPrompt("deepsearch/rerank");
+    return _rerankPrompt;
+  } catch (e) {
+    console.warn("[retrieve] Failed to load rerank.md:", e.message);
+    return RERANK_PROMPT;
+  }
+}
 
 const defaultLocalRetriever = (...args) => retrieveWithRouter(...args);
 

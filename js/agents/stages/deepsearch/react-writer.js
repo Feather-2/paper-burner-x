@@ -31,6 +31,39 @@ import { getModelCaller } from "./model.js";
 import { countWordsApprox } from "./report-diff.js";
 import { extractEvidenceIdsFromMarkdownCitations, finalizeCitationsInMarkdown } from "./citations.js";
 import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
+import { loadPrompt } from "../../prompts/prompt-loader.js";
+
+// 缓存的提示词
+let _writerSystemPrompt = null;
+let _writerInitialPrompt = null;
+
+/**
+ * 异步获取 writer system prompt
+ */
+export async function getWriterSystemPrompt() {
+  if (_writerSystemPrompt) return _writerSystemPrompt;
+  try {
+    _writerSystemPrompt = await loadPrompt("deepsearch/writer-system");
+    return _writerSystemPrompt;
+  } catch (e) {
+    console.warn("[react-writer] Failed to load writer-system.md:", e.message);
+    return WRITER_SYSTEM_PROMPT;
+  }
+}
+
+/**
+ * 异步获取 writer initial prompt
+ */
+export async function getWriterInitialPrompt() {
+  if (_writerInitialPrompt) return _writerInitialPrompt;
+  try {
+    _writerInitialPrompt = await loadPrompt("deepsearch/writer-initial");
+    return _writerInitialPrompt;
+  } catch (e) {
+    console.warn("[react-writer] Failed to load writer-initial.md:", e.message);
+    return WRITER_INITIAL_PROMPT;
+  }
+}
 
 // ===== 工具实现 =====
 
@@ -596,11 +629,15 @@ export async function runReactWriter(context, options = {}) {
     languageInstruction = '**IMPORTANT: Write in the same language as the task goal. If the task is in Chinese, write in Chinese. If in English, write in English.**';
   }
 
+  // 异步加载提示词
+  const writerSystemPrompt = await getWriterSystemPrompt();
+  const writerInitialPrompt = await getWriterInitialPrompt();
+
   const messages = [
-    { role: "system", content: WRITER_SYSTEM_PROMPT },
+    { role: "system", content: writerSystemPrompt },
     {
       role: "user",
-      content: WRITER_INITIAL_PROMPT
+      content: writerInitialPrompt
         .replace("{taskGoal}", taskGoal)
         .replace("{languageInstruction}", languageInstruction)
         .replace("{targetWords}", String(targetWords))

@@ -1,6 +1,7 @@
 import { getDesignModelCaller } from "./model.js";
 import { robustParseJson } from "../../shared/robust-json.js";
 import { getCircuitBreaker } from "../../core/error-handler.js";
+import { loadPrompt } from "../../prompts/prompt-loader.js";
 
 /**
  * Simple concurrency limiter (pLimit-style).
@@ -230,32 +231,27 @@ function buildStyleDescription(designSystem) {
   return parts.join("; ");
 }
 
-// System prompt for batch SVG generation
-const SVG_BATCH_SYSTEM_PROMPT = `You are an SVG artist for presentation slides. Generate creative, visually appealing SVG graphics.
+// 缓存的 SVG system prompt
+let _svgSystemPrompt = null;
 
-OUTPUT FORMAT:
-Return a JSON array: [{"slotId": "...", "svg": "<svg>...</svg>"}, ...]
+// Fallback prompt (minimal version)
+const FALLBACK_SVG_PROMPT = `You are an SVG artist for presentation slides.
+Output JSON array: [{"slotId": "...", "svg": "<svg>...</svg>"}]
+Use provided colors, keep designs modern and clean.`;
 
-STYLE CONSISTENCY:
-- All SVGs in this batch should share a cohesive visual language
-- Use the provided color palette consistently
-- Maintain similar stroke widths, corner radii, and shadow styles
-- Keep designs modern, clean, and professional
-
-AVAILABLE TECHNIQUES:
-- Gradients: <linearGradient>, <radialGradient> for depth
-- Filters: blur, drop-shadow, glow via <filter>
-- Shapes: rect, circle, ellipse, path, polygon, line
-- Text: <text> with font-family, font-size (min 12px for readability)
-- Groups: <g> for organizing, with opacity/transform
-- Blend modes and semi-transparency for layering
-
-DESIGN GUIDELINES:
-- Use rounded corners (rx/ry) for modern look
-- Add subtle shadows or glows for depth
-- Create visual interest with layered shapes
-- Keep sufficient contrast for readability
-- Ensure the design matches its purpose (icon, diagram, illustration, etc.)`;
+/**
+ * 异步获取 SVG system prompt
+ */
+async function getSvgSystemPrompt() {
+  if (_svgSystemPrompt) return _svgSystemPrompt;
+  try {
+    _svgSystemPrompt = await loadPrompt("design/svg-generator");
+    return _svgSystemPrompt;
+  } catch (e) {
+    console.warn("[svg-generator] Failed to load svg-generator.md:", e.message);
+    return FALLBACK_SVG_PROMPT;
+  }
+}
 
 function buildBatchPrompt(batchSlots, designSystem, slideHtmlMap) {
   const colors = pickColors(designSystem);
@@ -368,8 +364,9 @@ async function generateBatchWithLLM(batchSlots, designSystem, slideHtmlMap, opti
   }
 
   const prompt = buildBatchPrompt(batchSlots, designSystem, slideHtmlMap);
+  const svgSystemPrompt = await getSvgSystemPrompt();
   const messages = [
-    { role: "system", content: SVG_BATCH_SYSTEM_PROMPT },
+    { role: "system", content: svgSystemPrompt },
     { role: "user", content: prompt },
   ];
 

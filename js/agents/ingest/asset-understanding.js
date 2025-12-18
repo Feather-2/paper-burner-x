@@ -1,5 +1,24 @@
+import { loadPrompt } from "../prompts/prompt-loader.js";
+
 const BATCH_SIZE = 5;
 const MAX_IMAGE_SIZE = 500 * 1024; // 500KB
+
+// 缓存的提示词
+let _batchAnalysisPrompt = null;
+
+/**
+ * 异步获取 batch analysis prompt
+ */
+export async function getBatchAnalysisPrompt() {
+  if (_batchAnalysisPrompt) return _batchAnalysisPrompt;
+  try {
+    _batchAnalysisPrompt = await loadPrompt("ingest/asset-batch-analysis");
+    return _batchAnalysisPrompt;
+  } catch (e) {
+    console.warn("[asset-understanding] Failed to load asset-batch-analysis.md:", e.message);
+    return BATCH_ANALYSIS_PROMPT;
+  }
+}
 
 const BATCH_ANALYSIS_PROMPT = `Analyze these images for reuse in presentation slides. Return JSON array with one entry per image, in the same order as provided:
 [

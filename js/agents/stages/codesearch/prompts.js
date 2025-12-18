@@ -1,7 +1,56 @@
 /**
  * CodeSearch Prompt 模板
  */
+import { loadPrompt } from "../../prompts/prompt-loader.js";
 
+// 缓存的提示词
+let _systemPrompt = null;
+let _stepPrompt = null;
+let _summarizePrompt = null;
+
+/**
+ * 异步获取 system prompt
+ */
+export async function getCodesearchSystemPrompt() {
+  if (_systemPrompt) return _systemPrompt;
+  try {
+    _systemPrompt = await loadPrompt("codesearch/system");
+    return _systemPrompt;
+  } catch (e) {
+    console.warn("[codesearch-prompts] Failed to load system.md:", e.message);
+    return CODESEARCH_SYSTEM_PROMPT;
+  }
+}
+
+/**
+ * 异步获取 step prompt
+ */
+export async function getCodesearchStepPrompt() {
+  if (_stepPrompt) return _stepPrompt;
+  try {
+    _stepPrompt = await loadPrompt("codesearch/step");
+    return _stepPrompt;
+  } catch (e) {
+    console.warn("[codesearch-prompts] Failed to load step.md:", e.message);
+    return CODESEARCH_STEP_PROMPT;
+  }
+}
+
+/**
+ * 异步获取 summarize prompt
+ */
+export async function getCodesearchSummarizePrompt() {
+  if (_summarizePrompt) return _summarizePrompt;
+  try {
+    _summarizePrompt = await loadPrompt("codesearch/summarize");
+    return _summarizePrompt;
+  } catch (e) {
+    console.warn("[codesearch-prompts] Failed to load summarize.md:", e.message);
+    return CODESEARCH_SUMMARIZE_PROMPT;
+  }
+}
+
+// 向后兼容：同步导出（fallback）
 export const CODESEARCH_SYSTEM_PROMPT = `你是一个代码分析专家 Agent。你的任务是探索和理解代码库。
 
 ## 可用工具

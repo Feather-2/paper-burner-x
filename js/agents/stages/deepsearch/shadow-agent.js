@@ -13,6 +13,39 @@ import { createLogger } from "./logger.js";
 import { extractServices } from "./stage-api.js";
 import { toNonEmptyString } from "../../shared/value-utils.js";
 import { CONCURRENCY_CONFIG, GAP_CONFIG } from "./constants.js";
+import { loadPrompt } from "../../prompts/prompt-loader.js";
+
+// 缓存的提示词
+let _relevancePrompt = null;
+let _evidencePrompt = null;
+
+/**
+ * 异步获取 relevance prompt
+ */
+export async function getRelevancePrompt() {
+  if (_relevancePrompt) return _relevancePrompt;
+  try {
+    _relevancePrompt = await loadPrompt("deepsearch/shadow-relevance");
+    return _relevancePrompt;
+  } catch (e) {
+    console.warn("[shadow-agent] Failed to load shadow-relevance.md:", e.message);
+    return RELEVANCE_PROMPT;
+  }
+}
+
+/**
+ * 异步获取 evidence prompt
+ */
+export async function getEvidencePrompt() {
+  if (_evidencePrompt) return _evidencePrompt;
+  try {
+    _evidencePrompt = await loadPrompt("deepsearch/shadow-evidence");
+    return _evidencePrompt;
+  } catch (e) {
+    console.warn("[shadow-agent] Failed to load shadow-evidence.md:", e.message);
+    return EVIDENCE_PROMPT;
+  }
+}
 
 // 默认配置
 const DEFAULT_CONFIG = {

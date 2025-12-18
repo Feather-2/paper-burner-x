@@ -1,3 +1,37 @@
+import { loadPrompt } from "../../prompts/prompt-loader.js";
+
+// 缓存的提示词
+let _reflectPrompt = null;
+let _llmClaimsPrompt = null;
+
+/**
+ * 异步获取 reflect prompt
+ */
+export async function getReflectPrompt() {
+  if (_reflectPrompt) return _reflectPrompt;
+  try {
+    _reflectPrompt = await loadPrompt("deepsearch/reflect");
+    return _reflectPrompt;
+  } catch (e) {
+    console.warn("[understand-prompts] Failed to load reflect.md:", e.message);
+    return REFLECT_PROMPT;
+  }
+}
+
+/**
+ * 异步获取 llm claims prompt
+ */
+export async function getLlmClaimsPrompt() {
+  if (_llmClaimsPrompt) return _llmClaimsPrompt;
+  try {
+    _llmClaimsPrompt = await loadPrompt("deepsearch/llm-claims");
+    return _llmClaimsPrompt;
+  } catch (e) {
+    console.warn("[understand-prompts] Failed to load llm-claims.md:", e.message);
+    return LLM_CLAIMS_PROMPT;
+  }
+}
+
 // ===== Reflect Prompt: LLM 自主判断是否需要更多信息 =====
 export const REFLECT_PROMPT = `你是一个研究助手，需要判断当前收集的证据是否足以回答用户的问题。
 

@@ -336,29 +336,39 @@ function buildStyleDescription(designSystem) {
   return parts.join("\n");
 }
 
+function buildPlaceholderUrl(width, height, bgColor, textColor, text) {
+  const w = Math.round(width) || 800;
+  const h = Math.round(height) || 600;
+  const bg = (bgColor || "#1a1a2e").replace("#", "");
+  const fg = (textColor || "#666666").replace("#", "");
+  const label = encodeURIComponent(String(text || "Image").slice(0, 30));
+  return `https://placehold.co/${w}x${h}/${bg}/${fg}?text=${label}`;
+}
+
 function makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch = [], dslRules = "", selectedIdeas = []) {
   const slots = Array.isArray(imageSlotsForBatch) ? imageSlotsForBatch : [];
   const rulesText = normalizeDslRules(dslRules);
   const selected = normalizeSelectedIdeas(selectedIdeas);
   const styleDesc = buildStyleDescription(designSystem);
+  const colors = designSystem?.designTokens?.colors || designSystem?.colors || {};
+  const primaryColor = colors.primary || "#0ea5e9";
+  const accentColor = colors.accent || "#22c55e";
+  const bgColor = colors.bg || "#ffffff";
 
   const promptParts = [];
 
-  // 1. Style description (concise, at top for attention)
+  // 1. DSL specification (full reference from md file)
+  if (rulesText) {
+    promptParts.push(rulesText, "");
+  }
+
+  // 2. Design style with actual colors
   promptParts.push(
     "=== DESIGN STYLE ===",
     styleDesc,
+    `Colors: primary=${primaryColor}, accent=${accentColor}, bg=${bgColor}`,
     "",
   );
-
-  // 2. DSL specification
-  if (rulesText) {
-    promptParts.push(
-      "=== DSL SPECIFICATION ===",
-      rulesText,
-      ""
-    );
-  }
 
   // 3. Output format requirements
   promptParts.push(
@@ -368,8 +378,23 @@ function makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch = []
     "CONTENT RULES:",
     "- Summarize, don't copy verbatim. Title ≤30 chars, bullets ≤60 chars each",
     "- Use 3-5 bullet points max per slide",
-    "- ALL positions use percentages (data-x=\"10%\")",
-    "- Font sizes 12-56px (data-font=\"16\")",
+    "- Generate inline SVG for decorative visuals (icons, diagrams, abstract shapes)",
+    ""
+  );
+
+  // 4. Image placeholder guide (for photos to be replaced later)
+  const placeholderBg = bgColor.replace("#", "");
+  const placeholderFg = (colors.muted || "#666666").replace("#", "");
+  promptParts.push(
+    "=== IMAGE PLACEHOLDERS ===",
+    "For photos/complex images (to be replaced later), use placeholder:",
+    `<div data-el="image" data-x="60%" data-y="20%" data-w="35%" data-h="50%"`,
+    `     data-slot-id="img_s{slideIndex}_{purpose}" data-purpose="{description}" data-placeholder="true"`,
+    `     data-src="https://placehold.co/800x600/${placeholderBg}/${placeholderFg}?text={Label}">`,
+    `</div>`,
+    "",
+    "Use image placeholders for: photos, realistic images, product shots, people",
+    "Use inline SVG for: icons, diagrams, charts, abstract decorations, geometric patterns",
     ""
   );
 
@@ -382,7 +407,7 @@ function makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch = []
       pos: selected.bySlotId.get(String(s.slotId || ""))?.position,
     }));
     promptParts.push(
-      "Image placeholders needed:",
+      "Requested image slots (use as placeholders):",
       JSON.stringify(slotInfo),
       ""
     );
@@ -392,10 +417,11 @@ function makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch = []
   promptParts.push(
     "=== SLIDES TO GENERATE ===",
     JSON.stringify(
-      batch.map((s) => {
+      batch.map((s, idx) => {
         const normalized = normalizeSlideIntentContentForPrompt(s);
         return {
           slideIntentId: s.slideIntentId,
+          slideIndex: idx,
           pageType: s.pageType,
           title: s.title,
           keyPoints: (s.keyPoints || []).slice(0, 5),
@@ -406,6 +432,7 @@ function makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch = []
       0
     ),
     "",
+    "Generate visually rich slides with inline SVG decorations where appropriate.",
     "Generate now."
   );
 
