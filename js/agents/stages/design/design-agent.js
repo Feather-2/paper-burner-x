@@ -3,13 +3,13 @@ import { generateDesignSystem } from "./design-system-generator.js";
 import { buildSlideHtml } from "./dsl-builder.js";
 import { generateBatch } from "./batch-generator.js";
 import { validateSlide } from "./qa-validator.js";
-import { ImagePlanner } from "./image-planner.js";
 import { fillImagePlaceholders } from "./image-generator.js";
 import { SVGGenerator, fillSvgPlaceholders } from "./svg-generator.js";
 import { fillAssetPlaceholders } from "./asset-resolver.js";
 import { VisualRenderer } from "./visual-renderer.js";
 import { DSL_RULES } from "./dsl-rules.js";
 import { brainstorm } from "./brainstorm.js";
+import { normalizeRenderType } from "../../shared/value-utils.js";
 
 const SCHEMA_VERSION = "0.1";
 
@@ -39,14 +39,6 @@ function estimateSlotCostUSD(slot) {
   return 0.003;
 }
 
-function normalizeRenderType(rt) {
-  const t = String(rt || "").trim().toLowerCase();
-  if (t === "ai-image" || t === "ai_image" || t === "image") return "ai-image";
-  if (t === "svg") return "svg";
-  if (t === "asset" || t === "doc-asset" || t === "document-asset") return "asset";
-  return "ai-image";
-}
-
 function loadDesignConcurrencyConfig() {
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('ppt_designConcurrency') : null;
@@ -62,6 +54,248 @@ export class DesignStage {
     this.batchSize = Math.max(1, Number(batchSize) || defaultBatchSize);
     this.batchConcurrency = Math.max(1, Number(config?.batchConcurrency) || 2);
     this.imageConcurrency = Math.max(1, Number(config?.imageConcurrency) || 4);
+  }
+
+  async _initDesignSystem(contentPackage, context, constraints, userConfig) {
+    const modelRouter =
+      Object.prototype.hasOwnProperty.call(context || {}, "modelRouter") ? context.modelRouter : (context?.runContext && context.runContext.modelRouter) || null;
+
+    let designSystem;
+    try {
+      designSystem = await generateDesignSystem(
+        {
+          contentSummary: contentPackage?.summary || "",
+          tone: String(constraints?.tone || contentPackage?.constraints?.tone || "neutral"),
+          extractedPalette: contentPackage?.constraints?.extractedPalette || constraints?.extractedPalette,
+          userPreferences: userConfig,
+        },
+        { modelRouter, aiApiService: context.aiApiService, signal: context.signal, constraints }
+      );
+    } catch (e) {
+      checkCancelled(context.signal);
+      designSystem = generateDesignTokens(constraints);
+    }
+
+    if (!designSystem || !designSystem?.designTokens) {
+      designSystem = generateDesignTokens(constraints);
+    }
+
+    return designSystem;
+  }
+
+  _buildVisualSlots(brainstormResult, imageSlots, imageProvider) {
+    const candidatesBySlide = Array.isArray(brainstormResult?.candidatesBySlide) ? brainstormResult.candidatesBySlide : [];
+    const selectedVisualSlots = candidatesBySlide.flatMap((row) =>
+      Array.isArray(row?.selectedCandidate?.visualSlots) ? row.selectedCandidate.visualSlots : []
+    );
+
+    // When imageProvider is not available, fallback ai-image slots to svg
+    const shouldFallbackToSvg = !imageProvider;
+    const mapSlotRenderType = (slot) => {
+      const rt = normalizeRenderType(slot?.renderType);
+      if (shouldFallbackToSvg && rt === "ai-image") {
+        return {
+          ...slot,
+          renderType: "svg",
+          svgSpec: {
+            type: slot?.purpose === "chart_fallback" ? "chart" : "diagram",
+            description: slot?.imageSpec?.prompt || slot?.promptHint || slot?.purpose || "Visual element",
+          },
+        };
+      }
+      return { ...slot, renderType: rt };
+    };
+
+    return selectedVisualSlots.length
+      ? selectedVisualSlots.map(mapSlotRenderType)
+      : imageSlots.map((s) =>
+          mapSlotRenderType({
+            slotId: s.slotId,
+            slideIntentId: s.slideIntentId,
+            slideIndex: s.slideIndex,
+            renderType: normalizeRenderType(s.renderType),
+            priority: s.priority,
+            aspectRatio: s.aspectRatio,
+            purpose: s.purpose,
+            imageSpec: { prompt: s.promptHint, style: s.style },
+            ...(s.effects ? { effects: s.effects } : {}),
+            ...(s.assetId ? { assetSpec: { assetId: s.assetId } } : {}),
+          })
+        );
+  }
+
+  async _renderVisuals(
+    visualSlotsForRender,
+    contentPackage,
+    designSystem,
+    slideHtmls,
+    context,
+    runContext,
+    constraints,
+    imageSlots,
+    aiImageSlotIds
+  ) {
+    const emit = getEmitFn(context);
+    const modelRouter =
+      Object.prototype.hasOwnProperty.call(context || {}, "modelRouter") ? context.modelRouter : (context?.runContext && context.runContext.modelRouter) || null;
+
+    let imageReport = null;
+    let visualReport = null;
+    let finalImageSlots = imageSlots;
+    let deckHtmlDsl = slideHtmls.join("\n\n");
+    let pendingImages = aiImageSlotIds.slice();
+
+    if (!visualSlotsForRender.length) {
+      return { visualReport, imageReport, finalImageSlots, deckHtmlDsl, pendingImages };
+    }
+
+    const imageProvider = context.imageProvider || context.imageService;
+
+    try {
+      // Build slideHtmlBySlotId map for SVG generator context
+      const slideHtmlBySlotId = new Map();
+      for (const slot of visualSlotsForRender) {
+        const slotId = String(slot?.slotId || "").trim();
+        const slideIdx = Number.isFinite(slot?.slideIndex) ? slot.slideIndex : -1;
+        if (slotId && slideIdx >= 0 && slideIdx < slideHtmls.length) {
+          slideHtmlBySlotId.set(slotId, slideHtmls[slideIdx]);
+        }
+      }
+
+      const svgGenerator = Object.prototype.hasOwnProperty.call(context || {}, "svgGenerator") ? context.svgGenerator : new SVGGenerator();
+      const renderer = new VisualRenderer({
+        imageProvider: imageProvider || null,
+        svgGenerator,
+        assets: Array.isArray(context?.assets) ? context.assets : Array.isArray(contentPackage?.assets) ? contentPackage.assets : null,
+      });
+
+      const res = await renderer.render(visualSlotsForRender, contentPackage, designSystem, {
+        emit,
+        runId: runContext.runId,
+        policy: constraints?.imagePolicy,
+        budget: constraints?.imageBudget,
+        concurrency: this.imageConcurrency,
+        svgConcurrency: this.imageConcurrency,
+        aiApiService: context.aiApiService,
+        modelRouter,
+        signal: context.signal,
+        slideHtmlBySlotId,
+        imageProvider: imageProvider || null,
+      });
+
+      if (res?.report?.errors?.length) {
+        emitStage(emit, "design.visual.errors", "warn", {
+          errors: res.report.errors,
+          hasFatalError: res.report.hasFatalError || false,
+          svgReport: res.report.svgReport || null,
+        });
+      }
+
+      visualReport = res?.report ? { ...res.report, errors: Array.isArray(res.report.errors) ? res.report.errors : [] } : null;
+      imageReport = res?.imageResults?.report || visualReport?.imageReport || null;
+
+      const filledById = new Map(
+        (Array.isArray(res?.imageResults?.filledSlots) ? res.imageResults.filledSlots : []).map((s) => [String(s?.slotId || ""), s])
+      );
+      if (filledById.size) {
+        finalImageSlots = imageSlots.map((s) => (filledById.has(String(s?.slotId || "")) ? filledById.get(String(s?.slotId || "")) : s));
+      }
+
+      // Apply fills (ai-image/svg/asset) independently.
+      if (Array.isArray(res?.imageResults?.filledSlots) && res.imageResults.filledSlots.length) {
+        const filled = fillImagePlaceholders(deckHtmlDsl, res.imageResults.filledSlots);
+        deckHtmlDsl = filled.deckHtmlDsl;
+        pendingImages = aiImageSlotIds.filter((slotId) => !filled.filledSlotIds.includes(slotId));
+      }
+
+      if (Array.isArray(res?.svgResults) && res.svgResults.length) {
+        const filledSvg = fillSvgPlaceholders(deckHtmlDsl, res.svgResults);
+        deckHtmlDsl = filledSvg.html;
+      }
+
+      if (Array.isArray(res?.assetResults) && res.assetResults.length) {
+        const filledAssets = fillAssetPlaceholders(deckHtmlDsl, res.assetResults);
+        deckHtmlDsl = filledAssets.html;
+      }
+    } catch (e) {
+      checkCancelled(context.signal);
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      const errors = [{ renderer: "design.visual", error: errorMessage }];
+
+      emitStage(emit, "design.visual.errors", "warn", {
+        errors,
+        hasFatalError: true,
+        svgReport: null,
+      });
+
+      imageReport = {
+        schemaVersion: "0.1",
+        runId: runContext.runId,
+        policy: String(constraints?.imagePolicy || "balanced"),
+        budget: constraints?.imageBudget || null,
+        slots: imageSlots,
+        tasks: [],
+        summary: { planned: imageSlots.length, attempted: 0, succeeded: 0, failed: imageSlots.length, skipped: 0, totalCostUSD: 0, totalDurationMs: 0 },
+        error: errorMessage,
+      };
+
+      const planned = { total: visualSlotsForRender.length, "ai-image": 0, svg: 0, asset: 0 };
+      for (const slot of visualSlotsForRender) {
+        const t = normalizeRenderType(slot?.renderType);
+        if (t === "svg") planned.svg += 1;
+        else if (t === "asset") planned.asset += 1;
+        else planned["ai-image"] += 1;
+      }
+
+      visualReport = {
+        schemaVersion: "0.1",
+        runId: runContext.runId,
+        planned,
+        completed: { "ai-image": 0, svg: 0, asset: 0 },
+        durationMs: 0,
+        errors,
+        imageReport,
+        svgReport: null,
+        hasFatalError: true,
+      };
+    }
+
+    return { visualReport, imageReport, finalImageSlots, deckHtmlDsl, pendingImages };
+  }
+
+  async _runRefine(deckPackage, contentPackage, runContext, context, userConfig, emit) {
+    const { runReactRefiner } = await import("./react-refiner.js");
+    const { createToolExecutor } = await import("./react-refiner-tools.js");
+
+    const toolContext = {
+      deckPackage,
+      contentPackage,
+      stageApi: context,
+    };
+    const toolExecutor = createToolExecutor(toolContext);
+
+    const refineResult = await runReactRefiner(
+      toolContext.deckPackage,
+      { contentPackage, runContext, stageApi: context },
+      {
+        recommendedSteps: userConfig.refine.recommendedSteps || 5,
+        hardLimit: userConfig.refine.hardLimit || 15,
+        toolExecutor,
+        mode: "generation", // generation stage only enables base tools
+        onStep: (step) => emit?.("design.refine.step", { actor: "design", status: "step", payload: step }),
+      }
+    );
+
+    const deckHtmlDsl = refineResult.finalDeck?.deckHtmlDsl || toolContext.deckPackage.deckHtmlDsl;
+    const slidesMeta = refineResult.finalDeck?.slidesMeta || toolContext.deckPackage.slidesMeta;
+
+    emitStage(emit, "design.refine.ended", "ended", {
+      qualityScore: refineResult.qualityScore,
+      stepCount: refineResult.steps?.length || 0,
+      terminationReason: refineResult.terminationReason,
+    });
+
+    return { deckHtmlDsl, slidesMeta, refineResult };
   }
 
   /**
@@ -100,25 +334,7 @@ export class DesignStage {
     // userConfig.refine schema (optional)
     // userConfig.refine = { enabled: false, recommendedSteps: 5, hardLimit: 15 };
 
-    let designSystem;
-    try {
-      designSystem = await generateDesignSystem(
-        {
-          contentSummary: contentPackage?.summary || "",
-          tone: String(constraints?.tone || contentPackage?.constraints?.tone || "neutral"),
-          extractedPalette: contentPackage?.constraints?.extractedPalette || constraints?.extractedPalette,
-          userPreferences: userConfig,
-        },
-        { modelRouter, aiApiService: context.aiApiService, signal: context.signal, constraints }
-      );
-    } catch (e) {
-      checkCancelled(context.signal);
-      designSystem = generateDesignTokens(constraints);
-    }
-
-    if (!designSystem || !designSystem?.designTokens) {
-      designSystem = generateDesignTokens(constraints);
-    }
+    const designSystem = await this._initDesignSystem(contentPackage, context, constraints, userConfig);
     emitStage(emit, "design.tokens.ended", "ended", { theme: designSystem?.theme });
     checkCancelled(context.signal);
 
@@ -229,152 +445,34 @@ export class DesignStage {
     let deckHtmlDsl = slideHtmls.join("\n\n");
 
     const imageProvider = context.imageProvider || context.imageService;
-    const candidatesBySlide = Array.isArray(brainstormResult?.candidatesBySlide) ? brainstormResult.candidatesBySlide : [];
-    const selectedVisualSlots = candidatesBySlide.flatMap((row) => (Array.isArray(row?.selectedCandidate?.visualSlots) ? row.selectedCandidate.visualSlots : []));
-
-    // When imageProvider is not available, fallback ai-image slots to svg
-    const shouldFallbackToSvg = !imageProvider;
-    const mapSlotRenderType = (slot) => {
-      const rt = normalizeRenderType(slot?.renderType);
-      if (shouldFallbackToSvg && rt === "ai-image") {
-        return {
-          ...slot,
-          renderType: "svg",
-          svgSpec: {
-            type: slot?.purpose === "chart_fallback" ? "chart" : "diagram",
-            description: slot?.imageSpec?.prompt || slot?.promptHint || slot?.purpose || "Visual element",
-          },
-        };
-      }
-      return { ...slot, renderType: rt };
-    };
-
-    const visualSlotsForRender = selectedVisualSlots.length
-      ? selectedVisualSlots.map(mapSlotRenderType)
-      : imageSlots.map((s) => mapSlotRenderType({
-          slotId: s.slotId,
-          slideIntentId: s.slideIntentId,
-          slideIndex: s.slideIndex,
-          renderType: normalizeRenderType(s.renderType),
-          priority: s.priority,
-          aspectRatio: s.aspectRatio,
-          purpose: s.purpose,
-          imageSpec: { prompt: s.promptHint, style: s.style },
-          ...(s.effects ? { effects: s.effects } : {}),
-          ...(s.assetId ? { assetSpec: { assetId: s.assetId } } : {}),
-        }));
-
+    const visualSlotsForRender = this._buildVisualSlots(brainstormResult, imageSlots, imageProvider);
     const aiImageSlotIds = imageSlots.filter((s) => normalizeRenderType(s.renderType) === "ai-image").map((s) => s.slotId);
-    pendingImages = aiImageSlotIds.slice();
 
-    if (visualSlotsForRender.length) {
-      try {
-        // Build slideHtmlBySlotId map for SVG generator context
-        const slideHtmlBySlotId = new Map();
-        for (const slot of visualSlotsForRender) {
-          const slotId = String(slot?.slotId || "").trim();
-          const slideIdx = Number.isFinite(slot?.slideIndex) ? slot.slideIndex : -1;
-          if (slotId && slideIdx >= 0 && slideIdx < slideHtmls.length) {
-            slideHtmlBySlotId.set(slotId, slideHtmls[slideIdx]);
-          }
-        }
+    const renderOut = await this._renderVisuals(
+      visualSlotsForRender,
+      contentPackage,
+      designSystem,
+      slideHtmls,
+      context,
+      runContext,
+      constraints,
+      imageSlots,
+      aiImageSlotIds
+    );
 
-        const svgGenerator =
-          Object.prototype.hasOwnProperty.call(context || {}, "svgGenerator") ? context.svgGenerator : new SVGGenerator();
-        const renderer = new VisualRenderer({
-          imageProvider: imageProvider || null,
-          svgGenerator,
-          assets: Array.isArray(context?.assets) ? context.assets : Array.isArray(contentPackage?.assets) ? contentPackage.assets : null,
-        });
-
-        const res = await renderer.render(visualSlotsForRender, contentPackage, designSystem, {
-          emit,
-          runId: runContext.runId,
-          policy: constraints?.imagePolicy,
-          budget: constraints?.imageBudget,
-          concurrency: this.imageConcurrency,
-          svgConcurrency: this.imageConcurrency,
-          aiApiService: context.aiApiService,
-          modelRouter,
-          signal: context.signal,
-          slideHtmlBySlotId,
-          imageProvider: imageProvider || null,
-        });
-
-        visualReport = res?.report || null;
-        imageReport = res?.imageResults?.report || visualReport?.imageReport || null;
-
-        const filledById = new Map(
-          (Array.isArray(res?.imageResults?.filledSlots) ? res.imageResults.filledSlots : []).map((s) => [String(s?.slotId || ""), s])
-        );
-        if (filledById.size) {
-          finalImageSlots = imageSlots.map((s) => (filledById.has(String(s?.slotId || "")) ? filledById.get(String(s?.slotId || "")) : s));
-        }
-
-        // Apply fills (ai-image/svg/asset) independently.
-        if (Array.isArray(res?.imageResults?.filledSlots) && res.imageResults.filledSlots.length) {
-          const filled = fillImagePlaceholders(deckHtmlDsl, res.imageResults.filledSlots);
-          deckHtmlDsl = filled.deckHtmlDsl;
-          pendingImages = aiImageSlotIds.filter((slotId) => !filled.filledSlotIds.includes(slotId));
-        }
-
-        if (Array.isArray(res?.svgResults) && res.svgResults.length) {
-          const filledSvg = fillSvgPlaceholders(deckHtmlDsl, res.svgResults);
-          deckHtmlDsl = filledSvg.html;
-        }
-
-        if (Array.isArray(res?.assetResults) && res.assetResults.length) {
-          const filledAssets = fillAssetPlaceholders(deckHtmlDsl, res.assetResults);
-          deckHtmlDsl = filledAssets.html;
-        }
-      } catch (e) {
-        checkCancelled(context.signal);
-        imageReport = {
-          schemaVersion: "0.1",
-          runId: runContext.runId,
-          policy: String(constraints?.imagePolicy || "balanced"),
-          budget: constraints?.imageBudget || null,
-          slots: imageSlots,
-          tasks: [],
-          summary: { planned: imageSlots.length, attempted: 0, succeeded: 0, failed: imageSlots.length, skipped: 0, totalCostUSD: 0, totalDurationMs: 0 },
-          error: e instanceof Error ? e.message : String(e),
-        };
-      }
-    }
+    visualReport = renderOut.visualReport;
+    imageReport = renderOut.imageReport;
+    finalImageSlots = renderOut.finalImageSlots;
+    deckHtmlDsl = renderOut.deckHtmlDsl;
+    pendingImages = renderOut.pendingImages;
 
     // If refine is enabled (userConfig.refine?.enabled), run ReAct loop after VisualRenderer.
     if (userConfig?.refine?.enabled) {
-      const { runReactRefiner } = await import("./react-refiner.js");
-      const { createToolExecutor } = await import("./react-refiner-tools.js");
-
-      const toolContext = {
-        deckPackage: { deckHtmlDsl, slidesMeta, designSystem, imageSlots: finalImageSlots },
-        contentPackage,
-        stageApi: context,
-      };
-      const toolExecutor = createToolExecutor(toolContext);
-
-      refineResult = await runReactRefiner(
-        toolContext.deckPackage,
-        { contentPackage, runContext, stageApi: context },
-        {
-          recommendedSteps: userConfig.refine.recommendedSteps || 5,
-          hardLimit: userConfig.refine.hardLimit || 15,
-          toolExecutor,
-          mode: "generation", // generation stage only enables base tools
-          onStep: (step) => emit?.("design.refine.step", { actor: "design", status: "step", payload: step }),
-        }
-      );
-
-      // Update results
-      deckHtmlDsl = refineResult.finalDeck?.deckHtmlDsl || deckHtmlDsl;
-      slidesMeta = refineResult.finalDeck?.slidesMeta || slidesMeta;
-
-      emitStage(emit, "design.refine.ended", "ended", {
-        qualityScore: refineResult.qualityScore,
-        stepCount: refineResult.steps?.length || 0,
-        terminationReason: refineResult.terminationReason,
-      });
+      const deckPackage = { deckHtmlDsl, slidesMeta, designSystem, imageSlots: finalImageSlots };
+      const refineOut = await this._runRefine(deckPackage, contentPackage, runContext, context, userConfig, emit);
+      deckHtmlDsl = refineOut.deckHtmlDsl;
+      slidesMeta = refineOut.slidesMeta;
+      refineResult = refineOut.refineResult;
     }
 
     emitStage(emit, "design.ended", "ended", { slides: slideHtmls.length, degradedCount });
