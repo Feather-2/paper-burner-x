@@ -87,6 +87,7 @@ self.onmessage = async function(e) {
                         viewBoxWidth: result.viewBoxWidth,
                         viewBoxHeight: result.viewBoxHeight,
                         layers: result.layers,
+                        elements: result.elements,
                         paths: result.paths,
                         colors: result.colors,
                         engine: result.engine

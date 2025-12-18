@@ -73,6 +73,45 @@ import {
 } from './curve-fitter.js';
 import { PRESETS } from './presets.js';
 import { simplifyPathD, simplifyVectorResult, getSimplifyPreview } from './path-simplifier.js';
+import { buildCompoundPaths } from './compound-path.js';
+
+function computeBoundsFromPoints(points) {
+    if (!Array.isArray(points) || points.length === 0) {
+        return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+    }
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const p of points) {
+        if (!p) continue;
+        const x = p.x;
+        const y = p.y;
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+    }
+    if (!Number.isFinite(minX)) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+    return { minX, minY, maxX, maxY };
+}
+
+function polygonSignedArea(points) {
+    if (!Array.isArray(points) || points.length < 3) return 0;
+    const n = points.length;
+    const first = points[0];
+    const last = points[n - 1];
+    const ring = first && last && first.x === last.x && first.y === last.y ? points.slice(0, -1) : points;
+    if (ring.length < 3) return 0;
+
+    let area2 = 0;
+    for (let i = 0; i < ring.length; i++) {
+        const j = (i + 1) % ring.length;
+        area2 += ring[i].x * ring[j].y - ring[j].x * ring[i].y;
+    }
+    return area2 / 2;
+}
 
 /**
  * 主矢量化函数
@@ -307,6 +346,7 @@ export async function vectorize(imageData, options = {}) {
     }
 
     const layers = [];
+    const allElements = [];
 
     // 找出背景色（最亮的颜色）的索引，背景色不需要膨胀
     const backgroundColorIdx = palette.length - 1; // palette 按亮度排序，最后一个最亮
@@ -385,6 +425,7 @@ export async function vectorize(imageData, options = {}) {
         }
         
         const pathParts = [];
+        const contourInfos = [];
 
         // 动态面积阈值：基于图像尺寸，过滤孤立小噪点
         // 最小噪点面积 = 图像面积的 0.01%，但至少 4 像素，最多 50 像素
@@ -431,14 +472,38 @@ export async function vectorize(imageData, options = {}) {
                 // 既保留了像素画的硬朗风格，又消除了过多的细碎阶梯（抖动）
                 const simplifiedPts = simplifyPathRDP(contour.points, 0.75);
                 const pathD = generatePolygonPath(simplifiedPts);
-                if (pathD) pathParts.push(pathD);
+                if (pathD) {
+                    pathParts.push(pathD);
+                    const type = isHole ? 'inner' : 'outer';
+                    let signedArea = polygonSignedArea(simplifiedPts);
+                    signedArea = type === 'inner' ? -Math.abs(signedArea) : Math.abs(signedArea);
+                    contourInfos.push({
+                        points: simplifiedPts,
+                        area: signedArea,
+                        type,
+                        pathD,
+                        bounds: computeBoundsFromPoints(simplifiedPts)
+                    });
+                }
                 continue;
             }
             
             // 中等轮廓直接用多边形（不值得曲线拟合）
             if (contourArea < mediumContourArea || contour.points.length < 12) {
                 const pathD = generatePolygonPath(contour.points);
-                if (pathD) pathParts.push(pathD);
+                if (pathD) {
+                    pathParts.push(pathD);
+                    const type = isHole ? 'inner' : 'outer';
+                    let signedArea = polygonSignedArea(contour.points);
+                    signedArea = type === 'inner' ? -Math.abs(signedArea) : Math.abs(signedArea);
+                    contourInfos.push({
+                        points: contour.points,
+                        area: signedArea,
+                        type,
+                        pathD,
+                        bounds: computeBoundsFromPoints(contour.points)
+                    });
+                }
                 continue;
             }
 
@@ -544,7 +609,19 @@ export async function vectorize(imageData, options = {}) {
                 pathD = fitBezierCatmullRom(pts, 0.2);
             }
 
-            if (pathD) pathParts.push(pathD);
+            if (pathD) {
+                pathParts.push(pathD);
+                const type = isHole ? 'inner' : 'outer';
+                let signedArea = polygonSignedArea(pts);
+                signedArea = type === 'inner' ? -Math.abs(signedArea) : Math.abs(signedArea);
+                contourInfos.push({
+                    points: pts,
+                    area: signedArea,
+                    type,
+                    pathD,
+                    bounds: computeBoundsFromPoints(pts)
+                });
+            }
         }
         // 5. 缝隙修补 (Gap Fixing)
         // 平滑算法(Chaikin/CurveFit)会使路径略微向内收缩，导致色块间出现细微缝隙(Conflation Artifacts)
@@ -572,6 +649,9 @@ export async function vectorize(imageData, options = {}) {
                     strokeLineJoin: strokeLineJoin
                 }]
             });
+
+            const colorElements = buildCompoundPaths(contourInfos, colorStr);
+            allElements.push(...colorElements);
         }
     }
     
@@ -623,6 +703,9 @@ export async function vectorize(imageData, options = {}) {
     
     console.log(`[Vecburner] 生成 ${layers.length} 个颜色图层，过滤后 ${filteredLayers.length} 个`);
 
+    const keptColors = new Set(filteredLayers.map(l => l.color));
+    const filteredElements = allElements.filter(e => keptColors.has(e.color));
+
     // 4. 生成 SVG（反转顺序：亮色在底，暗色在上）
     // layers 按亮度从暗到亮排序，SVG 需要先绘制亮色（底层），后绘制暗色（顶层）
     const reversedLayers = filteredLayers.slice().reverse();
@@ -649,7 +732,8 @@ export async function vectorize(imageData, options = {}) {
         // 路径坐标的实际范围（放大后的工作尺寸），用于生成单层 SVG 的 viewBox
         viewBoxWidth: width,
         viewBoxHeight: height,
-        layers: filteredLayers,
+        layers: filteredLayers,    // 保持向后兼容
+        elements: filteredElements, // 新增：按元素分组
         paths: allPaths,
         colors: palette.map(c => `rgb(${c[0]},${c[1]},${c[2]})`),
         engine: 'vecburner'

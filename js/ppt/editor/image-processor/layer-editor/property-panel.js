@@ -3,6 +3,92 @@
  * 从 layer-editor.js 拆分出的属性面板方法
  */
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function identityMatrix() {
+    return { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+}
+
+function normalizeMatrix(m) {
+    if (!m) return identityMatrix();
+    const a = Number(m.a), b = Number(m.b), c = Number(m.c), d = Number(m.d), e = Number(m.e), f = Number(m.f);
+    if (![a, b, c, d, e, f].every(Number.isFinite)) return identityMatrix();
+    return { a, b, c, d, e, f };
+}
+
+// m1 * m2
+function multiplyMatrix(m1, m2) {
+    return {
+        a: m1.a * m2.a + m1.c * m2.b,
+        b: m1.b * m2.a + m1.d * m2.b,
+        c: m1.a * m2.c + m1.c * m2.d,
+        d: m1.b * m2.c + m1.d * m2.d,
+        e: m1.a * m2.e + m1.c * m2.f + m1.e,
+        f: m1.b * m2.e + m1.d * m2.f + m1.f
+    };
+}
+
+function matrixFromTranslate(dx, dy) {
+    return { a: 1, b: 0, c: 0, d: 1, e: dx, f: dy };
+}
+
+function matrixFromScale(sx, sy) {
+    return { a: sx, b: 0, c: 0, d: sy, e: 0, f: 0 };
+}
+
+function matrixFromRotateDeg(deg) {
+    const rad = (deg * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    return { a: cos, b: sin, c: -sin, d: cos, e: 0, f: 0 };
+}
+
+function matrixAboutPoint(baseMatrix, px, py) {
+    // T(px,py) * base * T(-px,-py)
+    const t1 = matrixFromTranslate(px, py);
+    const t2 = matrixFromTranslate(-px, -py);
+    return multiplyMatrix(multiplyMatrix(t1, baseMatrix), t2);
+}
+
+function matrixToSvgString(m) {
+    const fmt = (n) => (Math.abs(n) < 1e-10 ? 0 : Number(n.toFixed(6)));
+    const mm = normalizeMatrix(m);
+    return `matrix(${fmt(mm.a)} ${fmt(mm.b)} ${fmt(mm.c)} ${fmt(mm.d)} ${fmt(mm.e)} ${fmt(mm.f)})`;
+}
+
+function parseSvgMeta(svgString) {
+    if (!svgString) return {};
+    const widthMatch = svgString.match(/width="([^"]+)"/);
+    const heightMatch = svgString.match(/height="([^"]+)"/);
+    const viewBoxMatch = svgString.match(/viewBox="([^"]+)"/);
+    return {
+        width: widthMatch ? widthMatch[1] : '100%',
+        height: heightMatch ? heightMatch[1] : '100%',
+        viewBox: viewBoxMatch ? viewBoxMatch[1] : null
+    };
+}
+
+function buildSvgFromElementsWithTransforms(elements, meta) {
+    const width = meta?.width || '100%';
+    const height = meta?.height || '100%';
+    const viewBox = meta?.viewBox || `0 0 ${meta?.viewBoxWidth || 100} ${meta?.viewBoxHeight || 100}`;
+
+    const parts = [];
+    for (const el of elements || []) {
+        if (!el?.pathD) continue;
+        const fill = el.color || '#000';
+        const matrix = normalizeMatrix(el?.transform?.matrix);
+        const hasMatrix =
+            !(matrix.a === 1 && matrix.b === 0 && matrix.c === 0 && matrix.d === 1 && matrix.e === 0 && matrix.f === 0);
+        const gOpen = hasMatrix
+            ? `<g data-element-id="${el.id || ''}" class="transform-wrapper" transform="${matrixToSvgString(matrix)}">`
+            : `<g data-element-id="${el.id || ''}" class="transform-wrapper">`;
+        parts.push(`${gOpen}<path d="${el.pathD}" fill="${fill}" fill-rule="evenodd"/></g>`);
+    }
+
+    return `<svg xmlns="${SVG_NS}" width="${width}" height="${height}" viewBox="${viewBox}">${parts.join('')}</svg>`;
+}
+
 /**
  * 属性面板 mixin
  */
@@ -184,6 +270,7 @@ export const PropertyPanelMixin = {
             `;
         } else {
             // 矢量组操作
+            const elementCount = Array.isArray(layer.elements) ? layer.elements.length : 0;
             content += `
                 <div class="property-group">
                     <div class="property-group-title">
@@ -202,6 +289,22 @@ export const PropertyPanelMixin = {
                         重新矢量化
                     </button>
                 </div>
+
+                <div class="property-group">
+                    <div class="property-group-title">
+                        <iconify-icon icon="carbon:select-01"></iconify-icon>
+                        元素选择
+                    </div>
+                    <button class="btn-action" data-group-action="toggle-element-select" ${elementCount <= 0 ? 'disabled' : ''}>
+                        <iconify-icon icon="carbon:touch-1"></iconify-icon>
+                        ${this.elementSelectMode ? '退出元素选择' : '元素选择模式'}
+                    </button>
+                    <small style="font-size:11px;color:var(--ie-text-secondary);margin-top:4px">
+                        点击画布上的矢量元素进行选中（支持 Ctrl/Cmd 多选）${elementCount > 0 ? ` · ${elementCount} 个元素` : ''}
+                    </small>
+                </div>
+
+                <div data-slot="element-property-panel"></div>
             `;
         }
         
@@ -218,6 +321,485 @@ export const PropertyPanelMixin = {
         panel.innerHTML = content;
         this._bindPropertyEvents(panel, layer);
         this._bindGroupPropertyEvents(panel, layer);
+
+        // 元素选择模式下，渲染元素属性（可编辑）
+        if (!isOcrGroup && this.elementSelectMode) {
+            const selectedEls = this._getSelectedElements?.() || [];
+            this._renderElementPropertyPanel(panel, selectedEls);
+        }
+    },
+
+    /**
+     * 渲染元素属性面板（元素选择模式）
+     * @param {HTMLElement} panel
+     * @param {Array} elements
+     */
+    _renderElementPropertyPanel(panel, elements) {
+        const slot = panel?.querySelector?.('[data-slot="element-property-panel"]');
+        if (!slot) return;
+
+        if (!this.elementSelectMode) {
+            slot.innerHTML = '';
+            return;
+        }
+
+        const selected = Array.isArray(elements) ? elements.filter(Boolean) : [];
+        if (selected.length === 0) {
+            slot.innerHTML = `
+                <div class="property-group">
+                    <div class="property-group-title">
+                        <iconify-icon icon="carbon:cursor-1"></iconify-icon>
+                        元素属性
+                    </div>
+                    <small style="font-size:11px;color:var(--ie-text-secondary);margin-top:4px">
+                        未选中元素
+                    </small>
+                </div>
+            `;
+            return;
+        }
+
+        selected.forEach((el) => this._ensureElementTransform?.(el));
+
+        const common = (getter, equals = (a, b) => a === b) => {
+            const first = getter(selected[0]);
+            for (let i = 1; i < selected.length; i++) {
+                if (!equals(first, getter(selected[i]))) return null;
+            }
+            return first;
+        };
+        const numEq = (a, b) => Math.abs(Number(a) - Number(b)) < 1e-6;
+
+        const commonName = common((el) => (el?.name ?? ''), (a, b) => String(a) === String(b));
+        const nameValue = commonName === null ? '' : String(commonName || '');
+
+        const firstColor = this._toHexColor?.(selected[0]?.color) || '#000000';
+        const commonColor = common((el) => this._toHexColor?.(el?.color) || '', (a, b) => String(a).toLowerCase() === String(b).toLowerCase());
+        const colorValue = commonColor === null ? firstColor : (commonColor || firstColor);
+
+        const tx = common((el) => Number(el?.transform?.translate?.x || 0), numEq);
+        const ty = common((el) => Number(el?.transform?.translate?.y || 0), numEq);
+        const sx = common((el) => Number(el?.transform?.scale?.x || 1), numEq);
+        const sy = common((el) => Number(el?.transform?.scale?.y || 1), numEq);
+        const rot = common((el) => Number(el?.transform?.rotate || 0), numEq);
+
+        const fmt = (n, fallback = '') => (Number.isFinite(n) ? String(Math.round(n * 100) / 100) : fallback);
+        const fmtPct = (n, fallback = '') => (Number.isFinite(n) ? String(Math.round(n * 10000) / 100) : fallback);
+
+        slot.innerHTML = `
+            <div class="property-group">
+                <div class="property-group-title">
+                    <iconify-icon icon="carbon:cursor-1"></iconify-icon>
+                    元素属性 ${selected.length > 1 ? `(${selected.length} 个)` : ''}
+                </div>
+                <div class="property-row">
+                    <span class="property-label">名称</span>
+                    <input class="property-input" type="text" value="${nameValue.replace(/"/g, '&quot;')}"
+                        ${selected.length > 1 ? 'placeholder="（多选）将同时修改"' : ''}
+                        data-element-prop="name">
+                </div>
+                <div class="property-row">
+                    <span class="property-label">颜色</span>
+                    <input type="color" value="${colorValue}" data-element-prop="color">
+                </div>
+            </div>
+
+            <div class="property-group">
+                <div class="property-group-title">
+                    <iconify-icon icon="carbon:transform"></iconify-icon>
+                    变换参数
+                </div>
+                <div class="property-row">
+                    <span class="property-label">平移 X</span>
+                    <input class="property-input" type="number" step="1" value="${tx === null ? '' : fmt(tx, '0')}" data-transform-prop="translateX">
+                </div>
+                <div class="property-row">
+                    <span class="property-label">平移 Y</span>
+                    <input class="property-input" type="number" step="1" value="${ty === null ? '' : fmt(ty, '0')}" data-transform-prop="translateY">
+                </div>
+                <div class="property-row">
+                    <span class="property-label">缩放 X %</span>
+                    <input class="property-input" type="number" step="1" min="1" value="${sx === null ? '' : fmtPct(sx * 100, '100')}" data-transform-prop="scaleX">
+                </div>
+                <div class="property-row">
+                    <span class="property-label">缩放 Y %</span>
+                    <input class="property-input" type="number" step="1" min="1" value="${sy === null ? '' : fmtPct(sy * 100, '100')}" data-transform-prop="scaleY">
+                </div>
+                <div class="property-row">
+                    <span class="property-label">旋转 °</span>
+                    <input class="property-input" type="number" step="1" value="${rot === null ? '' : fmt(rot, '0')}" data-transform-prop="rotate">
+                </div>
+                ${selected.length > 1 ? `
+                <small style="font-size:11px;color:var(--ie-text-secondary);margin-top:4px">
+                    多选时输入会批量应用到所有选中元素
+                </small>` : ''}
+            </div>
+
+            <div class="property-group">
+                <div class="property-group-title">
+                    <iconify-icon icon="carbon:operations-field"></iconify-icon>
+                    操作
+                </div>
+                <button class="btn-action danger" data-element-action="delete">
+                    <iconify-icon icon="carbon:trash-can"></iconify-icon>
+                    删除
+                </button>
+                <button class="btn-action" data-element-action="copy">
+                    <iconify-icon icon="carbon:copy"></iconify-icon>
+                    复制
+                </button>
+                <button class="btn-action" data-element-action="reset-transform">
+                    <iconify-icon icon="carbon:reset"></iconify-icon>
+                    重置变换
+                </button>
+            </div>
+        `;
+
+        this._bindElementPropertyEvents(slot, selected);
+    },
+
+    _bindElementPropertyEvents(container, elements) {
+        if (!container) return;
+        const selected = Array.isArray(elements) ? elements.filter(Boolean) : [];
+        if (selected.length === 0) return;
+
+        // 名称
+        container.querySelector('[data-element-prop="name"]')?.addEventListener('change', (e) => {
+            const value = e.target.value || '';
+            selected.forEach((el) => {
+                el.name = value;
+            });
+            this._saveHistory?.();
+            this._updatePropertyPanel?.();
+        });
+
+        // 颜色
+        container.querySelector('[data-element-prop="color"]')?.addEventListener('change', (e) => {
+            const newColor = e.target.value;
+            selected.forEach((el) => this._onElementColorChange(el, newColor, { saveHistory: false, render: false }));
+            this._render?.();
+            this._saveHistory?.();
+            this._updatePropertyPanel?.();
+        });
+
+        // 变换输入（input：实时更新；change：落历史）
+        const transformInputs = container.querySelectorAll('[data-transform-prop]');
+        let inputTimer = null;
+        const applyBatch = (prop, value, saveHistory, refreshPanel) => {
+            selected.forEach((el) => this._onTransformInputChange(el, prop, value, { saveHistory: false }));
+            if (saveHistory) this._saveHistory?.();
+            if (refreshPanel) this._updatePropertyPanel?.();
+        };
+        transformInputs.forEach((input) => {
+            const prop = input.dataset.transformProp;
+            input.addEventListener('input', (e) => {
+                clearTimeout(inputTimer);
+                const value = e.target.value;
+                inputTimer = setTimeout(() => applyBatch(prop, value, false, false), 50);
+            });
+            input.addEventListener('change', (e) => {
+                clearTimeout(inputTimer);
+                applyBatch(prop, e.target.value, true, true);
+            });
+        });
+
+        // 删除
+        container.querySelector('[data-element-action="delete"]')?.addEventListener('click', () => {
+            this._deleteElementsFromPanel?.(selected);
+        });
+
+        // 复制
+        container.querySelector('[data-element-action="copy"]')?.addEventListener('click', () => {
+            this._copyElementsFromPanel?.(selected);
+        });
+
+        // 重置变换
+        container.querySelector('[data-element-action="reset-transform"]')?.addEventListener('click', () => {
+            this._resetElementsTransformFromPanel?.(selected);
+        });
+    },
+
+    _getElementSelectGroupLayer() {
+        const layerId = this._elementSelectLayerId;
+        const layer = layerId
+            ? this.processedImage?.layers?.find?.((l) => l?.id === layerId)
+            : this.processedImage?.layers?.[this.selectedLayerIndex];
+        return layer?.type === 'group' ? layer : null;
+    },
+
+    _rebuildVectorGroupChildren(groupLayer) {
+        if (!groupLayer || groupLayer.type !== 'group') return;
+        if (!Array.isArray(groupLayer.elements)) groupLayer.elements = [];
+        if (!Array.isArray(groupLayer.children)) groupLayer.children = [];
+
+        const baseSvg = groupLayer.children?.find?.((c) => c?.type === 'vector' && c?.svg)?.svg || groupLayer.elements?.[0]?.svg || '';
+        const meta = parseSvgMeta(baseSvg);
+        const fallbackW = this.canvas?.width || 100;
+        const fallbackH = this.canvas?.height || 100;
+        const vb = meta.viewBox || `0 0 ${fallbackW} ${fallbackH}`;
+        const rebuildMeta = { ...meta, viewBox: vb, viewBoxWidth: fallbackW, viewBoxHeight: fallbackH };
+
+        const byColor = new Map();
+        for (const el of groupLayer.elements) {
+            if (!el?.id || !el?.pathD) continue;
+            const color = el.color || '#000000';
+            if (!byColor.has(color)) byColor.set(color, []);
+            byColor.get(color).push(el);
+        }
+
+        const existingVectorChildren = (groupLayer.children || []).filter((c) => c?.type === 'vector');
+        const otherChildren = (groupLayer.children || []).filter((c) => c?.type !== 'vector');
+        const existingByColor = new Map(existingVectorChildren.map((c) => [c.color || '', c]));
+
+        const newVectorChildren = [];
+        for (const [color, els] of byColor.entries()) {
+            const existing = existingByColor.get(color) || null;
+            const child = existing || {
+                id: `vec_${groupLayer.id || 'group'}_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+                type: 'vector',
+                name: `颜色 ${color}`,
+                visible: true,
+                vectorGroupId: groupLayer.id || null,
+                parentId: groupLayer.id || null,
+                color
+            };
+            child.type = 'vector';
+            child.color = color;
+            child.visible = child.visible !== false;
+            child.vectorGroupId = groupLayer.id || child.vectorGroupId || null;
+            child.parentId = groupLayer.id || child.parentId || null;
+            child.elements = els;
+            child.svg = buildSvgFromElementsWithTransforms(els, rebuildMeta);
+            child.originalSvg = child.svg;
+            child.simplifyLevel = 0;
+            newVectorChildren.push(child);
+        }
+
+        groupLayer.children = [...newVectorChildren, ...otherChildren];
+
+        // 重建后简化状态失效
+        if (typeof groupLayer.simplifyLevel === 'number' && groupLayer.simplifyLevel !== 0) {
+            groupLayer.simplifyLevel = 0;
+        }
+    },
+
+    _syncElementToLayer(element) {
+        const groupLayer = this._getElementSelectGroupLayer();
+        if (!groupLayer) return;
+        if (!Array.isArray(groupLayer.elements)) groupLayer.elements = [];
+
+        const idx = groupLayer.elements.findIndex((el) => el?.id && el.id === element?.id);
+        if (idx >= 0) groupLayer.elements[idx] = element;
+        else groupLayer.elements.push(element);
+
+        this._rebuildVectorGroupChildren(groupLayer);
+        this._updateLayerList?.();
+    },
+
+    _onElementColorChange(element, newColor, options = {}) {
+        if (!element) return;
+        element.color = newColor;
+
+        // 更新 SVG 中的 fill（element.svg 作为缓存）
+        if (element.svg) {
+            try {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(element.svg, 'image/svg+xml');
+                const paths = doc.querySelectorAll('path');
+                paths.forEach((p) => p.setAttribute('fill', newColor));
+                element.svg = new XMLSerializer().serializeToString(doc.documentElement);
+            } catch (err) {
+                // ignore
+            }
+        }
+
+        // 同步更新到父图层
+        this._syncElementToLayer(element);
+
+        if (options.render !== false) this._render?.();
+        if (options.saveHistory !== false) this._saveHistory?.();
+    },
+
+    _composeElementTransformMatrix(element) {
+        if (!element) return;
+        this._ensureElementTransform?.(element);
+        const t = element.transform || {};
+
+        const tx = Number(t?.translate?.x || 0);
+        const ty = Number(t?.translate?.y || 0);
+        const sx = Math.max(0.1, Number(t?.scale?.x || 1));
+        const sy = Math.max(0.1, Number(t?.scale?.y || 1));
+        const rot = Number(t?.rotate || 0);
+
+        const origin = (() => {
+            const ox = Number(t?.origin?.x);
+            const oy = Number(t?.origin?.y);
+            if (Number.isFinite(ox) && Number.isFinite(oy)) return { x: ox, y: oy };
+            const b = element.bounds || (this._getPathBounds ? this._getPathBounds(element.pathD) : null);
+            if (b) return { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 };
+            return { x: 0, y: 0 };
+        })();
+
+        t.origin = { ...origin };
+        t.scale = { x: sx, y: sy };
+        t.translate = { x: tx, y: ty };
+        t.rotate = rot;
+
+        const mScale = matrixAboutPoint(matrixFromScale(sx, sy), origin.x, origin.y);
+        const mRotate = matrixAboutPoint(matrixFromRotateDeg(rot), origin.x, origin.y);
+        const mTranslate = matrixFromTranslate(tx, ty);
+        t.matrix = multiplyMatrix(mTranslate, multiplyMatrix(mRotate, mScale));
+
+        element.transform = t;
+    },
+
+    _onTransformInputChange(element, prop, value, options = {}) {
+        if (!element) return;
+        this._ensureElementTransform?.(element);
+
+        const t = element.transform;
+        switch (prop) {
+            case 'translateX':
+                t.translate.x = parseFloat(value) || 0;
+                break;
+            case 'translateY':
+                t.translate.y = parseFloat(value) || 0;
+                break;
+            case 'scaleX':
+                t.scale.x = Math.max(0.1, (parseFloat(value) || 100) / 100);
+                break;
+            case 'scaleY':
+                t.scale.y = Math.max(0.1, (parseFloat(value) || 100) / 100);
+                break;
+            case 'rotate':
+                t.rotate = parseFloat(value) || 0;
+                break;
+        }
+
+        this._composeElementTransformMatrix(element);
+        this._applyTransformToElement?.(element);
+        this._updateSelectionVisual?.();
+
+        if (options.saveHistory !== false) this._saveHistory?.();
+    },
+
+    _deleteElementsFromPanel(elements) {
+        const groupLayer = this._getElementSelectGroupLayer();
+        if (!groupLayer || !Array.isArray(groupLayer.elements)) return;
+
+        const ids = new Set((elements || []).map((e) => e?.id).filter(Boolean));
+        if (ids.size === 0) return;
+
+        if (ids.size >= groupLayer.elements.length) {
+            this._showToast?.('不能删除全部元素');
+            return;
+        }
+
+        groupLayer.elements = groupLayer.elements.filter((el) => !ids.has(el?.id));
+        ids.forEach((id) => this._selectedElements?.delete?.(id));
+
+        this._rebuildVectorGroupChildren(groupLayer);
+        this._saveHistory?.();
+        this._render?.();
+        this._updateSelectionVisual?.();
+        this._updatePropertyPanel?.();
+    },
+
+    _copyElementsFromPanel(elements) {
+        const groupLayer = this._getElementSelectGroupLayer();
+        if (!groupLayer || !Array.isArray(groupLayer.elements)) return;
+
+        const selected = (elements || []).filter((e) => e?.id && e?.pathD);
+        if (selected.length === 0) return;
+
+        const newIds = [];
+        for (const el of selected) {
+            const copy = JSON.parse(JSON.stringify(el));
+            copy.id = `el_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+            copy.name = el.name ? `${el.name} 副本` : `元素副本`;
+
+            this._ensureElementTransform?.(copy);
+            copy.transform.translate.x = Number(copy.transform.translate.x || 0) + 10;
+            copy.transform.translate.y = Number(copy.transform.translate.y || 0) + 10;
+            this._composeElementTransformMatrix(copy);
+
+            // 同步 element.svg（缓存）
+            if (copy.svg) {
+                try {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(copy.svg, 'image/svg+xml');
+                    const svg = doc.documentElement;
+                    let g = svg.querySelector('g.transform-wrapper');
+                    if (!g) {
+                        g = document.createElementNS(SVG_NS, 'g');
+                        g.classList.add('transform-wrapper');
+                        while (svg.firstChild) g.appendChild(svg.firstChild);
+                        svg.appendChild(g);
+                    }
+                    g.setAttribute('transform', matrixToSvgString(normalizeMatrix(copy.transform.matrix)));
+                    copy.svg = new XMLSerializer().serializeToString(svg);
+                } catch (err) {
+                    // ignore
+                }
+            }
+
+            groupLayer.elements.push(copy);
+            newIds.push(copy.id);
+        }
+
+        this._rebuildVectorGroupChildren(groupLayer);
+
+        if (this._selectedElements) {
+            this._selectedElements.clear();
+            newIds.forEach((id) => this._selectedElements.add(id));
+        }
+
+        this._saveHistory?.();
+        this._render?.();
+        this._updateSelectionVisual?.();
+        this._updatePropertyPanel?.();
+    },
+
+    _resetElementsTransformFromPanel(elements) {
+        const groupLayer = this._getElementSelectGroupLayer();
+        if (!groupLayer || !Array.isArray(groupLayer.elements)) return;
+
+        const selected = (elements || []).filter((e) => e?.id);
+        if (selected.length === 0) return;
+
+        selected.forEach((el) => {
+            el.transform = {
+                matrix: identityMatrix(),
+                translate: { x: 0, y: 0 },
+                scale: { x: 1, y: 1 },
+                rotate: 0,
+                origin: { x: 0, y: 0 }
+            };
+
+            // 重置 bounds 为原始 path bounds（避免选框漂移）
+            const b = this._getPathBounds ? this._getPathBounds(el.pathD) : null;
+            if (b) el.bounds = b;
+
+            // 同步 element.svg（缓存）
+            if (el.svg) {
+                try {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(el.svg, 'image/svg+xml');
+                    const svg = doc.documentElement;
+                    const g = svg.querySelector('g.transform-wrapper');
+                    if (g) g.removeAttribute('transform');
+                    el.svg = new XMLSerializer().serializeToString(svg);
+                } catch (err) {
+                    // ignore
+                }
+            }
+        });
+
+        this._rebuildVectorGroupChildren(groupLayer);
+        this._saveHistory?.();
+        this._render?.();
+        this._updateSelectionVisual?.();
+        this._updatePropertyPanel?.();
     },
 
     /**
@@ -353,6 +935,16 @@ export const PropertyPanelMixin = {
                 this._showVectorizePresetDialog();
             } else {
                 this._showToast('请先去除文字后再进行矢量化');
+            }
+        });
+
+        // 元素选择模式
+        panel.querySelector('[data-group-action="toggle-element-select"]')?.addEventListener('click', (e) => {
+            if (e.target?.disabled) return;
+            if (this.elementSelectMode) {
+                this._exitElementSelectMode?.();
+            } else {
+                this._enterElementSelectMode?.(layer);
             }
         });
     },
@@ -532,6 +1124,7 @@ export const PropertyPanelMixin = {
         
         // 路径选择模式
         panel.querySelector('[data-child-action="toggle-path-select"]')?.addEventListener('click', () => {
+            if (this.elementSelectMode) this._exitElementSelectMode?.();
             this.pathSelectMode = !this.pathSelectMode;
             this._updatePropertyPanel();
             this._setupPathSelection(childLayer);

@@ -13,7 +13,10 @@ import { TextOverlayMixin } from './text-overlay.js';
 import { OcrMixin } from './ocr.js';
 import { VectorizeMixin } from './vectorize.js';
 import { PathOpsMixin } from './path-ops.js';
+import { ElementSelectMixin } from './element-select.js';
+import { TransformMixin } from './transform.js';
 import { UtilsMixin } from './utils.js';
+import { SamMixin } from './sam.js';
 
 /**
  * LayerEditor 图层编辑器类
@@ -53,9 +56,13 @@ class LayerEditor {
         
         // 交互状态
         this.pathSelectMode = false;
+        this.elementSelectMode = false;
         this.drawBboxMode = false;
         this.drawBboxParent = null;
         this._bboxDrawBound = false;
+        this._selectedElements = new Set();
+        this._elementOverlay = null;
+        this._elementSelectLayerId = null;
         
         // 内部状态
         this._loadingOverlay = null;
@@ -195,7 +202,10 @@ Object.assign(LayerEditor.prototype, TextOverlayMixin);
 Object.assign(LayerEditor.prototype, OcrMixin);
 Object.assign(LayerEditor.prototype, VectorizeMixin);
 Object.assign(LayerEditor.prototype, PathOpsMixin);
+Object.assign(LayerEditor.prototype, ElementSelectMixin);
+Object.assign(LayerEditor.prototype, TransformMixin);
 Object.assign(LayerEditor.prototype, UtilsMixin);
+Object.assign(LayerEditor.prototype, SamMixin);
 
 // 导出
 export { LayerEditor };

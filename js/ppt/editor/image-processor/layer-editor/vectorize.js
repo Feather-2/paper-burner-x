@@ -3,10 +3,19 @@
  * 从 layer-editor.js 拆分出的矢量化相关方法
  */
 
+function generateElementSvg(element, width, height, viewBoxWidth, viewBoxHeight) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" 
+                 width="${width}" height="${height}" 
+                 viewBox="0 0 ${viewBoxWidth} ${viewBoxHeight}">
+        <path d="${element.pathD}" fill="${element.color}" fill-rule="evenodd"/>
+    </svg>`;
+}
+
 /**
  * 矢量化 mixin
  */
 export const VectorizeMixin = {
+
     /**
      * 执行矢量化
      */
@@ -62,10 +71,10 @@ export const VectorizeMixin = {
             }
             
             // 执行矢量化
-            const result = await vectorizer.vectorize(sourceImage, actualPreset, onProgress);
+            const vectorResult = await vectorizer.vectorize(sourceImage, actualPreset, onProgress);
             
             // 按颜色分层
-            const colorLayers = vectorizer.splitByColor(result);
+            const colorLayers = vectorizer.splitByColor(vectorResult);
             
             if (!colorLayers || colorLayers.length === 0) {
                 this._showToast('矢量化结果为空');
@@ -84,12 +93,30 @@ export const VectorizeMixin = {
             // 预设名称映射
             const presetNames = this._getPresets();
             const presetLabel = presetNames[actualPreset] || actualPreset;
+
+            // elements（元素级选择）
+            const displayWidth = vectorResult?.width || sourceImage?.width || this.canvas.width;
+            const displayHeight = vectorResult?.height || sourceImage?.height || this.canvas.height;
+            const viewBoxWidth = vectorResult?.viewBoxWidth || displayWidth;
+            const viewBoxHeight = vectorResult?.viewBoxHeight || displayHeight;
+
+            const elements = Array.isArray(vectorResult?.elements)
+                ? vectorResult.elements.map((element) => ({
+                    ...element,
+                    svg:
+                        element.svg ||
+                        generateElementSvg(element, displayWidth, displayHeight, viewBoxWidth, viewBoxHeight)
+                }))
+                : [];
             
             // 创建矢量组
             const groupLayer = {
                 id: currentGroupId,
                 type: 'group',
-                name: `矢量化 ${groupNumber} - ${presetLabel} (${colorLayers.length} 层)`,
+                name:
+                    elements.length > 0
+                        ? `矢量化 ${groupNumber} - ${presetLabel} (${elements.length} 元素, ${colorLayers.length} 颜色)`
+                        : `矢量化 ${groupNumber} - ${presetLabel} (${colorLayers.length} 层)`,
                 visible: true,
                 expanded: true,
                 vectorConfig: {
@@ -97,13 +124,18 @@ export const VectorizeMixin = {
                     numColors: finalOptions.numColors,
                     smoothness: finalOptions.smoothness
                 },
-                children: colorLayers.map(layer => ({
-                    ...layer,
-                    type: 'vector',
-                    visible: true,
-                    vectorGroupId: currentGroupId,
-                    parentId: currentGroupId
-                }))
+                elements,
+                children: colorLayers.map((layer) => {
+                    const colorElements = elements.filter((e) => e.color === layer.color);
+                    return {
+                        ...layer,
+                        type: 'vector',
+                        visible: true,
+                        vectorGroupId: currentGroupId,
+                        parentId: currentGroupId,
+                        elements: colorElements
+                    };
+                })
             };
             
             // 如果是重新矢量化，替换旧组
