@@ -369,7 +369,7 @@ export async function generateDesignSystem(input = {}, options = {}) {
     for (let attempt = 0; attempt < 2; attempt++) {
       if (signal?.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "Run cancelled");
       try {
-	        const resp = await callModel(messages, { temperature: 0.2, maxTokens: 1200, signal, timeoutMs: 30_000 });
+	        const resp = await callModel(messages, { temperature: 0.2, maxTokens: 4000, signal, timeoutMs: 120_000 });
 	        const candidate = extractJsonCandidate(resp?.content);
 	        const parsed = robustParseJson(candidate);
 	        if (parsed === null) throw new Error("Failed to parse design system JSON");

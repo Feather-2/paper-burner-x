@@ -167,7 +167,14 @@ export class VisualRenderer {
           })
         : Promise.resolve({ filledSlots: [], report: null }),
       svgSlots.length && svgGenerator
-        ? svgGenerator.generate(svgSlots, designSystem, { emit, aiApiService: options?.aiApiService })
+        ? svgGenerator.generate(svgSlots, designSystem, {
+            emit,
+            aiApiService: options?.aiApiService,
+            modelRouter: options?.modelRouter,
+            signal: options?.signal,
+            slideHtmlBySlotId: options?.slideHtmlBySlotId,
+            concurrency: options?.svgConcurrency || options?.concurrency,
+          })
         : Promise.resolve([]),
       assetSlots.length && assetResolver ? Promise.resolve(assetResolver.resolve(assetSlots)) : Promise.resolve([]),
     ]);

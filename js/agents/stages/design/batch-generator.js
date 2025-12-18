@@ -1,5 +1,4 @@
-import { buildSlideHtml } from "./dsl-builder.js";
-import { getDesignModelCaller } from "./model.js";
+import { getDesignModelCaller, isNonRetryableError } from "./model.js";
 import { robustParseJson } from "../../shared/robust-json.js";
 
 /**
@@ -148,15 +147,21 @@ function normalizeDslRules(dslRules) {
 
 function normalizeSlideIntentContentForPrompt(slideIntent) {
   const content = slideIntent?.content;
+  let markdown = "";
+
   if (typeof content === "string") {
-    const s = content.trim();
-    return { content: s || null, contentMarkdown: s || "" };
+    markdown = content.trim();
+  } else if (content && typeof content === "object") {
+    markdown = typeof content?.markdown === "string" ? content.markdown.trim() : "";
   }
-  if (content && typeof content === "object") {
-    const markdown = typeof content?.markdown === "string" ? content.markdown.trim() : "";
-    return { content, contentMarkdown: markdown };
+
+  // Limit content length to prevent text overflow in slides
+  // Keep first 800 chars max - LLM should summarize, not copy verbatim
+  if (markdown.length > 800) {
+    markdown = markdown.slice(0, 800) + "\n...(content truncated, summarize key points only)";
   }
-  return { content: null, contentMarkdown: "" };
+
+  return { content: content || null, contentMarkdown: markdown };
 }
 
 function normalizeSelectedIdeas(selectedIdeas = []) {
@@ -297,76 +302,95 @@ function applyVisualSlotHintsToSlideHtml(slideHtml, imageSlotsForSlide = [], slo
   return patched2 + insertTags;
 }
 
+function buildStyleDescription(designSystem) {
+  const styleRef = designSystem?.styleReference?.extracted;
+  const colors = designSystem?.designTokens?.colors || designSystem?.colors || {};
+  const userNotes = designSystem?.styleReference?.userNotes || "";
+
+  const parts = [];
+
+  // Color palette
+  const palette = styleRef?.palette || [];
+  const primaryColors = [colors.primary, colors.accent, colors.bg, colors.text].filter(Boolean);
+  const allColors = [...new Set([...palette, ...primaryColors])].slice(0, 6);
+  if (allColors.length) {
+    parts.push(`Color palette: ${allColors.join(", ")}`);
+  }
+
+  // Style attributes from reference images
+  if (styleRef?.colorTone) parts.push(`Color tone: ${styleRef.colorTone}`);
+  if (styleRef?.mood) parts.push(`Mood: ${styleRef.mood}`);
+  if (styleRef?.layoutStyle) parts.push(`Layout: ${styleRef.layoutStyle}`);
+  if (styleRef?.typography) parts.push(`Typography: ${styleRef.typography}`);
+  if (styleRef?.effects) parts.push(`Effects: ${styleRef.effects}`);
+  if (userNotes) parts.push(`User notes: ${userNotes}`);
+
+  // Fallback if no style info
+  if (!parts.length) {
+    const bg = colors.bg || "#ffffff";
+    const isDark = bg.toLowerCase().startsWith("#0") || bg.toLowerCase().startsWith("#1");
+    parts.push(`Theme: ${isDark ? "dark" : "light"}, modern business style`);
+    parts.push(`Primary: ${colors.primary || "#0ea5e9"}, Accent: ${colors.accent || "#22c55e"}`);
+  }
+
+  return parts.join("\n");
+}
+
 function makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch = [], dslRules = "", selectedIdeas = []) {
-  const tokens = designSystem?.designTokens || designSystem || {};
   const slots = Array.isArray(imageSlotsForBatch) ? imageSlotsForBatch : [];
   const rulesText = normalizeDslRules(dslRules);
   const selected = normalizeSelectedIdeas(selectedIdeas);
+  const styleDesc = buildStyleDescription(designSystem);
 
-  // Build style reference section if available
-  const styleRef = designSystem?.styleReference?.extracted;
-  const styleRefLines = styleRef && (styleRef.colorTone || styleRef.mood || styleRef.layoutStyle || styleRef.typography || styleRef.effects)
-    ? [
-        "",
-        "Style reference (user-provided, follow these guidelines):",
-        ...(styleRef.colorTone ? [`- Color tone: ${styleRef.colorTone}`] : []),
-        ...(styleRef.mood ? [`- Mood: ${styleRef.mood}`] : []),
-        ...(styleRef.layoutStyle ? [`- Layout style: ${styleRef.layoutStyle}`] : []),
-        ...(styleRef.typography ? [`- Typography: ${styleRef.typography}`] : []),
-        ...(styleRef.effects ? [`- Visual effects: ${styleRef.effects}`] : []),
-        ...(designSystem?.styleReference?.userNotes ? [`- User notes: ${designSystem.styleReference.userNotes}`] : []),
-        "",
-      ]
-    : [];
+  const promptParts = [];
 
-  return [
-    "You generate PPT HTML DSL slides for SlideParser.parse().",
-    "Return ONLY valid JSON (no markdown), an array with same order as input.",
-    'Each item: {"slideIntentId":string,"slideHtml":string}.',
+  // 1. Style description (concise, at top for attention)
+  promptParts.push(
+    "=== DESIGN STYLE ===",
+    styleDesc,
     "",
-    "Hard requirements:",
-    '- slideHtml MUST be a single <section data-type="freeform" ...> ... </section>.',
-    '- Elements MUST use data-el attributes (text/shape/line/svg/image/card/icon).',
-    "- All positions use percent for data-x/data-y/data-w/data-h (0-100%).",
-    "- Enforce min font size >= 12.",
-    "- Each slideIntent may include content as either a string (markdown) or an object with { markdown: string, ... }.",
-    "- If content is an object, use content.markdown as the primary source text.",
+  );
+
+  // 2. DSL specification
+  if (rulesText) {
+    promptParts.push(
+      "=== DSL SPECIFICATION ===",
+      rulesText,
+      ""
+    );
+  }
+
+  // 3. Output format requirements
+  promptParts.push(
+    "=== OUTPUT FORMAT ===",
+    "Return JSON array: [{\"slideIntentId\":string, \"slideHtml\":string}, ...]",
     "",
-    ...(slots.length
-      ? [
-          "Image slots (placeholders):",
-          "- For each slot listed below, add EXACTLY ONE placeholder element into the correct slide HTML.",
-          "- Do NOT inline base64, do NOT create real <img> tags for these slots.",
-          "- Use the stable slotId as both id and data-slot-id.",
-          "- Placeholder HTML (attributes required; use brainstorm position/effects when provided):",
-          '<div data-el="image-placeholder" id="img_s0_hero" data-slot-id="img_s0_hero" data-status="pending" data-render-type="ai-image" data-aspect-ratio="16:9" data-fallback="gradient" data-x="10%" data-y="20%" data-w="30%" data-h="40%" data-effects=\'{\"blend\":\"multiply\",\"opacity\":0.8}\'></div>',
-          "",
-          "Slots for this batch:",
-          JSON.stringify(
-            slots.map((s) => ({
-              slotId: s.slotId,
-              slideIntentId: s.slideIntentId,
-              slideIndex: s.slideIndex,
-              purpose: s.purpose,
-              aspectRatio: s.aspectRatio,
-              priority: s.priority,
-              renderType: selected.bySlotId.get(String(s.slotId || ""))?.renderType || s.renderType,
-              position: selected.bySlotId.get(String(s.slotId || ""))?.position,
-              effects: selected.bySlotId.get(String(s.slotId || ""))?.effects || s.effects,
-            }))
-          ),
-          "",
-        ]
-      : []),
-    "",
-    "Design tokens (use these colors/typography):",
-    JSON.stringify(tokens),
-    ...styleRefLines,
-    "",
-    "Content summary:",
-    String(contentPackage?.summary || "").slice(0, 1200),
-    "",
-    "Slide intents:",
+    "CONTENT RULES:",
+    "- Summarize, don't copy verbatim. Title ≤30 chars, bullets ≤60 chars each",
+    "- Use 3-5 bullet points max per slide",
+    "- ALL positions use percentages (data-x=\"10%\")",
+    "- Font sizes 12-56px (data-font=\"16\")",
+    ""
+  );
+
+  // 5. Image slots if any (brief)
+  if (slots.length) {
+    const slotInfo = slots.map((s) => ({
+      id: s.slotId,
+      slide: s.slideIntentId,
+      purpose: s.purpose,
+      pos: selected.bySlotId.get(String(s.slotId || ""))?.position,
+    }));
+    promptParts.push(
+      "Image placeholders needed:",
+      JSON.stringify(slotInfo),
+      ""
+    );
+  }
+
+  // 6. Content to generate (minimal, focused)
+  promptParts.push(
+    "=== SLIDES TO GENERATE ===",
     JSON.stringify(
       batch.map((s) => {
         const normalized = normalizeSlideIntentContentForPrompt(s);
@@ -374,18 +398,18 @@ function makePrompt(batch, designSystem, contentPackage, imageSlotsForBatch = []
           slideIntentId: s.slideIntentId,
           pageType: s.pageType,
           title: s.title,
-          objective: s.objective,
-          keyPoints: s.keyPoints,
-          content: normalized.content,
-          contentMarkdown: normalized.contentMarkdown,
-          claimIds: s.claimIds,
-          dataTableIds: s.dataTableIds,
-          brainstorm: selected.bySlideIntentId.get(String(s.slideIntentId || "")) || null,
+          keyPoints: (s.keyPoints || []).slice(0, 5),
+          objective: s.objective ? String(s.objective).slice(0, 100) : undefined,
         };
-      })
+      }),
+      null,
+      0
     ),
-    ...(rulesText ? ["", "DSL rules (follow strictly):", rulesText] : []),
-  ].join("\n");
+    "",
+    "Generate now."
+  );
+
+  return promptParts.join("\n");
 }
 
 /**
@@ -420,8 +444,11 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
 
   if (typeof modelCaller === "function") {
     const prompt = makePrompt([si], designSystem, contentPackage, imageSlotsForSlide, dslRules, selectedIdeas);
+    const systemPrompt = `You are a PPT slide generator. Output JSON: [{"slideIntentId":string,"slideHtml":string}]
+Follow the DSL spec and examples in the prompt. Summarize content - never copy verbatim.`;
+
     const messages = [
-      { role: "system", content: "You are a precise PPT DSL generator." },
+      { role: "system", content: systemPrompt },
       { role: "user", content: prompt },
     ];
 
@@ -429,7 +456,7 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
     for (let attempt = 0; attempt < 2; attempt++) {
       if (options.signal?.aborted) throw new Error(typeof options.signal.reason === "string" ? options.signal.reason : "Run cancelled");
       try {
-	        const resp = await modelCaller(messages, { temperature: 0.2, maxTokens: 6000, signal: options.signal, timeoutMs: 30_000 });
+	        const resp = await modelCaller(messages, { temperature: 0.2, maxTokens: 8000, signal: options.signal, timeoutMs: 180_000 });
 
 	        const jsonStr = extractJsonCandidate(resp?.content);
 	        const parsed = robustParseJson(jsonStr);
@@ -460,6 +487,12 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
         lastErr = e;
         const msg = e instanceof Error ? e.message : String(e);
         console.warn("[design.batch] generateSingleSlide model call failed", { slideIntentId, attempt: attempt + 1, error: msg });
+
+        // Don't retry for config/auth errors - fail fast
+        if (isNonRetryableError(e)) {
+          console.warn("[design.batch] Non-retryable error detected, skipping retry");
+          break;
+        }
         if (attempt < 1) safeEmit(emit, "design.slide.retrying", "retrying", { slideIndex, attempt: attempt + 1 });
       }
     }
@@ -473,12 +506,25 @@ export async function generateSingleSlide(slideIntent, designSystem, dslRules, o
     });
   }
 
-  const slideHtml = buildSlideHtml(si, designSystem, contentPackage, {
-    safeMode: true,
-    slideNo,
-    imageSlotsForSlide,
-  });
-  return { slideIntentId, slideHtml: applyVisualSlotHintsToSlideHtml(slideHtml, imageSlotsForSlide, slotHintsBySlotId), source: "fallback" };
+  // Minimal fallback - just title and key points, no complex template
+  const title = String(si.title || "Slide").slice(0, 40);
+  const keyPoints = Array.isArray(si.keyPoints) ? si.keyPoints.slice(0, 4) : [];
+  const colors = designSystem?.designTokens?.colors || designSystem?.colors || {};
+  const bg = colors.bg || "#ffffff";
+  const textColor = colors.text || "#0f172a";
+  const mutedColor = colors.muted || "#64748b";
+
+  const escTitle = title.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const bodyHtml = keyPoints.length
+    ? keyPoints.map(p => `• ${String(p || "").slice(0, 60).replace(/</g, "&lt;")}`).join("<br>")
+    : "(内容生成失败，请重试)";
+
+  const fallbackHtml = `<section data-type="freeform" data-layout="content" data-bg="${bg}" data-title="${escTitle}">
+  <div data-el="text" data-x="8%" data-y="10%" data-w="84%" data-h="auto" data-font="36" data-color="${textColor}" data-bold="true">${escTitle}</div>
+  <div data-el="text" data-x="8%" data-y="24%" data-w="84%" data-h="auto" data-font="16" data-color="${mutedColor}" data-line-height="1.8">${bodyHtml}</div>
+</section>`;
+
+  return { slideIntentId, slideHtml: applyVisualSlotHintsToSlideHtml(fallbackHtml, imageSlotsForSlide, slotHintsBySlotId), source: "fallback" };
 }
 
 /**
@@ -497,7 +543,8 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
   const designSystem = hasFourthArg ? designSystemOrOptions : designSystemOrOptions?.designSystem;
   const options = hasFourthArg ? (maybeOptions || {}) : (designSystemOrOptions || {});
 
-  const batchSize = Math.min(4, Math.max(1, Number(options.batchSize) || 4));
+  const batchSize = Math.max(1, Number(options.batchSize) || 4);
+  const batchConcurrency = Math.max(1, Number(options.batchConcurrency) || 2);
   const aiApiService = options.aiApiService;
   const modelRouter = options.modelRouter;
   const emit = typeof options.emit === "function" ? options.emit : null;
@@ -513,10 +560,9 @@ export async function generateBatch(slideIntents, contentPackage, designSystemOr
   /** @type {Array<{slideIntentId:string,slideHtml:string,source:"llm"|"fallback"}>} */
   const out = new Array(intents.length);
   const batchList = chunkIndexes(intents.length, batchSize);
-  const BATCH_CONCURRENCY = 2; // Max parallel batches to avoid rate limits
 
   // Process batches with concurrency limit
-  const limiter = createLimiter(BATCH_CONCURRENCY);
+  const limiter = createLimiter(batchConcurrency);
   await Promise.all(batchList.map((slideIndexes, batchIndex) => limiter(async () => {
     if (signal?.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "Run cancelled");
 

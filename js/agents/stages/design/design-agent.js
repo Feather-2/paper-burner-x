@@ -47,9 +47,21 @@ function normalizeRenderType(rt) {
   return "ai-image";
 }
 
+function loadDesignConcurrencyConfig() {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('ppt_designConcurrency') : null;
+    if (raw) return JSON.parse(raw);
+  } catch (_) {}
+  return null;
+}
+
 export class DesignStage {
-  constructor({ batchSize = 4 } = {}) {
-    this.batchSize = Math.min(4, Math.max(1, Number(batchSize) || 4));
+  constructor({ batchSize } = {}) {
+    const config = loadDesignConcurrencyConfig();
+    const defaultBatchSize = config?.batchSize || 4;
+    this.batchSize = Math.max(1, Number(batchSize) || defaultBatchSize);
+    this.batchConcurrency = Math.max(1, Number(config?.batchConcurrency) || 2);
+    this.imageConcurrency = Math.max(1, Number(config?.imageConcurrency) || 4);
   }
 
   /**
@@ -116,6 +128,7 @@ export class DesignStage {
       modelRouter,
       aiApiService: context.aiApiService,
       signal: context.signal,
+      batchConcurrency: this.batchConcurrency,
     });
     const { ideaPool, selectedIdeas, imageSlots } = brainstormResult;
     const selectedIdeasForPrompt = Array.isArray(brainstormResult?.candidatesBySlide)
@@ -144,6 +157,7 @@ export class DesignStage {
 
     const generated = await generateBatch(slideIntents, contentPackage, designSystem, {
       batchSize: this.batchSize,
+      batchConcurrency: this.batchConcurrency,
       modelRouter,
       aiApiService: context.aiApiService,
       imageSlots,
@@ -217,9 +231,27 @@ export class DesignStage {
     const imageProvider = context.imageProvider || context.imageService;
     const candidatesBySlide = Array.isArray(brainstormResult?.candidatesBySlide) ? brainstormResult.candidatesBySlide : [];
     const selectedVisualSlots = candidatesBySlide.flatMap((row) => (Array.isArray(row?.selectedCandidate?.visualSlots) ? row.selectedCandidate.visualSlots : []));
+
+    // When imageProvider is not available, fallback ai-image slots to svg
+    const shouldFallbackToSvg = !imageProvider;
+    const mapSlotRenderType = (slot) => {
+      const rt = normalizeRenderType(slot?.renderType);
+      if (shouldFallbackToSvg && rt === "ai-image") {
+        return {
+          ...slot,
+          renderType: "svg",
+          svgSpec: {
+            type: slot?.purpose === "chart_fallback" ? "chart" : "diagram",
+            description: slot?.imageSpec?.prompt || slot?.promptHint || slot?.purpose || "Visual element",
+          },
+        };
+      }
+      return { ...slot, renderType: rt };
+    };
+
     const visualSlotsForRender = selectedVisualSlots.length
-      ? selectedVisualSlots
-      : imageSlots.map((s) => ({
+      ? selectedVisualSlots.map(mapSlotRenderType)
+      : imageSlots.map((s) => mapSlotRenderType({
           slotId: s.slotId,
           slideIntentId: s.slideIntentId,
           slideIndex: s.slideIndex,
@@ -237,6 +269,16 @@ export class DesignStage {
 
     if (visualSlotsForRender.length) {
       try {
+        // Build slideHtmlBySlotId map for SVG generator context
+        const slideHtmlBySlotId = new Map();
+        for (const slot of visualSlotsForRender) {
+          const slotId = String(slot?.slotId || "").trim();
+          const slideIdx = Number.isFinite(slot?.slideIndex) ? slot.slideIndex : -1;
+          if (slotId && slideIdx >= 0 && slideIdx < slideHtmls.length) {
+            slideHtmlBySlotId.set(slotId, slideHtmls[slideIdx]);
+          }
+        }
+
         const svgGenerator =
           Object.prototype.hasOwnProperty.call(context || {}, "svgGenerator") ? context.svgGenerator : new SVGGenerator();
         const renderer = new VisualRenderer({
@@ -250,8 +292,12 @@ export class DesignStage {
           runId: runContext.runId,
           policy: constraints?.imagePolicy,
           budget: constraints?.imageBudget,
-          concurrency: Math.min(4, Math.max(1, Math.floor(this.batchSize))),
+          concurrency: this.imageConcurrency,
+          svgConcurrency: this.imageConcurrency,
           aiApiService: context.aiApiService,
+          modelRouter,
+          signal: context.signal,
+          slideHtmlBySlotId,
           imageProvider: imageProvider || null,
         });
 

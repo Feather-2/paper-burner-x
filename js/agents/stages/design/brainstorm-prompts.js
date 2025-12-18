@@ -5,52 +5,51 @@ function safeJson(v, maxLen = 8000) {
 }
 
 export const BRAINSTORM_SYSTEM_PROMPT = [
-  "You are a Creative Director for presentation design.",
-  "Your task: propose 2-3 distinct visual concept candidates for EACH slide in the batch.",
-  "Use the provided designSystem + slideIntents + available DSL effects to create rich, modern, presentation-friendly visuals.",
+  "You are a Visual Planner for presentation design.",
+  "Your task: for EACH slide, decide what visual elements are needed and where to place them.",
   "",
-  "IMPORTANT: When availableAssets are provided, PREFER reusing existing assets (renderType: 'asset') over generating new images.",
-  "Match assets by their description/topics/category to the slide content. This saves generation cost and ensures visual consistency.",
+  "IMPORTANT: When availableAssets are provided, PREFER reusing existing assets over generating new images.",
   "",
-  "Output format: return ONLY valid JSON (no markdown, no commentary).",
+  "Output format: return ONLY valid JSON.",
   "JSON schema:",
   "{",
   '  "slideResults": [',
   "    {",
   '      "slideIntentId": "string",',
-  '      "slideIndex": "number",',
-  '      "candidates": [',
+  '      "slideIndex": number,',
+  '      "visualSlots": [',
   "        {",
-  '          "candidateId": "string",',
-  '          "atmosphere": { "mood": "string", "colorScheme": "string", "visualWeight": "string" },',
-  '          "elementsMarkdown": "string (markdown list of layers/elements; may include placeholders like {{IMAGE:slotId}} / {{SVG:slotId}} / {{ASSET:slotId}})",',
-  '          "visualSlots": [',
-  "            {",
-  '              "slotId": "string (unique within slide)",',
-  '              "slideIntentId": "string",',
-  '              "slideIndex": "number",',
-  '              "renderType": "ai-image|svg|asset",',
-  '              "position": { "x":"%","y":"%","w":"%","h":"%" },',
-  '              "effects": { "mask":"string?","opacity":"number?","blend":"string?","effect":"string?","radius":"number?","rotate":"number?","filter":"string?" },',
-  '              "priority": "critical|important|optional",',
-  '              "imageSpec": { "prompt":"string","negativePrompt":"string?","style":"3d|photo|illustration|flat" }?,',
-  '              "svgSpec": { "type":"string","description":"string","style":"object?","elements":"array?" }?,',
-  '              "assetSpec": { "assetId":"string","sourceId":"string?","caption":"string?" }?',
-  "            }",
-  "          ]",
+  '          "slotId": "string (unique, e.g. hero_img, bg_pattern, main_illustration)",',
+  '          "renderType": "ai-image | svg | asset",',
+  '          "position": { "x": "10%", "y": "20%", "w": "40%", "h": "50%" },',
+  '          "purpose": "string (what is this visual for, e.g. 产品展示, 装饰背景, 数据图表)",',
+  '          "prompt": "string (for ai-image: generation prompt)",',
+  '          "style": "photo | illustration | 3d | flat (for ai-image)",',
+  '          "svgDescription": "string (for svg: what to draw, be specific)",',
+  '          "svgType": "diagram | icon | pattern | chart (for svg)",',
+  '          "assetId": "string (for asset: which asset to reuse)",',
+  '          "effects": { "opacity": "0-1", "radius": "8px", "blend": "multiply", "filter": "blur(4px)" }',
   "        }",
   "      ]",
   "    }",
   "  ]",
   "}",
   "",
+  "Position guidelines (use percentages, be flexible):",
+  "- Full background: x=0%, y=0%, w=100%, h=100%",
+  "- Left half: x=2%, y=15%, w=45%, h=70%",
+  "- Right half: x=53%, y=15%, w=45%, h=70%",
+  "- Small icon: w=8%-15%, h=8%-15%",
+  "- Hero image: w=50%-80%, centered or offset",
+  "- Adjust based on text layout and visual balance",
+  "",
   "Constraints:",
-  "- Process ALL slides in the batch, return one entry per slide in slideResults.",
-  "- Candidates must be meaningfully different (composition, metaphor, or primary visual).",
-  "- visualSlots must be coherent with elementsMarkdown (slotId references match).",
-  "- Keep positions in percent strings like \"10%\".",
-  "- Prefer 1-2 slots per slide; avoid clutter.",
-  "- When an availableAsset matches the slide topic/content, use renderType:'asset' with assetSpec.assetId.",
+  "- Process ALL slides, return one entry per slide.",
+  "- Each slide can have 0-3 visualSlots (don't clutter).",
+  "- For text-heavy slides (agenda, summary), fewer or no visuals is fine.",
+  "- Reuse availableAssets when content matches.",
+  "- Keep it simple: just plan what visuals go where.",
+  "- Use effects.radius for rounded corners on images.",
 ].join("\n");
 
 export const BRAINSTORM_REVIEW_PROMPT = [
@@ -86,14 +85,10 @@ export const BRAINSTORM_REVIEW_PROMPT = [
 ].join("\n");
 
 export function buildBrainstormPrompt(slideIntentsOrSingle, designSystem, dslEffects, styleSpec, availableAssets) {
-  // Support both single slideIntent and array of slideIntents
   const slideIntents = Array.isArray(slideIntentsOrSingle) ? slideIntentsOrSingle : [slideIntentsOrSingle];
-  const isBatch = slideIntents.length > 1;
 
   const parts = [
-    isBatch
-      ? `Create 2-3 design candidates for EACH of the following ${slideIntents.length} slides.`
-      : "Create 2-3 design candidates for the following slide.",
+    `Plan visual elements for ${slideIntents.length} slide(s).`,
     "",
     "slideIntents:",
     safeJson(
@@ -104,59 +99,42 @@ export function buildBrainstormPrompt(slideIntentsOrSingle, designSystem, dslEff
         title: si?.title,
         objective: si?.objective,
         keyPoints: si?.keyPoints,
-        content: si?.content,
-        claimIds: si?.claimIds,
       })),
-      12000
+      8000
     ),
-    "",
-    "designSystem:",
-    safeJson(
-      {
-        theme: designSystem?.theme,
-        designTokens: designSystem?.designTokens,
-        styleReference: designSystem?.styleReference,
-        visualPreference: designSystem?.visualPreference,
-        imageStyle: designSystem?.imageStyle,
-      },
-      6000
-    ),
-    "",
-    "dslEffects (available building blocks):",
-    safeJson(dslEffects, 4000),
   ];
 
-  // 添加可用 assets 列表
-  const assets = Array.isArray(availableAssets) ? availableAssets : [];
-  if (assets.length > 0) {
-    const assetSummaries = assets.slice(0, 20).map((a) => ({
-      assetId: a?.assetId,
-      category: a?.understanding?.category || a?.type || "image",
-      description: a?.understanding?.description || "",
-      topics: a?.understanding?.topics || [],
-      suggestedUse: a?.understanding?.suggestedUse || [],
-      visualStyle: a?.understanding?.visualStyle || "",
-      docId: a?.docId,
-    }));
+  // 设计规范（简化）
+  if (designSystem?.designTokens) {
     parts.push(
       "",
-      `availableAssets (${assets.length} images from source documents; use renderType:'asset' + assetSpec.assetId to reuse):`,
-      safeJson(assetSummaries, 4000)
+      "designTokens (colors/fonts to use):",
+      safeJson({ colors: designSystem.designTokens.colors, fonts: designSystem.designTokens.fonts }, 2000)
     );
   }
 
-  if (styleSpec) {
+  // 可用资源
+  const assets = Array.isArray(availableAssets) ? availableAssets : [];
+  if (assets.length > 0) {
+    const assetSummaries = assets.slice(0, 15).map((a) => ({
+      assetId: a?.assetId,
+      description: a?.understanding?.description || "",
+      category: a?.understanding?.category || "image",
+      suggestedUse: a?.understanding?.suggestedUse || [],
+    }));
     parts.push(
       "",
-      "styleSpec (extracted from reference PPT; use as inspiration, not a hard constraint):",
-      safeJson(
-        {
-          colorTone: styleSpec?.designTraits?.colorTone,
-          dominantColors: styleSpec?.designTraits?.dominantColors,
-          fontScheme: styleSpec?.fontScheme,
-        },
-        2000
-      )
+      `availableAssets (${assets.length} images to reuse):`,
+      safeJson(assetSummaries, 3000)
+    );
+  }
+
+  // 风格参考（简化）
+  if (styleSpec?.colorTone || styleSpec?.designTraits?.colorTone) {
+    parts.push(
+      "",
+      "styleHint:",
+      safeJson({ colorTone: styleSpec?.colorTone || styleSpec?.designTraits?.colorTone }, 500)
     );
   }
 

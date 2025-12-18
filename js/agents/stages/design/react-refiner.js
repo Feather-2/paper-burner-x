@@ -338,7 +338,7 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
       modelResp = await aiApiService.chat({
         messages,
         temperature: 0.2,
-        maxTokens: 2000,
+        maxTokens: 8000,
       });
     } catch (err) {
       emit?.("design.refine.step", { stepIndex, error: String(err?.message || err), phase: "model_call" }, { status: "error" });
@@ -368,7 +368,7 @@ export async function runReactRefiner(deckPackage, context, options = {}) {
         const retryResp = await aiApiService.chat({
           messages: [{ role: "system", content: "只返回严格 JSON，不要输出任何多余文本。" }, ...messages],
           temperature: 0.1,
-          maxTokens: 2000,
+          maxTokens: 8000,
         });
         const retryCandidate = extractJsonCandidate(retryResp?.content || "");
         if (retryCandidate) {

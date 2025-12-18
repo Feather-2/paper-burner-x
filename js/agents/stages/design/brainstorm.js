@@ -20,7 +20,7 @@ import {
   buildBrainstormPrompt,
   buildReviewPrompt,
 } from "./brainstorm-prompts.js";
-import { getDesignModelCaller } from "./model.js";
+import { getDesignModelCaller, isNonRetryableError } from "./model.js";
 import { robustParseJson } from "../../shared/robust-json.js";
 
 /**
@@ -158,6 +158,55 @@ function normalizePriority(p) {
   return "important";
 }
 
+// 简化版位置：left/right/center/background/fullscreen -> 粗略百分比
+function positionFromKeyword(pos) {
+  const p = String(pos || "").trim().toLowerCase();
+  if (p === "left") return { x: "5%", y: "20%", w: "40%", h: "60%" };
+  if (p === "right") return { x: "55%", y: "20%", w: "40%", h: "60%" };
+  if (p === "center") return { x: "25%", y: "25%", w: "50%", h: "50%" };
+  if (p === "top") return { x: "10%", y: "5%", w: "80%", h: "40%" };
+  if (p === "bottom") return { x: "10%", y: "55%", w: "80%", h: "40%" };
+  if (p === "background" || p === "fullscreen") return { x: "0%", y: "0%", w: "100%", h: "100%" };
+  return null;
+}
+
+// 简化版 visualSlot 规范化
+function normalizeVisualSlot(raw, { slideIntentId, slideIndex } = {}) {
+  const s = raw && typeof raw === "object" ? { ...raw } : {};
+  const slotId = toNonEmptyString(s.slotId) || `slot_${Math.random().toString(36).slice(2, 6)}`;
+  const renderType = normalizeRenderType(s.renderType);
+  const position = positionFromKeyword(s.position);
+  const purpose = toNonEmptyString(s.purpose);
+
+  const slot = {
+    slotId,
+    slideIntentId: toNonEmptyString(slideIntentId),
+    slideIndex: Number.isFinite(slideIndex) ? slideIndex : 0,
+    renderType,
+    purpose,
+    ...(position ? { position } : {}),
+    ...(s.effects && typeof s.effects === "object" ? { effects: { ...s.effects } } : {}),
+  };
+
+  if (renderType === "ai-image") {
+    slot.imageSpec = {
+      prompt: toNonEmptyString(s.prompt) || toNonEmptyString(s.imageSpec?.prompt) || purpose,
+      style: toNonEmptyString(s.style) || toNonEmptyString(s.imageSpec?.style) || "illustration",
+    };
+  } else if (renderType === "svg") {
+    slot.svgSpec = {
+      description: toNonEmptyString(s.svgDescription) || toNonEmptyString(s.svgSpec?.description) || purpose,
+      type: toNonEmptyString(s.svgType) || toNonEmptyString(s.svgSpec?.type) || "diagram",
+    };
+  } else if (renderType === "asset") {
+    slot.assetSpec = {
+      assetId: toNonEmptyString(s.assetId) || toNonEmptyString(s.assetSpec?.assetId),
+    };
+  }
+
+  return slot;
+}
+
 function normalizePercentString(v) {
   if (typeof v === "number" && Number.isFinite(v)) return `${Math.max(0, Math.min(100, v))}%`;
   const s = String(v || "").trim();
@@ -168,7 +217,26 @@ function normalizePercentString(v) {
   return "";
 }
 
+// Convert position string (left, right, center, etc.) to percentage bounds
+function positionStringToPercent(posStr) {
+  const p = String(posStr || "").trim().toLowerCase();
+  const presets = {
+    left: { x: "5%", y: "20%", w: "40%", h: "60%" },
+    right: { x: "55%", y: "20%", w: "40%", h: "60%" },
+    center: { x: "25%", y: "20%", w: "50%", h: "60%" },
+    top: { x: "10%", y: "8%", w: "80%", h: "35%" },
+    bottom: { x: "10%", y: "55%", w: "80%", h: "35%" },
+    background: { x: "0%", y: "0%", w: "100%", h: "100%" },
+    fullscreen: { x: "0%", y: "0%", w: "100%", h: "100%" },
+  };
+  return presets[p] || null;
+}
+
 function normalizePosition(pos) {
+  // Handle string positions like "left", "right", "center"
+  if (typeof pos === "string") {
+    return positionStringToPercent(pos);
+  }
   if (!pos || typeof pos !== "object") return null;
   const x = normalizePercentString(pos.x);
   const y = normalizePercentString(pos.y);
@@ -252,13 +320,11 @@ function computeCompositeScore(scores) {
   );
 }
 
-function clampToTwoOrThree(candidates) {
+function clampCandidates(candidates, count = 1) {
   const list = Array.isArray(candidates) ? candidates : [];
-  if (list.length >= 2 && list.length <= 3) return list;
-  if (list.length > 3) return list.slice(0, 3);
-  // Too few: duplicate with minor tweak (deterministic enough for tests).
-  if (list.length === 1) return [list[0], { ...list[0], candidateId: `${list[0].candidateId}_v2` }];
-  return [];
+  if (list.length === 0) return [];
+  if (list.length <= count) return list;
+  return list.slice(0, count);
 }
 
 function aspectRatioFromPosition(position) {
@@ -351,7 +417,7 @@ async function generateCandidatesForSlide(slideIntent, designSystem, { modelCall
   for (let attempt = 0; attempt < 2; attempt++) {
     if (signal?.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "Run cancelled");
     try {
-	      const resp = await modelCaller(messages, { temperature: 0.8, maxTokens: 2500, signal, timeoutMs: 30_000 });
+	      const resp = await modelCaller(messages, { temperature: 0.8, maxTokens: 8000, signal, timeoutMs: 120_000 });
 
 	      const jsonStr = extractJsonCandidate(resp?.content);
 	      const parsed = robustParseJson(jsonStr);
@@ -364,11 +430,12 @@ async function generateCandidatesForSlide(slideIntent, designSystem, { modelCall
 	          : Array.isArray(parsed) ? parsed : [];
 
 	      const normalized = rawCandidates.map((c) => normalizeCandidate(c, { slideIntentId, slideIndex }));
-	      return clampToTwoOrThree(normalized);
+	      return clampCandidates(normalized);
     } catch (e) {
       lastErr = e;
       const msg = e instanceof Error ? e.message : String(e);
       console.warn("[design.brainstorm] generateCandidatesForSlide failed", { slideIntentId, slideIndex, attempt: attempt + 1, error: msg });
+      if (isNonRetryableError(e)) break;
     }
   }
 
@@ -376,10 +443,12 @@ async function generateCandidatesForSlide(slideIntent, designSystem, { modelCall
 }
 
 /**
- * Generate candidates for a batch of slides (up to 4).
- * Returns Map<slideIndex, candidates[]>
+ * Generate visual slots for a batch of slides (up to 4).
+ * Returns Map<slideIndex, visualSlots[]>
+ *
+ * Simplified flow: directly returns visualSlots without candidates wrapper.
  */
-async function generateCandidatesForBatch(slideIntentsBatch, designSystem, { modelCaller, signal, dslEffects, startIndex = 0, availableAssets } = {}, styleSpec) {
+async function generateCandidatesForBatch(slideIntentsBatch, designSystem, { modelCaller, signal, dslEffects, startIndex = 0, availableAssets, emit } = {}, styleSpec) {
   if (typeof modelCaller !== "function") throw new Error("No model caller for brainstorm");
   const batch = Array.isArray(slideIntentsBatch) ? slideIntentsBatch : [];
   if (batch.length === 0) return new Map();
@@ -400,7 +469,7 @@ async function generateCandidatesForBatch(slideIntentsBatch, designSystem, { mod
   for (let attempt = 0; attempt < 2; attempt++) {
     if (signal?.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "Run cancelled");
     try {
-      const resp = await modelCaller(messages, { temperature: 0.8, maxTokens: 6000, signal, timeoutMs: 45_000 });
+      const resp = await modelCaller(messages, { temperature: 0.7, maxTokens: 6000, signal, timeoutMs: 180_000 });
 
       const jsonStr = extractJsonCandidate(resp?.content);
       const parsed = robustParseJson(jsonStr);
@@ -408,12 +477,14 @@ async function generateCandidatesForBatch(slideIntentsBatch, designSystem, { mod
 
       const resultMap = new Map();
 
-      // Handle new batch format: { slideResults: [...] }
+      // Handle new simplified format: { slideResults: [{ slideIntentId, slideIndex, visualSlots }] }
       if (Array.isArray(parsed?.slideResults)) {
         for (const result of parsed.slideResults) {
           const slideIntentId = toNonEmptyString(result?.slideIntentId);
           const slideIndex = Number.isFinite(result?.slideIndex) ? result.slideIndex : null;
-          const rawCandidates = Array.isArray(result?.candidates) ? result.candidates : [];
+
+          // New format: visualSlots directly in result
+          const rawSlots = Array.isArray(result?.visualSlots) ? result.visualSlots : [];
 
           const matchedSlide = enriched.find((si) =>
             toNonEmptyString(si?.slideIntentId || si?.slideIntentID) === slideIntentId ||
@@ -422,18 +493,21 @@ async function generateCandidatesForBatch(slideIntentsBatch, designSystem, { mod
           const resolvedIndex = matchedSlide?.slideIndex ?? slideIndex ?? startIndex;
           const resolvedId = slideIntentId || toNonEmptyString(matchedSlide?.slideIntentId || matchedSlide?.slideIntentID);
 
-          const normalized = rawCandidates.map((c) => normalizeCandidate(c, { slideIntentId: resolvedId, slideIndex: resolvedIndex }));
-          resultMap.set(resolvedIndex, clampToTwoOrThree(normalized));
-        }
-      }
-      // Handle old single-slide format: { candidates: [...] } - apply to first slide in batch
-      else if (Array.isArray(parsed?.candidates) || Array.isArray(parsed)) {
-        const rawCandidates = Array.isArray(parsed?.candidates) ? parsed.candidates : Array.isArray(parsed) ? parsed : [];
-        const firstSlide = enriched[0];
-        if (firstSlide) {
-          const slideIntentId = toNonEmptyString(firstSlide?.slideIntentId || firstSlide?.slideIntentID);
-          const normalized = rawCandidates.map((c) => normalizeCandidate(c, { slideIntentId, slideIndex: firstSlide.slideIndex }));
-          resultMap.set(firstSlide.slideIndex, clampToTwoOrThree(normalized));
+          // Normalize each visual slot with position keyword conversion
+          const normalizedSlots = rawSlots.map((raw) => normalizeVisualSlot(raw, { slideIntentId: resolvedId, slideIndex: resolvedIndex }));
+
+          // Wrap in single candidate for backward compatibility
+          const candidate = {
+            candidateId: `cand_s${resolvedIndex}_visual`,
+            atmosphere: { mood: "auto", colorScheme: "design-system", visualWeight: "balanced" },
+            elementsMarkdown: "",
+            visualSlots: normalizedSlots,
+            scores: { visualImpact: 0.7, clarity: 0.8, novelty: 0.6, consistency: 0.8 },
+            composite: 0.73,
+            selected: true,
+          };
+
+          resultMap.set(resolvedIndex, [candidate]);
         }
       }
 
@@ -449,6 +523,15 @@ async function generateCandidatesForBatch(slideIntentsBatch, designSystem, { mod
       lastErr = e;
       const msg = e instanceof Error ? e.message : String(e);
       console.warn("[design.brainstorm] generateCandidatesForBatch failed", { batchSize: batch.length, attempt: attempt + 1, error: msg });
+      // Emit error for UI visibility
+      if (typeof emit === "function") {
+        emit("design.brainstorm.batch.error", {
+          actor: "design",
+          status: "error",
+          payload: { batchSize: batch.length, attempt: attempt + 1, error: msg },
+        });
+      }
+      if (isNonRetryableError(e)) break;
     }
   }
 
@@ -468,7 +551,7 @@ async function reviewCandidatesForSlide(slideIntent, candidates, designSystem, {
   for (let attempt = 0; attempt < 2; attempt++) {
     if (signal?.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "Run cancelled");
     try {
-	      const resp = await modelCaller(messages, { temperature: 0.2, maxTokens: 1200, signal, timeoutMs: 30_000 });
+	      const resp = await modelCaller(messages, { temperature: 0.2, maxTokens: 4000, signal, timeoutMs: 120_000 });
 
 	      const jsonStr = extractJsonCandidate(resp?.content);
 	      const parsed = robustParseJson(jsonStr);
@@ -510,6 +593,7 @@ async function reviewCandidatesForSlide(slideIntent, candidates, designSystem, {
       lastErr = e;
       const msg = e instanceof Error ? e.message : String(e);
       console.warn("[design.brainstorm] reviewCandidatesForSlide failed", { attempt: attempt + 1, error: msg });
+      if (isNonRetryableError(e)) break;
     }
   }
 
@@ -545,7 +629,7 @@ async function reviewCandidatesForBatch(batchData, designSystem, { modelCaller, 
   for (let attempt = 0; attempt < 2; attempt++) {
     if (signal?.aborted) throw new Error(typeof signal.reason === "string" ? signal.reason : "Run cancelled");
     try {
-      const resp = await modelCaller(messages, { temperature: 0.2, maxTokens: 3000, signal, timeoutMs: 45_000 });
+      const resp = await modelCaller(messages, { temperature: 0.2, maxTokens: 8000, signal, timeoutMs: 180_000 });
 
       const jsonStr = extractJsonCandidate(resp?.content);
       const parsed = robustParseJson(jsonStr);
@@ -613,6 +697,7 @@ async function reviewCandidatesForBatch(batchData, designSystem, { modelCaller, 
       lastErr = e;
       const msg = e instanceof Error ? e.message : String(e);
       console.warn("[design.brainstorm] reviewCandidatesForBatch failed", { batchSize: batch.length, attempt: attempt + 1, error: msg });
+      if (isNonRetryableError(e)) break;
     }
   }
 
@@ -955,7 +1040,7 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
     const candidatesBySlide = new Array(slideIntents.length);
     const allCandidates = [];
     const BATCH_SIZE = 4;
-    const BATCH_CONCURRENCY = 2; // Max parallel batches to avoid rate limits
+    const batchConcurrency = Math.max(1, Number(options?.batchConcurrency) || 2);
 
     // Extract available assets from contentPackage
     const availableAssets = Array.isArray(contentPackage?.assets) ? contentPackage.assets : [];
@@ -973,9 +1058,16 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
     }
 
     // Process batches with concurrency limit
-    const limiter = createLimiter(BATCH_CONCURRENCY);
-    await Promise.all(batches.map(({ batchStart, batchSlides }) => limiter(async () => {
+    const limiter = createLimiter(batchConcurrency);
+    await Promise.all(batches.map(({ batchStart, batchSlides }, batchIndex) => limiter(async () => {
       if (stageApi.signal?.aborted) throw new Error(typeof stageApi.signal.reason === "string" ? stageApi.signal.reason : "Run cancelled");
+
+      // Emit batch progress
+      emit?.("design.brainstorm.batch.started", {
+        actor: "design",
+        status: "progress",
+        payload: { batchIndex, batchCount: batches.length, slideIndexes: batchSlides.map((s) => s.slideIndex) },
+      });
 
       // Generate candidates for batch
       let candidatesMap = new Map();
@@ -986,9 +1078,16 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
           dslEffects: options?.dslEffects || constraints?.dslEffects || DEFAULT_DSL_EFFECTS,
           startIndex: batchStart,
           availableAssets,
+          emit,
         }, styleSpec);
-      } catch {
-        // Fallback: empty map, will trigger fallback candidates below
+      } catch (e) {
+        // Emit error and fallback
+        const msg = e instanceof Error ? e.message : String(e);
+        emit?.("design.brainstorm.batch.error", {
+          actor: "design",
+          status: "error",
+          payload: { batchIndex, error: msg, willFallback: true },
+        });
       }
 
       // Apply fallback for slides with no candidates
@@ -1004,7 +1103,7 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
             },
             { slideIntentId: si.slideIntentId, slideIndex: si.slideIndex }
           );
-          candidates = clampToTwoOrThree([fallback]);
+          candidates = clampCandidates([fallback]);
           candidatesMap.set(si.slideIndex, candidates);
         }
 
@@ -1015,47 +1114,28 @@ export async function brainstorm(contentPackage, designSystem, constraints = {},
         });
       }
 
-      // Build batch data for review
-      const reviewBatchData = batchSlides.map((si) => ({
-        slideIntentId: si.slideIntentId,
-        slideIndex: si.slideIndex,
-        pageType: si.pageType,
-        title: si.title,
-        objective: si.objective,
-        candidates: candidatesMap.get(si.slideIndex) || [],
-      }));
-
-      // Review candidates for batch
-      let reviewResults = new Map();
-      try {
-        reviewResults = await reviewCandidatesForBatch(reviewBatchData, designSystem, { modelCaller, signal: stageApi.signal });
-      } catch {
-        // Fallback: apply default scores
-        for (const item of reviewBatchData) {
-          const scored = (item.candidates || []).map((c, idx) => {
-            const scores = { visualImpact: 0.55 - idx * 0.02, clarity: 0.6, novelty: 0.5, consistency: 0.65 };
-            return { ...c, scores, composite: computeCompositeScore(scores), selected: idx === 0 };
-          });
-          reviewResults.set(item.slideIndex, { candidates: scored, selectedCandidateId: scored[0]?.candidateId || "" });
-        }
-      }
-
-      // Populate candidatesBySlide
+      // Skip review stage - with simplified flow we have 1 candidate already selected
+      // Populate candidatesBySlide directly from generated candidates
       for (const si of batchSlides) {
-        const reviewed = reviewResults.get(si.slideIndex) || { candidates: candidatesMap.get(si.slideIndex) || [], selectedCandidateId: "" };
-        const selected = reviewed.candidates.find((c) => c.selected) || reviewed.candidates[0] || null;
+        const candidates = candidatesMap.get(si.slideIndex) || [];
+        const selected = candidates.find((c) => c.selected) || candidates[0] || null;
+        const selectedCandidateId = selected?.candidateId || "";
 
-        emit?.("design.brainstorm.reviewed", {
+        emit?.("design.brainstorm.slide.completed", {
           actor: "design",
-          status: "reviewed",
-          payload: { slideIndex: si.slideIndex, slideIntentId: si.slideIntentId, selectedCandidateId: reviewed.selectedCandidateId },
+          status: "completed",
+          payload: {
+            slideIndex: si.slideIndex,
+            slideIntentId: si.slideIntentId,
+            visualSlotCount: selected?.visualSlots?.length || 0,
+          },
         });
 
         candidatesBySlide[si.slideIndex] = {
           slideIndex: si.slideIndex,
           slideIntentId: si.slideIntentId,
-          candidates: reviewed.candidates,
-          selectedCandidateId: reviewed.selectedCandidateId,
+          candidates,
+          selectedCandidateId,
           selectedCandidate: selected,
         };
       }
@@ -1248,7 +1328,7 @@ export async function brainstormRegenerate(
         },
         { slideIntentId: targetId, slideIndex }
       );
-      candidates = clampToTwoOrThree([fallback]);
+      candidates = clampCandidates([fallback]);
     }
 
     let reviewed = { candidates, selectedCandidateId: candidates[0]?.candidateId || "" };
