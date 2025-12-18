@@ -1,4 +1,4 @@
-import { DeepSearchState, checkCancelled, extractJsonCandidate, makeStageEmitter } from "./state.js";
+import { checkCancelled, extractJsonCandidate, makeStageEmitter } from "./state.js";
 import { getModelCaller } from "./model.js";
 import { claimsFromChunks } from "../../deepsearch/understanding/claims-from-chunks.js";
 import { dedupeClaims } from "../../deepsearch/understanding/dedupe.js";
@@ -7,599 +7,24 @@ import { createLogger } from "./logger.js";
 import { extractServices } from "./stage-api.js";
 import { isPlainObject, toNonEmptyString, safeInt } from "../../shared/value-utils.js";
 import { mapConcurrentWithPool } from "../../shared/concurrency.js";
-
-// ===== Reflect Prompt: LLM 自主判断是否需要更多信息 =====
-const REFLECT_PROMPT = `你是一个研究助手，需要判断当前收集的证据是否足以回答用户的问题。
-
-## 用户问题
-{taskGoal}
-
-## 覆盖情况统计
-{coverageStats}
-
-## 未覆盖的知识缺口
-{uncoveredGaps}
-
-## 核心论点样本 (共 {totalClaims} 个)
-{coreClaims}
-
-## 任务
-基于以上覆盖情况，判断：
-1. 当前证据是否足以回答用户问题的核心部分？
-2. 未覆盖的缺口是否关键？是否需要外部搜索补充？
-
-## 输出格式 (严格 JSON)
-{
-  "sufficient": true/false,           // 证据是否充分
-  "confidence": 0.0-1.0,              // 置信度 (0.8+ 表示很确定)
-  "reason": "简短说明判断理由",
-  "missingAspects": ["缺失方面1"],    // 如果不充分，列出关键缺失
-  "suggestedQueries": ["搜索词1"]     // 如果不充分，建议的搜索词 (最多3个)
-}
-
-只返回 JSON，不要其他内容。`;
-
-// ===== LLM Claims Prompt: 基于 gap.question 从 chunks 提取更精准论点 =====
-const LLM_CLAIMS_PROMPT = `你是一个研究助手，需要从文档片段中提取与问题相关的关键论点。
-
-## 问题
-{gapQuestion}
-
-## 文档片段
-{chunkTexts}
-
-## 任务
-1. 仔细阅读文档片段
-2. 提取能够回答或部分回答问题的关键论点
-3. 每个论点必须有原文引用支持
-
-## 输出格式 (JSON)
-{
-  "claims": [
-    {
-      "text": "论点陈述（简洁、清晰）",
-      "importance": "core|support",
-      "quote": "原文引用（必须是文档中的原文）",
-      "chunkIndex": 0  // 引用来自哪个 chunk
-    }
-  ]
-}
-`;
-
-function collapseWhitespace(s) {
-  return String(s || "")
-    .replaceAll(/\s+/g, " ")
-    .trim();
-}
-
-function truncate(s, maxLen = 220) {
-  const t = collapseWhitespace(s);
-  if (t.length <= maxLen) return t;
-  return t.slice(0, maxLen);
-}
-
-function safeArray(v) {
-  return Array.isArray(v) ? v : [];
-}
-
-function normalizeImportance(v) {
-  const s = toNonEmptyString(v);
-  if (s === "core" || s === "support") return s;
-  return null;
-}
-
-function safeChunkIndex(v) {
-  if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
-  if (typeof v === "string" && v.trim()) {
-    const n = Number.parseInt(v, 10);
-    if (Number.isFinite(n)) return n;
-  }
-  return null;
-}
-
-function formatChunksForLLM(chunks) {
-  return safeArray(chunks)
-    .map((c, i) => {
-      const text = typeof c?.text === "string" ? c.text : "";
-      return `### Chunk ${i}\n${text}`;
-    })
-    .join("\n\n");
-}
-
-function locateQuoteInSourceSlice(sourceText, baseLocator, quote) {
-  const baseStart = safeInt(baseLocator?.charStart);
-  const baseEnd = safeInt(baseLocator?.charEnd);
-  if (baseStart === null || baseEnd === null) return null;
-  if (!(baseStart < baseEnd)) return null;
-  if (baseStart < 0 || baseEnd > sourceText.length) return null;
-  if (typeof quote !== "string" || !quote) return null;
-
-  const window = sourceText.slice(baseStart, baseEnd);
-  const idx = window.indexOf(quote);
-  if (idx < 0) return null;
-
-  const charStart = baseStart + idx;
-  const charEnd = charStart + quote.length;
-  if (!(charStart < charEnd) || charEnd > baseEnd) return null;
-  if (sourceText.slice(charStart, charEnd) !== quote) return null;
-  return { charStart, charEnd };
-}
-
-/**
- * Generate claims with LLM for a specific gap, grounded in provided chunks.
- * - Returns null on "LLM unavailable" or fatal errors so caller can fallback to rules.
- * - Skips any claim whose quote cannot be precisely located in sourceTextNormalized.
- *
- * @param {{gapId?:string,question?:string,type?:string}} gap
- * @param {Array<{chunkId:string,sourceId:string,locator:{charStart:number,charEnd:number},text:string,score?:number}>} chunks
- * @param {object} stageApi
- * @param {DeepSearchState} state
- * @param {{maxQuoteLen:number}} options
- * @returns {Promise<null|{claims:any[],evidences:any[]}>}
- */
-async function generateClaimsWithLLM(gap, chunks, stageApi, state, { maxQuoteLen }) {
-  const callModel = getModelCaller(stageApi, { usage: "analyst", state });
-  if (!callModel) return null;
-
-  const contextSummary = stageApi?.getContextSummary?.() || "";
-  const gapQuestion = toNonEmptyString(gap?.question);
-  if (!gapQuestion) return null;
-
-  const sourceTextById = indexSourceTextById(state?.L0?.sources);
-
-  const promptChunks = safeArray(chunks).filter((c) => typeof c?.text === "string" && toNonEmptyString(c?.chunkId) && toNonEmptyString(c?.sourceId));
-
-  if (!promptChunks.length) return null;
-
-  const prompt = LLM_CLAIMS_PROMPT
-    .replace("{gapQuestion}", gapQuestion)
-    .replace("{chunkTexts}", formatChunksForLLM(promptChunks));
-
-  const promptWithContext = contextSummary ? `## 已知上下文\n${contextSummary}\n\n${prompt}` : prompt;
-
-  const cacheKeyInputs = {
-    gapId: toNonEmptyString(gap?.gapId) || "",
-    question: truncate(gapQuestion, 220),
-    chunkPreviews: promptChunks.map((c) => truncate(c?.text, 240)),
-  };
-
-  const timeoutMs = 15000;
-  let timeoutId;
-
-  try {
-    checkCancelled(stageApi);
-    const messages = [
-      {
-        role: "system",
-        content:
-          "你是一个严谨的研究助手。只能基于提供的文档片段提取论点，不得编造。输出必须为严格 JSON，且 quote 必须为原文精确片段。",
-      },
-      { role: "user", content: promptWithContext },
-    ];
-
-    const resultPromise = callModel(messages, {
-      model: "auto",
-      temperature: 0.2,
-      maxTokens: 900,
-      cacheKeyInputs,
-    });
-
-    const timeoutPromise = new Promise((_, reject) => {
-      timeoutId = setTimeout(() => reject(new Error(`LLM claims call timed out after ${timeoutMs}ms`)), timeoutMs);
-    });
-
-    const result = await Promise.race([resultPromise, timeoutPromise]);
-    clearTimeout(timeoutId);
-    checkCancelled(stageApi);
-
-    const candidate = extractJsonCandidate(result?.content);
-    if (!candidate) return null;
-
-    let parsed;
-    try {
-      parsed = JSON.parse(candidate);
-    } catch {
-      return null;
-    }
-
-    if (!isPlainObject(parsed) || !Array.isArray(parsed.claims)) return null;
-
-    /** @type {any[]} */
-    const evidences = [];
-    /** @type {any[]} */
-    const claims = [];
-    const evidenceIdBySig = new Map();
-    let claimNum = 0;
-    let evidenceNum = 0;
-
-    for (const row of parsed.claims) {
-      if (!isPlainObject(row)) continue;
-      const claimText = toNonEmptyString(row.text);
-      const importance = normalizeImportance(row.importance);
-      const quote = typeof row.quote === "string" ? row.quote : "";
-      const chunkIndex = safeChunkIndex(row.chunkIndex);
-      if (!claimText || !importance || chunkIndex === null) continue;
-      if (chunkIndex < 0 || chunkIndex >= promptChunks.length) continue;
-
-      if (typeof maxQuoteLen === "number" && Number.isFinite(maxQuoteLen) && maxQuoteLen > 0 && quote.length > maxQuoteLen) {
-        continue;
-      }
-
-      const chunk = promptChunks[chunkIndex];
-      const chunkId = toNonEmptyString(chunk?.chunkId);
-      const sourceId = toNonEmptyString(chunk?.sourceId);
-      const sourceText = sourceId ? sourceTextById.get(sourceId) : null;
-      if (!chunkId || !sourceId || typeof sourceText !== "string") continue;
-
-      const resolved = locateQuoteInSourceSlice(sourceText, chunk?.locator, quote);
-      if (!resolved) continue;
-
-      const sig = `${sourceId}::${resolved.charStart}-${resolved.charEnd}::${quote}`;
-      let evidenceId = evidenceIdBySig.get(sig);
-      if (!evidenceId) {
-        evidenceNum += 1;
-        evidenceId = `e_${evidenceNum}`;
-        evidenceIdBySig.set(sig, evidenceId);
-        evidences.push({
-          evidenceId,
-          chunkId: String(chunkId),
-          sourceId: String(sourceId),
-          locator: { charStart: resolved.charStart, charEnd: resolved.charEnd },
-          quote,
-          quoteExact: true,
-        });
-      }
-
-      claimNum += 1;
-      claims.push({
-        claimId: `c_${claimNum}`,
-        text: collapseWhitespace(claimText),
-        importance,
-        evidenceIds: [String(evidenceId)],
-      });
-    }
-
-    return { claims, evidences };
-  } catch (err) {
-    clearTimeout(timeoutId);
-    return null;
-  }
-}
-
-function normalizeUnderstandClaimEditsCacheKeyInputs(taskGoal, claims, evidenceById) {
-  const rows = Array.isArray(claims) ? claims : [];
-  const draftClaims = rows.map((c) => ({
-    text: truncate(c?.text || "", 320),
-    importance: truncate(c?.importance || "", 24),
-  }));
-
-  const evidenceQuotes = [];
-  for (const c of rows) {
-    const ids = Array.isArray(c?.evidenceIds) ? c.evidenceIds : [];
-    for (const eid of ids) {
-      const row = evidenceById?.get ? evidenceById.get(String(eid)) : null;
-      const q = row && typeof row.quote === "string" ? row.quote : "";
-      const t = q ? truncate(q, 220) : "";
-      if (t) evidenceQuotes.push(t);
-    }
-  }
-  evidenceQuotes.sort();
-
-  return {
-    taskGoal: truncate(taskGoal || ""),
-    draftClaims,
-    evidenceQuotes,
-  };
-}
-
-/**
- * Reflect: LLM 自主判断当前证据是否充分
- * @returns {{sufficient: boolean, confidence: number, reason: string, missingAspects: string[], suggestedQueries: string[]}}
- */
-async function reflectOnEvidence(state, { claims, evidenceLedger, gaps }, stageApi) {
-  const callModel = getModelCaller(stageApi, { usage: "analyst", state });
-  const contextSummary = stageApi?.getContextSummary?.() || "";
-
-  // 计算覆盖统计
-  const allGaps = Array.isArray(gaps) ? gaps : [];
-  const openGaps = allGaps.filter(g => String(g?.status || "open") === "open");
-  const filledGaps = allGaps.filter(g => g?.status === "filled");
-  const blockedGaps = allGaps.filter(g => g?.status === "blocked");
-
-  const allClaims = Array.isArray(claims) ? claims : [];
-  const coreClaims = allClaims.filter(c => c?.importance === "core");
-  const supportClaims = allClaims.filter(c => c?.importance === "support");
-
-  const evidenceCount = Array.isArray(evidenceLedger) ? evidenceLedger.length : 0;
-
-  // 计算 gap 覆盖率
-  const coveredGapIds = new Set();
-  for (const c of allClaims) {
-    for (const gid of Array.isArray(c?.gapIds) ? c.gapIds : []) {
-      coveredGapIds.add(String(gid));
-    }
-  }
-
-  const uncoveredGaps = openGaps.filter(g => !coveredGapIds.has(String(g?.gapId)));
-  const coverageRate = allGaps.length > 0 ? (filledGaps.length / allGaps.length) : 1;
-
-  // === 健壮性：快速路径 ===
-  // 如果没有 gaps 或者所有 gaps 都已填充，直接返回 sufficient
-  if (allGaps.length === 0 || openGaps.length === 0) {
-    return {
-      sufficient: true,
-      confidence: 0.9,
-      reason: "All gaps filled or no gaps defined",
-      missingAspects: [],
-      suggestedQueries: [],
-    };
-  }
-
-  // 如果有大量证据且覆盖率高，快速返回
-  if (coverageRate >= 0.8 && evidenceCount >= 5 && coreClaims.length >= 2) {
-    return {
-      sufficient: true,
-      confidence: 0.85,
-      reason: `High coverage (${(coverageRate * 100).toFixed(0)}%) with ${evidenceCount} evidence and ${coreClaims.length} core claims`,
-      missingAspects: [],
-      suggestedQueries: [],
-    };
-  }
-
-  if (!callModel) {
-    // 没有 LLM，fallback 到规则判断
-    const sufficient = uncoveredGaps.length === 0 || coverageRate >= 0.7;
-    return {
-      sufficient,
-      confidence: 0.5,
-      reason: `Fallback rule: ${uncoveredGaps.length} uncovered gaps, coverage ${(coverageRate * 100).toFixed(0)}%`,
-      missingAspects: uncoveredGaps.slice(0, 3).map(g => g?.question || g?.text || "unknown"),
-      suggestedQueries: [],
-    };
-  }
-
-  // 准备 prompt 数据
-  const taskGoal = String(state?.taskGoal || state?.userConfig?.taskGoal || "未指定");
-
-  const coverageStats = [
-    `- 总 Gaps: ${allGaps.length}`,
-    `- 已填充: ${filledGaps.length} (${(coverageRate * 100).toFixed(0)}%)`,
-    `- 未覆盖: ${uncoveredGaps.length}`,
-    `- 已阻塞: ${blockedGaps.length}`,
-    `- 总论点: ${allClaims.length} (核心: ${coreClaims.length}, 支持: ${supportClaims.length})`,
-    `- 总证据: ${evidenceCount}`,
-  ].join("\n");
-
-  const uncoveredGapsStr = uncoveredGaps.length > 0
-    ? uncoveredGaps.slice(0, 5).map((g, i) =>
-        `${i + 1}. [${g?.type || "?"}] ${g?.question || g?.text || "?"}`
-      ).join("\n")
-    : "无 (所有缺口已覆盖)";
-
-  // 只展示核心论点样本
-  const coreClaimsStr = coreClaims.length > 0
-    ? coreClaims.slice(0, 5).map((c, i) =>
-        `${i + 1}. ${String(c?.text || "").slice(0, 80)}${c?.text?.length > 80 ? "..." : ""}`
-      ).join("\n")
-    : supportClaims.length > 0
-      ? supportClaims.slice(0, 3).map((c, i) =>
-          `${i + 1}. (支持) ${String(c?.text || "").slice(0, 80)}`
-        ).join("\n")
-      : "无论点";
-
-  const prompt = REFLECT_PROMPT
-    .replace("{taskGoal}", taskGoal)
-    .replace("{coverageStats}", coverageStats)
-    .replace("{uncoveredGaps}", uncoveredGapsStr)
-    .replace("{totalClaims}", String(allClaims.length))
-    .replace("{coreClaims}", coreClaimsStr);
-
-  const promptWithContext = contextSummary ? `## 已知上下文\n${contextSummary}\n\n${prompt}` : prompt;
-
-  const cacheKeyInputs = { rawPrompt: truncate(promptWithContext, 900) };
-
-  // === 健壮性：带超时的 LLM 调用 ===
-  const timeoutMs = 15000; // 15 秒超时
-  let timeoutId;
-
-  try {
-    const resultPromise = callModel(
-      [{ role: "user", content: promptWithContext }],
-      { model: "auto", temperature: 0.1, maxTokens: 400, cacheKeyInputs }
-    );
-
-    // 创建超时 Promise
-    const timeoutPromise = new Promise((_, reject) => {
-      timeoutId = setTimeout(() => {
-        reject(new Error(`Reflect LLM call timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
-    });
-
-    const result = await Promise.race([resultPromise, timeoutPromise]);
-    clearTimeout(timeoutId);
-
-    const candidate = extractJsonCandidate(result?.content);
-    if (!candidate) {
-      // Parse 失败，用规则兜底
-      return {
-        sufficient: coverageRate >= 0.6,
-        confidence: 0.4,
-        reason: "Failed to parse LLM response, using coverage fallback",
-        missingAspects: uncoveredGaps.slice(0, 3).map(g => g?.question || "?"),
-        suggestedQueries: []
-      };
-    }
-
-    const parsed = JSON.parse(candidate);
-
-    // === 健壮性：验证返回值 ===
-    const sufficient = typeof parsed.sufficient === "boolean" ? parsed.sufficient : coverageRate >= 0.6;
-    const confidence = typeof parsed.confidence === "number" && !Number.isNaN(parsed.confidence)
-      ? Math.min(1, Math.max(0, parsed.confidence))
-      : 0.5;
-
-    return {
-      sufficient,
-      confidence,
-      reason: String(parsed.reason || "").slice(0, 200),
-      missingAspects: Array.isArray(parsed.missingAspects)
-        ? parsed.missingAspects.filter(x => typeof x === "string" && x.trim()).slice(0, 5)
-        : [],
-      suggestedQueries: Array.isArray(parsed.suggestedQueries)
-        ? parsed.suggestedQueries.filter(x => typeof x === "string" && x.trim()).slice(0, 3)
-        : [],
-    };
-  } catch (err) {
-    clearTimeout(timeoutId);
-    return {
-      sufficient: coverageRate >= 0.6,
-      confidence: 0.3,
-      reason: `Reflect error: ${String(err?.message || err).slice(0, 100)}`,
-      missingAspects: uncoveredGaps.slice(0, 3).map(g => g?.question || "?"),
-      suggestedQueries: [],
-    };
-  }
-}
-
-function normalizeGapIds(v) {
-  const raw = Array.isArray(v) ? v : v ? [v] : [];
-  return Array.from(new Set(raw.map((x) => String(x || "").trim()).filter(Boolean)));
-}
-
-async function tryLLMClaimEdits(state, claims, evidenceLedger, stageApi) {
-  const callModel = getModelCaller(stageApi, { usage: "analyst", state });
-  if (!callModel) return null;
-
-  const contextSummary = stageApi?.getContextSummary?.() || "";
-  const evidenceById = new Map();
-  for (const e of Array.isArray(evidenceLedger) ? evidenceLedger : []) {
-    if (!e || !toNonEmptyString(e?.evidenceId)) continue;
-    evidenceById.set(String(e.evidenceId), { quote: String(e.quote || ""), sourceId: String(e.sourceId || ""), gapIds: normalizeGapIds(e.gapIds) });
-  }
-
-  const cacheKeyInputs = normalizeUnderstandClaimEditsCacheKeyInputs(state?.taskGoal, claims, evidenceById);
-
-  const messages = [
-    {
-      role: "system",
-      content:
-        "You are a DeepSearch claim extractor. Improve the provided draft claims for PPT use.\n" +
-        "Return ONLY JSON: {claims:[{claimId,text,importance}]}. importance must be 'core' or 'support'.\n" +
-        "Do not invent facts; only rephrase/summarize what's supported by the evidence quotes.",
-    },
-    {
-      role: "user",
-      content: (() => {
-        const originalPrompt = JSON.stringify(
-          {
-            taskGoal: String(state?.taskGoal || ""),
-            draftClaims: (Array.isArray(claims) ? claims : []).map((c) => ({
-              claimId: c?.claimId,
-              text: c?.text,
-              importance: c?.importance,
-              evidence: (Array.isArray(c?.evidenceIds) ? c.evidenceIds : [])
-                .map((eid) => {
-                  const row = evidenceById.get(String(eid));
-                  return row ? { evidenceId: String(eid), ...row } : { evidenceId: String(eid) };
-                })
-                .slice(0, 3),
-            })),
-          },
-          null,
-          2
-        );
-
-        return contextSummary ? `## 已知上下文\n${contextSummary}\n\n${originalPrompt}` : originalPrompt;
-      })(),
-    },
-  ];
-
-  try {
-    const result = await callModel(messages, { model: "auto", temperature: 0.2, maxTokens: 900, cacheKeyInputs });
-    const candidate = extractJsonCandidate(result?.content);
-    if (!candidate) return null;
-    const parsed = JSON.parse(candidate);
-    if (!isPlainObject(parsed) || !Array.isArray(parsed.claims)) return null;
-    return parsed.claims;
-  } catch {
-    return null;
-  }
-}
-
-function ensureState(_runContext, input) {
-  if (input instanceof DeepSearchState) return input;
-  if (input?.state instanceof DeepSearchState) return input.state;
-  if (isPlainObject(input?.state)) return DeepSearchState.fromJSON(input.state);
-  throw new TypeError("DeepSearch understand: input.state is required");
-}
-
-function indexSourceTextById(sources) {
-  const m = new Map();
-  for (const s of Array.isArray(sources) ? sources : []) {
-    const id = toNonEmptyString(s?.sourceId);
-    if (!id) continue;
-    if (typeof s?.sourceTextNormalized === "string") m.set(id, s.sourceTextNormalized);
-  }
-  return m;
-}
-
-function clampProgress(progress) {
-  if (typeof progress !== "number" || !Number.isFinite(progress)) return 0;
-  return Math.max(0, Math.min(1, progress));
-}
-
-function emitUnderstandProgress(emit, { current, total, msg, detail }) {
-  emit?.(
-    "deepsearch.understand.progress",
-    {
-      phase: "understand",
-      step: "claim",
-      current,
-      total: Math.max(1, total),
-      progress: clampProgress(total > 0 ? current / total : 1),
-      msg: String(msg || ""),
-      ...(detail && typeof detail === "object" && !Array.isArray(detail) ? { detail } : {}),
-    },
-    { status: "progress" }
-  );
-}
-
-function pickEvidenceSpan(text, { maxLen = 220 } = {}) {
-  const t = String(text || "");
-  if (!t.length) return null;
-
-  let start = 0;
-  while (start < t.length && /\s/.test(t[start])) start++;
-  if (start >= t.length) return null;
-
-  let end = Math.min(t.length, start + maxLen);
-
-  const window = t.slice(start, end);
-  const m = window.match(/[。！？.!?](?=\s|$)/);
-  if (m && typeof m.index === "number" && m.index >= 40) end = start + m.index + 1;
-
-  if (end <= start) return null;
-  return { relStart: start, relEnd: end };
-}
-
-function quoteFromSourceLocator(sourceTextNormalized, locator, { maxQuoteLen = 220 } = {}) {
-  const text = String(sourceTextNormalized || "");
-  const baseStart = safeInt(locator?.charStart);
-  const baseEnd = safeInt(locator?.charEnd);
-  if (baseStart === null || baseEnd === null) throw new Error("Hard gate H2 failed: evidence locator must include charStart/charEnd");
-  if (!(baseStart < baseEnd)) throw new Error("Hard gate H2 failed: evidence locator must satisfy charStart < charEnd");
-  if (baseStart < 0 || baseEnd > text.length) throw new Error("Hard gate H2 failed: evidence locator out of source bounds");
-
-  const slice = text.slice(baseStart, baseEnd);
-  const span = pickEvidenceSpan(slice, { maxLen: maxQuoteLen });
-  if (!span) throw new Error("Hard gate H3 failed: unable to derive non-empty quote from locator slice");
-
-  const charStart = baseStart + span.relStart;
-  const charEnd = baseStart + span.relEnd;
-  const quote = text.slice(charStart, charEnd);
-  if (!quote) throw new Error("Hard gate H3 failed: evidence.quote must be non-empty");
-  return { locator: { charStart, charEnd }, quote };
-}
+import { LLM_CLAIMS_PROMPT, REFLECT_PROMPT } from "./understand-prompts.js";
+import {
+  assertHardGates,
+  clampProgress,
+  collapseWhitespace,
+  ensureState,
+  formatChunksForLLM,
+  indexSourceTextById,
+  locateQuoteInSourceSlice,
+  normalizeGapIds,
+  normalizeImportance,
+  normalizeUnderstandClaimEditsCacheKeyInputs,
+  quoteFromSourceLocator,
+  safeArray,
+  safeChunkIndex,
+  truncate,
+  validateSingleEvidence,
+} from "./understand-utils.js";
 
 export function computeGapFill(gaps, { claims, evidenceLedger } = {}) {
   const gapList = Array.isArray(gaps) ? gaps : [];
@@ -622,176 +47,10 @@ export function computeGapFill(gaps, { claims, evidenceLedger } = {}) {
   }
   return { filledGapIds, remainingGaps };
 }
-
-/**
- * 验证单条 evidence 是否合规
- * @returns {{ valid: boolean, issues: string[] }}
- */
-function validateSingleEvidence(e, { sources, sourceTextById }) {
-  const issues = [];
-  if (!e) {
-    issues.push("evidence is null/undefined");
-    return { valid: false, issues };
-  }
-
-  // chunkId is an optional trace field; validation is grounded on sourceId + locator + quote only.
-
-  // H4: sourceId 必须存在且可解析
-  const sourceId = toNonEmptyString(e?.sourceId);
-  if (!sourceId) {
-    issues.push("H4: sourceId missing");
-  } else if (!Array.isArray(sources) || !sources.some((s) => toNonEmptyString(s?.sourceId) === sourceId)) {
-    issues.push(`H4: sourceId "${sourceId}" not found in sources`);
-  }
-
-  // H2: locator 必须合法
-  const locator = e?.locator;
-  const charStart = safeInt(locator?.charStart);
-  const charEnd = safeInt(locator?.charEnd);
-  if (charStart === null || charEnd === null) {
-    issues.push("H2: locator missing charStart/charEnd");
-  } else if (!(charStart < charEnd)) {
-    issues.push(`H2: charStart (${charStart}) >= charEnd (${charEnd})`);
-  }
-
-  // H3: quote 必须非空
-  const quote = String(e?.quote || "");
-  if (!quote) {
-    issues.push("H3: quote is empty");
-  }
-
-  // H2 + H3: quote 必须精确匹配 sourceText 切片
-  if (sourceId && charStart !== null && charEnd !== null && quote) {
-    const sourceText = sourceTextById.get(sourceId);
-    if (typeof sourceText !== "string") {
-      issues.push(`H4: sourceTextNormalized missing for sourceId "${sourceId}"`);
-    } else if (charStart < 0 || charEnd > sourceText.length) {
-      issues.push(`H2: locator out of bounds (${charStart}-${charEnd}, text length ${sourceText.length})`);
-    } else {
-      const slice = sourceText.slice(charStart, charEnd);
-      // Degraded mode (default) allows quotes that are a substring of the located slice.
-      // Strict mode uses `assertHardGates()` which enforces exact equality.
-      if (slice !== quote && !slice.includes(quote)) {
-        issues.push(`H3: quote mismatch (expected "${slice.slice(0, 50)}...", got "${quote.slice(0, 50)}...")`);
-      }
-    }
-  }
-
-  return { valid: issues.length === 0, issues };
-}
-
-/**
- * 软降级验证：过滤不合规的 evidence，保留合规的
- * @returns {{ validEvidence: object[], invalidEvidence: {evidence: object, issues: string[]}[], validClaims: object[], orphanedClaims: object[] }}
- */
-function validateEvidenceWithDegradation({ sources, sourceTextById, claims, evidenceLedger }, { emit } = {}) {
-  const validEvidence = [];
-  const invalidEvidence = [];
-
-  // 验证每条 evidence
-  for (const e of Array.isArray(evidenceLedger) ? evidenceLedger : []) {
-    const { valid, issues } = validateSingleEvidence(e, { sources, sourceTextById });
-    if (valid) {
-      validEvidence.push(e);
-    } else {
-      invalidEvidence.push({ evidence: e, issues });
-      emit?.("deepsearch.evidence.invalid", {
-        evidenceId: toNonEmptyString(e?.evidenceId) || "(unknown)",
-        issues,
-      });
-    }
-  }
-
-  // 构建有效 evidenceId 集合
-  const validEvidenceIds = new Set(validEvidence.map((e) => String(e.evidenceId)));
-
-  // 过滤 claims 中无效的 evidenceIds，并识别孤儿 claims
-  const validClaims = [];
-  const orphanedClaims = [];
-
-  for (const c of Array.isArray(claims) ? claims : []) {
-    if (!c) continue;
-
-    // 过滤掉引用无效 evidence 的 evidenceIds
-    const originalIds = Array.isArray(c.evidenceIds) ? c.evidenceIds : [];
-    const filteredIds = originalIds.filter((eid) => validEvidenceIds.has(String(eid)));
-
-    // H1: claim 必须至少有 1 条证据
-    if (filteredIds.length === 0) {
-      orphanedClaims.push({
-        ...c,
-        _orphaned: true,
-        _originalEvidenceIds: originalIds,
-        _orphanReason: "all referenced evidence invalid",
-      });
-      emit?.("deepsearch.claim.orphaned", {
-        claimId: toNonEmptyString(c?.claimId) || "(unknown)",
-        originalEvidenceCount: originalIds.length,
-        reason: "all referenced evidence invalid",
-      });
-    } else {
-      validClaims.push({
-        ...c,
-        evidenceIds: filteredIds,
-      });
-    }
-  }
-
-  return { validEvidence, invalidEvidence, validClaims, orphanedClaims };
-}
-
-/**
- * [已废弃] 硬门验证 - 保留用于严格模式或测试
- * @deprecated 请使用 validateEvidenceWithDegradation 进行软降级验证
- */
-function assertHardGates({ sources, sourceTextById, claims, evidenceLedger }) {
-  const evidenceById = new Map();
-  for (const e of Array.isArray(evidenceLedger) ? evidenceLedger : []) {
-    if (!e || !toNonEmptyString(e.evidenceId)) continue;
-    evidenceById.set(String(e.evidenceId), e);
-  }
-
-  // H1 + evidence references resolvable (H4)
-  for (const c of Array.isArray(claims) ? claims : []) {
-    if (!c || !Array.isArray(c.evidenceIds) || c.evidenceIds.length < 1) {
-      throw new Error("Hard gate H1 failed: claims[].evidenceIds.length must be >= 1");
-    }
-    for (const eid of c.evidenceIds) {
-      if (!evidenceById.has(String(eid))) throw new Error(`Hard gate H4 failed: Unresolvable evidenceId reference: ${String(eid)}`);
-    }
-  }
-
-  // H2 + H3 + H4 for evidence items
-  for (const e of Array.isArray(evidenceLedger) ? evidenceLedger : []) {
-    if (!e) continue;
-    const evidenceId = toNonEmptyString(e?.evidenceId) || "(missing_evidenceId)";
-    const sourceId = toNonEmptyString(e?.sourceId);
-    if (!sourceId) throw new Error("Hard gate H4 failed: evidence.sourceId is required");
-    if (!Array.isArray(sources) || !sources.some((s) => toNonEmptyString(s?.sourceId) === sourceId)) {
-      throw new Error(`Hard gate H4 failed: Unresolvable sourceId reference for evidence ${String(evidenceId)}: ${String(sourceId)}`);
-    }
-
-    const locator = e?.locator;
-    const charStart = safeInt(locator?.charStart);
-    const charEnd = safeInt(locator?.charEnd);
-    if (charStart === null || charEnd === null) throw new Error("Hard gate H2 failed: evidenceLedger[].locator must include charStart/charEnd");
-    if (!(charStart < charEnd)) throw new Error("Hard gate H2 failed: evidenceLedger[].locator.charStart must be < charEnd");
-
-    const quote = String(e?.quote || "");
-    if (!quote) throw new Error("Hard gate H3 failed: evidence.quote must be non-empty");
-
-    const sourceText = sourceTextById.get(sourceId);
-    if (typeof sourceText !== "string") throw new Error(`Hard gate H4 failed: sourceTextNormalized missing for sourceId: ${String(sourceId)}`);
-    if (charStart < 0 || charEnd > sourceText.length) throw new Error("Hard gate H2 failed: evidence locator out of bounds");
-    const slice = sourceText.slice(charStart, charEnd);
-    if (slice !== quote) throw new Error("Hard gate H3 failed: evidence.quote must exactly match sourceTextNormalized at locator");
-  }
-}
-
 /**
  * S5 Understanding wrapper (placeholder): convert retrievedChunks to claims[] + evidenceLedger[].
  * @param {object} runContext
- * @param {DeepSearchState|{state:DeepSearchState|object}} input
+ * @param {import("./state.js").DeepSearchState|{state:import("./state.js").DeepSearchState|object}} input
  * @param {{emit?:Function,eventBus?:object,signal?:AbortSignal,checkCancelled?:Function}=} stageApi
  */
 export async function runDeepSearchUnderstandStage(runContext, input, stageApi = {}) {
@@ -825,6 +84,468 @@ export async function runDeepSearchUnderstandStage(runContext, input, stageApi =
   } catch (err) {
     console.error("[DeepSearch] understand checkCancelled failed:", err);
     throw err;
+  }
+
+  /**
+   * Generate claims with LLM for a specific gap, grounded in provided chunks.
+   * - Returns null on "LLM unavailable" or fatal errors so caller can fallback to rules.
+   * - Skips any claim whose quote cannot be precisely located in sourceTextNormalized.
+   *
+   * @param {{gapId?:string,question?:string,type?:string}} gap
+   * @param {Array<{chunkId:string,sourceId:string,locator:{charStart:number,charEnd:number},text:string,score?:number}>} chunks
+   * @param {object} stageApi
+   * @param {import("./state.js").DeepSearchState} state
+   * @param {{maxQuoteLen:number}} options
+   * @returns {Promise<null|{claims:any[],evidences:any[]}>}
+   */
+  async function generateClaimsWithLLM(gap, chunks, stageApi, state, { maxQuoteLen }) {
+    const callModel = getModelCaller(stageApi, { usage: "analyst", state });
+    if (!callModel) return null;
+
+    const contextSummary = stageApi?.getContextSummary?.() || "";
+    const gapQuestion = toNonEmptyString(gap?.question);
+    if (!gapQuestion) return null;
+
+    const sourceTextById = indexSourceTextById(state?.L0?.sources);
+
+    const promptChunks = safeArray(chunks).filter(
+      (c) => typeof c?.text === "string" && toNonEmptyString(c?.chunkId) && toNonEmptyString(c?.sourceId)
+    );
+
+    if (!promptChunks.length) return null;
+
+    const prompt = LLM_CLAIMS_PROMPT.replace("{gapQuestion}", gapQuestion).replace("{chunkTexts}", formatChunksForLLM(promptChunks));
+
+    const promptWithContext = contextSummary ? `## 已知上下文\n${contextSummary}\n\n${prompt}` : prompt;
+
+    const cacheKeyInputs = {
+      gapId: toNonEmptyString(gap?.gapId) || "",
+      question: truncate(gapQuestion, 220),
+      chunkPreviews: promptChunks.map((c) => truncate(c?.text, 240)),
+    };
+
+    const timeoutMs = 15000;
+    let timeoutId;
+
+    try {
+      checkCancelled(stageApi);
+      const messages = [
+        {
+          role: "system",
+          content:
+            "你是一个严谨的研究助手。只能基于提供的文档片段提取论点，不得编造。输出必须为严格 JSON，且 quote 必须为原文精确片段。",
+        },
+        { role: "user", content: promptWithContext },
+      ];
+
+      const resultPromise = callModel(messages, {
+        model: "auto",
+        temperature: 0.2,
+        maxTokens: 900,
+        cacheKeyInputs,
+      });
+
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(`LLM claims call timed out after ${timeoutMs}ms`)), timeoutMs);
+      });
+
+      const result = await Promise.race([resultPromise, timeoutPromise]);
+      clearTimeout(timeoutId);
+      checkCancelled(stageApi);
+
+      const candidate = extractJsonCandidate(result?.content);
+      if (!candidate) return null;
+
+      let parsed;
+      try {
+        parsed = JSON.parse(candidate);
+      } catch {
+        return null;
+      }
+
+      if (!isPlainObject(parsed) || !Array.isArray(parsed.claims)) return null;
+
+      /** @type {any[]} */
+      const evidences = [];
+      /** @type {any[]} */
+      const claims = [];
+      const evidenceIdBySig = new Map();
+      let claimNum = 0;
+      let evidenceNum = 0;
+
+      for (const row of parsed.claims) {
+        if (!isPlainObject(row)) continue;
+        const claimText = toNonEmptyString(row.text);
+        const importance = normalizeImportance(row.importance);
+        const quote = typeof row.quote === "string" ? row.quote : "";
+        const chunkIndex = safeChunkIndex(row.chunkIndex);
+        if (!claimText || !importance || chunkIndex === null) continue;
+        if (chunkIndex < 0 || chunkIndex >= promptChunks.length) continue;
+
+        if (
+          typeof maxQuoteLen === "number" &&
+          Number.isFinite(maxQuoteLen) &&
+          maxQuoteLen > 0 &&
+          quote.length > maxQuoteLen
+        ) {
+          continue;
+        }
+
+        const chunk = promptChunks[chunkIndex];
+        const chunkId = toNonEmptyString(chunk?.chunkId);
+        const sourceId = toNonEmptyString(chunk?.sourceId);
+        const sourceText = sourceId ? sourceTextById.get(sourceId) : null;
+        if (!chunkId || !sourceId || typeof sourceText !== "string") continue;
+
+        const resolved = locateQuoteInSourceSlice(sourceText, chunk?.locator, quote);
+        if (!resolved) continue;
+
+        const sig = `${sourceId}::${resolved.charStart}-${resolved.charEnd}::${quote}`;
+        let evidenceId = evidenceIdBySig.get(sig);
+        if (!evidenceId) {
+          evidenceNum += 1;
+          evidenceId = `e_${evidenceNum}`;
+          evidenceIdBySig.set(sig, evidenceId);
+          evidences.push({
+            evidenceId,
+            chunkId: String(chunkId),
+            sourceId: String(sourceId),
+            locator: { charStart: resolved.charStart, charEnd: resolved.charEnd },
+            quote,
+            quoteExact: true,
+          });
+        }
+
+        claimNum += 1;
+        claims.push({
+          claimId: `c_${claimNum}`,
+          text: collapseWhitespace(claimText),
+          importance,
+          evidenceIds: [String(evidenceId)],
+        });
+      }
+
+      return { claims, evidences };
+    } catch (err) {
+      clearTimeout(timeoutId);
+      return null;
+    }
+  }
+
+  /**
+   * Reflect: LLM 自主判断当前证据是否充分
+   * @returns {{sufficient: boolean, confidence: number, reason: string, missingAspects: string[], suggestedQueries: string[]}}
+   */
+  async function reflectOnEvidence(state, { claims, evidenceLedger, gaps }, stageApi) {
+    const callModel = getModelCaller(stageApi, { usage: "analyst", state });
+    const contextSummary = stageApi?.getContextSummary?.() || "";
+
+    // 计算覆盖统计
+    const allGaps = Array.isArray(gaps) ? gaps : [];
+    const openGaps = allGaps.filter((g) => String(g?.status || "open") === "open");
+    const filledGaps = allGaps.filter((g) => g?.status === "filled");
+    const blockedGaps = allGaps.filter((g) => g?.status === "blocked");
+
+    const allClaims = Array.isArray(claims) ? claims : [];
+    const coreClaims = allClaims.filter((c) => c?.importance === "core");
+    const supportClaims = allClaims.filter((c) => c?.importance === "support");
+
+    const evidenceCount = Array.isArray(evidenceLedger) ? evidenceLedger.length : 0;
+
+    // 计算 gap 覆盖率
+    const coveredGapIds = new Set();
+    for (const c of allClaims) {
+      for (const gid of Array.isArray(c?.gapIds) ? c.gapIds : []) {
+        coveredGapIds.add(String(gid));
+      }
+    }
+
+    const uncoveredGaps = openGaps.filter((g) => !coveredGapIds.has(String(g?.gapId)));
+    const coverageRate = allGaps.length > 0 ? filledGaps.length / allGaps.length : 1;
+
+    // === 健壮性：快速路径 ===
+    // 如果没有 gaps 或者所有 gaps 都已填充，直接返回 sufficient
+    if (allGaps.length === 0 || openGaps.length === 0) {
+      return {
+        sufficient: true,
+        confidence: 0.9,
+        reason: "All gaps filled or no gaps defined",
+        missingAspects: [],
+        suggestedQueries: [],
+      };
+    }
+
+    // 如果有大量证据且覆盖率高，快速返回
+    if (coverageRate >= 0.8 && evidenceCount >= 5 && coreClaims.length >= 2) {
+      return {
+        sufficient: true,
+        confidence: 0.85,
+        reason: `High coverage (${(coverageRate * 100).toFixed(0)}%) with ${evidenceCount} evidence and ${coreClaims.length} core claims`,
+        missingAspects: [],
+        suggestedQueries: [],
+      };
+    }
+
+    if (!callModel) {
+      // 没有 LLM，fallback 到规则判断
+      const sufficient = uncoveredGaps.length === 0 || coverageRate >= 0.7;
+      return {
+        sufficient,
+        confidence: 0.5,
+        reason: `Fallback rule: ${uncoveredGaps.length} uncovered gaps, coverage ${(coverageRate * 100).toFixed(0)}%`,
+        missingAspects: uncoveredGaps.slice(0, 3).map((g) => g?.question || g?.text || "unknown"),
+        suggestedQueries: [],
+      };
+    }
+
+    // 准备 prompt 数据
+    const taskGoal = String(state?.taskGoal || state?.userConfig?.taskGoal || "未指定");
+
+    const coverageStats = [
+      `- 总 Gaps: ${allGaps.length}`,
+      `- 已填充: ${filledGaps.length} (${(coverageRate * 100).toFixed(0)}%)`,
+      `- 未覆盖: ${uncoveredGaps.length}`,
+      `- 已阻塞: ${blockedGaps.length}`,
+      `- 总论点: ${allClaims.length} (核心: ${coreClaims.length}, 支持: ${supportClaims.length})`,
+      `- 总证据: ${evidenceCount}`,
+    ].join("\n");
+
+    const uncoveredGapsStr =
+      uncoveredGaps.length > 0
+        ? uncoveredGaps
+            .slice(0, 5)
+            .map((g, i) => `${i + 1}. [${g?.type || "?"}] ${g?.question || g?.text || "?"}`)
+            .join("\n")
+        : "无 (所有缺口已覆盖)";
+
+    // 只展示核心论点样本
+    const coreClaimsStr =
+      coreClaims.length > 0
+        ? coreClaims
+            .slice(0, 5)
+            .map((c, i) => `${i + 1}. ${String(c?.text || "").slice(0, 80)}${c?.text?.length > 80 ? "..." : ""}`)
+            .join("\n")
+        : supportClaims.length > 0
+          ? supportClaims
+              .slice(0, 3)
+              .map((c, i) => `${i + 1}. (支持) ${String(c?.text || "").slice(0, 80)}`)
+              .join("\n")
+          : "无论点";
+
+    const prompt = REFLECT_PROMPT.replace("{taskGoal}", taskGoal)
+      .replace("{coverageStats}", coverageStats)
+      .replace("{uncoveredGaps}", uncoveredGapsStr)
+      .replace("{totalClaims}", String(allClaims.length))
+      .replace("{coreClaims}", coreClaimsStr);
+
+    const promptWithContext = contextSummary ? `## 已知上下文\n${contextSummary}\n\n${prompt}` : prompt;
+
+    const cacheKeyInputs = { rawPrompt: truncate(promptWithContext, 900) };
+
+    // === 健壮性：带超时的 LLM 调用 ===
+    const timeoutMs = 15000; // 15 秒超时
+    let timeoutId;
+
+    try {
+      const resultPromise = callModel([{ role: "user", content: promptWithContext }], {
+        model: "auto",
+        temperature: 0.1,
+        maxTokens: 400,
+        cacheKeyInputs,
+      });
+
+      // 创建超时 Promise
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(`Reflect LLM call timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      });
+
+      const result = await Promise.race([resultPromise, timeoutPromise]);
+      clearTimeout(timeoutId);
+
+      const candidate = extractJsonCandidate(result?.content);
+      if (!candidate) {
+        // Parse 失败，用规则兜底
+        return {
+          sufficient: coverageRate >= 0.6,
+          confidence: 0.4,
+          reason: "Failed to parse LLM response, using coverage fallback",
+          missingAspects: uncoveredGaps.slice(0, 3).map((g) => g?.question || "?"),
+          suggestedQueries: [],
+        };
+      }
+
+      const parsed = JSON.parse(candidate);
+
+      // === 健壮性：验证返回值 ===
+      const sufficient = typeof parsed.sufficient === "boolean" ? parsed.sufficient : coverageRate >= 0.6;
+      const confidence =
+        typeof parsed.confidence === "number" && !Number.isNaN(parsed.confidence)
+          ? Math.min(1, Math.max(0, parsed.confidence))
+          : 0.5;
+
+      return {
+        sufficient,
+        confidence,
+        reason: String(parsed.reason || "").slice(0, 200),
+        missingAspects: Array.isArray(parsed.missingAspects)
+          ? parsed.missingAspects.filter((x) => typeof x === "string" && x.trim()).slice(0, 5)
+          : [],
+        suggestedQueries: Array.isArray(parsed.suggestedQueries)
+          ? parsed.suggestedQueries.filter((x) => typeof x === "string" && x.trim()).slice(0, 3)
+          : [],
+      };
+    } catch (err) {
+      clearTimeout(timeoutId);
+      return {
+        sufficient: coverageRate >= 0.6,
+        confidence: 0.3,
+        reason: `Reflect error: ${String(err?.message || err).slice(0, 100)}`,
+        missingAspects: uncoveredGaps.slice(0, 3).map((g) => g?.question || "?"),
+        suggestedQueries: [],
+      };
+    }
+  }
+
+  async function tryLLMClaimEdits(state, claims, evidenceLedger, stageApi) {
+    const callModel = getModelCaller(stageApi, { usage: "analyst", state });
+    if (!callModel) return null;
+
+    const contextSummary = stageApi?.getContextSummary?.() || "";
+    const evidenceById = new Map();
+    for (const e of Array.isArray(evidenceLedger) ? evidenceLedger : []) {
+      if (!e || !toNonEmptyString(e?.evidenceId)) continue;
+      evidenceById.set(String(e.evidenceId), {
+        quote: String(e.quote || ""),
+        sourceId: String(e.sourceId || ""),
+        gapIds: normalizeGapIds(e.gapIds),
+      });
+    }
+
+    const cacheKeyInputs = normalizeUnderstandClaimEditsCacheKeyInputs(state?.taskGoal, claims, evidenceById);
+
+    const messages = [
+      {
+        role: "system",
+        content:
+          "You are a DeepSearch claim extractor. Improve the provided draft claims for PPT use.\n" +
+          "Return ONLY JSON: {claims:[{claimId,text,importance}]}. importance must be 'core' or 'support'.\n" +
+          "Do not invent facts; only rephrase/summarize what's supported by the evidence quotes.",
+      },
+      {
+        role: "user",
+        content: (() => {
+          const originalPrompt = JSON.stringify(
+            {
+              taskGoal: String(state?.taskGoal || ""),
+              draftClaims: (Array.isArray(claims) ? claims : []).map((c) => ({
+                claimId: c?.claimId,
+                text: c?.text,
+                importance: c?.importance,
+                evidence: (Array.isArray(c?.evidenceIds) ? c.evidenceIds : [])
+                  .map((eid) => {
+                    const row = evidenceById.get(String(eid));
+                    return row ? { evidenceId: String(eid), ...row } : { evidenceId: String(eid) };
+                  })
+                  .slice(0, 3),
+              })),
+            },
+            null,
+            2
+          );
+
+          return contextSummary ? `## 已知上下文\n${contextSummary}\n\n${originalPrompt}` : originalPrompt;
+        })(),
+      },
+    ];
+
+    try {
+      const result = await callModel(messages, { model: "auto", temperature: 0.2, maxTokens: 900, cacheKeyInputs });
+      const candidate = extractJsonCandidate(result?.content);
+      if (!candidate) return null;
+      const parsed = JSON.parse(candidate);
+      if (!isPlainObject(parsed) || !Array.isArray(parsed.claims)) return null;
+      return parsed.claims;
+    } catch {
+      return null;
+    }
+  }
+
+  function emitUnderstandProgress(emit, { current, total, msg, detail }) {
+    emit?.(
+      "deepsearch.understand.progress",
+      {
+        phase: "understand",
+        step: "claim",
+        current,
+        total: Math.max(1, total),
+        progress: clampProgress(total > 0 ? current / total : 1),
+        msg: String(msg || ""),
+        ...(detail && typeof detail === "object" && !Array.isArray(detail) ? { detail } : {}),
+      },
+      { status: "progress" }
+    );
+  }
+
+  /**
+   * 软降级验证：过滤不合规的 evidence，保留合规的
+   * @returns {{ validEvidence: object[], invalidEvidence: {evidence: object, issues: string[]}[], validClaims: object[], orphanedClaims: object[] }}
+   */
+  function validateEvidenceWithDegradation({ sources, sourceTextById, claims, evidenceLedger }, { emit } = {}) {
+    const validEvidence = [];
+    const invalidEvidence = [];
+
+    // 验证每条 evidence
+    for (const e of Array.isArray(evidenceLedger) ? evidenceLedger : []) {
+      const { valid, issues } = validateSingleEvidence(e, { sources, sourceTextById });
+      if (valid) {
+        validEvidence.push(e);
+      } else {
+        invalidEvidence.push({ evidence: e, issues });
+        emit?.("deepsearch.evidence.invalid", {
+          evidenceId: toNonEmptyString(e?.evidenceId) || "(unknown)",
+          issues,
+        });
+      }
+    }
+
+    // 构建有效 evidenceId 集合
+    const validEvidenceIds = new Set(validEvidence.map((e) => String(e.evidenceId)));
+
+    // 过滤 claims 中无效的 evidenceIds，并识别孤儿 claims
+    const validClaims = [];
+    const orphanedClaims = [];
+
+    for (const c of Array.isArray(claims) ? claims : []) {
+      if (!c) continue;
+
+      // 过滤掉引用无效 evidence 的 evidenceIds
+      const originalIds = Array.isArray(c.evidenceIds) ? c.evidenceIds : [];
+      const filteredIds = originalIds.filter((eid) => validEvidenceIds.has(String(eid)));
+
+      // H1: claim 必须至少有 1 条证据
+      if (filteredIds.length === 0) {
+        orphanedClaims.push({
+          ...c,
+          _orphaned: true,
+          _originalEvidenceIds: originalIds,
+          _orphanReason: "all referenced evidence invalid",
+        });
+        emit?.("deepsearch.claim.orphaned", {
+          claimId: toNonEmptyString(c?.claimId) || "(unknown)",
+          originalEvidenceCount: originalIds.length,
+          reason: "all referenced evidence invalid",
+        });
+      } else {
+        validClaims.push({
+          ...c,
+          evidenceIds: filteredIds,
+        });
+      }
+    }
+
+    return { validEvidence, invalidEvidence, validClaims, orphanedClaims };
   }
 
   function maxNumericId(rows, idSelector, { prefix } = {}) {

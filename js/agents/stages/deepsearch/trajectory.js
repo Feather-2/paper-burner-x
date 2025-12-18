@@ -2,6 +2,7 @@ import { DeepSearchState, checkCancelled, computeRoundHitsByGapId, validateItera
 import { dedupeClaims } from "../../deepsearch/understanding/dedupe.js";
 import { TrajectoryCache } from "./trajectory-cache.js";
 import { parseExternalSearchConfig } from "./external-search.js";
+import { GAP_CONFIG } from "./constants.js";
 import { extractServices } from "./stage-api.js";
 import { isPlainObject, safeInt, toNonEmptyString } from "../../shared/value-utils.js";
 
@@ -45,7 +46,7 @@ function openGaps(state) {
 
 function validateIterationCompat(state, { blockAfterMisses = 2, minEvidenceToFill = 1 } = {}) {
   const retrieved = Array.isArray(state?.L2?.retrievedChunks) ? state.L2.retrievedChunks : [];
-  const roundHits = computeRoundHitsByGapId(retrieved);
+  const roundHits = computeRoundHitsByGapId(retrieved, getQualityThreshold(state));
   return validateIteration(state, { blockAfterMisses, roundHits, minEvidenceToFill });
 }
 
@@ -59,6 +60,32 @@ function getMinEvidenceToFill(state) {
   const cfg = isPlainObject(state?.userConfig?.gaps) ? state.userConfig.gaps : {};
   const n = safeInt(cfg.minEvidenceToFill);
   return n !== null && n >= 1 ? n : 1;
+}
+
+function normalizeQualityThreshold(v) {
+  if (typeof v === "number" && Number.isFinite(v)) return Math.max(0, Math.min(1, v));
+  if (typeof v === "string" && v.trim()) {
+    const n = Number(v);
+    if (Number.isFinite(n)) return Math.max(0, Math.min(1, n));
+  }
+  return null;
+}
+
+function getQualityThreshold(state) {
+  const gapsCfg = isPlainObject(state?.userConfig?.gaps) ? state.userConfig.gaps : {};
+  const retrievalCfg = isPlainObject(state?.userConfig?.retrieval) ? state.userConfig.retrieval : {};
+  return (
+    normalizeQualityThreshold(gapsCfg.qualityThreshold) ??
+    normalizeQualityThreshold(retrievalCfg.qualityThreshold) ??
+    GAP_CONFIG.QUALITY_THRESHOLD
+  );
+}
+
+function getNoNewHitsRoundsStopThreshold(state) {
+  const gapsCfg = isPlainObject(state?.userConfig?.gaps) ? state.userConfig.gaps : {};
+  const n = safeInt(gapsCfg.noNewHitsRounds);
+  if (n !== null && n >= 1) return Math.min(10, n);
+  return GAP_CONFIG.NO_NEW_HITS_ROUNDS;
 }
 
 function normalizeForKey(s) {
@@ -425,7 +452,7 @@ export class TrajectoryManager {
         }
         // ===== Reflect-driven 外搜触发结束 =====
 
-        const roundHits = computeRoundHitsByGapId(retrievedChunks);
+        const roundHits = computeRoundHitsByGapId(retrievedChunks, getQualityThreshold(trajectory));
         validateIteration(trajectory, {
           blockAfterMisses: getGapBlockAfterMisses(trajectory),
           minEvidenceToFill: getMinEvidenceToFill(trajectory),
@@ -441,7 +468,7 @@ export class TrajectoryManager {
         trajectory.iteration += 1;
 
         if (openGaps(trajectory).length === 0) break;
-        if (noNewHitsRounds >= 2) break;
+        if (noNewHitsRounds >= getNoNewHitsRoundsStopThreshold(trajectory)) break;
       }
 
       emit?.("deepsearch.trajectory.completed", {

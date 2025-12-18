@@ -69,11 +69,12 @@ function defaultTime() {
 }
 
 export class ModelRouter extends EventEmitter {
-  constructor({ models, usageConfig, providers, cooldownMs = 60_000, usageTags, time } = {}) {
+  constructor({ models, usageConfig, providers, cooldownMs = 60_000, usageTags, time, debug = false } = {}) {
     super();
 
     this._time = isPlainObject(time) && typeof time.now === "function" && typeof time.sleep === "function" ? time : defaultTime();
     this._cooldownMs = typeof cooldownMs === "number" && cooldownMs > 0 ? Math.floor(cooldownMs) : 60_000;
+    this._debug = debug === true;
 
     this._models = new Map();
     for (const m of Array.isArray(models) ? models : []) {
@@ -228,15 +229,18 @@ export class ModelRouter extends EventEmitter {
     let cooldownCount = 0;
     const eligibleCandidates = [];
 
-    // Debug: 记录候选模型和健康状态
-    const debugCandidates = candidates.map((id) => {
-      const entry = this._models.get(id);
-      const health = this._health.get(id);
-      const available = this.isAvailable(id);
-      const hasRequiredTags = entry ? this._supportsTags(entry, requiredTags) : false;
-      return { id, available, hasRequiredTags, unhealthyUntilMs: health?.unhealthyUntilMs, failures: health?.failures };
-    });
-    console.log(`[ModelRouter] call usage=${u}`, { candidates: debugCandidates, requiredTags: Array.from(requiredTags) });
+    const debug = this._debug;
+    if (debug) {
+      // Debug: 记录候选模型和健康状态
+      const debugCandidates = candidates.map((id) => {
+        const entry = this._models.get(id);
+        const health = this._health.get(id);
+        const available = this.isAvailable(id);
+        const hasRequiredTags = entry ? this._supportsTags(entry, requiredTags) : false;
+        return { id, available, hasRequiredTags, unhealthyUntilMs: health?.unhealthyUntilMs, failures: health?.failures };
+      });
+      console.log(`[ModelRouter] call usage=${u}`, { candidates: debugCandidates, requiredTags: Array.from(requiredTags) });
+    }
 
     for (let idx = 0; idx < candidates.length; idx++) {
       const modelId = candidates[idx];
@@ -244,14 +248,14 @@ export class ModelRouter extends EventEmitter {
       if (!entry) throw new Error(`Unknown model id: ${modelId}`);
 
       if (!this._supportsTags(entry, requiredTags)) {
-        console.log(`[ModelRouter] skip ${modelId}: missing required tags`);
+        if (debug) console.log(`[ModelRouter] skip ${modelId}: missing required tags`);
         continue;
       }
       eligibleCount++;
       eligibleCandidates.push(modelId);
       if (!this.isAvailable(modelId)) {
         const h = this._health.get(modelId);
-        console.log(`[ModelRouter] skip ${modelId}: unhealthy until ${new Date(h?.unhealthyUntilMs || 0).toISOString()}`);
+        if (debug) console.log(`[ModelRouter] skip ${modelId}: unhealthy until ${new Date(h?.unhealthyUntilMs || 0).toISOString()}`);
         cooldownCount++;
         continue;
       }
@@ -297,7 +301,7 @@ export class ModelRouter extends EventEmitter {
       const waitInfo = this._getShortestCooldown(eligibleCandidates);
       if (waitRetryCount < 1 && waitInfo && waitInfo.remainingMs > 0 && waitInfo.remainingMs < 30_000) {
         const waitMs = Math.ceil(waitInfo.remainingMs);
-        console.log(`[ModelRouter] All models in cooldown, waiting ${waitMs}ms for ${waitInfo.modelId}`);
+        if (debug) console.log(`[ModelRouter] All models in cooldown, waiting ${waitMs}ms for ${waitInfo.modelId}`);
         await this._time.sleep(waitMs + 100);
         return this.call({ usage: u, messages, images, _waitRetryCount: waitRetryCount + 1 });
       }

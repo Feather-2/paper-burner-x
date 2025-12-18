@@ -16,6 +16,7 @@ export const GAP_CONFIG = Object.freeze({
   BLOCK_AFTER_MISSES: 3,
   MIN_EVIDENCE_TO_FILL: 2,
   QUALITY_THRESHOLD: 0.5,
+  NO_NEW_HITS_ROUNDS: 2,
 });
 
 // 并发配置
