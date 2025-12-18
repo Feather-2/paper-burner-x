@@ -30,7 +30,6 @@ export const EventsMixin = {
             this._showVectorizePresetDialog();
         });
         this.container.querySelector('[data-action="ocr"]')?.addEventListener('click', () => this._runOcr());
-        this.container.querySelector('[data-action="remove-bg"]')?.addEventListener('click', () => this._removeBackground());
         this.container.querySelector('[data-action="undo"]')?.addEventListener('click', () => this._undo());
         this.container.querySelector('[data-action="redo"]')?.addEventListener('click', () => this._redo());
 

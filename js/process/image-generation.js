@@ -12,6 +12,8 @@
   const DEFAULT_SIZE = { width: 1280, height: 720 };
   const DEFAULT_MAX_KB = 900; // 约 0.9MB，PPT 嵌入较友好
   const KEY_ROUND_ROBIN = {};
+  // 仅用于在一次 normalize 调用链中复用 rolePriority 解析结果
+  let LAST_ROLE_IMAGE_MODEL_KEY = '';
 
   const PROVIDER_ADAPTERS = {
     'gemini-image': geminiImageAdapter,
@@ -31,7 +33,10 @@
   async function generateImage(request) {
     const normalized = normalizeImageRequest(request);
     const providerKey = normalized.provider;
-    const adapter = PROVIDER_ADAPTERS[providerKey];
+    // 自定义源站 custom_source_xxx 走 OpenAI 兼容生图接口
+    const adapter =
+      PROVIDER_ADAPTERS[providerKey] ||
+      (providerKey && providerKey.startsWith('custom_source_') ? openaiCompatibleImageAdapter : null);
     if (!adapter) {
       throw new Error(`当前未支持的生图 provider: ${providerKey}`);
     }
@@ -349,13 +354,68 @@
     }
   }
 
+  function parseModelKey(modelKey) {
+    const raw = typeof modelKey === 'string' ? modelKey.trim() : '';
+    if (!raw) return { providerKey: '', modelId: '' };
+    const idx = raw.indexOf(':');
+    if (idx <= 0) return { providerKey: raw, modelId: '' };
+    return {
+      providerKey: raw.slice(0, idx),
+      modelId: raw.slice(idx + 1)
+    };
+  }
+
+  function getDefaultImageProvider() {
+    LAST_ROLE_IMAGE_MODEL_KEY = '';
+    try {
+      if (typeof localStorage === 'undefined') return 'gemini-image';
+      const rolePriorityRaw = localStorage.getItem('pptRolePriority');
+      if (rolePriorityRaw) {
+        const rolePriority = JSON.parse(rolePriorityRaw);
+        // 检查 design_image 角色配置
+        const imageModels = rolePriority?.design_image;
+        if (Array.isArray(imageModels) && imageModels.length > 0) {
+          const modelKey = imageModels[0];
+          LAST_ROLE_IMAGE_MODEL_KEY = modelKey;
+          console.log(`[ImageGeneration] 使用 pptRolePriority.design_image: ${modelKey}`);
+          // 从 modelKey 提取 provider（如 custom_source_xxx:model -> custom_source_xxx）
+          if (typeof modelKey === 'string' && modelKey.includes(':')) {
+            return modelKey.split(':')[0];
+          }
+          return modelKey;
+        }
+      }
+    } catch (e) {
+      console.warn('[ImageGeneration] 读取 pptRolePriority 失败:', e);
+    }
+    // 回退到默认
+    return 'gemini-image';
+  }
+
   function normalizeImageRequest(request = {}) {
     const width = clampInt(request.width, DEFAULT_SIZE.width);
     const height = clampInt(request.height, DEFAULT_SIZE.height);
-    const provider = (request.provider || 'gemini-image').toLowerCase();
+    const providerInput = request.provider || getDefaultImageProvider();
+    const parsedProvider = parseModelKey(providerInput);
+    const provider = String(parsedProvider.providerKey || providerInput || 'gemini-image').toLowerCase();
+
+    // 支持 request.provider 传入形如 custom_source_xxx:ModelName
+    let model = request.model;
+    if (!model && parsedProvider.modelId) {
+      model = parsedProvider.modelId;
+      console.log('[ImageGeneration] 从 request.provider 解析 modelId:', model);
+    }
+    // 若 provider 来自 pptRolePriority.design_image，则从其 modelKey 中补齐 modelId
+    if (!model && !request.provider && LAST_ROLE_IMAGE_MODEL_KEY) {
+      const parsedRole = parseModelKey(LAST_ROLE_IMAGE_MODEL_KEY);
+      if (parsedRole.modelId) {
+        model = parsedRole.modelId;
+        console.log('[ImageGeneration] 从 pptRolePriority.design_image 解析 modelId:', model);
+      }
+    }
     return {
       provider,
-      model: request.model,
+      model,
       prompt: String(request.prompt || '').trim(),
       negativePrompt: request.negativePrompt ? String(request.negativePrompt).trim() : '',
       width,

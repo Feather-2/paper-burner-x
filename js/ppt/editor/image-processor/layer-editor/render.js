@@ -23,6 +23,7 @@ export const RenderMixin = {
         // 清空 SVG 容器
         const svgContainer = this.container.querySelector('.image-editor-svg-container');
         if (svgContainer) {
+            svgContainer.style.pointerEvents = (this.pathSelectMode || this.drawBboxMode) ? 'auto' : 'none';
             svgContainer.innerHTML = '';
         }
         

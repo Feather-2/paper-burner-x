@@ -20,7 +20,7 @@ export const OcrMixin = {
     },
 
     /**
-     * 显示 OCR 设置对话框（仅 VLM + 定位方案选择）
+     * 显示 OCR 设置对话框（VLM）
      */
     _showOcrEngineSelector() {
         return new Promise((resolve) => {
@@ -31,10 +31,7 @@ export const OcrMixin = {
                 resolve(null);
                 return;
             }
-            
-            // 获取当前定位模式
-            const currentLocMode = window.ocrExtractor?.config?.vlmLocalizationMode || 'grid';
-            
+
             const overlay = document.createElement('div');
             overlay.style.cssText = `
                 position: fixed;
@@ -60,35 +57,6 @@ export const OcrMixin = {
                     <p style="margin: 0 0 16px; font-size: 13px; color: var(--ie-text-secondary, #64748b);">
                         使用 AI 视觉模型识别图片中的文字
                     </p>
-                    
-                    <div style="margin-bottom: 16px;">
-                        <div style="font-size: 13px; font-weight: 500; margin-bottom: 8px; color: var(--ie-text, #1e293b);">
-                            定位方案
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 8px;">
-                            <label style="display: flex; align-items: flex-start; gap: 10px; padding: 10px; border: 1px solid var(--ie-border, #e2e8f0); border-radius: 8px; cursor: pointer; transition: all 0.2s;" class="loc-option ${currentLocMode === 'grid' ? 'selected' : ''}">
-                                <input type="radio" name="locMode" value="grid" ${currentLocMode === 'grid' ? 'checked' : ''} style="margin-top: 2px;">
-                                <div>
-                                    <div style="font-weight: 500; font-size: 13px;">网格辅助 (推荐)</div>
-                                    <div style="font-size: 11px; color: var(--ie-text-secondary, #64748b);">叠加参考网格帮助 AI 定位</div>
-                                </div>
-                            </label>
-                            <label style="display: flex; align-items: flex-start; gap: 10px; padding: 10px; border: 1px solid var(--ie-border, #e2e8f0); border-radius: 8px; cursor: pointer; transition: all 0.2s;" class="loc-option ${currentLocMode === 'native' ? 'selected' : ''}">
-                                <input type="radio" name="locMode" value="native" ${currentLocMode === 'native' ? 'checked' : ''} style="margin-top: 2px;">
-                                <div>
-                                    <div style="font-weight: 500; font-size: 13px;">原生 Grounding</div>
-                                    <div style="font-size: 11px; color: var(--ie-text-secondary, #64748b);">使用模型内置定位能力 (Qwen-VL 等)</div>
-                                </div>
-                            </label>
-                            <label style="display: flex; align-items: flex-start; gap: 10px; padding: 10px; border: 1px solid var(--ie-border, #e2e8f0); border-radius: 8px; cursor: pointer; transition: all 0.2s;" class="loc-option ${currentLocMode === 'auto' ? 'selected' : ''}">
-                                <input type="radio" name="locMode" value="auto" ${currentLocMode === 'auto' ? 'checked' : ''} style="margin-top: 2px;">
-                                <div>
-                                    <div style="font-weight: 500; font-size: 13px;">自动检测</div>
-                                    <div style="font-size: 11px; color: var(--ie-text-secondary, #64748b);">根据模型能力自动选择</div>
-                                </div>
-                            </label>
-                        </div>
-                    </div>
                     
                     <div style="display: flex; gap: 8px;">
                         <button class="cancel-btn" style="
@@ -116,32 +84,7 @@ export const OcrMixin = {
                 </div>
             `;
             
-            // 高亮选中的选项
-            overlay.querySelectorAll('.loc-option').forEach(label => {
-                label.addEventListener('click', () => {
-                    overlay.querySelectorAll('.loc-option').forEach(l => {
-                        l.style.borderColor = 'var(--ie-border, #e2e8f0)';
-                        l.style.background = 'transparent';
-                    });
-                    label.style.borderColor = 'var(--ie-primary, #4f46e5)';
-                    label.style.background = 'rgba(79, 70, 229, 0.05)';
-                });
-            });
-            
-            // 初始化选中状态
-            const selectedLabel = overlay.querySelector('.loc-option.selected');
-            if (selectedLabel) {
-                selectedLabel.style.borderColor = 'var(--ie-primary, #4f46e5)';
-                selectedLabel.style.background = 'rgba(79, 70, 229, 0.05)';
-            }
-            
             overlay.querySelector('.start-btn').addEventListener('click', () => {
-                const selectedMode = overlay.querySelector('input[name="locMode"]:checked')?.value || 'grid';
-                // 保存定位模式设置
-                if (window.ocrExtractor) {
-                    window.ocrExtractor.config = window.ocrExtractor.config || {};
-                    window.ocrExtractor.config.vlmLocalizationMode = selectedMode;
-                }
                 document.body.removeChild(overlay);
                 resolve('vlm');
             });
@@ -169,14 +112,24 @@ export const OcrMixin = {
         const engine = await this._showOcrEngineSelector();
         if (!engine) return;
         
-        // 如果是 VLM 且使用网格辅助模式，显示网格预览
-        const locMode = window.ocrExtractor?.config?.vlmLocalizationMode || 'grid';
-        if (engine === 'vlm' && locMode === 'grid') {
-            this._showOcrGridOverlay(true, '正在使用 AI 识别文字...');
-        } else {
-            this._showLoading(engine === 'vlm' ? '正在使用 AI 识别文字...' : '正在识别文字...');
-        }
+        this._showLoading('正在使用 AI 识别文字...');
         await this._nextFrame();
+
+        // 检测模型能力并显示提示（仅提示，不阻止使用）
+        if (engine === 'vlm' && window.aiApiService?.getVisionModelConfig) {
+            try {
+                const visionConfig = window.aiApiService.getVisionModelConfig();
+                const modelName = (visionConfig?.model || '').toLowerCase();
+                const groundingModels = ['qwen-vl', 'qwen2-vl', 'qwen2.5-vl', 'glm-4v', 'glm4v'];
+                const supportsGrounding = groundingModels.some(m => modelName.includes(m));
+
+                if (!supportsGrounding) {
+                    this._showToast('⚠️ 当前模型可能不支持精确定位，建议使用 Qwen-VL 或 GLM-4V', 4000);
+                }
+            } catch (e) {
+                console.warn('[LayerEditor] 模型能力检测失败:', e);
+            }
+        }
         
         try {
             const ocrExtractor = await this.processor.loadModule('ocrExtractor');
@@ -186,39 +139,7 @@ export const OcrMixin = {
             console.log('[LayerEditor] 原图尺寸:', this.processedImage.original.width, 'x', this.processedImage.original.height);
             console.log('[LayerEditor] Canvas 尺寸:', this.canvas.width, 'x', this.canvas.height);
             
-            // 从 raw 响应中重新解析原始坐标
-            let rawRegions = [];
-            if (result.raw) {
-                try {
-                    let jsonStr = result.raw;
-                    
-                    // GLM-4V 特殊标记处理
-                    jsonStr = jsonStr.replace(/<\|begin_of_box\|>/g, '');
-                    jsonStr = jsonStr.replace(/<\|end_of_box\|>/g, '');
-                    
-                    // Markdown 代码块提取
-                    const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-                    if (jsonMatch) {
-                        jsonStr = jsonMatch[1].trim();
-                    } else {
-                        // 提取 JSON 对象
-                        const braceMatch = jsonStr.match(/\{[\s\S]*\}/);
-                        if (braceMatch) jsonStr = braceMatch[0];
-                    }
-                    
-                    // 修复常见格式错误
-                    jsonStr = jsonStr.replace(/"bbox_2d":\s*\[\[/g, '"bbox_2d":[');
-                    jsonStr = jsonStr.replace(/"bbox":\s*\[\[/g, '"bbox":[');
-                    
-                    const parsed = JSON.parse(jsonStr);
-                    rawRegions = Array.isArray(parsed) ? parsed : (parsed.regions || parsed.texts || []);
-                    console.log('[LayerEditor] 从 raw 解析到', rawRegions.length, '个原始区域');
-                } catch (e) {
-                    console.warn('[LayerEditor] 解析 raw 失败:', e);
-                }
-            }
-            
-            const regions = (result.regions && result.regions.length > 0) ? result.regions : rawRegions;
+            const regions = Array.isArray(result?.regions) ? result.regions : [];
             
             if (regions.length === 0) {
                 alert('未识别到文字区域');
@@ -242,126 +163,24 @@ export const OcrMixin = {
                 inpaintedBackground: null,
             };
             
-            // 确定坐标系统
-            let gridX = 10, gridY = 10;
-            if (rawRegions.length > 0) {
-                const maxX = Math.max(...rawRegions.filter(r => r.x2).map(r => r.x2));
-                const maxY = Math.max(...rawRegions.filter(r => r.y2).map(r => r.y2));
-                
-                if (maxX > 50) {
-                    gridX = 100; gridY = 100;
-                    console.log('[LayerEditor] 检测到百分比坐标 (0-100)');
-                } else if (maxX > 10) {
-                    gridX = Math.ceil(maxX); gridY = Math.ceil(maxY);
-                    console.log('[LayerEditor] 使用动态网格:', gridX, 'x', gridY);
-                } else {
-                    console.log('[LayerEditor] 使用标准 10x10 网格');
-                }
-            }
-            
-            // 显示红框预览
-            if (this.container.querySelector('.ocr-grid-overlay') && rawRegions.length > 0) {
-                this._updateOcrGridBboxes(rawRegions, gridX, gridY);
-                await new Promise(r => setTimeout(r, 1500));
-            }
-            
-            const imgWidth = this.processedImage.original.width;
-            const imgHeight = this.processedImage.original.height;
-            
-            rawRegions.forEach((rawRegion, idx) => {
-                const text = rawRegion.text || rawRegion.text_content || '';
-                if (!text.trim()) return;
-                
-                let bbox = null;
-                
-                // 格式1: bbox_2d 数组
-                if (Array.isArray(rawRegion.bbox_2d) && rawRegion.bbox_2d.length === 4) {
-                    const [rx1, ry1, rx2, ry2] = rawRegion.bbox_2d;
-                    const maxVal = Math.max(rx1, ry1, rx2, ry2);
-                    let x1, y1, x2, y2;
-                    
-                    if (maxVal > 1000) {
-                        x1 = rx1 / imgWidth; y1 = ry1 / imgHeight;
-                        x2 = rx2 / imgWidth; y2 = ry2 / imgHeight;
-                        console.log(`[LayerEditor] bbox_2d 像素坐标:`, rawRegion.bbox_2d, `/ ${imgWidth}x${imgHeight}`);
-                    } else {
-                        x1 = rx1 / 1000; y1 = ry1 / 1000;
-                        x2 = rx2 / 1000; y2 = ry2 / 1000;
-                    }
-                    bbox = {
-                        left: Math.max(0, Math.min(1, x1)),
-                        top: Math.max(0, Math.min(1, y1)),
-                        width: Math.max(0.01, Math.min(1, x2 - x1)),
-                        height: Math.max(0.01, Math.min(1, y2 - y1))
-                    };
-                    console.log(`[LayerEditor] 转换 bbox_2d:`, rawRegion.bbox_2d, '→', bbox);
-                }
-                // 格式2: x1, y1, x2, y2 独立字段
-                else if ('x1' in rawRegion && 'y1' in rawRegion && 'x2' in rawRegion && 'y2' in rawRegion) {
-                    const x1 = rawRegion.x1 / gridX;
-                    const y1 = rawRegion.y1 / gridY;
-                    const x2 = rawRegion.x2 / gridX;
-                    const y2 = rawRegion.y2 / gridY;
-                    bbox = {
-                        left: Math.max(0, Math.min(1, x1)),
-                        top: Math.max(0, Math.min(1, y1)),
-                        width: Math.max(0.01, Math.min(1, x2 - x1)),
-                        height: Math.max(0.01, Math.min(1, y2 - y1))
-                    };
-                    console.log(`[LayerEditor] 转换网格坐标 (${gridX}x${gridY}):`, `(${rawRegion.x1},${rawRegion.y1})-(${rawRegion.x2},${rawRegion.y2})`, '→', bbox);
-                }
-                // 格式3: bbox 数组 [x1, y1, x2, y2]
-                // GLM-4V 使用 0-1000 归一化坐标
-                else if (Array.isArray(rawRegion.bbox) && rawRegion.bbox.length === 4) {
-                    const [rx1, ry1, rx2, ry2] = rawRegion.bbox;
-                    const maxVal = Math.max(rx1, ry1, rx2, ry2);
-                    const imgW = this.processedImage.original.width;
-                    const imgH = this.processedImage.original.height;
-                    let x1, y1, x2, y2;
-                    
-                    if (maxVal > 1000) {
-                        // 像素坐标（大于 1000）
-                        x1 = rx1 / imgW; y1 = ry1 / imgH;
-                        x2 = rx2 / imgW; y2 = ry2 / imgH;
-                        console.log(`[LayerEditor] bbox 像素坐标:`, rawRegion.bbox, `/ ${imgW}x${imgH}`);
-                    } else if (maxVal > 100) {
-                        // 0-1000 归一化（GLM-4V 标准格式）
-                        x1 = rx1 / 1000; y1 = ry1 / 1000;
-                        x2 = rx2 / 1000; y2 = ry2 / 1000;
-                        console.log(`[LayerEditor] bbox 0-1000 归一化:`, rawRegion.bbox, `→ (${x1.toFixed(3)},${y1.toFixed(3)})-(${x2.toFixed(3)},${y2.toFixed(3)})`);
-                    } else if (maxVal > 1) {
-                        // 0-100 百分比
-                        x1 = rx1 / 100; y1 = ry1 / 100;
-                        x2 = rx2 / 100; y2 = ry2 / 100;
-                        console.log(`[LayerEditor] bbox 百分比:`, rawRegion.bbox);
-                    } else {
-                        // 已经是 0-1 归一化
-                        x1 = rx1; y1 = ry1;
-                        x2 = rx2; y2 = ry2;
-                        console.log(`[LayerEditor] bbox 已归一化:`, rawRegion.bbox);
-                    }
-                    
-                    bbox = {
-                        left: Math.max(0, Math.min(1, x1)),
-                        top: Math.max(0, Math.min(1, y1)),
-                        width: Math.max(0.01, Math.min(1, x2 - x1)),
-                        height: Math.max(0.01, Math.min(1, y2 - y1))
-                    };
-                    console.log(`[LayerEditor] 最终 bbox:`, bbox);
-                }
-                else {
-                    console.warn(`[LayerEditor] 区域 ${idx} 无有效坐标，跳过:`, rawRegion);
-                    return;
-                }
-                
+            regions.forEach((region, idx) => {
+                const text = region.text || region.text_content || region.content?.originalText || '';
+                if (!String(text).trim()) return;
+
+                const bbox = region.bbox;
+                if (!bbox || typeof bbox.left !== 'number') return;
+
+                const style = region.style || {};
+                const originalBbox = region.originalBbox ? { ...region.originalBbox } : { ...bbox };
+
                 const childLayer = {
                     id: `text_region_${idx}_${Date.now()}`,
                     type: 'text-overlay',
-                    name: `文字: ${text.substring(0, 12)}${text.length > 12 ? '...' : ''}`,
-                    bbox: bbox,
-                    originalBbox: { ...bbox },
+                    name: `文字: ${String(text).substring(0, 12)}${String(text).length > 12 ? '...' : ''}`,
+                    bbox,
+                    originalBbox,
                     // 简化属性（供自动估算字号使用）
-                    text: text,
+                    text,
                     translatedText: '',
                     // 完整内容对象
                     content: {
@@ -370,15 +189,17 @@ export const OcrMixin = {
                         displayText: text,
                     },
                     style: {
-                        fontSize: 14, // 初始值，稍后自动估算
-                        color: rawRegion.color || '#000000',
-                        fontWeight: rawRegion.fontWeight || 'normal',
-                        textAlign: rawRegion.textAlign || 'left',
+                        fontSize: style.fontSize || 14,
+                        color: style.color || '#000000',
+                        fontWeight: style.fontWeight || 'normal',
+                        textAlign: style.textAlign || 'left',
+                        ...(style.fontFamily ? { fontFamily: style.fontFamily } : {}),
                     },
                     inpainted: false,
                     visible: true,
                     parentId: groupId,
                 };
+
                 groupLayer.children.push(childLayer);
             });
             
@@ -406,7 +227,6 @@ export const OcrMixin = {
             alert('文字识别失败: ' + err.message);
         } finally {
             this._hideLoading();
-            this._showOcrGridOverlay(false);
         }
     },
 

@@ -150,14 +150,28 @@ class AIApiService {
     
     /**
      * 获取 PPT 视觉模型的 API 配置（用于 OCR 等）
+     * 从 pptRolePriority.vision 读取配置，未配置时返回 auto
      * @returns {Object|null}
      */
     getVisionModelConfig() {
-        const pptConfig = this.getPptModelConfig('vision');
-        if (pptConfig && pptConfig.modelKey) {
-            return this._resolveModelConfig(pptConfig.modelKey, pptConfig.modelId);
+        // 从 pptRolePriority.vision 读取配置
+        try {
+            const rolePriorityRaw = localStorage.getItem('pptRolePriority');
+            if (rolePriorityRaw) {
+                const rolePriority = JSON.parse(rolePriorityRaw);
+                const visionModels = rolePriority?.vision;
+                if (Array.isArray(visionModels) && visionModels.length > 0) {
+                    const modelKey = visionModels[0]; // 取第一个（最高优先级）
+                    console.log(`[AIApiService] 使用 pptRolePriority.vision: ${modelKey}`);
+                    return this._resolveModelConfig(modelKey);
+                }
+            }
+        } catch (e) {
+            console.warn('[AIApiService] 读取 pptRolePriority 失败:', e);
         }
-        // 没有配置时返回 auto
+        
+        // 未配置时返回 auto
+        console.warn('[AIApiService] 未配置 PPT 视觉模型（pptRolePriority.vision），使用 auto');
         return this._resolveModelConfig('auto');
     }
     
@@ -280,6 +294,14 @@ class AIApiService {
         // 兼容 prompt-pool 格式：siteId:modelId
         if (modelId.includes(':')) {
             const [siteId, modelName] = modelId.split(':', 2);
+
+            // 如果 siteId 已经是 custom_source_xxx 格式，直接用它作为 id 查找
+            if (siteId.startsWith('custom_source_')) {
+                const model = models.find(m => m.id === siteId);
+                if (model) return this._buildApiConfig(model, modelName);
+            }
+
+            // 否则按原逻辑：siteId 或 custom_source_siteId
             const model = models.find(m => m.siteId === siteId || m.id === `custom_source_${siteId}`);
             if (model) return this._buildApiConfig(model, modelName);
             return null;
