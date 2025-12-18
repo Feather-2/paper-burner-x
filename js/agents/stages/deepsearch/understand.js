@@ -669,7 +669,9 @@ function validateSingleEvidence(e, { sources, sourceTextById }) {
       issues.push(`H2: locator out of bounds (${charStart}-${charEnd}, text length ${sourceText.length})`);
     } else {
       const slice = sourceText.slice(charStart, charEnd);
-      if (slice !== quote) {
+      // Degraded mode (default) allows quotes that are a substring of the located slice.
+      // Strict mode uses `assertHardGates()` which enforces exact equality.
+      if (slice !== quote && !slice.includes(quote)) {
         issues.push(`H3: quote mismatch (expected "${slice.slice(0, 50)}...", got "${quote.slice(0, 50)}...")`);
       }
     }

@@ -148,13 +148,15 @@ function applyMergedState(target, merged) {
 
 function getTrajectoryConfig(state) {
   const cfg = isPlainObject(state?.userConfig?.trajectory) ? state.userConfig.trajectory : {};
-  const n = safeInt(cfg.n) ?? 1;
-  const mergeStrategy = typeof cfg.mergeStrategy === "string" ? cfg.mergeStrategy : "best";
+  const rawN = safeInt(cfg.n) ?? 1;
+  const enabled = cfg.enabled === true || rawN > 1;
+  const n = enabled ? Math.max(2, rawN) : 1;
+  const mergeStrategy = enabled && typeof cfg.mergeStrategy === "string" ? cfg.mergeStrategy : "best";
   const qualityMetrics = Array.isArray(cfg.qualityMetrics) ? cfg.qualityMetrics : [];
   const divergeAt = typeof cfg.divergeAt === "string" ? cfg.divergeAt : "gap";
   const cachePolicy = typeof cfg.cachePolicy === "string" ? cfg.cachePolicy : "share";
   const cacheMaxSize = safeInt(cfg.cacheMaxSize) ?? 100;
-  return { n, mergeStrategy, qualityMetrics, divergeAt, cachePolicy, cacheMaxSize };
+  return { enabled, n, mergeStrategy, qualityMetrics, divergeAt, cachePolicy, cacheMaxSize };
 }
 
 function isOpenGap(g) {

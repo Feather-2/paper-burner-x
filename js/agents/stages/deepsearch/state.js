@@ -391,8 +391,8 @@ export function makeStageEmitter(stageApi, actor = "deepsearch", getContext) {
   return (name, payload, { status = EventStatus.COMPLETED, throttle = true } = {}) => {
     if (throttle) {
       const now = Date.now();
-      const last = lastEmitTime.get(name) || 0;
-      if (now - last < MIN_INTERVAL_MS) return; // 限流
+      const last = lastEmitTime.get(name);
+      if (typeof last === "number" && now - last < MIN_INTERVAL_MS) return; // 限流
       lastEmitTime.set(name, now);
     }
 

@@ -142,4 +142,3 @@ test("config-schema: string/array/default type branches via schema extension", a
     else CONFIG_SCHEMA.__testUnknown = prev.__testUnknown;
   }
 });
-

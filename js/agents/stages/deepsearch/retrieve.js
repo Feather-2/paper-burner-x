@@ -767,7 +767,12 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
 
   const retrievedByChunkId = new LRUMap(); // chunkId -> merged row (without retrievedId)
   const allChunksForToolChain = enableToolChain
-    ? sourceIndexes.flatMap((sourceIndex) => (Array.isArray(sourceIndex?.chunks) ? sourceIndex.chunks : []))
+    ? sourceIndexes.flatMap((sourceIndex) =>
+        (Array.isArray(sourceIndex?.chunks) ? sourceIndex.chunks : []).map((chunk) => ({
+          ...chunk,
+          sourceId: toNonEmptyString(chunk?.sourceId) || sourceIndex.sourceId,
+        }))
+      )
     : [];
   const allChunksForToolChainById = new Map(allChunksForToolChain.map((c) => [String(c?.chunkId || ""), c]).filter(([id]) => id));
 
@@ -953,6 +958,13 @@ export async function runDeepSearchRetrieveStage(runContext, input, stageApi = {
       const mergedGapIds = Array.from(new Set([...(Array.isArray(existing.matchedGapIds) ? existing.matchedGapIds : []), ...matchedGapIds]));
       existing.matchedGapIds = mergedGapIds;
       existing.gapId = existing.gapId || mergedGapIds[0];
+      if (
+        (existing.sourceId === "source_unknown" || !toNonEmptyString(existing.sourceId)) &&
+        toNonEmptyString(r?.sourceId) &&
+        String(r.sourceId) !== "source_unknown"
+      ) {
+        existing.sourceId = String(r.sourceId);
+      }
       if (typeof r?.score === "number" && Number.isFinite(r.score) && (!(typeof existing.score === "number") || r.score > existing.score)) {
         existing.score = r.score;
       }
