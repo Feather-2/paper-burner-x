@@ -145,6 +145,29 @@ const PPTGeneratorUtilities = {
         if (container) container.scrollTop = container.scrollHeight;
     },
 
+    _appendThinkingIndicator(id) {
+        const container = document.getElementById('pptChatHistory');
+        if (!container) return;
+        const div = document.createElement('div');
+        div.id = id;
+        div.className = 'ppt-message ai ppt-thinking';
+        div.innerHTML = `
+            <div class="ppt-avatar ai-minimal">
+                <iconify-icon icon="carbon:bot"></iconify-icon>
+            </div>
+            <div class="ppt-bubble">
+                <span class="ppt-thinking-dots">思考中<span>.</span><span>.</span><span>.</span></span>
+            </div>
+        `;
+        container.appendChild(div);
+        this._scrollToBottom();
+    },
+
+    _removeThinkingIndicator(id) {
+        const el = document.getElementById(id);
+        if (el) el.remove();
+    },
+
     async _loadScriptOnce(src) {
         if (typeof document === 'undefined') {
             throw new Error('当前环境不支持动态加载脚本');
@@ -275,7 +298,22 @@ const PPTGeneratorUtilities = {
             content = `上传了 ${attachments.length} 个文件`;
         }
 
+        console.log('[PPTGenerator] handleUserMessage:', { content: content?.slice(0, 50), attachments: attachments.length });
+
+        // 防御性检查：确保 currentProject 存在
+        if (!this.currentProject) {
+            console.error('[PPTGenerator] handleUserMessage: currentProject not initialized');
+            return;
+        }
+        if (!this.currentProject.chatHistory) {
+            this.currentProject.chatHistory = [];
+        }
+
         this.addChatMessage('user', content, null, attachments);
+
+        // 显示"思考中"状态
+        const thinkingId = `thinking_${Date.now()}`;
+        this._appendThinkingIndicator(thinkingId);
 
         // 排队处理：避免并发指令互相覆盖（尤其是 redo/design）
         return this._enqueueChatIntent(async () => {
@@ -284,13 +322,36 @@ const PPTGeneratorUtilities = {
 
                 const parse = window.IntentParser?.parse || window.IntentParser?.parseIntent;
                 if (typeof parse !== 'function') {
+                    console.error('[PPTGenerator] IntentParser not loaded after _ensureIntentParser');
                     throw new Error('IntentParser 未加载');
                 }
 
+                // 构建 LLM 适配器，使 IntentParser 可以使用 aiApiService
+                const llmAdapter = window.aiApiService ? {
+                    chat: async (messages) => {
+                        try {
+                            const resp = await window.aiApiService.chat({
+                                messages,
+                                model: 'auto',
+                                usage: 'worker',
+                                temperature: 0.3,
+                                maxTokens: 1024,
+                            });
+                            return resp?.content || '';
+                        } catch (e) {
+                            console.warn('[PPTGenerator] LLM chat failed:', e);
+                            return null;
+                        }
+                    }
+                } : null;
+
+                console.log('[PPTGenerator] Parsing intent...', { hasLlm: !!llmAdapter });
                 const intent = await parse(content, {
                     currentSlideIndex: this.currentSlideIndex,
                     attachments,
+                    llm: llmAdapter,
                 });
+                console.log('[PPTGenerator] Parsed intent:', intent);
 
                 if (this._isEditIntentType(intent?.type)) {
                     if (typeof this.initEditor === 'function') {
@@ -321,11 +382,39 @@ const PPTGeneratorUtilities = {
                     return;
                 }
 
-                // 兜底：未知指令（按研究/扩展处理）
+                // 兜底：未知指令 - 尝试作为普通对话处理
+                console.log('[PPTGenerator] Unknown intent type:', intent?.type, '- trying chat fallback');
+
+                // 如果有 LLM，尝试进行对话
+                if (llmAdapter) {
+                    try {
+                        const chatReply = await window.aiApiService.chat({
+                            messages: [
+                                { role: 'system', content: '你是一个 PPT 设计助手。用户正在制作演示文稿，请简洁友好地回答问题或提供建议。如果用户想要执行操作，提示他们可以使用的指令格式。' },
+                                { role: 'user', content: content }
+                            ],
+                            model: 'auto',
+                            usage: 'worker',
+                            temperature: 0.7,
+                            maxTokens: 512,
+                        });
+                        if (chatReply?.content) {
+                            this.addChatMessage('ai', chatReply.content);
+                            return;
+                        }
+                    } catch (e) {
+                        console.warn('[PPTGenerator] Chat fallback failed:', e);
+                    }
+                }
+
+                // 无 LLM 或 LLM 失败时的兜底
                 this.addChatMessage('ai', '我理解你的需求了，但暂不支持该类型指令。你可以试试：把标题改成… / 重新设计第3页 / 在第2页后新增一页');
             } catch (err) {
                 console.warn('[PPTGeneratorUtilities] handleUserMessage failed:', err);
                 this.addChatMessage('ai', '抱歉，我暂时无法理解这条指令。你可以换一种说法，例如：把标题改成… / 重新设计第3页。');
+            } finally {
+                // 移除"思考中"指示器
+                this._removeThinkingIndicator(thinkingId);
             }
         });
     },

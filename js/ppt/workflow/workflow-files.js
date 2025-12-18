@@ -28,7 +28,7 @@ export const filesMixin = {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     },
 
-    async startFromPastedText(pastedContent) {
+    async startFromPastedText(pastedContent, options = {}) {
         const content = typeof pastedContent === 'string' ? pastedContent : '';
         if (!content || !content.trim()) {
             if (typeof this.logTerminal === 'function') this.logTerminal('系统', '粘贴内容为空', 'warning');
@@ -38,18 +38,105 @@ export const filesMixin = {
         this._ensureDesignSystemInitialized();
 
         const charCount = content.length;
-        const DEEPSEARCH_THRESHOLD = 5000;
-        const useDeepSearch = charCount > DEEPSEARCH_THRESHOLD;
+        // 用户手动选择模式，或根据长度自动判断
+        const mode = options.mode || (charCount > 5000 ? 'deepsearch' : 'simple');
 
         if (typeof this.logTerminal === 'function') {
-            this.logTerminal('系统', `文档长度: ${charCount} 字，${useDeepSearch ? '将进行深度分析' : '使用快速处理'}`, 'normal');
+            const modeLabels = { simple: '快速生成', planned: '规划模式', deepsearch: '深度研究' };
+            this.logTerminal('系统', `文档长度: ${charCount} 字，模式: ${modeLabels[mode] || mode}`, 'normal');
         }
 
-        if (useDeepSearch) {
+        if (mode === 'deepsearch') {
             await this._startFromPastedTextDeepSearch(content);
+        } else if (mode === 'planned') {
+            await this._startFromPastedTextPlanned(content);
         } else {
             await this._startFromPastedTextSimple(content);
         }
+    },
+
+    async _startFromPastedTextPlanned(content) {
+        if (typeof this.logTerminal === 'function') {
+            this.logTerminal('系统', '正在扫描文档结构...', 'normal');
+        }
+
+        this.state = 'scanning';
+        this.renderPreviewArea?.();
+
+        // 快速扫描：提取标题和结构
+        const title = this._extractTitleFromText(content);
+        const sections = this._extractSectionsFromMarkdown(content);
+
+        // 生成初步大纲建议
+        const suggestedOutline = sections.map((sec, idx) => ({
+            id: `section_${idx}`,
+            title: sec.title || `第 ${idx + 1} 部分`,
+            suggestedPages: Math.max(1, Math.ceil(sec.content.length / 1500)), // 大约 1500 字符一页
+            content: sec.content,
+            sourceFiles: [], // 用户可以拖入额外文件
+            notes: '',
+        }));
+
+        // 存储到 workflowData
+        this.workflowData.plannedOutline = suggestedOutline;
+        this.workflowData.reportMarkdown = content;
+        this.workflowData._mode = 'planned';
+
+        if (typeof this.logTerminal === 'function') {
+            this.logTerminal('系统', `已识别 ${suggestedOutline.length} 个章节，请在规划器中配置每页内容`, 'normal');
+        }
+
+        // 进入规划界面
+        this.state = 'outline_planning';
+        this.renderPreviewArea?.();
+
+        // 打开规划器 modal
+        if (typeof this.openOutlinePlanner === 'function') {
+            this.openOutlinePlanner(suggestedOutline);
+        }
+    },
+
+    _extractSectionsFromMarkdown(content) {
+        const lines = content.split('\n');
+        const sections = [];
+        let currentSection = null;
+        let buffer = [];
+
+        for (const line of lines) {
+            const headingMatch = line.match(/^(#{1,3})\s+(.+)$/);
+            if (headingMatch) {
+                // 保存上一个 section
+                if (currentSection) {
+                    currentSection.content = buffer.join('\n').trim();
+                    sections.push(currentSection);
+                }
+                currentSection = {
+                    level: headingMatch[1].length,
+                    title: headingMatch[2].trim(),
+                    content: '',
+                };
+                buffer = [];
+            } else {
+                buffer.push(line);
+            }
+        }
+
+        // 保存最后一个 section
+        if (currentSection) {
+            currentSection.content = buffer.join('\n').trim();
+            sections.push(currentSection);
+        }
+
+        // 如果没有找到任何标题，把整个内容作为一个 section
+        if (sections.length === 0 && content.trim()) {
+            sections.push({
+                level: 1,
+                title: '内容',
+                content: content.trim(),
+            });
+        }
+
+        return sections;
     },
 
     async _startFromPastedTextDeepSearch(content) {

@@ -68,9 +68,27 @@ export const deepsearchMixin = {
             return;
         }
 
+        // 获取生成模式
+        const generationMode = this.workflowData?.generationMode || 'deepsearch';
+        console.log('[Workflow] startMultiAgentWorkflow 生成模式:', generationMode);
+
+        // 根据生成模式分流
+        if (generationMode === 'simple') {
+            // 快速生成：跳过深度研究，直接读取内容生成
+            await this._startSimpleGeneration();
+            return;
+        }
+
+        if (generationMode === 'planned') {
+            // 规划模式：扫描内容，打开大纲规划器
+            await this._startPlannedGeneration();
+            return;
+        }
+
+        // 深度研究模式（默认）
         // 设置锁
         this._workflowLock = true;
-        console.log('[Workflow] startMultiAgentWorkflow 开始执行');
+        console.log('[Workflow] startMultiAgentWorkflow 开始执行 (deepsearch)');
 
         const brief = this.workflowData?.projectBrief || {};
         const constraints = {
@@ -90,6 +108,176 @@ export const deepsearchMixin = {
             // 释放锁
             this._workflowLock = false;
             console.log('[Workflow] startMultiAgentWorkflow 执行完毕');
+        }
+    },
+
+    /**
+     * 快速生成模式：直接读取素材内容，生成 slideIntents，调用设计引擎
+     */
+    async _startSimpleGeneration() {
+        this._workflowLock = true;
+        console.log('[Workflow] _startSimpleGeneration 开始');
+
+        try {
+            this.state = 'reading';
+            this.renderPreviewArea?.();
+            this.addChatMessage?.('ai', '正在读取素材内容...');
+
+            // 合并所有素材内容
+            const files = Array.isArray(this.workflowData?.files) ? this.workflowData.files : [];
+            let combinedContent = '';
+            let title = '';
+
+            for (const file of files) {
+                if (file.type === 'paste' && file.content) {
+                    combinedContent += file.content + '\n\n';
+                    if (!title && file.name) title = file.name;
+                } else if (file.file && typeof file.file.text === 'function') {
+                    try {
+                        const text = await file.file.text();
+                        combinedContent += text + '\n\n';
+                        if (!title && file.name) title = file.name;
+                    } catch (e) {
+                        console.warn('[SimpleGeneration] 读取文件失败:', file.name, e);
+                    }
+                }
+            }
+
+            if (!combinedContent.trim()) {
+                this.addChatMessage?.('ai', '未能读取到有效内容，请检查素材文件。');
+                this.state = 'idle';
+                this.renderPreviewArea?.();
+                return;
+            }
+
+            // 生成 slideIntents
+            const slideIntents = this._generateSlideIntentsFromMarkdown?.(combinedContent) || [];
+            if (!slideIntents.length) {
+                slideIntents.push({
+                    slideIntentId: 'si_0',
+                    index: 0,
+                    pageType: 'content',
+                    title: title || '内容',
+                    content: combinedContent,
+                    keyPoints: []
+                });
+            }
+
+            // 设置 contentPackage
+            this.workflowData.contentPackage = {
+                schemaVersion: '0.1',
+                title: title || '演示文稿',
+                slideIntents
+            };
+            this.workflowData.slideIntents = slideIntents;
+
+            this.addChatMessage?.('ai', `已解析 ${slideIntents.length} 个页面，正在调用设计引擎...`);
+
+            // 调用设计引擎
+            await this._ensureRuntime?.({ mode: 'textprep' });
+            this.state = 'designer';
+            this.renderPreviewArea?.();
+
+            await this._orchestrator?.runStage?.('design.batch', {
+                contentPackage: this.workflowData.contentPackage
+            });
+
+            this.state = 'completed';
+            this.renderPreviewArea?.();
+            this.addChatMessage?.('ai', '快速生成完成！');
+
+        } catch (err) {
+            console.error('[SimpleGeneration] 错误:', err);
+            this.addChatMessage?.('ai', `生成出错: ${err.message}`);
+            this.state = 'idle';
+            this.renderPreviewArea?.();
+        } finally {
+            this._workflowLock = false;
+        }
+    },
+
+    /**
+     * 规划模式：扫描素材，生成大纲建议，打开规划器
+     */
+    async _startPlannedGeneration() {
+        this._workflowLock = true;
+        console.log('[Workflow] _startPlannedGeneration 开始');
+
+        try {
+            this.state = 'scanning';
+            this.renderPreviewArea?.();
+            this.addChatMessage?.('ai', '正在扫描素材结构...');
+
+            // 合并所有素材内容
+            const files = Array.isArray(this.workflowData?.files) ? this.workflowData.files : [];
+            let combinedContent = '';
+
+            for (const file of files) {
+                if (file.type === 'paste' && file.content) {
+                    combinedContent += `\n\n## ${file.name || '粘贴内容'}\n\n${file.content}`;
+                } else if (file.file && typeof file.file.text === 'function') {
+                    try {
+                        const text = await file.file.text();
+                        combinedContent += `\n\n## ${file.name || '文件'}\n\n${text}`;
+                    } catch (e) {
+                        console.warn('[PlannedGeneration] 读取文件失败:', file.name, e);
+                    }
+                }
+            }
+
+            if (!combinedContent.trim()) {
+                this.addChatMessage?.('ai', '未能读取到有效内容，请检查素材文件。');
+                this.state = 'idle';
+                this.renderPreviewArea?.();
+                this._workflowLock = false;
+                return;
+            }
+
+            // 提取章节结构
+            const sections = this._extractSectionsFromMarkdown?.(combinedContent) || [];
+            if (!sections.length) {
+                sections.push({
+                    level: 1,
+                    title: '内容',
+                    content: combinedContent.trim()
+                });
+            }
+
+            // 生成建议大纲
+            const suggestedOutline = sections.map((sec, idx) => ({
+                id: `section_${idx}`,
+                title: sec.title || `第 ${idx + 1} 部分`,
+                suggestedPages: Math.max(1, Math.ceil((sec.content || '').length / 1500)),
+                content: sec.content || '',
+                sourceFiles: [],
+                notes: ''
+            }));
+
+            // 存储到 workflowData
+            this.workflowData.plannedOutline = suggestedOutline;
+            this.workflowData.reportMarkdown = combinedContent;
+            this.workflowData._mode = 'planned';
+
+            this.addChatMessage?.('ai', `已识别 ${suggestedOutline.length} 个章节，请在规划器中配置每页内容。`);
+
+            // 进入规划界面
+            this.state = 'outline_planning';
+            this.renderPreviewArea?.();
+
+            // 释放锁（规划器是用户交互阶段）
+            this._workflowLock = false;
+
+            // 打开规划器 modal
+            if (typeof this.openOutlinePlanner === 'function') {
+                this.openOutlinePlanner(suggestedOutline);
+            }
+
+        } catch (err) {
+            console.error('[PlannedGeneration] 错误:', err);
+            this.addChatMessage?.('ai', `扫描出错: ${err.message}`);
+            this.state = 'idle';
+            this.renderPreviewArea?.();
+            this._workflowLock = false;
         }
     },
     async phase1_DeepReading() {
@@ -115,10 +303,11 @@ export const deepsearchMixin = {
         const hasPrebuiltSources = prebuiltSources.length > 0;
 
         let sources = [];
+        let assets = [];
         if (hasPrebuiltSources && !ingestInput.files.length && !ingestInput.urls.length && !ingestInput.rawTexts.length && !ingestInput.historyIds.length) {
             // 只有预构建的 sources，跳过 ingest 阶段
             sources = prebuiltSources;
-            this.workflowData.ingest = { sources, skipped: true };
+            this.workflowData.ingest = { sources, assets: [], skipped: true };
             if (typeof this.logTerminal === 'function') {
                 this.logTerminal('系统', '使用已解析的文档内容，跳过文件读取阶段', 'normal');
             }
@@ -127,6 +316,7 @@ export const deepsearchMixin = {
             const ingestOut = await this._orchestrator.runStage('deepsearch.ingest', ingestInput);
             this.workflowData.ingest = ingestOut;
             sources = Array.isArray(ingestOut?.sources) ? ingestOut.sources : [];
+            assets = Array.isArray(ingestOut?.assets) ? ingestOut.assets : [];
             // 合并预构建的 sources
             if (prebuiltSources.length) {
                 sources = [...prebuiltSources, ...sources];
@@ -166,11 +356,11 @@ export const deepsearchMixin = {
             },
         };
 
-        this.workflowData._deepsearchInput = { sources, taskGoal, userConfig };
+        this.workflowData._deepsearchInput = { sources, assets, taskGoal, userConfig };
 
         const { DeepSearchState } = await import('../../agents/stages/deepsearch/state.js');
         const runId = this._orchestrator?.runContext?.runId || `run_${Date.now()}`;
-        const state = new DeepSearchState({ runId, taskGoal, userConfig, L0: { sources } });
+        const state = new DeepSearchState({ runId, taskGoal, userConfig, L0: { sources, assets } });
         this._deepsearchState = state;
         this._syncDeepSearchVizFromState(state);
 

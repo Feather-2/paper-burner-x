@@ -73,6 +73,9 @@ export class FlowBuilder {
     // Design flow tracking
     this.designBatchNodes = new Map(); // batchIndex -> nodeId
     this.designSlideNodes = new Map(); // slideIndex -> nodeId
+    this.designImageNodes = new Map(); // imageId -> nodeId
+    this._refineStepNodeId = null;
+    this._visualRenderNodeId = null;
   }
 
   _genId(prefix = "n") {
@@ -137,12 +140,13 @@ export class FlowBuilder {
   _updateNode(id, updates) {
     const node = this.nodeMap.get(id);
     if (node) {
-      // 先保存原有 details，防止被空数组覆盖
+      // 先保存原有 details 和 metrics，防止被覆盖
       const existingDetails = node.data.details || [];
+      const existingMetrics = node.data.metrics || {};
 
       node.data = { ...node.data, ...updates };
       if (updates.metrics) {
-        node.data.metrics = { ...node.data.metrics, ...updates.metrics };
+        node.data.metrics = { ...existingMetrics, ...updates.metrics };
       }
       // 只在有新内容时追加，否则保持原有
       if (updates.details && updates.details.length > 0) {
@@ -747,6 +751,16 @@ export class FlowBuilder {
         break;
       }
 
+      case "design.brainstorm.candidates": {
+        const id = this._brainstormNodeId;
+        if (id) {
+          this._updateNode(id, {
+            metrics: { candidates: payload.totalIdeas, selected: payload.selectedCount }
+          });
+        }
+        break;
+      }
+
       case "design.image.planning.completed": {
         const parentId = this._getCurrentParent();
         const id = this._genId("img");
@@ -756,6 +770,128 @@ export class FlowBuilder {
           parentNodeId: parentId,
           metrics: { planned: payload.planned, cost: payload.estimatedCostUSD }
         });
+        break;
+      }
+
+      case "design.image.generate.started": {
+        const imageId = payload.imageId || payload.slotId || this._genId("img");
+        const parentId = this._getCurrentParent();
+        const id = `img_gen_${imageId}`;
+        this._addNode(id, "design_slide", {
+          label: `Image ${payload.slideIndex !== undefined ? `S${payload.slideIndex + 1}` : imageId}`,
+          status: "running",
+          parentNodeId: parentId,
+          metrics: { provider: payload.provider }
+        });
+        if (!this.designImageNodes) this.designImageNodes = new Map();
+        this.designImageNodes.set(imageId, id);
+        break;
+      }
+
+      case "design.image.generate.succeeded": {
+        const imageId = payload.imageId || payload.slotId;
+        const id = this.designImageNodes?.get(imageId);
+        if (id) {
+          this._updateNode(id, {
+            status: "completed",
+            metrics: { duration: payload.durationMs, provider: payload.provider }
+          });
+        }
+        break;
+      }
+
+      case "design.image.generate.failed": {
+        const imageId = payload.imageId || payload.slotId;
+        const id = this.designImageNodes?.get(imageId);
+        if (id) {
+          this._updateNode(id, {
+            status: "failed",
+            details: [{ text: `Failed: ${payload.error || "unknown error"}` }]
+          });
+        }
+        break;
+      }
+
+      case "design.image.generate.skipped": {
+        const imageId = payload.slotId;
+        const parentId = this._getCurrentParent();
+        const id = `img_skip_${imageId || this.idCounter++}`;
+        this._addNode(id, "checkpoint", {
+          label: `Image Skipped`,
+          status: "completed",
+          parentNodeId: parentId,
+          metrics: { reason: payload.reason },
+          details: [{ text: payload.reason || "Skipped" }]
+        });
+        break;
+      }
+
+      case "design.image.fill.completed": {
+        const parentId = this._getCurrentParent();
+        const id = this._genId("img_fill");
+        this._addNode(id, "checkpoint", {
+          label: "Images Filled",
+          status: "completed",
+          parentNodeId: parentId,
+          metrics: { filled: payload.filledCount, pending: payload.pendingCount }
+        });
+        break;
+      }
+
+      case "design.svg.generate.completed": {
+        const parentId = this._getCurrentParent();
+        const id = this._genId("svg_gen");
+        this._addNode(id, "checkpoint", {
+          label: "SVG Generated",
+          status: "completed",
+          parentNodeId: parentId,
+          metrics: { slots: payload.slots }
+        });
+        break;
+      }
+
+      case "design.visual.render.started": {
+        const parentId = this._getCurrentParent();
+        const id = this._genId("visual_render");
+        this._addNode(id, "design_slide", {
+          label: "Visual Render",
+          status: "running",
+          parentNodeId: parentId,
+          metrics: {
+            total: payload.planned?.total,
+            images: payload.planned?.["ai-image"],
+            svg: payload.planned?.svg
+          }
+        });
+        this._visualRenderNodeId = id;
+        break;
+      }
+
+      case "design.visual.render.completed": {
+        const id = this._visualRenderNodeId;
+        if (id) {
+          this._updateNode(id, {
+            status: "completed",
+            metrics: {
+              images: payload.report?.completed?.["ai-image"],
+              svg: payload.report?.completed?.svg,
+              duration: payload.report?.durationMs
+            }
+          });
+          this._visualRenderNodeId = null;
+        }
+        break;
+      }
+
+      case "design.visual.render.failed": {
+        const id = this._visualRenderNodeId;
+        if (id) {
+          this._updateNode(id, {
+            status: "failed",
+            details: payload.report?.errors?.map(e => ({ text: `${e.renderer}: ${e.error}` })) || []
+          });
+          this._visualRenderNodeId = null;
+        }
         break;
       }
 
@@ -783,6 +919,18 @@ export class FlowBuilder {
           metrics: { duration: payload.duration }
         });
         if (this.parentStack[this.parentStack.length - 1] === id) this.parentStack.pop();
+        break;
+      }
+
+      case "design.generate.ended": {
+        const parentId = this._getCurrentParent();
+        const id = this._genId("gen_end");
+        this._addNode(id, "checkpoint", {
+          label: "Generation Done",
+          status: "completed",
+          parentNodeId: parentId,
+          metrics: { slides: payload.slideCount, batches: payload.batchCount }
+        });
         break;
       }
 
@@ -827,9 +975,23 @@ export class FlowBuilder {
       case "design.slide.failed": {
         const slideIndex = typeof payload.slideIndex === "number" ? payload.slideIndex : 0;
         const id = this.designSlideNodes.get(slideIndex) || `slide_${slideIndex}`;
+        const errorMsg = typeof payload.error === "object" ? payload.error?.message : payload.error;
         this._updateNode(id, {
           status: "failed",
-          details: [{ text: `Failed: ${payload.error || "unknown error"}` }]
+          details: [{ text: `Failed: ${errorMsg || "unknown error"}` }]
+        });
+        break;
+      }
+
+      case "design.degraded": {
+        const slideIndex = typeof payload.slideIndex === "number" ? payload.slideIndex : undefined;
+        const parentId = this._getCurrentParent();
+        const id = this._genId("degraded");
+        this._addNode(id, "error", {
+          label: slideIndex !== undefined ? `S${slideIndex + 1} Degraded` : "Degraded",
+          status: "failed",
+          parentNodeId: parentId,
+          details: [{ text: payload.reason || "Quality degradation detected" }]
         });
         break;
       }
@@ -841,6 +1003,39 @@ export class FlowBuilder {
           status: "completed",
           metrics: { duration: payload.duration }
         });
+        break;
+      }
+
+      case "design.refine.step": {
+        const parentId = this._getCurrentParent();
+        const id = this._genId("refine_step");
+        this._addNode(id, "iteration", {
+          label: `Refine ${payload.step || "Step"}`,
+          status: "running",
+          parentNodeId: parentId,
+          metrics: { iteration: payload.iteration, target: payload.target }
+        });
+        this._refineStepNodeId = id;
+        break;
+      }
+
+      case "design.refine.ended": {
+        if (this._refineStepNodeId) {
+          this._updateNode(this._refineStepNodeId, {
+            status: "completed",
+            metrics: { improvements: payload.improvements }
+          });
+          this._refineStepNodeId = null;
+        } else {
+          const parentId = this._getCurrentParent();
+          const id = this._genId("refine_end");
+          this._addNode(id, "checkpoint", {
+            label: "Refine Done",
+            status: "completed",
+            parentNodeId: parentId,
+            metrics: { improvements: payload.improvements }
+          });
+        }
         break;
       }
 
@@ -906,6 +1101,9 @@ export class FlowBuilder {
     this.externalProgress = [];
     this.designBatchNodes.clear();
     this.designSlideNodes.clear();
+    this.designImageNodes.clear();
+    this._refineStepNodeId = null;
+    this._visualRenderNodeId = null;
   }
 }
 

@@ -742,6 +742,7 @@ export class DeepSearchStage {
       }
 
     const sources = Array.isArray(state?.L0?.sources) ? state.L0.sources : [];
+    const assets = Array.isArray(state?.L0?.assets) ? state.L0.assets : [];
     const slideIntents = Array.isArray(state?.L1?.slideIntents) ? state.L1.slideIntents : [];
     const claims = Array.isArray(state?.L1?.claims) ? state.L1.claims : [];
     const evidenceLedger = Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : [];
@@ -759,6 +760,7 @@ export class DeepSearchStage {
       openQuestions: Array.isArray(state?.L1?.openQuestions) ? state.L1.openQuestions : [],
       outlineCandidates: Array.isArray(state?.L1?.outlineCandidates) ? state.L1.outlineCandidates : [],
       report: state?.L1?.report || null,
+      assets,
     });
 
     if (pkg?.metrics) {
