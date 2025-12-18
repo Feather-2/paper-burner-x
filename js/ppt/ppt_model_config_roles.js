@@ -16,6 +16,7 @@
 
   const loadConfig = (...args) => (ns.core && typeof ns.core.loadConfig === 'function' ? ns.core.loadConfig(...args) : null);
   const saveConfig = (...args) => { if (ns.core && typeof ns.core.saveConfig === 'function') ns.core.saveConfig(...args); };
+  const showSaveSuccess = (msg) => { if (ns.core && typeof ns.core.showSaveSuccess === 'function') ns.core.showSaveSuccess(msg); };
 
   const splitFullModelKey = (fullKey) => {
     if (ns.table && typeof ns.table.splitFullModelKey === 'function') return ns.table.splitFullModelKey(fullKey);

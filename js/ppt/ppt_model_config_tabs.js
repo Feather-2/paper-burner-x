@@ -349,6 +349,13 @@
 
 
   function renderTab2Content(panel) {
+    // Load concurrency config
+    let concurrencyConfig = { batchSize: 4, batchConcurrency: 2, imageConcurrency: 4 };
+    try {
+      const raw = localStorage.getItem('ppt_designConcurrency');
+      if (raw) concurrencyConfig = { ...concurrencyConfig, ...JSON.parse(raw) };
+    } catch (_) {}
+
     panel.innerHTML = `
       <div class="pmc-tab-layout">
         <div class="pmc-tab-left">
@@ -357,6 +364,32 @@
             角色列表
           </div>
           <div id="pmc-roles-list" class="pmc-list"></div>
+
+          <div class="pmc-panel-title" style="margin-top: 20px;">
+            <iconify-icon icon="carbon:meter" width="18"></iconify-icon>
+            并发设置
+          </div>
+          <div class="pmc-concurrency-settings" style="padding: 12px; background: #f8fafc; border-radius: 8px;">
+            <div class="pmc-form-group" style="margin-bottom: 12px;">
+              <label style="display: block; font-size: 12px; color: #64748b; margin-bottom: 4px;">批量大小 (batchSize)</label>
+              <input type="number" id="pmc-batch-size" class="pmc-input" value="${concurrencyConfig.batchSize}" min="1" style="width: 100%;">
+              <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">每批处理的幻灯片数量</div>
+            </div>
+            <div class="pmc-form-group" style="margin-bottom: 12px;">
+              <label style="display: block; font-size: 12px; color: #64748b; margin-bottom: 4px;">批量并发 (batchConcurrency)</label>
+              <input type="number" id="pmc-batch-concurrency" class="pmc-input" value="${concurrencyConfig.batchConcurrency}" min="1" style="width: 100%;">
+              <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">同时处理的批次数</div>
+            </div>
+            <div class="pmc-form-group" style="margin-bottom: 12px;">
+              <label style="display: block; font-size: 12px; color: #64748b; margin-bottom: 4px;">图片并发 (imageConcurrency)</label>
+              <input type="number" id="pmc-image-concurrency" class="pmc-input" value="${concurrencyConfig.imageConcurrency}" min="1" style="width: 100%;">
+              <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">同时生成的图片数</div>
+            </div>
+            <button id="pmc-save-concurrency" class="pmc-btn-save" style="width: 100%;">
+              <iconify-icon icon="carbon:save" width="16"></iconify-icon>
+              保存并发设置
+            </button>
+          </div>
         </div>
         <div class="pmc-tab-right">
           <div class="pmc-panel-title">
@@ -380,6 +413,15 @@
         </div>
       </div>
     `;
+
+    // Bind concurrency save button
+    panel.querySelector('#pmc-save-concurrency')?.addEventListener('click', () => {
+      const batchSize = Math.max(1, parseInt(panel.querySelector('#pmc-batch-size')?.value) || 4);
+      const batchConcurrency = Math.max(1, parseInt(panel.querySelector('#pmc-batch-concurrency')?.value) || 2);
+      const imageConcurrency = Math.max(1, parseInt(panel.querySelector('#pmc-image-concurrency')?.value) || 4);
+      localStorage.setItem('ppt_designConcurrency', JSON.stringify({ batchSize, batchConcurrency, imageConcurrency }));
+      showSaveSuccess('并发设置已保存');
+    });
 
     const rolesListEl = panel.querySelector('#pmc-roles-list');
     const roleTitleEl = panel.querySelector('#pmc-role-title');

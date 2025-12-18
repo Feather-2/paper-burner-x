@@ -71,26 +71,29 @@
   // ========== 高级设置 & 交互助手 ==========
 
   function toggleAdvancedSettings() {
-      const panel = document.getElementById('pmc-image-settings-panel');
+      const imagePanel = document.getElementById('pmc-image-settings-panel');
+      const concurrencyPanel = document.getElementById('pmc-concurrency-settings-panel');
       const chevron = document.getElementById('pmc-settings-chevron');
       const btn = document.getElementById('ppt-image-processor-settings');
-      
-      if (!panel) return;
-      const computedDisplay = window.getComputedStyle(panel).display;
+
+      if (!imagePanel) return;
+      const computedDisplay = window.getComputedStyle(imagePanel).display;
       const isVisible = computedDisplay !== 'none';
-      
+
       if (isVisible) {
-          panel.style.display = 'none';
+          imagePanel.style.display = 'none';
+          if (concurrencyPanel) concurrencyPanel.style.display = 'none';
           if (chevron) chevron.setAttribute('icon', 'carbon:chevron-down');
-          if (btn) btn.innerHTML = '<iconify-icon icon="carbon:chevron-down" width="16" id="pmc-settings-chevron"></iconify-icon> 展开图片处理设置';
+          if (btn) btn.innerHTML = '<iconify-icon icon="carbon:chevron-down" width="16" id="pmc-settings-chevron"></iconify-icon> 展开高级设置';
       } else {
-          panel.style.display = 'block';
+          imagePanel.style.display = 'block';
+          if (concurrencyPanel) concurrencyPanel.style.display = 'block';
           if (chevron) chevron.setAttribute('icon', 'carbon:chevron-up');
-          if (btn) btn.innerHTML = '<iconify-icon icon="carbon:chevron-up" width="16" id="pmc-settings-chevron"></iconify-icon> 收起图片处理设置';
-          
+          if (btn) btn.innerHTML = '<iconify-icon icon="carbon:chevron-up" width="16" id="pmc-settings-chevron"></iconify-icon> 收起高级设置';
+
           // Smooth scroll to show the panel
           setTimeout(() => {
-              panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+              imagePanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
           }, 50);
       }
   }

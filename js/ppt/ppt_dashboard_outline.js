@@ -462,14 +462,16 @@
     addOutlineItem() {
         if (!this.workflowData.outline) this.workflowData.outline = [];
         this.workflowData.outline.push({ title: "新章节", subs: ["新子项"] });
-        this.renderPreviewArea();
+        this._debouncedRenderOutline?.() || this.renderPreviewArea();
     },
 
 
     removeOutlineItem(index) {
         if (!this.workflowData.outline) return;
-        this.workflowData.outline.splice(index, 1);
-        this.renderPreviewArea();
+        if (this.workflowData.outline[index]) {
+            this.workflowData.outline.splice(index, 1);
+            this._debouncedRenderOutline?.() || this.renderPreviewArea();
+        }
     },
 
 

@@ -56,6 +56,31 @@
     return document.getElementById('ppt-model-config-modal');
   }
 
+  function initConcurrencySettings() {
+    let config = { batchSize: 4, batchConcurrency: 2, imageConcurrency: 4 };
+    try {
+      const raw = localStorage.getItem('ppt_designConcurrency');
+      if (raw) config = { ...config, ...JSON.parse(raw) };
+    } catch (_) {}
+
+    const batchSizeEl = document.getElementById('pmc-batch-size');
+    const batchConcurrencyEl = document.getElementById('pmc-batch-concurrency');
+    const imageConcurrencyEl = document.getElementById('pmc-image-concurrency');
+    const saveBtn = document.getElementById('pmc-save-concurrency');
+
+    if (batchSizeEl) batchSizeEl.value = config.batchSize;
+    if (batchConcurrencyEl) batchConcurrencyEl.value = config.batchConcurrency;
+    if (imageConcurrencyEl) imageConcurrencyEl.value = config.imageConcurrency;
+
+    saveBtn?.addEventListener('click', () => {
+      const batchSize = Math.max(1, parseInt(batchSizeEl?.value) || 4);
+      const batchConcurrency = Math.max(1, parseInt(batchConcurrencyEl?.value) || 2);
+      const imageConcurrency = Math.max(1, parseInt(imageConcurrencyEl?.value) || 4);
+      localStorage.setItem('ppt_designConcurrency', JSON.stringify({ batchSize, batchConcurrency, imageConcurrency }));
+      showSaveSuccess('并发设置已保存');
+    });
+  }
+
   function renderModal() {
     if (document.getElementById('ppt-model-config-modal')) return;
 
@@ -168,13 +193,48 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Concurrency Settings -->
+            <div id="pmc-concurrency-settings-panel" class="pmc-advanced-settings" style="margin-top: 12px;">
+                <div class="pmc-advanced-header">
+                    <iconify-icon icon="carbon:meter" width="16"></iconify-icon>
+                    Design Agent 并发设置
+                </div>
+                <div class="pmc-advanced-body">
+                    <div class="pmc-col" style="border:none; padding:0; background:transparent;">
+                        <div class="pmc-form-group">
+                            <label class="pmc-label">批量大小 (batchSize)</label>
+                            <input type="number" id="pmc-batch-size" class="pmc-input" min="1" style="width: 100%;">
+                            <div class="pmc-hint-text">每批处理的幻灯片数量</div>
+                        </div>
+                        <div class="pmc-form-group" style="margin-top: 12px;">
+                            <label class="pmc-label">批量并发 (batchConcurrency)</label>
+                            <input type="number" id="pmc-batch-concurrency" class="pmc-input" min="1" style="width: 100%;">
+                            <div class="pmc-hint-text">同时处理的批次数</div>
+                        </div>
+                    </div>
+                    <div class="pmc-col" style="border:none; padding:0; background:transparent;">
+                        <div class="pmc-form-group">
+                            <label class="pmc-label">图片并发 (imageConcurrency)</label>
+                            <input type="number" id="pmc-image-concurrency" class="pmc-input" min="1" style="width: 100%;">
+                            <div class="pmc-hint-text">同时生成的图片数</div>
+                        </div>
+                        <div class="pmc-form-group" style="margin-top: 12px;">
+                            <button id="pmc-save-concurrency" class="pmc-btn-save" style="width: 100%;">
+                                <iconify-icon icon="carbon:save" width="16"></iconify-icon>
+                                保存并发设置
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Footer -->
         <div class="pmc-footer">
           <button id="ppt-image-processor-settings" class="pmc-btn-secondary">
             <iconify-icon icon="carbon:chevron-down" width="16" id="pmc-settings-chevron"></iconify-icon>
-            展开图片处理设置
+            展开高级设置
           </button>
           <div id="ppt-image-gen-stats" class="pmc-stats"></div>
         </div>
@@ -189,6 +249,9 @@
 
     // 绑定 Image Settings 事件
     ns.advanced?.bindImageSettingsEvents?.();
+
+    // 并发设置初始化
+    initConcurrencySettings();
 
     // Table + Audio
     ns.table?.initModelTableView?.();
