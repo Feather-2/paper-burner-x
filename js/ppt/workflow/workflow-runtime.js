@@ -315,6 +315,9 @@ export const runtimeMixin = {
             'design.tokens.started': '正在提取设计规范',
             'design.tokens.ended': '设计规范已确定',
             'design.brainstorm.started': '正在进行创意脑暴',
+            'design.brainstorm.batch.started': `脑暴批次 ${(normalizedPayload?.batchIndex || 0) + 1}/${normalizedPayload?.batchCount || '?'}：幻灯片 ${normalizedPayload?.slideIndexes?.map(i => i + 1).join(', ') || ''}`,
+            'design.brainstorm.batch.error': `脑暴批次失败：${normalizedPayload?.error || '未知错误'}${normalizedPayload?.willFallback ? '（将使用备选方案）' : ''}`,
+            'design.brainstorm.slide.completed': `幻灯片 ${(normalizedPayload?.slideIndex ?? 0) + 1} 规划了 ${normalizedPayload?.visualSlotCount || 0} 个视觉槽位`,
             'design.brainstorm.completed': `脑暴完成：${Number.isFinite(totalIdeas) ? totalIdeas : 0} 个候选`,
             'design.image.planning.completed': `图片规划完成：计划 ${normalizedPayload?.planned || 0} 张`,
             'design.generate.ended': `页面生成完成：${normalizedPayload?.slides || 0} 页`,
@@ -572,7 +575,7 @@ export const runtimeMixin = {
                                     throw new Error(`No available model config for: ${modelId || 'auto'}`);
                                 }
 
-                                return await baseAiApiService._callApi(config, messages, temperature, maxTokens);
+                                return await baseAiApiService._callApi(config, messages, temperature, maxTokens, { signal });
                             }
 
                             if (typeof baseAiApiService?.chat !== 'function') throw new Error('aiApiService.chat not available');
@@ -1257,9 +1260,34 @@ export const runtimeMixin = {
                 if (eventName === 'design.brainstorm.started') {
                     progress('正在进行创意脑暴...', 'normal');
                 }
+                if (eventName === 'design.brainstorm.batch.started') {
+                    const p = recordOrPayload?.payload || recordOrPayload || {};
+                    const slides = Array.isArray(p.slideIndexes) ? p.slideIndexes.map(i => i + 1).join(', ') : '';
+                    progress(`脑暴批次 ${(p.batchIndex || 0) + 1}/${p.batchCount || '?'}：幻灯片 ${slides}`, 'normal');
+                }
+                if (eventName === 'design.brainstorm.batch.error') {
+                    const p = recordOrPayload?.payload || recordOrPayload || {};
+                    progress(`脑暴批次失败：${p.error || '未知错误'}`, 'error');
+                }
+                if (eventName === 'design.brainstorm.slide.completed') {
+                    const p = recordOrPayload?.payload || recordOrPayload || {};
+                    const slotCount = p.visualSlotCount || 0;
+                    progress(`幻灯片 ${(p.slideIndex ?? 0) + 1} 已规划 ${slotCount} 个视觉槽位`, 'detail');
+                }
                 if (eventName === 'design.brainstorm.completed') {
                     const p = recordOrPayload?.payload || recordOrPayload || {};
-                    progress(`脑暴完成：${p.totalIdeas || 0} 个创意，${p.imageSlots || 0} 个图像槽位`, 'highlight');
+                    progress(`脑暴完成：${p.totalCandidates || p.totalIdeas || 0} 个候选，${p.imageSlots || p.visualSlots || 0} 个图像槽位`, 'highlight');
+                }
+                if (eventName === 'design.brainstorm.candidates') {
+                    const p = recordOrPayload?.payload || recordOrPayload || {};
+                    const candidates = Array.isArray(p.candidatesBySlide) ? p.candidatesBySlide : [];
+                    if (candidates.length > 0) {
+                        const details = candidates.slice(0, 6).map((c, i) => {
+                            const title = c?.selectedCandidate?.atmosphere?.mood || c?.selectedCandidate?.candidateId || `方案${i + 1}`;
+                            return `P${(c?.slideIndex ?? i) + 1}: ${title}`;
+                        }).join(' | ');
+                        progress(`已选方案: ${details}${candidates.length > 6 ? ' ...' : ''}`, 'detail');
+                    }
                 }
                 if (eventName === 'design.batch.started') {
                     const p = recordOrPayload?.payload || recordOrPayload || {};
@@ -1379,7 +1407,18 @@ export const runtimeMixin = {
                 parseAndStoreSlides(deckHtmlDsl);
                 return deckPackage;
             }
-        }, { actor: 'design', timeoutMs: 600_000 }); // 10 minutes for complex decks
+        }, { actor: 'design', timeoutMs: (() => {
+            try {
+                const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('ppt_designConcurrency') : null;
+                if (raw) {
+                    const cfg = JSON.parse(raw);
+                    if (typeof cfg?.designTimeoutMs === 'number' && cfg.designTimeoutMs > 0) {
+                        return cfg.designTimeoutMs;
+                    }
+                }
+            } catch (_) {}
+            return 600_000; // 10 minutes default
+        })() });
 
         orch.registerStage('evaluate.hardgates', async (ctx, input, api) => {
             api.progress?.({ agent: 'AI 审查', msg: '正在验证输出质量...', type: 'normal' });

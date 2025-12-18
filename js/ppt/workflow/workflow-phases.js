@@ -149,24 +149,39 @@ export const phasesMixin = {
 
     updateOutlineTitle(index, value) {
         if (!this.workflowData.outline) return;
-        this.workflowData.outline[index].title = value;
+        if (this.workflowData.outline[index]) {
+            this.workflowData.outline[index].title = value;
+        }
     },
 
     updateOutlineSub(parentIndex, subIndex, value) {
         if (!this.workflowData.outline) return;
-        this.workflowData.outline[parentIndex].subs[subIndex] = value;
+        if (this.workflowData.outline[parentIndex]?.subs?.[subIndex] !== undefined) {
+            this.workflowData.outline[parentIndex].subs[subIndex] = value;
+        }
     },
 
     addOutlineSub(parentIndex) {
         if (!this.workflowData.outline) return;
-        this.workflowData.outline[parentIndex].subs.push("新子项");
-        this.renderPreviewArea();
+        if (this.workflowData.outline[parentIndex]) {
+            this.workflowData.outline[parentIndex].subs.push("新子项");
+            this._debouncedRenderOutline();
+        }
     },
 
     removeOutlineSub(parentIndex, subIndex) {
         if (!this.workflowData.outline) return;
-        this.workflowData.outline[parentIndex].subs.splice(subIndex, 1);
-        this.renderPreviewArea();
+        if (this.workflowData.outline[parentIndex]?.subs?.[subIndex] !== undefined) {
+            this.workflowData.outline[parentIndex].subs.splice(subIndex, 1);
+            this._debouncedRenderOutline();
+        }
+    },
+
+    _debouncedRenderOutline() {
+        clearTimeout(this._outlineRenderTimer);
+        this._outlineRenderTimer = setTimeout(() => {
+            this.renderPreviewArea();
+        }, 100);
     },
 
     async phase3_Scripting() {
