@@ -3,6 +3,8 @@
  * 检查点保存/恢复、进度恢复 UI
  */
 
+import { WorkflowState, transitionWorkflow, forceWorkflowState } from './workflow-states.js';
+
 let _CheckpointModule = null;
 async function getCheckpointModule() {
     if (_CheckpointModule) return _CheckpointModule;
@@ -120,20 +122,20 @@ export const checkpointMixin = {
 
         const stage = checkpoint.stage || '';
         if (stage === 'deepsearch.complete') {
-            this.state = 'script_review';
+            forceWorkflowState(this, WorkflowState.SCRIPT_REVIEW);
             this.updateTodos?.(this._runtimeTodoTexts.map((text, i) => {
                 if (i < 2) return { text, status: 'completed' };
                 if (i === 2) return { text, status: 'active' };
                 return { text, status: 'pending' };
             }));
         } else if (stage.startsWith('deepsearch')) {
-            this.state = 'deepsearch_review';
+            forceWorkflowState(this, WorkflowState.DEEPSEARCH_REVIEW);
         } else if (stage === 'design.script') {
-            this.state = 'script_review';
+            forceWorkflowState(this, WorkflowState.SCRIPT_REVIEW);
         } else if (stage === 'design.layout') {
-            this.state = 'page_layout';
+            forceWorkflowState(this, WorkflowState.PAGE_LAYOUT);
         } else if (stage.startsWith('design')) {
-            this.state = 'designer';
+            forceWorkflowState(this, WorkflowState.DESIGNER);
         }
 
         this.renderPreviewArea?.();

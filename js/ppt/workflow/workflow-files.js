@@ -3,6 +3,8 @@
  * 文件上传、粘贴文档、PPTX 导入
  */
 
+import { WorkflowState, transitionWorkflow, forceWorkflowState } from './workflow-states.js';
+
 export const filesMixin = {
     handleFileUpload(fileList) {
         const newFiles = Array.from(fileList).map(f => ({
@@ -60,7 +62,7 @@ export const filesMixin = {
             this.logTerminal('系统', '正在扫描文档结构...', 'normal');
         }
 
-        this.state = 'scanning';
+        transitionWorkflow(this, WorkflowState.SCANNING);
         this.renderPreviewArea?.();
 
         // 快速扫描：提取标题和结构
@@ -87,7 +89,7 @@ export const filesMixin = {
         }
 
         // 进入规划界面
-        this.state = 'outline_planning';
+        transitionWorkflow(this, WorkflowState.OUTLINE_PLANNING);
         this.renderPreviewArea?.();
 
         // 打开规划器 modal
@@ -171,7 +173,7 @@ export const filesMixin = {
             this.logTerminal('系统', '长文档已加载，将进行深度分析。请设置项目目标后开始。', 'normal');
         }
 
-        this.state = 'idle';
+        forceWorkflowState(this, WorkflowState.IDLE);
         this.renderPreviewArea();
 
         if (typeof this.openProjectBriefForm === 'function') {
@@ -183,7 +185,7 @@ export const filesMixin = {
         await this._ensureRuntime({ mode: 'textprep' });
 
         if (typeof this.logTerminal === 'function') this.logTerminal('系统', '开始处理粘贴文档...', 'normal');
-        this.state = 'reading';
+        transitionWorkflow(this, WorkflowState.READING);
         if (Array.isArray(this._runtimeTodoTexts) && typeof this.updateTodos === 'function') {
             this.updateTodos(this._runtimeTodoTexts.map((text, i) => ({ text, status: i === 0 ? 'active' : 'pending' })));
         }
@@ -208,7 +210,7 @@ export const filesMixin = {
         this.workflowData._useDeepSearch = false;
 
         if (typeof this.logTerminal === 'function') this.logTerminal('系统', '文档已解析，点击确认后将进行 AI 分析', 'normal');
-        this.state = 'script_review';
+        transitionWorkflow(this, WorkflowState.SCRIPT_REVIEW);
         if (Array.isArray(this._runtimeTodoTexts) && typeof this.updateTodos === 'function') {
             this.updateTodos(this._runtimeTodoTexts.map((text, i) => {
                 if (i < 2) return { text, status: 'completed' };
@@ -425,6 +427,7 @@ export const filesMixin = {
         try {
             if (!pptxFile) throw new Error('请选择 PPTX 文件');
 
+            transitionWorkflow(this, WorkflowState.READING);
             const filename = typeof pptxFile?.name === 'string' ? pptxFile.name : 'slides.pptx';
             const Parser = await this._ensurePptxSlideParser();
             const parser = new Parser();
@@ -453,13 +456,15 @@ export const filesMixin = {
             await this._ensureRuntime({ mode: 'textprep' });
             this._orchestrator?.start?.();
 
-            this.state = 'designer';
+            transitionWorkflow(this, WorkflowState.SCRIPT_REVIEW);
+            transitionWorkflow(this, WorkflowState.PAGE_LAYOUT);
+            transitionWorkflow(this, WorkflowState.DESIGNER);
             this.renderPreviewArea?.();
 
             await this._orchestrator.runStage('design.batch', { contentPackage: this.workflowData.contentPackage });
 
             if (autoOpenAfter) {
-                this.state = 'completed';
+                transitionWorkflow(this, WorkflowState.COMPLETED);
                 this.renderPreviewArea?.();
             }
 
@@ -468,7 +473,7 @@ export const filesMixin = {
             const msg = err instanceof Error ? err.message : String(err || 'unknown error');
             console.warn('[importPptxAsDeck] failed:', err);
             this.addChatMessage?.('ai', `PPTX 导入失败：${msg}。已回退到手动输入流程。`);
-            this.state = 'idle';
+            forceWorkflowState(this, WorkflowState.IDLE);
             this.renderPreviewArea?.();
             try {
                 this.openPasteDocumentModal?.();
