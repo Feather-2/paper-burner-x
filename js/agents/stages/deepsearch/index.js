@@ -21,6 +21,7 @@ import { createPhaseHandlers, subscribePhaseTransitions } from "./phase-handlers
 import { BudgetAction, createBudgetManager } from "./budget.js";
 import { validateUserConfig } from "./config-schema.js";
 import { extractServices } from "./stage-api.js";
+import { EventBus } from "../../runtime/event-bus.js";
 
 function validateSourceChunksOrThrow(sources) {
   for (const s of Array.isArray(sources) ? sources : []) {
@@ -313,9 +314,19 @@ export class DeepSearchStage {
     // 创建 SharedContext 用于阶段间通信和分层记忆
     const sharedCtx = new SharedContext({ runId: state.runId });
 
+    const eventBus = stageApi?.eventBus ?? new EventBus({ runId: state.runId });
     const baseEmitFn = typeof stageApi?.emit === "function" ? stageApi.emit.bind(stageApi) : null;
-    const tap = createEmitTap(baseEmitFn);
-    const stageApiWithTap = { ...(isPlainObject(stageApi) ? stageApi : {}), emit: tap.emit };
+    const emitWithBus = baseEmitFn
+      ? (name, record) => {
+          const result = baseEmitFn(name, record);
+          if (!stageApi?.eventBus) {
+            eventBus.emit(name, record);
+          }
+          return result;
+        }
+      : eventBus.emit.bind(eventBus);
+    const tap = createEmitTap(emitWithBus);
+    const stageApiWithTap = { ...(isPlainObject(stageApi) ? stageApi : {}), emit: tap.emit, eventBus };
 
     let currentStage = "deepsearch";
     const logger = createLogger({
@@ -503,33 +514,38 @@ export class DeepSearchStage {
       budgetManager.onThresholdReached?.({ action: BudgetAction.DEGRADE, usage: budgetManager.usage, limits: budgetManager.limits, ratio: preflightMaxRatio });
     }
 
-    tap.on("deepsearch.budget.exceeded", ({ record }) => {
-      const payload = isPlainObject(record) && "payload" in record ? record.payload : record;
-      const action = typeof budgetConfig?.action === "string" ? budgetConfig.action : "warn";
+    let unsubBudgetExceeded = () => {};
+    let unsubTokenUsage = () => {};
 
-      state.addTimeline?.({
-        name: "deepsearch.budget.exceeded",
-        status: action === "warn" ? "warning" : "info",
-        payload: { ...(payload && typeof payload === "object" ? payload : {}), action },
-      });
+    unsubBudgetExceeded = eventBus.subscribe(
+      DeepSearchEvents.BUDGET_EXCEEDED,
+      ({ payload }) => {
+        const action = typeof budgetConfig?.action === "string" ? budgetConfig.action : "warn";
 
-      if (action === "degrade") {
-        const curIt = safeInt(state.iteration) ?? 0;
-        const nextMax = curIt + 1;
-        const prevMax = safeInt(state.maxIterations) ?? nextMax;
-        state.maxIterations = Math.min(prevMax, nextMax);
-        state.addTimeline?.({ name: "deepsearch.budget.degraded", status: "warning", payload: { maxIterations: state.maxIterations, iteration: state.iteration } });
-        return;
-      }
+        state.addTimeline?.({
+          name: DeepSearchEvents.BUDGET_EXCEEDED,
+          status: action === "warn" ? "warning" : "info",
+          payload: { ...(payload && typeof payload === "object" ? payload : {}), action },
+        });
 
-      if (action === "stop") {
-        budgetStopRequested = true;
-        state.addTimeline?.({ name: "deepsearch.budget.stop", status: "warning", payload: { iteration: state.iteration } });
-      }
-    });
+        if (action === "degrade") {
+          const curIt = safeInt(state.iteration) ?? 0;
+          const nextMax = curIt + 1;
+          const prevMax = safeInt(state.maxIterations) ?? nextMax;
+          state.maxIterations = Math.min(prevMax, nextMax);
+          state.addTimeline?.({ name: "deepsearch.budget.degraded", status: "warning", payload: { maxIterations: state.maxIterations, iteration: state.iteration } });
+          return;
+        }
 
-    tap.on("deepsearch.token.usage", ({ record }) => {
-      const payload = isPlainObject(record) && "payload" in record ? record.payload : record;
+        if (action === "stop") {
+          budgetStopRequested = true;
+          state.addTimeline?.({ name: "deepsearch.budget.stop", status: "warning", payload: { iteration: state.iteration } });
+        }
+      },
+      { priority: 10 }
+    );
+
+    unsubTokenUsage = eventBus.subscribe(DeepSearchEvents.TOKEN_USAGE, ({ payload }) => {
       const usage = isPlainObject(payload?.usage) ? payload.usage : null;
       const input = safeInt(usage?.input) ?? 0;
       const output = safeInt(usage?.output) ?? 0;
@@ -1305,6 +1321,8 @@ export class DeepSearchStage {
       if (taskManager && taskId) taskManager.fail(taskId, err);
       throw err;
     } finally {
+      unsubBudgetExceeded();
+      unsubTokenUsage();
       tap.destroy();
     }
   }
