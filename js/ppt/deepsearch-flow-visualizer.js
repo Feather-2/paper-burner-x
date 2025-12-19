@@ -78,6 +78,9 @@ export class FlowBuilder {
     this.designImageNodes = new Map(); // imageId -> nodeId
     this._refineStepNodeId = null;
     this._visualRenderNodeId = null;
+    this._allEvents = []; // 存储所有处理过的事件用于点选查询
+    this._eventNodeMap = new Map(); // eventId -> nodeId 映射
+    this._nodeEventMap = new Map(); // nodeId -> [eventId] 映射
   }
 
   _genId(prefix = "n") {
@@ -119,6 +122,14 @@ export class FlowBuilder {
     // 建立边：连接到父节点
     if (parentId && parentId !== id) {
       this._addEdge(parentId, id);
+    }
+
+    // 记录事件映射（如果有 eventId）
+    if (data.eventId) {
+      this._eventNodeMap.set(data.eventId, id);
+      const nodeEvents = this._nodeEventMap.get(id) || [];
+      nodeEvents.push(data.eventId);
+      this._nodeEventMap.set(id, nodeEvents);
     }
 
     return node;
@@ -167,6 +178,11 @@ export class FlowBuilder {
   processEvent(event) {
     const name = event?.name || event;
     const payload = event?.payload || event?.record?.payload || event?.record || {};
+
+    // 存储事件用于点选查询
+    if (event?.eventId) {
+      this._allEvents.push(event);
+    }
 
     switch (name) {
       // === 生命周期 ===
@@ -1085,6 +1101,29 @@ export class FlowBuilder {
     };
   }
 
+  getEventsForNode(nodeId) {
+    const eventIds = this._nodeEventMap.get(nodeId) || [];
+    return this._allEvents.filter(e => eventIds.includes(e.eventId));
+  }
+
+  getNodeForEvent(eventId) {
+    return this._eventNodeMap.get(eventId);
+  }
+
+  getAllEvents() {
+    return this._allEvents;
+  }
+
+  findEventsByFilter(filter) {
+    return this._allEvents.filter(e => {
+      if (filter.nodeId && e.payload?.nodeId !== filter.nodeId) return false;
+      if (filter.gapId && e.payload?.gapId !== filter.gapId) return false;
+      if (filter.trajectoryId && e.payload?.trajectoryId !== filter.trajectoryId) return false;
+      if (filter.stage && !e.name?.includes(filter.stage)) return false;
+      return true;
+    });
+  }
+
   reset() {
     this.nodes = [];
     this.edges = [];
@@ -1107,6 +1146,9 @@ export class FlowBuilder {
     this.designImageNodes.clear();
     this._refineStepNodeId = null;
     this._visualRenderNodeId = null;
+    this._allEvents = [];
+    this._eventNodeMap.clear();
+    this._nodeEventMap.clear();
   }
 }
 
@@ -1251,7 +1293,7 @@ export async function initDeepSearchFlow(containerId, options = {}) {
         width: 260,
         background: colors.bg,
         borderRadius: 16,
-        border: borderStyle,
+        border: data.highlighted ? `2px solid ${colors.dot}` : borderStyle,
         fontFamily: "'Inter', sans-serif",
         opacity,
         boxShadow: colors.shadow,
@@ -1553,6 +1595,49 @@ export async function initDeepSearchFlow(containerId, options = {}) {
         if (names.has(name)) return this.processEvent(event);
         if (prefixes.some(p => name.startsWith(p))) return this.processEvent(event);
       });
+    },
+    onNodeClick(nodeId, callback) {
+      const events = builder.getEventsForNode(nodeId);
+      callback?.(events, nodeId);
+      return events;
+    },
+    seekToEvent(eventId) {
+      const nodeId = builder.getNodeForEvent(eventId);
+      if (!nodeId) return null;
+
+      const instance = flowApi?.getInstance?.();
+      if (!instance) return nodeId;
+
+      const { nodes } = builder.getFlowData();
+      const node = nodes.find(n => n.id === nodeId);
+      if (node) {
+        instance.setCenter(
+          node.position.x + 140,
+          node.position.y + 40,
+          { duration: 300, zoom: 1 }
+        );
+      }
+
+      return nodeId;
+    },
+    highlightNode(nodeId, highlight = true) {
+      if (!flowApi) return;
+      flowApi.setNodes(nds => nds.map(n => ({
+        ...n,
+        data: {
+          ...n.data,
+          highlighted: n.id === nodeId ? highlight : false
+        }
+      })));
+    },
+    getEventsForNode(nodeId) {
+      return builder.getEventsForNode(nodeId);
+    },
+    getAllEvents() {
+      return builder.getAllEvents();
+    },
+    findEvents(filter) {
+      return builder.findEventsByFilter(filter);
     },
     getStats() {
       return builder.getStats();

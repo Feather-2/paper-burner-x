@@ -4,6 +4,8 @@
  */
 
 import { WorkflowState, transitionWorkflow, forceWorkflowState } from './workflow-states.js';
+import { RunStoreAdapter } from '../../agents/runtime/event-bus.js';
+import { RunStore } from '../../agents/storage/run-store.js';
 
 let _TextPrepStage = null;
 async function getTextPrepStage() {
@@ -649,11 +651,34 @@ export const runtimeMixin = {
             whisperApi,
         };
 
+        // 生成 runId
+        this._currentRunId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+        // 尝试创建持久化 EventBus，IndexedDB 不可用时降级为内存模式
+        let persistenceAdapter = null;
+        try {
+            this._runStore = new RunStore({ dbName: 'PPTWorkflowDB' });
+            await this._runStore.open();
+            persistenceAdapter = new RunStoreAdapter(this._runStore);
+        } catch (err) {
+            console.warn('[Workflow] IndexedDB not available, running without persistence:', err?.message || err);
+            this._runStore = null;
+        }
+
+        // 创建 EventBus（有或没有持久化适配器）
+        const { EventBus } = await import('../../agents/runtime/event-bus.js');
+        const eventBus = new EventBus({
+            runId: this._currentRunId,
+            ...(persistenceAdapter ? { persistenceAdapter } : {})
+        });
+
         this._orchestrator = new AgentOrchestrator({
             mode,
             scenario,
             constraints,
-            services
+            services,
+            eventBus,  // 传入带持久化的 eventBus
+            runId: this._currentRunId
         });
 
         // Stage order drives todo/agent updates via subscribed events.
@@ -685,6 +710,62 @@ export const runtimeMixin = {
 
         this._attachRuntimeEventHandlers();
         await this._registerWorkflowStages();
+    },
+    _getRunStorePath() {
+        return 'PPTWorkflowDB';
+    },
+
+    async _loadFlowVizEvents() {
+        if (!this._runStore || !this._currentRunId) {
+            return { deepsearch: [], design: [] };
+        }
+
+        try {
+            const events = await this._runStore.getEvents(this._currentRunId);
+            const deepsearch = events.filter(e =>
+                e.name?.startsWith('deepsearch.') ||
+                e.name === 'iteration.completed'
+            );
+            const design = events.filter(e => e.name?.startsWith('design.'));
+
+            return { deepsearch, design };
+        } catch (err) {
+            console.warn('[Workflow] Failed to load flow viz events:', err);
+            return { deepsearch: [], design: [] };
+        }
+    },
+
+    async replayRun(runId) {
+        if (!this._orchestrator?.eventBus) {
+            console.warn('[Workflow] Cannot replay: eventBus not available');
+            return [];
+        }
+
+        try {
+            const events = await this._orchestrator.eventBus.replay(runId);
+            console.log(`[Workflow] Replayed ${events.length} events for run ${runId}`);
+
+            // 触发可视化更新
+            this._scheduleVizRerender?.();
+
+            return events;
+        } catch (err) {
+            console.error('[Workflow] Replay failed:', err);
+            return [];
+        }
+    },
+
+    async listRuns() {
+        if (!this._runStore) {
+            return [];
+        }
+
+        try {
+            return await this._runStore.listRuns();
+        } catch (err) {
+            console.warn('[Workflow] Failed to list runs:', err);
+            return [];
+        }
     },
     _attachRuntimeEventHandlers() {
         if (this._runtimeUnsubs) {
