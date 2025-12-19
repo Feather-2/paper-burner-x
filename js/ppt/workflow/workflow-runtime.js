@@ -4,8 +4,10 @@
  */
 
 import { WorkflowState, transitionWorkflow, forceWorkflowState } from './workflow-states.js';
+import { WorkflowTodoStatus } from '../../agents/runtime/constants.js';
 import { RunStoreAdapter } from '../../agents/runtime/event-bus.js';
 import { RunStore } from '../../agents/storage/run-store.js';
+import { DesignDensity, DesignVisualMode, normalizeDesignDensity, normalizeDesignVisualMode } from '../design-preferences.js';
 
 let _TextPrepStage = null;
 async function getTextPrepStage() {
@@ -129,9 +131,9 @@ export const runtimeMixin = {
         transitionWorkflow(this, WorkflowState.PAGE_LAYOUT);
         this.renderPreviewArea?.();
         this.updateTodos?.(this._runtimeTodoTexts.map((text, i) => {
-            if (i < 3) return { text, status: 'completed' };
-            if (i === 3) return { text, status: 'active' };
-            return { text, status: 'pending' };
+            if (i < 3) return { text, status: WorkflowTodoStatus.COMPLETED };
+            if (i === 3) return { text, status: WorkflowTodoStatus.ACTIVE };
+            return { text, status: WorkflowTodoStatus.PENDING };
         }));
         this.phase3_PageLayout?.();
     },
@@ -408,18 +410,14 @@ export const runtimeMixin = {
         if (legacyVisualPref && typeof overrides.visualPreference.mode !== 'string' && typeof legacyVisualPref.mode === 'string') {
             overrides.visualPreference.mode = legacyVisualPref.mode;
         }
-        const allowedVisualModes = new Set(['ai-first', 'svg-first', 'balanced']);
-        if (typeof overrides.visualPreference.mode !== 'string' || !allowedVisualModes.has(overrides.visualPreference.mode)) {
-            overrides.visualPreference.mode = 'balanced';
-        }
+        overrides.visualPreference.mode = normalizeDesignVisualMode(overrides.visualPreference.mode, DesignVisualMode.BALANCED);
 
         // Legacy aliases (kept for existing UI + stored projects)
         ds.colors = overrides.colors;
         ds.fonts = overrides.typography;
         ds.visualPreference = overrides.visualPreference;
 
-        const allowedDensity = new Set(['compact', 'balanced', 'spacious']);
-        if (typeof ds.density !== 'string' || !allowedDensity.has(ds.density)) ds.density = 'balanced';
+        ds.density = normalizeDesignDensity(ds.density, DesignDensity.BALANCED);
 
         if (typeof ds.model !== 'string') ds.model = 'gemini-1.5-pro';
 
@@ -785,7 +783,10 @@ export const runtimeMixin = {
         if (name === 'run.started') {
             this._resetFlowVizEventStore();
             forceWorkflowState(this, WorkflowState.READING);
-            this.updateTodos(this._runtimeTodoTexts.map((text, i) => ({ text, status: i === 0 ? 'active' : 'pending' })));
+            this.updateTodos(this._runtimeTodoTexts.map((text, i) => ({
+                text,
+                status: i === 0 ? WorkflowTodoStatus.ACTIVE : WorkflowTodoStatus.PENDING,
+            })));
             this.renderPreviewArea();
             return;
         }
@@ -1065,9 +1066,9 @@ export const runtimeMixin = {
         if (stageStatus === 'started') {
             this._setAgentStatus(ui.agentId, 'active', ui.started);
             this.updateTodos(this._runtimeTodoTexts.map((text, i) => {
-                if (i < ui.todoIndex) return { text, status: 'completed' };
-                if (i === ui.todoIndex) return { text, status: 'active' };
-                return { text, status: 'pending' };
+                if (i < ui.todoIndex) return { text, status: WorkflowTodoStatus.COMPLETED };
+                if (i === ui.todoIndex) return { text, status: WorkflowTodoStatus.ACTIVE };
+                return { text, status: WorkflowTodoStatus.PENDING };
             }));
         }
 
@@ -1076,8 +1077,8 @@ export const runtimeMixin = {
             // Some steps have a user-confirmation gap after the model finishes generating.
             if (stageName !== 'deepsearch.questions') {
                 this.updateTodos(this._runtimeTodoTexts.map((text, i) => {
-                    if (i <= ui.todoIndex) return { text, status: 'completed' };
-                    return { text, status: 'pending' };
+                    if (i <= ui.todoIndex) return { text, status: WorkflowTodoStatus.COMPLETED };
+                    return { text, status: WorkflowTodoStatus.PENDING };
                 }));
             }
         }

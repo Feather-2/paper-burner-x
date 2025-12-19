@@ -4,6 +4,7 @@
  */
 
 import { WorkflowState, transitionWorkflow, forceWorkflowState } from './workflow-states.js';
+import { WorkflowTodoStatus } from '../../agents/runtime/constants.js';
 
 export const filesMixin = {
     handleFileUpload(fileList) {
@@ -187,7 +188,10 @@ export const filesMixin = {
         if (typeof this.logTerminal === 'function') this.logTerminal('系统', '开始处理粘贴文档...', 'normal');
         transitionWorkflow(this, WorkflowState.READING);
         if (Array.isArray(this._runtimeTodoTexts) && typeof this.updateTodos === 'function') {
-            this.updateTodos(this._runtimeTodoTexts.map((text, i) => ({ text, status: i === 0 ? 'active' : 'pending' })));
+            this.updateTodos(this._runtimeTodoTexts.map((text, i) => ({
+                text,
+                status: i === 0 ? WorkflowTodoStatus.ACTIVE : WorkflowTodoStatus.PENDING,
+            })));
         }
         this.renderPreviewArea();
 
@@ -213,9 +217,9 @@ export const filesMixin = {
         transitionWorkflow(this, WorkflowState.SCRIPT_REVIEW);
         if (Array.isArray(this._runtimeTodoTexts) && typeof this.updateTodos === 'function') {
             this.updateTodos(this._runtimeTodoTexts.map((text, i) => {
-                if (i < 2) return { text, status: 'completed' };
-                if (i === 2) return { text, status: 'active' };
-                return { text, status: 'pending' };
+                if (i < 2) return { text, status: WorkflowTodoStatus.COMPLETED };
+                if (i === 2) return { text, status: WorkflowTodoStatus.ACTIVE };
+                return { text, status: WorkflowTodoStatus.PENDING };
             }));
         }
         this.renderPreviewArea();

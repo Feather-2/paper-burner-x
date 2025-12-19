@@ -4,7 +4,12 @@
  */
 
 import { WorkflowState, transitionWorkflow, forceWorkflowState } from './workflow-states.js';
+import { ReportAudience, ReportLength, ReportTone } from '../../agents/runtime/constants.js';
 import { DEFAULT_TASK_GOAL } from './workflow-constants.js';
+
+const REPORT_LENGTHS = new Set(Object.values(ReportLength));
+const REPORT_TONES = new Set(Object.values(ReportTone));
+const REPORT_AUDIENCES = new Set(Object.values(ReportAudience));
 
 export const deepsearchMixin = {
     _ensureDeepSearchViz() {
@@ -337,9 +342,6 @@ export const deepsearchMixin = {
         const reportConfig = this.workflowData?.reportConfig && typeof this.workflowData.reportConfig === 'object'
             ? this.workflowData.reportConfig
             : {};
-        const allowedReportLengths = new Set(['brief', 'standard', 'detailed', 'comprehensive']);
-        const allowedWriteTones = new Set(['academic', 'business', 'casual']);
-        const allowedWriteAudiences = new Set(['expert', 'general', 'executive']);
         const userConfig = {
             title: this.currentProject?.title || 'New Mission',
             ...(stepping ? { maxIterations: 1 } : {}),
@@ -356,9 +358,9 @@ export const deepsearchMixin = {
             // ReAct Writer: 问题驱动的渐进式写作
             write: {
                 writerMode: 'react',
-                reportLength: allowedReportLengths.has(reportConfig.reportLength) ? reportConfig.reportLength : 'standard',
-                tone: allowedWriteTones.has(reportConfig.tone) ? reportConfig.tone : 'business',
-                audience: allowedWriteAudiences.has(reportConfig.audience) ? reportConfig.audience : 'general',
+                reportLength: REPORT_LENGTHS.has(reportConfig.reportLength) ? reportConfig.reportLength : ReportLength.STANDARD,
+                tone: REPORT_TONES.has(reportConfig.tone) ? reportConfig.tone : ReportTone.BUSINESS,
+                audience: REPORT_AUDIENCES.has(reportConfig.audience) ? reportConfig.audience : ReportAudience.GENERAL,
                 enableReviewer: !!reportConfig.enableReviewer,
             },
         };
@@ -444,9 +446,6 @@ export const deepsearchMixin = {
         const reportConfig = this.workflowData?.reportConfig && typeof this.workflowData.reportConfig === 'object'
             ? this.workflowData.reportConfig
             : {};
-        const allowedReportLengths = new Set(['brief', 'standard', 'detailed', 'comprehensive']);
-        const allowedWriteTones = new Set(['academic', 'business', 'casual']);
-        const allowedWriteAudiences = new Set(['expert', 'general', 'executive']);
         const baseUserConfig = input.userConfig && typeof input.userConfig === 'object'
             ? input.userConfig
             : {
@@ -460,15 +459,15 @@ export const deepsearchMixin = {
         baseUserConfig.write = {
             ...writeCfg,
             writerMode: writeCfg.writerMode || 'react',
-            reportLength: allowedReportLengths.has(writeCfg.reportLength)
+            reportLength: REPORT_LENGTHS.has(writeCfg.reportLength)
                 ? writeCfg.reportLength
-                : (allowedReportLengths.has(reportConfig.reportLength) ? reportConfig.reportLength : 'standard'),
-            tone: allowedWriteTones.has(writeCfg.tone)
+                : (REPORT_LENGTHS.has(reportConfig.reportLength) ? reportConfig.reportLength : ReportLength.STANDARD),
+            tone: REPORT_TONES.has(writeCfg.tone)
                 ? writeCfg.tone
-                : (allowedWriteTones.has(reportConfig.tone) ? reportConfig.tone : 'business'),
-            audience: allowedWriteAudiences.has(writeCfg.audience)
+                : (REPORT_TONES.has(reportConfig.tone) ? reportConfig.tone : ReportTone.BUSINESS),
+            audience: REPORT_AUDIENCES.has(writeCfg.audience)
                 ? writeCfg.audience
-                : (allowedWriteAudiences.has(reportConfig.audience) ? reportConfig.audience : 'general'),
+                : (REPORT_AUDIENCES.has(reportConfig.audience) ? reportConfig.audience : ReportAudience.GENERAL),
             enableReviewer: typeof writeCfg.enableReviewer === 'boolean'
                 ? writeCfg.enableReviewer
                 : !!reportConfig.enableReviewer,

@@ -4,6 +4,22 @@
  */
 
 import { WorkflowState, transitionWorkflow, forceWorkflowState } from './workflow-states.js';
+import {
+    ReportAudience,
+    ReportLanguage,
+    ReportLength,
+    ReportTone,
+    WorkflowTodoStatus,
+    normalizeReportAudience,
+    normalizeReportLanguage,
+    normalizeReportLength,
+    normalizeReportTone,
+} from '../../agents/runtime/constants.js';
+
+const REPORT_LENGTHS = new Set(Object.values(ReportLength));
+const REPORT_TONES = new Set(Object.values(ReportTone));
+const REPORT_AUDIENCES = new Set(Object.values(ReportAudience));
+const REPORT_LANGUAGES = new Set(Object.values(ReportLanguage));
 
 export const phasesMixin = {
     async phase2_Scripting() {
@@ -20,9 +36,9 @@ export const phasesMixin = {
         console.log('[Workflow] 进入 script_review 状态');
         this.addChatMessage('ai', '研究报告已生成。请在中间区域审阅并编辑脚本内容，确认后进入页面规划。');
         this.updateTodos(this._runtimeTodoTexts.map((text, i) => {
-            if (i < 2) return { text, status: 'completed' };
-            if (i === 2) return { text, status: 'active' };
-            return { text, status: 'pending' };
+            if (i < 2) return { text, status: WorkflowTodoStatus.COMPLETED };
+            if (i === 2) return { text, status: WorkflowTodoStatus.ACTIVE };
+            return { text, status: WorkflowTodoStatus.PENDING };
         }));
         this.renderPreviewArea();
     },
@@ -41,21 +57,16 @@ export const phasesMixin = {
             ? this.workflowData.reportConfig
             : {};
 
-        const allowedLengths = new Set(['brief', 'standard', 'detailed', 'comprehensive']);
-        const allowedTones = new Set(['academic', 'business', 'casual']);
-        const allowedAudiences = new Set(['expert', 'general', 'executive']);
-        const allowedLanguages = new Set(['auto', 'zh', 'en']);
-
-        const nextReportLengthCandidate = typeof patch.reportLength === 'string' ? patch.reportLength : prev.reportLength;
-        const nextToneCandidate = typeof patch.tone === 'string' ? patch.tone : prev.tone;
-        const nextAudienceCandidate = typeof patch.audience === 'string' ? patch.audience : prev.audience;
-        const nextLanguageCandidate = typeof patch.language === 'string' ? patch.language : prev.language;
+        const nextReportLengthCandidate = normalizeReportLength(patch.reportLength) ?? normalizeReportLength(prev.reportLength);
+        const nextToneCandidate = normalizeReportTone(patch.tone) ?? normalizeReportTone(prev.tone);
+        const nextAudienceCandidate = normalizeReportAudience(patch.audience) ?? normalizeReportAudience(prev.audience);
+        const nextLanguageCandidate = normalizeReportLanguage(patch.language) ?? normalizeReportLanguage(prev.language);
 
         const next = {
-            reportLength: allowedLengths.has(nextReportLengthCandidate) ? nextReportLengthCandidate : 'standard',
-            tone: allowedTones.has(nextToneCandidate) ? nextToneCandidate : 'business',
-            audience: allowedAudiences.has(nextAudienceCandidate) ? nextAudienceCandidate : 'general',
-            language: allowedLanguages.has(nextLanguageCandidate) ? nextLanguageCandidate : 'auto',
+            reportLength: REPORT_LENGTHS.has(nextReportLengthCandidate) ? nextReportLengthCandidate : ReportLength.STANDARD,
+            tone: REPORT_TONES.has(nextToneCandidate) ? nextToneCandidate : ReportTone.BUSINESS,
+            audience: REPORT_AUDIENCES.has(nextAudienceCandidate) ? nextAudienceCandidate : ReportAudience.GENERAL,
+            language: REPORT_LANGUAGES.has(nextLanguageCandidate) ? nextLanguageCandidate : ReportLanguage.AUTO,
             enableReviewer: typeof patch.enableReviewer === 'boolean'
                 ? patch.enableReviewer
                 : (typeof prev.enableReviewer === 'boolean' ? prev.enableReviewer : false),
@@ -76,26 +87,26 @@ export const phasesMixin = {
     },
 
     updateReportLength(value) {
-        const v = String(value || '').trim();
-        if (!new Set(['brief', 'standard', 'detailed', 'comprehensive']).has(v)) return;
+        const v = normalizeReportLength(value);
+        if (!v) return;
         this._setReportConfig({ reportLength: v });
     },
 
     updateWriteTone(value) {
-        const v = String(value || '').trim();
-        if (!new Set(['academic', 'business', 'casual']).has(v)) return;
+        const v = normalizeReportTone(value);
+        if (!v) return;
         this._setReportConfig({ tone: v });
     },
 
     updateWriteAudience(value) {
-        const v = String(value || '').trim();
-        if (!new Set(['expert', 'general', 'executive']).has(v)) return;
+        const v = normalizeReportAudience(value);
+        if (!v) return;
         this._setReportConfig({ audience: v });
     },
 
     updateWriteLanguage(value) {
-        const v = String(value || '').trim();
-        if (!new Set(['auto', 'zh', 'en']).has(v)) return;
+        const v = normalizeReportLanguage(value);
+        if (!v) return;
         this._setReportConfig({ language: v });
     },
 
@@ -133,9 +144,9 @@ export const phasesMixin = {
         transitionWorkflow(this, WorkflowState.OUTLINE_REVIEW);
         this.renderPreviewArea();
         this.updateTodos(this._runtimeTodoTexts.map((text, i) => {
-            if (i < 2) return { text, status: 'completed' };
-            if (i === 2) return { text, status: 'active' };
-            return { text, status: 'pending' };
+            if (i < 2) return { text, status: WorkflowTodoStatus.COMPLETED };
+            if (i === 2) return { text, status: WorkflowTodoStatus.ACTIVE };
+            return { text, status: WorkflowTodoStatus.PENDING };
         }));
     },
 

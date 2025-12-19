@@ -2,6 +2,112 @@
   window.PPTDashboard = window.PPTDashboard || {};
   const NS = window.PPTDashboard;
   NS.deepsearch = NS.deepsearch || {};
+
+  const FALLBACK_UI_FLOW_CONFIG = NS.defaultUiFlowConfig || {
+    stateOrder: [
+      'idle',
+      'briefing',
+      'reading',
+      'scanning',
+      'researching',
+      'deepsearch_review',
+      'questioning',
+      'script_review',
+      'scripting',
+      'outline_review',
+      'outline_planning',
+      'page_layout',
+      'design_preferences',
+      'designer',
+      'completed',
+      'failed'
+    ],
+    deepsearchStepper: [
+      { state: 'reading', label: '阅读' },
+      { state: 'researching', label: '研究' },
+      { state: 'script_review', label: '脚本' },
+      { state: 'page_layout', label: '规划' },
+      { state: 'designer', label: '设计' }
+    ],
+    viewMap: {
+      idle: 'upload',
+      briefing: 'briefing',
+      deepsearch_review: 'deepsearch_review',
+      script_review: 'script_review',
+      questioning: 'questioning',
+      outline_review: 'outline_review',
+      page_layout: 'page_layout'
+    },
+    defaultView: 'deepsearch_premium',
+    stateAliases: {}
+  };
+
+  const mergeUiFlowConfig = (base, override) => {
+    if (!override || typeof override !== 'object') return base;
+    return {
+      ...base,
+      ...override,
+      stateOrder: Array.isArray(override.stateOrder) && override.stateOrder.length
+        ? override.stateOrder
+        : base.stateOrder,
+      deepsearchStepper: Array.isArray(override.deepsearchStepper) && override.deepsearchStepper.length
+        ? override.deepsearchStepper
+        : base.deepsearchStepper,
+      viewMap: {
+        ...base.viewMap,
+        ...(override.viewMap && typeof override.viewMap === 'object' ? override.viewMap : {})
+      },
+      stateAliases: {
+        ...base.stateAliases,
+        ...(override.stateAliases && typeof override.stateAliases === 'object' ? override.stateAliases : {})
+      },
+      defaultView: typeof override.defaultView === 'string' && override.defaultView
+        ? override.defaultView
+        : base.defaultView
+    };
+  };
+
+  const getUiFlowConfig = () => {
+    if (typeof NS.getUiFlowConfig === 'function') return NS.getUiFlowConfig();
+    if (!NS.defaultUiFlowConfig) NS.defaultUiFlowConfig = FALLBACK_UI_FLOW_CONFIG;
+    return mergeUiFlowConfig(NS.defaultUiFlowConfig, NS.uiFlowConfig);
+  };
+
+  const getWorkflowStateOrder = () => {
+    const config = getUiFlowConfig();
+    return Array.isArray(config.stateOrder) && config.stateOrder.length ? config.stateOrder : [];
+  };
+
+  const getAliasedState = (state) => {
+    const config = getUiFlowConfig();
+    const aliases = config.stateAliases && typeof config.stateAliases === 'object' ? config.stateAliases : {};
+    return aliases[state] || state;
+  };
+
+  const getStateIndex = (state) => {
+    const order = getWorkflowStateOrder();
+    const effective = getAliasedState(state);
+    return order.indexOf(effective);
+  };
+
+  const getDeepsearchStepper = () => {
+    const config = getUiFlowConfig();
+    const steps = Array.isArray(config.deepsearchStepper) && config.deepsearchStepper.length
+      ? config.deepsearchStepper
+      : [];
+    return steps.map((step) => {
+      if (step && typeof step === 'object') {
+        return {
+          state: typeof step.state === 'string' ? step.state : '',
+          label: typeof step.label === 'string' ? step.label : (typeof step.state === 'string' ? step.state : '')
+        };
+      }
+      if (typeof step === 'string') {
+        return { state: step, label: step };
+      }
+      return { state: '', label: '' };
+    }).filter(step => step.state);
+  };
   Object.assign(NS.deepsearch, {
     _renderDeepSearchReview() {
         const md = typeof this.workflowData?.reportMarkdown === 'string'
@@ -67,6 +173,7 @@
     _renderDeepSearchPremiumUI() {
         const isDesigner = this.state === 'designer';
         const flowCanvasId = isDesigner ? 'pptDesignFlowVizFull' : 'pptDeepSearchFlowVizFull';
+        const stepperSteps = getDeepsearchStepper();
 
         return `
             <div class="ds-research-stage">
@@ -78,15 +185,13 @@
                 <!-- Stepper Bar - Top Center -->
                 <div class="ds-stepper-bar">
                     <div class="ds-stepper-left">
-                        ${this._renderDsStep('reading', '1', '阅读')}
-                        <div class="ds-step-line ${this._isStepCompleted('reading') ? 'completed' : ''}"></div>
-                        ${this._renderDsStep('researching', '2', '研究')}
-                        <div class="ds-step-line ${this._isStepCompleted('researching') ? 'completed' : ''}"></div>
-                        ${this._renderDsStep('script_review', '3', '脚本')}
-                        <div class="ds-step-line ${this._isStepCompleted('script_review') ? 'completed' : ''}"></div>
-                        ${this._renderDsStep('page_layout', '4', '规划')}
-                        <div class="ds-step-line ${this._isStepCompleted('page_layout') ? 'completed' : ''}"></div>
-                        ${this._renderDsStep('designer', '5', '设计')}
+                        ${stepperSteps.map((step, index) => {
+                          const num = String(index + 1);
+                          const line = index < stepperSteps.length - 1
+                            ? `<div class="ds-step-line ${this._isStepCompleted(step.state) ? 'completed' : ''}"></div>`
+                            : '';
+                          return `${this._renderDsStep(step.state, num, step.label)}${line}`;
+                        }).join('')}
                     </div>
                 </div>
 
@@ -114,15 +219,15 @@
 
 
     _renderDsStep(stepState, num, label) {
-        const states = ['idle', 'reading', 'researching', 'script_review', 'page_layout', 'designer', 'reviewer', 'completed', 'failed'];
-        const currentIndex = states.indexOf(this.state);
-        const stepIndex = states.indexOf(stepState);
+        const currentIndex = getStateIndex(this.state);
+        const stepIndex = getStateIndex(stepState);
+        const isCompleted = currentIndex !== -1 && stepIndex !== -1 && currentIndex > stepIndex;
 
         let className = 'ds-step';
-        if (this.state === stepState) className += ' active';
-        if (currentIndex > stepIndex) className += ' completed';
+        if (getAliasedState(this.state) === getAliasedState(stepState)) className += ' active';
+        if (isCompleted) className += ' completed';
 
-        const icon = currentIndex > stepIndex ? '<iconify-icon icon="carbon:checkmark"></iconify-icon>' : num;
+        const icon = isCompleted ? '<iconify-icon icon="carbon:checkmark"></iconify-icon>' : num;
 
         return `
             <div class="${className}">
@@ -134,10 +239,9 @@
 
 
     _isStepCompleted(stepState) {
-        const states = ['idle', 'reading', 'researching', 'script_review', 'page_layout', 'designer', 'reviewer', 'completed', 'failed'];
-        const currentIndex = states.indexOf(this.state);
-        const stepIndex = states.indexOf(stepState);
-        return currentIndex > stepIndex;
+        const currentIndex = getStateIndex(this.state);
+        const stepIndex = getStateIndex(stepState);
+        return currentIndex !== -1 && stepIndex !== -1 && currentIndex > stepIndex;
     },
 
     /**

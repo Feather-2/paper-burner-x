@@ -5,6 +5,7 @@
   const NS = window.PPTDashboard;
 
   const browserPaths = [
+    'js/ppt/ppt_ui_flow_config.js',
     'js/ppt/ppt_dashboard_utils.js',
     'js/ppt/ppt_dashboard_upload.js',
     'js/ppt/ppt_dashboard_history.js',
@@ -20,6 +21,7 @@
 
   // CommonJS (unit tests): load local files directly.
   if (typeof module !== 'undefined' && module.exports && typeof require === 'function') {
+    require('./ppt_ui_flow_config.js');
     require('./ppt_dashboard_utils.js');
     require('./ppt_dashboard_upload.js');
     require('./ppt_dashboard_history.js');

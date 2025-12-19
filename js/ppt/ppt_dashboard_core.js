@@ -2,6 +2,99 @@
   window.PPTDashboard = window.PPTDashboard || {};
   const NS = window.PPTDashboard;
 
+  const FALLBACK_UI_FLOW_CONFIG = NS.defaultUiFlowConfig || {
+    stateOrder: [
+      'idle',
+      'briefing',
+      'reading',
+      'scanning',
+      'researching',
+      'deepsearch_review',
+      'questioning',
+      'script_review',
+      'scripting',
+      'outline_review',
+      'outline_planning',
+      'page_layout',
+      'design_preferences',
+      'designer',
+      'completed',
+      'failed'
+    ],
+    deepsearchStepper: [
+      { state: 'reading', label: '阅读' },
+      { state: 'researching', label: '研究' },
+      { state: 'script_review', label: '脚本' },
+      { state: 'page_layout', label: '规划' },
+      { state: 'designer', label: '设计' }
+    ],
+    viewMap: {
+      idle: 'upload',
+      briefing: 'briefing',
+      deepsearch_review: 'deepsearch_review',
+      script_review: 'script_review',
+      questioning: 'questioning',
+      outline_review: 'outline_review',
+      page_layout: 'page_layout'
+    },
+    defaultView: 'deepsearch_premium',
+    stateAliases: {}
+  };
+
+  const mergeUiFlowConfig = (base, override) => {
+    if (!override || typeof override !== 'object') return base;
+    return {
+      ...base,
+      ...override,
+      stateOrder: Array.isArray(override.stateOrder) && override.stateOrder.length
+        ? override.stateOrder
+        : base.stateOrder,
+      deepsearchStepper: Array.isArray(override.deepsearchStepper) && override.deepsearchStepper.length
+        ? override.deepsearchStepper
+        : base.deepsearchStepper,
+      viewMap: {
+        ...base.viewMap,
+        ...(override.viewMap && typeof override.viewMap === 'object' ? override.viewMap : {})
+      },
+      stateAliases: {
+        ...base.stateAliases,
+        ...(override.stateAliases && typeof override.stateAliases === 'object' ? override.stateAliases : {})
+      },
+      defaultView: typeof override.defaultView === 'string' && override.defaultView
+        ? override.defaultView
+        : base.defaultView
+    };
+  };
+
+  const getUiFlowConfig = () => {
+    if (typeof NS.getUiFlowConfig === 'function') return NS.getUiFlowConfig();
+    if (!NS.defaultUiFlowConfig) NS.defaultUiFlowConfig = FALLBACK_UI_FLOW_CONFIG;
+    return mergeUiFlowConfig(NS.defaultUiFlowConfig, NS.uiFlowConfig);
+  };
+
+  const getWorkflowStateOrder = () => {
+    const config = getUiFlowConfig();
+    return Array.isArray(config.stateOrder) && config.stateOrder.length ? config.stateOrder : [];
+  };
+
+  const getAliasedState = (state) => {
+    const config = getUiFlowConfig();
+    const aliases = config.stateAliases && typeof config.stateAliases === 'object' ? config.stateAliases : {};
+    return aliases[state] || state;
+  };
+
+  const getStateIndex = (state) => {
+    const order = getWorkflowStateOrder();
+    const effective = getAliasedState(state);
+    return order.indexOf(effective);
+  };
+
+  const getViewKey = (state) => {
+    const config = getUiFlowConfig();
+    const viewMap = config.viewMap && typeof config.viewMap === 'object' ? config.viewMap : {};
+    return viewMap[state] || config.defaultView || 'deepsearch_premium';
+  };
+
   const PPTGeneratorAgentDashboard = {};
   Object.assign(PPTGeneratorAgentDashboard,
     NS.utils || {},
@@ -30,13 +123,16 @@
 
         this._syncWorkflowModeAndBriefFromData();
         const prevState = this._prevState;
+        const prevViewKey = prevState ? getViewKey(getAliasedState(prevState)) : null;
+        const effectiveState = getAliasedState(this.state);
+        const viewKey = getViewKey(effectiveState);
 
         // Flow vizzes mount React roots; always destroy before we replace innerHTML.
         this._destroyFlowViz?.('deepsearch');
         this._destroyFlowViz?.('design');
 
         if (this.state === 'completed') {
-            if (prevState === 'script_review' && typeof VditorAdapter !== 'undefined') VditorAdapter.destroy();
+            if (prevViewKey === 'script_review' && typeof VditorAdapter !== 'undefined') VditorAdapter.destroy();
             this._prevState = this.state;
             this.renderPresentationMode(container);
             return;
@@ -45,20 +141,20 @@
         // Determine what to show in the central visualization area based on state
         let visContent = '';
 
-        if (this.state === 'idle') {
+        if (viewKey === 'upload') {
             if (this._uploadStep !== 1 && this._uploadStep !== 2) this._uploadStep = 1;
             visContent = this._renderUploadView();
-        } else if (this.state === 'briefing') {
+        } else if (viewKey === 'briefing') {
             visContent = this._renderProjectBriefForm();
-        } else if (this.state === 'script_review') {
+        } else if (viewKey === 'script_review') {
             visContent = this._renderScriptReview();
-        } else if (this.state === 'page_layout') {
+        } else if (viewKey === 'page_layout') {
             visContent = this._renderPageLayoutReview();
-        } else if (this.state === 'deepsearch_review') {
+        } else if (viewKey === 'deepsearch_review') {
             visContent = this._renderDeepSearchReview();
-        } else if (this.state === 'questioning') {
+        } else if (viewKey === 'questioning') {
             visContent = this._renderQuestionForm();
-        } else if (this.state === 'outline_review') {
+        } else if (viewKey === 'outline_review') {
             visContent = this._renderOutlineReview();
         } else {
             // Default: DeepSearch Premium UI (researching/designer states)
@@ -68,13 +164,13 @@
         // Render Simplified Dashboard (No more grid layout)
         container.innerHTML = visContent;
 
-        if (this.state === 'script_review') {
+        if (viewKey === 'script_review') {
             this._mountScriptEditor();
-        } else if (prevState === 'script_review' && typeof VditorAdapter !== 'undefined') {
+        } else if (prevViewKey === 'script_review' && typeof VditorAdapter !== 'undefined') {
             VditorAdapter.destroy();
         }
 
-        if (this.state === 'page_layout') {
+        if (viewKey === 'page_layout') {
             try { this._setupSlideIntentDrag?.(); } catch (e) { /* ignore */ }
         }
         this._prevState = this.state;
@@ -324,18 +420,18 @@
 
     _renderStep(stepState, num, label) {
         // Simple logic to determine active/completed state
-        const states = ['idle', 'reading', 'researching', 'script_review', 'page_layout', 'designer', 'reviewer', 'completed', 'failed'];
-        const currentIndex = states.indexOf(this.state);
-        const stepIndex = states.indexOf(stepState);
+        const currentIndex = getStateIndex(this.state);
+        const stepIndex = getStateIndex(stepState);
 
+        const isCompleted = currentIndex !== -1 && stepIndex !== -1 && currentIndex > stepIndex;
         let className = 'gen-step';
-        if (this.state === stepState) className += ' active';
-        if (currentIndex > stepIndex) className += ' completed';
+        if (getAliasedState(this.state) === getAliasedState(stepState)) className += ' active';
+        if (isCompleted) className += ' completed';
 
         return `
             <div class="${className}">
                 <div class="gen-step-icon">
-                    ${currentIndex > stepIndex ? '<iconify-icon icon="carbon:checkmark"></iconify-icon>' : num}
+                    ${isCompleted ? '<iconify-icon icon="carbon:checkmark"></iconify-icon>' : num}
                 </div>
                 <span class="gen-step-label">${label}</span>
             </div>

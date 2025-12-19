@@ -4,6 +4,7 @@
  */
 
 import { WorkflowState, transitionWorkflow, forceWorkflowState } from './workflow-states.js';
+import { WorkflowTodoStatus } from '../../agents/runtime/constants.js';
 
 let _CheckpointModule = null;
 async function getCheckpointModule() {
@@ -124,9 +125,9 @@ export const checkpointMixin = {
         if (stage === 'deepsearch.complete') {
             forceWorkflowState(this, WorkflowState.SCRIPT_REVIEW);
             this.updateTodos?.(this._runtimeTodoTexts.map((text, i) => {
-                if (i < 2) return { text, status: 'completed' };
-                if (i === 2) return { text, status: 'active' };
-                return { text, status: 'pending' };
+                if (i < 2) return { text, status: WorkflowTodoStatus.COMPLETED };
+                if (i === 2) return { text, status: WorkflowTodoStatus.ACTIVE };
+                return { text, status: WorkflowTodoStatus.PENDING };
             }));
         } else if (stage.startsWith('deepsearch')) {
             forceWorkflowState(this, WorkflowState.DEEPSEARCH_REVIEW);

@@ -2,6 +2,32 @@
   window.PPTDashboard = window.PPTDashboard || {};
   const NS = window.PPTDashboard;
   NS.designSpec = NS.designSpec || {};
+  const designPrefs = typeof globalThis !== 'undefined' && globalThis.PPTDesignPreferences ? globalThis.PPTDesignPreferences : null;
+  const DesignVisualMode = designPrefs?.DesignVisualMode || Object.freeze({
+      AI_FIRST: 'ai-first',
+      SVG_FIRST: 'svg-first',
+      BALANCED: 'balanced'
+  });
+  const DesignDensity = designPrefs?.DesignDensity || Object.freeze({
+      COMPACT: 'compact',
+      BALANCED: 'balanced',
+      SPACIOUS: 'spacious'
+  });
+  const StyleReferenceStatus = designPrefs?.StyleReferenceStatus || Object.freeze({
+      ANALYZING: 'analyzing',
+      DONE: 'done',
+      ERROR: 'error'
+  });
+  const normalizeDesignVisualMode = designPrefs?.normalizeDesignVisualMode || ((value, fallback = DesignVisualMode.BALANCED) => {
+      const v = typeof value === 'string' ? value.trim().toLowerCase() : '';
+      return Object.values(DesignVisualMode).includes(v) ? v : fallback;
+  });
+  const normalizeDesignDensity = designPrefs?.normalizeDesignDensity || ((value, fallback = DesignDensity.BALANCED) => {
+      const v = typeof value === 'string' ? value.trim().toLowerCase() : '';
+      return Object.values(DesignDensity).includes(v) ? v : fallback;
+  });
+  const isValidDesignVisualMode = designPrefs?.isValidDesignVisualMode || ((value) => Object.values(DesignVisualMode).includes(value));
+  const isValidDesignDensity = designPrefs?.isValidDesignDensity || ((value) => Object.values(DesignDensity).includes(value));
   Object.assign(NS.designSpec, {
     _ensureDesignSpecInitialized() {
         if (!this.workflowData) this.workflowData = {};
@@ -56,18 +82,14 @@
         if (legacyVisualPref && typeof overrides.visualPreference.mode !== 'string' && typeof legacyVisualPref.mode === 'string') {
             overrides.visualPreference.mode = legacyVisualPref.mode;
         }
-        const allowedVisualModes = new Set(['ai-first', 'svg-first', 'balanced']);
-        if (typeof overrides.visualPreference.mode !== 'string' || !allowedVisualModes.has(overrides.visualPreference.mode)) {
-            overrides.visualPreference.mode = 'balanced';
-        }
+        overrides.visualPreference.mode = normalizeDesignVisualMode(overrides.visualPreference.mode, DesignVisualMode.BALANCED);
 
         // Legacy aliases (UI code historically reads ds.colors / ds.fonts)
         ds.colors = overrides.colors;
         ds.fonts = overrides.typography;
         ds.visualPreference = overrides.visualPreference;
 
-        const allowedDensity = new Set(['compact', 'balanced', 'spacious']);
-        if (typeof ds.density !== 'string' || !allowedDensity.has(ds.density)) ds.density = 'balanced';
+        ds.density = normalizeDesignDensity(ds.density, DesignDensity.BALANCED);
 
         if (typeof ds.model !== 'string') ds.model = 'gemini-1.5-pro';
 
@@ -145,7 +167,7 @@
     updateVisualPreferenceMode(mode) {
         const ds = this._ensureDesignSpecInitialized();
         const v = String(mode || '').trim();
-        if (!new Set(['ai-first', 'svg-first', 'balanced']).has(v)) return;
+        if (!isValidDesignVisualMode(v)) return;
         if (ds.designSystemOverrides?.visualPreference) ds.designSystemOverrides.visualPreference.mode = v;
         if (ds.visualPreference) ds.visualPreference.mode = v;
         this.renderPreviewArea?.();
@@ -163,7 +185,7 @@
     updateDesignSystemDensity(value) {
         const ds = this._ensureDesignSpecInitialized();
         const v = String(value || '').trim();
-        if (!new Set(['compact', 'balanced', 'spacious']).has(v)) return;
+        if (!isValidDesignDensity(v)) return;
         ds.density = v;
         this.renderPreviewArea?.();
     },
@@ -195,7 +217,7 @@
         }
 
         const id = `ref_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        const imageEntry = { id, thumbnail: imageData, original: imageData, status: 'analyzing' };
+        const imageEntry = { id, thumbnail: imageData, original: imageData, status: StyleReferenceStatus.ANALYZING };
         ds.styleReference.images.push(imageEntry);
         this.renderPreviewArea?.();
 
@@ -222,14 +244,14 @@
 
             // Update status
             const entry = ds.styleReference.images.find(e => e.id === id);
-            if (entry) entry.status = 'done';
+            if (entry) entry.status = StyleReferenceStatus.DONE;
 
             this.renderPreviewArea?.();
             return { ok: true, id, extracted: ds.styleReference.extracted };
         } catch (err) {
             console.error('Style extraction failed:', err);
             const entry = ds.styleReference.images.find(e => e.id === id);
-            if (entry) entry.status = 'error';
+            if (entry) entry.status = StyleReferenceStatus.ERROR;
             this.renderPreviewArea?.();
             return { ok: false, error: err.message };
         }
@@ -460,10 +482,10 @@
         const hasExtracted = extracted.colorTone || extracted.mood || extracted.layoutStyle || extracted.typography || extracted.effects;
 
         const imageList = images.map(img => `
-            <div class="ppt-style-ref-thumb ${img.status === 'analyzing' ? 'analyzing' : ''}" data-ref-id="${this._escapeAttr(img.id)}">
+            <div class="ppt-style-ref-thumb ${img.status === StyleReferenceStatus.ANALYZING ? 'analyzing' : ''}" data-ref-id="${this._escapeAttr(img.id)}">
                 <img src="${this._escapeAttr(img.thumbnail)}" alt="参考图">
-                ${img.status === 'analyzing' ? '<div class="ppt-style-ref-loading"><iconify-icon icon="carbon:loading"></iconify-icon></div>' : ''}
-                ${img.status === 'error' ? '<div class="ppt-style-ref-error"><iconify-icon icon="carbon:warning-alt"></iconify-icon></div>' : ''}
+                ${img.status === StyleReferenceStatus.ANALYZING ? '<div class="ppt-style-ref-loading"><iconify-icon icon="carbon:loading"></iconify-icon></div>' : ''}
+                ${img.status === StyleReferenceStatus.ERROR ? '<div class="ppt-style-ref-error"><iconify-icon icon="carbon:warning-alt"></iconify-icon></div>' : ''}
                 <button class="ppt-style-ref-remove" onclick="window.PPTGenerator.removeStyleReference('${this._escapeAttr(img.id)}')" title="删除">
                     <iconify-icon icon="carbon:close"></iconify-icon>
                 </button>
