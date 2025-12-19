@@ -1,5 +1,7 @@
 import { EventBus } from "./event-bus.js";
 import { RunContext } from "./run-context.js";
+import { ActorType, OrchestratorState, isValidOrchestratorState } from "./constants.js";
+import { RuntimeEvents } from "./events.js";
 
 class StageTimeoutError extends Error {
   constructor(message, { stageName, timeoutMs } = {}) {
@@ -50,7 +52,7 @@ export class AgentOrchestrator {
 
     this._stages = new Map(); // name -> { fn, actor, timeoutMs }
     this._runAbort = new AbortController();
-    this._state = "idle"; // idle|running|ended|failed|cancelled
+    this._state = OrchestratorState.IDLE;
   }
 
   get state() {
@@ -65,10 +67,10 @@ export class AgentOrchestrator {
   }
 
   start({ payload } = {}) {
-    if (this._state !== "idle") return;
-    this._state = "running";
-    this.eventBus.emit("run.started", {
-      actor: "system",
+    if (this._state !== OrchestratorState.IDLE) return;
+    this._state = OrchestratorState.RUNNING;
+    this.eventBus.emit(RuntimeEvents.RUN_STARTED, {
+      actor: ActorType.SYSTEM,
       status: "started",
       payload: {
         mode: this.runContext.mode,
@@ -80,21 +82,21 @@ export class AgentOrchestrator {
   }
 
   stop(reason = "cancelled") {
-    if (this._state !== "running") return;
-    this._state = "cancelled";
+    if (this._state !== OrchestratorState.RUNNING) return;
+    this._state = OrchestratorState.CANCELLED;
     this._runAbort.abort(reason);
-    this.eventBus.emit("run.cancelled", {
-      actor: "system",
+    this.eventBus.emit(RuntimeEvents.RUN_CANCELLED, {
+      actor: ActorType.SYSTEM,
       status: "cancelled",
       payload: { reason },
     });
   }
 
   end({ payload } = {}) {
-    if (this._state !== "running") return;
-    this._state = "ended";
-    this.eventBus.emit("run.ended", {
-      actor: "system",
+    if (this._state !== OrchestratorState.RUNNING) return;
+    this._state = OrchestratorState.ENDED;
+    this.eventBus.emit(RuntimeEvents.RUN_ENDED, {
+      actor: ActorType.SYSTEM,
       status: "ended",
       payload,
     });
@@ -104,13 +106,13 @@ export class AgentOrchestrator {
     this.start();
     try {
       const result = await pipelineFn(this);
-      if (this._state === "running") this.end();
+      if (this._state === OrchestratorState.RUNNING) this.end();
       return result;
     } catch (err) {
-      if (this._state === "cancelled") throw err;
-      this._state = "failed";
-      this.eventBus.emit("run.failed", {
-        actor: "system",
+      if (this._state === OrchestratorState.CANCELLED) throw err;
+      this._state = OrchestratorState.FAILED;
+      this.eventBus.emit(RuntimeEvents.RUN_FAILED, {
+        actor: ActorType.SYSTEM,
         status: "failed",
         payload: { message: err?.message, name: err?.name },
       });
@@ -119,8 +121,8 @@ export class AgentOrchestrator {
   }
 
   async runStage(name, input, { timeoutMs, actor, payload } = {}) {
-    if (this._state === "idle") this.start();
-    if (this._state !== "running") {
+    if (this._state === OrchestratorState.IDLE) this.start();
+    if (this._state !== OrchestratorState.RUNNING) {
       throw new Error(`Cannot run stage when orchestrator state=${this._state}`);
     }
 

@@ -1,5 +1,20 @@
 const SCHEMA_VERSION = "0.1";
 
+/**
+ * 运行模式枚举
+ */
+export const RunMode = Object.freeze({
+  TEXTPREP: "textprep",
+  DEEPSEARCH: "deepsearch",
+});
+
+/**
+ * 验证 RunMode 值
+ */
+export function isValidRunMode(value) {
+  return Object.values(RunMode).includes(value);
+}
+
 function pad2(n) {
   return String(n).padStart(2, "0");
 }
@@ -54,7 +69,7 @@ export class RunContext {
   constructor({ runId, mode, scenario, constraints } = {}) {
     this.schemaVersion = SCHEMA_VERSION;
     this.runId = runId || generateRunId();
-    this.mode = mode || "textprep";
+    this.mode = mode || RunMode.TEXTPREP;
     this.scenario = scenario;
     this.constraints = parseConstraints(constraints);
     this.startedAt = new Date().toISOString();
