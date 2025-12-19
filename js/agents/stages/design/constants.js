@@ -1,0 +1,83 @@
+/**
+ * Slide generation state-machine statuses.
+ * @readonly
+ * @enum {string}
+ */
+export const SlideStatus = Object.freeze({
+  PENDING: "pending",
+  BRAINSTORMING: "brainstorming",
+  GENERATING: "generating",
+  VALIDATING: "validating",
+  DEGRADED_L1: "degraded_l1",
+  DEGRADED_L2: "degraded_l2",
+  REFINING: "refining",
+  IMAGE_PENDING: "image_pending",
+  IMAGE_GENERATING: "image_generating",
+  COMPLETED: "completed",
+  FAILED: "failed",
+});
+
+/**
+ * Image generation task lifecycle statuses.
+ * @readonly
+ * @enum {string}
+ */
+export const ImageTaskStatus = Object.freeze({
+  PENDING: "pending",
+  RUNNING: "running",
+  SUCCESS: "success",
+  FAILED: "failed",
+  SKIPPED: "skipped",
+});
+
+/**
+ * Visual renderer output types.
+ * @readonly
+ * @enum {string}
+ */
+export const RenderType = Object.freeze({
+  AI_IMAGE: "ai-image",
+  SVG: "svg",
+  ASSET: "asset",
+});
+
+/**
+ * Standard emit status values for agent events.
+ * @readonly
+ * @enum {string}
+ */
+export const EventStatus = Object.freeze({
+  STARTED: "started",
+  PROGRESS: "progress",
+  DATA: "data",
+  COMPLETED: "completed",
+  FAILED: "failed",
+  ERROR: "error",
+  GENERATED: "generated",
+  SKIPPED: "skipped",
+  SUCCEEDED: "succeeded",
+});
+
+/**
+ * Slot priority levels for layout/asset selection.
+ * @readonly
+ * @enum {string}
+ */
+export const SlotPriority = Object.freeze({
+  CRITICAL: "critical",
+  IMPORTANT: "important",
+  OPTIONAL: "optional",
+});
+
+/**
+ * Intended purpose of an image/asset slot within a slide.
+ * @readonly
+ * @enum {string}
+ */
+export const SlotPurpose = Object.freeze({
+  HERO: "hero",
+  ICON: "icon",
+  BACKGROUND: "background",
+  CHART_FALLBACK: "chart_fallback",
+  ILLUSTRATION: "illustration",
+});

@@ -1,4 +1,6 @@
 import { buildPrompt } from "./image-prompt-builder.js";
+import { ImageTaskStatus, EventStatus } from "./constants.js";
+import { DesignEvents } from "./events.js";
 
 function nowMs() {
   return Date.now();
@@ -107,10 +109,10 @@ function cloneSlot(slot) {
 }
 
 function computeSummary(slots, tasks) {
-  const attempted = tasks.filter((t) => t.status === "success" || t.status === "failed").length;
-  const succeeded = tasks.filter((t) => t.status === "success").length;
-  const failed = tasks.filter((t) => t.status === "failed").length;
-  const skipped = tasks.filter((t) => t.status === "skipped").length;
+  const attempted = tasks.filter((t) => t.status === ImageTaskStatus.SUCCESS || t.status === ImageTaskStatus.FAILED).length;
+  const succeeded = tasks.filter((t) => t.status === ImageTaskStatus.SUCCESS).length;
+  const failed = tasks.filter((t) => t.status === ImageTaskStatus.FAILED).length;
+  const skipped = tasks.filter((t) => t.status === ImageTaskStatus.SKIPPED).length;
   const totalCostUSD = tasks.reduce((sum, t) => sum + (Number.isFinite(t.costUSD) ? t.costUSD : 0), 0);
   const totalDurationMs = tasks.reduce((sum, t) => sum + (Number.isFinite(t.durationMs) ? t.durationMs : 0), 0);
 
@@ -164,7 +166,7 @@ export class ImageGenerator {
           prompt,
           provider: providerName,
           model,
-          status: "pending",
+          status: ImageTaskStatus.PENDING,
           retryCount: 0,
           result: null,
           error: null,
@@ -214,9 +216,9 @@ export class ImageGenerator {
 
       const canStart = reserveForFirstAttempt(estimatedCostUSD);
       if (!canStart.ok) {
-        task.status = "skipped";
+        task.status = ImageTaskStatus.SKIPPED;
         task.error = canStart.reason === "maxImages" ? "Skipped: maxImages budget reached" : "Skipped: maxCostUSD budget reached";
-        safeEmit(emit, "design.image.generate.skipped", "skipped", {
+        safeEmit(emit, DesignEvents.IMAGE_GENERATE_SKIPPED, EventStatus.SKIPPED, {
           runId,
           slotId: task.slotId,
           slideIndex: Number.isFinite(slot?.slideIndex) ? slot.slideIndex : null,
@@ -228,7 +230,7 @@ export class ImageGenerator {
         return;
       }
 
-      safeEmit(emit, "design.image.generate.started", "started", {
+      safeEmit(emit, DesignEvents.IMAGE_GENERATE_STARTED, EventStatus.STARTED, {
         runId,
         slotId: task.slotId,
         slideIndex: Number.isFinite(slot?.slideIndex) ? slot.slideIndex : null,
@@ -238,7 +240,7 @@ export class ImageGenerator {
         priority: slot?.priority,
       });
 
-      task.status = "running";
+      task.status = ImageTaskStatus.RUNNING;
 
       let totalDuration = 0;
       let totalCost = estimatedCostUSD;
@@ -249,11 +251,11 @@ export class ImageGenerator {
           const ok = reserveForRetryAttempt(estimatedCostUSD);
           if (!ok.ok) {
             task.retryCount = attempt - 1;
-            task.status = "failed";
+            task.status = ImageTaskStatus.FAILED;
             task.error = "Failed: budget exhausted during retries";
             task.costUSD = Number(totalCost.toFixed(6));
             task.durationMs = Math.floor(totalDuration);
-            safeEmit(emit, "design.image.generate.failed", "failed", {
+            safeEmit(emit, DesignEvents.IMAGE_GENERATE_FAILED, EventStatus.FAILED, {
               runId,
               slotId: task.slotId,
               slideIndex: Number.isFinite(slot?.slideIndex) ? slot.slideIndex : null,
@@ -285,7 +287,7 @@ export class ImageGenerator {
 
           const t1 = nowMs();
           totalDuration += t1 - t0;
-          task.status = "success";
+          task.status = ImageTaskStatus.SUCCESS;
           task.durationMs = Math.floor(totalDuration);
           task.costUSD = Number(totalCost.toFixed(6));
 
@@ -327,7 +329,7 @@ export class ImageGenerator {
             slot.selectionStatus = "auto_selected";
           }
 
-          safeEmit(emit, "design.image.generate.succeeded", "succeeded", {
+          safeEmit(emit, DesignEvents.IMAGE_GENERATE_SUCCEEDED, EventStatus.SUCCEEDED, {
             runId,
             slotId: task.slotId,
             slideIndex: Number.isFinite(slot?.slideIndex) ? slot.slideIndex : null,
@@ -346,10 +348,10 @@ export class ImageGenerator {
           task.error = msg;
 
           if (attempt >= maxRetries) {
-            task.status = "failed";
+            task.status = ImageTaskStatus.FAILED;
             task.durationMs = Math.floor(totalDuration);
             task.costUSD = Number(totalCost.toFixed(6));
-            safeEmit(emit, "design.image.generate.failed", "failed", {
+            safeEmit(emit, DesignEvents.IMAGE_GENERATE_FAILED, EventStatus.FAILED, {
               runId,
               slotId: task.slotId,
               slideIndex: Number.isFinite(slot?.slideIndex) ? slot.slideIndex : null,
@@ -380,10 +382,10 @@ export class ImageGenerator {
             try {
               await runTask(task);
             } catch (e) {
-              task.status = task.status === "skipped" ? task.status : "failed";
+              task.status = task.status === ImageTaskStatus.SKIPPED ? task.status : ImageTaskStatus.FAILED;
               task.error = task.error || (e instanceof Error ? e.message : String(e));
               const slot = bySlotId.get(task.slotId) || {};
-              safeEmit(emit, "design.image.generate.failed", "failed", {
+              safeEmit(emit, DesignEvents.IMAGE_GENERATE_FAILED, EventStatus.FAILED, {
                 runId,
                 slotId: task.slotId,
                 slideIndex: Number.isFinite(slot?.slideIndex) ? slot.slideIndex : null,
@@ -411,7 +413,7 @@ export class ImageGenerator {
       summary: computeSummary(slots, tasks),
     };
 
-    safeEmit(emit, "design.image.fill.completed", "completed", {
+    safeEmit(emit, DesignEvents.IMAGE_FILL_COMPLETED, EventStatus.COMPLETED, {
       runId,
       report,
     });
