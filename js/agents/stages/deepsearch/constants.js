@@ -2,6 +2,8 @@
  * DeepSearch 模块常量配置
  */
 
+import { GapStatus } from "./gap-utils.js";
+
 // Chunk 配置
 export const CHUNK_CONFIG = Object.freeze({
   DEFAULT_SIZE: 1600,
@@ -73,14 +75,6 @@ export const GapPriority = Object.freeze({
   LOW: "low",
 });
 
-// Gap 状态枚举
-export const GapStatus = Object.freeze({
-  OPEN: "open",
-  FILLED: "filled",
-  BLOCKED: "blocked",
-  STALE: "stale",
-});
-
 // Todo 状态枚举
 export const TodoStatus = Object.freeze({
   OPEN: "open",
@@ -148,6 +142,9 @@ export function isValidPlanNodeStatus(value) {
 export function isValidDecisionOutcome(value) {
   return Object.values(DecisionOutcome).includes(value);
 }
+
+// Re-export GapStatus from gap-utils.js
+export { GapStatus } from "./gap-utils.js";
 
 // Re-export from trajectory.js for convenience
 export { MergeStrategy, CachePolicy, DivergeAt, TrajectoryStatus } from "./trajectory.js";

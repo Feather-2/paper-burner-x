@@ -8,6 +8,7 @@ export const GapStatus = Object.freeze({
   UNDERSTANDING: "understanding", // 正在理解
   FILLED: "filled",
   BLOCKED: "blocked",
+  STALE: "stale",  // 新增：过期状态
 });
 
 /**
