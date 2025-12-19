@@ -353,20 +353,20 @@
         // 调用设计引擎
         try {
             await this._ensureRuntime?.({ mode: 'textprep' });
-            this.state = 'designer';
+            window.transitionWorkflow(this, window.WorkflowState.DESIGNER);
             this.renderPreviewArea?.();
 
             await this._orchestrator?.runStage?.('design.batch', {
                 contentPackage: this.workflowData.contentPackage
             });
 
-            this.state = 'completed';
+            window.transitionWorkflow(this, window.WorkflowState.COMPLETED);
             this.renderPreviewArea?.();
             this.addChatMessage?.('ai', `已完成 ${slideIntents.length} 页幻灯片的生成。`);
         } catch (err) {
             console.error('[PlannedGeneration] Error:', err);
             this.addChatMessage?.('ai', `生成出错: ${err.message}`);
-            this.state = 'idle';
+            window.forceWorkflowState(this, window.WorkflowState.IDLE);
             this.renderPreviewArea?.();
         }
     },

@@ -18,6 +18,8 @@ export const WorkflowState = Object.freeze({
   DESIGN_PREFERENCES: "design_preferences",  // 新增：色卡/参考选择
   DESIGNER: "designer",
   COMPLETED: "completed",
+  QUESTIONING: "questioning",
+  SCRIPTING: "scripting",
   FAILED: "failed",
 });
 
@@ -30,9 +32,11 @@ export const WORKFLOW_TRANSITIONS = {
   [WorkflowState.RESEARCHING]: [WorkflowState.DEEPSEARCH_REVIEW, WorkflowState.FAILED],
   [WorkflowState.DEEPSEARCH_REVIEW]: [WorkflowState.SCRIPT_REVIEW, WorkflowState.RESEARCHING],
   [WorkflowState.SCRIPT_REVIEW]: [WorkflowState.PAGE_LAYOUT, WorkflowState.OUTLINE_REVIEW],
+  [WorkflowState.QUESTIONING]: [WorkflowState.SCRIPT_REVIEW, WorkflowState.IDLE],
+  [WorkflowState.SCRIPTING]: [WorkflowState.OUTLINE_REVIEW, WorkflowState.PAGE_LAYOUT, WorkflowState.FAILED],
   [WorkflowState.OUTLINE_REVIEW]: [WorkflowState.OUTLINE_PLANNING],
   [WorkflowState.OUTLINE_PLANNING]: [WorkflowState.PAGE_LAYOUT, WorkflowState.FAILED],
-  [WorkflowState.PAGE_LAYOUT]: [WorkflowState.DESIGN_PREFERENCES, WorkflowState.DESIGNER],
+  [WorkflowState.PAGE_LAYOUT]: [WorkflowState.DESIGN_PREFERENCES],
   [WorkflowState.DESIGN_PREFERENCES]: [WorkflowState.DESIGNER],
   [WorkflowState.DESIGNER]: [WorkflowState.COMPLETED, WorkflowState.FAILED],
   [WorkflowState.COMPLETED]: [WorkflowState.IDLE],
@@ -92,3 +96,10 @@ export const FlowStage = Object.freeze({
   END: "end",
   ERROR: "error",
 });
+
+// 全局导出供 IIFE 文件使用
+if (typeof window !== 'undefined') {
+  window.WorkflowState = WorkflowState;
+  window.transitionWorkflow = transitionWorkflow;
+  window.forceWorkflowState = forceWorkflowState;
+}

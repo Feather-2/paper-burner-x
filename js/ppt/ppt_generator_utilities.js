@@ -490,7 +490,7 @@ const PPTGeneratorUtilities = {
         }
 
         // 设置为完成状态，直接显示演示视图
-        this.state = 'completed';
+        window.forceWorkflowState(this, window.WorkflowState.COMPLETED);
         this.currentSlideIndex = 0;
         
         // 进入工作区（会根据 state 自动渲染演示模式）
