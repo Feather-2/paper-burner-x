@@ -27,7 +27,7 @@ function ensurePersistenceAdapter(persistenceAdapter) {
 
 export function isValidEventName(name) {
   // dot-separated lowercase segments: a-z0-9, must start with a letter/number.
-  return typeof name === "string" && /^[a-z0-9]+(\.[a-z0-9]+)*$/.test(name);
+  return typeof name === "string" && /^[a-z0-9_]+(\.[a-z0-9_]+)*$/.test(name);
 }
 
 export function createEventId(runId, seq) {

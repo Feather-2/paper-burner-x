@@ -413,3 +413,22 @@ test("RunStoreAdapter: supports appendEvent-only runStore and validates inputs",
   assert.equal(count, 2);
   assert.equal(appended.length, 2);
 });
+
+test("isValidEventName allows underscores in segments", async () => {
+  const { isValidEventName } = await import("../../js/agents/runtime/event-bus.js");
+
+  // 带下划线的事件名应该有效
+  assert.equal(isValidEventName("deepsearch.write.react.parse_retry"), true);
+  assert.equal(isValidEventName("design.refine.finish_accepted"), true);
+  assert.equal(isValidEventName("a_b.c_d.e_f"), true);
+
+  // 原有规则仍然有效
+  assert.equal(isValidEventName("run.started"), true);
+  assert.equal(isValidEventName("single"), true);
+
+  // 无效情况
+  assert.equal(isValidEventName(""), false);
+  assert.equal(isValidEventName(".start"), false);
+  assert.equal(isValidEventName("end."), false);
+  assert.equal(isValidEventName("A.B"), false); // 大写不允许
+});
