@@ -46,84 +46,6 @@ export const GAP_TYPES = Object.freeze([
 // 小文档阈值
 export const SMALL_DOC_THRESHOLD = 20000;
 
-// DeepSearch Phase 状态枚举
-export const PhaseStatus = Object.freeze({
-  SCAN: "scan",
-  GAPS: "gaps",
-  ROUND: "round", // retrieve + understand
-  WRITE: "write",
-  CONDENSE: "condense",
-  COMPLETED: "completed",
-});
-
-// Phase 状态转换表
-export const PHASE_TRANSITIONS = Object.freeze({
-  [PhaseStatus.SCAN]: [PhaseStatus.GAPS, PhaseStatus.COMPLETED],
-  [PhaseStatus.GAPS]: [PhaseStatus.ROUND, PhaseStatus.WRITE],
-  [PhaseStatus.ROUND]: [PhaseStatus.GAPS, PhaseStatus.WRITE],
-  [PhaseStatus.WRITE]: [PhaseStatus.CONDENSE, PhaseStatus.ROUND],
-  [PhaseStatus.CONDENSE]: [PhaseStatus.COMPLETED],
-  [PhaseStatus.COMPLETED]: [],
-});
-
-// Gap 优先级枚举
-export const GapPriority = Object.freeze({
-  HIGH: "high",
-  MEDIUM: "medium",
-  LOW: "low",
-});
-
-// Gap 状态枚举
-export const GapStatus = Object.freeze({
-  OPEN: "open",
-  FILLED: "filled",
-  BLOCKED: "blocked",
-  STALE: "stale",
-});
-
-// Todo 状态枚举
-export const TodoStatus = Object.freeze({
-  OPEN: "open",
-  PENDING: "pending",
-  COMPLETED: "completed",
-  CANCELLED: "cancelled",
-});
-
-// PlanNode 状态枚举
-export const PlanNodeStatus = Object.freeze({
-  PENDING: "pending",
-  ACTIVE: "active",
-  COMPLETED: "completed",
-  FAILED: "failed",
-  BLOCKED: "blocked",
-});
-
-// PlanNode 类型枚举
-export const PlanNodeType = Object.freeze({
-  GOAL: "goal",
-  SUBGOAL: "subgoal",
-  QUERY: "query",
-});
-
-// Decision 结果枚举
-export const DecisionOutcome = Object.freeze({
-  SUCCESS: "success",
-  FAIL: "fail",
-  PARTIAL: "partial",
-  UNKNOWN: "unknown",
-});
-
-// Decision 阶段枚举
-export const DecisionStage = Object.freeze({
-  SCAN: "scan",
-  GAPS: "gaps",
-  RETRIEVE: "retrieve",
-  UNDERSTAND: "understand",
-  WRITE: "write",
-  CONDENSE: "condense",
-  UNKNOWN: "unknown",
-});
-
 // 检索策略枚举
 export const RetrievalStrategy = Object.freeze({
   GREP: "grep",
@@ -131,23 +53,6 @@ export const RetrievalStrategy = Object.freeze({
   TOOL_CHAIN: "tool-chain",
   EXTERNAL: "external",
 });
-
-// 验证函数
-export function isValidGapPriority(value) {
-  return Object.values(GapPriority).includes(value);
-}
-
-export function isValidGapStatus(value) {
-  return Object.values(GapStatus).includes(value);
-}
-
-export function isValidPlanNodeStatus(value) {
-  return Object.values(PlanNodeStatus).includes(value);
-}
-
-export function isValidDecisionOutcome(value) {
-  return Object.values(DecisionOutcome).includes(value);
-}
 
 // Re-export from trajectory.js for convenience
 export { MergeStrategy, CachePolicy, DivergeAt, TrajectoryStatus } from "./trajectory.js";
@@ -187,4 +92,24 @@ export const EvidenceStrength = Object.freeze({
   WEAK: "weak",
   UNVERIFIED: "unverified",
 });
+
+// Re-export from states.js
+export {
+  PhaseStatus,
+  PHASE_TRANSITIONS,
+  phaseMachine,
+  GapStatus,
+  GAP_TRANSITIONS,
+  gapMachine,
+  GapPriority,
+  TodoStatus,
+  PlanNodeStatus,
+  PlanNodeType,
+  DecisionOutcome,
+  DecisionStage,
+  isValidGapPriority,
+  isValidGapStatus,
+  isValidPlanNodeStatus,
+  isValidDecisionOutcome,
+} from "./states.js";
 
