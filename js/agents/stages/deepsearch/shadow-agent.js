@@ -530,6 +530,151 @@ export function createShadowAgent(stageApi, state, config = {}) {
   return new ShadowAgent(stageApi, state, config);
 }
 
+/**
+ * 批量验证 claims
+ * @param {Array} claims - 论点数组
+ * @param {Array} evidenceLedger - 证据数组
+ * @param {object} options - 选项 { gapId, round }
+ * @returns {Promise<Array>} 验证结果数组
+ */
+ShadowAgent.prototype.validateBatch = async function (claims, evidenceLedger, { gapId, round = 0 } = {}) {
+  const results = [];
+  const maxClaims = this.config.maxCallsPerRound || 5;
+  const maxEvidencePerClaim = this.config.maxCallsPerGap || 3;
+
+  for (const claim of (claims || []).slice(0, maxClaims)) {
+    const claimEvidenceIds = Array.isArray(claim?.evidenceIds) ? claim.evidenceIds : [];
+    const matchedEvidence = (evidenceLedger || []).filter(
+      e => claimEvidenceIds.includes(e?.evidenceId)
+    );
+
+    for (const ev of matchedEvidence.slice(0, maxEvidencePerClaim)) {
+      try {
+        const result = await this.validateEvidence(claim, ev, { round });
+        results.push({
+          claimId: claim?.claimId,
+          evidenceId: ev?.evidenceId,
+          valid: Boolean(result?.supports),
+          ...result,
+        });
+      } catch (err) {
+        results.push({
+          claimId: claim?.claimId,
+          evidenceId: ev?.evidenceId,
+          valid: false,
+          skipped: true,
+          reason: String(err?.message || err),
+        });
+      }
+    }
+  }
+
+  return results;
+};
+
+/**
+ * 创建 Shadow Agent 订阅者
+ * 订阅 UNDERSTAND_COMPLETED，异步验证 claims/evidence
+ * @param {object} eventBus - 事件总线 { subscribe, emit }
+ * @param {object} stageApi - Stage API
+ * @param {object} config - 配置 { enabled, onValidated }
+ * @returns {Function} 取消订阅函数
+ */
+export function createShadowSubscriber(eventBus, stageApi, config = {}) {
+  const { enabled = true, onValidated, state } = config;
+
+  // 如果禁用，返回空的取消订阅函数
+  if (!enabled) return () => {};
+
+  // 验证 eventBus
+  if (!eventBus || typeof eventBus.subscribe !== "function") {
+    console.warn("[ShadowAgent] Invalid eventBus, subscriber not registered");
+    return () => {};
+  }
+
+  // 延迟创建 ShadowAgent 实例（在收到事件时创建）
+  let shadowAgent = null;
+
+  const unsub = eventBus.subscribe(
+    "deepsearch.understand.completed",
+    async ({ record }) => {
+      const payload = record?.payload ?? record;
+      const claims = Array.isArray(payload?.claims)
+        ? payload.claims
+        : (Array.isArray(state?.L1?.claims) ? state.L1.claims : []);
+      const evidenceLedger = Array.isArray(payload?.evidenceLedger)
+        ? payload.evidenceLedger
+        : (Array.isArray(state?.L1?.evidenceLedger) ? state.L1.evidenceLedger : []);
+      const gapId = payload?.gapId;
+      const iteration = payload?.iteration ?? state?.iteration ?? 0;
+
+      // 没有 claims 则跳过
+      if (!claims.length) return;
+
+      // 延迟初始化 ShadowAgent
+      if (!shadowAgent) {
+        shadowAgent = new ShadowAgent(stageApi, state, config);
+      }
+
+      // 异步批量验证，不阻塞主流程
+      try {
+        const results = await shadowAgent.validateBatch(claims, evidenceLedger, { gapId, round: iteration });
+
+        const validCount = results.filter(r => r.valid).length;
+        const totalCount = results.length;
+
+        // 发送验证完成事件
+        if (eventBus && typeof eventBus.emit === "function") {
+          eventBus.emit("deepsearch.shadow.completed", {
+            gapId,
+            iteration,
+            results,
+            validCount,
+            totalCount,
+          });
+        }
+
+        // 回调通知
+        if (typeof onValidated === "function") {
+          onValidated(results, { gapId, iteration });
+        }
+      } catch (err) {
+        console.warn(`[ShadowAgent] Validation failed for gap ${gapId}:`, err?.message || err);
+      }
+    }
+  );
+
+  return unsub;
+}
+
+/**
+ * 可选：等待 Shadow 验证结果的同步模式
+ * @param {object} eventBus - 事件总线
+ * @param {string} gapId - Gap ID
+ * @param {number} timeoutMs - 超时时间（毫秒）
+ * @returns {Promise<Array|null>} 验证结果或 null（超时）
+ */
+export function waitForShadowValidation(eventBus, gapId, timeoutMs = 10000) {
+  if (!eventBus || typeof eventBus.once !== "function") {
+    return Promise.resolve(null);
+  }
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      unsub?.();
+      resolve(null); // 超时返回 null，不阻塞主流程
+    }, timeoutMs);
+
+    const unsub = eventBus.once("deepsearch.shadow.completed", ({ record }) => {
+      const payload = record?.payload ?? record;
+      if (payload?.gapId === gapId || !gapId) {
+        clearTimeout(timer);
+        resolve(payload?.results ?? []);
+      }
+    });
+  });
+}
+
 export default ShadowAgent;
 
 export const __test = {

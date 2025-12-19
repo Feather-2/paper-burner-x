@@ -6,6 +6,7 @@ import { runDeepSearchScanStage } from "./scan.js";
 import { runDeepSearchGapsStage } from "./gaps.js";
 import { parseExternalSearchConfig, runDeepSearchRetrieveStage, runExternalSearch } from "./retrieve.js";
 import { runDeepSearchUnderstandStage } from "./understand.js";
+import { createShadowSubscriber } from "./shadow-agent.js";
 import { generateReport, runDeepSearchWriteStage } from "./write.js";
 import { runDeepSearchCondenseStage } from "./condense.js";
 import { TrajectoryManager } from "./trajectory.js";
@@ -328,6 +329,32 @@ export class DeepSearchStage {
       : eventBus.emit.bind(eventBus);
     const tap = createEmitTap(emitWithBus);
     const stageApiWithTap = { ...(isPlainObject(stageApi) ? stageApi : {}), emit: tap.emit, eventBus };
+
+    // Shadow Agent 异步订阅：监听 UNDERSTAND_COMPLETED 事件
+    const shadowConfig = isPlainObject(state?.userConfig?.shadow) ? state.userConfig.shadow : {};
+    let unsubShadow = () => { };
+    if (shadowConfig.enabled !== false) {
+      const shadowEventBus = {
+        subscribe: (eventName, handler) => tap.on(eventName, handler),
+        emit: tap.emit,
+        once: (eventName, handler) => {
+          const unsub = tap.on(eventName, (payload) => {
+            unsub();
+            handler(payload);
+          });
+          return unsub;
+        },
+      };
+      unsubShadow = createShadowSubscriber(shadowEventBus, stageApiWithTap, {
+        enabled: shadowConfig.enabled !== false,
+        state,
+        onValidated: (results, { gapId }) => {
+          // 可选：更新 state 中的验证结果
+          if (!state.shadowResults) state.shadowResults = {};
+          state.shadowResults[gapId || "global"] = results;
+        },
+      });
+    }
 
     let currentStage = "deepsearch";
     const logger = createLogger({
@@ -1337,6 +1364,7 @@ export class DeepSearchStage {
     } finally {
       unsubBudgetExceeded();
       unsubTokenUsage();
+      unsubShadow();
       tap.destroy();
     }
   }
