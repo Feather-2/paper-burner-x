@@ -496,7 +496,19 @@ export class TrajectoryManager {
 
         const checkpoint = trajectory.saveCheckpoint?.();
         if (checkpoint) {
-          emit?.("deepsearch.checkpoint.saved", { checkpointId: checkpoint.checkpointId, iteration: checkpoint.iteration });
+          // 添加丰富的上下文信息便于回溯调试
+          const openGapList = trajectory.gaps?.filter(g => g.status === "open" || !g.filled) || [];
+          emit?.("deepsearch.checkpoint.saved", {
+            checkpointId: checkpoint.checkpointId,
+            iteration: checkpoint.iteration,
+            trajectoryId: trajectory.trajectoryId,
+            context: {
+              openGapIds: openGapList.map(g => g.gapId),
+              openGapCount: openGapList.length,
+              claimCount: trajectory.claims?.length || 0,
+              evidenceCount: trajectory.evidence?.length || 0,
+            },
+          });
         }
 
         trajectory.iteration += 1;

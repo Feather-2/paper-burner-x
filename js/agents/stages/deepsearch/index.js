@@ -939,8 +939,33 @@ export class DeepSearchStage {
 
           const completedIteration = state.iteration;
           const checkpoint = state.saveCheckpoint();
-          emit?.(DeepSearchEvents.CHECKPOINT_SAVED, { checkpointId: checkpoint.checkpointId, iteration: checkpoint.iteration, metrics: checkpoint.metrics });
-          state.addTimeline({ name: "deepsearch.checkpoint.saved", status: "info", payload: { checkpointId: checkpoint.checkpointId, iteration: checkpoint.iteration } });
+          // 添加丰富的上下文信息便于回溯调试
+          const openGapList = openGaps(state);
+          const checkpointContext = {
+            openGapIds: openGapList.map(g => g.gapId),
+            openGapCount: openGapList.length,
+            activeTrajectoryId: state.trajectoryId || state.currentTrajectoryId,
+            claimCount: state.claims?.length || 0,
+            evidenceCount: state.evidence?.length || 0,
+            phase: phase,
+          };
+
+          emit?.(DeepSearchEvents.CHECKPOINT_SAVED, {
+            checkpointId: checkpoint.checkpointId,
+            iteration: checkpoint.iteration,
+            metrics: checkpoint.metrics,
+            context: checkpointContext,
+          });
+
+          state.addTimeline({
+            name: "deepsearch.checkpoint.saved",
+            status: "info",
+            payload: {
+              checkpointId: checkpoint.checkpointId,
+              iteration: checkpoint.iteration,
+              context: checkpointContext,
+            },
+          });
 
           emit?.(DeepSearchEvents.ITERATION_COMPLETED, {
             runId: state.runId,
